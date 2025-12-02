@@ -1,52 +1,149 @@
-# Welcome to your Expo app 👋
+<p align="center">
+  <img src="assets/images/repairconnectglasslogo.png" alt="OtoPair Logo" width="120" height="120" />
+</p>
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+<h1 align="center">OtoPair</h1>
 
-## Get started
+<p align="center">
+  <strong>Your trusted companion for seamless auto repair connections</strong>
+</p>
 
-1. Install dependencies
+<p align="center">
+  <a href="#features">Features</a> •
+  <a href="#getting-started">Getting Started</a> •
+  <a href="#tech-stack">Tech Stack</a> •
+  <a href="#project-structure">Structure</a> •
+  <a href="#contributing">Contributing</a>
+</p>
 
+---
+
+## 🚗 What is OtoPair?
+
+**OtoPair** is a modern mobile application that bridges the gap between car owners and trusted auto repair professionals. Whether you need a quick oil change, major repairs, or routine maintenance, OtoPair connects you with verified mechanics and service centers in your area.
+
+No more endless phone calls, confusing quotes, or uncertainty about repair quality. OtoPair streamlines the entire process—from finding the right mechanic to booking appointments and tracking your vehicle's service history.
+
+## ✨ Features
+
+### For Car Owners
+- **🔍 Find Nearby Services** — Discover trusted mechanics and service centers based on your location
+- **📅 Easy Booking** — Schedule appointments with just a few taps
+- **🚙 Vehicle Management** — Keep track of all your vehicles in one place
+- **📋 Service History** — Access complete maintenance records anytime
+- **⭐ Reviews & Ratings** — Make informed decisions with real customer feedback
+- **💬 Direct Communication** — Chat with service providers before booking
+
+### For Service Providers
+- **📊 Manage Bookings** — Streamline your appointment schedule
+- **👥 Customer Insights** — Build lasting relationships with car owners
+- **📈 Grow Your Business** — Expand your reach and attract new customers
+
+## 🚀 Getting Started
+
+### Prerequisites
+
+- Node.js 18+ 
+- npm or yarn
+- Expo CLI
+- iOS Simulator / Android Emulator (or Expo Go app)
+
+### Installation
+
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/AppFlowStudios/otopair.git
+   cd otopair
+   ```
+
+2. **Install dependencies**
    ```bash
    npm install
    ```
 
-2. Start the app
-
+3. **Start the development server**
    ```bash
    npx expo start
    ```
 
-In the output, you'll find options to open the app in a
+4. **Run on your device**
+   - Scan the QR code with [Expo Go](https://expo.dev/go) (iOS/Android)
+   - Press `i` for iOS Simulator
+   - Press `a` for Android Emulator
 
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
+## 🛠 Tech Stack
 
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
+| Category | Technology |
+|----------|------------|
+| **Framework** | React Native + Expo |
+| **Navigation** | Expo Router (file-based) |
+| **Styling** | Custom Design System |
+| **Typography** | Urbanist Font Family |
+| **Icons** | Custom SVG Icons |
+| **State Management** | React Hooks |
 
-## Get a fresh project
+## 📁 Project Structure
 
-When you're ready, run:
-
-```bash
-npm run reset-project
+```
+otopair/
+├── app/                      # App screens (file-based routing)
+│   ├── (main-tabs)/          # Main tab navigation
+│   │   ├── home/             # Home screen
+│   │   ├── bookings/         # Bookings management
+│   │   ├── cars/             # Vehicle management
+│   │   └── settings/         # User settings
+│   └── (onboarding)/         # Onboarding flow
+├── components/
+│   ├── shared-ui/            # Foundational UI components
+│   │   ├── Button.tsx        # Primary, Secondary, Ghost buttons
+│   │   ├── Text.tsx          # Typography with Urbanist font
+│   │   ├── Container.tsx     # Layout wrappers
+│   │   └── Input.tsx         # Form inputs
+│   └── icons/                # Custom SVG icons
+├── constants/
+│   └── theme.ts              # Colors, typography, spacing
+├── hooks/                    # Custom React hooks
+└── assets/
+    ├── fonts/                # Urbanist font files
+    └── images/               # App icons and images
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+## 🎨 Design System
 
-## Learn more
+OtoPair uses a custom design system built for consistency and developer experience:
 
-To learn more about developing your project with Expo, look at the following resources:
+### Colors
+| Name | Hex | Usage |
+|------|-----|-------|
+| **Primary** | `#141C24` | Buttons, headers |
+| **Secondary** | `#5299FE` | Accents, links |
+| **White** | `#FFFFFF` | Backgrounds, text |
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+### Typography
+All text uses the **Urbanist** font family with weights from Light (300) to ExtraBold (800).
 
-## Join the community
+### Components
+Import from the shared-ui library:
+```tsx
+import { Button, Text, Container, Input } from '@/components/shared-ui';
+```
 
-Join our community of developers creating universal apps.
+## 🤝 Contributing
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
-# otopair
-# otopair
+We welcome contributions! Please feel free to submit a Pull Request.
+
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+## 📄 License
+
+This project is proprietary software owned by AppFlow Studios.
+
+---
+
+<p align="center">
+  Built with ❤️ by <a href="https://github.com/AppFlowStudios">AppFlow Studios</a>
+</p>
