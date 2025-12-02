@@ -1,9 +1,13 @@
 /**
- * Below are the colors that are used in the app. The colors are defined in the light and dark mode.
- * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://reactnativeunistyles.vercel.app), etc.
+ * Theme configuration for the app.
+ * Contains colors, typography, spacing, and component-specific styles.
  */
 
 import { Platform } from 'react-native';
+
+// ============================================================================
+// COLORS
+// ============================================================================
 
 const tintColorLight = '#0a7ea4';
 const tintColorDark = '#fff';
@@ -27,27 +31,163 @@ export const Colors = {
   },
 };
 
+// Brand Colors
+export const BrandColors = {
+  primary: '#141C24',
+  secondary: '#5299FE',
+  white: '#FFFFFF',
+  black: '#000000',
+} as const;
+
+// ============================================================================
+// TYPOGRAPHY
+// ============================================================================
+
+export const FontFamily = {
+  regular: 'Urbanist-Regular',
+  medium: 'Urbanist-Medium',
+  semiBold: 'Urbanist-SemiBold',
+  bold: 'Urbanist-Bold',
+  extraBold: 'Urbanist-ExtraBold',
+  light: 'Urbanist-Light',
+  italic: 'Urbanist-Italic',
+} as const;
+
+export const FontSize = {
+  xs: 12,
+  sm: 14,
+  md: 16,
+  lg: 18,
+  xl: 20,
+  '2xl': 24,
+  '3xl': 30,
+  '4xl': 36,
+  '5xl': 48,
+} as const;
+
+export const LineHeight = {
+  tight: 1.2,
+  normal: 1.5,
+  relaxed: 1.75,
+} as const;
+
+// Legacy font config (for platform-specific fallbacks)
 export const Fonts = Platform.select({
   ios: {
-    /** iOS `UIFontDescriptorSystemDesignDefault` */
-    sans: 'system-ui',
-    /** iOS `UIFontDescriptorSystemDesignSerif` */
+    sans: 'Urbanist-Regular',
     serif: 'ui-serif',
-    /** iOS `UIFontDescriptorSystemDesignRounded` */
     rounded: 'ui-rounded',
-    /** iOS `UIFontDescriptorSystemDesignMonospaced` */
     mono: 'ui-monospace',
   },
   default: {
-    sans: 'normal',
+    sans: 'Urbanist-Regular',
     serif: 'serif',
     rounded: 'normal',
     mono: 'monospace',
   },
   web: {
-    sans: "system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+    sans: "'Urbanist', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
     serif: "Georgia, 'Times New Roman', serif",
     rounded: "'SF Pro Rounded', 'Hiragino Maru Gothic ProN', Meiryo, 'MS PGothic', sans-serif",
     mono: "SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace",
   },
 });
+
+// ============================================================================
+// SPACING
+// ============================================================================
+
+export const Spacing = {
+  xs: 4,
+  sm: 8,
+  md: 12,
+  lg: 16,
+  xl: 20,
+  '2xl': 24,
+  '3xl': 32,
+  '4xl': 40,
+  '5xl': 48,
+} as const;
+
+// ============================================================================
+// BORDER RADIUS
+// ============================================================================
+
+export const BorderRadius = {
+  none: 0,
+  sm: 4,
+  md: 8,
+  lg: 12,
+  xl: 16,
+  '2xl': 20,
+  full: 9999,
+} as const;
+
+// ============================================================================
+// BUTTON STYLES
+// ============================================================================
+
+export const ButtonStyles = {
+  primary: {
+    backgroundColor: BrandColors.primary,
+    textColor: BrandColors.white,
+    borderRadius: BorderRadius.lg, // 12px
+    paddingVertical: Spacing.sm, // 8px
+    paddingHorizontal: Spacing.lg, // 16px
+  },
+  secondary: {
+    backgroundColor: 'transparent',
+    textColor: BrandColors.secondary,
+    borderColor: BrandColors.secondary,
+    borderWidth: 1,
+    borderRadius: BorderRadius.md, // 8px
+    paddingVertical: Spacing.sm, // 8px
+    paddingHorizontal: Spacing.lg, // 16px
+  },
+  ghost: {
+    backgroundColor: 'transparent',
+    textColor: BrandColors.primary,
+    borderRadius: BorderRadius.md,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
+  },
+} as const;
+
+// ============================================================================
+// SHADOWS
+// ============================================================================
+
+export const Shadows = {
+  sm: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  md: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
+  },
+  lg: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 5,
+  },
+} as const;
+
+// ============================================================================
+// TYPE EXPORTS
+// ============================================================================
+
+export type ColorScheme = 'light' | 'dark';
+export type FontFamilyKey = keyof typeof FontFamily;
+export type FontSizeKey = keyof typeof FontSize;
+export type SpacingKey = keyof typeof Spacing;
+export type BorderRadiusKey = keyof typeof BorderRadius;
+export type ButtonVariant = keyof typeof ButtonStyles;
