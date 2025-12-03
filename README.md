@@ -94,6 +94,11 @@ otopair/
 │   │   └── settings/         # User settings
 │   └── (onboarding)/         # Onboarding flow
 ├── components/
+|   ├── onboarding/ 
+|   ├── home/ 
+|   ├── bookings/ 
+|   ├── cars/ 
+|   ├── settings/ 
 │   ├── shared-ui/            # Foundational UI components
 │   │   ├── Button.tsx        # Primary, Secondary, Ghost buttons
 │   │   ├── Text.tsx          # Typography with Urbanist font
@@ -106,6 +111,11 @@ otopair/
 └── assets/
     ├── fonts/                # Urbanist font files
     └── images/               # App icons and images
+    |   ├── onboarding/ 
+    |   ├── home/ 
+    |   ├── bookings/ 
+    |   ├── cars/ 
+    |   ├── settings/ 
 ```
 
 ## 🎨 Design System
