@@ -1,6 +1,12 @@
 import { Image } from 'expo-image';
 import { Platform, StyleSheet } from 'react-native';
-
+// stores/
+// ├── useUserStore.ts        ← User profile, auth state
+// ├── useVehicleStore.ts     ← Vehicles (cars)
+// ├── useBookingStore.ts     ← Bookings & appointments
+// ├── useOnboardingStore.ts  ← Onboarding flow state
+// └── types/
+//     └── store.types.ts     ← Shared type definitions
 import { HelloWave } from '@/components/ui/hello-wave';
 import ParallaxScrollView from '@/components/ui/parallax-scroll-view';
 import { ThemedText } from '@/components/ui/themed-text';
