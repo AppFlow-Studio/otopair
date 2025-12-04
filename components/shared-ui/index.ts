@@ -18,8 +18,12 @@
 
 // Button Components
 export {
-    Button, GhostButton, PrimaryButton,
-    SecondaryButton, type ButtonProps
+    Button,
+    GhostButton,
+    IconButton,
+    PrimaryButton,
+    SecondaryButton,
+    type ButtonProps
 } from './Button';
 
 // Text Components

@@ -3,7 +3,7 @@ import {
     FontFamily,
     type ButtonVariant
 } from '@/constants/theme';
-import React from 'react';
+import React, { type ReactNode } from 'react';
 import {
     ActivityIndicator,
     Pressable,
@@ -11,7 +11,7 @@ import {
     type PressableProps,
     type StyleProp,
     type TextStyle,
-    type ViewStyle,
+    type ViewStyle
 } from 'react-native';
 import { Text } from './Text';
 
@@ -22,8 +22,8 @@ import { Text } from './Text';
 export interface ButtonProps extends Omit<PressableProps, 'style'> {
     /** Button variant: 'primary' | 'secondary' | 'ghost' */
     variant?: ButtonVariant;
-    /** Button label text */
-    children: string;
+    /** Button content - can be text, icons, or any React elements */
+    children: ReactNode;
     /** Custom container style */
     style?: StyleProp<ViewStyle>;
     /** Custom text style */
@@ -46,6 +46,12 @@ export interface ButtonProps extends Omit<PressableProps, 'style'> {
     paddingHorizontal?: number;
     /** Size preset */
     size?: 'sm' | 'md' | 'lg';
+    /** Left icon/element */
+    leftIcon?: ReactNode;
+    /** Right icon/element */
+    rightIcon?: ReactNode;
+    /** Gap between elements */
+    gap?: number;
 }
 
 // ============================================================================
@@ -57,16 +63,19 @@ const sizePresets = {
         paddingVertical: 6,
         paddingHorizontal: 12,
         fontSize: 14,
+        gap: 6,
     },
     md: {
         paddingVertical: 8,
         paddingHorizontal: 16,
         fontSize: 16,
+        gap: 8,
     },
     lg: {
         paddingVertical: 12,
         paddingHorizontal: 24,
         fontSize: 18,
+        gap: 10,
     },
 };
 
@@ -88,6 +97,9 @@ export function Button({
     paddingVertical,
     paddingHorizontal,
     size = 'md',
+    leftIcon,
+    rightIcon,
+    gap,
     ...pressableProps
 }: ButtonProps) {
     const variantStyles = ButtonStyles[variant];
@@ -99,36 +111,20 @@ export function Button({
     const finalBorderRadius = borderRadius ?? variantStyles.borderRadius;
     const finalPaddingVertical = paddingVertical ?? sizeStyles.paddingVertical;
     const finalPaddingHorizontal = paddingHorizontal ?? sizeStyles.paddingHorizontal;
+    const finalGap = gap ?? sizeStyles.gap;
 
     const isSecondary = variant === 'secondary';
-    const borderStyles = isSecondary
+    const borderStyles = isSecondary && 'borderColor' in variantStyles
         ? {
-            borderColor: variantStyles.borderColor,
-            borderWidth: variantStyles.borderWidth,
+            borderColor: variantStyles.borderColor as string,
+            borderWidth: variantStyles.borderWidth as number,
         }
         : {};
 
-    return (
-        <Pressable
-            disabled={disabled || loading}
-            style={({ pressed }) => [
-                styles.base,
-                {
-                    backgroundColor: finalBackgroundColor,
-                    borderRadius: finalBorderRadius,
-                    paddingVertical: finalPaddingVertical,
-                    paddingHorizontal: finalPaddingHorizontal,
-                    opacity: disabled ? 0.5 : pressed ? 0.8 : 1,
-                },
-                borderStyles,
-                fullWidth && styles.fullWidth,
-                style,
-            ]}
-            {...pressableProps}
-        >
-            {loading ? (
-                <ActivityIndicator color={finalTextColor} size="small" />
-            ) : (
+    // Render children - wrap strings in Text component
+    const renderContent = () => {
+        if (typeof children === 'string') {
+            return (
                 <Text
                     style={[
                         styles.text,
@@ -142,6 +138,59 @@ export function Button({
                 >
                     {children}
                 </Text>
+            );
+        }
+
+        // For mixed content (text + icons), process children
+        return React.Children.map(children, (child) => {
+            if (typeof child === 'string') {
+                return (
+                    <Text
+                        style={[
+                            styles.text,
+                            {
+                                color: finalTextColor,
+                                fontSize: sizeStyles.fontSize,
+                            },
+                            textStyle,
+                        ]}
+                        weight="semiBold"
+                    >
+                        {child}
+                    </Text>
+                );
+            }
+            return child;
+        });
+    };
+
+    return (
+        <Pressable
+            disabled={disabled || loading}
+            style={({ pressed }) => [
+                styles.base,
+                {
+                    backgroundColor: finalBackgroundColor,
+                    borderRadius: finalBorderRadius,
+                    paddingVertical: finalPaddingVertical,
+                    paddingHorizontal: finalPaddingHorizontal,
+                    opacity: disabled ? 0.5 : pressed ? 0.8 : 1,
+                    gap: finalGap,
+                },
+                borderStyles,
+                fullWidth && styles.fullWidth,
+                style,
+            ]}
+            {...pressableProps}
+        >
+            {loading ? (
+                <ActivityIndicator color={finalTextColor} size="small" />
+            ) : (
+                <>
+                    {leftIcon}
+                    {renderContent()}
+                    {rightIcon}
+                </>
             )}
         </Pressable>
     );
@@ -166,6 +215,25 @@ export function GhostButton(props: Omit<ButtonProps, 'variant'>) {
     return <Button variant="ghost" {...props} />;
 }
 
+/** Icon-only button */
+export function IconButton({
+    icon,
+    size = 'md',
+    ...props
+}: Omit<ButtonProps, 'children'> & { icon: ReactNode }) {
+    const paddingMap = { sm: 8, md: 10, lg: 12 };
+    return (
+        <Button
+            paddingHorizontal={paddingMap[size]}
+            paddingVertical={paddingMap[size]}
+            size={size}
+            {...props}
+        >
+            {icon}
+        </Button>
+    );
+}
+
 // ============================================================================
 // STYLES
 // ============================================================================
@@ -184,4 +252,3 @@ const styles = StyleSheet.create({
         textAlign: 'center',
     },
 });
-
