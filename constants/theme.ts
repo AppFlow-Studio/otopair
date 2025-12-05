@@ -136,10 +136,8 @@ export const ButtonStyles = {
     paddingHorizontal: Spacing.lg, // 16px
   },
   secondary: {
-    backgroundColor: 'transparent',
-    textColor: BrandColors.secondary,
-    borderColor: BrandColors.secondary,
-    borderWidth: 1,
+    backgroundColor: BrandColors.secondary,
+    textColor: BrandColors.white,
     borderRadius: BorderRadius.md, // 8px
     paddingVertical: Spacing.sm, // 8px
     paddingHorizontal: Spacing.lg, // 16px

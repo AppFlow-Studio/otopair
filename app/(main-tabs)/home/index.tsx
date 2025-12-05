@@ -11,7 +11,7 @@ export default function HomeScreen() {
         <Text weight="semiBold" size="2xl" style={styles.title}>
           OtoPair
         </Text>
-        <Button variant='primary'>Let’s Check Your Car Now <MoveRight size={16} color="#fff" /> </Button>
+        <Button variant='secondary'>Let’s Check Your Car Now <MoveRight size={16} color="#fff" /> </Button>
       </View>
     </View >
   );
