@@ -113,8 +113,7 @@ export function Button({
     const finalPaddingHorizontal = paddingHorizontal ?? sizeStyles.paddingHorizontal;
     const finalGap = gap ?? sizeStyles.gap;
 
-    const isSecondary = variant === 'secondary';
-    const borderStyles = isSecondary && 'borderColor' in variantStyles
+    const borderStyles = 'borderColor' in variantStyles && 'borderWidth' in variantStyles
         ? {
             borderColor: variantStyles.borderColor as string,
             borderWidth: variantStyles.borderWidth as number,
@@ -205,7 +204,7 @@ export function PrimaryButton(props: Omit<ButtonProps, 'variant'>) {
     return <Button variant="primary" {...props} />;
 }
 
-/** Secondary button with border and blue text */
+/** Secondary button with blue background and white text */
 export function SecondaryButton(props: Omit<ButtonProps, 'variant'>) {
     return <Button variant="secondary" {...props} />;
 }
