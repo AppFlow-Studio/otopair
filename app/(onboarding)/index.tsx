@@ -1,9 +1,6 @@
-import { View, Text } from "react-native";
+// app/(onboarding)/index.tsx
+import { WelcomeSlide } from '@/components/onboarding/WelcomeSlide';
 
 export default function OnboardingScreen() {
-    return (
-        <View>
-            <Text>Onboarding</Text>
-        </View>
-    )
+    return <WelcomeSlide />;
 }
