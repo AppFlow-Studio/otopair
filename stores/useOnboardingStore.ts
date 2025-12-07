@@ -9,7 +9,9 @@
  * USED IN:
  *   - components/onboarding/WelcomeSlide.tsx
  *   - components/onboarding/CarExperienceSlide.tsx
- *   - components/onboarding/OilChangeSlide.tsx
+ *   - components/onboarding/BeginnerOilChange.tsx
+ *   - components/onboarding/BeginnerBrakes.tsx
+ *   - components/onboarding/BeginnerInspection.tsx
  *
  * STATE:
  *   - currentStep (OnboardingStep): The current step in the onboarding flow
@@ -65,6 +67,15 @@ interface OnboardingData {
   // Car Knowledge Step
   carKnowledgeLevel: 1 | 2 | 3 | 4 | 5 | null;
 
+  // Beginner Oil Change Step
+  lastOilChange: 'last_3_months' | '3_6_months' | '6_plus_months' | 'dont_remember' | null;
+
+  // Beginner Brakes Step
+  brakesReplacedRecently: 'yes' | 'no' | 'dont_remember' | null;
+
+  // Beginner Inspection Step
+  lastInspection: string | 'dont_remember' | null; // ISO string when known
+
   // Vehicle Step
   vehicleMake: string | null;
   vehicleModel: string | null;
@@ -103,6 +114,9 @@ const INITIAL_DATA: OnboardingData = {
   pushNotificationsGranted: false,
   locationGranted: false,
   carKnowledgeLevel: null,
+  lastOilChange: null,
+  brakesReplacedRecently: null,
+  lastInspection: null,
   vehicleMake: null,
   vehicleModel: null,
   vehicleYear: null,

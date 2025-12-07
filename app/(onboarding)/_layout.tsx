@@ -5,7 +5,9 @@ export default function OnboardingLayout() {
         <Stack>
             <Stack.Screen name="index" options={{ headerShown: false }} />
             <Stack.Screen name="car-experience" options={{ headerShown: false }} />
-            <Stack.Screen name="oil-change" options={{ headerShown: false }} />
+            <Stack.Screen name="beginner-oil-change" options={{ headerShown: false }} />
+            <Stack.Screen name="beginner-brakes" options={{ headerShown: false }} />
+            <Stack.Screen name="beginner-inspection" options={{ headerShown: false }} />
         </Stack>
     )
 }

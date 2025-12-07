@@ -1,51 +1,72 @@
 /**
- * WelcomeSlide
+ * WelcomeScreen
  *
  * PURPOSE: Display the welcome slide for the onboarding process.
  *
  * USED IN: app/(onboarding)/index.tsx
  *
  * PROPS:
- *   - N/A
+ *   - None (self-contained screen component)
  *
  * OWNER: Daniel Chelala
  * TICKET: OTO-009
  */
 
-// components/onboarding/WelcomeSlide.tsx
-import { StyleSheet, useWindowDimensions, View } from 'react-native';
+// TODO: Remove color hardcoding once theme.ts is updated
+
+import {
+    BorderRadius,
+    BrandColors,
+    Button,
+    Colors,
+    FontFamily,
+    FontSize,
+    Spacing,
+    Text,
+} from '@/components/shared-ui';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { MoveRight } from 'lucide-react-native';
+import { useEffect } from 'react';
+import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Button, Text } from '@/components/shared-ui';
+import { useOnboardingStore } from '@/stores/useOnboardingStore';
 
 export function WelcomeSlide() {
     const insets = useSafeAreaInsets();
-    const { height } = useWindowDimensions();
+    const { setStep, completeStep } = useOnboardingStore();
 
-    // Responsive marginTop: ~3% of screen height
-    // Small phone (667px): ~20px | Large phone (915px): ~27px
-    const responsiveMargin = height * 0.03;
+    // Dynamic styles (safe area insets are device-specific and must be computed at runtime)
+    const dynamicStyles = {
+        container: { paddingTop: insets.top + Spacing['2xl'] },
+        bottomContainer: { paddingBottom: insets.bottom + Spacing.lg },
+    };
+
+    useEffect(() => {
+        setStep('welcome');
+        //console.log('onboarding currentStep', useOnboardingStore.getState().currentStep);
+    }, [setStep]);
 
     const handleGetStarted = () => {
-        // Navigate to next onboarding step
+        completeStep('welcome');
         router.push('/(onboarding)/car-experience');
     };
 
     return (
-        <View style={[styles.container, { paddingTop: insets.top + 24 }]}>
+        <View style={[styles.container, dynamicStyles.container]}>
             {/* Header Content */}
-            <View style={[styles.headerContent, { marginTop: responsiveMargin }]}>
-                <Text size="3xl" weight="bold" color="#141C24" style={styles.title}>
+            <View style={styles.headerContent}>
+                <Text style={styles.title}>
                     Welcome to OtoPair
                 </Text>
-                <Text size="lg" color="#5A6B7A" style={[styles.subtitle, { marginBottom: responsiveMargin }]}>
+                <Text 
+                    style={styles.subtitle}
+                >
                     Your smart assistant for car health, repair tips, and maintenance reminders.
                 </Text>
             </View>
 
-            {/* Hero Image - flex to fill available space */}
+            {/* Hero Image */}
             <View style={styles.imageContainer}>
                 <Image
                     source={require('@/assets/images/onboarding/onboarding-home.png')}
@@ -55,15 +76,14 @@ export function WelcomeSlide() {
             </View>
 
             {/* Bottom Button */}
-            <View style={[styles.bottomContainer, { paddingBottom: insets.bottom + 16 }]}>
+            <View style={[styles.bottomContainer, dynamicStyles.bottomContainer]}>
                 <Button
-                    variant="primary"
                     fullWidth
                     size="lg"
-                    borderRadius={100}
-                    paddingVertical={16}
+                    borderRadius={BorderRadius.full}
+                    paddingVertical={Spacing.lg}
                     onPress={handleGetStarted}
-                    rightIcon={<MoveRight size={20} color="#fff" />}
+                    rightIcon={<MoveRight size={FontSize.md} color={BrandColors.white} />}
                 >
                     Let's Check Your Car Now
                 </Button>
@@ -75,32 +95,40 @@ export function WelcomeSlide() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: '#E8ECF0',
+        //backgroundColor: Colors.light.background,
+        backgroundColor: '#dee2ee',
     },
     headerContent: {
-        paddingHorizontal: 24,
-        marginBottom: 12,
+        paddingHorizontal: Spacing['2xl'],
+        marginTop: Spacing['2xl'],
+        marginBottom: Spacing.md,
     },
     title: {
         lineHeight: 40,
         letterSpacing: -0.5,
+        fontSize: FontSize['3xl'],
+        fontFamily: FontFamily.bold,
+        color: BrandColors.primary,
     },
     subtitle: {
-        marginTop: 12,
+        marginTop: Spacing.md,
+        marginBottom: Spacing['2xl'],
         lineHeight: 24,
+        fontSize: FontSize.lg,
+        color: Colors.light.icon,
     },
     imageContainer: {
         flex: 1,
-        paddingHorizontal: 16,
-        marginBottom: 16,
+        paddingHorizontal: Spacing.lg,
+        marginBottom: Spacing.lg,
     },
     heroImage: {
         flex: 1,
         width: '100%',
-        borderRadius: 24,
+        borderRadius: BorderRadius['2xl'],
     },
     bottomContainer: {
-        paddingHorizontal: 24,
-        paddingTop: 8,
+        paddingHorizontal: Spacing['2xl'],
+        paddingTop: Spacing.sm,
     },
 });

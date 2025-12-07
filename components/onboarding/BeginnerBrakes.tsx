@@ -1,21 +1,19 @@
 /**
- * CarExperienceScreen
+ * BeginnerBrakes
  *
- * PURPOSE: Ask the user about their car experience level (Beginner/Average/Professional)
- *          and route them to the appropriate onboarding path based on their selection.
+ * PURPOSE: Ask beginner users if they've recently replaced their brakes.
  *
- * USED IN: app/(onboarding)/car-experience.tsx
+ * USED IN: app/(onboarding)/beginner-brakes.tsx
  *
  * PROPS:
  *   - None (self-contained screen component)
  *
  * OWNER: Daniel Chelala
- * TICKET: OTO-011
+ * TICKET: OTO-031
  */
 
 // TODO: Remove color hardcoding once theme.ts is updated
-// TODO: Remove console.log statements
-
+// TODO: Create dashed component animation at top of screen to fill during onboarding progression
 
 import {
     BorderRadius,
@@ -27,63 +25,28 @@ import {
     Text,
 } from '@/components/shared-ui';
 import { OnboardingOption } from './OnboardingButton';
-import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useEffect } from 'react';
+import { useOnboardingStore } from '@/stores/useOnboardingStore';
 
-type ExperienceLevel = 'beginner' | 'average' | 'professional';
+type BrakeOption = 'yes' | 'no' | 'dont_remember';
 
-// Map UI values to store values (1-5 scale)
-const experienceToLevel: Record<ExperienceLevel, 1 | 3 | 5> = {
-    beginner: 1,
-    average: 3,
-    professional: 5,
-};
-
-export function CarExperienceSlide() {
-    
+export function BeginnerBrakes() {
     const insets = useSafeAreaInsets();
-    const [selected, setSelected] = useState<ExperienceLevel | null>(null);
+    const [selected, setSelected] = useState<BrakeOption | null>(null);
+    const { updateData } = useOnboardingStore();
 
-    // Get store actions
-    const { updateData, completeStep, setStep } = useOnboardingStore();
-
-    // Dynamic styles (safe area insets are device-specific and must be computed at runtime)
     const dynamicStyles = {
         container: { paddingTop: insets.top + Spacing['2xl'] },
         bottomContainer: { paddingBottom: insets.bottom + Spacing.lg },
     };
 
-
-    useEffect(() => {
-        setStep('car_knowledge');
-        //console.log('onboarding currentStep', useOnboardingStore.getState().currentStep);
-        //console.log('completed steps', useOnboardingStore.getState().completedSteps);
-    }, [setStep]);
-
     const handleNext = () => {
         if (!selected) return;
-
-        // Save selection to store
-        updateData({ carKnowledgeLevel: experienceToLevel[selected] });
-
-        // Navigate based on experience level
-        switch (selected) {
-            case 'beginner':
-                router.push('/(onboarding)/beginner-oil-change');
-                break;
-            case 'average':
-                // TODO: Create average flow
-                router.replace('/(main-tabs)');
-                break;
-            case 'professional':
-                // TODO: Create professional flow
-                router.replace('/(main-tabs)');
-                break;
-        }
+        updateData({ brakesReplacedRecently: selected });
+        router.push('/(onboarding)/beginner-inspection');
     };
 
     return (
@@ -91,28 +54,28 @@ export function CarExperienceSlide() {
             {/* Header */}
             <View style={styles.headerContent}>
                 <Text style={styles.title}>
-                    How would you explain your experience with cars in general?
+                    Have you had your brakes replaced recently?
                 </Text>
             </View>
 
             {/* Options */}
             <View style={styles.optionsContainer}>
                 <OnboardingOption
-                    label="Beginner"
-                    value="beginner"
-                    selected={selected === 'beginner'}
+                    label="Yes"
+                    value="yes"
+                    selected={selected === 'yes'}
                     onSelect={setSelected}
                 />
                 <OnboardingOption
-                    label="Average"
-                    value="average"
-                    selected={selected === 'average'}
+                    label="No"
+                    value="no"
+                    selected={selected === 'no'}
                     onSelect={setSelected}
                 />
                 <OnboardingOption
-                    label="Professional"
-                    value="professional"
-                    selected={selected === 'professional'}
+                    label="I don't remember"
+                    value="dont_remember"
+                    selected={selected === 'dont_remember'}
                     onSelect={setSelected}
                 />
             </View>
@@ -148,9 +111,9 @@ const styles = StyleSheet.create({
         marginBottom: Spacing['3xl'],
     },
     title: {
-        lineHeight: 40,
+        lineHeight: 32,
         letterSpacing: -0.5,
-        fontSize: FontSize['3xl'],
+        fontSize: FontSize['2xl'],
         fontFamily: FontFamily.bold,
         color: BrandColors.primary,
     },
@@ -166,3 +129,4 @@ const styles = StyleSheet.create({
         paddingTop: Spacing.sm,
     },
 });
+
