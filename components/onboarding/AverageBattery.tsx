@@ -1,18 +1,18 @@
+
 /**
- * OilChangeScreen
+ * Average Battery Replacement Screen
  *
- * PURPOSE: Ask beginner users about their last oil change
+ * PURPOSE: Ask average users about their last battery replacement
  *
- * USED IN: app/(onboarding)/oil-change.tsx
+ * USED IN: app/(onboarding)/average-battery.tsx
  *
- * PATH: Beginner flow only
+ * PATH: Average flow only
  *
  * OWNER: Daniel Chelala
  * TICKET: OTO-031
  */
 
 // TODO: Remove color hardcoding once theme.ts is updated
-// TODO: Create dashed component animation at top of screen to fill during onboarding progression
 
 import {
     BrandColors,
@@ -21,24 +21,22 @@ import {
     Spacing,
     Text,
 } from '@/components/shared-ui';
-import { OnboardingProgress } from './OnboardingProgress';
 import { OnboardingOption } from './OnboardingButton';
 import { OnboardingFooterButton } from './OnboardingFooterButton';
+import { OnboardingProgress } from './OnboardingProgress';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-type OilChangeOption = 'last_3_months' | '3_6_months' | '6_plus_months' | 'dont_remember';
+type BatteryOption = 'within_last_year' | 'more_than_year_ago' | 'dont_remember';
 
-export function BeginnerOilChange() {
+export function AverageBattery() {
     const insets = useSafeAreaInsets();
-    const [selected, setSelected] = useState<OilChangeOption | null>(null);
+    const [selected, setSelected] = useState<BatteryOption | null>(null);
+    const { updateData } = useOnboardingStore();
 
-    const { updateData, completeStep } = useOnboardingStore();
-
-    // Dynamic styles (safe area insets are device-specific and must be computed at runtime)
     const dynamicStyles = {
         container: { paddingTop: insets.top + Spacing['2xl'] },
         bottomContainer: { paddingBottom: insets.bottom + Spacing.lg },
@@ -46,42 +44,31 @@ export function BeginnerOilChange() {
 
     const handleNext = () => {
         if (!selected) return;
-
-        // Save selection to store
-        updateData({ lastOilChange: selected });
-
-        // Navigate to next step or main app
-        router.push('/(onboarding)/beginner-brakes');
+        updateData({ lastBatteryReplacement: selected });
+        router.push('/(onboarding)/average-brakes');
     };
 
     return (
         <View style={[styles.container, dynamicStyles.container]}>
-            <OnboardingProgress total={4} filled={1} />
-            {/* Header */}
+            <OnboardingProgress total={6} filled={3} />
+
             <View style={styles.headerContent}>
                 <Text style={styles.title}>
-                    When was your last oil change?
+                    Has your battery been{'\n'}replaced recently?
                 </Text>
             </View>
 
-            {/* Options */}
             <View style={styles.optionsContainer}>
                 <OnboardingOption
-                    label="Last 3 months"
-                    value="last_3_months"
-                    selected={selected === 'last_3_months'}
+                    label="Within the last year"
+                    value="within_last_year"
+                    selected={selected === 'within_last_year'}
                     onSelect={setSelected}
                 />
                 <OnboardingOption
-                    label="3–6 months ago"
-                    value="3_6_months"
-                    selected={selected === '3_6_months'}
-                    onSelect={setSelected}
-                />
-                <OnboardingOption
-                    label="6+ months ago"
-                    value="6_plus_months"
-                    selected={selected === '6_plus_months'}
+                    label="More than a year ago"
+                    value="more_than_year_ago"
+                    selected={selected === 'more_than_year_ago'}
                     onSelect={setSelected}
                 />
                 <OnboardingOption
@@ -92,10 +79,8 @@ export function BeginnerOilChange() {
                 />
             </View>
 
-            {/* Spacer to push button to bottom */}
             <View style={styles.spacer} />
 
-            {/* Bottom Button */}
             <View style={[styles.bottomContainer, dynamicStyles.bottomContainer]}>
                 <OnboardingFooterButton
                     label="Next"
@@ -118,9 +103,9 @@ const styles = StyleSheet.create({
         marginBottom: Spacing['3xl'],
     },
     title: {
-        lineHeight: 40,
+        lineHeight: 32,
         letterSpacing: -0.5,
-        fontSize: FontSize['3xl'],
+        fontSize: FontSize['2xl'],
         fontFamily: FontFamily.bold,
         color: BrandColors.primary,
     },
@@ -136,3 +121,5 @@ const styles = StyleSheet.create({
         paddingTop: Spacing.sm,
     },
 });
+
+

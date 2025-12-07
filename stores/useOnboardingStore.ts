@@ -68,10 +68,16 @@ interface OnboardingData {
   carKnowledgeLevel: 1 | 2 | 3 | 4 | 5 | null;
 
   // Beginner Oil Change Step
-  lastOilChange: 'last_3_months' | '3_6_months' | '6_plus_months' | 'dont_remember' | null;
+  lastOilChange: 'last_3_months' | '3_6_months' | '6_plus_months' | 'dont_remember' | string | null;
 
-  // Beginner Brakes Step
-  brakesReplacedRecently: 'yes' | 'no' | 'dont_remember' | null;
+  // Tire Service Step
+  lastTireService: 'lt_1_year' | '1_2_years' | '2_plus_years' | 'dont_remember' | null;
+
+  // Brakes Step
+  brakesReplaced: 'recently' | 'not_recently' | 'lt_1_year' | '1_2_years' | '2_plus_years' | 'dont_remember' | null;
+
+  // Battery Replacement Step
+  lastBatteryReplacement: 'within_last_year' | 'more_than_year_ago' | 'dont_remember' | null;
 
   // Beginner Inspection Step
   lastInspection: string | 'dont_remember' | null; // ISO string when known
@@ -115,7 +121,9 @@ const INITIAL_DATA: OnboardingData = {
   locationGranted: false,
   carKnowledgeLevel: null,
   lastOilChange: null,
-  brakesReplacedRecently: null,
+  lastTireService: null,
+  brakesReplaced: null,
+  lastBatteryReplacement: null,
   lastInspection: null,
   vehicleMake: null,
   vehicleModel: null,

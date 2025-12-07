@@ -77,7 +77,7 @@ export const onboardingOptionStyles = StyleSheet.create({
         paddingHorizontal: Spacing.xl,
         borderRadius: BorderRadius.lg,
         borderWidth: 2,
-        borderColor: 'transparent',
+        borderColor: '#f0f1f6',
     },
     optionSelected: {
         borderColor: BrandColors.secondary,

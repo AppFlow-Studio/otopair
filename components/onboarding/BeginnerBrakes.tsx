@@ -16,22 +16,22 @@
 // TODO: Create dashed component animation at top of screen to fill during onboarding progression
 
 import {
-    BorderRadius,
     BrandColors,
-    Button,
     FontFamily,
     FontSize,
     Spacing,
     Text,
 } from '@/components/shared-ui';
+import { OnboardingProgress } from './OnboardingProgress';
 import { OnboardingOption } from './OnboardingButton';
+import { OnboardingFooterButton } from './OnboardingFooterButton';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 
-type BrakeOption = 'yes' | 'no' | 'dont_remember';
+type BrakeOption = 'recently' | 'not_recently' | 'dont_remember';
 
 export function BeginnerBrakes() {
     const insets = useSafeAreaInsets();
@@ -45,12 +45,13 @@ export function BeginnerBrakes() {
 
     const handleNext = () => {
         if (!selected) return;
-        updateData({ brakesReplacedRecently: selected });
+        updateData({ brakesReplaced: selected });
         router.push('/(onboarding)/beginner-inspection');
     };
 
     return (
         <View style={[styles.container, dynamicStyles.container]}>
+            <OnboardingProgress total={4} filled={2} />
             {/* Header */}
             <View style={styles.headerContent}>
                 <Text style={styles.title}>
@@ -62,14 +63,14 @@ export function BeginnerBrakes() {
             <View style={styles.optionsContainer}>
                 <OnboardingOption
                     label="Yes"
-                    value="yes"
-                    selected={selected === 'yes'}
+                    value="recently"
+                    selected={selected === 'recently'}
                     onSelect={setSelected}
                 />
                 <OnboardingOption
                     label="No"
-                    value="no"
-                    selected={selected === 'no'}
+                    value="not_recently"
+                    selected={selected === 'not_recently'}
                     onSelect={setSelected}
                 />
                 <OnboardingOption
@@ -85,16 +86,11 @@ export function BeginnerBrakes() {
 
             {/* Bottom Button */}
             <View style={[styles.bottomContainer, dynamicStyles.bottomContainer]}>
-                <Button
-                    fullWidth
-                    size="lg"
-                    borderRadius={BorderRadius.full}
-                    paddingVertical={Spacing.lg}
+                <OnboardingFooterButton
+                    label="Next"
                     onPress={handleNext}
                     disabled={!selected}
-                >
-                    Next
-                </Button>
+                />
             </View>
         </View>
     );

@@ -17,7 +17,6 @@
 import {
     BorderRadius,
     BrandColors,
-    Button,
     Colors,
     FontFamily,
     FontSize,
@@ -31,6 +30,7 @@ import { useEffect } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
+import { OnboardingFooterButton } from './OnboardingFooterButton';
 
 export function WelcomeSlide() {
     const insets = useSafeAreaInsets();
@@ -77,16 +77,11 @@ export function WelcomeSlide() {
 
             {/* Bottom Button */}
             <View style={[styles.bottomContainer, dynamicStyles.bottomContainer]}>
-                <Button
-                    fullWidth
-                    size="lg"
-                    borderRadius={BorderRadius.full}
-                    paddingVertical={Spacing.lg}
+                <OnboardingFooterButton
+                    label="Let's Check Your Car Now"
                     onPress={handleGetStarted}
                     rightIcon={<MoveRight size={FontSize.md} color={BrandColors.white} />}
-                >
-                    Let's Check Your Car Now
-                </Button>
+                />
             </View>
         </View>
     );

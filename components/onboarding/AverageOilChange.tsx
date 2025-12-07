@@ -1,21 +1,22 @@
 /**
  * OilChangeScreen
  *
- * PURPOSE: Ask beginner users about their last oil change
+ * PURPOSE: Ask average users about their last oil change
  *
  * USED IN: app/(onboarding)/oil-change.tsx
  *
- * PATH: Beginner flow only
+ * PATH: Average flow only
  *
  * OWNER: Daniel Chelala
  * TICKET: OTO-031
  */
 
 // TODO: Remove color hardcoding once theme.ts is updated
-// TODO: Create dashed component animation at top of screen to fill during onboarding progression
 
 import {
+    BorderRadius,
     BrandColors,
+    Button,
     FontFamily,
     FontSize,
     Spacing,
@@ -23,7 +24,7 @@ import {
 } from '@/components/shared-ui';
 import { OnboardingProgress } from './OnboardingProgress';
 import { OnboardingOption } from './OnboardingButton';
-import { OnboardingFooterButton } from './OnboardingFooterButton';
+import { OnboardingDatePickerMonthYear } from './OnboardingDatePickerMonthYear';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import { router } from 'expo-router';
 import { useState } from 'react';
@@ -32,9 +33,10 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 type OilChangeOption = 'last_3_months' | '3_6_months' | '6_plus_months' | 'dont_remember';
 
-export function BeginnerOilChange() {
+export function AverageOilChange() {
     const insets = useSafeAreaInsets();
     const [selected, setSelected] = useState<OilChangeOption | null>(null);
+    const [selectedDate, setSelectedDate] = useState<Date | null>(null);
 
     const { updateData, completeStep } = useOnboardingStore();
 
@@ -45,18 +47,27 @@ export function BeginnerOilChange() {
     };
 
     const handleNext = () => {
-        if (!selected) return;
+        if (!selected && !selectedDate) return;
 
         // Save selection to store
-        updateData({ lastOilChange: selected });
+        if (selected) {
+            updateData({ lastOilChange: selected });
+        } else if (selectedDate) {
+            updateData({ lastOilChange: selectedDate.toISOString() });
+        }
 
         // Navigate to next step or main app
-        router.push('/(onboarding)/beginner-brakes');
+        router.push('/(onboarding)/average-tire');
+    };
+
+    const handleDateChange = (date: Date) => {
+        setSelectedDate(date);
+        setSelected(null); // ensure mutual exclusivity
     };
 
     return (
         <View style={[styles.container, dynamicStyles.container]}>
-            <OnboardingProgress total={4} filled={1} />
+            <OnboardingProgress total={6} filled={1} />
             {/* Header */}
             <View style={styles.headerContent}>
                 <Text style={styles.title}>
@@ -66,29 +77,51 @@ export function BeginnerOilChange() {
 
             {/* Options */}
             <View style={styles.optionsContainer}>
+                <View style={styles.datePickerWrapper}>
+                    <OnboardingDatePickerMonthYear
+                        value={selectedDate}
+                        onChange={handleDateChange}
+                        placeholder="Select month & year"
+                        minimumDate={new Date(2000, 0, 1)}
+                        maximumDate={new Date()}
+                    />
+                </View>
+
                 <OnboardingOption
                     label="Last 3 months"
                     value="last_3_months"
                     selected={selected === 'last_3_months'}
-                    onSelect={setSelected}
+                    onSelect={(value) => {
+                        setSelected(value);
+                        setSelectedDate(null); // clear date when preset selected
+                    }}
                 />
                 <OnboardingOption
                     label="3–6 months ago"
                     value="3_6_months"
                     selected={selected === '3_6_months'}
-                    onSelect={setSelected}
+                    onSelect={(value) => {
+                        setSelected(value);
+                        setSelectedDate(null);
+                    }}
                 />
                 <OnboardingOption
                     label="6+ months ago"
                     value="6_plus_months"
                     selected={selected === '6_plus_months'}
-                    onSelect={setSelected}
+                    onSelect={(value) => {
+                        setSelected(value);
+                        setSelectedDate(null);
+                    }}
                 />
                 <OnboardingOption
                     label="I don't remember"
                     value="dont_remember"
                     selected={selected === 'dont_remember'}
-                    onSelect={setSelected}
+                    onSelect={(value) => {
+                        setSelected(value);
+                        setSelectedDate(null);
+                    }}
                 />
             </View>
 
@@ -97,11 +130,16 @@ export function BeginnerOilChange() {
 
             {/* Bottom Button */}
             <View style={[styles.bottomContainer, dynamicStyles.bottomContainer]}>
-                <OnboardingFooterButton
-                    label="Next"
+                <Button
+                    fullWidth
+                    size="lg"
+                    borderRadius={BorderRadius.full}
+                    paddingVertical={Spacing.lg}
                     onPress={handleNext}
-                    disabled={!selected}
-                />
+                    disabled={!selected && !selectedDate}
+                >
+                    Next
+                </Button>
             </View>
         </View>
     );
@@ -127,6 +165,9 @@ const styles = StyleSheet.create({
     optionsContainer: {
         paddingHorizontal: Spacing['2xl'],
         gap: Spacing.md,
+    },
+    datePickerWrapper: {
+        marginBottom: Spacing['3xl'],
     },
     spacer: {
         flex: 1,

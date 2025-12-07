@@ -9,52 +9,42 @@
  *   - None (self-contained screen component)
  *
  * OWNER: Daniel Chelala
- * TICKET: OTO-XXX
+ * TICKET: OTO-031
  */
 
+// TODO: Remove color hardcoding once theme.ts is updated
+
 import {
-    BorderRadius,
     BrandColors,
-    Button,
     FontFamily,
     FontSize,
     Spacing,
     Text,
 } from '@/components/shared-ui';
 import { OnboardingOption, onboardingOptionStyles } from './OnboardingButton';
+import { OnboardingProgress } from './OnboardingProgress';
+import { OnboardingDatePickerMonthYear } from './OnboardingDatePickerMonthYear';
+import { OnboardingFooterButton } from './OnboardingFooterButton';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { StyleSheet, View, Pressable } from 'react-native';
+import { StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
-// @ts-ignore - native date picker module is provided in the app bundle
-import { DateTimePickerAndroid, type AndroidEvent } from '@react-native-community/datetimepicker';
-import { Calendar } from 'lucide-react-native';
 
-export function BeginnerInspection() {
+export function BeginnerInspection({progressTotal = 4, progressFilled = 3,}: { progressTotal?: number, progressFilled?: number }) {
     const insets = useSafeAreaInsets();
     const [selectedDate, setSelectedDate] = useState<Date | null>(null);
     const [dontRemember, setDontRemember] = useState(false);
-    const { updateData } = useOnboardingStore();
+    const { updateData } = useOnboardingStore(); 
 
     const dynamicStyles = {
         container: { paddingTop: insets.top + Spacing['2xl'] },
         bottomContainer: { paddingBottom: insets.bottom + Spacing.lg },
     };
 
-    const handleDateChange = (_event: AndroidEvent, date?: Date) => {
-        if (date) {
-            setSelectedDate(date);
-            setDontRemember(false);
-        }
-    };
-
-    const openDatePicker = () => {
-        DateTimePickerAndroid.open({
-            value: selectedDate ?? new Date(),
-            mode: 'date',
-            onChange: handleDateChange,
-        });
+    const handleDateChange = (date: Date) => {
+        setSelectedDate(date);
+        setDontRemember(false);
     };
 
     const handleDontRemember = () => {
@@ -75,10 +65,11 @@ export function BeginnerInspection() {
 
     const formattedDate = selectedDate
         ? selectedDate.toLocaleDateString(undefined, { year: 'numeric', month: 'long' })
-        : 'January 2025';
+        : 'Select month & year';
 
     return (
         <View style={[styles.container, dynamicStyles.container]}>
+            <OnboardingProgress total={progressTotal} filled={progressFilled} />
             {/* Header */}
             <View style={styles.headerContent}>
                 <Text style={styles.title}>
@@ -88,33 +79,13 @@ export function BeginnerInspection() {
 
             {/* Options */}
             <View style={styles.optionsContainer}>
-                <Pressable
-                    style={[
-                        onboardingOptionStyles.option,
-                        styles.dateOption,
-                        selectedDate && !dontRemember ? styles.optionSelected : null,
-                    ]}
-                    onPress={openDatePicker}
-                >
-                    <Text
-                        style={
-                            selectedDate && !dontRemember
-                                ? onboardingOptionStyles.optionTextSelected
-                                : onboardingOptionStyles.optionText
-                        }
-                    >
-                        {selectedDate ? formattedDate : 'January 2025'}
-                    </Text>
-                    <Calendar
-                        size={FontSize.md}
-                        color={
-                            selectedDate && !dontRemember
-                                ? BrandColors.secondary
-                                : onboardingOptionStyles.optionText.color as string
-                        }
-                        strokeWidth={2.5}
-                    />
-                </Pressable>
+                <OnboardingDatePickerMonthYear
+                    value={selectedDate}
+                    onChange={handleDateChange}
+                    placeholder="Select month & year"
+                    minimumDate={new Date(2000, 0, 1)}
+                    maximumDate={new Date()}
+                />
 
                 <OnboardingOption
                     label="I don't remember"
@@ -129,16 +100,11 @@ export function BeginnerInspection() {
 
             {/* Bottom Button */}
             <View style={[styles.bottomContainer, dynamicStyles.bottomContainer]}>
-                <Button
-                    fullWidth
-                    size="lg"
-                    borderRadius={BorderRadius.full}
-                    paddingVertical={Spacing.lg}
+                <OnboardingFooterButton
+                    label="Next"
                     onPress={handleNext}
                     disabled={!selectedDate && !dontRemember}
-                >
-                    Next
-                </Button>
+                />
             </View>
         </View>
     );
@@ -164,13 +130,6 @@ const styles = StyleSheet.create({
     optionsContainer: {
         paddingHorizontal: Spacing['2xl'],
         gap: Spacing.md,
-    },
-    dateOption: {
-        borderColor: BrandColors.secondary,
-    },
-    optionSelected: {
-        borderColor: BrandColors.secondary,
-        backgroundColor: 'white',
     },
     spacer: {
         flex: 1,

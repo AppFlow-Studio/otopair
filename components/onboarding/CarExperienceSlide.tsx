@@ -18,15 +18,15 @@
 
 
 import {
-    BorderRadius,
     BrandColors,
-    Button,
     FontFamily,
     FontSize,
     Spacing,
     Text,
 } from '@/components/shared-ui';
+import { OnboardingProgress } from './OnboardingProgress';
 import { OnboardingOption } from './OnboardingButton';
+import { OnboardingFooterButton } from './OnboardingFooterButton';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import { router } from 'expo-router';
 import { useState } from 'react';
@@ -76,8 +76,7 @@ export function CarExperienceSlide() {
                 router.push('/(onboarding)/beginner-oil-change');
                 break;
             case 'average':
-                // TODO: Create average flow
-                router.replace('/(main-tabs)');
+                router.push('/(onboarding)/average-oil-change');
                 break;
             case 'professional':
                 // TODO: Create professional flow
@@ -88,6 +87,7 @@ export function CarExperienceSlide() {
 
     return (
         <View style={[styles.container, dynamicStyles.container]}>
+            <OnboardingProgress total={1} filled={0} />
             {/* Header */}
             <View style={styles.headerContent}>
                 <Text style={styles.title}>
@@ -122,16 +122,11 @@ export function CarExperienceSlide() {
 
             {/* Bottom Button */}
             <View style={[styles.bottomContainer, dynamicStyles.bottomContainer]}>
-                <Button
-                    fullWidth
-                    size="lg"
-                    borderRadius={BorderRadius.full}
-                    paddingVertical={Spacing.lg}
+                <OnboardingFooterButton
+                    label="Next"
                     onPress={handleNext}
                     disabled={!selected}
-                >
-                    Next
-                </Button>
+                />
             </View>
         </View>
     );
