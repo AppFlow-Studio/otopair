@@ -27,17 +27,17 @@
 
 import { BrandColors, GhostButton, Spacing, Text } from "@/components/shared-ui";
 import { BorderRadius, Shadows } from "@/constants/theme";
+import type { FilterOption, ServiceCategory } from "@/stores/types/store.types";
 import { ArrowLeft, Settings2 } from "lucide-react-native";
 import React, { useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 
+// Re-export types for convenience
+export type { FilterOption, ServiceCategory } from "@/stores/types/store.types";
+
 // ============================================================================
 // TYPES
 // ============================================================================
-
-export type FilterOption = "available_now" | "top_rated" | "specialists";
-
-export type ServiceCategory = "basic_maintenance" | "tires_wheels" | "brakes_suspension" | "system_diagnostics";
 
 interface FilterOptionItem {
   id: FilterOption;

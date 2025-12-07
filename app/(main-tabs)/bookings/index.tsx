@@ -9,12 +9,13 @@
  *   - Location-based shop discovery with top bar navigation
  *   - Dual filtering: Service categories + availability/rating filters
  *   - Map view with nearby shops (to be implemented)
+ *   - State managed via useBookingStore
  */
 
 import { FilterOption, LocationTopBar, ServiceCategory } from "@/components/booking";
 import { Container, ScreenContainer } from "@/components/shared-ui";
+import { useBookingStore } from "@/stores/useBookingStore";
 import { useRouter } from "expo-router";
-import { useState } from "react";
 import { StyleSheet } from "react-native";
 
 // ============================================================================
@@ -23,7 +24,12 @@ import { StyleSheet } from "react-native";
 
 export default function BookingsScreen() {
   const router = useRouter();
-  const [selectedService, setSelectedService] = useState<ServiceCategory>("basic_maintenance");
+
+  // Get state and actions from booking store
+  const userLocation = useBookingStore((state) => state.userLocation);
+  const selectedService = useBookingStore((state) => state.selectedService);
+  const setSelectedFilter = useBookingStore((state) => state.setSelectedFilter);
+  const setSelectedService = useBookingStore((state) => state.setSelectedService);
 
   // ===========================================================================
   // HANDLERS
@@ -36,7 +42,7 @@ export default function BookingsScreen() {
   };
 
   const handleFilterSelect = (filter: FilterOption) => {
-    // TODO: Update booking store with selected filter
+    setSelectedFilter(filter);
     console.log("Filter selected:", filter);
   };
 
@@ -54,7 +60,7 @@ export default function BookingsScreen() {
       {/* Location Top Bar */}
       <LocationTopBar
         label="Your Location"
-        location="San Francisco, CA"
+        location={userLocation?.label ?? "Set Location"}
         onBackPress={handleBackPress}
         onFilterSelect={handleFilterSelect}
         onServiceSelect={handleServiceSelect}
