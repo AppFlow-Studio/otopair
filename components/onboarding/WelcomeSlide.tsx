@@ -27,13 +27,14 @@ import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { MoveRight } from 'lucide-react-native';
 import { useEffect } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import { OnboardingFooterButton } from './OnboardingFooterButton';
 
 export function WelcomeSlide() {
     const insets = useSafeAreaInsets();
+    const { height } = useWindowDimensions();
     const { setStep, completeStep } = useOnboardingStore();
 
     // Dynamic styles (safe area insets are device-specific and must be computed at runtime)
@@ -41,6 +42,10 @@ export function WelcomeSlide() {
         container: { paddingTop: insets.top + Spacing['2xl'] },
         bottomContainer: { paddingBottom: insets.bottom + Spacing.lg },
     };
+
+    const isCompact = height < 720;
+    const buttonSize: 'md' | 'lg' = isCompact ? 'md' : 'lg';
+    const buttonPaddingVertical = isCompact ? Spacing.sm : Spacing.lg;
 
     useEffect(() => {
         setStep('welcome');
@@ -81,6 +86,8 @@ export function WelcomeSlide() {
                     label="Let's Check Your Car Now"
                     onPress={handleGetStarted}
                     rightIcon={<MoveRight size={FontSize.md} color={BrandColors.white} />}
+                    size={buttonSize}
+                    paddingVertical={buttonPaddingVertical}
                 />
             </View>
         </View>
@@ -95,7 +102,7 @@ const styles = StyleSheet.create({
     },
     headerContent: {
         paddingHorizontal: Spacing['2xl'],
-        marginTop: Spacing['2xl'],
+        //marginTop: Spacing.xs,
         marginBottom: Spacing.md,
     },
     title: {

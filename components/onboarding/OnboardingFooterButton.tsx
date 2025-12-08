@@ -30,6 +30,8 @@ interface OnboardingFooterButtonProps {
     onPress: () => void;
     disabled?: boolean;
     rightIcon?: ReactNode;
+    size?: 'sm' | 'md' | 'lg';
+    paddingVertical?: number;
 }
 
 export function OnboardingFooterButton({
@@ -37,13 +39,15 @@ export function OnboardingFooterButton({
     onPress,
     disabled = false,
     rightIcon,
+    size = 'lg',
+    paddingVertical,
 }: OnboardingFooterButtonProps) {
     return (
         <Button
             fullWidth
-            size="lg"
+            size={size}
             borderRadius={BorderRadius.full}
-            paddingVertical={Spacing.lg}
+            paddingVertical={paddingVertical ?? Spacing.lg}
             onPress={onPress}
             disabled={disabled}
             rightIcon={rightIcon}

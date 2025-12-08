@@ -1,16 +1,18 @@
-
 /**
- * AverageTire
+ * BeginnerInspection
  *
- * PURPOSE: Ask average users about their last tire service
+ * PURPOSE: Ask beginner users when their last New York State inspection was.
  *
- * USED IN: app/(onboarding)/average-tire.tsx
+ * USED IN: app/(onboarding)/beginner-inspection.tsx (to wire)
  *
- * PATH: Average flow only
+ * PROPS:
+ *   - None (self-contained screen component)
  *
  * OWNER: Daniel Chelala
  * TICKET: OTO-031
  */
+
+// TODO: Remove color hardcoding once theme.ts is updated
 
 import {
     BrandColors,
@@ -19,77 +21,89 @@ import {
     Spacing,
     Text,
 } from '@/components/shared-ui';
-import { OnboardingOption } from './OnboardingButton';
-import { OnboardingFooterButton } from './OnboardingFooterButton';
+import { OnboardingOption, onboardingOptionStyles } from './OnboardingButton';
 import { OnboardingProgress } from './OnboardingProgress';
-import { useOnboardingStore } from '@/stores/useOnboardingStore';
+import { OnboardingDatePickerMonthYear } from './OnboardingDatePickerMonthYear';
+import { OnboardingFooterButton } from './OnboardingFooterButton';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
+import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import { OnboardingScreenLayout } from './OnboardingScreenLayout';
 
-type TireOption = 'lt_1_year' | '1_2_years' | '2_plus_years' | 'dont_remember';
+export function ProBrakes() {
+    const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+    const [dontRemember, setDontRemember] = useState(false);
+    const { updateData } = useOnboardingStore(); 
 
-export function AverageTire() {
-    const [selected, setSelected] = useState<TireOption | null>(null);
-    const { updateData } = useOnboardingStore();
+    const handleDateChange = (date: Date) => {
+        setSelectedDate(date);
+        setDontRemember(false);
+    };
+
+    const handleDontRemember = () => {
+        setDontRemember(true);
+        setSelectedDate(null);
+    };
 
     const handleNext = () => {
-        if (!selected) return;
-        updateData({ lastTireService: selected });
-        router.push('/(onboarding)/average-battery');
+        if (!selectedDate && !dontRemember) return;
+
+        const brakesReplaced = dontRemember
+            ? 'dont_remember'
+            : selectedDate?.toISOString() ?? null;
+
+        updateData({ brakesReplaced });
+        router.push('/(onboarding)/pro-inspection');
     };
+
+    const formattedDate = selectedDate
+        ? selectedDate.toLocaleDateString(undefined, { year: 'numeric', month: 'long' })
+        : 'Select month & year';
 
     return (
         <OnboardingScreenLayout>
             {(layout) => (
                 <>
-                    <OnboardingProgress total={6} filled={2} />
-
+                    <OnboardingProgress total={5} filled={3} />
+                    {/* Header */}
                     <View style={[styles.headerContent, layout.headerContent]}>
                         <Text style={[styles.title, layout.title]}>
-                            When was your last tire{'\n'}rotation or replacement?
+                            When were your brakes last replaced?
                         </Text>
                     </View>
 
+                    {/* Options */}
                     <View
                         style={[styles.optionsContainer, layout.optionsContainer]}
                     >
-                        <OnboardingOption
-                            label="<1 year ago"
-                            value="lt_1_year"
-                            selected={selected === 'lt_1_year'}
-                            onSelect={setSelected}
+                        <OnboardingDatePickerMonthYear
+                            value={selectedDate}
+                            onChange={handleDateChange}
+                            placeholder="Select month & year"
+                            minimumDate={new Date(2000, 0, 1)}
+                            maximumDate={new Date()}
                         />
-                        <OnboardingOption
-                            label="1–2 years ago"
-                            value="1_2_years"
-                            selected={selected === '1_2_years'}
-                            onSelect={setSelected}
-                        />
-                        <OnboardingOption
-                            label="2+ years ago"
-                            value="2_plus_years"
-                            selected={selected === '2_plus_years'}
-                            onSelect={setSelected}
-                        />
+
                         <OnboardingOption
                             label="I don't remember"
                             value="dont_remember"
-                            selected={selected === 'dont_remember'}
-                            onSelect={setSelected}
+                            selected={dontRemember}
+                            onSelect={handleDontRemember}
                         />
                     </View>
 
+                    {/* Spacer to push button to bottom */}
                     <View style={[styles.spacer, layout.spacer]} />
 
+                    {/* Bottom Button */}
                     <View
                         style={[styles.bottomContainer, layout.bottomContainer]}
                     >
                         <OnboardingFooterButton
                             label="Next"
                             onPress={handleNext}
-                            disabled={!selected}
+                            disabled={!selectedDate && !dontRemember}
                             size={layout.buttonSize}
                             paddingVertical={layout.buttonPaddingVertical}
                         />
@@ -125,5 +139,4 @@ const styles = StyleSheet.create({
         paddingTop: Spacing.sm,
     },
 });
-
 

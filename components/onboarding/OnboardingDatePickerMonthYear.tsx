@@ -110,15 +110,16 @@ export function OnboardingDatePickerMonthYear({
         <View>
             <TouchableOpacity onPress={openPicker}>
                 <View style={[
-                    onboardingOptionStyles.option,
+                    onboardingOptionStyles.optionBase,
+                    onboardingOptionStyles.optionMd,
                     styles.dateOption,
                     value ? styles.optionSelected : null,
                 ]}>
                     <Text
                         style={
                             value
-                                ? onboardingOptionStyles.optionTextSelected
-                                : onboardingOptionStyles.optionText
+                                ? onboardingOptionStyles.optionTextSelectedMd
+                                : onboardingOptionStyles.optionTextMd
                         }
                     >
                         {formattedDate || placeholder}
@@ -128,7 +129,7 @@ export function OnboardingDatePickerMonthYear({
                         color={
                             value
                                 ? BrandColors.secondary
-                                : onboardingOptionStyles.optionText.color as string
+                                : '#687076'
                         }
                         strokeWidth={2.5}
                     />

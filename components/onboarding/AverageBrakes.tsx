@@ -26,19 +26,13 @@ import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { OnboardingScreenLayout } from './OnboardingScreenLayout';
 
 type BrakeOption = 'lt_1_year' | '1_2_years' | '2_plus_years' | 'dont_remember';
 
 export function AverageBrakes() {
-    const insets = useSafeAreaInsets();
     const [selected, setSelected] = useState<BrakeOption | null>(null);
     const { updateData } = useOnboardingStore();
-
-    const dynamicStyles = {
-        container: { paddingTop: insets.top + Spacing['2xl'] },
-        bottomContainer: { paddingBottom: insets.bottom + Spacing.lg },
-    };
 
     const handleNext = () => {
         if (!selected) return;
@@ -47,60 +41,66 @@ export function AverageBrakes() {
     };
 
     return (
-        <View style={[styles.container, dynamicStyles.container]}>
-            <OnboardingProgress total={6} filled={4} />
+        <OnboardingScreenLayout>
+            {(layout) => (
+                <>
+                    <OnboardingProgress total={6} filled={4} />
 
-            <View style={styles.headerContent}>
-                <Text style={styles.title}>
-                    When were your brakes{'\n'}last replaced?
-                </Text>
-            </View>
+                    <View style={[styles.headerContent, layout.headerContent]}>
+                        <Text style={[styles.title, layout.title]}>
+                            When were your brakes{'\n'}last replaced?
+                        </Text>
+                    </View>
 
-            <View style={styles.optionsContainer}>
-                <OnboardingOption
-                    label="<1 year ago"
-                    value="lt_1_year"
-                    selected={selected === 'lt_1_year'}
-                    onSelect={setSelected}
-                />
-                <OnboardingOption
-                    label="1–2 years ago"
-                    value="1_2_years"
-                    selected={selected === '1_2_years'}
-                    onSelect={setSelected}
-                />
-                <OnboardingOption
-                    label="2+ years ago"
-                    value="2_plus_years"
-                    selected={selected === '2_plus_years'}
-                    onSelect={setSelected}
-                />
-                <OnboardingOption
-                    label="I don't remember"
-                    value="dont_remember"
-                    selected={selected === 'dont_remember'}
-                    onSelect={setSelected}
-                />
-            </View>
+                    <View
+                        style={[styles.optionsContainer, layout.optionsContainer]}
+                    >
+                        <OnboardingOption
+                            label="<1 year ago"
+                            value="lt_1_year"
+                            selected={selected === 'lt_1_year'}
+                            onSelect={setSelected}
+                        />
+                        <OnboardingOption
+                            label="1–2 years ago"
+                            value="1_2_years"
+                            selected={selected === '1_2_years'}
+                            onSelect={setSelected}
+                        />
+                        <OnboardingOption
+                            label="2+ years ago"
+                            value="2_plus_years"
+                            selected={selected === '2_plus_years'}
+                            onSelect={setSelected}
+                        />
+                        <OnboardingOption
+                            label="I don't remember"
+                            value="dont_remember"
+                            selected={selected === 'dont_remember'}
+                            onSelect={setSelected}
+                        />
+                    </View>
 
-            <View style={styles.spacer} />
+                    <View style={[styles.spacer, layout.spacer]} />
 
-            <View style={[styles.bottomContainer, dynamicStyles.bottomContainer]}>
-                <OnboardingFooterButton
-                    label="Next"
-                    onPress={handleNext}
-                    disabled={!selected}
-                />
-            </View>
-        </View>
+                    <View
+                        style={[styles.bottomContainer, layout.bottomContainer]}
+                    >
+                        <OnboardingFooterButton
+                            label="Next"
+                            onPress={handleNext}
+                            disabled={!selected}
+                            size={layout.buttonSize}
+                            paddingVertical={layout.buttonPaddingVertical}
+                        />
+                    </View>
+                </>
+            )}
+        </OnboardingScreenLayout>
     );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: '#dee2ee',
-    },
     headerContent: {
         paddingHorizontal: Spacing['2xl'],
         marginTop: Spacing['2xl'],

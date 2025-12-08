@@ -33,7 +33,7 @@ import {
     Text,
 } from '@/components/shared-ui';
 import { Check } from 'lucide-react-native';
-import { Pressable, StyleSheet } from 'react-native';
+import { Pressable, StyleProp, StyleSheet, ViewStyle } from 'react-native';
 
 type OptionValue = string | number;
 
@@ -42,6 +42,8 @@ interface OnboardingOptionProps<T extends OptionValue> {
     value: T;
     selected: boolean;
     onSelect: (value: T) => void;
+    size?: 'sm' | 'md';
+    style?: StyleProp<ViewStyle>;
 }
 
 export function OnboardingOption<T extends OptionValue>({
@@ -49,17 +51,38 @@ export function OnboardingOption<T extends OptionValue>({
     value,
     selected,
     onSelect,
+    size = 'md',
+    style,
 }: OnboardingOptionProps<T>) {
+    const paddingStyle =
+        size === 'sm'
+            ? onboardingOptionStyles.optionSm
+            : onboardingOptionStyles.optionMd;
+    const textStyle =
+        size === 'sm'
+            ? onboardingOptionStyles.optionTextSm
+            : onboardingOptionStyles.optionTextMd;
+    const textSelectedStyle =
+        size === 'sm'
+            ? onboardingOptionStyles.optionTextSelectedSm
+            : onboardingOptionStyles.optionTextSelectedMd;
+    const iconSize = size === 'sm' ? FontSize.lg : FontSize.xl;
+
     return (
         <Pressable
-            style={[onboardingOptionStyles.option, selected && onboardingOptionStyles.optionSelected]}
+            style={[
+                onboardingOptionStyles.optionBase,
+                paddingStyle,
+                selected && onboardingOptionStyles.optionSelected,
+                style,
+            ]}
             onPress={() => onSelect(value)}
         >
-            <Text style={selected ? onboardingOptionStyles.optionTextSelected : onboardingOptionStyles.optionText}>
+            <Text style={selected ? textSelectedStyle : textStyle}>
                 {label}
             </Text>
             <Check
-                size={FontSize.xl}
+                size={iconSize}
                 color={selected ? BrandColors.secondary : Colors.light.icon}
                 strokeWidth={2.5}
             />
@@ -68,28 +91,46 @@ export function OnboardingOption<T extends OptionValue>({
 }
 
 export const onboardingOptionStyles = StyleSheet.create({
-    option: {
+    optionBase: {
         flexDirection: 'row',
         alignItems: 'center',
         justifyContent: 'space-between',
         backgroundColor: '#e4e8f1',
+        borderWidth: 2,
+        borderColor: '#f0f1f6',
+    },
+    optionMd: {
         paddingVertical: Spacing.lg,
         paddingHorizontal: Spacing.xl,
         borderRadius: BorderRadius.lg,
-        borderWidth: 2,
-        borderColor: '#f0f1f6',
+    },
+    optionSm: {
+        paddingVertical: Spacing.xs,
+        paddingHorizontal: Spacing.sm,
+        borderRadius: BorderRadius.md,
+        alignSelf: 'flex-start',
     },
     optionSelected: {
         borderColor: BrandColors.secondary,
         backgroundColor: 'white',
     },
-    optionText: {
+    optionTextMd: {
         fontSize: FontSize.md,
         fontFamily: FontFamily.regular,
         color: Colors.light.icon,
     },
-    optionTextSelected: {
+    optionTextSelectedMd: {
         fontSize: FontSize.md,
+        fontFamily: FontFamily.semiBold,
+        color: BrandColors.primary,
+    },
+    optionTextSm: {
+        fontSize: FontSize.sm,
+        fontFamily: FontFamily.regular,
+        color: Colors.light.icon,
+    },
+    optionTextSelectedSm: {
+        fontSize: FontSize.sm,
         fontFamily: FontFamily.semiBold,
         color: BrandColors.primary,
     },

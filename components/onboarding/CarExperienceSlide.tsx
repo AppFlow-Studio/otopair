@@ -31,8 +31,8 @@ import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useEffect } from 'react';
+import { OnboardingScreenLayout } from './OnboardingScreenLayout';
 
 type ExperienceLevel = 'beginner' | 'average' | 'professional';
 
@@ -45,18 +45,10 @@ const experienceToLevel: Record<ExperienceLevel, 1 | 3 | 5> = {
 
 export function CarExperienceSlide() {
     
-    const insets = useSafeAreaInsets();
     const [selected, setSelected] = useState<ExperienceLevel | null>(null);
 
     // Get store actions
     const { updateData, completeStep, setStep } = useOnboardingStore();
-
-    // Dynamic styles (safe area insets are device-specific and must be computed at runtime)
-    const dynamicStyles = {
-        container: { paddingTop: insets.top + Spacing['2xl'] },
-        bottomContainer: { paddingBottom: insets.bottom + Spacing.lg },
-    };
-
 
     useEffect(() => {
         setStep('car_knowledge');
@@ -80,63 +72,69 @@ export function CarExperienceSlide() {
                 break;
             case 'professional':
                 // TODO: Create professional flow
-                router.replace('/(main-tabs)');
+                router.push('/(onboarding)/pro-services');
                 break;
         }
     };
 
     return (
-        <View style={[styles.container, dynamicStyles.container]}>
-            <OnboardingProgress total={1} filled={0} />
-            {/* Header */}
-            <View style={styles.headerContent}>
-                <Text style={styles.title}>
-                    How would you explain your experience with cars in general?
-                </Text>
-            </View>
+        <OnboardingScreenLayout>
+            {(layout) => (
+                <>
+                    <OnboardingProgress total={1} filled={0} />
+                    {/* Header */}
+                    <View style={[styles.headerContent, layout.headerContent]}>
+                        <Text style={[styles.title, layout.title]}>
+                            How would you explain your experience with cars in general?
+                        </Text>
+                    </View>
 
-            {/* Options */}
-            <View style={styles.optionsContainer}>
-                <OnboardingOption
-                    label="Beginner"
-                    value="beginner"
-                    selected={selected === 'beginner'}
-                    onSelect={setSelected}
-                />
-                <OnboardingOption
-                    label="Average"
-                    value="average"
-                    selected={selected === 'average'}
-                    onSelect={setSelected}
-                />
-                <OnboardingOption
-                    label="Professional"
-                    value="professional"
-                    selected={selected === 'professional'}
-                    onSelect={setSelected}
-                />
-            </View>
+                    {/* Options */}
+                    <View
+                        style={[styles.optionsContainer, layout.optionsContainer]}
+                    >
+                        <OnboardingOption
+                            label="Beginner"
+                            value="beginner"
+                            selected={selected === 'beginner'}
+                            onSelect={setSelected}
+                        />
+                        <OnboardingOption
+                            label="Average"
+                            value="average"
+                            selected={selected === 'average'}
+                            onSelect={setSelected}
+                        />
+                        <OnboardingOption
+                            label="Professional"
+                            value="professional"
+                            selected={selected === 'professional'}
+                            onSelect={setSelected}
+                        />
+                    </View>
 
-            {/* Spacer to push button to bottom */}
-            <View style={styles.spacer} />
+                    {/* Spacer to push button to bottom */}
+                    <View style={[styles.spacer, layout.spacer]} />
 
-            {/* Bottom Button */}
-            <View style={[styles.bottomContainer, dynamicStyles.bottomContainer]}>
-                <OnboardingFooterButton
-                    label="Next"
-                    onPress={handleNext}
-                    disabled={!selected}
-                />
-            </View>
-        </View>
+                    {/* Bottom Button */}
+                    <View
+                        style={[styles.bottomContainer, layout.bottomContainer]}
+                    >
+                        <OnboardingFooterButton
+                            label="Next"
+                            onPress={handleNext}
+                            disabled={!selected}
+                            size={layout.buttonSize}
+                            paddingVertical={layout.buttonPaddingVertical}
+                        />
+                    </View>
+                </>
+            )}
+        </OnboardingScreenLayout>
     );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: '#dee2ee',
-    },
     headerContent: {
         paddingHorizontal: Spacing['2xl'],
         marginTop: Spacing['2xl'],

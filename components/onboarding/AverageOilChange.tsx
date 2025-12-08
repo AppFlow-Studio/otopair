@@ -29,22 +29,15 @@ import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { OnboardingScreenLayout } from './OnboardingScreenLayout';
 
 type OilChangeOption = 'last_3_months' | '3_6_months' | '6_plus_months' | 'dont_remember';
 
 export function AverageOilChange() {
-    const insets = useSafeAreaInsets();
     const [selected, setSelected] = useState<OilChangeOption | null>(null);
     const [selectedDate, setSelectedDate] = useState<Date | null>(null);
 
     const { updateData, completeStep } = useOnboardingStore();
-
-    // Dynamic styles (safe area insets are device-specific and must be computed at runtime)
-    const dynamicStyles = {
-        container: { paddingTop: insets.top + Spacing['2xl'] },
-        bottomContainer: { paddingBottom: insets.bottom + Spacing.lg },
-    };
 
     const handleNext = () => {
         if (!selected && !selectedDate) return;
@@ -66,90 +59,99 @@ export function AverageOilChange() {
     };
 
     return (
-        <View style={[styles.container, dynamicStyles.container]}>
-            <OnboardingProgress total={6} filled={1} />
-            {/* Header */}
-            <View style={styles.headerContent}>
-                <Text style={styles.title}>
-                    When was your last oil change?
-                </Text>
-            </View>
+        <OnboardingScreenLayout>
+            {(layout) => (
+                <>
+                    <OnboardingProgress total={6} filled={1} />
+                    {/* Header */}
+                    <View style={[styles.headerContent, layout.headerContent]}>
+                        <Text style={[styles.title, layout.title]}>
+                            When was your last oil change?
+                        </Text>
+                    </View>
 
-            {/* Options */}
-            <View style={styles.optionsContainer}>
-                <View style={styles.datePickerWrapper}>
-                    <OnboardingDatePickerMonthYear
-                        value={selectedDate}
-                        onChange={handleDateChange}
-                        placeholder="Select month & year"
-                        minimumDate={new Date(2000, 0, 1)}
-                        maximumDate={new Date()}
-                    />
-                </View>
+                    {/* Options */}
+                    <View
+                        style={[styles.optionsContainer, layout.optionsContainer]}
+                    >
+                        <View
+                            style={[
+                                styles.datePickerWrapper,
+                                layout.datePickerWrapper,
+                            ]}
+                        >
+                            <OnboardingDatePickerMonthYear
+                                value={selectedDate}
+                                onChange={handleDateChange}
+                                placeholder="Select month & year"
+                                minimumDate={new Date(2000, 0, 1)}
+                                maximumDate={new Date()}
+                            />
+                        </View>
 
-                <OnboardingOption
-                    label="Last 3 months"
-                    value="last_3_months"
-                    selected={selected === 'last_3_months'}
-                    onSelect={(value) => {
-                        setSelected(value);
-                        setSelectedDate(null); // clear date when preset selected
-                    }}
-                />
-                <OnboardingOption
-                    label="3–6 months ago"
-                    value="3_6_months"
-                    selected={selected === '3_6_months'}
-                    onSelect={(value) => {
-                        setSelected(value);
-                        setSelectedDate(null);
-                    }}
-                />
-                <OnboardingOption
-                    label="6+ months ago"
-                    value="6_plus_months"
-                    selected={selected === '6_plus_months'}
-                    onSelect={(value) => {
-                        setSelected(value);
-                        setSelectedDate(null);
-                    }}
-                />
-                <OnboardingOption
-                    label="I don't remember"
-                    value="dont_remember"
-                    selected={selected === 'dont_remember'}
-                    onSelect={(value) => {
-                        setSelected(value);
-                        setSelectedDate(null);
-                    }}
-                />
-            </View>
+                        <OnboardingOption
+                            label="Last 3 months"
+                            value="last_3_months"
+                            selected={selected === 'last_3_months'}
+                            onSelect={(value) => {
+                                setSelected(value);
+                                setSelectedDate(null); // clear date when preset selected
+                            }}
+                        />
+                        <OnboardingOption
+                            label="3–6 months ago"
+                            value="3_6_months"
+                            selected={selected === '3_6_months'}
+                            onSelect={(value) => {
+                                setSelected(value);
+                                setSelectedDate(null);
+                            }}
+                        />
+                        <OnboardingOption
+                            label="6+ months ago"
+                            value="6_plus_months"
+                            selected={selected === '6_plus_months'}
+                            onSelect={(value) => {
+                                setSelected(value);
+                                setSelectedDate(null);
+                            }}
+                        />
+                        <OnboardingOption
+                            label="I don't remember"
+                            value="dont_remember"
+                            selected={selected === 'dont_remember'}
+                            onSelect={(value) => {
+                                setSelected(value);
+                                setSelectedDate(null);
+                            }}
+                        />
+                    </View>
 
-            {/* Spacer to push button to bottom */}
-            <View style={styles.spacer} />
+                    {/* Spacer to push button to bottom */}
+                    <View style={[styles.spacer, layout.spacer]} />
 
-            {/* Bottom Button */}
-            <View style={[styles.bottomContainer, dynamicStyles.bottomContainer]}>
-                <Button
-                    fullWidth
-                    size="lg"
-                    borderRadius={BorderRadius.full}
-                    paddingVertical={Spacing.lg}
-                    onPress={handleNext}
-                    disabled={!selected && !selectedDate}
-                >
-                    Next
-                </Button>
-            </View>
-        </View>
+                    {/* Bottom Button */}
+                    <View
+                        style={[styles.bottomContainer, layout.bottomContainer]}
+                    >
+                        <Button
+                            fullWidth
+                            size={layout.buttonSize}
+                            borderRadius={BorderRadius.full}
+                            paddingVertical={layout.buttonPaddingVertical}
+                            onPress={handleNext}
+                            disabled={!selected && !selectedDate}
+                        >
+                            Next
+                        </Button>
+                    </View>
+                </>
+            )}
+        </OnboardingScreenLayout>
     );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: '#dee2ee',
-    },
     headerContent: {
         paddingHorizontal: Spacing['2xl'],
         marginTop: Spacing['2xl'],

@@ -74,13 +74,19 @@ interface OnboardingData {
   lastTireService: 'lt_1_year' | '1_2_years' | '2_plus_years' | 'dont_remember' | null;
 
   // Brakes Step
-  brakesReplaced: 'recently' | 'not_recently' | 'lt_1_year' | '1_2_years' | '2_plus_years' | 'dont_remember' | null;
+  brakesReplaced: 'recently' | 'not_recently' | 'lt_1_year' | '1_2_years' | '2_plus_years' | 'dont_remember' | string | null; //ISO string when known
 
   // Battery Replacement Step
   lastBatteryReplacement: 'within_last_year' | 'more_than_year_ago' | 'dont_remember' | null;
 
   // Beginner Inspection Step
   lastInspection: string | 'dont_remember' | null; // ISO string when known
+
+  // Pro Mileage Step
+  lastOilMileage: string | 'dont_remember' | null;
+
+  // Services 12 Months Step
+  services12months: string[] | null;
 
   // Vehicle Step
   vehicleMake: string | null;
@@ -125,6 +131,8 @@ const INITIAL_DATA: OnboardingData = {
   brakesReplaced: null,
   lastBatteryReplacement: null,
   lastInspection: null,
+  lastOilMileage: null,
+  services12months: null,
   vehicleMake: null,
   vehicleModel: null,
   vehicleYear: null,

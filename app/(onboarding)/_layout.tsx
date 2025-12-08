@@ -13,6 +13,11 @@ export default function OnboardingLayout() {
             <Stack.Screen name="average-battery" options={{ headerShown: true, title: 'Battery' }} />
             <Stack.Screen name="average-brakes" options={{ headerShown: true, title: 'Brakes' }} />
             <Stack.Screen name="average-inspection" options={{ headerShown: true, title: 'Inspection' }} />
+            <Stack.Screen name="pro-services" options={{ headerShown: true, title: 'Services' }} />
+            <Stack.Screen name="pro-mileage" options={{ headerShown: true, title: 'Mileage' }} />
+            <Stack.Screen name="pro-brakes" options={{ headerShown: true, title: 'Brakes' }} />
+            <Stack.Screen name="pro-inspection" options={{ headerShown: true, title: 'Inspection' }} />
+            <Stack.Screen name="push-notifications" options={{ headerShown: true, title: 'Push Notifications' }} />
         </Stack>
     )
 }

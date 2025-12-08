@@ -28,21 +28,14 @@ import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { OnboardingScreenLayout } from './OnboardingScreenLayout';
 
 type OilChangeOption = 'last_3_months' | '3_6_months' | '6_plus_months' | 'dont_remember';
 
 export function BeginnerOilChange() {
-    const insets = useSafeAreaInsets();
     const [selected, setSelected] = useState<OilChangeOption | null>(null);
 
     const { updateData, completeStep } = useOnboardingStore();
-
-    // Dynamic styles (safe area insets are device-specific and must be computed at runtime)
-    const dynamicStyles = {
-        container: { paddingTop: insets.top + Spacing['2xl'] },
-        bottomContainer: { paddingBottom: insets.bottom + Spacing.lg },
-    };
 
     const handleNext = () => {
         if (!selected) return;
@@ -55,63 +48,69 @@ export function BeginnerOilChange() {
     };
 
     return (
-        <View style={[styles.container, dynamicStyles.container]}>
-            <OnboardingProgress total={4} filled={1} />
-            {/* Header */}
-            <View style={styles.headerContent}>
-                <Text style={styles.title}>
-                    When was your last oil change?
-                </Text>
-            </View>
+        <OnboardingScreenLayout>
+            {(layout) => (
+                <>
+                    <OnboardingProgress total={4} filled={1} />
+                    {/* Header */}
+                    <View style={[styles.headerContent, layout.headerContent]}>
+                        <Text style={[styles.title, layout.title]}>
+                            When was your last oil change?
+                        </Text>
+                    </View>
 
-            {/* Options */}
-            <View style={styles.optionsContainer}>
-                <OnboardingOption
-                    label="Last 3 months"
-                    value="last_3_months"
-                    selected={selected === 'last_3_months'}
-                    onSelect={setSelected}
-                />
-                <OnboardingOption
-                    label="3–6 months ago"
-                    value="3_6_months"
-                    selected={selected === '3_6_months'}
-                    onSelect={setSelected}
-                />
-                <OnboardingOption
-                    label="6+ months ago"
-                    value="6_plus_months"
-                    selected={selected === '6_plus_months'}
-                    onSelect={setSelected}
-                />
-                <OnboardingOption
-                    label="I don't remember"
-                    value="dont_remember"
-                    selected={selected === 'dont_remember'}
-                    onSelect={setSelected}
-                />
-            </View>
+                    {/* Options */}
+                    <View
+                        style={[styles.optionsContainer, layout.optionsContainer]}
+                    >
+                        <OnboardingOption
+                            label="Last 3 months"
+                            value="last_3_months"
+                            selected={selected === 'last_3_months'}
+                            onSelect={setSelected}
+                        />
+                        <OnboardingOption
+                            label="3–6 months ago"
+                            value="3_6_months"
+                            selected={selected === '3_6_months'}
+                            onSelect={setSelected}
+                        />
+                        <OnboardingOption
+                            label="6+ months ago"
+                            value="6_plus_months"
+                            selected={selected === '6_plus_months'}
+                            onSelect={setSelected}
+                        />
+                        <OnboardingOption
+                            label="I don't remember"
+                            value="dont_remember"
+                            selected={selected === 'dont_remember'}
+                            onSelect={setSelected}
+                        />
+                    </View>
 
-            {/* Spacer to push button to bottom */}
-            <View style={styles.spacer} />
+                    {/* Spacer to push button to bottom */}
+                    <View style={[styles.spacer, layout.spacer]} />
 
-            {/* Bottom Button */}
-            <View style={[styles.bottomContainer, dynamicStyles.bottomContainer]}>
-                <OnboardingFooterButton
-                    label="Next"
-                    onPress={handleNext}
-                    disabled={!selected}
-                />
-            </View>
-        </View>
+                    {/* Bottom Button */}
+                    <View
+                        style={[styles.bottomContainer, layout.bottomContainer]}
+                    >
+                        <OnboardingFooterButton
+                            label="Next"
+                            onPress={handleNext}
+                            disabled={!selected}
+                            size={layout.buttonSize}
+                            paddingVertical={layout.buttonPaddingVertical}
+                        />
+                    </View>
+                </>
+            )}
+        </OnboardingScreenLayout>
     );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: '#dee2ee',
-    },
     headerContent: {
         paddingHorizontal: Spacing['2xl'],
         marginTop: Spacing['2xl'],
