@@ -46,6 +46,16 @@ type ServicesOption =
     | 'battery_change'
     | string;
 
+const BASE_OPTIONS: { label: string; value: ServicesOption }[] = [
+    { label: 'Oil Change', value: 'oil_change' },
+    { label: 'Tire Rotation / Replacement', value: 'tire_rotation_replacement' },
+    { label: 'Brake Replacement', value: 'brake_replacement' },
+    { label: 'Battery Change', value: 'battery_change' },
+    { label: 'NY State Inspection', value: 'ny_state_inspection' },
+    { label: 'Air Conditioning / Heating Service', value: 'ac_heating_service' },
+];
+const BASE_OPTION_VALUES = BASE_OPTIONS.map((opt) => opt.value);
+
 export function ProServices() {
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
@@ -54,10 +64,15 @@ export function ProServices() {
     const isCompact = height < 720;
     const isLarge = height >= 900;
 
-    const [selected, setSelected] = useState<ServicesOption[]>(
-        () => useOnboardingStore.getState().data.services12months ?? []
-    );
+    const initialSelected = useOnboardingStore.getState().data.services12months ?? [];
+    const [selected, setSelected] = useState<ServicesOption[]>(initialSelected);
     const [otherService, setOtherService] = useState('');
+    const [customOptions, setCustomOptions] = useState<{ label: string; value: ServicesOption }[]>(
+        () =>
+            initialSelected
+                .filter((val) => !BASE_OPTION_VALUES.includes(val))
+                .map((val) => ({ label: val, value: val }))
+    );
     const [inputFocused, setInputFocused] = useState(false);
 
     const { updateData } = useOnboardingStore();
@@ -79,15 +94,8 @@ export function ProServices() {
     }, [inputFocused]);
 
     const options = useMemo(
-        () => [
-            { label: 'Oil Change', value: 'oil_change' as ServicesOption },
-            { label: 'Tire Rotation / Replacement', value: 'tire_rotation_replacement' as ServicesOption },
-            { label: 'Brake Replacement', value: 'brake_replacement' as ServicesOption },
-            { label: 'Battery Change', value: 'battery_change' as ServicesOption },
-            { label: 'NY State Inspection', value: 'ny_state_inspection' as ServicesOption },
-            { label: 'Air Conditioning / Heating Service', value: 'ac_heating_service' as ServicesOption },
-        ],
-        []
+        () => [...BASE_OPTIONS, ...customOptions],
+        [customOptions]
     );
 
     const toggleSelect = (value: ServicesOption) => {
@@ -97,14 +105,39 @@ export function ProServices() {
     };
 
     const handleNext = () => {
-        const extras = otherService.trim();
-        const payload = extras ? [...selected, extras] : selected;
+        const trimmed = otherService.trim();
+        const alreadyExists =
+            !!trimmed &&
+            (BASE_OPTION_VALUES.includes(trimmed) ||
+                customOptions.some((opt) => opt.value.toLowerCase() === trimmed.toLowerCase()));
+        const payload = alreadyExists
+            ? selected
+            : trimmed
+            ? [...selected, trimmed]
+            : selected;
 
         updateData({
             services12months: payload,
         });
 
         router.push('/(onboarding)/pro-mileage');
+    };
+
+    const addCustomOption = () => {
+        const trimmed = otherService.trim();
+        if (!trimmed) return;
+
+        const existsInBase = BASE_OPTION_VALUES.includes(trimmed);
+        const existsInCustom = customOptions.some(
+            (opt) => opt.value.toLowerCase() === trimmed.toLowerCase()
+        );
+
+        if (!existsInBase && !existsInCustom) {
+            setCustomOptions((prev) => [...prev, { label: trimmed, value: trimmed }]);
+        }
+
+        setSelected((prev) => (prev.includes(trimmed) ? prev : [...prev, trimmed]));
+        setOtherService('');
     };
 
     const optionsHorizontalPadding = isLarge
@@ -171,9 +204,17 @@ export function ProServices() {
                         placeholderTextColor="#7a7f89"
                         value={otherService}
                         onChangeText={setOtherService}
-                        multiline
+                        multiline={false}
+                        returnKeyType="done"
+                        blurOnSubmit={false}
+                        onSubmitEditing={() => {
+                            addCustomOption();
+                        }}
+                        onBlur={() => {
+                            addCustomOption();
+                            setInputFocused(false);
+                        }}
                         onFocus={() => setInputFocused(true)}
-                        onBlur={() => setInputFocused(false)}
                     />
 
                     {/* Spacer to push button down */}

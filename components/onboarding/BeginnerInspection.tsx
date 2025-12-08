@@ -54,7 +54,7 @@ export function BeginnerInspection({progressTotal = 4, progressFilled = 3,}: { p
             : selectedDate?.toISOString() ?? null;
 
         updateData({ lastInspection });
-        router.replace('/(main-tabs)');
+        router.replace('/(onboarding)/push-notifications');
     };
 
     const formattedDate = selectedDate
