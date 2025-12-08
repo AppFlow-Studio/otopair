@@ -18,6 +18,7 @@ export default function OnboardingLayout() {
             <Stack.Screen name="pro-brakes" options={{ headerShown: true, title: 'Brakes' }} />
             <Stack.Screen name="pro-inspection" options={{ headerShown: true, title: 'Inspection' }} />
             <Stack.Screen name="push-notifications" options={{ headerShown: true, title: 'Push Notifications' }} />
+            <Stack.Screen name="location-services" options={{ headerShown: true, title: 'Location Services' }} />
         </Stack>
     )
 }

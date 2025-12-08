@@ -46,7 +46,57 @@ export function BeginnerInspection({progressTotal = 4, progressFilled = 3,}: { p
         setSelectedDate(null);
     };
 
-    const handleNext = () => {
+    const normalizePushStatus = (
+        s: string | null | undefined
+    ): 'granted' | 'provisional' | 'denied' | 'undetermined' | null => {
+        if (s === 'granted' || s === 'provisional' || s === 'denied' || s === 'undetermined') {
+            return s;
+        }
+        return 'undetermined';
+    };
+
+    const normalizeLocationStatus = (
+        s: string | null | undefined
+    ): 'granted' | 'denied' | 'undetermined' | null => {
+        if (s === 'granted' || s === 'denied' || s === 'undetermined') return s;
+        return 'undetermined';
+    };
+
+    const refreshPushPermission = async () => {
+        try {
+            // @ts-ignore
+            const mod = await import('expo-notifications');
+            const res = await mod.getPermissionsAsync();
+            const normalized = normalizePushStatus(res.status);
+            const granted = normalized === 'granted' || normalized === 'provisional';
+            updateData({
+                pushNotificationsGranted: granted,
+                pushNotificationStatus: normalized,
+            });
+            return { granted, normalized };
+        } catch {
+            return { granted: false, normalized: 'undetermined' as const };
+        }
+    };
+
+    const refreshLocationPermission = async () => {
+        try {
+            // @ts-ignore
+            const mod = await import('expo-location');
+            const res = await mod.getForegroundPermissionsAsync();
+            const normalized = normalizeLocationStatus(res.status);
+            const granted = normalized === 'granted' || res.granted === true;
+            updateData({
+                locationGranted: granted,
+                locationPermissionStatus: normalized,
+            });
+            return { granted, normalized };
+        } catch {
+            return { granted: false, normalized: 'undetermined' as const };
+        }
+    };
+
+    const handleNext = async () => {
         if (!selectedDate && !dontRemember) return;
 
         const lastInspection = dontRemember
@@ -54,7 +104,21 @@ export function BeginnerInspection({progressTotal = 4, progressFilled = 3,}: { p
             : selectedDate?.toISOString() ?? null;
 
         updateData({ lastInspection });
-        router.replace('/(onboarding)/push-notifications');
+
+        // Check current permissions before routing
+        const push = await refreshPushPermission();
+        if (!push.granted) {
+            router.replace('/(onboarding)/push-notifications');
+            return;
+        }
+
+        const loc = await refreshLocationPermission();
+        if (!loc.granted) {
+            router.replace('/(onboarding)/location-services');
+            return;
+        }
+
+        router.replace('/(main-tabs)');
     };
 
     const formattedDate = selectedDate

@@ -1,9 +1,9 @@
 /**
- * PushNotifications
+ * LocationServices
  *
- * PURPOSE: Request push notification permissions from the user.
+ * PURPOSE: Request location permissions from the user.
  *
- * USED IN: app/(onboarding)/push-notifications.tsx
+ * USED IN: app/(onboarding)/location-services.tsx
  *
  * PATH: Onboarding flow
  *
@@ -31,34 +31,38 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 
-export function PushNotifications() {
+export function LocationServices() {
     const insets = useSafeAreaInsets();
     const { updateData } = useOnboardingStore();
     const [requesting, setRequesting] = useState(false);
     const [status, setStatus] = useState<string | null>(null);
-    const notificationsModule = useRef<any>(null);
+    const locationModule = useRef<any>(null);
     const [moduleReady, setModuleReady] = useState(false);
 
     useEffect(() => {
-        // Lazy-load expo-notifications to avoid crashing if the module is missing
+        // Lazy-load expo-location to avoid crashing if the module is missing
         (async () => {
             try {
-                // @ts-ignore expo-notifications is provided at runtime; suppress type resolution
-                const mod = await import('expo-notifications');
-                notificationsModule.current = mod;
-                const res = await mod.getPermissionsAsync();
-                const normalized = normalizePushStatus(res.status);
-                setStatus(normalized);
+                // @ts-ignore expo-location is provided at runtime; suppress type resolution
+                const mod = await import('expo-location');
+                locationModule.current = mod;
+                const res = await mod.getForegroundPermissionsAsync();
+                const nextStatus =
+                    res.status !== undefined
+                        ? res.status
+                        : res.granted
+                        ? 'granted'
+                        : 'undetermined';
+                setStatus(nextStatus);
                 setModuleReady(true);
 
-                // Auto-skip if already granted/provisional
-                const granted = normalized === 'granted' || normalized === 'provisional';
+                const granted = nextStatus === 'granted';
                 if (granted) {
                     updateData({
-                        pushNotificationsGranted: granted,
-                        pushNotificationStatus: normalized,
+                        locationGranted: true,
+                        locationPermissionStatus: 'granted',
                     });
-                    router.replace('/(onboarding)/location-services');
+                    router.replace('/(main-tabs)');
                 }
             } catch (err) {
                 // Module missing or failed to load; proceed without blocking the app
@@ -67,25 +71,6 @@ export function PushNotifications() {
         })();
     }, [updateData]);
 
-    const ensureAndroidChannel = async () => {
-        if (Platform.OS !== 'android') return;
-        const mod = notificationsModule.current;
-        if (!mod) return;
-        await mod.setNotificationChannelAsync('default', {
-            name: 'Default',
-            importance: mod.AndroidImportance?.DEFAULT ?? 3,
-        });
-    };
-
-    const normalizePushStatus = (
-        s: string | null | undefined
-    ): 'granted' | 'provisional' | 'denied' | 'undetermined' | null => {
-        if (s === 'granted' || s === 'provisional' || s === 'denied' || s === 'undetermined') {
-            return s;
-        }
-        return 'undetermined';
-    };
-
     const normalizeLocationStatus = (
         s: string | null | undefined
     ): 'granted' | 'denied' | 'undetermined' | null => {
@@ -93,62 +78,40 @@ export function PushNotifications() {
         return 'undetermined';
     };
 
-    const refreshLocationPermission = async () => {
-        try {
-            // @ts-ignore
-            const mod = await import('expo-location');
-            const res = await mod.getForegroundPermissionsAsync();
-            const normalized = normalizeLocationStatus(res.status);
-            const granted = normalized === 'granted' || res.granted === true;
-            updateData({
-                locationGranted: granted,
-                locationPermissionStatus: normalized,
-            });
-            return { granted, normalized };
-        } catch {
-            return { granted: false, normalized: 'undetermined' as const };
-        }
-    };
-
     const handleAccept = async () => {
         if (requesting) return;
         setRequesting(true);
         let granted = false;
-        let recordedStatus: 'granted' | 'provisional' | 'denied' | 'undetermined' | null = null;
+        let recordedStatus: 'granted' | 'denied' | 'undetermined' | null = null;
         try {
             // Ensure module is loaded (lazy load here too, in case it wasn't ready yet)
-            if (!notificationsModule.current) {
+            if (!locationModule.current) {
                 try {
                     // @ts-ignore
-                    const mod = await import('expo-notifications');
-                    notificationsModule.current = mod;
+                    const mod = await import('expo-location');
+                    locationModule.current = mod;
                     setModuleReady(true);
                 } catch (err) {
                     setModuleReady(false);
                 }
             }
 
-            if (notificationsModule.current) {
-                await ensureAndroidChannel();
-                const res = await notificationsModule.current.requestPermissionsAsync();
-                const normalized = normalizePushStatus(res.status);
+            if (locationModule.current) {
+                const res = await locationModule.current.requestForegroundPermissionsAsync();
+                // expo-location returns { status, granted }
+                const normalized = normalizeLocationStatus(res.status);
                 setStatus(normalized);
                 recordedStatus = normalized;
-                granted = normalized === 'granted' || normalized === 'provisional';
+                granted = normalized === 'granted' || res.granted === true;
             }
         } finally {
             setRequesting(false);
             updateData({
-                pushNotificationsGranted: granted,
-                pushNotificationStatus: recordedStatus,
+                locationGranted: granted,
+                locationPermissionStatus: recordedStatus,
             });
-            // Decide next step based on location permission (fresh check)
-            const loc = await refreshLocationPermission();
-            if (loc.granted) {
-                router.replace('/(main-tabs)');
-            } else {
-                router.replace('/(onboarding)/location-services');
-            }
+            // Proceed regardless of decision so onboarding can continue
+            router.replace('/(main-tabs)');
         }
     };
 
@@ -156,16 +119,16 @@ export function PushNotifications() {
         <View style={[styles.container, { paddingTop: insets.top + Spacing.lg }]}>
             <View style={styles.content}>
                 <Text style={styles.title}>
-                    Get real-time updates
-                    {'\n'}and notifications
+                    Get real-time services
+                    {'\n'}on your location
                 </Text>
                 <Text style={styles.subtitle}>
-                    Allow RepairConnect push notifications to receive service status, mechanic updates, and promotional offers. You can change this in Settings at any time.
+                    Allow RepairConnect location services to receive real-time services from mechanics on your location. You can change this in Settings at any time.
                 </Text>
 
                 <View style={styles.iconWrapper}>
                     <Image
-                        source={require('@/assets/images/onboarding/Notification.gif')}
+                        source={require('@/assets/images/onboarding/JumpingLocation.gif')}
                         style={styles.icon}
                         contentFit="contain"
                     />

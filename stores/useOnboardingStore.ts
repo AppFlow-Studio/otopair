@@ -62,7 +62,9 @@ interface OnboardingData {
 
   // Permissions Step
   pushNotificationsGranted: boolean;
+  pushNotificationStatus: 'granted' | 'provisional' | 'denied' | 'undetermined' | null;
   locationGranted: boolean;
+  locationPermissionStatus: 'granted' | 'denied' | 'undetermined' | null;
 
   // Car Knowledge Step
   carKnowledgeLevel: 1 | 2 | 3 | 4 | 5 | null;
@@ -124,7 +126,9 @@ const INITIAL_DATA: OnboardingData = {
   lastName: null,
   dateOfBirth: null,
   pushNotificationsGranted: false,
+  pushNotificationStatus: null,
   locationGranted: false,
+  locationPermissionStatus: null,
   carKnowledgeLevel: null,
   lastOilChange: null,
   lastTireService: null,

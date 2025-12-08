@@ -1,10 +1,10 @@
 
 /**
- * AverageTire
+ * AverageBrakes
  *
- * PURPOSE: Ask average users about their last tire service
+ * PURPOSE: Ask average users about their last brakes replacement
  *
- * USED IN: app/(onboarding)/average-tire.tsx
+ * USED IN: app/(onboarding)/average-brakes.tsx
  *
  * PATH: Average flow only
  *
