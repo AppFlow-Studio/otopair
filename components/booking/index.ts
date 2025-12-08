@@ -6,3 +6,4 @@
  */
 
 export { LocationTopBar, type FilterOption, type ServiceCategory } from "./LocationTopBar";
+export { ServiceBottomSheet } from "./ServiceBottomSheet";

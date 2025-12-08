@@ -17,6 +17,20 @@ export type FilterOption = "available_now" | "top_rated" | "specialists";
 /** Service category options for filtering shops */
 export type ServiceCategory = "basic_maintenance" | "tires_wheels" | "brakes_suspension" | "system_diagnostics";
 
+/** A service offered by shops */
+export interface Service {
+  /** Unique identifier */
+  id: string;
+  /** Service display name (e.g., "Oil Change") */
+  name: string;
+  /** Brief description of the service */
+  description: string;
+  /** Price in dollars */
+  price: number;
+  /** Category this service belongs to */
+  category: ServiceCategory;
+}
+
 /** User's current location for map and shop discovery */
 export interface UserLocation {
   /** Display label (e.g., "San Francisco, CA") */

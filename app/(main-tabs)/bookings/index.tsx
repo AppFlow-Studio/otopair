@@ -12,11 +12,12 @@
  *   - State managed via useBookingStore
  */
 
-import { FilterOption, LocationTopBar, ServiceCategory } from "@/components/booking";
-import { Container, ScreenContainer } from "@/components/shared-ui";
-import { useBookingStore } from "@/stores/useBookingStore";
 import { useRouter } from "expo-router";
-import { StyleSheet } from "react-native";
+import { StyleSheet, View } from "react-native";
+
+import { FilterOption, LocationTopBar, ServiceBottomSheet, ServiceCategory } from "@/components/booking";
+import { ScreenContainer } from "@/components/shared-ui";
+import { useBookingStore } from "@/stores/useBookingStore";
 
 // ============================================================================
 // COMPONENT
@@ -51,6 +52,11 @@ export default function BookingsScreen() {
     console.log("Service selected:", service);
   };
 
+  const handleSelectServices = () => {
+    // Handle service selection confirmation - navigate to next step in booking flow
+    console.log("Services confirmed");
+  };
+
   // ===========================================================================
   // RENDER
   // ===========================================================================
@@ -67,10 +73,11 @@ export default function BookingsScreen() {
         selectedService={selectedService}
       />
 
-      {/* Main Content */}
-      <Container flex={1} paddingHorizontal="lg" backgroundColor="transparent">
-        {/* Map and shop list content will be added here */}
-      </Container>
+      {/* Main Content - Map placeholder */}
+      <View style={styles.mapPlaceholder}>{/* Map view will be added here */}</View>
+
+      {/* Service Bottom Sheet */}
+      <ServiceBottomSheet onSelectServices={handleSelectServices} />
     </ScreenContainer>
   );
 }
@@ -82,5 +89,8 @@ export default function BookingsScreen() {
 const styles = StyleSheet.create({
   container: {
     backgroundColor: "#E8ECF0",
+  },
+  mapPlaceholder: {
+    flex: 1,
   },
 });
