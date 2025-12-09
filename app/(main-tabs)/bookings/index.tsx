@@ -7,9 +7,9 @@
  *
  * FEATURES:
  *   - Location-based shop discovery with top bar navigation
- *   - Dual filtering: Service categories + availability/rating filters
- *   - Map view with nearby shops (to be implemented)
- *   - State managed via useBookingStore
+ *   - Service-based filtering
+ *   - Map view with nearby shops
+ *   - State managed via useBookingStore and useShopStore
  *
  * OWNER: Waleed Mansour
  */
@@ -29,7 +29,7 @@ import {
 } from "@/components/booking";
 import { ScreenContainer } from "@/components/shared-ui";
 import { useBookingStore } from "@/stores/useBookingStore";
-import { useMechanicStore } from "@/stores/useMechanicStore";
+import { useShopStore } from "@/stores/useShopStore";
 
 // ============================================================================
 // CONSTANTS
@@ -45,9 +45,9 @@ const MAX_CAROUSEL_SHOPS = 5;
 // HELPERS
 // ============================================================================
 
-/** Calculate distance between two coordinates using Haversine formula (returns miles) */
-function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 3959; // Earth's radius in miles
+/** Calculate distance between two coordinates using Haversine formula (returns km) */
+function calculateDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371; // Earth's radius in km
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLon = ((lon2 - lon1) * Math.PI) / 180;
   const a =
@@ -69,54 +69,43 @@ export default function BookingsScreen() {
   const selectedServiceCategory = useBookingStore((state) => state.selectedServiceCategory);
   const setSelectedServiceCategory = useBookingStore((state) => state.setSelectedServiceCategory);
 
-  // ═══════════════ MECHANIC STORE (shops, filters) ═══════════════
-  // Select raw state values - don't call getter methods inside selectors (causes infinite loop)
-  const shops = useMechanicStore((state) => state.shops);
-  const shopIds = useMechanicStore((state) => state.shopIds);
-  const selectedFilter = useMechanicStore((state) => state.selectedFilter);
-  const setSelectedShopId = useMechanicStore((state) => state.setSelectedShopId);
-  const setSelectedFilter = useMechanicStore((state) => state.setSelectedFilter);
-  const setSelectedServiceCategoryFilter = useMechanicStore((state) => state.setSelectedServiceCategory);
+  // ═══════════════ SHOP STORE (shops, filters, selection) ═══════════════
+  const shops = useShopStore((state) => state.shops);
+  const shopIds = useShopStore((state) => state.shopIds);
+  const filters = useShopStore((state) => state.filters);
+  const selectShop = useShopStore((state) => state.selectShop);
+  const setFilters = useShopStore((state) => state.setFilters);
 
   const filteredShops = useMemo(() => {
     let filtered = shopIds.map((id) => shops[id]).filter(Boolean);
 
-    // Apply filters first
-    if (selectedFilter === "available_now") {
-      filtered = filtered.filter((shop) => shop.availability > 0);
-    } else if (selectedFilter === "top_rated") {
-      filtered = [...filtered].sort((a, b) => {
-        if (b.rating !== a.rating) {
-          return b.rating - a.rating;
-        }
-        return a.isVerified === b.isVerified ? 0 : a.isVerified ? -1 : 1;
-      });
-    } else if (selectedFilter === "specialists") {
-      filtered = filtered.filter((shop) => shop.isVerified);
+    // Apply availability filter
+    if (filters.availableOnly) {
+      filtered = filtered.filter((shop) => shop.hasAvailableSlots);
+    }
+
+    // Apply minimum rating filter
+    if (filters.minRating > 0) {
+      filtered = filtered.filter((shop) => (shop.rating ?? 0) >= filters.minRating);
+    }
+
+    // Apply service ID filter
+    if (filters.serviceIds.length > 0) {
+      filtered = filtered.filter((shop) => filters.serviceIds.some((svcId) => shop.serviceIds.includes(svcId)));
     }
 
     // Sort by distance from user location (closest first) if we have user location
     if (userLocation?.latitude && userLocation?.longitude) {
       filtered = [...filtered].sort((a, b) => {
-        const distA = calculateDistance(
-          userLocation.latitude,
-          userLocation.longitude,
-          a.coordinate.latitude,
-          a.coordinate.longitude
-        );
-        const distB = calculateDistance(
-          userLocation.latitude,
-          userLocation.longitude,
-          b.coordinate.latitude,
-          b.coordinate.longitude
-        );
+        const distA = calculateDistanceKm(userLocation.latitude, userLocation.longitude, a.latitude, a.longitude);
+        const distB = calculateDistanceKm(userLocation.latitude, userLocation.longitude, b.latitude, b.longitude);
         return distA - distB;
       });
     }
 
     // Limit to closest shops for carousel
     return filtered.slice(0, MAX_CAROUSEL_SHOPS);
-  }, [shops, shopIds, selectedFilter, userLocation]);
+  }, [shops, shopIds, filters, userLocation]);
 
   // ===========================================================================
   // HANDLERS
@@ -129,14 +118,21 @@ export default function BookingsScreen() {
   };
 
   const handleFilterSelect = (filter: FilterOption) => {
-    setSelectedFilter(filter);
+    // Map filter options to shop store filters
+    if (filter === "available_now") {
+      setFilters({ availableOnly: true, minRating: 0 });
+    } else if (filter === "top_rated") {
+      setFilters({ availableOnly: false, minRating: 4.0 });
+    } else {
+      // Default/specialists - clear filters
+      setFilters({ availableOnly: false, minRating: 0 });
+    }
     console.log("Shop filter selected:", filter);
   };
 
   const handleServiceSelect = (service: ServiceCategory) => {
-    // Update both stores: service category for service list AND shop filtering
-    setSelectedServiceCategory(service); // For service list display
-    setSelectedServiceCategoryFilter(service); // For shop filtering
+    // Update booking store for service display
+    setSelectedServiceCategory(service);
     console.log("Service category selected:", service);
   };
 
@@ -147,7 +143,7 @@ export default function BookingsScreen() {
 
   const handleShopSelect = (shop: Shop) => {
     // Store selected shop for booking flow
-    setSelectedShopId(shop.id);
+    selectShop(shop.id);
     console.log("Shop selected:", shop.name);
     // TODO: Navigate to next step in booking flow (e.g., shop details or service selection)
     // router.push(`/bookings/shop/${shop.id}`);

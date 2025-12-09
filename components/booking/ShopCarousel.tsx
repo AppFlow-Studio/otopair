@@ -7,11 +7,13 @@
  *
  * PROPS:
  *   - shops (Shop[]): Array of shop objects to display
- *   - onShopSelect ((shop: Shop) => void): Called when a shop card is tapped [optional]
+ *   - userLocation (UserLocation): User's location for distance calculation
+ *   - onShopSelect ((shop: Shop) => void): Called when a shop card is tapped
  *
  * EXAMPLE:
  *   <ShopCarousel
  *     shops={nearbyShops}
+ *     userLocation={userLocation}
  *     onShopSelect={(shop) => handleShopSelect(shop)}
  *   />
  *
@@ -30,9 +32,9 @@ import { Animated, Dimensions, Pressable, ScrollView, StyleSheet, View } from "r
 // HELPERS
 // ============================================================================
 
-/** Calculate distance between two coordinates using Haversine formula (returns miles) */
-function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 3959; // Earth's radius in miles
+/** Calculate distance between two coordinates using Haversine formula (returns km) */
+function calculateDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 6371; // Earth's radius in km
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLon = ((lon2 - lon1) * Math.PI) / 180;
   const a =
@@ -43,42 +45,10 @@ function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: numbe
 }
 
 /** Format distance for display */
-function formatDistance(miles: number): string {
-  if (miles < 0.1) return "< 0.1 Mi";
-  return `${miles.toFixed(1)} Mi`;
-}
-
-/**
- * Availability gradient colors (0-10 scale)
- * Based on map marker design: Dark (closed) → Red → Orange → Yellow → Green
- */
-const AVAILABILITY_COLORS = [
-  "#3D4654", // 0 - Dark/Closed
-  "#E85D5D", // 1 - Red/Salmon
-  "#E86A5D", // 2
-  "#F28B5A", // 3 - Orange-Red
-  "#F5A754", // 4 - Orange
-  "#F5C254", // 5 - Yellow-Orange
-  "#E8D44D", // 6 - Yellow
-  "#C4D94D", // 7 - Yellow-Green
-  "#8FD44D", // 8 - Light Green
-  "#5FCF5F", // 9 - Green
-  "#4CB34C", // 10 - Full Green
-] as const;
-
-/** Get color based on availability score (0-10) */
-function getAvailabilityColor(availability: number): string {
-  const clamped = Math.max(0, Math.min(10, Math.round(availability)));
-  return AVAILABILITY_COLORS[clamped];
-}
-
-/** Get availability label */
-function getAvailabilityLabel(availability: number): string {
-  if (availability === 0) return "Closed";
-  if (availability <= 3) return "Low";
-  if (availability <= 6) return "Medium";
-  if (availability <= 8) return "Good";
-  return "High";
+function formatDistance(km: number): string {
+  if (km < 0.1) return "< 0.1 km";
+  if (km < 1) return `${(km * 1000).toFixed(0)} m`;
+  return `${km.toFixed(1)} km`;
 }
 
 // ============================================================================
@@ -114,12 +84,7 @@ export function ShopCarousel({ shops, userLocation, onShopSelect, offsetY = 0 }:
     if (!userLocation?.latitude || !userLocation?.longitude) return {};
     const distances: Record<string, string> = {};
     shops.forEach((shop) => {
-      const dist = calculateDistance(
-        userLocation.latitude,
-        userLocation.longitude,
-        shop.coordinate.latitude,
-        shop.coordinate.longitude
-      );
+      const dist = calculateDistanceKm(userLocation.latitude, userLocation.longitude, shop.latitude, shop.longitude);
       distances[shop.id] = formatDistance(dist);
     });
     return distances;
@@ -136,7 +101,7 @@ export function ShopCarousel({ shops, userLocation, onShopSelect, offsetY = 0 }:
   const handleCardPress = useCallback(
     (shop: Shop) => {
       const scaleAnim = getAnimValue(shop.id);
-      
+
       // Quick scale animation for tap feedback
       Animated.sequence([
         Animated.timing(scaleAnim, {
@@ -179,14 +144,16 @@ export function ShopCarousel({ shops, userLocation, onShopSelect, offsetY = 0 }:
                     <Text weight="semiBold" size="md" color={BrandColors.primary}>
                       {shop.name}
                     </Text>
-                    <View style={styles.ratingBadge}>
-                      <Text size="xs" color={BrandColors.secondary}>
-                        ★
-                      </Text>
-                      <Text weight="semiBold" size="xs" color={BrandColors.primary}>
-                        {shop.rating}
-                      </Text>
-                    </View>
+                    {shop.rating && (
+                      <View style={styles.ratingBadge}>
+                        <Text size="xs" color={BrandColors.secondary}>
+                          ★
+                        </Text>
+                        <Text weight="semiBold" size="xs" color={BrandColors.primary}>
+                          {shop.rating.toFixed(1)}
+                        </Text>
+                      </View>
+                    )}
                   </View>
                   <View style={styles.cardDetails}>
                     <Text size="xs" color="#6B7280">
@@ -205,16 +172,13 @@ export function ShopCarousel({ shops, userLocation, onShopSelect, offsetY = 0 }:
                     <Text size="xs" color="#6B7280">
                       {" • "}
                     </Text>
-                    <Text size="xs" color={getAvailabilityColor(shop.availability)} weight="medium">
-                      {getAvailabilityLabel(shop.availability)}
+                    <Text
+                      size="xs"
+                      color={shop.hasAvailableSlots ? "#4CB34C" : "#6B7280"}
+                      weight={shop.hasAvailableSlots ? "medium" : "regular"}
+                    >
+                      {shop.hasAvailableSlots ? "Available" : "No Slots"}
                     </Text>
-                    {shop.isVerified && (
-                      <View style={styles.verifiedBadge}>
-                        <Text size="xs" color="#22C55E">
-                          ✓ Verified
-                        </Text>
-                      </View>
-                    )}
                   </View>
                 </View>
               </View>
@@ -314,10 +278,4 @@ const styles = StyleSheet.create({
     alignItems: "center",
     flexWrap: "wrap",
   },
-  verifiedBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginLeft: Spacing.sm,
-  },
 });
-

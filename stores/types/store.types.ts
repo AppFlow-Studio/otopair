@@ -67,23 +67,46 @@ export interface Booking {
 
 /** A shop/mechanic business entity */
 export interface Shop {
-  /** Unique identifier (auto-incrementing) */
-  id: number;
+  /** Unique identifier */
+  id: string;
   /** Shop display name */
   name: string;
-  /** Average rating (0-5) */
-  rating: number;
+
+  // ─── Location ───
   /** Street address */
   address: string;
-  /** Availability score (0-10, where 0 = unavailable/closed, 10 = fully available) */
-  availability: number;
-  /** Whether the shop is verified */
-  isVerified: boolean;
-  /** Geographic coordinates */
-  coordinate: {
-    latitude: number;
-    longitude: number;
-  };
-  /** Service categories this shop offers */
-  serviceCategories: ServiceCategory[];
+  /** Latitude coordinate */
+  latitude: number;
+  /** Longitude coordinate */
+  longitude: number;
+  /** Distance in km (calculated client-side) */
+  distanceKm: number | null;
+
+  // ─── Details ───
+  /** Average rating (0-5) */
+  rating: number | null;
+  /** Shop image URL */
+  imageUrl: string | null;
+
+  // ─── Availability ───
+  /** Whether the shop has available appointment slots */
+  hasAvailableSlots: boolean;
+  /** Next available time slot (ISO datetime) */
+  nextAvailableSlot: string | null;
+
+  // ─── Services ───
+  /** Service IDs offered by this shop */
+  serviceIds: string[];
+}
+
+/** Shop filter options */
+export interface ShopFilters {
+  /** Maximum distance in km */
+  maxDistance: number;
+  /** Minimum rating (0-5) */
+  minRating: number;
+  /** Show only shops with available slots */
+  availableOnly: boolean;
+  /** Filter by specific service IDs */
+  serviceIds: string[];
 }

@@ -7,13 +7,11 @@
  *
  * PROPS:
  *   - shop (Shop): The shop data to display
- *   - isSelected (boolean): Whether this marker is currently selected
  *   - onPress (() => void): Called when marker is tapped
  *
  * EXAMPLE:
  *   <ShopMarker
  *     shop={shop}
- *     isSelected={selectedShopId === shop.id}
  *     onPress={() => handleSelectShop(shop)}
  *   />
  *
@@ -31,36 +29,13 @@ import { Marker } from "react-native-maps";
 // CONSTANTS
 // ============================================================================
 
-/**
- * Availability gradient colors (0-10 scale)
- * Based on map marker design: Dark (closed) → Red → Orange → Yellow → Green
- */
-const AVAILABILITY_COLORS = [
-  "#3D4654", // 0 - Dark/Closed (charcoal)
-  "#E85D5D", // 1 - Red/Salmon
-  "#E86A5D", // 2
-  "#F28B5A", // 3 - Orange-Red
-  "#F5A754", // 4 - Orange
-  "#F5C254", // 5 - Yellow-Orange
-  "#E8D44D", // 6 - Yellow
-  "#C4D94D", // 7 - Yellow-Green
-  "#8FD44D", // 8 - Light Green
-  "#5FCF5F", // 9 - Green
-  "#4CB34C", // 10 - Full Green (fully available)
-] as const;
-
-// ============================================================================
-// HELPERS
-// ============================================================================
-
-/**
- * Get color based on availability score (0-10)
- */
-function getAvailabilityColor(availability: number): string {
-  // Clamp availability to 0-10 range
-  const clamped = Math.max(0, Math.min(10, Math.round(availability)));
-  return AVAILABILITY_COLORS[clamped];
-}
+/** Colors for marker based on availability status */
+const MarkerColors = {
+  /** Available shops - green */
+  available: "#4CB34C",
+  /** Unavailable shops - dark gray */
+  unavailable: "#3D4654",
+} as const;
 
 // ============================================================================
 // TYPES
@@ -81,8 +56,8 @@ function ShopMarkerComponent({ shop, onPress }: ShopMarkerProps) {
   // Animation for tap feedback
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
-  // Get marker color based on availability (0-10)
-  const backgroundColor = getAvailabilityColor(shop.availability);
+  // Get marker color based on availability
+  const backgroundColor = shop.hasAvailableSlots ? MarkerColors.available : MarkerColors.unavailable;
 
   const handlePress = useCallback(() => {
     // Quick scale animation for tap feedback
@@ -105,7 +80,7 @@ function ShopMarkerComponent({ shop, onPress }: ShopMarkerProps) {
 
   return (
     <Marker
-      coordinate={shop.coordinate}
+      coordinate={{ latitude: shop.latitude, longitude: shop.longitude }}
       onPress={handlePress}
       anchor={{ x: 0.5, y: 1 }} // Anchor at bottom center (tip of pointer)
       tracksViewChanges={false} // Performance optimization
@@ -114,7 +89,7 @@ function ShopMarkerComponent({ shop, onPress }: ShopMarkerProps) {
         {/* Badge with rating */}
         <View style={[styles.badge, { backgroundColor }]}>
           <Ionicons name="star" size={12} color={BrandColors.white} />
-          <Text style={styles.ratingText}>{shop.rating.toFixed(1)}</Text>
+          <Text style={styles.ratingText}>{shop.rating?.toFixed(1) ?? "N/A"}</Text>
         </View>
 
         {/* Pointer/Triangle */}
@@ -166,4 +141,3 @@ const styles = StyleSheet.create({
     marginTop: -1, // Overlap slightly with badge
   },
 });
-

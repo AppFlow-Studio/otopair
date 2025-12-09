@@ -1,7 +1,7 @@
 /**
  * BookingMap
  *
- * PURPOSE: Displays an interactive map with mechanic shop markers for the booking flow
+ * PURPOSE: Displays an interactive map with shop markers for the booking flow
  *
  * USED IN: app/(main-tabs)/bookings/index.tsx
  *
@@ -18,7 +18,7 @@
 
 import type { Shop } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
-import { useMechanicStore } from "@/stores/useMechanicStore";
+import { useShopStore } from "@/stores/useShopStore";
 import * as Location from "expo-location";
 import React, { useCallback, useEffect, useMemo } from "react";
 import { StyleSheet, View } from "react-native";
@@ -35,10 +35,6 @@ interface BookingMapProps {
 }
 
 // ============================================================================
-// NOTE: Shop data is now managed in useMechanicStore (50 NYC shops)
-// ============================================================================
-
-// ============================================================================
 // COMPONENT
 // ============================================================================
 
@@ -49,40 +45,32 @@ export function BookingMap({ onShopSelect }: BookingMapProps) {
   const mapRegion = useBookingStore((state) => state.mapRegion);
   const setMapRegion = useBookingStore((state) => state.setMapRegion);
 
-  // Select raw state values - don't call getter methods inside selectors (causes infinite loop)
-  const shopsRecord = useMechanicStore((state) => state.shops);
-  const shopIds = useMechanicStore((state) => state.shopIds);
-  const selectedFilter = useMechanicStore((state) => state.selectedFilter);
-  const selectedServiceCategory = useMechanicStore((state) => state.selectedServiceCategory);
+  // Shop store subscriptions
+  const shopsRecord = useShopStore((state) => state.shops);
+  const shopIds = useShopStore((state) => state.shopIds);
+  const filters = useShopStore((state) => state.filters);
 
   // Compute filtered shops based on active filters
   const shops = useMemo(() => {
     let filtered = shopIds.map((id) => shopsRecord[id]).filter(Boolean);
 
-    // Filter by service category (if selected)
-    if (selectedServiceCategory) {
-      filtered = filtered.filter((shop) => shop.serviceCategories?.includes(selectedServiceCategory));
+    // Filter by availability
+    if (filters.availableOnly) {
+      filtered = filtered.filter((shop) => shop.hasAvailableSlots);
     }
 
-    // Filter by filter option
-    if (selectedFilter === "available_now") {
-      // Only show shops with availability > 0 (not closed)
-      filtered = filtered.filter((shop) => shop.availability > 0);
-    } else if (selectedFilter === "top_rated") {
-      // Sort by rating (highest first), then by verified status
-      filtered = [...filtered].sort((a, b) => {
-        if (b.rating !== a.rating) {
-          return b.rating - a.rating;
-        }
-        return a.isVerified === b.isVerified ? 0 : a.isVerified ? -1 : 1;
-      });
-    } else if (selectedFilter === "specialists") {
-      // Filter by verified shops (as a proxy for specialists)
-      filtered = filtered.filter((shop) => shop.isVerified);
+    // Filter by minimum rating
+    if (filters.minRating > 0) {
+      filtered = filtered.filter((shop) => (shop.rating ?? 0) >= filters.minRating);
+    }
+
+    // Filter by service IDs
+    if (filters.serviceIds.length > 0) {
+      filtered = filtered.filter((shop) => filters.serviceIds.some((serviceId) => shop.serviceIds.includes(serviceId)));
     }
 
     return filtered;
-  }, [shopsRecord, shopIds, selectedFilter, selectedServiceCategory]);
+  }, [shopsRecord, shopIds, filters]);
 
   // ═══════════════ STATE-EFFECT: Computed Values ═══════════════
   // Default to NYC (Midtown Manhattan) if no user location
