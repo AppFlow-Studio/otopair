@@ -67,18 +67,16 @@ export interface Booking {
 
 /** A shop/mechanic business entity */
 export interface Shop {
-  /** Unique identifier */
-  id: string;
+  /** Unique identifier (auto-incrementing) */
+  id: number;
   /** Shop display name */
   name: string;
   /** Average rating (0-5) */
   rating: number;
   /** Street address */
   address: string;
-  /** Distance from user (e.g., "1.1 Mi") */
-  distance: string;
-  /** Whether the shop is currently open */
-  isOpen: boolean;
+  /** Availability score (0-10, where 0 = unavailable/closed, 10 = fully available) */
+  availability: number;
   /** Whether the shop is verified */
   isVerified: boolean;
   /** Geographic coordinates */
@@ -86,4 +84,6 @@ export interface Shop {
     latitude: number;
     longitude: number;
   };
+  /** Service categories this shop offers */
+  serviceCategories: ServiceCategory[];
 }

@@ -13,6 +13,7 @@
  */
 
 import { create } from "zustand";
+import { MOCK_SHOPS } from "./data/mockShops";
 import type { FilterOption, ServiceCategory, Shop } from "./types/store.types";
 
 // ─────────────────────────────────────────────────────────────
@@ -22,11 +23,11 @@ import type { FilterOption, ServiceCategory, Shop } from "./types/store.types";
 interface MechanicState {
   // ═══════════════ DATA (like database tables) ═══════════════
   /** All shops indexed by ID */
-  shops: Record<string, Shop>;
+  shops: Record<number, Shop>;
   /** Ordered list of shop IDs */
-  shopIds: string[];
+  shopIds: number[];
   /** Currently selected shop ID */
-  selectedShopId: string | null;
+  selectedShopId: number | null;
 
   // ═══════════════ FILTER STATE ═══════════════
   /** Selected filter option (Available Now, Top Rated, Specialists) */
@@ -46,13 +47,13 @@ interface MechanicState {
   /** Add or update a single shop */
   setShop: (shop: Shop) => void;
   /** Remove a shop by ID */
-  removeShop: (shopId: string) => void;
+  removeShop: (shopId: number) => void;
   /** Clear all shops */
   clearShops: () => void;
 
   // ═══════════════ SELECTION ACTIONS ═══════════════
   /** Set the selected shop ID */
-  setSelectedShopId: (shopId: string | null) => void;
+  setSelectedShopId: (shopId: number | null) => void;
   /** Clear selected shop */
   clearSelectedShop: () => void;
 
@@ -66,7 +67,7 @@ interface MechanicState {
 
   // ═══════════════ GETTERS ═══════════════
   /** Get shop by ID */
-  getShopById: (shopId: string) => Shop | undefined;
+  getShopById: (shopId: number) => Shop | undefined;
   /** Get currently selected shop */
   getSelectedShop: () => Shop | null;
   /** Get all shops as array */
@@ -82,60 +83,13 @@ interface MechanicState {
 }
 
 // ─────────────────────────────────────────────────────────────
-// MOCK DATA (TODO: Replace with API data)
-// ─────────────────────────────────────────────────────────────
-
-const MOCK_SHOPS: Shop[] = [
-  {
-    id: "shop_1",
-    name: "Premium Auto Care",
-    rating: 4.8,
-    address: "1445 Richmond Ave",
-    distance: "1.1 Mi",
-    isOpen: true,
-    isVerified: true,
-    coordinate: { latitude: 37.7749, longitude: -122.4194 },
-  },
-  {
-    id: "shop_2",
-    name: "Happy Medium Auto",
-    rating: 4.6,
-    address: "2100 Market St",
-    distance: "1.8 Mi",
-    isOpen: true,
-    isVerified: true,
-    coordinate: { latitude: 37.7849, longitude: -122.4094 },
-  },
-  {
-    id: "shop_3",
-    name: "Quick Fix Garage",
-    rating: 4.5,
-    address: "890 Valencia St",
-    distance: "2.2 Mi",
-    isOpen: false,
-    isVerified: false,
-    coordinate: { latitude: 37.7649, longitude: -122.4294 },
-  },
-  {
-    id: "shop_4",
-    name: "City Auto Service",
-    rating: 4.9,
-    address: "555 Mission St",
-    distance: "0.8 Mi",
-    isOpen: true,
-    isVerified: true,
-    coordinate: { latitude: 37.7799, longitude: -122.4144 },
-  },
-];
-
-// ─────────────────────────────────────────────────────────────
 // STORE IMPLEMENTATION
 // ─────────────────────────────────────────────────────────────
 
 export const useMechanicStore = create<MechanicState>()((set, get) => {
   // Initialize with mock data
-  const initialShops: Record<string, Shop> = {};
-  const initialShopIds: string[] = [];
+  const initialShops: Record<number, Shop> = {};
+  const initialShopIds: number[] = [];
   MOCK_SHOPS.forEach((shop) => {
     initialShops[shop.id] = shop;
     initialShopIds.push(shop.id);
@@ -154,8 +108,8 @@ export const useMechanicStore = create<MechanicState>()((set, get) => {
     // ═══════════════ SHOP ACTIONS ═══════════════
     setShops: (shops) =>
       set(() => {
-        const shopsRecord: Record<string, Shop> = {};
-        const shopIds: string[] = [];
+        const shopsRecord: Record<number, Shop> = {};
+        const shopIds: number[] = [];
         shops.forEach((shop) => {
           shopsRecord[shop.id] = shop;
           shopIds.push(shop.id);
@@ -250,7 +204,8 @@ export const useMechanicStore = create<MechanicState>()((set, get) => {
 
       // Filter by filter option
       if (selectedFilter === "available_now") {
-        filtered = filtered.filter((shop) => shop.isOpen);
+        // Only show shops with availability > 0 (not closed)
+        filtered = filtered.filter((shop) => shop.availability > 0);
       } else if (selectedFilter === "top_rated") {
         // Sort by rating (highest first), then by verified status
         filtered = filtered.sort((a, b) => {
@@ -311,4 +266,3 @@ export const useMechanicStore = create<MechanicState>()((set, get) => {
     },
   };
 });
-
