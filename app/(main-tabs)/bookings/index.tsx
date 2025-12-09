@@ -69,27 +69,21 @@ export default function BookingsScreen() {
   const selectedServiceCategory = useBookingStore((state) => state.selectedServiceCategory);
   const setSelectedServiceCategory = useBookingStore((state) => state.setSelectedServiceCategory);
 
-  // ═══════════════ MECHANIC STORE (shops, filters, selection) ═══════════════
+  // ═══════════════ MECHANIC STORE (shops, filters) ═══════════════
   // Select raw state values - don't call getter methods inside selectors (causes infinite loop)
   const shops = useMechanicStore((state) => state.shops);
   const shopIds = useMechanicStore((state) => state.shopIds);
-  const selectedShopId = useMechanicStore((state) => state.selectedShopId);
   const selectedFilter = useMechanicStore((state) => state.selectedFilter);
   const setSelectedShopId = useMechanicStore((state) => state.setSelectedShopId);
   const setSelectedFilter = useMechanicStore((state) => state.setSelectedFilter);
   const setSelectedServiceCategoryFilter = useMechanicStore((state) => state.setSelectedServiceCategory);
-
-  // Compute derived values using useMemo instead of store getters
-  const selectedShop = useMemo(() => {
-    return selectedShopId ? shops[selectedShopId] || null : null;
-  }, [selectedShopId, shops]);
 
   const filteredShops = useMemo(() => {
     let filtered = shopIds.map((id) => shops[id]).filter(Boolean);
 
     // Apply filters first
     if (selectedFilter === "available_now") {
-      filtered = filtered.filter((shop) => shop.isOpen);
+      filtered = filtered.filter((shop) => shop.availability > 0);
     } else if (selectedFilter === "top_rated") {
       filtered = [...filtered].sort((a, b) => {
         if (b.rating !== a.rating) {
@@ -152,8 +146,11 @@ export default function BookingsScreen() {
   };
 
   const handleShopSelect = (shop: Shop) => {
+    // Store selected shop for booking flow
     setSelectedShopId(shop.id);
     console.log("Shop selected:", shop.name);
+    // TODO: Navigate to next step in booking flow (e.g., shop details or service selection)
+    // router.push(`/bookings/shop/${shop.id}`);
   };
 
   // ===========================================================================
@@ -163,7 +160,7 @@ export default function BookingsScreen() {
   return (
     <ScreenContainer style={styles.container}>
       {/* Main Content - Map with shop markers (full screen) */}
-      <BookingMap onShopSelect={handleShopSelect} selectedShopId={selectedShopId} />
+      <BookingMap onShopSelect={handleShopSelect} />
 
       {/* Location Top Bar - Positioned over map with blur */}
       <View style={styles.topBarContainer}>
@@ -180,7 +177,7 @@ export default function BookingsScreen() {
       {/* Shop Carousel - shows filtered shops */}
       <ShopCarousel
         shops={filteredShops}
-        selectedShopId={selectedShopId}
+        userLocation={userLocation}
         onShopSelect={handleShopSelect}
         offsetY={VERTICAL_OFFSET}
       />

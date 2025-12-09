@@ -7,14 +7,12 @@
  *
  * PROPS:
  *   - shops (Shop[]): Array of shop objects to display
- *   - selectedShopId (string): ID of currently selected shop [optional]
  *   - onShopSelect ((shop: Shop) => void): Called when a shop card is tapped [optional]
  *
  * EXAMPLE:
  *   <ShopCarousel
  *     shops={nearbyShops}
- *     selectedShopId="shop_1"
- *     onShopSelect={(shop) => console.log("Selected:", shop.name)}
+ *     onShopSelect={(shop) => handleShopSelect(shop)}
  *   />
  *
  * OWNER: Waleed Mansour
@@ -22,11 +20,66 @@
 
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 import { BorderRadius } from "@/constants/theme";
-import type { Shop } from "@/stores/types/store.types";
+import type { Shop, UserLocation } from "@/stores/types/store.types";
 import { BlurView } from "expo-blur";
 import { BriefcaseBusiness } from "lucide-react-native";
-import React, { useCallback } from "react";
-import { Dimensions, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import React, { useCallback, useMemo, useRef } from "react";
+import { Animated, Dimensions, Pressable, ScrollView, StyleSheet, View } from "react-native";
+
+// ============================================================================
+// HELPERS
+// ============================================================================
+
+/** Calculate distance between two coordinates using Haversine formula (returns miles) */
+function calculateDistance(lat1: number, lon1: number, lat2: number, lon2: number): number {
+  const R = 3959; // Earth's radius in miles
+  const dLat = ((lat2 - lat1) * Math.PI) / 180;
+  const dLon = ((lon2 - lon1) * Math.PI) / 180;
+  const a =
+    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+}
+
+/** Format distance for display */
+function formatDistance(miles: number): string {
+  if (miles < 0.1) return "< 0.1 Mi";
+  return `${miles.toFixed(1)} Mi`;
+}
+
+/**
+ * Availability gradient colors (0-10 scale)
+ * Based on map marker design: Dark (closed) → Red → Orange → Yellow → Green
+ */
+const AVAILABILITY_COLORS = [
+  "#3D4654", // 0 - Dark/Closed
+  "#E85D5D", // 1 - Red/Salmon
+  "#E86A5D", // 2
+  "#F28B5A", // 3 - Orange-Red
+  "#F5A754", // 4 - Orange
+  "#F5C254", // 5 - Yellow-Orange
+  "#E8D44D", // 6 - Yellow
+  "#C4D94D", // 7 - Yellow-Green
+  "#8FD44D", // 8 - Light Green
+  "#5FCF5F", // 9 - Green
+  "#4CB34C", // 10 - Full Green
+] as const;
+
+/** Get color based on availability score (0-10) */
+function getAvailabilityColor(availability: number): string {
+  const clamped = Math.max(0, Math.min(10, Math.round(availability)));
+  return AVAILABILITY_COLORS[clamped];
+}
+
+/** Get availability label */
+function getAvailabilityLabel(availability: number): string {
+  if (availability === 0) return "Closed";
+  if (availability <= 3) return "Low";
+  if (availability <= 6) return "Medium";
+  if (availability <= 8) return "Good";
+  return "High";
+}
 
 // ============================================================================
 // TYPES
@@ -35,8 +88,8 @@ import { Dimensions, Pressable, ScrollView, StyleSheet, View } from "react-nativ
 interface ShopCarouselProps {
   /** Array of shop objects to display */
   shops: Shop[];
-  /** ID of currently selected shop */
-  selectedShopId?: string;
+  /** User's current location for distance calculation */
+  userLocation?: UserLocation | null;
   /** Called when a shop card is tapped */
   onShopSelect?: (shop: Shop) => void;
   /** Vertical offset to shift carousel down (pixels) */
@@ -47,22 +100,66 @@ interface ShopCarouselProps {
 // COMPONENT
 // ============================================================================
 
-export function ShopCarousel({ shops, selectedShopId, onShopSelect, offsetY = 0 }: ShopCarouselProps) {
+export function ShopCarousel({ shops, userLocation, onShopSelect, offsetY = 0 }: ShopCarouselProps) {
   const { height } = Dimensions.get("window");
   // Position just above the ServiceBottomSheet collapsed position (22% from bottom)
   const bottomSheetCollapsedHeight = height * 0.22;
   const bottomPosition = bottomSheetCollapsedHeight + Spacing.md - offsetY;
 
+  // Store animation refs for each shop card
+  const animationRefs = useRef<Record<string, Animated.Value>>({});
+
+  // Pre-calculate distances for all shops
+  const shopDistances = useMemo(() => {
+    if (!userLocation?.latitude || !userLocation?.longitude) return {};
+    const distances: Record<string, string> = {};
+    shops.forEach((shop) => {
+      const dist = calculateDistance(
+        userLocation.latitude,
+        userLocation.longitude,
+        shop.coordinate.latitude,
+        shop.coordinate.longitude
+      );
+      distances[shop.id] = formatDistance(dist);
+    });
+    return distances;
+  }, [shops, userLocation]);
+
+  // Get or create animation value for a shop
+  const getAnimValue = useCallback((shopId: string) => {
+    if (!animationRefs.current[shopId]) {
+      animationRefs.current[shopId] = new Animated.Value(1);
+    }
+    return animationRefs.current[shopId];
+  }, []);
+
   const handleCardPress = useCallback(
     (shop: Shop) => {
-      onShopSelect?.(shop);
+      const scaleAnim = getAnimValue(shop.id);
+      
+      // Quick scale animation for tap feedback
+      Animated.sequence([
+        Animated.timing(scaleAnim, {
+          toValue: 0.95,
+          duration: 80,
+          useNativeDriver: true,
+        }),
+        Animated.timing(scaleAnim, {
+          toValue: 1,
+          duration: 80,
+          useNativeDriver: true,
+        }),
+      ]).start(() => {
+        // Trigger onShopSelect after animation completes
+        onShopSelect?.(shop);
+      });
     },
-    [onShopSelect]
+    [onShopSelect, getAnimValue]
   );
 
   const renderShopCard = useCallback(
     (shop: Shop, index: number) => {
-      const isSelected = shop.id === selectedShopId;
+      const scaleAnim = getAnimValue(shop.id);
 
       return (
         <Pressable
@@ -70,57 +167,63 @@ export function ShopCarousel({ shops, selectedShopId, onShopSelect, offsetY = 0 
           style={[styles.cardWrapper, index === 0 && styles.firstCard, index === shops.length - 1 && styles.lastCard]}
           onPress={() => handleCardPress(shop)}
         >
-          <BlurView intensity={85} tint="light" style={[styles.card, isSelected && styles.cardSelected]}>
-            <View style={styles.frostedOverlay} />
-            <View style={styles.cardContent}>
-              <View style={styles.cardIcon}>
-                <BriefcaseBusiness size={24} color={BrandColors.secondary} />
-              </View>
-              <View style={styles.cardInfo}>
-                <View style={styles.cardHeader}>
-                  <Text weight="semiBold" size="md" color={BrandColors.primary}>
-                    {shop.name}
-                  </Text>
-                  <View style={styles.ratingBadge}>
-                    <Text size="xs" color={BrandColors.secondary}>
-                      ★
-                    </Text>
-                    <Text weight="semiBold" size="xs" color={BrandColors.primary}>
-                      {shop.rating}
-                    </Text>
-                  </View>
+          <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
+            <BlurView intensity={85} tint="light" style={styles.card}>
+              <View style={styles.frostedOverlay} />
+              <View style={styles.cardContent}>
+                <View style={styles.cardIcon}>
+                  <BriefcaseBusiness size={24} color={BrandColors.secondary} />
                 </View>
-                <View style={styles.cardDetails}>
-                  <Text size="xs" color="#6B7280">
-                    {shop.address}
-                  </Text>
-                  <Text size="xs" color="#6B7280">
-                    {" • "}
-                  </Text>
-                  <Text size="xs" color="#6B7280">
-                    {shop.distance}
-                  </Text>
-                  <Text size="xs" color="#6B7280">
-                    {" • "}
-                  </Text>
-                  <Text size="xs" color={shop.isOpen ? "#22C55E" : "#EF4444"} weight="medium">
-                    {shop.isOpen ? "Open" : "Closed"}
-                  </Text>
-                  {shop.isVerified && (
-                    <View style={styles.verifiedBadge}>
-                      <Text size="xs" color="#22C55E">
-                        ✓ Verified
+                <View style={styles.cardInfo}>
+                  <View style={styles.cardHeader}>
+                    <Text weight="semiBold" size="md" color={BrandColors.primary}>
+                      {shop.name}
+                    </Text>
+                    <View style={styles.ratingBadge}>
+                      <Text size="xs" color={BrandColors.secondary}>
+                        ★
+                      </Text>
+                      <Text weight="semiBold" size="xs" color={BrandColors.primary}>
+                        {shop.rating}
                       </Text>
                     </View>
-                  )}
+                  </View>
+                  <View style={styles.cardDetails}>
+                    <Text size="xs" color="#6B7280">
+                      {shop.address}
+                    </Text>
+                    {shopDistances[shop.id] && (
+                      <>
+                        <Text size="xs" color="#6B7280">
+                          {" • "}
+                        </Text>
+                        <Text size="xs" color="#6B7280">
+                          {shopDistances[shop.id]}
+                        </Text>
+                      </>
+                    )}
+                    <Text size="xs" color="#6B7280">
+                      {" • "}
+                    </Text>
+                    <Text size="xs" color={getAvailabilityColor(shop.availability)} weight="medium">
+                      {getAvailabilityLabel(shop.availability)}
+                    </Text>
+                    {shop.isVerified && (
+                      <View style={styles.verifiedBadge}>
+                        <Text size="xs" color="#22C55E">
+                          ✓ Verified
+                        </Text>
+                      </View>
+                    )}
+                  </View>
                 </View>
               </View>
-            </View>
-          </BlurView>
+            </BlurView>
+          </Animated.View>
         </Pressable>
       );
     },
-    [selectedShopId, handleCardPress, shops.length]
+    [handleCardPress, shops.length, getAnimValue, shopDistances]
   );
 
   if (shops.length === 0) {
@@ -174,10 +277,6 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.xl,
     padding: Spacing.md,
     overflow: "hidden",
-  },
-  cardSelected: {
-    borderWidth: 2,
-    borderColor: BrandColors.secondary,
   },
   frostedOverlay: {
     ...StyleSheet.absoluteFillObject,

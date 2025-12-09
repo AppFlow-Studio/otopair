@@ -7,25 +7,23 @@
  *
  * PROPS:
  *   - onShopSelect ((shop: Shop) => void): Called when a shop marker is tapped [optional]
- *   - selectedShopId (string): ID of currently selected shop for highlighting [optional]
  *
  * EXAMPLE:
  *   <BookingMap
  *     onShopSelect={(shop) => console.log("Selected:", shop.name)}
- *     selectedShopId="shop_1"
  *   />
  *
  * OWNER: Waleed Mansour, Ahmad Hamoudeh
  */
 
-import { BrandColors } from "@/components/shared-ui";
 import type { Shop } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import * as Location from "expo-location";
 import React, { useCallback, useEffect, useMemo } from "react";
 import { StyleSheet, View } from "react-native";
-import MapView, { Marker, PROVIDER_DEFAULT, Region } from "react-native-maps";
+import MapView, { PROVIDER_DEFAULT, Region } from "react-native-maps";
+import { ShopMarker } from "./ShopMarker";
 
 // ============================================================================
 // TYPES
@@ -34,62 +32,17 @@ import MapView, { Marker, PROVIDER_DEFAULT, Region } from "react-native-maps";
 interface BookingMapProps {
   /** Called when a shop marker is tapped */
   onShopSelect?: (shop: Shop) => void;
-  /** ID of currently selected shop for highlighting */
-  selectedShopId?: string;
 }
 
 // ============================================================================
-// SAMPLE DATA (TODO: Replace with API data)
+// NOTE: Shop data is now managed in useMechanicStore (50 NYC shops)
 // ============================================================================
-
-export const SAMPLE_SHOPS: Shop[] = [
-  {
-    id: "shop_1",
-    name: "Premium Auto Care",
-    rating: 4.8,
-    address: "1445 Richmond Ave",
-    distance: "1.1 Mi",
-    isOpen: true,
-    isVerified: true,
-    coordinate: { latitude: 37.7749, longitude: -122.4194 },
-  },
-  {
-    id: "shop_2",
-    name: "Happy Medium Auto",
-    rating: 4.6,
-    address: "2100 Market St",
-    distance: "1.8 Mi",
-    isOpen: true,
-    isVerified: true,
-    coordinate: { latitude: 37.7849, longitude: -122.4094 },
-  },
-  {
-    id: "shop_3",
-    name: "Quick Fix Garage",
-    rating: 4.5,
-    address: "890 Valencia St",
-    distance: "2.2 Mi",
-    isOpen: false,
-    isVerified: false,
-    coordinate: { latitude: 37.7649, longitude: -122.4294 },
-  },
-  {
-    id: "shop_4",
-    name: "City Auto Service",
-    rating: 4.9,
-    address: "555 Mission St",
-    distance: "0.8 Mi",
-    isOpen: true,
-    isVerified: true,
-    coordinate: { latitude: 37.7799, longitude: -122.4144 },
-  },
-];
 
 // ============================================================================
 // COMPONENT
 // ============================================================================
 
-export function BookingMap({ onShopSelect, selectedShopId }: BookingMapProps) {
+export function BookingMap({ onShopSelect }: BookingMapProps) {
   // ═══════════════ STATE-EFFECT: Store Subscriptions ═══════════════
   const userLocation = useBookingStore((state) => state.userLocation);
   const setUserLocation = useBookingStore((state) => state.setUserLocation);
@@ -99,18 +52,45 @@ export function BookingMap({ onShopSelect, selectedShopId }: BookingMapProps) {
   // Select raw state values - don't call getter methods inside selectors (causes infinite loop)
   const shopsRecord = useMechanicStore((state) => state.shops);
   const shopIds = useMechanicStore((state) => state.shopIds);
+  const selectedFilter = useMechanicStore((state) => state.selectedFilter);
+  const selectedServiceCategory = useMechanicStore((state) => state.selectedServiceCategory);
 
-  // Compute derived values using useMemo
+  // Compute filtered shops based on active filters
   const shops = useMemo(() => {
-    return shopIds.map((id) => shopsRecord[id]).filter(Boolean);
-  }, [shopsRecord, shopIds]);
+    let filtered = shopIds.map((id) => shopsRecord[id]).filter(Boolean);
+
+    // Filter by service category (if selected)
+    if (selectedServiceCategory) {
+      filtered = filtered.filter((shop) => shop.serviceCategories?.includes(selectedServiceCategory));
+    }
+
+    // Filter by filter option
+    if (selectedFilter === "available_now") {
+      // Only show shops with availability > 0 (not closed)
+      filtered = filtered.filter((shop) => shop.availability > 0);
+    } else if (selectedFilter === "top_rated") {
+      // Sort by rating (highest first), then by verified status
+      filtered = [...filtered].sort((a, b) => {
+        if (b.rating !== a.rating) {
+          return b.rating - a.rating;
+        }
+        return a.isVerified === b.isVerified ? 0 : a.isVerified ? -1 : 1;
+      });
+    } else if (selectedFilter === "specialists") {
+      // Filter by verified shops (as a proxy for specialists)
+      filtered = filtered.filter((shop) => shop.isVerified);
+    }
+
+    return filtered;
+  }, [shopsRecord, shopIds, selectedFilter, selectedServiceCategory]);
 
   // ═══════════════ STATE-EFFECT: Computed Values ═══════════════
+  // Default to NYC (Midtown Manhattan) if no user location
   const region: Region = mapRegion || {
-    latitude: userLocation?.latitude || 37.7749,
-    longitude: userLocation?.longitude || -122.4194,
-    latitudeDelta: 0.05,
-    longitudeDelta: 0.05,
+    latitude: userLocation?.latitude || 40.758,
+    longitude: userLocation?.longitude || -73.9855,
+    latitudeDelta: 0.08,
+    longitudeDelta: 0.08,
   };
 
   // ═══════════════ STATE-EFFECT: Effects ═══════════════
@@ -172,14 +152,7 @@ export function BookingMap({ onShopSelect, selectedShopId }: BookingMapProps) {
         showsMyLocationButton={false}
       >
         {shops.map((shop) => (
-          <Marker
-            key={shop.id}
-            coordinate={shop.coordinate}
-            title={shop.name}
-            description={`★ ${shop.rating}`}
-            onPress={() => handleMarkerPress(shop)}
-            pinColor={shop.id === selectedShopId ? BrandColors.secondary : BrandColors.primary}
-          />
+          <ShopMarker key={shop.id} shop={shop} onPress={() => handleMarkerPress(shop)} />
         ))}
       </MapView>
     </View>
