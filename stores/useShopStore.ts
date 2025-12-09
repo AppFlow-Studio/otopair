@@ -23,13 +23,13 @@ import type { Shop, ShopFilters } from "./types/store.types";
 interface ShopState {
   // ═══════════════ DATA ═══════════════
   /** All shops indexed by ID */
-  shops: Record<string, Shop>;
+  shops: Record<number, Shop>;
   /** Ordered list of shop IDs */
-  shopIds: string[];
+  shopIds: number[];
 
   // ═══════════════ SELECTION ═══════════════
   /** Currently selected shop ID */
-  selectedShopId: string | null;
+  selectedShopId: number | null;
 
   // ═══════════════ FILTERS ═══════════════
   /** Current filter settings */
@@ -43,7 +43,7 @@ interface ShopState {
 
   // ═══════════════ GETTERS ═══════════════
   /** Get shop by ID */
-  getShopById: (id: string) => Shop | undefined;
+  getShopById: (id: number) => Shop | undefined;
   /** Get filtered shops based on current filters */
   getFilteredShops: () => Shop[];
   /** Get currently selected shop */
@@ -53,7 +53,7 @@ interface ShopState {
   /** Set shops data (from API) */
   setShops: (shops: Shop[]) => void;
   /** Select a shop by ID */
-  selectShop: (shopId: string | null) => void;
+  selectShop: (shopId: number | null) => void;
   /** Update filter settings */
   setFilters: (filters: Partial<ShopFilters>) => void;
   /** Clear all filters to defaults */
@@ -77,8 +77,8 @@ const DEFAULT_FILTERS: ShopFilters = {
 
 export const useShopStore = create<ShopState>()((set, get) => {
   // Initialize with mock data
-  const initialShops: Record<string, Shop> = {};
-  const initialShopIds: string[] = [];
+  const initialShops: Record<number, Shop> = {};
+  const initialShopIds: number[] = [];
   MOCK_SHOPS.forEach((shop) => {
     initialShops[shop.id] = shop;
     initialShopIds.push(shop.id);
@@ -138,8 +138,8 @@ export const useShopStore = create<ShopState>()((set, get) => {
     // ═══════════════ ACTIONS ═══════════════
     setShops: (shops) =>
       set(() => {
-        const shopsRecord: Record<string, Shop> = {};
-        const shopIds: string[] = [];
+        const shopsRecord: Record<number, Shop> = {};
+        const shopIds: number[] = [];
         shops.forEach((shop) => {
           shopsRecord[shop.id] = shop;
           shopIds.push(shop.id);
@@ -157,7 +157,12 @@ export const useShopStore = create<ShopState>()((set, get) => {
 
     setFilters: (newFilters) =>
       set((state) => ({
-        filters: { ...state.filters, ...newFilters },
+        filters: {
+          ...state.filters,
+          ...newFilters,
+          // Ensure serviceIds is always an array
+          serviceIds: newFilters.serviceIds ?? state.filters.serviceIds ?? [],
+        },
       })),
 
     clearFilters: () =>

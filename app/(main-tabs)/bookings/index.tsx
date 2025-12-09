@@ -15,7 +15,7 @@
  */
 
 import { useRouter } from "expo-router";
-import React, { useMemo } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
 
 import {
@@ -40,6 +40,14 @@ const VERTICAL_OFFSET = 35; // pixels to shift down
 
 /** Maximum number of shops to show in carousel */
 const MAX_CAROUSEL_SHOPS = 5;
+
+/** Map service categories to service IDs */
+const SERVICE_CATEGORY_TO_IDS: Record<ServiceCategory, string[]> = {
+  basic_maintenance: ["svc_oil_change"],
+  tires_wheels: ["svc_tire_service"],
+  brakes_suspension: ["svc_brake_service"],
+  system_diagnostics: ["svc_diagnostics"],
+};
 
 // ============================================================================
 // HELPERS
@@ -77,25 +85,32 @@ export default function BookingsScreen() {
   const setFilters = useShopStore((state) => state.setFilters);
 
   const filteredShops = useMemo(() => {
-    let filtered = shopIds.map((id) => shops[id]).filter(Boolean);
+    // Safety check - ensure we have valid data
+    if (!shopIds || !shops) return [];
 
-    // Apply availability filter
+    let filtered = shopIds.map((id) => shops[id]).filter((shop): shop is Shop => shop != null);
+
+    // Apply availability filter (show only shops with availability > 0)
     if (filters.availableOnly) {
-      filtered = filtered.filter((shop) => shop.hasAvailableSlots);
+      filtered = filtered.filter((shop) => shop.availability > 0);
     }
 
-    // Apply minimum rating filter
+    // Apply minimum rating filter (for "top_rated" - also sort by rating)
     if (filters.minRating > 0) {
-      filtered = filtered.filter((shop) => (shop.rating ?? 0) >= filters.minRating);
+      filtered = filtered
+        .filter((shop) => (shop.rating ?? 0) >= filters.minRating)
+        .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0)); // Sort by rating descending
     }
 
     // Apply service ID filter
-    if (filters.serviceIds.length > 0) {
-      filtered = filtered.filter((shop) => filters.serviceIds.some((svcId) => shop.serviceIds.includes(svcId)));
+    if (filters.serviceIds && filters.serviceIds.length > 0) {
+      filtered = filtered.filter(
+        (shop) => shop.serviceIds && filters.serviceIds.some((svcId) => shop.serviceIds.includes(svcId))
+      );
     }
 
-    // Sort by distance from user location (closest first) if we have user location
-    if (userLocation?.latitude && userLocation?.longitude) {
+    // If no rating filter applied, sort by distance from user location (closest first)
+    if (filters.minRating === 0 && userLocation?.latitude && userLocation?.longitude) {
       filtered = [...filtered].sort((a, b) => {
         const distA = calculateDistanceKm(userLocation.latitude, userLocation.longitude, a.latitude, a.longitude);
         const distB = calculateDistanceKm(userLocation.latitude, userLocation.longitude, b.latitude, b.longitude);
@@ -107,6 +122,39 @@ export default function BookingsScreen() {
     return filtered.slice(0, MAX_CAROUSEL_SHOPS);
   }, [shops, shopIds, filters, userLocation]);
 
+  // Debounce the carousel shops to prevent rapid updates that crash the app
+  const [carouselShops, setCarouselShops] = useState<Shop[]>(filteredShops);
+  const debounceRef = useRef<NodeJS.Timeout | null>(null);
+  const prevFilteredShopsLengthRef = useRef(filteredShops.length);
+
+  useEffect(() => {
+    // Clear any pending debounce
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+
+    // If showing MORE shops (clearing filters), update immediately
+    // If showing FEWER shops (adding filters), debounce to prevent crashes
+    const isShowingMore = filteredShops.length > prevFilteredShopsLengthRef.current;
+    prevFilteredShopsLengthRef.current = filteredShops.length;
+
+    if (isShowingMore || filteredShops.length === 0) {
+      // Immediate update when clearing filters or showing more
+      setCarouselShops(filteredShops);
+    } else {
+      // Debounce when filtering down
+      debounceRef.current = setTimeout(() => {
+        setCarouselShops(filteredShops);
+      }, 50);
+    }
+
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+    };
+  }, [filteredShops]);
+
   // ===========================================================================
   // HANDLERS
   // ===========================================================================
@@ -117,24 +165,46 @@ export default function BookingsScreen() {
     }
   };
 
-  const handleFilterSelect = (filter: FilterOption) => {
-    // Map filter options to shop store filters
-    if (filter === "available_now") {
-      setFilters({ availableOnly: true, minRating: 0 });
-    } else if (filter === "top_rated") {
-      setFilters({ availableOnly: false, minRating: 4.0 });
-    } else {
-      // Default/specialists - clear filters
-      setFilters({ availableOnly: false, minRating: 0 });
-    }
-    console.log("Shop filter selected:", filter);
-  };
+  const handleFilterSelect = useCallback(
+    (filter: FilterOption) => {
+      // Map filter options to shop store filters
+      if (filter === "available_now") {
+        setFilters({ availableOnly: true, minRating: 0 });
+      } else if (filter === "top_rated") {
+        setFilters({ availableOnly: false, minRating: 4.0 });
+      } else {
+        // Default/specialists - clear filters
+        setFilters({ availableOnly: false, minRating: 0 });
+      }
+      console.log("Shop filter selected:", filter);
+    },
+    [setFilters]
+  );
 
-  const handleServiceSelect = (service: ServiceCategory) => {
-    // Update booking store for service display
-    setSelectedServiceCategory(service);
-    console.log("Service category selected:", service);
-  };
+  // Use a ref to track the selected category to avoid re-render loops
+  const selectedServiceRef = React.useRef(selectedServiceCategory);
+  selectedServiceRef.current = selectedServiceCategory;
+
+  const handleServiceSelect = useCallback(
+    (service: ServiceCategory) => {
+      // Toggle service category - if already selected, deselect it
+      const isCurrentlySelected = selectedServiceRef.current === service;
+
+      if (isCurrentlySelected) {
+        // Deselect - clear both states
+        setSelectedServiceCategory(null);
+        setFilters({ serviceIds: [] });
+        console.log("Service category deselected");
+      } else {
+        // Select new category
+        const serviceIds = SERVICE_CATEGORY_TO_IDS[service] || [];
+        setSelectedServiceCategory(service);
+        setFilters({ serviceIds });
+        console.log("Service category selected:", service, "→ serviceIds:", serviceIds);
+      }
+    },
+    [setSelectedServiceCategory, setFilters]
+  );
 
   const handleSelectServices = () => {
     // Handle service selection confirmation - navigate to next step in booking flow
@@ -170,9 +240,9 @@ export default function BookingsScreen() {
         />
       </View>
 
-      {/* Shop Carousel - shows filtered shops */}
+      {/* Shop Carousel - shows filtered shops (debounced) */}
       <ShopCarousel
-        shops={filteredShops}
+        shops={carouselShops}
         userLocation={userLocation}
         onShopSelect={handleShopSelect}
         offsetY={VERTICAL_OFFSET}

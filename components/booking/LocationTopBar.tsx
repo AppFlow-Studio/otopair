@@ -77,8 +77,8 @@ interface LocationTopBarProps {
   onFilterSelect?: (filter: FilterOption) => void;
   /** Called when a service category tab is selected */
   onServiceSelect?: (service: ServiceCategory) => void;
-  /** Currently selected service category */
-  selectedService?: ServiceCategory;
+  /** Currently selected service category (null = none selected) */
+  selectedService?: ServiceCategory | null;
 }
 
 // ============================================================================

@@ -20,7 +20,7 @@ import type { Shop } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useShopStore } from "@/stores/useShopStore";
 import * as Location from "expo-location";
-import React, { useCallback, useEffect, useMemo } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
 import MapView, { PROVIDER_DEFAULT, Region } from "react-native-maps";
 import { ShopMarker } from "./ShopMarker";
@@ -51,12 +51,15 @@ export function BookingMap({ onShopSelect }: BookingMapProps) {
   const filters = useShopStore((state) => state.filters);
 
   // Compute filtered shops based on active filters
-  const shops = useMemo(() => {
-    let filtered = shopIds.map((id) => shopsRecord[id]).filter(Boolean);
+  const filteredShops = useMemo(() => {
+    // Safety check - ensure we have valid data
+    if (!shopIds || !shopsRecord) return [];
 
-    // Filter by availability
+    let filtered = shopIds.map((id) => shopsRecord[id]).filter((shop): shop is Shop => shop != null);
+
+    // Filter by availability (show only shops with availability > 0)
     if (filters.availableOnly) {
-      filtered = filtered.filter((shop) => shop.hasAvailableSlots);
+      filtered = filtered.filter((shop) => shop.availability > 0);
     }
 
     // Filter by minimum rating
@@ -65,12 +68,47 @@ export function BookingMap({ onShopSelect }: BookingMapProps) {
     }
 
     // Filter by service IDs
-    if (filters.serviceIds.length > 0) {
-      filtered = filtered.filter((shop) => filters.serviceIds.some((serviceId) => shop.serviceIds.includes(serviceId)));
+    if (filters.serviceIds && filters.serviceIds.length > 0) {
+      filtered = filtered.filter(
+        (shop) => shop.serviceIds && filters.serviceIds.some((serviceId) => shop.serviceIds.includes(serviceId))
+      );
     }
 
     return filtered;
   }, [shopsRecord, shopIds, filters]);
+
+  // Debounce the shops to prevent rapid map updates that crash the app
+  const [shops, setShops] = useState<Shop[]>(filteredShops);
+  const debounceRef = useRef<NodeJS.Timeout | null>(null);
+  const prevFilteredShopsLengthRef = useRef(filteredShops.length);
+
+  useEffect(() => {
+    // Clear any pending debounce
+    if (debounceRef.current) {
+      clearTimeout(debounceRef.current);
+    }
+
+    // If showing MORE shops (clearing filters), update immediately
+    // If showing FEWER shops (adding filters), debounce to prevent crashes
+    const isShowingMore = filteredShops.length > prevFilteredShopsLengthRef.current;
+    prevFilteredShopsLengthRef.current = filteredShops.length;
+
+    if (isShowingMore || filteredShops.length === 0) {
+      // Immediate update when clearing filters or showing more
+      setShops(filteredShops);
+    } else {
+      // Debounce when filtering down
+      debounceRef.current = setTimeout(() => {
+        setShops(filteredShops);
+      }, 50);
+    }
+
+    return () => {
+      if (debounceRef.current) {
+        clearTimeout(debounceRef.current);
+      }
+    };
+  }, [filteredShops]);
 
   // ═══════════════ STATE-EFFECT: Computed Values ═══════════════
   // Default to NYC (Midtown Manhattan) if no user location
@@ -139,9 +177,9 @@ export function BookingMap({ onShopSelect }: BookingMapProps) {
         showsUserLocation
         showsMyLocationButton={false}
       >
-        {shops.map((shop) => (
-          <ShopMarker key={shop.id} shop={shop} onPress={() => handleMarkerPress(shop)} />
-        ))}
+        {shops.map((shop) =>
+          shop ? <ShopMarker key={`marker-${shop.id}`} shop={shop} onPress={() => handleMarkerPress(shop)} /> : null
+        )}
       </MapView>
     </View>
   );

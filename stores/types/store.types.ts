@@ -67,8 +67,8 @@ export interface Booking {
 
 /** A shop/mechanic business entity */
 export interface Shop {
-  /** Unique identifier */
-  id: string;
+  /** Unique identifier (auto-incrementing) */
+  id: number;
   /** Shop display name */
   name: string;
 
@@ -89,6 +89,8 @@ export interface Shop {
   imageUrl: string | null;
 
   // ─── Availability ───
+  /** Availability score (0-10) for UI gradient: 0=closed, 1-3=low, 4-6=medium, 7-10=high */
+  availability: number;
   /** Whether the shop has available appointment slots */
   hasAvailableSlots: boolean;
   /** Next available time slot (ISO datetime) */

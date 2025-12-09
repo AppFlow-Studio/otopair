@@ -29,8 +29,8 @@ interface BookingState {
   isLoadingLocation: boolean;
 
   // ═══════════════ SERVICE CATEGORY STATE ═══════════════
-  /** Selected service category for service list display (not for shop filtering) */
-  selectedServiceCategory: ServiceCategory;
+  /** Selected service category for service list display (null = no filter) */
+  selectedServiceCategory: ServiceCategory | null;
 
   // ═══════════════ MAP STATE ═══════════════
   /** Map region for visible area */
@@ -68,8 +68,8 @@ interface BookingState {
   setLocationLoading: (loading: boolean) => void;
 
   // ═══════════════ SERVICE CATEGORY ACTIONS ═══════════════
-  /** Set the selected service category for service list display */
-  setSelectedServiceCategory: (category: ServiceCategory) => void;
+  /** Set the selected service category for service list display (null to clear) */
+  setSelectedServiceCategory: (category: ServiceCategory | null) => void;
 
   // ═══════════════ MAP ACTIONS ═══════════════
   /** Update map region */
@@ -218,7 +218,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   // ═══════════════ INITIAL STATE ═══════════════
   userLocation: DEFAULT_LOCATION,
   isLoadingLocation: false,
-  selectedServiceCategory: DEFAULT_SERVICE,
+  selectedServiceCategory: null, // No service category selected by default
   mapRegion: null,
   availableServices: MOCK_SERVICES,
   selectedServiceIds: [],
@@ -319,6 +319,8 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
 
   getServicesByCategory: () => {
     const { availableServices, selectedServiceCategory } = get();
+    // If no category selected, return all services
+    if (!selectedServiceCategory) return availableServices;
     return availableServices.filter((service) => service.category === selectedServiceCategory);
   },
 }));

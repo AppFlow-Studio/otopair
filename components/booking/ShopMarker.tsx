@@ -29,13 +29,33 @@ import { Marker } from "react-native-maps";
 // CONSTANTS
 // ============================================================================
 
-/** Colors for marker based on availability status */
-const MarkerColors = {
-  /** Available shops - green */
-  available: "#4CB34C",
-  /** Unavailable shops - dark gray */
-  unavailable: "#3D4654",
-} as const;
+/**
+ * Availability gradient colors (0-10 scale)
+ * Based on map marker design: Dark (closed) → Red → Orange → Yellow → Green
+ */
+const AVAILABILITY_COLORS = [
+  "#3D4654", // 0 - Dark/Closed
+  "#E85D5D", // 1 - Red/Salmon
+  "#E86A5D", // 2
+  "#F28B5A", // 3 - Orange-Red
+  "#F5A754", // 4 - Orange
+  "#F5C254", // 5 - Yellow-Orange
+  "#E8D44D", // 6 - Yellow
+  "#C4D94D", // 7 - Yellow-Green
+  "#8FD44D", // 8 - Light Green
+  "#5FCF5F", // 9 - Green
+  "#4CB34C", // 10 - Full Green
+] as const;
+
+// ============================================================================
+// HELPERS
+// ============================================================================
+
+/** Get color based on availability score (0-10) */
+function getAvailabilityColor(availability: number): string {
+  const clamped = Math.max(0, Math.min(10, Math.round(availability)));
+  return AVAILABILITY_COLORS[clamped];
+}
 
 // ============================================================================
 // TYPES
@@ -56,8 +76,13 @@ function ShopMarkerComponent({ shop, onPress }: ShopMarkerProps) {
   // Animation for tap feedback
   const scaleAnim = useRef(new Animated.Value(1)).current;
 
-  // Get marker color based on availability
-  const backgroundColor = shop.hasAvailableSlots ? MarkerColors.available : MarkerColors.unavailable;
+  // Safety check - if shop is invalid, don't render
+  if (!shop || shop.latitude == null || shop.longitude == null) {
+    return null;
+  }
+
+  // Get marker color based on availability (0-10 gradient)
+  const backgroundColor = getAvailabilityColor(shop.availability ?? 0);
 
   const handlePress = useCallback(() => {
     // Quick scale animation for tap feedback

@@ -51,6 +51,38 @@ function formatDistance(km: number): string {
   return `${km.toFixed(1)} km`;
 }
 
+/**
+ * Availability gradient colors (0-10 scale)
+ */
+const AVAILABILITY_COLORS = [
+  "#3D4654", // 0 - Dark/Closed
+  "#E85D5D", // 1 - Red/Salmon
+  "#E86A5D", // 2
+  "#F28B5A", // 3 - Orange-Red
+  "#F5A754", // 4 - Orange
+  "#F5C254", // 5 - Yellow-Orange
+  "#E8D44D", // 6 - Yellow
+  "#C4D94D", // 7 - Yellow-Green
+  "#8FD44D", // 8 - Light Green
+  "#5FCF5F", // 9 - Green
+  "#4CB34C", // 10 - Full Green
+] as const;
+
+/** Get color based on availability score (0-10) */
+function getAvailabilityColor(availability: number): string {
+  const clamped = Math.max(0, Math.min(10, Math.round(availability)));
+  return AVAILABILITY_COLORS[clamped];
+}
+
+/** Get availability label */
+function getAvailabilityLabel(availability: number): string {
+  if (availability === 0) return "Closed";
+  if (availability <= 3) return "Low";
+  if (availability <= 6) return "Medium";
+  if (availability <= 8) return "Good";
+  return "High";
+}
+
 // ============================================================================
 // TYPES
 // ============================================================================
@@ -77,21 +109,23 @@ export function ShopCarousel({ shops, userLocation, onShopSelect, offsetY = 0 }:
   const bottomPosition = bottomSheetCollapsedHeight + Spacing.md - offsetY;
 
   // Store animation refs for each shop card
-  const animationRefs = useRef<Record<string, Animated.Value>>({});
+  const animationRefs = useRef<Record<number, Animated.Value>>({});
 
   // Pre-calculate distances for all shops
   const shopDistances = useMemo(() => {
-    if (!userLocation?.latitude || !userLocation?.longitude) return {};
-    const distances: Record<string, string> = {};
+    if (!userLocation?.latitude || !userLocation?.longitude || !shops) return {};
+    const distances: Record<number, string> = {};
     shops.forEach((shop) => {
-      const dist = calculateDistanceKm(userLocation.latitude, userLocation.longitude, shop.latitude, shop.longitude);
-      distances[shop.id] = formatDistance(dist);
+      if (shop && shop.latitude != null && shop.longitude != null) {
+        const dist = calculateDistanceKm(userLocation.latitude, userLocation.longitude, shop.latitude, shop.longitude);
+        distances[shop.id] = formatDistance(dist);
+      }
     });
     return distances;
   }, [shops, userLocation]);
 
   // Get or create animation value for a shop
-  const getAnimValue = useCallback((shopId: string) => {
+  const getAnimValue = useCallback((shopId: number) => {
     if (!animationRefs.current[shopId]) {
       animationRefs.current[shopId] = new Animated.Value(1);
     }
@@ -123,13 +157,14 @@ export function ShopCarousel({ shops, userLocation, onShopSelect, offsetY = 0 }:
   );
 
   const renderShopCard = useCallback(
-    (shop: Shop, index: number) => {
+    (shop: Shop, index: number, totalShops: number) => {
+      if (!shop) return null;
       const scaleAnim = getAnimValue(shop.id);
 
       return (
         <Pressable
-          key={shop.id}
-          style={[styles.cardWrapper, index === 0 && styles.firstCard, index === shops.length - 1 && styles.lastCard]}
+          key={`card-${shop.id}`}
+          style={[styles.cardWrapper, index === 0 && styles.firstCard, index === totalShops - 1 && styles.lastCard]}
           onPress={() => handleCardPress(shop)}
         >
           <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
@@ -172,12 +207,8 @@ export function ShopCarousel({ shops, userLocation, onShopSelect, offsetY = 0 }:
                     <Text size="xs" color="#6B7280">
                       {" • "}
                     </Text>
-                    <Text
-                      size="xs"
-                      color={shop.hasAvailableSlots ? "#4CB34C" : "#6B7280"}
-                      weight={shop.hasAvailableSlots ? "medium" : "regular"}
-                    >
-                      {shop.hasAvailableSlots ? "Available" : "No Slots"}
+                    <Text size="xs" color={getAvailabilityColor(shop.availability)} weight="medium">
+                      {getAvailabilityLabel(shop.availability)}
                     </Text>
                   </View>
                 </View>
@@ -187,10 +218,10 @@ export function ShopCarousel({ shops, userLocation, onShopSelect, offsetY = 0 }:
         </Pressable>
       );
     },
-    [handleCardPress, shops.length, getAnimValue, shopDistances]
+    [handleCardPress, getAnimValue, shopDistances]
   );
 
-  if (shops.length === 0) {
+  if (!shops || shops.length === 0) {
     return null;
   }
 
@@ -204,7 +235,7 @@ export function ShopCarousel({ shops, userLocation, onShopSelect, offsetY = 0 }:
         decelerationRate="fast"
         snapToAlignment="start"
       >
-        {shops.map(renderShopCard)}
+        {shops.map((shop, index) => renderShopCard(shop, index, shops.length))}
       </ScrollView>
     </View>
   );
