@@ -11,13 +11,12 @@
  * EXAMPLE:
  *   <ServiceBottomSheet onSelectServices={() => console.log("Services selected")} />
  *
- * OWNER: Dev 3
+ * OWNER: Waleed Mansour
  */
 
-import { BottomSheetModal, BottomSheetScrollView } from "@gorhom/bottom-sheet";
-import { useFocusEffect } from "@react-navigation/native";
+import BottomSheet, { BottomSheetScrollView } from "@gorhom/bottom-sheet";
 import React, { useCallback, useMemo, useRef, useState } from "react";
-import { StyleSheet, TextInput, TouchableOpacity, View } from "react-native";
+import { Dimensions, StyleSheet, TextInput, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { BrandColors, PrimaryButton, Spacing, Text } from "@/components/shared-ui";
@@ -33,41 +32,36 @@ import { Check, Search } from "lucide-react-native";
 interface ServiceBottomSheetProps {
   /** Called when user confirms service selection */
   onSelectServices?: () => void;
+  /** Vertical offset to shift bottom sheet down (pixels) */
+  offsetY?: number;
 }
 
 // ============================================================================
 // COMPONENT
 // ============================================================================
 
-export function ServiceBottomSheet({ onSelectServices }: ServiceBottomSheetProps) {
-  const bottomSheetRef = useRef<BottomSheetModal>(null);
-  const [searchQuery, setSearchQuery] = useState("");
-  const insets = useSafeAreaInsets();
+export function ServiceBottomSheet({ onSelectServices, offsetY = 0 }: ServiceBottomSheetProps) {
+  // ═══════════════ STATE-EFFECT: Refs ═══════════════
+  const bottomSheetRef = useRef<BottomSheet>(null); // [STATE-EFFECT] Bottom sheet ref for programmatic control
 
-  // Store state and actions
-  const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
-  const toggleServiceSelection = useBookingStore((state) => state.toggleServiceSelection);
-  const getServicesByCategory = useBookingStore((state) => state.getServicesByCategory);
-  const getSelectedServicesTotal = useBookingStore((state) => state.getSelectedServicesTotal);
-  const getSelectedServicesCount = useBookingStore((state) => state.getSelectedServicesCount);
+  // ═══════════════ STATE-EFFECT: Local State ═══════════════
+  const [searchQuery, setSearchQuery] = useState(""); // [STATE-EFFECT] Search input state
+  const [sheetIndex, setSheetIndex] = useState(0); // [STATE-EFFECT] Current bottom sheet position (0=collapsed, 1=expanded)
+  const insets = useSafeAreaInsets(); // [STATE-EFFECT] Safe area insets for layout
 
-  // Snap points for bottom sheet
-  const snapPoints = useMemo(() => ["22%", "75%"], []);
+  // ═══════════════ STATE-EFFECT: Store Subscriptions ═══════════════
+  const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds); // [STATE-EFFECT] Selected service IDs from store
+  const toggleServiceSelection = useBookingStore((state) => state.toggleServiceSelection); // [STATE-EFFECT] Action to toggle selection
+  const getServicesByCategory = useBookingStore((state) => state.getServicesByCategory); // [STATE-EFFECT] Getter for filtered services
+  const getSelectedServicesTotal = useBookingStore((state) => state.getSelectedServicesTotal); // [STATE-EFFECT] Getter for total price
+  const getSelectedServicesCount = useBookingStore((state) => state.getSelectedServicesCount); // [STATE-EFFECT] Getter for selection count
 
-  // Present the modal when screen is focused, dismiss when unfocused
-  useFocusEffect(
-    useCallback(() => {
-      // Present when screen gains focus
-      bottomSheetRef.current?.present();
+  // ═══════════════ STATE-EFFECT: Memoized Values ═══════════════
+  const { height } = Dimensions.get("window");
+  const offsetPercent = (offsetY / height) * 100;
+  const snapPoints = useMemo(() => [`${22 - offsetPercent}%`, `${75 - offsetPercent}%`], [offsetPercent]); // [STATE-EFFECT] Bottom sheet snap points
 
-      // Dismiss when screen loses focus
-      return () => {
-        bottomSheetRef.current?.dismiss();
-      };
-    }, [])
-  );
-
-  // Get services filtered by category and search
+  // [STATE-EFFECT] Derived state: services filtered by category and search query
   const filteredServices = useMemo(() => {
     const categoryServices = getServicesByCategory();
     if (!searchQuery.trim()) return categoryServices;
@@ -78,12 +72,15 @@ export function ServiceBottomSheet({ onSelectServices }: ServiceBottomSheetProps
     );
   }, [getServicesByCategory, searchQuery]);
 
-  // Computed values
-  const selectedCount = getSelectedServicesCount();
-  const selectedTotal = getSelectedServicesTotal();
-  const hasSelection = selectedCount > 0;
+  // ═══════════════ STATE-EFFECT: Computed Values ═══════════════
+  const selectedCount = getSelectedServicesCount(); // [STATE-EFFECT] Computed: number of selected services
+  const selectedTotal = getSelectedServicesTotal(); // [STATE-EFFECT] Computed: total price of selected services
+  const hasSelection = selectedCount > 0; // [STATE-EFFECT] Computed: whether any service is selected
+  const isExpanded = sheetIndex === 1; // [STATE-EFFECT] Computed: whether bottom sheet is expanded
+  const isCollapsed = sheetIndex === 0; // [STATE-EFFECT] Computed: whether bottom sheet is collapsed
 
-  // Handlers
+  // ═══════════════ STATE-EFFECT: Handlers ═══════════════
+  // [STATE-EFFECT] Handler: toggle service selection on press
   const handleServicePress = useCallback(
     (serviceId: string) => {
       toggleServiceSelection(serviceId);
@@ -91,9 +88,15 @@ export function ServiceBottomSheet({ onSelectServices }: ServiceBottomSheetProps
     [toggleServiceSelection]
   );
 
+  // [STATE-EFFECT] Handler: confirm selection and call parent callback
   const handleSelectPress = useCallback(() => {
     onSelectServices?.();
   }, [onSelectServices]);
+
+  // [STATE-EFFECT] Handler: track bottom sheet position changes
+  const handleSheetChange = useCallback((index: number) => {
+    setSheetIndex(index);
+  }, []);
 
   // Render service item
   const renderServiceItem = useCallback(
@@ -132,62 +135,65 @@ export function ServiceBottomSheet({ onSelectServices }: ServiceBottomSheetProps
   );
 
   return (
-    <BottomSheetModal
+    <BottomSheet
       ref={bottomSheetRef}
       snapPoints={snapPoints}
       index={0}
+      onChange={handleSheetChange}
       enablePanDownToClose={false}
       enableOverDrag={true}
       backgroundStyle={styles.bottomSheetBackground}
       handleIndicatorStyle={styles.handleIndicator}
       handleStyle={styles.handleContainer}
-      stackBehavior="push"
     >
-      {/* Collapsed State Text */}
-      <View style={styles.collapsedContent}>
+      {/* Collapsed State Text - visible when collapsed */}
+      <View style={[styles.collapsedContent, !isCollapsed && styles.hidden]}>
         <Text size="lg" weight="medium" color={BrandColors.primary} center>
           Swipe up for service list
         </Text>
       </View>
 
-      {/* Search Input */}
-      <View style={styles.searchContainer}>
-        <Search size={20} color="#9CA3AF" style={styles.searchIcon} />
-        <TextInput
-          style={styles.searchInput}
-          placeholder="Search for services..."
-          placeholderTextColor="#9CA3AF"
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-        />
-      </View>
+      {/* Expanded Content - visible when expanded */}
+      <View style={[styles.expandedContainer, isCollapsed && styles.hidden]}>
+        {/* Search Input */}
+        <View style={styles.searchContainer}>
+          <Search size={20} color="#9CA3AF" style={styles.searchIcon} />
+          <TextInput
+            style={styles.searchInput}
+            placeholder="Search for services..."
+            placeholderTextColor="#9CA3AF"
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+          />
+        </View>
 
-      {/* Service List */}
-      <BottomSheetScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
-        {filteredServices.map(renderServiceItem)}
+        {/* Service List */}
+        <BottomSheetScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+          {filteredServices.map(renderServiceItem)}
 
-        {filteredServices.length === 0 && (
-          <View style={styles.emptyState}>
-            <Text size="md" weight="medium" color="#9CA3AF" center>
-              No services found
+          {filteredServices.length === 0 && (
+            <View style={styles.emptyState}>
+              <Text size="md" weight="medium" color="#9CA3AF" center>
+                No services found
+              </Text>
+            </View>
+          )}
+        </BottomSheetScrollView>
+
+        {/* Action Button */}
+        <View style={[styles.buttonContainer, { paddingBottom: Spacing.lg + insets.bottom }]}>
+          <PrimaryButton
+            onPress={handleSelectPress}
+            style={[styles.selectButton, !hasSelection && styles.selectButtonDisabled]}
+            disabled={!hasSelection}
+          >
+            <Text size="md" weight="semiBold" color={BrandColors.white}>
+              {hasSelection ? `Add ${selectedCount} to Cart • $${selectedTotal.toFixed(0)}` : "Select Service(s)"}
             </Text>
-          </View>
-        )}
-      </BottomSheetScrollView>
-
-      {/* Action Button */}
-      <View style={[styles.buttonContainer, { paddingBottom: Spacing.lg + insets.bottom }]}>
-        <PrimaryButton
-          onPress={handleSelectPress}
-          style={[styles.selectButton, !hasSelection && styles.selectButtonDisabled]}
-          disabled={!hasSelection}
-        >
-          <Text size="md" weight="semiBold" color={BrandColors.white}>
-            {hasSelection ? `Add ${selectedCount} to Cart • $${selectedTotal.toFixed(0)}` : "Select Service(s)"}
-          </Text>
-        </PrimaryButton>
+          </PrimaryButton>
+        </View>
       </View>
-    </BottomSheetModal>
+    </BottomSheet>
   );
 }
 

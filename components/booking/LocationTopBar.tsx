@@ -23,14 +23,18 @@
  *     onServiceSelect={(service) => console.log(service)}
  *     selectedService="basic_maintenance"
  *   />
+ *
+ * OWNER: Waleed Mansour
  */
 
 import { BrandColors, GhostButton, Spacing, Text } from "@/components/shared-ui";
 import { BorderRadius, Shadows } from "@/constants/theme";
 import type { FilterOption, ServiceCategory } from "@/stores/types/store.types";
+import { BlurView } from "expo-blur";
 import { ArrowLeft, Settings2 } from "lucide-react-native";
 import React, { useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // Re-export types for convenience
 export type { FilterOption, ServiceCategory } from "@/stores/types/store.types";
@@ -90,6 +94,7 @@ export function LocationTopBar({
   selectedService,
 }: LocationTopBarProps) {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const insets = useSafeAreaInsets();
 
   const handleFilterPress = () => {
     setIsFilterOpen(true);
@@ -109,9 +114,10 @@ export function LocationTopBar({
   };
 
   return (
-    <View>
+    <BlurView intensity={85} tint="light" style={styles.container}>
+      <View style={styles.frostedOverlay} />
       {/* Top Row: Back, Location, Filter */}
-      <View style={styles.topRow}>
+      <View style={[styles.topRow, { paddingTop: insets.top + Spacing.sm }]}>
         {/* Back Button */}
         <GhostButton
           onPress={onBackPress}
@@ -188,7 +194,7 @@ export function LocationTopBar({
           );
         })}
       </ScrollView>
-    </View>
+    </BlurView>
   );
 }
 
@@ -197,6 +203,13 @@ export function LocationTopBar({
 // ============================================================================
 
 const styles = StyleSheet.create({
+  container: {
+    overflow: "hidden",
+  },
+  frostedOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(255, 255, 255, 0.7)",
+  },
   topRow: {
     flexDirection: "row",
     alignItems: "center",
