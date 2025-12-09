@@ -1,7 +1,7 @@
 /**
  * useBookingStore
  *
- * PURPOSE: Manages booking data, location, filters, and map state for shop discovery
+ * PURPOSE: Manages booking data, location, map state, and service selection for creating bookings
  *
  * TABLES: Bookings (future integration)
  *
@@ -11,11 +11,11 @@
  *   - Booking belongs to Shop (via shopId)
  *   - Booking has many Services (via serviceIds)
  *
- * OWNER: Dev 3
+ * OWNER: Waleed Mansour
  */
 
 import { create } from "zustand";
-import type { Booking, FilterOption, Service, ServiceCategory, UserLocation } from "./types/store.types";
+import type { Booking, Service, ServiceCategory, UserLocation } from "./types/store.types";
 
 // ─────────────────────────────────────────────────────────────
 // STORE STATE INTERFACE
@@ -28,11 +28,9 @@ interface BookingState {
   /** Whether location is being fetched */
   isLoadingLocation: boolean;
 
-  // ═══════════════ FILTER STATE ═══════════════
-  /** Selected filter option (Available Now, Top Rated, Specialists) */
-  selectedFilter: FilterOption | null;
-  /** Selected service category for filtering shops */
-  selectedService: ServiceCategory;
+  // ═══════════════ SERVICE CATEGORY STATE ═══════════════
+  /** Selected service category for service list display (not for shop filtering) */
+  selectedServiceCategory: ServiceCategory;
 
   // ═══════════════ MAP STATE ═══════════════
   /** Map region for visible area */
@@ -69,13 +67,9 @@ interface BookingState {
   /** Set location loading state */
   setLocationLoading: (loading: boolean) => void;
 
-  // ═══════════════ FILTER ACTIONS ═══════════════
-  /** Set the selected filter option */
-  setSelectedFilter: (filter: FilterOption | null) => void;
-  /** Set the selected service category */
-  setSelectedService: (service: ServiceCategory) => void;
-  /** Clear all filters */
-  clearFilters: () => void;
+  // ═══════════════ SERVICE CATEGORY ACTIONS ═══════════════
+  /** Set the selected service category for service list display */
+  setSelectedServiceCategory: (category: ServiceCategory) => void;
 
   // ═══════════════ MAP ACTIONS ═══════════════
   /** Update map region */
@@ -96,14 +90,14 @@ interface BookingState {
   // ═══════════════ GETTERS ═══════════════
   /** Get location display label */
   getLocationLabel: () => string;
-  /** Check if filters are active */
-  hasActiveFilters: () => boolean;
   /** Get total price of selected services */
   getSelectedServicesTotal: () => number;
   /** Get count of selected services */
   getSelectedServicesCount: () => number;
   /** Get services filtered by current category */
   getServicesByCategory: () => Service[];
+  /** Get selected services as array */
+  getSelectedServices: () => Service[];
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -126,22 +120,94 @@ const DEFAULT_SERVICE: ServiceCategory = "basic_maintenance";
 
 const MOCK_SERVICES: Service[] = [
   // Basic Maintenance
-  { id: "svc_oil_change", name: "Oil Change", description: "Basic Oil change", price: 65, category: "basic_maintenance" },
-  { id: "svc_filter_change", name: "Filter Change", description: "Basic Filter change", price: 87, category: "basic_maintenance" },
-  { id: "svc_fluid_change", name: "Fluid Change", description: "Basic Fluid change", price: 135, category: "basic_maintenance" },
+  {
+    id: "svc_oil_change",
+    name: "Oil Change",
+    description: "Basic Oil change",
+    price: 65,
+    category: "basic_maintenance",
+  },
+  {
+    id: "svc_filter_change",
+    name: "Filter Change",
+    description: "Basic Filter change",
+    price: 87,
+    category: "basic_maintenance",
+  },
+  {
+    id: "svc_fluid_change",
+    name: "Fluid Change",
+    description: "Basic Fluid change",
+    price: 135,
+    category: "basic_maintenance",
+  },
   { id: "svc_tune_up", name: "Tune-Up", description: "Overall tune-up", price: 217, category: "basic_maintenance" },
   // Tires & Wheels
-  { id: "svc_tire_rotation", name: "Tire Rotation", description: "Rotate all four tires", price: 45, category: "tires_wheels" },
-  { id: "svc_wheel_alignment", name: "Wheel Alignment", description: "Full wheel alignment", price: 120, category: "tires_wheels" },
-  { id: "svc_tire_balance", name: "Tire Balancing", description: "Balance all tires", price: 60, category: "tires_wheels" },
+  {
+    id: "svc_tire_rotation",
+    name: "Tire Rotation",
+    description: "Rotate all four tires",
+    price: 45,
+    category: "tires_wheels",
+  },
+  {
+    id: "svc_wheel_alignment",
+    name: "Wheel Alignment",
+    description: "Full wheel alignment",
+    price: 120,
+    category: "tires_wheels",
+  },
+  {
+    id: "svc_tire_balance",
+    name: "Tire Balancing",
+    description: "Balance all tires",
+    price: 60,
+    category: "tires_wheels",
+  },
   // Brakes & Suspension
-  { id: "svc_brake_pads", name: "Brake Pads", description: "Replace brake pads", price: 180, category: "brakes_suspension" },
-  { id: "svc_brake_fluid", name: "Brake Fluid Flush", description: "Flush brake fluid", price: 95, category: "brakes_suspension" },
-  { id: "svc_suspension_check", name: "Suspension Check", description: "Inspect suspension", price: 75, category: "brakes_suspension" },
+  {
+    id: "svc_brake_pads",
+    name: "Brake Pads",
+    description: "Replace brake pads",
+    price: 180,
+    category: "brakes_suspension",
+  },
+  {
+    id: "svc_brake_fluid",
+    name: "Brake Fluid Flush",
+    description: "Flush brake fluid",
+    price: 95,
+    category: "brakes_suspension",
+  },
+  {
+    id: "svc_suspension_check",
+    name: "Suspension Check",
+    description: "Inspect suspension",
+    price: 75,
+    category: "brakes_suspension",
+  },
   // System Diagnostics
-  { id: "svc_engine_diagnostic", name: "Engine Diagnostic", description: "Full engine scan", price: 110, category: "system_diagnostics" },
-  { id: "svc_electrical_check", name: "Electrical Check", description: "Electrical system check", price: 85, category: "system_diagnostics" },
-  { id: "svc_emissions_test", name: "Emissions Test", description: "Emissions testing", price: 50, category: "system_diagnostics" },
+  {
+    id: "svc_engine_diagnostic",
+    name: "Engine Diagnostic",
+    description: "Full engine scan",
+    price: 110,
+    category: "system_diagnostics",
+  },
+  {
+    id: "svc_electrical_check",
+    name: "Electrical Check",
+    description: "Electrical system check",
+    price: 85,
+    category: "system_diagnostics",
+  },
+  {
+    id: "svc_emissions_test",
+    name: "Emissions Test",
+    description: "Emissions testing",
+    price: 50,
+    category: "system_diagnostics",
+  },
 ];
 
 // ─────────────────────────────────────────────────────────────
@@ -152,8 +218,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   // ═══════════════ INITIAL STATE ═══════════════
   userLocation: DEFAULT_LOCATION,
   isLoadingLocation: false,
-  selectedFilter: null,
-  selectedService: DEFAULT_SERVICE,
+  selectedServiceCategory: DEFAULT_SERVICE,
   mapRegion: null,
   availableServices: MOCK_SERVICES,
   selectedServiceIds: [],
@@ -186,21 +251,10 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       isLoadingLocation: loading,
     }),
 
-  // ═══════════════ FILTER ACTIONS ═══════════════
-  setSelectedFilter: (filter) =>
+  // ═══════════════ SERVICE CATEGORY ACTIONS ═══════════════
+  setSelectedServiceCategory: (category) =>
     set({
-      selectedFilter: filter,
-    }),
-
-  setSelectedService: (service) =>
-    set({
-      selectedService: service,
-    }),
-
-  clearFilters: () =>
-    set({
-      selectedFilter: null,
-      selectedService: DEFAULT_SERVICE,
+      selectedServiceCategory: category,
     }),
 
   // ═══════════════ MAP ACTIONS ═══════════════
@@ -246,11 +300,6 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
     return userLocation?.label ?? "Set Location";
   },
 
-  hasActiveFilters: () => {
-    const { selectedFilter, selectedService } = get();
-    return selectedFilter !== null || selectedService !== DEFAULT_SERVICE;
-  },
-
   getSelectedServicesTotal: () => {
     const { availableServices, selectedServiceIds } = get();
     return availableServices
@@ -263,8 +312,13 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
     return selectedServiceIds.length;
   },
 
+  getSelectedServices: () => {
+    const { availableServices, selectedServiceIds } = get();
+    return availableServices.filter((service) => selectedServiceIds.includes(service.id));
+  },
+
   getServicesByCategory: () => {
-    const { availableServices, selectedService } = get();
-    return availableServices.filter((service) => service.category === selectedService);
+    const { availableServices, selectedServiceCategory } = get();
+    return availableServices.filter((service) => service.category === selectedServiceCategory);
   },
 }));

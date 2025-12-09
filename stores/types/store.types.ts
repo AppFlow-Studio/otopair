@@ -64,3 +64,26 @@ export interface Booking {
   createdAt: string;
   updatedAt: string;
 }
+
+/** A shop/mechanic business entity */
+export interface Shop {
+  /** Unique identifier */
+  id: string;
+  /** Shop display name */
+  name: string;
+  /** Average rating (0-5) */
+  rating: number;
+  /** Street address */
+  address: string;
+  /** Distance from user (e.g., "1.1 Mi") */
+  distance: string;
+  /** Whether the shop is currently open */
+  isOpen: boolean;
+  /** Whether the shop is verified */
+  isVerified: boolean;
+  /** Geographic coordinates */
+  coordinate: {
+    latitude: number;
+    longitude: number;
+  };
+}
