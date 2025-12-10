@@ -22,6 +22,7 @@ import {
 import { OnboardingOption } from './OnboardingButton';
 import { OnboardingFooterButton } from './OnboardingFooterButton';
 import { OnboardingProgress } from './OnboardingProgress';
+import { OnboardingBackButton } from './OnboardingBackButton';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import { router } from 'expo-router';
 import { useState } from 'react';
@@ -44,6 +45,7 @@ export function AverageBrakes() {
         <OnboardingScreenLayout>
             {(layout) => (
                 <>
+                    <OnboardingBackButton />
                     <OnboardingProgress total={6} filled={4} />
 
                     <View style={[styles.headerContent, layout.headerContent]}>

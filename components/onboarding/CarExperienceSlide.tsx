@@ -27,6 +27,7 @@ import {
 import { OnboardingProgress } from './OnboardingProgress';
 import { OnboardingOption } from './OnboardingButton';
 import { OnboardingFooterButton } from './OnboardingFooterButton';
+import { OnboardingBackButton } from './OnboardingBackButton';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import { router } from 'expo-router';
 import { useState } from 'react';
@@ -81,6 +82,7 @@ export function CarExperienceSlide() {
         <OnboardingScreenLayout>
             {(layout) => (
                 <>
+                    <OnboardingBackButton />
                     <OnboardingProgress total={1} filled={0} />
                     {/* Header */}
                     <View style={[styles.headerContent, layout.headerContent]}>

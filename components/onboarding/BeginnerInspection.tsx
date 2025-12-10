@@ -25,6 +25,7 @@ import { OnboardingOption, onboardingOptionStyles } from './OnboardingButton';
 import { OnboardingProgress } from './OnboardingProgress';
 import { OnboardingDatePickerMonthYear } from './OnboardingDatePickerMonthYear';
 import { OnboardingFooterButton } from './OnboardingFooterButton';
+import { OnboardingBackButton } from './OnboardingBackButton';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
@@ -104,21 +105,22 @@ export function BeginnerInspection({progressTotal = 4, progressFilled = 3,}: { p
             : selectedDate?.toISOString() ?? null;
 
         updateData({ lastInspection });
-
+        
         // Check current permissions before routing
         const push = await refreshPushPermission();
         if (!push.granted) {
-            router.replace('/(onboarding)/push-notifications');
+            router.push('/(onboarding)/push-notifications');
             return;
         }
 
         const loc = await refreshLocationPermission();
         if (!loc.granted) {
-            router.replace('/(onboarding)/location-services');
+            router.push('/(onboarding)/location-services');
             return;
         }
 
-        router.replace('/(main-tabs)');
+        //router.replace('/(main-tabs)');
+        router.push('/(onboarding)/vin');
     };
 
     const formattedDate = selectedDate
@@ -129,6 +131,7 @@ export function BeginnerInspection({progressTotal = 4, progressFilled = 3,}: { p
         <OnboardingScreenLayout>
             {(layout) => (
                 <>
+                    <OnboardingBackButton />
                     <OnboardingProgress total={progressTotal} filled={progressFilled} />
                     {/* Header */}
                     <View style={[styles.headerContent, layout.headerContent]}>

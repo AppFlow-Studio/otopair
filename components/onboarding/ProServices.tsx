@@ -22,6 +22,7 @@ import {
 import { OnboardingProgress } from './OnboardingProgress';
 import { OnboardingOption } from './OnboardingButton';
 import { OnboardingFooterButton } from './OnboardingFooterButton';
+import { OnboardingBackButton } from './OnboardingBackButton';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import { router } from 'expo-router';
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -163,6 +164,7 @@ export function ProServices() {
                     keyboardShouldPersistTaps="handled"
                     showsVerticalScrollIndicator={false}
                 >
+                    <OnboardingBackButton />
                     <OnboardingProgress total={5} filled={1} />
 
                     <View

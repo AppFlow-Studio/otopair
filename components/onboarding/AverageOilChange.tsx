@@ -25,6 +25,7 @@ import {
 import { OnboardingProgress } from './OnboardingProgress';
 import { OnboardingOption } from './OnboardingButton';
 import { OnboardingDatePickerMonthYear } from './OnboardingDatePickerMonthYear';
+import { OnboardingBackButton } from './OnboardingBackButton';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import { router } from 'expo-router';
 import { useState } from 'react';
@@ -62,6 +63,7 @@ export function AverageOilChange() {
         <OnboardingScreenLayout>
             {(layout) => (
                 <>
+                    <OnboardingBackButton />
                     <OnboardingProgress total={6} filled={1} />
                     {/* Header */}
                     <View style={[styles.headerContent, layout.headerContent]}>

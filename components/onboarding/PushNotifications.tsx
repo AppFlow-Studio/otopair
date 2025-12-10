@@ -19,6 +19,7 @@ import {
     Text,
 } from '@/components/shared-ui';
 import { OnboardingFooterButton } from './OnboardingFooterButton';
+import { OnboardingBackButton } from './OnboardingBackButton';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import { router } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
@@ -145,15 +146,17 @@ export function PushNotifications() {
             // Decide next step based on location permission (fresh check)
             const loc = await refreshLocationPermission();
             if (loc.granted) {
-                router.replace('/(main-tabs)');
+                //router.replace('/(main-tabs)');
+                router.push('/(onboarding)/vin');
             } else {
-                router.replace('/(onboarding)/location-services');
+                router.push('/(onboarding)/location-services');
             }
         }
     };
 
     return (
         <View style={[styles.container, { paddingTop: insets.top + Spacing.lg }]}>
+            <OnboardingBackButton noHorizontalPadding />
             <View style={styles.content}>
                 <Text style={styles.title}>
                     Get real-time updates

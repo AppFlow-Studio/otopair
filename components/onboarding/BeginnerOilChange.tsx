@@ -29,6 +29,7 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 import { OnboardingScreenLayout } from './OnboardingScreenLayout';
+import { OnboardingBackButton } from './OnboardingBackButton';
 
 type OilChangeOption = 'last_3_months' | '3_6_months' | '6_plus_months' | 'dont_remember';
 
@@ -51,6 +52,7 @@ export function BeginnerOilChange() {
         <OnboardingScreenLayout>
             {(layout) => (
                 <>
+                    <OnboardingBackButton />
                     <OnboardingProgress total={4} filled={1} />
                     {/* Header */}
                     <View style={[styles.headerContent, layout.headerContent]}>

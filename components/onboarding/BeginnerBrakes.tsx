@@ -25,6 +25,7 @@ import {
 import { OnboardingProgress } from './OnboardingProgress';
 import { OnboardingOption } from './OnboardingButton';
 import { OnboardingFooterButton } from './OnboardingFooterButton';
+import { OnboardingBackButton } from './OnboardingBackButton';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
@@ -47,6 +48,7 @@ export function BeginnerBrakes() {
         <OnboardingScreenLayout>
             {(layout) => (
                 <>
+                    <OnboardingBackButton />
                     <OnboardingProgress total={4} filled={2} />
                     {/* Header */}
                     <View style={[styles.headerContent, layout.headerContent]}>

@@ -19,6 +19,7 @@ import {
     Text,
 } from '@/components/shared-ui';
 import { OnboardingFooterButton } from './OnboardingFooterButton';
+import { OnboardingBackButton } from './OnboardingBackButton';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import { router } from 'expo-router';
 import { useEffect, useRef, useState } from 'react';
@@ -111,12 +112,14 @@ export function LocationServices() {
                 locationPermissionStatus: recordedStatus,
             });
             // Proceed regardless of decision so onboarding can continue
-            router.replace('/(main-tabs)');
+            //router.replace('/(main-tabs)');
+            router.push('/(onboarding)/vin');
         }
     };
 
     return (
         <View style={[styles.container, { paddingTop: insets.top + Spacing.lg }]}>
+            <OnboardingBackButton noHorizontalPadding />
             <View style={styles.content}>
                 <Text style={styles.title}>
                     Get real-time services

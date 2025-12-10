@@ -25,6 +25,7 @@ import { OnboardingOption, onboardingOptionStyles } from './OnboardingButton';
 import { OnboardingProgress } from './OnboardingProgress';
 import { OnboardingDatePickerMonthYear } from './OnboardingDatePickerMonthYear';
 import { OnboardingFooterButton } from './OnboardingFooterButton';
+import { OnboardingBackButton } from './OnboardingBackButton';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { StyleSheet, View } from 'react-native';
@@ -65,6 +66,7 @@ export function ProBrakes() {
         <OnboardingScreenLayout>
             {(layout) => (
                 <>
+                    <OnboardingBackButton />
                     <OnboardingProgress total={5} filled={3} />
                     {/* Header */}
                     <View style={[styles.headerContent, layout.headerContent]}>

@@ -96,6 +96,7 @@ interface OnboardingData {
   vehicleYear: number | null;
   vehiclePlate: string | null;
   vehicleVin: string | null;
+  vehicleMileage: number | null;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -142,6 +143,7 @@ const INITIAL_DATA: OnboardingData = {
   vehicleYear: null,
   vehiclePlate: null,
   vehicleVin: null,
+  vehicleMileage: null,
 };
 
 export const useOnboardingStore = create<OnboardingState>()((set, get) => ({
