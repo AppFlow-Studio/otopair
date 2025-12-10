@@ -9,6 +9,7 @@
  *   - SlideTransition: Standard iOS-style push/pop navigation transitions
  *   - FadeTransition: Simple fade in/out transitions
  *   - ScaleTransition: Scale up/down transitions for modals
+ *   - SheetDrivenAnimation: Interpolation configs for bottom sheet driven animations
  *
  * OWNER: Waleed Mansour
  */
@@ -16,6 +17,7 @@
 import {
   FadeIn,
   FadeOut,
+  interpolate,
   SlideInLeft,
   SlideInRight,
   SlideOutLeft,
@@ -135,4 +137,63 @@ export const FadeTransition = {
 export const ScaleTransition = {
   in: ZoomIn.duration(AnimationDuration.standard),
   out: ZoomOut.duration(AnimationDuration.standard),
+} as const;
+
+// ============================================================================
+// SHEET-DRIVEN ANIMATIONS (for bottom sheet interactions)
+// ============================================================================
+
+/**
+ * Interpolation configs for animations driven by bottom sheet position.
+ * Use with react-native-reanimated's interpolate() function.
+ *
+ * Input: sheet animated index (0 = collapsed, 1 = expanded)
+ *
+ * @example
+ * const animatedStyle = useAnimatedStyle(() => {
+ *   const opacity = SheetDrivenAnimation.fadeOut(sheetIndex.value);
+ *   const height = SheetDrivenAnimation.heightCollapse(sheetIndex.value, 60);
+ *   return { opacity, height };
+ * });
+ */
+export const SheetDrivenAnimation = {
+  /**
+   * Fade out as sheet expands (0 → 0.25)
+   * Content becomes invisible before height collapses
+   */
+  fadeOut: (value: number): number => {
+    "worklet";
+    return interpolate(value, [0, 0.25], [1, 0], "clamp");
+  },
+
+  /**
+   * Collapse height after fade (0.25 → 0.5)
+   * Height collapses after content is invisible to avoid clipping
+   * @param value - sheet animated index value
+   * @param fullHeight - the full height to collapse from
+   */
+  heightCollapse: (value: number, fullHeight: number): number => {
+    "worklet";
+    return interpolate(value, [0.25, 0.5], [fullHeight, 0], "clamp");
+  },
+
+  /**
+   * Fade in as sheet expands (0.25 → 0.5)
+   * Content fades in after space is created
+   */
+  fadeIn: (value: number): number => {
+    "worklet";
+    return interpolate(value, [0.25, 0.5], [0, 1], "clamp");
+  },
+
+  /**
+   * Expand height before fade (0 → 0.25)
+   * Height expands before content fades in
+   * @param value - sheet animated index value
+   * @param fullHeight - the full height to expand to
+   */
+  heightExpand: (value: number, fullHeight: number): number => {
+    "worklet";
+    return interpolate(value, [0, 0.25], [0, fullHeight], "clamp");
+  },
 } as const;

@@ -17,11 +17,13 @@
 import { useRouter } from "expo-router";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
+import { SharedValue } from "react-native-reanimated";
 
 import {
   BookingMap,
   FilterOption,
   LocationTopBar,
+  MechanicFilterOption,
   ServiceBottomSheet,
   ServiceCategory,
   Shop,
@@ -76,6 +78,18 @@ export default function BookingsScreen() {
   const userLocation = useBookingStore((state) => state.userLocation);
   const selectedServiceCategory = useBookingStore((state) => state.selectedServiceCategory);
   const setSelectedServiceCategory = useBookingStore((state) => state.setSelectedServiceCategory);
+  const bookingStage = useBookingStore((state) => state.bookingStage);
+  const getSelectedServices = useBookingStore((state) => state.getSelectedServices);
+
+  // ═══════════════ MECHANIC FILTER STATE ═══════════════
+  const [mechanicFilter, setMechanicFilter] = useState<MechanicFilterOption>("available_now");
+
+  // ═══════════════ BOTTOM SHEET ANIMATED INDEX ═══════════════
+  const [sheetAnimatedIndex, setSheetAnimatedIndex] = useState<SharedValue<number> | null>(null);
+
+  const handleAnimatedIndexChange = useCallback((animatedIndex: SharedValue<number>) => {
+    setSheetAnimatedIndex(animatedIndex);
+  }, []);
 
   // ═══════════════ SHOP STORE (shops, filters, selection) ═══════════════
   const shops = useShopStore((state) => state.shops);
@@ -160,6 +174,7 @@ export default function BookingsScreen() {
   // ===========================================================================
 
   const handleBackPress = () => {
+    // Always navigate back to the previous screen (e.g., home page)
     if (router.canGoBack()) {
       router.back();
     }
@@ -219,6 +234,30 @@ export default function BookingsScreen() {
     // router.push(`/bookings/shop/${shop.id}`);
   };
 
+  const handleMechanicFilterSelect = useCallback((filter: MechanicFilterOption) => {
+    setMechanicFilter(filter);
+    console.log("Mechanic filter selected:", filter);
+    // TODO: Apply filter to mechanics list in the bottom sheet
+  }, []);
+
+  // ═══════════════ COMPUTED VALUES ═══════════════
+
+  /** Generate truncated selected services text for mechanic selection mode */
+  const selectedServicesText = useMemo(() => {
+    const services = getSelectedServices();
+    if (services.length === 0) return "";
+    const names = services.map((s) => s.name);
+    const joined = names.join(", ");
+    // Truncate if too long (approx 25 chars)
+    if (joined.length > 25) {
+      return joined.slice(0, 22) + "...";
+    }
+    return joined;
+  }, [getSelectedServices]);
+
+  /** Mock mechanics count - TODO: get from actual data */
+  const mechanicsCount = 3;
+
   // ===========================================================================
   // RENDER
   // ===========================================================================
@@ -230,14 +269,27 @@ export default function BookingsScreen() {
 
       {/* Location Top Bar - Positioned over map with blur */}
       <View style={styles.topBarContainer}>
-        <LocationTopBar
-          label="Your Location"
-          location={userLocation?.label ?? "Set Location"}
-          onBackPress={handleBackPress}
-          onFilterSelect={handleFilterSelect}
-          onServiceSelect={handleServiceSelect}
-          selectedService={selectedServiceCategory}
-        />
+        {bookingStage === "mechanic_selection" ? (
+          <LocationTopBar
+            mode="mechanic_selection"
+            mechanicsCount={mechanicsCount}
+            selectedServicesText={selectedServicesText}
+            onBackPress={handleBackPress}
+            onMechanicFilterSelect={handleMechanicFilterSelect}
+            selectedMechanicFilter={mechanicFilter}
+          />
+        ) : (
+          <LocationTopBar
+            mode="discovery"
+            label="Your Location"
+            location={userLocation?.label ?? "Set Location"}
+            onBackPress={handleBackPress}
+            onFilterSelect={handleFilterSelect}
+            onServiceSelect={handleServiceSelect}
+            selectedService={selectedServiceCategory}
+            sheetAnimatedIndex={sheetAnimatedIndex ?? undefined}
+          />
+        )}
       </View>
 
       {/* Shop Carousel - shows filtered shops (debounced) */}
@@ -249,7 +301,11 @@ export default function BookingsScreen() {
       />
 
       {/* Service Bottom Sheet */}
-      <ServiceBottomSheet onSelectServices={handleSelectServices} offsetY={VERTICAL_OFFSET} />
+      <ServiceBottomSheet
+        onSelectServices={handleSelectServices}
+        offsetY={VERTICAL_OFFSET}
+        onAnimatedIndexChange={handleAnimatedIndexChange}
+      />
     </ScreenContainer>
   );
 }

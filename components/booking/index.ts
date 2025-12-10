@@ -5,8 +5,14 @@
  * Used in: app/(main-tabs)/bookings/
  */
 
+export {
+  LocationTopBar,
+  type FilterOption,
+  type MechanicFilterOption,
+  type ServiceCategory,
+  type TopBarMode,
+} from "./LocationTopBar";
 export { BookingMap } from "./map";
-export { LocationTopBar, type FilterOption, type ServiceCategory } from "./LocationTopBar";
 export { ServiceBottomSheet } from "./ServiceBottomSheet";
 export { ShopCarousel } from "./ShopCarousel";
 export { ShopMarker } from "./ShopMarker";

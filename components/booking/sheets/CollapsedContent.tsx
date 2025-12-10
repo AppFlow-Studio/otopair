@@ -12,16 +12,28 @@ import React from "react";
 import { StyleSheet, View } from "react-native";
 
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
+import type { BookingStage } from "@/stores/types/store.types";
+
+// ============================================================================
+// TYPES
+// ============================================================================
+
+interface CollapsedContentProps {
+  /** Current booking stage to determine the message */
+  bookingStage?: BookingStage;
+}
 
 // ============================================================================
 // COMPONENT
 // ============================================================================
 
-export function CollapsedContent() {
+export function CollapsedContent({ bookingStage = "service_selection" }: CollapsedContentProps) {
+  const message = bookingStage === "service_selection" ? "Swipe up for service list" : "Swipe up to continue booking";
+
   return (
     <View style={styles.container}>
       <Text size="lg" weight="medium" color={BrandColors.primary} center>
-        Swipe up for service list
+        {message}
       </Text>
     </View>
   );
@@ -37,5 +49,3 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.lg,
   },
 });
-
-

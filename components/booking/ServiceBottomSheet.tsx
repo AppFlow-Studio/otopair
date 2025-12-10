@@ -39,6 +39,8 @@ interface ServiceBottomSheetProps {
   onSelectMechanic?: () => void;
   /** Vertical offset to shift bottom sheet down (pixels) */
   offsetY?: number;
+  /** Callback to expose the animated index for parent components */
+  onAnimatedIndexChange?: (animatedIndex: Animated.SharedValue<number>) => void;
 }
 
 // ============================================================================
@@ -51,11 +53,21 @@ const STAGE_ORDER: BookingStage[] = ["discovery", "service_selection", "mechanic
 // COMPONENT
 // ============================================================================
 
-export function ServiceBottomSheet({ onSelectServices, onSelectMechanic, offsetY = 0 }: ServiceBottomSheetProps) {
+export function ServiceBottomSheet({
+  onSelectServices,
+  onSelectMechanic,
+  offsetY = 0,
+  onAnimatedIndexChange,
+}: ServiceBottomSheetProps) {
   // ═══════════════ STATE-EFFECT: Refs ═══════════════
   const bottomSheetRef = useRef<BottomSheet>(null);
   const animatedIndex = useSharedValue(0);
   const previousStageRef = useRef<BookingStage>("service_selection");
+
+  // ═══════════════ STATE-EFFECT: Expose animated index to parent ═══════════════
+  useEffect(() => {
+    onAnimatedIndexChange?.(animatedIndex);
+  }, [animatedIndex, onAnimatedIndexChange]);
 
   // ═══════════════ STATE-EFFECT: Store Subscriptions ═══════════════
   const bookingStage = useBookingStore((state) => state.bookingStage);
@@ -149,9 +161,9 @@ export function ServiceBottomSheet({ onSelectServices, onSelectMechanic, offsetY
       handleIndicatorStyle={styles.handleIndicator}
       handleStyle={styles.handleContainer}
     >
-      {/* Collapsed State - "Swipe up for service list" */}
+      {/* Collapsed State - "Swipe up for service list" or "Swipe up to continue booking" */}
       <Animated.View style={[styles.collapsedContent, collapsedStyle]}>
-        <CollapsedContent />
+        <CollapsedContent bookingStage={bookingStage} />
       </Animated.View>
 
       {/* Expanded State - Stage-specific content */}
