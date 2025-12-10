@@ -37,6 +37,8 @@ interface ServiceBottomSheetProps {
   onSelectServices?: () => void;
   /** Called when user confirms mechanic selection and proceeds to payment */
   onSelectMechanic?: () => void;
+  /** Called when user presses back in mechanic selection (for coordinated animation) */
+  onMechanicBackPress?: () => void;
   /** Vertical offset to shift bottom sheet down (pixels) */
   offsetY?: number;
   /** Callback to expose the animated index for parent components */
@@ -56,6 +58,7 @@ const STAGE_ORDER: BookingStage[] = ["discovery", "service_selection", "mechanic
 export function ServiceBottomSheet({
   onSelectServices,
   onSelectMechanic,
+  onMechanicBackPress,
   offsetY = 0,
   onAnimatedIndexChange,
 }: ServiceBottomSheetProps) {
@@ -128,7 +131,7 @@ export function ServiceBottomSheet({
       case "mechanic_selection":
         return (
           <Animated.View key="mechanic_selection" entering={entering} exiting={exiting} style={styles.stageContainer}>
-            <MechanicSelectionContent onSelectMechanic={handleSelectMechanic} />
+            <MechanicSelectionContent onSelectMechanic={handleSelectMechanic} onBackPress={onMechanicBackPress} />
           </Animated.View>
         );
       case "payment":

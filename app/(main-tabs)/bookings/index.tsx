@@ -72,6 +72,7 @@ export default function BookingsScreen() {
   const setSelectedServiceCategory = useBookingStore((state) => state.setSelectedServiceCategory);
   const bookingStage = useBookingStore((state) => state.bookingStage);
   const getSelectedServices = useBookingStore((state) => state.getSelectedServices);
+  const prevBookingStage = useBookingStore((state) => state.prevBookingStage);
 
   // ═══════════════ MECHANIC FILTER STATE ═══════════════
   const [mechanicFilter, setMechanicFilter] = useState<MechanicFilterOption>("available_now");
@@ -166,7 +167,7 @@ export default function BookingsScreen() {
   // ===========================================================================
 
   const handleBackPress = () => {
-    // Always navigate back to the previous screen (e.g., home page)
+    // Navigate back to the previous screen (e.g., home page)
     if (router.canGoBack()) {
       router.back();
     }
@@ -232,6 +233,11 @@ export default function BookingsScreen() {
     // TODO: Apply filter to mechanics list in the bottom sheet
   }, []);
 
+  // Handle back press from mechanic selection - go back to service selection
+  const handleMechanicBackPress = useCallback(() => {
+    prevBookingStage();
+  }, [prevBookingStage]);
+
   // ═══════════════ COMPUTED VALUES ═══════════════
 
   /** Generate truncated selected services text for mechanic selection mode */
@@ -266,9 +272,10 @@ export default function BookingsScreen() {
             mode="mechanic_selection"
             mechanicsCount={mechanicsCount}
             selectedServicesText={selectedServicesText}
-            onBackPress={handleBackPress}
+            onBackPress={handleMechanicBackPress}
             onMechanicFilterSelect={handleMechanicFilterSelect}
             selectedMechanicFilter={mechanicFilter}
+            sheetAnimatedIndex={sheetAnimatedIndex ?? undefined}
           />
         ) : (
           <TopBar
@@ -297,6 +304,7 @@ export default function BookingsScreen() {
         onSelectServices={handleSelectServices}
         offsetY={VERTICAL_OFFSET}
         onAnimatedIndexChange={handleAnimatedIndexChange}
+        onMechanicBackPress={handleMechanicBackPress}
       />
     </ScreenContainer>
   );

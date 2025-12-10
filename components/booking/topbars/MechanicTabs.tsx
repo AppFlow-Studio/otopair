@@ -1,20 +1,18 @@
 /**
- * MechanicSelectionContent
+ * MechanicTabs
  *
- * PURPOSE: Top bar content for mechanic selection mode - mechanics count, services summary, filter tabs
+ * PURPOSE: Mechanic filter tabs for mechanic selection mode (bottom portion of TopBar)
  *
  * USED IN: TopBar (mechanic_selection mode)
  *
  * OWNER: Waleed Mansour
  */
 
-import { ArrowLeft } from "lucide-react-native";
 import React from "react";
 import { StyleSheet, TouchableOpacity, View } from "react-native";
 import Animated, { SharedValue, useAnimatedStyle } from "react-native-reanimated";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { BrandColors, GhostButton, Spacing, Text } from "@/components/shared-ui";
+import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 import { SheetDrivenAnimation } from "@/constants/animations";
 import { BorderRadius } from "@/constants/theme";
 
@@ -22,7 +20,8 @@ import { BorderRadius } from "@/constants/theme";
 // CONSTANTS
 // ============================================================================
 
-const MECHANIC_FILTERS_HEIGHT = 52;
+// Match SERVICE_TABS_HEIGHT from DiscoveryTabs for consistent TopBar height
+const MECHANIC_FILTERS_HEIGHT = 60;
 
 // ============================================================================
 // TYPES
@@ -41,13 +40,7 @@ const MECHANIC_FILTERS: MechanicFilterItem[] = [
   { id: "rating", label: "Rating" },
 ];
 
-export interface MechanicSelectionContentProps {
-  /** Number of available mechanics */
-  mechanicsCount: number;
-  /** Summary of selected services (e.g., "Oil Change, Brake Inspection") */
-  selectedServicesText: string;
-  /** Called when back button is tapped */
-  onBackPress?: () => void;
+export interface MechanicTabsProps {
   /** Called when a filter tab is selected */
   onMechanicFilterSelect?: (filter: MechanicFilterOption) => void;
   /** Currently selected filter option */
@@ -60,17 +53,13 @@ export interface MechanicSelectionContentProps {
 // COMPONENT
 // ============================================================================
 
-export function MechanicSelectionContent({
-  mechanicsCount,
-  selectedServicesText,
-  onBackPress,
+export function MechanicTabs({
   onMechanicFilterSelect,
   selectedMechanicFilter = "available_now",
   sheetAnimatedIndex,
-}: MechanicSelectionContentProps) {
-  const insets = useSafeAreaInsets();
-
+}: MechanicTabsProps) {
   // Animation for mechanic filter tabs (sheet-driven: fade in when expanded)
+  // Use same height as DiscoveryTabs (SERVICE_TABS_HEIGHT = 60) for consistent TopBar height
   const mechanicFiltersAnimatedStyle = useAnimatedStyle(() => {
     if (!sheetAnimatedIndex) {
       return { opacity: 1, height: MECHANIC_FILTERS_HEIGHT };
@@ -80,39 +69,12 @@ export function MechanicSelectionContent({
     const opacity = SheetDrivenAnimation.fadeIn(sheetAnimatedIndex.value);
     const height = SheetDrivenAnimation.heightExpand(sheetAnimatedIndex.value, MECHANIC_FILTERS_HEIGHT);
 
-    return { opacity, height };
+    return { opacity, height, overflow: "hidden" };
   }, [sheetAnimatedIndex]);
 
   return (
-    <>
-      {/* Top Row: Back, Mechanics Count + Services */}
-      <View style={[styles.topRow, { paddingTop: insets.top + Spacing.sm }]}>
-        {/* Back Button */}
-        <GhostButton
-          onPress={onBackPress}
-          style={styles.iconButton}
-          paddingHorizontal={Spacing.sm}
-          paddingVertical={Spacing.sm}
-        >
-          <ArrowLeft size={24} color={BrandColors.primary} strokeWidth={2} />
-        </GhostButton>
-
-        {/* Center Content: Mechanics Count + Services */}
-        <View style={styles.centerContent}>
-          <Text size="xs" weight="regular" color={BrandColors.secondary} center>
-            {mechanicsCount} Mechanics Near You
-          </Text>
-          <Text size="md" weight="semiBold" color={BrandColors.primary} center numberOfLines={1}>
-            {selectedServicesText}
-          </Text>
-        </View>
-
-        {/* Spacer to balance back button */}
-        <View style={styles.spacer} />
-      </View>
-
-      {/* Mechanic Filter Tabs */}
-      <Animated.View style={[styles.mechanicFilters, mechanicFiltersAnimatedStyle]}>
+    <Animated.View style={mechanicFiltersAnimatedStyle}>
+      <View style={styles.mechanicFilters}>
         {MECHANIC_FILTERS.map((filter) => {
           const isSelected = selectedMechanicFilter === filter.id;
           return (
@@ -132,8 +94,8 @@ export function MechanicSelectionContent({
             </TouchableOpacity>
           );
         })}
-      </Animated.View>
-    </>
+      </View>
+    </Animated.View>
   );
 }
 
@@ -142,23 +104,6 @@ export function MechanicSelectionContent({
 // ============================================================================
 
 const styles = StyleSheet.create({
-  topRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.sm,
-  },
-  iconButton: {
-    borderRadius: BorderRadius.md,
-  },
-  centerContent: {
-    flex: 1,
-    alignItems: "center",
-  },
-  spacer: {
-    width: 40,
-  },
   mechanicFilters: {
     flexDirection: "row",
     paddingHorizontal: Spacing.lg,

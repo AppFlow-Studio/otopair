@@ -99,13 +99,15 @@ const MOCK_MECHANICS: MechanicData[] = [
 interface MechanicSelectionContentProps {
   /** Called when user confirms mechanic selection */
   onSelectMechanic?: () => void;
+  /** Called when user presses back button (for animated transitions) */
+  onBackPress?: () => void;
 }
 
 // ============================================================================
 // COMPONENT
 // ============================================================================
 
-export function MechanicSelectionContent({ onSelectMechanic }: MechanicSelectionContentProps) {
+export function MechanicSelectionContent({ onSelectMechanic, onBackPress }: MechanicSelectionContentProps) {
   // ═══════════════ STATE ═══════════════
   const [searchQuery, setSearchQuery] = useState("");
   const [serviceToRemove, setServiceToRemove] = useState<string | null>(null);
@@ -174,6 +176,15 @@ export function MechanicSelectionContent({ onSelectMechanic }: MechanicSelection
     console.log("Schedule later for mechanic:", mechanicId);
   }, []);
 
+  // Handle back button - use onBackPress if provided (for animation), otherwise prevBookingStage
+  const handleBackPress = useCallback(() => {
+    if (onBackPress) {
+      onBackPress();
+    } else {
+      prevBookingStage();
+    }
+  }, [onBackPress, prevBookingStage]);
+
   // ═══════════════ FILTERED MECHANICS ═══════════════
   const filteredMechanics = MOCK_MECHANICS.filter((mechanic) => {
     if (!searchQuery.trim()) return true;
@@ -185,7 +196,7 @@ export function MechanicSelectionContent({ onSelectMechanic }: MechanicSelection
     <View style={styles.container}>
       {/* Header with Back Button */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={prevBookingStage} activeOpacity={0.7}>
+        <TouchableOpacity style={styles.backButton} onPress={handleBackPress} activeOpacity={0.7}>
           <ChevronLeft size={24} color={BrandColors.primary} />
         </TouchableOpacity>
         <Text size="xl" weight="bold" color={BrandColors.primary}>
