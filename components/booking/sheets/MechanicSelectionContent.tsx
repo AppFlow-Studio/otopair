@@ -15,11 +15,11 @@
  */
 
 // 1. React & React Native
-import React, { useCallback, useEffect } from "react";
+import React, { useCallback, useEffect, useMemo } from "react";
 import { ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
-import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
+import { BottomSheetFlatList } from "@gorhom/bottom-sheet";
 import { ChevronLeft, Search } from "lucide-react-native";
 
 // 3. Shared UI (design system)
@@ -66,18 +66,55 @@ export function MechanicSelectionContent({
   // ═══════════════ BOOKING STORE ═══════════════
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
   const toggleServiceSelection = useBookingStore((state) => state.toggleServiceSelection);
-  const getSelectedServices = useBookingStore((state) => state.getSelectedServices);
+  const availableServices = useBookingStore((state) => state.availableServices);
   const prevBookingStage = useBookingStore((state) => state.prevBookingStage);
 
-  const selectedServices = getSelectedServices();
+  // Memoize selected services to prevent re-renders
+  const selectedServices = useMemo(
+    () => availableServices.filter((service) => selectedServiceIds.includes(service.id)),
+    [availableServices, selectedServiceIds]
+  );
 
   // ═══════════════ MECHANIC STORE ═══════════════
-  const filters = useMechanicStore((state) => state.filters);
+  const searchQuery = useMechanicStore((state) => state.filters.searchQuery);
+  const filterType = useMechanicStore((state) => state.filters.filterType);
   const setFilters = useMechanicStore((state) => state.setFilters);
   const setSearchQuery = useMechanicStore((state) => state.setSearchQuery);
-  const getFilteredMechanics = useMechanicStore((state) => state.getFilteredMechanics);
+  const mechanics = useMechanicStore((state) => state.mechanics);
+  const mechanicIds = useMechanicStore((state) => state.mechanicIds);
 
-  const filteredMechanics = getFilteredMechanics();
+  // Memoize filtered mechanics to prevent re-renders on sheet collapse/expand
+  const filteredMechanics = useMemo(() => {
+    let filtered = mechanicIds.map((id) => mechanics[id]).filter(Boolean);
+
+    // Filter by search query
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase();
+      filtered = filtered.filter(
+        (mechanic) => mechanic.name.toLowerCase().includes(query) || mechanic.shopName.toLowerCase().includes(query)
+      );
+    }
+
+    // Apply filter type and sort
+    switch (filterType) {
+      case "available_now":
+        filtered = filtered
+          .filter((mechanic) => mechanic.isAvailable)
+          .sort((a, b) => {
+            const responseOrder = { Quick: 0, Normal: 1, Slow: 2 };
+            return responseOrder[a.responseTime] - responseOrder[b.responseTime];
+          });
+        break;
+      case "distance":
+        filtered = [...filtered].sort((a, b) => a.distanceMi - b.distanceMi);
+        break;
+      case "rating":
+        filtered = [...filtered].sort((a, b) => b.rating - a.rating);
+        break;
+    }
+
+    return filtered;
+  }, [mechanics, mechanicIds, searchQuery, filterType]);
 
   // ═══════════════ EFFECTS ═══════════════
   // Go back to service selection if all services are removed
@@ -134,6 +171,16 @@ export function MechanicSelectionContent({
     console.log("Schedule later for mechanic:", mechanicId);
   }, []);
 
+  // ═══════════════ FLATLIST HELPERS ═══════════════
+  const keyExtractor = useCallback((item: (typeof filteredMechanics)[0]) => String(item.id), []);
+
+  const renderMechanicCard = useCallback(
+    ({ item }: { item: (typeof filteredMechanics)[0] }) => (
+      <MechanicCard mechanic={item} onBookNow={handleBookNow} onScheduleLater={handleScheduleLater} />
+    ),
+    [handleBookNow, handleScheduleLater]
+  );
+
   // Handle back button - use onBackPress if provided (for animation), otherwise prevBookingStage
   const handleBackPress = useCallback(() => {
     if (onBackPress) {
@@ -168,44 +215,38 @@ export function MechanicSelectionContent({
           style={styles.searchInput}
           placeholder="Search for mechanics..."
           placeholderTextColor="#9CA3AF"
-          value={filters.searchQuery}
+          value={searchQuery}
           onChangeText={setSearchQuery}
         />
       </View>
 
-      {/* Scrollable Content */}
-      <BottomSheetScrollView
-        style={styles.scrollView}
+      {/* Scrollable Content - Using FlatList for virtualization */}
+      <BottomSheetFlatList
+        data={filteredMechanics}
+        keyExtractor={keyExtractor}
+        renderItem={renderMechanicCard}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
-      >
-        {/* Selected Services Chips */}
-        {selectedServices.length > 0 && (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={styles.chipsContainer}
-            contentContainerStyle={styles.chipsContent}
-          >
-            {selectedServices.map((service) => (
-              <ServiceChip key={service.id} service={service} onRemove={handleRemoveService} />
-            ))}
-          </ScrollView>
-        )}
-
-        {/* Mechanics List */}
-        <View style={styles.mechanicsContainer}>
-          {filteredMechanics.map((mechanic) => (
-            <MechanicCard
-              key={mechanic.id}
-              mechanic={mechanic}
-              onBookNow={handleBookNow}
-              onScheduleLater={handleScheduleLater}
-            />
-          ))}
-        </View>
-      </BottomSheetScrollView>
+        removeClippedSubviews={true}
+        maxToRenderPerBatch={5}
+        windowSize={5}
+        initialNumToRender={3}
+        ListHeaderComponent={
+          selectedServices.length > 0 ? (
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.chipsContainer}
+              contentContainerStyle={styles.chipsContent}
+            >
+              {selectedServices.map((service) => (
+                <ServiceChip key={service.id} service={service} onRemove={handleRemoveService} />
+              ))}
+            </ScrollView>
+          ) : null
+        }
+      />
 
       {/* Discard Service Modal */}
       <DiscardServiceModal
@@ -226,10 +267,8 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  scrollView: {
-    flex: 1,
-  },
   scrollContent: {
+    paddingHorizontal: Spacing.lg,
     paddingBottom: 100,
   },
   header: {
@@ -277,8 +316,5 @@ const styles = StyleSheet.create({
   chipsContent: {
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.xs,
-  },
-  mechanicsContainer: {
-    paddingHorizontal: Spacing.lg,
   },
 });

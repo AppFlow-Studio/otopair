@@ -18,12 +18,19 @@
  * OWNER: Waleed Mansour
  */
 
-import { BrandColors } from "@/constants/theme";
-import type { Shop } from "@/stores/types/store.types";
-import { Ionicons } from "@expo/vector-icons";
+// 1. React & React Native
 import React, { memo, useCallback, useRef } from "react";
-import { Animated, StyleSheet, Text, View } from "react-native";
+import { Animated, StyleSheet, View } from "react-native";
+
+// 2. Third-party libraries
+import { Ionicons } from "@expo/vector-icons";
 import { Marker } from "react-native-maps";
+
+// 3. Shared UI (design system)
+import { BrandColors, Text } from "@/components/shared-ui";
+
+// 4. Constants, hooks, types, stores
+import type { Shop } from "@/stores/types/store.types";
 
 // ============================================================================
 // CONSTANTS
@@ -114,7 +121,9 @@ function ShopMarkerComponent({ shop, onPress }: ShopMarkerProps) {
         {/* Badge with rating */}
         <View style={[styles.badge, { backgroundColor }]}>
           <Ionicons name="star" size={12} color={BrandColors.white} />
-          <Text style={styles.ratingText}>{shop.rating?.toFixed(1) ?? "N/A"}</Text>
+          <Text weight="semiBold" size={14} color={BrandColors.white}>
+            {shop.rating?.toFixed(1) ?? "N/A"}
+          </Text>
         </View>
 
         {/* Pointer/Triangle */}
@@ -148,12 +157,6 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 4,
     elevation: 5,
-  },
-  ratingText: {
-    color: BrandColors.white,
-    fontSize: 14,
-    fontWeight: "600",
-    fontFamily: "Urbanist-SemiBold",
   },
   pointer: {
     width: 0,

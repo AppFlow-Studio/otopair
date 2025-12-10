@@ -8,27 +8,22 @@
  * OWNER: Waleed Mansour
  */
 
-import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
+// 1. React & React Native
 import React, { useCallback, useMemo, useState } from "react";
 import { ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from "react-native";
 
+// 2. Third-party libraries
+import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
+import { Check, Search } from "lucide-react-native";
+
+// 3. Shared UI (design system)
 import { BrandColors, PrimaryButton, Spacing, Text } from "@/components/shared-ui";
+
+// 4. Constants, hooks, types, stores
+import { SERVICE_CATEGORIES } from "@/constants/services";
 import { BorderRadius, FontFamily } from "@/constants/theme";
 import type { Service, ServiceCategory } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
-import { Check, Search } from "lucide-react-native";
-
-// ============================================================================
-// CONSTANTS
-// ============================================================================
-
-/** Service category display names and order */
-const SERVICE_CATEGORIES: { key: ServiceCategory; label: string }[] = [
-  { key: "basic_maintenance", label: "Basic\nMaintenance" },
-  { key: "tires_wheels", label: "Tires &\nWheels" },
-  { key: "brakes_suspension", label: "Brakes &\nSuspension" },
-  { key: "system_diagnostics", label: "System\nDiagnostics" },
-];
 
 // ============================================================================
 // TYPES
@@ -176,7 +171,11 @@ export function ServiceSelectionContent({ onSelectServices }: ServiceSelectionCo
       </View>
 
       {/* Service List */}
-      <BottomSheetScrollView style={styles.scrollView} contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <BottomSheetScrollView
+        style={styles.scrollView}
+        contentContainerStyle={styles.scrollContent}
+        showsVerticalScrollIndicator={false}
+      >
         {filteredServices.map(renderServiceItem)}
 
         {filteredServices.length === 0 && (
@@ -308,5 +307,3 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
 });
-
-

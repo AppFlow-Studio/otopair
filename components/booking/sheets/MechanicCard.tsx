@@ -21,7 +21,7 @@
  */
 
 // 1. React & React Native
-import React, { useState } from "react";
+import React, { memo, useCallback, useState } from "react";
 import { Image, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
@@ -51,9 +51,18 @@ interface MechanicCardProps {
 // COMPONENT
 // ============================================================================
 
-export function MechanicCard({ mechanic, onBookNow, onScheduleLater }: MechanicCardProps) {
+export const MechanicCard = memo(function MechanicCard({ mechanic, onBookNow, onScheduleLater }: MechanicCardProps) {
   // Track which availability slot is selected (null = none selected)
   const [selectedSlotIndex, setSelectedSlotIndex] = useState<number | null>(null);
+
+  // Memoize handlers to prevent re-renders
+  const handleBookNow = useCallback(() => {
+    onBookNow?.(mechanic.id);
+  }, [onBookNow, mechanic.id]);
+
+  const handleScheduleLater = useCallback(() => {
+    onScheduleLater?.(mechanic.id);
+  }, [onScheduleLater, mechanic.id]);
 
   return (
     <View style={styles.container}>
@@ -176,16 +185,12 @@ export function MechanicCard({ mechanic, onBookNow, onScheduleLater }: MechanicC
 
       {/* Action Buttons */}
       <View style={styles.actionButtons}>
-        <TouchableOpacity
-          style={styles.scheduleButton}
-          onPress={() => onScheduleLater?.(mechanic.id)}
-          activeOpacity={0.7}
-        >
+        <TouchableOpacity style={styles.scheduleButton} onPress={handleScheduleLater} activeOpacity={0.7}>
           <Text size="sm" weight="semiBold" color={BrandColors.primary}>
             Schedule For Later
           </Text>
         </TouchableOpacity>
-        <PrimaryButton style={styles.bookButton} onPress={() => onBookNow?.(mechanic.id)}>
+        <PrimaryButton style={styles.bookButton} onPress={handleBookNow}>
           <Text size="sm" weight="semiBold" color={BrandColors.white}>
             Book Now
           </Text>
@@ -193,7 +198,7 @@ export function MechanicCard({ mechanic, onBookNow, onScheduleLater }: MechanicC
       </View>
     </View>
   );
-}
+});
 
 // ============================================================================
 // STYLES

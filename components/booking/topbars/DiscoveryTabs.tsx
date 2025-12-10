@@ -8,12 +8,19 @@
  * OWNER: Waleed Mansour
  */
 
+// 1. React & React Native
 import React from "react";
 import { ScrollView, StyleSheet, TouchableOpacity } from "react-native";
+
+// 2. Third-party libraries
 import Animated, { SharedValue, useAnimatedStyle } from "react-native-reanimated";
 
+// 3. Shared UI (design system)
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
+
+// 4. Constants, hooks, types, stores
 import { SheetDrivenAnimation } from "@/constants/animations";
+import { SERVICE_CATEGORIES } from "@/constants/services";
 import type { ServiceCategory } from "@/stores/types/store.types";
 
 // ============================================================================
@@ -21,18 +28,6 @@ import type { ServiceCategory } from "@/stores/types/store.types";
 // ============================================================================
 
 const SERVICE_TABS_HEIGHT = 60;
-
-interface ServiceCategoryItem {
-  id: ServiceCategory;
-  label: string;
-}
-
-const SERVICE_CATEGORIES: ServiceCategoryItem[] = [
-  { id: "basic_maintenance", label: "Basic\nMaintenance" },
-  { id: "tires_wheels", label: "Tires &\nWheels" },
-  { id: "brakes_suspension", label: "Brakes &\nSuspension" },
-  { id: "system_diagnostics", label: "System\nDiagnostics" },
-];
 
 // ============================================================================
 // TYPES
@@ -68,12 +63,12 @@ export function DiscoveryTabs({ onServiceSelect, selectedService, sheetAnimatedI
     <Animated.View style={serviceTabsAnimatedStyle}>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.serviceTabs}>
         {SERVICE_CATEGORIES.map((service) => {
-          const isSelected = selectedService === service.id;
+          const isSelected = selectedService === service.key;
           return (
             <TouchableOpacity
-              key={service.id}
+              key={service.key}
               style={styles.serviceTab}
-              onPress={() => onServiceSelect?.(service.id)}
+              onPress={() => onServiceSelect?.(service.key)}
               activeOpacity={0.7}
             >
               <Text

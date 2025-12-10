@@ -8,14 +8,22 @@
  * OWNER: Waleed Mansour
  */
 
-import { ArrowLeft, Settings2 } from "lucide-react-native";
+// 1. React & React Native
 import React, { useState } from "react";
 import { Modal, Pressable, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
+
+// 2. Third-party libraries
+import { ArrowLeft, Settings2 } from "lucide-react-native";
 import Animated, { SharedValue, useAnimatedStyle } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+// 3. Shared UI (design system)
 import { BrandColors, GhostButton, Spacing, Text } from "@/components/shared-ui";
+
+// 4. Constants, hooks, types, stores
 import { SheetDrivenAnimation } from "@/constants/animations";
+import { SHOP_FILTER_OPTIONS } from "@/constants/filters";
+import { SERVICE_CATEGORIES } from "@/constants/services";
 import { BorderRadius, Shadows } from "@/constants/theme";
 import type { FilterOption, ServiceCategory } from "@/stores/types/store.types";
 
@@ -24,29 +32,6 @@ import type { FilterOption, ServiceCategory } from "@/stores/types/store.types";
 // ============================================================================
 
 const SERVICE_TABS_HEIGHT = 60;
-
-interface FilterOptionItem {
-  id: FilterOption;
-  label: string;
-}
-
-interface ServiceCategoryItem {
-  id: ServiceCategory;
-  label: string;
-}
-
-const FILTER_OPTIONS: FilterOptionItem[] = [
-  { id: "available_now", label: "Available Now" },
-  { id: "top_rated", label: "Top Rated" },
-  { id: "specialists", label: "Specialists" },
-];
-
-const SERVICE_CATEGORIES: ServiceCategoryItem[] = [
-  { id: "basic_maintenance", label: "Basic\nMaintenance" },
-  { id: "tires_wheels", label: "Tires &\nWheels" },
-  { id: "brakes_suspension", label: "Brakes &\nSuspension" },
-  { id: "system_diagnostics", label: "System\nDiagnostics" },
-];
 
 // ============================================================================
 // TYPES
@@ -150,14 +135,14 @@ export function DiscoveryContent({
             <Pressable style={styles.modalOverlay} onPress={handleDismiss}>
               <View style={styles.dropdownContainer}>
                 <View style={styles.dropdown}>
-                  {FILTER_OPTIONS.map((option, index) => (
+                  {SHOP_FILTER_OPTIONS.map((option, index) => (
                     <React.Fragment key={option.id}>
                       <Pressable style={styles.dropdownOption} onPress={() => handleOptionSelect(option.id)}>
                         <Text size="md" weight="medium" color={BrandColors.primary}>
                           {option.label}
                         </Text>
                       </Pressable>
-                      {index < FILTER_OPTIONS.length - 1 && <View style={styles.divider} />}
+                      {index < SHOP_FILTER_OPTIONS.length - 1 && <View style={styles.divider} />}
                     </React.Fragment>
                   ))}
                 </View>
@@ -171,12 +156,12 @@ export function DiscoveryContent({
       <Animated.View style={serviceTabsAnimatedStyle}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.serviceTabs}>
           {SERVICE_CATEGORIES.map((service) => {
-            const isSelected = selectedService === service.id;
+            const isSelected = selectedService === service.key;
             return (
               <TouchableOpacity
-                key={service.id}
+                key={service.key}
                 style={styles.serviceTab}
-                onPress={() => onServiceSelect?.(service.id)}
+                onPress={() => onServiceSelect?.(service.key)}
                 activeOpacity={0.7}
               >
                 <Text

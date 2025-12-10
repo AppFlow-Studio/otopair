@@ -8,13 +8,23 @@
  * OWNER: Waleed Mansour
  */
 
+// 1. React & React Native
 import React from "react";
 import { StyleSheet, TouchableOpacity, View } from "react-native";
+
+// 2. Third-party libraries
 import Animated, { SharedValue, useAnimatedStyle } from "react-native-reanimated";
 
+// 3. Shared UI (design system)
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
+
+// 4. Constants, hooks, types, stores
 import { SheetDrivenAnimation } from "@/constants/animations";
+import { MECHANIC_FILTER_OPTIONS, type MechanicFilterOption } from "@/constants/filters";
 import { BorderRadius } from "@/constants/theme";
+
+// Re-export for convenience
+export type { MechanicFilterOption } from "@/constants/filters";
 
 // ============================================================================
 // CONSTANTS
@@ -22,23 +32,6 @@ import { BorderRadius } from "@/constants/theme";
 
 // Match SERVICE_TABS_HEIGHT from DiscoveryTabs for consistent TopBar height
 const MECHANIC_FILTERS_HEIGHT = 60;
-
-// ============================================================================
-// TYPES
-// ============================================================================
-
-export type MechanicFilterOption = "available_now" | "distance" | "rating";
-
-interface MechanicFilterItem {
-  id: MechanicFilterOption;
-  label: string;
-}
-
-const MECHANIC_FILTERS: MechanicFilterItem[] = [
-  { id: "available_now", label: "Available Now" },
-  { id: "distance", label: "Distance" },
-  { id: "rating", label: "Rating" },
-];
 
 export interface MechanicTabsProps {
   /** Called when a filter tab is selected */
@@ -75,7 +68,7 @@ export function MechanicTabs({
   return (
     <Animated.View style={mechanicFiltersAnimatedStyle}>
       <View style={styles.mechanicFilters}>
-        {MECHANIC_FILTERS.map((filter) => {
+        {MECHANIC_FILTER_OPTIONS.map((filter) => {
           const isSelected = selectedMechanicFilter === filter.id;
           return (
             <TouchableOpacity

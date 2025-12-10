@@ -27,6 +27,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { BrandColors, GhostButton, Spacing, Text } from "@/components/shared-ui";
 import { AnimationDuration, getSlideTransitionOrNone } from "@/constants/animations";
+import { SHOP_FILTER_OPTIONS } from "@/constants/filters";
 import { BorderRadius, Shadows } from "@/constants/theme";
 import type { FilterOption, ServiceCategory } from "@/stores/types/store.types";
 import { DiscoveryTabs, MechanicTabs, type MechanicFilterOption } from "./topbars";
@@ -34,16 +35,6 @@ import { DiscoveryTabs, MechanicTabs, type MechanicFilterOption } from "./topbar
 // Re-export types for convenience
 export type { FilterOption, ServiceCategory } from "@/stores/types/store.types";
 export type { MechanicFilterOption } from "./topbars";
-
-// ============================================================================
-// CONSTANTS
-// ============================================================================
-
-const FILTER_OPTIONS: { id: FilterOption; label: string }[] = [
-  { id: "available_now", label: "Available Now" },
-  { id: "top_rated", label: "Top Rated" },
-  { id: "specialists", label: "Specialists" },
-];
 
 // ============================================================================
 // TYPES
@@ -201,14 +192,14 @@ export function TopBar(props: TopBarProps) {
         <Pressable style={styles.modalOverlay} onPress={handleFilterDismiss}>
           <View style={styles.dropdownContainer}>
             <View style={styles.dropdown}>
-              {FILTER_OPTIONS.map((option, index) => (
+              {SHOP_FILTER_OPTIONS.map((option, index) => (
                 <React.Fragment key={option.id}>
                   <Pressable style={styles.dropdownOption} onPress={() => handleFilterSelect(option.id)}>
                     <Text size="md" weight="medium" color={BrandColors.primary}>
                       {option.label}
                     </Text>
                   </Pressable>
-                  {index < FILTER_OPTIONS.length - 1 && <View style={styles.divider} />}
+                  {index < SHOP_FILTER_OPTIONS.length - 1 && <View style={styles.divider} />}
                 </React.Fragment>
               ))}
             </View>

@@ -16,7 +16,7 @@
  */
 
 // 1. React & React Native
-import React from "react";
+import React, { memo, useCallback } from "react";
 import { StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
@@ -44,7 +44,11 @@ interface ServiceChipProps {
 // COMPONENT
 // ============================================================================
 
-export function ServiceChip({ service, onRemove }: ServiceChipProps) {
+export const ServiceChip = memo(function ServiceChip({ service, onRemove }: ServiceChipProps) {
+  const handleRemove = useCallback(() => {
+    onRemove?.(service.id);
+  }, [onRemove, service.id]);
+
   return (
     <View style={styles.container}>
       {/* Service Icon */}
@@ -65,7 +69,7 @@ export function ServiceChip({ service, onRemove }: ServiceChipProps) {
       {/* Remove Button */}
       <TouchableOpacity
         style={styles.removeButton}
-        onPress={() => onRemove?.(service.id)}
+        onPress={handleRemove}
         activeOpacity={0.7}
         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
       >
@@ -73,7 +77,7 @@ export function ServiceChip({ service, onRemove }: ServiceChipProps) {
       </TouchableOpacity>
     </View>
   );
-}
+});
 
 // ============================================================================
 // STYLES

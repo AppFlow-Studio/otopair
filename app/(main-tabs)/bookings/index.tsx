@@ -14,13 +14,24 @@
  * OWNER: Waleed Mansour
  */
 
-import { useRouter } from "expo-router";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+// 1. React & React Native
+import React, { useCallback, useMemo, useState } from "react";
 import { StyleSheet, View } from "react-native";
+
+// 2. Third-party libraries
+import { useRouter } from "expo-router";
 import { SharedValue } from "react-native-reanimated";
 
-import { BookingMap, MechanicFilterOption, ServiceBottomSheet, Shop, ShopCarousel, TopBar } from "@/components/booking";
+// 3. Shared UI (design system)
 import { ScreenContainer } from "@/components/shared-ui";
+
+// 4. Flow-specific components
+import { BookingMap, MechanicFilterOption, ServiceBottomSheet, Shop, ShopCarousel, TopBar } from "@/components/booking";
+
+// 5. Constants, hooks, types, stores
+import { AVAILABLE_NOW_FILTER, TOP_RATED_FILTER } from "@/constants/filters";
+import { getServiceIdsForCategory } from "@/constants/services";
+import { useFilteredShops } from "@/hooks/useFilteredShops";
 import type { FilterOption, ServiceCategory } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useShopStore } from "@/stores/useShopStore";
@@ -34,30 +45,6 @@ const VERTICAL_OFFSET = 35; // pixels to shift down
 
 /** Maximum number of shops to show in carousel */
 const MAX_CAROUSEL_SHOPS = 5;
-
-/** Map service categories to service IDs */
-const SERVICE_CATEGORY_TO_IDS: Record<ServiceCategory, string[]> = {
-  basic_maintenance: ["svc_oil_change"],
-  tires_wheels: ["svc_tire_service"],
-  brakes_suspension: ["svc_brake_service"],
-  system_diagnostics: ["svc_diagnostics"],
-};
-
-// ============================================================================
-// HELPERS
-// ============================================================================
-
-/** Calculate distance between two coordinates using Haversine formula (returns km) */
-function calculateDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
-  const R = 6371; // Earth's radius in km
-  const dLat = ((lat2 - lat1) * Math.PI) / 180;
-  const dLon = ((lon2 - lon1) * Math.PI) / 180;
-  const a =
-    Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-    Math.cos((lat1 * Math.PI) / 180) * Math.cos((lat2 * Math.PI) / 180) * Math.sin(dLon / 2) * Math.sin(dLon / 2);
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return R * c;
-}
 
 // ============================================================================
 // COMPONENT
@@ -92,76 +79,14 @@ export default function BookingsScreen() {
   const selectShop = useShopStore((state) => state.selectShop);
   const setFilters = useShopStore((state) => state.setFilters);
 
-  const filteredShops = useMemo(() => {
-    // Safety check - ensure we have valid data
-    if (!shopIds || !shops) return [];
-
-    let filtered = shopIds.map((id) => shops[id]).filter((shop): shop is Shop => shop != null);
-
-    // Apply availability filter (show only shops with availability > 0)
-    if (filters.availableOnly) {
-      filtered = filtered.filter((shop) => shop.availability > 0);
-    }
-
-    // Apply minimum rating filter (for "top_rated" - also sort by rating)
-    if (filters.minRating > 0) {
-      filtered = filtered
-        .filter((shop) => (shop.rating ?? 0) >= filters.minRating)
-        .sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0)); // Sort by rating descending
-    }
-
-    // Apply service ID filter
-    if (filters.serviceIds && filters.serviceIds.length > 0) {
-      filtered = filtered.filter(
-        (shop) => shop.serviceIds && filters.serviceIds.some((svcId) => shop.serviceIds.includes(svcId))
-      );
-    }
-
-    // If no rating filter applied, sort by distance from user location (closest first)
-    if (filters.minRating === 0 && userLocation?.latitude && userLocation?.longitude) {
-      filtered = [...filtered].sort((a, b) => {
-        const distA = calculateDistanceKm(userLocation.latitude, userLocation.longitude, a.latitude, a.longitude);
-        const distB = calculateDistanceKm(userLocation.latitude, userLocation.longitude, b.latitude, b.longitude);
-        return distA - distB;
-      });
-    }
-
-    // Limit to closest shops for carousel
-    return filtered.slice(0, MAX_CAROUSEL_SHOPS);
-  }, [shops, shopIds, filters, userLocation]);
-
-  // Debounce the carousel shops to prevent rapid updates that crash the app
-  const [carouselShops, setCarouselShops] = useState<Shop[]>(filteredShops);
-  const debounceRef = useRef<NodeJS.Timeout | null>(null);
-  const prevFilteredShopsLengthRef = useRef(filteredShops.length);
-
-  useEffect(() => {
-    // Clear any pending debounce
-    if (debounceRef.current) {
-      clearTimeout(debounceRef.current);
-    }
-
-    // If showing MORE shops (clearing filters), update immediately
-    // If showing FEWER shops (adding filters), debounce to prevent crashes
-    const isShowingMore = filteredShops.length > prevFilteredShopsLengthRef.current;
-    prevFilteredShopsLengthRef.current = filteredShops.length;
-
-    if (isShowingMore || filteredShops.length === 0) {
-      // Immediate update when clearing filters or showing more
-      setCarouselShops(filteredShops);
-    } else {
-      // Debounce when filtering down
-      debounceRef.current = setTimeout(() => {
-        setCarouselShops(filteredShops);
-      }, 50);
-    }
-
-    return () => {
-      if (debounceRef.current) {
-        clearTimeout(debounceRef.current);
-      }
-    };
-  }, [filteredShops]);
+  // ═══════════════ FILTERED SHOPS (using custom hook) ═══════════════
+  const { carouselShops } = useFilteredShops({
+    shops,
+    shopIds,
+    filters,
+    userLocation,
+    maxResults: MAX_CAROUSEL_SHOPS,
+  });
 
   // ===========================================================================
   // HANDLERS
@@ -176,11 +101,11 @@ export default function BookingsScreen() {
 
   const handleFilterSelect = useCallback(
     (filter: FilterOption) => {
-      // Map filter options to shop store filters
+      // Map filter options to shop store filters using shared presets
       if (filter === "available_now") {
-        setFilters({ availableOnly: true, minRating: 0 });
+        setFilters(AVAILABLE_NOW_FILTER);
       } else if (filter === "top_rated") {
-        setFilters({ availableOnly: false, minRating: 4.0 });
+        setFilters(TOP_RATED_FILTER);
       } else {
         // Default/specialists - clear filters
         setFilters({ availableOnly: false, minRating: 0 });
@@ -205,8 +130,8 @@ export default function BookingsScreen() {
         setFilters({ serviceIds: [] });
         console.log("Service category deselected");
       } else {
-        // Select new category
-        const serviceIds = SERVICE_CATEGORY_TO_IDS[service] || [];
+        // Select new category using shared mapping
+        const serviceIds = getServiceIdsForCategory(service);
         setSelectedServiceCategory(service);
         setFilters({ serviceIds });
         console.log("Service category selected:", service, "→ serviceIds:", serviceIds);

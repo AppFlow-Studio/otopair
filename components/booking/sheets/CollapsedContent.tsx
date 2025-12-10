@@ -27,8 +27,11 @@ interface CollapsedContentProps {
 // COMPONENT
 // ============================================================================
 
-export function CollapsedContent({ bookingStage = "service_selection" }: CollapsedContentProps) {
-  const message = bookingStage === "service_selection" ? "Swipe up for service list" : "Swipe up to continue booking";
+export function CollapsedContent({ bookingStage = "discovery" }: CollapsedContentProps) {
+  // Show "service list" message for initial stages (discovery, service_selection)
+  // Show "continue booking" for later stages (mechanic_selection, payment, confirmation)
+  const isInitialStage = bookingStage === "discovery" || bookingStage === "service_selection";
+  const message = isInitialStage ? "Swipe up for service list" : "Swipe up to continue booking";
 
   return (
     <View style={styles.container}>

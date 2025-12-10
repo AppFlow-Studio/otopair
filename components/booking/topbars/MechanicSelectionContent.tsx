@@ -8,13 +8,19 @@
  * OWNER: Waleed Mansour
  */
 
-import { ArrowLeft } from "lucide-react-native";
+// 1. React & React Native
 import React from "react";
 import { StyleSheet, TouchableOpacity, View } from "react-native";
+
+// 2. Third-party libraries
+import { ArrowLeft } from "lucide-react-native";
 import Animated, { SharedValue, useAnimatedStyle } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+// 3. Shared UI (design system)
 import { BrandColors, GhostButton, Spacing, Text } from "@/components/shared-ui";
+
+// 4. Constants, hooks, types, stores
 import { SheetDrivenAnimation } from "@/constants/animations";
 import { BorderRadius } from "@/constants/theme";
 
