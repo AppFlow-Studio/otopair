@@ -6,7 +6,7 @@
  * USED IN: components/booking/sheets/MechanicSelectionContent.tsx
  *
  * PROPS:
- *   - mechanic (MechanicData): The mechanic/shop data to display
+ *   - mechanic (Mechanic): The mechanic/shop data to display
  *   - onBookNow ((mechanicId: number) => void): Called when "Book Now" is pressed [optional]
  *   - onScheduleLater ((mechanicId: number) => void): Called when "Schedule For Later" is pressed [optional]
  *
@@ -21,8 +21,8 @@
  */
 
 // 1. React & React Native
-import React from "react";
-import { Image, StyleSheet, TouchableOpacity, View } from "react-native";
+import React, { useState } from "react";
+import { Image, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
 import { BadgeCheck, MapPin, Star, User } from "lucide-react-native";
@@ -32,32 +32,15 @@ import { BrandColors, PrimaryButton, Spacing, Text } from "@/components/shared-u
 
 // 4. Constants, hooks, types
 import { BorderRadius, Shadows } from "@/constants/theme";
+import type { Mechanic } from "@/stores/types/store.types";
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
-export interface MechanicData {
-  id: number;
-  name: string;
-  shopName: string;
-  photoUrl: string | null;
-  rating: number;
-  isVerified: boolean;
-  distanceMi: number;
-  services: string[];
-  isAvailable: boolean;
-  responseTime: "Quick" | "Normal" | "Slow";
-  nextAvailability: {
-    day: string;
-    dayOfWeek: string;
-    time: string;
-  }[];
-}
-
 interface MechanicCardProps {
   /** The mechanic data to display */
-  mechanic: MechanicData;
+  mechanic: Mechanic;
   /** Called when "Book Now" is pressed */
   onBookNow?: (mechanicId: number) => void;
   /** Called when "Schedule For Later" is pressed */
@@ -69,6 +52,9 @@ interface MechanicCardProps {
 // ============================================================================
 
 export function MechanicCard({ mechanic, onBookNow, onScheduleLater }: MechanicCardProps) {
+  // Track which availability slot is selected (null = none selected)
+  const [selectedSlotIndex, setSelectedSlotIndex] = useState<number | null>(null);
+
   return (
     <View style={styles.container}>
       {/* Header: Avatar, Name, Rating */}
@@ -79,7 +65,7 @@ export function MechanicCard({ mechanic, onBookNow, onScheduleLater }: MechanicC
             <Image source={{ uri: mechanic.photoUrl }} style={styles.avatar} />
           ) : (
             <View style={styles.avatarPlaceholder}>
-              <User size={28} color={BrandColors.white} />
+              <User size={28} color={BrandColors.secondary} />
             </View>
           )}
         </View>
@@ -159,21 +145,33 @@ export function MechanicCard({ mechanic, onBookNow, onScheduleLater }: MechanicC
         <Text size="sm" weight="semiBold" color={BrandColors.primary} style={styles.availabilityTitle}>
           Next Availability
         </Text>
-        <View style={styles.availabilitySlots}>
-          {mechanic.nextAvailability.map((slot, index) => (
-            <View key={index} style={[styles.availabilitySlot, index === 0 && styles.selectedSlot]}>
-              <Text size="xs" weight="medium" color={index === 0 ? BrandColors.primary : "#6B7280"}>
-                {slot.dayOfWeek}
-              </Text>
-              <Text size="lg" weight="bold" color={index === 0 ? BrandColors.primary : "#374151"}>
-                {slot.day}
-              </Text>
-              <Text size="xs" weight="medium" color={index === 0 ? BrandColors.primary : "#6B7280"}>
-                {slot.time}
-              </Text>
-            </View>
-          ))}
-        </View>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.availabilitySlotsContent}
+        >
+          {mechanic.nextAvailability.map((slot, index) => {
+            const isSelected = index === selectedSlotIndex;
+            return (
+              <TouchableOpacity
+                key={index}
+                style={[styles.availabilitySlot, isSelected && styles.selectedSlot]}
+                onPress={() => setSelectedSlotIndex(index)}
+                activeOpacity={0.7}
+              >
+                <Text size="xs" weight="medium" color={isSelected ? BrandColors.primary : "#6B7280"}>
+                  {slot.dayOfWeek}
+                </Text>
+                <Text size="lg" weight="bold" color={isSelected ? BrandColors.primary : "#374151"}>
+                  {slot.day}
+                </Text>
+                <Text size="xs" weight="medium" color={isSelected ? BrandColors.primary : "#6B7280"}>
+                  {slot.time}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
       </View>
 
       {/* Action Buttons */}
@@ -227,7 +225,7 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: BorderRadius.full,
-    backgroundColor: BrandColors.secondary,
+    backgroundColor: "#E8F4FD",
     alignItems: "center",
     justifyContent: "center",
   },
@@ -300,12 +298,11 @@ const styles = StyleSheet.create({
   availabilityTitle: {
     marginBottom: Spacing.sm,
   },
-  availabilitySlots: {
-    flexDirection: "row",
+  availabilitySlotsContent: {
     gap: Spacing.sm,
   },
   availabilitySlot: {
-    flex: 1,
+    width: 80,
     alignItems: "center",
     paddingVertical: Spacing.md,
     backgroundColor: "#F9FAFB",

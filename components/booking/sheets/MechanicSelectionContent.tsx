@@ -15,111 +15,69 @@
  */
 
 // 1. React & React Native
-import React, { useCallback, useEffect, useState } from "react";
-import { ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
+import React, { useCallback, useEffect } from "react";
+import { ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
-import { BottomSheetScrollView, BottomSheetTextInput } from "@gorhom/bottom-sheet";
+import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
 import { ChevronLeft, Search } from "lucide-react-native";
 
 // 3. Shared UI (design system)
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Constants, hooks, types
-import { BorderRadius } from "@/constants/theme";
+import { BorderRadius, FontFamily } from "@/constants/theme";
 import { useBookingStore } from "@/stores/useBookingStore";
+import { useMechanicStore } from "@/stores/useMechanicStore";
 
 // 5. Flow-specific components (booking folder)
 import { DiscardServiceModal } from "./DiscardServiceModal";
-import { MechanicCard, type MechanicData } from "./MechanicCard";
+import { MechanicCard } from "./MechanicCard";
 import { ServiceChip } from "./ServiceChip";
-
-// ============================================================================
-// MOCK DATA
-// ============================================================================
-
-const MOCK_MECHANICS: MechanicData[] = [
-  {
-    id: 1,
-    name: "John Rodriguez",
-    shopName: "Premium Auto Care",
-    rating: 4.8,
-    isVerified: true,
-    photoUrl: null,
-    distanceMi: 0.8,
-    services: ["Car Repair and Maintenance", "Diagnostics and Troubleshooting"],
-    isAvailable: true,
-    responseTime: "Quick",
-    nextAvailability: [
-      { dayOfWeek: "Wed", day: "10", time: "9:00 AM" },
-      { dayOfWeek: "Fri", day: "12", time: "1:00 PM" },
-      { dayOfWeek: "Sat", day: "13", time: "2:00 PM" },
-    ],
-  },
-  {
-    id: 2,
-    name: "Mike Johnson",
-    shopName: "Quick Fix Garage",
-    rating: 4.8,
-    isVerified: true,
-    photoUrl: null,
-    distanceMi: 2.1,
-    services: ["Oil Changes", "Brake Service", "Tire Rotation"],
-    isAvailable: true,
-    responseTime: "Normal",
-    nextAvailability: [
-      { dayOfWeek: "Thu", day: "11", time: "10:00 AM" },
-      { dayOfWeek: "Fri", day: "12", time: "3:00 PM" },
-      { dayOfWeek: "Mon", day: "15", time: "9:00 AM" },
-    ],
-  },
-  {
-    id: 3,
-    name: "Sarah Chen",
-    shopName: "Elite Motors",
-    rating: 4.9,
-    isVerified: true,
-    photoUrl: null,
-    distanceMi: 3.5,
-    services: ["Engine Diagnostics", "Transmission Repair", "AC Service"],
-    isAvailable: false,
-    responseTime: "Quick",
-    nextAvailability: [
-      { dayOfWeek: "Mon", day: "15", time: "11:00 AM" },
-      { dayOfWeek: "Tue", day: "16", time: "2:00 PM" },
-      { dayOfWeek: "Wed", day: "17", time: "10:00 AM" },
-    ],
-  },
-];
 
 // ============================================================================
 // TYPES
 // ============================================================================
+
+export type MechanicFilterOption = "available_now" | "distance" | "rating";
 
 interface MechanicSelectionContentProps {
   /** Called when user confirms mechanic selection */
   onSelectMechanic?: () => void;
   /** Called when user presses back button (for animated transitions) */
   onBackPress?: () => void;
+  /** Currently selected filter from TopBar */
+  mechanicFilter?: MechanicFilterOption;
 }
 
 // ============================================================================
 // COMPONENT
 // ============================================================================
 
-export function MechanicSelectionContent({ onSelectMechanic, onBackPress }: MechanicSelectionContentProps) {
+export function MechanicSelectionContent({
+  onSelectMechanic,
+  onBackPress,
+  mechanicFilter = "available_now",
+}: MechanicSelectionContentProps) {
   // ═══════════════ STATE ═══════════════
-  const [searchQuery, setSearchQuery] = useState("");
-  const [serviceToRemove, setServiceToRemove] = useState<string | null>(null);
-  const [dontAskAgain, setDontAskAgain] = useState(false);
+  const [serviceToRemove, setServiceToRemove] = React.useState<string | null>(null);
+  const [dontAskAgain, setDontAskAgain] = React.useState(false);
 
-  // ═══════════════ STORE ═══════════════
+  // ═══════════════ BOOKING STORE ═══════════════
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
   const toggleServiceSelection = useBookingStore((state) => state.toggleServiceSelection);
   const getSelectedServices = useBookingStore((state) => state.getSelectedServices);
   const prevBookingStage = useBookingStore((state) => state.prevBookingStage);
 
   const selectedServices = getSelectedServices();
+
+  // ═══════════════ MECHANIC STORE ═══════════════
+  const filters = useMechanicStore((state) => state.filters);
+  const setFilters = useMechanicStore((state) => state.setFilters);
+  const setSearchQuery = useMechanicStore((state) => state.setSearchQuery);
+  const getFilteredMechanics = useMechanicStore((state) => state.getFilteredMechanics);
+
+  const filteredMechanics = getFilteredMechanics();
 
   // ═══════════════ EFFECTS ═══════════════
   // Go back to service selection if all services are removed
@@ -185,16 +143,14 @@ export function MechanicSelectionContent({ onSelectMechanic, onBackPress }: Mech
     }
   }, [onBackPress, prevBookingStage]);
 
-  // ═══════════════ FILTERED MECHANICS ═══════════════
-  const filteredMechanics = MOCK_MECHANICS.filter((mechanic) => {
-    if (!searchQuery.trim()) return true;
-    const query = searchQuery.toLowerCase();
-    return mechanic.name.toLowerCase().includes(query) || mechanic.shopName.toLowerCase().includes(query);
-  });
+  // ═══════════════ SYNC FILTER FROM PROPS ═══════════════
+  useEffect(() => {
+    setFilters({ filterType: mechanicFilter });
+  }, [mechanicFilter, setFilters]);
 
   return (
     <View style={styles.container}>
-      {/* Header with Back Button */}
+      {/* Header with Back Button - Fixed at top */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.backButton} onPress={handleBackPress} activeOpacity={0.7}>
           <ChevronLeft size={24} color={BrandColors.primary} />
@@ -205,46 +161,50 @@ export function MechanicSelectionContent({ onSelectMechanic, onBackPress }: Mech
         <View style={styles.headerSpacer} />
       </View>
 
-      {/* Search Input */}
+      {/* Search Input - Fixed outside scroll view */}
       <View style={styles.searchContainer}>
         <Search size={20} color="#9CA3AF" style={styles.searchIcon} />
-        <BottomSheetTextInput
+        <TextInput
           style={styles.searchInput}
           placeholder="Search for mechanics..."
           placeholderTextColor="#9CA3AF"
-          value={searchQuery}
+          value={filters.searchQuery}
           onChangeText={setSearchQuery}
         />
       </View>
 
-      {/* Selected Services Chips */}
-      {selectedServices.length > 0 && (
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          style={styles.chipsContainer}
-          contentContainerStyle={styles.chipsContent}
-        >
-          {selectedServices.map((service) => (
-            <ServiceChip key={service.id} service={service} onRemove={handleRemoveService} />
-          ))}
-        </ScrollView>
-      )}
-
-      {/* Mechanics List */}
+      {/* Scrollable Content */}
       <BottomSheetScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
       >
-        {filteredMechanics.map((mechanic) => (
-          <MechanicCard
-            key={mechanic.id}
-            mechanic={mechanic}
-            onBookNow={handleBookNow}
-            onScheduleLater={handleScheduleLater}
-          />
-        ))}
+        {/* Selected Services Chips */}
+        {selectedServices.length > 0 && (
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.chipsContainer}
+            contentContainerStyle={styles.chipsContent}
+          >
+            {selectedServices.map((service) => (
+              <ServiceChip key={service.id} service={service} onRemove={handleRemoveService} />
+            ))}
+          </ScrollView>
+        )}
+
+        {/* Mechanics List */}
+        <View style={styles.mechanicsContainer}>
+          {filteredMechanics.map((mechanic) => (
+            <MechanicCard
+              key={mechanic.id}
+              mechanic={mechanic}
+              onBookNow={handleBookNow}
+              onScheduleLater={handleScheduleLater}
+            />
+          ))}
+        </View>
       </BottomSheetScrollView>
 
       {/* Discard Service Modal */}
@@ -265,6 +225,12 @@ export function MechanicSelectionContent({ onSelectMechanic, onBackPress }: Mech
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingBottom: 100,
   },
   header: {
     flexDirection: "row",
@@ -287,37 +253,32 @@ const styles = StyleSheet.create({
   searchContainer: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#F5F7FA",
-    borderRadius: BorderRadius.xl,
+    backgroundColor: "#F3F4F6",
+    borderRadius: BorderRadius.md,
     marginHorizontal: Spacing.lg,
+    marginBottom: Spacing.md,
     paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
+    height: 44,
   },
   searchIcon: {
     marginRight: Spacing.sm,
   },
   searchInput: {
     flex: 1,
+    fontFamily: FontFamily.regular,
     fontSize: 16,
     color: BrandColors.primary,
-    paddingVertical: Spacing.xs,
   },
   chipsContainer: {
     marginTop: Spacing.md,
+    marginBottom: Spacing.md,
     maxHeight: 72,
   },
   chipsContent: {
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.xs,
   },
-  scrollView: {
-    flex: 1,
-    marginTop: Spacing.md,
-  },
-  scrollContent: {
+  mechanicsContainer: {
     paddingHorizontal: Spacing.lg,
-    paddingBottom: 100,
   },
 });

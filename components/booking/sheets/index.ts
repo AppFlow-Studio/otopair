@@ -6,7 +6,7 @@
 
 export { CollapsedContent } from "./CollapsedContent";
 export { DiscardServiceModal } from "./DiscardServiceModal";
-export { MechanicCard, type MechanicData } from "./MechanicCard";
+export { MechanicCard } from "./MechanicCard";
 export { MechanicSelectionContent } from "./MechanicSelectionContent";
 export { ServiceChip } from "./ServiceChip";
 export { ServiceSelectionContent } from "./ServiceSelectionContent";

@@ -71,6 +71,7 @@ export default function BookingsScreen() {
   const selectedServiceCategory = useBookingStore((state) => state.selectedServiceCategory);
   const setSelectedServiceCategory = useBookingStore((state) => state.setSelectedServiceCategory);
   const bookingStage = useBookingStore((state) => state.bookingStage);
+  const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
   const getSelectedServices = useBookingStore((state) => state.getSelectedServices);
   const prevBookingStage = useBookingStore((state) => state.prevBookingStage);
 
@@ -251,7 +252,7 @@ export default function BookingsScreen() {
       return joined.slice(0, 22) + "...";
     }
     return joined;
-  }, [getSelectedServices]);
+  }, [getSelectedServices, selectedServiceIds]);
 
   /** Mock mechanics count - TODO: get from actual data */
   const mechanicsCount = 3;
@@ -305,6 +306,7 @@ export default function BookingsScreen() {
         offsetY={VERTICAL_OFFSET}
         onAnimatedIndexChange={handleAnimatedIndexChange}
         onMechanicBackPress={handleMechanicBackPress}
+        mechanicFilter={mechanicFilter}
       />
     </ScreenContainer>
   );

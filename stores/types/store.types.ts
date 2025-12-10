@@ -59,16 +59,48 @@ export interface Mechanic {
   shopId: number;
   /** Mechanic's display name */
   name: string;
+  /** Shop/business name */
+  shopName: string;
   /** Profile photo URL */
   photoUrl: string | null;
   /** Average rating (0-5) */
   rating: number;
+  /** Whether the mechanic is verified */
+  isVerified: boolean;
+  /** Distance in miles from user */
+  distanceMi: number;
+  /** Services offered (display names) */
+  services: string[];
   /** Service IDs this mechanic specializes in */
   specialties: string[];
   /** Years of experience */
   yearsExperience: number;
+  /** Whether currently available */
+  isAvailable: boolean;
+  /** Response time category */
+  responseTime: "Quick" | "Normal" | "Slow";
   /** Availability score (0-10) */
   availability: number;
+  /** Next available time slots */
+  nextAvailability: MechanicAvailabilitySlot[];
+}
+
+/** A single availability slot for a mechanic */
+export interface MechanicAvailabilitySlot {
+  /** Day of week abbreviation (e.g., "Wed") */
+  dayOfWeek: string;
+  /** Day of month (e.g., "10") */
+  day: string;
+  /** Time string (e.g., "9:00 AM") */
+  time: string;
+}
+
+/** Mechanic filter options */
+export interface MechanicFilters {
+  /** Filter type */
+  filterType: "available_now" | "distance" | "rating";
+  /** Search query for name/shop */
+  searchQuery: string;
 }
 
 /** A booking/appointment entity */

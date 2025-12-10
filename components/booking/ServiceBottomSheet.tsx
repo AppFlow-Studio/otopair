@@ -27,6 +27,7 @@ import { BookingStage } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
 
 import { CollapsedContent, MechanicSelectionContent, ServiceSelectionContent } from "./sheets";
+import type { MechanicFilterOption } from "./topbars";
 
 // ============================================================================
 // TYPES
@@ -43,6 +44,8 @@ interface ServiceBottomSheetProps {
   offsetY?: number;
   /** Callback to expose the animated index for parent components */
   onAnimatedIndexChange?: (animatedIndex: Animated.SharedValue<number>) => void;
+  /** Currently selected mechanic filter from TopBar */
+  mechanicFilter?: MechanicFilterOption;
 }
 
 // ============================================================================
@@ -61,6 +64,7 @@ export function ServiceBottomSheet({
   onMechanicBackPress,
   offsetY = 0,
   onAnimatedIndexChange,
+  mechanicFilter = "available_now",
 }: ServiceBottomSheetProps) {
   // ═══════════════ STATE-EFFECT: Refs ═══════════════
   const bottomSheetRef = useRef<BottomSheet>(null);
@@ -131,7 +135,11 @@ export function ServiceBottomSheet({
       case "mechanic_selection":
         return (
           <Animated.View key="mechanic_selection" entering={entering} exiting={exiting} style={styles.stageContainer}>
-            <MechanicSelectionContent onSelectMechanic={handleSelectMechanic} onBackPress={onMechanicBackPress} />
+            <MechanicSelectionContent
+              onSelectMechanic={handleSelectMechanic}
+              onBackPress={onMechanicBackPress}
+              mechanicFilter={mechanicFilter}
+            />
           </Animated.View>
         );
       case "payment":
