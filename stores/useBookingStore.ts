@@ -15,7 +15,7 @@
  */
 
 import { create } from "zustand";
-import type { Booking, Service, ServiceCategory, UserLocation } from "./types/store.types";
+import type { Booking, BookingStage, Service, ServiceCategory, UserLocation } from "./types/store.types";
 
 // ─────────────────────────────────────────────────────────────
 // STORE STATE INTERFACE
@@ -46,6 +46,12 @@ interface BookingState {
   availableServices: Service[];
   /** Currently selected service IDs for booking */
   selectedServiceIds: string[];
+
+  // ═══════════════ BOOKING FLOW STATE ═══════════════
+  /** Current stage in the booking flow */
+  bookingStage: BookingStage;
+  /** Selected mechanic ID (null = "Any Available") */
+  selectedMechanicId: number | null;
 
   // ═══════════════ BOOKING STATE ═══════════════
   /** All bookings indexed by ID */
@@ -80,6 +86,18 @@ interface BookingState {
   toggleServiceSelection: (serviceId: string) => void;
   /** Clear all selected services */
   clearSelectedServices: () => void;
+
+  // ═══════════════ BOOKING FLOW ACTIONS ═══════════════
+  /** Set current booking stage */
+  setBookingStage: (stage: BookingStage) => void;
+  /** Go to next stage in booking flow */
+  nextBookingStage: () => void;
+  /** Go to previous stage in booking flow */
+  prevBookingStage: () => void;
+  /** Select a mechanic (null for "Any Available") */
+  selectMechanic: (mechanicId: number | null) => void;
+  /** Reset booking flow to initial state */
+  resetBookingFlow: () => void;
 
   // ═══════════════ BOOKING ACTIONS ═══════════════
   /** Set draft booking */
@@ -222,6 +240,8 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   mapRegion: null,
   availableServices: MOCK_SERVICES,
   selectedServiceIds: [],
+  bookingStage: "discovery",
+  selectedMechanicId: null,
   bookings: {},
   bookingIds: [],
   draftBooking: null,
@@ -277,6 +297,54 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   clearSelectedServices: () =>
     set({
       selectedServiceIds: [],
+    }),
+
+  // ═══════════════ BOOKING FLOW ACTIONS ═══════════════
+  setBookingStage: (stage) =>
+    set({
+      bookingStage: stage,
+    }),
+
+  nextBookingStage: () =>
+    set((state) => {
+      const stages: BookingStage[] = [
+        "discovery",
+        "service_selection",
+        "mechanic_selection",
+        "payment",
+        "confirmation",
+      ];
+      const currentIndex = stages.indexOf(state.bookingStage);
+      const nextIndex = Math.min(currentIndex + 1, stages.length - 1);
+      return { bookingStage: stages[nextIndex] };
+    }),
+
+  prevBookingStage: () =>
+    set((state) => {
+      const stages: BookingStage[] = [
+        "discovery",
+        "service_selection",
+        "mechanic_selection",
+        "payment",
+        "confirmation",
+      ];
+      const currentIndex = stages.indexOf(state.bookingStage);
+      const prevIndex = Math.max(currentIndex - 1, 0);
+      return { bookingStage: stages[prevIndex] };
+    }),
+
+  selectMechanic: (mechanicId) =>
+    set({
+      selectedMechanicId: mechanicId,
+    }),
+
+  resetBookingFlow: () =>
+    set({
+      bookingStage: "discovery",
+      selectedServiceIds: [],
+      selectedMechanicId: null,
+      selectedServiceCategory: null,
+      draftBooking: null,
     }),
 
   // ═══════════════ BOOKING ACTIONS ═══════════════

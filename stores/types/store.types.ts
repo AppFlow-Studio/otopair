@@ -48,6 +48,29 @@ export interface UserLocation {
 /** Booking status options */
 export type BookingStatus = "pending" | "confirmed" | "in_progress" | "completed" | "cancelled";
 
+/** Booking flow stages */
+export type BookingStage = "discovery" | "service_selection" | "mechanic_selection" | "payment" | "confirmation";
+
+/** A mechanic who works at a shop */
+export interface Mechanic {
+  /** Unique identifier */
+  id: number;
+  /** Shop this mechanic works at */
+  shopId: number;
+  /** Mechanic's display name */
+  name: string;
+  /** Profile photo URL */
+  photoUrl: string | null;
+  /** Average rating (0-5) */
+  rating: number;
+  /** Service IDs this mechanic specializes in */
+  specialties: string[];
+  /** Years of experience */
+  yearsExperience: number;
+  /** Availability score (0-10) */
+  availability: number;
+}
+
 /** A booking/appointment entity */
 export interface Booking {
   id: string;
