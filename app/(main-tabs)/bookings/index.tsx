@@ -19,17 +19,9 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { StyleSheet, View } from "react-native";
 import { SharedValue } from "react-native-reanimated";
 
-import {
-  BookingMap,
-  FilterOption,
-  LocationTopBar,
-  MechanicFilterOption,
-  ServiceBottomSheet,
-  ServiceCategory,
-  Shop,
-  ShopCarousel,
-} from "@/components/booking";
+import { BookingMap, MechanicFilterOption, ServiceBottomSheet, Shop, ShopCarousel, TopBar } from "@/components/booking";
 import { ScreenContainer } from "@/components/shared-ui";
+import type { FilterOption, ServiceCategory } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useShopStore } from "@/stores/useShopStore";
 
@@ -267,10 +259,10 @@ export default function BookingsScreen() {
       {/* Main Content - Map with shop markers (full screen) */}
       <BookingMap onShopSelect={handleShopSelect} />
 
-      {/* Location Top Bar - Positioned over map with blur */}
+      {/* Top Bar - Positioned over map with blur */}
       <View style={styles.topBarContainer}>
         {bookingStage === "mechanic_selection" ? (
-          <LocationTopBar
+          <TopBar
             mode="mechanic_selection"
             mechanicsCount={mechanicsCount}
             selectedServicesText={selectedServicesText}
@@ -279,7 +271,7 @@ export default function BookingsScreen() {
             selectedMechanicFilter={mechanicFilter}
           />
         ) : (
-          <LocationTopBar
+          <TopBar
             mode="discovery"
             label="Your Location"
             location={userLocation?.label ?? "Set Location"}

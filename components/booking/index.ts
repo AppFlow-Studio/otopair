@@ -5,17 +5,18 @@
  * Used in: app/(main-tabs)/bookings/
  */
 
-export {
-  LocationTopBar,
-  type FilterOption,
-  type MechanicFilterOption,
-  type ServiceCategory,
-  type TopBarMode,
-} from "./LocationTopBar";
 export { BookingMap } from "./map";
 export { ServiceBottomSheet } from "./ServiceBottomSheet";
 export { ShopCarousel } from "./ShopCarousel";
 export { ShopMarker } from "./ShopMarker";
+export {
+  TopBar,
+  type DiscoveryModeProps,
+  type MechanicFilterOption,
+  type MechanicSelectionModeProps,
+  type TopBarMode,
+  type TopBarProps,
+} from "./TopBar";
 
 // Re-export types from store for convenience
-export type { Shop } from "@/stores/types/store.types";
+export type { FilterOption, ServiceCategory, Shop } from "@/stores/types/store.types";
