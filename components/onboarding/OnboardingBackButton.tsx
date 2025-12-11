@@ -1,7 +1,7 @@
 /**
  * OnboardingBackButton
  *
- * PURPOSE: Reusable back button for onboarding screens, positioned above progress indicator.
+ * PURPOSE: Reusable back button for onboarding screens, positioned on the same line as progress indicator.
  *          Only shows when navigation history allows going back.
  *
  * USED IN: Onboarding screens that use OnboardingScreenLayout
@@ -13,9 +13,9 @@
  */
 
 import { router, usePathname } from 'expo-router';
-import { ChevronLeft } from 'lucide-react-native';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { FontFamily, FontSize, Spacing } from '@/components/shared-ui';
+import { ArrowLeft } from 'lucide-react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { FontSize, Spacing } from '@/components/shared-ui';
 
 interface OnboardingBackButtonProps {
     noHorizontalPadding?: boolean;
@@ -41,47 +41,31 @@ export function OnboardingBackButton({ noHorizontalPadding = false }: Onboarding
     };
 
     return (
-        <View style={[styles.container, noHorizontalPadding && styles.containerNoPadding]}>
-            <Pressable
-                onPress={handleBack}
-                style={({ pressed }) => [
-                    styles.button,
-                    noHorizontalPadding && styles.buttonNoPadding,
-                    pressed && styles.buttonPressed,
-                ]}
-            >
-                <ChevronLeft size={FontSize.md} color="#52525b" />
-                <Text style={styles.text}>Back</Text>
-            </Pressable>
-        </View>
+        <Pressable
+            onPress={handleBack}
+            style={({ pressed }) => [
+                styles.button,
+                noHorizontalPadding && styles.buttonNoPadding,
+                pressed && styles.buttonPressed,
+            ]}
+        >
+            <ArrowLeft size={FontSize.lg} color="#52525b" />
+        </Pressable>
     );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        paddingHorizontal: Spacing['2xl'],
-        paddingTop: Spacing.sm,
-        paddingBottom: Spacing.xs,
-    },
-    containerNoPadding: {
-        paddingHorizontal: 0,
-    },
     button: {
-        flexDirection: 'row',
+        padding: Spacing.xs,
+        marginRight: Spacing.md,
+        justifyContent: 'center',
         alignItems: 'center',
-        gap: Spacing.xs,
-        alignSelf: 'flex-start',
     },
     buttonNoPadding: {
         marginLeft: -4,
     },
     buttonPressed: {
         opacity: 0.6,
-    },
-    text: {
-        fontSize: FontSize.sm,
-        fontFamily: FontFamily.medium,
-        color: '#52525b',
     },
 });
 

@@ -164,8 +164,7 @@ export function ProServices() {
                     keyboardShouldPersistTaps="handled"
                     showsVerticalScrollIndicator={false}
                 >
-                    <OnboardingBackButton />
-                    <OnboardingProgress total={5} filled={1} />
+                    <OnboardingProgress total={5} filled={1} leftElement={<OnboardingBackButton />} />
 
                     <View
                         style={[

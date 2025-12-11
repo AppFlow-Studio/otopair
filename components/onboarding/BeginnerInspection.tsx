@@ -131,8 +131,7 @@ export function BeginnerInspection({progressTotal = 4, progressFilled = 3,}: { p
         <OnboardingScreenLayout>
             {(layout) => (
                 <>
-                    <OnboardingBackButton />
-                    <OnboardingProgress total={progressTotal} filled={progressFilled} />
+                    <OnboardingProgress total={progressTotal} filled={progressFilled} leftElement={<OnboardingBackButton />} />
                     {/* Header */}
                     <View style={[styles.headerContent, layout.headerContent]}>
                         <Text style={[styles.title, layout.title]}>

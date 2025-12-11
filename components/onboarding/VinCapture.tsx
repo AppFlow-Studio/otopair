@@ -26,12 +26,14 @@ import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import { router } from 'expo-router';
 import { Camera } from 'lucide-react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, useRef, useEffect } from 'react';
 import {
     ActivityIndicator,
     KeyboardAvoidingView,
+    Keyboard,
     Modal,
     Platform,
+    ScrollView,
     StyleSheet,
     TextInput,
     View,
@@ -51,13 +53,19 @@ const isValidVin = (value: string) =>
 export function VinCapture() {
     const insets = useSafeAreaInsets();
     const { updateData } = useOnboardingStore();
+    const scrollViewRef = useRef<ScrollView>(null);
+    const inputRefs = useRef<{ [key: string]: TextInput | null }>({});
     const [vin, setVin] = useState('');
     const [mileage, setMileage] = useState('');
+    const [make, setMake] = useState('');
+    const [model, setModel] = useState('');
+    const [year, setYear] = useState('');
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
     const [scannerVisible, setScannerVisible] = useState(false);
     const [permission, requestPermission] = useCameraPermissions();
     const [scanned, setScanned] = useState(false);
+    const [focusedInput, setFocusedInput] = useState<string | null>(null);
 
     const vinDisplayError = useMemo(() => {
         if (!vin) return null;
@@ -107,6 +115,61 @@ export function VinCapture() {
         return null;
     }, [mileage]);
 
+    const yearError = useMemo(() => {
+        if (!year.trim()) return null;
+        const num = Number(year);
+        if (Number.isNaN(num)) return 'Year must be a number';
+        const currentYear = new Date().getFullYear();
+        if (num < 1900 || num > currentYear + 1) {
+            return `Year must be between 1900 and ${currentYear + 1}`;
+        }
+        return null;
+    }, [year]);
+
+    // Scroll to input when keyboard appears
+    useEffect(() => {
+        const keyboardEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+        const listener = Keyboard.addListener(keyboardEvent, () => {
+            scrollToFocusedInput();
+        });
+
+        return () => {
+            listener.remove();
+        };
+    }, [focusedInput]);
+
+    const scrollToFocusedInput = () => {
+        if (!focusedInput || !inputRefs.current[focusedInput]) return;
+        
+        const input = inputRefs.current[focusedInput];
+        input.measureLayout(
+            scrollViewRef.current as any,
+            (x: number, y: number) => {
+                // y is the position relative to the ScrollView content
+                // Scroll to show the input with padding above it (150px)
+                const scrollOffset = Math.max(0, y - 150);
+                scrollViewRef.current?.scrollTo({
+                    y: scrollOffset,
+                    animated: true,
+                });
+            },
+            () => {
+                // Fallback: if measureLayout fails, try scrollToEnd for lower inputs
+                if (focusedInput === 'year' || focusedInput === 'model') {
+                    scrollViewRef.current?.scrollToEnd({ animated: true });
+                }
+            }
+        );
+    };
+
+    const handleInputFocus = (inputName: string) => {
+        setFocusedInput(inputName);
+        // Delay to allow layout to complete and keyboard to start appearing
+        setTimeout(() => {
+            scrollToFocusedInput();
+        }, 300);
+    };
+
     const callCarFax = async (vinValue: string, mileageValue: number | null) => {
         // Placeholder integration: replace with real endpoint when available.
         // Simulate network delay and success.
@@ -135,15 +198,28 @@ export function VinCapture() {
             return;
         }
 
+        // Year must be either empty or valid (no partial/invalid entries)
+        if (yearError) {
+            setError(yearError);
+            return;
+        }
+
         setError(null);
         setLoading(true);
         try {
             const mileageVal = parseMileage();
             const finalVin = vinTrimmed || null;
+            const makeTrimmed = make.trim() || null;
+            const modelTrimmed = model.trim() || null;
+            const yearTrimmed = year.trim();
+            const yearVal = yearTrimmed ? Number(yearTrimmed) : null;
             
             updateData({
                 vehicleVin: finalVin,
                 vehicleMileage: mileageVal,
+                vehicleMake: makeTrimmed,
+                vehicleModel: modelTrimmed,
+                vehicleYear: yearVal,
             });
 
             // Call CarFax only if VIN is provided
@@ -162,15 +238,17 @@ export function VinCapture() {
         }
     };
 
-    // Allow continue if: (VIN is empty OR valid) AND (mileage is empty OR valid)
+    // Allow continue if: (VIN is empty OR valid) AND (mileage is empty OR valid) AND (year is empty OR valid)
     const canContinue = (() => {
         const vinTrimmed = vin.trim();
         const mileageTrimmed = mileage.trim();
+        const yearTrimmed = year.trim();
         
         const vinValid = vinTrimmed === '' || isValidVin(vinTrimmed);
         const mileageValid = mileageTrimmed === '' || !mileageError;
+        const yearValid = yearTrimmed === '' || !yearError;
         
-        return vinValid && mileageValid && !loading;
+        return vinValid && mileageValid && yearValid && !loading;
     })();
 
     return (
@@ -180,56 +258,119 @@ export function VinCapture() {
                 { paddingTop: insets.top + Spacing.lg, paddingBottom: insets.bottom + Spacing.lg },
             ]}
         >
-            <OnboardingBackButton noHorizontalPadding />
-            <View style={styles.content}>
-                <Text style={styles.title}>VIN</Text>
-                <TextInput
-                    style={[styles.input, vinDisplayError && styles.inputError]}
-                    placeholder="Enter VIN"
-                    placeholderTextColor="#7a7f89"
-                    value={vin}
-                    onChangeText={(text) => setVin(normalizeVin(text).slice(0, VIN_LENGTH))}
-                    autoCapitalize="characters"
-                    autoCorrect={false}
-                    maxLength={VIN_LENGTH}
-                />
-                {vinDisplayError && <Text style={styles.error}>{vinDisplayError}</Text>}
-
-                <TextInput
-                    style={[styles.input, mileageError && styles.inputError]}
-                    placeholder="Current Mileage (optional)"
-                    placeholderTextColor="#7a7f89"
-                    value={mileage}
-                    onChangeText={(text) => setMileage(text.replace(/[^0-9]/g, ''))}
-                    keyboardType="number-pad"
-                    maxLength={6}
-                />
-                {mileageError && <Text style={styles.error}>{mileageError}</Text>}
-
-                <OnboardingFooterButton
-                    label="Scan Barcode"
-                    onPress={requestCamera}
-                    rightIcon={<Camera size={18} color={BrandColors.white} />}
-                    disabled={loading}
-                    size="lg"
-                    paddingVertical={Spacing.md}
-                />
-
-                <View style={styles.spacer} />
-
-                <OnboardingFooterButton
-                    label={loading ? 'Retrieving service history...' : 'Continue'}
-                    onPress={handleContinue}
-                    disabled={!canContinue}
-                    size="lg"
-                    paddingVertical={Spacing.lg}
-                    rightIcon={
-                        loading ? <ActivityIndicator color={BrandColors.white} /> : undefined
-                    }
-                />
-
-                {error && <Text style={styles.error}>{error}</Text>}
+            <View style={styles.backButtonContainer}>
+                <OnboardingBackButton />
             </View>
+            <KeyboardAvoidingView
+                style={styles.flex}
+                behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+                keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 20}
+            >
+                <ScrollView
+                    ref={scrollViewRef}
+                    style={styles.flex}
+                    contentContainerStyle={[
+                        styles.scrollContent,
+                        { paddingBottom: insets.bottom + Spacing['3xl'] },
+                    ]}
+                    keyboardShouldPersistTaps="handled"
+                    showsVerticalScrollIndicator={true}
+                >
+                    <Text style={styles.title}>Vehicle Information</Text>
+                    <Text style={styles.label}>VIN (optional)</Text>
+                    <TextInput
+                        ref={(ref) => { inputRefs.current['vin'] = ref; }}
+                        style={[styles.input, vinDisplayError && styles.inputError]}
+                        placeholder="Enter VIN"
+                        placeholderTextColor="#7a7f89"
+                        value={vin}
+                        onChangeText={(text) => setVin(normalizeVin(text).slice(0, VIN_LENGTH))}
+                        onFocus={() => handleInputFocus('vin')}
+                        autoCapitalize="characters"
+                        autoCorrect={false}
+                        maxLength={VIN_LENGTH}
+                    />
+                    {vinDisplayError && <Text style={styles.error}>{vinDisplayError}</Text>}
+
+                    <Text style={styles.label}>Current Mileage (optional)</Text>
+                    <TextInput
+                        ref={(ref) => { inputRefs.current['mileage'] = ref; }}
+                        style={[styles.input, mileageError && styles.inputError]}
+                        placeholder="Enter vehicle mileage"
+                        placeholderTextColor="#7a7f89"
+                        value={mileage}
+                        onChangeText={(text) => setMileage(text.replace(/[^0-9]/g, ''))}
+                        onFocus={() => handleInputFocus('mileage')}
+                        keyboardType="number-pad"
+                        maxLength={6}
+                    />
+                    {mileageError && <Text style={styles.error}>{mileageError}</Text>}
+
+                    <Text style={styles.label}>Make (optional)</Text>
+                    <TextInput
+                        ref={(ref) => { inputRefs.current['make'] = ref; }}
+                        style={styles.input}
+                        placeholder="Enter vehicle make"
+                        placeholderTextColor="#7a7f89"
+                        value={make}
+                        onChangeText={setMake}
+                        onFocus={() => handleInputFocus('make')}
+                        autoCapitalize="words"
+                        autoCorrect={false}
+                    />
+
+                    <Text style={styles.label}>Model (optional)</Text>
+                    <TextInput
+                        ref={(ref) => { inputRefs.current['model'] = ref; }}
+                        style={styles.input}
+                        placeholder="Enter vehicle model"
+                        placeholderTextColor="#7a7f89"
+                        value={model}
+                        onChangeText={setModel}
+                        onFocus={() => handleInputFocus('model')}
+                        autoCapitalize="words"
+                        autoCorrect={false}
+                    />
+
+                    <Text style={styles.label}>Year (optional)</Text>
+                    <TextInput
+                        ref={(ref) => { inputRefs.current['year'] = ref; }}
+                        style={[styles.input, yearError && styles.inputError]}
+                        placeholder="Enter vehicle year"
+                        placeholderTextColor="#7a7f89"
+                        value={year}
+                        onChangeText={(text) => setYear(text.replace(/[^0-9]/g, '').slice(0, 4))}
+                        onFocus={() => handleInputFocus('year')}
+                        keyboardType="number-pad"
+                        maxLength={4}
+                    />
+                    {yearError && <Text style={styles.error}>{yearError}</Text>}
+
+                    <OnboardingFooterButton
+                        label="Scan VIN Barcode"
+                        onPress={requestCamera}
+                        rightIcon={<Camera size={18} color={BrandColors.white} />}
+                        disabled={loading}
+                        size="lg"
+                        paddingVertical={Spacing.md}
+                    />
+
+                    <View style={styles.spacer} />
+
+                    <OnboardingFooterButton
+                        label={loading ? 'Retrieving service history...' : 'Continue'}
+                        onPress={handleContinue}
+                        disabled={!canContinue}
+                        size="lg"
+                        paddingVertical={Spacing.lg}
+                        rightIcon={
+                            loading ? <ActivityIndicator color={BrandColors.white} /> : undefined
+                        }
+                    />
+
+                    {error && <Text style={styles.error}>{error}</Text>}
+                </ScrollView>
+            </KeyboardAvoidingView>
 
             <Modal visible={scannerVisible} animationType="slide">
                 <View style={styles.scannerContainer}>
@@ -274,16 +415,34 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: '#dee2ee',
+    },
+    backButtonContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
         paddingHorizontal: Spacing['2xl'],
+        paddingTop: Spacing.sm,
+        marginBottom: Spacing.xl,
     },
     content: {
         flex: 1,
+    },
+    flex: {
+        flex: 1,
+    },
+    scrollContent: {
         gap: Spacing.md,
+        paddingHorizontal: Spacing['2xl'],
     },
     title: {
         fontSize: FontSize['2xl'],
         fontFamily: FontFamily.bold,
         color: BrandColors.primary,
+    },
+    label: {
+        fontSize: FontSize.md,
+        fontFamily: FontFamily.medium,
+        color: BrandColors.primary,
+        marginTop: Spacing.xs,
     },
     input: {
         width: '100%',

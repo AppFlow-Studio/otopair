@@ -105,8 +105,7 @@ export function ProMileage() {
                     keyboardShouldPersistTaps="handled"
                     showsVerticalScrollIndicator={false}
                 >
-                    <OnboardingBackButton />
-                    <OnboardingProgress total={5} filled={2} />
+                    <OnboardingProgress total={5} filled={2} leftElement={<OnboardingBackButton />} />
 
                     <View style={styles.headerContent}>
                         <Text style={styles.title}>

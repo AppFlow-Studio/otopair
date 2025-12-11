@@ -52,8 +52,7 @@ export function BeginnerOilChange() {
         <OnboardingScreenLayout>
             {(layout) => (
                 <>
-                    <OnboardingBackButton />
-                    <OnboardingProgress total={4} filled={1} />
+                    <OnboardingProgress total={4} filled={1} leftElement={<OnboardingBackButton />} />
                     {/* Header */}
                     <View style={[styles.headerContent, layout.headerContent]}>
                         <Text style={[styles.title, layout.title]}>

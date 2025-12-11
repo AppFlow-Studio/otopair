@@ -5,7 +5,7 @@ import { OtoPairIcon } from '@/components/icons/oto-pair';
 import { Button, Text } from '@/components/shared-ui';
 import { MoveRight } from 'lucide-react-native';
 import React from 'react';
-import { StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 
@@ -24,6 +24,9 @@ export default function HomeScreen() {
   console.log('location permission status: ', useOnboardingStore.getState().data.locationPermissionStatus);
   console.log('vehicle vin: ', useOnboardingStore.getState().data.vehicleVin);
   console.log('vehicle mileage: ', useOnboardingStore.getState().data.vehicleMileage);
+  console.log('vehicle make: ', useOnboardingStore.getState().data.vehicleMake);
+  console.log('vehicle model: ', useOnboardingStore.getState().data.vehicleModel);
+  console.log('vehicle year: ', useOnboardingStore.getState().data.vehicleYear);
   const data = useOnboardingStore((state) => state.data);
 
   const rows: { label: string; value: string }[] = [
@@ -41,6 +44,9 @@ export default function HomeScreen() {
     { label: 'Location permission status', value: String(data.locationPermissionStatus ?? '—') },
     { label: 'Vehicle vin', value: String(data.vehicleVin ?? '—') },
     { label: 'Vehicle mileage', value: String(data.vehicleMileage ?? '—') },
+    { label: 'Vehicle make', value: String(data.vehicleMake ?? '—') },
+    { label: 'Vehicle model', value: String(data.vehicleModel ?? '—') },
+    { label: 'Vehicle year', value: String(data.vehicleYear ?? '—') },
   ];
 
 
@@ -51,13 +57,19 @@ export default function HomeScreen() {
         <Text weight="semiBold" size="2xl" style={styles.title}>
           OtoPair
         </Text>
-        <Button variant='secondary'>Let’s Check Your Car Now <MoveRight size={16} color="#fff" /> </Button>
+        <Button variant='secondary'>Let's Check Your Car Now <MoveRight size={16} color="#fff" /> </Button>
         <View style={styles.debugPanel}>
-          {rows.map((row) => (
-            <Text key={row.label} size="sm" style={styles.debugRow}>
-              {row.label}: {row.value}
-            </Text>
-          ))}
+          <ScrollView
+            style={styles.scrollView}
+            contentContainerStyle={styles.scrollContent}
+            showsVerticalScrollIndicator={true}
+          >
+            {rows.map((row) => (
+              <Text key={row.label} size="sm" style={styles.debugRow}>
+                {row.label}: {row.value}
+              </Text>
+            ))}
+          </ScrollView>
         </View>
       </View>
     </View >
@@ -86,7 +98,14 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     backgroundColor: '#f4f6f8',
     width: '100%',
+    height: 400,
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
     gap: 6,
+    paddingBottom: 6,
   },
   debugRow: {
     color: '#141C24',

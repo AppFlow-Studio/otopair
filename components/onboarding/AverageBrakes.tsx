@@ -45,8 +45,7 @@ export function AverageBrakes() {
         <OnboardingScreenLayout>
             {(layout) => (
                 <>
-                    <OnboardingBackButton />
-                    <OnboardingProgress total={6} filled={4} />
+                    <OnboardingProgress total={6} filled={4} leftElement={<OnboardingBackButton />} />
 
                     <View style={[styles.headerContent, layout.headerContent]}>
                         <Text style={[styles.title, layout.title]}>

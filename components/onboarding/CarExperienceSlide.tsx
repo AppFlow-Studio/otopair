@@ -82,8 +82,7 @@ export function CarExperienceSlide() {
         <OnboardingScreenLayout>
             {(layout) => (
                 <>
-                    <OnboardingBackButton />
-                    <OnboardingProgress total={1} filled={0} />
+                    <OnboardingProgress total={1} filled={0} leftElement={<OnboardingBackButton />} />
                     {/* Header */}
                     <View style={[styles.headerContent, layout.headerContent]}>
                         <Text style={[styles.title, layout.title]}>

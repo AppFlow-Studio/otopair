@@ -156,11 +156,12 @@ export function PushNotifications() {
 
     return (
         <View style={[styles.container, { paddingTop: insets.top + Spacing.lg }]}>
-            <OnboardingBackButton noHorizontalPadding />
+            <View style={styles.backButtonContainer}>
+                <OnboardingBackButton />
+            </View>
             <View style={styles.content}>
                 <Text style={styles.title}>
-                    Get real-time updates
-                    {'\n'}and notifications
+                    Get real-time updates and notifications
                 </Text>
                 <Text style={styles.subtitle}>
                     Allow RepairConnect push notifications to receive service status, mechanic updates, and promotional offers. You can change this in Settings at any time.
@@ -197,11 +198,18 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: '#dee2ee',
+    },
+    backButtonContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
         paddingHorizontal: Spacing['2xl'],
+        paddingTop: Spacing.sm,
+        marginBottom: Spacing.xl,
     },
     content: {
         flex: 1,
         gap: Spacing.lg,
+        paddingHorizontal: Spacing['2xl'],
     },
     title: {
         marginTop: Spacing['2xl'],
@@ -229,6 +237,7 @@ const styles = StyleSheet.create({
     },
     footer: {
         paddingTop: Spacing.md,
+        paddingHorizontal: Spacing['2xl'],
     },
 });
 

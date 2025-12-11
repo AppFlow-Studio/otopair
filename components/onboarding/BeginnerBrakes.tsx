@@ -48,8 +48,7 @@ export function BeginnerBrakes() {
         <OnboardingScreenLayout>
             {(layout) => (
                 <>
-                    <OnboardingBackButton />
-                    <OnboardingProgress total={4} filled={2} />
+                    <OnboardingProgress total={4} filled={2} leftElement={<OnboardingBackButton />} />
                     {/* Header */}
                     <View style={[styles.headerContent, layout.headerContent]}>
                         <Text style={[styles.title, layout.title]}>

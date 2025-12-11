@@ -45,8 +45,7 @@ export function AverageTire() {
         <OnboardingScreenLayout>
             {(layout) => (
                 <>
-                    <OnboardingBackButton />
-                    <OnboardingProgress total={6} filled={2} />
+                    <OnboardingProgress total={6} filled={2} leftElement={<OnboardingBackButton />} />
 
                     <View style={[styles.headerContent, layout.headerContent]}>
                         <Text style={[styles.title, layout.title]}>

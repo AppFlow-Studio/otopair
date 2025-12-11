@@ -63,8 +63,7 @@ export function AverageOilChange() {
         <OnboardingScreenLayout>
             {(layout) => (
                 <>
-                    <OnboardingBackButton />
-                    <OnboardingProgress total={6} filled={1} />
+                    <OnboardingProgress total={6} filled={1} leftElement={<OnboardingBackButton />} />
                     {/* Header */}
                     <View style={[styles.headerContent, layout.headerContent]}>
                         <Text style={[styles.title, layout.title]}>
