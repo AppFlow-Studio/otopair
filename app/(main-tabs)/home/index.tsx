@@ -6,6 +6,7 @@ import { Button, Text } from '@/components/shared-ui';
 import { MoveRight } from 'lucide-react-native';
 import React from 'react';
 import { ScrollView, StyleSheet, View } from 'react-native';
+import { router } from 'expo-router';
 
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 
@@ -57,7 +58,12 @@ export default function HomeScreen() {
         <Text weight="semiBold" size="2xl" style={styles.title}>
           OtoPair
         </Text>
-        <Button variant='secondary'>Let's Check Your Car Now <MoveRight size={16} color="#fff" /> </Button>
+        <Button
+          variant='secondary'
+          onPress={() => router.push('/payment-methods')}
+        >
+          Enter card info <MoveRight size={16} color="#fff" />
+        </Button>
         <View style={styles.debugPanel}>
           <ScrollView
             style={styles.scrollView}
