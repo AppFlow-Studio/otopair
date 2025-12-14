@@ -53,7 +53,7 @@ interface PhoneNumberStepProps {
 export function PhoneNumberStep({ onNext, onBack }: PhoneNumberStepProps) {
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
-    const { updateData } = useOnboardingStore();
+    const { updateData, data } = useOnboardingStore();
     const [phoneNumber, setPhoneNumber] = useState('');
     const [countryCode, setCountryCode] = useState<string>('US');
     const [country, setCountry] = useState<Country | null>(null);

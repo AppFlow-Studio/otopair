@@ -1,6 +1,6 @@
 // app/(onboarding)/index.tsx
-import { WelcomeSlide } from '@/components/onboarding/WelcomeSlide';
+import { OnboardingFlow } from '@/components/onboarding/OnboardingFlow';
 
 export default function OnboardingScreen() {
-    return <WelcomeSlide />;
+    return <OnboardingFlow initialStep="welcome" />;
 }

@@ -57,6 +57,11 @@ export function ConfirmPhoneNumberStep({ onNext, onBack }: ConfirmPhoneNumberSte
     };
 
     useEffect(() => {
+        console.log('Full phone number:', data.phoneNumber);
+    }, []);
+
+    useEffect(() => {
+
         if (timeRemaining > 0) {
             timerRef.current = setTimeout(() => {
                 setTimeRemaining(timeRemaining - 1);

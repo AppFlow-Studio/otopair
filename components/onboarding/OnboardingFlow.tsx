@@ -27,19 +27,21 @@ import Animated, {
     useAnimatedReaction,
 } from 'react-native-reanimated';
 import { BrandColors } from '@/components/shared-ui';
+import { WelcomeStep } from './steps/WelcomeStep';
 import { PhoneNumberStep } from './steps/PhoneNumberStep';
 import { ConfirmPhoneNumberStep } from './steps/ConfirmPhoneNumberStep';
 import { NameStep } from './steps/NameStep';
 
 // Define the steps in the flow
-export type OnboardingStep = 'phone' | 'confirm' | 'name' | 'complete';
+export type OnboardingStep = 'welcome' | 'phone' | 'confirm' | 'name' | 'complete';
 
 // Step indices for interpolation
 const STEP_INDICES: Record<OnboardingStep, number> = {
-    phone: 0,
-    confirm: 1,
-    name: 2,
-    complete: 3,
+    welcome: 0,
+    phone: 1,
+    confirm: 2,
+    name: 3,
+    complete: 4,
 };
 
 // Gradient configurations for each step - more dramatic position changes
@@ -50,6 +52,13 @@ const GRADIENT_CONFIGS: Record<OnboardingStep, {
     endX: number;
     endY: number;
 }> = {
+    welcome: {
+        colors: [BrandColors.secondary, '#1d2c46ff', '#050A14'],
+        startX: 0.1,
+        startY: 0.1,
+        endX: 0.4,
+        endY: 0.6,
+    },
     phone: {
         colors: [BrandColors.secondary, '#1d2c46ff', '#050A14'],
         startX: 0,
@@ -59,17 +68,17 @@ const GRADIENT_CONFIGS: Record<OnboardingStep, {
     },
     confirm: {
         colors: [BrandColors.secondary, '#1d2c46ff', '#050A14'],
-        startX: 0.3,
-        startY: 0,
+        startX: 0.5,
+        startY: 0.2,
         endX: 0.7,
         endY: 0.9,
     },
     name: {
         colors: [BrandColors.secondary, '#1d2c46ff', '#050A14'],
-        startX: 0.5,
-        startY: 0.1,
-        endX: 1,
-        endY: 0.85,
+        startX: 0.7,
+        startY: 0,
+        endX: 0.2,
+        endY: 0.5,
     },
     complete: {
         colors: [BrandColors.secondary, '#1d2c46ff', '#050A14'],
@@ -134,7 +143,7 @@ function AnimatedGradientBackground({
     );
 }
 
-export function OnboardingFlow({ initialStep = 'phone' }: OnboardingFlowProps) {
+export function OnboardingFlow({ initialStep = 'welcome' }: OnboardingFlowProps) {
     const [currentStep, setCurrentStep] = useState<OnboardingStep>(initialStep);
     const [fromStep, setFromStep] = useState<OnboardingStep>(initialStep);
     const [toStep, setToStep] = useState<OnboardingStep>(initialStep);
@@ -156,7 +165,7 @@ export function OnboardingFlow({ initialStep = 'phone' }: OnboardingFlowProps) {
         // Reset and animate
         animationProgress.value = 0;
         animationProgress.value = withTiming(1, {
-            duration: 600,
+            duration: 800,
             easing: Easing.bezier(0.25, 0.1, 0.25, 1),
         });
         
@@ -166,6 +175,9 @@ export function OnboardingFlow({ initialStep = 'phone' }: OnboardingFlowProps) {
     
     const goBack = () => {
         switch (currentStep) {
+            case 'phone':
+                goToStep('welcome');
+                break;
             case 'confirm':
                 goToStep('phone');
                 break;
@@ -179,6 +191,9 @@ export function OnboardingFlow({ initialStep = 'phone' }: OnboardingFlowProps) {
     
     const goNext = () => {
         switch (currentStep) {
+            case 'welcome':
+                goToStep('phone');
+                break;
             case 'phone':
                 goToStep('confirm');
                 break;
@@ -196,6 +211,8 @@ export function OnboardingFlow({ initialStep = 'phone' }: OnboardingFlowProps) {
     // Render the current step component
     const renderStep = () => {
         switch (currentStep) {
+            case 'welcome':
+                return <WelcomeStep onNext={goNext} onBack={goBack} />;
             case 'phone':
                 return <PhoneNumberStep onNext={goNext} onBack={goBack} />;
             case 'confirm':
