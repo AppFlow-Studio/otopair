@@ -13,6 +13,7 @@
  */
 
 // TODO: Remove color hardcoding once theme.ts is updated
+// TODO: Create proper tracking of completed steps
 
 import {
     BorderRadius,
@@ -53,9 +54,12 @@ export function WelcomeSlide() {
     }, [setStep]);
 
     const handleGetStarted = () => {
-        completeStep('welcome');
-        router.push('/(onboarding)/car-experience');
+        //completeStep('welcome');
+        router.push('/(onboarding)/phone-number');
     };
+    const handleLogIn = () => {
+        router.push('/(onboarding)/car-experience');
+    }
 
     return (
         <View style={[styles.container, dynamicStyles.container]}>
@@ -83,11 +87,22 @@ export function WelcomeSlide() {
             {/* Bottom Button */}
             <View style={[styles.bottomContainer, dynamicStyles.bottomContainer]}>
                 <OnboardingFooterButton
-                    label="Let's Check Your Car Now"
+                    label="Create Account"
                     onPress={handleGetStarted}
                     rightIcon={<MoveRight size={FontSize.md} color={BrandColors.white} />}
                     size={buttonSize}
                     paddingVertical={buttonPaddingVertical}
+                    variant="primary"
+                />
+            </View>
+            <View style={[styles.bottomContainer, dynamicStyles.bottomContainer]}>
+                <OnboardingFooterButton
+                    label="Log In"
+                    onPress={handleLogIn}
+                    rightIcon={<MoveRight size={FontSize.md} color={BrandColors.white} />}
+                    size={buttonSize}
+                    paddingVertical={buttonPaddingVertical}
+                    variant="secondary"
                 />
             </View>
         </View>

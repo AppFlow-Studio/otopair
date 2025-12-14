@@ -29,7 +29,7 @@ interface OnboardingProgressProps {
     leftElement?: ReactNode;
 }
 
-const unfilledColor = '#cfd6e6'; // light gray that stands out on onboarding background
+const unfilledColor = '#0F1E3A';
 
 export function OnboardingProgress({ total, filled, leftElement }: OnboardingProgressProps) {
     const segments = Array.from({ length: total });
@@ -45,7 +45,7 @@ export function OnboardingProgress({ total, filled, leftElement }: OnboardingPro
                             key={idx}
                             style={[
                                 styles.segment,
-                                { backgroundColor: isFilled ? BrandColors.secondary : unfilledColor },
+                                { backgroundColor: isFilled ? BrandColors.white : unfilledColor },
                             ]}
                         />
                     );

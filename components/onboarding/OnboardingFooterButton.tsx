@@ -32,6 +32,9 @@ interface OnboardingFooterButtonProps {
     rightIcon?: ReactNode;
     size?: 'sm' | 'md' | 'lg';
     paddingVertical?: number;
+    variant?: 'primary' | 'secondary'| 'ghost';
+    backgroundColor?: string;
+    textColor?: string;
 }
 
 export function OnboardingFooterButton({
@@ -41,6 +44,9 @@ export function OnboardingFooterButton({
     rightIcon,
     size = 'lg',
     paddingVertical,
+    variant = 'primary',
+    backgroundColor,
+    textColor,
 }: OnboardingFooterButtonProps) {
     return (
         <Button
@@ -51,6 +57,9 @@ export function OnboardingFooterButton({
             onPress={onPress}
             disabled={disabled}
             rightIcon={rightIcon}
+            variant={variant}
+            backgroundColor={backgroundColor}
+            textColor={textColor}
         >
             {label}
         </Button>

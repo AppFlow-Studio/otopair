@@ -15,7 +15,7 @@
 import { router, usePathname } from 'expo-router';
 import { ArrowLeft } from 'lucide-react-native';
 import { Pressable, StyleSheet, View } from 'react-native';
-import { FontSize, Spacing } from '@/components/shared-ui';
+import { FontSize, Spacing, BrandColors } from '@/components/shared-ui';
 
 interface OnboardingBackButtonProps {
     noHorizontalPadding?: boolean;
@@ -49,14 +49,18 @@ export function OnboardingBackButton({ noHorizontalPadding = false }: Onboarding
                 pressed && styles.buttonPressed,
             ]}
         >
-            <ArrowLeft size={FontSize.lg} color="#52525b" />
+            <ArrowLeft size={FontSize['3xl']} color = {BrandColors.white} />
         </Pressable>
     );
 }
 
 const styles = StyleSheet.create({
     button: {
-        padding: Spacing.xs,
+        paddingTop: Spacing.xs,
+        paddingRight: Spacing.xs,
+        paddingBottom: Spacing.xs,
+        paddingLeft: 0,
+        marginLeft: -Spacing.xs,
         marginRight: Spacing.md,
         justifyContent: 'center',
         alignItems: 'center',

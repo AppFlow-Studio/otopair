@@ -59,6 +59,7 @@ interface OnboardingData {
   firstName: string | null;
   lastName: string | null;
   dateOfBirth: string | null;     // ISO format
+  phoneNumber: string | null;
 
   // Permissions Step
   pushNotificationsGranted: boolean;
@@ -126,6 +127,7 @@ const INITIAL_DATA: OnboardingData = {
   firstName: null,
   lastName: null,
   dateOfBirth: null,
+  phoneNumber: null,
   pushNotificationsGranted: false,
   pushNotificationStatus: null,
   locationGranted: false,
