@@ -86,10 +86,8 @@ export function ConfirmPhoneNumber() {
         if (fullCode.length === 6) {
             if (fullCode === CORRECT_CODE) {
                 // Correct code - navigate to next step
-                // TODO: Navigate to next onboarding step
                 console.log('Code verified successfully');
-                // For now, just log - you can add navigation here
-                // router.push('/(onboarding)/next-step');
+                router.push('/(onboarding)/name');
             } else {
                 // Incorrect code - show error modal
                 setShowErrorModal(true);
@@ -166,10 +164,7 @@ export function ConfirmPhoneNumber() {
     };
 
     return (
-        <GradientBackground
-            start={{ x: 0, y: 0 }}
-            end={{ x: 0, y: 0.8 }}
-        >
+        <GradientBackground>
             <KeyboardAvoidingView
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
                 style={styles.keyboardView}

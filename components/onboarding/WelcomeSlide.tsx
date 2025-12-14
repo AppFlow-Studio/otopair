@@ -55,7 +55,7 @@ export function WelcomeSlide() {
 
     const handleGetStarted = () => {
         //completeStep('welcome');
-        router.push('/(onboarding)/phone-number');
+        router.push('/(onboarding)/flow');
     };
     const handleLogIn = () => {
         router.push('/(onboarding)/car-experience');

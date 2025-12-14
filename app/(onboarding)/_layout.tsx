@@ -22,6 +22,8 @@ export default function OnboardingLayout() {
             <Stack.Screen name="vin" options={{ headerShown: false, title: 'VIN' }} />
             <Stack.Screen name="phone-number" options={{ headerShown: false, title: 'Phone Number' }} />
             <Stack.Screen name="confirm-phone-number" options={{ headerShown: false, title: 'Phone Number Confirmation' }} />
+            <Stack.Screen name="name" options={{ headerShown: false, title: 'Name' }} />
+            <Stack.Screen name="flow" options={{ headerShown: false, title: 'Onboarding Flow' }} />
         </Stack>
     )
 }

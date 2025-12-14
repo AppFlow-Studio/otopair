@@ -19,9 +19,16 @@ import { FontSize, Spacing, BrandColors } from '@/components/shared-ui';
 
 interface OnboardingBackButtonProps {
     noHorizontalPadding?: boolean;
+    onBack?: () => void;
+    /** If true, always shows the button regardless of pathname */
+    alwaysShow?: boolean;
 }
 
-export function OnboardingBackButton({ noHorizontalPadding = false }: OnboardingBackButtonProps = {}) {
+export function OnboardingBackButton({ 
+    noHorizontalPadding = false, 
+    onBack,
+    alwaysShow = false,
+}: OnboardingBackButtonProps = {}) {
     const pathname = usePathname();
     
     // Only show if we're not on the welcome/index screen
@@ -32,12 +39,16 @@ export function OnboardingBackButton({ noHorizontalPadding = false }: Onboarding
         pathname === '/(onboarding)/' ||
         pathname.endsWith('/(onboarding)');
     
-    if (isOnWelcomeScreen) {
+    if (isOnWelcomeScreen && !alwaysShow) {
         return null;
     }
 
     const handleBack = () => {
-        router.back();
+        if (onBack) {
+            onBack();
+        } else {
+            router.back();
+        }
     };
 
     return (

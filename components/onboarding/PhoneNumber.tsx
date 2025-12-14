@@ -486,10 +486,7 @@ export function PhoneNumber() {
     const canCreateAccount = phoneNumber.trim().length > 0;
 
     return (
-        <GradientBackground
-            start={{ x: 0, y: 0 }}
-            end={{ x: 0, y: 0.8 }}
-        >
+        <GradientBackground>
             <KeyboardAvoidingView
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
                 style={styles.keyboardView}
