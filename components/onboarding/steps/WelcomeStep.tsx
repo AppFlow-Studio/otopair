@@ -39,7 +39,8 @@ export function WelcomeStep({ onNext, onBack }: WelcomeStepProps) {
 
     const dynamicStyles = {
         container: { paddingTop: insets.top + Spacing.lg },
-        bottomContainer: { paddingBottom: insets.bottom + Spacing.lg },
+        bottomContainerPrimary: { paddingBottom: Spacing.sm },
+        bottomContainerSecondary: { paddingBottom: insets.bottom + Spacing.lg },
     };
 
     const isCompact = height < 720;
@@ -84,7 +85,7 @@ export function WelcomeStep({ onNext, onBack }: WelcomeStepProps) {
                 </View>
 
                 {/* Bottom Buttons */}
-                <View style={[styles.bottomContainer, dynamicStyles.bottomContainer]}>
+                <View style={[styles.bottomContainer, dynamicStyles.bottomContainerPrimary]}>
                     <OnboardingFooterButton
                         label="Create Account"
                         onPress={handleGetStarted}
@@ -94,7 +95,7 @@ export function WelcomeStep({ onNext, onBack }: WelcomeStepProps) {
                         variant="primary"
                     />
                 </View>
-                <View style={[styles.bottomContainer, dynamicStyles.bottomContainer]}>
+                <View style={[styles.bottomContainer, dynamicStyles.bottomContainerSecondary]}>
                     <OnboardingFooterButton
                         label="Log In"
                         onPress={handleLogIn}
