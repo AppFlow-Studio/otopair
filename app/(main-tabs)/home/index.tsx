@@ -3,9 +3,11 @@
 
 import { OtoPairIcon } from '@/components/icons/oto-pair';
 import { Button, Text, BrandColors, FontFamily, FontSize, Spacing } from '@/components/shared-ui';
+import { OnboardingBackButton } from '@/components/onboarding/OnboardingBackButton';
 import { MoveRight, CheckCircle2, UserPlus, User, Car, CreditCard, ChevronRight } from 'lucide-react-native';
 import React, { useState, useRef, useEffect } from 'react';
 import { ScrollView, StyleSheet, View, Modal, Pressable, Animated, useWindowDimensions, TouchableOpacity } from 'react-native';
+import Svg, { Circle, Path } from 'react-native-svg';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -39,10 +41,19 @@ export default function HomeScreen() {
   console.log('last name: ', useOnboardingStore.getState().data.lastName);
   console.log('alias: ', useOnboardingStore.getState().data.alias);
   console.log('user intentions: ', useOnboardingStore.getState().data.userIntentions);
-  const data = useOnboardingStore((state) => state.data);
+  const { data, updateData } = useOnboardingStore();
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
   const isSmallScreen = height < 800;
+  // Keep the answers box comfortably above the bottom edge on all devices.
+  const optionsScrollMaxHeight = Math.round(height * (isSmallScreen ? 0.22 : 0.28));
+  // Make the progress circle visually bigger without affecting layout (transform doesn't participate in layout)
+  // Make it obviously larger; still doesn't affect layout because it's a transform.
+  const progressCircleScale = isSmallScreen ? 1.15 : 1.28;
+  const [questionStep, setQuestionStep] = useState<'none' | 'experience' | 'carUsage' | 'servicePriorities'>('none');
+  const [servicePrioritySelection, setServicePrioritySelection] = useState<string[]>(
+    data.servicePriorities ?? []
+  );
   const [showBottomSheet, setShowBottomSheet] = useState(false);
   const slideAnim = useRef(new Animated.Value(height)).current;
   const panY = useRef(new Animated.Value(0)).current;
@@ -123,10 +134,78 @@ export default function HomeScreen() {
   };
 
   // Determine completion status
-  const isCreateAccountComplete = data.userIntentions !== null && data.userIntentions.length > 0;
+  // "Create account" is complete when phone + first/last name are populated (ignore empty strings)
+  const hasPhoneNumber = !!data.phoneNumber?.trim();
+  const hasNames = !!data.firstName?.trim() && !!data.lastName?.trim();
+  const isCreateAccountComplete = hasPhoneNumber && hasNames;
   const isTellUsAboutYourselfComplete = data.firstName !== null && data.lastName !== null;
   const isAddYourCarComplete = data.vehicleMake !== null && data.vehicleModel !== null && data.vehicleYear !== null;
   const isPaymentMethodComplete = false; // TODO: Add payment method tracking
+
+  const experienceOptions = [
+    { id: 1, label: '🚗 Level 1: I just drive it' },
+    { id: 2, label: '🔧 Level 2: I know the basics' },
+    { id: 3, label: "🏎️ Level 3: I'm pretty hands-on" },
+    { id: 4, label: '🔬 Level 4: I know my stuff' },
+  ] as const;
+
+  const handleSelectExperience = (level: 1 | 2 | 3 | 4) => {
+    updateData({ carKnowledgeLevel: level });
+    // Only Level 1 gets an immediate follow-up question for now
+    if (level === 1) {
+      setQuestionStep('carUsage');
+    } else {
+      setQuestionStep('servicePriorities');
+    }
+  };
+
+  const carUsageOptions = [
+    '🎉 Rarely (special occasions)',
+    '🛒 Weekend errands only',
+    '🚙 Daily commute to work/school',
+    '🗺️ Frequent long trips',
+    '🚕 Uber/Lyft/delivery driving',
+  ] as const;
+
+  const handleSelectCarUsage = (value: (typeof carUsageOptions)[number]) => {
+    updateData({ carUsage: value });
+    setQuestionStep('servicePriorities');
+  };
+
+  const servicePriorityOptions = [
+    { id: '💰 Getting the best price', label: '💰 Getting the best price' },
+    { id: '⏰ Quick turnaround time', label: '⏰ Quick turnaround time' },
+    { id: '🏆 High-quality service', label: '🏆 High-quality service' },
+    { id: '📍 Convenience/location', label: '📍 Convenience/location' },
+    { id: '🧾 Transparent pricing/no surprises', label: '🧾 Transparent pricing/no surprises' },
+    { id: '⭐ Trusted reviews/reputation', label: '⭐ Trusted reviews/reputation' },
+  ] as const;
+
+  useEffect(() => {
+    if (questionStep === 'servicePriorities') {
+      setServicePrioritySelection(data.servicePriorities ?? []);
+    }
+  }, [questionStep, data.servicePriorities]);
+
+  const handleToggleServicePriority = (id: string) => {
+    setServicePrioritySelection((prev) => {
+      const isSelected = prev.includes(id);
+      if (isSelected) {
+        const next = prev.filter((x) => x !== id);
+        updateData({ servicePriorities: next.length ? next : null });
+        return next;
+      }
+      if (prev.length >= 3) return prev;
+      const next = [...prev, id];
+      if (next.length === 3) {
+        updateData({ servicePriorities: next });
+        setQuestionStep('none'); // next question will plug in here later
+      } else {
+        updateData({ servicePriorities: next });
+      }
+      return next;
+    });
+  };
 
   const setupItems = [
     {
@@ -135,10 +214,7 @@ export default function HomeScreen() {
       subtitle: 'Get access to all of our products',
       isComplete: isCreateAccountComplete,
       icon: UserPlus,
-      onPress: () => {
-        handleCloseSheet();
-        router.push('/(onboarding)/flow');
-      },
+      onPress: undefined, // No action; already completed at this point
     },
     {
       id: 'tell_us_about_yourself',
@@ -147,8 +223,7 @@ export default function HomeScreen() {
       isComplete: isTellUsAboutYourselfComplete,
       icon: User,
       onPress: () => {
-        handleCloseSheet();
-        router.push('/(onboarding)/flow');
+        setQuestionStep('experience');
       },
     },
     {
@@ -245,10 +320,10 @@ export default function HomeScreen() {
         onRequestClose={handleCloseSheet}
       >
         <GestureHandlerRootView style={{ flex: 1 }}>
-          <Pressable
-            style={styles.bottomSheetBackdrop}
-            onPress={handleCloseSheet}
-          >
+          <View style={styles.bottomSheetBackdrop}>
+            {/* Backdrop press target (separate from sheet so drags inside content don't close it) */}
+            <Pressable style={StyleSheet.absoluteFill} onPress={handleCloseSheet} />
+
             <Animated.View
               style={[
                 styles.bottomSheet,
@@ -256,47 +331,115 @@ export default function HomeScreen() {
                   transform: [{ translateY: translateY }],
                   height: height,
                   paddingTop: insets.top,
-                  paddingBottom: insets.bottom,
+                  // Extra breathing room so content never feels clipped by the system gesture bar
+                  paddingBottom: insets.bottom + (isSmallScreen ? Spacing['3xl'] : Spacing['2xl']),
                 },
               ]}
             >
-              {/* Only the handle area is draggable */}
+              {/* Only the handle area is draggable (keeps the content scrollable) */}
               <PanGestureHandler
                 onGestureEvent={handleGestureEvent}
                 onHandlerStateChange={handleGestureStateChange}
-                activeOffsetY={[0, 10]}
+                // Only activate for a real downward drag (prevents accidental dismiss while scrolling)
+                activeOffsetY={[-9999, 10]}
               >
                 <Animated.View>
                   <View style={styles.handleContainer}>
                     <View style={styles.bottomSheetHandle} />
                   </View>
+                </Animated.View>
+              </PanGestureHandler>
 
-                  <View style={[
-                    styles.bottomSheetContent,
-                    isSmallScreen && { paddingHorizontal: Spacing.lg, paddingTop: Spacing.md }
-                  ]}>
+              <View style={[
+                styles.bottomSheetContent,
+                isSmallScreen && { paddingHorizontal: Spacing.lg, paddingTop: Spacing.md },
+                { paddingBottom: isSmallScreen ? Spacing.lg : Spacing['2xl'] }
+              ]}>
                     {/* Progress Indicator */}
-                    <View style={[
-                      styles.progressContainer,
-                      isSmallScreen && { marginBottom: Spacing.md }
-                    ]}>
+                    <View style={styles.progressRow}>
+                      {questionStep !== 'none' && (
+                        <View style={styles.progressBackButton}>
+                          <OnboardingBackButton
+                            onBack={() => {
+                              if (questionStep === 'servicePriorities') {
+                                setQuestionStep(data.carKnowledgeLevel === 1 ? 'carUsage' : 'experience');
+                                return;
+                              }
+                              if (questionStep === 'carUsage') {
+                                setQuestionStep('experience');
+                                return;
+                              }
+                              setQuestionStep('none');
+                            }}
+                            alwaysShow
+                          />
+                        </View>
+                      )}
                       <View style={[
-                        styles.progressCircle,
-                        isSmallScreen && { width: 50, height: 50, borderRadius: 25, borderWidth: 3 }
+                        styles.progressContainer,
+                        isSmallScreen && { marginBottom: Spacing.md }
                       ]}>
-                        <Text style={[
-                          styles.progressText,
-                          isSmallScreen && { fontSize: FontSize.md }
+                        <View style={[
+                          styles.progressCircleContainer,
+                        isSmallScreen && { width: 50, height: 50 },
+                        { transform: [{ scale: progressCircleScale }] }
                         ]}>
-                          {completedCount}/{setupItems.length}
-                        </Text>
+                          <Svg
+                            width={isSmallScreen ? 50 : 60}
+                            height={isSmallScreen ? 50 : 60}
+                            style={styles.progressSvg}
+                          >
+                            {/* Background circle */}
+                            <Circle
+                              cx={isSmallScreen ? 25 : 30}
+                              cy={isSmallScreen ? 25 : 30}
+                              r={isSmallScreen ? 22 : 26}
+                              stroke="#374151"
+                              strokeWidth={isSmallScreen ? 3 : 4}
+                              fill="transparent"
+                            />
+                            {/* Progress arc */}
+                            {completedCount > 0 && (() => {
+                              const size = isSmallScreen ? 50 : 60;
+                              const center = size / 2;
+                              const radius = isSmallScreen ? 22 : 26;
+                              const progress = completedCount / setupItems.length;
+                              const circumference = 2 * Math.PI * radius;
+                              const strokeDasharray = circumference;
+                              const strokeDashoffset = circumference * (1 - progress);
+
+                              return (
+                                <Circle
+                                  cx={center}
+                                  cy={center}
+                                  r={radius}
+                                  stroke={BrandColors.secondary}
+                                  strokeWidth={isSmallScreen ? 3 : 4}
+                                  fill="transparent"
+                                  strokeDasharray={strokeDasharray}
+                                  strokeDashoffset={strokeDashoffset}
+                                  strokeLinecap="round"
+                                  transform={`rotate(-90 ${center} ${center})`}
+                                />
+                              );
+                            })()}
+                          </Svg>
+                          <View style={styles.progressTextContainer}>
+                            <Text style={[
+                              styles.progressText,
+                              isSmallScreen && { fontSize: FontSize.md }
+                            ]}>
+                              {completedCount}/{setupItems.length}
+                            </Text>
+                          </View>
+                        </View>
                       </View>
                     </View>
 
                     {/* Title and Subtitle */}
                     <Text style={[
                       styles.bottomSheetTitle,
-                      isSmallScreen && { fontSize: FontSize['2xl'], marginBottom: Spacing.xs }
+                      isSmallScreen && { fontSize: FontSize['2xl'], paddingBottom: Spacing.xs }
                     ]}>
                       Finish setting up
                     </Text>
@@ -307,60 +450,182 @@ export default function HomeScreen() {
                       Complete your profile to unlock all features and get the most out of Otopair
                     </Text>
 
-                    {/* Checklist Items */}
-                    <View style={[
-                      styles.checklistContainer,
-                      isSmallScreen && { gap: Spacing.sm }
-                    ]}>
-                      {setupItems.map((item) => {
-                        const Icon = item.icon;
-                        return (
-                          <TouchableOpacity
-                            key={item.id}
-                            style={[
-                              styles.checklistItem,
-                              isSmallScreen && { paddingVertical: Spacing.sm, paddingHorizontal: Spacing.md }
-                            ]}
-                            onPress={item.onPress}
-                            activeOpacity={0.7}
-                          >
-                            <View style={styles.checklistItemLeft}>
-                              {item.isComplete ? (
-                                <CheckCircle2
-                                  size={isSmallScreen ? 20 : 24}
-                                  color={BrandColors.secondary}
-                                  fill={BrandColors.secondary}
-                                />
-                              ) : (
-                                <Icon size={isSmallScreen ? 20 : 24} color={BrandColors.white} />
-                              )}
-                              <View style={styles.checklistItemText}>
-                                <Text style={[
-                                  styles.checklistItemTitle,
-                                  isSmallScreen && { fontSize: FontSize.md }
-                                ]}>
-                                  {item.title}
-                                </Text>
-                                <Text style={[
-                                  styles.checklistItemSubtitle,
-                                  isSmallScreen && { fontSize: FontSize.xs }
-                                ]}>
-                                  {item.subtitle}
-                                </Text>
+                    {/* Checklist or Experience Questionnaire */}
+                    {questionStep === 'none' ? (
+                      <View style={[
+                        styles.checklistContainer,
+                        isSmallScreen && { gap: Spacing.sm }
+                      ]}>
+                        {setupItems.map((item) => {
+                          const Icon = item.icon;
+                          const isDisabled = !item.onPress;
+                          return (
+                            <TouchableOpacity
+                              key={item.id}
+                              style={[
+                                styles.checklistItem,
+                                isSmallScreen && { paddingVertical: Spacing.sm, paddingHorizontal: Spacing.md }
+                              ]}
+                              onPress={item.onPress}
+                              activeOpacity={isDisabled ? 1 : 0.7}
+                              disabled={isDisabled}
+                            >
+                              <View style={styles.checklistItemLeft}>
+                                {item.isComplete ? (
+                                  <CheckCircle2
+                                    size={isSmallScreen ? 20 : 24}
+                                    color={BrandColors.secondary}
+                                    fill={BrandColors.secondary}
+                                  />
+                                ) : (
+                                  <Icon size={isSmallScreen ? 20 : 24} color={BrandColors.white} />
+                                )}
+                                <View style={styles.checklistItemText}>
+                                  <Text style={[
+                                    styles.checklistItemTitle,
+                                    isSmallScreen && { fontSize: FontSize.md }
+                                  ]}>
+                                    {item.title}
+                                  </Text>
+                                  <Text style={[
+                                    styles.checklistItemSubtitle,
+                                    isSmallScreen && { fontSize: FontSize.xs }
+                                  ]}>
+                                    {item.subtitle}
+                                  </Text>
+                                </View>
                               </View>
-                            </View>
-                            {!item.isComplete && (
-                              <ChevronRight size={isSmallScreen ? 16 : 20} color={BrandColors.white} opacity={0.5} />
-                            )}
-                          </TouchableOpacity>
-                        );
-                      })}
-                    </View>
-                  </View>
-                </Animated.View>
-              </PanGestureHandler>
+                              {!item.isComplete && !isDisabled && (
+                                <ChevronRight size={isSmallScreen ? 16 : 20} color={BrandColors.white} opacity={0.5} />
+                              )}
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    ) : questionStep === 'experience' ? (
+                      <View style={styles.questionCard}>
+                        <Text style={styles.questionTitle}>How would you explain your experience with cars in general?</Text>
+                        <ScrollView
+                          style={[styles.questionOptionsScroll, { maxHeight: optionsScrollMaxHeight }]}
+                          contentContainerStyle={[styles.questionOptions, { paddingBottom: Spacing.lg }]}
+                          showsVerticalScrollIndicator={false}
+                          bounces={false}
+                        >
+                          {experienceOptions.map((option) => {
+                            const isSelected = data.carKnowledgeLevel === option.id;
+                            return (
+                              <TouchableOpacity
+                                key={option.id}
+                                style={[
+                                  styles.questionOption,
+                                  isSelected && styles.questionOptionSelected,
+                                  isSmallScreen && styles.questionOptionCompact
+                                ]}
+                                onPress={() => handleSelectExperience(option.id)}
+                                activeOpacity={0.8}
+                              >
+                                <Text style={[
+                                  styles.questionOptionText,
+                                  isSelected && styles.questionOptionTextSelected,
+                                  isSmallScreen && { fontSize: FontSize.sm }
+                                ]}>
+                                  {option.label}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </ScrollView>
+                      </View>
+                    ) : questionStep === 'carUsage' ? (
+                      <View style={styles.questionCard}>
+                        <Text style={styles.questionTitle}>How do you typically use your car?</Text>
+                        <ScrollView
+                          style={[styles.questionOptionsScroll, { maxHeight: optionsScrollMaxHeight }]}
+                          contentContainerStyle={[styles.questionOptions, { paddingBottom: Spacing.lg }]}
+                          showsVerticalScrollIndicator={false}
+                          bounces={false}
+                        >
+                          {carUsageOptions.map((option) => {
+                            const isSelected = data.carUsage === option;
+                            return (
+                              <TouchableOpacity
+                                key={option}
+                                style={[
+                                  styles.questionOption,
+                                  isSelected && styles.questionOptionSelected,
+                                  isSmallScreen && styles.questionOptionCompact
+                                ]}
+                                onPress={() => handleSelectCarUsage(option)}
+                                activeOpacity={0.8}
+                              >
+                                <Text style={[
+                                  styles.questionOptionText,
+                                  isSelected && styles.questionOptionTextSelected,
+                                  isSmallScreen && { fontSize: FontSize.sm }
+                                ]}>
+                                  {option}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </ScrollView>
+                      </View>
+                    ) : (
+                      <View style={styles.questionCard}>
+                        <Text style={styles.questionTitle}>
+                          What matters most when getting your car serviced?
+                        </Text>
+                        <Text style={styles.questionSubtitle}>
+                          Choose 3 out of the 6 options ({servicePrioritySelection.length}/3)
+                        </Text>
+                        <ScrollView
+                          style={[styles.questionOptionsScroll, { maxHeight: optionsScrollMaxHeight }]}
+                          contentContainerStyle={[styles.questionOptions, { paddingBottom: Spacing.lg }]}
+                          showsVerticalScrollIndicator={false}
+                          bounces={false}
+                        >
+                          {servicePriorityOptions.map((option) => {
+                            const rankIndex = servicePrioritySelection.indexOf(option.id);
+                            const isSelected = rankIndex !== -1;
+                            const isDisabled = !isSelected && servicePrioritySelection.length >= 3;
+                            return (
+                              <TouchableOpacity
+                                key={option.id}
+                                style={[
+                                  styles.questionOption,
+                                  isSelected && styles.questionOptionSelected,
+                                  isSmallScreen && styles.questionOptionCompact,
+                                  isDisabled && styles.questionOptionDisabled,
+                                ]}
+                                onPress={() => handleToggleServicePriority(option.id)}
+                                activeOpacity={0.8}
+                                disabled={isDisabled}
+                              >
+                                <View style={styles.rankRow}>
+                                  {isSelected ? (
+                                    <View style={styles.rankBadge}>
+                                      <Text style={styles.rankBadgeText}>{rankIndex + 1}</Text>
+                                    </View>
+                                  ) : (
+                                    <View style={styles.rankBadgePlaceholder} />
+                                  )}
+                                  <Text style={[
+                                    styles.questionOptionText,
+                                    isSelected && styles.questionOptionTextSelected,
+                                    isSmallScreen && { fontSize: FontSize.sm }
+                                  ]}>
+                                    {option.label}
+                                  </Text>
+                                </View>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </ScrollView>
+                      </View>
+                    )}
+              </View>
             </Animated.View>
-          </Pressable>
+          </View>
         </GestureHandlerRootView>
       </Modal>
     </View >
@@ -431,15 +696,20 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: Spacing['2xl'],
   },
-  progressCircle: {
+  progressCircleContainer: {
     width: 60,
     height: 60,
-    borderRadius: 30,
-    borderWidth: 4,
-    borderColor: '#374151',
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: 'transparent',
+    position: 'relative',
+  },
+  progressSvg: {
+    position: 'absolute',
+  },
+  progressTextContainer: {
+    position: 'absolute',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   progressText: {
     fontSize: FontSize.lg,
@@ -450,7 +720,7 @@ const styles = StyleSheet.create({
     fontSize: FontSize['3xl'],
     fontFamily: FontFamily.bold,
     color: BrandColors.white,
-    marginBottom: Spacing.sm,
+    paddingBottom: Spacing.sm,
     textAlign: 'center',
   },
   bottomSheetSubtitle: {
@@ -496,5 +766,97 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.regular,
     color: BrandColors.white,
     opacity: 0.6,
+  },
+  questionCard: {
+    marginTop: Spacing.lg,
+    marginBottom: Spacing.lg,
+    padding: Spacing.lg,
+    borderRadius: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    gap: Spacing.md,
+  },
+  questionTitle: {
+    fontSize: FontSize.lg,
+    fontFamily: FontFamily.semiBold,
+    color: BrandColors.white,
+    lineHeight: 22,
+  },
+  questionSubtitle: {
+    fontSize: FontSize.sm,
+    fontFamily: FontFamily.regular,
+    color: BrandColors.white,
+    opacity: 0.7,
+    marginTop: -Spacing.xs,
+  },
+  questionOptions: {
+    gap: Spacing.sm,
+  },
+  questionOptionsScroll: {
+    marginBottom: Spacing['2xl'],
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
+  questionOption: {
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+  },
+  questionOptionSelected: {
+    borderColor: BrandColors.secondary,
+    backgroundColor: 'rgba(106, 160, 255, 0.12)',
+  },
+  questionOptionCompact: {
+    paddingVertical: Spacing.xs,
+    paddingHorizontal: Spacing.sm,
+  },
+  questionOptionText: {
+    fontSize: FontSize.md,
+    fontFamily: FontFamily.semiBold,
+    color: BrandColors.white,
+  },
+  questionOptionTextSelected: {
+    color: BrandColors.secondary,
+  },
+  questionOptionDisabled: {
+    opacity: 0.5,
+  },
+  rankRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  rankBadge: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: BrandColors.secondary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  rankBadgeText: {
+    fontSize: FontSize.sm,
+    fontFamily: FontFamily.bold,
+    color: '#0B1220',
+  },
+  rankBadgePlaceholder: {
+    width: 22,
+    height: 22,
+  },
+  progressRow: {
+    position: 'relative',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: Spacing.lg,
+    minHeight: 60, // matches default circle size; small screens override via inline size
+  },
+  progressBackButton: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
   },
 });

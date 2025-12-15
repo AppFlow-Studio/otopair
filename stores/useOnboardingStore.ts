@@ -49,7 +49,15 @@ export const ONBOARDING_STEPS = [
   'success',
 ] as const;
 
+export const SETUP_STEPS = [
+  'create_account',
+  'tell_us_about_yourself',
+  'add_your_car',
+  'set_up_payment_method',
+] as const;
+
 export type OnboardingStep = typeof ONBOARDING_STEPS[number];
+export type SetupStep = typeof SETUP_STEPS[number];
 
 // ─────────────────────────────────────────────────────────────
 // COLLECTED DATA SCHEMA
@@ -73,6 +81,10 @@ interface OnboardingData {
 
   // Car Knowledge Step
   carKnowledgeLevel: 1 | 2 | 3 | 4 | 5 | null;
+
+  // Setup questionnaire (home bottom-sheet)
+  carUsage: string | null;
+  servicePriorities: string[] | null;
 
   // Beginner Oil Change Step
   lastOilChange: 'last_3_months' | '3_6_months' | '6_plus_months' | 'dont_remember' | string | null;
@@ -110,16 +122,23 @@ interface OnboardingData {
 // STORE STATE
 // ─────────────────────────────────────────────────────────────
 interface OnboardingState {
-  // Progress Tracking
+  // TODO: Remove this Progress Tracking — used for old onboarding flow that is being replaced
   currentStep: OnboardingStep;
   completedSteps: OnboardingStep[];
+
+  // Setup Progress Tracking
+  currentSetupStep: SetupStep;
+  completedSetupSteps: SetupStep[];
 
   // Collected Data
   data: OnboardingData;
 
   // Actions
+  // TODO: Remove setStep and completeStep - for old onboarding flow that is being replaced
   setStep: (step: OnboardingStep) => void;
   completeStep: (step: OnboardingStep) => void;
+  setSetupStep: (step: SetupStep) => void;
+  completeSetupStep: (step: SetupStep) => void
   updateData: (updates: Partial<OnboardingData>) => void;
   canProceed: () => boolean;
   reset: () => void;
@@ -127,6 +146,7 @@ interface OnboardingState {
   // Computed
   getProgress: () => number;  // 0-100
   isStepCompleted: (step: OnboardingStep) => boolean;
+  isSetupStepCompleted: (step: SetupStep) => boolean;
 }
 
 const INITIAL_DATA: OnboardingData = {
@@ -141,6 +161,8 @@ const INITIAL_DATA: OnboardingData = {
   locationGranted: false,
   locationPermissionStatus: null,
   carKnowledgeLevel: null,
+  carUsage: null,
+  servicePriorities: null,
   lastOilChange: null,
   lastTireService: null,
   brakesReplaced: null,
@@ -157,12 +179,10 @@ const INITIAL_DATA: OnboardingData = {
 };
 
 export const useOnboardingStore = create<OnboardingState>()((set, get) => ({
+  // Onboarding (Old flow, TODO: remove after migration)
   currentStep: 'welcome',
   completedSteps: [],
-  data: INITIAL_DATA,
-
   setStep: (step) => set({ currentStep: step }),
-
   completeStep: (step) => {
     set((state) => ({
       completedSteps: state.completedSteps.includes(step)
@@ -171,6 +191,20 @@ export const useOnboardingStore = create<OnboardingState>()((set, get) => ({
     }));
   },
 
+  // Setup (New flow)
+  currentSetupStep: 'create_account',
+  completedSetupSteps: [],
+  setSetupStep: (step: SetupStep) => set({ currentSetupStep: step }),
+  completeSetupStep: (step: SetupStep) => {
+    set((state) => ({
+      completedSetupSteps: state.completedSetupSteps.includes(step)
+        ? state.completedSetupSteps
+        : [...state.completedSetupSteps, step],
+    }));
+  },
+
+  // Data and actions
+  data: INITIAL_DATA,
   updateData: (updates) => {
     set((state) => ({
       data: { ...state.data, ...updates },
@@ -178,9 +212,9 @@ export const useOnboardingStore = create<OnboardingState>()((set, get) => ({
   },
 
   canProceed: () => {
-    const { currentStep, data } = get();
+    const { currentStep, data, currentSetupStep } = get();
 
-    // Validation rules per step
+    // Validation for onboarding step (legacy)
     switch (currentStep) {
       case 'welcome':
         return true;
@@ -195,21 +229,43 @@ export const useOnboardingStore = create<OnboardingState>()((set, get) => ({
       case 'success':
         return true;
       default:
+        break;
+    }
+
+    // Validation for setup step (new flow)
+    switch (currentSetupStep) {
+      case 'create_account':
+        return Boolean(data.phoneNumber && data.firstName && data.lastName);
+      case 'tell_us_about_yourself':
+        return Boolean(data.firstName && data.lastName);
+      case 'add_your_car':
+        return Boolean(data.vehicleMake && data.vehicleModel && data.vehicleYear);
+      case 'set_up_payment_method':
+        return true; // Payment method can be optional
+      default:
         return false;
     }
   },
 
   getProgress: () => {
-    const { completedSteps } = get();
-    return Math.round((completedSteps.length / ONBOARDING_STEPS.length) * 100);
+    const { completedSteps, completedSetupSteps } = get();
+    // Prefer new setup steps if any used, else fallback to old
+    if (completedSetupSteps.length > 0) {
+      // You may need to define SETUP_STEPS somewhere
+      return Math.round((completedSetupSteps.length / (typeof SETUP_STEPS !== 'undefined' ? SETUP_STEPS.length : 1)) * 100);
+    }
+    return Math.round((completedSteps.length / (typeof ONBOARDING_STEPS !== 'undefined' ? ONBOARDING_STEPS.length : 1)) * 100);
   },
 
   isStepCompleted: (step) => get().completedSteps.includes(step),
+  isSetupStepCompleted: (step) => get().completedSetupSteps.includes(step),
 
   reset: () => {
     set({
       currentStep: 'welcome',
       completedSteps: [],
+      currentSetupStep: 'create_account',
+      completedSetupSteps: [],
       data: INITIAL_DATA,
     });
   },
