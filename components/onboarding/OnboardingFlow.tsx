@@ -31,9 +31,12 @@ import { WelcomeStep } from './steps/WelcomeStep';
 import { PhoneNumberStep } from './steps/PhoneNumberStep';
 import { ConfirmPhoneNumberStep } from './steps/ConfirmPhoneNumberStep';
 import { NameStep } from './steps/NameStep';
+import { UserIntentStep } from './steps/UserIntentStep';
+import { PushNotificationsStep } from './steps/PushNotificationsStep';
+import { LocationServicesStep } from './steps/LocationServicesStep';
 
 // Define the steps in the flow
-export type OnboardingStep = 'welcome' | 'phone' | 'confirm' | 'name' | 'complete';
+export type OnboardingStep = 'welcome' | 'phone' | 'confirm' | 'name' | 'userIntent' | 'pushNotifications' | 'locationServices' | 'complete';
 
 // Step indices for interpolation
 const STEP_INDICES: Record<OnboardingStep, number> = {
@@ -41,8 +44,19 @@ const STEP_INDICES: Record<OnboardingStep, number> = {
     phone: 1,
     confirm: 2,
     name: 3,
-    complete: 4,
+    userIntent: 4,
+    pushNotifications: 5,
+    locationServices: 6,
+    complete: 7,
 };
+
+// Default gradient colors used across all steps
+const DEFAULT_GRADIENT_COLORS: [string, string, string] = [
+    BrandColors.secondary,
+    '#050A14',
+    '#1d2c46ff'
+    
+];
 
 // Gradient configurations for each step - more dramatic position changes
 const GRADIENT_CONFIGS: Record<OnboardingStep, {
@@ -53,35 +67,56 @@ const GRADIENT_CONFIGS: Record<OnboardingStep, {
     endY: number;
 }> = {
     welcome: {
-        colors: [BrandColors.secondary, '#1d2c46ff', '#050A14'],
-        startX: 0.1,
-        startY: 0.1,
+        colors: DEFAULT_GRADIENT_COLORS,
+        startX: 0,
+        startY: 0,
         endX: 0.4,
         endY: 0.6,
     },
     phone: {
-        colors: [BrandColors.secondary, '#1d2c46ff', '#050A14'],
+        colors: DEFAULT_GRADIENT_COLORS,
         startX: 0,
-        startY: 0,
+        startY: 0.1,
         endX: 0.2,
         endY: 0.8,
     },
     confirm: {
-        colors: [BrandColors.secondary, '#1d2c46ff', '#050A14'],
+        colors: DEFAULT_GRADIENT_COLORS,
         startX: 0.5,
         startY: 0.2,
         endX: 0.7,
         endY: 0.9,
     },
     name: {
-        colors: [BrandColors.secondary, '#1d2c46ff', '#050A14'],
+        colors: DEFAULT_GRADIENT_COLORS,
         startX: 0.7,
         startY: 0,
         endX: 0.2,
         endY: 0.5,
     },
+    userIntent: {
+        colors: DEFAULT_GRADIENT_COLORS,
+        startX: 0.3,
+        startY: 0.2,
+        endX: 0.5,
+        endY: 0.7,
+    },
+    pushNotifications: {
+        colors: DEFAULT_GRADIENT_COLORS,
+        startX: 0.4,
+        startY: 0.3,
+        endX: 0.6,
+        endY: 0.8,
+    },
+    locationServices: {
+        colors: DEFAULT_GRADIENT_COLORS,
+        startX: 0.6,
+        startY: 0.1,
+        endX: 0.3,
+        endY: 0.9,
+    },
     complete: {
-        colors: [BrandColors.secondary, '#1d2c46ff', '#050A14'],
+        colors: DEFAULT_GRADIENT_COLORS,
         startX: 0.2,
         startY: 0.2,
         endX: 0.8,
@@ -165,7 +200,7 @@ export function OnboardingFlow({ initialStep = 'welcome' }: OnboardingFlowProps)
         // Reset and animate
         animationProgress.value = 0;
         animationProgress.value = withTiming(1, {
-            duration: 800,
+            duration: 1200,
             easing: Easing.bezier(0.25, 0.1, 0.25, 1),
         });
         
@@ -173,7 +208,16 @@ export function OnboardingFlow({ initialStep = 'welcome' }: OnboardingFlowProps)
         setCurrentStep(nextStep);
     };
     
-    const goBack = () => {
+    // Helper function to determine previous step after locationServices based on notification permissions
+    const getPreviousStepAfterLocationServices = async (): Promise<OnboardingStep> => {
+        const hasNotifications = await checkNotificationPermissions();
+        if (hasNotifications) {
+            return 'userIntent';
+        }
+        return 'pushNotifications';
+    };
+
+    const goBack = async () => {
         switch (currentStep) {
             case 'phone':
                 goToStep('welcome');
@@ -184,12 +228,78 @@ export function OnboardingFlow({ initialStep = 'welcome' }: OnboardingFlowProps)
             case 'name':
                 goToStep('confirm');
                 break;
+            case 'userIntent':
+                goToStep('name');
+                break;
+            case 'pushNotifications':
+                goToStep('userIntent');
+                break;
+            case 'locationServices': {
+                const previousStep = await getPreviousStepAfterLocationServices();
+                goToStep(previousStep);
+                break;
+            }
             default:
                 break;
         }
     };
     
-    const goNext = () => {
+    // Helper function to normalize push notification status
+    const normalizePushStatus = (s: string | null | undefined): 'granted' | 'provisional' | 'denied' | 'undetermined' => {
+        if (s === 'granted' || s === 'provisional' || s === 'denied' || s === 'undetermined') {
+            return s;
+        }
+        return 'undetermined';
+    };
+
+    // Helper function to check notification permissions
+    const checkNotificationPermissions = async (): Promise<boolean> => {
+        try {
+            // @ts-ignore
+            const mod = await import('expo-notifications');
+            const res = await mod.getPermissionsAsync();
+            const normalized = normalizePushStatus(res.status);
+            return normalized === 'granted' || normalized === 'provisional';
+        } catch {
+            return false;
+        }
+    };
+
+    // Helper function to check location permissions
+    const checkLocationPermissions = async (): Promise<boolean> => {
+        try {
+            // @ts-ignore
+            const mod = await import('expo-location');
+            const res = await mod.getForegroundPermissionsAsync();
+            return res.status === 'granted' || res.granted === true;
+        } catch {
+            return false;
+        }
+    };
+
+    // Helper function to determine next step after userIntent based on permissions
+    const getNextStepAfterUserIntent = async (): Promise<OnboardingStep> => {
+        const hasNotifications = await checkNotificationPermissions();
+        if (!hasNotifications) {
+            return 'pushNotifications';
+        }
+        const hasLocation = await checkLocationPermissions();
+        if (hasLocation) {
+            return 'complete';
+        }
+        return 'locationServices';
+    };
+
+    // Helper function to determine next step after pushNotifications based on location permissions
+    const getNextStepAfterPushNotifications = async (): Promise<OnboardingStep> => {
+        const hasLocation = await checkLocationPermissions();
+        if (hasLocation) {
+            return 'complete';
+        }
+        return 'locationServices';
+    };
+
+    const goNext = async () => {
         switch (currentStep) {
             case 'welcome':
                 goToStep('phone');
@@ -201,6 +311,19 @@ export function OnboardingFlow({ initialStep = 'welcome' }: OnboardingFlowProps)
                 goToStep('name');
                 break;
             case 'name':
+                goToStep('userIntent');
+                break;
+            case 'userIntent': {
+                const nextStep = await getNextStepAfterUserIntent();
+                goToStep(nextStep);
+                break;
+            }
+            case 'pushNotifications': {
+                const nextStep = await getNextStepAfterPushNotifications();
+                goToStep(nextStep);
+                break;
+            }
+            case 'locationServices':
                 goToStep('complete');
                 break;
             default:
@@ -219,6 +342,12 @@ export function OnboardingFlow({ initialStep = 'welcome' }: OnboardingFlowProps)
                 return <ConfirmPhoneNumberStep onNext={goNext} onBack={goBack} />;
             case 'name':
                 return <NameStep onNext={goNext} onBack={goBack} />;
+            case 'userIntent':
+                return <UserIntentStep onNext={goNext} onBack={goBack} />;
+            case 'pushNotifications':
+                return <PushNotificationsStep onNext={goNext} onBack={goBack} />;
+            case 'locationServices':
+                return <LocationServicesStep onNext={goNext} onBack={goBack} />;
             case 'complete':
                 return null;
             default:

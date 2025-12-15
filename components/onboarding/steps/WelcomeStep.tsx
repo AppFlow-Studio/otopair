@@ -24,7 +24,6 @@ import {
     useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { OnboardingProgress } from '../OnboardingProgress';
 import { OnboardingFooterButton } from '../OnboardingFooterButton';
 
 interface WelcomeStepProps {
@@ -46,6 +45,7 @@ export function WelcomeStep({ onNext, onBack }: WelcomeStepProps) {
     const buttonPaddingVertical = isCompact ? Spacing.sm : Spacing.lg;
 
     const handleGetStarted = () => {
+        console.log('Finished WelcomeStep');
         onNext();
     };
 
@@ -60,12 +60,11 @@ export function WelcomeStep({ onNext, onBack }: WelcomeStepProps) {
             style={styles.keyboardView}
         >
             <View style={[styles.container, dynamicStyles.container]}>
-                <OnboardingProgress total={4} filled={0} leftElement={null} />
                 
                 {/* Header Content */}
                 <View style={styles.headerContent}>
                     <Text style={styles.title}>
-                        Welcome to OtoPair
+                        Welcome to Otopair
                     </Text>
                     <Text style={styles.subtitle}>
                         Your smart assistant for car health, repair tips, and maintenance reminders.
@@ -123,14 +122,14 @@ const styles = StyleSheet.create({
         fontFamily: FontFamily.bold,
         color: BrandColors.white,
         marginBottom: Spacing.xs,
-        lineHeight: 48,
+        lineHeight: Spacing['5xl'],
     },
     subtitle: {
         fontSize: FontSize.lg,
         fontFamily: FontFamily.regular,
         color: BrandColors.white,
         opacity: 0.9,
-        lineHeight: 24,
+        lineHeight: Spacing['2xl'],
         marginBottom: Spacing.sm,
     },
     imageContainer: {

@@ -61,6 +61,9 @@ interface OnboardingData {
   dateOfBirth: string | null;     // ISO format
   phoneNumber: string | null;
 
+  // User intentions for using app
+  userIntentions: string[] | null;
+
   // Permissions Step
   pushNotificationsGranted: boolean;
   pushNotificationStatus: 'granted' | 'provisional' | 'denied' | 'undetermined' | null;
@@ -90,6 +93,8 @@ interface OnboardingData {
 
   // Services 12 Months Step
   services12months: string[] | null;
+
+  
 
   // Vehicle Step
   vehicleMake: string | null;
@@ -128,6 +133,7 @@ const INITIAL_DATA: OnboardingData = {
   lastName: null,
   dateOfBirth: null,
   phoneNumber: null,
+  userIntentions: null,
   pushNotificationsGranted: false,
   pushNotificationStatus: null,
   locationGranted: false,
