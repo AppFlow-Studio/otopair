@@ -85,6 +85,9 @@ interface OnboardingData {
   // Setup questionnaire (home bottom-sheet)
   carUsage: string | null;
   servicePriorities: string[] | null;
+  decisionHelper: string | null;
+  isTellUsAboutYourselfComplete: boolean;
+  carStressNote: string | null;
 
   // Beginner Oil Change Step
   lastOilChange: 'last_3_months' | '3_6_months' | '6_plus_months' | 'dont_remember' | string | null;
@@ -163,6 +166,7 @@ const INITIAL_DATA: OnboardingData = {
   carKnowledgeLevel: null,
   carUsage: null,
   servicePriorities: null,
+  decisionHelper: null,
   lastOilChange: null,
   lastTireService: null,
   brakesReplaced: null,
@@ -176,6 +180,8 @@ const INITIAL_DATA: OnboardingData = {
   vehiclePlate: null,
   vehicleVin: null,
   vehicleMileage: null,
+  isTellUsAboutYourselfComplete: false,
+  carStressNote: null,
 };
 
 export const useOnboardingStore = create<OnboardingState>()((set, get) => ({

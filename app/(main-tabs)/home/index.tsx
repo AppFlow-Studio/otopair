@@ -6,7 +6,7 @@ import { Button, Text, BrandColors, FontFamily, FontSize, Spacing } from '@/comp
 import { OnboardingBackButton } from '@/components/onboarding/OnboardingBackButton';
 import { MoveRight, CheckCircle2, UserPlus, User, Car, CreditCard, ChevronRight } from 'lucide-react-native';
 import React, { useState, useRef, useEffect } from 'react';
-import { ScrollView, StyleSheet, View, Modal, Pressable, Animated, useWindowDimensions, TouchableOpacity } from 'react-native';
+import { ScrollView, StyleSheet, View, Modal, Pressable, Animated, useWindowDimensions, TouchableOpacity, TextInput } from 'react-native';
 import Svg, { Circle, Path } from 'react-native-svg';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -50,7 +50,10 @@ export default function HomeScreen() {
   // Make the progress circle visually bigger without affecting layout (transform doesn't participate in layout)
   // Make it obviously larger; still doesn't affect layout because it's a transform.
   const progressCircleScale = isSmallScreen ? 1.15 : 1.28;
-  const [questionStep, setQuestionStep] = useState<'none' | 'experience' | 'carUsage' | 'servicePriorities'>('none');
+  const [questionStep, setQuestionStep] = useState<
+    'none' | 'experience' | 'carUsage' | 'servicePriorities' | 'decisionHelper' | 'stressNote'
+  >('none');
+  const [stressNote, setStressNote] = useState('');
   const [servicePrioritySelection, setServicePrioritySelection] = useState<string[]>(
     data.servicePriorities ?? []
   );
@@ -138,7 +141,7 @@ export default function HomeScreen() {
   const hasPhoneNumber = !!data.phoneNumber?.trim();
   const hasNames = !!data.firstName?.trim() && !!data.lastName?.trim();
   const isCreateAccountComplete = hasPhoneNumber && hasNames;
-  const isTellUsAboutYourselfComplete = data.firstName !== null && data.lastName !== null;
+  const isTellUsAboutYourselfComplete = data.isTellUsAboutYourselfComplete;
   const isAddYourCarComplete = data.vehicleMake !== null && data.vehicleModel !== null && data.vehicleYear !== null;
   const isPaymentMethodComplete = false; // TODO: Add payment method tracking
 
@@ -199,12 +202,32 @@ export default function HomeScreen() {
       const next = [...prev, id];
       if (next.length === 3) {
         updateData({ servicePriorities: next });
-        setQuestionStep('none'); // next question will plug in here later
+        setQuestionStep('decisionHelper');
       } else {
         updateData({ servicePriorities: next });
       }
       return next;
     });
+  };
+
+  const decisionHelperOptions = [
+    '🧠 I handle it myself',
+    '👨‍👩‍👧‍👦 Family member/friend who knows cars',
+    '🗣️ I ask the mechanic to explain everything',
+    "🤝 I just trust the mechanic's recommendation",
+  ] as const;
+
+  const handleSelectDecisionHelper = (value: (typeof decisionHelperOptions)[number]) => {
+    updateData({ decisionHelper: value });
+    setQuestionStep('stressNote');
+  };
+
+  const handleFinishQuestionnaire = () => {
+    // Snap back to the collapsed position and return to checklist
+    updateData({ isTellUsAboutYourselfComplete: true, carStressNote: stressNote });
+    slideAnim.setValue(COLLAPSED_POSITION);
+    panY.setValue(0);
+    setQuestionStep('none');
   };
 
   const setupItems = [
@@ -222,9 +245,11 @@ export default function HomeScreen() {
       subtitle: 'Help us personalize your experience',
       isComplete: isTellUsAboutYourselfComplete,
       icon: User,
-      onPress: () => {
-        setQuestionStep('experience');
-      },
+      onPress: isTellUsAboutYourselfComplete
+        ? undefined
+        : () => {
+            setQuestionStep('experience');
+          },
     },
     {
       id: 'add_your_car',
@@ -253,7 +278,6 @@ export default function HomeScreen() {
   const completedCount = setupItems.filter(item => item.isComplete).length;
 
   const rows: { label: string; value: string }[] = [
-    { label: 'Car knowledge level', value: String(data.carKnowledgeLevel ?? '—') },
     { label: 'Last oil change', value: String(data.lastOilChange ?? '—') },
     { label: 'Brakes replaced', value: String(data.brakesReplaced ?? '—') },
     { label: 'Last inspection', value: String(data.lastInspection ?? '—') },
@@ -274,7 +298,13 @@ export default function HomeScreen() {
     { label: 'First name', value: String(data.firstName ?? '—') },
     { label: 'Last name', value: String(data.lastName ?? '—') },
     { label: 'Alias', value: String(data.alias ?? '—') },
+    { label: 'Car knowledge level', value: String(data.carKnowledgeLevel ?? '—') },
     { label: 'User intentions', value: data.userIntentions ? JSON.stringify(data.userIntentions) : '—' },
+    { label: 'Car stress note', value: String(data.carStressNote ?? '—') },
+    { label: 'Car usage', value: String(data.carUsage ?? '—') },
+    { label: 'Service priorities', value: data.servicePriorities ? JSON.stringify(data.servicePriorities) : '—' },
+    { label: 'Decision helper', value: String(data.decisionHelper ?? '—') },
+    { label: 'Is tell us about yourself complete', value: String(data.isTellUsAboutYourselfComplete) },
   ];
 
 
@@ -361,6 +391,10 @@ export default function HomeScreen() {
                         <View style={styles.progressBackButton}>
                           <OnboardingBackButton
                             onBack={() => {
+                              if (questionStep === 'decisionHelper') {
+                                setQuestionStep('servicePriorities');
+                                return;
+                              }
                               if (questionStep === 'servicePriorities') {
                                 setQuestionStep(data.carKnowledgeLevel === 1 ? 'carUsage' : 'experience');
                                 return;
@@ -570,13 +604,78 @@ export default function HomeScreen() {
                           })}
                         </ScrollView>
                       </View>
+                    ) : questionStep === 'decisionHelper' ? (
+                      <View style={styles.questionCard}>
+                        <Text style={styles.questionTitle}>Who usually helps you with car decisions?</Text>
+                        <ScrollView
+                          style={[styles.questionOptionsScroll, { maxHeight: optionsScrollMaxHeight }]}
+                          contentContainerStyle={[styles.questionOptions, { paddingBottom: Spacing.lg }]}
+                          showsVerticalScrollIndicator={false}
+                          bounces={false}
+                        >
+                          {decisionHelperOptions.map((option) => {
+                            const isSelected = data.decisionHelper === option;
+                            return (
+                              <TouchableOpacity
+                                key={option}
+                                style={[
+                                  styles.questionOption,
+                                  isSelected && styles.questionOptionSelected,
+                                  isSmallScreen && styles.questionOptionCompact
+                                ]}
+                                onPress={() => handleSelectDecisionHelper(option)}
+                                activeOpacity={0.8}
+                              >
+                                <Text style={[
+                                  styles.questionOptionText,
+                                  isSelected && styles.questionOptionTextSelected,
+                                  isSmallScreen && { fontSize: FontSize.sm }
+                                ]}>
+                                  {option}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </ScrollView>
+                      </View>
+                    ) : questionStep === 'stressNote' ? (
+                      <View style={styles.questionCard}>
+                        <Text style={styles.questionTitle}>
+                          Optional: Is there anything that makes getting your car serviced stressful?
+                        </Text>
+                        <ScrollView
+                          style={[styles.questionOptionsScroll, { maxHeight: optionsScrollMaxHeight }]}
+                          contentContainerStyle={[styles.questionOptions, { paddingBottom: Spacing.lg }]}
+                          keyboardShouldPersistTaps="handled"
+                          showsVerticalScrollIndicator={false}
+                          bounces={false}
+                        >
+                          <TextInput
+                            style={styles.stressInput}
+                            placeholder="Type your answer (optional)"
+                            placeholderTextColor="rgba(255,255,255,0.5)"
+                            multiline
+                            value={stressNote}
+                            onChangeText={setStressNote}
+                            returnKeyType="done"
+                            onSubmitEditing={handleFinishQuestionnaire}
+                          />
+                          <TouchableOpacity
+                            style={styles.finishButton}
+                            onPress={handleFinishQuestionnaire}
+                            activeOpacity={0.8}
+                          >
+                            <Text style={styles.finishButtonText}>Done</Text>
+                          </TouchableOpacity>
+                        </ScrollView>
+                      </View>
                     ) : (
                       <View style={styles.questionCard}>
                         <Text style={styles.questionTitle}>
                           What matters most when getting your car serviced?
                         </Text>
                         <Text style={styles.questionSubtitle}>
-                          Choose 3 out of the 6 options ({servicePrioritySelection.length}/3)
+                          Choose 3 out of the 6 items ({servicePrioritySelection.length}/3)
                         </Text>
                         <ScrollView
                           style={[styles.questionOptionsScroll, { maxHeight: optionsScrollMaxHeight }]}
@@ -858,5 +957,29 @@ const styles = StyleSheet.create({
     position: 'absolute',
     left: 0,
     top: 0,
+  },
+  stressInput: {
+    minHeight: 100,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    padding: Spacing.md,
+    color: BrandColors.white,
+    fontSize: FontSize.md,
+    fontFamily: FontFamily.regular,
+    textAlignVertical: 'top',
+  },
+  finishButton: {
+    marginTop: Spacing.md,
+    paddingVertical: Spacing.md,
+    borderRadius: 10,
+    backgroundColor: BrandColors.secondary,
+    alignItems: 'center',
+  },
+  finishButtonText: {
+    color: '#0B1220',
+    fontSize: FontSize.md,
+    fontFamily: FontFamily.semiBold,
   },
 });
