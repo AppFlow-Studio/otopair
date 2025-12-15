@@ -6,6 +6,8 @@
  * OWNER: Daniel Chelala
  */
 
+// TODO: Edit login button, as it currently navigates to home screen for testing purposes
+
 import {
     BrandColors,
     FontFamily,
@@ -52,6 +54,7 @@ export function WelcomeStep({ onNext, onBack }: WelcomeStepProps) {
     const handleLogIn = () => {
         // TODO: Navigate to login screen
         console.log('Navigate to login');
+        onBack();
     };
 
     return (

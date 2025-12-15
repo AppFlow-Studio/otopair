@@ -15,9 +15,10 @@
  * OWNER: Daniel Chelala
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { StyleSheet, View, Keyboard } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { router } from 'expo-router';
 import Animated, { 
     useSharedValue, 
     withTiming, 
@@ -219,6 +220,9 @@ export function OnboardingFlow({ initialStep = 'welcome' }: OnboardingFlowProps)
 
     const goBack = async () => {
         switch (currentStep) {
+            case 'welcome':
+                goToStep('complete');
+                break;
             case 'phone':
                 goToStep('welcome');
                 break;
@@ -330,6 +334,13 @@ export function OnboardingFlow({ initialStep = 'welcome' }: OnboardingFlowProps)
                 break;
         }
     };
+
+    // Navigate to home screen when onboarding is complete
+    useEffect(() => {
+        if (currentStep === 'complete') {
+            router.replace('/(main-tabs)/home');
+        }
+    }, [currentStep]);
 
     // Render the current step component
     const renderStep = () => {

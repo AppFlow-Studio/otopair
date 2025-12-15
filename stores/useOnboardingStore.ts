@@ -58,6 +58,7 @@ interface OnboardingData {
   // Profile Step
   firstName: string | null;
   lastName: string | null;
+  alias: string | null;
   dateOfBirth: string | null;     // ISO format
   phoneNumber: string | null;
 
@@ -131,6 +132,7 @@ interface OnboardingState {
 const INITIAL_DATA: OnboardingData = {
   firstName: null,
   lastName: null,
+  alias: null,
   dateOfBirth: null,
   phoneNumber: null,
   userIntentions: null,

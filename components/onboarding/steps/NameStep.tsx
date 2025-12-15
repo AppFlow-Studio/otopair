@@ -56,6 +56,7 @@ export function NameStep({ onNext, onBack }: NameStepProps) {
     updateData({
       firstName: firstName.trim(),
       lastName: lastName.trim(),
+      alias: alias.trim(),
     });
 
     console.log("Name saved:", { firstName, lastName, alias });
