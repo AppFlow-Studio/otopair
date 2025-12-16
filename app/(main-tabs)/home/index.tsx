@@ -73,6 +73,7 @@ export default function HomeScreen() {
     | 'servicePriorities'
     | 'decisionHelper'
     | 'stressNote'
+    | 'repairQuoteNeeds'
   >('none');
   const [stressNote, setStressNote] = useState('');
   const [servicePrioritySelection, setServicePrioritySelection] = useState<string[]>(
@@ -100,6 +101,9 @@ export default function HomeScreen() {
   });
   const [terminologyComfortSelection, setTerminologyComfortSelection] = useState<string | null>(
     data.carTerminologyComfort ?? null
+  );
+  const [repairQuoteNeedsSelection, setRepairQuoteNeedsSelection] = useState<string[]>(
+    data.repairQuoteNeeds ?? []
   );
   const [showBottomSheet, setShowBottomSheet] = useState(false);
   const slideAnim = useRef(new Animated.Value(height)).current;
@@ -329,6 +333,30 @@ export default function HomeScreen() {
     updateData({ carTerminologyComfort: value });
   };
 
+  const repairQuoteNeedsOptions = [
+    '🧾 Detailed breakdown of costs',
+    '🔍 Explanation of what’s wrong',
+    '⏳ How urgent it really is',
+    '🧠 Alternative options/solutions',
+    '💵 Comparison to typical prices',
+    '🕐 Time it will take',
+  ] as const;
+
+  const handleToggleRepairQuoteNeed = (value: (typeof repairQuoteNeedsOptions)[number]) => {
+    setRepairQuoteNeedsSelection((prev) => {
+      const exists = prev.includes(value);
+      if (exists) {
+        const next = prev.filter((v) => v !== value);
+        updateData({ repairQuoteNeeds: next.length ? next : null });
+        return next;
+      }
+      if (prev.length >= 3) return prev;
+      const next = [...prev, value];
+      updateData({ repairQuoteNeeds: next });
+      return next;
+    });
+  };
+
   const canGoNext =
     questionStep === 'experience'
       ? data.carKnowledgeLevel !== null
@@ -350,7 +378,9 @@ export default function HomeScreen() {
                 ? data.decisionHelper !== null
                 : questionStep === 'stressNote'
                   ? true
-                  : false;
+              : questionStep === 'repairQuoteNeeds'
+                ? true
+                : false;
 
   const handleQuestionNext = () => {
     if (!canGoNext) return;
@@ -380,15 +410,33 @@ export default function HomeScreen() {
         setQuestionStep('terminologyComfort');
         return;
       case 'terminologyComfort':
-        setQuestionStep('servicePriorities');
+        if (data.carKnowledgeLevel === 2) {
+          setQuestionStep('repairQuoteNeeds');
+        } else {
+          setQuestionStep('servicePriorities');
+        }
         return;
       case 'servicePriorities':
         setQuestionStep('decisionHelper');
         return;
       case 'decisionHelper':
-        setQuestionStep('stressNote');
+        if (data.carKnowledgeLevel === 1) {
+          setQuestionStep('stressNote');
+        } else if (data.carKnowledgeLevel === 2) {
+          setQuestionStep('terminologyComfort');
+        } else {
+          setQuestionStep('stressNote');
+        }
         return;
       case 'stressNote':
+        if (data.carKnowledgeLevel === 1) {
+          handleFinishQuestionnaire();
+        } else {
+          updateData({ carStressNote: stressNote });
+          setQuestionStep('repairQuoteNeeds');
+        }
+        return;
+      case 'repairQuoteNeeds':
         handleFinishQuestionnaire();
         return;
       default:
@@ -398,7 +446,11 @@ export default function HomeScreen() {
 
   const handleFinishQuestionnaire = () => {
     // Snap back to the collapsed position and return to checklist
-    updateData({ isTellUsAboutYourselfComplete: true, carStressNote: stressNote });
+    updateData({
+      isTellUsAboutYourselfComplete: true,
+      carStressNote: stressNote,
+      repairQuoteNeeds: repairQuoteNeedsSelection.length ? repairQuoteNeedsSelection : null,
+    });
     slideAnim.setValue(COLLAPSED_POSITION);
     panY.setValue(0);
     setQuestionStep('none');
@@ -480,6 +532,7 @@ export default function HomeScreen() {
     { label: 'Maintenance tracking', value: String(data.maintenanceTracking ?? '—') },
     { label: 'Shop type', value: String(data.shopType ?? '—') },
     { label: 'Why new option', value: data.whyNewOption ? JSON.stringify(data.whyNewOption) : '—' },
+    { label: 'Repair quote needs', value: data.repairQuoteNeeds ? JSON.stringify(data.repairQuoteNeeds) : '—' },
     { label: 'Is tell us about yourself complete', value: String(data.isTellUsAboutYourselfComplete) },
   ];
 
@@ -567,52 +620,67 @@ export default function HomeScreen() {
                         <View style={styles.progressBackButton}>
                           <OnboardingBackButton
                             onBack={() => {
+                              const level = data.carKnowledgeLevel;
+                              if (questionStep === 'repairQuoteNeeds') {
+                                if (level === 2) {
+                                  setQuestionStep('terminologyComfort');
+                                } else {
+                                  setQuestionStep('stressNote');
+                                }
+                                return;
+                              }
+                              if (questionStep === 'stressNote') {
+                                setQuestionStep('decisionHelper');
+                                return;
+                              }
                               if (questionStep === 'decisionHelper') {
-                                setQuestionStep('servicePriorities');
+                                if (level === 1 || level === 3 || level === 4) {
+                                  setQuestionStep('servicePriorities');
+                                } else {
+                                  setQuestionStep('terminologyComfort');
+                                }
                                 return;
                               }
                               if (questionStep === 'servicePriorities') {
-                                if (data.carKnowledgeLevel === 1) {
+                                if (level === 1) {
                                   setQuestionStep('carUsage');
-                                  return;
+                                } else if (level === 2) {
+                                  setQuestionStep('terminologyComfort');
+                                } else {
+                                  setQuestionStep('whyNewOption');
                                 }
-                                if (data.carKnowledgeLevel === 2) {
-                                  setQuestionStep('monthlyMileage');
-                                  return;
-                                }
-                                setQuestionStep('whyNewOption');
                                 return;
                               }
-                              if (questionStep === 'carUsage') {
-                                setQuestionStep('experience');
-                                return;
-                              }
-                              if (questionStep === 'maintenanceTracking') {
-                                setQuestionStep('experience');
-                                return;
-                              }
-                              if (questionStep === 'monthlyMileage') {
-                                setQuestionStep('maintenanceTracking');
-                                return;
-                              }
-                              if (questionStep === 'shopType') {
-                                if (data.carKnowledgeLevel === 1) {
-                                  setQuestionStep('carUsage');
-                                  return;
+                              if (questionStep === 'terminologyComfort') {
+                                if (level === 2) {
+                                  setQuestionStep('whyNewOption');
+                                } else {
+                                  setQuestionStep('whyNewOption');
                                 }
-                                if (data.carKnowledgeLevel === 2) {
-                                  setQuestionStep('monthlyMileage');
-                                  return;
-                                }
-                                setQuestionStep('experience');
                                 return;
                               }
                               if (questionStep === 'whyNewOption') {
                                 setQuestionStep('shopType');
                                 return;
                               }
-                              if (questionStep === 'terminologyComfort') {
-                                setQuestionStep('whyNewOption');
+                              if (questionStep === 'shopType') {
+                                if (level === 2) {
+                                  setQuestionStep('monthlyMileage');
+                                } else {
+                                  setQuestionStep('experience');
+                                }
+                                return;
+                              }
+                              if (questionStep === 'monthlyMileage') {
+                                setQuestionStep('maintenanceTracking');
+                                return;
+                              }
+                              if (questionStep === 'maintenanceTracking') {
+                                setQuestionStep('experience');
+                                return;
+                              }
+                              if (questionStep === 'carUsage') {
+                                setQuestionStep('experience');
                                 return;
                               }
                               setQuestionStep('none');
@@ -621,28 +689,34 @@ export default function HomeScreen() {
                           />
                         </View>
                       )}
-                      {questionStep !== 'none' && questionStep !== 'stressNote' && (
-                        <Pressable
-                          style={[
-                            styles.progressNextButton,
-                            !canGoNext && styles.progressNextButtonDisabled,
-                          ]}
-                          onPress={handleQuestionNext}
-                          disabled={!canGoNext}
-                        >
-                          <Text
-                            style={[
-                              styles.progressNextText,
-                              !canGoNext && styles.progressNextTextDisabled,
-                            ]}
-                          >
-                            Next
-                          </Text>
-                          <ArrowRight
-                            size={FontSize['3xl']}
-                            color={canGoNext ? BrandColors.secondary : 'rgba(255,255,255,0.3)'}
-                          />
-                        </Pressable>
+                      {questionStep !== 'none' && (
+                        (() => {
+                          const isDoneLabel = questionStep === 'stressNote' || questionStep === 'repairQuoteNeeds';
+                          const label = isDoneLabel ? 'Done' : 'Next';
+                          return (
+                            <Pressable
+                              style={[
+                                styles.progressNextButton,
+                                !canGoNext && styles.progressNextButtonDisabled,
+                              ]}
+                              onPress={handleQuestionNext}
+                              disabled={!canGoNext}
+                            >
+                              <Text
+                                style={[
+                                  styles.progressNextText,
+                                  !canGoNext && styles.progressNextTextDisabled,
+                                ]}
+                              >
+                                {label}
+                              </Text>
+                              <ArrowRight
+                                size={FontSize['3xl']}
+                                color={canGoNext ? BrandColors.secondary : 'rgba(255,255,255,0.3)'}
+                              />
+                            </Pressable>
+                          );
+                        })()
                       )}
                       <View style={[
                         styles.progressContainer,
@@ -1072,15 +1146,48 @@ export default function HomeScreen() {
                             value={stressNote}
                             onChangeText={setStressNote}
                             returnKeyType="done"
-                            onSubmitEditing={handleFinishQuestionnaire}
+                            onSubmitEditing={handleQuestionNext}
                           />
-                          <TouchableOpacity
-                            style={styles.finishButton}
-                            onPress={handleFinishQuestionnaire}
-                            activeOpacity={0.8}
-                          >
-                            <Text style={styles.finishButtonText}>Done</Text>
-                          </TouchableOpacity>
+                        </ScrollView>
+                      </View>
+                    ) : questionStep === 'repairQuoteNeeds' ? (
+                      <View style={styles.questionCard}>
+                        <Text style={styles.questionTitle}>
+                          When getting a repair quote, what do you need to decide?
+                        </Text>
+                        <Text style={styles.questionSubtitle}>Select up to 3</Text>
+                        <ScrollView
+                          style={[styles.questionOptionsScroll, { maxHeight: optionsScrollMaxHeight }]}
+                          contentContainerStyle={[styles.questionOptions, { paddingBottom: Spacing.lg }]}
+                          showsVerticalScrollIndicator={false}
+                          bounces={false}
+                        >
+                          {repairQuoteNeedsOptions.map((option) => {
+                            const isSelected = repairQuoteNeedsSelection.includes(option);
+                            const isDisabled = !isSelected && repairQuoteNeedsSelection.length >= 3;
+                            return (
+                              <TouchableOpacity
+                                key={option}
+                                style={[
+                                  styles.questionOption,
+                                  isSelected && styles.questionOptionSelected,
+                                  isSmallScreen && styles.questionOptionCompact,
+                                  isDisabled && styles.questionOptionDisabled,
+                                ]}
+                                onPress={() => handleToggleRepairQuoteNeed(option)}
+                                activeOpacity={0.8}
+                                disabled={isDisabled}
+                              >
+                                <Text style={[
+                                  styles.questionOptionText,
+                                  isSelected && styles.questionOptionTextSelected,
+                                  isSmallScreen && { fontSize: FontSize.sm }
+                                ]}>
+                                  {option}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
                         </ScrollView>
                       </View>
                     ) : (

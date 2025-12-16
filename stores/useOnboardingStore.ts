@@ -93,6 +93,7 @@ interface OnboardingData {
   shopType: string | null;
   whyNewOption: string[] | null;
   carTerminologyComfort: string | null;
+  repairQuoteNeeds: string[] | null;
 
   // Beginner Oil Change Step
   lastOilChange: 'last_3_months' | '3_6_months' | '6_plus_months' | 'dont_remember' | string | null;
@@ -192,6 +193,7 @@ const INITIAL_DATA: OnboardingData = {
   shopType: null,
   whyNewOption: null,
   carTerminologyComfort: null,
+  repairQuoteNeeds: null,
 };
 
 export const useOnboardingStore = create<OnboardingState>()((set, get) => ({
