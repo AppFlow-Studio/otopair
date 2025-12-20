@@ -80,7 +80,7 @@ interface OnboardingData {
   locationPermissionStatus: 'granted' | 'denied' | 'undetermined' | null;
 
   // Car Knowledge Step
-  carKnowledgeLevel: 1 | 2 | 3 | 4 | 5 | null;
+  carKnowledgeLevel: 1 | 2 | 3 | 4 | null;
 
   // Setup questionnaire (home bottom-sheet)
   carUsage: string | null;
