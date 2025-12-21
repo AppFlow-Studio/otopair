@@ -49,7 +49,10 @@ export interface UserLocation {
 export type BookingStatus = "pending" | "confirmed" | "in_progress" | "completed" | "cancelled";
 
 /** Booking flow stages */
-export type BookingStage = "discovery" | "service_selection" | "mechanic_selection" | "payment" | "confirmation";
+export type BookingStage = "discovery" | "service_selection" | "mechanic_selection" | "booking_details" | "payment" | "confirmation";
+
+/** Booking type - immediate or scheduled */
+export type BookingType = "book_now" | "schedule_later";
 
 /** A mechanic who works at a shop */
 export interface Mechanic {

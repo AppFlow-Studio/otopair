@@ -15,7 +15,7 @@
  */
 
 import { create } from "zustand";
-import type { Booking, BookingStage, Service, ServiceCategory, UserLocation } from "./types/store.types";
+import type { Booking, BookingStage, BookingType, Service, ServiceCategory, UserLocation } from "./types/store.types";
 
 // ─────────────────────────────────────────────────────────────
 // STORE STATE INTERFACE
@@ -52,6 +52,8 @@ interface BookingState {
   bookingStage: BookingStage;
   /** Selected mechanic ID (null = "Any Available") */
   selectedMechanicId: number | null;
+  /** Booking type - immediate or scheduled */
+  bookingType: BookingType | null;
 
   // ═══════════════ BOOKING STATE ═══════════════
   /** All bookings indexed by ID */
@@ -96,6 +98,8 @@ interface BookingState {
   prevBookingStage: () => void;
   /** Select a mechanic (null for "Any Available") */
   selectMechanic: (mechanicId: number | null) => void;
+  /** Set booking type and proceed to booking details */
+  setBookingTypeAndProceed: (type: BookingType, mechanicId: number) => void;
   /** Reset booking flow to initial state */
   resetBookingFlow: () => void;
 
@@ -242,6 +246,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   selectedServiceIds: [],
   bookingStage: "discovery",
   selectedMechanicId: null,
+  bookingType: null,
   bookings: {},
   bookingIds: [],
   draftBooking: null,
@@ -311,6 +316,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
         "discovery",
         "service_selection",
         "mechanic_selection",
+        "booking_details",
         "payment",
         "confirmation",
       ];
@@ -325,6 +331,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
         "discovery",
         "service_selection",
         "mechanic_selection",
+        "booking_details",
         "payment",
         "confirmation",
       ];
@@ -338,12 +345,20 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       selectedMechanicId: mechanicId,
     }),
 
+  setBookingTypeAndProceed: (type, mechanicId) =>
+    set({
+      bookingType: type,
+      selectedMechanicId: mechanicId,
+      bookingStage: "booking_details",
+    }),
+
   resetBookingFlow: () =>
     set({
       bookingStage: "discovery",
       selectedServiceIds: [],
       selectedMechanicId: null,
       selectedServiceCategory: null,
+      bookingType: null,
       draftBooking: null,
     }),
 

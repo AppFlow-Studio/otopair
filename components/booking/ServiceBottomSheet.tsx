@@ -26,7 +26,7 @@ import { BorderRadius, Shadows } from "@/constants/theme";
 import { BookingStage } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
 
-import { CollapsedContent, MechanicSelectionContent, ServiceSelectionContent } from "./sheets";
+import { BookingDetailsContent, CollapsedContent, MechanicSelectionContent, ServiceSelectionContent } from "./sheets";
 import type { MechanicFilterOption } from "./topbars";
 
 // ============================================================================
@@ -40,6 +40,10 @@ interface ServiceBottomSheetProps {
   onSelectMechanic?: () => void;
   /** Called when user presses back in mechanic selection (for coordinated animation) */
   onMechanicBackPress?: () => void;
+  /** Called when user confirms the booking */
+  onConfirmBooking?: () => void;
+  /** Called when user presses back in booking details (for coordinated animation) */
+  onBookingDetailsBackPress?: () => void;
   /** Vertical offset to shift bottom sheet down (pixels) */
   offsetY?: number;
   /** Callback to expose the animated index for parent components */
@@ -52,7 +56,14 @@ interface ServiceBottomSheetProps {
 // CONSTANTS
 // ============================================================================
 
-const STAGE_ORDER: BookingStage[] = ["discovery", "service_selection", "mechanic_selection", "payment", "confirmation"];
+const STAGE_ORDER: BookingStage[] = [
+  "discovery",
+  "service_selection",
+  "mechanic_selection",
+  "booking_details",
+  "payment",
+  "confirmation",
+];
 
 // ============================================================================
 // COMPONENT
@@ -62,6 +73,8 @@ export function ServiceBottomSheet({
   onSelectServices,
   onSelectMechanic,
   onMechanicBackPress,
+  onConfirmBooking,
+  onBookingDetailsBackPress,
   offsetY = 0,
   onAnimatedIndexChange,
   mechanicFilter = "available_now",
@@ -69,7 +82,6 @@ export function ServiceBottomSheet({
   // ═══════════════ STATE-EFFECT: Refs ═══════════════
   const bottomSheetRef = useRef<BottomSheet>(null);
   const animatedIndex = useSharedValue(0);
-  const previousStageRef = useRef<BookingStage>("service_selection");
 
   // ═══════════════ STATE-EFFECT: Expose animated index to parent ═══════════════
   useEffect(() => {
@@ -79,22 +91,23 @@ export function ServiceBottomSheet({
   // ═══════════════ STATE-EFFECT: Store Subscriptions ═══════════════
   const bookingStage = useBookingStore((state) => state.bookingStage);
   const setBookingStage = useBookingStore((state) => state.setBookingStage);
-  const nextBookingStage = useBookingStore((state) => state.nextBookingStage);
 
   // ═══════════════ STATE-EFFECT: Direction Tracking ═══════════════
+  // Track the rendered stage to detect changes and compute direction
+  const [renderedStage, setRenderedStage] = useState<BookingStage>(bookingStage);
   const [isForward, setIsForward] = useState(true);
-  const [shouldAnimate, setShouldAnimate] = useState(false);
 
-  useEffect(() => {
-    // Only animate if stage actually changed from previous
-    if (previousStageRef.current !== bookingStage) {
-      const prevIndex = STAGE_ORDER.indexOf(previousStageRef.current);
-      const currIndex = STAGE_ORDER.indexOf(bookingStage);
-      setIsForward(currIndex > prevIndex);
-      setShouldAnimate(true); // Enable animation for this and all future transitions
-      previousStageRef.current = bookingStage;
-    }
-  }, [bookingStage]);
+  // Compute direction synchronously when stage changes, then trigger re-render
+  // Note: Sheet animations are inverted compared to TopBar, so we flip the direction
+  if (renderedStage !== bookingStage) {
+    const prevIndex = STAGE_ORDER.indexOf(renderedStage);
+    const currIndex = STAGE_ORDER.indexOf(bookingStage);
+    const newIsForward = currIndex < prevIndex; // Inverted for sheet
+
+    // Schedule state updates (will batch and re-render with correct values)
+    setRenderedStage(bookingStage);
+    setIsForward(newIsForward);
+  }
 
   // ═══════════════ STATE-EFFECT: Memoized Values ═══════════════
   const { height } = Dimensions.get("window");
@@ -121,25 +134,31 @@ export function ServiceBottomSheet({
   }, [setBookingStage, onSelectServices]);
 
   const handleSelectMechanic = useCallback(() => {
-    // Move to payment stage
-    nextBookingStage();
+    // Note: Stage transition is already handled by setBookingTypeAndProceed in MechanicSelectionContent
+    // This callback is just for any additional parent logic
     onSelectMechanic?.();
-  }, [nextBookingStage, onSelectMechanic]);
+  }, [onSelectMechanic]);
 
   // ═══════════════ RENDER: Stage Content ═══════════════
   const renderExpandedContent = () => {
-    // Use standardized slide transitions
-    const { entering, exiting } = getSlideTransitionOrNone(shouldAnimate, isForward);
+    // Use standardized slide transitions - always animate
+    const { entering } = getSlideTransitionOrNone(true, isForward);
 
     switch (bookingStage) {
       case "mechanic_selection":
         return (
-          <Animated.View key="mechanic_selection" entering={entering} exiting={exiting} style={styles.stageContainer}>
+          <Animated.View key="mechanic_selection" entering={entering} style={styles.stageContainer}>
             <MechanicSelectionContent
               onSelectMechanic={handleSelectMechanic}
               onBackPress={onMechanicBackPress}
               mechanicFilter={mechanicFilter}
             />
+          </Animated.View>
+        );
+      case "booking_details":
+        return (
+          <Animated.View key="booking_details" entering={entering} style={styles.stageContainer}>
+            <BookingDetailsContent onConfirmBooking={onConfirmBooking} onBackPress={onBookingDetailsBackPress} />
           </Animated.View>
         );
       case "payment":
@@ -152,7 +171,7 @@ export function ServiceBottomSheet({
       case "service_selection":
       default:
         return (
-          <Animated.View key="service_selection" entering={entering} exiting={exiting} style={styles.stageContainer}>
+          <Animated.View key="service_selection" entering={entering} style={styles.stageContainer}>
             <ServiceSelectionContent onSelectServices={handleSelectServices} />
           </Animated.View>
         );

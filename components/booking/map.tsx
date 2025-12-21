@@ -7,10 +7,12 @@
  *
  * PROPS:
  *   - onShopSelect ((shop: Shop) => void): Called when a shop marker is tapped [optional]
+ *   - sheetAnimatedIndex (SharedValue<number>): Animated index from bottom sheet for recenter button visibility [optional]
  *
  * EXAMPLE:
  *   <BookingMap
  *     onShopSelect={(shop) => console.log("Selected:", shop.name)}
+ *     sheetAnimatedIndex={animatedIndex}
  *   />
  *
  * OWNER: Waleed Mansour, Ahmad Hamoudeh
@@ -20,10 +22,14 @@ import type { Shop } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useShopStore } from "@/stores/useShopStore";
 import * as Location from "expo-location";
+import { Navigation2 } from "lucide-react-native";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import { StyleSheet, TouchableOpacity, View } from "react-native";
 import MapView, { PROVIDER_DEFAULT, Region } from "react-native-maps";
+import Animated, { SharedValue, useAnimatedStyle, withTiming } from "react-native-reanimated";
 import { ShopMarker } from "./ShopMarker";
+import { BrandColors } from "@/components/shared-ui";
+import { Spacing } from "@/constants/theme";
 
 // ============================================================================
 // TYPES
@@ -32,13 +38,18 @@ import { ShopMarker } from "./ShopMarker";
 interface BookingMapProps {
   /** Called when a shop marker is tapped */
   onShopSelect?: (shop: Shop) => void;
+  /** Animated index from bottom sheet (0 = collapsed, 1 = expanded) */
+  sheetAnimatedIndex?: SharedValue<number>;
 }
 
 // ============================================================================
 // COMPONENT
 // ============================================================================
 
-export function BookingMap({ onShopSelect }: BookingMapProps) {
+export function BookingMap({ onShopSelect, sheetAnimatedIndex }: BookingMapProps) {
+  // ═══════════════ STATE-EFFECT: Refs ═══════════════
+  const mapRef = useRef<MapView>(null);
+
   // ═══════════════ STATE-EFFECT: Store Subscriptions ═══════════════
   const userLocation = useBookingStore((state) => state.userLocation);
   const setUserLocation = useBookingStore((state) => state.setUserLocation);
@@ -167,10 +178,36 @@ export function BookingMap({ onShopSelect }: BookingMapProps) {
     [onShopSelect]
   );
 
+  const handleRecenter = useCallback(() => {
+    if (userLocation && mapRef.current) {
+      mapRef.current.animateToRegion(
+        {
+          latitude: userLocation.latitude,
+          longitude: userLocation.longitude,
+          latitudeDelta: 0.05,
+          longitudeDelta: 0.05,
+        },
+        300
+      );
+    }
+  }, [userLocation]);
+
+  // ═══════════════ STATE-EFFECT: Animated Styles ═══════════════
+  // Show recenter button when sheet is collapsed (index < 0.5)
+  const recenterButtonStyle = useAnimatedStyle(() => {
+    const isVisible = sheetAnimatedIndex ? sheetAnimatedIndex.value < 0.3 : true;
+    return {
+      opacity: withTiming(isVisible ? 1 : 0, { duration: 200 }),
+      transform: [{ scale: withTiming(isVisible ? 1 : 0.8, { duration: 200 }) }],
+      pointerEvents: isVisible ? "auto" : "none",
+    };
+  });
+
   // ═══════════════ RENDER ═══════════════
   return (
     <View style={styles.container}>
       <MapView
+        ref={mapRef}
         style={styles.map}
         provider={PROVIDER_DEFAULT}
         region={region}
@@ -181,6 +218,13 @@ export function BookingMap({ onShopSelect }: BookingMapProps) {
           shop ? <ShopMarker key={`marker-${shop.id}`} shop={shop} onPress={() => handleMarkerPress(shop)} /> : null
         )}
       </MapView>
+
+      {/* Recenter Button - shows when sheet is collapsed */}
+      <Animated.View style={[styles.recenterButtonContainer, recenterButtonStyle]}>
+        <TouchableOpacity onPress={handleRecenter} activeOpacity={0.6} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+          <Navigation2 size={24} color={BrandColors.secondary} fill={BrandColors.secondary} />
+        </TouchableOpacity>
+      </Animated.View>
     </View>
   );
 }
@@ -195,5 +239,10 @@ const styles = StyleSheet.create({
   },
   map: {
     flex: 1,
+  },
+  recenterButtonContainer: {
+    position: "absolute",
+    top: 160,
+    right: Spacing.lg,
   },
 });

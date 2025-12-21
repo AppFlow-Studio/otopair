@@ -25,13 +25,13 @@ import React, { memo, useCallback, useState } from "react";
 import { Image, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
-import { BadgeCheck, MapPin, Star, User } from "lucide-react-native";
+import { BadgeCheck, Star, User } from "lucide-react-native";
 
 // 3. Shared UI (design system)
 import { BrandColors, PrimaryButton, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Constants, hooks, types
-import { BorderRadius, Shadows } from "@/constants/theme";
+import { BorderRadius } from "@/constants/theme";
 import type { Mechanic } from "@/stores/types/store.types";
 
 // ============================================================================
@@ -74,43 +74,36 @@ export const MechanicCard = memo(function MechanicCard({ mechanic, onBookNow, on
             <Image source={{ uri: mechanic.photoUrl }} style={styles.avatar} />
           ) : (
             <View style={styles.avatarPlaceholder}>
-              <User size={28} color={BrandColors.secondary} />
+              <User size={24} color="#6B7280" />
             </View>
           )}
         </View>
 
         {/* Info */}
         <View style={styles.infoContainer}>
-          <View style={styles.nameRow}>
-            <Text size="md" weight="bold" color={BrandColors.primary}>
-              {mechanic.shopName}
-            </Text>
-          </View>
-          <View style={styles.subInfoRow}>
-            <Text size="sm" weight="medium" color="#6B7280">
-              {mechanic.name}
-            </Text>
-          </View>
-          <View style={styles.locationRow}>
-            <MapPin size={12} color="#9CA3AF" />
-            <Text size="xs" weight="regular" color="#9CA3AF" style={styles.distanceText}>
-              {mechanic.distanceMi} mi
-            </Text>
-          </View>
+          <Text size="md" weight="bold" color={BrandColors.primary}>
+            {mechanic.shopName}
+          </Text>
+          <Text size="sm" weight="medium" color="#6B7280">
+            {mechanic.name}
+          </Text>
+          <Text size="xs" weight="regular" color="#9CA3AF">
+            {mechanic.distanceMi} mi
+          </Text>
         </View>
 
         {/* Rating & Verified */}
         <View style={styles.ratingContainer}>
           <View style={styles.ratingBadge}>
-            <Star size={12} color="#FBBF24" fill="#FBBF24" />
+            <Star size={14} color={BrandColors.secondary} fill={BrandColors.secondary} />
             <Text size="sm" weight="bold" color={BrandColors.primary}>
               {mechanic.rating.toFixed(1)}
             </Text>
           </View>
           {mechanic.isVerified && (
             <View style={styles.verifiedBadge}>
-              <BadgeCheck size={12} color="#10B981" />
-              <Text size="xs" weight="medium" color="#10B981">
+              <BadgeCheck size={14} color="#10B981" />
+              <Text size="xs" weight="semiBold" color="#10B981">
                 Verified
               </Text>
             </View>
@@ -128,14 +121,14 @@ export const MechanicCard = memo(function MechanicCard({ mechanic, onBookNow, on
         {mechanic.isAvailable && (
           <View style={styles.availableTag}>
             <View style={styles.availableDot} />
-            <Text size="xs" weight="medium" color="#10B981">
+            <Text size="xs" weight="medium" color="#374151">
               Available
             </Text>
           </View>
         )}
         <View style={styles.responseTag}>
           <Text size="xs" weight="medium" color="#6B7280">
-            Response Time:{" "}
+            Response Time:
           </Text>
           <Text
             size="xs"
@@ -206,13 +199,10 @@ export const MechanicCard = memo(function MechanicCard({ mechanic, onBookNow, on
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: BrandColors.white,
+    backgroundColor: "#F2F4F7",
     borderRadius: BorderRadius.xl,
     padding: Spacing.lg,
     marginBottom: Spacing.md,
-    ...Shadows.md,
-    borderWidth: 1,
-    borderColor: "#F3F4F6",
   },
   header: {
     flexDirection: "row",
@@ -222,35 +212,21 @@ const styles = StyleSheet.create({
     marginRight: Spacing.md,
   },
   avatar: {
-    width: 56,
-    height: 56,
+    width: 52,
+    height: 52,
     borderRadius: BorderRadius.full,
   },
   avatarPlaceholder: {
-    width: 56,
-    height: 56,
+    width: 52,
+    height: 52,
     borderRadius: BorderRadius.full,
-    backgroundColor: "#E8F4FD",
+    backgroundColor: BrandColors.white,
     alignItems: "center",
     justifyContent: "center",
   },
   infoContainer: {
     flex: 1,
-  },
-  nameRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  subInfoRow: {
-    marginTop: 2,
-  },
-  locationRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 4,
-  },
-  distanceText: {
-    marginLeft: 4,
+    gap: 2,
   },
   ratingContainer: {
     alignItems: "flex-end",
@@ -267,28 +243,26 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   servicesText: {
-    marginTop: Spacing.md,
+    marginTop: Spacing.sm,
     lineHeight: 18,
   },
   tagsRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: Spacing.md,
+    marginTop: Spacing.lg,
     gap: Spacing.md,
   },
   availableTag: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#ECFDF5",
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: Spacing.xs,
+    backgroundColor: BrandColors.white,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
     borderRadius: BorderRadius.full,
-    borderWidth: 1,
-    borderColor: "#10B981",
   },
   availableDot: {
-    width: 6,
-    height: 6,
+    width: 8,
+    height: 8,
     borderRadius: BorderRadius.full,
     backgroundColor: "#10B981",
     marginRight: 6,
@@ -296,12 +270,17 @@ const styles = StyleSheet.create({
   responseTag: {
     flexDirection: "row",
     alignItems: "center",
+    backgroundColor: BrandColors.white,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.full,
+    gap: 4,
   },
   availabilitySection: {
     marginTop: Spacing.lg,
   },
   availabilityTitle: {
-    marginBottom: Spacing.sm,
+    marginBottom: Spacing.md,
   },
   availabilitySlotsContent: {
     gap: Spacing.sm,
@@ -310,7 +289,7 @@ const styles = StyleSheet.create({
     width: 80,
     alignItems: "center",
     paddingVertical: Spacing.md,
-    backgroundColor: "#F9FAFB",
+    backgroundColor: BrandColors.white,
     borderRadius: BorderRadius.lg,
     borderWidth: 1,
     borderColor: "#E5E7EB",
@@ -322,7 +301,7 @@ const styles = StyleSheet.create({
   actionButtons: {
     flexDirection: "row",
     marginTop: Spacing.lg,
-    gap: Spacing.md,
+    gap: Spacing.sm,
   },
   scheduleButton: {
     flex: 1,
@@ -330,9 +309,7 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     paddingVertical: Spacing.md,
     borderRadius: BorderRadius.lg,
-    borderWidth: 1,
-    borderColor: BrandColors.primary,
-    backgroundColor: BrandColors.white,
+    backgroundColor: "#E4E7EC",
   },
   bookButton: {
     flex: 1,

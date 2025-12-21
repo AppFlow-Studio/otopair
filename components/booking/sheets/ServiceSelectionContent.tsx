@@ -14,7 +14,7 @@ import { ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from "react
 
 // 2. Third-party libraries
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
-import { Check, Search } from "lucide-react-native";
+import { Search } from "lucide-react-native";
 
 // 3. Shared UI (design system)
 import { BrandColors, PrimaryButton, Spacing, Text } from "@/components/shared-ui";
@@ -132,11 +132,6 @@ export function ServiceSelectionContent({ onSelectServices }: ServiceSelectionCo
             <Text size="md" weight="semiBold" color={BrandColors.secondary}>
               ${service.price.toFixed(2)}
             </Text>
-            {isSelected && (
-              <View style={styles.checkIcon}>
-                <Check size={16} color={BrandColors.white} strokeWidth={3} />
-              </View>
-            )}
           </View>
         </TouchableOpacity>
       );
@@ -255,20 +250,22 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.md,
+    gap: Spacing.md,
   },
   serviceItem: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: Spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
+    paddingVertical: Spacing.lg,
+    paddingHorizontal: Spacing.lg,
+    backgroundColor: "#F8FAFC",
+    borderRadius: BorderRadius.xl,
+    borderWidth: 2,
+    borderColor: "transparent",
   },
   serviceItemSelected: {
+    borderColor: BrandColors.secondary,
     backgroundColor: "#F0F7FF",
-    marginHorizontal: -Spacing.lg,
-    paddingHorizontal: Spacing.lg,
-    borderBottomColor: "#E0EDFF",
   },
   serviceInfo: {
     flex: 1,
@@ -277,15 +274,6 @@ const styles = StyleSheet.create({
   servicePriceContainer: {
     flexDirection: "row",
     alignItems: "center",
-    gap: Spacing.sm,
-  },
-  checkIcon: {
-    width: 24,
-    height: 24,
-    borderRadius: BorderRadius.full,
-    backgroundColor: BrandColors.secondary,
-    alignItems: "center",
-    justifyContent: "center",
   },
   emptyState: {
     paddingVertical: Spacing["3xl"],
@@ -307,5 +295,7 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
 });
+
+
 
 

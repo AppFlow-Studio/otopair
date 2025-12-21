@@ -1,7 +1,7 @@
 /**
  * ShopMarker
  *
- * PURPOSE: Custom map marker (thumbtack) component for mechanic shops
+ * PURPOSE: Simple map pin marker for mechanic shops
  *
  * USED IN: components/booking/map.tsx
  *
@@ -23,11 +23,8 @@ import React, { memo, useCallback, useRef } from "react";
 import { Animated, StyleSheet, View } from "react-native";
 
 // 2. Third-party libraries
-import { Ionicons } from "@expo/vector-icons";
+import { MapPin } from "lucide-react-native";
 import { Marker } from "react-native-maps";
-
-// 3. Shared UI (design system)
-import { BrandColors, Text } from "@/components/shared-ui";
 
 // 4. Constants, hooks, types, stores
 import type { Shop } from "@/stores/types/store.types";
@@ -88,8 +85,8 @@ function ShopMarkerComponent({ shop, onPress }: ShopMarkerProps) {
     return null;
   }
 
-  // Get marker color based on availability (0-10 gradient)
-  const backgroundColor = getAvailabilityColor(shop.availability ?? 0);
+  // Get pin color based on availability (0-10 gradient)
+  const pinColor = getAvailabilityColor(shop.availability ?? 0);
 
   const handlePress = useCallback(() => {
     // Quick scale animation for tap feedback
@@ -114,20 +111,15 @@ function ShopMarkerComponent({ shop, onPress }: ShopMarkerProps) {
     <Marker
       coordinate={{ latitude: shop.latitude, longitude: shop.longitude }}
       onPress={handlePress}
-      anchor={{ x: 0.5, y: 1 }} // Anchor at bottom center (tip of pointer)
+      anchor={{ x: 0.5, y: 1 }} // Anchor at bottom center (tip of pin)
       tracksViewChanges={false} // Performance optimization
     >
       <Animated.View style={[styles.container, { transform: [{ scale: scaleAnim }] }]}>
-        {/* Badge with rating */}
-        <View style={[styles.badge, { backgroundColor }]}>
-          <Ionicons name="star" size={12} color={BrandColors.white} />
-          <Text weight="semiBold" size={14} color={BrandColors.white}>
-            {shop.rating?.toFixed(1) ?? "N/A"}
-          </Text>
+        <View style={styles.pinContainer}>
+          <MapPin size={36} color={pinColor} fill={pinColor} strokeWidth={2} />
+          {/* Transparent circle overlay */}
+          <View style={styles.circleOverlay} />
         </View>
-
-        {/* Pointer/Triangle */}
-        <View style={[styles.pointer, { borderTopColor: backgroundColor }]} />
       </Animated.View>
     </Marker>
   );
@@ -144,28 +136,17 @@ const styles = StyleSheet.create({
   container: {
     alignItems: "center",
   },
-  badge: {
-    flexDirection: "row",
+  pinContainer: {
+    position: "relative",
     alignItems: "center",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 20,
-    gap: 4,
-    // Shadow for depth
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
+    justifyContent: "center",
   },
-  pointer: {
-    width: 0,
-    height: 0,
-    borderLeftWidth: 8,
-    borderRightWidth: 8,
-    borderTopWidth: 10,
-    borderLeftColor: "transparent",
-    borderRightColor: "transparent",
-    marginTop: -1, // Overlap slightly with badge
+  circleOverlay: {
+    position: "absolute",
+    top: 9,
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: "white",
   },
 });

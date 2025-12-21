@@ -34,6 +34,7 @@ import { getServiceIdsForCategory } from "@/constants/services";
 import { useFilteredShops } from "@/hooks/useFilteredShops";
 import type { FilterOption, ServiceCategory } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
+import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useShopStore } from "@/stores/useShopStore";
 
 // ============================================================================
@@ -61,6 +62,10 @@ export default function BookingsScreen() {
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
   const getSelectedServices = useBookingStore((state) => state.getSelectedServices);
   const prevBookingStage = useBookingStore((state) => state.prevBookingStage);
+  const selectedMechanicId = useBookingStore((state) => state.selectedMechanicId);
+
+  // ═══════════════ MECHANIC STORE ═══════════════
+  const getMechanicById = useMechanicStore((state) => state.getMechanicById);
 
   // ═══════════════ MECHANIC FILTER STATE ═══════════════
   const [mechanicFilter, setMechanicFilter] = useState<MechanicFilterOption>("available_now");
@@ -182,6 +187,24 @@ export default function BookingsScreen() {
   /** Mock mechanics count - TODO: get from actual data */
   const mechanicsCount = 3;
 
+  /** Get selected mechanic's shop name for booking details mode */
+  const selectedMechanicShopName = useMemo(() => {
+    if (!selectedMechanicId) return "";
+    const mechanic = getMechanicById(selectedMechanicId);
+    return mechanic?.shopName ?? "";
+  }, [selectedMechanicId, getMechanicById]);
+
+  /** Handle back press from booking details - go back to mechanic selection */
+  const handleBookingDetailsBackPress = useCallback(() => {
+    prevBookingStage();
+  }, [prevBookingStage]);
+
+  /** Handle confirm booking */
+  const handleConfirmBooking = useCallback(() => {
+    // TODO: Process booking
+    console.log("Booking confirmed!");
+  }, []);
+
   // ===========================================================================
   // RENDER
   // ===========================================================================
@@ -189,11 +212,19 @@ export default function BookingsScreen() {
   return (
     <ScreenContainer style={styles.container}>
       {/* Main Content - Map with shop markers (full screen) */}
-      <BookingMap onShopSelect={handleShopSelect} />
+      <BookingMap onShopSelect={handleShopSelect} sheetAnimatedIndex={sheetAnimatedIndex ?? undefined} />
 
       {/* Top Bar - Positioned over map with blur */}
       <View style={styles.topBarContainer}>
-        {bookingStage === "mechanic_selection" ? (
+        {bookingStage === "booking_details" ? (
+          <TopBar
+            mode="booking_details"
+            shopName={selectedMechanicShopName}
+            label="Book Appointment"
+            onBackPress={handleBookingDetailsBackPress}
+            sheetAnimatedIndex={sheetAnimatedIndex ?? undefined}
+          />
+        ) : bookingStage === "mechanic_selection" ? (
           <TopBar
             mode="mechanic_selection"
             mechanicsCount={mechanicsCount}
@@ -231,6 +262,8 @@ export default function BookingsScreen() {
         offsetY={VERTICAL_OFFSET}
         onAnimatedIndexChange={handleAnimatedIndexChange}
         onMechanicBackPress={handleMechanicBackPress}
+        onBookingDetailsBackPress={handleBookingDetailsBackPress}
+        onConfirmBooking={handleConfirmBooking}
         mechanicFilter={mechanicFilter}
       />
     </ScreenContainer>

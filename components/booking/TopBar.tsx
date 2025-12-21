@@ -35,12 +35,13 @@ import { DiscoveryTabs, MechanicTabs, type MechanicFilterOption } from "./topbar
 // Re-export types for convenience
 export type { FilterOption, ServiceCategory } from "@/stores/types/store.types";
 export type { MechanicFilterOption } from "./topbars";
+export type { BookingDetailsModeProps };
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
-export type TopBarMode = "discovery" | "mechanic_selection";
+export type TopBarMode = "discovery" | "mechanic_selection" | "booking_details";
 
 interface BaseProps {
   /** Called when back button is tapped */
@@ -77,7 +78,17 @@ export interface MechanicSelectionModeProps extends BaseProps {
   sheetAnimatedIndex?: SharedValue<number>;
 }
 
-export type TopBarProps = DiscoveryModeProps | MechanicSelectionModeProps;
+export interface BookingDetailsModeProps extends BaseProps {
+  mode: "booking_details";
+  /** Shop/business name to display */
+  shopName: string;
+  /** Label text shown above shop name (e.g., "Book Appointment") */
+  label?: string;
+  /** Animated index from bottom sheet (0 = collapsed, 1 = expanded) */
+  sheetAnimatedIndex?: SharedValue<number>;
+}
+
+export type TopBarProps = DiscoveryModeProps | MechanicSelectionModeProps | BookingDetailsModeProps;
 
 // ============================================================================
 // COMPONENT
@@ -85,24 +96,29 @@ export type TopBarProps = DiscoveryModeProps | MechanicSelectionModeProps;
 
 export function TopBar(props: TopBarProps) {
   const insets = useSafeAreaInsets();
-  const isDiscoveryMode = props.mode !== "mechanic_selection";
+  const currentMode = props.mode ?? "discovery";
+  const isDiscoveryMode = currentMode === "discovery";
+  const isMechanicMode = currentMode === "mechanic_selection";
+  const isBookingDetailsMode = currentMode === "booking_details";
 
   // Filter dropdown state (only for discovery mode)
   const [isFilterOpen, setIsFilterOpen] = useState(false);
 
-  // Track direction for slide animations
-  const previousModeRef = useRef(isDiscoveryMode);
+  // Track direction for slide animations (mode order: discovery < mechanic_selection < booking_details)
+  const MODE_ORDER = { discovery: 0, mechanic_selection: 1, booking_details: 2 };
+  const previousModeRef = useRef(currentMode);
   const [isForward, setIsForward] = useState(true);
   const [shouldAnimate, setShouldAnimate] = useState(false);
 
   useEffect(() => {
-    if (previousModeRef.current !== isDiscoveryMode) {
-      // Discovery → Mechanic = forward, Mechanic → Discovery = backward
-      setIsForward(!isDiscoveryMode);
+    if (previousModeRef.current !== currentMode) {
+      const prevIndex = MODE_ORDER[previousModeRef.current] ?? 0;
+      const currIndex = MODE_ORDER[currentMode] ?? 0;
+      setIsForward(currIndex > prevIndex);
       setShouldAnimate(true);
-      previousModeRef.current = isDiscoveryMode;
+      previousModeRef.current = currentMode;
     }
-  }, [isDiscoveryMode]);
+  }, [currentMode]);
 
   const { entering, exiting } = getSlideTransitionOrNone(shouldAnimate, isForward);
   const fadeIn = shouldAnimate ? FadeIn.duration(AnimationDuration.standard) : undefined;
@@ -117,7 +133,7 @@ export function TopBar(props: TopBarProps) {
   };
 
   return (
-    <BlurView intensity={85} tint="light" style={styles.container}>
+    <BlurView intensity={60} tint="light" style={styles.container}>
       <View style={styles.frostedOverlay} />
 
       {/* Top Row: Back (static), Center (slides), Right (fades) */}
@@ -134,7 +150,7 @@ export function TopBar(props: TopBarProps) {
 
         {/* Center Content - Slides */}
         <View style={styles.centerWrapper}>
-          {isDiscoveryMode ? (
+          {isDiscoveryMode && (
             <Animated.View key="discovery-center" entering={entering} exiting={exiting} style={styles.centerContent}>
               <Text size="xs" weight="regular" color={BrandColors.secondary} center>
                 {(props as DiscoveryModeProps).label ?? "Your Location"}
@@ -143,13 +159,24 @@ export function TopBar(props: TopBarProps) {
                 {(props as DiscoveryModeProps).location}
               </Text>
             </Animated.View>
-          ) : (
+          )}
+          {isMechanicMode && (
             <Animated.View key="mechanic-center" entering={entering} exiting={exiting} style={styles.centerContent}>
               <Text size="xs" weight="regular" color={BrandColors.secondary} center>
                 {(props as MechanicSelectionModeProps).mechanicsCount} Mechanics Near You
               </Text>
               <Text size="md" weight="semiBold" color={BrandColors.primary} center numberOfLines={1}>
                 {(props as MechanicSelectionModeProps).selectedServicesText}
+              </Text>
+            </Animated.View>
+          )}
+          {isBookingDetailsMode && (
+            <Animated.View key="booking-details-center" entering={entering} exiting={exiting} style={styles.centerContent}>
+              <Text size="xs" weight="regular" color={BrandColors.secondary} center>
+                {(props as BookingDetailsModeProps).label ?? "Book Appointment"}
+              </Text>
+              <Text size="md" weight="semiBold" color={BrandColors.primary} center numberOfLines={1}>
+                {(props as BookingDetailsModeProps).shopName}
               </Text>
             </Animated.View>
           )}
@@ -172,20 +199,22 @@ export function TopBar(props: TopBarProps) {
         )}
       </View>
 
-      {/* Bottom Tabs - Delegated to separate components */}
-      {isDiscoveryMode ? (
+      {/* Bottom Tabs - Delegated to separate components (not shown in booking_details mode) */}
+      {isDiscoveryMode && (
         <DiscoveryTabs
           onServiceSelect={(props as DiscoveryModeProps).onServiceSelect}
           selectedService={(props as DiscoveryModeProps).selectedService}
           sheetAnimatedIndex={(props as DiscoveryModeProps).sheetAnimatedIndex}
         />
-      ) : (
+      )}
+      {isMechanicMode && (
         <MechanicTabs
           onMechanicFilterSelect={(props as MechanicSelectionModeProps).onMechanicFilterSelect}
           selectedMechanicFilter={(props as MechanicSelectionModeProps).selectedMechanicFilter}
           sheetAnimatedIndex={(props as MechanicSelectionModeProps).sheetAnimatedIndex}
         />
       )}
+      {/* Booking details mode has no tabs - just header */}
 
       {/* Filter Dropdown Modal */}
       <Modal visible={isFilterOpen} transparent animationType="fade" onRequestClose={handleFilterDismiss}>
@@ -220,7 +249,7 @@ const styles = StyleSheet.create({
   },
   frostedOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(255, 255, 255, 0.7)",
+    backgroundColor: "rgba(255, 255, 255, 0.5)",
   },
   topRow: {
     flexDirection: "row",

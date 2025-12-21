@@ -168,7 +168,7 @@ export function ShopCarousel({ shops, userLocation, onShopSelect, offsetY = 0 }:
           onPress={() => handleCardPress(shop)}
         >
           <Animated.View style={{ transform: [{ scale: scaleAnim }] }}>
-            <BlurView intensity={85} tint="light" style={styles.card}>
+            <BlurView intensity={60} tint="light" style={styles.card}>
               <View style={styles.frostedOverlay} />
               <View style={styles.cardContent}>
                 <View style={styles.cardIcon}>
@@ -275,7 +275,7 @@ const styles = StyleSheet.create({
   },
   frostedOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(255, 255, 255, 0.7)",
+    backgroundColor: "rgba(255, 255, 255, 0.5)",
   },
   cardContent: {
     flexDirection: "row",

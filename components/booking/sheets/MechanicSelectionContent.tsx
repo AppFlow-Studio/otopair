@@ -68,6 +68,7 @@ export function MechanicSelectionContent({
   const toggleServiceSelection = useBookingStore((state) => state.toggleServiceSelection);
   const availableServices = useBookingStore((state) => state.availableServices);
   const prevBookingStage = useBookingStore((state) => state.prevBookingStage);
+  const setBookingTypeAndProceed = useBookingStore((state) => state.setBookingTypeAndProceed);
 
   // Memoize selected services to prevent re-renders
   const selectedServices = useMemo(
@@ -160,16 +161,21 @@ export function MechanicSelectionContent({
 
   const handleBookNow = useCallback(
     (mechanicId: number) => {
-      // TODO: Set selected mechanic and proceed
+      // Set booking type to "book_now" and proceed to booking details
+      setBookingTypeAndProceed("book_now", mechanicId);
       onSelectMechanic?.();
     },
-    [onSelectMechanic]
+    [setBookingTypeAndProceed, onSelectMechanic]
   );
 
-  const handleScheduleLater = useCallback((mechanicId: number) => {
-    // TODO: Open date/time picker modal
-    console.log("Schedule later for mechanic:", mechanicId);
-  }, []);
+  const handleScheduleLater = useCallback(
+    (mechanicId: number) => {
+      // Set booking type to "schedule_later" and proceed to booking details
+      setBookingTypeAndProceed("schedule_later", mechanicId);
+      onSelectMechanic?.();
+    },
+    [setBookingTypeAndProceed, onSelectMechanic]
+  );
 
   // ═══════════════ FLATLIST HELPERS ═══════════════
   const keyExtractor = useCallback((item: (typeof filteredMechanics)[0]) => String(item.id), []);
@@ -318,5 +324,3 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.xs,
   },
 });
-
-
