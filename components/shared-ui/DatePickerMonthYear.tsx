@@ -1,5 +1,5 @@
 /**
- * OnboardingDatePickerMonthYear
+ * DatePickerMonthYear
  *
  * PURPOSE: Reusable month/year picker styled like onboarding options.
  *
@@ -13,7 +13,7 @@
  *   - minimumDate/maximumDate (Date): Optional bounds.
  *
  * EXAMPLE:
- *   <OnboardingDatePickerMonthYear
+ *   <DatePickerMonthYear
  *     value={selectedDate}
  *     onChange={(d) => setSelectedDate(d)}
  *     placeholder="Select month & year"
@@ -36,9 +36,10 @@ import {
     Pressable,
 } from 'react-native';
 import { Calendar } from 'lucide-react-native';
-import { onboardingOptionStyles } from './OnboardingButton';
 import {
+    BorderRadius,
     BrandColors,
+    Colors,
     FontFamily,
     FontSize,
     Spacing,
@@ -50,7 +51,7 @@ const MONTHS = [
     'September', 'October', 'November', 'December',
 ];
 
-interface OnboardingDatePickerMonthYearProps {
+interface DatePickerMonthYearProps {
     value: Date | null;
     onChange: (date: Date) => void;
     placeholder?: string;
@@ -59,14 +60,14 @@ interface OnboardingDatePickerMonthYearProps {
     maximumDate?: Date;
 }
 
-export function OnboardingDatePickerMonthYear({
+export function DatePickerMonthYear({
     value,
     onChange,
     placeholder = 'Select month & year',
     title = 'Select month & year',
     minimumDate,
     maximumDate,
-}: OnboardingDatePickerMonthYearProps) {
+}: DatePickerMonthYearProps) {
     const [isPickerVisible, setPickerVisible] = useState(false);
     const [tempMonth, setTempMonth] = useState<number>(new Date().getMonth());
     const [tempYear, setTempYear] = useState<number>(new Date().getFullYear());
@@ -110,16 +111,16 @@ export function OnboardingDatePickerMonthYear({
         <View>
             <TouchableOpacity onPress={openPicker}>
                 <View style={[
-                    onboardingOptionStyles.optionBase,
-                    onboardingOptionStyles.optionMd,
+                    styles.optionBase,
+                    styles.optionMd,
                     styles.dateOption,
                     value ? styles.optionSelected : null,
                 ]}>
                     <Text
                         style={
                             value
-                                ? onboardingOptionStyles.optionTextSelectedMd
-                                : onboardingOptionStyles.optionTextMd
+                                ? styles.optionTextSelectedMd
+                                : styles.optionTextMd
                         }
                     >
                         {formattedDate || placeholder}
@@ -195,13 +196,36 @@ export function OnboardingDatePickerMonthYear({
 }
 
 const styles = StyleSheet.create({
-    dateOption: {
+    optionBase: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        backgroundColor: '#e4e8f1',
+        borderWidth: 2,
         borderColor: '#f0f1f6',
-        marginBottom: Spacing.sm,
+    },
+    optionMd: {
+        paddingVertical: Spacing.lg,
+        paddingHorizontal: Spacing.xl,
+        borderRadius: BorderRadius.lg,
     },
     optionSelected: {
         borderColor: BrandColors.secondary,
         backgroundColor: 'white',
+    },
+    optionTextMd: {
+        fontSize: FontSize.md,
+        fontFamily: FontFamily.regular,
+        color: Colors.light.icon,
+    },
+    optionTextSelectedMd: {
+        fontSize: FontSize.md,
+        fontFamily: FontFamily.semiBold,
+        color: BrandColors.primary,
+    },
+    dateOption: {
+        borderColor: '#f0f1f6',
+        marginBottom: Spacing.sm,
     },
     backdrop: {
         flex: 1,

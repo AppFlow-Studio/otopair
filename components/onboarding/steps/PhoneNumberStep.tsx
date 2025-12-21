@@ -34,9 +34,9 @@ import {
   PanGestureHandler,
   State,
 } from "react-native-gesture-handler";
-import { OnboardingProgress } from "../OnboardingProgress";
-import { OnboardingFooterButton } from "../OnboardingFooterButton";
-import { OnboardingBackButton } from "../OnboardingBackButton";
+import { OnboardingProgress } from "../common/OnboardingProgress";
+import { OnboardingFooterButton } from "../common/OnboardingFooterButton";
+import { OnboardingBackButton } from "../common/OnboardingBackButton";
 import { Country } from "react-native-country-picker-modal";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import { Search } from "lucide-react-native";
@@ -335,8 +335,8 @@ export function PhoneNumberStep({ onNext, onBack }: PhoneNumberStepProps) {
     >
       <View style={[styles.container, dynamicStyles.container]}>
         <OnboardingProgress
-          total={7}
-          filled={1}
+          total={6}
+          filled={0}
           leftElement={<OnboardingBackButton onBack={onBack} alwaysShow />}
         />
 

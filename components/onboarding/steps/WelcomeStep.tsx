@@ -26,7 +26,7 @@ import {
     useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { OnboardingFooterButton } from '../OnboardingFooterButton';
+import { OnboardingFooterButton } from '../common/OnboardingFooterButton';
 
 interface WelcomeStepProps {
     onNext: () => void;

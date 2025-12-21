@@ -4,15 +4,16 @@
  * PURPOSE: Single container for onboarding flow with animated gradient transitions.
  *          Manages step state and renders appropriate child components.
  *
- * USED IN: app/(onboarding)/flow.tsx
+ * USED IN: app/(onboarding)/index.tsx
  *
- * FEATURES:
- *   - Smooth gradient coordinate transitions between steps
- *   - Gradient positions physically animate on screen
- *   - Centralized step management
- *   - Back navigation support
+ * PROPS:
+ *   - initialStep (OnboardingStep): The step to start the onboarding flow from [optional]
+ *
+ * EXAMPLE:
+ *   <OnboardingFlow initialStep="welcome" />
  *
  * OWNER: Daniel Chelala
+ * TICKET: OTO-XXX
  */
 
 import React, { useState, useCallback, useEffect } from 'react';

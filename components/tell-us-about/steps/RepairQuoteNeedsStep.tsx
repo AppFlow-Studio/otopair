@@ -26,9 +26,9 @@ import {
     useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { OnboardingProgress } from '@/components/onboarding/OnboardingProgress';
-import { OnboardingFooterButton } from '@/components/onboarding/OnboardingFooterButton';
-import { OnboardingBackButton } from '@/components/onboarding/OnboardingBackButton';
+import { OnboardingProgress } from '@/components/onboarding/common/OnboardingProgress';
+import { OnboardingFooterButton } from '@/components/onboarding/common/OnboardingFooterButton';
+import { OnboardingBackButton } from '@/components/onboarding/common/OnboardingBackButton';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 
 interface RepairQuoteNeedsStepProps {

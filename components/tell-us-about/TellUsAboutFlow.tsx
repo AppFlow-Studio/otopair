@@ -424,7 +424,7 @@ export function TellUsAboutFlow({ initialStep = 'experience' }: TellUsAboutFlowP
         }
     }, [currentStep, updateData]);
 
-    const progressInfo = getProgressInfo();
+    const progressInfo = getProgressInfo(); 
 
     // Render the current step component
     const renderStep = () => {
@@ -434,7 +434,7 @@ export function TellUsAboutFlow({ initialStep = 'experience' }: TellUsAboutFlowP
                     <ExperienceStep 
                         onNext={goNext} 
                         onBack={goBack}
-                        progress={{ total: progressInfo.total, filled: progressInfo.filled }}
+                        progress={{ total: progressInfo.total, filled: progressInfo.filled - 1 }}
                     />
                 );
             case 'carUsage':
@@ -442,7 +442,7 @@ export function TellUsAboutFlow({ initialStep = 'experience' }: TellUsAboutFlowP
                     <CarUsageStep 
                         onNext={goNext} 
                         onBack={goBack}
-                        progress={{ total: progressInfo.total, filled: progressInfo.filled }}
+                        progress={{ total: progressInfo.total, filled: progressInfo.filled - 1 }}
                     />
                 );
             case 'servicePriorities':
@@ -450,7 +450,7 @@ export function TellUsAboutFlow({ initialStep = 'experience' }: TellUsAboutFlowP
                     <ServicePrioritiesStep 
                         onNext={goNext} 
                         onBack={goBack}
-                        progress={{ total: progressInfo.total, filled: progressInfo.filled }}
+                        progress={{ total: progressInfo.total, filled: progressInfo.filled - 1 }}
                     />
                 );
             case 'decisionHelper':
@@ -458,7 +458,7 @@ export function TellUsAboutFlow({ initialStep = 'experience' }: TellUsAboutFlowP
                     <DecisionHelperStep 
                         onNext={goNext} 
                         onBack={goBack}
-                        progress={{ total: progressInfo.total, filled: progressInfo.filled }}
+                        progress={{ total: progressInfo.total, filled: progressInfo.filled - 1 }}
                     />
                 );
             case 'stressNote':
@@ -466,7 +466,7 @@ export function TellUsAboutFlow({ initialStep = 'experience' }: TellUsAboutFlowP
                     <StressNoteStep 
                         onNext={goNext} 
                         onBack={goBack}
-                        progress={{ total: progressInfo.total, filled: progressInfo.filled }}
+                        progress={{ total: progressInfo.total, filled: progressInfo.filled - 1 }}
                         isLastStep={data.carKnowledgeLevel === 1}
                     />
                 );
@@ -475,7 +475,7 @@ export function TellUsAboutFlow({ initialStep = 'experience' }: TellUsAboutFlowP
                     <MaintenanceTrackingStep 
                         onNext={goNext} 
                         onBack={goBack}
-                        progress={{ total: progressInfo.total, filled: progressInfo.filled }}
+                        progress={{ total: progressInfo.total, filled: progressInfo.filled - 1 }}
                     />
                 );
             case 'monthlyMileage':
@@ -483,7 +483,7 @@ export function TellUsAboutFlow({ initialStep = 'experience' }: TellUsAboutFlowP
                     <MonthlyMileageStep 
                         onNext={goNext} 
                         onBack={goBack}
-                        progress={{ total: progressInfo.total, filled: progressInfo.filled }}
+                        progress={{ total: progressInfo.total, filled: progressInfo.filled - 1 }}
                     />
                 );
             case 'shopType':
@@ -491,7 +491,7 @@ export function TellUsAboutFlow({ initialStep = 'experience' }: TellUsAboutFlowP
                     <ShopTypeStep 
                         onNext={goNext} 
                         onBack={goBack}
-                        progress={{ total: progressInfo.total, filled: progressInfo.filled }}
+                        progress={{ total: progressInfo.total, filled: progressInfo.filled - 1 }}
                     />
                 );
             case 'whyNewOption':
@@ -499,7 +499,7 @@ export function TellUsAboutFlow({ initialStep = 'experience' }: TellUsAboutFlowP
                     <WhyNewOptionStep 
                         onNext={goNext} 
                         onBack={goBack}
-                        progress={{ total: progressInfo.total, filled: progressInfo.filled }}
+                        progress={{ total: progressInfo.total, filled: progressInfo.filled - 1 }}
                     />
                 );
             case 'terminologyComfort':
@@ -507,7 +507,7 @@ export function TellUsAboutFlow({ initialStep = 'experience' }: TellUsAboutFlowP
                     <TerminologyComfortStep 
                         onNext={goNext} 
                         onBack={goBack}
-                        progress={{ total: progressInfo.total, filled: progressInfo.filled }}
+                        progress={{ total: progressInfo.total, filled: progressInfo.filled - 1 }}
                     />
                 );
             case 'repairQuoteNeeds':
@@ -515,7 +515,7 @@ export function TellUsAboutFlow({ initialStep = 'experience' }: TellUsAboutFlowP
                     <RepairQuoteNeedsStep 
                         onNext={goNext} 
                         onBack={goBack}
-                        progress={{ total: progressInfo.total, filled: progressInfo.filled }}
+                        progress={{ total: progressInfo.total, filled: progressInfo.filled - 1 }}
                     />
                 );
             case 'complete':

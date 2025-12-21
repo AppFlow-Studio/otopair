@@ -1,5 +1,5 @@
 
-// My console.log and label additions are for testing purposes only. Please remove before merging.
+// TODO: console.log and label additions are for testing purposes only and can be removed if necessary.
 
 import { OtoPairIcon } from '@/components/icons/oto-pair';
 import { Button, Text, BrandColors, FontFamily, FontSize, Spacing } from '@/components/shared-ui';

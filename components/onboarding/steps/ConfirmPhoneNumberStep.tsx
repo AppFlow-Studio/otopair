@@ -26,8 +26,8 @@ import {
   TouchableOpacity,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { OnboardingProgress } from "../OnboardingProgress";
-import { OnboardingBackButton } from "../OnboardingBackButton";
+import { OnboardingProgress } from "../common/OnboardingProgress";
+import { OnboardingBackButton } from "../common/OnboardingBackButton";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import { X } from "lucide-react-native";
 
@@ -163,8 +163,8 @@ export function ConfirmPhoneNumberStep({
     >
       <View style={[styles.container, dynamicStyles.container]}>
         <OnboardingProgress
-          total={7}
-          filled={2}
+          total={6}
+          filled={1}
           leftElement={<OnboardingBackButton onBack={onBack} alwaysShow />}
         />
 

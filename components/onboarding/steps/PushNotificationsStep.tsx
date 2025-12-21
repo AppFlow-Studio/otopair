@@ -23,9 +23,9 @@ import {
     ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { OnboardingProgress } from '../OnboardingProgress';
-import { OnboardingFooterButton } from '../OnboardingFooterButton';
-import { OnboardingBackButton } from '../OnboardingBackButton';
+import { OnboardingProgress } from '../common/OnboardingProgress';
+import { OnboardingFooterButton } from '../common/OnboardingFooterButton';
+import { OnboardingBackButton } from '../common/OnboardingBackButton';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import { Bell } from 'lucide-react-native';
 
@@ -153,8 +153,8 @@ export function PushNotificationsStep({ onNext, onBack }: PushNotificationsStepP
         >
             <View style={[styles.container, dynamicStyles.container]}>
                 <OnboardingProgress
-                    total={7}
-                    filled={5}
+                    total={6}
+                    filled={4}
                     leftElement={<OnboardingBackButton onBack={onBack} alwaysShow />}
                 />
 

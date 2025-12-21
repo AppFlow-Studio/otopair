@@ -2,14 +2,19 @@
  * OnboardingBackButton
  *
  * PURPOSE: Reusable back button for onboarding screens, positioned on the same line as progress indicator.
- *          Only shows when navigation history allows going back.
  *
- * USED IN: Onboarding screens that use OnboardingScreenLayout
+ * USED IN: Onboarding steps (PhoneNumberStep, NameStep, etc.) and TellUsAbout steps.
  *
  * PROPS:
- *   - noHorizontalPadding (optional): If true, removes horizontal padding to align with content
+ *   - noHorizontalPadding (boolean): If true, removes horizontal padding [optional]
+ *   - onBack (() => void): Custom back action, defaults to router.back() [optional]
+ *   - alwaysShow (boolean): If true, shows button even on the welcome screen [optional]
+ *
+ * EXAMPLE:
+ *   <OnboardingBackButton onBack={() => goToStep('welcome')} />
  *
  * OWNER: Daniel Chelala
+ * TICKET: OTO-XXX
  */
 
 import { router, usePathname } from 'expo-router';
