@@ -374,7 +374,7 @@ export default function HomeScreen() {
                   styles.bottomSheetSubtitle,
                   isSmallScreen && { fontSize: FontSize.sm, lineHeight: 18, marginBottom: Spacing.md }
                 ]}>
-                  Complete your profile to unlock all features and get the most out of Otopair
+                  Complete your profile to unlock all features and get the most out of Otopair.
                 </Text>
 
                 {/* Checklist */}
