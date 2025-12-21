@@ -1,53 +1,46 @@
 /**
  * ServiceBottomSheet
  *
- * PURPOSE: Container for the booking flow bottom sheet that orchestrates different content stages
+ * PURPOSE: Main booking flow bottom sheet that displays different content
+ *          based on the current booking stage. Uses custom Oto transitions
+ *          for smooth stage-to-stage animations.
+ *
+ * FLOW: discovery → service_selection → mechanic_selection → booking_details → confirmation
  *
  * USED IN: app/(main-tabs)/bookings/index.tsx
- *
- * STAGES:
- *   - discovery: Collapsed "Swipe up" state
- *   - service_selection: Service selection UI
- *   - mechanic_selection: Mechanic selection UI
- *   - payment: Payment flow (TODO)
- *   - confirmation: Booking confirmation (TODO)
  *
  * OWNER: Waleed Mansour
  */
 
 import BottomSheet from "@gorhom/bottom-sheet";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Dimensions, StyleSheet } from "react-native";
-import Animated, { useAnimatedStyle, useSharedValue } from "react-native-reanimated";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
+import { Dimensions, StyleSheet, View } from "react-native";
+import Animated, { SharedValue, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { BrandColors, Spacing } from "@/components/shared-ui";
-import { getSlideTransitionOrNone } from "@/constants/animations";
+import { BrandColors, PrimaryButton, Spacing, Text } from "@/components/shared-ui";
 import { BorderRadius, Shadows } from "@/constants/theme";
-import { BookingStage } from "@/stores/types/store.types";
+import { useBookingTransition } from "@/hooks/useBookingTransition";
 import { useBookingStore } from "@/stores/useBookingStore";
 
-import { BookingDetailsContent, CollapsedContent, MechanicSelectionContent, ServiceSelectionContent } from "./sheets";
-import type { MechanicFilterOption } from "./topbars";
+import {
+  BookingDetailsContent,
+  CollapsedContent,
+  ConfirmationContent,
+  MechanicSelectionContent,
+  ServiceSelectionContent,
+} from "./sheets";
+import type { MechanicFilterOption } from "./sheets/MechanicSelectionContent";
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
 interface ServiceBottomSheetProps {
-  /** Called when user confirms service selection and proceeds to mechanic selection */
-  onSelectServices?: () => void;
-  /** Called when user confirms mechanic selection and proceeds to payment */
-  onSelectMechanic?: () => void;
-  /** Called when user presses back in mechanic selection (for coordinated animation) */
-  onMechanicBackPress?: () => void;
-  /** Called when user confirms the booking */
-  onConfirmBooking?: () => void;
-  /** Called when user presses back in booking details (for coordinated animation) */
-  onBookingDetailsBackPress?: () => void;
   /** Vertical offset to shift bottom sheet down (pixels) */
   offsetY?: number;
-  /** Callback to expose the animated index for parent components */
-  onAnimatedIndexChange?: (animatedIndex: Animated.SharedValue<number>) => void;
+  /** Callback to expose animated index to parent */
+  onAnimatedIndexChange?: (animatedIndex: SharedValue<number>) => void;
   /** Currently selected mechanic filter from TopBar */
   mechanicFilter?: MechanicFilterOption;
 }
@@ -56,128 +49,164 @@ interface ServiceBottomSheetProps {
 // CONSTANTS
 // ============================================================================
 
-const STAGE_ORDER: BookingStage[] = [
-  "discovery",
-  "service_selection",
-  "mechanic_selection",
-  "booking_details",
-  "payment",
-  "confirmation",
-];
+const { height: SCREEN_HEIGHT } = Dimensions.get("window");
+
+// Snap points for different stages
+const SNAP_POINTS_CONFIG = {
+  // Discovery & Service Selection: collapsed (22%) and expanded (75%)
+  discovery: { collapsed: 22, expanded: 75 },
+  service_selection: { collapsed: 22, expanded: 75 },
+  // Mechanic Selection: slightly taller
+  mechanic_selection: { collapsed: 22, expanded: 80 },
+  // Booking Details: full height
+  booking_details: { collapsed: 22, expanded: 85 },
+  // Payment: full height
+  payment: { collapsed: 22, expanded: 85 },
+  // Confirmation: centered
+  confirmation: { collapsed: 22, expanded: 70 },
+} as const;
 
 // ============================================================================
 // COMPONENT
 // ============================================================================
 
 export function ServiceBottomSheet({
-  onSelectServices,
-  onSelectMechanic,
-  onMechanicBackPress,
-  onConfirmBooking,
-  onBookingDetailsBackPress,
   offsetY = 0,
   onAnimatedIndexChange,
   mechanicFilter = "available_now",
 }: ServiceBottomSheetProps) {
-  // ═══════════════ STATE-EFFECT: Refs ═══════════════
+  // ═══════════════ REFS ═══════════════
   const bottomSheetRef = useRef<BottomSheet>(null);
   const animatedIndex = useSharedValue(0);
 
-  // ═══════════════ STATE-EFFECT: Expose animated index to parent ═══════════════
+  // ═══════════════ HOOKS ═══════════════
+  const insets = useSafeAreaInsets();
+  const { currentStage, sheetEntering, sheetExiting, goNext, reset } = useBookingTransition();
+
+  // ═══════════════ STORE ═══════════════
+  const setBookingStage = useBookingStore((state) => state.setBookingStage);
+  const getSelectedServicesCount = useBookingStore((state) => state.getSelectedServicesCount);
+  const getSelectedServicesTotal = useBookingStore((state) => state.getSelectedServicesTotal);
+
+  // ═══════════════ COMPUTED ═══════════════
+  const selectedCount = getSelectedServicesCount();
+  const selectedTotal = getSelectedServicesTotal();
+  const hasSelection = selectedCount > 0;
+  const isServiceStage = currentStage === "discovery" || currentStage === "service_selection";
+
+  // ═══════════════ EFFECTS ═══════════════
+  // Expose animated index to parent
   useEffect(() => {
     onAnimatedIndexChange?.(animatedIndex);
   }, [animatedIndex, onAnimatedIndexChange]);
 
-  // ═══════════════ STATE-EFFECT: Store Subscriptions ═══════════════
-  const bookingStage = useBookingStore((state) => state.bookingStage);
-  const setBookingStage = useBookingStore((state) => state.setBookingStage);
+  // Expand sheet when stage changes (except discovery)
+  useEffect(() => {
+    if (currentStage !== "discovery" && bottomSheetRef.current) {
+      bottomSheetRef.current.snapToIndex(1);
+    }
+  }, [currentStage]);
 
-  // ═══════════════ STATE-EFFECT: Direction Tracking ═══════════════
-  // Track the rendered stage to detect changes and compute direction
-  const [renderedStage, setRenderedStage] = useState<BookingStage>(bookingStage);
-  const [isForward, setIsForward] = useState(true);
+  // ═══════════════ COMPUTED VALUES ═══════════════
+  const offsetPercent = (offsetY / SCREEN_HEIGHT) * 100;
+  const stageConfig = SNAP_POINTS_CONFIG[currentStage] || SNAP_POINTS_CONFIG.discovery;
 
-  // Compute direction synchronously when stage changes, then trigger re-render
-  // Note: Sheet animations are inverted compared to TopBar, so we flip the direction
-  if (renderedStage !== bookingStage) {
-    const prevIndex = STAGE_ORDER.indexOf(renderedStage);
-    const currIndex = STAGE_ORDER.indexOf(bookingStage);
-    const newIsForward = currIndex < prevIndex; // Inverted for sheet
+  const snapPoints = useMemo(
+    () => [`${stageConfig.collapsed - offsetPercent}%`, `${stageConfig.expanded - offsetPercent}%`],
+    [stageConfig, offsetPercent]
+  );
 
-    // Schedule state updates (will batch and re-render with correct values)
-    setRenderedStage(bookingStage);
-    setIsForward(newIsForward);
-  }
-
-  // ═══════════════ STATE-EFFECT: Memoized Values ═══════════════
-  const { height } = Dimensions.get("window");
-  const offsetPercent = (offsetY / height) * 100;
-  const snapPoints = useMemo(() => [`${22 - offsetPercent}%`, `${75 - offsetPercent}%`], [offsetPercent]);
-
-  // ═══════════════ STATE-EFFECT: Animated Styles ═══════════════
-  // Switch between collapsed and expanded at 0.5 threshold
+  // ═══════════════ ANIMATED STYLES ═══════════════
+  // Collapsed content visibility (show when index < 0.5)
   const collapsedStyle = useAnimatedStyle(() => ({
     opacity: animatedIndex.value < 0.5 ? 1 : 0,
-    display: animatedIndex.value < 0.5 ? "flex" : "none",
+    zIndex: animatedIndex.value < 0.5 ? 1 : 0,
+    pointerEvents: animatedIndex.value < 0.5 ? "auto" : "none",
   }));
 
+  // Expanded content visibility (show when index >= 0.5)
   const expandedStyle = useAnimatedStyle(() => ({
     opacity: animatedIndex.value >= 0.5 ? 1 : 0,
-    display: animatedIndex.value >= 0.5 ? "flex" : "none",
+    zIndex: animatedIndex.value >= 0.5 ? 1 : 0,
+    pointerEvents: animatedIndex.value >= 0.5 ? "auto" : "none",
   }));
 
-  // ═══════════════ STATE-EFFECT: Handlers ═══════════════
-  const handleSelectServices = useCallback(() => {
-    // Move to mechanic selection stage
-    setBookingStage("mechanic_selection");
-    onSelectServices?.();
-  }, [setBookingStage, onSelectServices]);
+  // ═══════════════ HANDLERS ═══════════════
+  // Service selection complete -> go to mechanic selection
+  const handleServicesSelected = useCallback(() => {
+    setBookingStage("mechanic_selection", "forward");
+  }, [setBookingStage]);
 
-  const handleSelectMechanic = useCallback(() => {
-    // Note: Stage transition is already handled by setBookingTypeAndProceed in MechanicSelectionContent
-    // This callback is just for any additional parent logic
-    onSelectMechanic?.();
-  }, [onSelectMechanic]);
+  // Mechanic selection complete -> handled by MechanicSelectionContent via setBookingTypeAndProceed
+  const handleMechanicSelected = useCallback(() => {
+    // Navigation is handled internally by MechanicSelectionContent
+  }, []);
 
-  // ═══════════════ RENDER: Stage Content ═══════════════
-  const renderExpandedContent = () => {
-    // Use standardized slide transitions - always animate
-    const { entering } = getSlideTransitionOrNone(true, isForward);
+  // Booking confirmed -> go to confirmation
+  const handleBookingConfirmed = useCallback(() => {
+    setBookingStage("confirmation", "forward");
+  }, [setBookingStage]);
 
-    switch (bookingStage) {
-      case "mechanic_selection":
-        return (
-          <Animated.View key="mechanic_selection" entering={entering} style={styles.stageContainer}>
-            <MechanicSelectionContent
-              onSelectMechanic={handleSelectMechanic}
-              onBackPress={onMechanicBackPress}
-              mechanicFilter={mechanicFilter}
-            />
-          </Animated.View>
-        );
-      case "booking_details":
-        return (
-          <Animated.View key="booking_details" entering={entering} style={styles.stageContainer}>
-            <BookingDetailsContent onConfirmBooking={onConfirmBooking} onBackPress={onBookingDetailsBackPress} />
-          </Animated.View>
-        );
-      case "payment":
-        // TODO: PaymentContent
-        return null;
-      case "confirmation":
-        // TODO: ConfirmationContent
-        return null;
+  // Book again -> reset flow
+  const handleBookAgain = useCallback(() => {
+    reset();
+    bottomSheetRef.current?.snapToIndex(0);
+  }, [reset]);
+
+  // ═══════════════ CONTENT RENDERER ═══════════════
+  const renderStageContent = () => {
+    // Get unique key for the current stage to trigger transitions
+    const stageKey = currentStage;
+
+    switch (currentStage) {
       case "discovery":
       case "service_selection":
-      default:
         return (
-          <Animated.View key="service_selection" entering={entering} style={styles.stageContainer}>
-            <ServiceSelectionContent onSelectServices={handleSelectServices} />
+          <Animated.View key="service" entering={sheetEntering} exiting={sheetExiting} style={styles.contentWrapper}>
+            <ServiceSelectionContent />
           </Animated.View>
         );
+
+      case "mechanic_selection":
+        return (
+          <Animated.View key="mechanic" entering={sheetEntering} exiting={sheetExiting} style={styles.contentWrapper}>
+            <MechanicSelectionContent onSelectMechanic={handleMechanicSelected} mechanicFilter={mechanicFilter} />
+          </Animated.View>
+        );
+
+      case "booking_details":
+        return (
+          <Animated.View key="booking" entering={sheetEntering} exiting={sheetExiting} style={styles.contentWrapper}>
+            <BookingDetailsContent onConfirmBooking={handleBookingConfirmed} />
+          </Animated.View>
+        );
+
+      case "payment":
+        // Payment stage uses same content as booking details for now
+        return (
+          <Animated.View key="payment" entering={sheetEntering} exiting={sheetExiting} style={styles.contentWrapper}>
+            <BookingDetailsContent onConfirmBooking={handleBookingConfirmed} />
+          </Animated.View>
+        );
+
+      case "confirmation":
+        return (
+          <Animated.View
+            key="confirmation"
+            entering={sheetEntering}
+            exiting={sheetExiting}
+            style={styles.contentWrapper}
+          >
+            <ConfirmationContent onBookAgain={handleBookAgain} />
+          </Animated.View>
+        );
+
+      default:
+        return null;
     }
   };
 
+  // ═══════════════ RENDER ═══════════════
   return (
     <BottomSheet
       ref={bottomSheetRef}
@@ -191,13 +220,30 @@ export function ServiceBottomSheet({
       handleIndicatorStyle={styles.handleIndicator}
       handleStyle={styles.handleContainer}
     >
-      {/* Collapsed State - "Swipe up for service list" or "Swipe up to continue booking" */}
-      <Animated.View style={[styles.collapsedContent, collapsedStyle]}>
-        <CollapsedContent bookingStage={bookingStage} />
+      {/* Collapsed State - visibility based on animated position */}
+      <Animated.View style={[styles.collapsedContent, styles.overlayContent, collapsedStyle]}>
+        <CollapsedContent bookingStage={currentStage} />
       </Animated.View>
 
-      {/* Expanded State - Stage-specific content */}
-      <Animated.View style={[styles.expandedContainer, expandedStyle]}>{renderExpandedContent()}</Animated.View>
+      {/* Expanded State - stage-based content with Oto transitions */}
+      <View style={[styles.expandedContainer, { paddingBottom: insets.bottom }]}>
+        <Animated.View style={[styles.expandedContent, expandedStyle]}>{renderStageContent()}</Animated.View>
+      </View>
+
+      {/* Service Selection Button - Fixed at bottom of sheet, above tab bar */}
+      {isServiceStage && (
+        <View style={[styles.buttonContainer, { bottom: 120 + insets.bottom }]}>
+          <PrimaryButton
+            onPress={handleServicesSelected}
+            style={[styles.actionButton, !hasSelection && styles.actionButtonDisabled]}
+            disabled={!hasSelection}
+          >
+            <Text size="md" weight="semiBold" color={BrandColors.white}>
+              {hasSelection ? `Add ${selectedCount} to Cart · $${selectedTotal}` : "Select Service(s)"}
+            </Text>
+          </PrimaryButton>
+        </View>
+      )}
     </BottomSheet>
   );
 }
@@ -222,14 +268,39 @@ const styles = StyleSheet.create({
     height: 5,
     borderRadius: BorderRadius.full,
   },
+  overlayContent: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    top: 0,
+  },
   collapsedContent: {
-    // No padding - CollapsedContent handles its own
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.lg,
   },
   expandedContainer: {
     flex: 1,
-    overflow: "hidden",
   },
-  stageContainer: {
+  expandedContent: {
     flex: 1,
+  },
+  contentWrapper: {
+    flex: 1,
+  },
+  buttonContainer: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    zIndex: 10, // Above scroll content
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    backgroundColor: BrandColors.white,
+  },
+  actionButton: {
+    borderRadius: BorderRadius["xl"],
+    paddingVertical: Spacing.lg,
+  },
+  actionButtonDisabled: {
+    opacity: 0.5,
   },
 });

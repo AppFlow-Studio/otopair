@@ -50,6 +50,8 @@ interface BookingState {
   // ═══════════════ BOOKING FLOW STATE ═══════════════
   /** Current stage in the booking flow */
   bookingStage: BookingStage;
+  /** Direction of the current transition (for animations) */
+  transitionDirection: "forward" | "backward";
   /** Selected mechanic ID (null = "Any Available") */
   selectedMechanicId: number | null;
   /** Booking type - immediate or scheduled */
@@ -90,8 +92,8 @@ interface BookingState {
   clearSelectedServices: () => void;
 
   // ═══════════════ BOOKING FLOW ACTIONS ═══════════════
-  /** Set current booking stage */
-  setBookingStage: (stage: BookingStage) => void;
+  /** Set current booking stage with transition direction */
+  setBookingStage: (stage: BookingStage, direction: "forward" | "backward") => void;
   /** Go to next stage in booking flow */
   nextBookingStage: () => void;
   /** Go to previous stage in booking flow */
@@ -245,6 +247,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   availableServices: MOCK_SERVICES,
   selectedServiceIds: [],
   bookingStage: "discovery",
+  transitionDirection: "forward",
   selectedMechanicId: null,
   bookingType: null,
   bookings: {},
@@ -305,9 +308,10 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
     }),
 
   // ═══════════════ BOOKING FLOW ACTIONS ═══════════════
-  setBookingStage: (stage) =>
+  setBookingStage: (stage, direction) =>
     set({
       bookingStage: stage,
+      transitionDirection: direction,
     }),
 
   nextBookingStage: () =>
@@ -322,7 +326,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       ];
       const currentIndex = stages.indexOf(state.bookingStage);
       const nextIndex = Math.min(currentIndex + 1, stages.length - 1);
-      return { bookingStage: stages[nextIndex] };
+      return { bookingStage: stages[nextIndex], transitionDirection: "forward" };
     }),
 
   prevBookingStage: () =>
@@ -337,7 +341,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       ];
       const currentIndex = stages.indexOf(state.bookingStage);
       const prevIndex = Math.max(currentIndex - 1, 0);
-      return { bookingStage: stages[prevIndex] };
+      return { bookingStage: stages[prevIndex], transitionDirection: "backward" };
     }),
 
   selectMechanic: (mechanicId) =>
@@ -350,11 +354,13 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       bookingType: type,
       selectedMechanicId: mechanicId,
       bookingStage: "booking_details",
+      transitionDirection: "forward",
     }),
 
   resetBookingFlow: () =>
     set({
       bookingStage: "discovery",
+      transitionDirection: "backward",
       selectedServiceIds: [],
       selectedMechanicId: null,
       selectedServiceCategory: null,

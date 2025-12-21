@@ -6,6 +6,7 @@
 
 export { BookingDetailsContent } from "./BookingDetailsContent";
 export { CollapsedContent } from "./CollapsedContent";
+export { ConfirmationContent } from "./ConfirmationContent";
 export { DiscardServiceModal } from "./DiscardServiceModal";
 export { MechanicCard } from "./MechanicCard";
 export { MechanicSelectionContent } from "./MechanicSelectionContent";

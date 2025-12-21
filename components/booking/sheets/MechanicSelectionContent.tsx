@@ -5,12 +5,6 @@
  *
  * USED IN: components/booking/ServiceBottomSheet.tsx
  *
- * PROPS:
- *   - onSelectMechanic (() => void): Called when user selects a mechanic and proceeds [optional]
- *
- * EXAMPLE:
- *   <MechanicSelectionContent onSelectMechanic={handleMechanicSelected} />
- *
  * OWNER: Waleed Mansour
  */
 
@@ -21,30 +15,41 @@ import { ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from "react
 // 2. Third-party libraries
 import { BottomSheetFlatList } from "@gorhom/bottom-sheet";
 import { ChevronLeft, Search } from "lucide-react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 3. Shared UI (design system)
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Constants, hooks, types
 import { BorderRadius, FontFamily } from "@/constants/theme";
+import { useBookingTransition } from "@/hooks/useBookingTransition";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 
 // 5. Flow-specific components (booking folder)
+import type { MechanicFilterOption } from "@/constants/filters";
 import { DiscardServiceModal } from "./DiscardServiceModal";
 import { MechanicCard } from "./MechanicCard";
 import { ServiceChip } from "./ServiceChip";
 
 // ============================================================================
+// CONSTANTS
+// ============================================================================
+
+// Tab bar offset used for bottom padding to ensure content scrolls above native tabs
+const TAB_BAR_OFFSET = 200;
+
+// ============================================================================
 // TYPES
 // ============================================================================
 
-export type MechanicFilterOption = "available_now" | "distance" | "rating";
+// Re-export from central location
+export type { MechanicFilterOption } from "@/constants/filters";
 
 interface MechanicSelectionContentProps {
   /** Called when user confirms mechanic selection */
   onSelectMechanic?: () => void;
-  /** Called when user presses back button (for animated transitions) */
+  /** Called when user presses back button */
   onBackPress?: () => void;
   /** Currently selected filter from TopBar */
   mechanicFilter?: MechanicFilterOption;
@@ -59,15 +64,23 @@ export function MechanicSelectionContent({
   onBackPress,
   mechanicFilter = "available_now",
 }: MechanicSelectionContentProps) {
+  // ═══════════════ HOOKS ═══════════════
+  const insets = useSafeAreaInsets();
+
   // ═══════════════ STATE ═══════════════
   const [serviceToRemove, setServiceToRemove] = React.useState<string | null>(null);
   const [dontAskAgain, setDontAskAgain] = React.useState(false);
+
+  // Calculate bottom padding to ensure content can scroll above native tab bar
+  const scrollPaddingBottom = TAB_BAR_OFFSET + insets.bottom + 20;
+
+  // ═══════════════ TRANSITION HOOK ═══════════════
+  const { goBack } = useBookingTransition();
 
   // ═══════════════ BOOKING STORE ═══════════════
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
   const toggleServiceSelection = useBookingStore((state) => state.toggleServiceSelection);
   const availableServices = useBookingStore((state) => state.availableServices);
-  const prevBookingStage = useBookingStore((state) => state.prevBookingStage);
   const setBookingTypeAndProceed = useBookingStore((state) => state.setBookingTypeAndProceed);
 
   // Memoize selected services to prevent re-renders
@@ -121,9 +134,9 @@ export function MechanicSelectionContent({
   // Go back to service selection if all services are removed
   useEffect(() => {
     if (selectedServiceIds.length === 0) {
-      prevBookingStage();
+      goBack();
     }
-  }, [selectedServiceIds.length, prevBookingStage]);
+  }, [selectedServiceIds.length, goBack]);
 
   // ═══════════════ HANDLERS ═══════════════
   const handleRemoveService = useCallback(
@@ -187,14 +200,14 @@ export function MechanicSelectionContent({
     [handleBookNow, handleScheduleLater]
   );
 
-  // Handle back button - use onBackPress if provided (for animation), otherwise prevBookingStage
+  // Handle back button
   const handleBackPress = useCallback(() => {
     if (onBackPress) {
       onBackPress();
     } else {
-      prevBookingStage();
+      goBack();
     }
-  }, [onBackPress, prevBookingStage]);
+  }, [onBackPress, goBack]);
 
   // ═══════════════ SYNC FILTER FROM PROPS ═══════════════
   useEffect(() => {
@@ -231,7 +244,7 @@ export function MechanicSelectionContent({
         data={filteredMechanics}
         keyExtractor={keyExtractor}
         renderItem={renderMechanicCard}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: scrollPaddingBottom }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         removeClippedSubviews={true}
@@ -275,7 +288,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: Spacing.lg,
-    paddingBottom: 100,
+    // Note: paddingBottom is applied dynamically based on safe area insets
   },
   header: {
     flexDirection: "row",

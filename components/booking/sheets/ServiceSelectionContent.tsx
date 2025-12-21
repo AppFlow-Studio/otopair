@@ -2,6 +2,7 @@
  * ServiceSelectionContent
  *
  * PURPOSE: Displays the service selection UI for the booking bottom sheet
+ *          Button is rendered separately in ServiceBottomSheet for proper positioning
  *
  * USED IN: components/booking/ServiceBottomSheet.tsx
  *
@@ -15,9 +16,10 @@ import { ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from "react
 // 2. Third-party libraries
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
 import { Search } from "lucide-react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 3. Shared UI (design system)
-import { BrandColors, PrimaryButton, Spacing, Text } from "@/components/shared-ui";
+import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Constants, hooks, types, stores
 import { SERVICE_CATEGORIES } from "@/constants/services";
@@ -26,34 +28,45 @@ import type { Service, ServiceCategory } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
 
 // ============================================================================
+// CONSTANTS
+// ============================================================================
+
+// Height of the floating action button container (paddingVertical * 2 + button height)
+// Button has paddingVertical: Spacing.lg (16) + ~20px text = ~52px
+// Container has paddingVertical: Spacing.md (12) = 24px total
+const BUTTON_CONTAINER_HEIGHT = 76;
+
+// Tab bar offset used by ServiceBottomSheet for button positioning
+const TAB_BAR_OFFSET = 120;
+
+// ============================================================================
 // TYPES
 // ============================================================================
 
-interface ServiceSelectionContentProps {
-  /** Called when user confirms service selection */
-  onSelectServices?: () => void;
-}
+// No props needed - button is rendered in ServiceBottomSheet
 
 // ============================================================================
 // COMPONENT
 // ============================================================================
 
-export function ServiceSelectionContent({ onSelectServices }: ServiceSelectionContentProps) {
+export function ServiceSelectionContent() {
+  // ═══════════════ HOOKS ═══════════════
+  const insets = useSafeAreaInsets();
+
   // ═══════════════ STATE-EFFECT: Local State ═══════════════
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<ServiceCategory>("basic_maintenance");
+
+  // Calculate bottom padding to ensure content can scroll above the floating button
+  // Button is positioned at: bottom: TAB_BAR_OFFSET + insets.bottom
+  // So we need padding = button container height + tab bar offset + insets + breathing room
+  // The scroll view needs enough bottom padding to scroll the last item above the floating button
+  const scrollPaddingBottom = 400;
 
   // ═══════════════ STATE-EFFECT: Store Subscriptions ═══════════════
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
   const toggleServiceSelection = useBookingStore((state) => state.toggleServiceSelection);
   const availableServices = useBookingStore((state) => state.availableServices);
-  const getSelectedServicesTotal = useBookingStore((state) => state.getSelectedServicesTotal);
-  const getSelectedServicesCount = useBookingStore((state) => state.getSelectedServicesCount);
-
-  // ═══════════════ STATE-EFFECT: Computed Values ═══════════════
-  const selectedCount = getSelectedServicesCount();
-  const selectedTotal = getSelectedServicesTotal();
-  const hasSelection = selectedCount > 0;
 
   // ═══════════════ STATE-EFFECT: Memoized Values ═══════════════
   const filteredServices = useMemo(() => {
@@ -73,10 +86,6 @@ export function ServiceSelectionContent({ onSelectServices }: ServiceSelectionCo
     },
     [toggleServiceSelection]
   );
-
-  const handleSelectPress = useCallback(() => {
-    onSelectServices?.();
-  }, [onSelectServices]);
 
   const handleCategorySelect = useCallback((category: ServiceCategory) => {
     setSelectedCategory(category);
@@ -165,7 +174,7 @@ export function ServiceSelectionContent({ onSelectServices }: ServiceSelectionCo
         />
       </View>
 
-      {/* Service List */}
+      {/* Service List - Scrollable content */}
       <BottomSheetScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
@@ -180,20 +189,10 @@ export function ServiceSelectionContent({ onSelectServices }: ServiceSelectionCo
             </Text>
           </View>
         )}
-      </BottomSheetScrollView>
 
-      {/* Action Button */}
-      <View style={styles.buttonContainer}>
-        <PrimaryButton
-          onPress={handleSelectPress}
-          style={[styles.selectButton, !hasSelection && styles.selectButtonDisabled]}
-          disabled={!hasSelection}
-        >
-          <Text size="md" weight="semiBold" color={BrandColors.white}>
-            {hasSelection ? `Add ${selectedCount} to Cart • $${selectedTotal.toFixed(0)}` : "Select Service(s)"}
-          </Text>
-        </PrimaryButton>
-      </View>
+        {/* Spacer to allow scrolling last item above the floating button */}
+        <View style={{ height: scrollPaddingBottom }} />
+      </BottomSheetScrollView>
     </View>
   );
 }
@@ -249,8 +248,8 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: Spacing.lg,
-    paddingBottom: Spacing.md,
     gap: Spacing.md,
+    // Note: paddingBottom is applied dynamically based on safe area insets
   },
   serviceItem: {
     flexDirection: "row",
@@ -278,24 +277,4 @@ const styles = StyleSheet.create({
   emptyState: {
     paddingVertical: Spacing["3xl"],
   },
-  buttonContainer: {
-    paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.lg,
-    paddingBottom: Spacing.sm,
-    marginBottom: 80,
-    backgroundColor: BrandColors.white,
-    borderTopWidth: 1,
-    borderTopColor: "#F3F4F6",
-  },
-  selectButton: {
-    borderRadius: BorderRadius.lg,
-    paddingVertical: Spacing.md,
-  },
-  selectButtonDisabled: {
-    opacity: 0.5,
-  },
 });
-
-
-
-

@@ -34,7 +34,9 @@ const MECHANIC_FILTERS_HEIGHT = 52;
 // TYPES
 // ============================================================================
 
-export type MechanicFilterOption = "available_now" | "distance" | "rating";
+// Re-export from central location
+export type { MechanicFilterOption } from "@/constants/filters";
+import type { MechanicFilterOption } from "@/constants/filters";
 
 interface MechanicFilterItem {
   id: MechanicFilterOption;

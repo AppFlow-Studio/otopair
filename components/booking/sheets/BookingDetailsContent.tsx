@@ -6,11 +6,6 @@
  *
  * USED IN: components/booking/ServiceBottomSheet.tsx
  *
- * PROPS:
- *   - onConfirmBooking (() => void): Called when user confirms the booking [optional]
- *   - onBackPress (() => void): Called when user presses back button [optional]
- *   - onAddMore (() => void): Called when user wants to add more services [optional]
- *
  * OWNER: Waleed Mansour
  */
 
@@ -21,15 +16,27 @@ import { Image, StyleSheet, TouchableOpacity, View } from "react-native";
 // 2. Third-party libraries
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
 import { BadgeCheck, ChevronRight, Clock, Star, User, X } from "lucide-react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 3. Shared UI (design system)
 import { BrandColors, PrimaryButton, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Constants, hooks, types
 import { BorderRadius } from "@/constants/theme";
+import { useBookingTransition } from "@/hooks/useBookingTransition";
 import type { Service } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
+
+// ============================================================================
+// CONSTANTS
+// ============================================================================
+
+// Height of the bottom action button area (padding + button + border)
+const BOTTOM_ACTION_HEIGHT = 80;
+
+// Tab bar offset - extra padding to ensure content scrolls above native tabs
+const TAB_BAR_OFFSET = 120;
 
 // ============================================================================
 // TYPES
@@ -72,12 +79,20 @@ function ServiceRow({ service, onRemove }: { service: Service; onRemove: () => v
 // ============================================================================
 
 export function BookingDetailsContent({ onConfirmBooking, onBackPress, onAddMore }: BookingDetailsContentProps) {
+  // ═══════════════ HOOKS ═══════════════
+  const insets = useSafeAreaInsets();
+
+  // Calculate bottom padding to ensure content can scroll above the fixed bottom button
+  const scrollPaddingBottom = BOTTOM_ACTION_HEIGHT + TAB_BAR_OFFSET + insets.bottom + 20;
+
+  // ═══════════════ TRANSITION HOOK ═══════════════
+  const { goBack, goTo } = useBookingTransition();
+
   // ═══════════════ BOOKING STORE ═══════════════
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
   const availableServices = useBookingStore((state) => state.availableServices);
   const bookingType = useBookingStore((state) => state.bookingType);
   const selectedMechanicId = useBookingStore((state) => state.selectedMechanicId);
-  const prevBookingStage = useBookingStore((state) => state.prevBookingStage);
   const getSelectedServicesTotal = useBookingStore((state) => state.getSelectedServicesTotal);
   const toggleServiceSelection = useBookingStore((state) => state.toggleServiceSelection);
 
@@ -107,9 +122,9 @@ export function BookingDetailsContent({ onConfirmBooking, onBackPress, onAddMore
     if (onBackPress) {
       onBackPress();
     } else {
-      prevBookingStage();
+      goBack();
     }
-  }, [onBackPress, prevBookingStage]);
+  }, [onBackPress, goBack]);
 
   const handleConfirmBooking = useCallback(() => {
     onConfirmBooking?.();
@@ -120,10 +135,9 @@ export function BookingDetailsContent({ onConfirmBooking, onBackPress, onAddMore
       onAddMore();
     } else {
       // Go back to service selection
-      prevBookingStage();
-      prevBookingStage();
+      goTo("service_selection");
     }
-  }, [onAddMore, prevBookingStage]);
+  }, [onAddMore, goTo]);
 
   const handleRemoveService = useCallback(
     (serviceId: string) => {
@@ -146,7 +160,10 @@ export function BookingDetailsContent({ onConfirmBooking, onBackPress, onAddMore
   return (
     <View style={styles.container}>
       {/* Scrollable Content */}
-      <BottomSheetScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <BottomSheetScrollView
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: scrollPaddingBottom }]}
+        showsVerticalScrollIndicator={false}
+      >
         {/* Mechanic Info Section */}
         <View style={styles.mechanicSection}>
           {/* Avatar and Basic Info */}
@@ -291,7 +308,7 @@ export function BookingDetailsContent({ onConfirmBooking, onBackPress, onAddMore
       </BottomSheetScrollView>
 
       {/* Bottom Action Button */}
-      <View style={styles.bottomAction}>
+      <View style={[styles.bottomAction, { bottom: TAB_BAR_OFFSET + insets.bottom + 50 }]}>
         <PrimaryButton style={styles.confirmButton} onPress={handleConfirmBooking}>
           <Text size="md" weight="semiBold" color={BrandColors.white}>
             {buttonText}
@@ -313,7 +330,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: Spacing.lg,
-    paddingBottom: 120,
+    // Note: paddingBottom is applied dynamically based on safe area insets
   },
 
   // Mechanic Section
@@ -476,7 +493,7 @@ const styles = StyleSheet.create({
   // Bottom Action
   bottomAction: {
     position: "absolute",
-    bottom: 0,
+    // Note: bottom is applied dynamically based on safe area insets and tab bar offset
     left: 0,
     right: 0,
     padding: Spacing.lg,

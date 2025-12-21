@@ -9,14 +9,7 @@ export { BookingMap } from "./map";
 export { ServiceBottomSheet } from "./ServiceBottomSheet";
 export { ShopCarousel } from "./ShopCarousel";
 export { ShopMarker } from "./ShopMarker";
-export {
-  TopBar,
-  type DiscoveryModeProps,
-  type MechanicFilterOption,
-  type MechanicSelectionModeProps,
-  type TopBarMode,
-  type TopBarProps,
-} from "./TopBar";
+export { TopBar, type MechanicFilterOption, type TopBarProps } from "./TopBar";
 
 // Re-export types from store for convenience
 export type { FilterOption, ServiceCategory, Shop } from "@/stores/types/store.types";
