@@ -6,12 +6,21 @@
  *
  * USED IN: components/booking/ServiceBottomSheet.tsx
  *
+ * PROPS:
+ *   - onConfirmBooking (() => void): Called when user confirms the booking [optional]
+ *   - onBackPress (() => void): Called when user presses back button [optional]
+ *   - onAddMore (() => void): Called when user wants to add more services [optional]
+ *
+ * EXAMPLE:
+ *   <BookingDetailsContent onConfirmBooking={handleConfirm} />
+ *
  * OWNER: Waleed Mansour
+ * TICKET: OTO-145
  */
 
 // 1. React & React Native
 import React, { useCallback, useMemo } from "react";
-import { Image, StyleSheet, TouchableOpacity, View } from "react-native";
+import { Image, StyleSheet, TouchableOpacity, useWindowDimensions, View } from "react-native";
 
 // 2. Third-party libraries
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
@@ -45,8 +54,6 @@ const TAB_BAR_OFFSET = 120;
 interface BookingDetailsContentProps {
   /** Called when user confirms the booking */
   onConfirmBooking?: () => void;
-  /** Called when user presses back button */
-  onBackPress?: () => void;
   /** Called when user wants to add more services */
   onAddMore?: () => void;
 }
@@ -60,7 +67,7 @@ function ServiceRow({ service, onRemove }: { service: Service; onRemove: () => v
   return (
     <View style={styles.serviceRow}>
       <View style={styles.serviceRowLeft}>
-        <Text size="md" weight="medium" color={BrandColors.primary}>
+        <Text size="md" weight="bold" color={BrandColors.primary}>
           {service.name}
         </Text>
         <Text size="sm" weight="regular" color="#9CA3AF">
@@ -68,7 +75,7 @@ function ServiceRow({ service, onRemove }: { service: Service; onRemove: () => v
         </Text>
       </View>
       <TouchableOpacity style={styles.removeButton} onPress={onRemove} activeOpacity={0.7}>
-        <X size={16} color="#9CA3AF" />
+        <X size={18} color={BrandColors.white} />
       </TouchableOpacity>
     </View>
   );
@@ -78,15 +85,17 @@ function ServiceRow({ service, onRemove }: { service: Service; onRemove: () => v
 // MAIN COMPONENT
 // ============================================================================
 
-export function BookingDetailsContent({ onConfirmBooking, onBackPress, onAddMore }: BookingDetailsContentProps) {
+export function BookingDetailsContent({ onConfirmBooking, onAddMore }: BookingDetailsContentProps) {
   // ═══════════════ HOOKS ═══════════════
   const insets = useSafeAreaInsets();
+  const { height: SCREEN_HEIGHT } = useWindowDimensions();
 
   // Calculate bottom padding to ensure content can scroll above the fixed bottom button
-  const scrollPaddingBottom = BOTTOM_ACTION_HEIGHT + TAB_BAR_OFFSET + insets.bottom + 20;
+  // Properly accounts for safe area, tab bar, action button, and dynamic buffer
+  const scrollPaddingBottom = insets.bottom + TAB_BAR_OFFSET + BOTTOM_ACTION_HEIGHT + SCREEN_HEIGHT * 0.35;
 
   // ═══════════════ TRANSITION HOOK ═══════════════
-  const { goBack, goTo } = useBookingTransition();
+  const { goTo } = useBookingTransition();
 
   // ═══════════════ BOOKING STORE ═══════════════
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
@@ -118,14 +127,6 @@ export function BookingDetailsContent({ onConfirmBooking, onBackPress, onAddMore
   const ratingCount = mechanic ? Math.floor(mechanic.rating * 25 + 27) : 0;
 
   // ═══════════════ HANDLERS ═══════════════
-  const handleBackPress = useCallback(() => {
-    if (onBackPress) {
-      onBackPress();
-    } else {
-      goBack();
-    }
-  }, [onBackPress, goBack]);
-
   const handleConfirmBooking = useCallback(() => {
     onConfirmBooking?.();
   }, [onConfirmBooking]);
@@ -173,7 +174,7 @@ export function BookingDetailsContent({ onConfirmBooking, onBackPress, onAddMore
                 <Image source={{ uri: mechanic.photoUrl }} style={styles.avatar} />
               ) : (
                 <View style={styles.avatarPlaceholder}>
-                  <User size={28} color="#9CA3AF" strokeWidth={1.5} />
+                  <User size={32} color="#9CA3AF" strokeWidth={1.5} />
                 </View>
               )}
             </View>
@@ -185,15 +186,15 @@ export function BookingDetailsContent({ onConfirmBooking, onBackPress, onAddMore
                 </Text>
                 <View style={styles.ratingVerifiedRow}>
                   <View style={styles.ratingBadge}>
-                    <Star size={14} color={BrandColors.secondary} fill={BrandColors.secondary} />
+                    <Star size={16} color={BrandColors.secondary} fill={BrandColors.secondary} />
                     <Text size="sm" weight="bold" color={BrandColors.primary}>
                       {mechanic.rating.toFixed(1)}
                     </Text>
                   </View>
                   {mechanic.isVerified && (
                     <View style={styles.verifiedBadge}>
-                      <BadgeCheck size={14} color="#10B981" />
-                      <Text size="xs" weight="semiBold" color="#10B981">
+                      <BadgeCheck size={18} color="#10B981" />
+                      <Text size="xs" weight="bold" color="#10B981">
                         Verified
                       </Text>
                     </View>
@@ -201,11 +202,11 @@ export function BookingDetailsContent({ onConfirmBooking, onBackPress, onAddMore
                 </View>
               </View>
 
-              <Text size="sm" weight="medium" color={BrandColors.secondary}>
+              <Text size="sm" weight="medium" color="#6B7280" style={{ marginBottom: 2 }}>
                 {mechanic.name}
               </Text>
 
-              <Text size="xs" weight="regular" color={BrandColors.secondary}>
+              <Text size="xs" weight="regular" color="#9CA3AF">
                 {mechanic.distanceMi} mi
               </Text>
             </View>
@@ -232,7 +233,7 @@ export function BookingDetailsContent({ onConfirmBooking, onBackPress, onAddMore
               </Text>
               <Text
                 size="xs"
-                weight="semiBold"
+                weight="bold"
                 color={
                   mechanic.responseTime === "Quick"
                     ? "#10B981"
@@ -248,12 +249,12 @@ export function BookingDetailsContent({ onConfirmBooking, onBackPress, onAddMore
 
           {/* Experience & Rating Stats */}
           <View style={styles.statsRow}>
-            <View style={styles.statItem}>
+            <View style={styles.statCard}>
               <View style={styles.statIconContainer}>
-                <Clock size={16} color={BrandColors.secondary} />
+                <Clock size={20} color={BrandColors.secondary} />
               </View>
               <View style={styles.statTextContainer}>
-                <Text size="xs" weight="regular" color="#9CA3AF">
+                <Text size="xs" weight="bold" color="#6B7280">
                   Total Experience
                 </Text>
                 <Text size="md" weight="bold" color={BrandColors.primary}>
@@ -261,19 +262,19 @@ export function BookingDetailsContent({ onConfirmBooking, onBackPress, onAddMore
                 </Text>
               </View>
             </View>
-            <View style={styles.statItem}>
+            <View style={styles.statCard}>
               <View style={styles.statIconContainer}>
-                <Star size={16} color={BrandColors.secondary} fill={BrandColors.secondary} />
+                <Star size={20} color={BrandColors.secondary} fill={BrandColors.secondary} />
               </View>
               <View style={styles.statTextContainer}>
-                <Text size="xs" weight="regular" color="#9CA3AF">
+                <Text size="xs" weight="bold" color="#6B7280">
                   Rating
                 </Text>
                 <View style={styles.ratingStatRow}>
                   <Text size="md" weight="bold" color={BrandColors.primary}>
                     {mechanic.rating.toFixed(1)}
                   </Text>
-                  <Text size="sm" weight="regular" color="#9CA3AF">
+                  <Text size="sm" weight="regular" color="#6B7280">
                     ({ratingCount})
                   </Text>
                 </View>
@@ -283,32 +284,36 @@ export function BookingDetailsContent({ onConfirmBooking, onBackPress, onAddMore
         </View>
 
         {/* Selected Services Section */}
-        <View style={styles.section}>
-          <Text size="md" weight="semiBold" color={BrandColors.primary} style={styles.sectionTitle}>
+        <View style={styles.servicesSectionHeader}>
+          <Text size="md" weight="bold" color="#9CA3AF">
             Selected Services ({selectedServices.length})
           </Text>
+        </View>
 
+        <View style={styles.servicesContainer}>
           {selectedServices.map((service) => (
             <ServiceRow key={service.id} service={service} onRemove={() => handleRemoveService(service.id)} />
           ))}
 
-          {/* Total and Add More */}
-          <View style={styles.totalRow}>
-            <Text size="md" weight="bold" color={BrandColors.primary}>
-              In total ${totalPrice}
-            </Text>
-            <TouchableOpacity style={styles.addMoreButton} onPress={handleAddMore} activeOpacity={0.7}>
-              <Text size="sm" weight="semiBold" color={BrandColors.primary}>
+          {/* Total and Add More Row */}
+          <View style={styles.servicesFooter}>
+            <View style={styles.totalBadge}>
+              <Text size="md" weight="bold" color="#6B7280">
+                In total ${totalPrice}
+              </Text>
+            </View>
+            <TouchableOpacity style={styles.addMoreRowButton} onPress={handleAddMore} activeOpacity={0.7}>
+              <Text size="md" weight="bold" color={BrandColors.primary}>
                 Add More
               </Text>
-              <ChevronRight size={16} color={BrandColors.primary} />
+              <ChevronRight size={18} color={BrandColors.primary} />
             </TouchableOpacity>
           </View>
         </View>
       </BottomSheetScrollView>
 
       {/* Bottom Action Button */}
-      <View style={[styles.bottomAction, { bottom: TAB_BAR_OFFSET + insets.bottom + 50 }]}>
+      <View style={[styles.bottomAction, { bottom: TAB_BAR_OFFSET + insets.bottom }]}>
         <PrimaryButton style={styles.confirmButton} onPress={handleConfirmBooking}>
           <Text size="md" weight="semiBold" color={BrandColors.white}>
             {buttonText}
@@ -327,10 +332,11 @@ export function BookingDetailsContent({ onConfirmBooking, onBackPress, onAddMore
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: BrandColors.white,
   },
   scrollContent: {
     paddingHorizontal: Spacing.lg,
-    // Note: paddingBottom is applied dynamically based on safe area insets
+    // Note: paddingBottom is applied dynamically based on safe area insets and tab bar offset
   },
 
   // Mechanic Section
@@ -339,22 +345,22 @@ const styles = StyleSheet.create({
   },
   mechanicHeader: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
   },
   avatarContainer: {
     marginRight: Spacing.md,
   },
   avatar: {
-    width: 56,
-    height: 56,
+    width: 64,
+    height: 64,
     borderRadius: BorderRadius.full,
   },
   avatarPlaceholder: {
-    width: 56,
-    height: 56,
+    width: 64,
+    height: 64,
     borderRadius: BorderRadius.full,
     borderWidth: 1.5,
-    borderColor: "#E5E7EB",
+    borderColor: "#F3F4F6",
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: "#FAFAFA",
@@ -366,7 +372,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 2,
+    marginBottom: 4,
   },
   ratingBadge: {
     flexDirection: "row",
@@ -384,59 +390,64 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   servicesDescription: {
-    marginTop: Spacing.md,
+    marginTop: Spacing.lg,
     lineHeight: 20,
   },
   tagsRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: Spacing.md,
+    marginTop: Spacing.lg,
     gap: Spacing.md,
   },
   availableTag: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#F3F4F6",
+    backgroundColor: "#F9FAFB",
     paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderRadius: BorderRadius.full,
+    paddingVertical: 6,
+    borderRadius: BorderRadius.md,
   },
   availableDot: {
     width: 8,
     height: 8,
     borderRadius: BorderRadius.full,
     backgroundColor: "#10B981",
-    marginRight: 6,
+    marginRight: 8,
   },
   responseTag: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#F3F4F6",
+    backgroundColor: "#F9FAFB",
     paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderRadius: BorderRadius.full,
+    paddingVertical: 6,
+    borderRadius: BorderRadius.md,
     gap: 4,
   },
   statsRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: Spacing.lg,
-    gap: Spacing.xl,
+    marginTop: Spacing.xl,
+    gap: Spacing.md,
   },
-  statItem: {
+  statCard: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
+    backgroundColor: "#F9FAFB",
+    padding: Spacing.md,
+    borderRadius: BorderRadius.lg,
     gap: Spacing.sm,
   },
   statIconContainer: {
-    width: 36,
-    height: 36,
+    width: 40,
+    height: 40,
     borderRadius: BorderRadius.full,
-    backgroundColor: "#F0F9FF",
+    backgroundColor: "#EBF5FF",
     alignItems: "center",
     justifyContent: "center",
   },
   statTextContainer: {
+    flex: 1,
     gap: 2,
   },
   ratingStatRow: {
@@ -445,55 +456,62 @@ const styles = StyleSheet.create({
     gap: 4,
   },
 
-  // Section
-  section: {
-    marginBottom: Spacing.xl,
-  },
-  sectionTitle: {
+  // Selected Services
+  servicesSectionHeader: {
     marginBottom: Spacing.md,
   },
-
-  // Service Row
+  servicesContainer: {
+    backgroundColor: "#F9FAFB",
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    marginBottom: Spacing.xl,
+  },
   serviceRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
     paddingVertical: Spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: "#F3F4F6",
+    borderBottomColor: "#E5E7EB",
   },
   serviceRowLeft: {
     flex: 1,
   },
   removeButton: {
-    width: 28,
-    height: 28,
+    width: 24,
+    height: 24,
     borderRadius: BorderRadius.full,
-    backgroundColor: "#F3F4F6",
+    backgroundColor: BrandColors.primary,
     alignItems: "center",
     justifyContent: "center",
   },
-
-  // Total Row
-  totalRow: {
+  servicesFooter: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginTop: Spacing.md,
-    paddingTop: Spacing.md,
-    borderTopWidth: 1,
-    borderTopColor: "#E5E7EB",
+    marginTop: Spacing.lg,
   },
-  addMoreButton: {
+  totalBadge: {
+    backgroundColor: "#E5E7EB",
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.md,
+  },
+  addMoreRowButton: {
     flexDirection: "row",
     alignItems: "center",
+    backgroundColor: BrandColors.white,
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.md,
     gap: 4,
+    borderWidth: 1,
+    borderColor: "#F3F4F6",
   },
 
   // Bottom Action
   bottomAction: {
     position: "absolute",
-    // Note: bottom is applied dynamically based on safe area insets and tab bar offset
     left: 0,
     right: 0,
     padding: Spacing.lg,

@@ -11,7 +11,7 @@
 
 // 1. React & React Native
 import React, { useCallback, useMemo, useState } from "react";
-import { ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from "react-native";
+import { ScrollView, StyleSheet, TextInput, TouchableOpacity, useWindowDimensions, View } from "react-native";
 
 // 2. Third-party libraries
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
@@ -52,16 +52,15 @@ const TAB_BAR_OFFSET = 120;
 export function ServiceSelectionContent() {
   // ═══════════════ HOOKS ═══════════════
   const insets = useSafeAreaInsets();
+  const { height: SCREEN_HEIGHT } = useWindowDimensions();
 
   // ═══════════════ STATE-EFFECT: Local State ═══════════════
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<ServiceCategory>("basic_maintenance");
 
   // Calculate bottom padding to ensure content can scroll above the floating button
-  // Button is positioned at: bottom: TAB_BAR_OFFSET + insets.bottom
-  // So we need padding = button container height + tab bar offset + insets + breathing room
-  // The scroll view needs enough bottom padding to scroll the last item above the floating button
-  const scrollPaddingBottom = 400;
+  // Properly accounts for safe area, tab bar, and the floating action button
+  const scrollPaddingBottom = insets.bottom + TAB_BAR_OFFSET + BUTTON_CONTAINER_HEIGHT + SCREEN_HEIGHT * 0.6;
 
   // ═══════════════ STATE-EFFECT: Store Subscriptions ═══════════════
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
@@ -151,6 +150,13 @@ export function ServiceSelectionContent() {
   // ═══════════════ RENDER ═══════════════
   return (
     <View style={styles.container}>
+      {/* Header - Fixed at top */}
+      <View style={styles.header}>
+        <Text size="xl" weight="bold" color={BrandColors.primary}>
+          Select Services
+        </Text>
+      </View>
+
       {/* Category Tabs */}
       <View style={styles.categoryTabsContainer}>
         <ScrollView
@@ -177,7 +183,7 @@ export function ServiceSelectionContent() {
       {/* Service List - Scrollable content */}
       <BottomSheetScrollView
         style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: scrollPaddingBottom }]}
         showsVerticalScrollIndicator={false}
       >
         {filteredServices.map(renderServiceItem)}
@@ -189,9 +195,6 @@ export function ServiceSelectionContent() {
             </Text>
           </View>
         )}
-
-        {/* Spacer to allow scrolling last item above the floating button */}
-        <View style={{ height: scrollPaddingBottom }} />
       </BottomSheetScrollView>
     </View>
   );
@@ -204,6 +207,12 @@ export function ServiceSelectionContent() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+  },
+  header: {
+    alignItems: "center",
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.sm,
+    paddingBottom: Spacing.md,
   },
   categoryTabsContainer: {
     borderBottomWidth: 1,

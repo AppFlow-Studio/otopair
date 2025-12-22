@@ -10,11 +10,11 @@
 
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo } from "react";
-import { ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from "react-native";
+import { ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from "react-native";
 
 // 2. Third-party libraries
 import { BottomSheetFlatList } from "@gorhom/bottom-sheet";
-import { ChevronLeft, Search } from "lucide-react-native";
+import { Search } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 3. Shared UI (design system)
@@ -22,7 +22,6 @@ import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Constants, hooks, types
 import { BorderRadius, FontFamily } from "@/constants/theme";
-import { useBookingTransition } from "@/hooks/useBookingTransition";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 
@@ -37,7 +36,7 @@ import { ServiceChip } from "./ServiceChip";
 // ============================================================================
 
 // Tab bar offset used for bottom padding to ensure content scrolls above native tabs
-const TAB_BAR_OFFSET = 200;
+const TAB_BAR_OFFSET = 120;
 
 // ============================================================================
 // TYPES
@@ -49,8 +48,6 @@ export type { MechanicFilterOption } from "@/constants/filters";
 interface MechanicSelectionContentProps {
   /** Called when user confirms mechanic selection */
   onSelectMechanic?: () => void;
-  /** Called when user presses back button */
-  onBackPress?: () => void;
   /** Currently selected filter from TopBar */
   mechanicFilter?: MechanicFilterOption;
 }
@@ -61,27 +58,26 @@ interface MechanicSelectionContentProps {
 
 export function MechanicSelectionContent({
   onSelectMechanic,
-  onBackPress,
   mechanicFilter = "available_now",
 }: MechanicSelectionContentProps) {
   // ═══════════════ HOOKS ═══════════════
   const insets = useSafeAreaInsets();
+  const { height: SCREEN_HEIGHT } = useWindowDimensions();
 
   // ═══════════════ STATE ═══════════════
   const [serviceToRemove, setServiceToRemove] = React.useState<string | null>(null);
   const [dontAskAgain, setDontAskAgain] = React.useState(false);
 
   // Calculate bottom padding to ensure content can scroll above native tab bar
-  const scrollPaddingBottom = TAB_BAR_OFFSET + insets.bottom + 20;
-
-  // ═══════════════ TRANSITION HOOK ═══════════════
-  const { goBack } = useBookingTransition();
+  // Properly accounts for safe area, tab bar, and dynamic buffer
+  const scrollPaddingBottom = insets.bottom + TAB_BAR_OFFSET + SCREEN_HEIGHT * 0.7;
 
   // ═══════════════ BOOKING STORE ═══════════════
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
   const toggleServiceSelection = useBookingStore((state) => state.toggleServiceSelection);
   const availableServices = useBookingStore((state) => state.availableServices);
   const setBookingTypeAndProceed = useBookingStore((state) => state.setBookingTypeAndProceed);
+  const prevBookingStage = useBookingStore((state) => state.prevBookingStage);
 
   // Memoize selected services to prevent re-renders
   const selectedServices = useMemo(
@@ -134,9 +130,9 @@ export function MechanicSelectionContent({
   // Go back to service selection if all services are removed
   useEffect(() => {
     if (selectedServiceIds.length === 0) {
-      goBack();
+      prevBookingStage();
     }
-  }, [selectedServiceIds.length, goBack]);
+  }, [selectedServiceIds.length, prevBookingStage]);
 
   // ═══════════════ HANDLERS ═══════════════
   const handleRemoveService = useCallback(
@@ -200,15 +196,6 @@ export function MechanicSelectionContent({
     [handleBookNow, handleScheduleLater]
   );
 
-  // Handle back button
-  const handleBackPress = useCallback(() => {
-    if (onBackPress) {
-      onBackPress();
-    } else {
-      goBack();
-    }
-  }, [onBackPress, goBack]);
-
   // ═══════════════ SYNC FILTER FROM PROPS ═══════════════
   useEffect(() => {
     setFilters({ filterType: mechanicFilter });
@@ -216,15 +203,11 @@ export function MechanicSelectionContent({
 
   return (
     <View style={styles.container}>
-      {/* Header with Back Button - Fixed at top */}
+      {/* Header - Fixed at top */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={handleBackPress} activeOpacity={0.7}>
-          <ChevronLeft size={24} color={BrandColors.primary} />
-        </TouchableOpacity>
         <Text size="xl" weight="bold" color={BrandColors.primary}>
           Choose Mechanic
         </Text>
-        <View style={styles.headerSpacer} />
       </View>
 
       {/* Search Input - Fixed outside scroll view */}
@@ -288,25 +271,12 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: Spacing.lg,
-    // Note: paddingBottom is applied dynamically based on safe area insets
   },
   header: {
-    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.sm,
     paddingBottom: Spacing.md,
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    alignItems: "center",
-    justifyContent: "center",
-    marginLeft: -Spacing.sm,
-  },
-  headerSpacer: {
-    width: 40,
   },
   searchContainer: {
     flexDirection: "row",

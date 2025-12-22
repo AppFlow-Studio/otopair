@@ -13,8 +13,9 @@
  */
 
 import { BlurView } from "expo-blur";
+import { useRouter } from "expo-router";
 import { ArrowLeft, Settings2 } from "lucide-react-native";
-import React, { useState } from "react";
+import React, { useCallback, useState } from "react";
 import { Modal, Pressable, StyleSheet, View } from "react-native";
 import Animated, { FadeIn, FadeOut, SharedValue } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -75,10 +76,27 @@ export function TopBar({
   sheetAnimatedIndex,
 }: TopBarProps) {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
 
   // ═══════════════ TRANSITION HOOK ═══════════════
-  const { currentStage, topBarEntering, topBarExiting, goBack, crossfadeEntering, crossfadeExiting } =
+  const { currentStage, topBarEntering, topBarExiting, crossfadeEntering, crossfadeExiting, goBack } =
     useBookingTransition();
+
+  // Handle back navigation - routes back on service_selection/discovery, otherwise goes to previous booking stage
+  const handleBackPress = useCallback(() => {
+    // If on service_selection or discovery, do router back (exit booking flow)
+    if (currentStage === "service_selection" || currentStage === "discovery") {
+      if (router.canGoBack()) {
+        router.back();
+      } else {
+        // If we can't go back (e.g. root of tab), force return to home
+        router.replace("/(main-tabs)/home");
+      }
+    } else {
+      // For all other stages, go to previous booking stage
+      goBack();
+    }
+  }, [currentStage, router, goBack]);
 
   // Determine which mode we're in based on stage
   const isDiscoveryMode = currentStage === "discovery" || currentStage === "service_selection";
@@ -125,9 +143,9 @@ export function TopBar({
 
       {/* Top Row: Back, Center, Right */}
       <View style={[styles.topRow, { paddingTop: insets.top + Spacing.sm }]}>
-        {/* Back Button */}
+        {/* Back Button - Screen Navigation */}
         <GhostButton
-          onPress={goBack}
+          onPress={handleBackPress}
           style={styles.iconButton}
           paddingHorizontal={Spacing.sm}
           paddingVertical={Spacing.sm}

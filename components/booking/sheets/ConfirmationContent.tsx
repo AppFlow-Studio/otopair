@@ -65,6 +65,13 @@ export function ConfirmationContent({ onBookAgain }: ConfirmationContentProps) {
 
   return (
     <View style={styles.container}>
+      {/* Header - Fixed at top */}
+      <View style={styles.header}>
+        <Text size="xl" weight="bold" color={BrandColors.primary}>
+          Confirmation
+        </Text>
+      </View>
+
       {/* Success Icon */}
       <View style={styles.iconContainer}>
         <CheckCircle size={64} color="#10B981" strokeWidth={1.5} />
@@ -152,8 +159,14 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.xl,
     alignItems: "center",
+  },
+  header: {
+    alignItems: "center",
+    width: "100%",
+    paddingTop: Spacing.sm,
+    paddingBottom: Spacing.md,
+    marginBottom: Spacing.lg,
   },
   iconContainer: {
     marginBottom: Spacing.lg,

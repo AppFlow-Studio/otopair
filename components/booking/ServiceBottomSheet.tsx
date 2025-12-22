@@ -23,14 +23,12 @@ import { BorderRadius, Shadows } from "@/constants/theme";
 import { useBookingTransition } from "@/hooks/useBookingTransition";
 import { useBookingStore } from "@/stores/useBookingStore";
 
-import {
-  BookingDetailsContent,
-  CollapsedContent,
-  ConfirmationContent,
-  MechanicSelectionContent,
-  ServiceSelectionContent,
-} from "./sheets";
+import { BookingDetailsContent } from "./sheets/BookingDetailsContent";
+import { CollapsedContent } from "./sheets/CollapsedContent";
+import { ConfirmationContent } from "./sheets/ConfirmationContent";
 import type { MechanicFilterOption } from "./sheets/MechanicSelectionContent";
+import { MechanicSelectionContent } from "./sheets/MechanicSelectionContent";
+import { ServiceSelectionContent } from "./sheets/ServiceSelectionContent";
 
 // ============================================================================
 // TYPES
@@ -85,12 +83,11 @@ export function ServiceBottomSheet({
 
   // ═══════════════ STORE ═══════════════
   const setBookingStage = useBookingStore((state) => state.setBookingStage);
-  const getSelectedServicesCount = useBookingStore((state) => state.getSelectedServicesCount);
-  const getSelectedServicesTotal = useBookingStore((state) => state.getSelectedServicesTotal);
+  // Call functions inside selector so Zustand tracks value changes
+  const selectedCount = useBookingStore((state) => state.getSelectedServicesCount());
+  const selectedTotal = useBookingStore((state) => state.getSelectedServicesTotal());
 
   // ═══════════════ COMPUTED ═══════════════
-  const selectedCount = getSelectedServicesCount();
-  const selectedTotal = getSelectedServicesTotal();
   const hasSelection = selectedCount > 0;
   const isServiceStage = currentStage === "discovery" || currentStage === "service_selection";
 
@@ -226,7 +223,7 @@ export function ServiceBottomSheet({
       </Animated.View>
 
       {/* Expanded State - stage-based content with Oto transitions */}
-      <View style={[styles.expandedContainer, { paddingBottom: insets.bottom }]}>
+      <View style={styles.expandedContainer}>
         <Animated.View style={[styles.expandedContent, expandedStyle]}>{renderStageContent()}</Animated.View>
       </View>
 

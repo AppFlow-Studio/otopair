@@ -18,6 +18,7 @@
  *   />
  *
  * OWNER: Waleed Mansour
+ * TICKET: OTO-142
  */
 
 // 1. React & React Native
@@ -74,49 +75,51 @@ export const MechanicCard = memo(function MechanicCard({ mechanic, onBookNow, on
             <Image source={{ uri: mechanic.photoUrl }} style={styles.avatar} />
           ) : (
             <View style={styles.avatarPlaceholder}>
-              <User size={24} color="#6B7280" />
+              <User size={32} color="#9CA3AF" />
             </View>
           )}
         </View>
 
         {/* Info */}
         <View style={styles.infoContainer}>
-          <Text size="md" weight="bold" color={BrandColors.primary}>
-            {mechanic.shopName}
-          </Text>
-          <Text size="sm" weight="medium" color="#6B7280">
-            {mechanic.name}
-          </Text>
-          <Text size="xs" weight="regular" color="#9CA3AF">
-            {mechanic.distanceMi} mi
-          </Text>
-        </View>
-
-        {/* Rating & Verified */}
-        <View style={styles.ratingContainer}>
-          <View style={styles.ratingBadge}>
-            <Star size={14} color={BrandColors.secondary} fill={BrandColors.secondary} />
-            <Text size="sm" weight="bold" color={BrandColors.primary}>
-              {mechanic.rating.toFixed(1)}
+          <View style={styles.nameRow}>
+            <Text size="lg" weight="bold" color={BrandColors.primary}>
+              {mechanic.shopName}
             </Text>
-          </View>
-          {mechanic.isVerified && (
-            <View style={styles.verifiedBadge}>
-              <BadgeCheck size={14} color="#10B981" />
-              <Text size="xs" weight="semiBold" color="#10B981">
-                Verified
+            <View style={styles.ratingBadge}>
+              <Star size={16} color={BrandColors.secondary} fill={BrandColors.secondary} />
+              <Text size="sm" weight="bold" color={BrandColors.primary}>
+                {mechanic.rating.toFixed(1)}
               </Text>
             </View>
-          )}
+          </View>
+
+          <Text size="sm" weight="medium" color="#6B7280" style={{ marginBottom: 2 }}>
+            {mechanic.name}
+          </Text>
+
+          <View style={styles.detailsRow}>
+            <Text size="xs" weight="regular" color="#9CA3AF">
+              {mechanic.distanceMi} mi
+            </Text>
+            {mechanic.isVerified && (
+              <View style={styles.verifiedBadge}>
+                <BadgeCheck size={18} color="#10B981" />
+                <Text size="xs" weight="bold" color="#10B981">
+                  Verified
+                </Text>
+              </View>
+            )}
+          </View>
         </View>
       </View>
 
-      {/* Services */}
+      {/* Services Description */}
       <Text size="sm" weight="regular" color="#6B7280" style={styles.servicesText} numberOfLines={2}>
         {mechanic.services.join(", ")}
       </Text>
 
-      {/* Tags */}
+      {/* Tags Row */}
       <View style={styles.tagsRow}>
         {mechanic.isAvailable && (
           <View style={styles.availableTag}>
@@ -132,7 +135,7 @@ export const MechanicCard = memo(function MechanicCard({ mechanic, onBookNow, on
           </Text>
           <Text
             size="xs"
-            weight="semiBold"
+            weight="bold"
             color={
               mechanic.responseTime === "Quick" ? "#10B981" : mechanic.responseTime === "Normal" ? "#F59E0B" : "#EF4444"
             }
@@ -144,7 +147,7 @@ export const MechanicCard = memo(function MechanicCard({ mechanic, onBookNow, on
 
       {/* Next Availability */}
       <View style={styles.availabilitySection}>
-        <Text size="sm" weight="semiBold" color={BrandColors.primary} style={styles.availabilityTitle}>
+        <Text size="sm" weight="bold" color={BrandColors.primary} style={styles.availabilityTitle}>
           Next Availability
         </Text>
         <ScrollView
@@ -206,30 +209,39 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
   },
   avatarContainer: {
     marginRight: Spacing.md,
   },
   avatar: {
-    width: 52,
-    height: 52,
+    width: 64,
+    height: 64,
     borderRadius: BorderRadius.full,
   },
   avatarPlaceholder: {
-    width: 52,
-    height: 52,
+    width: 64,
+    height: 64,
     borderRadius: BorderRadius.full,
     backgroundColor: BrandColors.white,
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 1.5,
+    borderColor: "#E5E7EB",
   },
   infoContainer: {
     flex: 1,
-    gap: 2,
   },
-  ratingContainer: {
-    alignItems: "flex-end",
+  nameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 4,
+  },
+  detailsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.md,
   },
   ratingBadge: {
     flexDirection: "row",
@@ -240,10 +252,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    marginTop: 4,
   },
   servicesText: {
-    marginTop: Spacing.sm,
+    marginTop: Spacing.lg,
     lineHeight: 18,
   },
   tagsRow: {
@@ -257,27 +268,27 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: BrandColors.white,
     paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderRadius: BorderRadius.full,
+    paddingVertical: 6,
+    borderRadius: BorderRadius.md,
   },
   availableDot: {
     width: 8,
     height: 8,
     borderRadius: BorderRadius.full,
     backgroundColor: "#10B981",
-    marginRight: 6,
+    marginRight: 8,
   },
   responseTag: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: BrandColors.white,
     paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.sm,
-    borderRadius: BorderRadius.full,
+    paddingVertical: 6,
+    borderRadius: BorderRadius.md,
     gap: 4,
   },
   availabilitySection: {
-    marginTop: Spacing.lg,
+    marginTop: Spacing.xl,
   },
   availabilityTitle: {
     marginBottom: Spacing.md,
@@ -300,7 +311,7 @@ const styles = StyleSheet.create({
   },
   actionButtons: {
     flexDirection: "row",
-    marginTop: Spacing.lg,
+    marginTop: Spacing.xl,
     gap: Spacing.sm,
   },
   scheduleButton: {
