@@ -20,11 +20,12 @@
 
 // 1. React & React Native
 import React, { useCallback, useMemo, useState } from "react";
-import { Image, StyleSheet, TouchableOpacity, View } from "react-native";
+import { Image, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
 import { BadgeCheck, ChevronRight, Clock, Star, User, X } from "lucide-react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 3. Shared UI (design system)
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
@@ -33,7 +34,7 @@ import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 import { DiscardServiceModal } from "./DiscardServiceModal";
 
 // 5. Constants, hooks, types
-import { BorderRadius, Layout } from "@/constants/theme";
+import { BorderRadius, getSheetContentPadding } from "@/constants/theme";
 import type { Service } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
@@ -82,6 +83,10 @@ function ServiceRow({ service, onRemove }: { service: Service; onRemove: () => v
 // ============================================================================
 
 export function BookingDetailsContent({ onAddMore }: BookingDetailsContentProps) {
+  // ═══════════════ HOOKS ═══════════════
+  const insets = useSafeAreaInsets();
+  const contentPadding = getSheetContentPadding(true, insets.bottom);
+
   // ═══════════════ BOOKING STORE ═══════════════
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
   const availableServices = useBookingStore((state) => state.availableServices);
@@ -94,6 +99,7 @@ export function BookingDetailsContent({ onAddMore }: BookingDetailsContentProps)
   // ═══════════════ LOCAL STATE ═══════════════
   const [showDiscardModal, setShowDiscardModal] = useState(false);
   const [pendingRemoveServiceId, setPendingRemoveServiceId] = useState<string | null>(null);
+  const [selectedSlotIndex, setSelectedSlotIndex] = useState<number | null>(null);
 
   // Get selected mechanic
   const mechanic = useMemo(() => {
@@ -153,7 +159,10 @@ export function BookingDetailsContent({ onAddMore }: BookingDetailsContentProps)
   return (
     <View style={styles.container}>
       {/* Scrollable Content */}
-      <BottomSheetScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+      <BottomSheetScrollView
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: contentPadding }]}
+        showsVerticalScrollIndicator={false}
+      >
         {/* Mechanic Info Section */}
         <View style={styles.mechanicSection}>
           {/* Avatar and Basic Info */}
@@ -173,21 +182,11 @@ export function BookingDetailsContent({ onAddMore }: BookingDetailsContentProps)
                 <Text size="lg" weight="bold" color={BrandColors.primary}>
                   {mechanic.shopName}
                 </Text>
-                <View style={styles.ratingVerifiedRow}>
-                  <View style={styles.ratingBadge}>
-                    <Star size={16} color={BrandColors.secondary} fill={BrandColors.secondary} />
-                    <Text size="sm" weight="bold" color={BrandColors.primary}>
-                      {mechanic.rating.toFixed(1)}
-                    </Text>
-                  </View>
-                  {mechanic.isVerified && (
-                    <View style={styles.verifiedBadge}>
-                      <BadgeCheck size={18} color="#10B981" />
-                      <Text size="xs" weight="bold" color="#10B981">
-                        Verified
-                      </Text>
-                    </View>
-                  )}
+                <View style={styles.ratingBadge}>
+                  <Star size={16} color={BrandColors.secondary} fill={BrandColors.secondary} />
+                  <Text size="sm" weight="bold" color={BrandColors.primary}>
+                    {mechanic.rating.toFixed(1)}
+                  </Text>
                 </View>
               </View>
 
@@ -195,9 +194,19 @@ export function BookingDetailsContent({ onAddMore }: BookingDetailsContentProps)
                 {mechanic.name}
               </Text>
 
-              <Text size="xs" weight="regular" color="#9CA3AF">
-                {mechanic.distanceMi} mi
-              </Text>
+              <View style={styles.distanceRow}>
+                <Text size="xs" weight="regular" color="#9CA3AF">
+                  {mechanic.distanceMi} mi
+                </Text>
+                {mechanic.isVerified && (
+                  <View style={styles.verifiedBadge}>
+                    <BadgeCheck size={18} color="#10B981" />
+                    <Text size="xs" weight="bold" color="#10B981">
+                      Verified
+                    </Text>
+                  </View>
+                )}
+              </View>
             </View>
           </View>
 
@@ -300,8 +309,49 @@ export function BookingDetailsContent({ onAddMore }: BookingDetailsContentProps)
           </View>
         </View>
 
-        {/* Spacer to ensure content scrolls above the footer button */}
-        <View style={styles.footerSpacer} />
+        {/* Next Availability Section */}
+        {mechanic.nextAvailability && mechanic.nextAvailability.length > 0 && (
+          <View style={styles.availabilitySection}>
+            <Text size="sm" weight="bold" color={BrandColors.primary} style={styles.availabilityTitle}>
+              Next Availability
+            </Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.availabilitySlotsContent}
+            >
+              {mechanic.nextAvailability.map((slot, index) => {
+                const isSelected = index === selectedSlotIndex;
+                return (
+                  <TouchableOpacity
+                    key={index}
+                    style={[styles.availabilitySlot, isSelected && styles.selectedSlot]}
+                    onPress={() => setSelectedSlotIndex(index)}
+                    activeOpacity={0.7}
+                  >
+                    <Text size="xs" weight="medium" color={isSelected ? BrandColors.primary : "#6B7280"}>
+                      {slot.dayOfWeek}
+                    </Text>
+                    <Text size="lg" weight="bold" color={isSelected ? BrandColors.primary : "#374151"}>
+                      {slot.day}
+                    </Text>
+                    <Text size="xs" weight="medium" color={isSelected ? BrandColors.primary : "#6B7280"}>
+                      {slot.time}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+
+            {/* View All Availability Button */}
+            <TouchableOpacity style={styles.viewAllButton} activeOpacity={0.7}>
+              <Text size="sm" weight="semiBold" color={BrandColors.primary}>
+                View All Availability
+              </Text>
+              <ChevronRight size={18} color={BrandColors.primary} />
+            </TouchableOpacity>
+          </View>
+        )}
       </BottomSheetScrollView>
 
       {/* Discard Service Confirmation Modal */}
@@ -325,7 +375,6 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: Spacing.lg,
-    // Note: paddingBottom is applied dynamically based on safe area insets and tab bar offset
   },
 
   // Mechanic Section
@@ -368,10 +417,10 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 4,
   },
-  ratingVerifiedRow: {
+  distanceRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: Spacing.sm,
+    justifyContent: "space-between",
   },
   verifiedBadge: {
     flexDirection: "row",
@@ -501,8 +550,39 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#F3F4F6",
   },
-  footerSpacer: {
-    // Height to ensure content scrolls above the footer button
-    height: Layout.actionButtonHeight + Layout.tabBarHeight + Layout.scrollBuffer,
+
+  // Next Availability Section
+  availabilitySection: {
+    marginTop: Spacing.lg,
+    backgroundColor: "#F9FAFB",
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    marginBottom: Spacing.xl,
+  },
+  availabilityTitle: {
+    marginBottom: Spacing.md,
+  },
+  availabilitySlotsContent: {
+    gap: Spacing.sm,
+  },
+  availabilitySlot: {
+    width: 80,
+    alignItems: "center",
+    paddingVertical: Spacing.md,
+    backgroundColor: BrandColors.white,
+    borderRadius: BorderRadius.lg,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  selectedSlot: {
+    backgroundColor: "#F0F7FF",
+    borderColor: BrandColors.secondary,
+  },
+  viewAllButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: Spacing.lg,
+    gap: 4,
   },
 });

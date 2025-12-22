@@ -14,7 +14,7 @@ import React, { forwardRef, useCallback, useImperativeHandle, useMemo, useRef, u
 import { ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
-import BottomSheet, { BottomSheetBackdrop, BottomSheetScrollView } from "@gorhom/bottom-sheet";
+import { BottomSheetBackdrop, BottomSheetModal, BottomSheetScrollView } from "@gorhom/bottom-sheet";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 3. Shared UI (design system)
@@ -22,7 +22,7 @@ import { BrandColors, PrimaryButton, Spacing, Text } from "@/components/shared-u
 
 // 4. Constants, hooks, types, stores
 import { SERVICE_CATEGORIES } from "@/constants/services";
-import { BorderRadius, Layout, Shadows } from "@/constants/theme";
+import { BorderRadius, getSheetContentPadding, Shadows } from "@/constants/theme";
 import type { Service, ServiceCategory } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
 
@@ -47,10 +47,12 @@ interface AddMoreServicesSheetProps {
 export const AddMoreServicesSheet = forwardRef<AddMoreServicesSheetRef, AddMoreServicesSheetProps>(
   function AddMoreServicesSheet({ onClose }, ref) {
     // ═══════════════ REFS ═══════════════
-    const bottomSheetRef = useRef<BottomSheet>(null);
+    const bottomSheetModalRef = useRef<BottomSheetModal>(null);
 
     // ═══════════════ HOOKS ═══════════════
     const insets = useSafeAreaInsets();
+    // This sheet has its own footer, so pass true for hasFooter
+    const contentPadding = getSheetContentPadding(true, insets.bottom);
 
     // ═══════════════ LOCAL STATE ═══════════════
     const [selectedCategory, setSelectedCategory] = useState<ServiceCategory>("basic_maintenance");
@@ -87,10 +89,10 @@ export const AddMoreServicesSheet = forwardRef<AddMoreServicesSheetRef, AddMoreS
         // Store current selection when opening
         setInitialSelectedIds([...selectedServiceIds]);
         setSelectedCategory("basic_maintenance");
-        bottomSheetRef.current?.snapToIndex(0);
+        bottomSheetModalRef.current?.present();
       },
       close: () => {
-        bottomSheetRef.current?.close();
+        bottomSheetModalRef.current?.dismiss();
       },
     }));
 
@@ -109,11 +111,11 @@ export const AddMoreServicesSheet = forwardRef<AddMoreServicesSheetRef, AddMoreS
       newlyAddedServices.forEach((id) => {
         toggleServiceSelection(id);
       });
-      bottomSheetRef.current?.close();
+      bottomSheetModalRef.current?.dismiss();
     }, [newlyAddedServices, toggleServiceSelection]);
 
     const handleConfirm = useCallback(() => {
-      bottomSheetRef.current?.close();
+      bottomSheetModalRef.current?.dismiss();
     }, []);
 
     const handleServicePress = useCallback(
@@ -190,10 +192,9 @@ export const AddMoreServicesSheet = forwardRef<AddMoreServicesSheetRef, AddMoreS
 
     // ═══════════════ RENDER ═══════════════
     return (
-      <BottomSheet
-        ref={bottomSheetRef}
+      <BottomSheetModal
+        ref={bottomSheetModalRef}
         snapPoints={snapPoints}
-        index={-1}
         enablePanDownToClose
         enableDynamicSizing={false}
         backdropComponent={renderBackdrop}
@@ -221,10 +222,10 @@ export const AddMoreServicesSheet = forwardRef<AddMoreServicesSheetRef, AddMoreS
             </ScrollView>
           </View>
 
-          {/* Service List - Spacer ensures all items scroll above footer */}
+          {/* Service List */}
           <BottomSheetScrollView
             style={styles.scrollView}
-            contentContainerStyle={styles.scrollContent}
+            contentContainerStyle={[styles.scrollContent, { paddingBottom: contentPadding }]}
             showsVerticalScrollIndicator={false}
           >
             {filteredServices.map(renderServiceItem)}
@@ -236,9 +237,6 @@ export const AddMoreServicesSheet = forwardRef<AddMoreServicesSheetRef, AddMoreS
                 </Text>
               </View>
             )}
-
-            {/* Spacer to ensure content scrolls above the footer buttons */}
-            <View style={styles.footerSpacer} />
           </BottomSheetScrollView>
 
           {/* Footer Buttons */}
@@ -262,7 +260,7 @@ export const AddMoreServicesSheet = forwardRef<AddMoreServicesSheetRef, AddMoreS
             </PrimaryButton>
           </View>
         </View>
-      </BottomSheet>
+      </BottomSheetModal>
     );
   }
 );
@@ -348,6 +346,10 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing["3xl"],
   },
   footer: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
     flexDirection: "row",
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.md,
@@ -373,9 +375,5 @@ const styles = StyleSheet.create({
   },
   confirmButtonDisabled: {
     opacity: 0.5,
-  },
-  footerSpacer: {
-    // Height to ensure content scrolls above the footer buttons
-    height: Layout.actionButtonHeight + Layout.scrollBuffer,
   },
 });

@@ -16,13 +16,14 @@ import { ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from "react
 // 2. Third-party libraries
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
 import { Search } from "lucide-react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 3. Shared UI (design system)
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Constants, hooks, types, stores
 import { SERVICE_CATEGORIES } from "@/constants/services";
-import { BorderRadius, FontFamily, Layout } from "@/constants/theme";
+import { BorderRadius, FontFamily, getSheetContentPadding } from "@/constants/theme";
 import type { Service, ServiceCategory } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
 
@@ -43,6 +44,10 @@ import { useBookingStore } from "@/stores/useBookingStore";
 // ============================================================================
 
 export function ServiceSelectionContent() {
+  // ═══════════════ HOOKS ═══════════════
+  const insets = useSafeAreaInsets();
+  const contentPadding = getSheetContentPadding(true, insets.bottom);
+
   // ═══════════════ STATE-EFFECT: Local State ═══════════════
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<ServiceCategory>("basic_maintenance");
@@ -168,7 +173,7 @@ export function ServiceSelectionContent() {
       {/* Service List - Scrollable content with bottom padding for footer */}
       <BottomSheetScrollView
         style={styles.scrollView}
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: contentPadding }]}
         showsVerticalScrollIndicator={false}
       >
         {filteredServices.map(renderServiceItem)}
@@ -180,9 +185,6 @@ export function ServiceSelectionContent() {
             </Text>
           </View>
         )}
-
-        {/* Spacer to ensure content scrolls above the footer button */}
-        <View style={styles.footerSpacer} />
       </BottomSheetScrollView>
     </View>
   );
@@ -246,7 +248,6 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: Spacing.lg,
     gap: Spacing.md,
-    // Note: paddingBottom is applied dynamically based on safe area insets
   },
   serviceItem: {
     flexDirection: "row",
@@ -273,9 +274,5 @@ const styles = StyleSheet.create({
   },
   emptyState: {
     paddingVertical: Spacing["3xl"],
-  },
-  footerSpacer: {
-    // Height to ensure content scrolls above the footer button
-    height: Layout.actionButtonHeight + Layout.tabBarHeight + Layout.scrollBuffer,
   },
 });

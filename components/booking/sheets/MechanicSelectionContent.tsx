@@ -21,7 +21,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Constants, hooks, types
-import { BorderRadius, FontFamily, Layout } from "@/constants/theme";
+import { BorderRadius, FontFamily, getSheetContentPadding } from "@/constants/theme";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 
@@ -61,13 +61,11 @@ export function MechanicSelectionContent({
 }: MechanicSelectionContentProps) {
   // ═══════════════ HOOKS ═══════════════
   const insets = useSafeAreaInsets();
+  const contentPadding = getSheetContentPadding(false, insets.bottom);
 
   // ═══════════════ STATE ═══════════════
   const [serviceToRemove, setServiceToRemove] = React.useState<string | null>(null);
   const [dontAskAgain, setDontAskAgain] = React.useState(false);
-
-  // Simple bottom padding for safe area + tab bar (no floating footer on this stage)
-  const scrollPaddingBottom = insets.bottom + Layout.tabBarOffset;
 
   // ═══════════════ BOOKING STORE ═══════════════
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
@@ -245,7 +243,7 @@ export function MechanicSelectionContent({
             </ScrollView>
           ) : null
         }
-        ListFooterComponent={<View style={{ height: scrollPaddingBottom }} />}
+        ListFooterComponent={<View style={{ height: contentPadding }} />}
       />
 
       {/* Discard Service Modal */}
