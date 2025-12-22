@@ -5,7 +5,7 @@
  *          based on the current booking stage. Uses custom Oto transitions
  *          for smooth stage-to-stage animations.
  *
- * FLOW: discovery → service_selection → mechanic_selection → booking_details → confirmation
+ * FLOW: discovery → service_selection → mechanic_selection → booking_details → payment → confirmation
  *
  * USED IN: app/(main-tabs)/bookings/index.tsx
  *
@@ -30,6 +30,7 @@ import { CollapsedContent } from "./sheets/CollapsedContent";
 import { ConfirmationContent } from "./sheets/ConfirmationContent";
 import type { MechanicFilterOption } from "./sheets/MechanicSelectionContent";
 import { MechanicSelectionContent } from "./sheets/MechanicSelectionContent";
+import { ReviewPayContent } from "./sheets/ReviewPayContent";
 import { ServiceSelectionContent } from "./sheets/ServiceSelectionContent";
 
 // ============================================================================
@@ -87,6 +88,7 @@ export function ServiceBottomSheet({
   // ═══════════════ STORE ═══════════════
   const setBookingStage = useBookingStore((state) => state.setBookingStage);
   const bookingType = useBookingStore((state) => state.bookingType);
+  const scheduledAppointment = useBookingStore((state) => state.scheduledAppointment);
   // Call functions inside selector so Zustand tracks value changes
   const selectedCount = useBookingStore((state) => state.getSelectedServicesCount());
   const selectedTotal = useBookingStore((state) => state.getSelectedServicesTotal());
@@ -94,7 +96,8 @@ export function ServiceBottomSheet({
   // ═══════════════ COMPUTED ═══════════════
   const hasSelection = selectedCount > 0;
   const isServiceStage = currentStage === "discovery" || currentStage === "service_selection";
-  const isBookingStage = currentStage === "booking_details" || currentStage === "payment";
+  const isBookingDetailsStage = currentStage === "booking_details";
+  const isPaymentStage = currentStage === "payment";
   const isConfirmationStage = currentStage === "confirmation";
 
   // ═══════════════ EFFECTS ═══════════════
@@ -145,8 +148,13 @@ export function ServiceBottomSheet({
     // Navigation is handled internally by MechanicSelectionContent
   }, []);
 
-  // Booking confirmed -> go to confirmation
-  const handleBookingConfirmed = useCallback(() => {
+  // Booking details confirmed -> go to payment (Review & Pay)
+  const handleProceedToPayment = useCallback(() => {
+    setBookingStage("payment", "forward");
+  }, [setBookingStage]);
+
+  // Payment confirmed -> go to confirmation
+  const handlePaymentConfirmed = useCallback(() => {
     setBookingStage("confirmation", "forward");
   }, [setBookingStage]);
 
@@ -197,17 +205,47 @@ export function ServiceBottomSheet({
         );
       }
 
-      // Booking details / payment stage footer
-      if (isBookingStage) {
+      // Booking details stage footer - proceed to Review & Pay
+      if (isBookingDetailsStage) {
         const buttonText = bookingType === "schedule_later" ? "Schedule For Later" : "Book Appointment";
+        // For "book_now", disable button if no appointment slot is selected
+        // For "schedule_later", always enable the button
+        const isBookNowDisabled = bookingType === "book_now" && !scheduledAppointment;
         return (
           <BottomSheetFooter {...props} bottomInset={footerBottomInset}>
             <Animated.View style={footerAnimatedStyle}>
               <View style={styles.footerContainer}>
-                <PrimaryButton style={styles.bookingButton} onPress={handleBookingConfirmed}>
+                <PrimaryButton
+                  style={[styles.bookingButton, isBookNowDisabled && styles.actionButtonDisabled]}
+                  onPress={handleProceedToPayment}
+                  disabled={isBookNowDisabled}
+                >
                   <Text size="md" weight="semiBold" color={BrandColors.white}>
                     {buttonText}
                   </Text>
+                  <ChevronRight size={20} color={BrandColors.white} />
+                </PrimaryButton>
+              </View>
+            </Animated.View>
+          </BottomSheetFooter>
+        );
+      }
+
+      // Payment (Review & Pay) stage footer
+      if (isPaymentStage) {
+        return (
+          <BottomSheetFooter {...props} bottomInset={footerBottomInset}>
+            <Animated.View style={footerAnimatedStyle}>
+              <View style={styles.footerContainer}>
+                <PrimaryButton style={styles.payButton} onPress={handlePaymentConfirmed}>
+                  <Text size="md" weight="semiBold" color={BrandColors.white}>
+                    Pay
+                  </Text>
+                  <View style={styles.payAmountBadge}>
+                    <Text size="sm" weight="bold" color={BrandColors.primary}>
+                      ${selectedTotal}
+                    </Text>
+                  </View>
                   <ChevronRight size={20} color={BrandColors.white} />
                 </PrimaryButton>
               </View>
@@ -238,7 +276,8 @@ export function ServiceBottomSheet({
     },
     [
       isServiceStage,
-      isBookingStage,
+      isBookingDetailsStage,
+      isPaymentStage,
       isConfirmationStage,
       footerBottomInset,
       footerAnimatedStyle,
@@ -246,8 +285,10 @@ export function ServiceBottomSheet({
       selectedCount,
       selectedTotal,
       bookingType,
+      scheduledAppointment,
       handleServicesSelected,
-      handleBookingConfirmed,
+      handleProceedToPayment,
+      handlePaymentConfirmed,
       handleBookAgain,
     ]
   );
@@ -281,10 +322,9 @@ export function ServiceBottomSheet({
         );
 
       case "payment":
-        // Payment stage uses same content as booking details for now
         return (
           <Animated.View key="payment" entering={sheetEntering} exiting={sheetExiting} style={styles.contentWrapper}>
-            <BookingDetailsContent onAddMore={handleAddMore} />
+            <ReviewPayContent />
           </Animated.View>
         );
 
@@ -398,5 +438,19 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
     borderRadius: BorderRadius.lg,
     paddingVertical: Spacing.md,
+  },
+  payButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: Spacing.sm,
+    borderRadius: BorderRadius.lg,
+    paddingVertical: Spacing.md,
+  },
+  payAmountBadge: {
+    backgroundColor: BrandColors.white,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs,
+    borderRadius: BorderRadius.md,
   },
 });

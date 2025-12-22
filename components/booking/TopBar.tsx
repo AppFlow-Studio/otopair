@@ -102,6 +102,7 @@ export function TopBar({
   const isDiscoveryMode = currentStage === "discovery" || currentStage === "service_selection";
   const isMechanicMode = currentStage === "mechanic_selection";
   const isBookingDetailsMode = currentStage === "booking_details";
+  const isPaymentMode = currentStage === "payment";
   const isConfirmationMode = currentStage === "confirmation";
 
   // Filter dropdown state (only for discovery mode)
@@ -122,6 +123,7 @@ export function TopBar({
   // Get current mode key for carousel-style transitions
   const getModeKey = () => {
     if (isConfirmationMode) return "confirmation";
+    if (isPaymentMode) return "payment";
     if (isBookingDetailsMode) return "booking";
     if (isMechanicMode) return "mechanic";
     return "discovery";
@@ -134,6 +136,7 @@ export function TopBar({
     discovery: { label: "Your Location", value: location },
     mechanic: { label: `${mechanicsCount} Mechanics Near You`, value: selectedServicesText },
     booking: { label: "Book Appointment", value: shopName },
+    payment: { label: shopName, value: "Review & Pay" },
     confirmation: { label: "Booking Complete", value: shopName || "Thank You!" },
   };
 

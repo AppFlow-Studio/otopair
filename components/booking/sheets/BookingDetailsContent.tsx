@@ -19,7 +19,7 @@
  */
 
 // 1. React & React Native
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Image, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
@@ -37,9 +37,10 @@ import { DiscardServiceModal } from "./DiscardServiceModal";
 
 // 5. Constants, hooks, types
 import { BorderRadius, getSheetContentPadding } from "@/constants/theme";
-import type { Service } from "@/stores/types/store.types";
+import type { ScheduledAppointment, Service } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
+import { useScheduleStore } from "@/stores/useScheduleStore";
 
 // ============================================================================
 // CONSTANTS
@@ -214,6 +215,10 @@ export function BookingDetailsContent({ onAddMore }: BookingDetailsContentProps)
   const availableServices = useBookingStore((state) => state.availableServices);
   const selectedMechanicId = useBookingStore((state) => state.selectedMechanicId);
   const toggleServiceSelection = useBookingStore((state) => state.toggleServiceSelection);
+  const setScheduledAppointment = useBookingStore((state) => state.setScheduledAppointment);
+
+  // ═══════════════ SCHEDULE STORE ═══════════════
+  const confirmedSelections = useScheduleStore((state) => state.confirmedSelections);
 
   // ═══════════════ MECHANIC STORE ═══════════════
   const getMechanicById = useMechanicStore((state) => state.getMechanicById);
@@ -243,6 +248,67 @@ export function BookingDetailsContent({ onAddMore }: BookingDetailsContentProps)
 
   // Mock rating count based on mechanic rating
   const ratingCount = mechanic ? Math.floor(mechanic.rating * 25 + 27) : 0;
+
+  // ═══════════════ HELPER FUNCTIONS ═══════════════
+  /** Create a ScheduledAppointment from a slot */
+  const createAppointmentFromSlot = useCallback(
+    (slotIndex: number): ScheduledAppointment | null => {
+      if (!mechanic?.nextAvailability || slotIndex < 0 || slotIndex >= mechanic.nextAvailability.length) {
+        return null;
+      }
+      const slot = mechanic.nextAvailability[slotIndex];
+      const now = new Date();
+      const dayNum = parseInt(slot.day, 10);
+
+      // Determine the date (assume current month, adjust if day is in past)
+      let targetMonth = now.getMonth();
+      let targetYear = now.getFullYear();
+      if (dayNum < now.getDate()) {
+        // Slot is in next month
+        targetMonth += 1;
+        if (targetMonth > 11) {
+          targetMonth = 0;
+          targetYear += 1;
+        }
+      }
+
+      const date = new Date(targetYear, targetMonth, dayNum);
+      const months = ["Jan.", "Feb.", "Mar.", "Apr.", "May", "Jun.", "Jul.", "Aug.", "Sep.", "Oct.", "Nov.", "Dec."];
+      const displayDate = `${dayNum} ${months[targetMonth]} ${targetYear}`;
+      const isoDate = date.toISOString().split("T")[0];
+
+      return {
+        date: isoDate,
+        time: slot.time,
+        displayDate,
+      };
+    },
+    [mechanic?.nextAvailability]
+  );
+
+  // ═══════════════ EFFECTS ═══════════════
+  // Sync selected slot to booking store
+  useEffect(() => {
+    if (selectedSlotIndex !== null) {
+      const appointment = createAppointmentFromSlot(selectedSlotIndex);
+      setScheduledAppointment(appointment);
+    } else {
+      // Check if there's a confirmed selection from the schedule store
+      if (selectedMechanicId && confirmedSelections[selectedMechanicId]) {
+        const confirmed = confirmedSelections[selectedMechanicId];
+        const months = ["Jan.", "Feb.", "Mar.", "Apr.", "May", "Jun.", "Jul.", "Aug.", "Sep.", "Oct.", "Nov.", "Dec."];
+        const displayDate = `${confirmed.date.getDate()} ${months[confirmed.date.getMonth()]} ${confirmed.date.getFullYear()}`;
+        const isoDate = confirmed.date.toISOString().split("T")[0];
+        setScheduledAppointment({
+          date: isoDate,
+          time: confirmed.time,
+          displayDate,
+        });
+      } else {
+        setScheduledAppointment(null);
+      }
+    }
+  }, [selectedSlotIndex, createAppointmentFromSlot, setScheduledAppointment, selectedMechanicId, confirmedSelections]);
 
   // ═══════════════ HANDLERS ═══════════════
   const handleAddMore = useCallback(() => {
@@ -282,9 +348,19 @@ export function BookingDetailsContent({ onAddMore }: BookingDetailsContentProps)
       );
       if (matchingIndex !== undefined && matchingIndex >= 0) {
         setSelectedSlotIndex(matchingIndex);
+      } else {
+        // Slot not in quick availability list, set appointment directly
+        const months = ["Jan.", "Feb.", "Mar.", "Apr.", "May", "Jun.", "Jul.", "Aug.", "Sep.", "Oct.", "Nov.", "Dec."];
+        const displayDate = `${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()}`;
+        const isoDate = date.toISOString().split("T")[0];
+        setScheduledAppointment({
+          date: isoDate,
+          time,
+          displayDate,
+        });
       }
     },
-    [mechanic?.nextAvailability]
+    [mechanic?.nextAvailability, setScheduledAppointment]
   );
 
   const handleViewAllReviews = useCallback(() => {

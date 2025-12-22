@@ -221,3 +221,43 @@ export interface MechanicSchedule {
   /** Map of "YYYY-MM" to monthly availability */
   monthlySchedules: Record<string, MonthlyAvailability>;
 }
+
+// ─────────────────────────────────────────────────────────────
+// PAYMENT TYPES
+// ─────────────────────────────────────────────────────────────
+
+/** Supported payment card brands */
+export type PaymentCardBrand = "mastercard" | "visa" | "amex" | "discover";
+
+/** Supported digital wallet types */
+export type DigitalWalletType = "apple_pay" | "google_pay";
+
+/** A saved payment method (credit/debit card) */
+export interface PaymentMethod {
+  /** Unique identifier */
+  id: string;
+  /** Card brand */
+  brand: PaymentCardBrand;
+  /** Last 4 digits of card number */
+  last4: string;
+  /** Expiration month (1-12) */
+  expMonth: number;
+  /** Expiration year (e.g., 2025) */
+  expYear: number;
+  /** Whether this is the default payment method */
+  isDefault: boolean;
+  /** Cardholder name (optional) */
+  cardholderName?: string;
+  /** Date when payment method was added */
+  createdAt: string;
+}
+
+/** Scheduled appointment date/time for a booking */
+export interface ScheduledAppointment {
+  /** Selected date (ISO string format YYYY-MM-DD) */
+  date: string;
+  /** Selected time slot (e.g., "9:00 AM") */
+  time: string;
+  /** Display-formatted date (e.g., "20 Aug. 2025") */
+  displayDate: string;
+}

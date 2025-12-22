@@ -15,7 +15,15 @@
  */
 
 import { create } from "zustand";
-import type { Booking, BookingStage, BookingType, Service, ServiceCategory, UserLocation } from "./types/store.types";
+import type {
+  Booking,
+  BookingStage,
+  BookingType,
+  ScheduledAppointment,
+  Service,
+  ServiceCategory,
+  UserLocation,
+} from "./types/store.types";
 
 // ─────────────────────────────────────────────────────────────
 // STORE STATE INTERFACE
@@ -56,6 +64,8 @@ interface BookingState {
   selectedMechanicId: number | null;
   /** Booking type - immediate or scheduled */
   bookingType: BookingType | null;
+  /** Scheduled appointment date/time */
+  scheduledAppointment: ScheduledAppointment | null;
 
   // ═══════════════ BOOKING STATE ═══════════════
   /** All bookings indexed by ID */
@@ -102,6 +112,8 @@ interface BookingState {
   selectMechanic: (mechanicId: number | null) => void;
   /** Set booking type and proceed to booking details */
   setBookingTypeAndProceed: (type: BookingType, mechanicId: number) => void;
+  /** Set the scheduled appointment date/time */
+  setScheduledAppointment: (appointment: ScheduledAppointment | null) => void;
   /** Reset booking flow to initial state */
   resetBookingFlow: () => void;
 
@@ -122,6 +134,10 @@ interface BookingState {
   getServicesByCategory: () => Service[];
   /** Get selected services as array */
   getSelectedServices: () => Service[];
+  /** Get formatted appointment date for display */
+  getFormattedAppointmentDate: () => string;
+  /** Get formatted appointment time for display */
+  getFormattedAppointmentTime: () => string;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -250,6 +266,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   transitionDirection: "forward",
   selectedMechanicId: null,
   bookingType: null,
+  scheduledAppointment: null,
   bookings: {},
   bookingIds: [],
   draftBooking: null,
@@ -357,6 +374,11 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       transitionDirection: "forward",
     }),
 
+  setScheduledAppointment: (appointment) =>
+    set({
+      scheduledAppointment: appointment,
+    }),
+
   resetBookingFlow: () =>
     set({
       bookingStage: "discovery",
@@ -365,6 +387,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       selectedMechanicId: null,
       selectedServiceCategory: null,
       bookingType: null,
+      scheduledAppointment: null,
       draftBooking: null,
     }),
 
@@ -411,5 +434,25 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
     // If no category selected, return all services
     if (!selectedServiceCategory) return availableServices;
     return availableServices.filter((service) => service.category === selectedServiceCategory);
+  },
+
+  getFormattedAppointmentDate: () => {
+    const { scheduledAppointment } = get();
+    if (!scheduledAppointment) {
+      // Default to a future date if not set
+      const futureDate = new Date();
+      futureDate.setDate(futureDate.getDate() + 7); // 1 week from now
+      const months = ["Jan.", "Feb.", "Mar.", "Apr.", "May", "Jun.", "Jul.", "Aug.", "Sep.", "Oct.", "Nov.", "Dec."];
+      return `${futureDate.getDate()} ${months[futureDate.getMonth()]} ${futureDate.getFullYear()}`;
+    }
+    return scheduledAppointment.displayDate;
+  },
+
+  getFormattedAppointmentTime: () => {
+    const { scheduledAppointment } = get();
+    if (!scheduledAppointment) {
+      return "1:00 PM"; // Default time
+    }
+    return scheduledAppointment.time;
   },
 }));

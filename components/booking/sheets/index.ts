@@ -16,5 +16,6 @@ export { ConfirmationContent } from "./ConfirmationContent";
 export { DiscardServiceModal } from "./DiscardServiceModal";
 export { MechanicCard } from "./MechanicCard";
 export { MechanicSelectionContent } from "./MechanicSelectionContent";
+export { ReviewPayContent } from "./ReviewPayContent";
 export { ServiceChip } from "./ServiceChip";
 export { ServiceSelectionContent } from "./ServiceSelectionContent";
