@@ -60,7 +60,7 @@ export function ServiceSelectionContent() {
 
   // Calculate bottom padding to ensure content can scroll above the floating button
   // Properly accounts for safe area, tab bar, and the floating action button
-  const scrollPaddingBottom = insets.bottom + TAB_BAR_OFFSET + BUTTON_CONTAINER_HEIGHT + SCREEN_HEIGHT * 0.6;
+  const scrollPaddingBottom = insets.bottom + TAB_BAR_OFFSET + BUTTON_CONTAINER_HEIGHT + SCREEN_HEIGHT * 0.75;
 
   // ═══════════════ STATE-EFFECT: Store Subscriptions ═══════════════
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
