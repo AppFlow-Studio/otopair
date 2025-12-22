@@ -9,6 +9,10 @@ export default function TabLayout() {
         <Label>Home</Label>
         <Icon sf="house.fill" drawable="custom_android_drawable" />
       </NativeTabs.Trigger>
+      <NativeTabs.Trigger name="ai-chat">
+        <Icon sf="bubble.left.and.bubble.right.fill" drawable="custom_ai_drawable" />
+        <Label>AI Chat</Label>
+      </NativeTabs.Trigger>
       <NativeTabs.Trigger name="bookings">
         <Icon sf="calendar" drawable="custom_settings_drawable" />
         <Label>Bookings</Label>
