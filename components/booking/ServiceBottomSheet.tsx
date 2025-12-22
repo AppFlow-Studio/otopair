@@ -27,14 +27,13 @@ import { BrandColors, Spacing } from "@/components/shared-ui";
 // 4. Flow-specific components
 import {
   BookingDetailsFooter,
-  ConfirmationFooter,
   PaymentFooter,
   ServiceSelectionFooter,
 } from "./footers";
 import { AddMoreServicesSheet, AddMoreServicesSheetRef } from "./sheets/AddMoreServicesSheet";
 import { BookingDetailsContent } from "./sheets/BookingDetailsContent";
 import { CollapsedContent } from "./sheets/CollapsedContent";
-import { ConfirmationContent } from "./sheets/ConfirmationContent";
+import { ConfirmationModal, ConfirmationModalRef } from "./sheets/ConfirmationModal";
 import type { MechanicFilterOption } from "./sheets/MechanicSelectionContent";
 import { MechanicSelectionContent } from "./sheets/MechanicSelectionContent";
 import { ReviewPayContent } from "./sheets/ReviewPayContent";
@@ -91,6 +90,7 @@ export function ServiceBottomSheet({
   // ═══════════════ REFS ═══════════════
   const bottomSheetRef = useRef<BottomSheet>(null);
   const addMoreSheetRef = useRef<AddMoreServicesSheetRef>(null);
+  const confirmationModalRef = useRef<ConfirmationModalRef>(null);
   const animatedIndex = useSharedValue(0);
 
   // ═══════════════ HOOKS ═══════════════
@@ -110,7 +110,6 @@ export function ServiceBottomSheet({
   const isServiceStage = currentStage === "discovery" || currentStage === "service_selection";
   const isBookingDetailsStage = currentStage === "booking_details";
   const isPaymentStage = currentStage === "payment";
-  const isConfirmationStage = currentStage === "confirmation";
 
   // ═══════════════ EFFECTS ═══════════════
   // Expose animated index to parent
@@ -118,10 +117,19 @@ export function ServiceBottomSheet({
     onAnimatedIndexChange?.(animatedIndex);
   }, [animatedIndex, onAnimatedIndexChange]);
 
-  // Expand sheet when stage changes (except discovery)
+  // Expand sheet when stage changes (except discovery and confirmation)
   useEffect(() => {
-    if (currentStage !== "discovery" && bottomSheetRef.current) {
+    if (currentStage !== "discovery" && currentStage !== "confirmation" && bottomSheetRef.current) {
       bottomSheetRef.current.snapToIndex(1);
+    }
+  }, [currentStage]);
+
+  // Open/close confirmation modal based on stage
+  useEffect(() => {
+    if (currentStage === "confirmation") {
+      confirmationModalRef.current?.open();
+    } else {
+      confirmationModalRef.current?.close();
     }
   }, [currentStage]);
 
@@ -238,18 +246,7 @@ export function ServiceBottomSheet({
         );
       }
 
-      // Confirmation stage footer
-      if (isConfirmationStage) {
-        return (
-          <ConfirmationFooter
-            {...props}
-            bottomInset={footerBottomInset}
-            animatedStyle={footerAnimatedStyle}
-            onBookAgain={handleBookAgain}
-          />
-        );
-      }
-
+      // Confirmation stage uses a separate modal (no footer here)
       // Mechanic selection has no footer (buttons are in MechanicCard)
       return null;
     },
@@ -257,7 +254,6 @@ export function ServiceBottomSheet({
       isServiceStage,
       isBookingDetailsStage,
       isPaymentStage,
-      isConfirmationStage,
       footerBottomInset,
       footerAnimatedStyle,
       hasSelection,
@@ -268,7 +264,6 @@ export function ServiceBottomSheet({
       handleServicesSelected,
       handleProceedToPayment,
       handlePaymentConfirmed,
-      handleBookAgain,
     ]
   );
 
@@ -307,18 +302,8 @@ export function ServiceBottomSheet({
           </Animated.View>
         );
 
+      // Confirmation stage uses a separate detached modal (ConfirmationModal)
       case "confirmation":
-        return (
-          <Animated.View
-            key="confirmation"
-            entering={sheetEntering}
-            exiting={sheetExiting}
-            style={styles.contentWrapper}
-          >
-            <ConfirmationContent />
-          </Animated.View>
-        );
-
       default:
         return null;
     }
@@ -353,6 +338,16 @@ export function ServiceBottomSheet({
 
       {/* Add More Services Sheet - Rendered as sibling to stack on top */}
       <AddMoreServicesSheet ref={addMoreSheetRef} />
+
+      {/* Confirmation Modal - Detached floating modal for booking success */}
+      <ConfirmationModal
+        ref={confirmationModalRef}
+        onBackToHome={handleBookAgain}
+        onAddToCalendar={() => {
+          // TODO: Implement calendar integration
+          console.log("Add to calendar");
+        }}
+      />
     </>
   );
 }
