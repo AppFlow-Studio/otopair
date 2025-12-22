@@ -12,18 +12,20 @@
  * OWNER: Waleed Mansour
  */
 
-import BottomSheet, { BottomSheetFooter, BottomSheetFooterProps } from "@gorhom/bottom-sheet";
-import { ChevronRight } from "lucide-react-native";
+// 1. React & React Native
 import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import { Dimensions, StyleSheet, View } from "react-native";
+
+// 2. Expo & Third-party
+import BottomSheet, { BottomSheetFooter, BottomSheetFooterProps } from "@gorhom/bottom-sheet";
+import { ChevronRight } from "lucide-react-native";
 import Animated, { SharedValue, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+// 3. Shared UI (design system)
 import { BrandColors, PrimaryButton, Spacing, Text } from "@/components/shared-ui";
-import { BorderRadius, Layout, Shadows } from "@/constants/theme";
-import { useBookingTransition } from "@/hooks/useBookingTransition";
-import { useBookingStore } from "@/stores/useBookingStore";
 
+// 4. Flow-specific components
 import { AddMoreServicesSheet, AddMoreServicesSheetRef } from "./sheets/AddMoreServicesSheet";
 import { BookingDetailsContent } from "./sheets/BookingDetailsContent";
 import { CollapsedContent } from "./sheets/CollapsedContent";
@@ -32,6 +34,11 @@ import type { MechanicFilterOption } from "./sheets/MechanicSelectionContent";
 import { MechanicSelectionContent } from "./sheets/MechanicSelectionContent";
 import { ReviewPayContent } from "./sheets/ReviewPayContent";
 import { ServiceSelectionContent } from "./sheets/ServiceSelectionContent";
+
+// 5. Constants, hooks, types, stores
+import { BorderRadius, Layout, Shadows } from "@/constants/theme";
+import { useBookingTransition } from "@/hooks/useBookingTransition";
+import { useBookingStore } from "@/stores/useBookingStore";
 
 // ============================================================================
 // TYPES

@@ -20,16 +20,16 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 // 3. Shared UI (design system)
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
-// 4. Constants, hooks, types
-import { BorderRadius, FontFamily, getSheetContentPadding } from "@/constants/theme";
-import { useBookingStore } from "@/stores/useBookingStore";
-import { useMechanicStore } from "@/stores/useMechanicStore";
-
-// 5. Flow-specific components (booking folder)
-import type { MechanicFilterOption } from "@/constants/filters";
+// 4. Flow-specific components
 import { DiscardServiceModal } from "./DiscardServiceModal";
 import { MechanicCard } from "./MechanicCard";
 import { ServiceChip } from "./ServiceChip";
+
+// 5. Constants, hooks, types, stores
+import type { MechanicFilterOption } from "@/constants/filters";
+import { BorderRadius, FontFamily, getSheetContentPadding } from "@/constants/theme";
+import { useBookingStore } from "@/stores/useBookingStore";
+import { useMechanicStore } from "@/stores/useMechanicStore";
 
 // ============================================================================
 // CONSTANTS

@@ -20,9 +20,13 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 // 3. Shared UI (design system)
 import { BrandColors, GhostButton, Spacing, Text } from "@/components/shared-ui";
 
-// 4. Constants, hooks, types, stores
+// 5. Constants, hooks, types, stores
 import { SheetDrivenAnimation } from "@/constants/animations";
+import type { MechanicFilterOption } from "@/constants/filters";
 import { BorderRadius } from "@/constants/theme";
+
+// Re-export for convenience
+export type { MechanicFilterOption } from "@/constants/filters";
 
 // ============================================================================
 // CONSTANTS
@@ -33,10 +37,6 @@ const MECHANIC_FILTERS_HEIGHT = 52;
 // ============================================================================
 // TYPES
 // ============================================================================
-
-// Re-export from central location
-export type { MechanicFilterOption } from "@/constants/filters";
-import type { MechanicFilterOption } from "@/constants/filters";
 
 interface MechanicFilterItem {
   id: MechanicFilterOption;

@@ -254,3 +254,4 @@ export function getTimeSlotsForDate(mechanicId: number, date: Date): string[] {
   return dayAvailability?.timeSlots || [];
 }
 
+

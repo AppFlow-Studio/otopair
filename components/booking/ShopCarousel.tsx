@@ -20,13 +20,20 @@
  * OWNER: Waleed Mansour
  */
 
-import { BrandColors, Spacing, Text } from "@/components/shared-ui";
-import { BorderRadius } from "@/constants/theme";
-import type { Shop, UserLocation } from "@/stores/types/store.types";
-import { BlurView } from "expo-blur";
-import { BriefcaseBusiness } from "lucide-react-native";
+// 1. React & React Native
 import React, { useCallback, useMemo, useRef } from "react";
 import { Animated, Dimensions, Pressable, ScrollView, StyleSheet, View } from "react-native";
+
+// 2. Expo & Third-party
+import { BlurView } from "expo-blur";
+import { BriefcaseBusiness } from "lucide-react-native";
+
+// 3. Shared UI (design system)
+import { BrandColors, Spacing, Text } from "@/components/shared-ui";
+
+// 4. Constants, hooks, types, stores
+import { BorderRadius } from "@/constants/theme";
+import type { Shop, UserLocation } from "@/stores/types/store.types";
 
 // ============================================================================
 // HELPERS

@@ -647,3 +647,4 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing["3xl"],
   },
 });
+

@@ -18,18 +18,27 @@
  * OWNER: Waleed Mansour, Ahmad Hamoudeh
  */
 
+// 1. React & React Native
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { StyleSheet, TouchableOpacity, View } from "react-native";
+
+// 2. Expo & Third-party
+import * as Location from "expo-location";
+import { Navigation2 } from "lucide-react-native";
+import MapView, { PROVIDER_DEFAULT, Region } from "react-native-maps";
+import Animated, { SharedValue, useAnimatedStyle, withTiming } from "react-native-reanimated";
+
+// 3. Shared UI (design system)
+import { BrandColors } from "@/components/shared-ui";
+
+// 4. Flow-specific components
+import { ShopMarker } from "./ShopMarker";
+
+// 5. Constants, hooks, types, stores
+import { Spacing } from "@/constants/theme";
 import type { Shop } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useShopStore } from "@/stores/useShopStore";
-import * as Location from "expo-location";
-import { Navigation2 } from "lucide-react-native";
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { StyleSheet, TouchableOpacity, View } from "react-native";
-import MapView, { PROVIDER_DEFAULT, Region } from "react-native-maps";
-import Animated, { SharedValue, useAnimatedStyle, withTiming } from "react-native-reanimated";
-import { ShopMarker } from "./ShopMarker";
-import { BrandColors } from "@/components/shared-ui";
-import { Spacing } from "@/constants/theme";
 
 // ============================================================================
 // TYPES

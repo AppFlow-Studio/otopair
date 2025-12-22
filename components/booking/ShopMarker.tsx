@@ -22,11 +22,11 @@
 import React, { memo, useCallback, useRef } from "react";
 import { Animated, StyleSheet, View } from "react-native";
 
-// 2. Third-party libraries
+// 2. Expo & Third-party
 import { MapPin } from "lucide-react-native";
 import { Marker } from "react-native-maps";
 
-// 4. Constants, hooks, types, stores
+// 3. Constants, hooks, types, stores
 import type { Shop } from "@/stores/types/store.types";
 
 // ============================================================================

@@ -12,21 +12,29 @@
  * OWNER: Waleed Mansour
  */
 
+// 1. React & React Native
+import React, { useCallback, useState } from "react";
+import { Modal, Pressable, StyleSheet, View } from "react-native";
+
+// 2. Expo & Third-party
 import { BlurView } from "expo-blur";
 import { useRouter } from "expo-router";
 import { ArrowLeft, Settings2 } from "lucide-react-native";
-import React, { useCallback, useState } from "react";
-import { Modal, Pressable, StyleSheet, View } from "react-native";
 import Animated, { FadeIn, FadeOut, SharedValue } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+// 3. Shared UI (design system)
 import { BrandColors, GhostButton, Spacing, Text } from "@/components/shared-ui";
+
+// 4. Flow-specific components
+import { DiscoveryTabs, MechanicTabs, type MechanicFilterOption } from "./topbars";
+
+// 5. Constants, hooks, types, stores
 import { AnimationDuration } from "@/constants/animations";
 import { SHOP_FILTER_OPTIONS } from "@/constants/filters";
 import { BorderRadius, Shadows } from "@/constants/theme";
 import { useBookingTransition } from "@/hooks/useBookingTransition";
 import type { FilterOption, ServiceCategory } from "@/stores/types/store.types";
-import { DiscoveryTabs, MechanicTabs, type MechanicFilterOption } from "./topbars";
 
 // Re-export types for convenience
 export type { FilterOption, ServiceCategory } from "@/stores/types/store.types";
