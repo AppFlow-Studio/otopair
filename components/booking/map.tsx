@@ -39,6 +39,7 @@ import { Spacing } from "@/constants/theme";
 import type { Shop } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useShopStore } from "@/stores/useShopStore";
+import { filterShops } from "@/utils/shopFilters";
 
 // ============================================================================
 // TYPES
@@ -70,32 +71,11 @@ export function BookingMap({ onShopSelect, sheetAnimatedIndex }: BookingMapProps
   const shopIds = useShopStore((state) => state.shopIds);
   const filters = useShopStore((state) => state.filters);
 
-  // Compute filtered shops based on active filters
-  const filteredShops = useMemo(() => {
-    // Safety check - ensure we have valid data
-    if (!shopIds || !shopsRecord) return [];
-
-    let filtered = shopIds.map((id) => shopsRecord[id]).filter((shop): shop is Shop => shop != null);
-
-    // Filter by availability (show only shops with availability > 0)
-    if (filters.availableOnly) {
-      filtered = filtered.filter((shop) => shop.availability > 0);
-    }
-
-    // Filter by minimum rating
-    if (filters.minRating > 0) {
-      filtered = filtered.filter((shop) => (shop.rating ?? 0) >= filters.minRating);
-    }
-
-    // Filter by service IDs
-    if (filters.serviceIds && filters.serviceIds.length > 0) {
-      filtered = filtered.filter(
-        (shop) => shop.serviceIds && filters.serviceIds.some((serviceId) => shop.serviceIds.includes(serviceId))
-      );
-    }
-
-    return filtered;
-  }, [shopsRecord, shopIds, filters]);
+  // Compute filtered shops using the extracted utility
+  const filteredShops = useMemo(
+    () => filterShops({ shopsRecord, shopIds, filters }),
+    [shopsRecord, shopIds, filters]
+  );
 
   // Debounce the shops to prevent rapid map updates that crash the app
   const [shops, setShops] = useState<Shop[]>(filteredShops);

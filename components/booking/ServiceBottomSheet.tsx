@@ -17,15 +17,20 @@ import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import { Dimensions, StyleSheet, View } from "react-native";
 
 // 2. Expo & Third-party
-import BottomSheet, { BottomSheetFooter, BottomSheetFooterProps } from "@gorhom/bottom-sheet";
-import { ChevronRight } from "lucide-react-native";
+import BottomSheet, { BottomSheetFooterProps } from "@gorhom/bottom-sheet";
 import Animated, { SharedValue, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 3. Shared UI (design system)
-import { BrandColors, PrimaryButton, Spacing, Text } from "@/components/shared-ui";
+import { BrandColors, Spacing } from "@/components/shared-ui";
 
 // 4. Flow-specific components
+import {
+  BookingDetailsFooter,
+  ConfirmationFooter,
+  PaymentFooter,
+  ServiceSelectionFooter,
+} from "./footers";
 import { AddMoreServicesSheet, AddMoreServicesSheetRef } from "./sheets/AddMoreServicesSheet";
 import { BookingDetailsContent } from "./sheets/BookingDetailsContent";
 import { CollapsedContent } from "./sheets/CollapsedContent";
@@ -188,93 +193,60 @@ export function ServiceBottomSheet({
 
   // ═══════════════ FOOTER RENDERER ═══════════════
   // Using footerComponent so the sheet knows about the footer and adjusts scroll area automatically
-  // This handles ALL stage footers in one place for consistent layout
+  // Each stage has its own modular footer component
   const renderFooter = useCallback(
     (props: BottomSheetFooterProps) => {
       // Service selection stage footer
       if (isServiceStage) {
         return (
-          <BottomSheetFooter {...props} bottomInset={footerBottomInset}>
-            <Animated.View style={footerAnimatedStyle}>
-              <View style={styles.footerContainer}>
-                <PrimaryButton
-                  onPress={handleServicesSelected}
-                  style={[styles.actionButton, !hasSelection && styles.actionButtonDisabled]}
-                  disabled={!hasSelection}
-                >
-                  <Text size="md" weight="semiBold" color={BrandColors.white}>
-                    {hasSelection ? `Add ${selectedCount} to Cart · $${selectedTotal}` : "Select Service(s)"}
-                  </Text>
-                </PrimaryButton>
-              </View>
-            </Animated.View>
-          </BottomSheetFooter>
+          <ServiceSelectionFooter
+            {...props}
+            bottomInset={footerBottomInset}
+            animatedStyle={footerAnimatedStyle}
+            hasSelection={hasSelection}
+            selectedCount={selectedCount}
+            selectedTotal={selectedTotal}
+            onConfirm={handleServicesSelected}
+          />
         );
       }
 
       // Booking details stage footer - proceed to Review & Pay
       if (isBookingDetailsStage) {
-        const buttonText = bookingType === "schedule_later" ? "Schedule For Later" : "Book Appointment";
-        // For "book_now", disable button if no appointment slot is selected
-        // For "schedule_later", always enable the button
-        const isBookNowDisabled = bookingType === "book_now" && !scheduledAppointment;
         return (
-          <BottomSheetFooter {...props} bottomInset={footerBottomInset}>
-            <Animated.View style={footerAnimatedStyle}>
-              <View style={styles.footerContainer}>
-                <PrimaryButton
-                  style={[styles.bookingButton, isBookNowDisabled && styles.actionButtonDisabled]}
-                  onPress={handleProceedToPayment}
-                  disabled={isBookNowDisabled}
-                >
-                  <Text size="md" weight="semiBold" color={BrandColors.white}>
-                    {buttonText}
-                  </Text>
-                  <ChevronRight size={20} color={BrandColors.white} />
-                </PrimaryButton>
-              </View>
-            </Animated.View>
-          </BottomSheetFooter>
+          <BookingDetailsFooter
+            {...props}
+            bottomInset={footerBottomInset}
+            animatedStyle={footerAnimatedStyle}
+            bookingType={bookingType}
+            hasAppointment={!!scheduledAppointment}
+            onProceed={handleProceedToPayment}
+          />
         );
       }
 
       // Payment (Review & Pay) stage footer
       if (isPaymentStage) {
         return (
-          <BottomSheetFooter {...props} bottomInset={footerBottomInset}>
-            <Animated.View style={footerAnimatedStyle}>
-              <View style={styles.footerContainer}>
-                <PrimaryButton style={styles.payButton} onPress={handlePaymentConfirmed}>
-                  <Text size="md" weight="semiBold" color={BrandColors.white}>
-                    Pay
-                  </Text>
-                  <View style={styles.payAmountBadge}>
-                    <Text size="sm" weight="bold" color={BrandColors.primary}>
-                      ${selectedTotal}
-                    </Text>
-                  </View>
-                  <ChevronRight size={20} color={BrandColors.white} />
-                </PrimaryButton>
-              </View>
-            </Animated.View>
-          </BottomSheetFooter>
+          <PaymentFooter
+            {...props}
+            bottomInset={footerBottomInset}
+            animatedStyle={footerAnimatedStyle}
+            totalAmount={selectedTotal}
+            onConfirm={handlePaymentConfirmed}
+          />
         );
       }
 
       // Confirmation stage footer
       if (isConfirmationStage) {
         return (
-          <BottomSheetFooter {...props} bottomInset={footerBottomInset}>
-            <Animated.View style={footerAnimatedStyle}>
-              <View style={styles.footerContainer}>
-                <PrimaryButton onPress={handleBookAgain} style={styles.actionButton}>
-                  <Text size="md" weight="semiBold" color={BrandColors.white}>
-                    Book Another Service
-                  </Text>
-                </PrimaryButton>
-              </View>
-            </Animated.View>
-          </BottomSheetFooter>
+          <ConfirmationFooter
+            {...props}
+            bottomInset={footerBottomInset}
+            animatedStyle={footerAnimatedStyle}
+            onBookAgain={handleBookAgain}
+          />
         );
       }
 
@@ -423,41 +395,5 @@ const styles = StyleSheet.create({
   },
   contentWrapper: {
     flex: 1,
-  },
-  footerContainer: {
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
-    backgroundColor: BrandColors.white,
-    borderTopWidth: 1,
-    borderTopColor: "#F3F4F6",
-  },
-  actionButton: {
-    borderRadius: BorderRadius["xl"],
-    paddingVertical: Spacing.lg,
-  },
-  actionButtonDisabled: {
-    opacity: 0.5,
-  },
-  bookingButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: Spacing.sm,
-    borderRadius: BorderRadius.lg,
-    paddingVertical: Spacing.md,
-  },
-  payButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: Spacing.sm,
-    borderRadius: BorderRadius.lg,
-    paddingVertical: Spacing.md,
-  },
-  payAmountBadge: {
-    backgroundColor: BrandColors.white,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.xs,
-    borderRadius: BorderRadius.md,
   },
 });

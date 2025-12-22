@@ -14,7 +14,7 @@
 
 // 1. React & React Native
 import React, { useCallback, useState } from "react";
-import { Modal, Pressable, StyleSheet, View } from "react-native";
+import { StyleSheet, View } from "react-native";
 
 // 2. Expo & Third-party
 import { BlurView } from "expo-blur";
@@ -27,12 +27,13 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BrandColors, GhostButton, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Flow-specific components
+import { FilterDropdown } from "./shared";
 import { DiscoveryTabs, MechanicTabs, type MechanicFilterOption } from "./topbars";
 
 // 5. Constants, hooks, types, stores
 import { AnimationDuration } from "@/constants/animations";
 import { SHOP_FILTER_OPTIONS } from "@/constants/filters";
-import { BorderRadius, Shadows } from "@/constants/theme";
+import { BorderRadius } from "@/constants/theme";
 import { useBookingTransition } from "@/hooks/useBookingTransition";
 import type { FilterOption, ServiceCategory } from "@/stores/types/store.types";
 
@@ -123,9 +124,9 @@ export function TopBar({
   // Filter handlers
   const handleFilterPress = () => setIsFilterOpen(true);
   const handleFilterDismiss = () => setIsFilterOpen(false);
-  const handleFilterSelect = (option: FilterOption) => {
+  const handleFilterSelect = (optionId: string) => {
     setIsFilterOpen(false);
-    onFilterSelect?.(option);
+    onFilterSelect?.(optionId as FilterOption);
   };
 
   // Get current mode key for carousel-style transitions
@@ -219,25 +220,13 @@ export function TopBar({
       )}
       {/* booking_details and confirmation modes have no tabs */}
 
-      {/* Filter Dropdown Modal */}
-      <Modal visible={isFilterOpen} transparent animationType="fade" onRequestClose={handleFilterDismiss}>
-        <Pressable style={styles.modalOverlay} onPress={handleFilterDismiss}>
-          <View style={styles.dropdownContainer}>
-            <View style={styles.dropdown}>
-              {SHOP_FILTER_OPTIONS.map((option, index) => (
-                <React.Fragment key={option.id}>
-                  <Pressable style={styles.dropdownOption} onPress={() => handleFilterSelect(option.id)}>
-                    <Text size="md" weight="medium" color={BrandColors.primary}>
-                      {option.label}
-                    </Text>
-                  </Pressable>
-                  {index < SHOP_FILTER_OPTIONS.length - 1 && <View style={styles.divider} />}
-                </React.Fragment>
-              ))}
-            </View>
-          </View>
-        </Pressable>
-      </Modal>
+      {/* Filter Dropdown */}
+      <FilterDropdown
+        visible={isFilterOpen}
+        options={SHOP_FILTER_OPTIONS}
+        onSelect={handleFilterSelect}
+        onDismiss={handleFilterDismiss}
+      />
     </BlurView>
   );
 }
@@ -278,30 +267,5 @@ const styles = StyleSheet.create({
   },
   spacer: {
     width: 40,
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: "transparent",
-  },
-  dropdownContainer: {
-    position: "absolute",
-    top: "13%",
-    right: Spacing.lg,
-  },
-  dropdown: {
-    backgroundColor: BrandColors.white,
-    borderRadius: BorderRadius.lg,
-    paddingVertical: Spacing.xs,
-    ...Shadows.lg,
-  },
-  dropdownOption: {
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.md,
-    alignItems: "center",
-  },
-  divider: {
-    height: 1,
-    backgroundColor: "#E8E8E8",
-    marginHorizontal: Spacing.sm,
   },
 });

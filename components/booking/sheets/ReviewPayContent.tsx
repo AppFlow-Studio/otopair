@@ -17,18 +17,18 @@ import { Image, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
-import { BadgeCheck, Calendar, Clock, CreditCard, Star, User } from "lucide-react-native";
+import { BadgeCheck, Calendar, Clock, Star, User } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 3. Shared UI (design system)
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Local components
+import { NoPaymentMethod, PaymentMethodCard, PayOptionButton } from "../shared";
 import { AllAvailabilitySheet, AllAvailabilitySheetRef } from "./AllAvailabilitySheet";
 
 // 5. Constants, hooks, types
 import { BorderRadius, getSheetContentPadding } from "@/constants/theme";
-import type { PaymentMethod } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { usePaymentStore } from "@/stores/usePaymentStore";
@@ -40,102 +40,6 @@ import { usePaymentStore } from "@/stores/usePaymentStore";
 interface ReviewPayContentProps {
   /** Called when user wants to change date/time */
   onChangeDatePress?: () => void;
-}
-
-// ============================================================================
-// SUB-COMPONENTS
-// ============================================================================
-
-/** Payment method card icon */
-function CardIcon({ brand }: { brand: PaymentMethod["brand"] }) {
-  // Mastercard colors
-  if (brand === "mastercard") {
-    return (
-      <View style={styles.mastercardIcon}>
-        <View style={[styles.mastercardCircle, styles.mastercardRed]} />
-        <View style={[styles.mastercardCircle, styles.mastercardYellow]} />
-      </View>
-    );
-  }
-
-  // Visa
-  if (brand === "visa") {
-    return (
-      <View style={styles.visaIcon}>
-        <Text size="sm" weight="bold" color="#1A1F71">
-          VISA
-        </Text>
-      </View>
-    );
-  }
-
-  // American Express
-  if (brand === "amex") {
-    return (
-      <View style={styles.amexIcon}>
-        <Text size="xs" weight="bold" color={BrandColors.white}>
-          AMEX
-        </Text>
-      </View>
-    );
-  }
-
-  // Fallback generic card
-  return (
-    <View style={styles.genericCardIcon}>
-      <CreditCard size={24} color={BrandColors.primary} />
-    </View>
-  );
-}
-
-/** Payment method display with Change button */
-function PaymentMethodCard({
-  paymentMethod,
-  onChangePress,
-}: {
-  paymentMethod: PaymentMethod;
-  onChangePress: () => void;
-}) {
-  return (
-    <View style={styles.paymentMethodCard}>
-      <CardIcon brand={paymentMethod.brand} />
-      <Text size="md" weight="medium" color={BrandColors.primary} style={styles.cardNumber}>
-        ****{paymentMethod.last4}
-      </Text>
-      <TouchableOpacity style={styles.changeButton} onPress={onChangePress} activeOpacity={0.7}>
-        <Text size="sm" weight="semiBold" color={BrandColors.white}>
-          Change
-        </Text>
-      </TouchableOpacity>
-    </View>
-  );
-}
-
-/** No payment method state with Add One button */
-function NoPaymentMethod({ onAddPress }: { onAddPress: () => void }) {
-  return (
-    <View style={styles.noPaymentCard}>
-      <Text size="md" weight="regular" color="#6B7280">
-        No payment method found.
-      </Text>
-      <TouchableOpacity style={styles.addOneButton} onPress={onAddPress} activeOpacity={0.7}>
-        <Text size="sm" weight="semiBold" color={BrandColors.white}>
-          Add One
-        </Text>
-      </TouchableOpacity>
-    </View>
-  );
-}
-
-/** Apple Pay / Google Pay button */
-function PayOptionButton({ type, onPress }: { type: "apple" | "google"; onPress: () => void }) {
-  return (
-    <TouchableOpacity style={styles.payOptionButton} onPress={onPress} activeOpacity={0.7}>
-      <Text size="md" weight="semiBold" color={BrandColors.primary}>
-        {type === "apple" ? "" : "G"} Pay
-      </Text>
-    </TouchableOpacity>
-  );
 }
 
 // ============================================================================
@@ -490,99 +394,9 @@ const styles = StyleSheet.create({
   paymentSection: {
     marginBottom: Spacing.xl,
   },
-  paymentMethodCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#F9FAFB",
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.md,
-    borderWidth: 1.5,
-    borderColor: BrandColors.secondary,
-    marginBottom: Spacing.md,
-  },
-  mastercardIcon: {
-    width: 40,
-    height: 28,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  mastercardCircle: {
-    width: 20,
-    height: 20,
-    borderRadius: BorderRadius.full,
-  },
-  mastercardRed: {
-    backgroundColor: "#EB001B",
-    marginRight: -8,
-    zIndex: 1,
-  },
-  mastercardYellow: {
-    backgroundColor: "#F79E1B",
-  },
-  visaIcon: {
-    width: 40,
-    height: 28,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#F9FAFB",
-    borderRadius: BorderRadius.sm,
-  },
-  amexIcon: {
-    width: 40,
-    height: 28,
-    alignItems: "center",
-    justifyContent: "center",
-    backgroundColor: "#006FCF",
-    borderRadius: BorderRadius.sm,
-  },
-  genericCardIcon: {
-    width: 40,
-    height: 28,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  cardNumber: {
-    flex: 1,
-    marginLeft: Spacing.md,
-  },
-  changeButton: {
-    backgroundColor: BrandColors.secondary,
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.sm,
-    borderRadius: BorderRadius.full,
-  },
-  noPaymentCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: BrandColors.white,
-    borderRadius: BorderRadius.lg,
-    paddingVertical: Spacing.lg,
-    paddingHorizontal: Spacing.md,
-    marginBottom: Spacing.md,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-  },
-  addOneButton: {
-    backgroundColor: BrandColors.primary,
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.sm,
-    borderRadius: BorderRadius.full,
-  },
   payOptionsRow: {
     flexDirection: "row",
     gap: Spacing.md,
-  },
-  payOptionButton: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    backgroundColor: BrandColors.white,
   },
 
   // Date & Time Section
@@ -623,4 +437,3 @@ const styles = StyleSheet.create({
     fontStyle: "italic",
   },
 });
-
