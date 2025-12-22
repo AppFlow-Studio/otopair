@@ -1,10 +1,22 @@
 /**
  * PushNotificationsStep
  *
- * PURPOSE: Push notifications permission step for OnboardingFlow.
+ * PURPOSE: Requests and handles push notification permissions during onboarding.
+ *
+ * USED IN: components/onboarding/OnboardingFlow.tsx
+ *
+ * PROPS:
+ *   - onNext (() => void): Callback to navigate to the next step
+ *   - onBack (() => void): Callback to navigate to the previous step
+ *
+ * EXAMPLE:
+ *   <PushNotificationsStep onNext={handleNext} onBack={handleBack} />
  *
  * OWNER: Daniel Chelala
+ * TICKET: OTO-XXX
  */
+
+// TODO: Add actual push notification logic
 
 import {
     BrandColors,
@@ -13,6 +25,9 @@ import {
     Spacing,
     Text,
 } from '@/components/shared-ui';
+import { ProgressBar } from '@/components/shared-ui/ProgressBar';
+import { FooterButton } from '@/components/shared-ui/FooterButton';
+import { BackButton } from '@/components/shared-ui/BackButton';
 import { useState, useRef, useEffect } from 'react';
 import {
     KeyboardAvoidingView,
@@ -23,9 +38,6 @@ import {
     ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { OnboardingProgress } from '../common/OnboardingProgress';
-import { OnboardingFooterButton } from '../common/OnboardingFooterButton';
-import { OnboardingBackButton } from '../common/OnboardingBackButton';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import { Bell } from 'lucide-react-native';
 
@@ -152,10 +164,10 @@ export function PushNotificationsStep({ onNext, onBack }: PushNotificationsStepP
             style={styles.keyboardView}
         >
             <View style={[styles.container, dynamicStyles.container]}>
-                <OnboardingProgress
+                <ProgressBar
                     total={6}
                     filled={4}
-                    leftElement={<OnboardingBackButton onBack={onBack} alwaysShow />}
+                    leftElement={<BackButton onBack={onBack} alwaysShow />}
                 />
 
                 <View style={styles.content}>
@@ -179,7 +191,7 @@ export function PushNotificationsStep({ onNext, onBack }: PushNotificationsStepP
 
                 {/* Buttons */}
                 <View style={[styles.bottomContainer, dynamicStyles.bottomContainer]}>
-                    <OnboardingFooterButton
+                    <FooterButton
                         label={requesting ? 'Requesting...' : 'Enable push notifications'}
                         onPress={handleEnableNotifications}
                         disabled={requesting}
@@ -193,7 +205,7 @@ export function PushNotificationsStep({ onNext, onBack }: PushNotificationsStepP
                         }
                     />
                     <View style={styles.buttonSpacer} />
-                    <OnboardingFooterButton
+                    <FooterButton
                         label="Not now"
                         onPress={handleNotNow}
                         size={buttonSize}

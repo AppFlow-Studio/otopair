@@ -23,7 +23,7 @@ import Animated, {
     withTiming, 
     Easing,
 } from 'react-native-reanimated';
-import { AnimatedGradientBackground } from '@/components/shared-ui/AnimatedGradientBackground';
+import { AnimatedGradientBackground } from '@/components/shared-ui';
 import { WelcomeStep } from './steps/WelcomeStep';
 import { PhoneNumberStep } from './steps/PhoneNumberStep';
 import { ConfirmPhoneNumberStep } from './steps/ConfirmPhoneNumberStep';

@@ -1,9 +1,24 @@
 /**
  * CarUsageStep
  *
- * PURPOSE: Car usage selection step for TellUsAboutFlow.
+ * PURPOSE: Allows users to select how they typically use their car.
+ *
+ * USED IN: components/tell-us-about/TellUsAboutFlow.tsx
+ *
+ * PROPS:
+ *   - onNext (() => void): Callback to navigate to the next step
+ *   - onBack (() => void): Callback to navigate to the previous step
+ *   - progress ({ total: number; filled: number }): Progress indicator data
+ *
+ * EXAMPLE:
+ *   <CarUsageStep 
+ *     onNext={handleNext} 
+ *     onBack={handleBack} 
+ *     progress={{ total: 12, filled: 2 }} 
+ *   />
  *
  * OWNER: Daniel Chelala
+ * TICKET: OTO-XXX
  */
 
 import {
@@ -13,6 +28,9 @@ import {
     Spacing,
     Text,
     BorderRadius,
+    ProgressBar,
+    FooterButton,
+    BackButton,
 } from '@/components/shared-ui';
 import { useState } from 'react';
 import {
@@ -25,9 +43,6 @@ import {
     useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { OnboardingProgress } from '@/components/onboarding/common/OnboardingProgress';
-import { OnboardingFooterButton } from '@/components/onboarding/common/OnboardingFooterButton';
-import { OnboardingBackButton } from '@/components/onboarding/common/OnboardingBackButton';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 
 interface CarUsageStepProps {
@@ -85,10 +100,10 @@ export function CarUsageStep({ onNext, onBack, progress }: CarUsageStepProps) {
             style={styles.keyboardView}
         >
             <View style={[styles.container, dynamicStyles.container]}>
-                <OnboardingProgress
+                <ProgressBar
                     total={progress.total}
                     filled={progress.filled}
-                    leftElement={<OnboardingBackButton onBack={onBack} alwaysShow />}
+                    leftElement={<BackButton onBack={onBack} alwaysShow />}
                 />
 
                 <ScrollView
@@ -137,7 +152,7 @@ export function CarUsageStep({ onNext, onBack, progress }: CarUsageStepProps) {
                 </ScrollView>
 
                 <View style={[styles.bottomContainer, dynamicStyles.bottomContainer]}>
-                    <OnboardingFooterButton
+                    <FooterButton
                         label="Continue"
                         onPress={handleContinue}
                         disabled={!canContinue}

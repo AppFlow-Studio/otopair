@@ -1,10 +1,19 @@
 /**
  * UserIntentStep
  *
- * PURPOSE: User intent selection step for OnboardingFlow - allows users to select
- *          multiple reasons for using the app.
+ * PURPOSE: Allows users to select multiple reasons for using the app to tailor their experience.
+ *
+ * USED IN: components/onboarding/OnboardingFlow.tsx
+ *
+ * PROPS:
+ *   - onNext (() => void): Callback to navigate to the next step
+ *   - onBack (() => void): Callback to navigate to the previous step
+ *
+ * EXAMPLE:
+ *   <UserIntentStep onNext={handleNext} onBack={handleBack} />
  *
  * OWNER: Daniel Chelala
+ * TICKET: OTO-XXX
  */
 
 import {
@@ -15,6 +24,9 @@ import {
     Text,
     BorderRadius,
 } from '@/components/shared-ui';
+import { ProgressBar } from '@/components/shared-ui/ProgressBar';
+import { FooterButton } from '@/components/shared-ui/FooterButton';
+import { BackButton } from '@/components/shared-ui/BackButton';
 import { useState, useEffect } from 'react';
 import {
     KeyboardAvoidingView,
@@ -26,9 +38,6 @@ import {
     useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { OnboardingProgress } from '../common/OnboardingProgress';
-import { OnboardingFooterButton } from '../common/OnboardingFooterButton';
-import { OnboardingBackButton } from '../common/OnboardingBackButton';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import {
     BookOpen,
@@ -150,10 +159,10 @@ export function UserIntentStep({ onNext, onBack }: UserIntentStepProps) {
             style={styles.keyboardView}
         >
             <View style={[styles.container, dynamicStyles.container]}>
-                <OnboardingProgress
+                <ProgressBar
                     total={6}
                     filled={3}
-                    leftElement={<OnboardingBackButton onBack={onBack} alwaysShow />}
+                    leftElement={<BackButton onBack={onBack} alwaysShow />}
                 />
 
                 <ScrollView
@@ -205,7 +214,7 @@ export function UserIntentStep({ onNext, onBack }: UserIntentStepProps) {
                 </ScrollView>
 
                 <View style={[styles.bottomContainer, dynamicStyles.bottomContainer]}>
-                    <OnboardingFooterButton
+                    <FooterButton
                         label="Continue"
                         onPress={handleContinue}
                         size={buttonSize}

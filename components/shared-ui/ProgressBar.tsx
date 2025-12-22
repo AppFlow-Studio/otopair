@@ -1,29 +1,27 @@
 /**
- * OnboardingProgress
+ * ProgressBar
  *
- * PURPOSE: Render segmented progress bars for onboarding flows.
+ * PURPOSE: Render segmented progress bars for multi-step flows.
  *
- * USED IN: Onboarding slides (e.g., CarExperience, Beginner flows)
+ * USED IN: Multi-step flows (Onboarding, TellUsAbout, etc.).
  *
  * PROPS:
  *   - total (number): Total number of segments to display.
- *   - filled (number): How many segments are completed (shown in BrandColors.secondary).
+ *   - filled (number): How many segments are completed.
  *   - leftElement (optional): Element to display on the left side (e.g., back button).
  *
  * EXAMPLE:
- *   <OnboardingProgress total={4} filled={1} leftElement={<OnboardingBackButton />} />
+ *   <ProgressBar total={4} filled={1} leftElement={<BackButton />} />
  *
  * OWNER: Daniel Chelala
- * TICKET: OTO-010
+ * TICKET: OTO-XXX
  */
 
-// TODO: Remove color hardcoding once theme.ts is updated
-
-import { BrandColors, Colors, Spacing } from '@/components/shared-ui';
+import { BrandColors, Spacing } from '@/constants/theme';
 import { ReactNode } from 'react';
 import { StyleSheet, View } from 'react-native';
 
-interface OnboardingProgressProps {
+interface ProgressBarProps {
     total: number;
     filled: number;
     leftElement?: ReactNode;
@@ -31,7 +29,7 @@ interface OnboardingProgressProps {
 
 const unfilledColor = '#0F1E3A';
 
-export function OnboardingProgress({ total, filled, leftElement }: OnboardingProgressProps) {
+export function ProgressBar({ total, filled, leftElement }: ProgressBarProps) {
     const segments = Array.from({ length: total });
 
     return (
@@ -78,5 +76,4 @@ const styles = StyleSheet.create({
         flex: 1,
     },
 });
-
 

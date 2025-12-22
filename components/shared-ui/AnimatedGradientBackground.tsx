@@ -27,7 +27,7 @@ import Animated, {
     useAnimatedReaction,
     type SharedValue,
 } from 'react-native-reanimated';
-import { BrandColors } from '@/components/shared-ui';
+import { BrandColors } from '@/constants/theme';
 
 // Default gradient colors used across all steps
 const DEFAULT_GRADIENT_COLORS: [string, string, string] = [

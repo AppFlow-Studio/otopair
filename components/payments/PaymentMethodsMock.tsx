@@ -1,3 +1,16 @@
+/**
+ * PaymentMethodsMock
+ *
+ * PURPOSE: Mock component for displaying payment methods.
+ *
+ * USED IN: app/payment-methods.tsx
+ *
+ * PROPS: None
+ *
+ * OWNER: Daniel Chelala
+ * TICKET: OTO-XXX
+ */
+
 import React, { useState } from 'react';
 import {
     Alert,

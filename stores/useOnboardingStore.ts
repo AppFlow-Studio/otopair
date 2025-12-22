@@ -1,38 +1,22 @@
 /**
  * useOnboardingStore
  *
- * PURPOSE: Tracks progress through onboarding flow and stores collected user data.
+ * PURPOSE: Tracks progress through onboarding and setup flows and stores all collected user data.
  *
- * NOTE: This is a "session" store - data lives only during app session.
- *       Persistence will be added once we move to a dev build.
- *
- * USED IN:
- *   - components/onboarding/WelcomeSlide.tsx
- *   - components/onboarding/CarExperienceSlide.tsx
- *   - components/onboarding/BeginnerOilChange.tsx
- *   - components/onboarding/BeginnerBrakes.tsx
- *   - components/onboarding/BeginnerInspection.tsx
+ * USED IN: OnboardingFlow, TellUsAboutFlow, and various step components.
+ *          Temporarily used in app/(main-tabs)/home/index.tsx for testing purposes. This will be removed after testing.
  *
  * STATE:
- *   - currentStep (OnboardingStep): The current step in the onboarding flow
- *   - completedSteps (OnboardingStep[]): Array of completed step names
- *   - data (OnboardingData): All collected user data (profile, permissions, car info)
- *
- * ACTIONS:
- *   - setStep(step): Set the current onboarding step
- *   - completeStep(step): Mark a step as completed
- *   - updateData(updates): Update collected data (merges with existing)
- *   - canProceed(): Check if user can proceed to next step (validation)
- *   - reset(): Reset store to initial state
- *   - getProgress(): Get completion percentage (0-100)
- *   - isStepCompleted(step): Check if a specific step is completed
+ *   - data (OnboardingData): All collected user data (profile, vehicle, questionnaire).
+ *   - currentStep (OnboardingStep): Active step in the onboarding flow.
+ *   - currentSetupStep (SetupStep): Active step in the setup flow.
  *
  * EXAMPLE:
- *   const { updateData, completeStep } = useOnboardingStore();
+ *   const { updateData, completeSetupStep } = useOnboardingStore();
  *   updateData({ carKnowledgeLevel: 3 });
- *   completeStep('car_knowledge');
  *
  * OWNER: Daniel Chelala
+ * TICKET: OTO-XXX
  */
 
 import { create } from 'zustand';

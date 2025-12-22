@@ -1,10 +1,22 @@
 /**
  * ConfirmPhoneNumberStep
  *
- * PURPOSE: 6-digit code verification step for OnboardingFlow.
+ * PURPOSE: 6-digit code verification step for onboarding phone number validation.
+ *
+ * USED IN: components/onboarding/OnboardingFlow.tsx
+ *
+ * PROPS:
+ *   - onNext (() => void): Callback to navigate to the next step
+ *   - onBack (() => void): Callback to navigate to the previous step
+ *
+ * EXAMPLE:
+ *   <ConfirmPhoneNumberStep onNext={handleNext} onBack={handleBack} />
  *
  * OWNER: Daniel Chelala
+ * TICKET: OTO-XXX
  */
+
+// TODO: Replace with actual code verification logic
 
 import {
   BrandColors,
@@ -13,6 +25,8 @@ import {
   Spacing,
   Text,
 } from "@/components/shared-ui";
+import { ProgressBar } from "@/components/shared-ui/ProgressBar";
+import { BackButton } from "@/components/shared-ui/BackButton";
 import { useState, useEffect, useRef } from "react";
 import {
   KeyboardAvoidingView,
@@ -26,11 +40,10 @@ import {
   TouchableOpacity,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { OnboardingProgress } from "../common/OnboardingProgress";
-import { OnboardingBackButton } from "../common/OnboardingBackButton";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import { X } from "lucide-react-native";
 
+// TODO: Replace with actual code verification logic
 const CORRECT_CODE = "676767";
 
 interface ConfirmPhoneNumberStepProps {
@@ -162,10 +175,10 @@ export function ConfirmPhoneNumberStep({
       style={styles.keyboardView}
     >
       <View style={[styles.container, dynamicStyles.container]}>
-        <OnboardingProgress
+        <ProgressBar
           total={6}
           filled={1}
-          leftElement={<OnboardingBackButton onBack={onBack} alwaysShow />}
+          leftElement={<BackButton onBack={onBack} alwaysShow />}
         />
 
         <View style={styles.headerContent}>

@@ -1,3 +1,15 @@
+/**
+ * home
+ *
+ * PURPOSE: Main landing screen for authenticated users, displaying setup progress and quick actions.
+ *
+ * USED IN: app/(main-tabs)/_layout.tsx
+ *
+ * PROPS: None
+ *
+ * OWNER: Daniel Chelala
+ * TICKET: OTO-XXX
+ */
 
 // TODO: console.log and label additions are for testing purposes only and can be removed if necessary.
 

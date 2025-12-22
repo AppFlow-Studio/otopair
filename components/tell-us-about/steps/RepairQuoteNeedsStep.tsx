@@ -1,10 +1,24 @@
 /**
  * RepairQuoteNeedsStep
  *
- * PURPOSE: Repair quote needs multi-select step for TellUsAboutFlow.
- *          User selects up to 3 needs.
+ * PURPOSE: Allows users to select what information they need most in a repair quote.
+ *
+ * USED IN: components/tell-us-about/TellUsAboutFlow.tsx
+ *
+ * PROPS:
+ *   - onNext (() => void): Callback to navigate to the next step
+ *   - onBack (() => void): Callback to navigate to the previous step
+ *   - progress ({ total: number; filled: number }): Progress indicator data
+ *
+ * EXAMPLE:
+ *   <RepairQuoteNeedsStep 
+ *     onNext={handleNext} 
+ *     onBack={handleBack} 
+ *     progress={{ total: 12, filled: 11 }} 
+ *   />
  *
  * OWNER: Daniel Chelala
+ * TICKET: OTO-XXX
  */
 
 import {
@@ -14,6 +28,9 @@ import {
     Spacing,
     Text,
     BorderRadius,
+    ProgressBar,
+    FooterButton,
+    BackButton,
 } from '@/components/shared-ui';
 import { useState } from 'react';
 import {
@@ -26,9 +43,6 @@ import {
     useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { OnboardingProgress } from '@/components/onboarding/common/OnboardingProgress';
-import { OnboardingFooterButton } from '@/components/onboarding/common/OnboardingFooterButton';
-import { OnboardingBackButton } from '@/components/onboarding/common/OnboardingBackButton';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 
 interface RepairQuoteNeedsStepProps {
@@ -94,10 +108,10 @@ export function RepairQuoteNeedsStep({ onNext, onBack, progress }: RepairQuoteNe
             style={styles.keyboardView}
         >
             <View style={[styles.container, dynamicStyles.container]}>
-                <OnboardingProgress
+                <ProgressBar
                     total={progress.total}
                     filled={progress.filled}
-                    leftElement={<OnboardingBackButton onBack={onBack} alwaysShow />}
+                    leftElement={<BackButton onBack={onBack} alwaysShow />}
                 />
 
                 <ScrollView
@@ -149,7 +163,7 @@ export function RepairQuoteNeedsStep({ onNext, onBack, progress }: RepairQuoteNe
                 </ScrollView>
 
                 <View style={[styles.bottomContainer, dynamicStyles.bottomContainer]}>
-                    <OnboardingFooterButton
+                    <FooterButton
                         label="Finish"
                         onPress={handleContinue}
                         size={buttonSize}

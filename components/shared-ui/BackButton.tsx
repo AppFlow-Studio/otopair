@@ -1,17 +1,21 @@
 /**
- * OnboardingBackButton
+ * BackButton
  *
- * PURPOSE: Reusable back button for onboarding screens, positioned on the same line as progress indicator.
+ * PURPOSE: Reusable back button positioned consistently across flows (onboarding, etc.).
  *
- * USED IN: Onboarding steps (PhoneNumberStep, NameStep, etc.) and TellUsAbout steps.
+ * USED IN: Various flow steps (Onboarding, TellUsAbout, etc.).
  *
  * PROPS:
  *   - noHorizontalPadding (boolean): If true, removes horizontal padding [optional]
  *   - onBack (() => void): Custom back action, defaults to router.back() [optional]
- *   - alwaysShow (boolean): If true, shows button even on the welcome screen [optional]
+ *   - alwaysShow (boolean): If true, shows button even on the initial flow screens [optional]
  *
  * EXAMPLE:
- *   <OnboardingBackButton onBack={() => goToStep('welcome')} />
+ *   <BackButton
+ *     onBack={() => goToStep('welcome')}
+ *     noHorizontalPadding
+ *     alwaysShow
+ *   />
  *
  * OWNER: Daniel Chelala
  * TICKET: OTO-XXX
@@ -19,32 +23,30 @@
 
 import { router, usePathname } from 'expo-router';
 import { ArrowLeft } from 'lucide-react-native';
-import { Pressable, StyleSheet, View } from 'react-native';
-import { FontSize, Spacing, BrandColors } from '@/components/shared-ui';
+import { Pressable, StyleSheet } from 'react-native';
+import { FontSize, Spacing, BrandColors } from '@/constants/theme';
 
-interface OnboardingBackButtonProps {
+interface BackButtonProps {
     noHorizontalPadding?: boolean;
     onBack?: () => void;
     /** If true, always shows the button regardless of pathname */
     alwaysShow?: boolean;
 }
 
-export function OnboardingBackButton({ 
+export function BackButton({ 
     noHorizontalPadding = false, 
     onBack,
     alwaysShow = false,
-}: OnboardingBackButtonProps = {}) {
+}: BackButtonProps = {}) {
     const pathname = usePathname();
     
-    // Only show if we're not on the welcome/index screen
-    // In expo-router, route groups (folders in parentheses) are included in the pathname
-    // The welcome screen at app/(onboarding)/index.tsx has pathname '/(onboarding)' or '/(onboarding)/'
-    const isOnWelcomeScreen = 
+    // Only hide if we're on a "welcome" or "root" flow screen
+    const isRootFlowScreen = 
         pathname === '/(onboarding)' || 
         pathname === '/(onboarding)/' ||
         pathname.endsWith('/(onboarding)');
     
-    if (isOnWelcomeScreen && !alwaysShow) {
+    if (isRootFlowScreen && !alwaysShow) {
         return null;
     }
 
@@ -65,7 +67,7 @@ export function OnboardingBackButton({
                 pressed && styles.buttonPressed,
             ]}
         >
-            <ArrowLeft size={FontSize['3xl']} color = {BrandColors.white} />
+            <ArrowLeft size={FontSize['3xl']} color={BrandColors.white} />
         </Pressable>
     );
 }

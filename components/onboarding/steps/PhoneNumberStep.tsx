@@ -1,9 +1,19 @@
 /**
  * PhoneNumberStep
  *
- * PURPOSE: Phone number entry step for OnboardingFlow.
+ * PURPOSE: Collects and formats the user's phone number with country code selection.
+ *
+ * USED IN: components/onboarding/OnboardingFlow.tsx
+ *
+ * PROPS:
+ *   - onNext (() => void): Callback to navigate to the next step
+ *   - onBack (() => void): Callback to navigate to the previous step
+ *
+ * EXAMPLE:
+ *   <PhoneNumberStep onNext={handleNext} onBack={handleBack} />
  *
  * OWNER: Daniel Chelala
+ * TICKET: OTO-XXX
  */
 
 import {
@@ -13,6 +23,9 @@ import {
   Spacing,
   Text,
 } from "@/components/shared-ui";
+import { ProgressBar } from "@/components/shared-ui/ProgressBar";
+import { FooterButton } from "@/components/shared-ui/FooterButton";
+import { BackButton } from "@/components/shared-ui/BackButton";
 import { useState, useEffect, useMemo, useRef } from "react";
 import {
   KeyboardAvoidingView,
@@ -34,9 +47,6 @@ import {
   PanGestureHandler,
   State,
 } from "react-native-gesture-handler";
-import { OnboardingProgress } from "../common/OnboardingProgress";
-import { OnboardingFooterButton } from "../common/OnboardingFooterButton";
-import { OnboardingBackButton } from "../common/OnboardingBackButton";
 import { Country } from "react-native-country-picker-modal";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import { Search } from "lucide-react-native";
@@ -334,10 +344,10 @@ export function PhoneNumberStep({ onNext, onBack }: PhoneNumberStepProps) {
       style={styles.keyboardView}
     >
       <View style={[styles.container, dynamicStyles.container]}>
-        <OnboardingProgress
+        <ProgressBar
           total={6}
           filled={0}
-          leftElement={<OnboardingBackButton onBack={onBack} alwaysShow />}
+          leftElement={<BackButton onBack={onBack} alwaysShow />}
         />
 
         <ScrollView
@@ -510,7 +520,7 @@ export function PhoneNumberStep({ onNext, onBack }: PhoneNumberStepProps) {
         </Modal>
 
         <View style={[styles.bottomContainer, dynamicStyles.bottomContainer]}>
-          <OnboardingFooterButton
+          <FooterButton
             label="Create account"
             onPress={handleCreateAccount}
             disabled={!canCreateAccount}

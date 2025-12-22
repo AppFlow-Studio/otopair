@@ -1,20 +1,18 @@
 /**
  * TellUsAboutFlow
  *
- * PURPOSE: Single container for "Tell us about yourself" flow with animated gradient transitions.
- *          Manages step state and renders appropriate child components.
- *          Mirrors the style and structure of OnboardingFlow.
+ * PURPOSE: Single container for the "Tell us about yourself" flow with animated gradient transitions.
  *
  * USED IN: app/(tell-us-about)/flow.tsx
  *
- * FEATURES:
- *   - Smooth gradient coordinate transitions between steps
- *   - Gradient positions physically animate on screen
- *   - Centralized step management
- *   - Back navigation support
- *   - Dynamic path based on car knowledge level
+ * PROPS:
+ *   - initialStep (TellUsAboutStep): The step to start the flow from [optional, default: 'experience']
+ *
+ * EXAMPLE:
+ *   <TellUsAboutFlow initialStep="experience" />
  *
  * OWNER: Daniel Chelala
+ * TICKET: OTO-XXX
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
@@ -26,7 +24,7 @@ import Animated, {
     Easing,
 } from 'react-native-reanimated';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
-import { AnimatedGradientBackground } from '@/components/shared-ui/AnimatedGradientBackground';
+import { AnimatedGradientBackground } from '@/components/shared-ui';
 
 // Import step components
 import { ExperienceStep } from './steps/ExperienceStep';

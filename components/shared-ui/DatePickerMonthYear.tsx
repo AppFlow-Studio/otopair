@@ -17,12 +17,13 @@
  *     value={selectedDate}
  *     onChange={(d) => setSelectedDate(d)}
  *     placeholder="Select month & year"
+ *     title="Pick Expiration Date"
  *     minimumDate={new Date(2000, 0, 1)}
  *     maximumDate={new Date()}
  *   />
  *
  * OWNER: Daniel Chelala
- * TICKET: OTO-010
+ * TICKET: OTO-XXX
  */
 
 import React, { useMemo, useState } from 'react';
@@ -35,7 +36,7 @@ import {
     Modal,
     Pressable,
 } from 'react-native';
-import { Calendar } from 'lucide-react-native';
+import { Calendar, ChevronLeft, ChevronRight } from 'lucide-react-native';
 import {
     BorderRadius,
     BrandColors,
@@ -43,7 +44,7 @@ import {
     FontFamily,
     FontSize,
     Spacing,
-} from '@/components/shared-ui';
+} from '@/constants/theme';
 
 const MONTHS = [
     'January', 'February', 'March', 'April',
@@ -152,14 +153,14 @@ export function DatePickerMonthYear({
                                 style={[styles.stepper, !canStepDown && styles.stepperDisabled]}
                                 onPress={() => canStepDown && setTempYear((y) => y - 1)}
                             >
-                                <Text style={styles.stepperText}>{'<'}</Text>
+                                <ChevronLeft size={20} color={BrandColors.primary} />
                             </Pressable>
                             <Text style={styles.yearText}>{tempYear}</Text>
                             <Pressable
                                 style={[styles.stepper, !canStepUp && styles.stepperDisabled]}
                                 onPress={() => canStepUp && setTempYear((y) => y + 1)}
                             >
-                                <Text style={styles.stepperText}>{'>'}</Text>
+                                <ChevronRight size={20} color={BrandColors.primary} />
                             </Pressable>
                         </View>
 
@@ -266,11 +267,6 @@ const styles = StyleSheet.create({
     },
     stepperDisabled: {
         opacity: 0.4,
-    },
-    stepperText: {
-        fontSize: 16,
-        fontWeight: '700',
-        fontFamily: FontFamily.semiBold,
     },
     monthGrid: {
         flexDirection: 'row',

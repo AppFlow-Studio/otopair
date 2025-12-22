@@ -1,9 +1,19 @@
 /**
  * WelcomeStep
  *
- * PURPOSE: Welcome step for OnboardingFlow - first screen in the onboarding process.
+ * PURPOSE: First screen in the onboarding process, providing options to create an account or log in.
+ *
+ * USED IN: components/onboarding/OnboardingFlow.tsx
+ *
+ * PROPS:
+ *   - onNext (() => void): Callback to navigate to the next step
+ *   - onBack (() => void): Callback to navigate to the previous step
+ *
+ * EXAMPLE:
+ *   <WelcomeStep onNext={handleNext} onBack={handleBack} />
  *
  * OWNER: Daniel Chelala
+ * TICKET: OTO-XXX
  */
 
 // TODO: Edit login button, as it currently navigates to home screen for testing purposes
@@ -16,6 +26,7 @@ import {
     Text,
     BorderRadius,
 } from '@/components/shared-ui';
+import { FooterButton } from '@/components/shared-ui/FooterButton';
 import { Image } from 'expo-image';
 import { MoveRight } from 'lucide-react-native';
 import {
@@ -26,7 +37,6 @@ import {
     useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { OnboardingFooterButton } from '../common/OnboardingFooterButton';
 
 interface WelcomeStepProps {
     onNext: () => void;
@@ -86,7 +96,7 @@ export function WelcomeStep({ onNext, onBack }: WelcomeStepProps) {
 
                 {/* Bottom Buttons */}
                 <View style={[styles.bottomContainer, dynamicStyles.bottomContainerPrimary]}>
-                    <OnboardingFooterButton
+                    <FooterButton
                         label="Create Account"
                         onPress={handleGetStarted}
                         rightIcon={<MoveRight size={FontSize.md} color={BrandColors.white} />}
@@ -96,7 +106,7 @@ export function WelcomeStep({ onNext, onBack }: WelcomeStepProps) {
                     />
                 </View>
                 <View style={[styles.bottomContainer, dynamicStyles.bottomContainerSecondary]}>
-                    <OnboardingFooterButton
+                    <FooterButton
                         label="Log In"
                         onPress={handleLogIn}
                         rightIcon={<MoveRight size={FontSize.md} color={BrandColors.white} />}

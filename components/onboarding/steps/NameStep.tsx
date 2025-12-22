@@ -1,9 +1,19 @@
 /**
  * NameStep
  *
- * PURPOSE: Name entry step for OnboardingFlow.
+ * PURPOSE: Collects the user's first name, last name, and optional alias.
+ *
+ * USED IN: components/onboarding/OnboardingFlow.tsx
+ *
+ * PROPS:
+ *   - onNext (() => void): Callback to navigate to the next step
+ *   - onBack (() => void): Callback to navigate to the previous step
+ *
+ * EXAMPLE:
+ *   <NameStep onNext={handleNext} onBack={handleBack} />
  *
  * OWNER: Daniel Chelala
+ * TICKET: OTO-XXX
  */
 
 import {
@@ -13,6 +23,9 @@ import {
   Spacing,
   Text,
 } from "@/components/shared-ui";
+import { ProgressBar } from "@/components/shared-ui/ProgressBar";
+import { FooterButton } from "@/components/shared-ui/FooterButton";
+import { BackButton } from "@/components/shared-ui/BackButton";
 import { useState } from "react";
 import {
   KeyboardAvoidingView,
@@ -24,9 +37,6 @@ import {
   ScrollView,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { OnboardingProgress } from "../common/OnboardingProgress";
-import { OnboardingFooterButton } from "../common/OnboardingFooterButton";
-import { OnboardingBackButton } from "../common/OnboardingBackButton";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 
 interface NameStepProps {
@@ -72,10 +82,10 @@ export function NameStep({ onNext, onBack }: NameStepProps) {
       style={styles.keyboardView}
     >
       <View style={[styles.container, dynamicStyles.container]}>
-        <OnboardingProgress
+        <ProgressBar
           total={6}
           filled={2}
-          leftElement={<OnboardingBackButton onBack={onBack} alwaysShow />}
+          leftElement={<BackButton onBack={onBack} alwaysShow />}
         />
 
         <ScrollView
@@ -134,7 +144,7 @@ export function NameStep({ onNext, onBack }: NameStepProps) {
         </ScrollView>
 
         <View style={[styles.bottomContainer, dynamicStyles.bottomContainer]}>
-          <OnboardingFooterButton
+          <FooterButton
             label="Continue"
             onPress={handleContinue}
             disabled={!canContinue}
