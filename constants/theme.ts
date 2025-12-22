@@ -186,6 +186,13 @@ export const Shadows = {
 /**
  * Consistent layout values for bottom sheet scroll padding.
  * All sheets should use these to ensure content scrolls above fixed elements.
+ * Used in ServiceBottomSheet.tsx
+ * Used in AddMoreServicesSheet.tsx
+ * Used in BookingDetailsContent.tsx
+ * Used in CollapsedContent.tsx
+ * Used in ConfirmationContent.tsx
+ * Used in MechanicSelectionContent.tsx
+ * Used in ServiceSelectionContent.tsx
  */
 export const Layout = {
   /** Height of the native tab bar */

@@ -49,7 +49,13 @@ export interface UserLocation {
 export type BookingStatus = "pending" | "confirmed" | "in_progress" | "completed" | "cancelled";
 
 /** Booking flow stages */
-export type BookingStage = "discovery" | "service_selection" | "mechanic_selection" | "booking_details" | "payment" | "confirmation";
+export type BookingStage =
+  | "discovery"
+  | "service_selection"
+  | "mechanic_selection"
+  | "booking_details"
+  | "payment"
+  | "confirmation";
 
 /** Booking type - immediate or scheduled */
 export type BookingType = "book_now" | "schedule_later";
@@ -169,4 +175,49 @@ export interface ShopFilters {
   availableOnly: boolean;
   /** Filter by specific service IDs */
   serviceIds: string[];
+}
+
+// ─────────────────────────────────────────────────────────────
+// SCHEDULE / AVAILABILITY TYPES
+// ─────────────────────────────────────────────────────────────
+
+/** Status of a calendar day */
+export type DayAvailabilityStatus = "available" | "booked" | "unavailable";
+
+/** A single day's availability with time slots */
+export interface DayAvailability {
+  /** Date in YYYY-MM-DD format */
+  date: string;
+  /** Day of month (1-31) */
+  day: number;
+  /** Month (0-11, JavaScript Date format) */
+  month: number;
+  /** Year (e.g., 2025) */
+  year: number;
+  /** Day of week (0=Sunday, 6=Saturday) */
+  dayOfWeek: number;
+  /** Overall status for this day */
+  status: DayAvailabilityStatus;
+  /** Available time slots for this day */
+  timeSlots: string[];
+}
+
+/** Monthly availability calendar for a mechanic */
+export interface MonthlyAvailability {
+  /** Mechanic ID this schedule belongs to */
+  mechanicId: number;
+  /** Month (0-11, JavaScript Date format) */
+  month: number;
+  /** Year (e.g., 2025) */
+  year: number;
+  /** Array of days with availability info */
+  days: DayAvailability[];
+}
+
+/** Full schedule for a mechanic */
+export interface MechanicSchedule {
+  /** Mechanic ID */
+  mechanicId: number;
+  /** Map of "YYYY-MM" to monthly availability */
+  monthlySchedules: Record<string, MonthlyAvailability>;
 }
