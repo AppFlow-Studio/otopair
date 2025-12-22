@@ -180,6 +180,25 @@ export const Shadows = {
 } as const;
 
 // ============================================================================
+// LAYOUT CONSTANTS
+// ============================================================================
+
+/**
+ * Consistent layout values for bottom sheet scroll padding.
+ * All sheets should use these to ensure content scrolls above fixed elements.
+ */
+export const Layout = {
+  /** Height of the native tab bar (iOS ~49px + some padding) */
+  tabBarHeight: 56,
+  /** Extra offset to ensure content clears the tab bar completely */
+  tabBarOffset: 56,
+  /** Standard floating action button container height (padding + button) */
+  actionButtonHeight: 70,
+  /** Small visual buffer for scroll content */
+  scrollBuffer: 16,
+} as const;
+
+// ============================================================================
 // TYPE EXPORTS
 // ============================================================================
 

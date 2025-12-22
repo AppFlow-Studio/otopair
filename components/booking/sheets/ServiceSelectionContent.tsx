@@ -11,19 +11,18 @@
 
 // 1. React & React Native
 import React, { useCallback, useMemo, useState } from "react";
-import { ScrollView, StyleSheet, TextInput, TouchableOpacity, useWindowDimensions, View } from "react-native";
+import { ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
 import { Search } from "lucide-react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 3. Shared UI (design system)
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Constants, hooks, types, stores
 import { SERVICE_CATEGORIES } from "@/constants/services";
-import { BorderRadius, FontFamily } from "@/constants/theme";
+import { BorderRadius, FontFamily, Layout } from "@/constants/theme";
 import type { Service, ServiceCategory } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
 
@@ -31,13 +30,7 @@ import { useBookingStore } from "@/stores/useBookingStore";
 // CONSTANTS
 // ============================================================================
 
-// Height of the floating action button container (paddingVertical * 2 + button height)
-// Button has paddingVertical: Spacing.lg (16) + ~20px text = ~52px
-// Container has paddingVertical: Spacing.md (12) = 24px total
-const BUTTON_CONTAINER_HEIGHT = 76;
-
-// Tab bar offset used by ServiceBottomSheet for button positioning
-const TAB_BAR_OFFSET = 120;
+// No local constants needed - using centralized Layout from theme
 
 // ============================================================================
 // TYPES
@@ -50,17 +43,9 @@ const TAB_BAR_OFFSET = 120;
 // ============================================================================
 
 export function ServiceSelectionContent() {
-  // ═══════════════ HOOKS ═══════════════
-  const insets = useSafeAreaInsets();
-  const { height: SCREEN_HEIGHT } = useWindowDimensions();
-
   // ═══════════════ STATE-EFFECT: Local State ═══════════════
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<ServiceCategory>("basic_maintenance");
-
-  // Calculate bottom padding to ensure content can scroll above the floating button
-  // Properly accounts for safe area, tab bar, and the floating action button
-  const scrollPaddingBottom = insets.bottom + TAB_BAR_OFFSET + BUTTON_CONTAINER_HEIGHT + SCREEN_HEIGHT * 0.75;
 
   // ═══════════════ STATE-EFFECT: Store Subscriptions ═══════════════
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
@@ -180,10 +165,10 @@ export function ServiceSelectionContent() {
         />
       </View>
 
-      {/* Service List - Scrollable content */}
+      {/* Service List - Scrollable content with bottom padding for footer */}
       <BottomSheetScrollView
         style={styles.scrollView}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: scrollPaddingBottom }]}
+        contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
       >
         {filteredServices.map(renderServiceItem)}
@@ -195,6 +180,9 @@ export function ServiceSelectionContent() {
             </Text>
           </View>
         )}
+
+        {/* Spacer to ensure content scrolls above the footer button */}
+        <View style={styles.footerSpacer} />
       </BottomSheetScrollView>
     </View>
   );
@@ -285,5 +273,9 @@ const styles = StyleSheet.create({
   },
   emptyState: {
     paddingVertical: Spacing["3xl"],
+  },
+  footerSpacer: {
+    // Height to ensure content scrolls above the footer button
+    height: Layout.actionButtonHeight + Layout.tabBarHeight + Layout.scrollBuffer,
   },
 });

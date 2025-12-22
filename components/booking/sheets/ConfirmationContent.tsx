@@ -11,9 +11,8 @@
 import { Calendar, CheckCircle, Clock, MapPin } from "lucide-react-native";
 import React, { useMemo } from "react";
 import { StyleSheet, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { BrandColors, PrimaryButton, Spacing, Text } from "@/components/shared-ui";
+import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 import { BorderRadius } from "@/constants/theme";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
@@ -22,26 +21,14 @@ import { useMechanicStore } from "@/stores/useMechanicStore";
 // CONSTANTS
 // ============================================================================
 
-// Tab bar offset - extra padding to ensure button is positioned above native tabs
-const TAB_BAR_OFFSET = 120;
-
-// ============================================================================
-// TYPES
-// ============================================================================
-
-interface ConfirmationContentProps {
-  /** Called when user wants to book another service */
-  onBookAgain?: () => void;
-}
+// Note: Footer button is now rendered by ServiceBottomSheet.footerComponent
+// This ensures the BottomSheet knows about the footer and adjusts scroll area automatically
 
 // ============================================================================
 // COMPONENT
 // ============================================================================
 
-export function ConfirmationContent({ onBookAgain }: ConfirmationContentProps) {
-  // ═══════════════ HOOKS ═══════════════
-  const insets = useSafeAreaInsets();
-
+export function ConfirmationContent() {
   // ═══════════════ STORE ═══════════════
   const selectedMechanicId = useBookingStore((state) => state.selectedMechanicId);
   const bookingType = useBookingStore((state) => state.bookingType);
@@ -138,15 +125,6 @@ export function ConfirmationContent({ onBookAgain }: ConfirmationContentProps) {
           </View>
         </View>
       </View>
-
-      {/* Actions */}
-      <View style={[styles.actions, { bottom: TAB_BAR_OFFSET + insets.bottom }]}>
-        <PrimaryButton onPress={onBookAgain} style={styles.button}>
-          <Text size="md" weight="semiBold" color={BrandColors.white}>
-            Book Another Service
-          </Text>
-        </PrimaryButton>
-      </View>
     </View>
   );
 }
@@ -202,15 +180,5 @@ const styles = StyleSheet.create({
   detailText: {
     flex: 1,
     gap: 2,
-  },
-  actions: {
-    position: "absolute",
-    // Note: bottom is applied dynamically based on safe area insets and tab bar offset
-    left: Spacing.lg,
-    right: Spacing.lg,
-  },
-  button: {
-    borderRadius: BorderRadius.lg,
-    paddingVertical: Spacing.md,
   },
 });

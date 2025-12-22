@@ -19,20 +19,21 @@
  */
 
 // 1. React & React Native
-import React, { useCallback, useMemo } from "react";
-import { Image, StyleSheet, TouchableOpacity, useWindowDimensions, View } from "react-native";
+import React, { useCallback, useMemo, useState } from "react";
+import { Image, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
 import { BadgeCheck, ChevronRight, Clock, Star, User, X } from "lucide-react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 3. Shared UI (design system)
-import { BrandColors, PrimaryButton, Spacing, Text } from "@/components/shared-ui";
+import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
-// 4. Constants, hooks, types
-import { BorderRadius } from "@/constants/theme";
-import { useBookingTransition } from "@/hooks/useBookingTransition";
+// 4. Local components
+import { DiscardServiceModal } from "./DiscardServiceModal";
+
+// 5. Constants, hooks, types
+import { BorderRadius, Layout } from "@/constants/theme";
 import type { Service } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
@@ -41,19 +42,14 @@ import { useMechanicStore } from "@/stores/useMechanicStore";
 // CONSTANTS
 // ============================================================================
 
-// Height of the bottom action button area (padding + button + border)
-const BOTTOM_ACTION_HEIGHT = 80;
-
-// Tab bar offset - extra padding to ensure content scrolls above native tabs
-const TAB_BAR_OFFSET = 120;
+// Note: Footer button is now rendered by ServiceBottomSheet.footerComponent
+// This ensures the BottomSheet knows about the footer and adjusts scroll area automatically
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
 interface BookingDetailsContentProps {
-  /** Called when user confirms the booking */
-  onConfirmBooking?: () => void;
   /** Called when user wants to add more services */
   onAddMore?: () => void;
 }
@@ -85,28 +81,19 @@ function ServiceRow({ service, onRemove }: { service: Service; onRemove: () => v
 // MAIN COMPONENT
 // ============================================================================
 
-export function BookingDetailsContent({ onConfirmBooking, onAddMore }: BookingDetailsContentProps) {
-  // ═══════════════ HOOKS ═══════════════
-  const insets = useSafeAreaInsets();
-  const { height: SCREEN_HEIGHT } = useWindowDimensions();
-
-  // Calculate bottom padding to ensure content can scroll above the fixed bottom button
-  // Properly accounts for safe area, tab bar, action button, and dynamic buffer
-  const scrollPaddingBottom = insets.bottom + TAB_BAR_OFFSET + BOTTOM_ACTION_HEIGHT + SCREEN_HEIGHT * 0.35;
-
-  // ═══════════════ TRANSITION HOOK ═══════════════
-  const { goTo } = useBookingTransition();
-
+export function BookingDetailsContent({ onAddMore }: BookingDetailsContentProps) {
   // ═══════════════ BOOKING STORE ═══════════════
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
   const availableServices = useBookingStore((state) => state.availableServices);
-  const bookingType = useBookingStore((state) => state.bookingType);
   const selectedMechanicId = useBookingStore((state) => state.selectedMechanicId);
-  const getSelectedServicesTotal = useBookingStore((state) => state.getSelectedServicesTotal);
   const toggleServiceSelection = useBookingStore((state) => state.toggleServiceSelection);
 
   // ═══════════════ MECHANIC STORE ═══════════════
   const getMechanicById = useMechanicStore((state) => state.getMechanicById);
+
+  // ═══════════════ LOCAL STATE ═══════════════
+  const [showDiscardModal, setShowDiscardModal] = useState(false);
+  const [pendingRemoveServiceId, setPendingRemoveServiceId] = useState<string | null>(null);
 
   // Get selected mechanic
   const mechanic = useMemo(() => {
@@ -120,32 +107,37 @@ export function BookingDetailsContent({ onConfirmBooking, onAddMore }: BookingDe
     [availableServices, selectedServiceIds]
   );
 
-  const totalPrice = getSelectedServicesTotal();
-  const buttonText = bookingType === "schedule_later" ? "Schedule For Later" : "Book Appointment";
+  // Compute total from selected services (reactive)
+  const totalPrice = useMemo(
+    () => selectedServices.reduce((total, service) => total + service.price, 0),
+    [selectedServices]
+  );
 
   // Mock rating count based on mechanic rating
   const ratingCount = mechanic ? Math.floor(mechanic.rating * 25 + 27) : 0;
 
   // ═══════════════ HANDLERS ═══════════════
-  const handleConfirmBooking = useCallback(() => {
-    onConfirmBooking?.();
-  }, [onConfirmBooking]);
-
   const handleAddMore = useCallback(() => {
-    if (onAddMore) {
-      onAddMore();
-    } else {
-      // Go back to service selection
-      goTo("service_selection");
-    }
-  }, [onAddMore, goTo]);
+    onAddMore?.();
+  }, [onAddMore]);
 
-  const handleRemoveService = useCallback(
-    (serviceId: string) => {
-      toggleServiceSelection(serviceId);
-    },
-    [toggleServiceSelection]
-  );
+  const handleRemoveService = useCallback((serviceId: string) => {
+    setPendingRemoveServiceId(serviceId);
+    setShowDiscardModal(true);
+  }, []);
+
+  const handleConfirmRemove = useCallback(() => {
+    if (pendingRemoveServiceId) {
+      toggleServiceSelection(pendingRemoveServiceId);
+    }
+    setShowDiscardModal(false);
+    setPendingRemoveServiceId(null);
+  }, [pendingRemoveServiceId, toggleServiceSelection]);
+
+  const handleCloseDiscardModal = useCallback(() => {
+    setShowDiscardModal(false);
+    setPendingRemoveServiceId(null);
+  }, []);
 
   // ═══════════════ RENDER ═══════════════
   if (!mechanic) {
@@ -161,10 +153,7 @@ export function BookingDetailsContent({ onConfirmBooking, onAddMore }: BookingDe
   return (
     <View style={styles.container}>
       {/* Scrollable Content */}
-      <BottomSheetScrollView
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: scrollPaddingBottom }]}
-        showsVerticalScrollIndicator={false}
-      >
+      <BottomSheetScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
         {/* Mechanic Info Section */}
         <View style={styles.mechanicSection}>
           {/* Avatar and Basic Info */}
@@ -310,17 +299,17 @@ export function BookingDetailsContent({ onConfirmBooking, onAddMore }: BookingDe
             </TouchableOpacity>
           </View>
         </View>
+
+        {/* Spacer to ensure content scrolls above the footer button */}
+        <View style={styles.footerSpacer} />
       </BottomSheetScrollView>
 
-      {/* Bottom Action Button */}
-      <View style={[styles.bottomAction, { bottom: TAB_BAR_OFFSET + insets.bottom }]}>
-        <PrimaryButton style={styles.confirmButton} onPress={handleConfirmBooking}>
-          <Text size="md" weight="semiBold" color={BrandColors.white}>
-            {buttonText}
-          </Text>
-          <ChevronRight size={20} color={BrandColors.white} />
-        </PrimaryButton>
-      </View>
+      {/* Discard Service Confirmation Modal */}
+      <DiscardServiceModal
+        visible={showDiscardModal}
+        onClose={handleCloseDiscardModal}
+        onConfirm={handleConfirmRemove}
+      />
     </View>
   );
 }
@@ -488,18 +477,22 @@ const styles = StyleSheet.create({
   servicesFooter: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
     marginTop: Spacing.lg,
+    gap: Spacing.md,
   },
   totalBadge: {
+    flex: 1,
     backgroundColor: "#E5E7EB",
     paddingHorizontal: Spacing.xl,
     paddingVertical: Spacing.md,
     borderRadius: BorderRadius.md,
+    alignItems: "center",
   },
   addMoreRowButton: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
+    justifyContent: "center",
     backgroundColor: BrandColors.white,
     paddingHorizontal: Spacing.xl,
     paddingVertical: Spacing.md,
@@ -508,23 +501,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#F3F4F6",
   },
-
-  // Bottom Action
-  bottomAction: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    padding: Spacing.lg,
-    backgroundColor: BrandColors.white,
-    borderTopWidth: 1,
-    borderTopColor: "#F3F4F6",
-  },
-  confirmButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: Spacing.sm,
-    paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.lg,
+  footerSpacer: {
+    // Height to ensure content scrolls above the footer button
+    height: Layout.actionButtonHeight + Layout.tabBarHeight + Layout.scrollBuffer,
   },
 });

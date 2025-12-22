@@ -12,17 +12,19 @@
  * OWNER: Waleed Mansour
  */
 
-import BottomSheet from "@gorhom/bottom-sheet";
+import BottomSheet, { BottomSheetFooter, BottomSheetFooterProps } from "@gorhom/bottom-sheet";
+import { ChevronRight } from "lucide-react-native";
 import React, { useCallback, useEffect, useMemo, useRef } from "react";
 import { Dimensions, StyleSheet, View } from "react-native";
 import Animated, { SharedValue, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { BrandColors, PrimaryButton, Spacing, Text } from "@/components/shared-ui";
-import { BorderRadius, Shadows } from "@/constants/theme";
+import { BorderRadius, Layout, Shadows } from "@/constants/theme";
 import { useBookingTransition } from "@/hooks/useBookingTransition";
 import { useBookingStore } from "@/stores/useBookingStore";
 
+import { AddMoreServicesSheet, AddMoreServicesSheetRef } from "./sheets/AddMoreServicesSheet";
 import { BookingDetailsContent } from "./sheets/BookingDetailsContent";
 import { CollapsedContent } from "./sheets/CollapsedContent";
 import { ConfirmationContent } from "./sheets/ConfirmationContent";
@@ -75,6 +77,7 @@ export function ServiceBottomSheet({
 }: ServiceBottomSheetProps) {
   // ═══════════════ REFS ═══════════════
   const bottomSheetRef = useRef<BottomSheet>(null);
+  const addMoreSheetRef = useRef<AddMoreServicesSheetRef>(null);
   const animatedIndex = useSharedValue(0);
 
   // ═══════════════ HOOKS ═══════════════
@@ -83,6 +86,7 @@ export function ServiceBottomSheet({
 
   // ═══════════════ STORE ═══════════════
   const setBookingStage = useBookingStore((state) => state.setBookingStage);
+  const bookingType = useBookingStore((state) => state.bookingType);
   // Call functions inside selector so Zustand tracks value changes
   const selectedCount = useBookingStore((state) => state.getSelectedServicesCount());
   const selectedTotal = useBookingStore((state) => state.getSelectedServicesTotal());
@@ -90,6 +94,8 @@ export function ServiceBottomSheet({
   // ═══════════════ COMPUTED ═══════════════
   const hasSelection = selectedCount > 0;
   const isServiceStage = currentStage === "discovery" || currentStage === "service_selection";
+  const isBookingStage = currentStage === "booking_details" || currentStage === "payment";
+  const isConfirmationStage = currentStage === "confirmation";
 
   // ═══════════════ EFFECTS ═══════════════
   // Expose animated index to parent
@@ -150,6 +156,102 @@ export function ServiceBottomSheet({
     bottomSheetRef.current?.snapToIndex(0);
   }, [reset]);
 
+  // Open add more services sheet
+  const handleAddMore = useCallback(() => {
+    addMoreSheetRef.current?.open();
+  }, []);
+
+  // ═══════════════ FOOTER ANIMATED STYLE ═══════════════
+  // Hide footer when sheet is collapsed (index < 0.5)
+  const footerAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: animatedIndex.value >= 0.5 ? 1 : 0,
+    pointerEvents: animatedIndex.value >= 0.5 ? "auto" : "none",
+  }));
+
+  // Bottom inset includes safe area + tab bar height
+  const footerBottomInset = insets.bottom + Layout.tabBarHeight;
+
+  // ═══════════════ FOOTER RENDERER ═══════════════
+  // Using footerComponent so the sheet knows about the footer and adjusts scroll area automatically
+  // This handles ALL stage footers in one place for consistent layout
+  const renderFooter = useCallback(
+    (props: BottomSheetFooterProps) => {
+      // Service selection stage footer
+      if (isServiceStage) {
+        return (
+          <BottomSheetFooter {...props} bottomInset={footerBottomInset}>
+            <Animated.View style={footerAnimatedStyle}>
+              <View style={styles.footerContainer}>
+                <PrimaryButton
+                  onPress={handleServicesSelected}
+                  style={[styles.actionButton, !hasSelection && styles.actionButtonDisabled]}
+                  disabled={!hasSelection}
+                >
+                  <Text size="md" weight="semiBold" color={BrandColors.white}>
+                    {hasSelection ? `Add ${selectedCount} to Cart · $${selectedTotal}` : "Select Service(s)"}
+                  </Text>
+                </PrimaryButton>
+              </View>
+            </Animated.View>
+          </BottomSheetFooter>
+        );
+      }
+
+      // Booking details / payment stage footer
+      if (isBookingStage) {
+        const buttonText = bookingType === "schedule_later" ? "Schedule For Later" : "Book Appointment";
+        return (
+          <BottomSheetFooter {...props} bottomInset={footerBottomInset}>
+            <Animated.View style={footerAnimatedStyle}>
+              <View style={styles.footerContainer}>
+                <PrimaryButton style={styles.bookingButton} onPress={handleBookingConfirmed}>
+                  <Text size="md" weight="semiBold" color={BrandColors.white}>
+                    {buttonText}
+                  </Text>
+                  <ChevronRight size={20} color={BrandColors.white} />
+                </PrimaryButton>
+              </View>
+            </Animated.View>
+          </BottomSheetFooter>
+        );
+      }
+
+      // Confirmation stage footer
+      if (isConfirmationStage) {
+        return (
+          <BottomSheetFooter {...props} bottomInset={footerBottomInset}>
+            <Animated.View style={footerAnimatedStyle}>
+              <View style={styles.footerContainer}>
+                <PrimaryButton onPress={handleBookAgain} style={styles.actionButton}>
+                  <Text size="md" weight="semiBold" color={BrandColors.white}>
+                    Book Another Service
+                  </Text>
+                </PrimaryButton>
+              </View>
+            </Animated.View>
+          </BottomSheetFooter>
+        );
+      }
+
+      // Mechanic selection has no footer (buttons are in MechanicCard)
+      return null;
+    },
+    [
+      isServiceStage,
+      isBookingStage,
+      isConfirmationStage,
+      footerBottomInset,
+      footerAnimatedStyle,
+      hasSelection,
+      selectedCount,
+      selectedTotal,
+      bookingType,
+      handleServicesSelected,
+      handleBookingConfirmed,
+      handleBookAgain,
+    ]
+  );
+
   // ═══════════════ CONTENT RENDERER ═══════════════
   const renderStageContent = () => {
     // Get unique key for the current stage to trigger transitions
@@ -174,7 +276,7 @@ export function ServiceBottomSheet({
       case "booking_details":
         return (
           <Animated.View key="booking" entering={sheetEntering} exiting={sheetExiting} style={styles.contentWrapper}>
-            <BookingDetailsContent onConfirmBooking={handleBookingConfirmed} />
+            <BookingDetailsContent onAddMore={handleAddMore} />
           </Animated.View>
         );
 
@@ -182,7 +284,7 @@ export function ServiceBottomSheet({
         // Payment stage uses same content as booking details for now
         return (
           <Animated.View key="payment" entering={sheetEntering} exiting={sheetExiting} style={styles.contentWrapper}>
-            <BookingDetailsContent onConfirmBooking={handleBookingConfirmed} />
+            <BookingDetailsContent onAddMore={handleAddMore} />
           </Animated.View>
         );
 
@@ -194,7 +296,7 @@ export function ServiceBottomSheet({
             exiting={sheetExiting}
             style={styles.contentWrapper}
           >
-            <ConfirmationContent onBookAgain={handleBookAgain} />
+            <ConfirmationContent />
           </Animated.View>
         );
 
@@ -205,43 +307,34 @@ export function ServiceBottomSheet({
 
   // ═══════════════ RENDER ═══════════════
   return (
-    <BottomSheet
-      ref={bottomSheetRef}
-      snapPoints={snapPoints}
-      index={0}
-      animatedIndex={animatedIndex}
-      enableDynamicSizing={false}
-      enablePanDownToClose={false}
-      enableOverDrag={true}
-      backgroundStyle={styles.bottomSheetBackground}
-      handleIndicatorStyle={styles.handleIndicator}
-      handleStyle={styles.handleContainer}
-    >
-      {/* Collapsed State - visibility based on animated position */}
-      <Animated.View style={[styles.collapsedContent, styles.overlayContent, collapsedStyle]}>
-        <CollapsedContent bookingStage={currentStage} />
-      </Animated.View>
+    <>
+      <BottomSheet
+        ref={bottomSheetRef}
+        snapPoints={snapPoints}
+        index={0}
+        animatedIndex={animatedIndex}
+        enableDynamicSizing={false}
+        enablePanDownToClose={false}
+        enableOverDrag={true}
+        backgroundStyle={styles.bottomSheetBackground}
+        handleIndicatorStyle={styles.handleIndicator}
+        handleStyle={styles.handleContainer}
+        footerComponent={renderFooter}
+      >
+        {/* Collapsed State - visibility based on animated position */}
+        <Animated.View style={[styles.collapsedContent, styles.overlayContent, collapsedStyle]}>
+          <CollapsedContent bookingStage={currentStage} />
+        </Animated.View>
 
-      {/* Expanded State - stage-based content with Oto transitions */}
-      <View style={styles.expandedContainer}>
-        <Animated.View style={[styles.expandedContent, expandedStyle]}>{renderStageContent()}</Animated.View>
-      </View>
-
-      {/* Service Selection Button - Fixed at bottom of sheet, above tab bar */}
-      {isServiceStage && (
-        <View style={[styles.buttonContainer, { bottom: 120 + insets.bottom }]}>
-          <PrimaryButton
-            onPress={handleServicesSelected}
-            style={[styles.actionButton, !hasSelection && styles.actionButtonDisabled]}
-            disabled={!hasSelection}
-          >
-            <Text size="md" weight="semiBold" color={BrandColors.white}>
-              {hasSelection ? `Add ${selectedCount} to Cart · $${selectedTotal}` : "Select Service(s)"}
-            </Text>
-          </PrimaryButton>
+        {/* Expanded State - stage-based content with Oto transitions */}
+        <View style={styles.expandedContainer}>
+          <Animated.View style={[styles.expandedContent, expandedStyle]}>{renderStageContent()}</Animated.View>
         </View>
-      )}
-    </BottomSheet>
+      </BottomSheet>
+
+      {/* Add More Services Sheet - Rendered as sibling to stack on top */}
+      <AddMoreServicesSheet ref={addMoreSheetRef} />
+    </>
   );
 }
 
@@ -284,14 +377,12 @@ const styles = StyleSheet.create({
   contentWrapper: {
     flex: 1,
   },
-  buttonContainer: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    zIndex: 10, // Above scroll content
+  footerContainer: {
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.md,
     backgroundColor: BrandColors.white,
+    borderTopWidth: 1,
+    borderTopColor: "#F3F4F6",
   },
   actionButton: {
     borderRadius: BorderRadius["xl"],
@@ -299,5 +390,13 @@ const styles = StyleSheet.create({
   },
   actionButtonDisabled: {
     opacity: 0.5,
+  },
+  bookingButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: Spacing.sm,
+    borderRadius: BorderRadius.lg,
+    paddingVertical: Spacing.md,
   },
 });

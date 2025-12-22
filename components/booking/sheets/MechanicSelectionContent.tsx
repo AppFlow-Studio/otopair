@@ -10,7 +10,7 @@
 
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo } from "react";
-import { ScrollView, StyleSheet, TextInput, useWindowDimensions, View } from "react-native";
+import { ScrollView, StyleSheet, TextInput, View } from "react-native";
 
 // 2. Third-party libraries
 import { BottomSheetFlatList } from "@gorhom/bottom-sheet";
@@ -21,7 +21,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Constants, hooks, types
-import { BorderRadius, FontFamily } from "@/constants/theme";
+import { BorderRadius, FontFamily, Layout } from "@/constants/theme";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 
@@ -35,8 +35,7 @@ import { ServiceChip } from "./ServiceChip";
 // CONSTANTS
 // ============================================================================
 
-// Tab bar offset used for bottom padding to ensure content scrolls above native tabs
-const TAB_BAR_OFFSET = 120;
+// No local constants needed - using centralized Layout from theme
 
 // ============================================================================
 // TYPES
@@ -62,15 +61,13 @@ export function MechanicSelectionContent({
 }: MechanicSelectionContentProps) {
   // ═══════════════ HOOKS ═══════════════
   const insets = useSafeAreaInsets();
-  const { height: SCREEN_HEIGHT } = useWindowDimensions();
 
   // ═══════════════ STATE ═══════════════
   const [serviceToRemove, setServiceToRemove] = React.useState<string | null>(null);
   const [dontAskAgain, setDontAskAgain] = React.useState(false);
 
-  // Calculate bottom padding to ensure content can scroll above native tab bar
-  // Properly accounts for safe area, tab bar, and dynamic buffer
-  const scrollPaddingBottom = insets.bottom + TAB_BAR_OFFSET + SCREEN_HEIGHT * 0.7;
+  // Simple bottom padding for safe area + tab bar (no floating footer on this stage)
+  const scrollPaddingBottom = insets.bottom + Layout.tabBarOffset;
 
   // ═══════════════ BOOKING STORE ═══════════════
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
@@ -227,7 +224,7 @@ export function MechanicSelectionContent({
         data={filteredMechanics}
         keyExtractor={keyExtractor}
         renderItem={renderMechanicCard}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: scrollPaddingBottom }]}
+        contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         removeClippedSubviews={true}
@@ -248,6 +245,7 @@ export function MechanicSelectionContent({
             </ScrollView>
           ) : null
         }
+        ListFooterComponent={<View style={{ height: scrollPaddingBottom }} />}
       />
 
       {/* Discard Service Modal */}

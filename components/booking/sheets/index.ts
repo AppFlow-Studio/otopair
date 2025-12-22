@@ -4,6 +4,8 @@
  * PURPOSE: Barrel exports for all bottom sheet content components
  */
 
+export { AddMoreServicesSheet } from "./AddMoreServicesSheet";
+export type { AddMoreServicesSheetRef } from "./AddMoreServicesSheet";
 export { BookingDetailsContent } from "./BookingDetailsContent";
 export { CollapsedContent } from "./CollapsedContent";
 export { ConfirmationContent } from "./ConfirmationContent";
