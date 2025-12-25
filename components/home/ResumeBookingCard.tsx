@@ -1,0 +1,195 @@
+/**
+ * ResumeBookingCard
+ *
+ * PURPOSE: Displays a card prompting users to resume an incomplete booking with available mechanics count and service preview
+ *
+ * USED IN: app/(main-tabs)/home/index.tsx, components/home/ActionCardsCarousel.tsx
+ *
+ * PROPS:
+ *   - mechanicsAvailable (number): Number of available mechanics
+ *   - servicesPreview (string): Preview text of services selected
+ *   - onPress (() => void): Called when card is pressed [optional]
+ *   - onDismiss (() => void): Called when dismiss button is pressed [optional]
+ *
+ * EXAMPLE:
+ *   <ResumeBookingCard
+ *     mechanicsAvailable={12}
+ *     servicesPreview="Oil Change, Tire Rotation"
+ *     onPress={() => router.push('/booking/resume')}
+ *   />
+ *
+ * OWNER: Ahmad Hamoudeh
+ */
+
+// 1. React & React Native
+import React from 'react';
+import { Pressable, StyleSheet, View } from 'react-native';
+
+// 2. Expo & Third-party
+import { useRouter } from 'expo-router';
+import { ArrowRight, Clock } from 'lucide-react-native';
+
+// 3. Shared UI
+import { Text } from '@/components/shared-ui';
+
+// ============================================================================
+// TYPES
+// ============================================================================
+
+interface ResumeBookingCardProps {
+  mechanicsAvailable: number;
+  servicesPreview: string;
+  onPress?: () => void;
+  onDismiss?: () => void;
+}
+
+// ============================================================================
+// COMPONENT
+// ============================================================================
+
+export function ResumeBookingCard({
+  mechanicsAvailable,
+  servicesPreview,
+  onPress,
+}: ResumeBookingCardProps) {
+  const router = useRouter();
+
+  const handlePress = () => {
+    if (onPress) {
+      onPress();
+    } else {
+      // Default: navigate to booking flow
+      router.push('/coming-soon');
+    }
+  };
+
+  return (
+    <View style={styles.container}>
+      {/* Section Header */}
+      <Text size="md" color="#6B7280" style={styles.sectionHeader}>
+        Resume Booking Service
+      </Text>
+
+      {/* Card */}
+      <View style={styles.card}>
+        {/* Top Section */}
+        <View style={styles.topSection}>
+          {/* Left - Icon */}
+          <View style={styles.iconContainer}>
+            <Clock size={24} color="#5299FE" />
+          </View>
+
+          {/* Middle - Content */}
+          <View style={styles.contentSection}>
+            <Text weight="bold" size="lg" color="#141C24">
+              Resume Booking Service
+            </Text>
+            <Text size="sm" color="#6B7280">
+              Pick up where you left off
+            </Text>
+          </View>
+        </View>
+
+        {/* Bottom Section */}
+        <View style={styles.bottomSection}>
+          {/* Left - Info */}
+          <View style={styles.infoSection}>
+            <Text weight="semiBold" size="sm" color="#5299FE">
+              {mechanicsAvailable} Mechanics Available
+            </Text>
+            <Text size="sm" color="#6B7280" numberOfLines={1}>
+              {servicesPreview}
+            </Text>
+          </View>
+
+          {/* Right - Button */}
+          <Pressable
+            onPress={handlePress}
+            style={({ pressed }) => [
+              styles.resumeButton,
+              pressed && styles.resumeButtonPressed,
+            ]}
+          >
+            <Text weight="semiBold" size="sm" color="#FFFFFF">
+              Resume
+            </Text>
+            <ArrowRight size={16} color="#FFFFFF" />
+          </Pressable>
+        </View>
+      </View>
+    </View>
+  );
+}
+
+// ============================================================================
+// STYLES
+// ============================================================================
+
+const styles = StyleSheet.create({
+  container: {
+    gap: 12,
+  },
+  sectionHeader: {
+    marginLeft: 4,
+  },
+  card: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 10,
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  topSection: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+    marginBottom: 16,
+  },
+  iconContainer: {
+    width: 44,
+    height: 44,
+    borderRadius: 12,
+    backgroundColor: '#EBF4FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  contentSection: {
+    flex: 1,
+    gap: 4,
+  },
+  bottomSection: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    backgroundColor: '#F8F9FA',
+    marginHorizontal: -20,
+    marginBottom: -20,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderBottomLeftRadius: 10,
+    borderBottomRightRadius: 10,
+  },
+  infoSection: {
+    flex: 1,
+    gap: 2,
+    marginRight: 12,
+  },
+  resumeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#5299FE',
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  resumeButtonPressed: {
+    opacity: 0.8,
+  },
+});
+
+export default ResumeBookingCard;
+
