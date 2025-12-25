@@ -3,40 +3,40 @@
  * Contains colors, typography, spacing, and component-specific styles.
  */
 
-import { Platform } from 'react-native';
+import { Platform } from "react-native";
 
 // ============================================================================
 // COLORS
 // ============================================================================
 
-const tintColorLight = '#0a7ea4';
-const tintColorDark = '#fff';
+const tintColorLight = "#0a7ea4";
+const tintColorDark = "#fff";
 
 export const Colors = {
   light: {
-    text: '#11181C',
-    background: '#fff',
+    text: "#11181C",
+    background: "#fff",
     tint: tintColorLight,
-    icon: '#687076',
-    tabIconDefault: '#687076',
+    icon: "#687076",
+    tabIconDefault: "#687076",
     tabIconSelected: tintColorLight,
   },
   dark: {
-    text: '#ECEDEE',
-    background: '#151718',
+    text: "#ECEDEE",
+    background: "#151718",
     tint: tintColorDark,
-    icon: '#9BA1A6',
-    tabIconDefault: '#9BA1A6',
+    icon: "#9BA1A6",
+    tabIconDefault: "#9BA1A6",
     tabIconSelected: tintColorDark,
   },
 };
 
 // Brand Colors
 export const BrandColors = {
-  primary: '#141C24',
-  secondary: '#5299FE',
-  white: '#FFFFFF',
-  black: '#000000',
+  primary: "#141C24",
+  secondary: "#5299FE",
+  white: "#FFFFFF",
+  black: "#000000",
 } as const;
 
 // ============================================================================
@@ -44,13 +44,13 @@ export const BrandColors = {
 // ============================================================================
 
 export const FontFamily = {
-  regular: 'Urbanist-Regular',
-  medium: 'Urbanist-Medium',
-  semiBold: 'Urbanist-SemiBold',
-  bold: 'Urbanist-Bold',
-  extraBold: 'Urbanist-ExtraBold',
-  light: 'Urbanist-Light',
-  italic: 'Urbanist-Italic',
+  regular: "Urbanist-Regular",
+  medium: "Urbanist-Medium",
+  semiBold: "Urbanist-SemiBold",
+  bold: "Urbanist-Bold",
+  extraBold: "Urbanist-ExtraBold",
+  light: "Urbanist-Light",
+  italic: "Urbanist-Italic",
 } as const;
 
 export const FontSize = {
@@ -59,10 +59,10 @@ export const FontSize = {
   md: 16,
   lg: 18,
   xl: 20,
-  '2xl': 24,
-  '3xl': 30,
-  '4xl': 36,
-  '5xl': 48,
+  "2xl": 24,
+  "3xl": 30,
+  "4xl": 36,
+  "5xl": 48,
 } as const;
 
 export const LineHeight = {
@@ -74,16 +74,16 @@ export const LineHeight = {
 // Legacy font config (for platform-specific fallbacks)
 export const Fonts = Platform.select({
   ios: {
-    sans: 'Urbanist-Regular',
-    serif: 'ui-serif',
-    rounded: 'ui-rounded',
-    mono: 'ui-monospace',
+    sans: "Urbanist-Regular",
+    serif: "ui-serif",
+    rounded: "ui-rounded",
+    mono: "ui-monospace",
   },
   default: {
-    sans: 'Urbanist-Regular',
-    serif: 'serif',
-    rounded: 'normal',
-    mono: 'monospace',
+    sans: "Urbanist-Regular",
+    serif: "serif",
+    rounded: "normal",
+    mono: "monospace",
   },
   web: {
     sans: "'Urbanist', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
@@ -103,10 +103,10 @@ export const Spacing = {
   md: 12,
   lg: 16,
   xl: 20,
-  '2xl': 24,
-  '3xl': 32,
-  '4xl': 40,
-  '5xl': 48,
+  "2xl": 24,
+  "3xl": 32,
+  "4xl": 40,
+  "5xl": 48,
 } as const;
 
 // ============================================================================
@@ -119,7 +119,7 @@ export const BorderRadius = {
   md: 8,
   lg: 12,
   xl: 16,
-  '2xl': 20,
+  "2xl": 20,
   full: 9999,
 } as const;
 
@@ -143,7 +143,7 @@ export const ButtonStyles = {
     paddingHorizontal: Spacing.lg, // 16px
   },
   ghost: {
-    backgroundColor: 'transparent',
+    backgroundColor: "transparent",
     textColor: BrandColors.primary,
     borderRadius: BorderRadius.md,
     paddingVertical: Spacing.sm,
@@ -157,21 +157,21 @@ export const ButtonStyles = {
 
 export const Shadows = {
   sm: {
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 2,
     elevation: 1,
   },
   md: {
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
     elevation: 3,
   },
   lg: {
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
     shadowRadius: 8,
@@ -180,10 +180,48 @@ export const Shadows = {
 } as const;
 
 // ============================================================================
+// LAYOUT CONSTANTS
+// ============================================================================
+
+/**
+ * Consistent layout values for bottom sheet scroll padding.
+ * All sheets should use these to ensure content scrolls above fixed elements.
+ * Used in ServiceBottomSheet.tsx
+ * Used in AddMoreServicesSheet.tsx
+ * Used in BookingDetailsContent.tsx
+ * Used in CollapsedContent.tsx
+ * Used in ConfirmationContent.tsx
+ * Used in MechanicSelectionContent.tsx
+ * Used in ServiceSelectionContent.tsx
+ */
+export const Layout = {
+  /** Height of the native tab bar */
+  tabBarHeight: 30,
+  /** Standard footer height (button + vertical padding) */
+  footerHeight: 100,
+  /** Visual buffer so content doesn't touch footer */
+  scrollBuffer: 150,
+} as const;
+
+/**
+ * Helper to calculate sheet content bottom padding.
+ * Call this function instead of using static values - ensures fresh calculation.
+ *
+ * @param hasFooter - Whether the sheet has a footer button
+ * @param safeAreaBottom - Pass insets.bottom from useSafeAreaInsets()
+ */
+export function getSheetContentPadding(hasFooter: boolean, safeAreaBottom: number = 0): number {
+  if (hasFooter) {
+    return Layout.footerHeight + Layout.tabBarHeight + Layout.scrollBuffer + safeAreaBottom;
+  }
+  return Layout.tabBarHeight + Layout.scrollBuffer + safeAreaBottom;
+}
+
+// ============================================================================
 // TYPE EXPORTS
 // ============================================================================
 
-export type ColorScheme = 'light' | 'dark';
+export type ColorScheme = "light" | "dark";
 export type FontFamilyKey = keyof typeof FontFamily;
 export type FontSizeKey = keyof typeof FontSize;
 export type SpacingKey = keyof typeof Spacing;
