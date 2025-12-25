@@ -1,3 +1,42 @@
+/**
+ * Shared UI Components Library
+ * 
+ * A foundational component library for consistent UI across the app.
+ * All components use Urbanist font by default.
+ * 
+ * @example
+ * ```tsx
+ * import { Button, Text, Container, Input } from '@/components/shared-ui';
+ * 
+ * <Container padding="lg">
+ *   <Text weight="bold" size="xl">Welcome</Text>
+ *   <Input label="Email" placeholder="Enter your email" />
+ *   <Button variant="primary">Sign In</Button>
+ * </Container>
+ * ```
+ */
+
+// Progress Bar Component
+export {
+    ProgressBar
+} from './ProgressBar';
+
+// Footer Button Component
+export {
+    FooterButton
+} from './FooterButton';
+
+// Back Button Component
+export {
+    BackButton
+} from './BackButton';
+
+// Animated Gradient Background Component
+export {
+    AnimatedGradientBackground
+} from './AnimatedGradientBackground';
+
+// Button Components
 export {
     Button,
     GhostButton,

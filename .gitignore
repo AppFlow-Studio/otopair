@@ -41,3 +41,7 @@ app-example
 # generated native folders
 /ios
 /android
+
+# Otopair Developer Guide (Notion)
+Otopair Developer Guide.html
+Otopair Developer Guide_files/

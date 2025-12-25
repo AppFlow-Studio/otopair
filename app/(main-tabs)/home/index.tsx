@@ -173,7 +173,7 @@ export default function HomeScreen() {
         </View>
 
         {/* Content Area */}
-      <View style={styles.content}>
+        <View style={styles.content}>
           {/* Action Cards Carousel */}
           <ActionCardsCarousel
             // Upcoming Appointment
@@ -231,7 +231,7 @@ export default function HomeScreen() {
 
           {/* AI Assistant Button */}
           <AIAssistantButton />
-      </View>
+        </View>
       </ScrollView>
 
       {/* Loyalty Card Overlay */}
