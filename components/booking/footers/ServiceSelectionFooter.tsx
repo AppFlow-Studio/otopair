@@ -22,6 +22,7 @@ import { BrandColors, PrimaryButton, Spacing, Text } from "@/components/shared-u
 
 // 4. Constants
 import { BorderRadius } from "@/constants/theme";
+import { BlurView } from "expo-blur";
 
 // ============================================================================
 // TYPES
@@ -58,7 +59,7 @@ export function ServiceSelectionFooter({
   return (
     <BottomSheetFooter {...footerProps} bottomInset={bottomInset}>
       <Animated.View style={animatedStyle}>
-        <View style={styles.container}>
+        <View  style={styles.container} >
           <PrimaryButton
             onPress={onConfirm}
             style={[styles.button, !hasSelection && styles.buttonDisabled]}
@@ -81,7 +82,7 @@ export function ServiceSelectionFooter({
 const styles = StyleSheet.create({
   container: {
     paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
+    paddingVertical: 0,
     backgroundColor: BrandColors.white,
     borderTopWidth: 1,
     borderTopColor: "#F3F4F6",

@@ -154,7 +154,7 @@ export function TopBar({
       <View style={styles.frostedOverlay} />
 
       {/* Top Row: Back, Center, Right */}
-      <View style={[styles.topRow, { paddingTop: insets.top + Spacing.sm }]}>
+      <View style={[styles.topRow, { paddingTop: insets.top / 3 }]}>
         {/* Back Button - Screen Navigation */}
         <GhostButton
           onPress={handleBackPress}

@@ -197,7 +197,7 @@ export function ServiceBottomSheet({
   }));
 
   // Bottom inset includes safe area + tab bar height
-  const footerBottomInset = insets.bottom + Layout.tabBarHeight;
+  const footerBottomInset = insets.bottom;
 
   // ═══════════════ FOOTER RENDERER ═══════════════
   // Using footerComponent so the sheet knows about the footer and adjusts scroll area automatically
