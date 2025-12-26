@@ -31,6 +31,7 @@ import {
     ProgressBar,
     FooterButton,
     BackButton,
+    FadeFooterContainer,
 } from '@/components/shared-ui';
 import { useState } from 'react';
 import {
@@ -175,7 +176,7 @@ export function ExperienceStep({ onNext, onBack, progress }: ExperienceStepProps
                     </View>
                 </ScrollView>
 
-                <View style={[styles.bottomContainer, dynamicStyles.bottomContainer]}>
+                <FadeFooterContainer paddingBottom={insets.bottom + Spacing.lg}>
                     <FooterButton
                         label="Continue"
                         onPress={handleContinue}
@@ -186,7 +187,7 @@ export function ExperienceStep({ onNext, onBack, progress }: ExperienceStepProps
                         backgroundColor={canContinue ? undefined : '#6B7280'}
                         textColor={canContinue ? undefined : BrandColors.white}
                     />
-                </View>
+                </FadeFooterContainer>
             </View>
         </KeyboardAvoidingView>
     );

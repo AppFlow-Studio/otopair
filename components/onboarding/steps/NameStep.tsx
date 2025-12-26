@@ -47,11 +47,11 @@ interface NameStepProps {
 export function NameStep({ onNext, onBack }: NameStepProps) {
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
-  const { updateData } = useOnboardingStore();
+  const { data, updateData } = useOnboardingStore();
 
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [alias, setAlias] = useState("");
+  const [firstName, setFirstName] = useState(data.firstName || "");
+  const [lastName, setLastName] = useState(data.lastName || "");
+  const [alias, setAlias] = useState(data.alias || "");
 
   const dynamicStyles = {
     container: { paddingTop: insets.top + Spacing.lg },

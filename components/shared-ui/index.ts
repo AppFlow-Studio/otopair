@@ -26,6 +26,11 @@ export {
     FooterButton
 } from './FooterButton';
 
+// Fade Footer Container Component
+export {
+    FadeFooterContainer
+} from './FadeFooterContainer';
+
 // Back Button Component
 export {
     BackButton

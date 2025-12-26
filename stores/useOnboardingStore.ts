@@ -53,6 +53,7 @@ interface OnboardingData {
   alias: string | null;
   dateOfBirth: string | null;     // ISO format
   phoneNumber: string | null;
+  phoneCountryCode: string | null;
 
   // User intentions for using app
   userIntentions: string[] | null;
@@ -148,6 +149,7 @@ const INITIAL_DATA: OnboardingData = {
   alias: null,
   dateOfBirth: null,
   phoneNumber: null,
+  phoneCountryCode: null,
   userIntentions: null,
   pushNotificationsGranted: false,
   pushNotificationStatus: null,

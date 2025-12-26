@@ -49,13 +49,13 @@ export interface GradientConfig {
  * Caller determines which index maps to which logical step.
  */
 export const SHARED_GRADIENT_CONFIGS: GradientConfig[] = [
-    { startX: 0, startY: 0, endX: 0.4, endY: 0.6, colors: DEFAULT_GRADIENT_COLORS },      // Index 0
-    { startX: 0, startY: 0.1, endX: 0.2, endY: 0.8, colors: DEFAULT_GRADIENT_COLORS },    // Index 1
-    { startX: 0.5, startY: 0.2, endX: 0.7, endY: 0.9, colors: DEFAULT_GRADIENT_COLORS },  // Index 2
+    { startX: 0, startY: 0, endX: 0.4, endY: 0.5, colors: DEFAULT_GRADIENT_COLORS },      // Index 0
+    { startX: 0, startY: 0.1, endX: 0.2, endY: 0.7, colors: DEFAULT_GRADIENT_COLORS },    // Index 1
+    { startX: 0.5, startY: 0.2, endX: 0.7, endY: 0.8, colors: DEFAULT_GRADIENT_COLORS },  // Index 2
     { startX: 0.7, startY: 0, endX: 0.2, endY: 0.5, colors: DEFAULT_GRADIENT_COLORS },    // Index 3
     { startX: 0.3, startY: 0.2, endX: 0.5, endY: 0.7, colors: DEFAULT_GRADIENT_COLORS },  // Index 4
     { startX: 0.4, startY: 0.3, endX: 0.6, endY: 0.8, colors: DEFAULT_GRADIENT_COLORS },  // Index 5
-    { startX: 0.6, startY: 0.1, endX: 0.3, endY: 0.9, colors: DEFAULT_GRADIENT_COLORS },  // Index 6
+    { startX: 0.6, startY: 0.1, endX: 0.3, endY: 0.83, colors: DEFAULT_GRADIENT_COLORS },  // Index 6
     { startX: 0.2, startY: 0.2, endX: 0.8, endY: 1, colors: DEFAULT_GRADIENT_COLORS },    // Index 7
     { startX: 0.1, startY: 0.3, endX: 0.5, endY: 0.7, colors: DEFAULT_GRADIENT_COLORS },  // Index 8
     { startX: 0.5, startY: 0.1, endX: 0.4, endY: 0.8, colors: DEFAULT_GRADIENT_COLORS },  // Index 9

@@ -70,7 +70,7 @@ export function PhoneNumberStep({ onNext, onBack }: PhoneNumberStepProps) {
   const { height, width } = useWindowDimensions();
   const { updateData, data } = useOnboardingStore();
   const [phoneNumber, setPhoneNumber] = useState("");
-  const [countryCode, setCountryCode] = useState<string>("US");
+  const [countryCode, setCountryCode] = useState<string>(data.phoneCountryCode || "US");
   const [country, setCountry] = useState<Country | null>(null);
   const [showCountryPicker, setShowCountryPicker] = useState(false);
   const [showConfirmationModal, setShowConfirmationModal] = useState(false);
@@ -110,28 +110,59 @@ export function PhoneNumberStep({ onNext, onBack }: PhoneNumberStepProps) {
                 c.callingCode[0].trim() !== ""
             );
             setAllCountries(validCountries);
+
+            // Set initial country based on store
+            const initialCountry = validCountries.find(c => c.cca2 === (data.phoneCountryCode || "US"));
+            if (initialCountry) {
+              setCountry(initialCountry);
+              
+              // If we have a phone number in store, strip the calling code for display
+              if (data.phoneNumber) {
+                const prefix = `+${initialCountry.callingCode[0]}`;
+                if (data.phoneNumber.startsWith(prefix)) {
+                  setPhoneNumber(data.phoneNumber.replace(prefix, "").trim());
+                } else {
+                  setPhoneNumber(data.phoneNumber);
+                }
+              }
+            }
             return;
           }
         }
 
         // Fallback to common countries
-        const commonCountries = [
-          { cca2: "US", callingCode: ["1"], name: { common: "United States" } },
-          { cca2: "CA", callingCode: ["1"], name: { common: "Canada" } },
+        const commonCountries: Country[] = [
+          { cca2: "US", callingCode: ["1"], name: { common: "United States" } } as any,
+          { cca2: "CA", callingCode: ["1"], name: { common: "Canada" } } as any,
           {
             cca2: "GB",
             callingCode: ["44"],
             name: { common: "United Kingdom" },
-          },
-          { cca2: "AU", callingCode: ["61"], name: { common: "Australia" } },
-          { cca2: "DE", callingCode: ["49"], name: { common: "Germany" } },
-          { cca2: "FR", callingCode: ["33"], name: { common: "France" } },
-          { cca2: "IT", callingCode: ["39"], name: { common: "Italy" } },
-          { cca2: "ES", callingCode: ["34"], name: { common: "Spain" } },
-          { cca2: "MX", callingCode: ["52"], name: { common: "Mexico" } },
-          { cca2: "BR", callingCode: ["55"], name: { common: "Brazil" } },
+          } as any,
+          { cca2: "AU", callingCode: ["61"], name: { common: "Australia" } } as any,
+          { cca2: "DE", callingCode: ["49"], name: { common: "Germany" } } as any,
+          { cca2: "FR", callingCode: ["33"], name: { common: "France" } } as any,
+          { cca2: "IT", callingCode: ["39"], name: { common: "Italy" } } as any,
+          { cca2: "ES", callingCode: ["34"], name: { common: "Spain" } } as any,
+          { cca2: "MX", callingCode: ["52"], name: { common: "Mexico" } } as any,
+          { cca2: "BR", callingCode: ["55"], name: { common: "Brazil" } } as any,
         ];
-        setAllCountries(commonCountries as Country[]);
+        setAllCountries(commonCountries);
+
+        // Set initial country from fallback
+        const initialCountry = commonCountries.find(c => c.cca2 === (data.phoneCountryCode || "US"));
+        if (initialCountry) {
+          setCountry(initialCountry);
+          
+          if (data.phoneNumber) {
+            const prefix = `+${initialCountry.callingCode[0]}`;
+            if (data.phoneNumber.startsWith(prefix)) {
+              setPhoneNumber(data.phoneNumber.replace(prefix, "").trim());
+            } else {
+              setPhoneNumber(data.phoneNumber);
+            }
+          }
+        }
       } catch (error) {
         console.error("Error loading countries:", error);
       }
@@ -251,7 +282,10 @@ export function PhoneNumberStep({ onNext, onBack }: PhoneNumberStepProps) {
       /\D/g,
       ""
     )}`;
-    updateData({ phoneNumber: fullPhoneNumber });
+    updateData({ 
+      phoneNumber: fullPhoneNumber,
+      phoneCountryCode: countryCode
+    });
     setShowConfirmationModal(false);
     onNext();
   };
@@ -521,7 +555,7 @@ export function PhoneNumberStep({ onNext, onBack }: PhoneNumberStepProps) {
 
         <View style={[styles.bottomContainer, dynamicStyles.bottomContainer]}>
           <FooterButton
-            label="Create account"
+            label="Continue"
             onPress={handleCreateAccount}
             disabled={!canCreateAccount}
             size={buttonSize}

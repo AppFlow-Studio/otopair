@@ -31,6 +31,7 @@ import {
     ProgressBar,
     FooterButton,
     BackButton,
+    FadeFooterContainer,
 } from '@/components/shared-ui';
 import { useState } from 'react';
 import {
@@ -162,7 +163,7 @@ export function RepairQuoteNeedsStep({ onNext, onBack, progress }: RepairQuoteNe
                     </View>
                 </ScrollView>
 
-                <View style={[styles.bottomContainer, dynamicStyles.bottomContainer]}>
+                <FadeFooterContainer paddingBottom={insets.bottom + Spacing.lg}>
                     <FooterButton
                         label="Finish"
                         onPress={handleContinue}
@@ -170,7 +171,7 @@ export function RepairQuoteNeedsStep({ onNext, onBack, progress }: RepairQuoteNe
                         paddingVertical={buttonPaddingVertical}
                         variant="primary"
                     />
-                </View>
+                </FadeFooterContainer>
             </View>
         </KeyboardAvoidingView>
     );
