@@ -16,6 +16,8 @@
  * TICKET: OTO-XXX
  */
 
+// TODO: Use numeric keyboard by default — defaulting to this isn't working on all devices
+
 import {
   BrandColors,
   FontFamily,

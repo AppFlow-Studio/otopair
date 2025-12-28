@@ -28,6 +28,7 @@ import {
 import { ProgressBar } from "@/components/shared-ui/ProgressBar";
 import { FooterButton } from "@/components/shared-ui/FooterButton";
 import { BackButton } from "@/components/shared-ui/BackButton";
+import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import { useState } from "react";
 import {
   StyleSheet,
@@ -51,8 +52,16 @@ interface ProfilePhotoStepProps {
 export function ProfilePhotoStep({ onNext, onBack }: ProfilePhotoStepProps) {
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
-  const [imageUri, setImageUri] = useState<string | null>(null);
+  const data = useOnboardingStore((state) => state.data);
+  const updateData = useOnboardingStore((state) => state.updateData);
+  const [imageUri, setImageUri] = useState<string | null>(
+    data.profilePhotoUri ?? null
+  );
   const [showPhotoModal, setShowPhotoModal] = useState(false);
+  // Prefer new MediaType enum when available to avoid deprecation warnings; fall back for older SDKs.
+  const mediaTypeImages =
+    // @ts-ignore - MediaType may not exist on older versions
+    (ImagePicker as any).MediaType?.Images ?? ImagePicker.MediaTypeOptions.Images;
 
   const dynamicStyles = {
     container: { paddingTop: insets.top + Spacing.lg },
@@ -73,6 +82,11 @@ export function ProfilePhotoStep({ onNext, onBack }: ProfilePhotoStepProps) {
     return status === "granted";
   };
 
+  const persistImage = (uri: string) => {
+    setImageUri(uri);
+    updateData({ profilePhotoUri: uri });
+  };
+
   const pickFromLibrary = async () => {
     setShowPhotoModal(false);
     const hasPermission = await requestLibraryPermission();
@@ -80,13 +94,13 @@ export function ProfilePhotoStep({ onNext, onBack }: ProfilePhotoStepProps) {
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      mediaTypes: mediaTypeImages,
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.9,
     });
     if (!result.canceled && result.assets?.length) {
-      setImageUri(result.assets[0].uri);
+      persistImage(result.assets[0].uri);
     }
   };
 
@@ -100,9 +114,10 @@ export function ProfilePhotoStep({ onNext, onBack }: ProfilePhotoStepProps) {
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.9,
+      mediaTypes: mediaTypeImages,
     });
     if (!result.canceled && result.assets?.length) {
-      setImageUri(result.assets[0].uri);
+      persistImage(result.assets[0].uri);
     }
   };
 
@@ -121,6 +136,8 @@ export function ProfilePhotoStep({ onNext, onBack }: ProfilePhotoStepProps) {
   const handleSkip = () => {
     onNext();
   };
+
+  const canContinue = imageUri !== null;
 
   return (
     <View style={[styles.container, dynamicStyles.container]}>
@@ -156,18 +173,25 @@ export function ProfilePhotoStep({ onNext, onBack }: ProfilePhotoStepProps) {
         <FooterButton
           label="Continue"
           onPress={handleContinue}
+          disabled={!canContinue}
           size={buttonSize}
           paddingVertical={buttonPaddingVertical}
-          variant="primary"
+          variant={canContinue ? "primary" : undefined}
+          backgroundColor={canContinue ? undefined : "#6B7280"}
+          textColor={canContinue ? undefined : BrandColors.white}
         />
-        <View style={styles.buttonSpacer} />
-        <FooterButton
-          label="Skip for now"
-          onPress={handleSkip}
-          size={buttonSize}
-          paddingVertical={buttonPaddingVertical}
-          variant="secondary"
-        />
+        {!canContinue && (
+          <>
+            <View style={styles.buttonSpacer} />
+            <FooterButton
+              label="Skip for now"
+              onPress={handleSkip}
+              size={buttonSize}
+              paddingVertical={buttonPaddingVertical}
+              variant="secondary"
+            />
+          </>
+        )}
       </View>
 
       <Modal

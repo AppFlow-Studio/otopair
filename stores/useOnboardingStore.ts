@@ -52,6 +52,7 @@ interface OnboardingData {
   lastName: string | null;
   alias: string | null;
   username: string | null;
+  profilePhotoUri: string | null;
   dateOfBirth: string | null;     // ISO format
   phoneNumber: string | null;
   phoneCountryCode: string | null;
@@ -149,6 +150,7 @@ const INITIAL_DATA: OnboardingData = {
   lastName: null,
   alias: null,
   username: null,
+  profilePhotoUri: null,
   dateOfBirth: null,
   phoneNumber: null,
   phoneCountryCode: null,

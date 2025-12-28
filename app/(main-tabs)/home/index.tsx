@@ -62,6 +62,7 @@ export default function HomeScreen() {
   console.log('shop type: ', useOnboardingStore.getState().data.shopType);
   console.log('why new option: ', useOnboardingStore.getState().data.whyNewOption);
   console.log('terminology comfort: ', useOnboardingStore.getState().data.carTerminologyComfort);
+  console.log('profile photo uri: ', useOnboardingStore.getState().data.profilePhotoUri);
 
   console.log('is tell us about yourself complete: ', useOnboardingStore.getState().data.isTellUsAboutYourselfComplete);
   const { data } = useOnboardingStore();
@@ -223,7 +224,7 @@ export default function HomeScreen() {
     { label: 'First name', value: String(data.firstName ?? '—') },
     { label: 'Last name', value: String(data.lastName ?? '—') },
     { label: 'Alias', value: String(data.alias ?? '—') },
-    { label: 'Username', value: String(data.username) },
+    { label: 'Username', value: String(data.username ?? '—') },
     { label: 'Car knowledge level', value: String(data.carKnowledgeLevel ?? '—') },
     { label: 'User intentions', value: data.userIntentions ? JSON.stringify(data.userIntentions) : '—' },
     { label: 'Car stress note', value: String(data.carStressNote ?? '—') },
@@ -236,6 +237,7 @@ export default function HomeScreen() {
     { label: 'Why new option', value: data.whyNewOption ? JSON.stringify(data.whyNewOption) : '—' },
     { label: 'Repair quote needs', value: data.repairQuoteNeeds ? JSON.stringify(data.repairQuoteNeeds) : '—' },
     { label: 'Is tell us about yourself complete', value: String(data.isTellUsAboutYourselfComplete) },
+    { label: 'Profile photo uri', value: String(data.profilePhotoUri ?? '—') },
   ];
 
 
@@ -418,25 +420,27 @@ export default function HomeScreen() {
                               fill={BrandColors.secondary}
                             />
                           ) : (
-                            <Icon size={isSmallScreen ? 20 : 24} color={BrandColors.white} />
+                            <Icon size={isSmallScreen ? 20 : 24} color={BrandColors.black} />
                           )}
                           <View style={styles.checklistItemText}>
                             <Text style={[
                               styles.checklistItemTitle,
-                              isSmallScreen && { fontSize: FontSize.md }
+                              isSmallScreen && { fontSize: FontSize.md },
+                              item.isComplete && { color: '#9CA3AF', opacity: 0.8 }
                             ]}>
                               {item.title}
                             </Text>
                             <Text style={[
                               styles.checklistItemSubtitle,
-                              isSmallScreen && { fontSize: FontSize.xs }
+                              isSmallScreen && { fontSize: FontSize.xs },
+                              item.isComplete && { color: '#9CA3AF', opacity: 0.6 }
                             ]}>
                               {item.subtitle}
                             </Text>
                           </View>
                         </View>
                         {!item.isComplete && !isDisabled && (
-                          <ChevronRight size={isSmallScreen ? 16 : 20} color={BrandColors.white} opacity={0.5} />
+                          <ChevronRight size={isSmallScreen ? 16 : 20} color={BrandColors.black} opacity={0.6} />
                         )}
                       </TouchableOpacity>
                     );
@@ -491,7 +495,7 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
   },
   bottomSheet: {
-    backgroundColor: '#1F2937',
+    backgroundColor: '#f3f4f6',
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
   },
@@ -533,19 +537,19 @@ const styles = StyleSheet.create({
   progressText: {
     fontSize: FontSize.lg,
     fontFamily: FontFamily.bold,
-    color: BrandColors.white,
+    color: BrandColors.black,
   },
   bottomSheetTitle: {
     fontSize: FontSize['3xl'],
     fontFamily: FontFamily.bold,
-    color: BrandColors.white,
+    color: BrandColors.black,
     paddingBottom: Spacing.sm,
     textAlign: 'center',
   },
   bottomSheetSubtitle: {
     fontSize: FontSize.md,
     fontFamily: FontFamily.regular,
-    color: BrandColors.white,
+    color: BrandColors.black,
     opacity: 0.7,
     marginBottom: Spacing['2xl'],
     textAlign: 'center',
@@ -560,10 +564,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: Spacing.md,
     paddingHorizontal: Spacing.lg,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    backgroundColor: 'rgba(255, 255, 255, 1)',
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: 'rgba(252, 252, 252, 1)',
   },
   checklistItemLeft: {
     flexDirection: 'row',
@@ -577,13 +581,13 @@ const styles = StyleSheet.create({
   checklistItemTitle: {
     fontSize: FontSize.lg,
     fontFamily: FontFamily.semiBold,
-    color: BrandColors.white,
+    color: BrandColors.black,
     marginBottom: Spacing.xs / 2,
   },
   checklistItemSubtitle: {
     fontSize: FontSize.sm,
     fontFamily: FontFamily.regular,
-    color: BrandColors.white,
+    color: BrandColors.black,
     opacity: 0.6,
   },
   progressRow: {
