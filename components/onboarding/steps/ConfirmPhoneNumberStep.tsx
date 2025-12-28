@@ -176,7 +176,7 @@ export function ConfirmPhoneNumberStep({
     >
       <View style={[styles.container, dynamicStyles.container]}>
         <ProgressBar
-          total={6}
+          total={8}
           filled={1}
           leftElement={<BackButton onBack={onBack} alwaysShow />}
         />

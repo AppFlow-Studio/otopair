@@ -161,8 +161,8 @@ export function UserIntentStep({ onNext, onBack }: UserIntentStepProps) {
         >
             <View style={[styles.container, dynamicStyles.container]}>
                 <ProgressBar
-                    total={6}
-                    filled={3}
+                    total={8}
+                    filled={5}
                     leftElement={<BackButton onBack={onBack} alwaysShow />}
                 />
 

@@ -379,7 +379,7 @@ export function PhoneNumberStep({ onNext, onBack }: PhoneNumberStepProps) {
     >
       <View style={[styles.container, dynamicStyles.container]}>
         <ProgressBar
-          total={6}
+          total={8}
           filled={0}
           leftElement={<BackButton onBack={onBack} alwaysShow />}
         />
@@ -393,7 +393,7 @@ export function PhoneNumberStep({ onNext, onBack }: PhoneNumberStepProps) {
           <View style={styles.headerContent}>
             <Text style={styles.title}>Let's get started!</Text>
             <Text style={styles.subtitle}>
-              Enter your phone number. We will send you a confirmation code there
+              Enter your phone number. We will send you a confirmation code there.
             </Text>
           </View>
 
@@ -533,7 +533,7 @@ export function PhoneNumberStep({ onNext, onBack }: PhoneNumberStepProps) {
                 {getFlagEmoji(countryCode)} {formatPhoneNumberForDisplay()}
               </Text>
               <Text style={styles.confirmationQuestion}>
-                Is this number correct? We'll send you a confirmation code there.
+                Is this number correct?
               </Text>
               <View style={styles.confirmationButtons}>
                 <TouchableOpacity

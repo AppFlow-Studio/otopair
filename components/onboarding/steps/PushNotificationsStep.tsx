@@ -165,8 +165,8 @@ export function PushNotificationsStep({ onNext, onBack }: PushNotificationsStepP
         >
             <View style={[styles.container, dynamicStyles.container]}>
                 <ProgressBar
-                    total={6}
-                    filled={4}
+                    total={8}
+                    filled={6}
                     leftElement={<BackButton onBack={onBack} alwaysShow />}
                 />
 

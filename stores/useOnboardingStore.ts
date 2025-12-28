@@ -51,6 +51,7 @@ interface OnboardingData {
   firstName: string | null;
   lastName: string | null;
   alias: string | null;
+  username: string | null;
   dateOfBirth: string | null;     // ISO format
   phoneNumber: string | null;
   phoneCountryCode: string | null;
@@ -147,6 +148,7 @@ const INITIAL_DATA: OnboardingData = {
   firstName: null,
   lastName: null,
   alias: null,
+  username: null,
   dateOfBirth: null,
   phoneNumber: null,
   phoneCountryCode: null,
@@ -239,7 +241,7 @@ export const useOnboardingStore = create<OnboardingState>()((set, get) => ({
     // Validation for setup step (new flow)
     switch (currentSetupStep) {
       case 'create_account':
-        return Boolean(data.phoneNumber && data.firstName && data.lastName);
+        return Boolean(data.phoneNumber && data.firstName && data.lastName && data.username);
       case 'tell_us_about_yourself':
         return Boolean(data.firstName && data.lastName);
       case 'add_your_car':

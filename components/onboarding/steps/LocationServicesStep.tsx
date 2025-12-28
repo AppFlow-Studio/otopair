@@ -156,8 +156,8 @@ export function LocationServicesStep({ onNext, onBack }: LocationServicesStepPro
         >
             <View style={[styles.container, dynamicStyles.container]}>
                 <ProgressBar
-                    total={6}
-                    filled={5}
+                    total={8}
+                    filled={7}
                     leftElement={<BackButton onBack={onBack} alwaysShow />}
                 />
 

@@ -50,6 +50,7 @@ export default function HomeScreen() {
   console.log('first name: ', useOnboardingStore.getState().data.firstName);
   console.log('last name: ', useOnboardingStore.getState().data.lastName);
   console.log('alias: ', useOnboardingStore.getState().data.alias);
+  console.log('username: ', useOnboardingStore.getState().data.phoneNumber);
   console.log('car knowledge level: ', useOnboardingStore.getState().data.carKnowledgeLevel);
   console.log('user intentions: ', useOnboardingStore.getState().data.userIntentions);
   console.log('stress note: ', useOnboardingStore.getState().data.carStressNote);
@@ -222,6 +223,7 @@ export default function HomeScreen() {
     { label: 'First name', value: String(data.firstName ?? '—') },
     { label: 'Last name', value: String(data.lastName ?? '—') },
     { label: 'Alias', value: String(data.alias ?? '—') },
+    { label: 'Username', value: String(data.username) },
     { label: 'Car knowledge level', value: String(data.carKnowledgeLevel ?? '—') },
     { label: 'User intentions', value: data.userIntentions ? JSON.stringify(data.userIntentions) : '—' },
     { label: 'Car stress note', value: String(data.carStressNote ?? '—') },
