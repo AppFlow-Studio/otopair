@@ -7,6 +7,7 @@
 
 // Main booking components
 export { BookingMap } from "./map";
+export { FullScreenBookingView } from "./FullScreenBookingView";
 export { MechanicCarouselCard, type MechanicCarouselCardProps } from "./MechanicCarouselCard";
 export { MechanicCarouselSheet, type MechanicCarouselSheetProps } from "./MechanicCarouselSheet";
 export { SearchAreaButton } from "./SearchAreaButton";

@@ -21,6 +21,7 @@ import { SharedValue } from "react-native-reanimated";
 // 4. Flow-specific components
 import {
   BookingMap,
+  FullScreenBookingView,
   MechanicCarouselSheet,
   MechanicFilterOption,
   Region,
@@ -57,6 +58,10 @@ export default function BookingsScreen() {
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
   const getSelectedServices = useBookingStore((state) => state.getSelectedServices);
   const selectedMechanicId = useBookingStore((state) => state.selectedMechanicId);
+  const bookingStage = useBookingStore((state) => state.bookingStage);
+  
+  // ═══════════════ COMPUTED: Full-screen stages ═══════════════
+  const isFullScreenStage = bookingStage === "booking_details" || bookingStage === "payment";
 
   // ═══════════════ MECHANIC STORE ═══════════════
   const getMechanicById = useMechanicStore((state) => state.getMechanicById);
@@ -204,6 +209,11 @@ export default function BookingsScreen() {
   }, [selectedMechanicId, getMechanicById]);
 
   // ═══════════════ RENDER ═══════════════
+  // Full-screen stages (booking_details, payment) are rendered on top of everything
+  if (isFullScreenStage) {
+    return <FullScreenBookingView />;
+  }
+
   return (
     <View style={styles.container}>
       {/* Map */}

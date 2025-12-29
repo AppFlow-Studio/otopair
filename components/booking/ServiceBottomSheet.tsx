@@ -25,18 +25,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BrandColors, Spacing } from "@/components/shared-ui";
 
 // 4. Flow-specific components
-import {
-  BookingDetailsFooter,
-  PaymentFooter,
-  ServiceSelectionFooter,
-} from "./footers";
+import { ServiceSelectionFooter } from "./footers";
 import { AddMoreServicesSheet, AddMoreServicesSheetRef } from "./sheets/AddMoreServicesSheet";
-import { BookingDetailsContent } from "./sheets/BookingDetailsContent";
 import { CollapsedContent } from "./sheets/CollapsedContent";
 import { ConfirmationModal, ConfirmationModalRef } from "./sheets/ConfirmationModal";
 import type { MechanicFilterOption } from "./sheets/MechanicSelectionContent";
 import { MechanicSelectionContent } from "./sheets/MechanicSelectionContent";
-import { ReviewPayContent } from "./sheets/ReviewPayContent";
 import { ServiceSelectionContent } from "./sheets/ServiceSelectionContent";
 
 // 5. Constants, hooks, types, stores
@@ -99,8 +93,6 @@ export function ServiceBottomSheet({
 
   // ═══════════════ STORE ═══════════════
   const setBookingStage = useBookingStore((state) => state.setBookingStage);
-  const bookingType = useBookingStore((state) => state.bookingType);
-  const scheduledAppointment = useBookingStore((state) => state.scheduledAppointment);
   // Call functions inside selector so Zustand tracks value changes
   const selectedCount = useBookingStore((state) => state.getSelectedServicesCount());
   const selectedTotal = useBookingStore((state) => state.getSelectedServicesTotal());
@@ -108,8 +100,6 @@ export function ServiceBottomSheet({
   // ═══════════════ COMPUTED ═══════════════
   const hasSelection = selectedCount > 0;
   const isServiceStage = currentStage === "discovery" || currentStage === "service_selection";
-  const isBookingDetailsStage = currentStage === "booking_details";
-  const isPaymentStage = currentStage === "payment";
 
   // ═══════════════ EFFECTS ═══════════════
   // Expose animated index to parent
@@ -168,26 +158,11 @@ export function ServiceBottomSheet({
     // Navigation is handled internally by MechanicSelectionContent
   }, []);
 
-  // Booking details confirmed -> go to payment (Review & Pay)
-  const handleProceedToPayment = useCallback(() => {
-    setBookingStage("payment", "forward");
-  }, [setBookingStage]);
-
-  // Payment confirmed -> go to confirmation
-  const handlePaymentConfirmed = useCallback(() => {
-    setBookingStage("confirmation", "forward");
-  }, [setBookingStage]);
-
   // Book again -> reset flow
   const handleBookAgain = useCallback(() => {
     reset();
     bottomSheetRef.current?.snapToIndex(0);
   }, [reset]);
-
-  // Open add more services sheet
-  const handleAddMore = useCallback(() => {
-    addMoreSheetRef.current?.open();
-  }, []);
 
   // ═══════════════ FOOTER ANIMATED STYLE ═══════════════
   // Hide footer when sheet is collapsed (index < 0.5)
@@ -219,51 +194,19 @@ export function ServiceBottomSheet({
         );
       }
 
-      // Booking details stage footer - proceed to Review & Pay
-      if (isBookingDetailsStage) {
-        return (
-          <BookingDetailsFooter
-            {...props}
-            bottomInset={footerBottomInset}
-            animatedStyle={footerAnimatedStyle}
-            bookingType={bookingType}
-            hasAppointment={!!scheduledAppointment}
-            onProceed={handleProceedToPayment}
-          />
-        );
-      }
-
-      // Payment (Review & Pay) stage footer
-      if (isPaymentStage) {
-        return (
-          <PaymentFooter
-            {...props}
-            bottomInset={footerBottomInset}
-            animatedStyle={footerAnimatedStyle}
-            totalAmount={selectedTotal}
-            onConfirm={handlePaymentConfirmed}
-          />
-        );
-      }
-
+      // booking_details and payment stages are handled by FullScreenBookingView
       // Confirmation stage uses a separate modal (no footer here)
       // Mechanic selection has no footer (buttons are in MechanicCard)
       return null;
     },
     [
       isServiceStage,
-      isBookingDetailsStage,
-      isPaymentStage,
       footerBottomInset,
       footerAnimatedStyle,
       hasSelection,
       selectedCount,
       selectedTotal,
-      bookingType,
-      scheduledAppointment,
       handleServicesSelected,
-      handleProceedToPayment,
-      handlePaymentConfirmed,
     ]
   );
 
@@ -288,21 +231,10 @@ export function ServiceBottomSheet({
           </Animated.View>
         );
 
-      case "booking_details":
-        return (
-          <Animated.View key="booking" entering={sheetEntering} exiting={sheetExiting} style={styles.contentWrapper}>
-            <BookingDetailsContent onAddMore={handleAddMore} />
-          </Animated.View>
-        );
-
-      case "payment":
-        return (
-          <Animated.View key="payment" entering={sheetEntering} exiting={sheetExiting} style={styles.contentWrapper}>
-            <ReviewPayContent />
-          </Animated.View>
-        );
-
+      // booking_details and payment stages are handled by FullScreenBookingView
       // Confirmation stage uses a separate detached modal (ConfirmationModal)
+      case "booking_details":
+      case "payment":
       case "confirmation":
       default:
         return null;

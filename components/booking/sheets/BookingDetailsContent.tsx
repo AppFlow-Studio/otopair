@@ -20,7 +20,7 @@
 
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { StyleSheet, TouchableOpacity, View } from "react-native";
+import { ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
@@ -51,13 +51,15 @@ import { useScheduleStore } from "@/stores/useScheduleStore";
 interface BookingDetailsContentProps {
   /** Called when user wants to add more services */
   onAddMore?: () => void;
+  /** Whether this is rendered in full-screen mode (outside bottom sheet) */
+  isFullScreen?: boolean;
 }
 
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
 
-export function BookingDetailsContent({ onAddMore }: BookingDetailsContentProps) {
+export function BookingDetailsContent({ onAddMore, isFullScreen = false }: BookingDetailsContentProps) {
   // ═══════════════ REFS ═══════════════
   const allAvailabilityRef = useRef<AllAvailabilitySheetRef>(null);
   const allReviewsRef = useRef<AllReviewsSheetRef>(null);
@@ -238,10 +240,13 @@ export function BookingDetailsContent({ onAddMore }: BookingDetailsContentProps)
     );
   }
 
+  // Choose the appropriate ScrollView component based on mode
+  const ScrollComponent = isFullScreen ? ScrollView : BottomSheetScrollView;
+
   return (
     <View style={styles.container}>
       {/* Scrollable Content */}
-      <BottomSheetScrollView
+      <ScrollComponent
         contentContainerStyle={[styles.scrollContent, { paddingBottom: contentPadding }]}
         showsVerticalScrollIndicator={false}
       >
@@ -317,7 +322,7 @@ export function BookingDetailsContent({ onAddMore }: BookingDetailsContentProps)
             <ChevronRight size={18} color={BrandColors.primary} />
           </TouchableOpacity>
         </View>
-      </BottomSheetScrollView>
+      </ScrollComponent>
 
       {/* Discard Service Confirmation Modal */}
       <DiscardServiceModal
