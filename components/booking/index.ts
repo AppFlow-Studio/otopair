@@ -7,10 +7,17 @@
 
 // Main booking components
 export { BookingMap } from "./map";
+export { MechanicCarouselCard, type MechanicCarouselCardProps } from "./MechanicCarouselCard";
+export { MechanicCarouselSheet, type MechanicCarouselSheetProps } from "./MechanicCarouselSheet";
+export { SearchAreaButton } from "./SearchAreaButton";
+export { ShopCarouselCard, type ShopCarouselCardProps } from "./ShopCarouselCard";
 export { ServiceBottomSheet } from "./ServiceBottomSheet";
 export { ShopCarousel } from "./ShopCarousel";
 export { ShopMarker } from "./ShopMarker";
 export { TopBar, type MechanicFilterOption, type TopBarProps } from "./TopBar";
+
+// Re-export Region type from react-native-maps for convenience
+export type { Region } from "react-native-maps";
 
 // Footer components (stage-specific bottom sheet footers)
 export {

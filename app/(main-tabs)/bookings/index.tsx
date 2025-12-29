@@ -21,12 +21,20 @@ import { SharedValue } from "react-native-reanimated";
 import { ScreenContainer } from "@/components/shared-ui";
 
 // 4. Flow-specific components
-import { BookingMap, MechanicFilterOption, ServiceBottomSheet, Shop, ShopCarousel, TopBar } from "@/components/booking";
+import {
+  BookingMap,
+  MechanicCarouselSheet,
+  MechanicFilterOption,
+  Region,
+  SearchAreaButton,
+  ServiceBottomSheet,
+  Shop,
+  TopBar,
+} from "@/components/booking";
 
 // 5. Constants, hooks, types, stores
 import { AVAILABLE_NOW_FILTER, TOP_RATED_FILTER } from "@/constants/filters";
 import { getServiceIdsForCategory } from "@/constants/services";
-import { useFilteredShops } from "@/hooks/useFilteredShops";
 import type { FilterOption, ServiceCategory } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
@@ -38,9 +46,6 @@ import { useShopStore } from "@/stores/useShopStore";
 
 /** Vertical offset for bottom sheet and carousel */
 const VERTICAL_OFFSET = 35;
-
-/** Maximum number of shops to show in carousel */
-const MAX_CAROUSEL_SHOPS = 5;
 
 // ============================================================================
 // COMPONENT
@@ -61,26 +66,23 @@ export default function BookingsScreen() {
   // ═══════════════ LOCAL STATE ═══════════════
   const [mechanicFilter, setMechanicFilter] = useState<MechanicFilterOption>("available_now");
   const [sheetAnimatedIndex, setSheetAnimatedIndex] = useState<SharedValue<number> | null>(null);
+  const [isCarouselVisible, setIsCarouselVisible] = useState(false);
+  const [selectedMapShopId, setSelectedMapShopId] = useState<number | null>(null);
+  const [focusedShop, setFocusedShop] = useState<Shop | null>(null);
+
+  // Search area state - initially show closest 10, button hidden until user pans
+  const [showSearchButton, setShowSearchButton] = useState(false);
+  const [lastSearchedRegion, setLastSearchedRegion] = useState<Region | null>(null);
+  const currentRegionRef = React.useRef<Region | null>(null);
+  const hasInitializedRef = React.useRef(false);
 
   const handleAnimatedIndexChange = useCallback((animatedIndex: SharedValue<number>) => {
     setSheetAnimatedIndex(animatedIndex);
   }, []);
 
   // ═══════════════ SHOP STORE ═══════════════
-  const shops = useShopStore((state) => state.shops);
-  const shopIds = useShopStore((state) => state.shopIds);
-  const filters = useShopStore((state) => state.filters);
   const selectShop = useShopStore((state) => state.selectShop);
   const setFilters = useShopStore((state) => state.setFilters);
-
-  // ═══════════════ FILTERED SHOPS ═══════════════
-  const { carouselShops } = useFilteredShops({
-    shops,
-    shopIds,
-    filters,
-    userLocation,
-    maxResults: MAX_CAROUSEL_SHOPS,
-  });
 
   // ═══════════════ HANDLERS ═══════════════
   const handleFilterSelect = useCallback(
@@ -115,13 +117,76 @@ export default function BookingsScreen() {
     [setSelectedServiceCategory, setFilters]
   );
 
-  const handleShopSelect = (shop: Shop) => {
-    selectShop(shop.id);
-  };
+  const handleShopSelect = useCallback(
+    (shop: Shop) => {
+      selectShop(shop.id);
+      // Show the mechanic carousel sheet when a map marker is tapped
+      setSelectedMapShopId(shop.id);
+      setIsCarouselVisible(true);
+    },
+    [selectShop]
+  );
+
+  const handleCarouselClose = useCallback(() => {
+    setIsCarouselVisible(false);
+    setSelectedMapShopId(null);
+    setFocusedShop(null);
+    selectShop(null);
+  }, [selectShop]);
+
+  const handleShopFromCarousel = useCallback(
+    (shop: Shop) => {
+      // Center the map on the active shop in the carousel
+      setFocusedShop(shop);
+    },
+    []
+  );
 
   const handleMechanicFilterSelect = useCallback((filter: MechanicFilterOption) => {
     setMechanicFilter(filter);
   }, []);
+
+  // ═══════════════ SEARCH AREA HANDLERS ═══════════════
+  const handleSearchArea = useCallback(() => {
+    setShowSearchButton(false);
+    // Store the current region as the last searched region
+    if (currentRegionRef.current) {
+      setLastSearchedRegion(currentRegionRef.current);
+    }
+    // TODO: In the future, this would filter shops by the current map bounds
+  }, []);
+
+  const handleMapRegionChange = useCallback(
+    (newRegion: Region) => {
+      // Always keep track of current region (must happen before any early returns!)
+      currentRegionRef.current = newRegion;
+
+      // On first region change, just mark as initialized (no search yet)
+      if (!hasInitializedRef.current) {
+        hasInitializedRef.current = true;
+        // Don't set lastSearchedRegion - user hasn't searched yet
+        // Button stays hidden until user pans away from initial location
+        return;
+      }
+
+      // If user has never searched, show button when they pan the map
+      if (!lastSearchedRegion) {
+        // Show button after user has moved the map at all
+        setShowSearchButton(true);
+        return;
+      }
+
+      // Check if map moved significantly from last searched region
+      const latDiff = Math.abs(newRegion.latitude - lastSearchedRegion.latitude);
+      const lonDiff = Math.abs(newRegion.longitude - lastSearchedRegion.longitude);
+      const deltaDiff = Math.abs(newRegion.latitudeDelta - lastSearchedRegion.latitudeDelta);
+
+      // Show search button if user panned or zoomed significantly
+      const movedSignificantly = latDiff > 0.01 || lonDiff > 0.01 || deltaDiff > 0.02;
+      setShowSearchButton(movedSignificantly);
+    },
+    [lastSearchedRegion]
+  );
 
   // ═══════════════ COMPUTED VALUES ═══════════════
   const selectedServicesText = useMemo(() => {
@@ -144,7 +209,13 @@ export default function BookingsScreen() {
   return (
     <ScreenContainer style={styles.container}>
       {/* Map */}
-      <BookingMap onShopSelect={handleShopSelect} sheetAnimatedIndex={sheetAnimatedIndex ?? undefined} />
+      <BookingMap
+        onShopSelect={handleShopSelect}
+        sheetAnimatedIndex={sheetAnimatedIndex ?? undefined}
+        focusedShop={focusedShop}
+        onRegionChange={handleMapRegionChange}
+        searchedRegion={lastSearchedRegion}
+      />
 
       {/* Top Bar - Uses transition hook internally */}
       <View style={styles.topBarContainer}>
@@ -160,22 +231,30 @@ export default function BookingsScreen() {
           selectedMechanicFilter={mechanicFilter}
           sheetAnimatedIndex={sheetAnimatedIndex ?? undefined}
         />
+        {/* Search Area Button - appears below the frosted header */}
+        <SearchAreaButton visible={showSearchButton} onPress={handleSearchArea} />
       </View>
 
-      {/* Shop Carousel */}
-      <ShopCarousel
-        shops={carouselShops}
-        userLocation={userLocation}
-        onShopSelect={handleShopSelect}
-        offsetY={VERTICAL_OFFSET}
-      />
-
       {/* Bottom Sheet - Uses transition hook internally */}
-      <ServiceBottomSheet
-        offsetY={VERTICAL_OFFSET}
-        onAnimatedIndexChange={handleAnimatedIndexChange}
-        mechanicFilter={mechanicFilter}
-      />
+      {/* Only show ServiceBottomSheet when carousel is not visible */}
+      {!isCarouselVisible && (
+        <ServiceBottomSheet
+          offsetY={VERTICAL_OFFSET}
+          onAnimatedIndexChange={handleAnimatedIndexChange}
+          mechanicFilter={mechanicFilter}
+        />
+      )}
+
+      {/* Shop Carousel - Life360 style, shows when map marker is selected */}
+      {isCarouselVisible && (
+        <MechanicCarouselSheet
+          visible={isCarouselVisible}
+          selectedShopId={selectedMapShopId}
+          onClose={handleCarouselClose}
+          onMechanicChange={handleShopFromCarousel}
+          offsetY={VERTICAL_OFFSET}
+        />
+      )}
     </ScreenContainer>
   );
 }

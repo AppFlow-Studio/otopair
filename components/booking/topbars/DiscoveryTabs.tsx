@@ -21,13 +21,14 @@ import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 // 4. Constants, hooks, types, stores
 import { SheetDrivenAnimation } from "@/constants/animations";
 import { SERVICE_CATEGORIES } from "@/constants/services";
+import { BorderRadius } from "@/constants/theme";
 import type { ServiceCategory } from "@/stores/types/store.types";
 
 // ============================================================================
 // CONSTANTS
 // ============================================================================
 
-const SERVICE_TABS_HEIGHT = 60;
+const SERVICE_TABS_HEIGHT = 70;
 
 // ============================================================================
 // TYPES
@@ -67,14 +68,14 @@ export function DiscoveryTabs({ onServiceSelect, selectedService, sheetAnimatedI
           return (
             <TouchableOpacity
               key={service.key}
-              style={styles.serviceTab}
+              style={[styles.serviceTab, isSelected && styles.serviceTabSelected]}
               onPress={() => onServiceSelect?.(service.key)}
               activeOpacity={0.7}
             >
               <Text
                 size="xs"
                 weight={isSelected ? "semiBold" : "regular"}
-                color={isSelected ? BrandColors.secondary : BrandColors.primary}
+                color={isSelected ? BrandColors.white : BrandColors.primary}
                 center
               >
                 {service.label}
@@ -97,10 +98,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.sm,
     paddingBottom: Spacing.md,
-    gap: Spacing.xl,
+    gap: Spacing.sm,
   },
   serviceTab: {
     alignItems: "center",
-    minWidth: 70,
+    justifyContent: "center",
+    paddingVertical: Spacing.xs,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.lg,
+    backgroundColor: "transparent",
+  },
+  serviceTabSelected: {
+    backgroundColor: BrandColors.primary,
   },
 });
