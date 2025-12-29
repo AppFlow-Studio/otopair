@@ -84,7 +84,7 @@ function ShopCarouselCardComponent({
     <View style={[styles.card, isActive && styles.cardActive]}>
       {/* Header: Name + Availability */}
       <View style={styles.header}>
-        <Text weight="bold" size="2xl" color={BrandColors.primary} style={styles.name} numberOfLines={1}>
+        <Text weight="bold" size="xl" color={BrandColors.primary} style={styles.name} numberOfLines={1}>
           {shop.name}
         </Text>
         <View style={[styles.availabilityBadge, { backgroundColor: availabilityInfo.color + "20" }]}>
@@ -181,10 +181,10 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     alignItems: "center",
     marginBottom: Spacing.sm,
+    gap: Spacing.xs,
   },
   name: {
     flex: 1,
-    marginRight: Spacing.sm,
   },
   availabilityBadge: {
     flexDirection: "row",

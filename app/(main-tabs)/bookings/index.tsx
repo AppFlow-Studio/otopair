@@ -17,8 +17,6 @@ import { StyleSheet, View } from "react-native";
 // 2. Third-party libraries
 import { SharedValue } from "react-native-reanimated";
 
-// 3. Shared UI (design system)
-import { ScreenContainer } from "@/components/shared-ui";
 
 // 4. Flow-specific components
 import {
@@ -207,7 +205,7 @@ export default function BookingsScreen() {
 
   // ═══════════════ RENDER ═══════════════
   return (
-    <ScreenContainer style={styles.container}>
+    <View style={styles.container}>
       {/* Map */}
       <BookingMap
         onShopSelect={handleShopSelect}
@@ -231,8 +229,12 @@ export default function BookingsScreen() {
           selectedMechanicFilter={mechanicFilter}
           sheetAnimatedIndex={sheetAnimatedIndex ?? undefined}
         />
-        {/* Search Area Button - appears below the frosted header */}
-        <SearchAreaButton visible={showSearchButton} onPress={handleSearchArea} />
+        {/* Search Area Button - appears below the frosted header, fades with TopBar */}
+        <SearchAreaButton
+          visible={showSearchButton}
+          onPress={handleSearchArea}
+          sheetAnimatedIndex={sheetAnimatedIndex ?? undefined}
+        />
       </View>
 
       {/* Bottom Sheet - Uses transition hook internally */}
@@ -255,7 +257,7 @@ export default function BookingsScreen() {
           offsetY={VERTICAL_OFFSET}
         />
       )}
-    </ScreenContainer>
+    </View>
   );
 }
 
@@ -265,6 +267,7 @@ export default function BookingsScreen() {
 
 const styles = StyleSheet.create({
   container: {
+    flex: 1,
     backgroundColor: "#E8ECF0",
   },
   topBarContainer: {

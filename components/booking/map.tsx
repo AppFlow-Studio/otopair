@@ -66,6 +66,9 @@ interface BookingMapProps {
 // COMPONENT
 // ============================================================================
 
+/** Zoom threshold - below this latitudeDelta = zoomed in (show labels) */
+const ZOOM_THRESHOLD = 0.03;
+
 export function BookingMap({
   onShopSelect,
   sheetAnimatedIndex,
@@ -75,6 +78,9 @@ export function BookingMap({
 }: BookingMapProps) {
   // ═══════════════ STATE-EFFECT: Refs ═══════════════
   const mapRef = useRef<MapView>(null);
+
+  // Track zoom level for marker display mode
+  const [isZoomedIn, setIsZoomedIn] = useState(true);
 
   // ═══════════════ STATE-EFFECT: Store Subscriptions ═══════════════
   const userLocation = useBookingStore((state) => state.userLocation);
@@ -88,10 +94,7 @@ export function BookingMap({
   const filters = useShopStore((state) => state.filters);
 
   // Compute filtered shops using the extracted utility
-  const filteredShops = useMemo(
-    () => filterShops({ shopsRecord, shopIds, filters }),
-    [shopsRecord, shopIds, filters]
-  );
+  const filteredShops = useMemo(() => filterShops({ shopsRecord, shopIds, filters }), [shopsRecord, shopIds, filters]);
 
   // Get the reference point for distance calculation
   const referencePoint = useMemo(() => {
@@ -141,10 +144,7 @@ export function BookingMap({
 
       const shopsInArea = filteredShops.filter(
         (shop) =>
-          shop.latitude >= minLat &&
-          shop.latitude <= maxLat &&
-          shop.longitude >= minLon &&
-          shop.longitude <= maxLon
+          shop.latitude >= minLat && shop.latitude <= maxLat && shop.longitude >= minLon && shop.longitude <= maxLon
       );
 
       // If no shops in area, fall back to closest 10 to the search center
@@ -282,6 +282,8 @@ export function BookingMap({
   const handleRegionChangeComplete = useCallback(
     (newRegion: Region) => {
       onRegionChange?.(newRegion);
+      // Update zoom state based on latitudeDelta
+      setIsZoomedIn(newRegion.latitudeDelta < ZOOM_THRESHOLD);
     },
     [onRegionChange]
   );
@@ -310,13 +312,24 @@ export function BookingMap({
         onRegionChangeComplete={handleRegionChangeComplete}
       >
         {shops.map((shop) =>
-          shop ? <ShopMarker key={`marker-${shop.id}`} shop={shop} onPress={() => handleMarkerPress(shop)} /> : null
+          shop ? (
+            <ShopMarker
+              key={`marker-${shop.id}`}
+              shop={shop}
+              onPress={() => handleMarkerPress(shop)}
+              showLabel={isZoomedIn}
+            />
+          ) : null
         )}
       </MapView>
 
       {/* Recenter Button - shows when sheet is collapsed */}
       <Animated.View style={[styles.recenterButtonContainer, recenterButtonStyle]}>
-        <TouchableOpacity onPress={handleRecenter} activeOpacity={0.6} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+        <TouchableOpacity
+          onPress={handleRecenter}
+          activeOpacity={0.6}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
           <Navigation2 size={24} color={BrandColors.secondary} fill={BrandColors.secondary} />
         </TouchableOpacity>
       </Animated.View>
