@@ -262,10 +262,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#E8ECF0',
     justifyContent: 'center',
     alignItems: 'center',
+    paddingHorizontal: 24,
   },
   welcomeContent: {
     alignItems: 'center',
     gap: 16,
+    width: '100%',
+    maxWidth: 320,
   },
   welcomeTitle: {
     color: '#141C24',
