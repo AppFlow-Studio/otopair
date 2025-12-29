@@ -1,9 +1,5 @@
-import { View, Text } from "react-native";
+import { OnboardingFlow } from '@/components/onboarding/OnboardingFlow';
 
 export default function OnboardingScreen() {
-    return (
-        <View>
-            <Text>Onboarding</Text>
-        </View>
-    )
+    return <OnboardingFlow initialStep="welcome" />;
 }

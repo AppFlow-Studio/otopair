@@ -16,6 +16,26 @@
  * ```
  */
 
+// Progress Bar Component
+export {
+    ProgressBar
+} from './ProgressBar';
+
+// Footer Button Component
+export {
+    FooterButton
+} from './FooterButton';
+
+// Back Button Component
+export {
+    BackButton
+} from './BackButton';
+
+// Animated Gradient Background Component
+export {
+    AnimatedGradientBackground
+} from './AnimatedGradientBackground';
+
 // Button Components
 export {
     Button,
