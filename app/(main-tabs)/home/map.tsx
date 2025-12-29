@@ -142,7 +142,7 @@ export default function MapScreen() {
 
   // ═══════════════ RENDER ═══════════════
   return (
-    <ScreenContainer style={styles.container} paddingVertical={0}>
+    <ScreenContainer style={styles.container} >
       {/* Map */}
       <BookingMap onShopSelect={handleShopSelect} sheetAnimatedIndex={sheetAnimatedIndex ?? undefined} />
 

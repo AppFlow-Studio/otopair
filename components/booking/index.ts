@@ -7,6 +7,13 @@
 
 // Main booking components
 export { BookingMap } from "./map";
+export { MechanicDetailHeader } from "./MechanicDetailHeader";
+export { MechanicDetailTabs, type MechanicDetailTab } from "./MechanicDetailTabs";
+export { MechanicServicesSection } from "./MechanicServicesSection";
+export { MechanicAvailabilityBreakdown } from "./MechanicAvailabilityBreakdown";
+export { MechanicReviewsSection } from "./MechanicReviewsSection";
+export { ShopPortfolioSection } from "./ShopPortfolioSection";
+export { ShopStaffSection } from "./ShopStaffSection";
 export { ServiceBottomSheet } from "./ServiceBottomSheet";
 export { ShopCarousel } from "./ShopCarousel";
 export { ShopMarker } from "./ShopMarker";

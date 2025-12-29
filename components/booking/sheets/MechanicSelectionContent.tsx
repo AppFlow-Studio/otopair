@@ -15,6 +15,7 @@ import { ScrollView, StyleSheet, TextInput, View } from "react-native";
 // 2. Third-party libraries
 import { BottomSheetFlatList } from "@gorhom/bottom-sheet";
 import { Search } from "lucide-react-native";
+import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 3. Shared UI (design system)
@@ -60,6 +61,7 @@ export function MechanicSelectionContent({
   mechanicFilter = "available_now",
 }: MechanicSelectionContentProps) {
   // ═══════════════ HOOKS ═══════════════
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const contentPadding = getSheetContentPadding(false, insets.bottom);
 
@@ -71,7 +73,6 @@ export function MechanicSelectionContent({
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
   const toggleServiceSelection = useBookingStore((state) => state.toggleServiceSelection);
   const availableServices = useBookingStore((state) => state.availableServices);
-  const setBookingTypeAndProceed = useBookingStore((state) => state.setBookingTypeAndProceed);
   const prevBookingStage = useBookingStore((state) => state.prevBookingStage);
 
   // Memoize selected services to prevent re-renders
@@ -165,20 +166,20 @@ export function MechanicSelectionContent({
 
   const handleBookNow = useCallback(
     (mechanicId: number) => {
-      // Set booking type to "book_now" and proceed to booking details
-      setBookingTypeAndProceed("book_now", mechanicId);
+      // Navigate to mechanic detail page
+      router.push(`/home/mechanic/${mechanicId}`);
       onSelectMechanic?.();
     },
-    [setBookingTypeAndProceed, onSelectMechanic]
+    [router, onSelectMechanic]
   );
 
   const handleScheduleLater = useCallback(
     (mechanicId: number) => {
-      // Set booking type to "schedule_later" and proceed to booking details
-      setBookingTypeAndProceed("schedule_later", mechanicId);
+      // Navigate to mechanic detail page
+      router.push(`/home/mechanic/${mechanicId}`);
       onSelectMechanic?.();
     },
-    [setBookingTypeAndProceed, onSelectMechanic]
+    [router, onSelectMechanic]
   );
 
   // ═══════════════ FLATLIST HELPERS ═══════════════
