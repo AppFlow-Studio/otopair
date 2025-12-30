@@ -7,6 +7,12 @@
  *
  * USED IN: app/(main-tabs)/bookings/index.tsx
  *
+ * PROPS:
+ *   - onClose (() => void): Called when user closes the full-screen view [optional]
+ *
+ * EXAMPLE:
+ *   <FullScreenBookingView onClose={() => console.log("Closed")} />
+ *
  * OWNER: Waleed Mansour
  */
 

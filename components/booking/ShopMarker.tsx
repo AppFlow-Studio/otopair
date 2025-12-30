@@ -12,6 +12,13 @@
  *   - onPress (() => void): Called when marker is tapped
  *   - showLabel (boolean): If true, show full label mode; if false, show pin only
  *
+ * EXAMPLE:
+ *   <ShopMarker
+ *     shop={shop}
+ *     onPress={() => handleShopSelect(shop)}
+ *     showLabel={isZoomedIn}
+ *   />
+ *
  * OWNER: Waleed Mansour
  */
 
@@ -23,7 +30,13 @@ import { Animated, StyleSheet, View } from "react-native";
 import { Marker } from "react-native-maps";
 import Svg, { Circle, Defs, LinearGradient, Path, Stop } from "react-native-svg";
 
-// 3. Constants, hooks, types, stores
+// 3. Shared UI (design system)
+// (none required)
+
+// 4. Flow-specific components
+// (none required)
+
+// 5. Constants, hooks, types, stores
 import type { Shop } from "@/stores/types/store.types";
 
 // ============================================================================

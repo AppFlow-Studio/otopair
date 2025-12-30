@@ -13,6 +13,13 @@
  *   - onText (() => void): Called when text button is tapped
  *   - onViewProfile (() => void): Called when profile action is tapped
  *
+ * EXAMPLE:
+ *   <MechanicCarouselCard
+ *     mechanic={mechanic}
+ *     isActive={true}
+ *     onCall={() => handleCall()}
+ *   />
+ *
  * OWNER: Waleed Mansour
  */
 

@@ -9,6 +9,18 @@
  *
  * USED IN: app/(main-tabs)/bookings/index.tsx
  *
+ * PROPS:
+ *   - offsetY (number): Vertical offset to shift bottom sheet down (pixels) [optional]
+ *   - onAnimatedIndexChange ((animatedIndex: SharedValue<number>) => void): Callback to expose animated index [optional]
+ *   - mechanicFilter (MechanicFilterOption): Currently selected mechanic filter from TopBar [optional]
+ *
+ * EXAMPLE:
+ *   <ServiceBottomSheet
+ *     offsetY={35}
+ *     onAnimatedIndexChange={(index) => setSheetAnimatedIndex(index)}
+ *     mechanicFilter="available_now"
+ *   />
+ *
  * OWNER: Waleed Mansour
  */
 

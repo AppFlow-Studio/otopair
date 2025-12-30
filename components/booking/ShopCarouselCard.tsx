@@ -12,6 +12,14 @@
  *   - onCall (() => void): Called when call button is tapped
  *   - onText (() => void): Called when text button is tapped
  *   - onDirections (() => void): Called when directions button is tapped
+ *   - onDetails (() => void): Called when details button is tapped [optional]
+ *
+ * EXAMPLE:
+ *   <ShopCarouselCard
+ *     shop={shop}
+ *     isActive={true}
+ *     onCall={() => handleCall()}
+ *   />
  *
  * OWNER: Waleed Mansour
  */
@@ -71,13 +79,7 @@ function getAvailabilityInfo(availability: number): { label: string; color: stri
 // COMPONENT
 // ============================================================================
 
-function ShopCarouselCardComponent({
-  shop,
-  isActive = false,
-  onCall,
-  onDirections,
-  onDetails,
-}: ShopCarouselCardProps) {
+function ShopCarouselCardComponent({ shop, isActive = false, onCall, onDirections, onDetails }: ShopCarouselCardProps) {
   const availabilityInfo = getAvailabilityInfo(shop.availability);
 
   return (
@@ -239,4 +241,3 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.full,
   },
 });
-

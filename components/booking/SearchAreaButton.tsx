@@ -12,6 +12,13 @@
  *   - visible (boolean): Whether the button should be shown
  *   - sheetAnimatedIndex (SharedValue<number>): Animated index from bottom sheet [optional]
  *
+ * EXAMPLE:
+ *   <SearchAreaButton
+ *     visible={showSearchButton}
+ *     onPress={() => handleSearchArea()}
+ *     sheetAnimatedIndex={animatedIndex}
+ *   />
+ *
  * OWNER: Waleed Mansour
  */
 

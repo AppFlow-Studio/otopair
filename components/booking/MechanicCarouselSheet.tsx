@@ -18,6 +18,14 @@
  *   - Smooth slide-up animation on appear
  *   - Tap outside to dismiss
  *
+ * EXAMPLE:
+ *   <MechanicCarouselSheet
+ *     visible={isCarouselVisible}
+ *     selectedShopId={selectedMapShopId}
+ *     onClose={() => setIsCarouselVisible(false)}
+ *     onMechanicChange={(shop) => setFocusedShop(shop)}
+ *   />
+ *
  * OWNER: Waleed Mansour
  */
 
@@ -41,7 +49,7 @@ import Animated, {
 } from "react-native-reanimated";
 
 // 3. Shared UI (design system)
-// (No shared UI imports needed)
+// (none required)
 
 // 4. Flow-specific components
 import { ShopCarouselCard } from "./ShopCarouselCard";
