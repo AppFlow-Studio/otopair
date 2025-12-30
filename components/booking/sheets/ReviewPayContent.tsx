@@ -13,7 +13,7 @@
 
 // 1. React & React Native
 import React, { useCallback, useMemo, useRef } from "react";
-import { Image, StyleSheet, TouchableOpacity, View } from "react-native";
+import { Image, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
@@ -40,13 +40,15 @@ import { usePaymentStore } from "@/stores/usePaymentStore";
 interface ReviewPayContentProps {
   /** Called when user wants to change date/time */
   onChangeDatePress?: () => void;
+  /** Whether this is rendered in full-screen mode (outside bottom sheet) */
+  isFullScreen?: boolean;
 }
 
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
 
-export function ReviewPayContent({ onChangeDatePress }: ReviewPayContentProps) {
+export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: ReviewPayContentProps) {
   // ═══════════════ REFS ═══════════════
   const allAvailabilityRef = useRef<AllAvailabilitySheetRef>(null);
 
@@ -148,19 +150,24 @@ export function ReviewPayContent({ onChangeDatePress }: ReviewPayContentProps) {
     );
   }
 
+  // Choose the appropriate ScrollView component based on mode
+  const ScrollComponent = isFullScreen ? ScrollView : BottomSheetScrollView;
+
   return (
     <View style={styles.container}>
       {/* Scrollable Content */}
-      <BottomSheetScrollView
+      <ScrollComponent
         contentContainerStyle={[styles.scrollContent, { paddingBottom: contentPadding }]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header */}
-        <View style={styles.header}>
-          <Text size="xl" weight="bold" color={BrandColors.primary}>
-            Review & Pay
-          </Text>
-        </View>
+        {/* Header - Only show in bottom sheet mode, full-screen has its own header */}
+        {!isFullScreen && (
+          <View style={styles.header}>
+            <Text size="xl" weight="bold" color={BrandColors.primary}>
+              Review & Pay
+            </Text>
+          </View>
+        )}
 
         {/* Shop/Mechanic Info */}
         <View style={styles.shopInfoCard}>
@@ -290,7 +297,7 @@ export function ReviewPayContent({ onChangeDatePress }: ReviewPayContentProps) {
             Changes can't be made within 10 hours of your appointment.
           </Text>
         </View>
-      </BottomSheetScrollView>
+      </ScrollComponent>
 
       {/* All Availability Sheet */}
       <AllAvailabilitySheet ref={allAvailabilityRef} onConfirm={handleAvailabilityConfirm} />

@@ -75,6 +75,7 @@ export function MechanicSelectionContent({
   const availableServices = useBookingStore((state) => state.availableServices);
   const prevBookingStage = useBookingStore((state) => state.prevBookingStage);
   const setBookingTypeAndProceed = useBookingStore((state) => state.setBookingTypeAndProceed);
+  const setScheduledAppointment = useBookingStore((state) => state.setScheduledAppointment);
 
   // Memoize selected services to prevent re-renders
   const selectedServices = useMemo(
@@ -185,15 +186,16 @@ export function MechanicSelectionContent({
 
       // Set appointment in store and navigate directly to booking details
       setBookingTypeAndProceed("schedule_later", mechanicId);
-      useBookingStore.getState().setScheduledAppointment({
+      setScheduledAppointment({
         date: isoDate,
         time: slot.time,
         displayDate,
       });
+
       router.push(`/home/mechanic/${mechanicId}/booking-details`);
       onSelectMechanic?.();
     },
-    [router, onSelectMechanic, setBookingTypeAndProceed]
+    [router, onSelectMechanic, setBookingTypeAndProceed, setScheduledAppointment]
   );
 
   const handleScheduleLater = useCallback(

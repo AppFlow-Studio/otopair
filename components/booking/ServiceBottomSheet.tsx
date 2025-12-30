@@ -9,6 +9,18 @@
  *
  * USED IN: app/(main-tabs)/home/map.tsx
  *
+ * PROPS:
+ *   - offsetY (number): Vertical offset to shift bottom sheet down (pixels) [optional]
+ *   - onAnimatedIndexChange ((animatedIndex: SharedValue<number>) => void): Callback to expose animated index [optional]
+ *   - mechanicFilter (MechanicFilterOption): Currently selected mechanic filter from TopBar [optional]
+ *
+ * EXAMPLE:
+ *   <ServiceBottomSheet
+ *     offsetY={35}
+ *     onAnimatedIndexChange={(index) => setSheetAnimatedIndex(index)}
+ *     mechanicFilter="available_now"
+ *   />
+ *
  * OWNER: Waleed Mansour
  */
 
@@ -26,6 +38,7 @@ import { BrandColors, Spacing } from "@/components/shared-ui";
 
 // 4. Flow-specific components
 import { ServiceSelectionFooter } from "./footers";
+import { AddMoreServicesSheet, AddMoreServicesSheetRef } from "./sheets/AddMoreServicesSheet";
 import { CollapsedContent } from "./sheets/CollapsedContent";
 import type { MechanicFilterOption } from "./sheets/MechanicSelectionContent";
 import { MechanicSelectionContent } from "./sheets/MechanicSelectionContent";
@@ -58,7 +71,7 @@ const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 // Snap points for different stages (simplified - only discovery, service, mechanic)
 const SNAP_POINTS_CONFIG = {
   // Discovery & Service Selection: collapsed (22%) and expanded (75%)
-  discovery: { collapsed: 22, expanded: 75 },
+  discovery: { collapsed: 22, expanded: 80 },
   service_selection: { collapsed: 22, expanded: 75 },
   // Mechanic Selection: slightly taller
   mechanic_selection: { collapsed: 22, expanded: 80 },
@@ -105,7 +118,7 @@ export function ServiceBottomSheet({
   }, [currentStage]);
 
   // ═══════════════ COMPUTED VALUES ═══════════════
-  const offsetPercent = (offsetY / SCREEN_HEIGHT) * 100;
+  const offsetPercent = (offsetY / SCREEN_HEIGHT) * 90;
 
   // Get snap points config, fallback to discovery for stages handled by pages
   const stageConfig =
@@ -141,9 +154,14 @@ export function ServiceBottomSheet({
 
   // Mechanic selection complete -> navigation to pages is handled by MechanicSelectionContent
   const handleMechanicSelected = useCallback(() => {
-    // Navigation to /home/mechanic/[id] is handled internally by MechanicSelectionContent
-    // The booking flow continues in the page-based screens
+    // Navigation is handled internally by MechanicSelectionContent
   }, []);
+
+  // Book again -> reset flow
+  // const handleBookAgain = useCallback(() => {
+  //   reset();
+  //   bottomSheetRef.current?.snapToIndex(0);
+  // }, [reset]);
 
   // ═══════════════ FOOTER ANIMATED STYLE ═══════════════
   // Hide footer when sheet is collapsed (index < 0.5)
@@ -173,6 +191,8 @@ export function ServiceBottomSheet({
         );
       }
 
+      // booking_details and payment stages are handled by FullScreenBookingView
+      // Confirmation stage uses a separate modal (no footer here)
       // Mechanic selection has no footer (buttons are in MechanicCard)
       return null;
     },
@@ -218,7 +238,11 @@ export function ServiceBottomSheet({
           </Animated.View>
         );
 
-      // Other stages (booking_details, payment, confirmation) are handled by page navigation
+      // booking_details and payment stages are handled by FullScreenBookingView
+      // Confirmation stage uses a separate detached modal (ConfirmationModal)
+      case "booking_details":
+      case "payment":
+      case "confirmation":
       default:
         return null;
     }

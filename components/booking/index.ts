@@ -14,10 +14,18 @@ export { MechanicAvailabilityBreakdown } from "./MechanicAvailabilityBreakdown";
 export { MechanicReviewsSection } from "./MechanicReviewsSection";
 export { ShopPortfolioSection } from "./ShopPortfolioSection";
 export { ShopStaffSection } from "./ShopStaffSection";
+export { FullScreenBookingView } from "./FullScreenBookingView";
+export { MechanicCarouselCard, type MechanicCarouselCardProps } from "./MechanicCarouselCard";
+export { MechanicCarouselSheet, type MechanicCarouselSheetProps } from "./MechanicCarouselSheet";
+export { SearchAreaButton } from "./SearchAreaButton";
+export { ShopCarouselCard, type ShopCarouselCardProps } from "./ShopCarouselCard";
 export { ServiceBottomSheet } from "./ServiceBottomSheet";
 export { ShopCarousel } from "./ShopCarousel";
 export { ShopMarker } from "./ShopMarker";
 export { TopBar, type MechanicFilterOption, type TopBarProps } from "./TopBar";
+
+// Re-export Region type from react-native-maps for convenience
+export type { Region } from "react-native-maps";
 
 // Footer components (stage-specific bottom sheet footers)
 export {

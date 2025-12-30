@@ -3,11 +3,29 @@
  *
  * PURPOSE: Main top bar container with BlurView background. Renders different content
  *          based on the booking stage using the centralized transition hook.
- *          Uses custom Oto transitions for smooth stage changes.
  *
  * FLOW: discovery → service → mechanic → booking → confirmation
  *
  * USED IN: app/(main-tabs)/bookings/index.tsx
+ *
+ * PROPS:
+ *   - location (string): User's current location label
+ *   - mechanicsCount (number): Number of mechanics available [optional]
+ *   - selectedServicesText (string): Text showing selected services (truncated) [optional]
+ *   - shopName (string): Shop/business name for booking details [optional]
+ *   - onFilterSelect ((filter: FilterOption) => void): Called when filter selected [optional]
+ *   - onServiceSelect ((service: ServiceCategory) => void): Called when service tab selected [optional]
+ *   - selectedService (ServiceCategory | null): Currently selected service category [optional]
+ *   - onMechanicFilterSelect ((filter: MechanicFilterOption) => void): Called when mechanic filter selected [optional]
+ *   - selectedMechanicFilter (MechanicFilterOption): Currently selected mechanic filter [optional]
+ *   - sheetAnimatedIndex (SharedValue<number>): Animated index from bottom sheet [optional]
+ *
+ * EXAMPLE:
+ *   <TopBar
+ *     location="New York, NY"
+ *     mechanicsCount={3}
+ *     onFilterSelect={(filter) => console.log(filter)}
+ *   />
  *
  * OWNER: Waleed Mansour
  */
