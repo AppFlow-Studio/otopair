@@ -1,7 +1,7 @@
 /**
- * TerminologyComfortStep
+ * DoItYourselfStep
  *
- * PURPOSE: Allows users to select their comfort level with car-related terminology.
+ * PURPOSE: Allows Level 3 users to select which maintenance tasks they perform themselves.
  *
  * USED IN: components/tell-us-about/TellUsAboutFlow.tsx
  *
@@ -11,10 +11,10 @@
  *   - progress ({ total: number; filled: number }): Progress indicator data
  *
  * EXAMPLE:
- *   <TerminologyComfortStep 
+ *   <DoItYourselfStep 
  *     onNext={handleNext} 
  *     onBack={handleBack} 
- *     progress={{ total: 12, filled: 10 }} 
+ *     progress={{ total: 12, filled: 2 }} 
  *   />
  *
  * OWNER: Daniel Chelala
@@ -41,32 +41,46 @@ import {
     View,
     Pressable,
     ScrollView,
+    TextInput,
     useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 
-interface TerminologyComfortStepProps {
+interface DoItYourselfStepProps {
     onNext: () => void;
     onBack: () => void;
     progress: { total: number; filled: number };
 }
 
-const TERMINOLOGY_COMFORT_OPTIONS = [
-    { emoji: '📖', label: 'I understand most car terms' },
-    { emoji: '🧩', label: 'I know some common terms' },
-    { emoji: '🗣️', label: 'I prefer simple explanations' },
-    { emoji: '🎨', label: 'Use visuals when possible' },
+const DIY_OPTIONS = [
+    { emoji: '🛢️', label: 'Oil changes' },
+    { emoji: '🛑', label: 'Brake pad replacement' },
+    { emoji: '💨', label: 'Air filter replacement' },
+    { emoji: '🔍', label: 'Basic diagnostics' },
+    { emoji: '💻', label: 'Complex diagnostics' },
+    { emoji: '⚙️', label: 'Transmission/engine work' },
+    { emoji: '⚡', label: 'Electrical issues' },
+    { emoji: '🛠️', label: 'Bodywork' },
+    { emoji: '🔧', label: 'Everything (I do it all myself)' },
+    { emoji: '👨‍🔧', label: 'Nothing (I prefer professionals)' },
 ] as const;
 
-export function TerminologyComfortStep({ onNext, onBack, progress }: TerminologyComfortStepProps) {
+export function DoItYourselfStep({ onNext, onBack, progress }: DoItYourselfStepProps) {
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
     
-    const [selectedComfort, setSelectedComfort] = useState<string | null>(
-        data.carTerminologyComfort ?? null
+    const presetList = DIY_OPTIONS.map(o => `${o.emoji} ${o.label}`);
+    const presets = new Set<string>(presetList);
+    
+    const [selectedOptions, setSelectedOptions] = useState<string[]>(
+        data.diyTasks ?? []
     );
+    const [otherInput, setOtherInput] = useState<string>(() => {
+        const custom = (data.diyTasks ?? []).find((v) => !presets.has(v));
+        return custom ?? '';
+    });
 
     const dynamicStyles = {
         container: { paddingTop: insets.top + Spacing.lg },
@@ -77,19 +91,34 @@ export function TerminologyComfortStep({ onNext, onBack, progress }: Terminology
     const buttonSize: 'md' | 'lg' = isCompact ? 'md' : 'lg';
     const buttonPaddingVertical = isCompact ? Spacing.sm : Spacing.lg;
 
-    const handleSelectComfort = (option: typeof TERMINOLOGY_COMFORT_OPTIONS[number]) => {
+    const handleToggleOption = (option: typeof DIY_OPTIONS[number]) => {
         const value = `${option.emoji} ${option.label}`;
-        setSelectedComfort(value);
-        updateData({ carTerminologyComfort: value });
+        setSelectedOptions((prev) => {
+            const exists = prev.includes(value);
+            const next = exists ? prev.filter((v) => v !== value) : [...prev, value];
+            updateData({ diyTasks: next.length ? next : null });
+            return next;
+        });
+    };
+
+    const handleChangeOther = (text: string) => {
+        setOtherInput(text);
+        setSelectedOptions((prev) => {
+            const filtered = prev.filter((v) => presets.has(v));
+            const trimmed = text.trim();
+            const next = trimmed ? [...filtered, trimmed] : filtered;
+            updateData({ diyTasks: next.length ? next : null });
+            return next;
+        });
     };
 
     const handleContinue = () => {
-        if (selectedComfort) {
+        if (selectedOptions.length > 0) {
             onNext();
         }
     };
 
-    const canContinue = selectedComfort !== null;
+    const canContinue = selectedOptions.length > 0;
 
     return (
         <KeyboardAvoidingView
@@ -112,22 +141,22 @@ export function TerminologyComfortStep({ onNext, onBack, progress }: Terminology
                 >
                     <View style={styles.headerContent}>
                         <Text style={styles.title}>
-                            How comfortable are you with car terminology?
+                            What do you typically do yourself, as opposed to having a shop do?
                         </Text>
                         <Text style={styles.subtitle}>
-                            We'll adjust our explanations accordingly
+                            Select all that apply
                         </Text>
                     </View>
 
                     <View style={styles.optionsContainer}>
-                        {TERMINOLOGY_COMFORT_OPTIONS.map((option) => {
+                        {DIY_OPTIONS.map((option) => {
                             const value = `${option.emoji} ${option.label}`;
-                            const isSelected = selectedComfort === value;
+                            const isSelected = selectedOptions.includes(value);
                             
                             return (
                                 <Pressable
                                     key={option.label}
-                                    onPress={() => handleSelectComfort(option)}
+                                    onPress={() => handleToggleOption(option)}
                                     style={({ pressed }) => [
                                         styles.optionButton,
                                         isSelected && styles.optionButtonSelected,
@@ -146,6 +175,15 @@ export function TerminologyComfortStep({ onNext, onBack, progress }: Terminology
                                 </Pressable>
                             );
                         })}
+                        
+                        <TextInput
+                            style={styles.otherInput}
+                            placeholder="Other (Please specify)"
+                            placeholderTextColor="rgba(255, 255, 255, 0.5)"
+                            value={otherInput}
+                            onChangeText={handleChangeOther}
+                            returnKeyType="done"
+                        />
                     </View>
                 </ScrollView>
 
@@ -231,6 +269,18 @@ const styles = StyleSheet.create({
     optionTextSelected: {
         color: BrandColors.secondary,
         fontFamily: FontFamily.semiBold,
+    },
+    otherInput: {
+        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+        borderRadius: BorderRadius.lg,
+        paddingHorizontal: Spacing.lg,
+        paddingVertical: Spacing.lg,
+        fontSize: FontSize.lg,
+        fontFamily: FontFamily.regular,
+        color: BrandColors.white,
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.2)',
+        marginTop: Spacing.sm,
     },
     bottomContainer: {
         paddingTop: Spacing.sm,

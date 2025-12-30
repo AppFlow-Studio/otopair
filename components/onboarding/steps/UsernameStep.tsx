@@ -1,7 +1,7 @@
 /**
- * NameStep
+ * UsernameStep
  *
- * PURPOSE: Collects the user's first name, last name, and optional alias.
+ * PURPOSE: Allows the user to choose a unique username.
  *
  * USED IN: components/onboarding/OnboardingFlow.tsx
  *
@@ -10,11 +10,13 @@
  *   - onBack (() => void): Callback to navigate to the previous step
  *
  * EXAMPLE:
- *   <NameStep onNext={handleNext} onBack={handleBack} />
+ *   <UsernameStep onNext={handleNext} onBack={handleBack} />
  *
  * OWNER: Daniel Chelala
  * TICKET: OTO-XXX
  */
+
+// TODO: Adjust or verify spacing of scrollContent
 
 import {
   BrandColors,
@@ -26,7 +28,7 @@ import {
 import { ProgressBar } from "@/components/shared-ui/ProgressBar";
 import { FooterButton } from "@/components/shared-ui/FooterButton";
 import { BackButton } from "@/components/shared-ui/BackButton";
-import { useState } from "react";
+import { useState, useRef } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -35,23 +37,23 @@ import {
   View,
   useWindowDimensions,
   ScrollView,
+  Pressable,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 
-interface NameStepProps {
+interface UsernameStepProps {
   onNext: () => void;
   onBack: () => void;
 }
 
-export function NameStep({ onNext, onBack }: NameStepProps) {
+export function UsernameStep({ onNext, onBack }: UsernameStepProps) {
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
   const { data, updateData } = useOnboardingStore();
 
-  const [firstName, setFirstName] = useState(data.firstName || "");
-  const [lastName, setLastName] = useState(data.lastName || "");
-  const [alias, setAlias] = useState(data.alias || "");
+  const [username, setUsername] = useState(data.username || "");
+  const inputRef = useRef<TextInput>(null);
 
   const dynamicStyles = {
     container: { paddingTop: insets.top + Spacing.lg },
@@ -64,16 +66,14 @@ export function NameStep({ onNext, onBack }: NameStepProps) {
 
   const handleContinue = () => {
     updateData({
-      firstName: firstName.trim(),
-      lastName: lastName.trim(),
-      alias: alias.trim(),
+      username: username.trim(),
     });
 
-    console.log("Name saved:", { firstName: useOnboardingStore.getState().data.firstName, lastName: useOnboardingStore.getState().data.lastName, alias: useOnboardingStore.getState().data.alias });
+    console.log("Username saved:", useOnboardingStore.getState().data.username);
     onNext();
   };
 
-  const canContinue = firstName.trim().length > 0 && lastName.trim().length > 0;
+  const canContinue = username.trim().length >= 3;
 
   return (
     <KeyboardAvoidingView
@@ -84,7 +84,7 @@ export function NameStep({ onNext, onBack }: NameStepProps) {
       <View style={[styles.container, dynamicStyles.container]}>
         <ProgressBar
           total={8}
-          filled={2}
+          filled={3}
           leftElement={<BackButton onBack={onBack} alwaysShow />}
         />
 
@@ -95,50 +95,31 @@ export function NameStep({ onNext, onBack }: NameStepProps) {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.headerContent}>
-            <Text style={styles.title}>What's your name?</Text>
-            <Text style={styles.subtitle}>
-              Let us know how to properly address you
-            </Text>
+            <Text style={styles.title}>Choose your username</Text>
           </View>
 
           <View style={styles.inputsContainer}>
             <View style={styles.inputWrapper}>
-              <TextInput
-                style={styles.input}
-                placeholder="First name"
-                placeholderTextColor="#9CA3AF"
-                value={firstName}
-                onChangeText={setFirstName}
-                autoCapitalize="words"
-                autoComplete="given-name"
-                textContentType="givenName"
-                autoFocus={true}
-              />
-            </View>
-
-            <View style={styles.inputWrapper}>
-              <TextInput
-                style={styles.input}
-                placeholder="Last name"
-                placeholderTextColor="#9CA3AF"
-                value={lastName}
-                onChangeText={setLastName}
-                autoCapitalize="words"
-                autoComplete="family-name"
-                textContentType="familyName"
-              />
-            </View>
-
-            <View style={styles.inputWrapper}>
-              <TextInput
-                style={styles.input}
-                placeholder="Alias"
-                placeholderTextColor="#9CA3AF"
-                value={alias}
-                onChangeText={setAlias}
-                autoCapitalize="words"
-              />
-              <Text style={styles.helperText}>Optional</Text>
+              <Pressable 
+                style={styles.usernameInputContainer}
+                onPress={() => inputRef.current?.focus()}
+              >
+                <Text style={styles.atSymbol}>@</Text>
+                <TextInput
+                  ref={inputRef}
+                  style={styles.input}
+                  placeholder="username"
+                  placeholderTextColor="#9CA3AF"
+                  value={username}
+                  onChangeText={(text) => setUsername(text.toLowerCase().replace(/[^a-z0-9_.]/g, ""))}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  autoFocus={true}
+                />
+              </Pressable>
+              <Text style={styles.helperText}>
+                This will be your unique identifier on Otopair
+              </Text>
             </View>
           </View>
         </ScrollView>
@@ -168,46 +149,53 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
-    paddingBottom: Spacing.xl,
+    paddingBottom: 4*Spacing['5xl'],
+    justifyContent: 'center',
   },
   headerContent: {
     paddingHorizontal: Spacing["2xl"],
-    marginBottom: Spacing["3xl"],
+    marginBottom: Spacing["2xl"],
+    alignItems: 'center',
   },
   title: {
     fontSize: FontSize["4xl"],
     fontFamily: FontFamily.bold,
     color: BrandColors.white,
-    marginBottom: Spacing.md,
+    textAlign: 'center',
     lineHeight: Spacing['5xl'],
   },
-  subtitle: {
-    fontSize: FontSize.lg,
-    fontFamily: FontFamily.regular,
-    color: BrandColors.white,
-    opacity: 0.9,
-    lineHeight: Spacing['2xl'],
-  },
-  inputsContainer: { paddingHorizontal: Spacing["2xl"], gap: Spacing.lg },
+  inputsContainer: { paddingHorizontal: Spacing["2xl"] },
   inputWrapper: { marginBottom: Spacing.md },
-  input: {
+  usernameInputContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
     backgroundColor: "rgba(255, 255, 255, 0.1)",
-    borderRadius: 12,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.md,
-    fontSize: FontSize.lg,
-    fontFamily: FontFamily.regular,
-    color: BrandColors.white,
+    borderRadius: 999, // Pill shape like in screenshot
+    paddingHorizontal: Spacing.xl,
+    paddingVertical: Spacing.lg,
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.2)",
+  },
+  atSymbol: {
+    fontSize: FontSize.xl,
+    fontFamily: FontFamily.medium,
+    color: BrandColors.white,
+    marginRight: 2,
+  },
+  input: {
+    fontSize: FontSize.xl,
+    fontFamily: FontFamily.medium,
+    color: BrandColors.white,
+    padding: 0,
   },
   helperText: {
     fontSize: FontSize.sm,
     fontFamily: FontFamily.regular,
     color: BrandColors.white,
     opacity: 0.7,
-    marginTop: Spacing.xs,
-    paddingHorizontal: Spacing.md,
+    marginTop: Spacing.md,
+    textAlign: 'center',
   },
   bottomContainer: {
     paddingTop: Spacing.sm,
@@ -215,3 +203,4 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
   },
 });
+

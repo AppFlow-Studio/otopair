@@ -1,7 +1,7 @@
 /**
- * StressNoteStep
+ * AdditionalPreferencesStep
  *
- * PURPOSE: Optional stress note input step for user to share car service frustrations.
+ * PURPOSE: Optional text field for users to share additional preferences.
  *
  * USED IN: components/tell-us-about/TellUsAboutFlow.tsx
  *
@@ -9,17 +9,6 @@
  *   - onNext (() => void): Callback to navigate to the next step
  *   - onBack (() => void): Callback to navigate to the previous step
  *   - progress ({ total: number; filled: number }): Progress indicator data
- *   - isLastStep (boolean): Whether this is the final step [optional]
- *
- * EXAMPLE:
- *   <StressNoteStep 
- *     onNext={handleNext} 
- *     onBack={handleBack} 
- *     progress={{ total: 12, filled: 5 }} 
- *   />
- *
- * OWNER: Daniel Chelala
- * TICKET: OTO-XXX
  */
 
 import {
@@ -47,20 +36,19 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 
-interface StressNoteStepProps {
+interface AdditionalPreferencesStepProps {
     onNext: () => void;
     onBack: () => void;
     progress: { total: number; filled: number };
-    isLastStep?: boolean;
 }
 
-export function StressNoteStep({ onNext, onBack, progress, isLastStep = false }: StressNoteStepProps) {
+export function AdditionalPreferencesStep({ onNext, onBack, progress }: AdditionalPreferencesStepProps) {
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
     
-    const [stressNote, setStressNote] = useState<string>(
-        data.carStressNote ?? ''
+    const [preferences, setPreferences] = useState<string>(
+        data.additionalPreferences ?? ''
     );
 
     const dynamicStyles = {
@@ -72,13 +60,10 @@ export function StressNoteStep({ onNext, onBack, progress, isLastStep = false }:
     const buttonSize: 'md' | 'lg' = isCompact ? 'md' : 'lg';
     const buttonPaddingVertical = isCompact ? Spacing.sm : Spacing.lg;
 
-    const handleContinue = () => {
-        updateData({ carStressNote: stressNote.trim() || null });
+    const handleFinish = () => {
+        updateData({ additionalPreferences: preferences.trim() || null });
         onNext();
     };
-
-    // This step is always skippable (optional)
-    const buttonLabel = isLastStep ? 'Finish' : 'Continue';
 
     return (
         <KeyboardAvoidingView
@@ -101,21 +86,21 @@ export function StressNoteStep({ onNext, onBack, progress, isLastStep = false }:
                 >
                     <View style={styles.headerContent}>
                         <Text style={styles.title}>
-                            Is there anything that makes getting your car serviced stressful?
+                            Anything else Oto should know about your preferences?
                         </Text>
                         <Text style={styles.subtitle}>
-                            Optional — Share any concerns or frustrations you've had
+                            Optional — Share any other details that would help us serve you better
                         </Text>
                     </View>
 
                     <View style={styles.inputContainer}>
                         <TextInput
                             style={styles.textInput}
-                            placeholder="Type your answer (optional)"
+                            placeholder="Type your preferences (optional)"
                             placeholderTextColor="rgba(255, 255, 255, 0.5)"
                             multiline
-                            value={stressNote}
-                            onChangeText={setStressNote}
+                            value={preferences}
+                            onChangeText={setPreferences}
                             textAlignVertical="top"
                         />
                     </View>
@@ -123,8 +108,8 @@ export function StressNoteStep({ onNext, onBack, progress, isLastStep = false }:
 
                 <FadeFooterContainer paddingBottom={insets.bottom + Spacing.lg}>
                     <FooterButton
-                        label={buttonLabel}
-                        onPress={handleContinue}
+                        label="Finish"
+                        onPress={handleFinish}
                         size={buttonSize}
                         paddingVertical={buttonPaddingVertical}
                         variant="primary"
@@ -180,11 +165,6 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: 'rgba(255, 255, 255, 0.2)',
         minHeight: 150,
-    },
-    bottomContainer: {
-        paddingTop: Spacing.sm,
-        paddingHorizontal: Spacing['2xl'],
-        backgroundColor: 'transparent',
     },
 });
 

@@ -38,6 +38,7 @@ import {
   useWindowDimensions,
   Modal,
   TouchableOpacity,
+  Animated,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
@@ -65,6 +66,7 @@ export function ConfirmPhoneNumberStep({
   const [showErrorModal, setShowErrorModal] = useState(false);
   const inputRefs = useRef<(TextInput | null)[]>([]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const slideAnim = useRef(new Animated.Value(height)).current;
 
   const formatPhoneNumberForDisplay = () => {
     const phone = data.phoneNumber || "";
@@ -103,6 +105,27 @@ export function ConfirmPhoneNumberStep({
       }
     }
   }, [code, onNext]);
+
+  // Animate error modal slide up
+  useEffect(() => {
+    if (showErrorModal) {
+      slideAnim.setValue(height);
+      requestAnimationFrame(() => {
+        Animated.spring(slideAnim, {
+          toValue: 0,
+          useNativeDriver: true,
+          tension: 40,
+          friction: 8,
+        }).start();
+      });
+    } else {
+      Animated.timing(slideAnim, {
+        toValue: height,
+        duration: 300,
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [showErrorModal, slideAnim, height]);
 
   const handleCodeChange = (value: string, index: number) => {
     const digit = value.replace(/\D/g, "");
@@ -176,7 +199,7 @@ export function ConfirmPhoneNumberStep({
     >
       <View style={[styles.container, dynamicStyles.container]}>
         <ProgressBar
-          total={6}
+          total={8}
           filled={1}
           leftElement={<BackButton onBack={onBack} alwaysShow />}
         />
@@ -232,16 +255,21 @@ export function ConfirmPhoneNumberStep({
       <Modal
         visible={showErrorModal}
         transparent
-        animationType="fade"
+        animationType="none"
         onRequestClose={handleCloseErrorModal}
       >
         <Pressable
           style={styles.errorModalBackdrop}
           onPress={handleCloseErrorModal}
         >
-          <Pressable
-            style={styles.errorModal}
-            onPress={(e) => e.stopPropagation()}
+          <Animated.View
+            style={[
+              styles.errorModal,
+              {
+                transform: [{ translateY: slideAnim }],
+              },
+            ]}
+            onStartShouldSetResponder={() => true}
           >
             <View style={styles.errorModalHandle} />
             <View style={styles.errorIconContainer}>
@@ -257,7 +285,7 @@ export function ConfirmPhoneNumberStep({
             >
               <Text style={styles.errorButtonText}>Got it</Text>
             </TouchableOpacity>
-          </Pressable>
+          </Animated.View>
         </Pressable>
       </Modal>
     </KeyboardAvoidingView>
@@ -338,21 +366,24 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "rgba(0, 0, 0, 0.7)",
     justifyContent: "flex-end",
+    alignItems: "center",
   },
   errorModal: {
     backgroundColor: "#1F2937",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+    borderRadius: 50,
     padding: Spacing["2xl"],
     paddingBottom: Spacing["3xl"],
     alignItems: "center",
+    width: "95%",
+    alignSelf: "center",
+    marginBottom: Spacing.lg,
   },
   errorModalHandle: {
     width: 40,
     height: 4,
     backgroundColor: "#6B7280",
     borderRadius: 2,
-    marginBottom: Spacing.xl,
+    marginBottom: Spacing.xs,
   },
   errorIconContainer: { marginBottom: Spacing.lg },
   errorTitle: {

@@ -28,12 +28,14 @@ import { WelcomeStep } from './steps/WelcomeStep';
 import { PhoneNumberStep } from './steps/PhoneNumberStep';
 import { ConfirmPhoneNumberStep } from './steps/ConfirmPhoneNumberStep';
 import { NameStep } from './steps/NameStep';
+import { UsernameStep } from './steps/UsernameStep';
+import { ProfilePhotoStep } from './steps/ProfilePhotoStep';
 import { UserIntentStep } from './steps/UserIntentStep';
 import { PushNotificationsStep } from './steps/PushNotificationsStep';
 import { LocationServicesStep } from './steps/LocationServicesStep';
 
 // Define the steps in the flow
-export type OnboardingStep = 'welcome' | 'phone' | 'confirm' | 'name' | 'userIntent' | 'pushNotifications' | 'locationServices' | 'complete';
+export type OnboardingStep = 'welcome' | 'phone' | 'confirm' | 'name' | 'username' | 'profilePhoto' | 'userIntent' | 'pushNotifications' | 'locationServices' | 'complete';
 
 // Step indices mapping to SHARED_GRADIENT_CONFIGS
 const STEP_INDICES: Record<OnboardingStep, number> = {
@@ -41,10 +43,12 @@ const STEP_INDICES: Record<OnboardingStep, number> = {
     phone: 1,
     confirm: 2,
     name: 3,
-    userIntent: 4,
-    pushNotifications: 5,
-    locationServices: 6,
-    complete: 7,
+    username: 4,
+    profilePhoto: 5,
+    userIntent: 6,
+    pushNotifications: 7,
+    locationServices: 8,
+    complete: 9,
 };
 
 interface OnboardingFlowProps {
@@ -104,8 +108,14 @@ export function OnboardingFlow({ initialStep = 'welcome' }: OnboardingFlowProps)
             case 'name':
                 goToStep('confirm');
                 break;
-            case 'userIntent':
+            case 'username':
                 goToStep('name');
+                break;
+            case 'profilePhoto':
+                goToStep('username');
+                break;
+            case 'userIntent':
+                goToStep('profilePhoto');
                 break;
             case 'pushNotifications':
                 goToStep('userIntent');
@@ -187,6 +197,12 @@ export function OnboardingFlow({ initialStep = 'welcome' }: OnboardingFlowProps)
                 goToStep('name');
                 break;
             case 'name':
+                goToStep('username');
+                break;
+            case 'username':
+                goToStep('profilePhoto');
+                break;
+            case 'profilePhoto':
                 goToStep('userIntent');
                 break;
             case 'userIntent': {
@@ -225,6 +241,10 @@ export function OnboardingFlow({ initialStep = 'welcome' }: OnboardingFlowProps)
                 return <ConfirmPhoneNumberStep onNext={goNext} onBack={goBack} />;
             case 'name':
                 return <NameStep onNext={goNext} onBack={goBack} />;
+            case 'username':
+                return <UsernameStep onNext={goNext} onBack={goBack} />;
+            case 'profilePhoto':
+                return <ProfilePhotoStep onNext={goNext} onBack={goBack} />;
             case 'userIntent':
                 return <UserIntentStep onNext={goNext} onBack={goBack} />;
             case 'pushNotifications':
@@ -271,3 +291,4 @@ const styles = StyleSheet.create({
         flex: 1,
     },
 });
+

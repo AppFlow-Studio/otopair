@@ -23,10 +23,11 @@ import {
     Spacing,
     Text,
     BorderRadius,
+    ProgressBar,
+    FooterButton,
+    BackButton,
+    FadeFooterContainer,
 } from '@/components/shared-ui';
-import { ProgressBar } from '@/components/shared-ui/ProgressBar';
-import { FooterButton } from '@/components/shared-ui/FooterButton';
-import { BackButton } from '@/components/shared-ui/BackButton';
 import { useState, useEffect } from 'react';
 import {
     KeyboardAvoidingView,
@@ -160,8 +161,8 @@ export function UserIntentStep({ onNext, onBack }: UserIntentStepProps) {
         >
             <View style={[styles.container, dynamicStyles.container]}>
                 <ProgressBar
-                    total={6}
-                    filled={3}
+                    total={8}
+                    filled={5}
                     leftElement={<BackButton onBack={onBack} alwaysShow />}
                 />
 
@@ -213,7 +214,7 @@ export function UserIntentStep({ onNext, onBack }: UserIntentStepProps) {
                     </View>
                 </ScrollView>
 
-                <View style={[styles.bottomContainer, dynamicStyles.bottomContainer]}>
+                <FadeFooterContainer paddingBottom={insets.bottom + Spacing.lg}>
                     <FooterButton
                         label="Continue"
                         onPress={handleContinue}
@@ -221,7 +222,7 @@ export function UserIntentStep({ onNext, onBack }: UserIntentStepProps) {
                         paddingVertical={buttonPaddingVertical}
                         variant="primary"
                     />
-                </View>
+                </FadeFooterContainer>
             </View>
         </KeyboardAvoidingView>
     );

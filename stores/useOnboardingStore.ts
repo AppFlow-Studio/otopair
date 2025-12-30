@@ -51,8 +51,11 @@ interface OnboardingData {
   firstName: string | null;
   lastName: string | null;
   alias: string | null;
+  username: string | null;
+  profilePhotoUri: string | null;
   dateOfBirth: string | null;     // ISO format
   phoneNumber: string | null;
+  phoneCountryCode: string | null;
 
   // User intentions for using app
   userIntentions: string[] | null;
@@ -64,7 +67,7 @@ interface OnboardingData {
   locationPermissionStatus: 'granted' | 'denied' | 'undetermined' | null;
 
   // Car Knowledge Step
-  carKnowledgeLevel: 1 | 2 | 3 | 4 | null;
+  carKnowledgeLevel: 1 | 2 | 3 | null;
 
   // Setup questionnaire (home bottom-sheet)
   carUsage: string | null;
@@ -78,6 +81,12 @@ interface OnboardingData {
   whyNewOption: string[] | null;
   carTerminologyComfort: string | null;
   repairQuoteNeeds: string[] | null;
+  diyTasks: string[] | null;
+  maintenanceApproach: string | null;
+  primaryReason: string | null;
+  shopPriorities: string[] | null;
+  communicationPreference: string | null;
+  additionalPreferences: string | null;
 
   // Beginner Oil Change Step
   lastOilChange: 'last_3_months' | '3_6_months' | '6_plus_months' | 'dont_remember' | string | null;
@@ -146,8 +155,11 @@ const INITIAL_DATA: OnboardingData = {
   firstName: null,
   lastName: null,
   alias: null,
+  username: null,
+  profilePhotoUri: null,
   dateOfBirth: null,
   phoneNumber: null,
+  phoneCountryCode: null,
   userIntentions: null,
   pushNotificationsGranted: false,
   pushNotificationStatus: null,
@@ -178,6 +190,12 @@ const INITIAL_DATA: OnboardingData = {
   whyNewOption: null,
   carTerminologyComfort: null,
   repairQuoteNeeds: null,
+  diyTasks: null,
+  maintenanceApproach: null,
+  primaryReason: null,
+  shopPriorities: null,
+  communicationPreference: null,
+  additionalPreferences: null,
 };
 
 export const useOnboardingStore = create<OnboardingState>()((set, get) => ({
@@ -237,7 +255,7 @@ export const useOnboardingStore = create<OnboardingState>()((set, get) => ({
     // Validation for setup step (new flow)
     switch (currentSetupStep) {
       case 'create_account':
-        return Boolean(data.phoneNumber && data.firstName && data.lastName);
+        return Boolean(data.phoneNumber && data.firstName && data.lastName && data.username);
       case 'tell_us_about_yourself':
         return Boolean(data.firstName && data.lastName);
       case 'add_your_car':

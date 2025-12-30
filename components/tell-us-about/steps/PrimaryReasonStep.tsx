@@ -1,7 +1,7 @@
 /**
- * TerminologyComfortStep
+ * PrimaryReasonStep
  *
- * PURPOSE: Allows users to select their comfort level with car-related terminology.
+ * PURPOSE: Allows users to select what brings them to Otopair.
  *
  * USED IN: components/tell-us-about/TellUsAboutFlow.tsx
  *
@@ -9,16 +9,6 @@
  *   - onNext (() => void): Callback to navigate to the next step
  *   - onBack (() => void): Callback to navigate to the previous step
  *   - progress ({ total: number; filled: number }): Progress indicator data
- *
- * EXAMPLE:
- *   <TerminologyComfortStep 
- *     onNext={handleNext} 
- *     onBack={handleBack} 
- *     progress={{ total: 12, filled: 10 }} 
- *   />
- *
- * OWNER: Daniel Chelala
- * TICKET: OTO-XXX
  */
 
 import {
@@ -41,32 +31,43 @@ import {
     View,
     Pressable,
     ScrollView,
+    TextInput,
     useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 
-interface TerminologyComfortStepProps {
+interface PrimaryReasonStepProps {
     onNext: () => void;
     onBack: () => void;
     progress: { total: number; filled: number };
 }
 
-const TERMINOLOGY_COMFORT_OPTIONS = [
-    { emoji: '📖', label: 'I understand most car terms' },
-    { emoji: '🧩', label: 'I know some common terms' },
-    { emoji: '🗣️', label: 'I prefer simple explanations' },
-    { emoji: '🎨', label: 'Use visuals when possible' },
+const PRIMARY_REASONS = [
+    { id: 'scheduled', emoji: '📅', label: 'Scheduled maintenance coming up' },
+    { id: 'repair', emoji: '🔧', label: 'Specific repair needed' },
+    { id: 'comparing', emoji: '⚖️', label: 'Comparing shops for quality/specialization' },
+    { id: 'trust', emoji: '🤝', label: 'Looking for a shop I can trust long-term' },
+    { id: 'exploring', emoji: '🔍', label: 'Just exploring options' },
 ] as const;
 
-export function TerminologyComfortStep({ onNext, onBack, progress }: TerminologyComfortStepProps) {
+export function PrimaryReasonStep({ onNext, onBack, progress }: PrimaryReasonStepProps) {
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
     
-    const [selectedComfort, setSelectedComfort] = useState<string | null>(
-        data.carTerminologyComfort ?? null
-    );
+    const [selectedId, setSelectedId] = useState<string | null>(() => {
+        if (!data.primaryReason) return null;
+        if (data.primaryReason.startsWith('Specific repair needed:')) return 'repair';
+        return PRIMARY_REASONS.find(r => r.label === data.primaryReason)?.id ?? null;
+    });
+
+    const [repairDetails, setRepairDetails] = useState<string>(() => {
+        if (data.primaryReason?.startsWith('Specific repair needed:')) {
+            return data.primaryReason.replace('Specific repair needed:', '').trim();
+        }
+        return '';
+    });
 
     const dynamicStyles = {
         container: { paddingTop: insets.top + Spacing.lg },
@@ -77,19 +78,32 @@ export function TerminologyComfortStep({ onNext, onBack, progress }: Terminology
     const buttonSize: 'md' | 'lg' = isCompact ? 'md' : 'lg';
     const buttonPaddingVertical = isCompact ? Spacing.sm : Spacing.lg;
 
-    const handleSelectComfort = (option: typeof TERMINOLOGY_COMFORT_OPTIONS[number]) => {
-        const value = `${option.emoji} ${option.label}`;
-        setSelectedComfort(value);
-        updateData({ carTerminologyComfort: value });
+    const handleSelect = (id: string) => {
+        setSelectedId(id);
+        const reason = PRIMARY_REASONS.find(r => r.id === id);
+        if (id !== 'repair' && reason) {
+            updateData({ primaryReason: reason.label });
+        } else if (id === 'repair') {
+            const detail = repairDetails.trim();
+            updateData({ primaryReason: detail ? `Specific repair needed: ${detail}` : 'Specific repair needed' });
+        }
+    };
+
+    const handleRepairDetailsChange = (text: string) => {
+        setRepairDetails(text);
+        if (selectedId === 'repair') {
+            const trimmed = text.trim();
+            updateData({ primaryReason: trimmed ? `Specific repair needed: ${trimmed}` : 'Specific repair needed' });
+        }
     };
 
     const handleContinue = () => {
-        if (selectedComfort) {
+        if (canContinue) {
             onNext();
         }
     };
 
-    const canContinue = selectedComfort !== null;
+    const canContinue = selectedId !== null;
 
     return (
         <KeyboardAvoidingView
@@ -112,38 +126,50 @@ export function TerminologyComfortStep({ onNext, onBack, progress }: Terminology
                 >
                     <View style={styles.headerContent}>
                         <Text style={styles.title}>
-                            How comfortable are you with car terminology?
+                            What brings you to Otopair?
                         </Text>
                         <Text style={styles.subtitle}>
-                            We'll adjust our explanations accordingly
+                            Select the option that best fits your situation
                         </Text>
                     </View>
 
                     <View style={styles.optionsContainer}>
-                        {TERMINOLOGY_COMFORT_OPTIONS.map((option) => {
-                            const value = `${option.emoji} ${option.label}`;
-                            const isSelected = selectedComfort === value;
+                        {PRIMARY_REASONS.map((option) => {
+                            const isSelected = selectedId === option.id;
                             
                             return (
-                                <Pressable
-                                    key={option.label}
-                                    onPress={() => handleSelectComfort(option)}
-                                    style={({ pressed }) => [
-                                        styles.optionButton,
-                                        isSelected && styles.optionButtonSelected,
-                                        pressed && styles.optionButtonPressed,
-                                    ]}
-                                >
-                                    <Text style={styles.optionEmoji}>{option.emoji}</Text>
-                                    <Text
-                                        style={[
-                                            styles.optionText,
-                                            isSelected && styles.optionTextSelected,
+                                <View key={option.id} style={styles.optionWrapper}>
+                                    <Pressable
+                                        onPress={() => handleSelect(option.id)}
+                                        style={({ pressed }) => [
+                                            styles.optionButton,
+                                            isSelected && styles.optionButtonSelected,
+                                            pressed && styles.optionButtonPressed,
                                         ]}
                                     >
-                                        {option.label}
-                                    </Text>
-                                </Pressable>
+                                        <Text style={styles.optionEmoji}>{option.emoji}</Text>
+                                        <Text
+                                            style={[
+                                                styles.optionText,
+                                                isSelected && styles.optionTextSelected,
+                                            ]}
+                                        >
+                                            {option.label}
+                                        </Text>
+                                    </Pressable>
+                                    
+                                    {isSelected && option.id === 'repair' && (
+                                        <TextInput
+                                            style={styles.detailInput}
+                                            placeholder="What repair do you need?"
+                                            placeholderTextColor="rgba(255, 255, 255, 0.5)"
+                                            value={repairDetails}
+                                            onChangeText={handleRepairDetailsChange}
+                                            autoFocus
+                                            returnKeyType="done"
+                                        />
+                                    )}
+                                </View>
                             );
                         })}
                     </View>
@@ -201,6 +227,9 @@ const styles = StyleSheet.create({
         paddingHorizontal: Spacing['2xl'],
         gap: Spacing.md,
     },
+    optionWrapper: {
+        gap: Spacing.sm,
+    },
     optionButton: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -232,10 +261,17 @@ const styles = StyleSheet.create({
         color: BrandColors.secondary,
         fontFamily: FontFamily.semiBold,
     },
-    bottomContainer: {
-        paddingTop: Spacing.sm,
-        paddingHorizontal: Spacing['2xl'],
-        backgroundColor: 'transparent',
+    detailInput: {
+        backgroundColor: 'rgba(255, 255, 255, 0.05)',
+        borderRadius: BorderRadius.md,
+        paddingHorizontal: Spacing.lg,
+        paddingVertical: Spacing.md,
+        fontSize: FontSize.md,
+        fontFamily: FontFamily.regular,
+        color: BrandColors.white,
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.15)',
+        marginLeft: Spacing.lg,
     },
 });
 

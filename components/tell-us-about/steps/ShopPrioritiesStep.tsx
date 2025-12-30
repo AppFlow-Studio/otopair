@@ -1,7 +1,7 @@
 /**
- * TerminologyComfortStep
+ * ShopPrioritiesStep
  *
- * PURPOSE: Allows users to select their comfort level with car-related terminology.
+ * PURPOSE: Allows users to select their top 3 priorities for a car shop.
  *
  * USED IN: components/tell-us-about/TellUsAboutFlow.tsx
  *
@@ -9,16 +9,6 @@
  *   - onNext (() => void): Callback to navigate to the next step
  *   - onBack (() => void): Callback to navigate to the previous step
  *   - progress ({ total: number; filled: number }): Progress indicator data
- *
- * EXAMPLE:
- *   <TerminologyComfortStep 
- *     onNext={handleNext} 
- *     onBack={handleBack} 
- *     progress={{ total: 12, filled: 10 }} 
- *   />
- *
- * OWNER: Daniel Chelala
- * TICKET: OTO-XXX
  */
 
 import {
@@ -46,26 +36,29 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 
-interface TerminologyComfortStepProps {
+interface ShopPrioritiesStepProps {
     onNext: () => void;
     onBack: () => void;
     progress: { total: number; filled: number };
 }
 
-const TERMINOLOGY_COMFORT_OPTIONS = [
-    { emoji: '📖', label: 'I understand most car terms' },
-    { emoji: '🧩', label: 'I know some common terms' },
-    { emoji: '🗣️', label: 'I prefer simple explanations' },
-    { emoji: '🎨', label: 'Use visuals when possible' },
+const SHOP_PRIORITY_OPTIONS = [
+    { id: 'make_specialization', label: 'Specialization in my make/model', emoji: '🏎️' },
+    { id: 'ase_certified', label: 'ASE certified technicians', emoji: '📜' },
+    { id: 'parts_quality', label: 'Quality of parts used (OEM vs aftermarket)', emoji: '⚙️' },
+    { id: 'diagnostic_equip', label: 'Advanced diagnostic equipment', emoji: '💻' },
+    { id: 'complex_repairs', label: 'Track record with complex repairs', emoji: '🛠️' },
+    { id: 'labor_rates', label: 'Transparent labor rates', emoji: '🧾' },
+    { id: 'turnaround_time', label: 'Turnaround time', emoji: '⏰' },
 ] as const;
 
-export function TerminologyComfortStep({ onNext, onBack, progress }: TerminologyComfortStepProps) {
+export function ShopPrioritiesStep({ onNext, onBack, progress }: ShopPrioritiesStepProps) {
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
     
-    const [selectedComfort, setSelectedComfort] = useState<string | null>(
-        data.carTerminologyComfort ?? null
+    const [selectedPriorities, setSelectedPriorities] = useState<string[]>(
+        data.shopPriorities ?? []
     );
 
     const dynamicStyles = {
@@ -77,19 +70,28 @@ export function TerminologyComfortStep({ onNext, onBack, progress }: Terminology
     const buttonSize: 'md' | 'lg' = isCompact ? 'md' : 'lg';
     const buttonPaddingVertical = isCompact ? Spacing.sm : Spacing.lg;
 
-    const handleSelectComfort = (option: typeof TERMINOLOGY_COMFORT_OPTIONS[number]) => {
-        const value = `${option.emoji} ${option.label}`;
-        setSelectedComfort(value);
-        updateData({ carTerminologyComfort: value });
+    const handleTogglePriority = (id: string) => {
+        setSelectedPriorities((prev) => {
+            const isSelected = prev.includes(id);
+            if (isSelected) {
+                const next = prev.filter((x) => x !== id);
+                updateData({ shopPriorities: next.length ? next : null });
+                return next;
+            }
+            if (prev.length >= 3) return prev;
+            const next = [...prev, id];
+            updateData({ shopPriorities: next });
+            return next;
+        });
     };
 
     const handleContinue = () => {
-        if (selectedComfort) {
+        if (selectedPriorities.length === 3) {
             onNext();
         }
     };
 
-    const canContinue = selectedComfort !== null;
+    const canContinue = selectedPriorities.length === 3;
 
     return (
         <KeyboardAvoidingView
@@ -112,37 +114,48 @@ export function TerminologyComfortStep({ onNext, onBack, progress }: Terminology
                 >
                     <View style={styles.headerContent}>
                         <Text style={styles.title}>
-                            How comfortable are you with car terminology?
+                            What's important in a shop for YOUR car?
                         </Text>
                         <Text style={styles.subtitle}>
-                            We'll adjust our explanations accordingly
+                            Choose 3 out of the 7 items ({selectedPriorities.length}/3)
                         </Text>
                     </View>
 
                     <View style={styles.optionsContainer}>
-                        {TERMINOLOGY_COMFORT_OPTIONS.map((option) => {
-                            const value = `${option.emoji} ${option.label}`;
-                            const isSelected = selectedComfort === value;
+                        {SHOP_PRIORITY_OPTIONS.map((option) => {
+                            const rankIndex = selectedPriorities.indexOf(option.id);
+                            const isSelected = rankIndex !== -1;
+                            const isDisabled = !isSelected && selectedPriorities.length >= 3;
                             
                             return (
                                 <Pressable
-                                    key={option.label}
-                                    onPress={() => handleSelectComfort(option)}
+                                    key={option.id}
+                                    onPress={() => handleTogglePriority(option.id)}
+                                    disabled={isDisabled}
                                     style={({ pressed }) => [
                                         styles.optionButton,
                                         isSelected && styles.optionButtonSelected,
-                                        pressed && styles.optionButtonPressed,
+                                        isDisabled && styles.optionButtonDisabled,
+                                        pressed && !isDisabled && styles.optionButtonPressed,
                                     ]}
                                 >
-                                    <Text style={styles.optionEmoji}>{option.emoji}</Text>
-                                    <Text
-                                        style={[
-                                            styles.optionText,
-                                            isSelected && styles.optionTextSelected,
-                                        ]}
-                                    >
-                                        {option.label}
-                                    </Text>
+                                    <View style={styles.rankRow}>
+                                        {isSelected ? (
+                                            <View style={styles.rankBadge}>
+                                                <Text style={styles.rankBadgeText}>{rankIndex + 1}</Text>
+                                            </View>
+                                        ) : (
+                                            <Text style={styles.optionEmoji}>{option.emoji}</Text>
+                                        )}
+                                        <Text
+                                            style={[
+                                                styles.optionText,
+                                                isSelected && styles.optionTextSelected,
+                                            ]}
+                                        >
+                                            {option.label}
+                                        </Text>
+                                    </View>
                                 </Pressable>
                             );
                         })}
@@ -216,11 +229,35 @@ const styles = StyleSheet.create({
         backgroundColor: BrandColors.white,
         borderColor: 'rgba(255, 255, 255, 0.3)',
     },
+    optionButtonDisabled: {
+        opacity: 0.5,
+    },
     optionButtonPressed: {
         opacity: 0.7,
     },
+    rankRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: Spacing.md,
+        flex: 1,
+    },
+    rankBadge: {
+        width: 28,
+        height: 28,
+        borderRadius: 14,
+        backgroundColor: BrandColors.secondary,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    rankBadgeText: {
+        fontSize: FontSize.md,
+        fontFamily: FontFamily.bold,
+        color: '#0B1220',
+    },
     optionEmoji: {
         fontSize: FontSize['2xl'],
+        width: 28,
+        textAlign: 'center',
     },
     optionText: {
         fontSize: FontSize.lg,
@@ -231,11 +268,6 @@ const styles = StyleSheet.create({
     optionTextSelected: {
         color: BrandColors.secondary,
         fontFamily: FontFamily.semiBold,
-    },
-    bottomContainer: {
-        paddingTop: Spacing.sm,
-        paddingHorizontal: Spacing['2xl'],
-        backgroundColor: 'transparent',
     },
 });
 

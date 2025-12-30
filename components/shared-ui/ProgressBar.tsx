@@ -9,9 +9,12 @@
  *   - total (number): Total number of segments to display.
  *   - filled (number): How many segments are completed.
  *   - leftElement (optional): Element to display on the left side (e.g., back button).
+ *   - filledColor (optional): Color for filled segments [default: BrandColors.white].
+ *   - unfilledColor (optional): Color for unfilled segments [default: '#0F1E3A'].
  *
  * EXAMPLE:
  *   <ProgressBar total={4} filled={1} leftElement={<BackButton />} />
+ *   <ProgressBar total={5} filled={2} filledColor="#3B82F6" unfilledColor="#E5E7EB" />
  *
  * OWNER: Daniel Chelala
  * TICKET: OTO-XXX
@@ -25,11 +28,19 @@ interface ProgressBarProps {
     total: number;
     filled: number;
     leftElement?: ReactNode;
+    filledColor?: string;
+    unfilledColor?: string;
 }
 
-const unfilledColor = '#0F1E3A';
+const DEFAULT_UNFILLED_COLOR = '#0F1E3A';
 
-export function ProgressBar({ total, filled, leftElement }: ProgressBarProps) {
+export function ProgressBar({ 
+    total, 
+    filled, 
+    leftElement,
+    filledColor = BrandColors.white,
+    unfilledColor = DEFAULT_UNFILLED_COLOR,
+}: ProgressBarProps) {
     const segments = Array.from({ length: total });
 
     return (
@@ -43,7 +54,7 @@ export function ProgressBar({ total, filled, leftElement }: ProgressBarProps) {
                             key={idx}
                             style={[
                                 styles.segment,
-                                { backgroundColor: isFilled ? BrandColors.white : unfilledColor },
+                                { backgroundColor: isFilled ? filledColor : unfilledColor },
                             ]}
                         />
                     );

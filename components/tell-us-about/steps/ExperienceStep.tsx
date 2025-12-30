@@ -31,6 +31,7 @@ import {
     ProgressBar,
     FooterButton,
     BackButton,
+    FadeFooterContainer,
 } from '@/components/shared-ui';
 import { useState } from 'react';
 import {
@@ -53,7 +54,7 @@ interface ExperienceStepProps {
 }
 
 interface ExperienceOption {
-    id: 1 | 2 | 3 | 4;
+    id: 1 | 2 | 3;
     label: string;
     icon: React.ComponentType<{ size: number; color: string }>;
     emoji: string;
@@ -78,12 +79,6 @@ const EXPERIENCE_OPTIONS: ExperienceOption[] = [
         icon: Gauge,
         emoji: '🏎️',
     },
-    {
-        id: 4,
-        label: 'Level 4: I know my stuff',
-        icon: FlaskConical,
-        emoji: '🔬',
-    },
 ];
 
 export function ExperienceStep({ onNext, onBack, progress }: ExperienceStepProps) {
@@ -91,7 +86,7 @@ export function ExperienceStep({ onNext, onBack, progress }: ExperienceStepProps
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
     
-    const [selectedLevel, setSelectedLevel] = useState<1 | 2 | 3 | 4 | null>(
+    const [selectedLevel, setSelectedLevel] = useState<1 | 2 | 3 | null>(
         data.carKnowledgeLevel ?? null
     );
 
@@ -104,7 +99,7 @@ export function ExperienceStep({ onNext, onBack, progress }: ExperienceStepProps
     const buttonSize: 'md' | 'lg' = isCompact ? 'md' : 'lg';
     const buttonPaddingVertical = isCompact ? Spacing.sm : Spacing.lg;
 
-    const handleSelectLevel = (level: 1 | 2 | 3 | 4) => {
+    const handleSelectLevel = (level: 1 | 2 | 3) => {
         setSelectedLevel(level);
         updateData({ carKnowledgeLevel: level });
     };
@@ -175,7 +170,7 @@ export function ExperienceStep({ onNext, onBack, progress }: ExperienceStepProps
                     </View>
                 </ScrollView>
 
-                <View style={[styles.bottomContainer, dynamicStyles.bottomContainer]}>
+                <FadeFooterContainer paddingBottom={insets.bottom + Spacing.lg}>
                     <FooterButton
                         label="Continue"
                         onPress={handleContinue}
@@ -186,7 +181,7 @@ export function ExperienceStep({ onNext, onBack, progress }: ExperienceStepProps
                         backgroundColor={canContinue ? undefined : '#6B7280'}
                         textColor={canContinue ? undefined : BrandColors.white}
                     />
-                </View>
+                </FadeFooterContainer>
             </View>
         </KeyboardAvoidingView>
     );
