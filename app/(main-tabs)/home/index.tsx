@@ -10,7 +10,7 @@ import { useRouter } from 'expo-router';
 import { Bell, MapPinned, MoveRight, Star } from 'lucide-react-native';
 
 // 3. Shared UI
-import { Button, Text } from '@/components/shared-ui';
+import { Button, Spacing, Text } from '@/components/shared-ui';
 
 // 4. Flow-specific components
 import { ActionCardsCarousel } from '@/components/home/ActionCardsCarousel';
@@ -230,7 +230,7 @@ export default function HomeScreen() {
           <ServiceBundlesSection />
 
           {/* AI Assistant Button */}
-          <AIAssistantButton />
+          {/* <AIAssistantButton /> */}
         </View>
       </ScrollView>
 
@@ -283,7 +283,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 75,
+    paddingBottom: 100,
   },
   header: {
     flexDirection: 'row',

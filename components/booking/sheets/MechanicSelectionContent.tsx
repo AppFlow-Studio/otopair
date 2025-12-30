@@ -74,6 +74,7 @@ export function MechanicSelectionContent({
   const toggleServiceSelection = useBookingStore((state) => state.toggleServiceSelection);
   const availableServices = useBookingStore((state) => state.availableServices);
   const prevBookingStage = useBookingStore((state) => state.prevBookingStage);
+  const setBookingTypeAndProceed = useBookingStore((state) => state.setBookingTypeAndProceed);
 
   // Memoize selected services to prevent re-renders
   const selectedServices = useMemo(
@@ -165,21 +166,45 @@ export function MechanicSelectionContent({
   }, [serviceToRemove, toggleServiceSelection]);
 
   const handleBookNow = useCallback(
-    (mechanicId: number) => {
-      // Navigate to mechanic detail page
-      router.push(`/home/mechanic/${mechanicId}`);
+    (mechanicId: number, slot: { day: string; dayOfWeek: string; time: string }) => {
+      // Convert slot to scheduled appointment format
+      const now = new Date();
+      const currentMonth = now.getMonth();
+      const currentYear = now.getFullYear();
+      const dayNum = parseInt(slot.day, 10);
+
+      // Construct date from slot day
+      let targetDate = new Date(currentYear, currentMonth, dayNum);
+      if (targetDate < now) {
+        targetDate = new Date(currentYear, currentMonth + 1, dayNum);
+      }
+
+      const months = ["Jan.", "Feb.", "Mar.", "Apr.", "May", "Jun.", "Jul.", "Aug.", "Sep.", "Oct.", "Nov.", "Dec."];
+      const displayDate = `${targetDate.getDate()} ${months[targetDate.getMonth()]} ${targetDate.getFullYear()}`;
+      const isoDate = targetDate.toISOString().split("T")[0];
+
+      // Set appointment in store and navigate directly to booking details
+      setBookingTypeAndProceed("schedule_later", mechanicId);
+      useBookingStore.getState().setScheduledAppointment({
+        date: isoDate,
+        time: slot.time,
+        displayDate,
+      });
+      router.push(`/home/mechanic/${mechanicId}/booking-details`);
       onSelectMechanic?.();
     },
-    [router, onSelectMechanic]
+    [router, onSelectMechanic, setBookingTypeAndProceed]
   );
 
   const handleScheduleLater = useCallback(
     (mechanicId: number) => {
-      // Navigate to mechanic detail page
+      // Navigate to mechanic detail page where user can select a time slot
+      // Book Now will be disabled until a slot is selected there
+      setBookingTypeAndProceed("schedule_later", mechanicId);
       router.push(`/home/mechanic/${mechanicId}`);
       onSelectMechanic?.();
     },
-    [router, onSelectMechanic]
+    [router, onSelectMechanic, setBookingTypeAndProceed]
   );
 
   // ═══════════════ FLATLIST HELPERS ═══════════════

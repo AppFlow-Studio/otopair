@@ -17,19 +17,20 @@
 
 // 1. React & React Native
 import React, { useCallback, useMemo, useState } from "react";
-import { ScrollView, StyleSheet, View } from "react-native";
+import { StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
 import { User } from "lucide-react-native";
 
 // 3. Shared UI (design system)
-import { BrandColors, Spacing, Text } from "@/components/shared-ui";
+import { BrandColors, PrimaryButton, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Flow-specific components
 import { AvailabilitySlots } from "@/components/booking/shared";
 
 // 5. Constants, hooks, types, stores
 import { BorderRadius } from "@/constants/theme";
+import type { ScheduledAppointment } from "@/stores/types/store.types";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useBookingStore } from "@/stores/useBookingStore";
 
@@ -40,16 +41,23 @@ import { useBookingStore } from "@/stores/useBookingStore";
 interface MechanicAvailabilityBreakdownProps {
     /** The shop ID to get mechanics for */
     shopId: number;
+    /** Called when "View All" is pressed, receives mechanic ID and optional flag for schedule later */
+    onViewAllAvailability?: (mechanicId: number, forScheduleLater?: boolean) => void;
+    /** Called when "Book Now" is pressed, receives mechanic ID */
+    onBookNow?: (mechanicId: number) => void;
+    /** Called when "Schedule Later" is pressed after selecting date/time, receives mechanic ID and appointment */
+    onScheduleLater?: (mechanicId: number, appointment: ScheduledAppointment) => void;
 }
 
 // ============================================================================
 // COMPONENT
 // ============================================================================
 
-export function MechanicAvailabilityBreakdown({ shopId }: MechanicAvailabilityBreakdownProps) {
+export function MechanicAvailabilityBreakdown({ shopId, onViewAllAvailability, onBookNow, onScheduleLater }: MechanicAvailabilityBreakdownProps) {
     // ═══════════════ STORES ═══════════════
     const getMechanicsByShopId = useMechanicStore((state) => state.getMechanicsByShopId);
     const availableServices = useBookingStore((state) => state.availableServices);
+    const setScheduledAppointment = useBookingStore((state) => state.setScheduledAppointment);
 
     // ═══════════════ STATE ═══════════════
     // Track selected slot index for each mechanic
@@ -78,17 +86,89 @@ export function MechanicAvailabilityBreakdown({ shopId }: MechanicAvailabilityBr
     }, [mechanics, availableServices]);
 
     // ═══════════════ HANDLERS ═══════════════
-    const handleSlotSelect = useCallback((mechanicId: number, slotIndex: number) => {
-        setSelectedSlots((prev) => ({
-            ...prev,
-            [mechanicId]: prev[mechanicId] === slotIndex ? null : slotIndex,
-        }));
+    // Helper to convert slot data to ScheduledAppointment
+    const convertSlotToAppointment = useCallback((slot: { day: string; dayOfWeek: string; time: string }): ScheduledAppointment => {
+        const now = new Date();
+        const currentMonth = now.getMonth();
+        const currentYear = now.getFullYear();
+        const dayNum = parseInt(slot.day, 10);
+
+        // Construct date from slot day (assuming current month/year, adjust if in past)
+        let targetDate = new Date(currentYear, currentMonth, dayNum);
+        if (targetDate < now) {
+            // If the date is in the past, use next month
+            targetDate = new Date(currentYear, currentMonth + 1, dayNum);
+        }
+
+        // Format date as ISO string (YYYY-MM-DD)
+        const isoDate = targetDate.toISOString().split("T")[0];
+
+        // Format display date (e.g., "20 Aug. 2025")
+        const months = ["Jan.", "Feb.", "Mar.", "Apr.", "May", "Jun.", "Jul.", "Aug.", "Sep.", "Oct.", "Nov.", "Dec."];
+        const displayDate = `${targetDate.getDate()} ${months[targetDate.getMonth()]} ${targetDate.getFullYear()}`;
+
+        return {
+            date: isoDate,
+            time: slot.time,
+            displayDate,
+        };
     }, []);
 
-    const handleViewAllAvailability = useCallback((mechanicId: number) => {
-        // TODO: Open full availability sheet/modal
-        console.log("View all availability for mechanic:", mechanicId);
-    }, []);
+    const handleSlotSelect = useCallback(
+        (mechanicId: number, slotIndex: number, slot: { day: string; dayOfWeek: string; time: string }) => {
+            setSelectedSlots((prev) => {
+                const isCurrentlySelected = prev[mechanicId] === slotIndex;
+
+                if (isCurrentlySelected) {
+                    // Deselect
+                    setScheduledAppointment(null);
+                    return {
+                        ...prev,
+                        [mechanicId]: null,
+                    };
+                } else {
+                    // Select new slot and automatically set scheduled appointment in store
+                    const appointment = convertSlotToAppointment(slot);
+                    setScheduledAppointment(appointment);
+                    return {
+                        ...prev,
+                        [mechanicId]: slotIndex,
+                    };
+                }
+            });
+        },
+        [setScheduledAppointment, convertSlotToAppointment]
+    );
+
+    const handleViewAllAvailability = useCallback(
+        (mechanicId: number, forScheduleLater: boolean = false) => {
+            onViewAllAvailability?.(mechanicId, forScheduleLater);
+        },
+        [onViewAllAvailability]
+    );
+
+    const handleBookNow = useCallback(
+        (mechanicId: number) => {
+            onBookNow?.(mechanicId);
+        },
+        [onBookNow]
+    );
+
+    const handleScheduleLater = useCallback(
+        (mechanicId: number, slotIndex: number | null, slot: { day: string; dayOfWeek: string; time: string } | null) => {
+            if (slotIndex === null || !slot) {
+                // If no slot selected, open calendar sheet with schedule later flag
+                onViewAllAvailability?.(mechanicId, true);
+                return;
+            }
+
+            // Convert slot to appointment and call callback
+            const appointment = convertSlotToAppointment(slot);
+            setScheduledAppointment(appointment);
+            onScheduleLater?.(mechanicId, appointment);
+        },
+        [onScheduleLater, onViewAllAvailability, setScheduledAppointment, convertSlotToAppointment]
+    );
 
     // ═══════════════ RENDER ═══════════════
     if (mechanics.length === 0) {
@@ -170,11 +250,47 @@ export function MechanicAvailabilityBreakdown({ shopId }: MechanicAvailabilityBr
                                     <AvailabilitySlots
                                         slots={mechanic.nextAvailability}
                                         selectedIndex={selectedSlotIndex}
-                                        onSlotSelect={(index) => handleSlotSelect(mechanic.id, index)}
+                                        onSlotSelect={(index) => {
+                                            const slot = mechanic.nextAvailability![index];
+                                            handleSlotSelect(mechanic.id, index, slot);
+                                        }}
                                         onViewAll={() => handleViewAllAvailability(mechanic.id)}
                                     />
                                 </View>
                             )}
+
+                            {/* Action Buttons */}
+                            <View style={styles.actionButtons}>
+                                <TouchableOpacity
+                                    style={styles.scheduleButton}
+                                    onPress={() => {
+                                        const slotIndex = selectedSlotIndex;
+                                        const slot = slotIndex !== null && mechanic.nextAvailability ? mechanic.nextAvailability[slotIndex] : null;
+                                        handleScheduleLater(mechanic.id, slotIndex, slot);
+                                    }}
+                                    activeOpacity={0.7}
+                                >
+                                    <Text size="sm" weight="semiBold" color={BrandColors.primary}>
+                                        Schedule For Later
+                                    </Text>
+                                </TouchableOpacity>
+                                <PrimaryButton
+                                    style={[
+                                        styles.bookButton,
+                                        selectedSlotIndex === null && styles.bookButtonDisabled,
+                                    ]}
+                                    onPress={() => handleBookNow(mechanic.id)}
+                                    disabled={selectedSlotIndex === null}
+                                >
+                                    <Text
+                                        size="sm"
+                                        weight="semiBold"
+                                        color={selectedSlotIndex === null ? "#9CA3AF" : BrandColors.white}
+                                    >
+                                        Book Now
+                                    </Text>
+                                </PrimaryButton>
+                            </View>
                         </View>
                     );
                 })}
@@ -265,6 +381,27 @@ const styles = StyleSheet.create({
     },
     availabilitySection: {
         marginTop: Spacing.md,
+    },
+    actionButtons: {
+        flexDirection: "row",
+        marginTop: Spacing.lg,
+        gap: Spacing.sm,
+    },
+    scheduleButton: {
+        flex: 1,
+        alignItems: "center",
+        justifyContent: "center",
+        paddingVertical: Spacing.md,
+        borderRadius: BorderRadius.lg,
+        backgroundColor: "#E4E7EC",
+    },
+    bookButton: {
+        flex: 1,
+        borderRadius: BorderRadius.lg,
+        paddingVertical: Spacing.md,
+    },
+    bookButtonDisabled: {
+        backgroundColor: "#E5E7EB",
     },
     emptyContainer: {
         paddingVertical: Spacing.xl,

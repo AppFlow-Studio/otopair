@@ -5,7 +5,7 @@
  *          specialties, and booking options. Displays a blurred map header with
  *          shop location pin and shop information.
  *
- * FLOW: mechanic_selection (ServiceBottomSheet) → mechanic detail → booking_details
+ * FLOW: mechanic_selection (ServiceBottomSheet) → mechanic detail → booking-details → payment → confirmation
  *
  * USED IN: Navigation from components/booking/sheets/MechanicSelectionContent.tsx
  *
@@ -15,10 +15,11 @@
  */
 
 // 1. React & React Native
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 
 // 2. Expo & Third-party
+import { BlurView } from "expo-blur";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import Animated, {
     interpolate,
@@ -39,8 +40,11 @@ import { MechanicAvailabilityBreakdown } from "@/components/booking/MechanicAvai
 import { MechanicReviewsSection } from "@/components/booking/MechanicReviewsSection";
 import { ShopPortfolioSection } from "@/components/booking/ShopPortfolioSection";
 import { ShopStaffSection } from "@/components/booking/ShopStaffSection";
+import { AllAvailabilitySheet, type AllAvailabilitySheetRef } from "@/components/booking/sheets/AllAvailabilitySheet";
 
 // 5. Constants, hooks, types, stores
+import type { ScheduledAppointment } from "@/stores/types/store.types";
+import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useShopStore } from "@/stores/useShopStore";
 import { FullScreenContainer } from "@/components/shared-ui/Container";
@@ -63,12 +67,19 @@ export default function MechanicDetailScreen() {
     const insets = useSafeAreaInsets();
     const { id } = useLocalSearchParams<{ id: string }>();
 
+    // ═══════════════ REFS ═══════════════
+    const allAvailabilityRef = useRef<AllAvailabilitySheetRef>(null);
+
     // ═══════════════ STATE ═══════════════
     const [activeTab, setActiveTab] = useState<MechanicDetailTab>("services");
+    const [pendingScheduleMechanicId, setPendingScheduleMechanicId] = useState<number | null>(null);
 
     // ═══════════════ STORES ═══════════════
     const getMechanicById = useMechanicStore((state) => state.getMechanicById);
     const getShopById = useShopStore((state) => state.getShopById);
+    const setBookingTypeAndProceed = useBookingStore((state) => state.setBookingTypeAndProceed);
+    const setScheduledAppointment = useBookingStore((state) => state.setScheduledAppointment);
+    const resetBookingFlow = useBookingStore((state) => state.resetBookingFlow);
 
     // ═══════════════ COMPUTED VALUES ═══════════════
     const mechanicId = useMemo(() => {
@@ -108,10 +119,75 @@ export default function MechanicDetailScreen() {
         };
     });
 
+    // Animated style for blur overlay (native iOS-like effect)
+    const blurOverlayStyle = useAnimatedStyle(() => {
+        const opacity = interpolate(scrollOffset.value, [scrollThreshold - 20, scrollThreshold], [0, 0.95], "clamp");
+
+        return {
+            opacity,
+        };
+    });
+
     // ═══════════════ HANDLERS ═══════════════
-    const handleBack = () => {
+    const handleBack = useCallback(() => {
+        // Reset the booking flow to discovery state with empty service selection
+        resetBookingFlow();
         router.back();
-    };
+    }, [resetBookingFlow, router]);
+
+    const handleViewAllAvailability = useCallback(
+        (mechanicId: number, forScheduleLater: boolean = false) => {
+            if (forScheduleLater) {
+                setPendingScheduleMechanicId(mechanicId);
+            }
+            allAvailabilityRef.current?.open(mechanicId);
+        },
+        []
+    );
+
+    const handleAvailabilityConfirm = useCallback(
+        (date: Date, time: string) => {
+            // Format date as "DD Mon. YYYY"
+            const months = ["Jan.", "Feb.", "Mar.", "Apr.", "May", "Jun.", "Jul.", "Aug.", "Sep.", "Oct.", "Nov.", "Dec."];
+            const displayDate = `${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()}`;
+
+            // Format date as ISO string YYYY-MM-DD
+            const isoDate = date.toISOString().split("T")[0];
+
+            const appointment: ScheduledAppointment = {
+                date: isoDate,
+                time,
+                displayDate,
+            };
+
+            setScheduledAppointment(appointment);
+
+            // If there's a pending schedule mechanic, navigate to booking details
+            if (pendingScheduleMechanicId !== null) {
+                setPendingScheduleMechanicId(null);
+                router.push(`/home/mechanic/${id}/booking-details`);
+            }
+        },
+        [setScheduledAppointment, pendingScheduleMechanicId, router, id]
+    );
+
+    const handleBookNow = useCallback(
+        (mechanicId: number) => {
+            // Since user selected a specific time slot, this is a scheduled booking
+            setBookingTypeAndProceed("schedule_later", mechanicId);
+            router.push(`/home/mechanic/${id}/booking-details`);
+        },
+        [setBookingTypeAndProceed, router, id]
+    );
+
+    const handleScheduleLater = useCallback(
+        (mechanicId: number, appointment: ScheduledAppointment) => {
+            setBookingTypeAndProceed("schedule_later", mechanicId);
+            setScheduledAppointment(appointment);
+            router.push(`/home/mechanic/${id}/booking-details`);
+        },
+        [setBookingTypeAndProceed, setScheduledAppointment, router, id]
+    );
 
     // ═══════════════ RENDER ═══════════════
     if (!mechanic || !shop) {
@@ -133,7 +209,12 @@ export default function MechanicDetailScreen() {
                 return (
                     <>
                         <MechanicServicesSection />
-                        <MechanicAvailabilityBreakdown shopId={shop.id} />
+                        <MechanicAvailabilityBreakdown
+                            shopId={shop.id}
+                            onViewAllAvailability={handleViewAllAvailability}
+                            onBookNow={handleBookNow}
+                            onScheduleLater={handleScheduleLater}
+                        />
                     </>
                 );
             case "reviews":
@@ -157,20 +238,26 @@ export default function MechanicDetailScreen() {
                     stickyHeaderStyle,
                 ]}
             >
+                {/* Blur Overlay for native iOS-like effect */}
+                <Animated.View style={[styles.blurOverlay, blurOverlayStyle]} pointerEvents="none">
+                    <BlurView intensity={80} tint="light" style={styles.blurViewFill} />
+                </Animated.View>
+
                 <View style={styles.stickyHeaderContent}>
-                    <View style={[styles.backButtonContainer]}>
-                        <Pressable onPress={handleBack} >
-                            <View style={styles.backButton}>
-                                <ArrowLeft size={24} color={BrandColors.primary} />
-                            </View>
-                        </Pressable>
+                    <Pressable onPress={handleBack} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                        <View style={styles.backButton}>
+                            <ArrowLeft size={24} color={BrandColors.primary} />
+                        </View>
+                    </Pressable>
+
+                    <View style={styles.titleContainer}>
+                        <Text size="lg" weight="bold" color={BrandColors.primary} numberOfLines={1}>
+                            {mechanic.shopName}
+                        </Text>
                     </View>
-                    
-                    <Text size="lg" weight="bold" color={BrandColors.primary} numberOfLines={1}>
-                        {mechanic.shopName}
-                    </Text>
-                    
-                    <View />
+
+                    {/* Spacer to balance the back button */}
+                    <View style={styles.spacer} />
                 </View>
             </Animated.View>
 
@@ -191,6 +278,9 @@ export default function MechanicDetailScreen() {
                 {/* Tab Content */}
                 <View style={styles.tabContentContainer}>{renderTabContent()}</View>
             </Animated.ScrollView>
+
+            {/* All Availability Sheet - Rendered at screen level */}
+            <AllAvailabilitySheet ref={allAvailabilityRef} onConfirm={handleAvailabilityConfirm} />
         </FullScreenContainer>
     );
 }
@@ -213,12 +303,24 @@ const styles = StyleSheet.create({
         borderBottomWidth: 1,
         borderBottomColor: "#E5E7EB",
         zIndex: 100,
+        overflow: "hidden",
+    },
+    blurOverlay: {
+        ...StyleSheet.absoluteFillObject,
+    },
+    blurViewFill: {
+        ...StyleSheet.absoluteFillObject,
     },
     stickyHeaderContent: {
         paddingHorizontal: Spacing.lg,
         flexDirection: "row",
         alignItems: "center",
-        justifyContent: "space-evenly",
+        justifyContent: "space-between",
+    },
+    titleContainer: {
+        flex: 1,
+        alignItems: "center",
+        marginHorizontal: Spacing.md,
     },
     scrollView: {
         flex: 1,
@@ -235,9 +337,9 @@ const styles = StyleSheet.create({
         alignItems: "center",
         justifyContent: "center",
     },
-    backButtonContainer: {
-        // position: "absolute",
-        // zIndex: 10,
+    spacer: {
+        width: 40,
+        height: 40,
     },
     backButton: {
         width: 40,

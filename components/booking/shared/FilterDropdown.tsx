@@ -33,6 +33,7 @@ import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 // 3. Constants
 import { BorderRadius, Shadows } from "@/constants/theme";
 
+// 4. SwiftUI Components
 // ============================================================================
 // TYPES
 // ============================================================================

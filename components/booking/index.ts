@@ -31,6 +31,9 @@ export {
   type ServiceSelectionFooterProps,
 } from "./footers";
 
+// Page components (shared components for booking flow pages)
+export { BookingPageHeader, BookingPageFooter } from "./pages";
+
 // Shared reusable components
 export {
   // Rating & Reviews

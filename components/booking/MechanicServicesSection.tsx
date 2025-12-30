@@ -65,12 +65,12 @@ export function MechanicServicesSection() {
                             <Text size="md" weight="semiBold" color={BrandColors.primary}>
                                 {service.name}
                             </Text>
-                            <Text size="sm" weight="regular" color="#6B7280" style={styles.serviceDescription}>
+                            <Text size="xs" weight="regular" color="#6B7280" style={styles.serviceDescription}>
                                 {service.description}
                             </Text>
                         </View>
                         <View style={styles.priceContainer}>
-                            <Text size="lg" weight="bold" color={BrandColors.secondary}>
+                            <Text size="sm" weight="bold" color={BrandColors.secondary}>
                                 ${service.price}
                             </Text>
                         </View>
@@ -82,7 +82,7 @@ export function MechanicServicesSection() {
                 <Text size="lg" weight="bold" color={BrandColors.primary}>
                     Total
                 </Text>
-                <Text size="xl" weight="bold" color={BrandColors.secondary}>
+                <Text size="lg" weight="bold" color={BrandColors.secondary}>
                     ${totalPrice}
                 </Text>
             </View>
@@ -96,21 +96,22 @@ export function MechanicServicesSection() {
 
 const styles = StyleSheet.create({
     container: {
-        paddingVertical: Spacing.lg,
+        paddingTop: Spacing.md,
+        paddingBottom: Spacing.lg,
     },
     header: {
-        marginBottom: Spacing.lg,
+        marginBottom: Spacing.md,
     },
     servicesList: {
-        gap: Spacing.md,
-        marginBottom: Spacing.xl,
+        gap: Spacing.sm,
+        marginBottom: Spacing.md,
     },
     serviceCard: {
         flexDirection: "row",
         justifyContent: "space-between",
         alignItems: "flex-start",
         backgroundColor: "#F9FAFB",
-        padding: Spacing.lg,
+        padding: Spacing.md,
         borderRadius: BorderRadius.lg,
         borderWidth: 1,
         borderColor: "#E5E7EB",
@@ -129,7 +130,7 @@ const styles = StyleSheet.create({
         flexDirection: "row",
         justifyContent: "space-between",
         alignItems: "center",
-        paddingTop: Spacing.lg,
+        paddingTop: Spacing.md,
         borderTopWidth: 2,
         borderTopColor: "#E5E7EB",
     },

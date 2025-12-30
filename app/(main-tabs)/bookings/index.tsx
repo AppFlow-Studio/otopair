@@ -2,16 +2,21 @@ import { BookingCard, type Booking } from '@/components/bookings/BookingCard';
 import { LiveTrackerCard, type LiveTracking } from '@/components/bookings/LiveTrackerCard';
 import { Text } from '@/components/shared-ui';
 import { Calendar, Search, SlidersHorizontal } from 'lucide-react-native';
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
-    Pressable,
-    RefreshControl,
-    ScrollView,
-    StyleSheet,
-    TextInput,
-    View,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  View,
 } from 'react-native';
+import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { adaptBookingForCard } from '@/utils/bookingAdapter';
+import { useBookingStore } from '@/stores/useBookingStore';
+import { useMechanicStore } from '@/stores/useMechanicStore';
+import { useShopStore } from '@/stores/useShopStore';
 
 // ============================================================================
 // SAMPLE DATA
@@ -148,7 +153,39 @@ export default function BookingsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
 
-  const bookings = activeTab === 'upcoming' ? SAMPLE_UPCOMING_BOOKINGS : SAMPLE_HISTORY_BOOKINGS;
+  // ═══════════════ STORES ═══════════════
+  const getUpcomingBookings = useBookingStore((state) => state.getUpcomingBookings);
+  const availableServices = useBookingStore((state) => state.availableServices);
+  const getMechanicById = useMechanicStore((state) => state.getMechanicById);
+  const getShopById = useShopStore((state) => state.getShopById);
+  const mechanics = useMechanicStore((state) => state.mechanics);
+
+  // ═══════════════ COMPUTED VALUES ═══════════════
+  // Get upcoming bookings from store
+  const storeBookings = useMemo(() => getUpcomingBookings(), [getUpcomingBookings]);
+
+  // Transform store bookings to BookingCard format
+  const transformedBookings = useMemo(() => {
+    return storeBookings.map((storeBooking) => {
+      // Get shop data
+      const shop = getShopById(parseInt(storeBooking.shopId)) || null;
+
+      // For now, try to find mechanic by shopId (fallback approach)
+      // This is a temporary solution until we store mechanicId in booking
+      const shopMechanics = Object.values(mechanics).filter((m) => m.shopId === parseInt(storeBooking.shopId));
+      const fallbackMechanic = shopMechanics[0] || null;
+
+      return adaptBookingForCard({
+        storeBooking,
+        services: availableServices,
+        mechanic: fallbackMechanic,
+        shop,
+      });
+    });
+  }, [storeBookings, availableServices, getShopById, mechanics]);
+
+  // Use store bookings for upcoming, sample data for history
+  const bookings = activeTab === 'upcoming' ? transformedBookings : SAMPLE_HISTORY_BOOKINGS;
 
   // Filter bookings based on search query
   const filteredBookings = bookings.filter(
@@ -160,9 +197,10 @@ export default function BookingsScreen() {
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
+    // Refresh bookings from store (Zustand will automatically trigger re-render)
     setTimeout(() => {
       setRefreshing(false);
-    }, 1500);
+    }, 500);
   }, []);
 
   const handleViewDetails = (bookingId: string) => {
@@ -307,17 +345,21 @@ export default function BookingsScreen() {
             )
           ) : filteredBookings.length > 0 ? (
             // Upcoming or History Content
-            filteredBookings.map((booking) => (
-              <BookingCard
+            filteredBookings.map((booking, index) => (
+              <Animated.View
                 key={booking.id}
-                booking={booking}
-                variant={activeTab}
-                onViewDetails={handleViewDetails}
-                onCancelBooking={handleCancelBooking}
-                onReschedule={handleReschedule}
-                onDownloadPdf={handleDownloadPdf}
-                onToggleFavorite={handleToggleFavorite}
-              />
+                entering={FadeInDown.delay(index * 50).springify()}
+              >
+                <BookingCard
+                  booking={booking}
+                  variant={activeTab}
+                  onViewDetails={handleViewDetails}
+                  onCancelBooking={handleCancelBooking}
+                  onReschedule={handleReschedule}
+                  onDownloadPdf={handleDownloadPdf}
+                  onToggleFavorite={handleToggleFavorite}
+                />
+              </Animated.View>
             ))
           ) : (
             <View style={styles.emptyState}>

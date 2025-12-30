@@ -42,9 +42,9 @@ import type { Mechanic } from "@/stores/types/store.types";
 interface MechanicCardProps {
   /** The mechanic data to display */
   mechanic: Mechanic;
-  /** Called when "Book Now" is pressed */
-  onBookNow?: (mechanicId: number) => void;
-  /** Called when "Schedule For Later" is pressed */
+  /** Called when "Book Now" is pressed with a selected slot */
+  onBookNow?: (mechanicId: number, slot: { day: string; dayOfWeek: string; time: string }) => void;
+  /** Called when "Schedule For Later" is pressed (navigates to mechanic detail page) */
   onScheduleLater?: (mechanicId: number) => void;
 }
 
@@ -56,10 +56,16 @@ export const MechanicCard = memo(function MechanicCard({ mechanic, onBookNow, on
   // Track which availability slot is selected (null = none selected)
   const [selectedSlotIndex, setSelectedSlotIndex] = useState<number | null>(null);
 
+  // Check if a slot is selected
+  const hasSelectedSlot = selectedSlotIndex !== null;
+  const selectedSlot = hasSelectedSlot ? mechanic.nextAvailability[selectedSlotIndex] : null;
+
   // Memoize handlers to prevent re-renders
   const handleBookNow = useCallback(() => {
-    onBookNow?.(mechanic.id);
-  }, [onBookNow, mechanic.id]);
+    if (selectedSlot) {
+      onBookNow?.(mechanic.id, selectedSlot);
+    }
+  }, [onBookNow, mechanic.id, selectedSlot]);
 
   const handleScheduleLater = useCallback(() => {
     onScheduleLater?.(mechanic.id);
@@ -186,8 +192,12 @@ export const MechanicCard = memo(function MechanicCard({ mechanic, onBookNow, on
             Schedule For Later
           </Text>
         </TouchableOpacity>
-        <PrimaryButton style={styles.bookButton} onPress={handleBookNow}>
-          <Text size="sm" weight="semiBold" color={BrandColors.white}>
+        <PrimaryButton
+          style={[styles.bookButton, !hasSelectedSlot && styles.bookButtonDisabled]}
+          onPress={handleBookNow}
+          disabled={!hasSelectedSlot}
+        >
+          <Text size="sm" weight="semiBold" color={hasSelectedSlot ? BrandColors.white : "#9CA3AF"}>
             Book Now
           </Text>
         </PrimaryButton>
@@ -326,5 +336,8 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: BorderRadius.lg,
     paddingVertical: Spacing.md,
+  },
+  bookButtonDisabled: {
+    backgroundColor: "#E5E7EB",
   },
 });

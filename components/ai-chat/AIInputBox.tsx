@@ -161,6 +161,7 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.md,
     paddingHorizontal: Spacing.lg,
     ...Shadows.md,
+    bottom: Spacing['5xl'] + 22,
   },
   textInput: {
     fontSize: 16,

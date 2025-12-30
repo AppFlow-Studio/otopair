@@ -24,6 +24,7 @@ import type {
   ServiceCategory,
   UserLocation,
 } from "./types/store.types";
+import { useMechanicStore } from "./useMechanicStore";
 
 // ─────────────────────────────────────────────────────────────
 // STORE STATE INTERFACE
@@ -122,6 +123,12 @@ interface BookingState {
   setDraftBooking: (draft: Partial<Booking> | null) => void;
   /** Clear all booking state */
   clearBookingState: () => void;
+  /** Create a new booking from current state */
+  createBooking: (mechanicId: number, bookingType: BookingType) => string;
+  /** Get a booking by ID */
+  getBookingById: (id: string) => Booking | null;
+  /** Get all upcoming bookings (pending or confirmed, future dates) */
+  getUpcomingBookings: () => Booking[];
 
   // ═══════════════ GETTERS ═══════════════
   /** Get location display label */
@@ -454,5 +461,79 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       return "1:00 PM"; // Default time
     }
     return scheduledAppointment.time;
+  },
+
+  getBookingById: (id) => {
+    const { bookings } = get();
+    return bookings[id] || null;
+  },
+
+  getUpcomingBookings: () => {
+    const { bookings, bookingIds } = get();
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+
+    return bookingIds
+      .map((id) => bookings[id])
+      .filter((booking) => {
+        if (!booking) return false;
+        // Filter by status
+        const isUpcomingStatus = booking.status === "pending" || booking.status === "confirmed";
+        if (!isUpcomingStatus) return false;
+
+        // Filter by future date
+        const bookingDate = new Date(booking.scheduledDate);
+        bookingDate.setHours(0, 0, 0, 0);
+        return bookingDate >= now;
+      })
+      .sort((a, b) => {
+        // Sort by scheduled date (earliest first)
+        const dateA = new Date(a.scheduledDate);
+        const dateB = new Date(b.scheduledDate);
+        return dateA.getTime() - dateB.getTime();
+      });
+  },
+
+  createBooking: (mechanicId, bookingType) => {
+    const state = get();
+    const mechanic = useMechanicStore.getState().getMechanicById(mechanicId);
+
+    if (!mechanic) {
+      throw new Error(`Mechanic with ID ${mechanicId} not found`);
+    }
+
+    // Generate unique booking ID
+    const bookingId = `booking_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    // Get scheduled date/time from appointment or use defaults
+    const scheduledDate = state.scheduledAppointment?.date || new Date().toISOString().split("T")[0];
+    const scheduledTime = state.scheduledAppointment?.time || "1:00 PM";
+
+    // Create booking object
+    const booking: Booking = {
+      id: bookingId,
+      userId: "current_user_id", // TODO: Get from auth store
+      shopId: String(mechanic.shopId),
+      vehicleId: "default_vehicle_id", // TODO: Get from vehicle store
+      serviceIds: state.selectedServiceIds,
+      status: bookingType === "schedule_later" ? "pending" : "confirmed",
+      scheduledDate,
+      scheduledTime,
+      estimatedDuration: 60, // Default 1 hour
+      totalPrice: state.getSelectedServicesTotal(),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    // Add to store
+    set((prevState) => ({
+      bookings: {
+        ...prevState.bookings,
+        [bookingId]: booking,
+      },
+      bookingIds: [...prevState.bookingIds, bookingId],
+    }));
+
+    return bookingId;
   },
 }));

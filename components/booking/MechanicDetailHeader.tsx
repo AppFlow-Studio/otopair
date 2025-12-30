@@ -26,7 +26,7 @@ import React, { useMemo } from "react";
 import { Image, StyleSheet, View } from "react-native";
 
 // 2. Expo & Third-party
-import { ArrowLeft } from "lucide-react-native";
+import { ArrowLeft, ArrowRight } from "lucide-react-native";
 import MapView, { Marker, PROVIDER_DEFAULT, Region } from "react-native-maps";
 import { Pressable } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -192,7 +192,7 @@ const styles = StyleSheet.create({
     whiteOverlay: {
         ...StyleSheet.absoluteFillObject,
         backgroundColor: BrandColors.white,
-        opacity: 0.75,
+        opacity: 0.50,
     },
     backButtonContainer: {
         position: "absolute",

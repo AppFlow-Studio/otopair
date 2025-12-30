@@ -1,11 +1,41 @@
-import { Stack } from 'expo-router';
+/**
+ * Home Tab Layout
+ *
+ * PURPOSE: Stack navigator for the home tab screens.
+ *          Handles navigation between home, map, and mechanic booking flow.
+ *
+ * SCREENS:
+ *   - index: Home screen
+ *   - map: Map screen with service selection bottom sheet
+ *   - mechanic/[id]: Nested booking flow (has its own _layout.tsx)
+ *
+ * OWNER: Temurbek Sayfutdinov
+ */
+
+import { Stack } from "expo-router";
 
 export default function HomeLayout() {
   return (
-    <Stack>
-      <Stack.Screen name="index" options={{ headerShown: false }} />
-      <Stack.Screen name="map" options={{ headerShown: false, presentation: 'fullScreenModal' }} />
-      <Stack.Screen name="mechanic/[id]" options={{ headerShown: false, presentation: 'fullScreenModal' }} />
+    <Stack
+      screenOptions={{
+        headerShown: false,
+      }}
+    >
+      <Stack.Screen name="index" options={{ presentation: "card" }} />
+      <Stack.Screen
+        name="map"
+        options={{
+          presentation: "fullScreenModal",
+          animation: "slide_from_bottom",
+        }}
+      />
+      <Stack.Screen
+        name="mechanic/[id]"
+        options={{
+          presentation: "fullScreenModal",
+          animation: "slide_from_right",
+        }}
+      />
     </Stack>
   );
 }
