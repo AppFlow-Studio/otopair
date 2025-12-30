@@ -38,6 +38,12 @@ import { ShopTypeStep } from './steps/ShopTypeStep';
 import { WhyNewOptionStep } from './steps/WhyNewOptionStep';
 import { TerminologyComfortStep } from './steps/TerminologyComfortStep';
 import { RepairQuoteNeedsStep } from './steps/RepairQuoteNeedsStep';
+import { DoItYourselfStep } from './steps/DoItYourselfStep';
+import { MaintenanceApproachStep } from './steps/MaintenanceApproachStep';
+import { PrimaryReasonStep } from './steps/PrimaryReasonStep';
+import { ShopPrioritiesStep } from './steps/ShopPrioritiesStep';
+import { CommunicationPreferenceStep } from './steps/CommunicationPreferenceStep';
+import { AdditionalPreferencesStep } from './steps/AdditionalPreferencesStep';
 
 // Define the steps in the flow
 export type TellUsAboutStep = 
@@ -52,6 +58,12 @@ export type TellUsAboutStep =
     | 'whyNewOption'
     | 'terminologyComfort'
     | 'repairQuoteNeeds'
+    | 'doItYourself'
+    | 'maintenanceApproach'
+    | 'primaryReason'
+    | 'shopPriorities'
+    | 'communicationPreference'
+    | 'additionalPreferences'
     | 'complete';
 
 // Step indices for interpolation mapping to SHARED_GRADIENT_CONFIGS
@@ -67,7 +79,13 @@ const STEP_INDICES: Record<TellUsAboutStep, number> = {
     whyNewOption: 8,
     terminologyComfort: 9,
     repairQuoteNeeds: 10,
-    complete: 11,
+    doItYourself: 11,
+    maintenanceApproach: 12,
+    primaryReason: 13,
+    shopPriorities: 14,
+    communicationPreference: 15,
+    additionalPreferences: 16,
+    complete: 17,
 };
 
 interface TellUsAboutFlowProps {
@@ -120,8 +138,8 @@ export function TellUsAboutFlow({ initialStep = 'experience' }: TellUsAboutFlowP
             const current = steps.indexOf(currentStep) + 1;
             return { total: steps.length, filled: current > 0 ? current : 1 };
         } else {
-            // Level 3/4 path: experience -> shopType -> whyNewOption -> terminologyComfort -> servicePriorities -> decisionHelper -> stressNote -> repairQuoteNeeds
-            const steps: TellUsAboutStep[] = ['experience', 'shopType', 'whyNewOption', 'terminologyComfort', 'servicePriorities', 'decisionHelper', 'stressNote', 'repairQuoteNeeds'];
+            // Level 3 path: experience -> doItYourself -> maintenanceApproach -> primaryReason -> shopPriorities -> communicationPreference -> additionalPreferences
+            const steps: TellUsAboutStep[] = ['experience', 'doItYourself', 'maintenanceApproach', 'primaryReason', 'shopPriorities', 'communicationPreference', 'additionalPreferences'];
             const current = steps.indexOf(currentStep) + 1;
             return { total: steps.length, filled: current > 0 ? current : 1 };
         }
@@ -143,7 +161,7 @@ export function TellUsAboutFlow({ initialStep = 'experience' }: TellUsAboutFlowP
             case 'servicePriorities':
                 if (level === 1) {
                     goToStep('carUsage');
-                } else if (level === 3 || level === 4) {
+                } else if (level === 3) {
                     goToStep('terminologyComfort');
                 }
                 break;
@@ -164,6 +182,24 @@ export function TellUsAboutFlow({ initialStep = 'experience' }: TellUsAboutFlowP
                 break;
             case 'monthlyMileage':
                 goToStep('maintenanceTracking');
+                break;
+            case 'doItYourself':
+                goToStep('experience');
+                break;
+            case 'maintenanceApproach':
+                goToStep('doItYourself');
+                break;
+            case 'primaryReason':
+                goToStep('maintenanceApproach');
+                break;
+            case 'shopPriorities':
+                goToStep('primaryReason');
+                break;
+            case 'communicationPreference':
+                goToStep('shopPriorities');
+                break;
+            case 'additionalPreferences':
+                goToStep('communicationPreference');
                 break;
             case 'shopType':
                 if (level === 2) {
@@ -201,9 +237,39 @@ export function TellUsAboutFlow({ initialStep = 'experience' }: TellUsAboutFlowP
                     goToStep('carUsage');
                 } else if (level === 2) {
                     goToStep('maintenanceTracking');
+                } else if (level === 3) {
+                    goToStep('doItYourself');
                 } else {
                     goToStep('shopType');
                 }
+                break;
+            
+            case 'doItYourself':
+                goToStep('maintenanceApproach');
+                break;
+            
+            case 'maintenanceApproach':
+                if (level === 3) {
+                    goToStep('primaryReason');
+                } else {
+                    goToStep('shopType');
+                }
+                break;
+            
+            case 'primaryReason':
+                goToStep('shopPriorities');
+                break;
+            
+            case 'shopPriorities':
+                goToStep('communicationPreference');
+                break;
+            
+            case 'communicationPreference':
+                goToStep('additionalPreferences');
+                break;
+            
+            case 'additionalPreferences':
+                goToStep('complete');
                 break;
             
             // Level 1 forward navigation
@@ -356,6 +422,54 @@ export function TellUsAboutFlow({ initialStep = 'experience' }: TellUsAboutFlowP
             case 'repairQuoteNeeds':
                 return (
                     <RepairQuoteNeedsStep 
+                        onNext={goNext} 
+                        onBack={goBack}
+                        progress={{ total: progressInfo.total, filled: progressInfo.filled - 1 }}
+                    />
+                );
+            case 'doItYourself':
+                return (
+                    <DoItYourselfStep 
+                        onNext={goNext} 
+                        onBack={goBack}
+                        progress={{ total: progressInfo.total, filled: progressInfo.filled - 1 }}
+                    />
+                );
+            case 'maintenanceApproach':
+                return (
+                    <MaintenanceApproachStep 
+                        onNext={goNext} 
+                        onBack={goBack}
+                        progress={{ total: progressInfo.total, filled: progressInfo.filled - 1 }}
+                    />
+                );
+            case 'primaryReason':
+                return (
+                    <PrimaryReasonStep 
+                        onNext={goNext} 
+                        onBack={goBack}
+                        progress={{ total: progressInfo.total, filled: progressInfo.filled - 1 }}
+                    />
+                );
+            case 'shopPriorities':
+                return (
+                    <ShopPrioritiesStep 
+                        onNext={goNext} 
+                        onBack={goBack}
+                        progress={{ total: progressInfo.total, filled: progressInfo.filled - 1 }}
+                    />
+                );
+            case 'communicationPreference':
+                return (
+                    <CommunicationPreferenceStep 
+                        onNext={goNext} 
+                        onBack={goBack}
+                        progress={{ total: progressInfo.total, filled: progressInfo.filled - 1 }}
+                    />
+                );
+            case 'additionalPreferences':
+                return (
+                    <AdditionalPreferencesStep 
                         onNext={goNext} 
                         onBack={goBack}
                         progress={{ total: progressInfo.total, filled: progressInfo.filled - 1 }}

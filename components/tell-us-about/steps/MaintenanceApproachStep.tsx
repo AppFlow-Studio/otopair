@@ -1,7 +1,7 @@
 /**
- * ExperienceStep
+ * MaintenanceApproachStep
  *
- * PURPOSE: Allows users to select their general experience level with cars.
+ * PURPOSE: Allows users to select their approach to car maintenance.
  *
  * USED IN: components/tell-us-about/TellUsAboutFlow.tsx
  *
@@ -11,10 +11,10 @@
  *   - progress ({ total: number; filled: number }): Progress indicator data
  *
  * EXAMPLE:
- *   <ExperienceStep 
+ *   <MaintenanceApproachStep 
  *     onNext={handleNext} 
  *     onBack={handleBack} 
- *     progress={{ total: 12, filled: 1 }} 
+ *     progress={{ total: 12, filled: 3 }} 
  *   />
  *
  * OWNER: Daniel Chelala
@@ -27,7 +27,7 @@ import {
     FontSize,
     Spacing,
     Text,
-    BorderRadius,   
+    BorderRadius,
     ProgressBar,
     FooterButton,
     BackButton,
@@ -45,49 +45,28 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
-import { Car, Wrench, Gauge, FlaskConical } from 'lucide-react-native';
 
-interface ExperienceStepProps {
+interface MaintenanceApproachStepProps {
     onNext: () => void;
     onBack: () => void;
     progress: { total: number; filled: number };
 }
 
-interface ExperienceOption {
-    id: 1 | 2 | 3;
-    label: string;
-    icon: React.ComponentType<{ size: number; color: string }>;
-    emoji: string;
-}
+const APPROACH_OPTIONS = [
+    { emoji: '🗓️', label: 'Preventive: I follow the schedule strictly' },
+    { emoji: '📊', label: 'Data-driven: I track everything and service based on actual wear' },
+    { emoji: '🛠️', label: 'Problem-solving: I address issues as they come up' },
+    { emoji: '🏎️', label: 'Performance-focused: I maintain for optimal performance' },
+    { emoji: '💰', label: "Budget-conscious: I do what's necessary when necessary" },
+] as const;
 
-const EXPERIENCE_OPTIONS: ExperienceOption[] = [
-    {
-        id: 1,
-        label: 'Level 1: I just drive it',
-        icon: Car,
-        emoji: '🚗',
-    },
-    {
-        id: 2,
-        label: 'Level 2: I know the basics',
-        icon: Wrench,
-        emoji: '🔧',
-    },
-    {
-        id: 3,
-        label: "Level 3: I'm pretty hands-on",
-        icon: Gauge,
-        emoji: '🏎️',
-    },
-];
-
-export function ExperienceStep({ onNext, onBack, progress }: ExperienceStepProps) {
+export function MaintenanceApproachStep({ onNext, onBack, progress }: MaintenanceApproachStepProps) {
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
     
-    const [selectedLevel, setSelectedLevel] = useState<1 | 2 | 3 | null>(
-        data.carKnowledgeLevel ?? null
+    const [selectedApproach, setSelectedApproach] = useState<string | null>(
+        data.maintenanceApproach ?? null
     );
 
     const dynamicStyles = {
@@ -99,18 +78,19 @@ export function ExperienceStep({ onNext, onBack, progress }: ExperienceStepProps
     const buttonSize: 'md' | 'lg' = isCompact ? 'md' : 'lg';
     const buttonPaddingVertical = isCompact ? Spacing.sm : Spacing.lg;
 
-    const handleSelectLevel = (level: 1 | 2 | 3) => {
-        setSelectedLevel(level);
-        updateData({ carKnowledgeLevel: level });
+    const handleSelectApproach = (option: typeof APPROACH_OPTIONS[number]) => {
+        const value = `${option.emoji} ${option.label}`;
+        setSelectedApproach(value);
+        updateData({ maintenanceApproach: value });
     };
 
     const handleContinue = () => {
-        if (selectedLevel) {
+        if (selectedApproach) {
             onNext();
         }
     };
 
-    const canContinue = selectedLevel !== null;
+    const canContinue = selectedApproach !== null;
 
     return (
         <KeyboardAvoidingView
@@ -133,22 +113,22 @@ export function ExperienceStep({ onNext, onBack, progress }: ExperienceStepProps
                 >
                     <View style={styles.headerContent}>
                         <Text style={styles.title}>
-                            How would you explain your experience with cars in general?
+                            How do you approach car maintenance?
                         </Text>
                         <Text style={styles.subtitle}>
-                            This helps us tailor the app to your comfort level
+                            Select the option that best describes you
                         </Text>
                     </View>
 
                     <View style={styles.optionsContainer}>
-                        {EXPERIENCE_OPTIONS.map((option) => {
-                            const Icon = option.icon;
-                            const isSelected = selectedLevel === option.id;
+                        {APPROACH_OPTIONS.map((option) => {
+                            const value = `${option.emoji} ${option.label}`;
+                            const isSelected = selectedApproach === value;
                             
                             return (
                                 <Pressable
-                                    key={option.id}
-                                    onPress={() => handleSelectLevel(option.id)}
+                                    key={option.label}
+                                    onPress={() => handleSelectApproach(option)}
                                     style={({ pressed }) => [
                                         styles.optionButton,
                                         isSelected && styles.optionButtonSelected,

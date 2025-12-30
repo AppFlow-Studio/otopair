@@ -67,7 +67,7 @@ interface OnboardingData {
   locationPermissionStatus: 'granted' | 'denied' | 'undetermined' | null;
 
   // Car Knowledge Step
-  carKnowledgeLevel: 1 | 2 | 3 | 4 | null;
+  carKnowledgeLevel: 1 | 2 | 3 | null;
 
   // Setup questionnaire (home bottom-sheet)
   carUsage: string | null;
@@ -81,6 +81,12 @@ interface OnboardingData {
   whyNewOption: string[] | null;
   carTerminologyComfort: string | null;
   repairQuoteNeeds: string[] | null;
+  diyTasks: string[] | null;
+  maintenanceApproach: string | null;
+  primaryReason: string | null;
+  shopPriorities: string[] | null;
+  communicationPreference: string | null;
+  additionalPreferences: string | null;
 
   // Beginner Oil Change Step
   lastOilChange: 'last_3_months' | '3_6_months' | '6_plus_months' | 'dont_remember' | string | null;
@@ -184,6 +190,12 @@ const INITIAL_DATA: OnboardingData = {
   whyNewOption: null,
   carTerminologyComfort: null,
   repairQuoteNeeds: null,
+  diyTasks: null,
+  maintenanceApproach: null,
+  primaryReason: null,
+  shopPriorities: null,
+  communicationPreference: null,
+  additionalPreferences: null,
 };
 
 export const useOnboardingStore = create<OnboardingState>()((set, get) => ({

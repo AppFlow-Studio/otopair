@@ -1,7 +1,7 @@
 /**
- * ExperienceStep
+ * CommunicationPreferenceStep
  *
- * PURPOSE: Allows users to select their general experience level with cars.
+ * PURPOSE: Allows users to select their preferred way of discussing repairs.
  *
  * USED IN: components/tell-us-about/TellUsAboutFlow.tsx
  *
@@ -9,16 +9,6 @@
  *   - onNext (() => void): Callback to navigate to the next step
  *   - onBack (() => void): Callback to navigate to the previous step
  *   - progress ({ total: number; filled: number }): Progress indicator data
- *
- * EXAMPLE:
- *   <ExperienceStep 
- *     onNext={handleNext} 
- *     onBack={handleBack} 
- *     progress={{ total: 12, filled: 1 }} 
- *   />
- *
- * OWNER: Daniel Chelala
- * TICKET: OTO-XXX
  */
 
 import {
@@ -27,7 +17,7 @@ import {
     FontSize,
     Spacing,
     Text,
-    BorderRadius,   
+    BorderRadius,
     ProgressBar,
     FooterButton,
     BackButton,
@@ -45,49 +35,27 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
-import { Car, Wrench, Gauge, FlaskConical } from 'lucide-react-native';
 
-interface ExperienceStepProps {
+interface CommunicationPreferenceStepProps {
     onNext: () => void;
     onBack: () => void;
     progress: { total: number; filled: number };
 }
 
-interface ExperienceOption {
-    id: 1 | 2 | 3;
-    label: string;
-    icon: React.ComponentType<{ size: number; color: string }>;
-    emoji: string;
-}
+const COMMUNICATION_OPTIONS = [
+    { emoji: '🔬', label: 'Technical details and root cause analysis' },
+    { emoji: '⚖️', label: 'Balanced explanation with options' },
+    { emoji: '📉', label: 'Bottom line: what needs to be done and cost' },
+    { emoji: '📸', label: 'Show me (photos, diagnostic reports)' },
+] as const;
 
-const EXPERIENCE_OPTIONS: ExperienceOption[] = [
-    {
-        id: 1,
-        label: 'Level 1: I just drive it',
-        icon: Car,
-        emoji: '🚗',
-    },
-    {
-        id: 2,
-        label: 'Level 2: I know the basics',
-        icon: Wrench,
-        emoji: '🔧',
-    },
-    {
-        id: 3,
-        label: "Level 3: I'm pretty hands-on",
-        icon: Gauge,
-        emoji: '🏎️',
-    },
-];
-
-export function ExperienceStep({ onNext, onBack, progress }: ExperienceStepProps) {
+export function CommunicationPreferenceStep({ onNext, onBack, progress }: CommunicationPreferenceStepProps) {
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
     
-    const [selectedLevel, setSelectedLevel] = useState<1 | 2 | 3 | null>(
-        data.carKnowledgeLevel ?? null
+    const [selectedPreference, setSelectedPreference] = useState<string | null>(
+        data.communicationPreference ?? null
     );
 
     const dynamicStyles = {
@@ -99,18 +67,19 @@ export function ExperienceStep({ onNext, onBack, progress }: ExperienceStepProps
     const buttonSize: 'md' | 'lg' = isCompact ? 'md' : 'lg';
     const buttonPaddingVertical = isCompact ? Spacing.sm : Spacing.lg;
 
-    const handleSelectLevel = (level: 1 | 2 | 3) => {
-        setSelectedLevel(level);
-        updateData({ carKnowledgeLevel: level });
+    const handleSelect = (option: typeof COMMUNICATION_OPTIONS[number]) => {
+        const value = `${option.emoji} ${option.label}`;
+        setSelectedPreference(value);
+        updateData({ communicationPreference: value });
     };
 
     const handleContinue = () => {
-        if (selectedLevel) {
+        if (selectedPreference) {
             onNext();
         }
     };
 
-    const canContinue = selectedLevel !== null;
+    const canContinue = selectedPreference !== null;
 
     return (
         <KeyboardAvoidingView
@@ -133,22 +102,22 @@ export function ExperienceStep({ onNext, onBack, progress }: ExperienceStepProps
                 >
                     <View style={styles.headerContent}>
                         <Text style={styles.title}>
-                            How would you explain your experience with cars in general?
+                            When discussing repairs, you prefer:
                         </Text>
                         <Text style={styles.subtitle}>
-                            This helps us tailor the app to your comfort level
+                            Select the communication style that fits you best
                         </Text>
                     </View>
 
                     <View style={styles.optionsContainer}>
-                        {EXPERIENCE_OPTIONS.map((option) => {
-                            const Icon = option.icon;
-                            const isSelected = selectedLevel === option.id;
+                        {COMMUNICATION_OPTIONS.map((option) => {
+                            const value = `${option.emoji} ${option.label}`;
+                            const isSelected = selectedPreference === value;
                             
                             return (
                                 <Pressable
-                                    key={option.id}
-                                    onPress={() => handleSelectLevel(option.id)}
+                                    key={option.label}
+                                    onPress={() => handleSelect(option)}
                                     style={({ pressed }) => [
                                         styles.optionButton,
                                         isSelected && styles.optionButtonSelected,
@@ -252,11 +221,6 @@ const styles = StyleSheet.create({
     optionTextSelected: {
         color: BrandColors.secondary,
         fontFamily: FontFamily.semiBold,
-    },
-    bottomContainer: {
-        paddingTop: Spacing.sm,
-        paddingHorizontal: Spacing['2xl'],
-        backgroundColor: 'transparent',
     },
 });
 

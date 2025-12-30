@@ -1,7 +1,7 @@
 /**
- * ExperienceStep
+ * DoItYourselfStep
  *
- * PURPOSE: Allows users to select their general experience level with cars.
+ * PURPOSE: Allows Level 3 users to select which maintenance tasks they perform themselves.
  *
  * USED IN: components/tell-us-about/TellUsAboutFlow.tsx
  *
@@ -11,10 +11,10 @@
  *   - progress ({ total: number; filled: number }): Progress indicator data
  *
  * EXAMPLE:
- *   <ExperienceStep 
+ *   <DoItYourselfStep 
  *     onNext={handleNext} 
  *     onBack={handleBack} 
- *     progress={{ total: 12, filled: 1 }} 
+ *     progress={{ total: 12, filled: 2 }} 
  *   />
  *
  * OWNER: Daniel Chelala
@@ -27,7 +27,7 @@ import {
     FontSize,
     Spacing,
     Text,
-    BorderRadius,   
+    BorderRadius,
     ProgressBar,
     FooterButton,
     BackButton,
@@ -41,54 +41,46 @@ import {
     View,
     Pressable,
     ScrollView,
+    TextInput,
     useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
-import { Car, Wrench, Gauge, FlaskConical } from 'lucide-react-native';
 
-interface ExperienceStepProps {
+interface DoItYourselfStepProps {
     onNext: () => void;
     onBack: () => void;
     progress: { total: number; filled: number };
 }
 
-interface ExperienceOption {
-    id: 1 | 2 | 3;
-    label: string;
-    icon: React.ComponentType<{ size: number; color: string }>;
-    emoji: string;
-}
+const DIY_OPTIONS = [
+    { emoji: '🛢️', label: 'Oil changes' },
+    { emoji: '🛑', label: 'Brake pad replacement' },
+    { emoji: '💨', label: 'Air filter replacement' },
+    { emoji: '🔍', label: 'Basic diagnostics' },
+    { emoji: '💻', label: 'Complex diagnostics' },
+    { emoji: '⚙️', label: 'Transmission/engine work' },
+    { emoji: '⚡', label: 'Electrical issues' },
+    { emoji: '🛠️', label: 'Bodywork' },
+    { emoji: '🔧', label: 'Everything (I do it all myself)' },
+    { emoji: '👨‍🔧', label: 'Nothing (I prefer professionals)' },
+] as const;
 
-const EXPERIENCE_OPTIONS: ExperienceOption[] = [
-    {
-        id: 1,
-        label: 'Level 1: I just drive it',
-        icon: Car,
-        emoji: '🚗',
-    },
-    {
-        id: 2,
-        label: 'Level 2: I know the basics',
-        icon: Wrench,
-        emoji: '🔧',
-    },
-    {
-        id: 3,
-        label: "Level 3: I'm pretty hands-on",
-        icon: Gauge,
-        emoji: '🏎️',
-    },
-];
-
-export function ExperienceStep({ onNext, onBack, progress }: ExperienceStepProps) {
+export function DoItYourselfStep({ onNext, onBack, progress }: DoItYourselfStepProps) {
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
     
-    const [selectedLevel, setSelectedLevel] = useState<1 | 2 | 3 | null>(
-        data.carKnowledgeLevel ?? null
+    const presetList = DIY_OPTIONS.map(o => `${o.emoji} ${o.label}`);
+    const presets = new Set<string>(presetList);
+    
+    const [selectedOptions, setSelectedOptions] = useState<string[]>(
+        data.diyTasks ?? []
     );
+    const [otherInput, setOtherInput] = useState<string>(() => {
+        const custom = (data.diyTasks ?? []).find((v) => !presets.has(v));
+        return custom ?? '';
+    });
 
     const dynamicStyles = {
         container: { paddingTop: insets.top + Spacing.lg },
@@ -99,18 +91,34 @@ export function ExperienceStep({ onNext, onBack, progress }: ExperienceStepProps
     const buttonSize: 'md' | 'lg' = isCompact ? 'md' : 'lg';
     const buttonPaddingVertical = isCompact ? Spacing.sm : Spacing.lg;
 
-    const handleSelectLevel = (level: 1 | 2 | 3) => {
-        setSelectedLevel(level);
-        updateData({ carKnowledgeLevel: level });
+    const handleToggleOption = (option: typeof DIY_OPTIONS[number]) => {
+        const value = `${option.emoji} ${option.label}`;
+        setSelectedOptions((prev) => {
+            const exists = prev.includes(value);
+            const next = exists ? prev.filter((v) => v !== value) : [...prev, value];
+            updateData({ diyTasks: next.length ? next : null });
+            return next;
+        });
+    };
+
+    const handleChangeOther = (text: string) => {
+        setOtherInput(text);
+        setSelectedOptions((prev) => {
+            const filtered = prev.filter((v) => presets.has(v));
+            const trimmed = text.trim();
+            const next = trimmed ? [...filtered, trimmed] : filtered;
+            updateData({ diyTasks: next.length ? next : null });
+            return next;
+        });
     };
 
     const handleContinue = () => {
-        if (selectedLevel) {
+        if (selectedOptions.length > 0) {
             onNext();
         }
     };
 
-    const canContinue = selectedLevel !== null;
+    const canContinue = selectedOptions.length > 0;
 
     return (
         <KeyboardAvoidingView
@@ -133,22 +141,22 @@ export function ExperienceStep({ onNext, onBack, progress }: ExperienceStepProps
                 >
                     <View style={styles.headerContent}>
                         <Text style={styles.title}>
-                            How would you explain your experience with cars in general?
+                            What do you typically do yourself, as opposed to having a shop do?
                         </Text>
                         <Text style={styles.subtitle}>
-                            This helps us tailor the app to your comfort level
+                            Select all that apply
                         </Text>
                     </View>
 
                     <View style={styles.optionsContainer}>
-                        {EXPERIENCE_OPTIONS.map((option) => {
-                            const Icon = option.icon;
-                            const isSelected = selectedLevel === option.id;
+                        {DIY_OPTIONS.map((option) => {
+                            const value = `${option.emoji} ${option.label}`;
+                            const isSelected = selectedOptions.includes(value);
                             
                             return (
                                 <Pressable
-                                    key={option.id}
-                                    onPress={() => handleSelectLevel(option.id)}
+                                    key={option.label}
+                                    onPress={() => handleToggleOption(option)}
                                     style={({ pressed }) => [
                                         styles.optionButton,
                                         isSelected && styles.optionButtonSelected,
@@ -167,6 +175,15 @@ export function ExperienceStep({ onNext, onBack, progress }: ExperienceStepProps
                                 </Pressable>
                             );
                         })}
+                        
+                        <TextInput
+                            style={styles.otherInput}
+                            placeholder="Other (Please specify)"
+                            placeholderTextColor="rgba(255, 255, 255, 0.5)"
+                            value={otherInput}
+                            onChangeText={handleChangeOther}
+                            returnKeyType="done"
+                        />
                     </View>
                 </ScrollView>
 
@@ -252,6 +269,18 @@ const styles = StyleSheet.create({
     optionTextSelected: {
         color: BrandColors.secondary,
         fontFamily: FontFamily.semiBold,
+    },
+    otherInput: {
+        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+        borderRadius: BorderRadius.lg,
+        paddingHorizontal: Spacing.lg,
+        paddingVertical: Spacing.lg,
+        fontSize: FontSize.lg,
+        fontFamily: FontFamily.regular,
+        color: BrandColors.white,
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.2)',
+        marginTop: Spacing.sm,
     },
     bottomContainer: {
         paddingTop: Spacing.sm,

@@ -1,7 +1,7 @@
 /**
- * ExperienceStep
+ * ShopPrioritiesStep
  *
- * PURPOSE: Allows users to select their general experience level with cars.
+ * PURPOSE: Allows users to select their top 3 priorities for a car shop.
  *
  * USED IN: components/tell-us-about/TellUsAboutFlow.tsx
  *
@@ -9,16 +9,6 @@
  *   - onNext (() => void): Callback to navigate to the next step
  *   - onBack (() => void): Callback to navigate to the previous step
  *   - progress ({ total: number; filled: number }): Progress indicator data
- *
- * EXAMPLE:
- *   <ExperienceStep 
- *     onNext={handleNext} 
- *     onBack={handleBack} 
- *     progress={{ total: 12, filled: 1 }} 
- *   />
- *
- * OWNER: Daniel Chelala
- * TICKET: OTO-XXX
  */
 
 import {
@@ -27,7 +17,7 @@ import {
     FontSize,
     Spacing,
     Text,
-    BorderRadius,   
+    BorderRadius,
     ProgressBar,
     FooterButton,
     BackButton,
@@ -45,49 +35,30 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
-import { Car, Wrench, Gauge, FlaskConical } from 'lucide-react-native';
 
-interface ExperienceStepProps {
+interface ShopPrioritiesStepProps {
     onNext: () => void;
     onBack: () => void;
     progress: { total: number; filled: number };
 }
 
-interface ExperienceOption {
-    id: 1 | 2 | 3;
-    label: string;
-    icon: React.ComponentType<{ size: number; color: string }>;
-    emoji: string;
-}
+const SHOP_PRIORITY_OPTIONS = [
+    { id: 'make_specialization', label: 'Specialization in my make/model', emoji: '🏎️' },
+    { id: 'ase_certified', label: 'ASE certified technicians', emoji: '📜' },
+    { id: 'parts_quality', label: 'Quality of parts used (OEM vs aftermarket)', emoji: '⚙️' },
+    { id: 'diagnostic_equip', label: 'Advanced diagnostic equipment', emoji: '💻' },
+    { id: 'complex_repairs', label: 'Track record with complex repairs', emoji: '🛠️' },
+    { id: 'labor_rates', label: 'Transparent labor rates', emoji: '🧾' },
+    { id: 'turnaround_time', label: 'Turnaround time', emoji: '⏰' },
+] as const;
 
-const EXPERIENCE_OPTIONS: ExperienceOption[] = [
-    {
-        id: 1,
-        label: 'Level 1: I just drive it',
-        icon: Car,
-        emoji: '🚗',
-    },
-    {
-        id: 2,
-        label: 'Level 2: I know the basics',
-        icon: Wrench,
-        emoji: '🔧',
-    },
-    {
-        id: 3,
-        label: "Level 3: I'm pretty hands-on",
-        icon: Gauge,
-        emoji: '🏎️',
-    },
-];
-
-export function ExperienceStep({ onNext, onBack, progress }: ExperienceStepProps) {
+export function ShopPrioritiesStep({ onNext, onBack, progress }: ShopPrioritiesStepProps) {
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
     
-    const [selectedLevel, setSelectedLevel] = useState<1 | 2 | 3 | null>(
-        data.carKnowledgeLevel ?? null
+    const [selectedPriorities, setSelectedPriorities] = useState<string[]>(
+        data.shopPriorities ?? []
     );
 
     const dynamicStyles = {
@@ -99,18 +70,28 @@ export function ExperienceStep({ onNext, onBack, progress }: ExperienceStepProps
     const buttonSize: 'md' | 'lg' = isCompact ? 'md' : 'lg';
     const buttonPaddingVertical = isCompact ? Spacing.sm : Spacing.lg;
 
-    const handleSelectLevel = (level: 1 | 2 | 3) => {
-        setSelectedLevel(level);
-        updateData({ carKnowledgeLevel: level });
+    const handleTogglePriority = (id: string) => {
+        setSelectedPriorities((prev) => {
+            const isSelected = prev.includes(id);
+            if (isSelected) {
+                const next = prev.filter((x) => x !== id);
+                updateData({ shopPriorities: next.length ? next : null });
+                return next;
+            }
+            if (prev.length >= 3) return prev;
+            const next = [...prev, id];
+            updateData({ shopPriorities: next });
+            return next;
+        });
     };
 
     const handleContinue = () => {
-        if (selectedLevel) {
+        if (selectedPriorities.length === 3) {
             onNext();
         }
     };
 
-    const canContinue = selectedLevel !== null;
+    const canContinue = selectedPriorities.length === 3;
 
     return (
         <KeyboardAvoidingView
@@ -133,37 +114,48 @@ export function ExperienceStep({ onNext, onBack, progress }: ExperienceStepProps
                 >
                     <View style={styles.headerContent}>
                         <Text style={styles.title}>
-                            How would you explain your experience with cars in general?
+                            What's important in a shop for YOUR car?
                         </Text>
                         <Text style={styles.subtitle}>
-                            This helps us tailor the app to your comfort level
+                            Choose 3 out of the 7 items ({selectedPriorities.length}/3)
                         </Text>
                     </View>
 
                     <View style={styles.optionsContainer}>
-                        {EXPERIENCE_OPTIONS.map((option) => {
-                            const Icon = option.icon;
-                            const isSelected = selectedLevel === option.id;
+                        {SHOP_PRIORITY_OPTIONS.map((option) => {
+                            const rankIndex = selectedPriorities.indexOf(option.id);
+                            const isSelected = rankIndex !== -1;
+                            const isDisabled = !isSelected && selectedPriorities.length >= 3;
                             
                             return (
                                 <Pressable
                                     key={option.id}
-                                    onPress={() => handleSelectLevel(option.id)}
+                                    onPress={() => handleTogglePriority(option.id)}
+                                    disabled={isDisabled}
                                     style={({ pressed }) => [
                                         styles.optionButton,
                                         isSelected && styles.optionButtonSelected,
-                                        pressed && styles.optionButtonPressed,
+                                        isDisabled && styles.optionButtonDisabled,
+                                        pressed && !isDisabled && styles.optionButtonPressed,
                                     ]}
                                 >
-                                    <Text style={styles.optionEmoji}>{option.emoji}</Text>
-                                    <Text
-                                        style={[
-                                            styles.optionText,
-                                            isSelected && styles.optionTextSelected,
-                                        ]}
-                                    >
-                                        {option.label}
-                                    </Text>
+                                    <View style={styles.rankRow}>
+                                        {isSelected ? (
+                                            <View style={styles.rankBadge}>
+                                                <Text style={styles.rankBadgeText}>{rankIndex + 1}</Text>
+                                            </View>
+                                        ) : (
+                                            <Text style={styles.optionEmoji}>{option.emoji}</Text>
+                                        )}
+                                        <Text
+                                            style={[
+                                                styles.optionText,
+                                                isSelected && styles.optionTextSelected,
+                                            ]}
+                                        >
+                                            {option.label}
+                                        </Text>
+                                    </View>
                                 </Pressable>
                             );
                         })}
@@ -237,11 +229,35 @@ const styles = StyleSheet.create({
         backgroundColor: BrandColors.white,
         borderColor: 'rgba(255, 255, 255, 0.3)',
     },
+    optionButtonDisabled: {
+        opacity: 0.5,
+    },
     optionButtonPressed: {
         opacity: 0.7,
     },
+    rankRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: Spacing.md,
+        flex: 1,
+    },
+    rankBadge: {
+        width: 28,
+        height: 28,
+        borderRadius: 14,
+        backgroundColor: BrandColors.secondary,
+        justifyContent: 'center',
+        alignItems: 'center',
+    },
+    rankBadgeText: {
+        fontSize: FontSize.md,
+        fontFamily: FontFamily.bold,
+        color: '#0B1220',
+    },
     optionEmoji: {
         fontSize: FontSize['2xl'],
+        width: 28,
+        textAlign: 'center',
     },
     optionText: {
         fontSize: FontSize.lg,
@@ -252,11 +268,6 @@ const styles = StyleSheet.create({
     optionTextSelected: {
         color: BrandColors.secondary,
         fontFamily: FontFamily.semiBold,
-    },
-    bottomContainer: {
-        paddingTop: Spacing.sm,
-        paddingHorizontal: Spacing['2xl'],
-        backgroundColor: 'transparent',
     },
 });
 

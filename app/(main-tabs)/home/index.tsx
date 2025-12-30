@@ -63,6 +63,11 @@ export default function HomeScreen() {
   console.log('why new option: ', useOnboardingStore.getState().data.whyNewOption);
   console.log('terminology comfort: ', useOnboardingStore.getState().data.carTerminologyComfort);
   console.log('profile photo uri: ', useOnboardingStore.getState().data.profilePhotoUri);
+  console.log('do it yourself tasks: ', useOnboardingStore.getState().data.diyTasks);
+  console.log('do it yourself tasks: ', useOnboardingStore.getState().data.diyTasks);
+  console.log('maintenance approach: ', useOnboardingStore.getState().data.maintenanceApproach);
+  console.log('primary reason: ', useOnboardingStore.getState().data.primaryReason);
+
 
   console.log('is tell us about yourself complete: ', useOnboardingStore.getState().data.isTellUsAboutYourselfComplete);
   const { data } = useOnboardingStore();
@@ -238,6 +243,9 @@ export default function HomeScreen() {
     { label: 'Repair quote needs', value: data.repairQuoteNeeds ? JSON.stringify(data.repairQuoteNeeds) : '—' },
     { label: 'Is tell us about yourself complete', value: String(data.isTellUsAboutYourselfComplete) },
     { label: 'Profile photo uri', value: String(data.profilePhotoUri ?? '—') },
+    { label: 'Do it yourself tasks', value: String(data.diyTasks ?? '—') },
+    { label: 'Maintenance approach', value: String(data.maintenanceApproach ?? '—') },
+    { label: 'primary reason', value: String(data.primaryReason ?? '—') },
   ];
 
 

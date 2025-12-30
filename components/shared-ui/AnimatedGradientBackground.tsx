@@ -61,6 +61,12 @@ export const SHARED_GRADIENT_CONFIGS: GradientConfig[] = [
     { startX: 0.5, startY: 0.1, endX: 0.4, endY: 0.8, colors: DEFAULT_GRADIENT_COLORS },  // Index 9
     { startX: 0.3, startY: 0.0, endX: 0.6, endY: 0.9, colors: DEFAULT_GRADIENT_COLORS },  // Index 10
     { startX: 0.2, startY: 0.2, endX: 0.8, endY: 1, colors: DEFAULT_GRADIENT_COLORS },    // Index 11
+    { startX: 0.7, startY: 0.1, endX: 0.3, endY: 0.9, colors: DEFAULT_GRADIENT_COLORS },    // Index 12
+    { startX: 0.1, startY: 0.6, endX: 0.9, endY: 0.4, colors: DEFAULT_GRADIENT_COLORS },    // Index 13
+    { startX: 0.8, startY: 0.3, endX: 0.2, endY: 0.7, colors: DEFAULT_GRADIENT_COLORS },    // Index 14
+    { startX: 0.4, startY: 0.0, endX: 0.6, endY: 1.0, colors: DEFAULT_GRADIENT_COLORS },    // Index 15
+    { startX: 0.0, startY: 0.5, endX: 1.0, endY: 0.5, colors: DEFAULT_GRADIENT_COLORS },    // Index 16
+    { startX: 0.5, startY: 0.2, endX: 0.5, endY: 0.8, colors: DEFAULT_GRADIENT_COLORS },    // Index 17
 ];
 
 interface AnimatedGradientBackgroundProps {
