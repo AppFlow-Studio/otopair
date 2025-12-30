@@ -11,6 +11,10 @@
  * OWNER: Temurbek Sayfutdinov
  */
 
+// DEPRECATED FOR NOW!!: WE USE  /components/booking/sheets/ConfirmationContent.tsx INSTEAD OF THIS PAGE
+// TODO: Will speak with team on best approach to handle this.
+
+
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo } from "react";
 import { Image, InteractionManager, StyleSheet, TouchableOpacity, View } from "react-native";

@@ -37,6 +37,10 @@ import { usePaymentStore } from "@/stores/usePaymentStore";
 // COMPONENT
 // ============================================================================
 
+// DEPRECATED FOR NOW!!: WE USE  /components/booking/sheets/ReviewPayContent.tsx INSTEAD OF THIS PAGE
+// TODO: Will speak with team on best approach to handle this.
+
+
 export default function PaymentScreen() {
     // ═══════════════ HOOKS ═══════════════
     const router = useRouter();

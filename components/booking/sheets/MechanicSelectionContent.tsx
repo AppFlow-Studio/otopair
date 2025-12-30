@@ -192,7 +192,7 @@ export function MechanicSelectionContent({
         displayDate,
       });
 
-      router.push(`/home/mechanic/${mechanicId}/booking-details`);
+      // router.push(`/home/mechanic/${mechanicId}/booking-details`);
       onSelectMechanic?.();
     },
     [router, onSelectMechanic, setBookingTypeAndProceed, setScheduledAppointment]
@@ -202,7 +202,7 @@ export function MechanicSelectionContent({
     (mechanicId: number) => {
       // Navigate to mechanic detail page where user can select a time slot
       // Book Now will be disabled until a slot is selected there
-      setBookingTypeAndProceed("schedule_later", mechanicId);
+      // setBookingTypeAndProceed("schedule_later", mechanicId);
       router.push(`/home/mechanic/${mechanicId}`);
       onSelectMechanic?.();
     },

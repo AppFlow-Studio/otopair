@@ -12,6 +12,10 @@
  * OWNER: Temurbek Sayfutdinov
  */
 
+// DEPRECATED FOR NOW!!: WE USE  /components/booking/sheets/BookingDetailsContent.tsx INSTEAD OF THIS PAGE
+// TODO: Will speak with team on best approach to handle this.
+
+
 // 1. React & React Native
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import { ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
