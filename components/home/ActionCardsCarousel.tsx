@@ -122,9 +122,9 @@ export function ActionCardsCarousel({
 
   // Build array of visible cards
   const cards = [
+    { id: 'account', visible: showAccountSetup },
     { id: 'appointment', visible: true },
     { id: 'resume', visible: showResumeBooking },
-    { id: 'account', visible: showAccountSetup },
     { id: 'car', visible: showCarSetup },
   ].filter((card) => card.visible);
 
@@ -142,7 +142,7 @@ export function ActionCardsCarousel({
     switch (cardId) {
       case 'appointment':
         return (
-          <View key={cardId} style={[styles.cardContainer, index === 0 && styles.firstCard]}>
+          <View key={cardId} style={styles.cardContainer}>
             <UpcomingAppointmentCard
               businessName={appointmentBusinessName}
               mechanicName={appointmentMechanicName}
@@ -167,7 +167,7 @@ export function ActionCardsCarousel({
         );
       case 'account':
         return (
-          <View key={cardId} style={styles.cardContainer}>
+          <View key={cardId} style={[styles.cardContainer, index === 0 && styles.firstCard]}>
             <FinishAccountSetupCard
               onPress={onAccountSetupPress}
               onDismiss={onAccountSetupDismiss}

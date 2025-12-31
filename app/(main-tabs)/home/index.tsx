@@ -81,12 +81,12 @@ export default function HomeScreen() {
   // Custom margins for content below carousel based on active card
   const getCardMargin = (cardIndex: number): number => {
     switch (cardIndex) {
-      case 0: // Upcoming Appointment - NavigationETABar shows, so no extra margin needed
-        return 10;
-      case 1: // Resume Booking
-        return -100;
-      case 2: // Finish Account Setup
+      case 0: // Finish Account Setup
         return -70;
+      case 1: // Upcoming Appointment - NavigationETABar shows, so no extra margin needed
+        return 10;
+      case 2: // Resume Booking
+        return -100;
       case 3: // Finish Car Setup
         return -10;
       default:
@@ -200,7 +200,7 @@ export default function HomeScreen() {
           />
 
           {/* Navigation ETA Bar - Only show when on Upcoming Appointment card */}
-          {activeCardIndex === 0 && (
+          {activeCardIndex === 1 && (
             <View style={styles.etaBarContainer}>
               <NavigationETABar
                 etaMinutes={20}

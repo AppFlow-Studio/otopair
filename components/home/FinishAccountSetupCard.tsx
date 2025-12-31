@@ -19,15 +19,17 @@
  */
 
 // 1. React & React Native
-import React from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import React from "react";
+import { Pressable, StyleSheet, View } from "react-native";
 
 // 2. Expo & Third-party
-import { useRouter } from 'expo-router';
-import { ArrowRight, X } from 'lucide-react-native';
+import { useRouter } from "expo-router";
+import { X, Shuffle, Landmark } from "lucide-react-native";
+import { PlusCircleIcon, ShuffleIcon, UserCircleIcon, CarIcon, BankIcon } from "phosphor-react-native";
 
 // 3. Shared UI
-import { Text } from '@/components/shared-ui';
+import { Text } from "@/components/shared-ui";
+import { GradientPlusCircle } from "@/components/icons/gradient-plus-circle";
 
 // ============================================================================
 // TYPES
@@ -48,22 +50,29 @@ export function FinishAccountSetupCard({
 }: FinishAccountSetupCardProps) {
   const router = useRouter();
 
-  const handlePress = () => {
+  const handlePress = (stepId?: string) => {
+    if (stepId === "personalize") {
+      router.push("/flow");
+      return;
+    }
+
     if (onPress) {
       onPress();
     } else {
       // Default: navigate to onboarding/setup flow
-      router.push('/coming-soon');
+      router.push("/coming-soon");
     }
   };
 
+  const steps = [
+    { id: "account", label: "Create Account", icon: GradientPlusCircle },
+    { id: "personalize", label: "About You", icon: UserCircleIcon },
+    { id: "car", label: "Add Car", icon: CarIcon },
+    { id: "payment", label: "Payment Method", icon: BankIcon },
+  ];
+
   return (
     <View style={styles.container}>
-      {/* Section Header - Empty to maintain consistent spacing */}
-      <Text size="md" color="#6B7280" style={styles.sectionHeader}>
-        Account Setup
-      </Text>
-
       {/* Card */}
       <View style={styles.card}>
         {/* Close Button */}
@@ -82,26 +91,49 @@ export function FinishAccountSetupCard({
         {/* Content */}
         <View style={styles.contentSection}>
           <Text weight="bold" size="xl" color="#141C24">
-            Finish Setting Up Your Account
+            Finish setup
           </Text>
           <Text size="sm" color="#6B7280" style={styles.subtitle}>
-            Complete your setup so you can book faster and get full access.
+            Complete the steps to get full access.
           </Text>
         </View>
 
-        {/* CTA Button */}
-        <Pressable
-          onPress={handlePress}
-          style={({ pressed }) => [
-            styles.ctaButton,
-            pressed && styles.ctaButtonPressed,
-          ]}
-        >
-          <Text weight="semiBold" size="md" color="#FFFFFF">
-            Finish Setup
-          </Text>
-          <ArrowRight size={18} color="#FFFFFF" />
-        </Pressable>
+        {/* Steps Horizontal List */}
+        <View style={styles.stepsContainer}>
+          {steps.map((step) => (
+            <Pressable
+              key={step.id}
+              onPress={() => handlePress(step.id)}
+              style={({ pressed }) => [
+                styles.stepTile,
+                pressed && styles.stepTilePressed,
+              ]}
+            >
+              <View style={styles.iconWrapper}>
+                {step.id === "account" ? (
+                  <step.icon size={34} />
+                ) : step.id === "personalize" ? (
+                  <step.icon size={38} color="#6B7280" />
+                ) : step.id === "car" ? (
+                  <step.icon size={36} color="#6B7280" />
+                ): step.id === "payment" ?(
+                  <step.icon size={36} color="#6B7280" />
+                ): (
+                  <step.icon size={30} color="#6B7280" strokeWidth={1.5} />
+                )}
+              </View>
+              <Text
+                size="xs"
+                color="#141C24"
+                weight="medium"
+                center
+                style={styles.stepLabel}
+              >
+                {step.label}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
       </View>
     </View>
   );
@@ -113,25 +145,22 @@ export function FinishAccountSetupCard({
 
 const styles = StyleSheet.create({
   container: {
-    gap: 12,
-  },
-  sectionHeader: {
-    marginLeft: 4,
+    // No gap needed here as we removed sectionHeader
   },
   card: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 10,
+    backgroundColor: "#F3F7FF", // Light bluish background like in screenshot
+    borderRadius: 20,
     padding: 20,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
+    shadowOpacity: 0.04,
+    shadowRadius: 10,
     elevation: 2,
   },
   closeButton: {
-    position: 'absolute',
-    top: 12,
-    right: 12,
+    position: "absolute",
+    top: 16,
+    right: 16,
     padding: 4,
     zIndex: 1,
   },
@@ -139,26 +168,48 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   contentSection: {
-    marginBottom: 16,
+    marginBottom: 20,
     paddingRight: 30, // Space for close button
   },
   subtitle: {
-    marginTop: 8,
+    marginTop: 4,
     lineHeight: 20,
   },
-  ctaButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+  stepsContainer: {
+    flexDirection: "row",
+    justifyContent: "space-between",
     gap: 8,
-    backgroundColor: '#5299FE',
-    paddingVertical: 14,
-    borderRadius: 10,
   },
-  ctaButtonPressed: {
+  stepTile: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 16,
+    paddingTop: 16,
+    paddingBottom: 12,
+    paddingHorizontal: 8,
+    alignItems: "center",
+    justifyContent: "flex-start",
+    minHeight: 110,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 3,
+    elevation: 1,
+  },
+  stepTilePressed: {
     opacity: 0.8,
+    transform: [{ scale: 0.98 }],
+  },
+  iconWrapper: {
+    marginBottom: 10,
+    height: 40,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  stepLabel: {
+    lineHeight: 12,
+    marginTop: 2,
   },
 });
 
 export default FinishAccountSetupCard;
-
