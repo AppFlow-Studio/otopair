@@ -8,9 +8,14 @@
  * PROPS:
  *   - onNext (() => void): Callback to navigate to the next step
  *   - onBack (() => void): Callback to navigate to the previous step
+ *   - progress ({ total: number; filled: number }): Progress indicator data
  *
  * EXAMPLE:
- *   <UserIntentStep onNext={handleNext} onBack={handleBack} />
+ *   <UserIntentStep 
+ *     onNext={handleNext} 
+ *     onBack={handleBack} 
+ *     progress={{ total: 8, filled: 5 }} 
+ *   />
  *
  * OWNER: Daniel Chelala
  * TICKET: OTO-XXX
@@ -56,6 +61,7 @@ import {
 interface UserIntentStepProps {
     onNext: () => void;
     onBack: () => void;
+    progress: { total: number; filled: number };
 }
 
 interface IntentOption {
@@ -117,7 +123,7 @@ const INTENT_OPTIONS: IntentOption[] = [
     },
 ];
 
-export function UserIntentStep({ onNext, onBack }: UserIntentStepProps) {
+export function UserIntentStep({ onNext, onBack, progress }: UserIntentStepProps) {
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
@@ -161,8 +167,8 @@ export function UserIntentStep({ onNext, onBack }: UserIntentStepProps) {
         >
             <View style={[styles.container, dynamicStyles.container]}>
                 <ProgressBar
-                    total={8}
-                    filled={5}
+                    total={progress.total}
+                    filled={progress.filled}
                     leftElement={<BackButton onBack={onBack} alwaysShow />}
                 />
 

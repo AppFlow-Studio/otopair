@@ -8,9 +8,14 @@
  * PROPS:
  *   - onNext (() => void): Callback to navigate to the next step
  *   - onBack (() => void): Callback to navigate to the previous step
+ *   - progress ({ total: number; filled: number }): Progress indicator data
  *
  * EXAMPLE:
- *   <ProfilePhotoStep onNext={handleNext} onBack={handleBack} />
+ *   <ProfilePhotoStep 
+ *     onNext={handleNext} 
+ *     onBack={handleBack} 
+ *     progress={{ total: 8, filled: 4 }} 
+ *   />
  *
  * OWNER: Daniel Chelala
  * TICKET: OTO-XXX
@@ -47,9 +52,10 @@ import * as ImagePicker from "expo-image-picker";
 interface ProfilePhotoStepProps {
   onNext: () => void;
   onBack: () => void;
+  progress: { total: number; filled: number };
 }
 
-export function ProfilePhotoStep({ onNext, onBack }: ProfilePhotoStepProps) {
+export function ProfilePhotoStep({ onNext, onBack, progress }: ProfilePhotoStepProps) {
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
   const data = useOnboardingStore((state) => state.data);
@@ -142,8 +148,8 @@ export function ProfilePhotoStep({ onNext, onBack }: ProfilePhotoStepProps) {
   return (
     <View style={[styles.container, dynamicStyles.container]}>
       <ProgressBar
-        total={8}
-        filled={4}
+        total={progress.total}
+        filled={progress.filled}
         leftElement={<BackButton onBack={onBack} alwaysShow />}
       />
 

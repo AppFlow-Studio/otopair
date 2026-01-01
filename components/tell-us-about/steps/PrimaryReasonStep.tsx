@@ -9,6 +9,16 @@
  *   - onNext (() => void): Callback to navigate to the next step
  *   - onBack (() => void): Callback to navigate to the previous step
  *   - progress ({ total: number; filled: number }): Progress indicator data
+ *
+ * EXAMPLE:
+ *   <PrimaryReasonStep 
+ *     onNext={handleNext} 
+ *     onBack={handleBack} 
+ *     progress={{ total: 7, filled: 4 }} 
+ *   />
+ *
+ * OWNER: Daniel Chelala
+ * TICKET: OTO-XXX
  */
 
 import {

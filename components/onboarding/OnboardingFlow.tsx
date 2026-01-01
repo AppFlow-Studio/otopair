@@ -7,9 +7,16 @@
  *
  * PROPS:
  *   - initialStep (OnboardingStep): The step to start the onboarding flow from [optional]
+ *   - filteredSteps (OnboardingStep[]): Optional array of steps to show (for resuming incomplete setup)
+ *   - isResumeMode (boolean): Whether this is a resume flow (affects completion behavior)
  *
  * EXAMPLE:
  *   <OnboardingFlow initialStep="welcome" />
+ *   <OnboardingFlow 
+ *     initialStep="profilePhoto" 
+ *     filteredSteps={['profilePhoto', 'userIntent']} 
+ *     isResumeMode={true} 
+ *   />
  *
  * OWNER: Daniel Chelala
  * TICKET: OTO-XXX
@@ -24,6 +31,7 @@ import Animated, {
     Easing,
 } from 'react-native-reanimated';
 import { AnimatedGradientBackground } from '@/components/shared-ui';
+import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import { WelcomeStep } from './steps/WelcomeStep';
 import { PhoneNumberStep } from './steps/PhoneNumberStep';
 import { ConfirmPhoneNumberStep } from './steps/ConfirmPhoneNumberStep';
@@ -53,15 +61,69 @@ const STEP_INDICES: Record<OnboardingStep, number> = {
 
 interface OnboardingFlowProps {
     initialStep?: OnboardingStep;
+    filteredSteps?: OnboardingStep[];
+    isResumeMode?: boolean;
 }
 
-export function OnboardingFlow({ initialStep = 'welcome' }: OnboardingFlowProps) {
+// Steps that show in the progress bar (excludes welcome and complete)
+const PROGRESS_STEPS: OnboardingStep[] = [
+    'phone',
+    'confirm',
+    'name',
+    'username',
+    'profilePhoto',
+    'userIntent',
+    'pushNotifications',
+    'locationServices',
+];
+
+// Helper to get incomplete onboarding steps based on store data
+export function getIncompleteOnboardingSteps(): OnboardingStep[] {
+    const { data } = useOnboardingStore.getState();
+    
+    const stepChecks: { step: OnboardingStep; isComplete: () => boolean }[] = [
+        { step: 'phone', isComplete: () => !!data.phoneNumber },
+        { step: 'confirm', isComplete: () => !!data.phoneNumber }, // Same as phone
+        { step: 'name', isComplete: () => !!(data.firstName && data.lastName) },
+        { step: 'username', isComplete: () => !!data.username },
+        { step: 'profilePhoto', isComplete: () => !!data.profilePhotoUri },
+        { step: 'userIntent', isComplete: () => !!(data.userIntentions && data.userIntentions.length > 0) },
+        // Permissions are considered complete if user has made a choice (granted or denied)
+        { step: 'pushNotifications', isComplete: () => data.pushNotificationStatus !== null },
+        { step: 'locationServices', isComplete: () => data.locationPermissionStatus !== null },
+    ];
+
+    return stepChecks
+        .filter(({ isComplete }) => !isComplete())
+        .map(({ step }) => step);
+}
+
+export function OnboardingFlow({ 
+    initialStep = 'welcome',
+    filteredSteps,
+    isResumeMode = false,
+}: OnboardingFlowProps) {
     const [currentStep, setCurrentStep] = useState<OnboardingStep>(initialStep);
     const [fromStep, setFromStep] = useState<OnboardingStep>(initialStep);
     const [toStep, setToStep] = useState<OnboardingStep>(initialStep);
     
     // Animation progress (0 = from step, 1 = to step)
     const animationProgress = useSharedValue(1);
+
+    // Use filtered steps if provided (resume mode), otherwise use all progress steps
+    const activeSteps = filteredSteps || PROGRESS_STEPS;
+
+    // Get progress info for the current step
+    const getProgressInfo = () => {
+        const stepIndex = activeSteps.indexOf(currentStep);
+        if (stepIndex === -1) {
+            // Welcome or complete step - no progress bar
+            return { total: activeSteps.length, filled: 0 };
+        }
+        return { total: activeSteps.length, filled: stepIndex };
+    };
+
+    const progressInfo = getProgressInfo();
     
     // Handle step changes with animation
     const goToStep = (nextStep: OnboardingStep) => {
@@ -95,6 +157,20 @@ export function OnboardingFlow({ initialStep = 'welcome' }: OnboardingFlowProps)
     };
 
     const goBack = async () => {
+        // In resume mode, navigate within filtered steps
+        if (isResumeMode && filteredSteps) {
+            const currentIndex = activeSteps.indexOf(currentStep);
+            if (currentIndex <= 0) {
+                // First step in resume mode - go back to home
+                router.back();
+                return;
+            }
+            // Go to previous step in filtered list
+            goToStep(activeSteps[currentIndex - 1]);
+            return;
+        }
+
+        // Normal mode navigation
         switch (currentStep) {
             case 'welcome':
                 goToStep('complete');
@@ -186,6 +262,20 @@ export function OnboardingFlow({ initialStep = 'welcome' }: OnboardingFlowProps)
     };
 
     const goNext = async () => {
+        // In resume mode, navigate within filtered steps
+        if (isResumeMode && filteredSteps) {
+            const currentIndex = activeSteps.indexOf(currentStep);
+            if (currentIndex >= activeSteps.length - 1) {
+                // Last step in resume mode - complete and go back to home
+                goToStep('complete');
+                return;
+            }
+            // Go to next step in filtered list
+            goToStep(activeSteps[currentIndex + 1]);
+            return;
+        }
+
+        // Normal mode navigation
         switch (currentStep) {
             case 'welcome':
                 goToStep('phone');
@@ -226,9 +316,15 @@ export function OnboardingFlow({ initialStep = 'welcome' }: OnboardingFlowProps)
     // Navigate to home screen when onboarding is complete
     useEffect(() => {
         if (currentStep === 'complete') {
-            router.replace('/(main-tabs)/home');
+            if (isResumeMode) {
+                // In resume mode, go back to where user came from
+                router.back();
+            } else {
+                // In normal onboarding, replace with home
+                router.replace('/(main-tabs)/home');
+            }
         }
-    }, [currentStep]);
+    }, [currentStep, isResumeMode]);
 
     // Render the current step component
     const renderStep = () => {
@@ -236,21 +332,21 @@ export function OnboardingFlow({ initialStep = 'welcome' }: OnboardingFlowProps)
             case 'welcome':
                 return <WelcomeStep onNext={goNext} onBack={goBack} />;
             case 'phone':
-                return <PhoneNumberStep onNext={goNext} onBack={goBack} />;
+                return <PhoneNumberStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
             case 'confirm':
-                return <ConfirmPhoneNumberStep onNext={goNext} onBack={goBack} />;
+                return <ConfirmPhoneNumberStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
             case 'name':
-                return <NameStep onNext={goNext} onBack={goBack} />;
+                return <NameStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
             case 'username':
-                return <UsernameStep onNext={goNext} onBack={goBack} />;
+                return <UsernameStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
             case 'profilePhoto':
-                return <ProfilePhotoStep onNext={goNext} onBack={goBack} />;
+                return <ProfilePhotoStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
             case 'userIntent':
-                return <UserIntentStep onNext={goNext} onBack={goBack} />;
+                return <UserIntentStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
             case 'pushNotifications':
-                return <PushNotificationsStep onNext={goNext} onBack={goBack} />;
+                return <PushNotificationsStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
             case 'locationServices':
-                return <LocationServicesStep onNext={goNext} onBack={goBack} />;
+                return <LocationServicesStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
             case 'complete':
                 return null;
             default:

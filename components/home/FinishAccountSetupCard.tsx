@@ -1,7 +1,9 @@
 /**
  * FinishAccountSetupCard
  *
- * PURPOSE: Displays a prompt card encouraging users to complete their account setup with dismiss and action buttons
+ * PURPOSE: Displays a prompt card encouraging users to complete their account setup with dismiss and action buttons.
+ *          "Create Account" button navigates to incomplete onboarding steps with a filtered progress bar.
+ *          "About You" button navigates to the TellUsAboutFlow.
  *
  * USED IN: app/(main-tabs)/home/index.tsx, components/home/ActionCardsCarousel.tsx
  *
@@ -31,6 +33,9 @@ import { PlusCircleIcon, ShuffleIcon, UserCircleIcon, CarIcon, BankIcon } from "
 import { Text } from "@/components/shared-ui";
 import { GradientPlusCircle } from "@/components/icons/gradient-plus-circle";
 
+// 4. Store & Utilities
+import { getIncompleteOnboardingSteps } from "@/components/onboarding/OnboardingFlow";
+
 // ============================================================================
 // TYPES
 // ============================================================================
@@ -53,6 +58,27 @@ export function FinishAccountSetupCard({
   const handlePress = (stepId?: string) => {
     if (stepId === "personalize") {
       router.push("/flow");
+      return;
+    }
+
+    if (stepId === "account") {
+      // Get incomplete onboarding steps
+      const incompleteSteps = getIncompleteOnboardingSteps();
+      
+      if (incompleteSteps.length === 0) {
+        // All steps complete - could show a message or navigate elsewhere
+        return;
+      }
+
+      // Navigate to onboarding with filtered steps
+      router.push({
+        pathname: "/(onboarding)",
+        params: {
+          initialStep: incompleteSteps[0],
+          filteredSteps: JSON.stringify(incompleteSteps),
+          isResumeMode: "true",
+        },
+      });
       return;
     }
 

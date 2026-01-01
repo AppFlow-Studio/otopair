@@ -8,9 +8,14 @@
  * PROPS:
  *   - onNext (() => void): Callback to navigate to the next step
  *   - onBack (() => void): Callback to navigate to the previous step
+ *   - progress ({ total: number; filled: number }): Progress indicator data
  *
  * EXAMPLE:
- *   <UsernameStep onNext={handleNext} onBack={handleBack} />
+ *   <UsernameStep 
+ *     onNext={handleNext} 
+ *     onBack={handleBack} 
+ *     progress={{ total: 8, filled: 3 }} 
+ *   />
  *
  * OWNER: Daniel Chelala
  * TICKET: OTO-XXX
@@ -45,9 +50,10 @@ import { useOnboardingStore } from "@/stores/useOnboardingStore";
 interface UsernameStepProps {
   onNext: () => void;
   onBack: () => void;
+  progress: { total: number; filled: number };
 }
 
-export function UsernameStep({ onNext, onBack }: UsernameStepProps) {
+export function UsernameStep({ onNext, onBack, progress }: UsernameStepProps) {
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
   const { data, updateData } = useOnboardingStore();
@@ -83,8 +89,8 @@ export function UsernameStep({ onNext, onBack }: UsernameStepProps) {
     >
       <View style={[styles.container, dynamicStyles.container]}>
         <ProgressBar
-          total={8}
-          filled={3}
+          total={progress.total}
+          filled={progress.filled}
           leftElement={<BackButton onBack={onBack} alwaysShow />}
         />
 

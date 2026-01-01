@@ -8,9 +8,14 @@
  * PROPS:
  *   - onNext (() => void): Callback to navigate to the next step
  *   - onBack (() => void): Callback to navigate to the previous step
+ *   - progress ({ total: number; filled: number }): Progress indicator data
  *
  * EXAMPLE:
- *   <ConfirmPhoneNumberStep onNext={handleNext} onBack={handleBack} />
+ *   <ConfirmPhoneNumberStep 
+ *     onNext={handleNext} 
+ *     onBack={handleBack} 
+ *     progress={{ total: 8, filled: 1 }} 
+ *   />
  *
  * OWNER: Daniel Chelala
  * TICKET: OTO-XXX
@@ -50,11 +55,13 @@ const CORRECT_CODE = "676767";
 interface ConfirmPhoneNumberStepProps {
   onNext: () => void;
   onBack: () => void;
+  progress: { total: number; filled: number };
 }
 
 export function ConfirmPhoneNumberStep({
   onNext,
   onBack,
+  progress,
 }: ConfirmPhoneNumberStepProps) {
   const insets = useSafeAreaInsets();
   const { height, width } = useWindowDimensions();
@@ -199,8 +206,8 @@ export function ConfirmPhoneNumberStep({
     >
       <View style={[styles.container, dynamicStyles.container]}>
         <ProgressBar
-          total={8}
-          filled={1}
+          total={progress.total}
+          filled={progress.filled}
           leftElement={<BackButton onBack={onBack} alwaysShow />}
         />
 
