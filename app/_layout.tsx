@@ -43,7 +43,7 @@ export default function RootLayout() {
             <Stack.Screen name="(main-tabs)" options={{ headerShown: false }} />
             <Stack.Screen name="(tell-us-about)" options={{ headerShown: false }} />
             <Stack.Screen name="coming-soon" options={{ headerShown: false }} />
-            <Stack.Screen name="payment-methods" options={{ headerShown: false }} />
+            <Stack.Screen name="payments" options={{ headerShown: false }} />
             <Stack.Screen name="modal" options={{ presentation: "modal", title: "Modal" }} />
           </Stack>
           <StatusBar style="auto" />

@@ -61,6 +61,11 @@ export function FinishAccountSetupCard({
       return;
     }
 
+    if (stepId === "payment") {
+      router.push("/payments");
+      return;
+    }
+
     if (stepId === "account") {
       // Get incomplete onboarding steps
       const incompleteSteps = getIncompleteOnboardingSteps();

@@ -16,10 +16,14 @@
  * ```
  */
 
-// Progress Bar Component
+// Progress Bar Components
 export {
     ProgressBar
 } from './ProgressBar';
+
+export {
+    SolidProgressBar
+} from './SolidProgressBar';
 
 // Footer Button Component
 export {

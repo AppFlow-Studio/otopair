@@ -37,8 +37,8 @@ export default function HomeScreen() {
 
   useEffect(() => {
     (async () => {
-      // Request location permission
-      const { status } = await Location.requestForegroundPermissionsAsync();
+      // Check existing location permission (without requesting)
+      const { status } = await Location.getForegroundPermissionsAsync();
       if (status !== 'granted') {
         setLocationName('Location unavailable');
         return;

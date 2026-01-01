@@ -1,5 +1,5 @@
 /**
- * payment-methods
+ * payments
  *
  * PURPOSE: Displays the payment methods screen.
  *
@@ -12,14 +12,13 @@
  */
 
 import React from 'react';
-import { PaymentMethodsMock } from '@/components/payments/PaymentMethodsMock';
+import { PaymentsScreen } from '@/components/payments/PaymentsScreen';
 
 export const options = {
     headerShown: false,
 };
 
 export default function PaymentMethodsScreen() {
-    return <PaymentMethodsMock />;
+    return <PaymentsScreen />;
 }
-
 
