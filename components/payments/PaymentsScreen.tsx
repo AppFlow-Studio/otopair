@@ -29,7 +29,10 @@ import {
     Target, 
     Wrench, 
     Car,
-    ChevronRight 
+    ChevronRight,
+    Bell, 
+    Receipt, 
+    Ellipsis
 } from 'lucide-react-native';
 import Animated, { 
     useSharedValue, 
@@ -49,6 +52,7 @@ import {
     Spacing, 
     AnimatedGradientBackground,
     SolidProgressBar,
+    GlassCircleButton,
 } from '@/components/shared-ui';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -306,11 +310,13 @@ export function PaymentsScreen() {
     return (
         <View style={styles.container}>
             {/* Background Gradient - transitions based on scroll position */}
+            {/*colors={['#203f7dff', '#203f7dff', '#f4f1f8']}*/}
             <View style={StyleSheet.absoluteFill}>
                 <AnimatedGradientBackground 
                     progress={bgProgress} 
                     fromIndex={gradientIndices.from} 
-                    toIndex={gradientIndices.to} 
+                    toIndex={gradientIndices.to}
+                    colors={[BrandColors.secondary, BrandColors.secondary, '#f4f1f8']}
                 />
             </View>
 
@@ -323,11 +329,19 @@ export function PaymentsScreen() {
                     Payment Methods
                 </Text>
                 <View style={styles.headerRight}>
-                    <TouchableOpacity style={styles.headerPill}>
-                        <Plus size={20} color="#000" />
-                        <View style={styles.pillDivider} />
-                        <MoreHorizontal size={20} color="#000" />
-                    </TouchableOpacity>
+                    <GlassCircleButton 
+                        size={40} 
+                        onPress={() => console.log('Add payment')}
+                    >
+                        <Plus size={20} color="#FFF" strokeWidth={2.5} />
+                    </GlassCircleButton>
+                    
+                    <GlassCircleButton 
+                        size={40} 
+                        onPress={() => console.log('More options')}
+                    >
+                        <Ellipsis size={20} color="#FFF" strokeWidth={2.5} />
+                    </GlassCircleButton>
                 </View>
             </View>
 
@@ -367,7 +381,7 @@ export function PaymentsScreen() {
 
                 {/* Recent Activity */}
                 <View style={styles.section}>
-                    <Text weight="bold" size="lg" color="#FFF" style={styles.sectionTitle}>
+                    <Text weight="bold" size="lg" color="#1F2937" style={styles.sectionTitle}>
                         Recent Activity
                     </Text>
                     
@@ -462,21 +476,9 @@ const styles = StyleSheet.create({
         marginRight: -24, // Offset for back button to center title
     },
     headerRight: {
-        // Space for pill
-    },
-    headerPill: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: '#FFF',
-        borderRadius: 20,
-        paddingHorizontal: 12,
-        paddingVertical: 6,
-        gap: 8,
-    },
-    pillDivider: {
-        width: 1,
-        height: 16,
-        backgroundColor: '#E5E7EB',
+        gap: 12,
     },
     scrollContent: {
         paddingTop: 10,
@@ -494,7 +496,7 @@ const styles = StyleSheet.create({
         position: 'relative',
         alignItems: 'center',
         justifyContent: 'center',
-        overflow: 'visible',
+        overflow: 'hidden', // Clip touches to container bounds
     },
     cardWrapper: {
         width: CARD_WIDTH,
@@ -518,7 +520,7 @@ const styles = StyleSheet.create({
         width: 8,
         height: 8,
         borderRadius: 4,
-        backgroundColor: 'rgba(255,255,255,0.3)',
+        backgroundColor: 'rgba(107, 115, 154, 0.8)',
     },
     dotActive: {
         backgroundColor: '#FFF',

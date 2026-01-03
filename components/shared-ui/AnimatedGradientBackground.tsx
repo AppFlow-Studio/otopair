@@ -10,9 +10,12 @@
  *   - progress (SharedValue<number>): Animation progress from 0 to 1
  *   - fromIndex (number): The starting configuration index
  *   - toIndex (number): The target configuration index
+ *   - colors (optional string[]): Custom gradient colors (minimum 2 colors). If not provided, uses colors from config.
  *
  * EXAMPLE:
  *   <AnimatedGradientBackground progress={animationProgress} fromIndex={0} toIndex={1} />
+ *   <AnimatedGradientBackground progress={animationProgress} fromIndex={0} toIndex={1} colors={['#FF0000', '#00FF00']} />
+ *   <AnimatedGradientBackground progress={animationProgress} fromIndex={0} toIndex={1} colors={['#FF0000', '#00FF00', '#0000FF', '#FFFF00']} />
  *
  * OWNER: Daniel Chelala
  * TICKET: OTO-XXX
@@ -80,12 +83,14 @@ interface AnimatedGradientBackgroundProps {
     progress: SharedValue<number>;
     fromIndex: number;
     toIndex: number;
+    colors?: string[]; // Minimum 2 colors required
 }
 
 export function AnimatedGradientBackground({ 
     progress, 
     fromIndex, 
-    toIndex
+    toIndex,
+    colors
 }: AnimatedGradientBackgroundProps) {
     // Ensure we stay within bounds of the config array
     const safeFrom = Math.min(Math.max(0, fromIndex), SHARED_GRADIENT_CONFIGS.length - 1);
@@ -93,6 +98,19 @@ export function AnimatedGradientBackground({
     
     const fromConfig = SHARED_GRADIENT_CONFIGS[safeFrom];
     const toConfig = SHARED_GRADIENT_CONFIGS[safeTo];
+    
+    // Validate and use provided colors or fall back to config colors
+    let gradientColors: string[];
+    if (colors) {
+        if (colors.length < 2) {
+            console.warn('AnimatedGradientBackground: colors array must have at least 2 colors. Falling back to default colors.');
+            gradientColors = toConfig.colors;
+        } else {
+            gradientColors = colors;
+        }
+    } else {
+        gradientColors = toConfig.colors;
+    }
     
     // State for current gradient positions (interpolated during animation)
     const [gradientPos, setGradientPos] = useState({
@@ -123,7 +141,7 @@ export function AnimatedGradientBackground({
     
     return (
         <LinearGradient
-            colors={toConfig.colors}
+            colors={gradientColors as [string, string, ...string[]]}
             start={{ x: gradientPos.startX, y: gradientPos.startY }}
             end={{ x: gradientPos.endX, y: gradientPos.endY }}
             style={styles.gradient}

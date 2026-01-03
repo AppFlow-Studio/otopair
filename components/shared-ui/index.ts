@@ -55,6 +55,10 @@ export {
     type ButtonProps
 } from './Button';
 
+export {
+    GlassCircleButton
+} from './GlassCircleButton';
+
 // Text Components
 export {
     Body, H1,
