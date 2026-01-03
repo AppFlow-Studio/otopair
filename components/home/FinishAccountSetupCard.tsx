@@ -99,7 +99,7 @@ export function FinishAccountSetupCard({
     { id: "account", label: "Create Account", icon: GradientPlusCircle },
     { id: "personalize", label: "About You", icon: UserCircleIcon },
     { id: "car", label: "Add Car", icon: CarIcon },
-    { id: "payment", label: "Payment Method", icon: BankIcon },
+    { id: "payment", label: "Payments", icon: BankIcon },
   ];
 
   return (

@@ -14,7 +14,6 @@ import React, { useState, useCallback } from 'react';
 import {
     Dimensions,
     Image,
-    ScrollView,
     StyleSheet,
     TouchableOpacity,
     View,
@@ -35,6 +34,9 @@ import {
 import Animated, { 
     useSharedValue, 
     useAnimatedStyle, 
+    useAnimatedScrollHandler,
+    interpolate,
+    Extrapolation,
     withSpring,
     withTiming,
     withDecay,
@@ -50,8 +52,9 @@ import {
 } from '@/components/shared-ui';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const CARD_WIDTH = SCREEN_WIDTH * 0.98;
-const CARD_HEIGHT = 380;
+const CARD_WIDTH = SCREEN_WIDTH * 1;
+const CARD_HEIGHT = 420; // Visual card height (larger than container)
+const CARD_CONTAINER_HEIGHT = 350; // Container height for layout (keeps section compact)
 
 const SPRING_CONFIG = {
     damping: 15,
@@ -228,12 +231,65 @@ const CardItem = ({ card, index, totalCards, onSwipeComplete }: CardProps) => {
 // MAIN COMPONENT
 // ============================================================================
 
+// Gradient indices to transition through while scrolling
+const GRADIENT_SCROLL_INDICES = [0, 3, 6, 9];
+// Scroll distance (in px) for each gradient transition
+const SCROLL_PER_TRANSITION = 300;
+
 export function PaymentsScreen() {
     const insets = useSafeAreaInsets();
     const router = useRouter();
-    const bgProgress = useSharedValue(1);
+    const scrollY = useSharedValue(0);
+    const bgProgress = useSharedValue(0);
+    const currentSegment = useSharedValue(0); // Track segment to avoid redundant updates
     const [cards, setCards] = useState(INITIAL_CARDS);
     const [currentDotIndex, setCurrentDotIndex] = useState(0);
+    const [gradientIndices, setGradientIndices] = useState({
+        from: GRADIENT_SCROLL_INDICES[0],
+        to: GRADIENT_SCROLL_INDICES[1],
+    });
+
+    // Callback to update gradient indices when crossing segment boundaries
+    const updateGradientIndices = useCallback((segmentIndex: number) => {
+        const fromIdx = GRADIENT_SCROLL_INDICES[segmentIndex];
+        const toIdx = GRADIENT_SCROLL_INDICES[segmentIndex + 1];
+        setGradientIndices({ from: fromIdx, to: toIdx });
+    }, []);
+
+    // Track scroll position
+    const scrollHandler = useAnimatedScrollHandler({
+        onScroll: (event) => {
+            const scrollOffset = event.contentOffset.y;
+            scrollY.value = scrollOffset;
+            
+            const totalTransitions = GRADIENT_SCROLL_INDICES.length - 1;
+            const maxScroll = totalTransitions * SCROLL_PER_TRANSITION;
+            
+            // Clamp scroll to valid range
+            const clampedScroll = Math.max(0, Math.min(scrollOffset, maxScroll));
+            
+            // Which transition segment are we in? (0, 1, 2, ...)
+            const segmentIndex = Math.min(
+                Math.floor(clampedScroll / SCROLL_PER_TRANSITION),
+                totalTransitions - 1
+            );
+            
+            // Progress within current segment (0 to 1)
+            const segmentStart = segmentIndex * SCROLL_PER_TRANSITION;
+            bgProgress.value = interpolate(
+                clampedScroll,
+                [segmentStart, segmentStart + SCROLL_PER_TRANSITION],
+                [0, 1],
+                Extrapolation.CLAMP
+            );
+            
+            // Only update indices when segment actually changes (avoid redundant re-renders)
+            if (segmentIndex !== currentSegment.value) {
+                currentSegment.value = segmentIndex;
+                runOnJS(updateGradientIndices)(segmentIndex);
+            }
+        },
+    });
 
     const onSwipeComplete = useCallback(() => {
         setCards((prevCards) => {
@@ -249,12 +305,12 @@ export function PaymentsScreen() {
 
     return (
         <View style={styles.container}>
-            {/* Background Gradient */}
+            {/* Background Gradient - transitions based on scroll position */}
             <View style={StyleSheet.absoluteFill}>
                 <AnimatedGradientBackground 
                     progress={bgProgress} 
-                    fromIndex={13} 
-                    toIndex={13} 
+                    fromIndex={gradientIndices.from} 
+                    toIndex={gradientIndices.to} 
                 />
             </View>
 
@@ -275,7 +331,9 @@ export function PaymentsScreen() {
                 </View>
             </View>
 
-            <ScrollView 
+            <Animated.ScrollView 
+                onScroll={scrollHandler}
+                scrollEventThrottle={16}
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 40 }]}
             >
@@ -319,18 +377,18 @@ export function PaymentsScreen() {
                                 styles.activityItem,
                                 index === RECENT_ACTIVITY.length - 1 && styles.lastItem
                             ]}>
-                                <View style={[styles.iconBox, { backgroundColor: 'rgba(255,255,255,0.1)' }]}>
+                                <View style={[styles.iconBox, { backgroundColor: 'rgba(0,0,0,0.05)' }]}>
                                     <item.icon size={20} color={item.iconColor} />
                                 </View>
                                 
                                 <View style={styles.activityInfo}>
-                                    <Text weight="semiBold" size="md" color="#FFF">{item.title}</Text>
-                                    <Text size="sm" color="rgba(255,255,255,0.6)">{item.shop}</Text>
+                                    <Text weight="semiBold" size="md" color="#1F2937">{item.title}</Text>
+                                    <Text size="sm" color="#6B7280">{item.shop}</Text>
                                 </View>
                                 
                                 <View style={styles.activityRight}>
-                                    <Text weight="semiBold" size="md" color="#FFF">{item.amount}</Text>
-                                    <Text size="xs" color="rgba(255,255,255,0.6)">{item.date}</Text>
+                                    <Text weight="semiBold" size="md" color="#1F2937">{item.amount}</Text>
+                                    <Text size="xs" color="#6B7280">{item.date}</Text>
                                 </View>
                             </View>
                         ))}
@@ -339,41 +397,46 @@ export function PaymentsScreen() {
 
                 {/* Rewards */}
                 <View style={styles.section}>
-                    <View style={styles.rewardsHeader}>
-                        <Text weight="bold" size="lg" color="#FFF">Rewards</Text>
-                        <Text size="sm" color="rgba(255,255,255,0.8)">{CURRENT_POINTS} pts / {MAX_POINTS} pts</Text>
-                    </View>
-                    
-                    <SolidProgressBar 
-                        current={CURRENT_POINTS} 
-                        max={MAX_POINTS} 
-                        height={10}
-                        filledColor="#60A5FA"
-                        unfilledColor="rgba(255,255,255,0.15)"
-                        borderRadius={5}
-                        style={styles.rewardsProgress}
-                    />
-                    
-                    <View style={styles.rewardsList}>
-                        {REWARDS.map((reward) => (
-                            <TouchableOpacity key={reward.id} style={styles.rewardItem}>
-                                <View style={styles.rewardLeft}>
-                                    <reward.icon size={18} color={reward.iconColor} />
-                                    <Text weight="medium" size="md" color="#FFF" style={{ marginLeft: 12 }}>
-                                        {reward.title}
-                                    </Text>
-                                </View>
-                                <View style={styles.rewardRight}>
-                                    <Text size="sm" color="#FFF" style={{ marginRight: 4 }}>
-                                        {reward.points}
-                                    </Text>
-                                    <ChevronRight size={16} color="rgba(255,255,255,0.6)" />
-                                </View>
-                            </TouchableOpacity>
-                        ))}
+                    <View style={styles.rewardsContainer}>
+                        <View style={styles.rewardsHeader}>
+                            <Text weight="bold" size="lg" color="#1F2937">Rewards</Text>
+                            <Text size="sm" color="#6B7280">{CURRENT_POINTS} pts / {MAX_POINTS} pts</Text>
+                        </View>
+                        
+                        <SolidProgressBar 
+                            current={CURRENT_POINTS} 
+                            max={MAX_POINTS} 
+                            height={10}
+                            filledColor="#60A5FA"
+                            unfilledColor="rgba(0,0,0,0.1)"
+                            borderRadius={5}
+                            style={styles.rewardsProgress}
+                        />
+                        
+                        <View style={styles.rewardsList}>
+                            {REWARDS.map((reward, index) => (
+                                <TouchableOpacity key={reward.id} style={[
+                                    styles.rewardItem,
+                                    index === REWARDS.length - 1 && styles.lastItem
+                                ]}>
+                                    <View style={styles.rewardLeft}>
+                                        <reward.icon size={18} color={reward.iconColor} />
+                                        <Text weight="medium" size="md" color="#1F2937" style={{ marginLeft: 12 }}>
+                                            {reward.title}
+                                        </Text>
+                                    </View>
+                                    <View style={styles.rewardRight}>
+                                        <Text size="sm" color="#1F2937" style={{ marginRight: 4 }}>
+                                            {reward.points}
+                                        </Text>
+                                        <ChevronRight size={16} color="#9CA3AF" />
+                                    </View>
+                                </TouchableOpacity>
+                            ))}
+                        </View>
                     </View>
                 </View>
-            </ScrollView>
+            </Animated.ScrollView>
         </View>
     );
 }
@@ -419,17 +482,19 @@ const styles = StyleSheet.create({
         paddingTop: 10,
     },
     cardSection: {
-        marginBottom: 40,
-        height: 460,
+        marginBottom: 10,
+        height: 300,
         alignItems: 'center',
         justifyContent: 'center',
+        position: 'relative',
     },
     cardStackContainer: {
         width: CARD_WIDTH,
-        height: CARD_HEIGHT,
+        height: CARD_CONTAINER_HEIGHT,
         position: 'relative',
         alignItems: 'center',
         justifyContent: 'center',
+        overflow: 'visible',
     },
     cardWrapper: {
         width: CARD_WIDTH,
@@ -441,9 +506,12 @@ const styles = StyleSheet.create({
         height: '100%',
     },
     pagination: {
+        position: 'absolute',
+        bottom: 10,
+        left: 0,
+        right: 0,
         flexDirection: 'row',
         justifyContent: 'center',
-        marginTop: 20,
         gap: 6,
     },
     dot: {
@@ -463,7 +531,7 @@ const styles = StyleSheet.create({
         marginBottom: 16,
     },
     activityList: {
-        backgroundColor: 'rgba(255,255,255,0.05)',
+        backgroundColor: 'rgba(255,255,255,0.9)',
         borderRadius: 16,
         padding: 4,
     },
@@ -472,7 +540,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         padding: 16,
         borderBottomWidth: 1,
-        borderBottomColor: 'rgba(255,255,255,0.1)',
+        borderBottomColor: 'rgba(0,0,0,0.05)',
     },
     lastItem: {
         borderBottomWidth: 0,
@@ -493,6 +561,11 @@ const styles = StyleSheet.create({
         alignItems: 'flex-end',
         gap: 2,
     },
+    rewardsContainer: {
+        backgroundColor: 'rgba(255,255,255,0.9)',
+        borderRadius: 16,
+        padding: 16,
+    },
     rewardsHeader: {
         flexDirection: 'row',
         justifyContent: 'space-between',
@@ -511,7 +584,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         paddingVertical: 12,
         borderBottomWidth: 1,
-        borderBottomColor: 'rgba(255,255,255,0.1)',
+        borderBottomColor: 'rgba(0,0,0,0.05)',
     },
     rewardLeft: {
         flexDirection: 'row',

@@ -67,6 +67,13 @@ export const SHARED_GRADIENT_CONFIGS: GradientConfig[] = [
     { startX: 0.4, startY: 0.0, endX: 0.6, endY: 1.0, colors: DEFAULT_GRADIENT_COLORS },    // Index 15
     { startX: 0.0, startY: 0.5, endX: 1.0, endY: 0.5, colors: DEFAULT_GRADIENT_COLORS },    // Index 16
     { startX: 0.5, startY: 0.2, endX: 0.5, endY: 0.8, colors: DEFAULT_GRADIENT_COLORS },    // Index 17
+    // Light/white-appearing configurations - spread gradient widely to emphasize middle color
+    { startX: 0.0, startY: 0.0, endX: 1.0, endY: 1.0, colors: DEFAULT_GRADIENT_COLORS },    // Index 18 - Full diagonal spread
+    { startX: 0.2, startY: 0.0, endX: 0.8, endY: 1.0, colors: DEFAULT_GRADIENT_COLORS },    // Index 19 - Wide vertical spread
+    { startX: 0.0, startY: 0.3, endX: 1.0, endY: 0.7, colors: DEFAULT_GRADIENT_COLORS },    // Index 20 - Horizontal spread with vertical offset
+    // Solid color configurations - use minimal gradient span to show single color
+    { startX: 0.5, startY: 0.5, endX: 0.5001, endY: 0.5001, colors: DEFAULT_GRADIENT_COLORS },    // Index 21 - All white (minimal gradient shows middle color)
+    { startX: 0.0, startY: 0.0, endX: 0.0001, endY: 0.0001, colors: DEFAULT_GRADIENT_COLORS },    // Index 22 - All blue (minimal gradient at edge shows first blue color)
 ];
 
 interface AnimatedGradientBackgroundProps {
