@@ -1,22 +1,27 @@
 /**
  * ActivityRewardsScreen
  *
- * PURPOSE: Component for displaying payments, transaction history, and rewards.
- *          Redesigned with a dynamic Tinder-style swipeable card stack.
+ * PURPOSE: Main screen for managing payment methods, viewing transaction history, and tracking rewards.
+ *          Features a Tinder-style swipeable card stack and a scroll-driven background gradient.
  *
  * USED IN: app/payments.tsx
+ *
+ * EXAMPLE:
+ *   <ActivityRewardsScreen />
  *
  * OWNER: Daniel Chelala
  * TICKET: OTO-XXX
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useMemo } from 'react';
 import {
     Dimensions,
     Image,
     StyleSheet,
     TouchableOpacity,
     View,
+    Modal,
+    TouchableWithoutFeedback,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -32,7 +37,9 @@ import {
     ChevronRight,
     Bell, 
     Receipt, 
-    Ellipsis
+    Ellipsis,
+    Pencil,
+    Trash2
 } from 'lucide-react-native';
 import Animated, { 
     useSharedValue, 
@@ -46,6 +53,7 @@ import Animated, {
     runOnJS,
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import { useShallow } from 'zustand/react/shallow';
 import { 
     Text, 
     BrandColors, 
@@ -54,6 +62,7 @@ import {
     SolidProgressBar,
     GlassCircleButton,
 } from '@/components/shared-ui';
+import { usePaymentStore } from '@/stores/usePaymentStore';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = SCREEN_WIDTH * 1;
@@ -246,8 +255,31 @@ export function ActivityRewardsScreen() {
     const scrollY = useSharedValue(0);
     const bgProgress = useSharedValue(0);
     const currentSegment = useSharedValue(0); // Track segment to avoid redundant updates
-    const [cards, setCards] = useState(INITIAL_CARDS);
+    const { paymentMethods, removePaymentMethod } = usePaymentStore(
+        useShallow((state) => ({
+            paymentMethods: state.paymentMethods,
+            removePaymentMethod: state.removePaymentMethod,
+        }))
+    );
+
+    // Use store cards if they exist, otherwise fallback to initial dummy cards
+    // This allows the "Edit" function to work with real data once added
+    const storeCards = useMemo(() => paymentMethods.map((pm) => ({
+        ...pm,
+        image: require('@/assets/images/payments/realistic-monochromatic-credit-card.png'), // Reuse card image for now
+    })), [paymentMethods]);
+
+    const activeCards = storeCards.length > 0 ? storeCards : INITIAL_CARDS;
+
+    const [cards, setCards] = useState<any[]>(activeCards);
+
+    // Sync local cards state when store changes
+    React.useEffect(() => {
+        setCards(activeCards);
+    }, [storeCards]);
+
     const [currentDotIndex, setCurrentDotIndex] = useState(0);
+    const [isMenuVisible, setIsMenuVisible] = useState(false);
     const [gradientIndices, setGradientIndices] = useState({
         from: GRADIENT_SCROLL_INDICES[0],
         to: GRADIENT_SCROLL_INDICES[1],
@@ -296,7 +328,7 @@ export function ActivityRewardsScreen() {
     });
 
     const onSwipeComplete = useCallback(() => {
-        setCards((prevCards) => {
+        setCards((prevCards: any[]) => {
             const nextCards = [...prevCards];
             const swipedCard = nextCards.shift();
             if (swipedCard) {
@@ -335,12 +367,63 @@ export function ActivityRewardsScreen() {
                     </GlassCircleButton>
                     <GlassCircleButton 
                         size={40} 
-                        onPress={() => console.log('More options')}
+                        onPress={() => setIsMenuVisible(true)}
                     >
                         <Ellipsis size={20} color="#FFF" strokeWidth={2.5} />
                     </GlassCircleButton>
                 </View>
             </View>
+
+            {/* Ellipsis Menu Modal */}
+            <Modal
+                transparent={true}
+                visible={isMenuVisible}
+                onRequestClose={() => setIsMenuVisible(false)}
+                animationType="fade"
+            >
+                <TouchableWithoutFeedback onPress={() => setIsMenuVisible(false)}>
+                    <View style={styles.menuOverlay}>
+                        <View style={[styles.menuContainer, { top: insets.top + 20 }]}>
+                            <View style={styles.menuContent}>
+                                <TouchableOpacity 
+                                    style={styles.menuItem}
+                                    onPress={() => {
+                                        setIsMenuVisible(false);
+                                        // Navigate to AddPaymentScreen in edit mode
+                                        const topCard = cards[0];
+                                        router.push({
+                                            pathname: '/add-payment',
+                                            params: { mode: 'edit', id: topCard.id }
+                                        });
+                                    }}
+                                >
+                                    <View style={styles.menuIconBox}>
+                                        <Pencil size={18} color="#1F2937" />
+                                    </View>
+                                    <Text weight="medium" size="md" color="#1F2937">Edit card</Text>
+                                </TouchableOpacity>
+
+                                <View style={styles.menuSeparator} />
+
+                                <TouchableOpacity 
+                                    style={styles.menuItem}
+                                    onPress={() => {
+                                        setIsMenuVisible(false);
+                                        const topCard = cards[0];
+                                        removePaymentMethod(topCard.id);
+                                        console.log('Delete card');
+                                    }}
+                                >
+                                    <View style={[styles.menuIconBox, { backgroundColor: 'rgba(239, 68, 68, 0.1)' }]}>
+                                        <Trash2 size={18} color="#EF4444" />
+                                    </View>
+                                    <Text weight="medium" size="md" color="#EF4444">Delete card</Text>
+                                </TouchableOpacity>
+                            </View>
+                        </View>
+                    </View>
+                </TouchableWithoutFeedback>
+            </Modal>
 
             <Animated.ScrollView 
                 onScroll={scrollHandler}
@@ -576,6 +659,45 @@ const styles = StyleSheet.create({
     },
     rewardsList: {
         gap: 12,
+    },
+    menuOverlay: {
+        flex: 1,
+        backgroundColor: 'rgba(0,0,0,0.2)',
+    },
+    menuContainer: {
+        position: 'absolute',
+        right: 10,
+        width: 180,
+        borderRadius: 16,
+        backgroundColor: '#FFF',
+        overflow: 'hidden',
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 10 },
+        shadowOpacity: 0.1,
+        shadowRadius: 20,
+        elevation: 10,
+    },
+    menuContent: {
+        padding: 8,
+    },
+    menuItem: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        padding: 12,
+        gap: 12,
+    },
+    menuIconBox: {
+        width: 32,
+        height: 32,
+        borderRadius: 8,
+        backgroundColor: 'rgba(0,0,0,0.05)',
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    menuSeparator: {
+        height: 1,
+        backgroundColor: 'rgba(0,0,0,0.05)',
+        marginHorizontal: 8,
     },
     rewardItem: {
         flexDirection: 'row',

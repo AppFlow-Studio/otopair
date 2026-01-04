@@ -227,7 +227,7 @@ export interface MechanicSchedule {
 // ─────────────────────────────────────────────────────────────
 
 /** Supported payment card brands */
-export type PaymentCardBrand = "mastercard" | "visa" | "amex" | "discover";
+export type PaymentCardBrand = "mastercard" | "visa" | "amex" | "discover" | "generic";
 
 /** Supported digital wallet types */
 export type DigitalWalletType = "apple_pay" | "google_pay";

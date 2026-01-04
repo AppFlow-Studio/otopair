@@ -1,10 +1,18 @@
 /**
  * AddPaymentScreen
  *
- * PURPOSE: Component for adding a new payment method.
- *          Stylized with a static card preview and a modern form.
+ * PURPOSE: Versatile screen for both adding new and editing existing payment methods.
+ *          Includes live card preview, smart brand detection, and validation for expiry dates.
  *
  * USED IN: app/add-payment.tsx
+ *
+ * PARAMS:
+ *   - mode (optional string): "edit" to enable edit mode
+ *   - id (optional string): The unique card identifier when in edit mode
+ *
+ * EXAMPLE:
+ *   router.push('/add-payment') // Add mode
+ *   router.push({ pathname: '/add-payment', params: { mode: 'edit', id: 'card_123' } }) // Edit mode
  *
  * OWNER: Daniel Chelala
  * TICKET: OTO-XXX
@@ -22,7 +30,7 @@ import {
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
 import { 
     ArrowLeft, 
     Check
@@ -42,6 +50,9 @@ import {
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { PaymentIcon } from 'react-native-payment-icons'
 import creditCardType from 'credit-card-type';
+import { useShallow } from 'zustand/react/shallow';
+import { usePaymentStore } from '@/stores/usePaymentStore';
+import type { PaymentCardBrand } from '@/stores/types/store.types';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = SCREEN_WIDTH * 0.9;
@@ -50,20 +61,35 @@ const CARD_HEIGHT = 220;
 export function AddPaymentScreen() {
     const insets = useSafeAreaInsets();
     const router = useRouter();
+    const { mode, id: cardId } = useLocalSearchParams<{ mode: string; id: string }>();
+    const isEditMode = mode === 'edit';
+
+    const { addPaymentMethod, updatePaymentMethod, paymentMethods } = usePaymentStore(
+        useShallow((state) => ({
+            addPaymentMethod: state.addPaymentMethod,
+            updatePaymentMethod: state.updatePaymentMethod,
+            paymentMethods: state.paymentMethods,
+        }))
+    );
+
+    // Find card if in edit mode
+    const existingCard = isEditMode ? paymentMethods.find(pm => pm.id === cardId) : null;
     
     // Background animation progress (static for this screen)
     const bgProgress = useSharedValue(0);
     
     // Form state
-    const [fullName, setFullName] = useState('');
+    const [fullName, setFullName] = useState(existingCard?.cardholderName || '');
     const [cardNumber, setCardNumber] = useState('');
-    const [expiryDate, setExpiryDate] = useState('');
+    const [expiryDate, setExpiryDate] = useState(
+        existingCard ? `${existingCard.expMonth.toString().padStart(2, '0')}/${existingCard.expYear}` : ''
+    );
     const [cvv, setCvv] = useState('');
     const [saveCard, setSaveCard] = useState(true);
     const [agreeTerms, setAgreeTerms] = useState(false);
     
     // Card brand detection state
-    const [cardBrand, setCardBrand] = useState<string>('generic');
+    const [cardBrand, setCardBrand] = useState<string>(existingCard?.brand || 'generic');
     const [cardNiceType, setCardNiceType] = useState<string>('');
     const [cvvLength, setCvvLength] = useState<number>(3);
 
@@ -74,25 +100,33 @@ export function AddPaymentScreen() {
         }
     }, []);
 
+    // Dynamic placeholders
+    const cardNumberPlaceholder = isEditMode && existingCard
+        ? `**** **** **** ${existingCard.last4}`
+        : "0000 0000 0000 0000";
+    
+    const cvvPlaceholder = isEditMode ? '*'.repeat(cvvLength) : '0'.repeat(cvvLength);
+
     // Detect card type when number changes
     const handleCardNumberChange = (text: string) => {
         // Remove all non-digits for detection
         const normalized = text.replace(/\D/g, '');
         
-        // Detect type
+        // Detect type and filter to only supported brands
         const results = creditCardType(normalized);
-        const detected = results.length === 1 ? results[0] : null;
+        const supportedTypes = ['visa', 'mastercard', 'american-express', 'discover'];
+        const supportedResults = results.filter(r => supportedTypes.includes(r.type));
         
-        // Determine max length (default to 19 if no type detected)
-        const maxLength = detected ? detected.lengths[detected.lengths.length - 1] : 19;
+        const detected = supportedResults.length === 1 ? supportedResults[0] : null;
+        
+        // Determine max length (default to 16 if no type detected)
+        const maxLength = detected ? detected.lengths[detected.lengths.length - 1] : 16;
         const trimmed = normalized.slice(0, maxLength);
         
         if (detected) {
             // Map detected type to PaymentIcon keys
             let mappedBrand = detected.type;
             if (mappedBrand === 'american-express') mappedBrand = 'amex';
-            if (mappedBrand === 'diners-club') mappedBrand = 'diners';
-            if (mappedBrand === 'mastercard') mappedBrand = 'mastercard';
             
             setCardBrand(mappedBrand);
             setCardNiceType(detected.niceType);
@@ -112,12 +146,12 @@ export function AddPaymentScreen() {
             formatted += trimmed.slice(lastGap);
             setCardNumber(formatted.trim());
         } else {
-            // Ambiguous or no match
+            // Ambiguous or unsupported match
             setCardBrand('generic');
             setCardNiceType('');
             setCvvLength(3);
             
-            // Simple 4-4-4-4 formatting for generic
+            // Simple 4-4-4-4 formatting
             const genericFormatted = trimmed.replace(/(.{4})/g, '$1 ').trim();
             setCardNumber(genericFormatted);
         }
@@ -165,6 +199,43 @@ export function AddPaymentScreen() {
         setExpiryDate(formatted);
     };
 
+    const handleSave = () => {
+        // Basic validation
+        if (!fullName || (!isEditMode && !cardNumber) || !expiryDate || (!isEditMode && !cvv)) {
+            console.log('Please fill in all fields');
+            return;
+        }
+
+        // Parse expiry date
+        const [month, year] = expiryDate.split('/');
+        
+        // Extract last 4 digits
+        const last4 = cardNumber ? cardNumber.replace(/\s/g, '').slice(-4) : existingCard?.last4 || '';
+
+        const cardData = {
+            brand: cardBrand as PaymentCardBrand,
+            last4,
+            expMonth: parseInt(month),
+            expYear: parseInt(year),
+            cardholderName: fullName,
+        };
+
+        if (isEditMode && cardId) {
+            updatePaymentMethod(cardId, cardData);
+            console.log('Card updated successfully');
+        } else {
+            addPaymentMethod({
+                id: Math.random().toString(36).substr(2, 9), // Simple ID generator
+                ...cardData,
+                isDefault: saveCard,
+                createdAt: new Date().toISOString(),
+            });
+            console.log('Card added successfully');
+        }
+
+        router.back();
+    };
+
     return (
         <View style={styles.container}>
             {/* Background Gradient */}
@@ -185,7 +256,9 @@ export function AddPaymentScreen() {
                 >
                     <ArrowLeft size={20} color="#FFF" strokeWidth={2.5} />
                 </GlassCircleButton>
-                <Text weight="semiBold" size="xl" color="#FFF" style={styles.headerTitle}>Add New Payment</Text>
+                <Text weight="semiBold" size="xl" color="#FFF" style={styles.headerTitle}>
+                    {isEditMode ? 'Edit Payment Method' : 'Add Payment Method'}
+                </Text>
                 <View style={{ width: 40 }} />
             </View>
 
@@ -235,9 +308,9 @@ export function AddPaymentScreen() {
                             <Input
                                 value={cardNumber}
                                 onChangeText={handleCardNumberChange}
-                                placeholder="0000 0000 0000 0000"
+                                placeholder={cardNumberPlaceholder}
                                 keyboardType="numeric"
-                                rightElement={cardNiceType ? <Text weight="bold" color="#2563EB" style={{ marginRight: 8 }}>{cardNiceType.toUpperCase()}</Text> : undefined}
+                                rightElement={cardNiceType ? <Text weight="bold" color="#2563EB" style={{ marginRight: 8 }}>{cardNiceType.toUpperCase()}</Text> : null}
                             />
                         </View>
 
@@ -258,37 +331,51 @@ export function AddPaymentScreen() {
                                 <Input
                                     value={cvv}
                                     onChangeText={(text) => setCvv(text.replace(/\D/g, '').slice(0, cvvLength))}
-                                    placeholder={'0'.repeat(cvvLength)}
+                                    placeholder={cvvPlaceholder}
                                     keyboardType="numeric"
                                     maxLength={cvvLength}
                                 />
                             </View>
                         </View>
 
-                        {/* Checkboxes */}
-                        <TouchableOpacity 
-                            style={styles.checkboxRow}
-                            onPress={() => setSaveCard(!saveCard)}
-                            activeOpacity={0.7}
-                        >
-                            <View style={[styles.checkbox, saveCard ? styles.checkboxActive : null]}>{saveCard ? <Check size={12} color="#FFF" strokeWidth={3} /> : null}</View><Text size="sm" color="#4B5563">Save card info</Text>
-                        </TouchableOpacity>
+                        {/* Checkboxes - only in add mode */}
+                        {!isEditMode ? (
+                            <>
+                                <TouchableOpacity 
+                                    style={styles.checkboxRow}
+                                    onPress={() => setSaveCard(!saveCard)}
+                                    activeOpacity={0.7}
+                                >
+                                    <View style={[styles.checkbox, saveCard ? styles.checkboxActive : null]}>{saveCard ? <Check size={12} color="#FFF" strokeWidth={3} /> : null}</View><Text size="sm" color="#4B5563">Save card info</Text>
+                                </TouchableOpacity>
 
-                        <TouchableOpacity 
-                            style={styles.checkboxRow}
-                            onPress={() => setAgreeTerms(!agreeTerms)}
-                            activeOpacity={0.7}
-                        >
-                            <View style={[styles.checkbox, agreeTerms ? styles.checkboxActive : null]}>{agreeTerms ? <Check size={12} color="#FFF" strokeWidth={3} /> : null}</View><Text size="sm" color="#4B5563">Agree to <Text color="#3B82F6" weight="medium">terms and conditions</Text></Text>
-                        </TouchableOpacity>
+                                <TouchableOpacity 
+                                    style={styles.checkboxRow}
+                                    onPress={() => setAgreeTerms(!agreeTerms)}
+                                    activeOpacity={0.7}
+                                >
+                                    <View style={[styles.checkbox, agreeTerms ? styles.checkboxActive : null]}>{agreeTerms ? <Check size={12} color="#FFF" strokeWidth={3} /> : null}</View><Text size="sm" color="#4B5563">Agree to <Text color="#3B82F6" weight="medium">terms and conditions</Text></Text>
+                                </TouchableOpacity>
+                            </>
+                        ) : null}
 
                         {/* Submit Button */}
-                        <PrimaryButton 
-                            style={styles.submitButton}
-                            onPress={() => console.log('Add Card')}
-                        >
-                            Add Card
-                        </PrimaryButton>
+                        <View style={styles.buttonRow}>
+                            {isEditMode ? (
+                                <TouchableOpacity 
+                                    style={styles.discardButton}
+                                    onPress={() => router.back()}
+                                >
+                                    <Text weight="bold" color="#FFF">Discard</Text>
+                                </TouchableOpacity>
+                            ) : null}
+                            <PrimaryButton 
+                                style={[styles.submitButton, isEditMode && { marginTop: 0 }]}
+                                onPress={handleSave}
+                            >
+                                {isEditMode ? 'Save Changes' : 'Add Card'}
+                            </PrimaryButton>
+                        </View>
                     </View>
                 </ScrollView>
             </KeyboardAvoidingView>
@@ -386,10 +473,24 @@ const styles = StyleSheet.create({
         backgroundColor: '#3B82F6',
     },
     submitButton: {
+        flex: 1,
         marginTop: 10,
         height: 56,
         borderRadius: 16,
         backgroundColor: '#111827', // Very dark blue/black like in the screenshot
+    },
+    buttonRow: {
+        flexDirection: 'row',
+        gap: 12,
+        marginTop: 10,
+    },
+    discardButton: {
+        flex: 0.4,
+        height: 56,
+        borderRadius: 16,
+        backgroundColor: '#EF4444', // Red color for discard
+        alignItems: 'center',
+        justifyContent: 'center',
     },
 });
 
