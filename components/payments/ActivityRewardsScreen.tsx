@@ -51,6 +51,7 @@ import Animated, {
     withTiming,
     withDecay,
     runOnJS,
+    SharedValue,
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useShallow } from 'zustand/react/shallow';
@@ -88,45 +89,6 @@ const INITIAL_CARDS = [
     { id: '3', image: require('@/assets/images/payments/realistic-monochromatic-credit-card.png') },
 ];
 
-const RECENT_ACTIVITY = [
-    {
-        id: '1',
-        title: 'Oil Change',
-        shop: 'Union Square Motors',
-        amount: '$129.00',
-        date: 'April 24',
-        icon: Droplet,
-        iconColor: '#FACC15', // Yellow
-    },
-    {
-        id: '2',
-        title: 'Brake Fluid Flush',
-        shop: 'Atelier Motors',
-        amount: '$279.00',
-        date: 'April 18',
-        icon: Percent,
-        iconColor: '#9CA3AF', // Gray
-    },
-    {
-        id: '3',
-        title: 'Wheel Alignment',
-        shop: 'South Bay Motors',
-        amount: '$279.00',
-        date: 'April 12',
-        icon: Target,
-        iconColor: '#9CA3AF',
-    },
-    {
-        id: '4',
-        title: 'Wheel Alignment',
-        shop: 'South Bay Motors',
-        amount: '$279.00',
-        date: 'April 4',
-        icon: Target,
-        iconColor: '#9CA3AF',
-    },
-];
-
 const REWARDS = [
     { id: '1', title: 'Free Oil Change', points: '320 pts', icon: Droplet, iconColor: '#FACC15' },
     { id: '2', title: 'Free Diagnostic', points: '150 pts', icon: Wrench, iconColor: '#9CA3AF' },
@@ -137,17 +99,33 @@ const CURRENT_POINTS = 420;
 const MAX_POINTS = 500;
 
 // ============================================================================
+// HELPERS
+// ============================================================================
+
+const getIconComponent = (name: string) => {
+    switch (name) {
+        case 'droplet': return Droplet;
+        case 'percent': return Percent;
+        case 'target': return Target;
+        case 'car': return Car;
+        case 'wrench': return Wrench;
+        default: return Receipt;
+    }
+};
+
+// ============================================================================
 // DYNAMIC CARD ITEM
 // ============================================================================
 
 interface CardProps {
-    card: typeof INITIAL_CARDS[0];
+    card: any;
     index: number;
     totalCards: number;
-    onSwipeComplete: () => void;
+    onSwipeComplete: (direction: 'left' | 'right') => void;
+    onSwipeUpdate: (x: number) => void;
 }
 
-const CardItem = ({ card, index, totalCards, onSwipeComplete }: CardProps) => {
+const CardItem = ({ card, index, totalCards, onSwipeComplete, onSwipeUpdate }: CardProps) => {
     const transformX = useSharedValue(0);
     const transformY = useSharedValue(0);
     const opacity = useSharedValue(1);
@@ -160,19 +138,21 @@ const CardItem = ({ card, index, totalCards, onSwipeComplete }: CardProps) => {
     const resetFunction = useCallback((finished?: boolean) => {
         'worklet';
         if (finished) {
+            const direction = transformX.value < 0 ? 'left' : 'right';
             opacity.value = 0;
             transformX.value = 0;
             transformY.value = 0;
-            runOnJS(onSwipeComplete)();
+            runOnJS(onSwipeComplete)(direction);
             opacity.value = withTiming(1, { duration: 400 });
         }
     }, [onSwipeComplete]);
 
     const gesture = Gesture.Pan()
-        .enabled(index === 0) // Only top card is swipeable
+        .enabled(index === 0)
         .onUpdate((e) => {
             transformX.value = e.translationX;
             transformY.value = e.translationY;
+            runOnJS(onSwipeUpdate)(e.translationX);
         })
         .onEnd((e) => {
             const isLeftSwipe = transformX.value < -100;
@@ -193,15 +173,13 @@ const CardItem = ({ card, index, totalCards, onSwipeComplete }: CardProps) => {
                 opacity.value = withSpring(1, SPRING_CONFIG);
                 transformX.value = withSpring(0, SPRING_CONFIG);
                 transformY.value = withSpring(0, SPRING_CONFIG);
+                runOnJS(onSwipeUpdate)(0);
             }
         });
 
     const animatedStyle = useAnimatedStyle(() => {
-        // Visual stack logic for cards behind the top one
         const stackOffset = 10;
         const stackScale = 0.05;
-        
-        // Dynamic rotation during swipe
         const rotateValue = transformX.value / 20;
         
         if (index === 0) {
@@ -216,7 +194,6 @@ const CardItem = ({ card, index, totalCards, onSwipeComplete }: CardProps) => {
             };
         }
 
-        // Static stack position for background cards
         return {
             opacity: withSpring(1 - index * 0.2, SPRING_CONFIG),
             zIndex: 100 - index,
@@ -255,10 +232,15 @@ export function ActivityRewardsScreen() {
     const scrollY = useSharedValue(0);
     const bgProgress = useSharedValue(0);
     const currentSegment = useSharedValue(0); // Track segment to avoid redundant updates
-    const { paymentMethods, removePaymentMethod } = usePaymentStore(
+    
+    // Dedicated animation value for the activity list (separate from card position)
+    const activitySwipeX = useSharedValue(0);
+
+    const { paymentMethods, removePaymentMethod, transactions } = usePaymentStore(
         useShallow((state) => ({
             paymentMethods: state.paymentMethods,
             removePaymentMethod: state.removePaymentMethod,
+            transactions: state.transactions,
         }))
     );
 
@@ -272,6 +254,12 @@ export function ActivityRewardsScreen() {
     const activeCards = storeCards.length > 0 ? storeCards : INITIAL_CARDS;
 
     const [cards, setCards] = useState<any[]>(activeCards);
+
+    // Filter transactions for the top card
+    const topCardId = cards[0]?.id;
+    const filteredTransactions = useMemo(() => {
+        return transactions.filter(t => t.paymentMethodId === topCardId);
+    }, [transactions, topCardId]);
 
     // Sync local cards state when store changes
     React.useEffect(() => {
@@ -327,7 +315,11 @@ export function ActivityRewardsScreen() {
         },
     });
 
-    const onSwipeComplete = useCallback(() => {
+    const onSwipeUpdate = useCallback((x: number) => {
+        activitySwipeX.value = x;
+    }, [activitySwipeX]);
+
+    const onSwipeComplete = useCallback((direction: 'left' | 'right') => {
         setCards((prevCards: any[]) => {
             const nextCards = [...prevCards];
             const swipedCard = nextCards.shift();
@@ -337,7 +329,34 @@ export function ActivityRewardsScreen() {
             return nextCards;
         });
         setCurrentDotIndex((prev) => (prev + 1) % INITIAL_CARDS.length);
-    }, []);
+
+        // SYNC ANIMATION: Snap the LIST to the other side and slide it back in.
+        // The cards themselves remain stationary in the stack.
+        const snapOffset = direction === 'left' ? SCREEN_WIDTH * 0.5 : -SCREEN_WIDTH * 0.5;
+        activitySwipeX.value = snapOffset;
+        activitySwipeX.value = withSpring(0, SPRING_CONFIG);
+    }, [activitySwipeX]);
+
+    // ANIMATED STYLE: Recent Activity section follows the card swipe
+    const animatedActivityStyle = useAnimatedStyle(() => {
+        const opacity = interpolate(
+            Math.abs(activitySwipeX.value),
+            [0, SCREEN_WIDTH * 0.4],
+            [1, 0],
+            Extrapolation.CLAMP
+        );
+        
+        const translateX = interpolate(
+            activitySwipeX.value,
+            [-SCREEN_WIDTH, 0, SCREEN_WIDTH],
+            [-60, 0, 60] // Subtle movement compared to the card
+        );
+
+        return {
+            opacity,
+            transform: [{ translateX }],
+        };
+    });
 
     return (
         <View style={styles.container}>
@@ -441,6 +460,7 @@ export function ActivityRewardsScreen() {
                                 index={index}
                                 totalCards={cards.length}
                                 onSwipeComplete={onSwipeComplete}
+                                onSwipeUpdate={onSwipeUpdate}
                             />
                         ))}
                     </View>
@@ -460,34 +480,42 @@ export function ActivityRewardsScreen() {
                 </View>
 
                 {/* Recent Activity */}
-                <View style={styles.section}>
+                <Animated.View style={[styles.section, animatedActivityStyle]}>
                     <Text weight="bold" size="lg" color="#1F2937" style={styles.sectionTitle}>
                         Recent Activity
                     </Text>
                     
                     <View style={styles.activityList}>
-                        {RECENT_ACTIVITY.map((item, index) => (
-                            <View key={item.id} style={[
-                                styles.activityItem,
-                                index === RECENT_ACTIVITY.length - 1 && styles.lastItem
-                            ]}>
-                                <View style={[styles.iconBox, { backgroundColor: 'rgba(0,0,0,0.05)' }]}>
-                                    <item.icon size={20} color={item.iconColor} />
+                        {filteredTransactions.map((item, index) => {
+                            const IconComponent = getIconComponent(item.iconName);
+                            return (
+                                <View key={item.id} style={[
+                                    styles.activityItem,
+                                    index === filteredTransactions.length - 1 && styles.lastItem
+                                ]}>
+                                    <View style={[styles.iconBox, { backgroundColor: 'rgba(0,0,0,0.05)' }]}>
+                                        <IconComponent size={20} color={item.iconColor} />
+                                    </View>
+                                    
+                                    <View style={styles.activityInfo}>
+                                        <Text weight="semiBold" size="md" color="#1F2937">{item.title}</Text>
+                                        <Text size="sm" color="#6B7280">{item.shopName}</Text>
+                                    </View>
+                                    
+                                    <View style={styles.activityRight}>
+                                        <Text weight="semiBold" size="md" color="#1F2937">{item.amount}</Text>
+                                        <Text size="xs" color="#6B7280">{item.date}</Text>
+                                    </View>
                                 </View>
-                                
-                                <View style={styles.activityInfo}>
-                                    <Text weight="semiBold" size="md" color="#1F2937">{item.title}</Text>
-                                    <Text size="sm" color="#6B7280">{item.shop}</Text>
-                                </View>
-                                
-                                <View style={styles.activityRight}>
-                                    <Text weight="semiBold" size="md" color="#1F2937">{item.amount}</Text>
-                                    <Text size="xs" color="#6B7280">{item.date}</Text>
-                                </View>
+                            );
+                        })}
+                        {filteredTransactions.length === 0 && (
+                            <View style={styles.emptyActivity}>
+                                <Text size="sm" color="#6B7280">No recent activity for this card.</Text>
                             </View>
-                        ))}
+                        )}
                     </View>
-                </View>
+                </Animated.View>
 
                 {/* Rewards */}
                 <View style={styles.section}>
@@ -616,6 +644,11 @@ const styles = StyleSheet.create({
         backgroundColor: 'rgba(255,255,255,0.9)',
         borderRadius: 16,
         padding: 4,
+    },
+    emptyActivity: {
+        padding: 24,
+        alignItems: 'center',
+        justifyContent: 'center',
     },
     activityItem: {
         flexDirection: 'row',

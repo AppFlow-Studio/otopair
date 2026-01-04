@@ -8,11 +8,12 @@
  * RELATIONSHIPS:
  *   - PaymentMethod belongs to User
  *
- * OWNER: Waleed Mansour
+ * OWNER: Waleed Mansour, Daniel Chelala
  */
 
 import { create } from "zustand";
-import type { PaymentMethod } from "./types/store.types";
+import type { PaymentMethod, Transaction } from "./types/store.types";
+import { MOCK_TRANSACTIONS } from "./data/mockTransactions";
 
 // ─────────────────────────────────────────────────────────────
 // STORE STATE INTERFACE
@@ -22,6 +23,8 @@ interface PaymentState {
   // ═══════════════ STATE ═══════════════
   /** All saved payment methods */
   paymentMethods: PaymentMethod[];
+  /** All transactions / recent activity */
+  transactions: Transaction[];
   /** Currently selected payment method ID for checkout */
   selectedPaymentMethodId: string | null;
   /** Loading state for payment operations */
@@ -63,6 +66,7 @@ interface PaymentState {
 export const usePaymentStore = create<PaymentState>()((set, get) => ({
   // ═══════════════ INITIAL STATE ═══════════════
   paymentMethods: [],
+  transactions: MOCK_TRANSACTIONS,
   selectedPaymentMethodId: null,
   isLoading: false,
   error: null,

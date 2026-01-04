@@ -252,6 +252,26 @@ export interface PaymentMethod {
   createdAt: string;
 }
 
+/** A transaction/recent activity item */
+export interface Transaction {
+  /** Unique identifier */
+  id: string;
+  /** Card ID this transaction belongs to */
+  paymentMethodId: string;
+  /** Transaction title (e.g., "Oil Change") */
+  title: string;
+  /** Shop/Business name */
+  shopName: string;
+  /** Amount spent (formatted string, e.g., "$129.00") */
+  amount: string;
+  /** Date of transaction (e.g., "April 24") */
+  date: string;
+  /** Icon name from Lucide (e.g., "droplet") */
+  iconName: string;
+  /** Icon color (e.g., "#FACC15") */
+  iconColor: string;
+}
+
 /** Scheduled appointment date/time for a booking */
 export interface ScheduledAppointment {
   /** Selected date (ISO string format YYYY-MM-DD) */
