@@ -3,7 +3,7 @@
  *
  * PURPOSE: Render a solid progress bar with customizable fill based on current/max values.
  *
- * USED IN: PaymentsScreen (Rewards section), and anywhere a continuous progress indicator is needed.
+ * USED IN: ActivityRewardsScreen (Rewards section), and anywhere a continuous progress indicator is needed.
  *
  * PROPS:
  *   - current (number): Current progress value.

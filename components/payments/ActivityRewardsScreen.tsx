@@ -1,5 +1,5 @@
 /**
- * PaymentsScreen
+ * ActivityRewardsScreen
  *
  * PURPOSE: Component for displaying payments, transaction history, and rewards.
  *          Redesigned with a dynamic Tinder-style swipeable card stack.
@@ -240,7 +240,7 @@ const GRADIENT_SCROLL_INDICES = [0, 3, 6, 9];
 // Scroll distance (in px) for each gradient transition
 const SCROLL_PER_TRANSITION = 300;
 
-export function PaymentsScreen() {
+export function ActivityRewardsScreen() {
     const insets = useSafeAreaInsets();
     const router = useRouter();
     const scrollY = useSharedValue(0);
@@ -325,17 +325,14 @@ export function PaymentsScreen() {
                 <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
                     <ArrowLeft size={24} color="#FFF" />
                 </TouchableOpacity>
-                <Text weight="semiBold" size="xl" color="#FFF" style={styles.headerTitle}>
-                    Payment Methods
-                </Text>
+                <Text weight="semiBold" size="xl" color="#FFF" style={styles.headerTitle}>Payment Methods</Text>
                 <View style={styles.headerRight}>
                     <GlassCircleButton 
                         size={40} 
-                        onPress={() => console.log('Add payment')}
+                        onPress={() => router.push('/add-payment')}
                     >
                         <Plus size={20} color="#FFF" strokeWidth={2.5} />
                     </GlassCircleButton>
-                    
                     <GlassCircleButton 
                         size={40} 
                         onPress={() => console.log('More options')}
@@ -598,4 +595,4 @@ const styles = StyleSheet.create({
     },
 });
 
-export default PaymentsScreen;
+export default ActivityRewardsScreen;

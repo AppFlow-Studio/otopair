@@ -12,13 +12,13 @@
  */
 
 import React from 'react';
-import { PaymentsScreen } from '@/components/payments/PaymentsScreen';
+import { ActivityRewardsScreen } from '@/components/payments/ActivityRewardsScreen';
 
 export const options = {
     headerShown: false,
 };
 
-export default function PaymentMethodsScreen() {
-    return <PaymentsScreen />;
+export default function ActivityAndRewardsScreen() {
+    return <ActivityRewardsScreen />;
 }
 
