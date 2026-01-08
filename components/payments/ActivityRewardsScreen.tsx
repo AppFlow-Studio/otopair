@@ -13,7 +13,7 @@
  * TICKET: OTO-XXX
  */
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import {
     Dimensions,
     Image,
@@ -39,6 +39,7 @@ import {
     Receipt, 
     Ellipsis,
     Pencil,
+    Star,
     Trash2,
     Clock
 } from 'lucide-react-native';
@@ -68,9 +69,12 @@ import {
 import { usePaymentStore } from '@/stores/usePaymentStore';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const OFFSET = 40; // Peek space on each side - larger for visible peek effect
-const CARD_WIDTH = SCREEN_WIDTH - OFFSET * 2; // Card takes up most of the screen with peek space
-const CARD_HEIGHT = 420; 
+// Parallax carousel layout (mirrors @g:\GitHub\animation\src\animation-parallax-carousel)
+const OFFSET = 40; // side spacing so adjacent card peeks in
+const ITEM_WIDTH = SCREEN_WIDTH - OFFSET * 2;
+const PEEK_OVERLAP = 40; // how much the next card tucks behind the current card (keeps rounded corners visible)
+const SNAP_INTERVAL = ITEM_WIDTH - PEEK_OVERLAP;
+const CARD_HEIGHT = 420;
 const CARD_CONTAINER_HEIGHT = 440;
 
 const SPRING_CONFIG = {
@@ -127,12 +131,14 @@ interface CardProps {
 const CardItem = ({ card, index, scrollX, total }: CardProps) => {
     // Input range for smooth transitions between cards (parallax style)
     const inputRange = [
-        (index - 1) * CARD_WIDTH,
-        index * CARD_WIDTH,
-        (index + 1) * CARD_WIDTH,
+        (index - 1) * SNAP_INTERVAL,
+        index * SNAP_INTERVAL,
+        (index + 1) * SNAP_INTERVAL,
     ];
 
     const animatedStyle = useAnimatedStyle(() => {
+        const distanceFromCenter = Math.abs(scrollX.value - index * SNAP_INTERVAL);
+
         const scale = interpolate(
             scrollX.value,
             inputRange,
@@ -147,10 +153,33 @@ const CardItem = ({ card, index, scrollX, total }: CardProps) => {
             Extrapolation.CLAMP
         );
 
+        // Android-friendly draw order: use zIndex ONLY (no elevation) to avoid rectangular shadows.
+        // Center card should always be on top, neighbors underneath.
+        const zIndex = Math.round(
+            interpolate(
+                distanceFromCenter,
+                [0, SNAP_INTERVAL],
+                [10, 0],
+                Extrapolation.CLAMP
+            )
+        );
+
         return {
             opacity,
             transform: [{ scale }],
+            zIndex,
         };
+    });
+
+    // Subtle parallax movement inside the card (demo-style)
+    const imageParallaxStyle = useAnimatedStyle(() => {
+        const translateX = interpolate(
+            scrollX.value,
+            inputRange,
+            [-ITEM_WIDTH * 0.18, 0, ITEM_WIDTH * 0.28],
+            Extrapolation.CLAMP
+        );
+        return { transform: [{ translateX }] };
     });
 
     return (
@@ -161,16 +190,65 @@ const CardItem = ({ card, index, scrollX, total }: CardProps) => {
                 {
                     // First card gets left margin, last card gets right margin
                     marginLeft: index === 0 ? OFFSET : 0,
-                    marginRight: index === total - 1 ? OFFSET : 0,
+                    // Overlap cards so the "peek" stays within the screen (keeps rounded corners)
+                    marginRight: index === total - 1 ? OFFSET : -PEEK_OVERLAP,
                 }
             ]}
         >
-            <Image 
-                source={card.image} 
-                style={styles.cardImage}
-                resizeMode="contain"
-            />
+            {card?.isDefault ? (
+                <View style={styles.defaultBadge}>
+                    <Text weight="semiBold" size="xs" color="#111827">
+                        Default
+                    </Text>
+                </View>
+            ) : null}
+            <Animated.View style={imageParallaxStyle}>
+                <Image
+                    source={card.image}
+                    style={styles.cardImage}
+                    resizeMode="contain"
+                />
+            </Animated.View>
         </Animated.View>
+    );
+};
+
+// ============================================================================
+// PARALLAX PAGINATION (demo-style)
+// ============================================================================
+
+const PaginationDot = ({ index, scrollX }: { index: number; scrollX: SharedValue<number> }) => {
+    const animatedDotStyle = useAnimatedStyle(() => {
+        const widthAnimation = interpolate(
+            scrollX.value,
+            [(index - 1) * SNAP_INTERVAL, index * SNAP_INTERVAL, (index + 1) * SNAP_INTERVAL],
+            [8, 18, 8],
+            Extrapolation.CLAMP
+        );
+
+        const opacityAnimation = interpolate(
+            scrollX.value,
+            [(index - 1) * SNAP_INTERVAL, index * SNAP_INTERVAL, (index + 1) * SNAP_INTERVAL],
+            [0.45, 1, 0.45],
+            Extrapolation.CLAMP
+        );
+
+        return {
+            width: widthAnimation,
+            opacity: opacityAnimation,
+        };
+    });
+
+    return <Animated.View style={[styles.dot, animatedDotStyle]} />;
+};
+
+const ParallaxCarouselPagination = ({ count, scrollX }: { count: number; scrollX: SharedValue<number> }) => {
+    return (
+        <View style={styles.pagination}>
+            {Array.from({ length: count }).map((_, index) => (
+                <PaginationDot key={index} index={index} scrollX={scrollX} />
+            ))}
+        </View>
     );
 };
 
@@ -192,24 +270,90 @@ export function ActivityRewardsScreen() {
     
     // Carousel and Activity sync
     const cardScrollX = useSharedValue(0);
+    const cardScrollRef = useRef<any>(null);
+    const pendingDefaultScrollX = useRef<number | null>(null);
 
-    const { paymentMethods, removePaymentMethod, transactions } = usePaymentStore(
+    const { paymentMethods, removePaymentMethod, setDefaultPaymentMethod, transactions } = usePaymentStore(
         useShallow((state) => ({
             paymentMethods: state.paymentMethods,
             removePaymentMethod: state.removePaymentMethod,
+            setDefaultPaymentMethod: state.setDefaultPaymentMethod,
             transactions: state.transactions,
         }))
     );
 
-    const storeCards = useMemo(() => paymentMethods.map((pm) => ({
-        ...pm,
-        image: require('@/assets/images/payments/realistic-monochromatic-credit-card.png'), // Reuse card image for now
-    })), [paymentMethods]);
+    const storeCards = useMemo(
+        () =>
+            paymentMethods.map((pm) => {
+                // Image is assigned at card creation time (pm.imageKey). Fallback to mono_1.
+                const image =
+                    pm.imageKey === "mono_2"
+                        ? require('@/assets/images/payments/realistic-monochromatic-credit-card_2.png')
+                        : require('@/assets/images/payments/realistic-monochromatic-credit-card.png');
+
+                return { ...pm, image };
+            }),
+        [paymentMethods]
+    );
 
     const activeCards = storeCards;
     const hasCards = activeCards.length > 0;
 
     const [currentDotIndex, setCurrentDotIndex] = useState(0);
+    const defaultCardIndex = useMemo(() => {
+        const idx = activeCards.findIndex((c) => c.isDefault);
+        return idx >= 0 ? idx : 0;
+    }, [activeCards]);
+
+    const defaultCardId = useMemo(() => {
+        return activeCards[defaultCardIndex]?.id ?? null;
+    }, [activeCards, defaultCardIndex]);
+
+    const didInitialDefaultScroll = useRef(false);
+    const prevDefaultId = useRef<string | null>(null);
+
+    const scrollToCardX = useCallback(
+        (x: number) => {
+            cardScrollX.value = x;
+            requestAnimationFrame(() => {
+                cardScrollRef.current?.scrollTo?.({ x, y: 0, animated: false });
+            });
+        },
+        [cardScrollX]
+    );
+
+    // On first mount (and whenever the default changes), scroll to the default card.
+    useEffect(() => {
+        if (!hasCards) {
+            didInitialDefaultScroll.current = false;
+            prevDefaultId.current = null;
+            pendingDefaultScrollX.current = null;
+            return;
+        }
+
+        const shouldScroll =
+            !didInitialDefaultScroll.current || (!!defaultCardId && defaultCardId !== prevDefaultId.current);
+
+        if (!shouldScroll) return;
+
+        didInitialDefaultScroll.current = true;
+        prevDefaultId.current = defaultCardId;
+
+        setCurrentDotIndex(defaultCardIndex);
+        const targetX = defaultCardIndex * SNAP_INTERVAL;
+        pendingDefaultScrollX.current = targetX;
+        scrollToCardX(targetX);
+    }, [hasCards, defaultCardId, defaultCardIndex, scrollToCardX]);
+
+    // If a new default card was just added to the END, the first scrollTo can clamp to the old
+    // max content width. Retry once the ScrollView content size updates.
+    const handleCarouselContentSizeChange = useCallback(() => {
+        if (pendingDefaultScrollX.current == null) return;
+        const x = pendingDefaultScrollX.current;
+        pendingDefaultScrollX.current = null;
+        scrollToCardX(x);
+    }, [scrollToCardX]);
+
     const [isMenuVisible, setIsMenuVisible] = useState(false);
     const [gradientIndices, setGradientIndices] = useState({
         from: GRADIENT_SCROLL_INDICES[0],
@@ -262,7 +406,7 @@ export function ActivityRewardsScreen() {
     const cardScrollHandler = useAnimatedScrollHandler({
         onScroll: (event) => {
             cardScrollX.value = event.contentOffset.x;
-            const index = Math.round(event.contentOffset.x / CARD_WIDTH);
+            const index = Math.round(event.contentOffset.x / SNAP_INTERVAL);
             runOnJS(setCurrentDotIndex)(index);
         },
     });
@@ -277,7 +421,7 @@ export function ActivityRewardsScreen() {
     // ANIMATED STYLE: Recent Activity section follows the card carousel scroll
     const animatedActivityStyle = useAnimatedStyle(() => {
         // Calculate progress within current card
-        const position = cardScrollX.value / CARD_WIDTH;
+        const position = cardScrollX.value / SNAP_INTERVAL;
         const index = Math.floor(position);
         const progress = position - index; // 0 to 1
 
@@ -376,6 +520,27 @@ export function ActivityRewardsScreen() {
                                     <Text weight="medium" size="md" color="#1F2937">Edit card</Text>
                                 </TouchableOpacity>
 
+                                {activeCards[currentDotIndex] && !activeCards[currentDotIndex].isDefault ? (
+                                    <>
+                                        <View style={styles.menuSeparator} />
+                                        <TouchableOpacity
+                                            style={styles.menuItem}
+                                            onPress={() => {
+                                                setIsMenuVisible(false);
+                                                const activeCard = activeCards[currentDotIndex];
+                                                setDefaultPaymentMethod(activeCard.id);
+                                            }}
+                                        >
+                                            <View style={styles.menuIconBox}>
+                                                <Star size={18} color="#1F2937" />
+                                            </View>
+                                            <Text weight="medium" size="md" color="#1F2937">
+                                                Set as default
+                                            </Text>
+                                        </TouchableOpacity>
+                                    </>
+                                ) : null}
+
                                 <View style={styles.menuSeparator} />
 
                                 <TouchableOpacity 
@@ -412,11 +577,13 @@ export function ActivityRewardsScreen() {
                                 horizontal
                                 showsHorizontalScrollIndicator={false}
                                 bounces={false}
-                                snapToInterval={CARD_WIDTH}
+                                ref={cardScrollRef}
+                                snapToInterval={SNAP_INTERVAL}
                                 disableIntervalMomentum
                                 decelerationRate="fast"
                                 onScroll={cardScrollHandler}
-                                scrollEventThrottle={16}
+                                onContentSizeChange={handleCarouselContentSizeChange}
+                                scrollEventThrottle={12}
                             >
                                 {activeCards.map((card, index) => (
                                     <CardItem
@@ -429,18 +596,7 @@ export function ActivityRewardsScreen() {
                                 ))}
                             </Animated.ScrollView>
                             
-                            {/* Pagination Dots */}
-                            <View style={styles.pagination}>
-                                {activeCards.map((_, index) => (
-                                    <View 
-                                        key={index} 
-                                        style={[
-                                            styles.dot, 
-                                            index === currentDotIndex && styles.dotActive
-                                        ]} 
-                                    />
-                                ))}
-                            </View>
+                            <ParallaxCarouselPagination count={activeCards.length} scrollX={cardScrollX} />
                         </>
                     ) : (
                         <View style={styles.emptyStateContainer}>
@@ -632,10 +788,11 @@ const styles = StyleSheet.create({
         minWidth: 200,
     },
     cardWrapper: {
-        width: CARD_WIDTH,
+        width: ITEM_WIDTH,
         height: CARD_HEIGHT,
         overflow: 'hidden',
         borderRadius: 14,
+        position: 'relative',
     },
     cardImage: {
         width: '100%',
@@ -659,9 +816,6 @@ const styles = StyleSheet.create({
         height: 8,
         borderRadius: 4,
         backgroundColor: 'rgba(107, 115, 154, 0.8)',
-    },
-    dotActive: {
-        backgroundColor: '#FFF',
     },
     section: {
         marginBottom: 30,
@@ -767,6 +921,16 @@ const styles = StyleSheet.create({
         height: 1,
         backgroundColor: 'rgba(0,0,0,0.05)',
         marginHorizontal: 8,
+    },
+    defaultBadge: {
+        position: 'absolute',
+        top: 12,
+        left: 12,
+        zIndex: 20,
+        paddingHorizontal: 10,
+        paddingVertical: 6,
+        borderRadius: 999,
+        backgroundColor: 'rgba(255,255,255,0.92)',
     },
     rewardItem: {
         flexDirection: 'row',

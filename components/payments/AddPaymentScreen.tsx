@@ -54,7 +54,7 @@ import { PaymentIcon } from 'react-native-payment-icons'
 import creditCardType from 'credit-card-type';
 import { useShallow } from 'zustand/react/shallow';
 import { usePaymentStore } from '@/stores/usePaymentStore';
-import type { PaymentCardBrand } from '@/stores/types/store.types';
+import type { PaymentCardBrand, PaymentCardImageKey } from '@/stores/types/store.types';
 import { TextInput } from 'react-native';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -123,7 +123,13 @@ export function AddPaymentScreen() {
         existingCard ? `${existingCard.expMonth.toString().padStart(2, '0')}/${existingCard.expYear}` : ''
     );
     const [cvv, setCvv] = useState('');
-    const [isDefaultPayment, setIsDefaultPayment] = useState<boolean>(existingCard?.isDefault || true);
+    // Default behavior:
+    // - First card created should be default
+    // - Subsequent cards should NOT be default unless user opts in
+    const isFirstCard = !isEditMode && paymentMethods.length === 0;
+    const [isDefaultPayment, setIsDefaultPayment] = useState<boolean>(
+        isEditMode ? !!existingCard?.isDefault : isFirstCard
+    );
     const [agreeTerms, setAgreeTerms] = useState(false);
     
     // Visibility states
@@ -273,10 +279,14 @@ export function AddPaymentScreen() {
             });
             console.log('Card updated successfully');
         } else {
+            const nextIndex = paymentMethods.length;
+            const imageKey: PaymentCardImageKey = nextIndex % 2 === 0 ? "mono_1" : "mono_2";
+
             addPaymentMethod({
                 id: Math.random().toString(36).substr(2, 9), // Simple ID generator
                 ...cardData,
                 isDefault: isDefaultPayment,
+                imageKey,
                 createdAt: new Date().toISOString(),
             });
             console.log('Card added successfully');
@@ -419,13 +429,25 @@ export function AddPaymentScreen() {
                             <>
                                 <TouchableOpacity 
                                     style={styles.checkboxRow}
-                                    onPress={() => setIsDefaultPayment(!isDefaultPayment)}
+                                    onPress={() => {
+                                        if (isFirstCard) return; // Force default when it's the only card
+                                        setIsDefaultPayment(!isDefaultPayment);
+                                    }}
                                     activeOpacity={0.7}
+                                    disabled={isFirstCard}
                                 >
-                                    <View style={[styles.checkbox, isDefaultPayment ? styles.checkboxActive : null]}>
+                                    <View
+                                        style={[
+                                            styles.checkbox,
+                                            isDefaultPayment ? styles.checkboxActive : null,
+                                            isFirstCard ? styles.checkboxDisabled : null,
+                                        ]}
+                                    >
                                         {isDefaultPayment ? <Check size={12} color="#FFF" strokeWidth={3} /> : null}
                                     </View>
-                                    <Text size="sm" color="#4B5563">Set as default payment method</Text>
+                                    <Text size="sm" color={isFirstCard ? "#9CA3AF" : "#4B5563"}>
+                                        Set as default payment method
+                                    </Text>
                                 </TouchableOpacity>
 
                                 <TouchableOpacity 
@@ -582,6 +604,10 @@ const styles = StyleSheet.create({
     },
     checkboxActive: {
         backgroundColor: '#3B82F6',
+    },
+    checkboxDisabled: {
+        borderColor: '#D1D5DB',
+        backgroundColor: '#D1D5DB',
     },
     submitButton: {
         flex: 1,

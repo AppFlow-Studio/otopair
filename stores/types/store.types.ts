@@ -232,6 +232,9 @@ export type PaymentCardBrand = "mastercard" | "visa" | "amex" | "discover" | "ge
 /** Supported digital wallet types */
 export type DigitalWalletType = "apple_pay" | "google_pay";
 
+/** Supported local card art variants for UI */
+export type PaymentCardImageKey = "mono_1" | "mono_2";
+
 /** A saved payment method (credit/debit card) */
 export interface PaymentMethod {
   /** Unique identifier */
@@ -248,6 +251,8 @@ export interface PaymentMethod {
   isDefault: boolean;
   /** Cardholder name (optional) */
   cardholderName?: string;
+  /** Card art to use for this card in the UI */
+  imageKey?: PaymentCardImageKey;
   /** Date when payment method was added */
   createdAt: string;
 }
