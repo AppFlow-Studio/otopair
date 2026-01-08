@@ -39,7 +39,8 @@ import {
     Receipt, 
     Ellipsis,
     Pencil,
-    Trash2
+    Trash2,
+    Clock
 } from 'lucide-react-native';
 import Animated, { 
     useSharedValue, 
@@ -62,6 +63,7 @@ import {
     AnimatedGradientBackground,
     SolidProgressBar,
     GlassCircleButton,
+    FooterButton,
 } from '@/components/shared-ui';
 import { usePaymentStore } from '@/stores/usePaymentStore';
 
@@ -251,9 +253,10 @@ export function ActivityRewardsScreen() {
         image: require('@/assets/images/payments/realistic-monochromatic-credit-card.png'), // Reuse card image for now
     })), [paymentMethods]);
 
-    const activeCards = storeCards.length > 0 ? storeCards : INITIAL_CARDS;
+    const activeCards = storeCards; // No fallback to dummy cards anymore
 
     const [cards, setCards] = useState<any[]>(activeCards);
+    const hasCards = cards.length > 0;
 
     // Filter transactions for the top card
     const topCardId = cards[0]?.id;
@@ -328,7 +331,7 @@ export function ActivityRewardsScreen() {
             }
             return nextCards;
         });
-        setCurrentDotIndex((prev) => (prev + 1) % INITIAL_CARDS.length);
+        setCurrentDotIndex((prev) => (prev + 1) % cards.length);
 
         // SYNC ANIMATION: Snap the LIST to the other side and slide it back in.
         // The cards themselves remain stationary in the stack.
@@ -373,23 +376,33 @@ export function ActivityRewardsScreen() {
 
             {/* Header */}
             <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
-                <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-                    <ArrowLeft size={24} color="#FFF" />
-                </TouchableOpacity>
-                <Text weight="semiBold" size="xl" color="#FFF" style={styles.headerTitle}>Payment Methods</Text>
+                <View style={styles.headerLeft}>
+                    <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+                        <ArrowLeft size={24} color="#FFF" />
+                    </TouchableOpacity>
+                </View>
+                
+                <Text weight="semiBold" size="xl" color="#FFF" style={styles.headerTitle}>
+                    Activity
+                </Text>
+
                 <View style={styles.headerRight}>
-                    <GlassCircleButton 
-                        size={40} 
-                        onPress={() => router.push('/add-payment')}
-                    >
-                        <Plus size={20} color="#FFF" strokeWidth={2.5} />
-                    </GlassCircleButton>
-                    <GlassCircleButton 
-                        size={40} 
-                        onPress={() => setIsMenuVisible(true)}
-                    >
-                        <Ellipsis size={20} color="#FFF" strokeWidth={2.5} />
-                    </GlassCircleButton>
+                    {hasCards && (
+                        <>
+                            <GlassCircleButton 
+                                size={40} 
+                                onPress={() => router.push('/add-payment')}
+                            >
+                                <Plus size={20} color="#FFF" strokeWidth={2.5} />
+                            </GlassCircleButton>
+                            <GlassCircleButton 
+                                size={40} 
+                                onPress={() => setIsMenuVisible(true)}
+                            >
+                                <Ellipsis size={20} color="#FFF" strokeWidth={2.5} />
+                            </GlassCircleButton>
+                        </>
+                    )}
                 </View>
             </View>
 
@@ -450,33 +463,57 @@ export function ActivityRewardsScreen() {
                 showsVerticalScrollIndicator={false}
                 contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 40 }]}
             >
-                {/* Dynamic Stacked Cards */}
-                <View style={styles.cardSection}>
-                    <View style={styles.cardStackContainer}>
-                        {cards.map((card, index) => (
-                            <CardItem
-                                key={card.id}
-                                card={card}
-                                index={index}
-                                totalCards={cards.length}
-                                onSwipeComplete={onSwipeComplete}
-                                onSwipeUpdate={onSwipeUpdate}
+                {/* Dynamic Stacked Cards or Empty State */}
+                <View style={hasCards ? styles.cardSection : styles.emptyCardSection}>
+                    {hasCards ? (
+                        <>
+                            <View style={styles.cardStackContainer}>
+                                {cards.map((card, index) => (
+                                    <CardItem
+                                        key={card.id}
+                                        card={card}
+                                        index={index}
+                                        totalCards={cards.length}
+                                        onSwipeComplete={onSwipeComplete}
+                                        onSwipeUpdate={onSwipeUpdate}
+                                    />
+                                ))}
+                            </View>
+                            
+                            {/* Pagination Dots */}
+                            <View style={styles.pagination}>
+                                {cards.map((_, index) => (
+                                    <View 
+                                        key={index} 
+                                        style={[
+                                            styles.dot, 
+                                            index === currentDotIndex && styles.dotActive
+                                        ]} 
+                                    />
+                                ))}
+                            </View>
+                        </>
+                    ) : (
+                        <View style={styles.emptyStateContainer}>
+                            <Image 
+                                source={require('@/assets/images/payments/empty-wallet.png')}
+                                style={styles.emptyWalletImage}
+                                resizeMode="contain"
                             />
-                        ))}
-                    </View>
-                    
-                    {/* Pagination Dots */}
-                    <View style={styles.pagination}>
-                        {INITIAL_CARDS.map((_, index) => (
-                            <View 
-                                key={index} 
-                                style={[
-                                    styles.dot, 
-                                    index === currentDotIndex && styles.dotActive
-                                ]} 
+                            <Text weight="bold" size="xl" color="#1F2937" style={styles.emptyTitle}>
+                                No Payment Methods
+                            </Text>
+                            <Text size="md" color="#6B7280" style={styles.emptySubtitle}>
+                                Add a credit or debit card to get started.
+                            </Text>
+                            <FooterButton 
+                                label="Add Payment Method"
+                                onPress={() => router.push('/add-payment')}
+                                fullWidth={false}
+                                style={styles.addMethodButton}
                             />
-                        ))}
-                    </View>
+                        </View>
+                    )}
                 </View>
 
                 {/* Recent Activity */}
@@ -486,32 +523,43 @@ export function ActivityRewardsScreen() {
                     </Text>
                     
                     <View style={styles.activityList}>
-                        {filteredTransactions.map((item, index) => {
-                            const IconComponent = getIconComponent(item.iconName);
-                            return (
-                                <View key={item.id} style={[
-                                    styles.activityItem,
-                                    index === filteredTransactions.length - 1 && styles.lastItem
-                                ]}>
-                                    <View style={[styles.iconBox, { backgroundColor: 'rgba(0,0,0,0.05)' }]}>
-                                        <IconComponent size={20} color={item.iconColor} />
+                        {hasCards ? (
+                            <>
+                                {filteredTransactions.map((item, index) => {
+                                    const IconComponent = getIconComponent(item.iconName);
+                                    return (
+                                        <View key={item.id} style={[
+                                            styles.activityItem,
+                                            index === filteredTransactions.length - 1 && styles.lastItem
+                                        ]}>
+                                            <View style={[styles.iconBox, { backgroundColor: 'rgba(0,0,0,0.05)' }]}>
+                                                <IconComponent size={20} color={item.iconColor} />
+                                            </View>
+                                            
+                                            <View style={styles.activityInfo}>
+                                                <Text weight="semiBold" size="md" color="#1F2937">{item.title}</Text>
+                                                <Text size="sm" color="#6B7280">{item.shopName}</Text>
+                                            </View>
+                                            
+                                            <View style={styles.activityRight}>
+                                                <Text weight="semiBold" size="md" color="#1F2937">{item.amount}</Text>
+                                                <Text size="xs" color="#6B7280">{item.date}</Text>
+                                            </View>
+                                        </View>
+                                    );
+                                })}
+                                {filteredTransactions.length === 0 && (
+                                    <View style={styles.emptyActivity}>
+                                        <Text size="sm" color="#6B7280">No recent activity for this card.</Text>
                                     </View>
-                                    
-                                    <View style={styles.activityInfo}>
-                                        <Text weight="semiBold" size="md" color="#1F2937">{item.title}</Text>
-                                        <Text size="sm" color="#6B7280">{item.shopName}</Text>
-                                    </View>
-                                    
-                                    <View style={styles.activityRight}>
-                                        <Text weight="semiBold" size="md" color="#1F2937">{item.amount}</Text>
-                                        <Text size="xs" color="#6B7280">{item.date}</Text>
-                                    </View>
-                                </View>
-                            );
-                        })}
-                        {filteredTransactions.length === 0 && (
-                            <View style={styles.emptyActivity}>
-                                <Text size="sm" color="#6B7280">No recent activity for this card.</Text>
+                                )}
+                            </>
+                        ) : (
+                            <View style={styles.noTransactionsBox}>
+                                <Clock size={20} color="#9CA3AF" />
+                                <Text size="md" color="#6B7280" style={{ marginLeft: 12 }}>
+                                    No recent transactions
+                                </Text>
                             </View>
                         )}
                     </View>
@@ -578,14 +626,19 @@ const styles = StyleSheet.create({
     backButton: {
         padding: 4,
     },
+    headerLeft: {
+        width: 100,
+        alignItems: 'flex-start',
+    },
     headerTitle: {
         flex: 1,
         textAlign: 'center',
-        marginRight: -24, // Offset for back button to center title
     },
     headerRight: {
+        width: 100,
         flexDirection: 'row',
         alignItems: 'center',
+        justifyContent: 'flex-end',
         gap: 12,
     },
     scrollContent: {
@@ -597,6 +650,34 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
         position: 'relative',
+    },
+    emptyCardSection: {
+        marginBottom: 40,
+        paddingTop: 20,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    emptyStateContainer: {
+        alignItems: 'center',
+        justifyContent: 'center',
+        paddingHorizontal: 40,
+    },
+    emptyWalletImage: {
+        width: 280,
+        height: 200,
+        marginBottom: 20,
+    },
+    emptyTitle: {
+        textAlign: 'center',
+        marginBottom: 8,
+    },
+    emptySubtitle: {
+        textAlign: 'center',
+        marginBottom: 24,
+        lineHeight: 22,
+    },
+    addMethodButton: {
+        minWidth: 200,
     },
     cardStackContainer: {
         width: CARD_WIDTH,
@@ -649,6 +730,12 @@ const styles = StyleSheet.create({
         padding: 24,
         alignItems: 'center',
         justifyContent: 'center',
+    },
+    noTransactionsBox: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 40,
     },
     activityItem: {
         flexDirection: 'row',

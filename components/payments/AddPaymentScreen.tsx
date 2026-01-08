@@ -33,7 +33,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { 
     ArrowLeft, 
-    Check
+    Check,
+    Eye,
+    EyeOff
 } from 'lucide-react-native';
 import { 
     useSharedValue, 
@@ -53,10 +55,46 @@ import creditCardType from 'credit-card-type';
 import { useShallow } from 'zustand/react/shallow';
 import { usePaymentStore } from '@/stores/usePaymentStore';
 import type { PaymentCardBrand } from '@/stores/types/store.types';
+import { TextInput } from 'react-native';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const CARD_WIDTH = SCREEN_WIDTH * 0.9;
 const CARD_HEIGHT = 220;
+
+// Local styled input component to match screen aesthetic without modifying shared-ui
+const PaymentInput = ({ 
+    label, 
+    value, 
+    onChangeText, 
+    placeholder, 
+    keyboardType = 'default', 
+    maxLength, 
+    leftElement,
+    rightElement,
+    secureTextEntry = false,
+}: any) => (
+    <View style={styles.inputSpacing}>
+        <Text weight="medium" size="sm" color="#1F2937" style={styles.label}>{label}</Text>
+        <View style={styles.paymentInputContainer}>
+            {leftElement && <View style={styles.leftElement}>{leftElement}</View>}
+            <TextInput
+                value={value}
+                onChangeText={onChangeText}
+                placeholder={placeholder}
+                placeholderTextColor="#9CA3AF"
+                keyboardType={keyboardType}
+                maxLength={maxLength}
+                secureTextEntry={secureTextEntry}
+                autoCorrect={false}
+                spellCheck={false}
+                autoComplete="off"
+                importantForAutofill="no"
+                style={styles.paymentTextInput}
+            />
+            {rightElement && <View style={styles.rightElement}>{rightElement}</View>}
+        </View>
+    </View>
+);
 
 export function AddPaymentScreen() {
     const insets = useSafeAreaInsets();
@@ -85,8 +123,12 @@ export function AddPaymentScreen() {
         existingCard ? `${existingCard.expMonth.toString().padStart(2, '0')}/${existingCard.expYear}` : ''
     );
     const [cvv, setCvv] = useState('');
-    const [saveCard, setSaveCard] = useState(true);
+    const [isDefaultPayment, setIsDefaultPayment] = useState<boolean>(existingCard?.isDefault || true);
     const [agreeTerms, setAgreeTerms] = useState(false);
+    
+    // Visibility states
+    const [isCardNumberVisible, setIsCardNumberVisible] = useState(false);
+    const [isCvvVisible, setIsCvvVisible] = useState(false);
     
     // Card brand detection state
     const [cardBrand, setCardBrand] = useState<string>(existingCard?.brand || 'generic');
@@ -126,10 +168,14 @@ export function AddPaymentScreen() {
         if (detected) {
             // Map detected type to PaymentIcon keys
             let mappedBrand = detected.type;
-            if (mappedBrand === 'american-express') mappedBrand = 'amex';
+            let mappedNiceType = detected.niceType;
+            if (mappedBrand === 'american-express') {
+                mappedBrand = 'amex';
+                mappedNiceType = 'Amex';
+            }
             
             setCardBrand(mappedBrand);
-            setCardNiceType(detected.niceType);
+            setCardNiceType(mappedNiceType);
             setCvvLength(detected.code.size);
             
             // Format with gaps
@@ -221,13 +267,16 @@ export function AddPaymentScreen() {
         };
 
         if (isEditMode && cardId) {
-            updatePaymentMethod(cardId, cardData);
+            updatePaymentMethod(cardId, {
+                ...cardData,
+                isDefault: isDefaultPayment,
+            });
             console.log('Card updated successfully');
         } else {
             addPaymentMethod({
                 id: Math.random().toString(36).substr(2, 9), // Simple ID generator
                 ...cardData,
-                isDefault: saveCard,
+                isDefault: isDefaultPayment,
                 createdAt: new Date().toISOString(),
             });
             console.log('Card added successfully');
@@ -268,6 +317,7 @@ export function AddPaymentScreen() {
             >
                 <ScrollView 
                     showsVerticalScrollIndicator={false}
+                    keyboardShouldPersistTaps="handled"
                     contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 40 }]}
                 >
                     {/* Card Preview */}
@@ -294,30 +344,43 @@ export function AddPaymentScreen() {
 
                     {/* Form Container */}
                     <View style={styles.formContainer}>
-                        <View style={styles.inputSpacing}>
-                            <Text weight="medium" size="sm" color="#1F2937" style={styles.label}>Full Name</Text>
-                            <Input
-                                value={fullName}
-                                onChangeText={setFullName}
-                                placeholder="John Doe"
-                            />
-                        </View>
+                        <PaymentInput
+                            label="Full Name"
+                            value={fullName}
+                            onChangeText={setFullName}
+                            placeholder="John Doe"
+                        />
 
-                        <View style={styles.inputSpacing}>
-                            <Text weight="medium" size="sm" color="#1F2937" style={styles.label}>Card Number</Text>
-                            <Input
-                                value={cardNumber}
-                                onChangeText={handleCardNumberChange}
-                                placeholder={cardNumberPlaceholder}
-                                keyboardType="numeric"
-                                rightElement={cardNiceType ? <Text weight="bold" color="#2563EB" style={{ marginRight: 8 }}>{cardNiceType.toUpperCase()}</Text> : null}
-                            />
-                        </View>
+                        <PaymentInput
+                            label="Card Number"
+                            value={cardNumber}
+                            onChangeText={handleCardNumberChange}
+                            placeholder={cardNumberPlaceholder}
+                            keyboardType="numeric"
+                            secureTextEntry={!isCardNumberVisible}
+                            leftElement={
+                                cardBrand ? (
+                                    <PaymentIcon type={cardBrand as any} width={40} />
+                                ) : null
+                            }
+                            rightElement={
+                                <TouchableOpacity 
+                                    onPress={() => setIsCardNumberVisible(!isCardNumberVisible)}
+                                    hitSlop={10}
+                                >
+                                    {isCardNumberVisible ? (
+                                        <EyeOff size={20} color="#9CA3AF" />
+                                    ) : (
+                                        <Eye size={20} color="#9CA3AF" />
+                                    )}
+                                </TouchableOpacity>
+                            }
+                        />
 
                         <View style={styles.row}>
-                            <View style={[styles.inputSpacing, { flex: 1 }]}>
-                                <Text weight="medium" size="sm" color="#1F2937" style={styles.label}>Expiry Date</Text>
-                                <Input
+                            <View style={{ flex: 1 }}>
+                                <PaymentInput
+                                    label="Expiry Date"
                                     value={expiryDate}
                                     onChangeText={handleExpiryDateChange}
                                     placeholder="MM/YYYY"
@@ -326,14 +389,27 @@ export function AddPaymentScreen() {
                                 />
                             </View>
                             <View style={{ width: 16 }} />
-                            <View style={[styles.inputSpacing, { flex: 1 }]}>
-                                <Text weight="medium" size="sm" color="#1F2937" style={styles.label}>CVV</Text>
-                                <Input
+                            <View style={{ flex: 1 }}>
+                                <PaymentInput
+                                    label="CVV"
                                     value={cvv}
-                                    onChangeText={(text) => setCvv(text.replace(/\D/g, '').slice(0, cvvLength))}
+                                    onChangeText={(text: string) => setCvv(text.replace(/\D/g, '').slice(0, cvvLength))}
                                     placeholder={cvvPlaceholder}
                                     keyboardType="numeric"
                                     maxLength={cvvLength}
+                                    secureTextEntry={!isCvvVisible}
+                                    rightElement={
+                                        <TouchableOpacity 
+                                            onPress={() => setIsCvvVisible(!isCvvVisible)}
+                                            hitSlop={10}
+                                        >
+                                            {isCvvVisible ? (
+                                                <EyeOff size={20} color="#9CA3AF" />
+                                            ) : (
+                                                <Eye size={20} color="#9CA3AF" />
+                                            )}
+                                        </TouchableOpacity>
+                                    }
                                 />
                             </View>
                         </View>
@@ -343,10 +419,13 @@ export function AddPaymentScreen() {
                             <>
                                 <TouchableOpacity 
                                     style={styles.checkboxRow}
-                                    onPress={() => setSaveCard(!saveCard)}
+                                    onPress={() => setIsDefaultPayment(!isDefaultPayment)}
                                     activeOpacity={0.7}
                                 >
-                                    <View style={[styles.checkbox, saveCard ? styles.checkboxActive : null]}>{saveCard ? <Check size={12} color="#FFF" strokeWidth={3} /> : null}</View><Text size="sm" color="#4B5563">Save card info</Text>
+                                    <View style={[styles.checkbox, isDefaultPayment ? styles.checkboxActive : null]}>
+                                        {isDefaultPayment ? <Check size={12} color="#FFF" strokeWidth={3} /> : null}
+                                    </View>
+                                    <Text size="sm" color="#4B5563">Set as default payment method</Text>
                                 </TouchableOpacity>
 
                                 <TouchableOpacity 
@@ -354,7 +433,12 @@ export function AddPaymentScreen() {
                                     onPress={() => setAgreeTerms(!agreeTerms)}
                                     activeOpacity={0.7}
                                 >
-                                    <View style={[styles.checkbox, agreeTerms ? styles.checkboxActive : null]}>{agreeTerms ? <Check size={12} color="#FFF" strokeWidth={3} /> : null}</View><Text size="sm" color="#4B5563">Agree to <Text color="#3B82F6" weight="medium">terms and conditions</Text></Text>
+                                    <View style={[styles.checkbox, agreeTerms ? styles.checkboxActive : null]}>
+                                        {agreeTerms ? <Check size={12} color="#FFF" strokeWidth={3} /> : null}
+                                    </View>
+                                    <Text size="sm" color="#4B5563">
+                                        Agree to <Text color="#3B82F6" weight="medium">terms and conditions</Text>
+                                    </Text>
                                 </TouchableOpacity>
                             </>
                         ) : null}
@@ -446,10 +530,37 @@ const styles = StyleSheet.create({
         elevation: 5,
     },
     label: {
-        marginBottom: 4, // Spacing between label and input
+        marginBottom: 8, // Spacing between label and input
+    },
+    paymentInputContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: '#FFFFFF',
+        borderRadius: 16,
+        paddingHorizontal: 16,
+        height: 56,
+        // Shadow for clean card look
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 2 },
+        shadowOpacity: 0.05,
+        shadowRadius: 10,
+        elevation: 2,
+    },
+    paymentTextInput: {
+        flex: 1,
+        fontSize: 16,
+        color: '#111827',
+        height: '100%',
+        padding: 0,
+    },
+    leftElement: {
+        marginRight: 10,
+    },
+    rightElement: {
+        marginLeft: 10,
     },
     inputSpacing: {
-        marginBottom: 20,
+        marginBottom: 24,
     },
     row: {
         flexDirection: 'row',

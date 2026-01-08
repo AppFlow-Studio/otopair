@@ -15,6 +15,8 @@
  *   - variant ('primary' | 'secondary' | 'ghost'): Button variant [optional, default: 'primary']
  *   - backgroundColor (string): Custom background color [optional]
  *   - textColor (string): Custom text color [optional]
+ *   - fullWidth (boolean): Whether the button should take full width [optional, default: true]
+ *   - style (ViewStyle): Custom style for the button container [optional]
  *
  * EXAMPLE:
  *   <FooterButton
@@ -43,6 +45,8 @@ interface FooterButtonProps {
     variant?: 'primary' | 'secondary'| 'ghost';
     backgroundColor?: string;
     textColor?: string;
+    fullWidth?: boolean;
+    style?: any;
 }
 
 export function FooterButton({
@@ -55,10 +59,12 @@ export function FooterButton({
     variant = 'primary',
     backgroundColor,
     textColor,
+    fullWidth = true,
+    style,
 }: FooterButtonProps) {
     return (
         <Button
-            fullWidth
+            fullWidth={fullWidth}
             size={size}
             borderRadius={BorderRadius.full}
             paddingVertical={paddingVertical ?? Spacing.lg}
@@ -68,6 +74,7 @@ export function FooterButton({
             variant={variant}
             backgroundColor={backgroundColor}
             textColor={textColor}
+            style={style}
         >
             {label}
         </Button>
