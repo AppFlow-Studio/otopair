@@ -68,17 +68,15 @@ import {
 import { usePaymentStore } from '@/stores/usePaymentStore';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const CARD_WIDTH = SCREEN_WIDTH * 1;
-const CARD_HEIGHT = 420; // Visual card height (larger than container)
-const CARD_CONTAINER_HEIGHT = 350; // Container height for layout (keeps section compact)
+const OFFSET = 40; // Peek space on each side - larger for visible peek effect
+const CARD_WIDTH = SCREEN_WIDTH - OFFSET * 2; // Card takes up most of the screen with peek space
+const CARD_HEIGHT = 420; 
+const CARD_CONTAINER_HEIGHT = 440;
 
 const SPRING_CONFIG = {
-    damping: 15,
-    stiffness: 300,
+    damping: 20,
+    stiffness: 150,
     mass: 1,
-    overshootClamping: false,
-    restDisplacementThreshold: 0.01,
-    restSpeedThreshold: 2,
 };
 
 // ============================================================================
@@ -116,106 +114,63 @@ const getIconComponent = (name: string) => {
 };
 
 // ============================================================================
-// DYNAMIC CARD ITEM
+// CAROUSEL CARD ITEM
 // ============================================================================
 
 interface CardProps {
     card: any;
     index: number;
-    totalCards: number;
-    onSwipeComplete: (direction: 'left' | 'right') => void;
-    onSwipeUpdate: (x: number) => void;
+    scrollX: SharedValue<number>;
+    total: number;
 }
 
-const CardItem = ({ card, index, totalCards, onSwipeComplete, onSwipeUpdate }: CardProps) => {
-    const transformX = useSharedValue(0);
-    const transformY = useSharedValue(0);
-    const opacity = useSharedValue(1);
-    
-    const decayConfig = {
-        rubberBandEffect: false,
-        clamp: [-SCREEN_WIDTH * 1.5, SCREEN_WIDTH * 1.5] as [number, number],
-    };
-
-    const resetFunction = useCallback((finished?: boolean) => {
-        'worklet';
-        if (finished) {
-            const direction = transformX.value < 0 ? 'left' : 'right';
-            opacity.value = 0;
-            transformX.value = 0;
-            transformY.value = 0;
-            runOnJS(onSwipeComplete)(direction);
-            opacity.value = withTiming(1, { duration: 400 });
-        }
-    }, [onSwipeComplete]);
-
-    const gesture = Gesture.Pan()
-        .enabled(index === 0)
-        .onUpdate((e) => {
-            transformX.value = e.translationX;
-            transformY.value = e.translationY;
-            runOnJS(onSwipeUpdate)(e.translationX);
-        })
-        .onEnd((e) => {
-            const isLeftSwipe = transformX.value < -100;
-            const isRightSwipe = transformX.value > 100;
-            
-            if (isLeftSwipe || isRightSwipe) {
-                const velocityX = isLeftSwipe ? -Math.max(Math.abs(e.velocityX), 1000) : Math.max(e.velocityX, 1000);
-                
-                opacity.value = withSpring(0, SPRING_CONFIG);
-                transformX.value = withDecay(
-                    {
-                        velocity: velocityX,
-                        ...decayConfig,
-                    },
-                    resetFunction
-                );
-            } else {
-                opacity.value = withSpring(1, SPRING_CONFIG);
-                transformX.value = withSpring(0, SPRING_CONFIG);
-                transformY.value = withSpring(0, SPRING_CONFIG);
-                runOnJS(onSwipeUpdate)(0);
-            }
-        });
+const CardItem = ({ card, index, scrollX, total }: CardProps) => {
+    // Input range for smooth transitions between cards (parallax style)
+    const inputRange = [
+        (index - 1) * CARD_WIDTH,
+        index * CARD_WIDTH,
+        (index + 1) * CARD_WIDTH,
+    ];
 
     const animatedStyle = useAnimatedStyle(() => {
-        const stackOffset = 10;
-        const stackScale = 0.05;
-        const rotateValue = transformX.value / 20;
-        
-        if (index === 0) {
-            return {
-                opacity: opacity.value,
-                zIndex: 100,
-                transform: [
-                    { translateX: transformX.value },
-                    { translateY: transformY.value },
-                    { rotate: `${rotateValue}deg` },
-                ],
-            };
-        }
+        const scale = interpolate(
+            scrollX.value,
+            inputRange,
+            [0.94, 1, 0.94], // Adjacent cards slightly larger to reduce visible gap
+            Extrapolation.CLAMP
+        );
+
+        const opacity = interpolate(
+            scrollX.value,
+            inputRange,
+            [0.6, 1, 0.6], // Adjacent cards faded but still visible
+            Extrapolation.CLAMP
+        );
 
         return {
-            opacity: withSpring(1 - index * 0.2, SPRING_CONFIG),
-            zIndex: 100 - index,
-            transform: [
-                { translateY: withSpring(index * stackOffset, SPRING_CONFIG) },
-                { scale: withSpring(1 - index * stackScale, SPRING_CONFIG) },
-            ],
+            opacity,
+            transform: [{ scale }],
         };
     });
 
     return (
-        <GestureDetector gesture={gesture}>
-            <Animated.View style={[styles.cardWrapper, animatedStyle]}>
-                <Image 
-                    source={card.image} 
-                    style={styles.cardImage}
-                    resizeMode="contain"
-                />
-            </Animated.View>
-        </GestureDetector>
+        <Animated.View 
+            style={[
+                styles.cardWrapper, 
+                animatedStyle,
+                {
+                    // First card gets left margin, last card gets right margin
+                    marginLeft: index === 0 ? OFFSET : 0,
+                    marginRight: index === total - 1 ? OFFSET : 0,
+                }
+            ]}
+        >
+            <Image 
+                source={card.image} 
+                style={styles.cardImage}
+                resizeMode="contain"
+            />
+        </Animated.View>
     );
 };
 
@@ -235,8 +190,8 @@ export function ActivityRewardsScreen() {
     const bgProgress = useSharedValue(0);
     const currentSegment = useSharedValue(0); // Track segment to avoid redundant updates
     
-    // Dedicated animation value for the activity list (separate from card position)
-    const activitySwipeX = useSharedValue(0);
+    // Carousel and Activity sync
+    const cardScrollX = useSharedValue(0);
 
     const { paymentMethods, removePaymentMethod, transactions } = usePaymentStore(
         useShallow((state) => ({
@@ -246,28 +201,13 @@ export function ActivityRewardsScreen() {
         }))
     );
 
-    // Use store cards if they exist, otherwise fallback to initial dummy cards
-    // This allows the "Edit" function to work with real data once added
     const storeCards = useMemo(() => paymentMethods.map((pm) => ({
         ...pm,
         image: require('@/assets/images/payments/realistic-monochromatic-credit-card.png'), // Reuse card image for now
     })), [paymentMethods]);
 
-    const activeCards = storeCards; // No fallback to dummy cards anymore
-
-    const [cards, setCards] = useState<any[]>(activeCards);
-    const hasCards = cards.length > 0;
-
-    // Filter transactions for the top card
-    const topCardId = cards[0]?.id;
-    const filteredTransactions = useMemo(() => {
-        return transactions.filter(t => t.paymentMethodId === topCardId);
-    }, [transactions, topCardId]);
-
-    // Sync local cards state when store changes
-    React.useEffect(() => {
-        setCards(activeCards);
-    }, [storeCards]);
+    const activeCards = storeCards;
+    const hasCards = activeCards.length > 0;
 
     const [currentDotIndex, setCurrentDotIndex] = useState(0);
     const [isMenuVisible, setIsMenuVisible] = useState(false);
@@ -283,7 +223,7 @@ export function ActivityRewardsScreen() {
         setGradientIndices({ from: fromIdx, to: toIdx });
     }, []);
 
-    // Track scroll position
+    // Scroll handler for the MAIN page scroll
     const scrollHandler = useAnimatedScrollHandler({
         onScroll: (event) => {
             const scrollOffset = event.contentOffset.y;
@@ -318,41 +258,42 @@ export function ActivityRewardsScreen() {
         },
     });
 
-    const onSwipeUpdate = useCallback((x: number) => {
-        activitySwipeX.value = x;
-    }, [activitySwipeX]);
+    // Scroll handler for the CARD CAROUSEL
+    const cardScrollHandler = useAnimatedScrollHandler({
+        onScroll: (event) => {
+            cardScrollX.value = event.contentOffset.x;
+            const index = Math.round(event.contentOffset.x / CARD_WIDTH);
+            runOnJS(setCurrentDotIndex)(index);
+        },
+    });
 
-    const onSwipeComplete = useCallback((direction: 'left' | 'right') => {
-        setCards((prevCards: any[]) => {
-            const nextCards = [...prevCards];
-            const swipedCard = nextCards.shift();
-            if (swipedCard) {
-                nextCards.push(swipedCard);
-            }
-            return nextCards;
-        });
-        setCurrentDotIndex((prev) => (prev + 1) % cards.length);
+    // Filter transactions for the active card
+    const filteredTransactions = useMemo(() => {
+        const activeCard = activeCards[currentDotIndex];
+        if (!activeCard) return [];
+        return transactions.filter(t => t.paymentMethodId === activeCard.id);
+    }, [transactions, activeCards, currentDotIndex]);
 
-        // SYNC ANIMATION: Snap the LIST to the other side and slide it back in.
-        // The cards themselves remain stationary in the stack.
-        const snapOffset = direction === 'left' ? SCREEN_WIDTH * 0.5 : -SCREEN_WIDTH * 0.5;
-        activitySwipeX.value = snapOffset;
-        activitySwipeX.value = withSpring(0, SPRING_CONFIG);
-    }, [activitySwipeX]);
-
-    // ANIMATED STYLE: Recent Activity section follows the card swipe
+    // ANIMATED STYLE: Recent Activity section follows the card carousel scroll
     const animatedActivityStyle = useAnimatedStyle(() => {
+        // Calculate progress within current card
+        const position = cardScrollX.value / CARD_WIDTH;
+        const index = Math.floor(position);
+        const progress = position - index; // 0 to 1
+
+        // Fade out and slide when transition between cards
         const opacity = interpolate(
-            Math.abs(activitySwipeX.value),
-            [0, SCREEN_WIDTH * 0.4],
-            [1, 0],
+            progress,
+            [0, 0.5, 1],
+            [1, 0, 1],
             Extrapolation.CLAMP
         );
         
         const translateX = interpolate(
-            activitySwipeX.value,
-            [-SCREEN_WIDTH, 0, SCREEN_WIDTH],
-            [-60, 0, 60] // Subtle movement compared to the card
+            progress,
+            [0, 0.5, 1],
+            [0, -30, 0],
+            Extrapolation.CLAMP
         );
 
         return {
@@ -422,10 +363,10 @@ export function ActivityRewardsScreen() {
                                     onPress={() => {
                                         setIsMenuVisible(false);
                                         // Navigate to AddPaymentScreen in edit mode
-                                        const topCard = cards[0];
+                                        const activeCard = activeCards[currentDotIndex];
                                         router.push({
                                             pathname: '/add-payment',
-                                            params: { mode: 'edit', id: topCard.id }
+                                            params: { mode: 'edit', id: activeCard.id }
                                         });
                                     }}
                                 >
@@ -441,8 +382,8 @@ export function ActivityRewardsScreen() {
                                     style={styles.menuItem}
                                     onPress={() => {
                                         setIsMenuVisible(false);
-                                        const topCard = cards[0];
-                                        removePaymentMethod(topCard.id);
+                                        const activeCard = activeCards[currentDotIndex];
+                                        removePaymentMethod(activeCard.id);
                                         console.log('Delete card');
                                     }}
                                 >
@@ -467,22 +408,30 @@ export function ActivityRewardsScreen() {
                 <View style={hasCards ? styles.cardSection : styles.emptyCardSection}>
                     {hasCards ? (
                         <>
-                            <View style={styles.cardStackContainer}>
-                                {cards.map((card, index) => (
+                            <Animated.ScrollView
+                                horizontal
+                                showsHorizontalScrollIndicator={false}
+                                bounces={false}
+                                snapToInterval={CARD_WIDTH}
+                                disableIntervalMomentum
+                                decelerationRate="fast"
+                                onScroll={cardScrollHandler}
+                                scrollEventThrottle={16}
+                            >
+                                {activeCards.map((card, index) => (
                                     <CardItem
                                         key={card.id}
                                         card={card}
                                         index={index}
-                                        totalCards={cards.length}
-                                        onSwipeComplete={onSwipeComplete}
-                                        onSwipeUpdate={onSwipeUpdate}
+                                        scrollX={cardScrollX}
+                                        total={activeCards.length}
                                     />
                                 ))}
-                            </View>
+                            </Animated.ScrollView>
                             
                             {/* Pagination Dots */}
                             <View style={styles.pagination}>
-                                {cards.map((_, index) => (
+                                {activeCards.map((_, index) => (
                                     <View 
                                         key={index} 
                                         style={[
@@ -646,10 +595,13 @@ const styles = StyleSheet.create({
     },
     cardSection: {
         marginBottom: 10,
-        height: 300,
+        height: CARD_CONTAINER_HEIGHT,
         alignItems: 'center',
         justifyContent: 'center',
         position: 'relative',
+    },
+    carouselContainer: {
+        alignItems: 'center',
     },
     emptyCardSection: {
         marginBottom: 40,
@@ -679,22 +631,19 @@ const styles = StyleSheet.create({
     addMethodButton: {
         minWidth: 200,
     },
-    cardStackContainer: {
-        width: CARD_WIDTH,
-        height: CARD_CONTAINER_HEIGHT,
-        position: 'relative',
-        alignItems: 'center',
-        justifyContent: 'center',
-        overflow: 'hidden', // Clip touches to container bounds
-    },
     cardWrapper: {
         width: CARD_WIDTH,
         height: CARD_HEIGHT,
-        position: 'absolute',
+        overflow: 'hidden',
+        borderRadius: 14,
     },
     cardImage: {
         width: '100%',
         height: '100%',
+        // The source asset has large transparent padding; scale up to remove padding
+        // while keeping the card fully visible (no cropping).
+        transform: [{ scale: 1.35 }],
+        borderRadius: 14,
     },
     pagination: {
         position: 'absolute',
