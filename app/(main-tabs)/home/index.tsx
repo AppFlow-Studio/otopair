@@ -1,6 +1,6 @@
 // 1. React & React Native
 import React, { useEffect, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // 2. Expo & Third-party
@@ -8,9 +8,10 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import { Bell, MapPinned, MoveRight, Star } from 'lucide-react-native';
+import Animated from 'react-native-reanimated';
 
 // 3. Shared UI
-import { Button, Spacing, Text } from '@/components/shared-ui';
+import { Button, ScrollDrivenGradientBackground, Spacing, Text } from '@/components/shared-ui';
 
 // 4. Flow-specific components
 import { ActionCardsCarousel } from '@/components/home/ActionCardsCarousel';
@@ -113,126 +114,131 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Full Page Scroll */}
-      <ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 12 }]}
-        showsVerticalScrollIndicator={false}
-        scrollEnabled={!isCardSwiping}
-      >
-        {/* Header */}
-        <View style={styles.header}>
-          {/* Location */}
-          <View style={styles.locationSection}>
-            <MapPinned size={20} color="#5299FE" />
-            <View style={styles.locationText}>
-              <Text size="xs" color="#6B7280">
-                Your Location
-              </Text>
-              <Text weight="semiBold" size="sm" color="#141C24">
-                {locationName}
-              </Text>
-            </View>
-          </View>
-
-          {/* Right Side - Gold Tier & Bell */}
-          <View style={styles.headerRight}>
-            {/* Gold Tier Badge - Clickable */}
-            <Pressable
-              onPress={() => setShowLoyaltyCard(true)}
-              style={({ pressed }) => [styles.goldTierBadge, pressed && styles.goldTierBadgePressed]}
-            >
-              <LinearGradient colors={['#fdf4b2', '#f8d34b']} style={styles.starCircle}>
-                <Star size={18} color="#fffbdf" fill="#fffbdf" />
-              </LinearGradient>
-              <Text weight="semiBold" size="sm" color="#5299FE">
-                Gold Tier
-              </Text>
-            </Pressable>
-
-            {/* Notification Bell */}
-            <Pressable
-              style={({ pressed }) => [styles.bellButton, pressed && styles.bellButtonPressed]}
-            >
-              <View style={styles.bellIconContainer}>
-                <Bell size={22} color="#141C24" />
-                <View style={styles.bellDot} />
+      <ScrollDrivenGradientBackground>
+        {(scrollHandler) => (
+          <Animated.ScrollView
+            style={styles.scrollView}
+            contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 12 }]}
+            showsVerticalScrollIndicator={false}
+            scrollEnabled={!isCardSwiping}
+            onScroll={scrollHandler}
+            scrollEventThrottle={16}
+          >
+            {/* Header */}
+            <View style={styles.header}>
+              {/* Location */}
+              <View style={styles.locationSection}>
+                <MapPinned size={20} color="#5299FE" />
+                <View style={styles.locationText}>
+                  <Text size="xs" color="#6B7280">
+                    Your Location
+                  </Text>
+                  <Text weight="semiBold" size="sm" color="#141C24">
+                    {locationName}
+                  </Text>
+                </View>
               </View>
-            </Pressable>
-          </View>
-        </View>
 
-        {/* Search Bar */}
-        <View style={styles.searchContainer}>
-          <MechanicSearchBar
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            onSubmit={handleSearch}
-            onMapPress={handleMapPress}
-          />
-        </View>
+              {/* Right Side - Gold Tier & Bell */}
+              <View style={styles.headerRight}>
+                {/* Gold Tier Badge - Clickable */}
+                <Pressable
+                  onPress={() => setShowLoyaltyCard(true)}
+                  style={({ pressed }) => [styles.goldTierBadge, pressed && styles.goldTierBadgePressed]}
+                >
+                  <LinearGradient colors={['#fdf4b2', '#f8d34b']} style={styles.starCircle}>
+                    <Star size={18} color="#fffbdf" fill="#fffbdf" />
+                  </LinearGradient>
+                  <Text weight="semiBold" size="sm" color="#5299FE">
+                    Gold Tier
+                  </Text>
+                </Pressable>
 
-        {/* Content Area */}
-        <View style={styles.content}>
-          {/* Action Cards Carousel */}
-          <ActionCardsCarousel
-            // Upcoming Appointment
-            appointmentBusinessName={'Premium\nAuto Care'}
-            appointmentMechanicName="John Rodriguez"
-            appointmentRating={4.8}
-            appointmentIsVerified={true}
-            appointmentDate="August 12, 2025"
-            appointmentTimeSlot="12:30 PM - 1:00 PM"
-            appointmentLateMinutes={30}
-            onAppointmentPress={handleAppointmentPress}
-            // Resume Booking
-            showResumeBooking={true}
-            resumeMechanicsAvailable={3}
-            resumeServicesPreview="Oil Change, Fluid Ch..."
-            // Account Setup
-            showAccountSetup={showAccountSetup}
-            onAccountSetupDismiss={() => setShowAccountSetup(false)}
-            // Car Setup
-            showCarSetup={showCarSetup}
-            onCarSetupDismiss={() => setShowCarSetup(false)}
-            // Carousel callback
-            onCardChange={(index) => setActiveCardIndex(index)}
-          />
+                {/* Notification Bell */}
+                <Pressable
+                  style={({ pressed }) => [styles.bellButton, pressed && styles.bellButtonPressed]}
+                >
+                  <View style={styles.bellIconContainer}>
+                    <Bell size={22} color="#141C24" />
+                    <View style={styles.bellDot} />
+                  </View>
+                </Pressable>
+              </View>
+            </View>
 
-          {/* Navigation ETA Bar - Only show when on Upcoming Appointment card */}
-          {activeCardIndex === 1 && (
-            <View style={styles.etaBarContainer}>
-              <NavigationETABar
-                etaMinutes={20}
-                destinationLatitude={37.7749}
-                destinationLongitude={-122.4194}
-                destinationName="Premium Auto Care"
+            {/* Search Bar */}
+            <View style={styles.searchContainer}>
+              <MechanicSearchBar
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                onSubmit={handleSearch}
+                onMapPress={handleMapPress}
               />
             </View>
-          )}
 
-          {/* Vehicle Maintenance - with dynamic margin based on active card */}
-          <View style={{ marginTop: getCardMargin(activeCardIndex) }}>
-            <VehicleMaintenanceCard
-              onBookNow={(vehicleId, serviceId) => {
-                console.log(`Booking service ${serviceId} for vehicle ${vehicleId}`);
-                // TODO: Navigate to booking flow
-              }}
-              onSwipeStart={() => setIsCardSwiping(true)}
-              onSwipeEnd={() => setIsCardSwiping(false)}
-            />
-          </View>
+            {/* Content Area */}
+            <View style={styles.content}>
+              {/* Action Cards Carousel */}
+              <ActionCardsCarousel
+                // Upcoming Appointment
+                appointmentBusinessName={'Premium\nAuto Care'}
+                appointmentMechanicName="John Rodriguez"
+                appointmentRating={4.8}
+                appointmentIsVerified={true}
+                appointmentDate="August 12, 2025"
+                appointmentTimeSlot="12:30 PM - 1:00 PM"
+                appointmentLateMinutes={30}
+                onAppointmentPress={handleAppointmentPress}
+                // Resume Booking
+                showResumeBooking={true}
+                resumeMechanicsAvailable={3}
+                resumeServicesPreview="Oil Change, Fluid Ch..."
+                // Account Setup
+                showAccountSetup={showAccountSetup}
+                onAccountSetupDismiss={() => setShowAccountSetup(false)}
+                // Car Setup
+                showCarSetup={showCarSetup}
+                onCarSetupDismiss={() => setShowCarSetup(false)}
+                // Carousel callback
+                onCardChange={(index) => setActiveCardIndex(index)}
+              />
 
-          {/* Suggestions Section */}
-          <SuggestionsSection />
+              {/* Navigation ETA Bar - Only show when on Upcoming Appointment card */}
+              {activeCardIndex === 1 && (
+                <View style={styles.etaBarContainer}>
+                  <NavigationETABar
+                    etaMinutes={20}
+                    destinationLatitude={37.7749}
+                    destinationLongitude={-122.4194}
+                    destinationName="Premium Auto Care"
+                  />
+                </View>
+              )}
 
-          {/* Service Bundles Section */}
-          <ServiceBundlesSection />
+              {/* Vehicle Maintenance - with dynamic margin based on active card */}
+              <View style={{ marginTop: getCardMargin(activeCardIndex) }}>
+                <VehicleMaintenanceCard
+                  onBookNow={(vehicleId, serviceId) => {
+                    console.log(`Booking service ${serviceId} for vehicle ${vehicleId}`);
+                    // TODO: Navigate to booking flow
+                  }}
+                  onSwipeStart={() => setIsCardSwiping(true)}
+                  onSwipeEnd={() => setIsCardSwiping(false)}
+                />
+              </View>
 
-          {/* AI Assistant Button */}
-          {/* <AIAssistantButton /> */}
-        </View>
-      </ScrollView>
+              {/* Suggestions Section */}
+              <SuggestionsSection />
+
+              {/* Service Bundles Section */}
+              <ServiceBundlesSection />
+
+              {/* AI Assistant Button */}
+              {/* <AIAssistantButton /> */}
+            </View>
+          </Animated.ScrollView>
+        )}
+      </ScrollDrivenGradientBackground>
 
       {/* Loyalty Card Overlay */}
       {showLoyaltyCard && (

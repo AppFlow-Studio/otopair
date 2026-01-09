@@ -61,7 +61,7 @@ import {
     Text, 
     BrandColors, 
     Spacing, 
-    AnimatedGradientBackground,
+    ScrollDrivenGradientBackground,
     SolidProgressBar,
     GlassCircleButton,
     FooterButton,
@@ -252,21 +252,9 @@ const ParallaxCarouselPagination = ({ count, scrollX }: { count: number; scrollX
     );
 };
 
-// ============================================================================
-// MAIN COMPONENT
-// ============================================================================
-
-// Gradient indices to transition through while scrolling
-const GRADIENT_SCROLL_INDICES = [0, 3, 6, 9];
-// Scroll distance (in px) for each gradient transition
-const SCROLL_PER_TRANSITION = 300;
-
 export function ActivityRewardsScreen() {
     const insets = useSafeAreaInsets();
     const router = useRouter();
-    const scrollY = useSharedValue(0);
-    const bgProgress = useSharedValue(0);
-    const currentSegment = useSharedValue(0); // Track segment to avoid redundant updates
     
     // Carousel and Activity sync
     const cardScrollX = useSharedValue(0);
@@ -355,52 +343,6 @@ export function ActivityRewardsScreen() {
     }, [scrollToCardX]);
 
     const [isMenuVisible, setIsMenuVisible] = useState(false);
-    const [gradientIndices, setGradientIndices] = useState({
-        from: GRADIENT_SCROLL_INDICES[0],
-        to: GRADIENT_SCROLL_INDICES[1],
-    });
-
-    // Callback to update gradient indices when crossing segment boundaries
-    const updateGradientIndices = useCallback((segmentIndex: number) => {
-        const fromIdx = GRADIENT_SCROLL_INDICES[segmentIndex];
-        const toIdx = GRADIENT_SCROLL_INDICES[segmentIndex + 1];
-        setGradientIndices({ from: fromIdx, to: toIdx });
-    }, []);
-
-    // Scroll handler for the MAIN page scroll
-    const scrollHandler = useAnimatedScrollHandler({
-        onScroll: (event) => {
-            const scrollOffset = event.contentOffset.y;
-            scrollY.value = scrollOffset;
-            
-            const totalTransitions = GRADIENT_SCROLL_INDICES.length - 1;
-            const maxScroll = totalTransitions * SCROLL_PER_TRANSITION;
-            
-            // Clamp scroll to valid range
-            const clampedScroll = Math.max(0, Math.min(scrollOffset, maxScroll));
-            
-            // Which transition segment are we in? (0, 1, 2, ...)
-            const segmentIndex = Math.min(
-                Math.floor(clampedScroll / SCROLL_PER_TRANSITION),
-                totalTransitions - 1
-            );
-            
-            // Progress within current segment (0 to 1)
-            const segmentStart = segmentIndex * SCROLL_PER_TRANSITION;
-            bgProgress.value = interpolate(
-                clampedScroll,
-                [segmentStart, segmentStart + SCROLL_PER_TRANSITION],
-                [0, 1],
-                Extrapolation.CLAMP
-            );
-            
-            // Only update indices when segment actually changes (avoid redundant re-renders)
-            if (segmentIndex !== currentSegment.value) {
-                currentSegment.value = segmentIndex;
-                runOnJS(updateGradientIndices)(segmentIndex);
-            }
-        },
-    });
 
     // Scroll handler for the CARD CAROUSEL
     const cardScrollHandler = useAnimatedScrollHandler({
@@ -448,270 +390,265 @@ export function ActivityRewardsScreen() {
 
     return (
         <View style={styles.container}>
-            {/* Background Gradient - transitions based on scroll position */}
-            {/*colors={['#203f7dff', '#203f7dff', '#f4f1f8']}*/}
-            <View style={StyleSheet.absoluteFill}>
-                <AnimatedGradientBackground 
-                    progress={bgProgress} 
-                    fromIndex={gradientIndices.from} 
-                    toIndex={gradientIndices.to}
-                    colors={[BrandColors.secondary, BrandColors.secondary, '#f4f1f8']}
-                />
-            </View>
-
-            {/* Header */}
-            <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
-                <View style={styles.headerLeft}>
-                    <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
-                        <ArrowLeft size={24} color="#FFF" />
-                    </TouchableOpacity>
-                </View>
-                
-                <Text weight="semiBold" size="xl" color="#FFF" style={styles.headerTitle}>
-                    Activity
-                </Text>
-
-                <View style={styles.headerRight}>
-                    {hasCards && (
-                        <>
-                            <GlassCircleButton 
-                                size={40} 
-                                onPress={() => router.push('/add-payment')}
-                            >
-                                <Plus size={20} color="#FFF" strokeWidth={2.5} />
-                            </GlassCircleButton>
-                            <GlassCircleButton 
-                                size={40} 
-                                onPress={() => setIsMenuVisible(true)}
-                            >
-                                <Ellipsis size={20} color="#FFF" strokeWidth={2.5} />
-                            </GlassCircleButton>
-                        </>
-                    )}
-                </View>
-            </View>
-
-            {/* Ellipsis Menu Modal */}
-            <Modal
-                transparent={true}
-                visible={isMenuVisible}
-                onRequestClose={() => setIsMenuVisible(false)}
-                animationType="fade"
-            >
-                <TouchableWithoutFeedback onPress={() => setIsMenuVisible(false)}>
-                    <View style={styles.menuOverlay}>
-                        <View style={[styles.menuContainer, { top: insets.top + 20 }]}>
-                            <View style={styles.menuContent}>
-                                <TouchableOpacity 
-                                    style={styles.menuItem}
-                                    onPress={() => {
-                                        setIsMenuVisible(false);
-                                        // Navigate to AddPaymentScreen in edit mode
-                                        const activeCard = activeCards[currentDotIndex];
-                                        router.push({
-                                            pathname: '/add-payment',
-                                            params: { mode: 'edit', id: activeCard.id }
-                                        });
-                                    }}
-                                >
-                                    <View style={styles.menuIconBox}>
-                                        <Pencil size={18} color="#1F2937" />
-                                    </View>
-                                    <Text weight="medium" size="md" color="#1F2937">Edit card</Text>
-                                </TouchableOpacity>
-
-                                {activeCards[currentDotIndex] && !activeCards[currentDotIndex].isDefault ? (
-                                    <>
-                                        <View style={styles.menuSeparator} />
-                                        <TouchableOpacity
-                                            style={styles.menuItem}
-                                            onPress={() => {
-                                                setIsMenuVisible(false);
-                                                const activeCard = activeCards[currentDotIndex];
-                                                setDefaultPaymentMethod(activeCard.id);
-                                            }}
-                                        >
-                                            <View style={styles.menuIconBox}>
-                                                <Star size={18} color="#1F2937" />
-                                            </View>
-                                            <Text weight="medium" size="md" color="#1F2937">
-                                                Set as default
-                                            </Text>
-                                        </TouchableOpacity>
-                                    </>
-                                ) : null}
-
-                                <View style={styles.menuSeparator} />
-
-                                <TouchableOpacity 
-                                    style={styles.menuItem}
-                                    onPress={() => {
-                                        setIsMenuVisible(false);
-                                        const activeCard = activeCards[currentDotIndex];
-                                        removePaymentMethod(activeCard.id);
-                                        console.log('Delete card');
-                                    }}
-                                >
-                                    <View style={[styles.menuIconBox, { backgroundColor: 'rgba(239, 68, 68, 0.1)' }]}>
-                                        <Trash2 size={18} color="#EF4444" />
-                                    </View>
-                                    <Text weight="medium" size="md" color="#EF4444">Delete card</Text>
+            <ScrollDrivenGradientBackground>
+                {(scrollHandler) => (
+                    <>
+                        {/* Header */}
+                        <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
+                            <View style={styles.headerLeft}>
+                                <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+                                    <ArrowLeft size={24} color="#FFF" />
                                 </TouchableOpacity>
                             </View>
-                        </View>
-                    </View>
-                </TouchableWithoutFeedback>
-            </Modal>
-
-            <Animated.ScrollView 
-                onScroll={scrollHandler}
-                scrollEventThrottle={16}
-                showsVerticalScrollIndicator={false}
-                contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 40 }]}
-            >
-                {/* Dynamic Stacked Cards or Empty State */}
-                <View style={hasCards ? styles.cardSection : styles.emptyCardSection}>
-                    {hasCards ? (
-                        <>
-                            <Animated.ScrollView
-                                horizontal
-                                showsHorizontalScrollIndicator={false}
-                                bounces={false}
-                                ref={cardScrollRef}
-                                snapToInterval={SNAP_INTERVAL}
-                                disableIntervalMomentum
-                                decelerationRate="fast"
-                                onScroll={cardScrollHandler}
-                                onContentSizeChange={handleCarouselContentSizeChange}
-                                scrollEventThrottle={12}
-                            >
-                                {activeCards.map((card, index) => (
-                                    <CardItem
-                                        key={card.id}
-                                        card={card}
-                                        index={index}
-                                        scrollX={cardScrollX}
-                                        total={activeCards.length}
-                                    />
-                                ))}
-                            </Animated.ScrollView>
                             
-                            <ParallaxCarouselPagination count={activeCards.length} scrollX={cardScrollX} />
-                        </>
-                    ) : (
-                        <View style={styles.emptyStateContainer}>
-                            <Image 
-                                source={require('@/assets/images/payments/empty-wallet.png')}
-                                style={styles.emptyWalletImage}
-                                resizeMode="contain"
-                            />
-                            <Text weight="bold" size="xl" color="#1F2937" style={styles.emptyTitle}>
-                                No Payment Methods
+                            <Text weight="semiBold" size="xl" color="#FFF" style={styles.headerTitle}>
+                                Activity
                             </Text>
-                            <Text size="md" color="#6B7280" style={styles.emptySubtitle}>
-                                Add a credit or debit card to get started.
-                            </Text>
-                            <FooterButton 
-                                label="Add Payment Method"
-                                onPress={() => router.push('/add-payment')}
-                                fullWidth={false}
-                                style={styles.addMethodButton}
-                            />
-                        </View>
-                    )}
-                </View>
 
-                {/* Recent Activity */}
-                <Animated.View style={[styles.section, animatedActivityStyle]}>
-                    <Text weight="bold" size="lg" color="#1F2937" style={styles.sectionTitle}>
-                        Recent Activity
-                    </Text>
-                    
-                    <View style={styles.activityList}>
-                        {hasCards ? (
-                            <>
-                                {filteredTransactions.map((item, index) => {
-                                    const IconComponent = getIconComponent(item.iconName);
-                                    return (
-                                        <View key={item.id} style={[
-                                            styles.activityItem,
-                                            index === filteredTransactions.length - 1 && styles.lastItem
-                                        ]}>
-                                            <View style={[styles.iconBox, { backgroundColor: 'rgba(0,0,0,0.05)' }]}>
-                                                <IconComponent size={20} color={item.iconColor} />
-                                            </View>
-                                            
-                                            <View style={styles.activityInfo}>
-                                                <Text weight="semiBold" size="md" color="#1F2937">{item.title}</Text>
-                                                <Text size="sm" color="#6B7280">{item.shopName}</Text>
-                                            </View>
-                                            
-                                            <View style={styles.activityRight}>
-                                                <Text weight="semiBold" size="md" color="#1F2937">{item.amount}</Text>
-                                                <Text size="xs" color="#6B7280">{item.date}</Text>
-                                            </View>
+                            <View style={styles.headerRight}>
+                                {hasCards && (
+                                    <>
+                                        <GlassCircleButton 
+                                            size={40} 
+                                            onPress={() => router.push('/add-payment')}
+                                        >
+                                            <Plus size={20} color="#FFF" strokeWidth={2.5} />
+                                        </GlassCircleButton>
+                                        <GlassCircleButton 
+                                            size={40} 
+                                            onPress={() => setIsMenuVisible(true)}
+                                        >
+                                            <Ellipsis size={20} color="#FFF" strokeWidth={2.5} />
+                                        </GlassCircleButton>
+                                    </>
+                                )}
+                            </View>
+                        </View>
+
+                        {/* Ellipsis Menu Modal */}
+                        <Modal
+                            transparent={true}
+                            visible={isMenuVisible}
+                            onRequestClose={() => setIsMenuVisible(false)}
+                            animationType="fade"
+                        >
+                            <TouchableWithoutFeedback onPress={() => setIsMenuVisible(false)}>
+                                <View style={styles.menuOverlay}>
+                                    <View style={[styles.menuContainer, { top: insets.top + 20 }]}>
+                                        <View style={styles.menuContent}>
+                                            <TouchableOpacity 
+                                                style={styles.menuItem}
+                                                onPress={() => {
+                                                    setIsMenuVisible(false);
+                                                    // Navigate to AddPaymentScreen in edit mode
+                                                    const activeCard = activeCards[currentDotIndex];
+                                                    router.push({
+                                                        pathname: '/add-payment',
+                                                        params: { mode: 'edit', id: activeCard.id }
+                                                    });
+                                                }}
+                                            >
+                                                <View style={styles.menuIconBox}>
+                                                    <Pencil size={18} color="#1F2937" />
+                                                </View>
+                                                <Text weight="medium" size="md" color="#1F2937">Edit card</Text>
+                                            </TouchableOpacity>
+
+                                            {activeCards[currentDotIndex] && !activeCards[currentDotIndex].isDefault ? (
+                                                <>
+                                                    <View style={styles.menuSeparator} />
+                                                    <TouchableOpacity
+                                                        style={styles.menuItem}
+                                                        onPress={() => {
+                                                            setIsMenuVisible(false);
+                                                            const activeCard = activeCards[currentDotIndex];
+                                                            setDefaultPaymentMethod(activeCard.id);
+                                                        }}
+                                                    >
+                                                        <View style={styles.menuIconBox}>
+                                                            <Star size={18} color="#1F2937" />
+                                                        </View>
+                                                        <Text weight="medium" size="md" color="#1F2937">
+                                                            Set as default
+                                                        </Text>
+                                                    </TouchableOpacity>
+                                                </>
+                                            ) : null}
+
+                                            <View style={styles.menuSeparator} />
+
+                                            <TouchableOpacity 
+                                                style={styles.menuItem}
+                                                onPress={() => {
+                                                    setIsMenuVisible(false);
+                                                    const activeCard = activeCards[currentDotIndex];
+                                                    removePaymentMethod(activeCard.id);
+                                                    console.log('Delete card');
+                                                }}
+                                            >
+                                                <View style={[styles.menuIconBox, { backgroundColor: 'rgba(239, 68, 68, 0.1)' }]}>
+                                                    <Trash2 size={18} color="#EF4444" />
+                                                </View>
+                                                <Text weight="medium" size="md" color="#EF4444">Delete card</Text>
+                                            </TouchableOpacity>
                                         </View>
-                                    );
-                                })}
-                                {filteredTransactions.length === 0 && (
-                                    <View style={styles.emptyActivity}>
-                                        <Text size="sm" color="#6B7280">No recent activity for this card.</Text>
+                                    </View>
+                                </View>
+                            </TouchableWithoutFeedback>
+                        </Modal>
+
+                        <Animated.ScrollView 
+                            onScroll={scrollHandler}
+                            scrollEventThrottle={16}
+                            showsVerticalScrollIndicator={false}
+                            contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 40 }]}
+                        >
+                            {/* Dynamic Stacked Cards or Empty State */}
+                            <View style={hasCards ? styles.cardSection : styles.emptyCardSection}>
+                                {hasCards ? (
+                                    <>
+                                        <Animated.ScrollView
+                                            horizontal
+                                            showsHorizontalScrollIndicator={false}
+                                            bounces={false}
+                                            ref={cardScrollRef}
+                                            snapToInterval={SNAP_INTERVAL}
+                                            disableIntervalMomentum
+                                            decelerationRate="fast"
+                                            onScroll={cardScrollHandler}
+                                            onContentSizeChange={handleCarouselContentSizeChange}
+                                            scrollEventThrottle={12}
+                                        >
+                                            {activeCards.map((card, index) => (
+                                                <CardItem
+                                                    key={card.id}
+                                                    card={card}
+                                                    index={index}
+                                                    scrollX={cardScrollX}
+                                                    total={activeCards.length}
+                                                />
+                                            ))}
+                                        </Animated.ScrollView>
+                                        
+                                        <ParallaxCarouselPagination count={activeCards.length} scrollX={cardScrollX} />
+                                    </>
+                                ) : (
+                                    <View style={styles.emptyStateContainer}>
+                                        <Image 
+                                            source={require('@/assets/images/payments/empty-wallet.png')}
+                                            style={styles.emptyWalletImage}
+                                            resizeMode="contain"
+                                        />
+                                        <Text weight="bold" size="xl" color="#1F2937" style={styles.emptyTitle}>
+                                            No Payment Methods
+                                        </Text>
+                                        <Text size="md" color="#6B7280" style={styles.emptySubtitle}>
+                                            Add a credit or debit card to get started.
+                                        </Text>
+                                        <FooterButton 
+                                            label="Add Payment Method"
+                                            onPress={() => router.push('/add-payment')}
+                                            fullWidth={false}
+                                            style={styles.addMethodButton}
+                                        />
                                     </View>
                                 )}
-                            </>
-                        ) : (
-                            <View style={styles.noTransactionsBox}>
-                                <Clock size={20} color="#9CA3AF" />
-                                <Text size="md" color="#6B7280" style={{ marginLeft: 12 }}>
-                                    No recent transactions
-                                </Text>
                             </View>
-                        )}
-                    </View>
-                </Animated.View>
 
-                {/* Rewards */}
-                <View style={styles.section}>
-                    <View style={styles.rewardsContainer}>
-                        <View style={styles.rewardsHeader}>
-                            <Text weight="bold" size="lg" color="#1F2937">Rewards</Text>
-                            <Text size="sm" color="#6B7280">{CURRENT_POINTS} pts / {MAX_POINTS} pts</Text>
-                        </View>
-                        
-                        <SolidProgressBar 
-                            current={CURRENT_POINTS} 
-                            max={MAX_POINTS} 
-                            height={10}
-                            filledColor="#60A5FA"
-                            unfilledColor="rgba(0,0,0,0.1)"
-                            borderRadius={5}
-                            style={styles.rewardsProgress}
-                        />
-                        
-                        <View style={styles.rewardsList}>
-                            {REWARDS.map((reward, index) => (
-                                <TouchableOpacity key={reward.id} style={[
-                                    styles.rewardItem,
-                                    index === REWARDS.length - 1 && styles.lastItem
-                                ]}>
-                                    <View style={styles.rewardLeft}>
-                                        <reward.icon size={18} color={reward.iconColor} />
-                                        <Text weight="medium" size="md" color="#1F2937" style={{ marginLeft: 12 }}>
-                                            {reward.title}
-                                        </Text>
+                            {/* Recent Activity */}
+                            <Animated.View style={[styles.section, animatedActivityStyle]}>
+                                <Text weight="bold" size="lg" color="#1F2937" style={styles.sectionTitle}>
+                                    Recent Activity
+                                </Text>
+                                
+                                <View style={styles.activityList}>
+                                    {hasCards ? (
+                                        <>
+                                            {filteredTransactions.map((item, index) => {
+                                                const IconComponent = getIconComponent(item.iconName);
+                                                return (
+                                                    <View key={item.id} style={[
+                                                        styles.activityItem,
+                                                        index === filteredTransactions.length - 1 && styles.lastItem
+                                                    ]}>
+                                                        <View style={[styles.iconBox, { backgroundColor: 'rgba(0,0,0,0.05)' }]}>
+                                                            <IconComponent size={20} color={item.iconColor} />
+                                                        </View>
+                                                        
+                                                        <View style={styles.activityInfo}>
+                                                            <Text weight="semiBold" size="md" color="#1F2937">{item.title}</Text>
+                                                            <Text size="sm" color="#6B7280">{item.shopName}</Text>
+                                                        </View>
+                                                        
+                                                        <View style={styles.activityRight}>
+                                                            <Text weight="semiBold" size="md" color="#1F2937">{item.amount}</Text>
+                                                            <Text size="xs" color="#6B7280">{item.date}</Text>
+                                                        </View>
+                                                    </View>
+                                                );
+                                            })}
+                                            {filteredTransactions.length === 0 && (
+                                                <View style={styles.emptyActivity}>
+                                                    <Text size="sm" color="#6B7280">No recent activity for this card.</Text>
+                                                </View>
+                                            )}
+                                        </>
+                                    ) : (
+                                        <View style={styles.noTransactionsBox}>
+                                            <Clock size={20} color="#9CA3AF" />
+                                            <Text size="md" color="#6B7280" style={{ marginLeft: 12 }}>
+                                                No recent transactions
+                                            </Text>
+                                        </View>
+                                    )}
+                                </View>
+                            </Animated.View>
+
+                            {/* Rewards */}
+                            <View style={styles.section}>
+                                <View style={styles.rewardsContainer}>
+                                    <View style={styles.rewardsHeader}>
+                                        <Text weight="bold" size="lg" color="#1F2937">Rewards</Text>
+                                        <Text size="sm" color="#6B7280">{CURRENT_POINTS} pts / {MAX_POINTS} pts</Text>
                                     </View>
-                                    <View style={styles.rewardRight}>
-                                        <Text size="sm" color="#1F2937" style={{ marginRight: 4 }}>
-                                            {reward.points}
-                                        </Text>
-                                        <ChevronRight size={16} color="#9CA3AF" />
+                                    
+                                    <SolidProgressBar 
+                                        current={CURRENT_POINTS} 
+                                        max={MAX_POINTS} 
+                                        height={10}
+                                        filledColor="#60A5FA"
+                                        unfilledColor="rgba(0,0,0,0.1)"
+                                        borderRadius={5}
+                                        style={styles.rewardsProgress}
+                                    />
+                                    
+                                    <View style={styles.rewardsList}>
+                                        {REWARDS.map((reward, index) => (
+                                            <TouchableOpacity key={reward.id} style={[
+                                                styles.rewardItem,
+                                                index === REWARDS.length - 1 && styles.lastItem
+                                            ]}>
+                                                <View style={styles.rewardLeft}>
+                                                    <reward.icon size={18} color={reward.iconColor} />
+                                                    <Text weight="medium" size="md" color="#1F2937" style={{ marginLeft: 12 }}>
+                                                        {reward.title}
+                                                    </Text>
+                                                </View>
+                                                <View style={styles.rewardRight}>
+                                                    <Text size="sm" color="#1F2937" style={{ marginRight: 4 }}>
+                                                        {reward.points}
+                                                    </Text>
+                                                    <ChevronRight size={16} color="#9CA3AF" />
+                                                </View>
+                                            </TouchableOpacity>
+                                        ))}
                                     </View>
-                                </TouchableOpacity>
-                            ))}
-                        </View>
-                    </View>
-                </View>
-            </Animated.ScrollView>
+                                </View>
+                            </View>
+                        </Animated.ScrollView>
+                    </>
+                )}
+            </ScrollDrivenGradientBackground>
         </View>
     );
 }
