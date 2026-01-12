@@ -124,6 +124,13 @@ interface OnboardingData {
   vehiclePlate: string | null;
   vehicleVin: string | null;
   vehicleMileage: number | null;
+
+  // Feedback submissions (saved from Settings > Feedback)
+  feedbackSubmissions: {
+    id: string;
+    message: string;
+    createdAt: string; // ISO
+  }[];
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -148,6 +155,7 @@ interface OnboardingState {
   setSetupStep: (step: SetupStep) => void;
   completeSetupStep: (step: SetupStep) => void
   updateData: (updates: Partial<OnboardingData>) => void;
+  addFeedbackSubmission: (message: string) => void;
   canProceed: () => boolean;
   reset: () => void;
   isCreateAccountComplete: () => boolean;
@@ -207,6 +215,8 @@ const INITIAL_DATA: OnboardingData = {
   shopPriorities: null,
   communicationPreference: null,
   additionalPreferences: null,
+
+  feedbackSubmissions: [],
 };
 
 export const useOnboardingStore = create<OnboardingState>()((set, get) => ({
@@ -239,6 +249,24 @@ export const useOnboardingStore = create<OnboardingState>()((set, get) => ({
   updateData: (updates) => {
     set((state) => ({
       data: { ...state.data, ...updates },
+    }));
+  },
+
+  addFeedbackSubmission: (message) => {
+    const trimmed = message.trim();
+    if (!trimmed) return;
+    set((state) => ({
+      data: {
+        ...state.data,
+        feedbackSubmissions: [
+          ...state.data.feedbackSubmissions,
+          {
+            id: `${Date.now()}`,
+            message: trimmed,
+            createdAt: new Date().toISOString(),
+          },
+        ],
+      },
     }));
   },
 

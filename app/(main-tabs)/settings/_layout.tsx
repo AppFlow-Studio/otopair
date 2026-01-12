@@ -4,6 +4,7 @@ export default function SettingsLayout() {
     return (
         <Stack>
             <Stack.Screen name="index" options={{ headerShown: false }} />
+            <Stack.Screen name="refer-a-friend" options={{ headerShown: false }} />
         </Stack>
     )
 }   

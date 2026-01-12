@@ -31,6 +31,7 @@ import {
   Shield,
   FileText,
   Info,
+  MessageSquare,
   RotateCcw,
   ChevronRight,
 } from 'lucide-react-native';
@@ -44,7 +45,7 @@ import Animated, {
 import { useShallow } from 'zustand/react/shallow';
 import { LinearGradient } from 'expo-linear-gradient';
 
-import { BrandColors, Button, Text } from '@/components/shared-ui';
+import { BrandColors, Button, FeedbackModal, Text } from '@/components/shared-ui';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -87,12 +88,13 @@ export default function SettingsHomeScreen() {
   const router = useRouter();
   const scrollY = useSharedValue(0);
 
-  const { data, updateData, reset, isCreateAccountComplete } = useOnboardingStore(
+  const { data, updateData, reset, isCreateAccountComplete, addFeedbackSubmission } = useOnboardingStore(
     useShallow((state) => ({
       data: state.data,
       updateData: state.updateData,
       reset: state.reset,
       isCreateAccountComplete: state.isCreateAccountComplete(),
+      addFeedbackSubmission: state.addFeedbackSubmission,
     })),
   );
 
@@ -277,6 +279,7 @@ export default function SettingsHomeScreen() {
   // Logout confirmation
   // ─────────────────────────────────────────────────────────────
   const [isLogoutVisible, setIsLogoutVisible] = useState(false);
+  const [isFeedbackVisible, setIsFeedbackVisible] = useState(false);
 
   const handleConfirmLogout = useCallback(() => {
     setIsLogoutVisible(false);
@@ -401,7 +404,7 @@ export default function SettingsHomeScreen() {
               <SettingsListItem
                 icon={<UserPlus size={20} color="#1F2937" />}
                 label="Refer a Friend"
-                onPress={() => console.log('Refer')}
+                onPress={() => router.push('/settings/refer-a-friend')}
               />
               <SettingsListItem
                 icon={<CreditCard size={20} color="#1F2937" />}
@@ -435,6 +438,11 @@ export default function SettingsHomeScreen() {
                 icon={<HelpCircle size={20} color="#1F2937" />}
                 label="FAQ"
                 onPress={() => console.log('FAQ')}
+              />
+              <SettingsListItem
+                icon={<MessageSquare size={20} color="#1F2937" />}
+                label="Feedback"
+                onPress={() => setIsFeedbackVisible(true)}
               />
               <SettingsListItem
                 icon={<Star size={20} color="#1F2937" />}
@@ -554,8 +562,22 @@ export default function SettingsHomeScreen() {
                 <View style={styles.field}><Text weight="medium" size="sm" color="#374151">Name</Text><TextInput value={editName} onChangeText={setEditName} placeholder="Your name" style={styles.input} autoCapitalize="words" /></View>
                 <View style={styles.field}><Text weight="medium" size="sm" color="#374151">Email</Text><TextInput value={editEmail} onChangeText={setEditEmail} placeholder="you@example.com" style={styles.input} keyboardType="email-address" /></View>
                 <View style={styles.editActionsRow}>
-                  <Button variant="ghost" fullWidth onPress={() => setIsEditVisible(false)}>Cancel</Button>
-                  <Button variant="secondary" fullWidth onPress={handleSaveProfile}>Save</Button>
+                  <Button
+                    variant="ghost"
+                    fullWidth
+                    style={styles.modalActionButton}
+                    onPress={() => setIsEditVisible(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    fullWidth
+                    style={styles.modalActionButton}
+                    onPress={handleSaveProfile}
+                  >
+                    Save
+                  </Button>
                 </View>
               </View>
             </TouchableWithoutFeedback>
@@ -571,14 +593,41 @@ export default function SettingsHomeScreen() {
                 <Text weight="semiBold" size="lg" color="#111827">Logout?</Text>
                 <Text size="sm" color="#6B7280" style={styles.confirmText}>You'll need to sign in again to access your account.</Text>
                 <View style={styles.confirmActionsRow}>
-                  <Button variant="ghost" fullWidth onPress={() => setIsLogoutVisible(false)}>Cancel</Button>
-                  <Button variant="primary" fullWidth style={{ backgroundColor: '#EF4444' }} onPress={handleConfirmLogout}>Logout</Button>
+                  <Button
+                    variant="ghost"
+                    fullWidth
+                    style={styles.modalActionButton}
+                    onPress={() => setIsLogoutVisible(false)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="primary"
+                    fullWidth
+                    style={[styles.modalActionButton, { backgroundColor: '#EF4444' }]}
+                    onPress={handleConfirmLogout}
+                  >
+                    Logout
+                  </Button>
                 </View>
               </View>
             </TouchableWithoutFeedback>
           </View>
         </TouchableWithoutFeedback>
       </Modal>
+
+      {/* Feedback modal (tap outside does NOT dismiss) */}
+      <FeedbackModal
+        visible={isFeedbackVisible}
+        onClose={() => setIsFeedbackVisible(false)}
+        onSubmit={async (text) => {
+          addFeedbackSubmission(text);
+          const latest = useOnboardingStore.getState().data.feedbackSubmissions.slice(-1)[0];
+          console.log('Feedback submitted:', latest);
+          // Small delay so the loading state is visible (feels intentional)
+          await new Promise((r) => setTimeout(r, 450));
+        }}
+      />
     </View>
   );
 }
@@ -842,6 +891,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
     marginTop: 8,
+  },
+  modalActionButton: {
+    flex: 1,
   },
   confirmCard: {
     width: '100%',

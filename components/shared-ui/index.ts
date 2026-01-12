@@ -87,6 +87,12 @@ export {
     type InputProps
 } from './Input';
 
+// Feedback Modal
+export {
+    FeedbackModal,
+    type FeedbackModalProps
+} from './FeedbackModal';
+
 // Re-export theme constants for convenience
 export {
     BorderRadius, BrandColors, ButtonStyles, Colors, FontFamily,
