@@ -129,7 +129,7 @@ export function MechanicDetailHeader({ mechanic, shop, onBack }: MechanicDetailH
                         anchor={{ x: 0.5, y: 0.5 }}
                     >
                         <Image
-                            source={require("@/assets/images/repairconnectglasslogo.png")}
+                            source={require("@/assets/images/otopair-ai-logo.png")}
                             style={styles.markerImage}
                             resizeMode="contain"
                         />

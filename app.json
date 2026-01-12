@@ -4,7 +4,7 @@
     "slug": "otopair",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/images/repairconnectglasslogo.png",
+    "icon": "./assets/images/otopair-ai-logo.png",
     "scheme": "otopair",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -31,7 +31,7 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/repairconnectglasslogo.png",
+          "image": "./assets/images/otopair-ai-logo.png",
           "imageWidth": 200,
           "resizeMode": "contain",
           "backgroundColor": "#ffffff",

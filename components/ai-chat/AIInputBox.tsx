@@ -1,48 +1,73 @@
 /**
  * AI Input Box Component
- * Multi-modal input with text, camera, and voice support
+ * ChatGPT-style input with + button, microphone, and send
  */
 
-import React, { useState, useRef } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   View,
   TextInput,
   Pressable,
   StyleSheet,
   Keyboard,
-  type TextInputProps,
+  NativeSyntheticEvent,
+  TextInputContentSizeChangeEventData,
 } from 'react-native';
-import { Text } from '@/components/shared-ui';
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
 import { BrandColors, BorderRadius, Spacing, FontFamily, Shadows } from '@/constants/theme';
-import { Image, Mic, ArrowUp, X } from 'lucide-react-native';
+import { Plus, Mic, ArrowUp } from 'lucide-react-native';
+
+// ============================================================================
+// TYPES
+// ============================================================================
 
 interface AIInputBoxProps {
   value: string;
   onChangeText: (text: string) => void;
   onSend: () => void;
-  onCameraPress?: () => void;
-  onVoicePress?: () => void;
   isLoading?: boolean;
-  isRecording?: boolean;
-  selectedImage?: string | null;
-  onRemoveImage?: () => void;
   placeholder?: string;
+  disabled?: boolean;
 }
+
+// ============================================================================
+// CONSTANTS
+// ============================================================================
+
+const MIN_INPUT_HEIGHT = 24;
+const MAX_INPUT_HEIGHT = 100; // ~4 lines
+const LINE_HEIGHT = 22;
+
+// ============================================================================
+// MAIN COMPONENT
+// ============================================================================
 
 export function AIInputBox({
   value,
   onChangeText,
   onSend,
-  onCameraPress,
-  onVoicePress,
   isLoading = false,
-  isRecording = false,
-  selectedImage,
-  onRemoveImage,
-  placeholder = 'Ask RepairConnect AI',
+  placeholder = 'Ask Otopair AI',
+  disabled = false,
 }: AIInputBoxProps) {
   const inputRef = useRef<TextInput>(null);
-  const canSend = (value.trim().length > 0 || selectedImage) && !isLoading;
+  const [inputHeight, setInputHeight] = useState(MIN_INPUT_HEIGHT);
+  const sendButtonScale = useSharedValue(1);
+
+  const canSend = value.trim().length > 0 && !isLoading && !disabled;
+
+  // Handle content size change for auto-expanding
+  const handleContentSizeChange = (
+    e: NativeSyntheticEvent<TextInputContentSizeChangeEventData>
+  ) => {
+    const { height } = e.nativeEvent.contentSize;
+    const newHeight = Math.min(Math.max(height, MIN_INPUT_HEIGHT), MAX_INPUT_HEIGHT);
+    setInputHeight(newHeight);
+  };
 
   const handleSend = () => {
     if (canSend) {
@@ -51,74 +76,86 @@ export function AIInputBox({
     }
   };
 
+  const handleSendPressIn = () => {
+    if (canSend) {
+      sendButtonScale.value = withSpring(0.9, { damping: 15, stiffness: 400 });
+    }
+  };
+
+  const handleSendPressOut = () => {
+    sendButtonScale.value = withSpring(1, { damping: 15, stiffness: 400 });
+  };
+
+  const sendButtonAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: sendButtonScale.value }],
+  }));
+
   return (
     <View style={styles.container}>
-      {/* Image Preview */}
-      {selectedImage && (
-        <View style={styles.imagePreview}>
-          <View style={styles.imagePreviewContent}>
-            <Text size="sm" style={styles.imageText}>📎 Image attached</Text>
-            <Pressable onPress={onRemoveImage} style={styles.removeImageBtn}>
-              <X size={16} color="#6B7280" />
-            </Pressable>
-          </View>
-        </View>
-      )}
-
-      {/* Input Container */}
       <View style={styles.inputWrapper}>
+        {/* Plus Button */}
+        <Pressable
+          style={({ pressed }) => [
+            styles.iconBtn,
+            pressed && styles.iconBtnPressed,
+          ]}
+          onPress={() => {
+            // TODO: Open attachment menu
+          }}
+        >
+          <Plus size={20} color="#6B7280" strokeWidth={2} />
+        </Pressable>
+
+        {/* Text Input */}
         <TextInput
           ref={inputRef}
-          style={styles.textInput}
+          style={[styles.textInput, { minHeight: inputHeight }]}
           value={value}
           onChangeText={onChangeText}
           placeholder={placeholder}
           placeholderTextColor="#9CA3AF"
           multiline
           maxLength={4000}
-          editable={!isLoading}
+          editable={!isLoading && !disabled}
+          onContentSizeChange={handleContentSizeChange}
           onSubmitEditing={handleSend}
-          returnKeyType="send"
+          blurOnSubmit={false}
         />
 
-        {/* Action Row */}
-        <View style={styles.actionsRow}>
-          {/* Left Icons */}
-          <View style={styles.leftIcons}>
-            <Pressable
-              onPress={onCameraPress}
-              style={({ pressed }) => [styles.iconBtn, pressed && styles.iconBtnPressed]}
-              disabled={isLoading}
-            >
-              <Image size={22} color={BrandColors.secondary} />
-            </Pressable>
+        {/* Microphone Button (when no text) */}
+        {!value.trim() && (
+          <Pressable
+            style={({ pressed }) => [
+              styles.iconBtn,
+              pressed && styles.iconBtnPressed,
+            ]}
+            onPress={() => {
+              // TODO: Voice input
+            }}
+          >
+            <Mic size={20} color="#6B7280" strokeWidth={2} />
+          </Pressable>
+        )}
 
-            <Pressable
-              onPress={onVoicePress}
-              style={({ pressed }) => [
-                styles.iconBtn,
-                pressed && styles.iconBtnPressed,
-                isRecording && styles.recordingBtn,
-              ]}
-              disabled={isLoading}
-            >
-              <Mic size={22} color={isRecording ? '#EF4444' : BrandColors.secondary} />
-            </Pressable>
-          </View>
-
-          {/* Send Button */}
+        {/* Send Button */}
+        <Animated.View style={[styles.sendButtonWrapper, sendButtonAnimatedStyle]}>
           <Pressable
             onPress={handleSend}
+            onPressIn={handleSendPressIn}
+            onPressOut={handleSendPressOut}
             disabled={!canSend}
-            style={({ pressed }) => [
+            style={[
               styles.sendBtn,
               canSend && styles.sendBtnEnabled,
-              pressed && canSend && styles.sendBtnPressed,
             ]}
           >
-            <ArrowUp size={18} color={canSend ? BrandColors.white : '#9CA3AF'} />
+            <ArrowUp 
+              size={18} 
+              color={canSend ? BrandColors.white : '#9CA3AF'} 
+              strokeWidth={2.5}
+            />
           </Pressable>
-        </View>
+        </Animated.View>
       </View>
     </View>
   );
@@ -131,73 +168,46 @@ export function AIInputBox({
 const styles = StyleSheet.create({
   container: {
     paddingHorizontal: Spacing.lg,
-    paddingBottom: Spacing['2xl'],
+    paddingBottom: Spacing.lg,
     paddingTop: Spacing.sm,
-    backgroundColor: 'transparent',
-  },
-  imagePreview: {
-    marginBottom: Spacing.sm,
-  },
-  imagePreviewContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: BrandColors.secondary + '15',
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.md,
-    borderRadius: BorderRadius.md,
-  },
-  imageText: {
-    color: BrandColors.secondary,
-  },
-  removeImageBtn: {
-    padding: Spacing.xs,
   },
   inputWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
     backgroundColor: BrandColors.white,
-    borderRadius: BorderRadius['2xl'],
+    borderRadius: BorderRadius.full,
     borderWidth: 1,
-    borderColor: BrandColors.secondary + '40',
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.lg,
-    ...Shadows.md,
-    bottom: Spacing['5xl'] + 22,
+    borderColor: '#E5E7EB',
+    paddingVertical: Spacing.xs + 2,
+    paddingHorizontal: Spacing.sm,
+    ...Shadows.sm,
+    gap: Spacing.xs,
+  },
+  iconBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  iconBtnPressed: {
+    backgroundColor: '#F3F4F6',
   },
   textInput: {
+    flex: 1,
     fontSize: 16,
     fontFamily: FontFamily.regular,
     color: BrandColors.primary,
-    minHeight: 24,
-    maxHeight: 120,
-    paddingVertical: 0,
+    lineHeight: LINE_HEIGHT,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.xs,
   },
-  actionsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: Spacing.md,
-  },
-  leftIcons: {
-    flexDirection: 'row',
-    gap: Spacing.sm,
-  },
-  iconBtn: {
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: BorderRadius.md,
-  },
-  iconBtnPressed: {
-    backgroundColor: BrandColors.secondary + '15',
-  },
-  recordingBtn: {
-    backgroundColor: '#FEE2E2',
+  sendButtonWrapper: {
   },
   sendBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
     backgroundColor: '#E5E7EB',
     justifyContent: 'center',
     alignItems: 'center',
@@ -205,8 +215,4 @@ const styles = StyleSheet.create({
   sendBtnEnabled: {
     backgroundColor: BrandColors.secondary,
   },
-  sendBtnPressed: {
-    opacity: 0.8,
-  },
 });
-

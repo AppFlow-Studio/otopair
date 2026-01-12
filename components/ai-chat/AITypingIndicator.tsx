@@ -4,8 +4,11 @@
  */
 
 import React, { useEffect, useRef } from 'react';
-import { View, Animated, StyleSheet } from 'react-native';
+import { View, Animated, StyleSheet, Image } from 'react-native';
 import { BrandColors, BorderRadius, Spacing, Shadows } from '@/constants/theme';
+
+// Otopair AI Logo
+const OTOPAIR_AI_LOGO = require('@/assets/images/otopair-ai-logo.png');
 
 export function AITypingIndicator() {
   const dot1 = useRef(new Animated.Value(0)).current;
@@ -46,7 +49,11 @@ export function AITypingIndicator() {
     <View style={styles.container}>
       {/* Avatar */}
       <View style={styles.avatar}>
-        <Animated.Text style={styles.avatarText}>🤖</Animated.Text>
+        <Image 
+          source={OTOPAIR_AI_LOGO} 
+          style={styles.aiAvatarImage}
+          resizeMode="cover"
+        />
       </View>
 
       {/* Typing Bubble */}
@@ -95,8 +102,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginRight: Spacing.sm,
   },
-  avatarText: {
-    fontSize: 14,
+  aiAvatarImage: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
   },
   bubble: {
     backgroundColor: BrandColors.white,

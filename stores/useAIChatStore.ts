@@ -1,50 +1,81 @@
 /**
  * AI Chat Store
  * Zustand store for managing AI chat state
+ * Note: The main AI chat screen now uses local state with the scenario engine.
+ * This store can be used for persistence or sharing state across components.
  */
 
-import { create } from 'zustand';
-import type {
-  AIChatStore,
-  AIChatState,
-  ChatMessage,
-  Conversation,
-  User,
-  Vehicle,
-  SuggestionTile,
-} from '@/services/types/ai.types';
-import {
-  sendChatMessage,
-  getUserData,
-  getSuggestions,
-  getConversations,
-  getConversation,
-} from '@/services/api/aiChat';
+import { create } from "zustand";
+import type { ConversationState, ChatMessage } from "@/services/ai/types";
+import { createInitialState } from "@/services/ai/scenarioEngine";
+
+// ============================================================================
+// TYPES
+// ============================================================================
+
+export interface Conversation {
+  id: string;
+  title: string;
+  lastMessage: string;
+  updatedAt: string;
+  messages: ChatMessage[];
+}
+
+export interface AIChatStoreState {
+  // Current conversation state
+  conversationState: ConversationState;
+
+  // Saved conversations (for history)
+  conversations: Conversation[];
+
+  // UI state
+  isLoadingHistory: boolean;
+  
+  // Welcome screen
+  hasSeenWelcome: boolean;
+}
+
+export interface AIChatStoreActions {
+  // State management
+  setConversationState: (state: ConversationState) => void;
+  resetConversation: () => void;
+
+  // Conversation history
+  saveConversation: (title?: string) => void;
+  loadConversation: (id: string) => void;
+  deleteConversation: (id: string) => void;
+  
+  // Welcome screen
+  setHasSeenWelcome: (seen: boolean) => void;
+}
+
+export type AIChatStore = AIChatStoreState & AIChatStoreActions;
 
 // ============================================================================
 // HELPERS
 // ============================================================================
 
 function generateId(): string {
-  return `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  return `conv_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+}
+
+function getConversationTitle(messages: ChatMessage[]): string {
+  const firstUserMessage = messages.find((m) => m.role === "user");
+  if (firstUserMessage) {
+    return firstUserMessage.content.slice(0, 50) + (firstUserMessage.content.length > 50 ? "..." : "");
+  }
+  return "New conversation";
 }
 
 // ============================================================================
 // INITIAL STATE
 // ============================================================================
 
-const initialState: AIChatState = {
-  messages: [],
-  currentConversationId: null,
+const initialState: AIChatStoreState = {
+  conversationState: createInitialState(),
   conversations: [],
-  isLoading: false,
   isLoadingHistory: false,
-  user: null,
-  vehicle: null,
-  suggestions: [],
-  greeting: 'Hello',
-  isRecording: false,
-  selectedImage: null,
+  hasSeenWelcome: false,
 };
 
 // ============================================================================
@@ -55,169 +86,67 @@ export const useAIChatStore = create<AIChatStore>((set, get) => ({
   ...initialState,
 
   // --------------------------------------------------------------------------
-  // MESSAGE ACTIONS
+  // STATE MANAGEMENT
   // --------------------------------------------------------------------------
 
-  sendMessage: async (message: string) => {
-    const { messages, user, selectedImage } = get();
+  setConversationState: (conversationState: ConversationState) => {
+    set({ conversationState });
+  },
 
-    // Create user message
-    const userMessage: ChatMessage = {
+  resetConversation: () => {
+    set({ conversationState: createInitialState() });
+  },
+
+  // --------------------------------------------------------------------------
+  // CONVERSATION HISTORY
+  // --------------------------------------------------------------------------
+
+  saveConversation: (title?: string) => {
+    const { conversationState, conversations } = get();
+
+    if (conversationState.messages.length === 0) return;
+
+    const conversation: Conversation = {
       id: generateId(),
-      role: 'user',
-      content: selectedImage ? `[Image attached] ${message}` : message,
-      timestamp: new Date().toISOString(),
+      title: title || getConversationTitle(conversationState.messages),
+      lastMessage: conversationState.messages[conversationState.messages.length - 1]?.content || "",
+      updatedAt: new Date().toISOString(),
+      messages: conversationState.messages,
     };
 
-    // Add user message and set loading
     set({
-      messages: [...messages, userMessage],
-      isLoading: true,
-      selectedImage: null, // Clear selected image
-    });
-
-    try {
-      // Send to API
-      const response = await sendChatMessage({
-        message,
-        conversation_history: messages,
-        user_id: user?.id,
-      });
-
-      // Create assistant message
-      const assistantMessage: ChatMessage = {
-        id: generateId(),
-        role: 'assistant',
-        content: response.message,
-        timestamp: new Date().toISOString(),
-        sections: response.sections,
-        functionCall: response.function_call,
-      };
-
-      // Update state with response
-      set((state) => ({
-        messages: [...state.messages, assistantMessage],
-        isLoading: false,
-        currentConversationId: response.conversation_id || state.currentConversationId,
-      }));
-    } catch (error) {
-      console.error('Error sending message:', error);
-
-      // Add error message
-      const errorMessage: ChatMessage = {
-        id: generateId(),
-        role: 'assistant',
-        content: 'I apologize, but I encountered an error. Please try again.',
-        timestamp: new Date().toISOString(),
-      };
-
-      set((state) => ({
-        messages: [...state.messages, errorMessage],
-        isLoading: false,
-      }));
-    }
-  },
-
-  clearMessages: () => {
-    set({
-      messages: [],
-      currentConversationId: null,
+      conversations: [conversation, ...conversations].slice(0, 50), // Keep last 50
     });
   },
 
-  // --------------------------------------------------------------------------
-  // CONVERSATION ACTIONS
-  // --------------------------------------------------------------------------
+  loadConversation: (id: string) => {
+    const { conversations } = get();
+    const conversation = conversations.find((c) => c.id === id);
 
-  loadConversation: async (conversationId: string) => {
-    set({ isLoadingHistory: true });
-
-    try {
-      const conversation = await getConversation(conversationId);
-
-      if (conversation) {
-        set({
+    if (conversation) {
+      set({
+        conversationState: {
+          ...createInitialState(),
           messages: conversation.messages,
-          currentConversationId: conversation.id,
-          isLoadingHistory: false,
-        });
-      } else {
-        set({ isLoadingHistory: false });
-      }
-    } catch (error) {
-      console.error('Error loading conversation:', error);
-      set({ isLoadingHistory: false });
-    }
-  },
-
-  loadConversations: async () => {
-    set({ isLoadingHistory: true });
-
-    try {
-      const response = await getConversations();
-      set({
-        conversations: response.conversations,
-        isLoadingHistory: false,
+          currentStage: "welcome", // Reset to welcome for new interactions
+        },
       });
-    } catch (error) {
-      console.error('Error loading conversations:', error);
-      set({ isLoadingHistory: false });
     }
   },
 
-  startNewChat: () => {
+  deleteConversation: (id: string) => {
+    const { conversations } = get();
     set({
-      messages: [],
-      currentConversationId: null,
+      conversations: conversations.filter((c) => c.id !== id),
     });
   },
 
   // --------------------------------------------------------------------------
-  // USER CONTEXT
+  // WELCOME SCREEN
   // --------------------------------------------------------------------------
 
-  loadUserContext: async () => {
-    try {
-      const response = await getUserData();
-      set({
-        user: response.user,
-        vehicle: response.vehicle,
-      });
-    } catch (error) {
-      console.error('Error loading user context:', error);
-    }
-  },
-
-  loadSuggestions: async () => {
-    try {
-      const response = await getSuggestions();
-      set({
-        suggestions: response.suggestions,
-        greeting: response.greeting,
-      });
-    } catch (error) {
-      console.error('Error loading suggestions:', error);
-    }
-  },
-
-  // --------------------------------------------------------------------------
-  // MEDIA ACTIONS
-  // --------------------------------------------------------------------------
-
-  setRecording: (isRecording: boolean) => {
-    set({ isRecording });
-  },
-
-  setSelectedImage: (imageUri: string | null) => {
-    set({ selectedImage: imageUri });
-  },
-
-  // --------------------------------------------------------------------------
-  // RESET
-  // --------------------------------------------------------------------------
-
-  reset: () => {
-    set(initialState);
+  setHasSeenWelcome: (seen: boolean) => {
+    set({ hasSeenWelcome: seen });
   },
 }));
 
@@ -225,13 +154,10 @@ export const useAIChatStore = create<AIChatStore>((set, get) => ({
 // SELECTORS
 // ============================================================================
 
-export const selectMessages = (state: AIChatStore) => state.messages;
-export const selectIsLoading = (state: AIChatStore) => state.isLoading;
-export const selectUser = (state: AIChatStore) => state.user;
-export const selectVehicle = (state: AIChatStore) => state.vehicle;
-export const selectSuggestions = (state: AIChatStore) => state.suggestions;
-export const selectGreeting = (state: AIChatStore) => state.greeting;
+export const selectConversationState = (state: AIChatStore) => state.conversationState;
+export const selectMessages = (state: AIChatStore) => state.conversationState.messages;
+export const selectCurrentStage = (state: AIChatStore) => state.conversationState.currentStage;
+export const selectSuggestions = (state: AIChatStore) => state.conversationState.suggestions;
 export const selectConversations = (state: AIChatStore) => state.conversations;
-export const selectIsRecording = (state: AIChatStore) => state.isRecording;
-export const selectSelectedImage = (state: AIChatStore) => state.selectedImage;
-
+export const selectIsProcessing = (state: AIChatStore) => state.conversationState.isProcessing;
+export const selectHasSeenWelcome = (state: AIChatStore) => state.hasSeenWelcome;

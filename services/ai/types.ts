@@ -1,0 +1,184 @@
+/**
+ * AI Chat Types
+ * Types for the scenario-based chat system
+ */
+
+import type { ReasoningStep } from "@/components/ai-chat/AIReasoning";
+import type { Source } from "@/components/ai-chat/AISources";
+import type { QuickReply } from "@/components/ai-chat/AIQuickReplies";
+import type { Suggestion } from "@/components/ai-chat/PromptSuggestions";
+import type { Shop as StoreShop, Mechanic, MechanicAvailabilitySlot } from "@/stores/types/store.types";
+
+// ============================================================================
+// CONVERSATION STAGES
+// ============================================================================
+
+export type ConversationStage =
+  | "welcome"
+  | "diagnosis"
+  | "question"
+  | "service_selection"
+  | "priority_selection"
+  | "shop_selection"
+  | "time_selection"
+  | "confirmation"
+  | "success";
+
+// ============================================================================
+// SCENARIO TYPES
+// ============================================================================
+
+export type ScenarioType =
+  | "oil_change"
+  | "brake_noise"
+  | "check_engine"
+  | "tire_pressure"
+  | "vague_issue"
+  | "direct_booking";
+
+// ============================================================================
+// RE-EXPORT STORE TYPES FOR CONVENIENCE
+// ============================================================================
+
+export type { Shop as StoreShop, Mechanic, MechanicAvailabilitySlot } from "@/stores/types/store.types";
+
+// ============================================================================
+// MECHANIC & TIME TYPES (Extended for AI Chat)
+// ============================================================================
+
+export interface AIMechanic {
+  id: number;
+  name: string;
+  shopName: string;
+  address: string;
+  rating: number;
+  isVerified: boolean;
+  photoUrl: string | null;
+  distanceMi: number;
+  services: string[];
+  yearsExperience: number;
+  isAvailable: boolean;
+  responseTime: "Quick" | "Normal" | "Slow";
+  availability: number;
+  nextAvailability: Array<{
+    dayOfWeek: string;
+    day: string;
+    time: string;
+  }>;
+  price?: string;
+}
+
+// Legacy alias for backward compatibility
+export type AIShop = AIMechanic;
+
+export interface TimeSlot {
+  id: string;
+  day: string;
+  time: string;
+  displayText: string;
+  dayOfWeek?: string;
+}
+
+// ============================================================================
+// MESSAGE TYPES
+// ============================================================================
+
+export interface MessageSection {
+  title: string;
+  content: string;
+  type: "text" | "list";
+  items?: string[];
+}
+
+export interface SelectedService {
+  id: string;
+  name: string;
+  estimatedPrice: string;
+}
+
+export interface ChatMessage {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  timestamp: string;
+  // Enhanced properties for AI messages
+  reasoning?: ReasoningStep[];
+  sources?: Source[];
+  quickReplies?: QuickReply[];
+  sections?: MessageSection[];
+  isStreaming?: boolean;
+  // Shop carousel data
+  shops?: AIShop[];
+  // Service picker flag
+  showServicePicker?: boolean;
+  // Metadata
+  scenarioType?: ScenarioType;
+  stage?: ConversationStage;
+}
+
+// ============================================================================
+// CONVERSATION STATE
+// ============================================================================
+
+export interface ConversationState {
+  currentStage: ConversationStage;
+  currentScenario: ScenarioType | null;
+  messages: ChatMessage[];
+  // Selection state
+  selectedPriority: string | null;
+  selectedShop: AIShop | null;
+  selectedTime: TimeSlot | null;
+  selectedServices: SelectedService[];
+  // Service details
+  serviceName: string | null;
+  servicePrice: string | null;
+  // UI state
+  isProcessing: boolean;
+  suggestions: Suggestion[];
+}
+
+// ============================================================================
+// SCENARIO RESPONSE
+// ============================================================================
+
+export interface ScenarioResponse {
+  message: string;
+  reasoning?: ReasoningStep[];
+  sources?: Source[];
+  quickReplies?: QuickReply[];
+  sections?: MessageSection[];
+  nextStage: ConversationStage;
+  suggestions: Suggestion[];
+  // Optional data for specific stages
+  shops?: AIShop[];
+  timeSlots?: TimeSlot[];
+  showServicePicker?: boolean;
+}
+
+// ============================================================================
+// SCENARIO DEFINITION
+// ============================================================================
+
+export interface ScenarioStep {
+  stage: ConversationStage;
+  getMessage: (state: ConversationState, userInput?: string) => ScenarioResponse;
+}
+
+export interface Scenario {
+  type: ScenarioType;
+  triggers: string[];
+  steps: ScenarioStep[];
+}
+
+// ============================================================================
+// BOOKING SUMMARY
+// ============================================================================
+
+export interface BookingSummary {
+  serviceName: string;
+  servicePrice: string;
+  platformFee: string;
+  total: string;
+  shop: AIShop;
+  timeSlot: TimeSlot;
+}
