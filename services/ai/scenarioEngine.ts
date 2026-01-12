@@ -221,31 +221,46 @@ export function processUserMessage(
     }
 
     case "diagnosis": {
-      // After diagnosis, check if there's a question stage or go to priority_selection
-      if (newState.currentScenario) {
-        const scenario = getScenarioByType(newState.currentScenario);
-        if (scenario) {
-          // Check if there's a question stage next
-          const questionStep = scenario.steps.find((s) => s.stage === "question");
-          const priorityStep = scenario.steps.find((s) => s.stage === "priority_selection");
-          
-          if (questionStep) {
-            // Go to question stage (Yes/No)
-            response = questionStep.getMessage(newState, userInput);
-            newState.currentStage = "question";
-            newState.suggestions = response.suggestions;
-          } else if (priorityStep) {
-            response = priorityStep.getMessage(newState, userInput);
-            newState.currentStage = response.nextStage;
-            newState.suggestions = response.suggestions;
+      // After diagnosis, check for yes/no and proceed accordingly
+      const yesNo = detectYesNo(userInput);
+      
+      if (yesNo === "yes") {
+        // User confirmed - go directly to priority selection
+        if (newState.currentScenario) {
+          const scenario = getScenarioByType(newState.currentScenario);
+          if (scenario) {
+            const questionStep = scenario.steps.find((s) => s.stage === "question");
+            if (questionStep) {
+              response = questionStep.getMessage(newState, userInput);
+              newState.currentStage = "priority_selection";
+              newState.suggestions = response.suggestions;
+            } else {
+              response = getDefaultResponse(newState);
+            }
           } else {
             response = getDefaultResponse(newState);
           }
         } else {
           response = getDefaultResponse(newState);
         }
+      } else if (yesNo === "no") {
+        // User declined - reset conversation
+        newState = createInitialState();
+        response = {
+          message: "No problem! Let me know if you change your mind or if there's anything else I can help you with.",
+          nextStage: "welcome",
+          suggestions: WELCOME_SUGGESTIONS,
+        };
       } else {
-        response = getDefaultResponse(newState);
+        // Unclear response - ask for clarification
+        response = {
+          message: "Would you like me to find a mechanic that can help?",
+          nextStage: "diagnosis",
+          suggestions: [
+            { id: "yes", text: "Yes", value: "yes" },
+            { id: "no", text: "No", value: "no" },
+          ],
+        };
       }
       break;
     }

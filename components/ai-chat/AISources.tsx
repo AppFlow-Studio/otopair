@@ -30,7 +30,8 @@ export type SourceType =
   | 'smartcar_api'
   | 'error_codes'
   | 'service_history'
-  | 'common_scenarios';
+  | 'common_scenarios'
+  | 'manufacturer_data';
 
 export interface Source {
   type: SourceType;
@@ -72,6 +73,12 @@ export const SOURCE_DEFINITIONS: Record<SourceType, Omit<Source, 'details'>> = {
     label: 'Common Scenarios',
     icon: '📋',
     description: 'Pattern matching from known issue database',
+  },
+  manufacturer_data: {
+    type: 'manufacturer_data',
+    label: 'Manufacturer Data',
+    icon: '🏭',
+    description: 'Vehicle specifications and VIN database',
   },
 };
 

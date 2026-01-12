@@ -122,6 +122,12 @@ const VAGUE_ISSUE_REASONING: ReasoningStep[] = [
   { id: "vague_3", text: "Analyzing symptom patterns...", completed: true },
 ];
 
+const NEW_VEHICLE_REASONING: ReasoningStep[] = [
+  { id: "new_vehicle_1", text: "Checking VIN database...", completed: true },
+  { id: "new_vehicle_2", text: "Retrieving vehicle specifications...", completed: true },
+  { id: "new_vehicle_3", text: "Setting up maintenance schedule...", completed: true },
+];
+
 // ============================================================================
 // SOURCES BY SCENARIO
 // ============================================================================
@@ -153,10 +159,10 @@ const TIRE_PRESSURE_SOURCES: Source[] = [
 // ============================================================================
 
 export const WELCOME_SUGGESTIONS = [
-  { id: "brake", text: "Fix", subtitle: "brake noise" },
-  { id: "check_engine", text: "Check", subtitle: "engine light" },
-  { id: "oil", text: "Schedule", subtitle: "a service" },
-  { id: "vague", text: "Not sure", subtitle: "what's wrong" },
+  { id: "brake", text: "Hearing Something", subtitle: "Diagnose Issue", value: "brake noise" },
+  { id: "check_engine", text: "Check Engine Light", subtitle: "Check the code", value: "check engine light" },
+  { id: "oil", text: "Schedule Services", subtitle: "For my vehicle", value: "schedule oil change" },
+  { id: "new_vehicle", text: "New Vehicle", subtitle: "Register Vehicle", value: "register new vehicle" },
 ];
 
 export const PRIORITY_SUGGESTIONS = [
@@ -182,7 +188,7 @@ export const YES_NO_SUGGESTIONS = [
 
 const BRAKE_NOISE_SCENARIO: Scenario = {
   type: "brake_noise",
-  triggers: ["brake", "squeak", "squeaking", "grinding", "squeal", "screech"],
+  triggers: ["brake", "squeak", "squeaking", "grinding", "squeal", "screech", "hearing", "noise", "sound"],
   steps: [
     {
       stage: "diagnosis",
@@ -576,6 +582,83 @@ const VAGUE_ISSUE_SCENARIO: Scenario = {
 };
 
 // ============================================================================
+// SCENARIO: NEW VEHICLE
+// ============================================================================
+
+const NEW_VEHICLE_SCENARIO: Scenario = {
+  type: "new_vehicle",
+  triggers: ["new vehicle", "new car", "register vehicle", "add vehicle", "register car", "add car"],
+  steps: [
+    {
+      stage: "diagnosis",
+      getMessage: (state, userInput) => ({
+        message:
+          "Welcome! Let's get your new vehicle registered. I'll help you set up:\n\n✓ **Vehicle Profile** - Save make, model, and VIN\n✓ **Maintenance Schedule** - Set up service reminders\n✓ **Preferred Mechanics** - Find trusted shops near you\n\nTo get started, you can either:\n• Enter your VIN manually\n• Connect via Smartcar API for automatic setup\n\nWould you like me to help you find a mechanic for your initial setup and inspection?",
+        reasoning: NEW_VEHICLE_REASONING,
+        sources: [
+          { ...SOURCE_DEFINITIONS.smartcar_api, details: "Ready to connect" },
+          { ...SOURCE_DEFINITIONS.manufacturer_data, details: "VIN database access" },
+        ],
+        nextStage: "question",
+        suggestions: YES_NO_SUGGESTIONS,
+      }),
+    },
+    {
+      stage: "question",
+      getMessage: (state, userInput) => ({
+        message: "How would you like me to find mechanics for your new vehicle setup?",
+        nextStage: "priority_selection",
+        suggestions: PRIORITY_SUGGESTIONS,
+      }),
+    },
+    {
+      stage: "priority_selection",
+      getMessage: (state, userInput) => {
+        const shops = getShopsForPriority(state.selectedPriority);
+        return {
+          message: `These mechanics can help with your new vehicle setup and first inspection:`,
+          shops,
+          nextStage: "shop_selection",
+          suggestions: [],
+        };
+      },
+    },
+    {
+      stage: "shop_selection",
+      getMessage: (state, userInput) => {
+        const timeSlots = getTimeSlotsForShop(state.selectedShop?.id || 1);
+        return {
+          message: `${state.selectedShop?.name || "This mechanic"} is available for your new vehicle setup at:`,
+          nextStage: "time_selection",
+          suggestions: timeSlots.map((t) => ({ id: t.id, text: t.displayText })),
+        };
+      },
+    },
+    {
+      stage: "time_selection",
+      getMessage: (state, userInput) => ({
+        message: `New vehicle setup appointment:\n\n🚗 **Service:** Vehicle Registration & Initial Inspection\n📍 **Location:** ${
+          state.selectedShop?.name || "Selected Location"
+        }\n📅 **Time:** ${
+          state.selectedTime?.displayText || "Selected Time"
+        }\n💰 **Estimate:** $75-$125 + $4.99 platform fee\n\nConfirm?`,
+        quickReplies: CONFIRMATION_REPLIES,
+        nextStage: "confirmation",
+        suggestions: CONFIRMATION_SUGGESTIONS,
+      }),
+    },
+    {
+      stage: "success",
+      getMessage: (state) => ({
+        message: `✅ **New Vehicle Setup Booked!**\n\n${state.selectedTime?.displayText} at ${state.selectedShop?.name}.\n\nThey'll help register your vehicle, perform an initial inspection, and set up your maintenance schedule. Welcome to Otopair! 🚗`,
+        nextStage: "success",
+        suggestions: [],
+      }),
+    },
+  ],
+};
+
+// ============================================================================
 // SCENARIO: DIRECT BOOKING
 // ============================================================================
 
@@ -638,6 +721,7 @@ export const SCENARIOS: Scenario[] = [
   OIL_CHANGE_SCENARIO,
   TIRE_PRESSURE_SCENARIO,
   VAGUE_ISSUE_SCENARIO,
+  NEW_VEHICLE_SCENARIO,
   DIRECT_BOOKING_SCENARIO,
 ];
 

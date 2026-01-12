@@ -143,9 +143,10 @@ export function AIGreeting({ userName = 'User', suggestions, onSuggestionPress }
               key={suggestion.id}
               suggestion={suggestion}
               onPress={() => onSuggestionPress(
-                suggestion.subtitle 
+                suggestion.value ||
+                (suggestion.subtitle 
                   ? `${suggestion.text} ${suggestion.subtitle}` 
-                  : suggestion.text
+                  : suggestion.text)
               )}
               index={index}
             />

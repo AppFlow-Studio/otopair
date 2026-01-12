@@ -7,6 +7,12 @@
 import React, { useEffect, useState, useRef, useCallback } from "react";
 import { View, ScrollView, StyleSheet, Pressable, Alert, Platform, KeyboardAvoidingView, Keyboard } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Animated, { 
+  useAnimatedStyle, 
+  useSharedValue, 
+  withTiming,
+  Easing,
+} from "react-native-reanimated";
 import { useRouter } from "expo-router";
 import { LinearGradient } from "expo-linear-gradient";
 import { Text } from "@/components/shared-ui";
@@ -81,21 +87,42 @@ export default function AIChatScreen() {
   const [inputValue, setInputValue] = useState("");
   const [showHistory, setShowHistory] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
 
-  // Track keyboard visibility to adjust bottom padding
+  // Animated bottom padding for smooth keyboard transitions
+  const animatedBottomPadding = useSharedValue(bottomPadding);
+  
+  // Track keyboard visibility with smooth animation
   useEffect(() => {
-    const showSub = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow", () =>
-      setIsKeyboardVisible(true)
+    const showSub = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow", 
+      (e) => {
+        // Animate to 0 when keyboard shows (keyboard pushes content up)
+        animatedBottomPadding.value = withTiming(Spacing.xs, {
+          duration: Platform.OS === "ios" ? e.duration : 250,
+          easing: Easing.out(Easing.cubic),
+        });
+      }
     );
-    const hideSub = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide", () =>
-      setIsKeyboardVisible(false)
+    const hideSub = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide", 
+      (e) => {
+        // Animate back to tab bar height when keyboard hides
+        animatedBottomPadding.value = withTiming(bottomPadding, {
+          duration: Platform.OS === "ios" ? e.duration : 250,
+          easing: Easing.out(Easing.cubic),
+        });
+      }
     );
     return () => {
       showSub.remove();
       hideSub.remove();
     };
-  }, []);
+  }, [bottomPadding]);
+
+  // Animated style for input container
+  const inputContainerAnimatedStyle = useAnimatedStyle(() => ({
+    paddingBottom: animatedBottomPadding.value,
+  }));
 
   const handleWelcomeContinue = () => {
     setHasSeenWelcome(true);
@@ -109,6 +136,13 @@ export default function AIChatScreen() {
       }, 100);
     }
   }, [state.messages, isProcessing]);
+
+  // Smooth scroll to bottom when input is focused
+  const handleInputFocus = useCallback(() => {
+    setTimeout(() => {
+      scrollViewRef.current?.scrollToEnd({ animated: true });
+    }, 300); // Small delay to ensure keyboard animation starts
+  }, []);
 
   // Handle sending a message
   const handleSend = useCallback(() => {
@@ -151,15 +185,15 @@ export default function AIChatScreen() {
         isStreaming: true,
       };
 
-      setState((prev) => {
+      setState((prevState) => {
         const newState = {
-          ...prev,
-          messages: [...prev.messages, aiMessage],
+          ...prevState,
+          messages: [...prevState.messages, aiMessage],
           suggestions: response.suggestions,
           currentStage: response.nextStage,
         };
-        // Save conversation to store
-        saveCurrentConversation(newState);
+        // Save conversation to store after state is set
+        queueMicrotask(() => saveCurrentConversation(newState));
         return newState;
       });
 
@@ -170,8 +204,8 @@ export default function AIChatScreen() {
             ...prev,
             messages: prev.messages.map((m) => (m.id === aiMessage.id ? { ...m, isStreaming: false } : m)),
           };
-          // Save final state to store
-          saveCurrentConversation(finalState);
+          // Save final state to store after setState completes
+          setTimeout(() => saveCurrentConversation(finalState), 0);
           return finalState;
         });
         setIsProcessing(false);
@@ -195,8 +229,8 @@ export default function AIChatScreen() {
 
           const { newState, response } = processUserMessage(state, value);
 
-          setState((prev) => ({
-            ...prev,
+          setState((prevState) => ({
+            ...prevState,
             messages: newState.messages,
             currentStage: newState.currentStage,
             currentScenario: newState.currentScenario,
@@ -221,16 +255,16 @@ export default function AIChatScreen() {
               isStreaming: true,
             };
 
-            setState((prev) => {
-              const newState = {
-                ...prev,
-                messages: [...prev.messages, aiMessage],
+            setState((prevState) => {
+              const newStateWithMessage = {
+                ...prevState,
+                messages: [...prevState.messages, aiMessage],
                 suggestions: response.suggestions,
                 currentStage: response.nextStage,
               };
-              // Save conversation to store
-              saveCurrentConversation(newState);
-              return newState;
+              // Save conversation to store after state is set
+              queueMicrotask(() => saveCurrentConversation(newStateWithMessage));
+              return newStateWithMessage;
             });
 
             setTimeout(() => {
@@ -239,8 +273,8 @@ export default function AIChatScreen() {
                   ...prev,
                   messages: prev.messages.map((m) => (m.id === aiMessage.id ? { ...m, isStreaming: false } : m)),
                 };
-                // Save final state to store
-                saveCurrentConversation(finalState);
+                // Save final state to store after setState completes
+                setTimeout(() => saveCurrentConversation(finalState), 0);
                 return finalState;
               });
               setIsProcessing(false);
@@ -288,9 +322,26 @@ export default function AIChatScreen() {
         toggleServiceSelection(mappedId);
       });
 
-      // If no services selected, add a default oil change
+      // If no services selected, add a default service based on scenario type
       if (state.selectedServices.length === 0) {
-        toggleServiceSelection("svc_oil_change");
+        switch (state.currentScenario) {
+          case "brake_noise":
+            toggleServiceSelection("svc_brake_pads");
+            break;
+          case "check_engine_light":
+            toggleServiceSelection("svc_engine_diagnostic");
+            break;
+          case "tire_pressure":
+            toggleServiceSelection("svc_tire_rotation");
+            break;
+          case "battery_warning":
+            toggleServiceSelection("svc_electrical_check");
+            break;
+          case "oil_change":
+          default:
+            toggleServiceSelection("svc_oil_change");
+            break;
+        }
       }
 
       // Select the mechanic (use the mechanic's actual ID from mock data)
@@ -380,10 +431,10 @@ export default function AIChatScreen() {
           isStreaming: true,
         };
 
-        setState((prev) => {
-          const newState = {
-            ...prev,
-            messages: [...prev.messages, aiMessage],
+        setState((prevState) => {
+          const newStateWithMessage = {
+            ...prevState,
+            messages: [...prevState.messages, aiMessage],
             currentStage: "priority_selection" as const,
             suggestions: [
               { id: "closest", text: "Closest", value: "closest" },
@@ -391,9 +442,9 @@ export default function AIChatScreen() {
               { id: "best_price", text: "Best price", value: "best_price" },
             ],
           };
-          // Save conversation to store
-          saveCurrentConversation(newState);
-          return newState;
+          // Save conversation to store after state is set
+          queueMicrotask(() => saveCurrentConversation(newStateWithMessage));
+          return newStateWithMessage;
         });
 
         // Stop streaming
@@ -403,8 +454,8 @@ export default function AIChatScreen() {
               ...prev,
               messages: prev.messages.map((m) => (m.id === aiMessage.id ? { ...m, isStreaming: false } : m)),
             };
-            // Save final state to store
-            saveCurrentConversation(finalState);
+            // Save final state to store after setState completes
+            setTimeout(() => saveCurrentConversation(finalState), 0);
             return finalState;
           });
           setIsProcessing(false);
@@ -555,16 +606,17 @@ export default function AIChatScreen() {
           />
         )}
 
-        {/* Input Area */}
-        <View style={{ paddingBottom: isKeyboardVisible ? 0 : bottomPadding }}>
+        {/* Input Area with smooth keyboard animation */}
+        <Animated.View style={inputContainerAnimatedStyle}>
           <AIInputBox
             value={inputValue}
             onChangeText={setInputValue}
             onSend={handleSend}
             isLoading={isProcessing}
             disabled={isProcessing}
+            onFocus={handleInputFocus}
           />
-        </View>
+        </Animated.View>
       </KeyboardAvoidingView>
 
       {/* Chat History Sidebar */}

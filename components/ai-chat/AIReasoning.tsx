@@ -83,24 +83,30 @@ function TypewriterText({
   isComplete,
   delay = 0,
   speed = 25, // ms per character
+  shouldAnimate = true,
 }: { 
   text: string; 
   isComplete?: boolean;
   delay?: number;
   speed?: number;
+  shouldAnimate?: boolean;
 }) {
   const [displayedText, setDisplayedText] = useState('');
   const [isTypingDone, setIsTypingDone] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const hasAnimatedRef = useRef(false);
 
   useEffect(() => {
-    // If already complete, show full text immediately
-    if (isComplete) {
+    // If already complete or shouldn't animate, show full text immediately
+    if (isComplete || !shouldAnimate || hasAnimatedRef.current) {
       setDisplayedText(text);
       setIsTypingDone(true);
       return;
     }
+
+    // Mark as animated
+    hasAnimatedRef.current = true;
 
     // Start typing after delay
     timeoutRef.current = setTimeout(() => {
@@ -123,7 +129,7 @@ function TypewriterText({
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
-  }, [text, isComplete, delay, speed]);
+  }, [text, isComplete, delay, speed, shouldAnimate]);
 
   // Simple markdown rendering for reasoning text
   const renderMarkdown = useCallback((content: string) => {
@@ -197,17 +203,27 @@ function StepItem({
   isLast,
   isStreaming,
   cumulativeDelay = 0,
+  shouldAnimate = true,
 }: { 
   step: ReasoningStep; 
   index: number;
   isLast: boolean;
   isStreaming?: boolean;
   cumulativeDelay?: number;
+  shouldAnimate?: boolean;
 }) {
-  const opacity = useSharedValue(0);
-  const checkScale = useSharedValue(0);
+  const opacity = useSharedValue(shouldAnimate ? 0 : 1);
+  const checkScale = useSharedValue(step.completed ? 1 : 0);
 
   useEffect(() => {
+    if (!shouldAnimate) {
+      opacity.value = 1;
+      if (step.completed) {
+        checkScale.value = 1;
+      }
+      return;
+    }
+
     // Show step after cumulative delay from previous steps
     const timeout = setTimeout(() => {
       opacity.value = withTiming(1, { duration: 300 });
@@ -221,7 +237,7 @@ function StepItem({
     }, cumulativeDelay);
 
     return () => clearTimeout(timeout);
-  }, [step.completed, cumulativeDelay]);
+  }, [step.completed, cumulativeDelay, shouldAnimate]);
 
   const containerStyle = useAnimatedStyle(() => ({
     opacity: opacity.value,
@@ -248,6 +264,7 @@ function StepItem({
         isComplete={!isStreaming && step.completed}
         delay={cumulativeDelay}
         speed={25}
+        shouldAnimate={shouldAnimate}
       />
     </Animated.View>
   );
@@ -303,6 +320,7 @@ export function AIReasoning({
 }: AIReasoningProps) {
   const [isExpanded, setIsExpanded] = useState(defaultExpanded);
   const [currentStepIndex, setCurrentStepIndex] = useState(0);
+  const [hasFullyRendered, setHasFullyRendered] = useState(false);
   const rotation = useSharedValue(defaultExpanded ? 180 : 0);
   const contentHeight = useSharedValue(defaultExpanded ? 1 : 0);
 
@@ -336,21 +354,29 @@ export function AIReasoning({
     };
   }, [isStreaming, steps.length, steps]);
 
-  // Auto-collapse when streaming ends
+  // Auto-collapse when streaming ends and mark as fully rendered
   useEffect(() => {
-    if (!isStreaming && isExpanded && steps.length > 0) {
-      // Small delay before auto-collapse
-      const timeout = setTimeout(() => {
-        handleToggle();
-      }, 2000);
-      return () => clearTimeout(timeout);
+    if (!isStreaming && steps.length > 0) {
+      // Mark as fully rendered once streaming completes
+      setHasFullyRendered(true);
+      
+      if (isExpanded) {
+        // Small delay before auto-collapse
+        const timeout = setTimeout(() => {
+          handleToggle();
+        }, 2000);
+        return () => clearTimeout(timeout);
+      }
     }
   }, [isStreaming]);
 
   const handleToggle = () => {
     const newExpanded = !isExpanded;
     setIsExpanded(newExpanded);
-    rotation.value = withSpring(newExpanded ? 180 : 0, { damping: 15 });
+    rotation.value = withTiming(newExpanded ? 180 : 0, { 
+      duration: 200,
+      easing: Easing.inOut(Easing.ease),
+    });
     contentHeight.value = withTiming(newExpanded ? 1 : 0, { duration: 250 });
     onToggle?.(newExpanded);
   };
@@ -383,32 +409,17 @@ export function AIReasoning({
 
   return (
     <View style={styles.container}>
-      {/* Header with current step summary */}
+      {/* Header - Gemini style toggle */}
       <Pressable
         onPress={handleToggle}
-        style={({ pressed }) => [
-          styles.header,
-          pressed && styles.headerPressed,
-        ]}
+        style={styles.header}
       >
-        <Animated.View style={chevronStyle}>
-          <ChevronDown size={16} color={BrandColors.secondary} />
-        </Animated.View>
-        <Text style={styles.headerText} size="sm" weight="medium">
-          {isStreaming ? 'Thinking' : 'Reasoning'}
+        <Text style={styles.headerText} size="sm">
+          {isExpanded ? 'Hide thinking' : 'Show thinking'}
         </Text>
-        {isStreaming && (
-          <View style={styles.headerDots}>
-            <AnimatedDot delay={0} />
-            <AnimatedDot delay={100} />
-            <AnimatedDot delay={200} />
-          </View>
-        )}
-        {!isStreaming && (
-          <Text style={styles.stepCounter} size="xs">
-            ({completedCount}/{steps.length})
-          </Text>
-        )}
+        <Animated.View style={chevronStyle}>
+          <ChevronDown size={14} color="#5F6368" strokeWidth={2} />
+        </Animated.View>
       </Pressable>
 
       {/* Current Step Summary - Always visible when streaming */}
@@ -424,10 +435,12 @@ export function AIReasoning({
       <Animated.View style={[styles.content, contentStyle]}>
         <View style={styles.stepsContainer}>
           {steps.map((step, index) => {
-            // Calculate cumulative delay for this step
+            // Calculate cumulative delay for this step (only if not fully rendered)
             let cumulativeDelay = 0;
-            for (let i = 0; i < index; i++) {
-              cumulativeDelay += steps[i].text.length * 20 + 1500;
+            if (!hasFullyRendered) {
+              for (let i = 0; i < index; i++) {
+                cumulativeDelay += steps[i].text.length * 20 + 1500;
+              }
             }
             
             return (
@@ -438,6 +451,7 @@ export function AIReasoning({
                 isLast={index === steps.length - 1}
                 isStreaming={isStreaming}
                 cumulativeDelay={cumulativeDelay}
+                shouldAnimate={!hasFullyRendered}
               />
             );
           })}
@@ -480,31 +494,17 @@ const styles = StyleSheet.create({
     borderRadius: 2,
     backgroundColor: '#9CA3AF',
   },
-  // Header
+  // Header - Gemini minimal style
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: Spacing.xs,
-    paddingHorizontal: Spacing.sm,
-    backgroundColor: '#F9FAFB',
-    borderRadius: BorderRadius.md,
+    paddingVertical: 4,
     alignSelf: 'flex-start',
-    gap: Spacing.xs,
-  },
-  headerPressed: {
-    backgroundColor: '#F3F4F6',
+    gap: 6,
   },
   headerText: {
-    color: BrandColors.secondary,
-  },
-  headerDots: {
-    flexDirection: 'row',
-    marginLeft: Spacing.xs,
-    gap: 3,
-  },
-  stepCounter: {
-    color: '#9CA3AF',
-    marginLeft: Spacing.xs,
+    color: '#5F6368',
+    fontSize: 13,
   },
   // Current step summary (always visible when streaming)
   currentStepContainer: {

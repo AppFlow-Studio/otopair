@@ -34,7 +34,8 @@ export type ScenarioType =
   | "check_engine"
   | "tire_pressure"
   | "vague_issue"
-  | "direct_booking";
+  | "direct_booking"
+  | "new_vehicle";
 
 // ============================================================================
 // RE-EXPORT STORE TYPES FOR CONVENIENCE
