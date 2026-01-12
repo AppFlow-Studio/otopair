@@ -56,6 +56,12 @@ interface OnboardingData {
   dateOfBirth: string | null;     // ISO format
   phoneNumber: string | null;
   phoneCountryCode: string | null;
+  email: string | null;
+
+  // Profile stats (used on Settings/Profile screen)
+  totalBookings: number;
+  membershipTier: string | null;
+  points: number;
 
   // User intentions for using app
   userIntentions: string[] | null;
@@ -144,6 +150,7 @@ interface OnboardingState {
   updateData: (updates: Partial<OnboardingData>) => void;
   canProceed: () => boolean;
   reset: () => void;
+  isCreateAccountComplete: () => boolean;
 
   // Computed
   getProgress: () => number;  // 0-100
@@ -160,6 +167,10 @@ const INITIAL_DATA: OnboardingData = {
   dateOfBirth: null,
   phoneNumber: null,
   phoneCountryCode: null,
+  email: null,
+  totalBookings: 0,
+  membershipTier: null,
+  points: 0,
   userIntentions: null,
   pushNotificationsGranted: false,
   pushNotificationStatus: null,
@@ -288,5 +299,20 @@ export const useOnboardingStore = create<OnboardingState>()((set, get) => ({
       completedSetupSteps: [],
       data: INITIAL_DATA,
     });
+  },
+
+  isCreateAccountComplete: () => {
+    const { data } = get();
+    // Simplified version of the checks in OnboardingFlow.tsx
+    return Boolean(
+      data.phoneNumber && 
+      data.firstName && 
+      data.lastName && 
+      data.username && 
+      data.profilePhotoUri && 
+      data.userIntentions && data.userIntentions.length > 0 &&
+      data.pushNotificationStatus !== null &&
+      data.locationPermissionStatus !== null
+    );
   },
 }));

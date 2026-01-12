@@ -1,9 +1,862 @@
-import { Text, View } from "react-native";
+import React, { useCallback, useMemo, useRef, useState } from 'react';
+import {
+  Dimensions,
+  Image,
+  Modal,
+  Pressable,
+  StyleSheet,
+  TextInput,
+  TouchableWithoutFeedback,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
+import {
+  Ellipsis,
+  LogOut,
+  Pencil,
+  Car,
+  Award,
+  UserPlus,
+  CreditCard,
+  Receipt,
+  Bell,
+  Headset,
+  HelpCircle,
+  Star,
+  ShieldCheck,
+  Fingerprint,
+  ArrowLeftRight,
+  Trash2,
+  Shield,
+  FileText,
+  Info,
+  RotateCcw,
+  ChevronRight,
+} from 'lucide-react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  useAnimatedScrollHandler,
+  interpolate,
+  Extrapolation,
+} from 'react-native-reanimated';
+import { useShallow } from 'zustand/react/shallow';
+import { LinearGradient } from 'expo-linear-gradient';
+
+import { BrandColors, Button, Text } from '@/components/shared-ui';
+import { useOnboardingStore } from '@/stores/useOnboardingStore';
+
+const { width: SCREEN_WIDTH } = Dimensions.get('window');
+const MENU_WIDTH = 190;
+
+// ============================================================================
+// CONSTANTS
+// ============================================================================
+const HEADER_MAX_HEIGHT = 440; // Total height of the profile area
+const HEADER_MIN_HEIGHT = 80;  // Height of the collapsed sticky bar
+const SHEET_TOP_RADIUS = 32;
+
+// ============================================================================
+// SETTINGS LIST ITEM COMPONENT
+// ============================================================================
+
+interface SettingsListItemProps {
+  icon: React.ReactNode;
+  label: string;
+  onPress: () => void;
+  isLast?: boolean;
+}
+
+const SettingsListItem = ({ icon, label, onPress, isLast }: SettingsListItemProps) => (
+  <Pressable
+    onPress={onPress}
+    style={({ pressed }) => [styles.listItem, pressed && styles.listItemPressed]}
+  >
+    <View style={styles.listItemIcon}>{icon}</View>
+    <Text weight="medium" size="md" color="#1F2937" style={styles.listItemLabel}>
+      {label}
+    </Text>
+    <ChevronRight size={20} color="#9CA3AF" />
+    {!isLast && <View style={styles.listItemSeparator} />}
+  </Pressable>
+);
 
 export default function SettingsHomeScreen() {
-    return (
-        <View>
-            <Text>Settings Home</Text>
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const scrollY = useSharedValue(0);
+
+  const { data, updateData, reset, isCreateAccountComplete } = useOnboardingStore(
+    useShallow((state) => ({
+      data: state.data,
+      updateData: state.updateData,
+      reset: state.reset,
+      isCreateAccountComplete: state.isCreateAccountComplete(),
+    })),
+  );
+
+  // ─────────────────────────────────────────────────────────────
+  // Computed Data
+  // ─────────────────────────────────────────────────────────────
+  const fullName = useMemo(() => {
+    const name = `${data.firstName ?? ''} ${data.lastName ?? ''}`.trim();
+    return name.length > 0 ? name : 'Alex Johnson';
+  }, [data.firstName, data.lastName]);
+
+  const initials = useMemo(() => {
+    const first = (data.firstName ?? '').trim();
+    const last = (data.lastName ?? '').trim();
+    const a = first.length > 0 ? first[0] : '';
+    const b = last.length > 0 ? last[0] : '';
+    const value = `${a}${b}`.toUpperCase();
+    return value.length > 0 ? value : 'AJ';
+  }, [data.firstName, data.lastName]);
+
+  const totalBookingsText = useMemo(() => {
+    if (isCreateAccountComplete) return '12';
+    const n = Number.isFinite(data.totalBookings) ? data.totalBookings : 0;
+    return String(n);
+  }, [data.totalBookings, isCreateAccountComplete]);
+
+  const pointsText = useMemo(() => {
+    if (isCreateAccountComplete) return '1,240';
+    const n = Number.isFinite(data.points) ? data.points : 0;
+    try {
+      return n.toLocaleString();
+    } catch {
+      return String(n);
+    }
+  }, [data.points, isCreateAccountComplete]);
+
+  const membershipTier = useMemo(() => {
+    if (isCreateAccountComplete) return 'Gold';
+    return data.membershipTier ?? 'No';
+  }, [data.membershipTier, isCreateAccountComplete]);
+
+  // ─────────────────────────────────────────────────────────────
+  // Scroll Handler
+  // ─────────────────────────────────────────────────────────────
+  const scrollHandler = useAnimatedScrollHandler({
+    onScroll: (event) => {
+      scrollY.value = event.contentOffset.y;
+    },
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // Animated Styles
+  // ─────────────────────────────────────────────────────────────
+  const scrollDistance = HEADER_MAX_HEIGHT - HEADER_MIN_HEIGHT;
+
+  // The sticky bar background fades in as you scroll
+  const stickyBarBackgroundStyle = useAnimatedStyle(() => {
+    const opacity = interpolate(
+      scrollY.value,
+      // Fade in earlier so the collapsed header never reads as "floating over" the list
+      [scrollDistance * 0.35, scrollDistance * 0.65],
+      [0, 1],
+      Extrapolation.CLAMP
+    );
+    return { opacity };
+  });
+
+  // Avatar scales down and moves to the top-left corner
+  const avatarStyle = useAnimatedStyle(() => {
+    // Base centered (left: '50%', marginLeft: -50). Collapsed target: left edge ~12 => center ~62.
+    const targetCenterX = 62;
+    const collapsedAvatarTranslateX = targetCenterX - SCREEN_WIDTH / 2;
+
+    const scale = interpolate(
+      scrollY.value,
+      [0, scrollDistance],
+      [1, 0.6],
+      Extrapolation.CLAMP
+    );
+    const translateY = interpolate(
+      scrollY.value,
+      [0, scrollDistance],
+      [0, -40],
+      Extrapolation.CLAMP
+    );
+    const translateX = interpolate(
+      scrollY.value,
+      [0, scrollDistance],
+      [0, collapsedAvatarTranslateX],
+      Extrapolation.CLAMP
+    );
+
+    return {
+      transform: [{ scale }, { translateY }, { translateX }],
+    };
+  });
+
+  // Expanded profile details (name, email, stats, buttons) fade out
+  const expandedDetailsStyle = useAnimatedStyle(() => {
+    const opacity = interpolate(
+      scrollY.value,
+      [0, scrollDistance * 0.4],
+      [1, 0],
+      Extrapolation.CLAMP
+    );
+    return { opacity };
+  });
+
+  // Single name instance that moves with the avatar (no fade/replace)
+  const nameTransformStyle = useAnimatedStyle(() => {
+    // Name starts centered; collapsed target: center around 160px to sit beside avatar.
+    const targetNameCenterX = 160;
+    const collapsedNameTranslateX = targetNameCenterX - SCREEN_WIDTH / 2;
+
+    const translateY = interpolate(
+      scrollY.value,
+      [0, scrollDistance],
+      [120, 10],
+      Extrapolation.CLAMP
+    );
+    const translateX = interpolate(
+      scrollY.value,
+      [0, scrollDistance],
+      [0, collapsedNameTranslateX],
+      Extrapolation.CLAMP
+    );
+    const scale = interpolate(
+      scrollY.value,
+      [0, scrollDistance],
+      [1, 0.95],
+      Extrapolation.CLAMP
+    );
+    return {
+      transform: [{ translateY }, { translateX }, { scale }],
+    };
+  });
+
+  // ─────────────────────────────────────────────────────────────
+  // Menu (three dots)
+  // ─────────────────────────────────────────────────────────────
+  const menuAnchorRef = useRef<View>(null);
+  const [isMenuVisible, setIsMenuVisible] = useState(false);
+  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
+
+  const openMenu = useCallback(() => {
+    menuAnchorRef.current?.measureInWindow?.((x, y, w, h) => {
+      const left = Math.min(Math.max(12, x + w - MENU_WIDTH), SCREEN_WIDTH - MENU_WIDTH - 12);
+      const top = y + h + 8;
+      setMenuPosition({ top, left });
+      setIsMenuVisible(true);
+    });
+  }, []);
+
+  // ─────────────────────────────────────────────────────────────
+  // Edit Profile modal
+  // ─────────────────────────────────────────────────────────────
+  const [isEditVisible, setIsEditVisible] = useState(false);
+  const [editName, setEditName] = useState('');
+  const [editEmail, setEditEmail] = useState('');
+
+  const openEditProfile = useCallback(() => {
+    const name = `${data.firstName ?? ''} ${data.lastName ?? ''}`.trim();
+    setEditName(name);
+    setEditEmail(data.email ?? '');
+    setIsEditVisible(true);
+  }, [data.email, data.firstName, data.lastName]);
+
+  const handleSaveProfile = useCallback(() => {
+    const normalizedName = editName.trim().replace(/\s+/g, ' ');
+    const nameParts = normalizedName.length > 0 ? normalizedName.split(' ') : [];
+    const firstName = nameParts.length > 0 ? nameParts[0] : null;
+    const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : null;
+
+    const normalizedEmail = editEmail.trim();
+    const email = normalizedEmail.length > 0 ? normalizedEmail : null;
+
+    updateData({ firstName, lastName, email });
+    setIsEditVisible(false);
+  }, [editEmail, editName, updateData]);
+
+  // ─────────────────────────────────────────────────────────────
+  // Logout confirmation
+  // ─────────────────────────────────────────────────────────────
+  const [isLogoutVisible, setIsLogoutVisible] = useState(false);
+
+  const handleConfirmLogout = useCallback(() => {
+    setIsLogoutVisible(false);
+    reset();
+    router.replace('/(onboarding)');
+  }, [reset, router]);
+
+  return (
+    <View style={styles.screen}>
+      {/* ═══════════════════════════════════════════════════════════════
+          LAYER 0: Gray Background (Behind everything)
+          ═══════════════════════════════════════════════════════════════ */}
+      <View style={StyleSheet.absoluteFill}>
+        <LinearGradient
+          colors={['#E8ECF0', '#D1D5DB']}
+          style={StyleSheet.absoluteFill}
+        />
+      </View>
+
+      {/* ═══════════════════════════════════════════════════════════════
+          LAYER 10: Sticky Header Elements (Always on top)
+          ═══════════════════════════════════════════════════════════════ */}
+      <View style={[styles.stickyContainer, { height: HEADER_MIN_HEIGHT + insets.top }]}>
+        {/* Sticky Background Bar (fades in) */}
+        <Animated.View style={[StyleSheet.absoluteFill, styles.stickyBarBackground, stickyBarBackgroundStyle]} />
+
+        {/* Transforming Avatar */}
+        <Animated.View style={[styles.avatarWrapper, { top: insets.top + 20 }, avatarStyle]}>
+          {data.profilePhotoUri ? (
+            <Image source={{ uri: data.profilePhotoUri }} style={styles.avatarImage} />
+          ) : (
+            <View style={styles.avatarPlaceholder}>
+              <Text weight="semiBold" size="xl" color={BrandColors.secondary}>
+                {initials}
+              </Text>
+            </View>
+          )}
+        </Animated.View>
+
+        {/* Single Name that moves beside the avatar */}
+        <Animated.View style={[styles.movingNameContainer, { top: insets.top + 20 }, nameTransformStyle]}>
+          <Text weight="bold" size="lg" color="#111827">{fullName}</Text>
+        </Animated.View>
+
+        {/* Ellipsis Menu */}
+        <View ref={menuAnchorRef} collapsable={false} style={[styles.menuAnchor, { top: insets.top + 30 }]}>
+          <Pressable onPress={openMenu} hitSlop={10}>
+            <Ellipsis size={24} color={BrandColors.secondary} />
+          </Pressable>
         </View>
-    )
+      </View>
+
+      {/* ═══════════════════════════════════════════════════════════════
+          LAYER 5: Scrollable Content
+          ═══════════════════════════════════════════════════════════════ */}
+      <Animated.ScrollView
+        onScroll={scrollHandler}
+        scrollEventThrottle={16}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+        style={styles.scrollView}
+      >
+        {/* Expanded Profile Info (Will scroll up and fade out) */}
+        <Animated.View style={[styles.profileInfoArea, { paddingTop: insets.top + 180 }, expandedDetailsStyle]}>
+          <Pressable onPress={openEditProfile} style={styles.emailPill}>
+            <Text weight="medium" size="md" color={BrandColors.secondary} numberOfLines={1}>
+              {data.email ?? 'Add email'}
+            </Text>
+          </Pressable>
+
+          <View style={styles.statsRow}>
+            <View style={styles.statItem}>
+              <Text weight="bold" size="lg" color="#111827">{totalBookingsText}</Text>
+              <Text size="xs" color="#6B7280">Bookings</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <Text weight="bold" size="lg" color="#111827">{membershipTier}</Text>
+              <Text size="xs" color="#6B7280">Member</Text>
+            </View>
+            <View style={styles.statDivider} />
+            <View style={styles.statItem}>
+              <Text weight="bold" size="lg" color="#111827">{pointsText}</Text>
+              <Text size="xs" color="#6B7280">Points</Text>
+            </View>
+          </View>
+
+          <View style={styles.headerActions}>
+            <Button
+              variant="primary"
+              style={styles.headerButton}
+              onPress={() => console.log('View Loyalty')}
+            >
+              View Loyalty
+            </Button>
+            <Button
+              variant="primary"
+              style={styles.headerButton}
+              onPress={() => router.push('/cars')}
+            >
+              Add Vehicle
+            </Button>
+          </View>
+        </Animated.View>
+
+        {/* White Settings Sheet */}
+        <View style={styles.sheetContainer}>
+          {/* Section 1 */}
+          <View style={styles.section}>
+            <Text weight="bold" size="sm" color="#6B7280" style={styles.sectionTitle}>VEHICLES & LOYALTY</Text>
+            <View style={styles.sectionCard}>
+              <SettingsListItem
+                icon={<Car size={20} color="#1F2937" />}
+                label="My Vehicles"
+                onPress={() => router.push('/cars')}
+              />
+              <SettingsListItem
+                icon={<Award size={20} color="#1F2937" />}
+                label="Loyalty & Rewards"
+                onPress={() => console.log('Loyalty')}
+              />
+              <SettingsListItem
+                icon={<UserPlus size={20} color="#1F2937" />}
+                label="Refer a Friend"
+                onPress={() => console.log('Refer')}
+              />
+              <SettingsListItem
+                icon={<CreditCard size={20} color="#1F2937" />}
+                label="Payment Methods"
+                onPress={() => router.push('/payments')}
+              />
+              <SettingsListItem
+                icon={<Receipt size={20} color="#1F2937" />}
+                label="Transactions & Receipts"
+                onPress={() => router.push('/payments')}
+                isLast
+              />
+            </View>
+          </View>
+
+          {/* Section 2 */}
+          <View style={styles.section}>
+            <Text weight="bold" size="sm" color="#6B7280" style={styles.sectionTitle}>GENERAL</Text>
+            <View style={styles.sectionCard}>
+              <SettingsListItem
+                icon={<Bell size={20} color="#1F2937" />}
+                label="Notification Preferences"
+                onPress={() => console.log('Notif')}
+              />
+              <SettingsListItem
+                icon={<Headset size={20} color="#1F2937" />}
+                label="Help Center"
+                onPress={() => console.log('Help')}
+              />
+              <SettingsListItem
+                icon={<HelpCircle size={20} color="#1F2937" />}
+                label="FAQ"
+                onPress={() => console.log('FAQ')}
+              />
+              <SettingsListItem
+                icon={<Star size={20} color="#1F2937" />}
+                label="Rate Us"
+                onPress={() => console.log('Rate')}
+                isLast
+              />
+            </View>
+          </View>
+
+          {/* Section 3 */}
+          <View style={styles.section}>
+            <Text weight="bold" size="sm" color="#6B7280" style={styles.sectionTitle}>SECURITY & PRIVACY</Text>
+            <View style={styles.sectionCard}>
+              <SettingsListItem
+                icon={<ShieldCheck size={20} color="#1F2937" />}
+                label="Two-Factor Authentication (2FA)"
+                onPress={() => console.log('2FA')}
+              />
+              <SettingsListItem
+                icon={<Fingerprint size={20} color="#1F2937" />}
+                label="Biometric Login"
+                onPress={() => console.log('Bio')}
+              />
+              <SettingsListItem
+                icon={<ArrowLeftRight size={20} color="#1F2937" />}
+                label="Data Sharing"
+                onPress={() => console.log('Data')}
+              />
+              <SettingsListItem
+                icon={<Trash2 size={20} color="#1F2937" />}
+                label="Delete Account"
+                onPress={() => console.log('Delete')}
+                isLast
+              />
+            </View>
+          </View>
+
+          {/* Section 4 */}
+          <View style={styles.section}>
+            <Text weight="bold" size="sm" color="#6B7280" style={styles.sectionTitle}>LEGAL</Text>
+            <View style={styles.sectionCard}>
+              <SettingsListItem
+                icon={<Shield size={20} color="#1F2937" />}
+                label="Privacy Policy"
+                onPress={() => console.log('Privacy')}
+              />
+              <SettingsListItem
+                icon={<FileText size={20} color="#1F2937" />}
+                label="Terms of service"
+                onPress={() => console.log('Terms')}
+                isLast
+              />
+            </View>
+          </View>
+
+          {/* Section 5 */}
+          <View style={styles.section}>
+            <Text weight="bold" size="sm" color="#6B7280" style={styles.sectionTitle}>MORE</Text>
+            <View style={styles.sectionCard}>
+              <SettingsListItem
+                icon={<Info size={20} color="#1F2937" />}
+                label="About Otopair v1.0.0"
+                onPress={() => console.log('About')}
+              />
+              <SettingsListItem
+                icon={<LogOut size={20} color="#1F2937" />}
+                label="Logout"
+                onPress={() => setIsLogoutVisible(true)}
+              />
+              <SettingsListItem
+                icon={<RotateCcw size={20} color="#1F2937" />}
+                label="Reset App Data"
+                onPress={() => console.log('Reset')}
+                isLast
+              />
+            </View>
+          </View>
+
+          <View style={{ height: insets.bottom + 60 }} />
+        </View>
+      </Animated.ScrollView>
+
+      {/* Modals remain same */}
+      <Modal transparent visible={isMenuVisible} animationType="fade">
+        <TouchableWithoutFeedback onPress={() => setIsMenuVisible(false)}>
+          <View style={styles.menuOverlay}>
+            <View style={[styles.menuContainer, { top: menuPosition?.top ?? insets.top + 80, left: menuPosition?.left ?? SCREEN_WIDTH - MENU_WIDTH - 12 }]}>
+              <View style={styles.menuContent}>
+                <Pressable style={styles.menuItem} onPress={() => { setIsMenuVisible(false); openEditProfile(); }}>
+                  <View style={styles.menuIconBox}><Pencil size={18} color="#1F2937" /></View>
+                  <Text weight="medium" size="md" color="#1F2937">Edit Profile</Text>
+                </Pressable>
+                <View style={styles.menuSeparator} />
+                <Pressable style={styles.menuItem} onPress={() => { setIsMenuVisible(false); setIsLogoutVisible(true); }}>
+                  <View style={styles.menuIconBox}><LogOut size={18} color="#1F2937" /></View>
+                  <Text weight="medium" size="md" color="#1F2937">Logout</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      <Modal transparent visible={isEditVisible} animationType="fade">
+        <TouchableWithoutFeedback onPress={() => setIsEditVisible(false)}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback>
+              <View style={styles.editModalCard}>
+                <Text weight="semiBold" size="xl" color="#111827" style={styles.editModalTitle}>Edit Profile</Text>
+                <View style={styles.editAvatarRow}>
+                  <View style={styles.editAvatarWrapper}>
+                    {data.profilePhotoUri ? <Image source={{ uri: data.profilePhotoUri }} style={styles.editAvatarImage} /> : <View style={styles.editAvatarPlaceholder}><Text weight="semiBold" size="xl" color={BrandColors.secondary}>{initials}</Text></View>}
+                    <View style={styles.cameraBadge}><Text weight="semiBold" size="sm" color="#FFF">+</Text></View>
+                  </View>
+                </View>
+                <View style={styles.field}><Text weight="medium" size="sm" color="#374151">Name</Text><TextInput value={editName} onChangeText={setEditName} placeholder="Your name" style={styles.input} autoCapitalize="words" /></View>
+                <View style={styles.field}><Text weight="medium" size="sm" color="#374151">Email</Text><TextInput value={editEmail} onChangeText={setEditEmail} placeholder="you@example.com" style={styles.input} keyboardType="email-address" /></View>
+                <View style={styles.editActionsRow}>
+                  <Button variant="ghost" fullWidth onPress={() => setIsEditVisible(false)}>Cancel</Button>
+                  <Button variant="secondary" fullWidth onPress={handleSaveProfile}>Save</Button>
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      <Modal transparent visible={isLogoutVisible} animationType="fade">
+        <TouchableWithoutFeedback onPress={() => setIsLogoutVisible(false)}>
+          <View style={styles.modalOverlay}>
+            <TouchableWithoutFeedback>
+              <View style={styles.confirmCard}>
+                <Text weight="semiBold" size="lg" color="#111827">Logout?</Text>
+                <Text size="sm" color="#6B7280" style={styles.confirmText}>You'll need to sign in again to access your account.</Text>
+                <View style={styles.confirmActionsRow}>
+                  <Button variant="ghost" fullWidth onPress={() => setIsLogoutVisible(false)}>Cancel</Button>
+                  <Button variant="primary" fullWidth style={{ backgroundColor: '#EF4444' }} onPress={handleConfirmLogout}>Logout</Button>
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+    </View>
+  );
 }
+
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+  },
+  stickyContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10, // On top of EVERYTHING
+  },
+  stickyBarBackground: {
+    backgroundColor: '#E8ECF0', // Matches the gray background
+  },
+  avatarWrapper: {
+    position: 'absolute',
+    left: '50%',
+    marginLeft: -50,
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: '#FFF',
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+  },
+  avatarImage: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+  },
+  avatarPlaceholder: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    backgroundColor: '#FFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  collapsedNameContainer: {
+    // removed
+  },
+  menuAnchor: {
+    position: 'absolute',
+    right: 20,
+  },
+  scrollView: {
+    flex: 1,
+    zIndex: 1, // Under the sticky bar
+  },
+  scrollContent: {
+    flexGrow: 1,
+  },
+  profileInfoArea: {
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingBottom: 40,
+  },
+  userName: {
+    textAlign: 'center',
+    marginBottom: 8,
+  },
+  emailPill: {
+    backgroundColor: 'rgba(82, 153, 254, 0.12)',
+    borderRadius: 12,
+    paddingVertical: 8,
+    paddingHorizontal: 20,
+    marginBottom: 24,
+  },
+  movingNameContainer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+  },
+  statsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 24,
+  },
+  statItem: {
+    alignItems: 'center',
+    paddingHorizontal: 24,
+  },
+  statDivider: {
+    width: 1,
+    height: 32,
+    backgroundColor: 'rgba(0,0,0,0.1)',
+  },
+  headerActions: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+    paddingHorizontal: 20,
+  },
+  headerButton: {
+    flex: 1,
+    borderRadius: 14,
+    paddingVertical: 12,
+  },
+  sheetContainer: {
+    backgroundColor: '#FFFFFF',
+    borderTopLeftRadius: SHEET_TOP_RADIUS,
+    borderTopRightRadius: SHEET_TOP_RADIUS,
+    paddingTop: 32,
+    paddingHorizontal: 20,
+    minHeight: 800,
+    // Shadow to pop out against the profile info as it scrolls
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -10 },
+    shadowOpacity: 0.08,
+    shadowRadius: 16,
+    elevation: 24,
+  },
+  section: {
+    marginBottom: 32,
+  },
+  sectionTitle: {
+    marginLeft: 4,
+    marginBottom: 12,
+    letterSpacing: 1,
+  },
+  sectionCard: {
+    backgroundColor: '#F9FAFB',
+    borderRadius: 20,
+    overflow: 'hidden',
+  },
+  listItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 18,
+    position: 'relative',
+  },
+  listItemPressed: {
+    backgroundColor: '#F3F4F6',
+  },
+  listItemIcon: {
+    width: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 14,
+  },
+  listItemLabel: {
+    flex: 1,
+  },
+  listItemSeparator: {
+    position: 'absolute',
+    bottom: 0,
+    left: 56,
+    right: 0,
+    height: 1,
+    backgroundColor: 'rgba(0,0,0,0.04)',
+  },
+  menuOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.2)',
+  },
+  menuContainer: {
+    position: 'absolute',
+    width: MENU_WIDTH,
+    borderRadius: 16,
+    backgroundColor: '#FFF',
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  menuContent: {
+    padding: 8,
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    gap: 12,
+  },
+  menuIconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  menuSeparator: {
+    height: 1,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+    marginHorizontal: 8,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.4)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  editModalCard: {
+    width: '100%',
+    backgroundColor: '#FFF',
+    borderRadius: 24,
+    padding: 24,
+  },
+  editModalTitle: {
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  editAvatarRow: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  editAvatarWrapper: {
+    position: 'relative',
+  },
+  editAvatarImage: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+  },
+  editAvatarPlaceholder: {
+    width: 90,
+    height: 90,
+    borderRadius: 45,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cameraBadge: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    backgroundColor: BrandColors.secondary,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 3,
+    borderColor: '#FFF',
+  },
+  field: {
+    marginBottom: 16,
+    gap: 8,
+  },
+  input: {
+    backgroundColor: '#F9FAFB',
+    padding: 16,
+    borderRadius: 12,
+    fontSize: 16,
+  },
+  editActionsRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 8,
+  },
+  confirmCard: {
+    width: '100%',
+    backgroundColor: '#FFF',
+    borderRadius: 24,
+    padding: 24,
+    alignItems: 'center',
+  },
+  confirmText: {
+    textAlign: 'center',
+    marginVertical: 16,
+  },
+  confirmActionsRow: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+  },
+});

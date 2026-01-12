@@ -35,6 +35,7 @@ import { GradientPlusCircle } from "@/components/icons/gradient-plus-circle";
 
 // 4. Store & Utilities
 import { getIncompleteOnboardingSteps } from "@/components/onboarding/OnboardingFlow";
+import { useOnboardingStore } from "@/stores/useOnboardingStore";
 
 // ============================================================================
 // TYPES
@@ -54,6 +55,7 @@ export function FinishAccountSetupCard({
   onDismiss,
 }: FinishAccountSetupCardProps) {
   const router = useRouter();
+  const isCreateAccountComplete = useOnboardingStore((state) => state.isCreateAccountComplete());
 
   const handlePress = (stepId?: string) => {
     if (stepId === "personalize") {
@@ -131,39 +133,45 @@ export function FinishAccountSetupCard({
 
         {/* Steps Horizontal List */}
         <View style={styles.stepsContainer}>
-          {steps.map((step) => (
-            <Pressable
-              key={step.id}
-              onPress={() => handlePress(step.id)}
-              style={({ pressed }) => [
-                styles.stepTile,
-                pressed && styles.stepTilePressed,
-              ]}
-            >
-              <View style={styles.iconWrapper}>
-                {step.id === "account" ? (
-                  <step.icon size={34} />
-                ) : step.id === "personalize" ? (
-                  <step.icon size={38} color="#6B7280" />
-                ) : step.id === "car" ? (
-                  <step.icon size={36} color="#6B7280" />
-                ): step.id === "payment" ?(
-                  <step.icon size={36} color="#6B7280" />
-                ): (
-                  <step.icon size={30} color="#6B7280" strokeWidth={1.5} />
-                )}
-              </View>
-              <Text
-                size="xs"
-                color="#141C24"
-                weight="medium"
-                center
-                style={styles.stepLabel}
+          {steps.map((step) => {
+            const isComplete = step.id === "account" && isCreateAccountComplete;
+            
+            return (
+              <Pressable
+                key={step.id}
+                onPress={() => !isComplete && handlePress(step.id)}
+                disabled={isComplete}
+                style={({ pressed }) => [
+                  styles.stepTile,
+                  pressed && !isComplete && styles.stepTilePressed,
+                  isComplete && styles.stepTileDisabled,
+                ]}
               >
-                {step.label}
-              </Text>
-            </Pressable>
-          ))}
+                <View style={[styles.iconWrapper, isComplete && styles.iconWrapperDisabled]}>
+                  {step.id === "account" ? (
+                    <step.icon size={34} color={isComplete ? "#9CA3AF" : undefined} />
+                  ) : step.id === "personalize" ? (
+                    <step.icon size={38} color="#6B7280" />
+                  ) : step.id === "car" ? (
+                    <step.icon size={36} color="#6B7280" />
+                  ) : step.id === "payment" ? (
+                    <step.icon size={36} color="#6B7280" />
+                  ) : (
+                    <step.icon size={30} color="#6B7280" strokeWidth={1.5} />
+                  )}
+                </View>
+                <Text
+                  size="xs"
+                  color={isComplete ? "#9CA3AF" : "#141C24"}
+                  weight="medium"
+                  center
+                  style={styles.stepLabel}
+                >
+                  {step.label}
+                </Text>
+              </Pressable>
+            );
+          })}
         </View>
       </View>
     </View>
@@ -231,11 +239,18 @@ const styles = StyleSheet.create({
     opacity: 0.8,
     transform: [{ scale: 0.98 }],
   },
+  stepTileDisabled: {
+    backgroundColor: "#F9FAFB",
+    opacity: 0.6,
+  },
   iconWrapper: {
     marginBottom: 10,
     height: 40,
     alignItems: "center",
     justifyContent: "center",
+  },
+  iconWrapperDisabled: {
+    opacity: 0.5,
   },
   stepLabel: {
     lineHeight: 12,
