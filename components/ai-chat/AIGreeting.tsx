@@ -38,22 +38,22 @@ interface AIGreetingProps {
 const HORIZONTAL_SUGGESTIONS: Suggestion[] = [
   {
     id: 'brake',
-    text: '🔧 Fix',
+    text: 'Fix',
     subtitle: 'brake noise',
   },
   {
     id: 'engine',
-    text: '⚠️ Check',
+    text: 'Check',
     subtitle: 'engine light',
   },
   {
     id: 'oil',
-    text: '📅 Schedule',
+    text: 'Schedule',
     subtitle: 'a service',
   },
   {
     id: 'vague',
-    text: '❓ Not sure',
+    text: 'Not sure',
     subtitle: "what's wrong",
   },
 ];
@@ -125,7 +125,7 @@ export function AIGreeting({ userName = 'User', suggestions, onSuggestionPress }
       {/* Greeting - Centered in middle of screen */}
       <View style={styles.greetingContainer}>
         <Animated.View entering={FadeIn.delay(100).duration(500)}>
-          <Text style={styles.greeting}>
+          <Text style={styles.greeting} weight="semiBold">
             Hello, {userName}
           </Text>
         </Animated.View>
@@ -172,8 +172,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.xl,
   },
   greeting: {
-    fontSize: 28,
-    fontFamily: FontFamily.semiBold,
+    fontSize: 38,
+    lineHeight: 48,
     color: BrandColors.secondary,
     textAlign: 'center',
   },
@@ -185,26 +185,24 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
   },
   suggestionChip: {
-    backgroundColor: BrandColors.white,
+    backgroundColor: 'rgba(255, 255, 255, 0.6)', // Semi-transparent white
     borderRadius: BorderRadius.xl,
     paddingVertical: Spacing.md,
     paddingHorizontal: Spacing.lg,
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderWidth: 0,
     minWidth: 120,
   },
   suggestionChipPressed: {
-    backgroundColor: '#F3F4F6',
-    borderColor: BrandColors.secondary + '40',
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
   },
   suggestionTitle: {
-    color: BrandColors.primary,
+    color: '#4A5568', // Softer, muted dark gray
     fontSize: 15,
     fontFamily: FontFamily.semiBold,
     lineHeight: 20,
   },
   suggestionSubtitle: {
-    color: '#9CA3AF',
+    color: '#A0AEC0', // Softer gray for subtitle
     fontSize: 14,
     fontFamily: FontFamily.regular,
     lineHeight: 18,

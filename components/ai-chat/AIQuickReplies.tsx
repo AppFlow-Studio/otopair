@@ -4,20 +4,11 @@
  * Different style from PromptSuggestions - more prominent
  */
 
-import React from 'react';
-import {
-  View,
-  Pressable,
-  StyleSheet,
-} from 'react-native';
-import Animated, {
-  FadeInUp,
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-} from 'react-native-reanimated';
-import { Text } from '@/components/shared-ui';
-import { BrandColors, BorderRadius, Spacing, FontFamily, Shadows } from '@/constants/theme';
+import React from "react";
+import { View, Pressable, StyleSheet } from "react-native";
+import Animated, { FadeInUp, useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
+import { Text } from "@/components/shared-ui";
+import { BrandColors, BorderRadius, Spacing, FontFamily, Shadows } from "@/constants/theme";
 
 // ============================================================================
 // TYPES
@@ -27,7 +18,7 @@ export interface QuickReply {
   id: string;
   text: string;
   value?: string;
-  variant?: 'default' | 'primary' | 'outline';
+  variant?: "default" | "primary" | "outline";
 }
 
 interface AIQuickRepliesProps {
@@ -52,7 +43,7 @@ function QuickReplyButton({
   index: number;
 }) {
   const scale = useSharedValue(1);
-  const variant = reply.variant || 'default';
+  const variant = reply.variant || "default";
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
@@ -68,9 +59,9 @@ function QuickReplyButton({
 
   const getButtonStyle = () => {
     switch (variant) {
-      case 'primary':
+      case "primary":
         return styles.buttonPrimary;
-      case 'outline':
+      case "outline":
         return styles.buttonOutline;
       default:
         return styles.buttonDefault;
@@ -79,9 +70,9 @@ function QuickReplyButton({
 
   const getTextStyle = () => {
     switch (variant) {
-      case 'primary':
+      case "primary":
         return styles.textPrimary;
-      case 'outline':
+      case "outline":
         return styles.textOutline;
       default:
         return styles.textDefault;
@@ -91,7 +82,9 @@ function QuickReplyButton({
   return (
     <Animated.View
       style={animatedStyle}
-      entering={FadeInUp.delay(index * 50).duration(200).springify()}
+      entering={FadeInUp.delay(index * 50)
+        .duration(200)
+        .springify()}
     >
       <Pressable
         onPress={onPress}
@@ -117,11 +110,7 @@ function QuickReplyButton({
 // MAIN COMPONENT
 // ============================================================================
 
-export function AIQuickReplies({
-  replies,
-  onSelect,
-  disabled = false,
-}: AIQuickRepliesProps) {
+export function AIQuickReplies({ replies, onSelect, disabled = false }: AIQuickRepliesProps) {
   if (replies.length === 0) {
     return null;
   }
@@ -146,24 +135,24 @@ export function AIQuickReplies({
 // ============================================================================
 
 export const PRIORITY_REPLIES: QuickReply[] = [
-  { id: 'closest', text: 'Closest', value: 'closest', variant: 'default' },
-  { id: 'best_rated', text: 'Best rated', value: 'best_rated', variant: 'default' },
-  { id: 'best_price', text: 'Best price', value: 'best_price', variant: 'default' },
+  { id: "closest", text: "Closest", value: "closest", variant: "default" },
+  { id: "best_rated", text: "Best rated", value: "best_rated", variant: "default" },
+  { id: "best_price", text: "Best price", value: "best_price", variant: "default" },
 ];
 
 export const CONFIRMATION_REPLIES: QuickReply[] = [
-  { id: 'confirm', text: 'Yes, book it', value: 'confirm', variant: 'primary' },
-  { id: 'change', text: 'Change time', value: 'change', variant: 'outline' },
+  { id: "confirm", text: "Yes, book it", value: "confirm", variant: "primary" },
+  { id: "change", text: "Change time", value: "change", variant: "outline" },
 ];
 
 export const YES_NO_REPLIES: QuickReply[] = [
-  { id: 'yes', text: 'Yes', value: 'yes', variant: 'primary' },
-  { id: 'no', text: 'No', value: 'no', variant: 'outline' },
+  { id: "yes", text: "Yes", value: "yes", variant: "primary" },
+  { id: "no", text: "No", value: "no", variant: "outline" },
 ];
 
 export const NOISE_TYPE_REPLIES: QuickReply[] = [
-  { id: 'high_pitch', text: 'High-pitched squeal', value: 'high_pitch' },
-  { id: 'grinding', text: 'Grinding sound', value: 'grinding' },
+  { id: "high_pitch", text: "High-pitched squeal", value: "high_pitch" },
+  { id: "grinding", text: "Grinding sound", value: "grinding" },
 ];
 
 // ============================================================================
@@ -172,8 +161,8 @@ export const NOISE_TYPE_REPLIES: QuickReply[] = [
 
 const styles = StyleSheet.create({
   container: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexDirection: "row",
+    flexWrap: "wrap",
     gap: Spacing.sm,
     marginTop: Spacing.md,
   },
@@ -183,7 +172,7 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.lg,
     borderWidth: 1.5,
     minWidth: 100,
-    alignItems: 'center',
+    alignItems: "center",
     ...Shadows.sm,
   },
   buttonDefault: {
@@ -195,8 +184,8 @@ const styles = StyleSheet.create({
     borderColor: BrandColors.secondary,
   },
   buttonOutline: {
-    backgroundColor: 'transparent',
-    borderColor: '#D1D5DB',
+    backgroundColor: "transparent",
+    borderColor: "#D1D5DB",
   },
   buttonPressed: {
     opacity: 0.8,
@@ -214,6 +203,6 @@ const styles = StyleSheet.create({
     color: BrandColors.white,
   },
   textOutline: {
-    color: '#6B7280',
+    color: "#6B7280",
   },
 });

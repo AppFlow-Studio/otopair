@@ -153,10 +153,10 @@ const TIRE_PRESSURE_SOURCES: Source[] = [
 // ============================================================================
 
 export const WELCOME_SUGGESTIONS = [
-  { id: "brake", text: "🔧 Fix", subtitle: "brake noise" },
-  { id: "check_engine", text: "⚠️ Check", subtitle: "engine light" },
-  { id: "oil", text: "📅 Schedule", subtitle: "a service" },
-  { id: "vague", text: "❓ Not sure", subtitle: "what's wrong" },
+  { id: "brake", text: "Fix", subtitle: "brake noise" },
+  { id: "check_engine", text: "Check", subtitle: "engine light" },
+  { id: "oil", text: "Schedule", subtitle: "a service" },
+  { id: "vague", text: "Not sure", subtitle: "what's wrong" },
 ];
 
 export const PRIORITY_SUGGESTIONS = [
@@ -169,6 +169,11 @@ export const CONFIRMATION_SUGGESTIONS = [
   { id: "confirm", text: "Yes, book it" },
   { id: "change", text: "Change time" },
   { id: "cancel", text: "Cancel" },
+];
+
+export const YES_NO_SUGGESTIONS = [
+  { id: "yes", text: "Yes", value: "yes" },
+  { id: "no", text: "No", value: "no" },
 ];
 
 // ============================================================================
@@ -186,7 +191,14 @@ const BRAKE_NOISE_SCENARIO: Scenario = {
           "I can hear you're having brake issues. Based on my scan, your brake pads are showing significant wear - the wear indicator is likely what's causing that squeal. This is a safety item that should be addressed soon.\n\nWould you like me to find a nearby mechanic that can inspect and replace your brake pads?",
         reasoning: BRAKE_REASONING,
         sources: BRAKE_SOURCES,
-        quickReplies: PRIORITY_REPLIES,
+        nextStage: "question",
+        suggestions: YES_NO_SUGGESTIONS,
+      }),
+    },
+    {
+      stage: "question",
+      getMessage: (state, userInput) => ({
+        message: "How would you like me to find mechanics for you?",
         nextStage: "priority_selection",
         suggestions: PRIORITY_SUGGESTIONS,
       }),
@@ -205,7 +217,7 @@ const BRAKE_NOISE_SCENARIO: Scenario = {
           } mechanics that can help with your brakes:`,
           shops,
           nextStage: "shop_selection",
-          suggestions: shops.slice(0, 3).map((s) => ({ id: s.id.toString(), text: s.name })),
+          suggestions: [],
         };
       },
     },
@@ -259,7 +271,14 @@ const CHECK_ENGINE_SCENARIO: Scenario = {
           "I've scanned your vehicle and found **Error Code P0171** - this means your engine is running lean (too much air, not enough fuel). Common causes include:\n\n• Vacuum leak\n• Faulty MAF sensor\n• Dirty air filter\n\nThis should be diagnosed professionally to pinpoint the exact cause. Would you like me to find a mechanic?",
         reasoning: CHECK_ENGINE_REASONING,
         sources: CHECK_ENGINE_SOURCES,
-        quickReplies: PRIORITY_REPLIES,
+        nextStage: "question",
+        suggestions: YES_NO_SUGGESTIONS,
+      }),
+    },
+    {
+      stage: "question",
+      getMessage: (state, userInput) => ({
+        message: "How would you like me to find mechanics for you?",
         nextStage: "priority_selection",
         suggestions: PRIORITY_SUGGESTIONS,
       }),
@@ -272,7 +291,7 @@ const CHECK_ENGINE_SCENARIO: Scenario = {
           message: `Here are mechanics with diagnostic equipment that can help:`,
           shops,
           nextStage: "shop_selection",
-          suggestions: shops.slice(0, 3).map((s) => ({ id: s.id.toString(), text: s.name })),
+          suggestions: [],
         };
       },
     },
@@ -356,7 +375,7 @@ const OIL_CHANGE_SCENARIO: Scenario = {
           } mechanics that can handle ${serviceCount > 1 ? 'all your services' : 'this service'}:`,
           shops,
           nextStage: "shop_selection",
-          suggestions: shops.slice(0, 3).map((s) => ({ id: s.id.toString(), text: s.name })),
+          suggestions: [],
         };
       },
     },
@@ -419,7 +438,14 @@ const TIRE_PRESSURE_SCENARIO: Scenario = {
           "I've checked your tire sensors. Your **front left tire** is at 24 PSI - that's 8 below the recommended 32 PSI. This could be:\n\n• A slow leak\n• Temperature change\n• Valve stem issue\n\nI'd recommend getting it inspected. Want me to find a tire mechanic?",
         reasoning: TIRE_PRESSURE_REASONING,
         sources: TIRE_PRESSURE_SOURCES,
-        quickReplies: PRIORITY_REPLIES,
+        nextStage: "question",
+        suggestions: YES_NO_SUGGESTIONS,
+      }),
+    },
+    {
+      stage: "question",
+      getMessage: (state, userInput) => ({
+        message: "How would you like me to find mechanics for you?",
         nextStage: "priority_selection",
         suggestions: PRIORITY_SUGGESTIONS,
       }),
@@ -432,7 +458,7 @@ const TIRE_PRESSURE_SCENARIO: Scenario = {
           message: `Here are tire service mechanics nearby:`,
           shops,
           nextStage: "shop_selection",
-          suggestions: shops.slice(0, 3).map((s) => ({ id: s.id.toString(), text: s.name })),
+          suggestions: [],
         };
       },
     },
@@ -490,7 +516,14 @@ const VAGUE_ISSUE_SCENARIO: Scenario = {
           { ...SOURCE_DEFINITIONS.service_history, details: "Checking recent work" },
           { ...SOURCE_DEFINITIONS.common_scenarios, details: "Symptom analysis" },
         ],
-        quickReplies: PRIORITY_REPLIES,
+        nextStage: "question",
+        suggestions: YES_NO_SUGGESTIONS,
+      }),
+    },
+    {
+      stage: "question",
+      getMessage: (state, userInput) => ({
+        message: "How would you like me to find mechanics for you?",
         nextStage: "priority_selection",
         suggestions: PRIORITY_SUGGESTIONS,
       }),
@@ -503,7 +536,7 @@ const VAGUE_ISSUE_SCENARIO: Scenario = {
           message: `These mechanics offer comprehensive inspections:`,
           shops,
           nextStage: "shop_selection",
-          suggestions: shops.slice(0, 3).map((s) => ({ id: s.id.toString(), text: s.name })),
+          suggestions: [],
         };
       },
     },
@@ -558,7 +591,7 @@ const DIRECT_BOOKING_SCENARIO: Scenario = {
           message: `Sure! Here are available mechanics:`,
           shops,
           nextStage: "shop_selection",
-          suggestions: shops.slice(0, 3).map((s) => ({ id: s.id.toString(), text: s.name })),
+          suggestions: [],
         };
       },
     },

@@ -152,11 +152,11 @@ function TypewriterText({
               </Text>
             );
           }
-          return <Text key={`${index}-${codeIndex}`}>{codePart}</Text>;
+          return <Text key={`${index}-${codeIndex}`} style={styles.normalText}>{codePart}</Text>;
         });
       }
       
-      return <Text key={index}>{part}</Text>;
+      return <Text key={index} style={styles.normalText}>{part}</Text>;
     });
   }, []);
 
@@ -533,7 +533,7 @@ const styles = StyleSheet.create({
     marginRight: 2,
   },
   currentStepText: {
-    color: '#6B7280',
+    color: BrandColors.primary,
     flex: 1,
   },
   // Content
@@ -577,14 +577,17 @@ const styles = StyleSheet.create({
   },
   stepText: {
     flex: 1,
-    color: '#6B7280',
+    color: BrandColors.primary,
     marginLeft: Spacing.sm,
     lineHeight: 20,
   },
   // Markdown styles
+  normalText: {
+    color: BrandColors.primary,
+  },
   boldText: {
     fontFamily: FontFamily.semiBold,
-    color: '#4B5563',
+    color: BrandColors.primary,
   },
   codeText: {
     fontFamily: FontFamily.mono || 'monospace',

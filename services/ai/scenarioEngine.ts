@@ -78,6 +78,19 @@ export function detectConfirmation(input: string): "confirm" | "change" | "cance
   return null;
 }
 
+export function detectYesNo(input: string): "yes" | "no" | null {
+  const lowerInput = input.toLowerCase().trim();
+
+  if (lowerInput === "yes" || lowerInput.includes("yes") || lowerInput.includes("yeah") || lowerInput.includes("sure") || lowerInput.includes("please") || lowerInput.includes("find")) {
+    return "yes";
+  }
+  if (lowerInput === "no" || lowerInput.includes("no thanks") || lowerInput.includes("not now") || lowerInput.includes("later")) {
+    return "no";
+  }
+
+  return null;
+}
+
 // ============================================================================
 // SHOP AND TIME MATCHING
 // ============================================================================
@@ -207,15 +220,22 @@ export function processUserMessage(
       break;
     }
 
-    case "diagnosis":
-    case "question": {
-      // Continue with current scenario to priority selection
+    case "diagnosis": {
+      // After diagnosis, check if there's a question stage or go to priority_selection
       if (newState.currentScenario) {
         const scenario = getScenarioByType(newState.currentScenario);
         if (scenario) {
-          const step = scenario.steps.find((s) => s.stage === "priority_selection");
-          if (step) {
-            response = step.getMessage(newState, userInput);
+          // Check if there's a question stage next
+          const questionStep = scenario.steps.find((s) => s.stage === "question");
+          const priorityStep = scenario.steps.find((s) => s.stage === "priority_selection");
+          
+          if (questionStep) {
+            // Go to question stage (Yes/No)
+            response = questionStep.getMessage(newState, userInput);
+            newState.currentStage = "question";
+            newState.suggestions = response.suggestions;
+          } else if (priorityStep) {
+            response = priorityStep.getMessage(newState, userInput);
             newState.currentStage = response.nextStage;
             newState.suggestions = response.suggestions;
           } else {
@@ -226,6 +246,51 @@ export function processUserMessage(
         }
       } else {
         response = getDefaultResponse(newState);
+      }
+      break;
+    }
+
+    case "question": {
+      // User responded to yes/no question
+      const yesNo = detectYesNo(userInput);
+      
+      if (yesNo === "yes") {
+        // User wants to proceed - go to priority selection
+        if (newState.currentScenario) {
+          const scenario = getScenarioByType(newState.currentScenario);
+          if (scenario) {
+            const step = scenario.steps.find((s) => s.stage === "question");
+            if (step) {
+              response = step.getMessage(newState, userInput);
+              newState.currentStage = "priority_selection";
+              newState.suggestions = response.suggestions;
+            } else {
+              response = getDefaultResponse(newState);
+            }
+          } else {
+            response = getDefaultResponse(newState);
+          }
+        } else {
+          response = getDefaultResponse(newState);
+        }
+      } else if (yesNo === "no") {
+        // User doesn't want to proceed - offer alternatives
+        newState = createInitialState();
+        response = {
+          message: "No problem! Let me know if you change your mind or if there's anything else I can help you with.",
+          nextStage: "welcome",
+          suggestions: WELCOME_SUGGESTIONS,
+        };
+      } else {
+        // Unclear response, ask again
+        response = {
+          message: "Would you like me to find a mechanic for you?",
+          nextStage: "question",
+          suggestions: [
+            { id: "yes", text: "Yes", value: "yes" },
+            { id: "no", text: "No", value: "no" },
+          ],
+        };
       }
       break;
     }
@@ -260,16 +325,25 @@ export function processUserMessage(
       if (newState.currentScenario) {
         const scenario = getScenarioByType(newState.currentScenario);
         if (scenario) {
-          const step =
-            scenario.steps.find((s) => s.stage === "shop_selection") ||
-            scenario.steps.find((s) => s.stage === "priority_selection");
-          if (step) {
-            response = step.getMessage(newState, userInput);
-            newState.currentStage = "shop_selection";
-            newState.suggestions = response.suggestions;
+          const priorityStep = scenario.steps.find((s) => s.stage === "priority_selection");
+          const shopStep = scenario.steps.find((s) => s.stage === "shop_selection");
+          
+          // Try priority_selection step first - for most scenarios it returns shops
+          let priorityResponse = priorityStep?.getMessage(newState, userInput);
+          
+          // If priority step doesn't return shops (oil_change flow), try shop_selection step
+          if (priorityResponse && priorityResponse.shops && priorityResponse.shops.length > 0) {
+            response = priorityResponse;
+          } else if (shopStep) {
+            response = shopStep.getMessage(newState, userInput);
+          } else if (priorityResponse) {
+            response = priorityResponse;
           } else {
             response = getDefaultResponse(newState);
           }
+          
+          newState.currentStage = "shop_selection"; // Move to shop selection after showing carousel
+          newState.suggestions = response.suggestions;
         } else {
           response = getDefaultResponse(newState);
         }

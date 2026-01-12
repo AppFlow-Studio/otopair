@@ -26,6 +26,8 @@ import { BrandColors, BorderRadius, Spacing, FontFamily, Shadows } from '@/const
 export type ConversationStage = 
   | 'welcome'
   | 'diagnosis'
+  | 'question'
+  | 'service_selection'
   | 'priority_selection'
   | 'shop_selection'
   | 'time_selection'
@@ -146,6 +148,11 @@ export const DEFAULT_SUGGESTIONS: Record<ConversationStage, Suggestion[]> = {
     { id: 'grinding', text: 'Grinding sound' },
     { id: 'vibration', text: 'Vibration when braking' },
   ],
+  question: [
+    { id: 'yes', text: 'Yes', value: 'yes' },
+    { id: 'no', text: 'No', value: 'no' },
+  ],
+  service_selection: [],
   priority_selection: [
     { id: 'closest', text: 'Closest', value: 'closest' },
     { id: 'best_rated', text: 'Best rated', value: 'best_rated' },
@@ -183,23 +190,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
   },
   pill: {
-    backgroundColor: BrandColors.white,
+    backgroundColor: 'rgba(255, 255, 255, 0.6)', // Semi-transparent, faded white
     borderRadius: BorderRadius.full,
     paddingVertical: Spacing.sm + 2,
     paddingHorizontal: Spacing.lg,
-    borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.08)',
-    ...Shadows.sm,
+    // No shadow for cleaner, more faded look
   },
   pillPressed: {
-    backgroundColor: '#F9FAFB',
-    borderColor: BrandColors.secondary + '40',
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
   },
   pillDisabled: {
-    opacity: 0.5,
+    opacity: 0.4,
   },
   pillText: {
-    color: BrandColors.primary,
+    color: '#4A5568', // Softer, muted dark gray
     fontFamily: FontFamily.medium,
   },
 });

@@ -386,11 +386,9 @@ export function AIServicePicker({
 
 const styles = StyleSheet.create({
   container: {
-    backgroundColor: BrandColors.white,
+    backgroundColor: 'rgba(255, 255, 255, 0.6)', // Semi-transparent, faded like suggestion pills
     borderRadius: BorderRadius.xl,
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: '#E5E7EB',
   },
   // Category Tabs
   categoryTabs: {
@@ -398,19 +396,19 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.sm,
     gap: Spacing.xs,
     borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
+    borderBottomColor: 'rgba(0, 0, 0, 0.05)',
   },
   categoryTab: {
     paddingVertical: Spacing.xs + 2,
     paddingHorizontal: Spacing.md,
     borderRadius: BorderRadius.full,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: 'rgba(255, 255, 255, 0.5)',
   },
   categoryTabActive: {
-    backgroundColor: BrandColors.secondary + '15',
+    backgroundColor: BrandColors.secondary + '20',
   },
   categoryTabText: {
-    color: '#6B7280',
+    color: '#4A5568', // Softer, muted dark gray
   },
   categoryTabTextActive: {
     color: BrandColors.secondary,
@@ -425,7 +423,7 @@ const styles = StyleSheet.create({
   serviceItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#F8FAFC',
+    backgroundColor: 'rgba(255, 255, 255, 0.5)',
     borderRadius: BorderRadius.lg,
     padding: Spacing.md,
     borderWidth: 1.5,
@@ -433,10 +431,10 @@ const styles = StyleSheet.create({
   },
   serviceItemSelected: {
     borderColor: BrandColors.secondary,
-    backgroundColor: BrandColors.secondary + '08',
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
   },
   serviceItemPressed: {
-    backgroundColor: '#F1F5F9',
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
   },
   serviceItemDisabled: {
     opacity: 0.5,
@@ -447,7 +445,7 @@ const styles = StyleSheet.create({
     marginRight: Spacing.sm,
   },
   serviceName: {
-    color: BrandColors.primary,
+    color: '#4A5568', // Softer, muted dark gray
     fontSize: 14,
     lineHeight: 18,
   },
@@ -455,7 +453,7 @@ const styles = StyleSheet.create({
     color: BrandColors.secondary,
   },
   serviceDescription: {
-    color: '#9CA3AF',
+    color: '#A0AEC0', // Softer gray
     marginTop: 2,
     lineHeight: 16,
   },
@@ -465,14 +463,14 @@ const styles = StyleSheet.create({
     marginRight: Spacing.sm,
   },
   servicePrice: {
-    color: BrandColors.primary,
+    color: '#4A5568', // Softer, muted dark gray
     fontSize: 14,
   },
   servicePriceSelected: {
     color: BrandColors.secondary,
   },
   serviceDuration: {
-    color: '#9CA3AF',
+    color: '#A0AEC0', // Softer gray
     marginTop: 2,
   },
   // Selection Circle
@@ -493,15 +491,15 @@ const styles = StyleSheet.create({
   footer: {
     padding: Spacing.md,
     borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
+    borderTopColor: 'rgba(0, 0, 0, 0.05)',
     gap: Spacing.xs,
   },
   selectedSummary: {
-    color: '#6B7280',
+    color: '#4A5568', // Softer, muted dark gray
     textAlign: 'center',
   },
   confirmButton: {
-    backgroundColor: '#E5E7EB',
+    backgroundColor: 'rgba(255, 255, 255, 0.5)',
     borderRadius: BorderRadius.full,
     paddingVertical: Spacing.md,
     alignItems: 'center',
@@ -513,10 +511,10 @@ const styles = StyleSheet.create({
     opacity: 0.9,
   },
   confirmButtonDisabled: {
-    opacity: 0.6,
+    opacity: 0.5,
   },
   confirmButtonText: {
-    color: '#9CA3AF',
+    color: '#4A5568', // Softer, muted dark gray
     fontSize: 15,
   },
   confirmButtonTextEnabled: {

@@ -4,11 +4,8 @@
  */
 
 import React, { useEffect, useRef } from 'react';
-import { View, Animated, StyleSheet, Image } from 'react-native';
+import { View, Animated, StyleSheet } from 'react-native';
 import { BrandColors, BorderRadius, Spacing, Shadows } from '@/constants/theme';
-
-// Otopair AI Logo
-const OTOPAIR_AI_LOGO = require('@/assets/images/otopair-ai-logo.png');
 
 export function AITypingIndicator() {
   const dot1 = useRef(new Animated.Value(0)).current;
@@ -47,16 +44,7 @@ export function AITypingIndicator() {
 
   return (
     <View style={styles.container}>
-      {/* Avatar */}
-      <View style={styles.avatar}>
-        <Image 
-          source={OTOPAIR_AI_LOGO} 
-          style={styles.aiAvatarImage}
-          resizeMode="cover"
-        />
-      </View>
-
-      {/* Typing Bubble */}
+      {/* Typing Bubble - Left aligned, no avatar */}
       <View style={styles.bubble}>
         <View style={styles.dotsContainer}>
           {[dot1, dot2, dot3].map((dot, index) => (
@@ -92,20 +80,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     marginBottom: Spacing.lg,
     paddingHorizontal: Spacing.md,
-  },
-  avatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: BrandColors.secondary + '20',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: Spacing.sm,
-  },
-  aiAvatarImage: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
   },
   bubble: {
     backgroundColor: BrandColors.white,

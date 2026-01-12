@@ -4,23 +4,17 @@
  */
 
 import React, { useEffect, useState } from 'react';
-import { View, StyleSheet, Pressable, Image } from 'react-native';
+import { View, StyleSheet, Pressable } from 'react-native';
 import Animated, {
   FadeIn,
-  useAnimatedStyle,
-  useSharedValue,
-  withTiming,
 } from 'react-native-reanimated';
 import { Text } from '@/components/shared-ui';
 import { BrandColors, BorderRadius, Spacing, FontFamily, Shadows } from '@/constants/theme';
 import { Copy, Volume2, ThumbsUp, ThumbsDown } from 'lucide-react-native';
 
-// Otopair AI Logo (for AI assistant)
-const OTOPAIR_AI_LOGO = require('@/assets/images/otopair-ai-logo.png');
-
 import { AIReasoning, type ReasoningStep } from './AIReasoning';
 import { AISources, type Source } from './AISources';
-import { AIQuickReplies, type QuickReply } from './AIQuickReplies';
+import type { QuickReply } from './AIQuickReplies';
 
 // ============================================================================
 // TYPES
@@ -233,22 +227,13 @@ export function AIMessageBubble({
     );
   }
 
-  // AI message - minimal avatar, clean text flow
+  // AI message - no avatar, left-aligned text
   return (
     <Animated.View 
       style={styles.container}
       entering={FadeIn.duration(200)}
     >
-      {/* Small AI Avatar */}
-      <View style={styles.avatar}>
-        <Image 
-          source={OTOPAIR_AI_LOGO} 
-          style={styles.aiAvatarImage}
-          resizeMode="cover"
-        />
-      </View>
-
-      {/* Message Content */}
+      {/* Message Content - Left aligned, no avatar */}
       <View style={styles.contentWrapper}>
         {/* Reasoning Section (AI only) */}
         {hasReasoning && (
@@ -282,15 +267,6 @@ export function AIMessageBubble({
               <SectionView key={index} section={section} />
             ))}
           </View>
-        )}
-
-        {/* Quick Replies (AI only) - Show after content */}
-        {showContent && message.quickReplies && message.quickReplies.length > 0 && (
-          <AIQuickReplies
-            replies={message.quickReplies}
-            onSelect={(reply) => onQuickReplySelect?.(reply)}
-            disabled={isStreaming}
-          />
         )}
 
         {/* Sources (AI only) */}
@@ -331,24 +307,9 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.md,
     paddingHorizontal: Spacing.md,
   },
-  avatar: {
-    width: 24,
-    height: 24,
-    borderRadius: 6,
-    backgroundColor: BrandColors.secondary + '20',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: Spacing.sm,
-    marginTop: 2,
-  },
-  aiAvatarImage: {
-    width: 24,
-    height: 24,
-    borderRadius: 6,
-  },
   contentWrapper: {
     flex: 1,
-    maxWidth: '90%',
+    maxWidth: '95%',
   },
   // AI message - no bubble, clean text
   aiTextContainer: {

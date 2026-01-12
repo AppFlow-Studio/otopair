@@ -19,18 +19,22 @@ export interface Conversation {
   lastMessage: string;
   updatedAt: string;
   messages: ChatMessage[];
+  state: ConversationState;
 }
 
 export interface AIChatStoreState {
   // Current conversation state
   conversationState: ConversationState;
+  
+  // Current conversation ID (null if new chat)
+  currentConversationId: string | null;
 
   // Saved conversations (for history)
   conversations: Conversation[];
 
   // UI state
   isLoadingHistory: boolean;
-  
+
   // Welcome screen
   hasSeenWelcome: boolean;
 }
@@ -41,10 +45,11 @@ export interface AIChatStoreActions {
   resetConversation: () => void;
 
   // Conversation history
-  saveConversation: (title?: string) => void;
-  loadConversation: (id: string) => void;
+  saveCurrentConversation: (state: ConversationState) => void;
+  loadConversation: (id: string) => ConversationState | null;
   deleteConversation: (id: string) => void;
-  
+  startNewConversation: () => void;
+
   // Welcome screen
   setHasSeenWelcome: (seen: boolean) => void;
 }
@@ -73,6 +78,7 @@ function getConversationTitle(messages: ChatMessage[]): string {
 
 const initialState: AIChatStoreState = {
   conversationState: createInitialState(),
+  currentConversationId: null,
   conversations: [],
   isLoadingHistory: false,
   hasSeenWelcome: false,
@@ -101,22 +107,40 @@ export const useAIChatStore = create<AIChatStore>((set, get) => ({
   // CONVERSATION HISTORY
   // --------------------------------------------------------------------------
 
-  saveConversation: (title?: string) => {
-    const { conversationState, conversations } = get();
+  saveCurrentConversation: (state: ConversationState) => {
+    const { currentConversationId, conversations } = get();
 
-    if (conversationState.messages.length === 0) return;
+    if (state.messages.length === 0) return;
 
-    const conversation: Conversation = {
-      id: generateId(),
-      title: title || getConversationTitle(conversationState.messages),
-      lastMessage: conversationState.messages[conversationState.messages.length - 1]?.content || "",
-      updatedAt: new Date().toISOString(),
-      messages: conversationState.messages,
-    };
+    const title = getConversationTitle(state.messages);
+    const lastMessage = state.messages[state.messages.length - 1]?.content || "";
+    const now = new Date().toISOString();
 
-    set({
-      conversations: [conversation, ...conversations].slice(0, 50), // Keep last 50
-    });
+    if (currentConversationId) {
+      // Update existing conversation
+      const updatedConversations = conversations.map((conv) =>
+        conv.id === currentConversationId
+          ? { ...conv, title, lastMessage, updatedAt: now, messages: state.messages, state }
+          : conv
+      );
+      set({ conversations: updatedConversations });
+    } else {
+      // Create new conversation
+      const newId = generateId();
+      const conversation: Conversation = {
+        id: newId,
+        title,
+        lastMessage,
+        updatedAt: now,
+        messages: state.messages,
+        state,
+      };
+
+      set({
+        currentConversationId: newId,
+        conversations: [conversation, ...conversations].slice(0, 50), // Keep last 50
+      });
+    }
   },
 
   loadConversation: (id: string) => {
@@ -125,19 +149,27 @@ export const useAIChatStore = create<AIChatStore>((set, get) => ({
 
     if (conversation) {
       set({
-        conversationState: {
-          ...createInitialState(),
-          messages: conversation.messages,
-          currentStage: "welcome", // Reset to welcome for new interactions
-        },
+        currentConversationId: id,
+        conversationState: conversation.state,
       });
+      return conversation.state;
     }
+    return null;
   },
 
   deleteConversation: (id: string) => {
-    const { conversations } = get();
+    const { conversations, currentConversationId } = get();
     set({
       conversations: conversations.filter((c) => c.id !== id),
+      // If we're deleting the current conversation, reset
+      ...(currentConversationId === id ? { currentConversationId: null } : {}),
+    });
+  },
+
+  startNewConversation: () => {
+    set({
+      currentConversationId: null,
+      conversationState: createInitialState(),
     });
   },
 

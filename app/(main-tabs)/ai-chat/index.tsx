@@ -4,24 +4,15 @@
  * Shows welcome screen first, then ChatGPT-style chat interface
  */
 
-import React, { useEffect, useState, useRef, useCallback } from 'react';
-import {
-  View,
-  ScrollView,
-  StyleSheet,
-  Pressable,
-  Alert,
-  Platform,
-  KeyboardAvoidingView,
-  Keyboard,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Text } from '@/components/shared-ui';
-import { useAIChatStore } from '@/stores/useAIChatStore';
-import { useBookingStore } from '@/stores/useBookingStore';
-import { useMechanicStore } from '@/stores/useMechanicStore';
+import React, { useEffect, useState, useRef, useCallback } from "react";
+import { View, ScrollView, StyleSheet, Pressable, Alert, Platform, KeyboardAvoidingView, Keyboard } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
+import { LinearGradient } from "expo-linear-gradient";
+import { Text } from "@/components/shared-ui";
+import { useAIChatStore } from "@/stores/useAIChatStore";
+import { useBookingStore } from "@/stores/useBookingStore";
+import { useMechanicStore } from "@/stores/useMechanicStore";
 import {
   AIGreeting,
   AIMessageBubble,
@@ -37,19 +28,15 @@ import {
   type QuickReply,
   type ServiceOption,
   type SelectedTimeSlot,
-} from '@/components/ai-chat';
-import { BrandColors, BorderRadius, Spacing, FontFamily } from '@/constants/theme';
-import { AlignLeft, SquarePen } from 'lucide-react-native';
-import * as Clipboard from 'expo-clipboard';
-import * as Speech from 'expo-speech';
+} from "@/components/ai-chat";
+import { BrandColors, BorderRadius, Spacing, FontFamily } from "@/constants/theme";
+import { AlignLeft, SquarePen } from "lucide-react-native";
+import * as Clipboard from "expo-clipboard";
+import * as Speech from "expo-speech";
 
 // Scenario engine
-import {
-  createInitialState,
-  processUserMessage,
-  WELCOME_SUGGESTIONS,
-} from '@/services/ai/scenarioEngine';
-import type { ConversationState, ChatMessage, AIMechanic, SelectedService } from '@/services/ai/types';
+import { createInitialState, processUserMessage, WELCOME_SUGGESTIONS } from "@/services/ai/scenarioEngine";
+import type { ConversationState, ChatMessage, AIMechanic, SelectedService } from "@/services/ai/types";
 
 // ============================================================================
 // CONSTANTS
@@ -66,39 +53,43 @@ export default function AIChatScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const scrollViewRef = useRef<ScrollView>(null);
-  
+
   // Calculate bottom padding to account for the native tab bar
   const bottomPadding = Math.max(insets.bottom, TAB_BAR_HEIGHT);
-  
+
   // Welcome screen state (from Zustand store)
   const hasSeenWelcome = useAIChatStore((state) => state.hasSeenWelcome);
   const setHasSeenWelcome = useAIChatStore((state) => state.setHasSeenWelcome);
   
+  // Chat history state (from Zustand store)
+  const conversations = useAIChatStore((state) => state.conversations);
+  const saveCurrentConversation = useAIChatStore((state) => state.saveCurrentConversation);
+  const loadConversation = useAIChatStore((state) => state.loadConversation);
+  const startNewConversation = useAIChatStore((state) => state.startNewConversation);
+
   // Booking store for navigation to payment
   const selectMechanic = useBookingStore((state) => state.selectMechanic);
   const setScheduledAppointment = useBookingStore((state) => state.setScheduledAppointment);
   const toggleServiceSelection = useBookingStore((state) => state.toggleServiceSelection);
   const clearSelectedServices = useBookingStore((state) => state.clearSelectedServices);
   const setBookingStage = useBookingStore((state) => state.setBookingStage);
-  
+
   // Conversation state (using scenario engine)
   const [state, setState] = useState<ConversationState>(createInitialState);
-  
+
   // Local UI state
-  const [inputValue, setInputValue] = useState('');
+  const [inputValue, setInputValue] = useState("");
   const [showHistory, setShowHistory] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
 
   // Track keyboard visibility to adjust bottom padding
   useEffect(() => {
-    const showSub = Keyboard.addListener(
-      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
-      () => setIsKeyboardVisible(true)
+    const showSub = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow", () =>
+      setIsKeyboardVisible(true)
     );
-    const hideSub = Keyboard.addListener(
-      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
-      () => setIsKeyboardVisible(false)
+    const hideSub = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide", () =>
+      setIsKeyboardVisible(false)
     );
     return () => {
       showSub.remove();
@@ -124,29 +115,30 @@ export default function AIChatScreen() {
     const trimmedInput = inputValue.trim();
     if (!trimmedInput || isProcessing) return;
 
-    setInputValue('');
+    setInputValue("");
     setIsProcessing(true);
 
     // Process with scenario engine
     const { newState, response } = processUserMessage(state, trimmedInput);
 
     // Add user message immediately
-    setState(prev => ({
-      ...prev,
+    const updatedState = {
+      ...state,
       messages: newState.messages,
       currentStage: newState.currentStage,
       currentScenario: newState.currentScenario,
       selectedPriority: newState.selectedPriority,
       selectedShop: newState.selectedShop,
       selectedTime: newState.selectedTime,
-    }));
+    };
+    setState(updatedState);
 
     // Simulate AI "thinking" delay
     setTimeout(() => {
       // Create AI response message
       const aiMessage: ChatMessage = {
         id: `ai_${Date.now()}`,
-        role: 'assistant',
+        role: "assistant",
         content: response.message,
         timestamp: new Date().toISOString(),
         reasoning: response.reasoning,
@@ -159,259 +151,316 @@ export default function AIChatScreen() {
         isStreaming: true,
       };
 
-      setState(prev => ({
-        ...prev,
-        messages: [...prev.messages, aiMessage],
-        suggestions: response.suggestions,
-        currentStage: response.nextStage,
-      }));
+      setState((prev) => {
+        const newState = {
+          ...prev,
+          messages: [...prev.messages, aiMessage],
+          suggestions: response.suggestions,
+          currentStage: response.nextStage,
+        };
+        // Save conversation to store
+        saveCurrentConversation(newState);
+        return newState;
+      });
 
       // Stop streaming after animation
       setTimeout(() => {
-        setState(prev => ({
-          ...prev,
-          messages: prev.messages.map(m =>
-            m.id === aiMessage.id ? { ...m, isStreaming: false } : m
-          ),
-        }));
+        setState((prev) => {
+          const finalState = {
+            ...prev,
+            messages: prev.messages.map((m) => (m.id === aiMessage.id ? { ...m, isStreaming: false } : m)),
+          };
+          // Save final state to store
+          saveCurrentConversation(finalState);
+          return finalState;
+        });
         setIsProcessing(false);
       }, response.message.length * 30); // Approximate streaming time
-
     }, 1500); // AI thinking delay
-  }, [inputValue, state, isProcessing]);
+  }, [inputValue, state, isProcessing, saveCurrentConversation]);
 
   // Handle suggestion press
-  const handleSuggestionPress = useCallback((suggestion: Suggestion | string) => {
-    const text = typeof suggestion === 'string' ? suggestion : suggestion.text;
-    const value = typeof suggestion === 'string' ? suggestion : (suggestion.value || suggestion.text);
-    
-    setInputValue(text);
-    
-    // Auto-send after brief delay for natural feel
-    setTimeout(() => {
-      if (value && !isProcessing) {
-        setInputValue('');
-        setIsProcessing(true);
+  const handleSuggestionPress = useCallback(
+    (suggestion: Suggestion | string) => {
+      const text = typeof suggestion === "string" ? suggestion : suggestion.text;
+      const value = typeof suggestion === "string" ? suggestion : suggestion.value || suggestion.text;
 
-        const { newState, response } = processUserMessage(state, value);
+      setInputValue(text);
 
-        setState(prev => ({
-          ...prev,
-          messages: newState.messages,
-          currentStage: newState.currentStage,
-          currentScenario: newState.currentScenario,
-          selectedPriority: newState.selectedPriority,
-          selectedShop: newState.selectedShop,
-          selectedTime: newState.selectedTime,
-        }));
+      // Auto-send after brief delay for natural feel
+      setTimeout(() => {
+        if (value && !isProcessing) {
+          setInputValue("");
+          setIsProcessing(true);
 
-        setTimeout(() => {
-          const aiMessage: ChatMessage = {
-            id: `ai_${Date.now()}`,
-            role: 'assistant',
-            content: response.message,
-            timestamp: new Date().toISOString(),
-            reasoning: response.reasoning,
-            sources: response.sources,
-            quickReplies: response.quickReplies,
-            sections: response.sections,
-            shops: response.shops,
-            showServicePicker: response.showServicePicker,
-            stage: response.nextStage,
-            isStreaming: true,
-          };
+          const { newState, response } = processUserMessage(state, value);
 
-          setState(prev => ({
+          setState((prev) => ({
             ...prev,
-            messages: [...prev.messages, aiMessage],
-            suggestions: response.suggestions,
-            currentStage: response.nextStage,
+            messages: newState.messages,
+            currentStage: newState.currentStage,
+            currentScenario: newState.currentScenario,
+            selectedPriority: newState.selectedPriority,
+            selectedShop: newState.selectedShop,
+            selectedTime: newState.selectedTime,
           }));
 
           setTimeout(() => {
-            setState(prev => ({
-              ...prev,
-              messages: prev.messages.map(m =>
-                m.id === aiMessage.id ? { ...m, isStreaming: false } : m
-              ),
-            }));
-            setIsProcessing(false);
-          }, response.message.length * 30);
-        }, 1500);
-      }
-    }, 100);
-  }, [state, isProcessing]);
+            const aiMessage: ChatMessage = {
+              id: `ai_${Date.now()}`,
+              role: "assistant",
+              content: response.message,
+              timestamp: new Date().toISOString(),
+              reasoning: response.reasoning,
+              sources: response.sources,
+              quickReplies: response.quickReplies,
+              sections: response.sections,
+              shops: response.shops,
+              showServicePicker: response.showServicePicker,
+              stage: response.nextStage,
+              isStreaming: true,
+            };
+
+            setState((prev) => {
+              const newState = {
+                ...prev,
+                messages: [...prev.messages, aiMessage],
+                suggestions: response.suggestions,
+                currentStage: response.nextStage,
+              };
+              // Save conversation to store
+              saveCurrentConversation(newState);
+              return newState;
+            });
+
+            setTimeout(() => {
+              setState((prev) => {
+                const finalState = {
+                  ...prev,
+                  messages: prev.messages.map((m) => (m.id === aiMessage.id ? { ...m, isStreaming: false } : m)),
+                };
+                // Save final state to store
+                saveCurrentConversation(finalState);
+                return finalState;
+              });
+              setIsProcessing(false);
+            }, response.message.length * 30);
+          }, 1500);
+        }
+      }, 100);
+    },
+    [state, isProcessing, saveCurrentConversation]
+  );
 
   // Handle quick reply selection
-  const handleQuickReplySelect = useCallback((reply: QuickReply) => {
-    handleSuggestionPress({ id: reply.id, text: reply.text, value: reply.value });
-  }, [handleSuggestionPress]);
+  const handleQuickReplySelect = useCallback(
+    (reply: QuickReply) => {
+      handleSuggestionPress({ id: reply.id, text: reply.text, value: reply.value });
+    },
+    [handleSuggestionPress]
+  );
 
   // Handle Book Now from mechanic carousel - navigates to payment screen
-  const handleBookNow = useCallback((mechanic: AIMechanic, timeSlot: SelectedTimeSlot) => {
-    // Map AI service selection to booking store service IDs
-    const serviceIdMapping: Record<string, string> = {
-      'svc_oil_change': 'svc_oil_change',
-      'svc_air_filter': 'svc_filter_change',
-      'svc_fluid_check': 'svc_fluid_change',
-      'svc_tire_rotation': 'svc_tire_rotation',
-      'svc_tire_balance': 'svc_tire_balance',
-      'svc_tire_pressure': 'svc_tire_rotation',
-      'svc_brake_inspection': 'svc_brake_pads',
-      'svc_brake_pads': 'svc_brake_pads',
-      'svc_brake_fluid': 'svc_brake_fluid',
-      'svc_diagnostic_scan': 'svc_engine_diagnostic',
-      'svc_check_engine': 'svc_engine_diagnostic',
-      'svc_battery_test': 'svc_electrical_check',
-    };
-    
-    // Clear existing services and add selected ones from AI chat
-    clearSelectedServices();
-    
-    // Add services from AI state
-    state.selectedServices.forEach(service => {
-      const mappedId = serviceIdMapping[service.id] || service.id;
-      toggleServiceSelection(mappedId);
-    });
-    
-    // If no services selected, add a default oil change
-    if (state.selectedServices.length === 0) {
-      toggleServiceSelection('svc_oil_change');
-    }
-    
-    // Select the mechanic (use the mechanic's actual ID from mock data)
-    selectMechanic(mechanic.id);
-    
-    // Set the scheduled appointment from the time slot
-    const currentYear = new Date().getFullYear();
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const currentMonth = new Date().getMonth();
-    const dayNum = parseInt(timeSlot.day);
-    
-    // Create ISO date string
-    const appointmentDate = new Date(currentYear, currentMonth, dayNum);
-    const isoDate = appointmentDate.toISOString().split('T')[0];
-    const displayDate = `${dayNum} ${months[currentMonth]} ${currentYear}`;
-    
-    setScheduledAppointment({
-      date: isoDate,
-      time: timeSlot.time,
-      displayDate,
-    });
-    
-    // Set booking stage to payment
-    setBookingStage('payment', 'forward');
-    
-    // Navigate to payment screen
-    router.push(`/home/mechanic/${mechanic.id}/payment`);
-  }, [state.selectedServices, clearSelectedServices, toggleServiceSelection, selectMechanic, setScheduledAppointment, setBookingStage, router]);
+  const handleBookNow = useCallback(
+    (mechanic: AIMechanic, timeSlot: SelectedTimeSlot) => {
+      // Map AI service selection to booking store service IDs
+      const serviceIdMapping: Record<string, string> = {
+        svc_oil_change: "svc_oil_change",
+        svc_air_filter: "svc_filter_change",
+        svc_fluid_check: "svc_fluid_change",
+        svc_tire_rotation: "svc_tire_rotation",
+        svc_tire_balance: "svc_tire_balance",
+        svc_tire_pressure: "svc_tire_rotation",
+        svc_brake_inspection: "svc_brake_pads",
+        svc_brake_pads: "svc_brake_pads",
+        svc_brake_fluid: "svc_brake_fluid",
+        svc_diagnostic_scan: "svc_engine_diagnostic",
+        svc_check_engine: "svc_engine_diagnostic",
+        svc_battery_test: "svc_electrical_check",
+      };
+
+      // Clear existing services and add selected ones from AI chat
+      clearSelectedServices();
+
+      // Add services from AI state
+      state.selectedServices.forEach((service) => {
+        const mappedId = serviceIdMapping[service.id] || service.id;
+        toggleServiceSelection(mappedId);
+      });
+
+      // If no services selected, add a default oil change
+      if (state.selectedServices.length === 0) {
+        toggleServiceSelection("svc_oil_change");
+      }
+
+      // Select the mechanic (use the mechanic's actual ID from mock data)
+      selectMechanic(mechanic.id);
+
+      // Set the scheduled appointment from the time slot
+      const currentYear = new Date().getFullYear();
+      const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      const currentMonth = new Date().getMonth();
+      const dayNum = parseInt(timeSlot.day);
+
+      // Create ISO date string
+      const appointmentDate = new Date(currentYear, currentMonth, dayNum);
+      const isoDate = appointmentDate.toISOString().split("T")[0];
+      const displayDate = `${dayNum} ${months[currentMonth]} ${currentYear}`;
+
+      setScheduledAppointment({
+        date: isoDate,
+        time: timeSlot.time,
+        displayDate,
+      });
+
+      // Set booking stage to payment
+      setBookingStage("payment", "forward");
+
+      // Navigate to payment screen
+      router.push(`/home/mechanic/${mechanic.id}/payment`);
+    },
+    [
+      state.selectedServices,
+      clearSelectedServices,
+      toggleServiceSelection,
+      selectMechanic,
+      setScheduledAppointment,
+      setBookingStage,
+      router,
+    ]
+  );
 
   // Handle service selection from service picker
-  const handleServiceSelect = useCallback((services: ServiceOption[]) => {
-    if (services.length === 0 || isProcessing) return;
-    
-    setIsProcessing(true);
-    
-    // Convert ServiceOption to SelectedService
-    const selectedServices: SelectedService[] = services.map(s => ({
-      id: s.id,
-      name: s.name,
-      estimatedPrice: s.price,
-    }));
-    
-    // Create service names for display
-    const serviceNames = services.map(s => s.name).join(', ');
-    
-    // Add user message showing selected services
-    const userMessage: ChatMessage = {
-      id: `user_${Date.now()}`,
-      role: 'user',
-      content: serviceNames,
-      timestamp: new Date().toISOString(),
-      stage: 'service_selection',
-    };
-    
-    // Update state with selected services AND user message
-    setState(prev => ({ 
-      ...prev, 
-      selectedServices,
-      messages: [...prev.messages, userMessage],
-    }));
-    
-    // Simulate AI response delay
-    setTimeout(() => {
-      // Create AI response confirming selection
-      const aiMessage: ChatMessage = {
-        id: `ai_${Date.now()}`,
-        role: 'assistant',
-        content: `Great choices! You selected **${serviceNames}**.\n\nHow would you like me to find mechanics?`,
-        timestamp: new Date().toISOString(),
-        quickReplies: [
-          { id: 'closest', text: 'Closest', value: 'closest', variant: 'default' },
-          { id: 'best_rated', text: 'Best rated', value: 'best_rated', variant: 'default' },
-          { id: 'best_price', text: 'Best price', value: 'best_price', variant: 'default' },
-        ],
-        stage: 'priority_selection',
-        isStreaming: true,
-      };
-      
-      setState(prev => ({
-        ...prev,
-        messages: [...prev.messages, aiMessage],
-        currentStage: 'priority_selection',
-        suggestions: [
-          { id: 'closest', text: 'Closest', value: 'closest' },
-          { id: 'best_rated', text: 'Best rated', value: 'best_rated' },
-          { id: 'best_price', text: 'Best price', value: 'best_price' },
-        ],
+  const handleServiceSelect = useCallback(
+    (services: ServiceOption[]) => {
+      if (services.length === 0 || isProcessing) return;
+
+      setIsProcessing(true);
+
+      // Convert ServiceOption to SelectedService
+      const selectedServices: SelectedService[] = services.map((s) => ({
+        id: s.id,
+        name: s.name,
+        estimatedPrice: s.price,
       }));
-      
-      // Stop streaming
+
+      // Create service names for display
+      const serviceNames = services.map((s) => s.name).join(", ");
+
+      // Add user message showing selected services
+      const userMessage: ChatMessage = {
+        id: `user_${Date.now()}`,
+        role: "user",
+        content: serviceNames,
+        timestamp: new Date().toISOString(),
+        stage: "service_selection",
+      };
+
+      // Update state with selected services AND user message
+      setState((prev) => ({
+        ...prev,
+        selectedServices,
+        messages: [...prev.messages, userMessage],
+      }));
+
+      // Simulate AI response delay
       setTimeout(() => {
-        setState(prev => ({
-          ...prev,
-          messages: prev.messages.map(m =>
-            m.id === aiMessage.id ? { ...m, isStreaming: false } : m
-          ),
-        }));
-        setIsProcessing(false);
-      }, aiMessage.content.length * 30);
-    }, 1000);
-  }, [isProcessing]);
+        // Create AI response confirming selection
+        const aiMessage: ChatMessage = {
+          id: `ai_${Date.now()}`,
+          role: "assistant",
+          content: `Great choices! You selected **${serviceNames}**.\n\nHow would you like me to find mechanics?`,
+          timestamp: new Date().toISOString(),
+          quickReplies: [
+            { id: "closest", text: "Closest", value: "closest", variant: "default" },
+            { id: "best_rated", text: "Best rated", value: "best_rated", variant: "default" },
+            { id: "best_price", text: "Best price", value: "best_price", variant: "default" },
+          ],
+          stage: "priority_selection",
+          isStreaming: true,
+        };
+
+        setState((prev) => {
+          const newState = {
+            ...prev,
+            messages: [...prev.messages, aiMessage],
+            currentStage: "priority_selection" as const,
+            suggestions: [
+              { id: "closest", text: "Closest", value: "closest" },
+              { id: "best_rated", text: "Best rated", value: "best_rated" },
+              { id: "best_price", text: "Best price", value: "best_price" },
+            ],
+          };
+          // Save conversation to store
+          saveCurrentConversation(newState);
+          return newState;
+        });
+
+        // Stop streaming
+        setTimeout(() => {
+          setState((prev) => {
+            const finalState = {
+              ...prev,
+              messages: prev.messages.map((m) => (m.id === aiMessage.id ? { ...m, isStreaming: false } : m)),
+            };
+            // Save final state to store
+            saveCurrentConversation(finalState);
+            return finalState;
+          });
+          setIsProcessing(false);
+        }, aiMessage.content.length * 30);
+      }, 1000);
+    },
+    [isProcessing, saveCurrentConversation]
+  );
 
   // Handle copy message
   const handleCopy = useCallback(async (content: string) => {
     try {
       await Clipboard.setStringAsync(content);
-      Alert.alert('Copied', 'Message copied to clipboard');
+      Alert.alert("Copied", "Message copied to clipboard");
     } catch (error) {
-      console.error('Copy error:', error);
+      console.error("Copy error:", error);
     }
   }, []);
 
   // Handle speak message
   const handleSpeak = useCallback((content: string) => {
     Speech.speak(content, {
-      language: 'en-US',
+      language: "en-US",
       rate: 1.0,
     });
   }, []);
 
   // Handle feedback
   const handleLike = useCallback(() => {
-    Alert.alert('Thanks!', 'Your feedback helps us improve.');
+    Alert.alert("Thanks!", "Your feedback helps us improve.");
   }, []);
 
   const handleDislike = useCallback(() => {
-    Alert.alert('Thanks!', 'Your feedback helps us improve.');
+    Alert.alert("Thanks!", "Your feedback helps us improve.");
   }, []);
 
   // Start new chat
   const startNewChat = useCallback(() => {
+    startNewConversation(); // Reset in store (clears currentConversationId)
     setState(createInitialState());
-    setInputValue('');
+    setInputValue("");
     setIsProcessing(false);
-  }, []);
+  }, [startNewConversation]);
+
+  // Handle selecting a conversation from history
+  const handleSelectConversation = useCallback(
+    (conversationId: string) => {
+      const loadedState = loadConversation(conversationId);
+      if (loadedState) {
+        setState(loadedState);
+        setInputValue("");
+        setIsProcessing(false);
+      }
+    },
+    [loadConversation]
+  );
 
   // Determine if we should show chat greeting (no messages yet)
   const showChatGreeting = state.messages.length === 0;
@@ -424,13 +473,7 @@ export default function AIChatScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       {/* Background Gradient */}
-      <LinearGradient
-        colors={['#E8D5E0', '#D5DCE8', '#C5D8E8', '#E8ECF0']}
-        locations={[0, 0.3, 0.6, 1]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={styles.backgroundGradient}
-      />
+      <View style={styles.backgroundGradient} />
 
       {/* Header */}
       <View style={styles.header}>
@@ -456,25 +499,19 @@ export default function AIChatScreen() {
       {/* Main Content */}
       <KeyboardAvoidingView
         style={styles.content}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === "ios" ? "padding" : undefined}
         keyboardVerticalOffset={0}
       >
         {/* Chat Area */}
         <ScrollView
           ref={scrollViewRef}
           style={styles.chatContainer}
-          contentContainerStyle={[
-            styles.chatContent,
-            showChatGreeting && styles.chatContentCentered,
-          ]}
+          contentContainerStyle={[styles.chatContent, showChatGreeting && styles.chatContentCentered]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
           {showChatGreeting ? (
-            <AIGreeting
-              suggestions={WELCOME_SUGGESTIONS}
-              onSuggestionPress={handleSuggestionPress}
-            />
+            <AIGreeting suggestions={WELCOME_SUGGESTIONS} onSuggestionPress={handleSuggestionPress} />
           ) : (
             <>
               {state.messages.map((message) => (
@@ -488,21 +525,17 @@ export default function AIChatScreen() {
                     onQuickReplySelect={handleQuickReplySelect}
                   />
                   {/* Service Picker (for service selection) */}
-                  {message.role === 'assistant' && message.showServicePicker && state.currentStage === 'service_selection' && (
-                    <View style={styles.servicePickerContainer}>
-                      <AIServicePicker
-                        onConfirm={handleServiceSelect}
-                        disabled={isProcessing}
-                      />
-                    </View>
-                  )}
+                  {message.role === "assistant" &&
+                    message.showServicePicker &&
+                    state.currentStage === "service_selection" && (
+                      <View style={styles.servicePickerContainer}>
+                        <AIServicePicker onConfirm={handleServiceSelect} disabled={isProcessing} />
+                      </View>
+                    )}
                   {/* Mechanic Carousel (for mechanic selection messages) */}
-                  {message.role === 'assistant' && message.shops && message.shops.length > 0 && (
+                  {message.role === "assistant" && message.shops && message.shops.length > 0 && (
                     <View style={styles.carouselContainer}>
-                      <AIBookingCarousel
-                        shops={message.shops}
-                        onBookNow={handleBookNow}
-                      />
+                      <AIBookingCarousel shops={message.shops} onBookNow={handleBookNow} />
                     </View>
                   )}
                 </View>
@@ -538,8 +571,8 @@ export default function AIChatScreen() {
       <AIChatHistory
         visible={showHistory}
         onClose={() => setShowHistory(false)}
-        conversations={[]}
-        onSelectConversation={() => {}}
+        conversations={conversations}
+        onSelectConversation={handleSelectConversation}
       />
     </View>
   );
@@ -552,30 +585,35 @@ export default function AIChatScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#E8ECF0',
+    backgroundColor: "#E8ECF0",
   },
   backgroundGradient: {
     ...StyleSheet.absoluteFillObject,
+    backgroundColor: "#E8ECF0",
+    // Linear gradient effect with opacity layers
+    opacity: 1,
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.md,
   },
   headerIcon: {
     width: 40,
     height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   headerIconPressed: {
     opacity: 0.6,
   },
   headerTitle: {
+    flex: 1,
     color: BrandColors.primary,
     fontFamily: FontFamily.semiBold,
+    textAlign: "center",
   },
   content: {
     flex: 1,
@@ -588,15 +626,13 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.md,
   },
   chatContentCentered: {
-    justifyContent: 'center',
+    justifyContent: "center",
   },
   carouselContainer: {
-    marginLeft: 44, // Align with message bubble (avatar width + margin)
     marginBottom: Spacing.md,
   },
   servicePickerContainer: {
-    marginLeft: 44, // Align with message bubble (avatar width + margin)
-    marginRight: Spacing.md,
+    marginHorizontal: Spacing.md,
     marginBottom: Spacing.md,
   },
 });

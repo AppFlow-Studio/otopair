@@ -20,7 +20,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Text } from '@/components/shared-ui';
 import { BrandColors, BorderRadius, Spacing, FontFamily, Shadows } from '@/constants/theme';
-import { MessageSquare, AlertTriangle, Shield } from 'lucide-react-native';
+import { MessageSquare, Shield, AlertTriangle } from 'lucide-react-native';
 
 // Otopair AI Logo
 const OTOPAIR_AI_LOGO = require('@/assets/images/otopair-ai-logo.png');
@@ -53,10 +53,10 @@ function AILogo() {
 }
 
 // ============================================================================
-// INFO CARD COMPONENT
+// INFO ITEM COMPONENT (ChatGPT-style, no boxes)
 // ============================================================================
 
-function InfoCard({
+function InfoItem({
   icon,
   title,
   description,
@@ -69,7 +69,7 @@ function InfoCard({
 }) {
   return (
     <Animated.View 
-      style={styles.infoCard}
+      style={styles.infoItem}
       entering={FadeInUp.delay(delay).duration(400).springify()}
     >
       <View style={styles.infoIconContainer}>
@@ -101,7 +101,7 @@ export function AIWelcomeScreen({ onContinue }: AIWelcomeScreenProps) {
 
   return (
     <View style={styles.container}>
-      {/* Background gradient effect */}
+      {/* Background gradient - off-white */}
       <LinearGradient
         colors={['#E8ECF0', '#dde2ee', '#E8ECF0']}
         locations={[0, 0.5, 1]}
@@ -126,22 +126,22 @@ export function AIWelcomeScreen({ onContinue }: AIWelcomeScreenProps) {
           </Text>
         </Animated.View>
 
-        {/* Info Cards */}
-        <View style={styles.cardsContainer}>
-          <InfoCard
-            icon={<MessageSquare size={20} color={BrandColors.secondary} />}
-            title="Responses may be inaccurate"
-            description="Otopair AI provides general guidance. Always consult a certified mechanic for serious issues."
+        {/* Info Items - ChatGPT style, no boxes */}
+        <View style={styles.infoContainer}>
+          <InfoItem
+            icon={<MessageSquare size={22} color={BrandColors.secondary} />}
+            title="Responses can be inaccurate"
+            description="Otopair AI may provide inaccurate information about cars, repairs, or maintenance."
             delay={400}
           />
-          <InfoCard
-            icon={<Shield size={20} color={BrandColors.secondary} />}
-            title="Your privacy matters"
-            description="Conversations help improve our service. Don't share sensitive personal information."
+          <InfoItem
+            icon={<Shield size={22} color={BrandColors.secondary} />}
+            title="Don't share sensitive info"
+            description="Chats may be reviewed to improve our service. Learn more."
             delay={500}
           />
-          <InfoCard
-            icon={<AlertTriangle size={20} color="#F59E0B" />}
+          <InfoItem
+            icon={<AlertTriangle size={22} color="#F59E0B" />}
             title="Not emergency advice"
             description="For immediate safety concerns, pull over safely and call roadside assistance."
             delay={600}
@@ -223,39 +223,34 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     paddingHorizontal: Spacing.md,
   },
-  // Info Cards
-  cardsContainer: {
+  // Info Items (ChatGPT style - no boxes)
+  infoContainer: {
     width: '100%',
-    gap: Spacing.md,
+    gap: Spacing.xl,
+    paddingHorizontal: Spacing.sm,
   },
-  infoCard: {
+  infoItem: {
     flexDirection: 'row',
-    backgroundColor: BrandColors.white,
-    borderRadius: BorderRadius.xl,
-    padding: Spacing.lg,
-    ...Shadows.sm,
+    alignItems: 'flex-start',
   },
   infoIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: BorderRadius.lg,
-    backgroundColor: BrandColors.secondary + '15',
-    justifyContent: 'center',
-    alignItems: 'center',
+    width: 28,
     marginRight: Spacing.md,
+    marginTop: 2,
   },
   infoContent: {
     flex: 1,
   },
   infoTitle: {
-    fontSize: 15,
+    fontSize: 16,
     color: BrandColors.primary,
     marginBottom: 4,
     fontFamily: FontFamily.semiBold,
   },
   infoDescription: {
     color: '#6B7280',
-    lineHeight: 20,
+    lineHeight: 22,
+    fontSize: 15,
   },
   // Footer
   footer: {

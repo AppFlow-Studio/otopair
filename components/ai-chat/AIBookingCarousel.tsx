@@ -301,12 +301,13 @@ const styles = StyleSheet.create({
     marginHorizontal: -Spacing.md,
   },
   scrollContent: {
-    paddingHorizontal: Spacing.md,
+    paddingLeft: Spacing.xl + Spacing.md, // Offset to the right so cards peek from left
+    paddingRight: Spacing.md,
     gap: Spacing.md,
   },
   card: {
     width: 300,
-    backgroundColor: '#F2F4F7',
+    backgroundColor: 'rgba(255, 255, 255, 0.6)', // Semi-transparent, faded like suggestion pills
     borderRadius: BorderRadius.xl,
     padding: Spacing.lg,
   },
