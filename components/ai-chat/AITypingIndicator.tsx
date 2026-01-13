@@ -1,10 +1,23 @@
 /**
- * AI Typing Indicator Component
- * Shows "Thinking" text with blink animation
+ * AITypingIndicator
+ *
+ * PURPOSE: Shows animated "Thinking" text while AI is processing a response
+ *
+ * USED IN: app/(main-tabs)/ai-chat/index.tsx (shown when isProcessing is true)
+ *
+ * PROPS: None
+ *
+ * EXAMPLE:
+ *   {isProcessing && <AITypingIndicator />}
+ *
+ * OWNER: Waleed Mansour
  */
 
+// 1. React & React Native
 import React, { useEffect } from 'react';
 import { View, StyleSheet } from 'react-native';
+
+// 2. Expo & Third-party
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -13,6 +26,8 @@ import Animated, {
   withTiming,
   Easing,
 } from 'react-native-reanimated';
+
+// 3. Constants, hooks, types
 import { BrandColors, Spacing, FontFamily } from '@/constants/theme';
 
 const AnimatedText = Animated.Text;

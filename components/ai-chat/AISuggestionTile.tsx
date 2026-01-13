@@ -1,11 +1,29 @@
 /**
- * AI Suggestion Tile Component
- * Displays a tappable suggestion card
+ * AISuggestionTile
+ *
+ * PURPOSE: Displays a single tappable suggestion card with text (legacy)
+ *
+ * USED IN: Not currently used (consider AIGreeting or PromptSuggestions instead)
+ *
+ * PROPS:
+ *   - text (string): Suggestion text to display
+ *   - onPress (() => void): Callback when tile is pressed
+ *   - style (ViewStyle): Optional custom styles [optional]
+ *
+ * EXAMPLE:
+ *   <AISuggestionTile text="Fix brake noise" onPress={() => handleSuggestion()} />
+ *
+ * OWNER: Waleed Mansour
  */
 
+// 1. React & React Native
 import React from 'react';
 import { Pressable, StyleSheet, type ViewStyle } from 'react-native';
+
+// 2. Shared UI (design system)
 import { Text } from '@/components/shared-ui';
+
+// 3. Constants, hooks, types
 import { BrandColors, BorderRadius, Shadows, Spacing } from '@/constants/theme';
 
 interface AISuggestionTileProps {

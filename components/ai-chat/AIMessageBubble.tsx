@@ -1,21 +1,48 @@
 /**
- * AI Message Bubble Component
- * Enhanced with Reasoning and Sources integration
+ * AIMessageBubble
+ *
+ * PURPOSE: Displays user/AI chat messages with reasoning, sources, sections, and action buttons
+ *
+ * USED IN: app/(main-tabs)/ai-chat/index.tsx (renders each message in chat)
+ *
+ * PROPS:
+ *   - message (AIMessage): Message object with content, role, reasoning, sources, etc.
+ *   - onCopy (() => void): Callback when copy button is pressed
+ *   - onSpeak (() => void): Callback when speak button is pressed
+ *   - onLike (() => void): Callback when like button is pressed
+ *   - onDislike (() => void): Callback when dislike button is pressed
+ *   - onQuickReplySelect ((reply: QuickReply) => void): Callback when quick reply is selected
+ *
+ * EXAMPLE:
+ *   <AIMessageBubble
+ *     message={{ id: '1', role: 'assistant', content: 'Hello!', timestamp: '...' }}
+ *     onCopy={() => copyToClipboard(message.content)}
+ *     onQuickReplySelect={(reply) => handleReply(reply)}
+ *   />
+ *
+ * OWNER: Waleed Mansour
  */
 
+// 1. React & React Native
 import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, Pressable } from 'react-native';
+
+// 2. Expo & Third-party
 import Animated, {
   FadeIn,
 } from 'react-native-reanimated';
-import { Text } from '@/components/shared-ui';
-import { BrandColors, BorderRadius, Spacing, FontFamily, Shadows } from '@/constants/theme';
 import { Copy, Volume2, ThumbsUp, ThumbsDown } from 'lucide-react-native';
 
+// 3. Shared UI (design system)
+import { Text } from '@/components/shared-ui';
+
+// 4. Flow-specific components
 import { AIReasoning, type ReasoningStep } from './AIReasoning';
 import { AISources, type Source } from './AISources';
 import type { QuickReply } from './AIQuickReplies';
 
+// 5. Constants, hooks, types
+import { BrandColors, BorderRadius, Spacing, FontFamily, Shadows } from '@/constants/theme';
 // ============================================================================
 // TYPES
 // ============================================================================

@@ -1,16 +1,31 @@
 /**
- * AIReasoning Component
- * Collapsible "Thinking..." section with animated step-by-step reveal
- * Inspired by prompt-kit's Reasoning component
- * Features: Typing effect, markdown support, auto-close
+ * AIReasoning
+ *
+ * PURPOSE: Collapsible "Show thinking" panel with animated step-by-step typewriter reveal
+ *
+ * USED IN: components/ai-chat/AIMessageBubble.tsx (renders inside AI messages with reasoning)
+ *
+ * PROPS:
+ *   - steps (ReasoningStep[]): Array of reasoning steps to display
+ *   - isStreaming (boolean): Whether the message is still streaming
+ *   - defaultExpanded (boolean): Whether to start expanded (default: false)
+ *   - onToggle ((isExpanded: boolean) => void): Callback when expand/collapse is toggled
+ *
+ * EXAMPLE:
+ *   <AIReasoning
+ *     steps={[{ id: '1', text: 'Analyzing brake data...', completed: true }]}
+ *     isStreaming={true}
+ *     defaultExpanded={false}
+ *   />
+ *
+ * OWNER: Waleed Mansour
  */
 
+// 1. React & React Native
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import {
-  View,
-  Pressable,
-  StyleSheet,
-} from 'react-native';
+import { View, Pressable, StyleSheet } from 'react-native';
+
+// 2. Expo & Third-party
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -23,9 +38,13 @@ import Animated, {
   FadeIn,
   FadeOut,
 } from 'react-native-reanimated';
-import { Text } from '@/components/shared-ui';
-import { BrandColors, BorderRadius, Spacing, FontFamily } from '@/constants/theme';
 import { ChevronDown, Check } from 'lucide-react-native';
+
+// 3. Shared UI (design system)
+import { Text } from '@/components/shared-ui';
+
+// 4. Constants, hooks, types
+import { BrandColors, BorderRadius, Spacing, FontFamily } from '@/constants/theme';
 
 // ============================================================================
 // TYPES

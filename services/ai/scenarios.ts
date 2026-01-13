@@ -1,6 +1,25 @@
 /**
- * MVP Scenarios Data
- * All 6 scenarios from Database.pdf with stage-specific suggestions
+ * AI Scenarios Data
+ *
+ * PURPOSE: Defines all conversation scenarios with stage-specific messages, suggestions, and shops
+ *
+ * USED IN: services/ai/scenarioEngine.ts (getScenarioByType, findScenarioByTrigger)
+ *
+ * SCENARIOS:
+ *   - brake_noise - Brake squeal/grinding diagnosis
+ *   - check_engine - Check engine light code lookup
+ *   - oil_change - Service scheduling with service picker
+ *   - tire_pressure - TPMS/tire issue diagnosis
+ *   - vague_issue - General vehicle inspection
+ *   - new_vehicle - New vehicle registration
+ *   - direct_booking - Direct mechanic booking
+ *
+ * EXPORTS:
+ *   - SCENARIOS - Array of all scenario definitions
+ *   - WELCOME_SUGGESTIONS - Initial greeting suggestions
+ *   - getScenarioByType, findScenarioByTrigger - Lookup helpers
+ *
+ * OWNER: Waleed Mansour
  */
 
 import type { Scenario, ScenarioType, ScenarioResponse, ConversationState, AIMechanic, TimeSlot } from "./types";

@@ -1,20 +1,42 @@
 /**
- * AIServicePicker Component
- * Service selector for AI chat - inspired by booking flow
- * Features category tabs and clean service cards
+ * AIServicePicker
+ *
+ * PURPOSE: Service selector with category tabs and selectable service cards for AI chat booking
+ *
+ * USED IN: app/(main-tabs)/ai-chat/index.tsx (shown during service_selection stage)
+ *
+ * PROPS:
+ *   - services (ServiceOption[]): Array of available services (default: DEFAULT_SERVICES)
+ *   - onConfirm ((selectedServices: ServiceOption[]) => void): Callback with selected services
+ *   - disabled (boolean): Whether selection is disabled
+ *
+ * EXAMPLE:
+ *   <AIServicePicker
+ *     onConfirm={(services) => handleServiceSelection(services)}
+ *     disabled={isProcessing}
+ *   />
+ *
+ * OWNER: Waleed Mansour
  */
 
+// 1. React & React Native
 import React, { useState, useMemo, useCallback } from 'react';
 import { View, ScrollView, Pressable, StyleSheet } from 'react-native';
+
+// 2. Expo & Third-party
 import Animated, {
   FadeInUp,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
 } from 'react-native-reanimated';
-import { Text } from '@/components/shared-ui';
-import { BrandColors, BorderRadius, Spacing, FontFamily } from '@/constants/theme';
 import { Check } from 'lucide-react-native';
+
+// 3. Shared UI (design system)
+import { Text } from '@/components/shared-ui';
+
+// 4. Constants, hooks, types
+import { BrandColors, BorderRadius, Spacing, FontFamily } from '@/constants/theme';
 
 // ============================================================================
 // TYPES

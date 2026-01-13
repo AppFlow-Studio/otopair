@@ -1,10 +1,30 @@
 /**
- * AI Greeting Component
- * ChatGPT-style greeting with horizontal scrolling suggestion chips
+ * AIGreeting
+ *
+ * PURPOSE: Displays ChatGPT-style greeting with horizontal scrolling suggestion chips
+ *
+ * USED IN: app/(main-tabs)/ai-chat/index.tsx (shown when no messages exist)
+ *
+ * PROPS:
+ *   - userName (string): User's name to display in greeting (default: "User")
+ *   - suggestions (Suggestion[]): Array of suggestion objects to display
+ *   - onSuggestionPress ((text: string) => void): Callback when a suggestion is pressed
+ *
+ * EXAMPLE:
+ *   <AIGreeting
+ *     userName="John"
+ *     suggestions={[{ id: '1', text: 'Fix', subtitle: 'brake noise' }]}
+ *     onSuggestionPress={(text) => console.log(text)}
+ *   />
+ *
+ * OWNER: Waleed Mansour
  */
 
+// 1. React & React Native
 import React from 'react';
 import { View, ScrollView, StyleSheet, Pressable } from 'react-native';
+
+// 2. Expo & Third-party
 import Animated, {
   FadeIn,
   FadeInUp,
@@ -12,7 +32,11 @@ import Animated, {
   useSharedValue,
   withSpring,
 } from 'react-native-reanimated';
+
+// 3. Shared UI (design system)
 import { Text } from '@/components/shared-ui';
+
+// 4. Constants, hooks, types
 import { BrandColors, BorderRadius, Spacing, FontFamily } from '@/constants/theme';
 
 // ============================================================================

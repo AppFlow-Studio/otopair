@@ -1,13 +1,35 @@
 /**
- * AIQuickReplies Component
- * Prominent reply buttons for in-conversation choices
- * Different style from PromptSuggestions - more prominent
+ * AIQuickReplies
+ *
+ * PURPOSE: Renders prominent reply buttons for in-conversation choices (Closest, Best rated, etc.)
+ *
+ * USED IN: components/ai-chat/AIMessageBubble.tsx (renders inside AI messages with quickReplies)
+ *
+ * PROPS:
+ *   - replies (QuickReply[]): Array of quick reply options
+ *   - onSelect ((reply: QuickReply) => void): Callback when a reply is selected
+ *   - disabled (boolean): Whether buttons are disabled
+ *
+ * EXAMPLE:
+ *   <AIQuickReplies
+ *     replies={[{ id: 'closest', text: 'Closest', value: 'closest', variant: 'default' }]}
+ *     onSelect={(reply) => handleQuickReply(reply)}
+ *   />
+ *
+ * OWNER: Waleed Mansour
  */
 
+// 1. React & React Native
 import React from "react";
 import { View, Pressable, StyleSheet } from "react-native";
+
+// 2. Expo & Third-party
 import Animated, { FadeInUp, useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
+
+// 3. Shared UI (design system)
 import { Text } from "@/components/shared-ui";
+
+// 4. Constants, hooks, types
 import { BrandColors, BorderRadius, Spacing, FontFamily, Shadows } from "@/constants/theme";
 
 // ============================================================================

@@ -1,16 +1,24 @@
 /**
- * AI Welcome Screen Component
- * Initial disclaimer/welcome screen shown before chat begins
- * Inspired by ChatGPT's onboarding with Otopair branding
+ * AIWelcomeScreen
+ *
+ * PURPOSE: Initial disclaimer/welcome screen shown before AI chat begins (ChatGPT-style onboarding)
+ *
+ * USED IN: app/(main-tabs)/ai-chat/index.tsx (shown when hasSeenWelcome is false)
+ *
+ * PROPS:
+ *   - onContinue (() => void): Callback when user presses Continue button
+ *
+ * EXAMPLE:
+ *   <AIWelcomeScreen onContinue={() => setHasSeenWelcome(true)} />
+ *
+ * OWNER: Waleed Mansour
  */
 
+// 1. React & React Native
 import React from 'react';
-import {
-  View,
-  StyleSheet,
-  Pressable,
-  Image,
-} from 'react-native';
+import { View, StyleSheet, Pressable, Image } from 'react-native';
+
+// 2. Expo & Third-party
 import Animated, {
   FadeIn,
   FadeInUp,
@@ -18,9 +26,13 @@ import Animated, {
 } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Text } from '@/components/shared-ui';
-import { BrandColors, BorderRadius, Spacing, FontFamily, Shadows } from '@/constants/theme';
 import { MessageSquare, Shield, AlertTriangle } from 'lucide-react-native';
+
+// 3. Shared UI (design system)
+import { Text } from '@/components/shared-ui';
+
+// 4. Constants, hooks, types
+import { BrandColors, BorderRadius, Spacing, FontFamily, Shadows } from '@/constants/theme';
 
 // Otopair AI Logo
 const OTOPAIR_AI_LOGO = require('@/assets/images/otopair-ai-logo.png');

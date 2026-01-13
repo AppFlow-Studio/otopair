@@ -1,24 +1,42 @@
 /**
- * AI Chat Screen
- * Main screen for Otopair AI diagnostic assistant
- * Shows welcome screen first, then ChatGPT-style chat interface
+ * AIChatScreen
+ *
+ * PURPOSE: Main screen for Otopair AI diagnostic assistant with ChatGPT-style chat interface
+ *
+ * USED IN: app/(main-tabs)/ai-chat/_layout.tsx (tab navigation)
+ *
+ * FEATURES:
+ *   - Welcome screen on first visit (AIWelcomeScreen)
+ *   - Greeting with suggestions when no messages (AIGreeting)
+ *   - Message bubbles with reasoning, sources, quick replies (AIMessageBubble)
+ *   - Service picker for scheduling (AIServicePicker)
+ *   - Mechanic carousel for booking (AIBookingCarousel)
+ *   - Chat history sidebar (AIChatHistory)
+ *   - Scenario-based conversation engine (scenarioEngine)
+ *
+ * EXAMPLE:
+ *   // Rendered via Expo Router tab navigation
+ *   <Stack.Screen name="index" />
+ *
+ * OWNER: Waleed Mansour
  */
 
+// 1. React & React Native
 import React, { useEffect, useState, useRef, useCallback } from "react";
 import { View, ScrollView, StyleSheet, Pressable, Alert, Platform, KeyboardAvoidingView, Keyboard } from "react-native";
+
+// 2. Expo & Third-party
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Animated, { 
-  useAnimatedStyle, 
-  useSharedValue, 
-  withTiming,
-  Easing,
-} from "react-native-reanimated";
+import Animated, { useAnimatedStyle, useSharedValue, withTiming, Easing } from "react-native-reanimated";
 import { useRouter } from "expo-router";
-import { LinearGradient } from "expo-linear-gradient";
+import { AlignLeft, SquarePen } from "lucide-react-native";
+import * as Clipboard from "expo-clipboard";
+import * as Speech from "expo-speech";
+
+// 3. Shared UI (design system)
 import { Text } from "@/components/shared-ui";
-import { useAIChatStore } from "@/stores/useAIChatStore";
-import { useBookingStore } from "@/stores/useBookingStore";
-import { useMechanicStore } from "@/stores/useMechanicStore";
+
+// 4. Flow-specific components
 import {
   AIGreeting,
   AIMessageBubble,
@@ -35,12 +53,11 @@ import {
   type ServiceOption,
   type SelectedTimeSlot,
 } from "@/components/ai-chat";
-import { BrandColors, BorderRadius, Spacing, FontFamily } from "@/constants/theme";
-import { AlignLeft, SquarePen } from "lucide-react-native";
-import * as Clipboard from "expo-clipboard";
-import * as Speech from "expo-speech";
 
-// Scenario engine
+// 5. Constants, hooks, types, stores
+import { BrandColors, Spacing, FontFamily } from "@/constants/theme";
+import { useAIChatStore } from "@/stores/useAIChatStore";
+import { useBookingStore } from "@/stores/useBookingStore";
 import { createInitialState, processUserMessage, WELCOME_SUGGESTIONS } from "@/services/ai/scenarioEngine";
 import type { ConversationState, ChatMessage, AIMechanic, SelectedService } from "@/services/ai/types";
 
@@ -66,7 +83,7 @@ export default function AIChatScreen() {
   // Welcome screen state (from Zustand store)
   const hasSeenWelcome = useAIChatStore((state) => state.hasSeenWelcome);
   const setHasSeenWelcome = useAIChatStore((state) => state.setHasSeenWelcome);
-  
+
   // Chat history state (from Zustand store)
   const conversations = useAIChatStore((state) => state.conversations);
   const saveCurrentConversation = useAIChatStore((state) => state.saveCurrentConversation);
@@ -90,29 +107,23 @@ export default function AIChatScreen() {
 
   // Animated bottom padding for smooth keyboard transitions
   const animatedBottomPadding = useSharedValue(bottomPadding);
-  
+
   // Track keyboard visibility with smooth animation
   useEffect(() => {
-    const showSub = Keyboard.addListener(
-      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow", 
-      (e) => {
-        // Animate to 0 when keyboard shows (keyboard pushes content up)
-        animatedBottomPadding.value = withTiming(Spacing.xs, {
-          duration: Platform.OS === "ios" ? e.duration : 250,
-          easing: Easing.out(Easing.cubic),
-        });
-      }
-    );
-    const hideSub = Keyboard.addListener(
-      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide", 
-      (e) => {
-        // Animate back to tab bar height when keyboard hides
-        animatedBottomPadding.value = withTiming(bottomPadding, {
-          duration: Platform.OS === "ios" ? e.duration : 250,
-          easing: Easing.out(Easing.cubic),
-        });
-      }
-    );
+    const showSub = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow", (e) => {
+      // Animate to 0 when keyboard shows (keyboard pushes content up)
+      animatedBottomPadding.value = withTiming(Spacing.xs, {
+        duration: Platform.OS === "ios" ? e.duration : 250,
+        easing: Easing.out(Easing.cubic),
+      });
+    });
+    const hideSub = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide", (e) => {
+      // Animate back to tab bar height when keyboard hides
+      animatedBottomPadding.value = withTiming(bottomPadding, {
+        duration: Platform.OS === "ios" ? e.duration : 250,
+        easing: Easing.out(Easing.cubic),
+      });
+    });
     return () => {
       showSub.remove();
       hideSub.remove();

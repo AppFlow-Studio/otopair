@@ -1,9 +1,31 @@
 /**
- * AI Input Box Component
- * ChatGPT-style input with smooth animations
- * Two-row layout: text input on top, action buttons below
+ * AIInputBox
+ *
+ * PURPOSE: ChatGPT-style text input with auto-expand, send/mic buttons, and smooth animations
+ *
+ * USED IN: app/(main-tabs)/ai-chat/index.tsx (bottom input area)
+ *
+ * PROPS:
+ *   - value (string): Current input text value
+ *   - onChangeText ((text: string) => void): Callback when text changes
+ *   - onSend (() => void): Callback when send button is pressed
+ *   - isLoading (boolean): Whether AI is processing (disables input)
+ *   - placeholder (string): Input placeholder text (default: "Ask anything")
+ *   - disabled (boolean): Whether input is disabled
+ *   - onFocus (() => void): Callback when input gains focus
+ *
+ * EXAMPLE:
+ *   <AIInputBox
+ *     value={inputValue}
+ *     onChangeText={setInputValue}
+ *     onSend={handleSend}
+ *     isLoading={isProcessing}
+ *   />
+ *
+ * OWNER: Waleed Mansour
  */
 
+// 1. React & React Native
 import React, { useRef, useState, useEffect } from 'react';
 import {
   View,
@@ -17,6 +39,8 @@ import {
   Platform,
   UIManager,
 } from 'react-native';
+
+// 2. Expo & Third-party
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
@@ -27,8 +51,10 @@ import Animated, {
   FadeIn,
   FadeOut,
 } from 'react-native-reanimated';
-import { BrandColors, BorderRadius, Spacing, FontFamily, Shadows } from '@/constants/theme';
 import { Plus, Mic, ArrowUp } from 'lucide-react-native';
+
+// 3. Constants, hooks, types
+import { BrandColors, BorderRadius, Spacing, FontFamily } from '@/constants/theme';
 
 // Enable LayoutAnimation on Android
 if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {

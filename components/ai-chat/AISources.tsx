@@ -1,26 +1,41 @@
 /**
- * AISources Component
- * Context-dependent source citation pills
- * Inspired by prompt-kit's Source component
+ * AISources
+ *
+ * PURPOSE: Displays source citation pills (Smartcar API, Error Codes, etc.) with tooltip modals
+ *
+ * USED IN: components/ai-chat/AIMessageBubble.tsx (renders inside AI messages with sources)
+ *
+ * PROPS:
+ *   - sources (Source[]): Array of source objects to display as pills
+ *
+ * EXAMPLE:
+ *   <AISources
+ *     sources={[
+ *       { type: 'smartcar_api', label: 'Smartcar API', icon: '🚗', description: '...' }
+ *     ]}
+ *   />
+ *
+ * OWNER: Waleed Mansour
  */
 
+// 1. React & React Native
 import React, { useState } from 'react';
-import {
-  View,
-  ScrollView,
-  Pressable,
-  StyleSheet,
-  Modal,
-} from 'react-native';
+import { View, ScrollView, Pressable, StyleSheet, Modal } from 'react-native';
+
+// 2. Expo & Third-party
 import Animated, {
   FadeIn,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
 } from 'react-native-reanimated';
-import { Text } from '@/components/shared-ui';
-import { BrandColors, BorderRadius, Spacing, FontFamily, Shadows } from '@/constants/theme';
 import { X } from 'lucide-react-native';
+
+// 3. Shared UI (design system)
+import { Text } from '@/components/shared-ui';
+
+// 4. Constants, hooks, types
+import { BrandColors, BorderRadius, Spacing, FontFamily, Shadows } from '@/constants/theme';
 
 // ============================================================================
 // TYPES

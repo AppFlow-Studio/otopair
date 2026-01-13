@@ -1,23 +1,42 @@
 /**
- * PromptSuggestions Component
- * Stage-aware suggestion pills that appear above the input box
- * Inspired by prompt-kit's PromptSuggestion component
+ * PromptSuggestions
+ *
+ * PURPOSE: Displays stage-aware suggestion pills above the input box for quick responses
+ *
+ * USED IN: app/(main-tabs)/ai-chat/index.tsx (shown above AIInputBox when suggestions exist)
+ *
+ * PROPS:
+ *   - stage (ConversationStage): Current conversation stage for context
+ *   - suggestions (Suggestion[]): Array of suggestion objects to display
+ *   - onSelect ((suggestion: Suggestion) => void): Callback when a suggestion is selected
+ *   - disabled (boolean): Whether suggestions are disabled
+ *
+ * EXAMPLE:
+ *   <PromptSuggestions
+ *     stage="priority_selection"
+ *     suggestions={[{ id: 'closest', text: 'Closest', value: 'closest' }]}
+ *     onSelect={(suggestion) => handleSuggestion(suggestion)}
+ *   />
+ *
+ * OWNER: Waleed Mansour
  */
 
+// 1. React & React Native
 import React from 'react';
-import {
-  View,
-  ScrollView,
-  Pressable,
-  StyleSheet,
-} from 'react-native';
+import { View, ScrollView, Pressable, StyleSheet } from 'react-native';
+
+// 2. Expo & Third-party
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withSpring,
 } from 'react-native-reanimated';
+
+// 3. Shared UI (design system)
 import { Text } from '@/components/shared-ui';
-import { BrandColors, BorderRadius, Spacing, FontFamily, Shadows } from '@/constants/theme';
+
+// 4. Constants, hooks, types
+import { BrandColors, BorderRadius, Spacing, FontFamily } from '@/constants/theme';
 
 // ============================================================================
 // TYPES

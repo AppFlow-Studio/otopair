@@ -1,22 +1,41 @@
 /**
- * AI Chat History Sidebar Component
- * Displays past conversations with smooth slide-from-left animation
+ * AIChatHistory
+ *
+ * PURPOSE: Slide-from-left sidebar displaying past conversation history
+ *
+ * USED IN: app/(main-tabs)/ai-chat/index.tsx (overlay when showHistory is true)
+ *
+ * PROPS:
+ *   - visible (boolean): Whether sidebar is visible
+ *   - onClose (() => void): Callback to close sidebar
+ *   - conversations (Conversation[]): Array of past conversations
+ *   - onSelectConversation ((conversationId: string) => void): Callback when conversation selected
+ *   - isLoading (boolean): Whether conversations are loading
+ *
+ * EXAMPLE:
+ *   <AIChatHistory
+ *     visible={showHistory}
+ *     onClose={() => setShowHistory(false)}
+ *     conversations={conversations}
+ *     onSelectConversation={(id) => loadConversation(id)}
+ *   />
+ *
+ * OWNER: Waleed Mansour
  */
 
+// 1. React & React Native
 import React, { useEffect, useRef } from 'react';
-import {
-  View,
-  ScrollView,
-  Pressable,
-  StyleSheet,
-  Dimensions,
-  Animated,
-  TouchableWithoutFeedback,
-} from 'react-native';
+import { View, ScrollView, Pressable, StyleSheet, Dimensions, Animated, TouchableWithoutFeedback } from 'react-native';
+
+// 2. Expo & Third-party
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { Text } from '@/components/shared-ui';
-import { BrandColors, BorderRadius, Spacing, FontFamily, Shadows } from '@/constants/theme';
 import { X } from 'lucide-react-native';
+
+// 3. Shared UI (design system)
+import { Text } from '@/components/shared-ui';
+
+// 4. Constants, hooks, types
+import { BrandColors, BorderRadius, Spacing, Shadows } from '@/constants/theme';
 import type { Conversation } from '@/stores/useAIChatStore';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');

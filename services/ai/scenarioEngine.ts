@@ -1,7 +1,23 @@
 /**
  * Scenario Engine
- * Pattern matching and conversation state management
- * Uses existing mock data from stores/data
+ *
+ * PURPOSE: Pattern matching and conversation state management for AI chat flow
+ *
+ * USED IN: app/(main-tabs)/ai-chat/index.tsx (processUserMessage, createInitialState)
+ *
+ * FUNCTIONS:
+ *   - createInitialState() - Creates fresh conversation state
+ *   - processUserMessage(state, input) - Processes user input and returns new state + response
+ *   - detectScenario(input) - Detects scenario type from user input
+ *   - detectPriority(input) - Detects priority preference (closest, best_rated, best_price)
+ *   - findShopByInput(input) - Matches shop from user input
+ *   - findTimeSlotByInput(input) - Matches time slot from user input
+ *
+ * EXPORTS:
+ *   - createInitialState, processUserMessage
+ *   - WELCOME_SUGGESTIONS (re-exported from scenarios.ts)
+ *
+ * OWNER: Waleed Mansour
  */
 
 import type {

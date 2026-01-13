@@ -1,6 +1,23 @@
 /**
  * AI Chat Types
- * Types for the scenario-based chat system
+ *
+ * PURPOSE: Type definitions for the AI scenario-based chat system
+ *
+ * USED IN:
+ *   - services/ai/scenarioEngine.ts
+ *   - services/ai/scenarios.ts
+ *   - components/ai-chat/*.tsx
+ *   - app/(main-tabs)/ai-chat/index.tsx
+ *
+ * EXPORTS:
+ *   - ConversationStage - Stage type union
+ *   - ScenarioType - Scenario type union
+ *   - ChatMessage - Message object interface
+ *   - ConversationState - Full conversation state interface
+ *   - ScenarioResponse - AI response interface
+ *   - AIMechanic, TimeSlot, SelectedService, etc.
+ *
+ * OWNER: Waleed Mansour
  */
 
 import type { ReasoningStep } from "@/components/ai-chat/AIReasoning";

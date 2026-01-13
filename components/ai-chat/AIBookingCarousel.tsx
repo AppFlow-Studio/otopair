@@ -1,26 +1,41 @@
 /**
- * AIBookingCarousel Component
- * Mechanic selection carousel for AI chat - styled like booking flow
+ * AIBookingCarousel
+ *
+ * PURPOSE: Horizontal carousel of mechanic cards with availability slots for booking
+ *
+ * USED IN: app/(main-tabs)/ai-chat/index.tsx (shown when AI message contains shops array)
+ *
+ * PROPS:
+ *   - shops (AIMechanic[]): Array of mechanic/shop objects to display
+ *   - onBookNow ((mechanic: AIMechanic, timeSlot: SelectedTimeSlot) => void): Booking callback
+ *
+ * EXAMPLE:
+ *   <AIBookingCarousel
+ *     shops={message.shops}
+ *     onBookNow={(mechanic, timeSlot) => navigateToPayment(mechanic, timeSlot)}
+ *   />
+ *
+ * OWNER: Waleed Mansour
  */
 
+// 1. React & React Native
 import React, { useState, useCallback } from 'react';
-import {
-  View,
-  ScrollView,
-  Pressable,
-  StyleSheet,
-  Image,
-  TouchableOpacity,
-} from 'react-native';
+import { View, ScrollView, Pressable, StyleSheet, Image, TouchableOpacity } from 'react-native';
+
+// 2. Expo & Third-party
 import Animated, {
   FadeInRight,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
 } from 'react-native-reanimated';
-import { Text } from '@/components/shared-ui';
-import { BrandColors, BorderRadius, Spacing, FontFamily, Shadows } from '@/constants/theme';
 import { Star, BadgeCheck, User, Clock } from 'lucide-react-native';
+
+// 3. Shared UI (design system)
+import { Text } from '@/components/shared-ui';
+
+// 4. Constants, hooks, types
+import { BrandColors, BorderRadius, Spacing, FontFamily } from '@/constants/theme';
 import type { AIMechanic } from '@/services/ai/types';
 
 // Legacy type alias
