@@ -325,7 +325,9 @@ const CHECK_ENGINE_SCENARIO: Scenario = {
       getMessage: (state, userInput) => {
         const timeSlots = getTimeSlotsForShop(state.selectedShop?.id || 1);
         return {
-          message: `${state.selectedShop?.name || "This mechanic"} can run a full diagnostic. Here are available times:`,
+          message: `${
+            state.selectedShop?.name || "This mechanic"
+          } can run a full diagnostic. Here are available times:`,
           nextStage: "time_selection",
           suggestions: timeSlots.map((t) => ({ id: t.id, text: t.displayText })),
         };
@@ -366,8 +368,7 @@ const OIL_CHANGE_SCENARIO: Scenario = {
     {
       stage: "service_selection",
       getMessage: (state, userInput) => ({
-        message:
-          "I'd be happy to help you schedule service! What would you like to get done today?",
+        message: "I'd be happy to help you schedule service! What would you like to get done today?",
         showServicePicker: true,
         nextStage: "service_selection",
         suggestions: [],
@@ -376,7 +377,7 @@ const OIL_CHANGE_SCENARIO: Scenario = {
     {
       stage: "priority_selection",
       getMessage: (state, userInput) => {
-        const serviceNames = state.selectedServices.map(s => s.name).join(', ');
+        const serviceNames = state.selectedServices.map((s) => s.name).join(", ");
         return {
           message: `Great choices! You selected **${serviceNames}**.\n\nHow would you like me to find mechanics?`,
           quickReplies: PRIORITY_REPLIES,
@@ -397,7 +398,7 @@ const OIL_CHANGE_SCENARIO: Scenario = {
               : state.selectedPriority === "best_rated"
               ? "top-rated"
               : "most affordable"
-          } mechanics that can handle ${serviceCount > 1 ? 'all your services' : 'this service'}:`,
+          } mechanics that can handle ${serviceCount > 1 ? "all your services" : "this service"}:`,
           shops,
           nextStage: "shop_selection",
           suggestions: [],
@@ -418,16 +419,18 @@ const OIL_CHANGE_SCENARIO: Scenario = {
     {
       stage: "confirmation",
       getMessage: (state, userInput) => {
-        const serviceNames = state.selectedServices.map(s => s.name).join(', ');
+        const serviceNames = state.selectedServices.map((s) => s.name).join(", ");
         const totalPrice = state.selectedServices.reduce((acc, s) => {
           const match = s.estimatedPrice.match(/\$(\d+)/);
           return acc + (match ? parseInt(match[1]) : 50);
         }, 0);
-        
+
         return {
           message: `Your appointment is ready to book:\n\n🔧 **Services:** ${serviceNames}\n📍 **Location:** ${
             state.selectedShop?.name || "Selected Location"
-          }\n📅 **Time:** ${state.selectedTime?.displayText || "Selected Time"}\n💰 **Estimate:** $${totalPrice}-${totalPrice + 50} + $4.99 platform fee\n\nConfirm?`,
+          }\n📅 **Time:** ${state.selectedTime?.displayText || "Selected Time"}\n💰 **Estimate:** $${totalPrice}-${
+            totalPrice + 50
+          } + $4.99 platform fee\n\nConfirm?`,
           quickReplies: CONFIRMATION_REPLIES,
           nextStage: "confirmation",
           suggestions: CONFIRMATION_SUGGESTIONS,
@@ -437,7 +440,7 @@ const OIL_CHANGE_SCENARIO: Scenario = {
     {
       stage: "success",
       getMessage: (state) => {
-        const serviceNames = state.selectedServices.map(s => s.name).join(', ');
+        const serviceNames = state.selectedServices.map((s) => s.name).join(", ");
         return {
           message: `✅ **Booking Confirmed!**\n\nYour ${serviceNames} appointment is scheduled for ${state.selectedTime?.displayText} at ${state.selectedShop?.name}.\n\nI'll send you a reminder 1 hour before! 🚗`,
           nextStage: "success",
