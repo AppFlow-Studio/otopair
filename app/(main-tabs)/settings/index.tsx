@@ -2,6 +2,7 @@ import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   Dimensions,
   Image,
+  LayoutChangeEvent,
   Modal,
   Pressable,
   StyleSheet,
@@ -35,21 +36,25 @@ import {
   RotateCcw,
   ChevronRight,
 } from 'lucide-react-native';
+import { CarIcon } from 'phosphor-react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
   useAnimatedScrollHandler,
   interpolate,
+  interpolateColor,
   Extrapolation,
 } from 'react-native-reanimated';
 import { useShallow } from 'zustand/react/shallow';
 import { LinearGradient } from 'expo-linear-gradient';
 
-import { BrandColors, Button, FeedbackModal, Text } from '@/components/shared-ui';
+import { BrandColors, Button, FeedbackModal, Text, ScrollDrivenGradientBackground } from '@/components/shared-ui';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const MENU_WIDTH = 190;
+
+const AnimatedText = Animated.createAnimatedComponent(Text);
 
 // ============================================================================
 // CONSTANTS
@@ -87,6 +92,11 @@ export default function SettingsHomeScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const scrollY = useSharedValue(0);
+
+  const [nameWidth, setNameWidth] = useState(0);
+  const handleNameLayout = useCallback((e: LayoutChangeEvent) => {
+    setNameWidth(e.nativeEvent.layout.width);
+  }, []);
 
   const { data, updateData, reset, isCreateAccountComplete, addFeedbackSubmission } = useOnboardingStore(
     useShallow((state) => ({
@@ -137,15 +147,6 @@ export default function SettingsHomeScreen() {
   }, [data.membershipTier, isCreateAccountComplete]);
 
   // ─────────────────────────────────────────────────────────────
-  // Scroll Handler
-  // ─────────────────────────────────────────────────────────────
-  const scrollHandler = useAnimatedScrollHandler({
-    onScroll: (event) => {
-      scrollY.value = event.contentOffset.y;
-    },
-  });
-
-  // ─────────────────────────────────────────────────────────────
   // Animated Styles
   // ─────────────────────────────────────────────────────────────
   const scrollDistance = HEADER_MAX_HEIGHT - HEADER_MIN_HEIGHT;
@@ -164,9 +165,14 @@ export default function SettingsHomeScreen() {
 
   // Avatar scales down and moves to the top-left corner
   const avatarStyle = useAnimatedStyle(() => {
-    // Base centered (left: '50%', marginLeft: -50). Collapsed target: left edge ~12 => center ~62.
-    const targetCenterX = 62;
-    const collapsedAvatarTranslateX = targetCenterX - SCREEN_WIDTH / 2;
+    // Base centered (left: '50%', marginLeft: -50).
+    // Original center Y: insets.top + 20 (top) + 50 (half of 100) = insets.top + 70
+    // Collapsed: 60px avatar centered in 80px sticky bar => center at insets.top + 40
+    // translateY needed: (insets.top + 40) - (insets.top + 70) = -30
+    //
+    // Collapsed target X: left edge at 16px => center at 16 + 30 = 46.
+    const targetAvatarCenterX = -52;
+    const collapsedAvatarTranslateX = targetAvatarCenterX - SCREEN_WIDTH / 2;
 
     const scale = interpolate(
       scrollY.value,
@@ -177,7 +183,7 @@ export default function SettingsHomeScreen() {
     const translateY = interpolate(
       scrollY.value,
       [0, scrollDistance],
-      [0, -40],
+      [0, -50],
       Extrapolation.CLAMP
     );
     const translateX = interpolate(
@@ -205,14 +211,17 @@ export default function SettingsHomeScreen() {
 
   // Single name instance that moves with the avatar (no fade/replace)
   const nameTransformStyle = useAnimatedStyle(() => {
-    // Name starts centered; collapsed target: center around 160px to sit beside avatar.
-    const targetNameCenterX = 160;
+    // Name starts centered.
+    // Collapsed target: Sit 12px to the right of the 60px avatar (which is at 16px).
+    // Target left edge = 16 + 60 + 12 = 88.
+    const targetNameLeft = 88;
+    const targetNameCenterX = targetNameLeft + nameWidth / 2;
     const collapsedNameTranslateX = targetNameCenterX - SCREEN_WIDTH / 2;
 
     const translateY = interpolate(
       scrollY.value,
       [0, scrollDistance],
-      [120, 10],
+      [120, 6], // 8 yields top 28, centering ~24px text in 80px bar
       Extrapolation.CLAMP
     );
     const translateX = interpolate(
@@ -224,12 +233,23 @@ export default function SettingsHomeScreen() {
     const scale = interpolate(
       scrollY.value,
       [0, scrollDistance],
-      [1, 0.95],
+      [1, 0.9],
       Extrapolation.CLAMP
     );
     return {
       transform: [{ translateY }, { translateX }, { scale }],
     };
+  });
+
+  // Animated color for the name (transitions from black to white as header collapses)
+  const nameColorStyle = useAnimatedStyle(() => {
+    const color = interpolateColor(
+      scrollY.value,
+      [scrollDistance * 0.35, scrollDistance * 0.65], // Sync with header fade
+      ['#111827', BrandColors.white],
+      'RGB'
+    );
+    return { color };
   });
 
   // ─────────────────────────────────────────────────────────────
@@ -289,242 +309,255 @@ export default function SettingsHomeScreen() {
 
   return (
     <View style={styles.screen}>
-      {/* ═══════════════════════════════════════════════════════════════
-          LAYER 0: Gray Background (Behind everything)
-          ═══════════════════════════════════════════════════════════════ */}
-      <View style={StyleSheet.absoluteFill}>
-        <LinearGradient
-          colors={['#E8ECF0', '#D1D5DB']}
-          style={StyleSheet.absoluteFill}
-        />
-      </View>
-
-      {/* ═══════════════════════════════════════════════════════════════
-          LAYER 10: Sticky Header Elements (Always on top)
-          ═══════════════════════════════════════════════════════════════ */}
-      <View style={[styles.stickyContainer, { height: HEADER_MIN_HEIGHT + insets.top }]}>
-        {/* Sticky Background Bar (fades in) */}
-        <Animated.View style={[StyleSheet.absoluteFill, styles.stickyBarBackground, stickyBarBackgroundStyle]} />
-
-        {/* Transforming Avatar */}
-        <Animated.View style={[styles.avatarWrapper, { top: insets.top + 20 }, avatarStyle]}>
-          {data.profilePhotoUri ? (
-            <Image source={{ uri: data.profilePhotoUri }} style={styles.avatarImage} />
-          ) : (
-            <View style={styles.avatarPlaceholder}>
-              <Text weight="semiBold" size="xl" color={BrandColors.secondary}>
-                {initials}
-              </Text>
-            </View>
-          )}
-        </Animated.View>
-
-        {/* Single Name that moves beside the avatar */}
-        <Animated.View style={[styles.movingNameContainer, { top: insets.top + 20 }, nameTransformStyle]}>
-          <Text weight="bold" size="lg" color="#111827">{fullName}</Text>
-        </Animated.View>
-
-        {/* Ellipsis Menu */}
-        <View ref={menuAnchorRef} collapsable={false} style={[styles.menuAnchor, { top: insets.top + 30 }]}>
-          <Pressable onPress={openMenu} hitSlop={10}>
-            <Ellipsis size={24} color={BrandColors.secondary} />
-          </Pressable>
-        </View>
-      </View>
-
-      {/* ═══════════════════════════════════════════════════════════════
-          LAYER 5: Scrollable Content
-          ═══════════════════════════════════════════════════════════════ */}
-      <Animated.ScrollView
-        onScroll={scrollHandler}
-        scrollEventThrottle={16}
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-        style={styles.scrollView}
+      <ScrollDrivenGradientBackground 
+        scrollY={scrollY}
+        scrollPerTransition={500}
+        colors={[BrandColors.secondary, BrandColors.secondary, '#f4f1f8', '#f4f1f8']}
       >
-        {/* Expanded Profile Info (Will scroll up and fade out) */}
-        <Animated.View style={[styles.profileInfoArea, { paddingTop: insets.top + 180 }, expandedDetailsStyle]}>
-          <Pressable onPress={openEditProfile} style={styles.emailPill}>
-            <Text weight="medium" size="md" color={BrandColors.secondary} numberOfLines={1}>
-              {data.email ?? 'Add email'}
-            </Text>
-          </Pressable>
+        {(bgScrollHandler) => (
+          <>
+            {/* ═══════════════════════════════════════════════════════════════
+                LAYER 10: Sticky Header Elements (Always on top)
+                ═══════════════════════════════════════════════════════════════ */}
+            <View style={[styles.stickyContainer, { height: HEADER_MIN_HEIGHT + insets.top }]}>
+              {/* Sticky Background Bar (fades in) */}
+              <Animated.View style={[StyleSheet.absoluteFill, styles.stickyBarBackground, stickyBarBackgroundStyle]} />
 
-          <View style={styles.statsRow}>
-            <View style={styles.statItem}>
-              <Text weight="bold" size="lg" color="#111827">{totalBookingsText}</Text>
-              <Text size="xs" color="#6B7280">Bookings</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statItem}>
-              <Text weight="bold" size="lg" color="#111827">{membershipTier}</Text>
-              <Text size="xs" color="#6B7280">Member</Text>
-            </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statItem}>
-              <Text weight="bold" size="lg" color="#111827">{pointsText}</Text>
-              <Text size="xs" color="#6B7280">Points</Text>
-            </View>
-          </View>
+              {/* Transforming Avatar */}
+              <Animated.View style={[styles.avatarWrapper, { top: insets.top + 20 }, avatarStyle]}>
+                {data.profilePhotoUri ? (
+                  <Image source={{ uri: data.profilePhotoUri }} style={styles.avatarImage} />
+                ) : (
+                  <View style={styles.avatarPlaceholder}>
+                    <Text weight="semiBold" size="xl" color={BrandColors.secondary}>
+                      {initials}
+                    </Text>
+                  </View>
+                )}
+              </Animated.View>
 
-          <View style={styles.headerActions}>
-            <Button
-              variant="primary"
-              style={styles.headerButton}
-              onPress={() => console.log('View Loyalty')}
+              {/* Single Name that moves beside the avatar */}
+              <Animated.View style={[styles.movingNameContainer, { top: insets.top + 20 }, nameTransformStyle]}>
+                <AnimatedText 
+                  weight="bold" 
+                  size="lg" 
+                  onLayout={handleNameLayout}
+                  numberOfLines={1}
+                  style={[
+                    { maxWidth: SCREEN_WIDTH * 0.6 },
+                    nameColorStyle
+                  ]}
+                >
+                  {fullName}
+                </AnimatedText>
+              </Animated.View>
+
+              {/* Ellipsis Menu */}
+              <View ref={menuAnchorRef} collapsable={false} style={[styles.menuAnchor, { top: insets.top + 30 }]}>
+                <Pressable onPress={openMenu} hitSlop={10}>
+                  <Ellipsis size={24} color={BrandColors.white} />
+                </Pressable>
+              </View>
+            </View>
+
+            {/* ═══════════════════════════════════════════════════════════════
+                LAYER 5: Scrollable Content
+                ═══════════════════════════════════════════════════════════════ */}
+            <Animated.ScrollView
+              onScroll={bgScrollHandler}
+              scrollEventThrottle={16}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={styles.scrollContent}
+              style={styles.scrollView}
             >
-              View Loyalty
-            </Button>
-            <Button
-              variant="primary"
-              style={styles.headerButton}
-              onPress={() => router.push('/cars')}
-            >
-              Add Vehicle
-            </Button>
-          </View>
-        </Animated.View>
+              {/* Expanded Profile Info (Will scroll up and fade out) */}
+              <Animated.View style={[styles.profileInfoArea, { paddingTop: insets.top + 180 }, expandedDetailsStyle]}>
+                <Pressable onPress={openEditProfile} style={styles.emailPill}>
+                  <Text weight="medium" size="md" color={BrandColors.secondary} numberOfLines={1}>
+                    {data.email ?? 'Add email'}
+                  </Text>
+                </Pressable>
 
-        {/* White Settings Sheet */}
-        <View style={styles.sheetContainer}>
-          {/* Section 1 */}
-          <View style={styles.section}>
-            <Text weight="bold" size="sm" color="#6B7280" style={styles.sectionTitle}>VEHICLES & LOYALTY</Text>
-            <View style={styles.sectionCard}>
-              <SettingsListItem
-                icon={<Car size={20} color="#1F2937" />}
-                label="My Vehicles"
-                onPress={() => router.push('/cars')}
-              />
-              <SettingsListItem
-                icon={<Award size={20} color="#1F2937" />}
-                label="Loyalty & Rewards"
-                onPress={() => console.log('Loyalty')}
-              />
-              <SettingsListItem
-                icon={<UserPlus size={20} color="#1F2937" />}
-                label="Refer a Friend"
-                onPress={() => router.push('/settings/refer-a-friend')}
-              />
-              <SettingsListItem
-                icon={<CreditCard size={20} color="#1F2937" />}
-                label="Payment Methods"
-                onPress={() => router.push('/payments')}
-              />
-              <SettingsListItem
-                icon={<Receipt size={20} color="#1F2937" />}
-                label="Transactions & Receipts"
-                onPress={() => router.push('/payments')}
-                isLast
-              />
-            </View>
-          </View>
+                <View style={styles.statsRow}>
+                  <View style={styles.statItem}>
+                    <Text weight="bold" size="lg" color="#111827">{totalBookingsText}</Text>
+                    <Text size="xs" color="#6B7280">Bookings</Text>
+                  </View>
+                  <View style={styles.statDivider} />
+                  <View style={styles.statItem}>
+                    <Text weight="bold" size="lg" color="#111827">{membershipTier}</Text>
+                    <Text size="xs" color="#6B7280">Member</Text>
+                  </View>
+                  <View style={styles.statDivider} />
+                  <View style={styles.statItem}>
+                    <Text weight="bold" size="lg" color="#111827">{pointsText}</Text>
+                    <Text size="xs" color="#6B7280">Points</Text>
+                  </View>
+                </View>
 
-          {/* Section 2 */}
-          <View style={styles.section}>
-            <Text weight="bold" size="sm" color="#6B7280" style={styles.sectionTitle}>GENERAL</Text>
-            <View style={styles.sectionCard}>
-              <SettingsListItem
-                icon={<Bell size={20} color="#1F2937" />}
-                label="Notification Preferences"
-                onPress={() => console.log('Notif')}
-              />
-              <SettingsListItem
-                icon={<Headset size={20} color="#1F2937" />}
-                label="Help Center"
-                onPress={() => console.log('Help')}
-              />
-              <SettingsListItem
-                icon={<HelpCircle size={20} color="#1F2937" />}
-                label="FAQ"
-                onPress={() => console.log('FAQ')}
-              />
-              <SettingsListItem
-                icon={<MessageSquare size={20} color="#1F2937" />}
-                label="Feedback"
-                onPress={() => setIsFeedbackVisible(true)}
-              />
-              <SettingsListItem
-                icon={<Star size={20} color="#1F2937" />}
-                label="Rate Us"
-                onPress={() => console.log('Rate')}
-                isLast
-              />
-            </View>
-          </View>
+                <View style={styles.headerActions}>
+                  <Button
+                    variant="primary"
+                    style={styles.headerButton}
+                    onPress={() => console.log('View Loyalty')}
+                    leftIcon={<Award size={20} color={BrandColors.white} />}
+                  >
+                    View Loyalty
+                  </Button>
+                  <Button
+                    variant="primary"
+                    style={styles.headerButton}
+                    onPress={() => router.push('/cars')}
+                    leftIcon={<CarIcon size={20} color={BrandColors.white} weight="bold" />}
+                  >
+                    Add Vehicle
+                  </Button>
+                </View>
+              </Animated.View>
 
-          {/* Section 3 */}
-          <View style={styles.section}>
-            <Text weight="bold" size="sm" color="#6B7280" style={styles.sectionTitle}>SECURITY & PRIVACY</Text>
-            <View style={styles.sectionCard}>
-              <SettingsListItem
-                icon={<ShieldCheck size={20} color="#1F2937" />}
-                label="Two-Factor Authentication (2FA)"
-                onPress={() => console.log('2FA')}
-              />
-              <SettingsListItem
-                icon={<Fingerprint size={20} color="#1F2937" />}
-                label="Biometric Login"
-                onPress={() => console.log('Bio')}
-              />
-              <SettingsListItem
-                icon={<ArrowLeftRight size={20} color="#1F2937" />}
-                label="Data Sharing"
-                onPress={() => console.log('Data')}
-              />
-              <SettingsListItem
-                icon={<Trash2 size={20} color="#1F2937" />}
-                label="Delete Account"
-                onPress={() => console.log('Delete')}
-                isLast
-              />
-            </View>
-          </View>
+              {/* White Settings Sheet */}
+              <View style={styles.sheetContainer}>
+                {/* Section 1 */}
+                <View style={styles.section}>
+                  <Text weight="bold" size="sm" color="#6B7280" style={styles.sectionTitle}>VEHICLES & LOYALTY</Text>
+                  <View style={styles.sectionCard}>
+                    <SettingsListItem
+                      icon={<Car size={20} color="#1F2937" />}
+                      label="My Vehicles"
+                      onPress={() => router.push('/cars')}
+                    />
+                    <SettingsListItem
+                      icon={<Award size={20} color="#1F2937" />}
+                      label="Loyalty & Rewards"
+                      onPress={() => console.log('Loyalty')}
+                    />
+                    <SettingsListItem
+                      icon={<UserPlus size={20} color="#1F2937" />}
+                      label="Refer a Friend"
+                      onPress={() => router.push('/settings/refer-a-friend')}
+                    />
+                    <SettingsListItem
+                      icon={<CreditCard size={20} color="#1F2937" />}
+                      label="Payment Methods"
+                      onPress={() => router.push('/payments')}
+                    />
+                    <SettingsListItem
+                      icon={<Receipt size={20} color="#1F2937" />}
+                      label="Transactions & Receipts"
+                      onPress={() => router.push('/payments')}
+                      isLast
+                    />
+                  </View>
+                </View>
 
-          {/* Section 4 */}
-          <View style={styles.section}>
-            <Text weight="bold" size="sm" color="#6B7280" style={styles.sectionTitle}>LEGAL</Text>
-            <View style={styles.sectionCard}>
-              <SettingsListItem
-                icon={<Shield size={20} color="#1F2937" />}
-                label="Privacy Policy"
-                onPress={() => console.log('Privacy')}
-              />
-              <SettingsListItem
-                icon={<FileText size={20} color="#1F2937" />}
-                label="Terms of service"
-                onPress={() => console.log('Terms')}
-                isLast
-              />
-            </View>
-          </View>
+                {/* Section 2 */}
+                <View style={styles.section}>
+                  <Text weight="bold" size="sm" color="#6B7280" style={styles.sectionTitle}>GENERAL</Text>
+                  <View style={styles.sectionCard}>
+                    <SettingsListItem
+                      icon={<Bell size={20} color="#1F2937" />}
+                      label="Notification Preferences"
+                      onPress={() => console.log('Notif')}
+                    />
+                    <SettingsListItem
+                      icon={<Headset size={20} color="#1F2937" />}
+                      label="Help Center"
+                      onPress={() => console.log('Help')}
+                    />
+                    <SettingsListItem
+                      icon={<HelpCircle size={20} color="#1F2937" />}
+                      label="FAQ"
+                      onPress={() => console.log('FAQ')}
+                    />
+                    <SettingsListItem
+                      icon={<MessageSquare size={20} color="#1F2937" />}
+                      label="Feedback"
+                      onPress={() => setIsFeedbackVisible(true)}
+                    />
+                    <SettingsListItem
+                      icon={<Star size={20} color="#1F2937" />}
+                      label="Rate Us"
+                      onPress={() => console.log('Rate')}
+                      isLast
+                    />
+                  </View>
+                </View>
 
-          {/* Section 5 */}
-          <View style={styles.section}>
-            <Text weight="bold" size="sm" color="#6B7280" style={styles.sectionTitle}>MORE</Text>
-            <View style={styles.sectionCard}>
-              <SettingsListItem
-                icon={<Info size={20} color="#1F2937" />}
-                label="About Otopair v1.0.0"
-                onPress={() => console.log('About')}
-              />
-              <SettingsListItem
-                icon={<LogOut size={20} color="#1F2937" />}
-                label="Logout"
-                onPress={() => setIsLogoutVisible(true)}
-              />
-              <SettingsListItem
-                icon={<RotateCcw size={20} color="#1F2937" />}
-                label="Reset App Data"
-                onPress={() => console.log('Reset')}
-                isLast
-              />
-            </View>
-          </View>
+                {/* Section 3 */}
+                <View style={styles.section}>
+                  <Text weight="bold" size="sm" color="#6B7280" style={styles.sectionTitle}>SECURITY & PRIVACY</Text>
+                  <View style={styles.sectionCard}>
+                    <SettingsListItem
+                      icon={<ShieldCheck size={20} color="#1F2937" />}
+                      label="Two-Factor Authentication (2FA)"
+                      onPress={() => console.log('2FA')}
+                    />
+                    <SettingsListItem
+                      icon={<Fingerprint size={20} color="#1F2937" />}
+                      label="Biometric Login"
+                      onPress={() => console.log('Bio')}
+                    />
+                    <SettingsListItem
+                      icon={<ArrowLeftRight size={20} color="#1F2937" />}
+                      label="Data Sharing"
+                      onPress={() => console.log('Data')}
+                    />
+                    <SettingsListItem
+                      icon={<Trash2 size={20} color="#1F2937" />}
+                      label="Delete Account"
+                      onPress={() => console.log('Delete')}
+                      isLast
+                    />
+                  </View>
+                </View>
 
-          <View style={{ height: insets.bottom + 60 }} />
-        </View>
-      </Animated.ScrollView>
+                {/* Section 4 */}
+                <View style={styles.section}>
+                  <Text weight="bold" size="sm" color="#6B7280" style={styles.sectionTitle}>LEGAL</Text>
+                  <View style={styles.sectionCard}>
+                    <SettingsListItem
+                      icon={<Shield size={20} color="#1F2937" />}
+                      label="Privacy Policy"
+                      onPress={() => console.log('Privacy')}
+                    />
+                    <SettingsListItem
+                      icon={<FileText size={20} color="#1F2937" />}
+                      label="Terms of service"
+                      onPress={() => console.log('Terms')}
+                      isLast
+                    />
+                  </View>
+                </View>
+
+                {/* Section 5 */}
+                <View style={styles.section}>
+                  <Text weight="bold" size="sm" color="#6B7280" style={styles.sectionTitle}>MORE</Text>
+                  <View style={styles.sectionCard}>
+                    <SettingsListItem
+                      icon={<Info size={20} color="#1F2937" />}
+                      label="About Otopair v1.0.0"
+                      onPress={() => console.log('About')}
+                    />
+                    <SettingsListItem
+                      icon={<LogOut size={20} color="#1F2937" />}
+                      label="Logout"
+                      onPress={() => setIsLogoutVisible(true)}
+                    />
+                    <SettingsListItem
+                      icon={<RotateCcw size={20} color="#1F2937" />}
+                      label="Reset App Data"
+                      onPress={() => console.log('Reset')}
+                      isLast
+                    />
+                  </View>
+                </View>
+
+                <View style={{ height: insets.bottom + 60 }} />
+              </View>
+            </Animated.ScrollView>
+          </>
+        )}
+      </ScrollDrivenGradientBackground>
 
       {/* Modals remain same */}
       <Modal transparent visible={isMenuVisible} animationType="fade">
@@ -645,7 +678,7 @@ const styles = StyleSheet.create({
     zIndex: 10, // On top of EVERYTHING
   },
   stickyBarBackground: {
-    backgroundColor: '#E8ECF0', // Matches the gray background
+    backgroundColor: BrandColors.secondary, // Matches the gray background
   },
   avatarWrapper: {
     position: 'absolute',

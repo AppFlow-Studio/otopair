@@ -8,16 +8,29 @@
  * USED IN: components/payments/ActivityRewardsScreen.tsx (and any scroll-based screens)
  *
  * PROPS:
- *   - colors (string[]): Gradient colors passed to `AnimatedGradientBackground` (min 2)
+ *   - colors (string[], optional): Gradient colors passed to `AnimatedGradientBackground` (min 2)
  *   - gradientScrollIndices (number[], optional): Indices representing the sequence of 
  *       gradient "stops" while scrolling. These indices are represented in 
  *       AnimatedGradientBackground.tsx, under SHARED_GRADIENT_CONFIGS
  *   - scrollPerTransition (number, optional): Scroll distance (px) per stop transition, from
  *       one index of SHARED_GRADIENT_CONFIGS to the next index
+ *   - scrollY (SharedValue<number>, optional): External scrollY shared value to sync with other animations.
+ *       If provided, the component will use this instead of creating its own internal scroll tracking.
  *   - children ((scrollHandler) => React.ReactNode): Render prop that receives the scroll handler
  *
  * EXAMPLE:
+ *   // Basic usage (internal scroll tracking)
  *   <ScrollDrivenGradientBackground colors={[BrandColors.secondary, BrandColors.secondary, '#f4f1f8']}>
+ *     {(scrollHandler) => (
+ *       <Animated.ScrollView onScroll={scrollHandler} scrollEventThrottle={16}>
+ *         ...
+ *       </Animated.ScrollView>
+ *     )}
+ *   </ScrollDrivenGradientBackground>
+ *
+ *   // With external scrollY (syncs with other animations)
+ *   const scrollY = useSharedValue(0);
+ *   <ScrollDrivenGradientBackground scrollY={scrollY}>
  *     {(scrollHandler) => (
  *       <Animated.ScrollView onScroll={scrollHandler} scrollEventThrottle={16}>
  *         ...
@@ -38,6 +51,7 @@ import Animated, {
   useAnimatedScrollHandler,
   useSharedValue,
   type ScrollHandlerProcessed,
+  type SharedValue,
 } from 'react-native-reanimated';
 import { AnimatedGradientBackground } from './AnimatedGradientBackground';
 import { BrandColors } from '@/constants/theme';
@@ -54,6 +68,8 @@ export interface ScrollDrivenGradientBackgroundProps {
   colors?: string[];
   gradientScrollIndices?: number[];
   scrollPerTransition?: number;
+  /** Optional external scrollY to sync with other animations. */
+  scrollY?: SharedValue<number>;
   children: (scrollHandler: ScrollHandlerProcessed<Record<string, unknown>>) => React.ReactNode;
 }
 
@@ -61,10 +77,12 @@ export function ScrollDrivenGradientBackground({
   colors = DEFAULT_COLORS,
   gradientScrollIndices = DEFAULT_GRADIENT_SCROLL_INDICES,
   scrollPerTransition = DEFAULT_SCROLL_PER_TRANSITION,
+  scrollY: externalScrollY,
   children,
 }: ScrollDrivenGradientBackgroundProps) {
   const bgProgress = useSharedValue(0);
-  const scrollY = useSharedValue(0);
+  const internalScrollY = useSharedValue(0);
+  const scrollY = externalScrollY ?? internalScrollY;
   const currentSegment = useSharedValue(0);
 
   const safeIndices = useMemo(() => {
