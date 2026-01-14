@@ -69,7 +69,7 @@ export function ConfirmPhoneNumberStep({
 
   const [code, setCode] = useState(["", "", "", "", "", ""]);
   const [focusedIndex, setFocusedIndex] = useState(0);
-  const [timeRemaining, setTimeRemaining] = useState(15);
+  const [timeRemaining, setTimeRemaining] = useState(60);
   const [showErrorModal, setShowErrorModal] = useState(false);
   const inputRefs = useRef<(TextInput | null)[]>([]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -165,7 +165,7 @@ export function ConfirmPhoneNumberStep({
   };
 
   const handleResendCode = () => {
-    setTimeRemaining(15);
+    setTimeRemaining(60);
     setCode(["", "", "", "", "", ""]);
     setFocusedIndex(0);
     inputRefs.current[0]?.focus();

@@ -490,7 +490,7 @@ export default function SettingsHomeScreen() {
                     <SettingsListItem
                       icon={<ShieldCheck size={20} color="#1F2937" />}
                       label="Two-Factor Authentication (2FA)"
-                      onPress={() => console.log('2FA')}
+                      onPress={() => router.push('/settings/two-factor')}
                     />
                     <SettingsListItem
                       icon={<Fingerprint size={20} color="#1F2937" />}
