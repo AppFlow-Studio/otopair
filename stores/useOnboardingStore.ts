@@ -59,6 +59,10 @@ interface OnboardingData {
   email: string | null;
   twoFactorEmailEnabled: boolean;
   twoFactorSmsEnabled: boolean;
+  notificationOffersEnabled: boolean;
+  notificationRewardsEnabled: boolean;
+  notificationPassEnabled: boolean;
+  notificationOtherEnabled: boolean;
 
   // Profile stats (used on Settings/Profile screen)
   totalBookings: number;
@@ -180,6 +184,10 @@ const INITIAL_DATA: OnboardingData = {
   email: null,
   twoFactorEmailEnabled: false,
   twoFactorSmsEnabled: false,
+  notificationOffersEnabled: true,
+  notificationRewardsEnabled: true,
+  notificationPassEnabled: true,
+  notificationOtherEnabled: true,
   totalBookings: 0,
   membershipTier: null,
   points: 0,

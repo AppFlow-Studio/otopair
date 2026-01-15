@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { useFocusEffect } from '@react-navigation/native';
 import {
   Ellipsis,
   LogOut,
@@ -108,6 +109,22 @@ export default function SettingsHomeScreen() {
       isCreateAccountComplete: state.isCreateAccountComplete(),
       addFeedbackSubmission: state.addFeedbackSubmission,
     })),
+  );
+
+  // ─────────────────────────────────────────────────────────────
+  // Log Notification Preferences on Screen Open
+  // ─────────────────────────────────────────────────────────────
+  useFocusEffect(
+    useCallback(() => {
+      console.log('Notification Preferences Status:', {
+        twoFactorEmailEnabled: data.twoFactorEmailEnabled,
+        twoFactorSmsEnabled: data.twoFactorSmsEnabled,
+        notificationOffersEnabled: data.notificationOffersEnabled,
+        notificationRewardsEnabled: data.notificationRewardsEnabled,
+        notificationPassEnabled: data.notificationPassEnabled,
+        notificationOtherEnabled: data.notificationOtherEnabled,
+      });
+    }, [data.twoFactorEmailEnabled, data.twoFactorSmsEnabled, data.notificationOffersEnabled, data.notificationRewardsEnabled, data.notificationPassEnabled, data.notificationOtherEnabled])
   );
 
   // ─────────────────────────────────────────────────────────────
@@ -513,7 +530,7 @@ export default function SettingsHomeScreen() {
                     <SettingsListItem
                       icon={<Bell size={20} color="#1F2937" />}
                       label="Notification Preferences"
-                      onPress={() => console.log('Notif')}
+                      onPress={() => router.push('/settings/notification-preferences')}
                     />
                     <SettingsListItem
                       icon={<Headset size={20} color="#1F2937" />}
