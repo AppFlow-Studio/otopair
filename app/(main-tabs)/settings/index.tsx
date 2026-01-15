@@ -47,6 +47,8 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useShallow } from 'zustand/react/shallow';
 import { LinearGradient } from 'expo-linear-gradient';
+// @ts-ignore Expo module available at runtime
+import * as ImagePicker from 'expo-image-picker';
 
 import { BrandColors, Button, FeedbackModal, Text, ScrollDrivenGradientBackground } from '@/components/shared-ui';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
@@ -274,11 +276,16 @@ export default function SettingsHomeScreen() {
   const [isEditVisible, setIsEditVisible] = useState(false);
   const [editName, setEditName] = useState('');
   const [editEmail, setEditEmail] = useState('');
+  const [isPhotoModalVisible, setIsPhotoModalVisible] = useState(false);
+  // Prefer new MediaType enum when available to avoid deprecation warnings; fall back for older SDKs.
+  const mediaTypeImages =
+    // @ts-ignore - MediaType may not exist on older versions
+    (ImagePicker as any).MediaType?.Images ?? ImagePicker.MediaTypeOptions.Images;
 
   const openEditProfile = useCallback(() => {
     const name = `${data.firstName ?? ''} ${data.lastName ?? ''}`.trim();
     setEditName(name);
-    setEditEmail(data.email ?? '');
+    setEditEmail((data.email ?? '').toLowerCase());
     setIsEditVisible(true);
   }, [data.email, data.firstName, data.lastName]);
 
@@ -288,12 +295,61 @@ export default function SettingsHomeScreen() {
     const firstName = nameParts.length > 0 ? nameParts[0] : null;
     const lastName = nameParts.length > 1 ? nameParts.slice(1).join(' ') : null;
 
-    const normalizedEmail = editEmail.trim();
+    const normalizedEmail = editEmail.trim().toLowerCase();
     const email = normalizedEmail.length > 0 ? normalizedEmail : null;
 
     updateData({ firstName, lastName, email });
     setIsEditVisible(false);
   }, [editEmail, editName, updateData]);
+
+  const requestLibraryPermission = async () => {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    return status === 'granted';
+  };
+
+  const requestCameraPermission = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    return status === 'granted';
+  };
+
+  const persistProfilePhoto = (uri: string | null) => {
+    updateData({ profilePhotoUri: uri });
+  };
+
+  const handleChooseFromLibrary = useCallback(async () => {
+    setIsPhotoModalVisible(false);
+    const hasPermission = await requestLibraryPermission();
+    if (!hasPermission) return;
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: mediaTypeImages,
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.9,
+    });
+    if (!result.canceled && result.assets?.length) {
+      persistProfilePhoto(result.assets[0].uri);
+    }
+  }, [mediaTypeImages]);
+
+  const handleTakePhoto = useCallback(async () => {
+    setIsPhotoModalVisible(false);
+    const hasPermission = await requestCameraPermission();
+    if (!hasPermission) return;
+    const result = await ImagePicker.launchCameraAsync({
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.9,
+      mediaTypes: mediaTypeImages,
+    });
+    if (!result.canceled && result.assets?.length) {
+      persistProfilePhoto(result.assets[0].uri);
+    }
+  }, [mediaTypeImages]);
+
+  const handleRemovePhoto = useCallback(() => {
+    setIsPhotoModalVisible(false);
+    persistProfilePhoto(null);
+  }, []);
 
   // ─────────────────────────────────────────────────────────────
   // Logout confirmation
@@ -307,7 +363,7 @@ export default function SettingsHomeScreen() {
     router.replace('/(onboarding)');
   }, [reset, router]);
 
-  return (
+    return (
     <View style={styles.screen}>
       <ScrollDrivenGradientBackground 
         scrollY={scrollY}
@@ -490,7 +546,7 @@ export default function SettingsHomeScreen() {
                     <SettingsListItem
                       icon={<ShieldCheck size={20} color="#1F2937" />}
                       label="Two-Factor Authentication (2FA)"
-                      onPress={() => router.push('/settings/two-factor')}
+                      onPress={() => router.push('/settings/two-factor-method')}
                     />
                     <SettingsListItem
                       icon={<Fingerprint size={20} color="#1F2937" />}
@@ -587,13 +643,13 @@ export default function SettingsHomeScreen() {
               <View style={styles.editModalCard}>
                 <Text weight="semiBold" size="xl" color="#111827" style={styles.editModalTitle}>Edit Profile</Text>
                 <View style={styles.editAvatarRow}>
-                  <View style={styles.editAvatarWrapper}>
+                  <Pressable style={styles.editAvatarWrapper} onPress={() => setIsPhotoModalVisible(true)}>
                     {data.profilePhotoUri ? <Image source={{ uri: data.profilePhotoUri }} style={styles.editAvatarImage} /> : <View style={styles.editAvatarPlaceholder}><Text weight="semiBold" size="xl" color={BrandColors.secondary}>{initials}</Text></View>}
                     <View style={styles.cameraBadge}><Text weight="semiBold" size="sm" color="#FFF">+</Text></View>
-                  </View>
+                  </Pressable>
                 </View>
                 <View style={styles.field}><Text weight="medium" size="sm" color="#374151">Name</Text><TextInput value={editName} onChangeText={setEditName} placeholder="Your name" style={styles.input} autoCapitalize="words" /></View>
-                <View style={styles.field}><Text weight="medium" size="sm" color="#374151">Email</Text><TextInput value={editEmail} onChangeText={setEditEmail} placeholder="you@example.com" style={styles.input} keyboardType="email-address" /></View>
+                <View style={styles.field}><Text weight="medium" size="sm" color="#374151">Email</Text><TextInput value={editEmail} onChangeText={(value) => setEditEmail(value.toLowerCase())} placeholder="you@example.com" style={styles.input} keyboardType="email-address" autoCapitalize="none" /></View>
                 <View style={styles.editActionsRow}>
                   <Button
                     variant="ghost"
@@ -611,6 +667,32 @@ export default function SettingsHomeScreen() {
                   >
                     Save
                   </Button>
+                </View>
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      <Modal transparent visible={isPhotoModalVisible} animationType="fade">
+        <TouchableWithoutFeedback onPress={() => setIsPhotoModalVisible(false)}>
+          <View style={styles.photoModalOverlay}>
+            <TouchableWithoutFeedback>
+              <View style={styles.photoModalCard}>
+                <Text weight="semiBold" size="lg" color="#111827" style={styles.photoModalTitle}>Profile photo</Text>
+                <Text size="sm" color="#6B7280" style={styles.photoModalSubtitle}>Select an option</Text>
+                <View style={styles.photoModalButtons}>
+                  <Pressable style={styles.photoModalPrimaryButton} onPress={handleChooseFromLibrary}>
+                    <Text weight="semiBold" size="md" color={BrandColors.white}>Choose from library</Text>
+                  </Pressable>
+                  <Pressable style={styles.photoModalSecondaryButton} onPress={handleTakePhoto}>
+                    <Text weight="semiBold" size="md" color="#111827">Take a photo</Text>
+                  </Pressable>
+                  {data.profilePhotoUri ? (
+                    <Pressable style={styles.photoModalRemoveButton} onPress={handleRemovePhoto}>
+                      <Text weight="semiBold" size="md" color="#EF4444">Remove photo</Text>
+                    </Pressable>
+                  ) : null}
                 </View>
               </View>
             </TouchableWithoutFeedback>
@@ -661,7 +743,7 @@ export default function SettingsHomeScreen() {
           await new Promise((r) => setTimeout(r, 450));
         }}
       />
-    </View>
+        </View>
   );
 }
 
@@ -927,6 +1009,51 @@ const styles = StyleSheet.create({
   },
   modalActionButton: {
     flex: 1,
+  },
+  photoModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(15, 23, 42, 0.35)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  photoModalCard: {
+    width: '100%',
+    maxWidth: 420,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    padding: 20,
+    alignItems: 'center',
+  },
+  photoModalTitle: {
+    marginBottom: 6,
+  },
+  photoModalSubtitle: {
+    marginBottom: 18,
+    textAlign: 'center',
+  },
+  photoModalButtons: {
+    width: '100%',
+    gap: 12,
+  },
+  photoModalPrimaryButton: {
+    backgroundColor: BrandColors.secondary,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  photoModalSecondaryButton: {
+    backgroundColor: '#F3F4F6',
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  photoModalRemoveButton: {
+    borderRadius: 12,
+    paddingVertical: 10,
+    alignItems: 'center',
   },
   confirmCard: {
     width: '100%',

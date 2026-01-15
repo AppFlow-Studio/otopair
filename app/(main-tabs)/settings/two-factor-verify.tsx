@@ -12,8 +12,8 @@ import {
   Keyboard,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { ArrowLeft } from 'lucide-react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { X, ArrowLeft } from 'lucide-react-native';
 import { 
   BrandColors, 
   FontFamily, 
@@ -34,10 +34,12 @@ export default function TwoFactorAuthScreen() {
   const { width } = useWindowDimensions();
   const router = useRouter();
   const { data } = useOnboardingStore();
+  const { method } = useLocalSearchParams<{ method?: 'sms' | 'email' }>();
 
   const [code, setCode] = useState(['', '', '', '', '', '']);
   const [focusedIndex, setFocusedIndex] = useState(0);
   const [timeRemaining, setTimeRemaining] = useState(60); // 1 minute in seconds
+  const [codeExpiresAt, setCodeExpiresAt] = useState(() => Date.now() + 5 * 60 * 1000);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   
@@ -45,8 +47,11 @@ export default function TwoFactorAuthScreen() {
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const displayTarget = useMemo(() => {
+    if (method === 'sms') {
+      return data.phoneNumber || data.email || 'your device';
+    }
     return data.email || data.phoneNumber || 'your device';
-  }, [data.email, data.phoneNumber]);
+  }, [data.email, data.phoneNumber, method]);
 
   useEffect(() => {
     if (timeRemaining > 0) {
@@ -94,6 +99,7 @@ export default function TwoFactorAuthScreen() {
 
   const handleResendCode = () => {
     setTimeRemaining(60);
+    setCodeExpiresAt(Date.now() + 5 * 60 * 1000);
     setCode(['', '', '', '', '', '']);
     setFocusedIndex(0);
     setErrorMessage(null);
@@ -113,7 +119,7 @@ export default function TwoFactorAuthScreen() {
         // Simulate API call
         await new Promise(resolve => setTimeout(resolve, 1500));
 
-        if (timeRemaining <= 0) {
+        if (Date.now() >= codeExpiresAt) {
           setErrorMessage('Code has expired. Please request a new one.');
           setIsLoading(false);
           return;
@@ -133,7 +139,7 @@ export default function TwoFactorAuthScreen() {
 
       verifyCode();
     }
-  }, [code, router]);
+  }, [code, codeExpiresAt, router]);
 
   const formatTimer = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
@@ -152,13 +158,9 @@ export default function TwoFactorAuthScreen() {
       <View style={[styles.container, { paddingTop: insets.top + 10 }]}>
         {/* Header */}
         <View style={styles.header}>
-          <GlassCircleButton 
-            size={40} 
-            onPress={() => router.back()}
-            style={styles.backButton}
-          >
-            <ArrowLeft size={20} color={BrandColors.secondary} strokeWidth={2.5} />
-          </GlassCircleButton>
+        <Pressable onPress={() => router.back()} style={styles.closeButton} hitSlop={10}>
+          <ArrowLeft size={18} color="#111827" />
+        </Pressable>
         </View>
 
         <View style={styles.content}>
@@ -166,7 +168,7 @@ export default function TwoFactorAuthScreen() {
             Enter the code we sent you
           </Text>
           <Text size="md" color="#6B7280" style={styles.subtitle}>
-            Please verify the 6-digit code we sent to <Text weight="bold" color="#111827">{displayTarget}</Text>. It's valid for 1 minute.
+            Please verify the 6-digit code we sent to <Text weight="bold" color="#111827">{displayTarget}</Text>. It's valid for 5 minutes.
           </Text>
 
           <View style={styles.codeContainer}>
@@ -246,7 +248,7 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.xl,
   },
   backButton: {
-    marginLeft: -10, // Adjust for shadow/rim
+    marginLeft: 0, // Adjust for shadow/rim
   },
   content: {
     flex: 1,
@@ -258,6 +260,14 @@ const styles = StyleSheet.create({
   subtitle: {
     marginBottom: Spacing['3xl'],
     lineHeight: 22,
+  },
+  closeButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   codeContainer: {
     flexDirection: 'row',

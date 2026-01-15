@@ -1,0 +1,198 @@
+import React, { useMemo, useState } from 'react';
+import { Pressable, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
+import { ArrowLeft, Mail, MessageSquareText } from 'lucide-react-native';
+
+import { BrandColors, FontFamily, FontSize, Shadows, Spacing, Text } from '@/components/shared-ui';
+import { useOnboardingStore } from '@/stores/useOnboardingStore';
+
+type VerificationMethod = 'sms' | 'email';
+
+export default function TwoFactorMethodScreen() {
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const { data } = useOnboardingStore();
+  const [selectedMethod, setSelectedMethod] = useState<VerificationMethod | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  const handleSelectMethod = (method: VerificationMethod) => {
+    setSelectedMethod(method);
+    setErrorMessage(null);
+    if (method === 'email' && !data.email) {
+      setErrorMessage('No email added yet. Please add an email to your profile first.');
+      return;
+    }
+    if (method === 'sms' && !data.phoneNumber) {
+      setErrorMessage('No phone number added yet. Please add a phone number to your profile first.');
+      return;
+    }
+    router.push({ pathname: '/settings/two-factor-verify', params: { method } });
+  };
+
+  const optionData = useMemo(
+    () => [
+      { id: 'sms' as const, label: 'Text message', icon: MessageSquareText },
+      { id: 'email' as const, label: 'Email', icon: Mail },
+    ],
+    []
+  );
+
+  return (
+    <View style={[styles.screen, { paddingTop: insets.top }]}>
+      <View style={styles.header}>
+        <Pressable onPress={() => router.back()} style={styles.backButton} hitSlop={10}>
+          <ArrowLeft size={18} color="#111827" />
+        </Pressable>
+        <Text weight="semiBold" size="lg" color="#111827" style={styles.headerTitle}>
+          Two-Factor Authentication
+        </Text>
+        <View style={{ width: 40 }} />
+      </View>
+
+      <View style={styles.content}>
+        <Text weight="bold" size="3xl" color="#111827" style={styles.title}>
+          Add an extra layer of security to your account
+        </Text>
+        <Text size="md" color="#6B7280" style={styles.subtitle}>
+          This helps keep things secure by verifying that it's really you.
+        </Text>
+
+        <View style={styles.optionsRow}>
+          {optionData.map((option) => {
+            const isSelected = selectedMethod === option.id;
+            const Icon = option.icon;
+            return (
+              <Pressable
+                key={option.id}
+               onPress={() => handleSelectMethod(option.id)}
+                style={[
+                  styles.optionCard,
+                  isSelected && styles.optionCardSelected,
+                ]}
+              >
+                <View style={[styles.optionIconBox, isSelected && styles.optionIconBoxSelected]}>
+                  <Icon size={22} color={isSelected ? BrandColors.secondary : '#111827'} />
+                </View>
+                <Text weight="semiBold" size="md" color="#111827" style={styles.optionLabel}>
+                  {option.label}
+                </Text>
+              </Pressable>
+            );
+          })}
+        </View>
+
+        {errorMessage && (
+          <View style={styles.errorBox}>
+            <Text size="sm" color="#EF4444" style={styles.errorText}>
+              {errorMessage}
+            </Text>
+          </View>
+        )}
+      </View>
+
+       <View style={[styles.footer, { paddingBottom: insets.bottom + 10 }]}>
+         <View>
+           <Text weight="semiBold" size="sm" color="#111827">
+             Two-factor authentication
+           </Text>
+           <Text size="sm" color="#6B7280">
+             Step 1 of 2
+           </Text>
+         </View>
+       </View>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: '#E8ECF0',
+    paddingHorizontal: Spacing['2xl'],
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingTop: 10,
+    paddingBottom: 0,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: {
+    flex: 1,
+    textAlign: 'center',
+  },
+  content: {
+    flex: 1,
+    paddingTop: Spacing['2xl'],
+  },
+  title: {
+    lineHeight: 38,
+    marginBottom: Spacing.md,
+  },
+  subtitle: {
+    lineHeight: 22,
+    marginBottom: Spacing['3xl'],
+  },
+  optionsRow: {
+    flexDirection: 'row',
+    gap: Spacing.lg,
+  },
+  optionCard: {
+    flex: 1,
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#D1D5DB',
+    paddingVertical: Spacing.xl,
+    paddingHorizontal: Spacing.lg,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: Spacing.sm,
+    ...Shadows.sm,
+  },
+  optionCardSelected: {
+    borderColor: BrandColors.secondary,
+    backgroundColor: '#F5F8FF',
+  },
+  optionIconBox: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#F3F4F6',
+  },
+  optionIconBoxSelected: {
+    backgroundColor: '#E0ECFF',
+  },
+  optionLabel: {
+    textAlign: 'center',
+  },
+  errorBox: {
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    borderRadius: 12,
+    padding: Spacing.md,
+    marginTop: Spacing.xl,
+  },
+  errorText: {
+    textAlign: 'center',
+  },
+  footer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: Spacing.xs,
+    paddingTop: Spacing.lg,
+    paddingBottom: Spacing.lg,
+    borderTopWidth: 1,
+    borderTopColor: '#E5E7EB',
+  },
+});
