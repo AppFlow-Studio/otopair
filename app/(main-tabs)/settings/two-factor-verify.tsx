@@ -33,7 +33,7 @@ export default function TwoFactorAuthScreen() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const router = useRouter();
-  const { data } = useOnboardingStore();
+  const { data, updateData } = useOnboardingStore();
   const { method } = useLocalSearchParams<{ method?: 'sms' | 'email' }>();
 
   const [code, setCode] = useState(['', '', '', '', '', '']);
@@ -127,7 +127,12 @@ export default function TwoFactorAuthScreen() {
 
         if (fullCode === CORRECT_CODE) {
           console.log('2FA verified successfully');
-          router.back();
+          if (method === 'sms') {
+            updateData({ twoFactorSmsEnabled: true });
+          } else if (method === 'email') {
+            updateData({ twoFactorEmailEnabled: true });
+          }
+          router.replace('/settings/two-factor-success' as any);
         } else {
           setErrorMessage('Incorrect code entered. Please check and try again.');
           setCode(['', '', '', '', '', '']);
@@ -139,7 +144,7 @@ export default function TwoFactorAuthScreen() {
 
       verifyCode();
     }
-  }, [code, codeExpiresAt, router]);
+  }, [code, codeExpiresAt, method, router, updateData]);
 
   const formatTimer = (seconds: number) => {
     const mins = Math.floor(seconds / 60);

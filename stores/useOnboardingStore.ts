@@ -57,6 +57,8 @@ interface OnboardingData {
   phoneNumber: string | null;
   phoneCountryCode: string | null;
   email: string | null;
+  twoFactorEmailEnabled: boolean;
+  twoFactorSmsEnabled: boolean;
 
   // Profile stats (used on Settings/Profile screen)
   totalBookings: number;
@@ -176,6 +178,8 @@ const INITIAL_DATA: OnboardingData = {
   phoneNumber: null,
   phoneCountryCode: null,
   email: null,
+  twoFactorEmailEnabled: false,
+  twoFactorSmsEnabled: false,
   totalBookings: 0,
   membershipTier: null,
   points: 0,
