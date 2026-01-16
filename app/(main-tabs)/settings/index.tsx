@@ -293,6 +293,7 @@ export default function SettingsHomeScreen() {
   const [isEditVisible, setIsEditVisible] = useState(false);
   const [editName, setEditName] = useState('');
   const [editEmail, setEditEmail] = useState('');
+  const [editPhone, setEditPhone] = useState('');
   const [isPhotoModalVisible, setIsPhotoModalVisible] = useState(false);
   // Prefer new MediaType enum when available to avoid deprecation warnings; fall back for older SDKs.
   const mediaTypeImages =
@@ -303,8 +304,9 @@ export default function SettingsHomeScreen() {
     const name = `${data.firstName ?? ''} ${data.lastName ?? ''}`.trim();
     setEditName(name);
     setEditEmail((data.email ?? '').toLowerCase());
+    setEditPhone(data.phoneNumber ?? '');
     setIsEditVisible(true);
-  }, [data.email, data.firstName, data.lastName]);
+  }, [data.email, data.firstName, data.lastName, data.phoneNumber]);
 
   const handleSaveProfile = useCallback(() => {
     const normalizedName = editName.trim().replace(/\s+/g, ' ');
@@ -315,9 +317,12 @@ export default function SettingsHomeScreen() {
     const normalizedEmail = editEmail.trim().toLowerCase();
     const email = normalizedEmail.length > 0 ? normalizedEmail : null;
 
-    updateData({ firstName, lastName, email });
+    const normalizedPhone = editPhone.trim();
+    const phoneNumber = normalizedPhone.length > 0 ? normalizedPhone : null;
+
+    updateData({ firstName, lastName, email, phoneNumber });
     setIsEditVisible(false);
-  }, [editEmail, editName, updateData]);
+  }, [editEmail, editName, editPhone, updateData]);
 
   const requestLibraryPermission = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -445,12 +450,6 @@ export default function SettingsHomeScreen() {
             >
               {/* Expanded Profile Info (Will scroll up and fade out) */}
               <Animated.View style={[styles.profileInfoArea, { paddingTop: insets.top + 180 }, expandedDetailsStyle]}>
-                <Pressable onPress={openEditProfile} style={styles.emailPill}>
-                  <Text weight="medium" size="md" color={BrandColors.secondary} numberOfLines={1}>
-                    {data.email ?? 'Add email'}
-                  </Text>
-                </Pressable>
-
                 <View style={styles.statsRow}>
                   <View style={styles.statItem}>
                     <Text weight="bold" size="lg" color="#111827">{totalBookingsText}</Text>
@@ -469,22 +468,18 @@ export default function SettingsHomeScreen() {
                 </View>
 
                 <View style={styles.headerActions}>
-                  <Button
-                    variant="primary"
-                    style={styles.headerButton}
-                    onPress={() => console.log('View Loyalty')}
-                    leftIcon={<Award size={20} color={BrandColors.white} />}
-                  >
-                    View Loyalty
-                  </Button>
-                  <Button
-                    variant="primary"
-                    style={styles.headerButton}
-                    onPress={() => router.push('/cars')}
-                    leftIcon={<CarIcon size={20} color={BrandColors.white} weight="bold" />}
-                  >
-                    Add Vehicle
-                  </Button>
+                  <Pressable onPress={() => console.log('View Loyalty')} style={styles.headerButtonPill}>
+                    <Award size={20} color="#374151" />
+                    <Text weight="medium" size="md" color="#374151">
+                      View Loyalty
+                    </Text>
+                  </Pressable>
+                  <Pressable onPress={() => router.push('/cars')} style={styles.headerButtonPill}>
+                    <CarIcon size={20} color="#374151" weight="bold" />
+                    <Text weight="medium" size="md" color="#374151">
+                      Add Vehicle
+                    </Text>
+                  </Pressable>
                 </View>
               </Animated.View>
 
@@ -667,6 +662,7 @@ export default function SettingsHomeScreen() {
                 </View>
                 <View style={styles.field}><Text weight="medium" size="sm" color="#374151">Name</Text><TextInput value={editName} onChangeText={setEditName} placeholder="Your name" style={styles.input} autoCapitalize="words" /></View>
                 <View style={styles.field}><Text weight="medium" size="sm" color="#374151">Email</Text><TextInput value={editEmail} onChangeText={(value) => setEditEmail(value.toLowerCase())} placeholder="you@example.com" style={styles.input} keyboardType="email-address" autoCapitalize="none" /></View>
+                <View style={styles.field}><Text weight="medium" size="sm" color="#374151">Phone Number</Text><TextInput value={editPhone} onChangeText={setEditPhone} placeholder="+1 (555) 123-4567" style={styles.input} keyboardType="phone-pad" autoCapitalize="none" /></View>
                 <View style={styles.editActionsRow}>
                   <Button
                     variant="ghost"
@@ -867,6 +863,17 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: 14,
     paddingVertical: 12,
+  },
+  headerButtonPill: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(107, 114, 128, 0.12)',
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
   },
   sheetContainer: {
     backgroundColor: '#FFFFFF',
