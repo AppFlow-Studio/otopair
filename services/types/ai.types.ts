@@ -1,6 +1,6 @@
 /**
  * AI Chat Types and Interfaces
- * Based on RepairConnect AI OpenAPI specification
+ * Based on Otopair AI OpenAPI specification
  */
 
 // ============================================================================

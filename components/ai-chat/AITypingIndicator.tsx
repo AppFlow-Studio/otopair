@@ -1,81 +1,66 @@
 /**
- * AI Typing Indicator Component
- * Shows animated dots when AI is "thinking"
+ * AITypingIndicator
+ *
+ * PURPOSE: Shows animated "Thinking" text while AI is processing a response
+ *
+ * USED IN: app/(main-tabs)/ai-chat/index.tsx (shown when isProcessing is true)
+ *
+ * PROPS: None
+ *
+ * EXAMPLE:
+ *   {isProcessing && <AITypingIndicator />}
+ *
+ * OWNER: Waleed Mansour
  */
 
-import React, { useEffect, useRef } from 'react';
-import { View, Animated, StyleSheet } from 'react-native';
-import { BrandColors, BorderRadius, Spacing, Shadows } from '@/constants/theme';
+// 1. React & React Native
+import React, { useEffect } from 'react';
+import { View, StyleSheet } from 'react-native';
+
+// 2. Expo & Third-party
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withRepeat,
+  withSequence,
+  withTiming,
+  Easing,
+} from 'react-native-reanimated';
+
+// 3. Constants, hooks, types
+import { BrandColors, Spacing, FontFamily } from '@/constants/theme';
+
+const AnimatedText = Animated.Text;
 
 export function AITypingIndicator() {
-  const dot1 = useRef(new Animated.Value(0)).current;
-  const dot2 = useRef(new Animated.Value(0)).current;
-  const dot3 = useRef(new Animated.Value(0)).current;
+  const opacity = useSharedValue(1);
 
   useEffect(() => {
-    const animate = (dot: Animated.Value, delay: number) => {
-      return Animated.loop(
-        Animated.sequence([
-          Animated.delay(delay),
-          Animated.timing(dot, {
-            toValue: 1,
-            duration: 400,
-            useNativeDriver: true,
-          }),
-          Animated.timing(dot, {
-            toValue: 0,
-            duration: 400,
-            useNativeDriver: true,
-          }),
-        ])
-      );
-    };
+    opacity.value = withRepeat(
+      withSequence(
+        withTiming(0.3, {
+          duration: 600,
+          easing: Easing.inOut(Easing.ease),
+        }),
+        withTiming(1, {
+          duration: 600,
+          easing: Easing.inOut(Easing.ease),
+        })
+      ),
+      -1,
+      false
+    );
+  }, []);
 
-    const animation = Animated.parallel([
-      animate(dot1, 0),
-      animate(dot2, 150),
-      animate(dot3, 300),
-    ]);
-
-    animation.start();
-
-    return () => animation.stop();
-  }, [dot1, dot2, dot3]);
+  const animatedStyle = useAnimatedStyle(() => ({
+    opacity: opacity.value,
+  }));
 
   return (
     <View style={styles.container}>
-      {/* Avatar */}
-      <View style={styles.avatar}>
-        <Animated.Text style={styles.avatarText}>🤖</Animated.Text>
-      </View>
-
-      {/* Typing Bubble */}
-      <View style={styles.bubble}>
-        <View style={styles.dotsContainer}>
-          {[dot1, dot2, dot3].map((dot, index) => (
-            <Animated.View
-              key={index}
-              style={[
-                styles.dot,
-                {
-                  transform: [
-                    {
-                      translateY: dot.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [0, -6],
-                      }),
-                    },
-                  ],
-                  opacity: dot.interpolate({
-                    inputRange: [0, 1],
-                    outputRange: [0.4, 1],
-                  }),
-                },
-              ]}
-            />
-          ))}
-        </View>
-      </View>
+      <AnimatedText style={[styles.thinkingText, animatedStyle]}>
+        Thinking
+      </AnimatedText>
     </View>
   );
 }
@@ -86,36 +71,10 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.lg,
     paddingHorizontal: Spacing.md,
   },
-  avatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: BrandColors.secondary + '20',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: Spacing.sm,
-  },
-  avatarText: {
-    fontSize: 14,
-  },
-  bubble: {
-    backgroundColor: BrandColors.white,
-    borderRadius: BorderRadius.xl,
-    paddingVertical: Spacing.lg,
-    paddingHorizontal: Spacing['2xl'],
-    borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.05)',
-    ...Shadows.sm,
-  },
-  dotsContainer: {
-    flexDirection: 'row',
-    gap: 6,
-  },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: BrandColors.secondary,
+  thinkingText: {
+    fontSize: 16,
+    fontFamily: FontFamily.medium,
+    color: BrandColors.secondary,
+    letterSpacing: 0.3,
   },
 });
-

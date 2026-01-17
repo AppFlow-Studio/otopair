@@ -1,96 +1,132 @@
 /**
- * AI Message Bubble Component
- * Displays user and AI message bubbles with structured content
+ * AIMessageBubble
+ *
+ * PURPOSE: Displays user/AI chat messages with reasoning, sources, sections, and action buttons
+ *
+ * USED IN: app/(main-tabs)/ai-chat/index.tsx (renders each message in chat)
+ *
+ * PROPS:
+ *   - message (AIMessage): Message object with content, role, reasoning, sources, etc.
+ *   - onCopy (() => void): Callback when copy button is pressed
+ *   - onSpeak (() => void): Callback when speak button is pressed
+ *   - onLike (() => void): Callback when like button is pressed
+ *   - onDislike (() => void): Callback when dislike button is pressed
+ *   - onQuickReplySelect ((reply: QuickReply) => void): Callback when quick reply is selected
+ *
+ * EXAMPLE:
+ *   <AIMessageBubble
+ *     message={{ id: '1', role: 'assistant', content: 'Hello!', timestamp: '...' }}
+ *     onCopy={() => copyToClipboard(message.content)}
+ *     onQuickReplySelect={(reply) => handleReply(reply)}
+ *   />
+ *
+ * OWNER: Waleed Mansour
  */
 
-import React from 'react';
+// 1. React & React Native
+import React, { useEffect, useState } from 'react';
 import { View, StyleSheet, Pressable } from 'react-native';
+
+// 2. Expo & Third-party
+import Animated, {
+  FadeIn,
+} from 'react-native-reanimated';
+import { Copy, Volume2, ThumbsUp, ThumbsDown } from 'lucide-react-native';
+
+// 3. Shared UI (design system)
 import { Text } from '@/components/shared-ui';
+
+// 4. Flow-specific components
+import { AIReasoning, type ReasoningStep } from './AIReasoning';
+import { AISources, type Source } from './AISources';
+import type { QuickReply } from './AIQuickReplies';
+
+// 5. Constants, hooks, types
 import { BrandColors, BorderRadius, Spacing, FontFamily, Shadows } from '@/constants/theme';
-import { Copy, Volume2, ThumbsUp, ThumbsDown, RotateCcw } from 'lucide-react-native';
-import type { ChatMessage, MessageSection, FunctionCall } from '@/services/types/ai.types';
+// ============================================================================
+// TYPES
+// ============================================================================
+
+export interface MessageSection {
+  title: string;
+  content: string;
+  type: 'text' | 'list';
+  items?: string[];
+}
+
+export interface AIMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp?: string;
+  // Enhanced properties
+  reasoning?: ReasoningStep[];
+  sources?: Source[];
+  quickReplies?: QuickReply[];
+  sections?: MessageSection[];
+  isStreaming?: boolean;
+}
 
 interface AIMessageBubbleProps {
-  message: ChatMessage;
+  message: AIMessage;
   onCopy?: () => void;
   onSpeak?: () => void;
   onLike?: () => void;
   onDislike?: () => void;
-  onRegenerate?: () => void;
-  onFindMechanics?: (serviceType: string, urgency: string) => void;
+  onQuickReplySelect?: (reply: QuickReply) => void;
 }
 
-export function AIMessageBubble({
-  message,
-  onCopy,
-  onSpeak,
-  onLike,
-  onDislike,
-  onRegenerate,
-  onFindMechanics,
-}: AIMessageBubbleProps) {
-  const isUser = message.role === 'user';
+// ============================================================================
+// STREAMING TEXT COMPONENT
+// ============================================================================
+
+function StreamingText({ 
+  text, 
+  isStreaming 
+}: { 
+  text: string; 
+  isStreaming?: boolean;
+}) {
+  const [displayedText, setDisplayedText] = useState('');
+  const [isComplete, setIsComplete] = useState(!isStreaming);
+
+  useEffect(() => {
+    if (!isStreaming) {
+      setDisplayedText(text);
+      setIsComplete(true);
+      return;
+    }
+
+    // Simulate streaming by revealing text progressively
+    let currentIndex = 0;
+    const words = text.split(' ');
+    
+    const interval = setInterval(() => {
+      if (currentIndex < words.length) {
+        setDisplayedText(words.slice(0, currentIndex + 1).join(' '));
+        currentIndex++;
+      } else {
+        clearInterval(interval);
+        setIsComplete(true);
+      }
+    }, 50); // 50ms per word
+
+    return () => clearInterval(interval);
+  }, [text, isStreaming]);
 
   return (
-    <View style={[styles.container, isUser && styles.userContainer]}>
-      {/* Avatar */}
-      <View style={[styles.avatar, isUser && styles.userAvatar]}>
-        <Text style={styles.avatarText} size="xs">
-          {isUser ? '👤' : '🤖'}
-        </Text>
-      </View>
-
-      {/* Message Content */}
-      <View style={styles.contentWrapper}>
-        {/* Main bubble */}
-        <View style={[styles.bubble, isUser && styles.userBubble]}>
-          <Text style={[styles.messageText, isUser && styles.userMessageText]}>
-            {message.content}
-          </Text>
-        </View>
-
-        {/* Sections (AI only) */}
-        {!isUser && message.sections && message.sections.length > 0 && (
-          <View style={styles.sectionsContainer}>
-            {message.sections.map((section, index) => (
-              <MessageSectionView key={index} section={section} />
-            ))}
-          </View>
-        )}
-
-        {/* Diagnosis Card (AI only) */}
-        {!isUser && message.functionCall && (
-          <DiagnosisCard
-            functionCall={message.functionCall}
-            onFindMechanics={onFindMechanics}
-          />
-        )}
-
-        {/* Action Buttons (AI only) */}
-        {!isUser && (
-          <View style={styles.actionsContainer}>
-            <View style={styles.actionButtons}>
-              <ActionButton icon={<Copy size={16} color="#9CA3AF" />} onPress={onCopy} />
-              <ActionButton icon={<Volume2 size={16} color="#9CA3AF" />} onPress={onSpeak} />
-              <ActionButton icon={<ThumbsUp size={16} color="#9CA3AF" />} onPress={onLike} />
-              <ActionButton icon={<ThumbsDown size={16} color="#9CA3AF" />} onPress={onDislike} />
-              <ActionButton icon={<RotateCcw size={16} color="#9CA3AF" />} onPress={onRegenerate} />
-            </View>
-            <Text style={styles.disclaimer} size="xs">
-              Generated by AI. Double-check for accuracy.
-            </Text>
-          </View>
-        )}
-      </View>
-    </View>
+    <Text style={styles.messageText}>
+      {displayedText}
+      {!isComplete && <Text style={styles.cursor}>|</Text>}
+    </Text>
   );
 }
 
 // ============================================================================
-// SUB-COMPONENTS
+// SECTION VIEW COMPONENT
 // ============================================================================
 
-function MessageSectionView({ section }: { section: MessageSection }) {
+function SectionView({ section }: { section: MessageSection }) {
   return (
     <View style={styles.section}>
       <Text style={styles.sectionTitle} size="xs" weight="bold">
@@ -101,7 +137,7 @@ function MessageSectionView({ section }: { section: MessageSection }) {
         <View style={styles.listContainer}>
           {section.items.map((item, index) => (
             <View key={index} style={styles.listItem}>
-              <Text style={styles.listArrow}>→</Text>
+              <Text style={styles.listBullet}>•</Text>
               <Text style={styles.listText}>{item}</Text>
             </View>
           ))}
@@ -113,67 +149,9 @@ function MessageSectionView({ section }: { section: MessageSection }) {
   );
 }
 
-function DiagnosisCard({
-  functionCall,
-  onFindMechanics,
-}: {
-  functionCall: FunctionCall;
-  onFindMechanics?: (serviceType: string, urgency: string) => void;
-}) {
-  const args = functionCall.arguments;
-  if (!args.diagnosis) return null;
-
-  const urgencyColors = {
-    immediate: '#EF4444',
-    soon: '#F59E0B',
-    routine: '#22C55E',
-  };
-
-  return (
-    <View style={styles.diagnosisCard}>
-      <Text style={styles.sectionTitle} size="xs" weight="bold">
-        DIAGNOSIS
-      </Text>
-      
-      <View style={styles.diagnosisHeader}>
-        <Text style={styles.diagnosisText} weight="semiBold">
-          {args.diagnosis}
-        </Text>
-        {args.urgency && (
-          <View style={[styles.urgencyBadge, { backgroundColor: urgencyColors[args.urgency] + '20' }]}>
-            <Text style={[styles.urgencyText, { color: urgencyColors[args.urgency] }]}>
-              {args.urgency.toUpperCase()}
-            </Text>
-          </View>
-        )}
-      </View>
-
-      {args.estimated_cost_min && args.estimated_cost_max && (
-        <View style={styles.costContainer}>
-          <Text style={styles.costIcon}>💰</Text>
-          <View>
-            <Text style={styles.costRange}>
-              ${args.estimated_cost_min} - ${args.estimated_cost_max}
-            </Text>
-            <Text style={styles.costLabel}>Estimated cost range</Text>
-          </View>
-        </View>
-      )}
-
-      {onFindMechanics && (
-        <Pressable
-          style={styles.findMechanicsBtn}
-          onPress={() => onFindMechanics(
-            args.recommended_services?.[0] || 'General Repair',
-            args.urgency || 'routine'
-          )}
-        >
-          <Text style={styles.findMechanicsBtnText}>📍 Find Nearby Mechanics</Text>
-        </Pressable>
-      )}
-    </View>
-  );
-}
+// ============================================================================
+// ACTION BUTTON COMPONENT
+// ============================================================================
 
 function ActionButton({
   icon,
@@ -193,59 +171,202 @@ function ActionButton({
 }
 
 // ============================================================================
+// HELPER: Calculate reasoning duration
+// ============================================================================
+
+function calculateReasoningDuration(reasoning?: ReasoningStep[]): number {
+  if (!reasoning || reasoning.length === 0) return 0;
+  
+  // Each step has:
+  // - typing time (20ms per character for summary)
+  // - 1500ms reading buffer after typing
+  // - Plus final buffer for animations
+  let totalDuration = 0;
+  
+  reasoning.forEach((step) => {
+    const typingTime = step.text.length * 20;
+    const readingBuffer = 1500;
+    totalDuration += typingTime + readingBuffer;
+  });
+  
+  // Add buffer for final animations
+  return totalDuration + 500;
+}
+
+// ============================================================================
+// MAIN COMPONENT
+// ============================================================================
+
+export function AIMessageBubble({
+  message,
+  onCopy,
+  onSpeak,
+  onLike,
+  onDislike,
+  onQuickReplySelect,
+}: AIMessageBubbleProps) {
+  const isUser = message.role === 'user';
+  const isStreaming = message.isStreaming;
+  const hasReasoning = !isUser && message.reasoning && message.reasoning.length > 0;
+  
+  // State to track if we should show the main content
+  // Content is hidden while reasoning is being displayed
+  const [showContent, setShowContent] = useState(!hasReasoning || !isStreaming);
+  
+  // Calculate and wait for reasoning to complete before showing content
+  useEffect(() => {
+    // If user message or no reasoning, show content immediately
+    if (isUser || !hasReasoning) {
+      setShowContent(true);
+      return;
+    }
+    
+    // If streaming is done, show content
+    if (!isStreaming) {
+      setShowContent(true);
+      return;
+    }
+    
+    // Calculate how long reasoning will take
+    const reasoningDuration = calculateReasoningDuration(message.reasoning);
+    
+    // Wait for reasoning to complete, then show content
+    const timer = setTimeout(() => {
+      setShowContent(true);
+    }, reasoningDuration);
+    
+    return () => clearTimeout(timer);
+  }, [isUser, hasReasoning, isStreaming, message.reasoning]);
+
+  // User message - clean pill style, no avatar
+  if (isUser) {
+    return (
+      <Animated.View 
+        style={styles.userContainer}
+        entering={FadeIn.duration(200)}
+      >
+        <View style={styles.userBubble}>
+          <Text style={styles.userMessageText}>
+            {message.content}
+          </Text>
+        </View>
+      </Animated.View>
+    );
+  }
+
+  // AI message - no avatar, left-aligned text
+  return (
+    <Animated.View 
+      style={styles.container}
+      entering={FadeIn.duration(200)}
+    >
+      {/* Message Content - Left aligned, no avatar */}
+      <View style={styles.contentWrapper}>
+        {/* Reasoning Section (AI only) */}
+        {hasReasoning && (
+          <AIReasoning
+            steps={message.reasoning!}
+            isStreaming={isStreaming}
+            defaultExpanded={false}
+          />
+        )}
+
+        {/* Main Text - Clean, no bubble for AI */}
+        {showContent && (
+          <Animated.View 
+            style={styles.aiTextContainer}
+            entering={FadeIn.duration(300)}
+          >
+            {isStreaming && !hasReasoning ? (
+              <StreamingText text={message.content} isStreaming={isStreaming} />
+            ) : (
+              <Text style={styles.messageText}>
+                {message.content}
+              </Text>
+            )}
+          </Animated.View>
+        )}
+
+        {/* Sections (AI only) - Show after content */}
+        {showContent && message.sections && message.sections.length > 0 && (
+          <View style={styles.sectionsContainer}>
+            {message.sections.map((section, index) => (
+              <SectionView key={index} section={section} />
+            ))}
+          </View>
+        )}
+
+        {/* Sources (AI only) */}
+        {showContent && message.sources && message.sources.length > 0 && !isStreaming && (
+          <AISources sources={message.sources} />
+        )}
+
+        {/* Action Buttons (AI only, when not streaming) */}
+        {showContent && !isStreaming && (
+          <View style={styles.actionsContainer}>
+            <View style={styles.actionButtons}>
+              <ActionButton icon={<Copy size={14} color="#9CA3AF" />} onPress={onCopy} />
+              <ActionButton icon={<Volume2 size={14} color="#9CA3AF" />} onPress={onSpeak} />
+              <ActionButton icon={<ThumbsUp size={14} color="#9CA3AF" />} onPress={onLike} />
+              <ActionButton icon={<ThumbsDown size={14} color="#9CA3AF" />} onPress={onDislike} />
+            </View>
+          </View>
+        )}
+      </View>
+    </Animated.View>
+  );
+}
+
+// ============================================================================
 // STYLES
 // ============================================================================
 
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
-    marginBottom: Spacing.lg,
+    marginBottom: Spacing.md,
     paddingHorizontal: Spacing.md,
+    alignItems: 'flex-start',
   },
   userContainer: {
-    flexDirection: 'row-reverse',
-  },
-  avatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: BrandColors.secondary + '20',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginRight: Spacing.sm,
-  },
-  userAvatar: {
-    backgroundColor: BrandColors.primary + '20',
-    marginRight: 0,
-    marginLeft: Spacing.sm,
-  },
-  avatarText: {
-    fontSize: 14,
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginBottom: Spacing.md,
+    paddingHorizontal: Spacing.md,
   },
   contentWrapper: {
     flex: 1,
-    maxWidth: '85%',
+    maxWidth: '95%',
   },
-  bubble: {
-    backgroundColor: BrandColors.white,
-    borderRadius: BorderRadius.xl,
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.lg,
-    borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.05)',
-    ...Shadows.sm,
+  // AI message - no bubble, clean text
+  aiTextContainer: {
+    paddingVertical: Spacing.xs,
   },
+  // User message - pill style bubble
   userBubble: {
     backgroundColor: BrandColors.secondary,
-    borderColor: 'transparent',
+    borderRadius: BorderRadius.full,
+    paddingVertical: Spacing.sm + 2,
+    paddingHorizontal: Spacing.lg,
+    maxWidth: '80%',
   },
   messageText: {
     color: BrandColors.primary,
     lineHeight: 22,
+    fontSize: 15,
+    fontFamily: FontFamily.regular,
   },
   userMessageText: {
     color: BrandColors.white,
+    lineHeight: 22,
+    fontSize: 15,
+    fontFamily: FontFamily.regular,
   },
+  cursor: {
+    color: BrandColors.secondary,
+    fontWeight: 'bold',
+  },
+  // Sections
   sectionsContainer: {
     marginTop: Spacing.sm,
     gap: Spacing.sm,
@@ -274,100 +395,33 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
   },
-  listArrow: {
+  listBullet: {
     color: BrandColors.secondary,
     marginRight: Spacing.sm,
     fontSize: 14,
+    lineHeight: 22,
   },
   listText: {
     flex: 1,
     color: BrandColors.primary,
     lineHeight: 22,
   },
-  diagnosisCard: {
-    backgroundColor: BrandColors.white,
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.md,
-    marginTop: Spacing.sm,
-    borderLeftWidth: 3,
-    borderLeftColor: BrandColors.secondary,
-    ...Shadows.sm,
-  },
-  diagnosisHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    marginBottom: Spacing.sm,
-  },
-  diagnosisText: {
-    color: BrandColors.primary,
-    fontSize: 16,
-  },
-  urgencyBadge: {
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 2,
-    borderRadius: BorderRadius.sm,
-  },
-  urgencyText: {
-    fontSize: 10,
-    fontFamily: FontFamily.bold,
-    letterSpacing: 0.5,
-  },
-  costContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.sm,
-    backgroundColor: '#FEF3C7',
-    padding: Spacing.sm,
-    borderRadius: BorderRadius.md,
-    marginBottom: Spacing.sm,
-  },
-  costIcon: {
-    fontSize: 20,
-  },
-  costRange: {
-    color: '#92400E',
-    fontFamily: FontFamily.semiBold,
-    fontSize: 16,
-  },
-  costLabel: {
-    color: '#92400E',
-    fontSize: 12,
-  },
-  findMechanicsBtn: {
-    backgroundColor: BrandColors.secondary,
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.lg,
-    borderRadius: BorderRadius.full,
-    alignItems: 'center',
-  },
-  findMechanicsBtnText: {
-    color: BrandColors.white,
-    fontFamily: FontFamily.semiBold,
-    fontSize: 14,
-  },
+  // Actions
   actionsContainer: {
     marginTop: Spacing.sm,
-    paddingLeft: Spacing.xs,
   },
   actionButtons: {
     flexDirection: 'row',
-    gap: Spacing.sm,
-    marginBottom: Spacing.xs,
+    gap: Spacing.xs,
   },
   actionBtn: {
-    width: 32,
-    height: 32,
+    width: 28,
+    height: 28,
     justifyContent: 'center',
     alignItems: 'center',
-    borderRadius: BorderRadius.md,
+    borderRadius: BorderRadius.sm,
   },
   actionBtnPressed: {
     backgroundColor: 'rgba(0, 0, 0, 0.05)',
   },
-  disclaimer: {
-    color: '#9CA3AF',
-    fontStyle: 'italic',
-  },
 });
-

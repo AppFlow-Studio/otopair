@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/images/repairconnectglasslogo.png" alt="OtoPair Logo" width="120" height="200" />
+  <img src="assets/images/otopair-ai-logo.png" alt="Otopair Logo" width="120" height="120" />
 </p>
 
 <h1 align="center">OtoPair</h1>
