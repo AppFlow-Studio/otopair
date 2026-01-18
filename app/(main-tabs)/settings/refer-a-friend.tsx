@@ -1,3 +1,19 @@
+/**
+ * ReferAFriendScreen
+ *
+ * PURPOSE: Referral program page where users can share their unique code and view rewards.
+ *
+ * USED IN: app/(main-tabs)/settings/index.tsx
+ *
+ * PROPS: None (accessed via router)
+ *
+ * EXAMPLE:
+ *   <ReferAFriendScreen />
+ *
+ * OWNER: Daniel Chelala
+ * TICKET: OTO-XXX
+ */
+
 import React, { useCallback, useMemo, useState } from 'react';
 import { Image, Pressable, ScrollView, Share, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -63,7 +79,7 @@ export default function ReferAFriendScreen() {
       <ScrollView
         showsVerticalScrollIndicator={false}
         // Extra padding so the bottom CTA isn't obscured by the bottom tab bar.
-        contentContainerStyle={{ paddingBottom: insets.bottom + 120 }}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 100 }}
       >
         {/* Hero */}
         <View style={styles.hero}>
@@ -162,7 +178,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingTop: 10,
-    paddingBottom: 0,
   },
   closeButton: {
     width: 40,

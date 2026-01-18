@@ -1,3 +1,20 @@
+/**
+ * TwoFactorVerifyScreen
+ *
+ * PURPOSE: Verification page where users enter the 6-digit code for two-factor authentication.
+ *
+ * USED IN: app/(main-tabs)/settings/two-factor-method.tsx
+ *
+ * PARAMS:
+ *   - method ('sms' | 'email'): The delivery method used for the verification code
+ *
+ * EXAMPLE:
+ *   router.push({ pathname: '/settings/two-factor-verify', params: { method: 'sms' } })
+ *
+ * OWNER: Daniel Chelala
+ * TICKET: OTO-XXX
+ */
+
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   KeyboardAvoidingView,
@@ -132,7 +149,7 @@ export default function TwoFactorAuthScreen() {
           } else if (method === 'email') {
             updateData({ twoFactorEmailEnabled: true });
           }
-          router.replace('/settings/two-factor-success' as any);
+          router.replace({ pathname: '/settings/success', params: { type: '2fa' } } as any);
         } else {
           setErrorMessage('Incorrect code entered. Please check and try again.');
           setCode(['', '', '', '', '', '']);

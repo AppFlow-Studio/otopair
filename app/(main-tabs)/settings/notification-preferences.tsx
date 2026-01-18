@@ -1,8 +1,24 @@
+/**
+ * NotificationPreferencesScreen
+ *
+ * PURPOSE: Allows users to manage their push notification preferences for various app features.
+ *
+ * USED IN: app/(main-tabs)/settings/index.tsx
+ *
+ * PROPS: None (accessed via router)
+ *
+ * EXAMPLE:
+ *   <NotificationPreferencesScreen />
+ *
+ * OWNER: Daniel Chelala
+ * TICKET: OTO-XXX
+ */
+
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { ArrowLeft } from 'lucide-react-native';
+import { X } from 'lucide-react-native';
 import Animated, { interpolateColor, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
 import { BrandColors, Button, Spacing, Text } from '@/components/shared-ui';
@@ -152,7 +168,7 @@ export default function NotificationPreferencesScreen() {
     <View style={[styles.screen, { paddingTop: insets.top }]}>
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} style={styles.backButton} hitSlop={10}>
-          <ArrowLeft size={18} color="#111827" />
+          <X size={18} color="#111827" />
         </Pressable>
         <Text weight="semiBold" size="lg" color="#111827" style={styles.headerTitle}>
           Notification Settings
@@ -200,7 +216,7 @@ export default function NotificationPreferencesScreen() {
         ) : null}
       </ScrollView>
 
-      <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.lg }]}>
+      <View style={[styles.footer, { paddingBottom: insets.bottom + 100 }]}>
         <Button
           variant="primary"
           fullWidth

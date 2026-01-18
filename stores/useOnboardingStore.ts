@@ -59,6 +59,9 @@ interface OnboardingData {
   email: string | null;
   twoFactorEmailEnabled: boolean;
   twoFactorSmsEnabled: boolean;
+  biometricLoginEnabled: boolean;
+  biometricLoginType: 'face' | 'touch' | 'fingerprint' | 'biometric' | null;
+  biometricLoginSkipped: boolean;
   notificationOffersEnabled: boolean;
   notificationRewardsEnabled: boolean;
   notificationPassEnabled: boolean;
@@ -184,6 +187,9 @@ const INITIAL_DATA: OnboardingData = {
   email: null,
   twoFactorEmailEnabled: false,
   twoFactorSmsEnabled: false,
+  biometricLoginEnabled: false,
+  biometricLoginType: null,
+  biometricLoginSkipped: false,
   notificationOffersEnabled: true,
   notificationRewardsEnabled: true,
   notificationPassEnabled: true,

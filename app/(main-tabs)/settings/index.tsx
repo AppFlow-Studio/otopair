@@ -1,3 +1,19 @@
+/**
+ * SettingsHomeScreen
+ *
+ * PURPOSE: Main settings screen providing user profile overview and access to various app settings.
+ *
+ * USED IN: app/(main-tabs)/_layout.tsx (as a tab screen)
+ *
+ * PROPS: None (accessed via router)
+ *
+ * EXAMPLE:
+ *   <SettingsHomeScreen />
+ *
+ * OWNER: Daniel Chelala
+ * TICKET: OTO-XXX
+ */
+
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   Dimensions,
@@ -563,7 +579,7 @@ export default function SettingsHomeScreen() {
                     <SettingsListItem
                       icon={<Fingerprint size={20} color="#1F2937" />}
                       label="Biometric Login"
-                      onPress={() => console.log('Bio')}
+                      onPress={() => router.push('/settings/biometric-setup')}
                     />
                     <SettingsListItem
                       icon={<ArrowLeftRight size={20} color="#1F2937" />}
