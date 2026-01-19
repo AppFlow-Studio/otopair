@@ -24,8 +24,6 @@ import {
   FullScreenBookingView,
   MechanicCarouselSheet,
   MechanicFilterOption,
-  Region,
-  SearchAreaButton,
   ServiceBottomSheet,
   Shop,
   TopBar,
@@ -33,8 +31,7 @@ import {
 
 // 5. Constants, hooks, types, stores
 import { AVAILABLE_NOW_FILTER, TOP_RATED_FILTER } from "@/constants/filters";
-import { getServiceIdsForCategory } from "@/constants/services";
-import type { FilterOption, ServiceCategory } from "@/stores/types/store.types";
+import type { FilterOption } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useShopStore } from "@/stores/useShopStore";
@@ -53,8 +50,6 @@ const VERTICAL_OFFSET = 55;
 export default function BookingsScreen() {
   // ═══════════════ BOOKING STORE ═══════════════
   const userLocation = useBookingStore((state) => state.userLocation);
-  const selectedServiceCategory = useBookingStore((state) => state.selectedServiceCategory);
-  const setSelectedServiceCategory = useBookingStore((state) => state.setSelectedServiceCategory);
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
   const getSelectedServices = useBookingStore((state) => state.getSelectedServices);
   const selectedMechanicId = useBookingStore((state) => state.selectedMechanicId);
@@ -73,11 +68,11 @@ export default function BookingsScreen() {
   const [selectedMapShopId, setSelectedMapShopId] = useState<number | null>(null);
   const [focusedShop, setFocusedShop] = useState<Shop | null>(null);
 
-  // Search area state - initially show closest 10, button hidden until user pans
-  const [showSearchButton, setShowSearchButton] = useState(false);
-  const [lastSearchedRegion, setLastSearchedRegion] = useState<Region | null>(null);
-  const currentRegionRef = React.useRef<Region | null>(null);
-  const hasInitializedRef = React.useRef(false);
+  // Search bar state
+  const [searchQuery, setSearchQuery] = useState("");
+
+  // Active filters from search bar (dynamic filters)
+  const [activeFilters, setActiveFilters] = useState<string[]>([]);
 
   const handleAnimatedIndexChange = useCallback((animatedIndex: SharedValue<number>) => {
     setSheetAnimatedIndex(animatedIndex);
@@ -99,25 +94,6 @@ export default function BookingsScreen() {
       }
     },
     [setFilters]
-  );
-
-  const selectedServiceRef = React.useRef(selectedServiceCategory);
-  selectedServiceRef.current = selectedServiceCategory;
-
-  const handleServiceSelect = useCallback(
-    (service: ServiceCategory) => {
-      const isCurrentlySelected = selectedServiceRef.current === service;
-
-      if (isCurrentlySelected) {
-        setSelectedServiceCategory(null);
-        setFilters({ serviceIds: [] });
-      } else {
-        const serviceIds = getServiceIdsForCategory(service);
-        setSelectedServiceCategory(service);
-        setFilters({ serviceIds });
-      }
-    },
-    [setSelectedServiceCategory, setFilters]
   );
 
   const handleShopSelect = useCallback(
@@ -149,47 +125,20 @@ export default function BookingsScreen() {
     setMechanicFilter(filter);
   }, []);
 
-  // ═══════════════ SEARCH AREA HANDLERS ═══════════════
-  const handleSearchArea = useCallback(() => {
-    setShowSearchButton(false);
-    // Store the current region as the last searched region
-    if (currentRegionRef.current) {
-      setLastSearchedRegion(currentRegionRef.current);
-    }
-    // TODO: In the future, this would filter shops by the current map bounds
+  // Handler to remove a filter chip
+  const handleRemoveFilter = useCallback((filter: string) => {
+    setActiveFilters((prev) => prev.filter((f) => f !== filter));
   }, []);
 
-  const handleMapRegionChange = useCallback(
-    (newRegion: Region) => {
-      // Always keep track of current region (must happen before any early returns!)
-      currentRegionRef.current = newRegion;
+  // Search handlers
+  const handleSearchChange = useCallback((text: string) => {
+    setSearchQuery(text);
+  }, []);
 
-      // On first region change, just mark as initialized (no search yet)
-      if (!hasInitializedRef.current) {
-        hasInitializedRef.current = true;
-        // Don't set lastSearchedRegion - user hasn't searched yet
-        // Button stays hidden until user pans away from initial location
-        return;
-      }
-
-      // If user has never searched, show button when they pan the map
-      if (!lastSearchedRegion) {
-        // Show button after user has moved the map at all
-        setShowSearchButton(true);
-        return;
-      }
-
-      // Check if map moved significantly from last searched region
-      const latDiff = Math.abs(newRegion.latitude - lastSearchedRegion.latitude);
-      const lonDiff = Math.abs(newRegion.longitude - lastSearchedRegion.longitude);
-      const deltaDiff = Math.abs(newRegion.latitudeDelta - lastSearchedRegion.latitudeDelta);
-
-      // Show search button if user panned or zoomed significantly
-      const movedSignificantly = latDiff > 0.01 || lonDiff > 0.01 || deltaDiff > 0.02;
-      setShowSearchButton(movedSignificantly);
-    },
-    [lastSearchedRegion]
-  );
+  const handleSearchSubmit = useCallback(() => {
+    // TODO: Implement search functionality
+    console.log("Search submitted:", searchQuery);
+  }, [searchQuery]);
 
   // ═══════════════ COMPUTED VALUES ═══════════════
   const selectedServicesText = useMemo(() => {
@@ -216,13 +165,11 @@ export default function BookingsScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Map */}
+      {/* Map - dynamically loads pins based on current view */}
       <BookingMap
         onShopSelect={handleShopSelect}
         sheetAnimatedIndex={sheetAnimatedIndex ?? undefined}
         focusedShop={focusedShop}
-        onRegionChange={handleMapRegionChange}
-        searchedRegion={lastSearchedRegion}
       />
 
       {/* Top Bar - Uses transition hook internally */}
@@ -233,16 +180,13 @@ export default function BookingsScreen() {
           selectedServicesText={selectedServicesText}
           shopName={selectedMechanicShopName}
           onFilterSelect={handleFilterSelect}
-          onServiceSelect={handleServiceSelect}
-          selectedService={selectedServiceCategory}
+          searchQuery={searchQuery}
+          onSearchChange={handleSearchChange}
+          onSearchSubmit={handleSearchSubmit}
+          activeFilters={activeFilters}
+          onRemoveFilter={handleRemoveFilter}
           onMechanicFilterSelect={handleMechanicFilterSelect}
           selectedMechanicFilter={mechanicFilter}
-          sheetAnimatedIndex={sheetAnimatedIndex ?? undefined}
-        />
-        {/* Search Area Button - appears below the frosted header, fades with TopBar */}
-        <SearchAreaButton
-          visible={showSearchButton}
-          onPress={handleSearchArea}
           sheetAnimatedIndex={sheetAnimatedIndex ?? undefined}
         />
       </View>

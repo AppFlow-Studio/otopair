@@ -90,7 +90,7 @@ export const MechanicCard = memo(function MechanicCard({ mechanic, onBookNow, on
         <View style={styles.infoContainer}>
           <View style={styles.nameRow}>
             <Text size="lg" weight="bold" color={BrandColors.primary}>
-              {mechanic.shopName}
+              {mechanic.name}
             </Text>
             <View style={styles.ratingBadge}>
               <Star size={16} color={BrandColors.secondary} fill={BrandColors.secondary} />
@@ -101,7 +101,7 @@ export const MechanicCard = memo(function MechanicCard({ mechanic, onBookNow, on
           </View>
 
           <Text size="sm" weight="medium" color="#6B7280" style={{ marginBottom: 2 }}>
-            {mechanic.name}
+            {mechanic.shopName}
           </Text>
 
           <View style={styles.detailsRow}>

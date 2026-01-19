@@ -131,6 +131,9 @@ export function ServiceBottomSheet({
     [stageConfig, offsetPercent]
   );
 
+  // Initial index: expanded (1) for non-discovery stages, collapsed (0) for discovery
+  const initialIndex = currentStage === "discovery" ? 0 : 1;
+
   // ═══════════════ ANIMATED STYLES ═══════════════
   // Collapsed content visibility (show when index < 0.5)
   const collapsedStyle = useAnimatedStyle(() => ({
@@ -253,7 +256,7 @@ export function ServiceBottomSheet({
     <BottomSheet
       ref={bottomSheetRef}
       snapPoints={snapPoints}
-      index={0}
+      index={initialIndex}
       animatedIndex={animatedIndex}
       enableDynamicSizing={false}
       enablePanDownToClose={false}

@@ -76,6 +76,8 @@ export function MechanicSelectionContent({
   const prevBookingStage = useBookingStore((state) => state.prevBookingStage);
   const setBookingTypeAndProceed = useBookingStore((state) => state.setBookingTypeAndProceed);
   const setScheduledAppointment = useBookingStore((state) => state.setScheduledAppointment);
+  const setBookingStage = useBookingStore((state) => state.setBookingStage);
+  const setSkippedBookingDetails = useBookingStore((state) => state.setSkippedBookingDetails);
 
   // Memoize selected services to prevent re-renders
   const selectedServices = useMemo(
@@ -184,7 +186,7 @@ export function MechanicSelectionContent({
       const displayDate = `${targetDate.getDate()} ${months[targetDate.getMonth()]} ${targetDate.getFullYear()}`;
       const isoDate = targetDate.toISOString().split("T")[0];
 
-      // Set appointment in store and navigate directly to booking details
+      // Set appointment in store
       setBookingTypeAndProceed("schedule_later", mechanicId);
       setScheduledAppointment({
         date: isoDate,
@@ -192,10 +194,13 @@ export function MechanicSelectionContent({
         displayDate,
       });
 
-      // router.push(`/home/mechanic/${mechanicId}/booking-details`);
+      // Go directly to payment screen (skip booking details)
+      setSkippedBookingDetails(true);
+      setBookingStage("payment", "forward");
+
       onSelectMechanic?.();
     },
-    [router, onSelectMechanic, setBookingTypeAndProceed, setScheduledAppointment]
+    [router, onSelectMechanic, setBookingTypeAndProceed, setScheduledAppointment, setBookingStage, setSkippedBookingDetails]
   );
 
   const handleScheduleLater = useCallback(

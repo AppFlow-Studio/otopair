@@ -67,6 +67,8 @@ interface BookingState {
   bookingType: BookingType | null;
   /** Scheduled appointment date/time */
   scheduledAppointment: ScheduledAppointment | null;
+  /** Whether booking_details was skipped (direct to payment via "Book Now") */
+  skippedBookingDetails: boolean;
 
   // ═══════════════ BOOKING STATE ═══════════════
   /** All bookings indexed by ID */
@@ -115,6 +117,8 @@ interface BookingState {
   setBookingTypeAndProceed: (type: BookingType, mechanicId: number) => void;
   /** Set the scheduled appointment date/time */
   setScheduledAppointment: (appointment: ScheduledAppointment | null) => void;
+  /** Set whether booking details was skipped */
+  setSkippedBookingDetails: (skipped: boolean) => void;
   /** Reset booking flow to initial state */
   resetBookingFlow: () => void;
 
@@ -274,6 +278,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   selectedMechanicId: null,
   bookingType: null,
   scheduledAppointment: null,
+  skippedBookingDetails: false,
   bookings: {},
   bookingIds: [],
   draftBooking: null,
@@ -386,6 +391,11 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       scheduledAppointment: appointment,
     }),
 
+  setSkippedBookingDetails: (skipped) =>
+    set({
+      skippedBookingDetails: skipped,
+    }),
+
   resetBookingFlow: () =>
     set({
       bookingStage: "discovery",
@@ -395,6 +405,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       selectedServiceCategory: null,
       bookingType: null,
       scheduledAppointment: null,
+      skippedBookingDetails: false,
       draftBooking: null,
     }),
 

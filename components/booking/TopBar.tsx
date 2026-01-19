@@ -14,8 +14,11 @@
  *   - selectedServicesText (string): Text showing selected services (truncated) [optional]
  *   - shopName (string): Shop/business name for booking details [optional]
  *   - onFilterSelect ((filter: FilterOption) => void): Called when filter selected [optional]
- *   - onServiceSelect ((service: ServiceCategory) => void): Called when service tab selected [optional]
- *   - selectedService (ServiceCategory | null): Currently selected service category [optional]
+ *   - searchQuery (string): Current search query value [optional]
+ *   - onSearchChange ((text: string) => void): Called when search query changes [optional]
+ *   - onSearchSubmit (() => void): Called when search is submitted [optional]
+ *   - activeFilters (string[]): Active filters from search bar (displayed as removable chips) [optional]
+ *   - onRemoveFilter ((filter: string) => void): Called when a filter chip is removed [optional]
  *   - onMechanicFilterSelect ((filter: MechanicFilterOption) => void): Called when mechanic filter selected [optional]
  *   - selectedMechanicFilter (MechanicFilterOption): Currently selected mechanic filter [optional]
  *   - sheetAnimatedIndex (SharedValue<number>): Animated index from bottom sheet [optional]
@@ -23,8 +26,10 @@
  * EXAMPLE:
  *   <TopBar
  *     location="New York, NY"
- *     mechanicsCount={3}
- *     onFilterSelect={(filter) => console.log(filter)}
+ *     searchQuery=""
+ *     onSearchChange={(text) => setSearchQuery(text)}
+ *     activeFilters={["Oil Change"]}
+ *     onRemoveFilter={(filter) => console.log("Removed:", filter)}
  *   />
  *
  * OWNER: Waleed Mansour
@@ -46,7 +51,7 @@ import { BrandColors, GhostButton, Spacing, Text } from "@/components/shared-ui"
 
 // 4. Flow-specific components
 import { FilterDropdown } from "./shared";
-import { DiscoveryTabs, MechanicTabs, type MechanicFilterOption } from "./topbars";
+import { DynamicFilterChips, MechanicTabs, SearchBar, type MechanicFilterOption } from "./topbars";
 
 // 5. Constants, hooks, types, stores
 import { AnimationDuration } from "@/constants/animations";
@@ -74,10 +79,16 @@ export interface TopBarProps {
   shopName?: string;
   /** Called when a filter option is selected */
   onFilterSelect?: (filter: FilterOption) => void;
-  /** Called when a service category tab is selected */
-  onServiceSelect?: (service: ServiceCategory) => void;
-  /** Currently selected service category */
-  selectedService?: ServiceCategory | null;
+  /** Current search query value */
+  searchQuery?: string;
+  /** Called when the search query changes */
+  onSearchChange?: (text: string) => void;
+  /** Called when search is submitted */
+  onSearchSubmit?: () => void;
+  /** Active filters from search bar (displayed as removable chips) */
+  activeFilters?: string[];
+  /** Called when a filter chip is removed */
+  onRemoveFilter?: (filter: string) => void;
   /** Called when a mechanic filter tab is selected */
   onMechanicFilterSelect?: (filter: MechanicFilterOption) => void;
   /** Currently selected mechanic filter */
@@ -96,8 +107,11 @@ export function TopBar({
   selectedServicesText = "",
   shopName = "",
   onFilterSelect,
-  onServiceSelect,
-  selectedService,
+  searchQuery = "",
+  onSearchChange,
+  onSearchSubmit,
+  activeFilters = [],
+  onRemoveFilter,
   onMechanicFilterSelect,
   selectedMechanicFilter,
   sheetAnimatedIndex,
@@ -217,12 +231,24 @@ export function TopBar({
         )}
       </View>
 
-      {/* Bottom Tabs - Stage-specific with crossfade transitions */}
+      {/* Search Bar - Discovery mode */}
       {isDiscoveryMode && (
         <Animated.View entering={crossfadeEntering} exiting={crossfadeExiting}>
-          <DiscoveryTabs
-            onServiceSelect={onServiceSelect}
-            selectedService={selectedService}
+          <SearchBar
+            value={searchQuery}
+            onChangeText={onSearchChange ?? (() => {})}
+            onSubmit={onSearchSubmit}
+            sheetAnimatedIndex={sheetAnimatedIndex}
+          />
+        </Animated.View>
+      )}
+
+      {/* Active Filter Chips - Discovery mode when filters are active */}
+      {isDiscoveryMode && activeFilters.length > 0 && (
+        <Animated.View entering={crossfadeEntering} exiting={crossfadeExiting}>
+          <DynamicFilterChips
+            filters={activeFilters}
+            onRemoveFilter={onRemoveFilter}
             sheetAnimatedIndex={sheetAnimatedIndex}
           />
         </Animated.View>
