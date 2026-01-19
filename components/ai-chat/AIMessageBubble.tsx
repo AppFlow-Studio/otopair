@@ -36,6 +36,7 @@ import Animated, {
   withTiming,
   withSequence,
 } from 'react-native-reanimated';
+import { Image } from 'expo-image';
 import { Copy, Volume2, ThumbsUp, ThumbsDown, Check } from 'lucide-react-native';
 
 // 3. Shared UI (design system)
@@ -65,6 +66,8 @@ export interface AIMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp?: string;
+  // Attached images (URIs)
+  images?: string[];
   // Enhanced properties
   reasoning?: ReasoningStep[];
   sources?: Source[];
@@ -318,16 +321,36 @@ export function AIMessageBubble({
 
   // User message - clean pill style, no avatar
   if (isUser) {
+    const hasImages = message.images && message.images.length > 0;
+    
     return (
       <Animated.View 
         style={styles.userContainer}
         entering={FadeIn.duration(200)}
       >
-        <View style={styles.userBubble}>
-          <Text style={styles.userMessageText}>
-            {message.content}
-          </Text>
-        </View>
+        {/* Attached Images */}
+        {hasImages && (
+          <View style={styles.userImagesContainer}>
+            {message.images!.map((uri, index) => (
+              <Image 
+                key={`${message.id}-img-${index}`}
+                source={{ uri }} 
+                style={styles.userAttachedImage}
+                contentFit="cover"
+                transition={150}
+              />
+            ))}
+          </View>
+        )}
+        
+        {/* Message Text (only if there's content beyond the default) */}
+        {message.content && message.content !== "Here's an image for you to analyze" && (
+          <View style={styles.userBubble}>
+            <Text style={styles.userMessageText}>
+              {message.content}
+            </Text>
+          </View>
+        )}
       </Animated.View>
     );
   }
@@ -430,8 +453,8 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   userContainer: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
+    flexDirection: 'column',
+    alignItems: 'flex-end',
     marginBottom: Spacing.md,
     paddingHorizontal: Spacing.md,
   },
@@ -450,6 +473,20 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.sm + 2,
     paddingHorizontal: Spacing.lg,
     maxWidth: '80%',
+  },
+  // User attached images
+  userImagesContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+    gap: Spacing.xs,
+    marginBottom: Spacing.xs,
+    maxWidth: '80%',
+  },
+  userAttachedImage: {
+    width: 120,
+    height: 120,
+    borderRadius: 12,
   },
   messageText: {
     color: BrandColors.primary,

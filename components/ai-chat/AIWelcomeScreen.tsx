@@ -206,6 +206,8 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: Spacing.xl,
     alignItems: 'center',
+    justifyContent: 'flex-end',
+    paddingBottom: Spacing.xl,
   },
   // Logo
   logoContainer: {

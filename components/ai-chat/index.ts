@@ -18,6 +18,8 @@
  *   - AIBookingCarousel - Mechanic booking carousel
  *   - AIWelcomeScreen - Welcome/disclaimer screen
  *   - AIChatHistory - Chat history sidebar
+ *   - AIAttachmentPanel - Discord-style attachment picker panel
+ *   - AISelectedImages - Selected images preview with remove buttons
  *
  * OWNER: Waleed Mansour
  */
@@ -32,6 +34,8 @@ export { AIInputBox } from "./AIInputBox";
 export { AITypingIndicator } from "./AITypingIndicator";
 export { AIChatHistory } from "./AIChatHistory";
 export { AIToast } from "./AIToast";
+export { AIAttachmentPanel } from "./AIAttachmentPanel";
+export { AISelectedImages } from "./AISelectedImages";
 
 // ============================================================================
 // PROMPT-KIT INSPIRED COMPONENTS

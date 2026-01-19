@@ -71,6 +71,12 @@ interface AIInputBoxProps {
   isTranscribing?: boolean;
   meteringValue?: number;
   transcript?: string;
+  /** Whether attachment panel is open */
+  isAttachmentOpen?: boolean;
+  /** Callback when plus button is pressed to toggle attachment panel */
+  onToggleAttachment?: () => void;
+  /** Whether there are images selected (enables send without text) */
+  hasImages?: boolean;
 }
 
 // ============================================================================
@@ -261,6 +267,9 @@ export function AIInputBox({
   isTranscribing = false,
   meteringValue = -160,
   transcript = '',
+  isAttachmentOpen = false,
+  onToggleAttachment,
+  hasImages = false,
 }: AIInputBoxProps) {
   const showRecordingUI = isRecording || isTranscribing;
   const inputRef = useRef<TextInput>(null);
@@ -270,20 +279,31 @@ export function AIInputBox({
   // Animation values
   const sendButtonScale = useSharedValue(0);
   const sendButtonOpacity = useSharedValue(0);
+  const plusRotation = useSharedValue(0);
 
   const hasText = value.trim().length > 0;
-  const canSend = hasText && !isLoading && !disabled;
+  // Allow sending if there's text OR images
+  const canSend = (hasText || hasImages) && !isLoading && !disabled;
 
-  // Animate send button visibility
+  // Animate send button visibility (show when there's text OR images)
   useEffect(() => {
-    if (hasText) {
+    if (hasText || hasImages) {
       sendButtonScale.value = withSpring(1, SPRING_CONFIG);
       sendButtonOpacity.value = withTiming(1, TIMING_CONFIG);
     } else {
       sendButtonScale.value = withSpring(0, SPRING_CONFIG);
       sendButtonOpacity.value = withTiming(0, TIMING_CONFIG);
     }
-  }, [hasText]);
+  }, [hasText, hasImages]);
+
+  // Animate plus button rotation when attachment panel opens/closes
+  useEffect(() => {
+    plusRotation.value = withSpring(isAttachmentOpen ? 45 : 0, {
+      damping: 15,
+      stiffness: 300,
+      mass: 0.6,
+    });
+  }, [isAttachmentOpen]);
 
   // Handle content size changes for auto-expand/shrink
   const handleContentSizeChange = useCallback((event: any) => {
@@ -329,6 +349,11 @@ export function AIInputBox({
     ],
   }));
 
+  // Animated style for plus button rotation (rotates 45deg to become X)
+  const plusButtonAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${plusRotation.value}deg` }],
+  }));
+
   return (
     <View style={styles.container}>
       <View style={[
@@ -344,11 +369,11 @@ export function AIInputBox({
                 styles.plusBtn,
                 pressed && styles.btnPressed,
               ]}
-              onPress={() => {
-                // TODO: Open attachment menu
-              }}
+              onPress={onToggleAttachment}
             >
-              <Plus size={20} color="#9CA3AF" strokeWidth={2} />
+              <Animated.View style={plusButtonAnimatedStyle}>
+                <Plus size={20} color={isAttachmentOpen ? BrandColors.secondary : "#9CA3AF"} strokeWidth={2} />
+              </Animated.View>
             </Pressable>
           ) : (
             <View style={styles.recordingIndicator}>
