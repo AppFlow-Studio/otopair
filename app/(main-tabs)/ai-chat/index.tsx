@@ -1,7 +1,7 @@
 /**
  * AIChatScreen
  *
- * PURPOSE: Main screen for Otopair AI diagnostic assistant with ChatGPT-style chat interface
+ * PURPOSE: Main screen for OtoPair AI diagnostic assistant with ChatGPT-style chat interface
  *
  * USED IN: app/(main-tabs)/ai-chat/_layout.tsx (tab navigation)
  *
@@ -47,12 +47,16 @@ import {
   AIBookingCarousel,
   AIWelcomeScreen,
   AIServicePicker,
+  AIToast,
   type AIMessage,
   type Suggestion,
   type QuickReply,
   type ServiceOption,
   type SelectedTimeSlot,
 } from "@/components/ai-chat";
+
+// 6. Voice recording hook
+import { useVoiceRecording } from "@/hooks/useVoiceRecording";
 
 // 5. Constants, hooks, types, stores
 import { BrandColors, Spacing, FontFamily } from "@/constants/theme";
@@ -104,6 +108,26 @@ export default function AIChatScreen() {
   const [inputValue, setInputValue] = useState("");
   const [showHistory, setShowHistory] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  
+  // Toast state
+  const [toastMessage, setToastMessage] = useState("");
+  const [toastVisible, setToastVisible] = useState(false);
+  
+  const showToast = useCallback((message: string) => {
+    setToastMessage(message);
+    setToastVisible(true);
+  }, []);
+
+  // Voice recording hook
+  const {
+    isRecording,
+    isTranscribing,
+    transcript,
+    meteringValue,
+    startRecording,
+    stopRecording,
+    cancelRecording,
+  } = useVoiceRecording();
 
   // Animated bottom padding for smooth keyboard transitions
   const animatedBottomPadding = useSharedValue(bottomPadding);
@@ -154,6 +178,86 @@ export default function AIChatScreen() {
       scrollViewRef.current?.scrollToEnd({ animated: true });
     }, 300); // Small delay to ensure keyboard animation starts
   }, []);
+
+  // Handle microphone press in - start recording
+  const handleMicPressIn = useCallback(async () => {
+    if (isProcessing) return;
+    await startRecording();
+  }, [isProcessing, startRecording]);
+
+  // Handle microphone press out - stop recording and get transcription
+  const handleMicPressOut = useCallback(async () => {
+    const transcription = await stopRecording();
+    if (transcription) {
+      setInputValue(transcription);
+      // Auto-send the transcribed message after a brief delay
+      setTimeout(() => {
+        if (transcription.trim()) {
+          // Set input and trigger send
+          setInputValue("");
+          setIsProcessing(true);
+
+          // Process with scenario engine
+          const { newState, response } = processUserMessage(state, transcription);
+
+          // Add user message immediately
+          const updatedState = {
+            ...state,
+            messages: newState.messages,
+            currentStage: newState.currentStage,
+            currentScenario: newState.currentScenario,
+            selectedPriority: newState.selectedPriority,
+            selectedShop: newState.selectedShop,
+            selectedTime: newState.selectedTime,
+          };
+          setState(updatedState);
+
+          // Simulate AI "thinking" delay
+          setTimeout(() => {
+            // Create AI response message
+            const aiMessage: ChatMessage = {
+              id: `ai_${Date.now()}`,
+              role: "assistant",
+              content: response.message,
+              timestamp: new Date().toISOString(),
+              reasoning: response.reasoning,
+              sources: response.sources,
+              quickReplies: response.quickReplies,
+              sections: response.sections,
+              shops: response.shops,
+              showServicePicker: response.showServicePicker,
+              stage: response.nextStage,
+              isStreaming: true,
+            };
+
+            setState((prevState) => {
+              const newState = {
+                ...prevState,
+                messages: [...prevState.messages, aiMessage],
+                suggestions: response.suggestions,
+                currentStage: response.nextStage,
+              };
+              queueMicrotask(() => saveCurrentConversation(newState));
+              return newState;
+            });
+
+            // Stop streaming after animation
+            setTimeout(() => {
+              setState((prev) => {
+                const finalState = {
+                  ...prev,
+                  messages: prev.messages.map((m) => (m.id === aiMessage.id ? { ...m, isStreaming: false } : m)),
+                };
+                setTimeout(() => saveCurrentConversation(finalState), 0);
+                return finalState;
+              });
+              setIsProcessing(false);
+            }, response.message.length * 30);
+          }, 1500);
+        }
+      }, 300);
+    }
+  }, [stopRecording, state, saveCurrentConversation]);
 
   // Handle sending a message
   const handleSend = useCallback(() => {
@@ -480,11 +584,11 @@ export default function AIChatScreen() {
   const handleCopy = useCallback(async (content: string) => {
     try {
       await Clipboard.setStringAsync(content);
-      Alert.alert("Copied", "Message copied to clipboard");
+      showToast("Message copied");
     } catch (error) {
       console.error("Copy error:", error);
     }
-  }, []);
+  }, [showToast]);
 
   // Handle speak message
   const handleSpeak = useCallback((content: string) => {
@@ -492,16 +596,17 @@ export default function AIChatScreen() {
       language: "en-US",
       rate: 1.0,
     });
-  }, []);
+    showToast("Playing audio...");
+  }, [showToast]);
 
   // Handle feedback
   const handleLike = useCallback(() => {
-    Alert.alert("Thanks!", "Your feedback helps us improve.");
-  }, []);
+    showToast("Thank you for your feedback!");
+  }, [showToast]);
 
   const handleDislike = useCallback(() => {
-    Alert.alert("Thanks!", "Your feedback helps us improve.");
-  }, []);
+    showToast("Thank you for your feedback!");
+  }, [showToast]);
 
   // Start new chat
   const startNewChat = useCallback(() => {
@@ -547,7 +652,7 @@ export default function AIChatScreen() {
         </Pressable>
 
         <Text style={styles.headerTitle} size="lg" weight="semiBold">
-          Otopair AI
+          OtoPair AI
         </Text>
 
         <Pressable
@@ -631,6 +736,12 @@ export default function AIChatScreen() {
             isLoading={isProcessing}
             disabled={isProcessing}
             onFocus={handleInputFocus}
+            onMicPressIn={handleMicPressIn}
+            onMicPressOut={handleMicPressOut}
+            isRecording={isRecording}
+            isTranscribing={isTranscribing}
+            meteringValue={meteringValue}
+            transcript={transcript}
           />
         </Animated.View>
       </KeyboardAvoidingView>
@@ -641,6 +752,13 @@ export default function AIChatScreen() {
         onClose={() => setShowHistory(false)}
         conversations={conversations}
         onSelectConversation={handleSelectConversation}
+      />
+
+      {/* Toast Notification */}
+      <AIToast
+        message={toastMessage}
+        visible={toastVisible}
+        onDismiss={() => setToastVisible(false)}
       />
     </View>
   );

@@ -241,21 +241,21 @@ function ServiceItem({
 
   return (
     <Animated.View
-      style={animatedStyle}
       entering={FadeInUp.delay(index * 40).duration(200)}
     >
-      <Pressable
-        onPress={onToggle}
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
-        disabled={disabled}
-        style={({ pressed }) => [
-          styles.serviceItem,
-          selected && styles.serviceItemSelected,
-          pressed && !disabled && styles.serviceItemPressed,
-          disabled && styles.serviceItemDisabled,
-        ]}
-      >
+      <Animated.View style={animatedStyle}>
+        <Pressable
+          onPress={onToggle}
+          onPressIn={handlePressIn}
+          onPressOut={handlePressOut}
+          disabled={disabled}
+          style={({ pressed }) => [
+            styles.serviceItem,
+            selected && styles.serviceItemSelected,
+            pressed && !disabled && styles.serviceItemPressed,
+            disabled && styles.serviceItemDisabled,
+          ]}
+        >
         {/* Service Info */}
         <View style={styles.serviceInfo}>
           <Text style={[styles.serviceName, selected && styles.serviceNameSelected]} weight="semiBold">
@@ -279,8 +279,9 @@ function ServiceItem({
         {/* Selection Indicator */}
         <View style={[styles.selectionCircle, selected && styles.selectionCircleSelected]}>
           {selected && <Check size={12} color={BrandColors.white} strokeWidth={3} />}
-        </View>
-      </Pressable>
+          </View>
+        </Pressable>
+      </Animated.View>
     </Animated.View>
   );
 }

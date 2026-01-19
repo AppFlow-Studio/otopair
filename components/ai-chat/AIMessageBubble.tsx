@@ -30,8 +30,13 @@ import { View, StyleSheet, Pressable } from 'react-native';
 // 2. Expo & Third-party
 import Animated, {
   FadeIn,
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+  withSequence,
 } from 'react-native-reanimated';
-import { Copy, Volume2, ThumbsUp, ThumbsDown } from 'lucide-react-native';
+import { Copy, Volume2, ThumbsUp, ThumbsDown, Check } from 'lucide-react-native';
 
 // 3. Shared UI (design system)
 import { Text } from '@/components/shared-ui';
@@ -151,22 +156,62 @@ function SectionView({ section }: { section: MessageSection }) {
 }
 
 // ============================================================================
-// ACTION BUTTON COMPONENT
+// ACTION BUTTON COMPONENT WITH ANIMATION
 // ============================================================================
 
 function ActionButton({
   icon,
+  activeIcon,
+  isActive,
   onPress,
 }: {
   icon: React.ReactNode;
+  activeIcon?: React.ReactNode;
+  isActive?: boolean;
   onPress?: () => void;
 }) {
+  const scale = useSharedValue(1);
+  const bgOpacity = useSharedValue(0);
+
+  // Animate when active state changes
+  useEffect(() => {
+    if (isActive) {
+      // Subtle pop animation - no bounce
+      scale.value = withSequence(
+        withTiming(1.15, { duration: 100 }),
+        withTiming(1, { duration: 100 })
+      );
+      bgOpacity.value = withTiming(1, { duration: 150 });
+    } else {
+      bgOpacity.value = withTiming(0, { duration: 100 });
+    }
+  }, [isActive]);
+
+  const handlePressIn = () => {
+    scale.value = withTiming(0.9, { duration: 80 });
+  };
+
+  const handlePressOut = () => {
+    scale.value = withTiming(1, { duration: 80 });
+  };
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  const bgStyle = useAnimatedStyle(() => ({
+    backgroundColor: `rgba(59, 130, 246, ${bgOpacity.value * 0.12})`,
+  }));
+
   return (
     <Pressable
-      style={({ pressed }) => [styles.actionBtn, pressed && styles.actionBtnPressed]}
       onPress={onPress}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
     >
-      {icon}
+      <Animated.View style={[styles.actionBtn, animatedStyle, bgStyle]}>
+        {isActive && activeIcon ? activeIcon : icon}
+      </Animated.View>
     </Pressable>
   );
 }
@@ -213,6 +258,38 @@ export function AIMessageBubble({
   // State to track if we should show the main content
   // Content is hidden while reasoning is being displayed
   const [showContent, setShowContent] = useState(!hasReasoning || !isStreaming);
+  
+  // State to track action button feedback
+  const [isCopied, setIsCopied] = useState(false);
+  const [feedback, setFeedback] = useState<'like' | 'dislike' | null>(null);
+  
+  // Handle copy with visual feedback
+  const handleCopy = () => {
+    setIsCopied(true);
+    onCopy?.();
+    // Reset after 2 seconds
+    setTimeout(() => setIsCopied(false), 2000);
+  };
+  
+  // Handle like with visual feedback
+  const handleLike = () => {
+    if (feedback === 'like') {
+      setFeedback(null); // Toggle off
+    } else {
+      setFeedback('like');
+      onLike?.();
+    }
+  };
+  
+  // Handle dislike with visual feedback (toggleable)
+  const handleDislike = () => {
+    if (feedback === 'dislike') {
+      setFeedback(null); // Toggle off
+    } else {
+      setFeedback('dislike');
+      onDislike?.();
+    }
+  };
   
   // Calculate and wait for reasoning to complete before showing content
   useEffect(() => {
@@ -311,10 +388,28 @@ export function AIMessageBubble({
         {showContent && !isStreaming && (
           <View style={styles.actionsContainer}>
             <View style={styles.actionButtons}>
-              <ActionButton icon={<Copy size={14} color="#9CA3AF" />} onPress={onCopy} />
-              <ActionButton icon={<Volume2 size={14} color="#9CA3AF" />} onPress={onSpeak} />
-              <ActionButton icon={<ThumbsUp size={14} color="#9CA3AF" />} onPress={onLike} />
-              <ActionButton icon={<ThumbsDown size={14} color="#9CA3AF" />} onPress={onDislike} />
+              <ActionButton 
+                icon={<Copy size={14} color="#9CA3AF" />} 
+                activeIcon={<Check size={14} color={BrandColors.secondary} />}
+                isActive={isCopied}
+                onPress={handleCopy} 
+              />
+              <ActionButton 
+                icon={<Volume2 size={14} color="#9CA3AF" />} 
+                onPress={onSpeak} 
+              />
+              <ActionButton 
+                icon={<ThumbsUp size={14} color="#9CA3AF" />} 
+                activeIcon={<ThumbsUp size={14} color={BrandColors.secondary} fill={BrandColors.secondary} />}
+                isActive={feedback === 'like'}
+                onPress={handleLike} 
+              />
+              <ActionButton 
+                icon={<ThumbsDown size={14} color="#9CA3AF" />} 
+                activeIcon={<ThumbsDown size={14} color={BrandColors.secondary} fill={BrandColors.secondary} />}
+                isActive={feedback === 'dislike'}
+                onPress={handleDislike} 
+              />
             </View>
           </View>
         )}
@@ -426,8 +521,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     borderRadius: BorderRadius.sm,
-  },
-  actionBtnPressed: {
-    backgroundColor: 'rgba(0, 0, 0, 0.05)',
   },
 });

@@ -111,29 +111,30 @@ function SuggestionChip({
 
   return (
     <Animated.View
-      style={animatedStyle}
       entering={FadeInUp.delay(400 + index * 80).duration(300)}
     >
-      <Pressable
-        onPress={onPress}
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
-        style={({ pressed }) => [
-          styles.suggestionChip,
-          pressed && styles.suggestionChipPressed,
-        ]}
-      >
-        <Text style={styles.suggestionTitle} weight="semiBold">
-          {suggestion.text}
-        </Text>
-        {suggestion.subtitle && (
-          <Text style={styles.suggestionSubtitle}>
-            {suggestion.subtitle}
+      <Animated.View style={animatedStyle}>
+        <Pressable
+          onPress={onPress}
+          onPressIn={handlePressIn}
+          onPressOut={handlePressOut}
+          style={({ pressed }) => [
+            styles.suggestionChip,
+            pressed && styles.suggestionChipPressed,
+          ]}
+        >
+          <Text style={styles.suggestionTitle} weight="semiBold">
+            {suggestion.text}
           </Text>
-        )}
-      </Pressable>
-    </Animated.View>
-  );
+            {suggestion.subtitle && (
+              <Text style={styles.suggestionSubtitle}>
+                {suggestion.subtitle}
+              </Text>
+            )}
+          </Pressable>
+        </Animated.View>
+      </Animated.View>
+    );
 }
 
 // ============================================================================
@@ -203,7 +204,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   suggestionsContainer: {
-    paddingBottom: Spacing.md,
+    paddingBottom: Spacing.xs,
   },
   suggestionsScroll: {
     paddingHorizontal: Spacing.lg,
