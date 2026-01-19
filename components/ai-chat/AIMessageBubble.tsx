@@ -39,6 +39,7 @@ import { Text } from '@/components/shared-ui';
 // 4. Flow-specific components
 import { AIReasoning, type ReasoningStep } from './AIReasoning';
 import { AISources, type Source } from './AISources';
+import { AITypingIndicator } from './AITypingIndicator';
 import type { QuickReply } from './AIQuickReplies';
 
 // 5. Constants, hooks, types
@@ -262,6 +263,11 @@ export function AIMessageBubble({
     >
       {/* Message Content - Left aligned, no avatar */}
       <View style={styles.contentWrapper}>
+        {/* Thinking Indicator - Above reasoning when streaming */}
+        {isStreaming && hasReasoning && (
+          <AITypingIndicator />
+        )}
+
         {/* Reasoning Section (AI only) */}
         {hasReasoning && (
           <AIReasoning

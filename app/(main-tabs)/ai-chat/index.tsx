@@ -602,7 +602,12 @@ export default function AIChatScreen() {
                   )}
                 </View>
               ))}
-              {isProcessing && <AITypingIndicator />}
+              {/* Only show typing indicator if not already shown inside message with reasoning */}
+              {isProcessing && !state.messages.some(m => m.role === 'assistant' && m.reasoning && m.reasoning.length > 0 && m.isStreaming) && (
+                <View style={styles.typingIndicatorWrapper}>
+                  <AITypingIndicator />
+                </View>
+              )}
             </>
           )}
         </ScrollView>
@@ -693,6 +698,9 @@ const styles = StyleSheet.create({
   },
   carouselContainer: {
     marginBottom: Spacing.md,
+  },
+  typingIndicatorWrapper: {
+    paddingHorizontal: Spacing.lg,
   },
   servicePickerContainer: {
     marginHorizontal: Spacing.md,
