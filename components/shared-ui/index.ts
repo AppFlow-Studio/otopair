@@ -65,6 +65,11 @@ export {
     GlassCircleButton
 } from './GlassCircleButton';
 
+// Bottom Sheet Modal
+export {
+    AppBottomSheetModal
+} from './AppBottomSheetModal';
+
 // Text Components
 export {
     Body, H1,

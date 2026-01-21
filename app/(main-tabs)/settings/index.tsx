@@ -582,7 +582,7 @@ export default function SettingsHomeScreen() {
                     <SettingsListItem
                       icon={<HelpCircle size={20} color="#1F2937" />}
                       label="FAQ"
-                      onPress={() => console.log('FAQ')}
+                      onPress={() => router.push('/settings/faq')}
                     />
                     <SettingsListItem
                       icon={<MessageSquare size={20} color="#1F2937" />}
