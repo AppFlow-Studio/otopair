@@ -15,10 +15,11 @@
 
 // 1. React & React Native
 import React, { useCallback, useMemo, useRef } from "react";
-import { ScrollView, StyleSheet, View } from "react-native";
+import { ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Expo & Third-party
 import { useLocalSearchParams, useRouter } from "expo-router";
+import { ChevronLeft, MapPin, Star } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 3. Shared UI (design system)
@@ -109,10 +110,20 @@ export default function ShopDetailScreen() {
     [shopId, addRecentShop, setBookingTypeAndProceed, router]
   );
 
+  // ═══════════════ HANDLERS ═══════════════
+  const handleBack = useCallback(() => {
+    router.back();
+  }, [router]);
+
   // ═══════════════ RENDER ═══════════════
   if (!shop) {
     return (
       <FullScreenContainer style={styles.container}>
+        <View style={[styles.header, { paddingTop: insets.top + Spacing.md }]}>
+          <TouchableOpacity style={styles.backButton} onPress={handleBack} activeOpacity={0.7}>
+            <ChevronLeft size={24} color={BrandColors.primary} />
+          </TouchableOpacity>
+        </View>
         <View style={styles.errorContainer}>
           <Text size="lg" weight="medium" color={BrandColors.primary}>
             Shop not found
@@ -132,6 +143,34 @@ export default function ShopDetailScreen() {
         ]}
         showsVerticalScrollIndicator={false}
       >
+        {/* Shop Header */}
+        <View style={styles.shopHeader}>
+          <TouchableOpacity style={styles.backButton} onPress={handleBack} activeOpacity={0.7}>
+            <ChevronLeft size={24} color={BrandColors.primary} />
+          </TouchableOpacity>
+          <View style={styles.shopInfo}>
+            <Text size="xl" weight="bold" color={BrandColors.primary} numberOfLines={2}>
+              {shop.name}
+            </Text>
+            <View style={styles.shopMeta}>
+              <View style={styles.locationRow}>
+                <MapPin size={14} color="#6B7280" />
+                <Text size="sm" weight="regular" color="#6B7280" numberOfLines={1}>
+                  {shop.address}
+                </Text>
+              </View>
+              {shop.rating && (
+                <View style={styles.ratingRow}>
+                  <Star size={14} color="#F5C254" fill="#F5C254" />
+                  <Text size="sm" weight="semiBold" color={BrandColors.primary}>
+                    {shop.rating.toFixed(1)}
+                  </Text>
+                </View>
+              )}
+            </View>
+          </View>
+        </View>
+
         <ShopDetails
           shopId={shop.id}
           onBookNow={handleBookNow}
@@ -161,6 +200,44 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: Spacing.lg,
+  },
+  header: {
+    paddingHorizontal: Spacing.lg,
+  },
+  shopHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    marginBottom: Spacing.lg,
+    gap: Spacing.md,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  shopInfo: {
+    flex: 1,
+  },
+  shopMeta: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: Spacing.xs,
+    gap: Spacing.lg,
+    flexWrap: "wrap",
+  },
+  locationRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+    flex: 1,
+  },
+  ratingRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
   },
   errorContainer: {
     flex: 1,

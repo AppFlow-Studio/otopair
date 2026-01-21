@@ -14,6 +14,7 @@
 
 import { create } from "zustand";
 import { MOCK_SHOPS } from "./data/mockShops";
+import { MOCK_MECHANICS } from "./data/mockMechanics";
 import type { Shop, ShopFilters } from "./types/store.types";
 
 // ─────────────────────────────────────────────────────────────
@@ -48,6 +49,8 @@ interface ShopState {
   getFilteredShops: () => Shop[];
   /** Get currently selected shop */
   getSelectedShop: () => Shop | undefined;
+  /** Get mechanic count for a specific shop */
+  getMechanicCountByShopId: (shopId: number) => number;
 
   // ═══════════════ ACTIONS ═══════════════
   /** Set shops data (from API) */
@@ -102,6 +105,10 @@ export const useShopStore = create<ShopState>()((set, get) => {
     getSelectedShop: () => {
       const { shops, selectedShopId } = get();
       return selectedShopId ? shops[selectedShopId] : undefined;
+    },
+
+    getMechanicCountByShopId: (shopId) => {
+      return MOCK_MECHANICS.filter((m) => m.shopId === shopId).length;
     },
 
     getFilteredShops: () => {

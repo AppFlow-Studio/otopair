@@ -216,13 +216,20 @@ export function ShopDetails({ shopId, onBookNow, onAddMoreServices, onViewAllAva
     }, []);
 
     // ═══════════════ RENDER ═══════════════
-    // If no mechanics, don't render anything - the parent screen handles navigation
-    if (mechanics.length === 0) {
-        return null;
-    }
-
     return (
         <View style={styles.container}>
+            {/* No Mechanics Message - Show when shop has no mechanics */}
+            {mechanics.length === 0 && (
+                <View style={styles.noMechanicsContainer}>
+                    <Text size="md" weight="semiBold" color="#6B7280" style={styles.noMechanicsText}>
+                        No mechanics are currently available at this shop.
+                    </Text>
+                    <Text size="sm" weight="regular" color="#9CA3AF" style={styles.noMechanicsSubtext}>
+                        Please check back later or try another shop nearby.
+                    </Text>
+                </View>
+            )}
+
             {/* Selected Services Section */}
             <View style={styles.sectionHeader}>
                 <Text size="md" weight="bold" color="#9CA3AF">
@@ -262,17 +269,19 @@ export function ShopDetails({ shopId, onBookNow, onAddMoreServices, onViewAllAva
                 )}
             </View>
 
-            {/* Mechanics Section */}
-            <View style={styles.header}>
-                <Text size="lg" weight="bold" color={BrandColors.primary}>
-                    Available Mechanics & Bays
-                </Text>
-                <Text size="sm" weight="regular" color="#6B7280" style={styles.subtitle}>
-                    Select a mechanic and time slot to book
-                </Text>
-            </View>
+            {/* Mechanics Section - Only show if mechanics exist */}
+            {mechanics.length > 0 && (
+                <>
+                    <View style={styles.header}>
+                        <Text size="lg" weight="bold" color={BrandColors.primary}>
+                            Available Mechanics & Bays
+                        </Text>
+                        <Text size="sm" weight="regular" color="#6B7280" style={styles.subtitle}>
+                            Select a mechanic and time slot to book
+                        </Text>
+                    </View>
 
-            <View style={styles.mechanicsList}>
+                    <View style={styles.mechanicsList}>
                 {mechanicsWithSpecialties.map((mechanic) => {
                     const selectedSlotIndex = selectedSlots[mechanic.id] ?? null;
 
@@ -403,7 +412,9 @@ export function ShopDetails({ shopId, onBookNow, onAddMoreServices, onViewAllAva
                         </View>
                     );
                 })}
-            </View>
+                    </View>
+                </>
+            )}
 
             {/* Discard Service Modal - Uses React Native Modal which has built-in portal behavior */}
             <DiscardServiceModal
@@ -422,6 +433,20 @@ export function ShopDetails({ shopId, onBookNow, onAddMoreServices, onViewAllAva
 const styles = StyleSheet.create({
     container: {
         paddingVertical: Spacing.lg,
+    },
+    noMechanicsContainer: {
+        backgroundColor: "#F9FAFB",
+        borderRadius: BorderRadius.xl,
+        padding: Spacing.xl,
+        marginBottom: Spacing.xl,
+        alignItems: "center",
+    },
+    noMechanicsText: {
+        textAlign: "center",
+        marginBottom: Spacing.sm,
+    },
+    noMechanicsSubtext: {
+        textAlign: "center",
     },
     sectionHeader: {
         marginBottom: Spacing.md,
