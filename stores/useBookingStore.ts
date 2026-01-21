@@ -37,6 +37,12 @@ interface BookingState {
   /** Whether location is being fetched */
   isLoadingLocation: boolean;
 
+  // ═══════════════ PRE-SELECTION STATE (from search) ═══════════════
+  /** Pre-selected shop ID when coming from search (navigates directly to shop) */
+  preSelectedShopId: number | null;
+  /** Pre-selected service IDs when coming from search */
+  preSelectedServiceIds: string[];
+
   // ═══════════════ SERVICE CATEGORY STATE ═══════════════
   /** Selected service category for service list display (null = no filter) */
   selectedServiceCategory: ServiceCategory | null;
@@ -89,6 +95,14 @@ interface BookingState {
   clearUserLocation: () => void;
   /** Set location loading state */
   setLocationLoading: (loading: boolean) => void;
+
+  // ═══════════════ PRE-SELECTION ACTIONS ═══════════════
+  /** Set pre-selected shop ID (from search) */
+  setPreSelectedShop: (shopId: number | null) => void;
+  /** Set pre-selected service IDs (from search) */
+  setPreSelectedServices: (serviceIds: string[]) => void;
+  /** Clear all pre-selections */
+  clearPreSelections: () => void;
 
   // ═══════════════ SERVICE CATEGORY ACTIONS ═══════════════
   /** Set the selected service category for service list display (null to clear) */
@@ -269,6 +283,8 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   // ═══════════════ INITIAL STATE ═══════════════
   userLocation: DEFAULT_LOCATION,
   isLoadingLocation: false,
+  preSelectedShopId: null,
+  preSelectedServiceIds: [],
   selectedServiceCategory: null, // No service category selected by default
   mapRegion: null,
   availableServices: MOCK_SERVICES,
@@ -306,6 +322,23 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   setLocationLoading: (loading) =>
     set({
       isLoadingLocation: loading,
+    }),
+
+  // ═══════════════ PRE-SELECTION ACTIONS ═══════════════
+  setPreSelectedShop: (shopId) =>
+    set({
+      preSelectedShopId: shopId,
+    }),
+
+  setPreSelectedServices: (serviceIds) =>
+    set({
+      preSelectedServiceIds: serviceIds,
+    }),
+
+  clearPreSelections: () =>
+    set({
+      preSelectedShopId: null,
+      preSelectedServiceIds: [],
     }),
 
   // ═══════════════ SERVICE CATEGORY ACTIONS ═══════════════
@@ -403,6 +436,8 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       selectedServiceIds: [],
       selectedMechanicId: null,
       selectedServiceCategory: null,
+      preSelectedShopId: null,
+      preSelectedServiceIds: [],
       bookingType: null,
       scheduledAppointment: null,
       skippedBookingDetails: false,

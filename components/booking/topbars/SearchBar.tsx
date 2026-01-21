@@ -10,7 +10,7 @@
  */
 
 // 1. React & React Native
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import { StyleSheet, TextInput, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
@@ -45,6 +45,8 @@ export interface SearchBarProps {
   placeholder?: string;
   /** Animated index from bottom sheet */
   sheetAnimatedIndex?: SharedValue<number>;
+  /** Auto-focus the search input on mount */
+  autoFocus?: boolean;
 }
 
 // ============================================================================
@@ -57,7 +59,19 @@ export function SearchBar({
   onSubmit,
   placeholder = "Search for services or mechanics...",
   sheetAnimatedIndex,
+  autoFocus = false,
 }: SearchBarProps) {
+  const inputRef = useRef<TextInput>(null);
+
+  // Auto-focus on mount if requested
+  useEffect(() => {
+    if (autoFocus) {
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 100);
+    }
+  }, [autoFocus]);
+
   // Animation for search bar (sheet-driven: fade out when expanded)
   const searchBarAnimatedStyle = useAnimatedStyle(() => {
     if (!sheetAnimatedIndex) {
@@ -80,6 +94,7 @@ export function SearchBar({
         <View style={styles.searchContainer}>
           <Search size={20} color="#9CA3AF" style={styles.searchIcon} />
           <TextInput
+            ref={inputRef}
             style={styles.searchInput}
             placeholder={placeholder}
             placeholderTextColor="#9CA3AF"

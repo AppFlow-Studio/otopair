@@ -10,7 +10,7 @@ export { BookingMap } from "./map";
 export { MechanicDetailHeader } from "./MechanicDetailHeader";
 export { MechanicDetailTabs, type MechanicDetailTab } from "./MechanicDetailTabs";
 export { MechanicServicesSection } from "./MechanicServicesSection";
-export { MechanicAvailabilityBreakdown } from "./MechanicAvailabilityBreakdown";
+export { ShopDetails } from "./ShopDetails";
 export { MechanicReviewsSection } from "./MechanicReviewsSection";
 export { ShopPortfolioSection } from "./ShopPortfolioSection";
 export { ShopStaffSection } from "./ShopStaffSection";

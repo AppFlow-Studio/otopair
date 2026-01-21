@@ -23,3 +23,6 @@ export type { SearchBarProps } from "./SearchBar";
 
 export { MechanicTabs, type MechanicFilterOption } from "./MechanicTabs";
 export type { MechanicTabsProps } from "./MechanicTabs";
+
+export { SearchSuggestions } from "./SearchSuggestions";
+export type { SearchSuggestionsProps } from "./SearchSuggestions";

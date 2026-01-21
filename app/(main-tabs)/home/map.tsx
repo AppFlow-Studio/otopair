@@ -15,7 +15,9 @@ import React, { useCallback, useMemo, useState } from "react";
 import { StyleSheet, View } from "react-native";
 
 // 2. Third-party libraries
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { SharedValue } from "react-native-reanimated";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 
 // 4. Flow-specific components
@@ -28,10 +30,11 @@ import {
   Shop,
   TopBar,
 } from "@/components/booking";
+import { SearchSuggestions } from "@/components/booking/topbars";
 
 // 5. Constants, hooks, types, stores
 import { AVAILABLE_NOW_FILTER, TOP_RATED_FILTER } from "@/constants/filters";
-import type { FilterOption } from "@/stores/types/store.types";
+import type { FilterOption, ServiceCategory } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useShopStore } from "@/stores/useShopStore";
@@ -48,6 +51,16 @@ const VERTICAL_OFFSET = 55;
 // ============================================================================
 
 export default function BookingsScreen() {
+  // ═══════════════ SAFE AREA ═══════════════
+  const insets = useSafeAreaInsets();
+  
+  // ═══════════════ ROUTER ═══════════════
+  const router = useRouter();
+  const { search } = useLocalSearchParams<{ search?: string }>();
+  
+  // Auto-focus search if navigated with search=true
+  const autoFocusSearch = search === "true";
+
   // ═══════════════ BOOKING STORE ═══════════════
   const userLocation = useBookingStore((state) => state.userLocation);
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
@@ -121,6 +134,18 @@ export default function BookingsScreen() {
     []
   );
 
+  const handleShopDetails = useCallback(
+    (shop: Shop) => {
+      // Close carousel and navigate to shop detail page
+      setIsCarouselVisible(false);
+      setSelectedMapShopId(null);
+      setFocusedShop(null);
+      selectShop(null);
+      router.push(`/home/shop/${shop.id}`);
+    },
+    [selectShop, router]
+  );
+
   const handleMechanicFilterSelect = useCallback((filter: MechanicFilterOption) => {
     setMechanicFilter(filter);
   }, []);
@@ -139,6 +164,54 @@ export default function BookingsScreen() {
     // TODO: Implement search functionality
     console.log("Search submitted:", searchQuery);
   }, [searchQuery]);
+
+  // Search suggestion handlers
+  const handleSearchSelectShop = useCallback(
+    (shopId: number) => {
+      setSearchQuery("");
+      // Find a mechanic at this shop and navigate to mechanic detail page
+      // This shows the full experience with map header, tabs, etc.
+      const getMechanicsByShopId = useMechanicStore.getState().getMechanicsByShopId;
+      const mechanics = getMechanicsByShopId(shopId);
+      if (mechanics.length > 0) {
+        // Navigate to the first mechanic's detail page
+        router.push(`/home/mechanic/${mechanics[0].id}`);
+      } else {
+        // Fallback to shop page if no mechanics found
+        router.push(`/home/shop/${shopId}`);
+      }
+    },
+    [router]
+  );
+
+  const handleSearchSelectService = useCallback(
+    (serviceId: string) => {
+      setSearchQuery("");
+      // Toggle the service selection and it will show in bottom sheet
+      const toggleServiceSelection = useBookingStore.getState().toggleServiceSelection;
+      toggleServiceSelection(serviceId);
+    },
+    []
+  );
+
+  const handleSearchSelectCategory = useCallback(
+    (category: ServiceCategory) => {
+      setSearchQuery("");
+      // Set the category filter - this shows as a chip
+      const setSelectedServiceCategory = useBookingStore.getState().setSelectedServiceCategory;
+      setSelectedServiceCategory(category);
+    },
+    []
+  );
+
+  const handleSearchSelectMechanic = useCallback(
+    (mechanicId: number) => {
+      setSearchQuery("");
+      // Navigate directly to the mechanic detail page
+      router.push(`/home/mechanic/${mechanicId}`);
+    },
+    [router]
+  );
 
   // ═══════════════ COMPUTED VALUES ═══════════════
   const selectedServicesText = useMemo(() => {
@@ -188,8 +261,23 @@ export default function BookingsScreen() {
           onMechanicFilterSelect={handleMechanicFilterSelect}
           selectedMechanicFilter={mechanicFilter}
           sheetAnimatedIndex={sheetAnimatedIndex ?? undefined}
+          autoFocusSearch={autoFocusSearch}
         />
       </View>
+
+      {/* Search Suggestions - Rendered outside TopBar to avoid BlurView clipping */}
+      {(bookingStage === "discovery" || bookingStage === "service_selection") && (
+        <View style={[styles.suggestionsContainer, { top: insets.top + 110 }]}>
+          <SearchSuggestions
+            query={searchQuery}
+            onSelectShop={handleSearchSelectShop}
+            onSelectMechanic={handleSearchSelectMechanic}
+            onSelectService={handleSearchSelectService}
+            onSelectCategory={handleSearchSelectCategory}
+            onSelectionMade={() => setSearchQuery("")}
+          />
+        </View>
+      )}
 
       {/* Bottom Sheet - Uses transition hook internally */}
       {/* Only show ServiceBottomSheet when carousel is not visible */}
@@ -208,6 +296,7 @@ export default function BookingsScreen() {
           selectedShopId={selectedMapShopId}
           onClose={handleCarouselClose}
           onMechanicChange={handleShopFromCarousel}
+          onMechanicSelect={handleShopDetails}
           offsetY={VERTICAL_OFFSET}
         />
       )}
@@ -230,5 +319,12 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     zIndex: 10,
+  },
+  suggestionsContainer: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    zIndex: 20,
+    paddingHorizontal: 16,
   },
 });

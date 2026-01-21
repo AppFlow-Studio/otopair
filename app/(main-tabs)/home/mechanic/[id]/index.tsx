@@ -15,7 +15,7 @@
  */
 
 // 1. React & React Native
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 
 // 2. Expo & Third-party
@@ -35,15 +35,13 @@ import { BorderRadius, BrandColors, ScreenContainer, Shadows, Spacing, Text } fr
 // 4. Flow-specific components
 import { MechanicDetailHeader } from "@/components/booking/MechanicDetailHeader";
 import { MechanicDetailTabs, type MechanicDetailTab } from "@/components/booking/MechanicDetailTabs";
-import { MechanicServicesSection } from "@/components/booking/MechanicServicesSection";
-import { MechanicAvailabilityBreakdown } from "@/components/booking/MechanicAvailabilityBreakdown";
+import { ShopDetails } from "@/components/booking/ShopDetails";
 import { MechanicReviewsSection } from "@/components/booking/MechanicReviewsSection";
 import { ShopPortfolioSection } from "@/components/booking/ShopPortfolioSection";
 import { ShopStaffSection } from "@/components/booking/ShopStaffSection";
-import { AllAvailabilitySheet, type AllAvailabilitySheetRef } from "@/components/booking/sheets/AllAvailabilitySheet";
+import { AddServicesModal, AvailabilityModal } from "@/components/booking/modals";
 
 // 5. Constants, hooks, types, stores
-import type { ScheduledAppointment } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useShopStore } from "@/stores/useShopStore";
@@ -67,18 +65,16 @@ export default function MechanicDetailScreen() {
     const insets = useSafeAreaInsets();
     const { id } = useLocalSearchParams<{ id: string }>();
 
-    // ═══════════════ REFS ═══════════════
-    const allAvailabilityRef = useRef<AllAvailabilitySheetRef>(null);
-
     // ═══════════════ STATE ═══════════════
     const [activeTab, setActiveTab] = useState<MechanicDetailTab>("services");
-    const [pendingScheduleMechanicId, setPendingScheduleMechanicId] = useState<number | null>(null);
+    const [showAddServicesModal, setShowAddServicesModal] = useState(false);
+    const [showAvailabilityModal, setShowAvailabilityModal] = useState(false);
+    const [availabilityMechanicId, setAvailabilityMechanicId] = useState<number | null>(null);
 
     // ═══════════════ STORES ═══════════════
     const getMechanicById = useMechanicStore((state) => state.getMechanicById);
     const getShopById = useShopStore((state) => state.getShopById);
     const setBookingTypeAndProceed = useBookingStore((state) => state.setBookingTypeAndProceed);
-    const setScheduledAppointment = useBookingStore((state) => state.setScheduledAppointment);
     const resetBookingFlow = useBookingStore((state) => state.resetBookingFlow);
 
     // ═══════════════ COMPUTED VALUES ═══════════════
@@ -135,42 +131,6 @@ export default function MechanicDetailScreen() {
         router.back();
     }, [resetBookingFlow, router]);
 
-    const handleViewAllAvailability = useCallback(
-        (mechanicId: number, forScheduleLater: boolean = false) => {
-            if (forScheduleLater) {
-                setPendingScheduleMechanicId(mechanicId);
-            }
-            allAvailabilityRef.current?.open(mechanicId);
-        },
-        []
-    );
-
-    const handleAvailabilityConfirm = useCallback(
-        (date: Date, time: string) => {
-            // Format date as "DD Mon. YYYY"
-            const months = ["Jan.", "Feb.", "Mar.", "Apr.", "May", "Jun.", "Jul.", "Aug.", "Sep.", "Oct.", "Nov.", "Dec."];
-            const displayDate = `${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()}`;
-
-            // Format date as ISO string YYYY-MM-DD
-            const isoDate = date.toISOString().split("T")[0];
-
-            const appointment: ScheduledAppointment = {
-                date: isoDate,
-                time,
-                displayDate,
-            };
-
-            setScheduledAppointment(appointment);
-
-            // If there's a pending schedule mechanic, navigate to booking details
-            if (pendingScheduleMechanicId !== null) {
-                setPendingScheduleMechanicId(null);
-                router.push(`/home/mechanic/${id}/booking-details`);
-            }
-        },
-        [setScheduledAppointment, pendingScheduleMechanicId, router, id]
-    );
-
     const handleBookNow = useCallback(
         (mechanicId: number) => {
             // Since user selected a specific time slot, this is a scheduled booking
@@ -180,14 +140,23 @@ export default function MechanicDetailScreen() {
         [setBookingTypeAndProceed, router, id]
     );
 
-    const handleScheduleLater = useCallback(
-        (mechanicId: number, appointment: ScheduledAppointment) => {
-            setBookingTypeAndProceed("schedule_later", mechanicId);
-            setScheduledAppointment(appointment);
-            router.push(`/home/mechanic/${id}/booking-details`);
-        },
-        [setBookingTypeAndProceed, setScheduledAppointment, router, id]
-    );
+    const handleAddMoreServices = useCallback(() => {
+        setShowAddServicesModal(true);
+    }, []);
+
+    const handleViewAllAvailability = useCallback((mechanicId: number) => {
+        setAvailabilityMechanicId(mechanicId);
+        setShowAvailabilityModal(true);
+    }, []);
+
+    const handleCloseAddServicesModal = useCallback(() => {
+        setShowAddServicesModal(false);
+    }, []);
+
+    const handleCloseAvailabilityModal = useCallback(() => {
+        setShowAvailabilityModal(false);
+        setAvailabilityMechanicId(null);
+    }, []);
 
     // ═══════════════ RENDER ═══════════════
     if (!mechanic || !shop) {
@@ -207,15 +176,12 @@ export default function MechanicDetailScreen() {
         switch (activeTab) {
             case "services":
                 return (
-                    <>
-                        <MechanicServicesSection />
-                        <MechanicAvailabilityBreakdown
-                            shopId={shop.id}
-                            onViewAllAvailability={handleViewAllAvailability}
-                            onBookNow={handleBookNow}
-                            onScheduleLater={handleScheduleLater}
-                        />
-                    </>
+                    <ShopDetails
+                        shopId={shop.id}
+                        onBookNow={handleBookNow}
+                        onAddMoreServices={handleAddMoreServices}
+                        onViewAllAvailability={handleViewAllAvailability}
+                    />
                 );
             case "reviews":
                 return <MechanicReviewsSection mechanicId={mechanic.id} />;
@@ -279,8 +245,16 @@ export default function MechanicDetailScreen() {
                 <View style={styles.tabContentContainer}>{renderTabContent()}</View>
             </Animated.ScrollView>
 
-            {/* All Availability Sheet - Rendered at screen level */}
-            <AllAvailabilitySheet ref={allAvailabilityRef} onConfirm={handleAvailabilityConfirm} />
+            {/* Modal-based components - work reliably from any component hierarchy */}
+            <AddServicesModal
+                visible={showAddServicesModal}
+                onClose={handleCloseAddServicesModal}
+            />
+            <AvailabilityModal
+                visible={showAvailabilityModal}
+                mechanicId={availabilityMechanicId}
+                onClose={handleCloseAvailabilityModal}
+            />
         </FullScreenContainer>
     );
 }
@@ -351,4 +325,3 @@ const styles = StyleSheet.create({
         ...Shadows.md,
     },
 });
-

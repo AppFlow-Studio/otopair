@@ -1,5 +1,5 @@
 // 1. React & React Native
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -22,6 +22,8 @@ import { ServiceBundlesSection } from '@/components/home/ServiceBundlesSection';
 import { SuggestionsSection } from '@/components/home/SuggestionsSection';
 import { VehicleMaintenanceCard } from '@/components/home/VehicleMaintenanceCard';
 import { OtoPairIcon } from '@/components/icons/oto-pair';
+
+// 5. Stores (unused imports removed)
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
@@ -77,6 +79,11 @@ export default function HomeScreen() {
     console.log('Appointment pressed');
     // TODO: Navigate to appointment details
   };
+
+  // Search bar focus - navigate directly to map with search active
+  const handleSearchFocus = useCallback(() => {
+    router.push('/home/map?search=true');
+  }, [router]);
 
   // Custom margins for content below carousel based on active card
   const getCardMargin = (cardIndex: number): number => {
@@ -169,6 +176,7 @@ export default function HomeScreen() {
             onChangeText={setSearchQuery}
             onSubmit={handleSearch}
             onMapPress={handleMapPress}
+            onFocus={handleSearchFocus}
           />
         </View>
 
@@ -251,6 +259,7 @@ export default function HomeScreen() {
           }}
         />
       )}
+
     </View>
   );
 }

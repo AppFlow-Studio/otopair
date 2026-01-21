@@ -353,6 +353,6 @@ const styles = StyleSheet.create({
   recenterButtonContainer: {
     position: "absolute",
     bottom: 240, // Above the collapsed bottom sheet (~22% of screen)
-    left: Spacing.lg,
+    right: Spacing.lg,
   },
 });

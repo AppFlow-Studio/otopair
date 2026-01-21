@@ -36,7 +36,7 @@
  */
 
 // 1. React & React Native
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { StyleSheet, View } from "react-native";
 
 // 2. Expo & Third-party
@@ -56,9 +56,11 @@ import { DynamicFilterChips, MechanicTabs, SearchBar, type MechanicFilterOption 
 // 5. Constants, hooks, types, stores
 import { AnimationDuration } from "@/constants/animations";
 import { SHOP_FILTER_OPTIONS } from "@/constants/filters";
+import { SERVICE_CATEGORIES_COMPACT } from "@/constants/services";
 import { BorderRadius } from "@/constants/theme";
 import { useBookingTransition } from "@/hooks/useBookingTransition";
 import type { FilterOption, ServiceCategory } from "@/stores/types/store.types";
+import { useBookingStore } from "@/stores/useBookingStore";
 
 // Re-export types for convenience
 export type { FilterOption, ServiceCategory } from "@/stores/types/store.types";
@@ -95,6 +97,8 @@ export interface TopBarProps {
   selectedMechanicFilter?: MechanicFilterOption;
   /** Animated index from bottom sheet */
   sheetAnimatedIndex?: SharedValue<number>;
+  /** Auto-focus the search bar on mount */
+  autoFocusSearch?: boolean;
 }
 
 // ============================================================================
@@ -115,9 +119,14 @@ export function TopBar({
   onMechanicFilterSelect,
   selectedMechanicFilter,
   sheetAnimatedIndex,
+  autoFocusSearch = false,
 }: TopBarProps) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+
+  // ═══════════════ BOOKING STORE ═══════════════
+  const selectedServiceCategory = useBookingStore((state) => state.selectedServiceCategory);
+  const setSelectedServiceCategory = useBookingStore((state) => state.setSelectedServiceCategory);
 
   // ═══════════════ TRANSITION HOOK ═══════════════
   const { currentStage, topBarEntering, topBarExiting, crossfadeEntering, crossfadeExiting, goBack } =
@@ -152,6 +161,29 @@ export function TopBar({
   // Animations for filter button (uses crossfade for subtle effect)
   const fadeIn = FadeIn.duration(AnimationDuration.standard);
   const fadeOut = FadeOut.duration(AnimationDuration.standard);
+
+  // ═══════════════ CATEGORY FILTER CHIP ═══════════════
+  // Get category label if a category is selected
+  const categoryChipLabel = selectedServiceCategory
+    ? SERVICE_CATEGORIES_COMPACT.find((cat) => cat.key === selectedServiceCategory)?.label
+    : null;
+
+  // Combine active filters with category chip
+  const allFilters = categoryChipLabel ? [categoryChipLabel, ...activeFilters] : activeFilters;
+
+  // Handle removing filters (including category)
+  const handleRemoveFilterInternal = useCallback(
+    (filter: string) => {
+      if (filter === categoryChipLabel) {
+        // Clear the category filter
+        setSelectedServiceCategory(null);
+      } else {
+        // Pass to parent handler for other filters
+        onRemoveFilter?.(filter);
+      }
+    },
+    [categoryChipLabel, setSelectedServiceCategory, onRemoveFilter]
+  );
 
   // Filter handlers
   const handleFilterPress = () => setIsFilterOpen(true);
@@ -233,22 +265,25 @@ export function TopBar({
 
       {/* Search Bar - Discovery mode */}
       {isDiscoveryMode && (
-        <Animated.View entering={crossfadeEntering} exiting={crossfadeExiting}>
-          <SearchBar
-            value={searchQuery}
-            onChangeText={onSearchChange ?? (() => {})}
-            onSubmit={onSearchSubmit}
-            sheetAnimatedIndex={sheetAnimatedIndex}
-          />
-        </Animated.View>
+        <View style={styles.searchWrapper}>
+          <Animated.View entering={crossfadeEntering} exiting={crossfadeExiting}>
+            <SearchBar
+              value={searchQuery}
+              onChangeText={onSearchChange ?? (() => {})}
+              onSubmit={onSearchSubmit}
+              sheetAnimatedIndex={sheetAnimatedIndex}
+              autoFocus={autoFocusSearch}
+            />
+          </Animated.View>
+        </View>
       )}
 
-      {/* Active Filter Chips - Discovery mode when filters are active */}
-      {isDiscoveryMode && activeFilters.length > 0 && (
+      {/* Active Filter Chips - Discovery mode when filters are active (includes category chip) */}
+      {isDiscoveryMode && allFilters.length > 0 && (
         <Animated.View entering={crossfadeEntering} exiting={crossfadeExiting}>
           <DynamicFilterChips
-            filters={activeFilters}
-            onRemoveFilter={onRemoveFilter}
+            filters={allFilters}
+            onRemoveFilter={handleRemoveFilterInternal}
             sheetAnimatedIndex={sheetAnimatedIndex}
           />
         </Animated.View>
@@ -281,7 +316,8 @@ export function TopBar({
 
 const styles = StyleSheet.create({
   container: {
-    overflow: "hidden",
+    // Note: overflow visible to allow SearchSuggestions dropdown to show
+    overflow: "visible",
   },
   frostedOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -311,5 +347,9 @@ const styles = StyleSheet.create({
   },
   spacer: {
     width: 40,
+  },
+  searchWrapper: {
+    position: "relative",
+    zIndex: 100,
   },
 });
