@@ -21,23 +21,18 @@
  */
 
 // 1. React & React Native
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { StyleSheet, TouchableOpacity, View } from "react-native";
+import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { StyleSheet, View } from "react-native";
 
 // 2. Expo & Third-party
 import * as Location from "expo-location";
-import { Navigation2 } from "lucide-react-native";
 import MapView, { PROVIDER_DEFAULT, Region } from "react-native-maps";
-import Animated, { SharedValue, useAnimatedStyle, withTiming } from "react-native-reanimated";
-
-// 3. Shared UI (design system)
-import { BrandColors } from "@/components/shared-ui";
+import { SharedValue } from "react-native-reanimated";
 
 // 4. Flow-specific components
 import { ShopMarker } from "./ShopMarker";
 
 // 5. Constants, hooks, types, stores
-import { Spacing } from "@/constants/theme";
 import type { Shop } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useShopStore } from "@/stores/useShopStore";
@@ -67,13 +62,22 @@ interface BookingMapProps {
 /** Zoom threshold - below this latitudeDelta = zoomed in (show labels) */
 const ZOOM_THRESHOLD = 0.03;
 
-export function BookingMap({
-  onShopSelect,
-  sheetAnimatedIndex,
-  focusedShop,
-}: BookingMapProps) {
+export const BookingMap = forwardRef<MapView, BookingMapProps>(function BookingMap(
+  { onShopSelect, sheetAnimatedIndex, focusedShop },
+  forwardedRef
+) {
   // ═══════════════ STATE-EFFECT: Refs ═══════════════
-  const mapRef = useRef<MapView>(null);
+  const internalMapRef = useRef<MapView>(null);
+  
+  // Callback ref to set both internal and forwarded refs
+  const setMapRef = useCallback((node: MapView | null) => {
+    internalMapRef.current = node;
+    if (typeof forwardedRef === "function") {
+      forwardedRef(node);
+    } else if (forwardedRef) {
+      forwardedRef.current = node;
+    }
+  }, [forwardedRef]);
 
   // Track zoom level for marker display mode
   const [isZoomedIn, setIsZoomedIn] = useState(true);
@@ -247,8 +251,8 @@ export function BookingMap({
 
   // [STATE-EFFECT] Center map on focused shop when it changes
   useEffect(() => {
-    if (focusedShop && mapRef.current) {
-      mapRef.current.animateToRegion(
+    if (focusedShop && internalMapRef.current) {
+      internalMapRef.current.animateToRegion(
         {
           latitude: focusedShop.latitude,
           longitude: focusedShop.longitude,
@@ -268,20 +272,6 @@ export function BookingMap({
     [onShopSelect]
   );
 
-  const handleRecenter = useCallback(() => {
-    if (userLocation && mapRef.current) {
-      mapRef.current.animateToRegion(
-        {
-          latitude: userLocation.latitude,
-          longitude: userLocation.longitude,
-          latitudeDelta: 0.05,
-          longitudeDelta: 0.05,
-        },
-        300
-      );
-    }
-  }, [userLocation]);
-
   // Track when map region changes - dynamically load pins for visible area
   const handleRegionChangeComplete = useCallback((newRegion: Region) => {
     // Update visible region for dynamic pin loading
@@ -290,22 +280,11 @@ export function BookingMap({
     setIsZoomedIn(newRegion.latitudeDelta < ZOOM_THRESHOLD);
   }, []);
 
-  // ═══════════════ STATE-EFFECT: Animated Styles ═══════════════
-  // Show recenter button when sheet is collapsed (index < 0.5)
-  const recenterButtonStyle = useAnimatedStyle(() => {
-    const isVisible = sheetAnimatedIndex ? sheetAnimatedIndex.value < 0.3 : true;
-    return {
-      opacity: withTiming(isVisible ? 1 : 0, { duration: 200 }),
-      transform: [{ scale: withTiming(isVisible ? 1 : 0.8, { duration: 200 }) }],
-      pointerEvents: isVisible ? "auto" : "none",
-    };
-  });
-
   // ═══════════════ RENDER ═══════════════
   return (
     <View style={styles.container}>
       <MapView
-        ref={mapRef}
+        ref={setMapRef}
         style={styles.map}
         provider={PROVIDER_DEFAULT}
         region={region}
@@ -324,20 +303,9 @@ export function BookingMap({
           ) : null
         )}
       </MapView>
-
-      {/* Recenter Button - shows when sheet is collapsed */}
-      <Animated.View style={[styles.recenterButtonContainer, recenterButtonStyle]}>
-        <TouchableOpacity
-          onPress={handleRecenter}
-          activeOpacity={0.6}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <Navigation2 size={24} color={BrandColors.secondary} fill={BrandColors.secondary} />
-        </TouchableOpacity>
-      </Animated.View>
     </View>
   );
-}
+});
 
 // ============================================================================
 // STYLES
@@ -349,10 +317,5 @@ const styles = StyleSheet.create({
   },
   map: {
     flex: 1,
-  },
-  recenterButtonContainer: {
-    position: "absolute",
-    bottom: 240, // Above the collapsed bottom sheet (~22% of screen)
-    right: Spacing.lg,
   },
 });

@@ -73,23 +73,29 @@ export function ShopDetails({ shopId, onBookNow, onAddMoreServices, onViewAllAva
     const [discardModalVisible, setDiscardModalVisible] = useState(false);
     const [serviceToRemove, setServiceToRemove] = useState<string | null>(null);
 
+    // Track if inline selection is active (to differentiate from modal selection)
+    const hasInlineSelectionRef = useRef(false);
     // Track previous scheduled appointment to detect modal confirmations
     const prevScheduledAppointmentRef = useRef<typeof scheduledAppointment>(null);
 
     // ═══════════════ EFFECTS ═══════════════
-    // When modal confirms a time, clear any inline slot selection (modal overrides inline)
+    // When modal confirms a time (external change), clear any inline slot selection
     useEffect(() => {
-        // Detect when a new appointment was just scheduled via modal
+        // Detect when appointment was set externally (not from inline slot selection)
         if (
             scheduledAppointment !== null &&
-            selectedMechanicId !== null &&
-            prevScheduledAppointmentRef.current !== scheduledAppointment
+            prevScheduledAppointmentRef.current !== scheduledAppointment &&
+            !hasInlineSelectionRef.current
         ) {
             // Clear all inline slot selections - modal selection takes priority
             setSelectedSlots({});
         }
         prevScheduledAppointmentRef.current = scheduledAppointment;
-    }, [scheduledAppointment, selectedMechanicId]);
+        // Reset the inline selection flag after processing
+        if (hasInlineSelectionRef.current) {
+            hasInlineSelectionRef.current = false;
+        }
+    }, [scheduledAppointment]);
 
     // ═══════════════ COMPUTED VALUES ═══════════════
     const mechanics = useMemo(() => getMechanicsByShopId(shopId), [shopId, getMechanicsByShopId]);
@@ -155,12 +161,12 @@ export function ShopDetails({ shopId, onBookNow, onAddMoreServices, onViewAllAva
     }, []);
 
     const handleSlotSelect = useCallback(
-        (mechanicId: number, slotIndex: number, slot: { day: string; dayOfWeek: string; time: string }) => {
+        (mechanicId: number, slotIndex: number) => {
             setSelectedSlots((prev) => {
                 const isCurrentlySelected = prev[mechanicId] === slotIndex;
 
                 if (isCurrentlySelected) {
-                    // Deselect - clear appointment and mechanic selection
+                    // Deselect - clear store state
                     setScheduledAppointment(null);
                     selectMechanic(null);
                     return {
@@ -168,10 +174,8 @@ export function ShopDetails({ shopId, onBookNow, onAddMoreServices, onViewAllAva
                         [mechanicId]: null,
                     };
                 } else {
-                    // Select new slot - set appointment and mechanic, clear other mechanics' selections
-                    const appointment = convertSlotToAppointment(slot);
-                    setScheduledAppointment(appointment);
-                    selectMechanic(mechanicId);
+                    // Select new slot - only update local state, don't touch store yet
+                    // Store will be updated when "Book Now" is pressed
                     // Clear all other slots, only this mechanic has the selection
                     return {
                         [mechanicId]: slotIndex,
@@ -179,7 +183,7 @@ export function ShopDetails({ shopId, onBookNow, onAddMoreServices, onViewAllAva
                 }
             });
         },
-        [setScheduledAppointment, selectMechanic, convertSlotToAppointment]
+        [setScheduledAppointment, selectMechanic]
     );
 
     const handleViewAllAvailability = useCallback((mechanicId: number) => {
@@ -187,10 +191,24 @@ export function ShopDetails({ shopId, onBookNow, onAddMoreServices, onViewAllAva
     }, [onViewAllAvailability]);
 
     const handleBookNow = useCallback(
-        (mechanicId: number) => {
+        (mechanicId: number, slotIndex: number | null) => {
+            // Get the mechanic to access their availability slots
+            const mechanic = mechanicsWithSpecialties.find((m) => m.id === mechanicId);
+            if (!mechanic) return;
+
+            // If there's an inline slot selected, set the appointment in the store
+            if (slotIndex !== null && mechanic.nextAvailability?.[slotIndex]) {
+                const slot = mechanic.nextAvailability[slotIndex];
+                const appointment = convertSlotToAppointment(slot);
+                // Mark that this is an inline selection so the effect won't clear slots
+                hasInlineSelectionRef.current = true;
+                setScheduledAppointment(appointment);
+                selectMechanic(mechanicId);
+            }
+
             onBookNow?.(mechanicId);
         },
-        [onBookNow]
+        [onBookNow, mechanicsWithSpecialties, convertSlotToAppointment, setScheduledAppointment, selectMechanic]
     );
 
     const handleAddServices = useCallback(() => {
@@ -350,7 +368,7 @@ export function ShopDetails({ shopId, onBookNow, onAddMoreServices, onViewAllAva
                                                 <TouchableOpacity
                                                     key={index}
                                                     style={[styles.availabilitySlot, isSelected && styles.selectedSlot]}
-                                                    onPress={() => handleSlotSelect(mechanic.id, index, slot)}
+                                                    onPress={() => handleSlotSelect(mechanic.id, index)}
                                                     activeOpacity={0.7}
                                                 >
                                                     <Text size="xs" weight="medium" color={isSelected ? BrandColors.primary : "#6B7280"}>
@@ -395,7 +413,7 @@ export function ShopDetails({ shopId, onBookNow, onAddMoreServices, onViewAllAva
                                                 styles.bookButton,
                                                 !canBook && styles.bookButtonDisabled,
                                             ]}
-                                            onPress={() => handleBookNow(mechanic.id)}
+                                            onPress={() => handleBookNow(mechanic.id, selectedSlotIndex)}
                                             disabled={!canBook}
                                         >
                                             <Text

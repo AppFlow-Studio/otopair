@@ -10,11 +10,11 @@
 
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo } from "react";
-import { ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 
 // 2. Third-party libraries
 import { BottomSheetFlatList } from "@gorhom/bottom-sheet";
-import { Search } from "lucide-react-native";
+import { ChevronLeft, Search } from "lucide-react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -27,7 +27,7 @@ import { MechanicCard } from "./MechanicCard";
 import { ServiceChip } from "./ServiceChip";
 
 // 5. Constants, hooks, types, stores
-import type { MechanicFilterOption } from "@/constants/filters";
+import { MECHANIC_FILTER_OPTIONS, type MechanicFilterOption } from "@/constants/filters";
 import { BorderRadius, FontFamily, getSheetContentPadding } from "@/constants/theme";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
@@ -48,8 +48,6 @@ export type { MechanicFilterOption } from "@/constants/filters";
 interface MechanicSelectionContentProps {
   /** Called when user confirms mechanic selection */
   onSelectMechanic?: () => void;
-  /** Currently selected filter from TopBar */
-  mechanicFilter?: MechanicFilterOption;
 }
 
 // ============================================================================
@@ -58,7 +56,6 @@ interface MechanicSelectionContentProps {
 
 export function MechanicSelectionContent({
   onSelectMechanic,
-  mechanicFilter = "available_now",
 }: MechanicSelectionContentProps) {
   // ═══════════════ HOOKS ═══════════════
   const router = useRouter();
@@ -224,18 +221,26 @@ export function MechanicSelectionContent({
     [handleBookNow, handleScheduleLater]
   );
 
-  // ═══════════════ SYNC FILTER FROM PROPS ═══════════════
-  useEffect(() => {
-    setFilters({ filterType: mechanicFilter });
-  }, [mechanicFilter, setFilters]);
+  // ═══════════════ FILTER HANDLER ═══════════════
+  const handleFilterSelect = useCallback(
+    (filter: MechanicFilterOption) => {
+      setFilters({ filterType: filter });
+    },
+    [setFilters]
+  );
 
   return (
     <View style={styles.container}>
       {/* Header - Fixed at top */}
       <View style={styles.header}>
+        <Pressable style={styles.backButton} onPress={prevBookingStage} hitSlop={8}>
+          <ChevronLeft size={24} color={BrandColors.primary} />
+        </Pressable>
         <Text size="xl" weight="bold" color={BrandColors.primary}>
           Choose Mechanic
         </Text>
+        {/* Empty view for centering */}
+        <View style={styles.headerSpacer} />
       </View>
 
       {/* Search Input - Fixed outside scroll view */}
@@ -263,18 +268,48 @@ export function MechanicSelectionContent({
         windowSize={5}
         initialNumToRender={3}
         ListHeaderComponent={
-          selectedServices.length > 0 ? (
+          <View>
+            {/* Selected Service Chips */}
+            {selectedServices.length > 0 && (
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.chipsContainer}
+                contentContainerStyle={styles.chipsContent}
+              >
+                {selectedServices.map((service) => (
+                  <ServiceChip key={service.id} service={service} onRemove={handleRemoveService} />
+                ))}
+              </ScrollView>
+            )}
+
+            {/* Filter Chips */}
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
-              style={styles.chipsContainer}
-              contentContainerStyle={styles.chipsContent}
+              style={styles.filtersContainer}
+              contentContainerStyle={styles.filtersContent}
             >
-              {selectedServices.map((service) => (
-                <ServiceChip key={service.id} service={service} onRemove={handleRemoveService} />
-              ))}
+              {MECHANIC_FILTER_OPTIONS.map((option) => {
+                const isSelected = filterType === option.id;
+                return (
+                  <Pressable
+                    key={option.id}
+                    style={[styles.filterChip, isSelected && styles.filterChipSelected]}
+                    onPress={() => handleFilterSelect(option.id)}
+                  >
+                    <Text
+                      size="sm"
+                      weight={isSelected ? "bold" : "medium"}
+                      color={isSelected ? BrandColors.white : "#6B7280"}
+                    >
+                      {option.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
             </ScrollView>
-          ) : null
+          </View>
         }
         ListFooterComponent={<View style={{ height: contentPadding }} />}
       />
@@ -302,10 +337,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.lg,
   },
   header: {
+    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.sm,
     paddingBottom: Spacing.md,
+  },
+  backButton: {
+    width: 32,
+    height: 32,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerSpacer: {
+    width: 32,
   },
   searchContainer: {
     flexDirection: "row",
@@ -326,13 +372,29 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: BrandColors.primary,
   },
-  chipsContainer: {
-    marginTop: Spacing.md,
+  filtersContainer: {
+    marginTop: Spacing.sm,
     marginBottom: Spacing.md,
+    maxHeight: 40,
+  },
+  filtersContent: {
+    gap: Spacing.sm,
+  },
+  filterChip: {
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm,
+    backgroundColor: "#F3F4F6",
+    borderRadius: BorderRadius.full,
+  },
+  filterChipSelected: {
+    backgroundColor: BrandColors.primary,
+  },
+  chipsContainer: {
+    marginTop: Spacing.sm,
+    marginBottom: Spacing.xs,
     maxHeight: 72,
   },
   chipsContent: {
-    paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.xs,
   },
 });

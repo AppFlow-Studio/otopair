@@ -11,32 +11,40 @@
  */
 
 // 1. React & React Native
-import React, { useCallback, useMemo, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import React, { useCallback, useRef, useState } from "react";
+import { StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { SharedValue } from "react-native-reanimated";
+import { BlurView } from "expo-blur";
+import { useRouter } from "expo-router";
+import { ChevronLeft } from "lucide-react-native";
+import MapView from "react-native-maps";
+import Animated, {
+  Extrapolation,
+  interpolate,
+  SharedValue,
+  useAnimatedStyle,
+} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-
 
 // 4. Flow-specific components
 import {
   BookingMap,
+  FilterDropdown,
+  FloatingMapControls,
   FullScreenBookingView,
-  MechanicCarouselSheet,
-  MechanicFilterOption,
   ServiceBottomSheet,
   Shop,
-  TopBar,
 } from "@/components/booking";
-import { SearchSuggestions } from "@/components/booking/topbars";
 
-// 5. Constants, hooks, types, stores
-import { AVAILABLE_NOW_FILTER, TOP_RATED_FILTER } from "@/constants/filters";
-import type { FilterOption, ServiceCategory } from "@/stores/types/store.types";
+// 5. Shared UI (design system)
+import { BrandColors } from "@/components/shared-ui";
+
+// 6. Constants, hooks, types, stores
+import { AVAILABLE_NOW_FILTER, SHOP_FILTER_OPTIONS, TOP_RATED_FILTER } from "@/constants/filters";
+import { BorderRadius, Spacing } from "@/constants/theme";
+import type { FilterOption } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
-import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useShopStore } from "@/stores/useShopStore";
 
 // ============================================================================
@@ -51,41 +59,33 @@ const VERTICAL_OFFSET = 55;
 // ============================================================================
 
 export default function BookingsScreen() {
-  // ═══════════════ SAFE AREA ═══════════════
-  const insets = useSafeAreaInsets();
-  
-  // ═══════════════ ROUTER ═══════════════
+  // ═══════════════ HOOKS ═══════════════
   const router = useRouter();
-  const { search } = useLocalSearchParams<{ search?: string }>();
-  
-  // Auto-focus search if navigated with search=true
-  const autoFocusSearch = search === "true";
+  const insets = useSafeAreaInsets();
+
+  // ═══════════════ REFS ═══════════════
+  const mapRef = useRef<MapView>(null);
 
   // ═══════════════ BOOKING STORE ═══════════════
   const userLocation = useBookingStore((state) => state.userLocation);
-  const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
-  const getSelectedServices = useBookingStore((state) => state.getSelectedServices);
-  const selectedMechanicId = useBookingStore((state) => state.selectedMechanicId);
   const bookingStage = useBookingStore((state) => state.bookingStage);
-  
+
   // ═══════════════ COMPUTED: Full-screen stages ═══════════════
   const isFullScreenStage = bookingStage === "booking_details" || bookingStage === "payment";
 
-  // ═══════════════ MECHANIC STORE ═══════════════
-  const getMechanicById = useMechanicStore((state) => state.getMechanicById);
-
   // ═══════════════ LOCAL STATE ═══════════════
-  const [mechanicFilter, setMechanicFilter] = useState<MechanicFilterOption>("available_now");
   const [sheetAnimatedIndex, setSheetAnimatedIndex] = useState<SharedValue<number> | null>(null);
-  const [isCarouselVisible, setIsCarouselVisible] = useState(false);
   const [selectedMapShopId, setSelectedMapShopId] = useState<number | null>(null);
   const [focusedShop, setFocusedShop] = useState<Shop | null>(null);
 
-  // Search bar state
-  const [searchQuery, setSearchQuery] = useState("");
+  // Search mode state (controlled by ServiceBottomSheet)
+  const [isSearchMode, setIsSearchMode] = useState(false);
 
-  // Active filters from search bar (dynamic filters)
-  const [activeFilters, setActiveFilters] = useState<string[]>([]);
+  // Filter dropdown state
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+
+  // Track if any filter is active
+  const [hasActiveFilter, setHasActiveFilter] = useState(false);
 
   const handleAnimatedIndexChange = useCallback((animatedIndex: SharedValue<number>) => {
     setSheetAnimatedIndex(animatedIndex);
@@ -96,139 +96,139 @@ export default function BookingsScreen() {
   const setFilters = useShopStore((state) => state.setFilters);
 
   // ═══════════════ HANDLERS ═══════════════
+
+  // Filter handlers
+  const handleFilterPress = useCallback(() => {
+    setIsFilterOpen(true);
+  }, []);
+
+  const handleFilterDismiss = useCallback(() => {
+    setIsFilterOpen(false);
+  }, []);
+
   const handleFilterSelect = useCallback(
-    (filter: FilterOption) => {
+    (optionId: string) => {
+      setIsFilterOpen(false);
+      const filter = optionId as FilterOption;
       if (filter === "available_now") {
         setFilters(AVAILABLE_NOW_FILTER);
+        setHasActiveFilter(true);
       } else if (filter === "top_rated") {
         setFilters(TOP_RATED_FILTER);
+        setHasActiveFilter(true);
       } else {
         setFilters({ availableOnly: false, minRating: 0 });
+        setHasActiveFilter(false);
       }
     },
     [setFilters]
   );
 
-  const handleShopSelect = useCallback(
-    (shop: Shop) => {
-      selectShop(shop.id);
-      // Show the mechanic carousel sheet when a map marker is tapped
-      setSelectedMapShopId(shop.id);
-      setIsCarouselVisible(true);
-    },
-    [selectShop]
-  );
+  // Recenter handler
+  const handleRecenter = useCallback(() => {
+    if (userLocation && mapRef.current) {
+      mapRef.current.animateToRegion(
+        {
+          latitude: userLocation.latitude,
+          longitude: userLocation.longitude,
+          latitudeDelta: 0.05,
+          longitudeDelta: 0.05,
+        },
+        300
+      );
+    }
+  }, [userLocation]);
 
-  const handleCarouselClose = useCallback(() => {
-    setIsCarouselVisible(false);
-    setSelectedMapShopId(null);
-    setFocusedShop(null);
-    selectShop(null);
-  }, [selectShop]);
-
-  const handleShopFromCarousel = useCallback(
-    (shop: Shop) => {
-      // Center the map on the active shop in the carousel
-      setFocusedShop(shop);
-    },
-    []
-  );
-
-  const handleShopDetails = useCallback(
-    (shop: Shop) => {
-      // Close carousel and navigate to shop detail page
-      setIsCarouselVisible(false);
-      setSelectedMapShopId(null);
-      setFocusedShop(null);
-      selectShop(null);
-      router.push(`/home/shop/${shop.id}`);
-    },
-    [selectShop, router]
-  );
-
-  const handleMechanicFilterSelect = useCallback((filter: MechanicFilterOption) => {
-    setMechanicFilter(filter);
+  // Search mode change handler (from ServiceBottomSheet)
+  const handleSearchModeChange = useCallback((isSearching: boolean) => {
+    setIsSearchMode(isSearching);
   }, []);
 
-  // Handler to remove a filter chip
-  const handleRemoveFilter = useCallback((filter: string) => {
-    setActiveFilters((prev) => prev.filter((f) => f !== filter));
-  }, []);
-
-  // Search handlers
-  const handleSearchChange = useCallback((text: string) => {
-    setSearchQuery(text);
-  }, []);
-
-  const handleSearchSubmit = useCallback(() => {
-    // TODO: Implement search functionality
-    console.log("Search submitted:", searchQuery);
-  }, [searchQuery]);
-
-  // Search suggestion handlers
+  // Search result handlers
   const handleSearchSelectShop = useCallback(
     (shopId: number) => {
-      setSearchQuery("");
-      // Find a mechanic at this shop and navigate to mechanic detail page
-      // This shows the full experience with map header, tabs, etc.
-      const getMechanicsByShopId = useMechanicStore.getState().getMechanicsByShopId;
-      const mechanics = getMechanicsByShopId(shopId);
-      if (mechanics.length > 0) {
-        // Navigate to the first mechanic's detail page
-        router.push(`/home/mechanic/${mechanics[0].id}`);
-      } else {
-        // Fallback to shop page if no mechanics found
-        router.push(`/home/shop/${shopId}`);
-      }
+      router.push(`/home/shop/${shopId}`);
     },
     [router]
   );
 
-  const handleSearchSelectService = useCallback(
-    (serviceId: string) => {
-      setSearchQuery("");
-      // Toggle the service selection and it will show in bottom sheet
-      const toggleServiceSelection = useBookingStore.getState().toggleServiceSelection;
-      toggleServiceSelection(serviceId);
-    },
-    []
-  );
-
-  const handleSearchSelectCategory = useCallback(
-    (category: ServiceCategory) => {
-      setSearchQuery("");
-      // Set the category filter - this shows as a chip
-      const setSelectedServiceCategory = useBookingStore.getState().setSelectedServiceCategory;
-      setSelectedServiceCategory(category);
-    },
-    []
-  );
-
   const handleSearchSelectMechanic = useCallback(
     (mechanicId: number) => {
-      setSearchQuery("");
-      // Navigate directly to the mechanic detail page
       router.push(`/home/mechanic/${mechanicId}`);
     },
     [router]
   );
 
-  // ═══════════════ COMPUTED VALUES ═══════════════
-  const selectedServicesText = useMemo(() => {
-    const services = getSelectedServices();
-    if (services.length === 0) return "";
-    const names = services.map((s) => s.name);
-    const joined = names.join(", ");
-    return joined.length > 25 ? joined.slice(0, 22) + "..." : joined;
-  }, [getSelectedServices, selectedServiceIds]);
+  // Shop/Map handlers
+  const handleShopSelect = useCallback(
+    (shop: Shop) => {
+      selectShop(shop.id);
+      setSelectedMapShopId(shop.id);
+      setFocusedShop(shop);
+    },
+    [selectShop]
+  );
 
-  const mechanicsCount = 3; // TODO: get from actual data
+  // Called when shop changes in the carousel (from ServiceBottomSheet)
+  const handleShopChange = useCallback((shop: { id: number; latitude: number; longitude: number }) => {
+    // Focus the map on the new shop
+    if (mapRef.current) {
+      mapRef.current.animateToRegion(
+        {
+          latitude: shop.latitude,
+          longitude: shop.longitude,
+          latitudeDelta: 0.02,
+          longitudeDelta: 0.02,
+        },
+        300
+      );
+    }
+  }, []);
 
-  const selectedMechanicShopName = useMemo(() => {
-    if (!selectedMechanicId) return "";
-    const mechanic = getMechanicById(selectedMechanicId);
-    return mechanic?.shopName ?? "";
-  }, [selectedMechanicId, getMechanicById]);
+  // Called when shop preview is closed
+  const handleShopClose = useCallback(() => {
+    setSelectedMapShopId(null);
+    setFocusedShop(null);
+    selectShop(null);
+  }, [selectShop]);
+
+  // Back button handler
+  const handleBackPress = useCallback(() => {
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace("/(main-tabs)/home");
+    }
+  }, [router]);
+
+  // ═══════════════ ANIMATED STYLES ═══════════════
+  // Fade out and slide left when sheet is fully expanded (same as map controls)
+  const backButtonAnimatedStyle = useAnimatedStyle(() => {
+    if (!sheetAnimatedIndex) {
+      return { opacity: 1, transform: [{ translateX: 0 }] };
+    }
+
+    // Start fading at index 2.5, fully hidden at index 3
+    const opacity = interpolate(
+      sheetAnimatedIndex.value,
+      [2.5, 3],
+      [1, 0],
+      Extrapolation.CLAMP
+    );
+
+    // Slide left (opposite of map controls which slide right)
+    const translateX = interpolate(
+      sheetAnimatedIndex.value,
+      [2.5, 3],
+      [0, -60],
+      Extrapolation.CLAMP
+    );
+
+    return {
+      opacity,
+      transform: [{ translateX }],
+    };
+  });
 
   // ═══════════════ RENDER ═══════════════
   // Full-screen stages (booking_details, payment) are rendered on top of everything
@@ -240,66 +240,61 @@ export default function BookingsScreen() {
     <View style={styles.container}>
       {/* Map - dynamically loads pins based on current view */}
       <BookingMap
+        ref={mapRef}
         onShopSelect={handleShopSelect}
         sheetAnimatedIndex={sheetAnimatedIndex ?? undefined}
         focusedShop={focusedShop}
       />
 
-      {/* Top Bar - Uses transition hook internally */}
-      <View style={styles.topBarContainer}>
-        <TopBar
-          location={userLocation?.label ?? "Set Location"}
-          mechanicsCount={mechanicsCount}
-          selectedServicesText={selectedServicesText}
-          shopName={selectedMechanicShopName}
-          onFilterSelect={handleFilterSelect}
-          searchQuery={searchQuery}
-          onSearchChange={handleSearchChange}
-          onSearchSubmit={handleSearchSubmit}
-          activeFilters={activeFilters}
-          onRemoveFilter={handleRemoveFilter}
-          onMechanicFilterSelect={handleMechanicFilterSelect}
-          selectedMechanicFilter={mechanicFilter}
-          sheetAnimatedIndex={sheetAnimatedIndex ?? undefined}
-          autoFocusSearch={autoFocusSearch}
-        />
-      </View>
-
-      {/* Search Suggestions - Rendered outside TopBar to avoid BlurView clipping */}
-      {(bookingStage === "discovery" || bookingStage === "service_selection") && (
-        <View style={[styles.suggestionsContainer, { top: insets.top + 110 }]}>
-          <SearchSuggestions
-            query={searchQuery}
-            onSelectShop={handleSearchSelectShop}
-            onSelectMechanic={handleSearchSelectMechanic}
-            onSelectService={handleSearchSelectService}
-            onSelectCategory={handleSearchSelectCategory}
-            onSelectionMade={() => setSearchQuery("")}
-          />
-        </View>
+      {/* Floating Back Button - Top Left */}
+      {/* Hidden when sheet is fully expanded OR in search mode */}
+      {!isSearchMode && (
+        <Animated.View style={[styles.backButtonContainer, { top: insets.top + Spacing.md }, backButtonAnimatedStyle]}>
+          <BlurView intensity={80} tint="light" style={styles.backButtonBlur}>
+            <View style={styles.backButtonOverlay} />
+            <TouchableOpacity
+              onPress={handleBackPress}
+              style={styles.backButton}
+              activeOpacity={0.7}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
+              <ChevronLeft size={24} color={BrandColors.primary} strokeWidth={2.5} />
+            </TouchableOpacity>
+          </BlurView>
+        </Animated.View>
       )}
+
+      {/* Floating Map Controls - Filter & Recenter buttons */}
+      {/* Hidden when sheet is fully expanded OR in search mode */}
+      {!isSearchMode && (
+        <FloatingMapControls
+          onFilterPress={handleFilterPress}
+          onRecenterPress={handleRecenter}
+          isFilterActive={hasActiveFilter}
+          sheetAnimatedIndex={sheetAnimatedIndex ?? undefined}
+        />
+      )}
+
+      {/* Filter Dropdown */}
+      <FilterDropdown
+        visible={isFilterOpen}
+        options={SHOP_FILTER_OPTIONS}
+        onSelect={handleFilterSelect}
+        onDismiss={handleFilterDismiss}
+      />
 
       {/* Bottom Sheet - Uses transition hook internally */}
-      {/* Only show ServiceBottomSheet when carousel is not visible */}
-      {!isCarouselVisible && (
-        <ServiceBottomSheet
-          offsetY={VERTICAL_OFFSET}
-          onAnimatedIndexChange={handleAnimatedIndexChange}
-          mechanicFilter={mechanicFilter}
-        />
-      )}
-
-      {/* Shop Carousel - Life360 style, shows when map marker is selected */}
-      {isCarouselVisible && (
-        <MechanicCarouselSheet
-          visible={isCarouselVisible}
-          selectedShopId={selectedMapShopId}
-          onClose={handleCarouselClose}
-          onMechanicChange={handleShopFromCarousel}
-          onMechanicSelect={handleShopDetails}
-          offsetY={VERTICAL_OFFSET}
-        />
-      )}
+      {/* Shop preview is integrated into the sheet when a map pin is clicked */}
+      <ServiceBottomSheet
+        offsetY={VERTICAL_OFFSET}
+        onAnimatedIndexChange={handleAnimatedIndexChange}
+        onSelectShop={handleSearchSelectShop}
+        onSelectMechanic={handleSearchSelectMechanic}
+        onSearchModeChange={handleSearchModeChange}
+        selectedShopId={selectedMapShopId}
+        onShopChange={handleShopChange}
+        onShopClose={handleShopClose}
+      />
     </View>
   );
 }
@@ -313,18 +308,23 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#E8ECF0",
   },
-  topBarContainer: {
+  backButtonContainer: {
     position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
+    left: Spacing.lg,
     zIndex: 10,
   },
-  suggestionsContainer: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    zIndex: 20,
-    paddingHorizontal: 16,
+  backButtonBlur: {
+    borderRadius: BorderRadius.xl,
+    overflow: "hidden",
+  },
+  backButtonOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(255, 255, 255, 0.7)",
+  },
+  backButton: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

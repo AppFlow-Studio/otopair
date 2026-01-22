@@ -36,6 +36,13 @@ export default function HomeLayout() {
           animation: "slide_from_right",
         }}
       />
+      <Stack.Screen
+        name="shop/[id]"
+        options={{
+          presentation: "fullScreenModal",
+          animation: "slide_from_right",
+        }}
+      />
     </Stack>
   );
 }

@@ -21,3 +21,4 @@ export { MechanicSelectionContent } from "./MechanicSelectionContent";
 export { ReviewPayContent } from "./ReviewPayContent";
 export { ServiceChip } from "./ServiceChip";
 export { ServiceSelectionContent } from "./ServiceSelectionContent";
+export { ShopPreviewContent } from "./ShopPreviewContent";

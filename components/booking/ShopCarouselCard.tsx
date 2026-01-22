@@ -35,7 +35,7 @@ import { Clock, MapPin, MessageCircle, Phone, Star } from "lucide-react-native";
 import { BrandColors, Text } from "@/components/shared-ui";
 
 // 4. Constants, hooks, types, stores
-import { BorderRadius, Shadows, Spacing } from "@/constants/theme";
+import { BorderRadius, Spacing } from "@/constants/theme";
 import type { Shop } from "@/stores/types/store.types";
 
 // ============================================================================
@@ -84,10 +84,18 @@ function ShopCarouselCardComponent({ shop, isActive = false, onCall, onDirection
 
   return (
     <View style={[styles.card, isActive && styles.cardActive]}>
-      {/* Header: Name + Availability */}
+      {/* Header: Name only (with right padding for close button) */}
       <View style={styles.header}>
         <Text weight="bold" size="xl" color={BrandColors.primary} style={styles.name} numberOfLines={1}>
           {shop.name}
+        </Text>
+      </View>
+
+      {/* Address + Availability */}
+      <View style={styles.addressRow}>
+        <MapPin size={14} color="#6B7280" />
+        <Text size="sm" color="#6B7280" numberOfLines={1} style={styles.address}>
+          {shop.address}
         </Text>
         <View style={[styles.availabilityBadge, { backgroundColor: availabilityInfo.color + "20" }]}>
           <View style={[styles.availabilityDot, { backgroundColor: availabilityInfo.color }]} />
@@ -95,14 +103,6 @@ function ShopCarouselCardComponent({ shop, isActive = false, onCall, onDirection
             {availabilityInfo.label}
           </Text>
         </View>
-      </View>
-
-      {/* Address */}
-      <View style={styles.addressRow}>
-        <MapPin size={14} color="#6B7280" />
-        <Text size="sm" color="#6B7280" numberOfLines={1} style={styles.address}>
-          {shop.address}
-        </Text>
       </View>
 
       {/* Stats Row: Rating, Distance, Next Available */}
@@ -170,23 +170,21 @@ export const ShopCarouselCard = memo(ShopCarouselCardComponent);
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: BrandColors.white,
+    backgroundColor: "#F9FAFB",
     borderRadius: BorderRadius["2xl"],
     padding: Spacing.lg,
-    ...Shadows.lg,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
   },
   cardActive: {
     // Could add active state styles here
   },
   header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
     marginBottom: Spacing.sm,
-    gap: Spacing.xs,
+    paddingRight: 40, // Space for close button overlay
   },
   name: {
-    flex: 1,
+    // Name takes full width
   },
   availabilityBadge: {
     flexDirection: "row",
@@ -204,11 +202,12 @@ const styles = StyleSheet.create({
   addressRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: Spacing.xs,
+    gap: Spacing.sm,
     marginBottom: Spacing.md,
   },
   address: {
     flex: 1,
+    flexShrink: 1,
   },
   statsRow: {
     flexDirection: "row",

@@ -1,9 +1,12 @@
 /**
  * ServiceBottomSheet
  *
- * PURPOSE: Simplified booking flow bottom sheet for service discovery
- *          and selection on the map screen. After mechanic selection,
- *          navigation continues to page-based booking flow.
+ * PURPOSE: Flighty-style bottom sheet for service discovery and selection.
+ *          Shows at 98% by default with title, search bar, categories, and services.
+ *          Four snap points: 23% (collapsed), 38% (preview), 55% (mid), 98% (expanded).
+ *          Footer only shows at 55%+ OR when a service is selected.
+ *          X button minimizes to preview (38%) - does NOT navigate back.
+ *          Search mode: transforms content to active search with results.
  *
  * FLOW: discovery → service_selection → mechanic_selection → [navigates to pages]
  *
@@ -12,42 +15,57 @@
  * PROPS:
  *   - offsetY (number): Vertical offset to shift bottom sheet down (pixels) [optional]
  *   - onAnimatedIndexChange ((animatedIndex: SharedValue<number>) => void): Callback to expose animated index [optional]
- *   - mechanicFilter (MechanicFilterOption): Currently selected mechanic filter from TopBar [optional]
- *
- * EXAMPLE:
- *   <ServiceBottomSheet
- *     offsetY={35}
- *     onAnimatedIndexChange={(index) => setSheetAnimatedIndex(index)}
- *     mechanicFilter="available_now"
- *   />
+ *   - onSelectShop ((shopId: number) => void): Called when a shop is selected from search [optional]
+ *   - onSelectMechanic ((mechanicId: number) => void): Called when a mechanic is selected from search [optional]
  *
  * OWNER: Waleed Mansour
  */
 
 // 1. React & React Native
-import React, { useCallback, useEffect, useMemo, useRef } from "react";
-import { Dimensions, StyleSheet, View } from "react-native";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  Dimensions,
+  Keyboard,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
 
 // 2. Expo & Third-party
 import BottomSheet, { BottomSheetFooterProps } from "@gorhom/bottom-sheet";
-import Animated, { SharedValue, useAnimatedStyle, useSharedValue } from "react-native-reanimated";
+import { Clock, MapPin, Search, Star, Store, User, Wrench, X } from "lucide-react-native";
+import Animated, {
+  Extrapolation,
+  FadeIn,
+  FadeOut,
+  interpolate,
+  SharedValue,
+  useAnimatedStyle,
+  useDerivedValue,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 3. Shared UI (design system)
-import { BrandColors, Spacing } from "@/components/shared-ui";
+import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Flow-specific components
 import { ServiceSelectionFooter } from "./footers";
-import { AddMoreServicesSheet, AddMoreServicesSheetRef } from "./sheets/AddMoreServicesSheet";
-import { CollapsedContent } from "./sheets/CollapsedContent";
-import type { MechanicFilterOption } from "./sheets/MechanicSelectionContent";
 import { MechanicSelectionContent } from "./sheets/MechanicSelectionContent";
 import { ServiceSelectionContent } from "./sheets/ServiceSelectionContent";
+import { ShopPreviewContent } from "./sheets/ShopPreviewContent";
 
 // 5. Constants, hooks, types, stores
-import { BorderRadius, Shadows } from "@/constants/theme";
+import { BorderRadius, FontFamily, FontSize, Shadows } from "@/constants/theme";
 import { useBookingTransition } from "@/hooks/useBookingTransition";
+import type { ServiceCategory } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
+import { useMechanicStore } from "@/stores/useMechanicStore";
+import { useSearchStore, type SearchSuggestion } from "@/stores/useSearchStore";
+import { useShopStore } from "@/stores/useShopStore";
 
 // ============================================================================
 // TYPES
@@ -58,8 +76,18 @@ interface ServiceBottomSheetProps {
   offsetY?: number;
   /** Callback to expose animated index to parent */
   onAnimatedIndexChange?: (animatedIndex: SharedValue<number>) => void;
-  /** Currently selected mechanic filter from TopBar */
-  mechanicFilter?: MechanicFilterOption;
+  /** Called when a shop is selected from search */
+  onSelectShop?: (shopId: number) => void;
+  /** Called when a mechanic is selected from search */
+  onSelectMechanic?: (mechanicId: number) => void;
+  /** Callback when search mode changes (for hiding/showing map controls) */
+  onSearchModeChange?: (isSearching: boolean) => void;
+  /** Currently selected shop ID from map pin (triggers shop preview mode) */
+  selectedShopId?: number | null;
+  /** Called when active shop changes in carousel (for map focus) */
+  onShopChange?: (shop: { id: number; latitude: number; longitude: number }) => void;
+  /** Called when shop preview is closed */
+  onShopClose?: () => void;
 }
 
 // ============================================================================
@@ -68,13 +96,17 @@ interface ServiceBottomSheetProps {
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 
-// Snap points for different stages (simplified - only discovery, service, mechanic)
+// Snap points: collapsed (23%), preview (38%), mid (55%), expanded (98%)
+// Collapsed: only title + search bar visible
+// Preview: title, search, categories, 1-2 services
+// Mid: more services visible, footer shows
+// Expanded: nearly full screen (Flighty-style) with tiny map peek
 const SNAP_POINTS_CONFIG = {
-  // Discovery & Service Selection: collapsed (22%) and expanded (75%)
-  discovery: { collapsed: 22, expanded: 80 },
-  service_selection: { collapsed: 22, expanded: 75 },
-  // Mechanic Selection: slightly taller
-  mechanic_selection: { collapsed: 22, expanded: 80 },
+  // Discovery & Service Selection: 4 snap points
+  discovery: { collapsed: 23, preview: 38, mid: 55, expanded: 98 },
+  service_selection: { collapsed: 23, preview: 38, mid: 55, expanded: 98 },
+  // Mechanic Selection: same 4 snap points
+  mechanic_selection: { collapsed: 23, preview: 38, mid: 55, expanded: 98 },
 } as const;
 
 // ============================================================================
@@ -84,25 +116,115 @@ const SNAP_POINTS_CONFIG = {
 export function ServiceBottomSheet({
   offsetY = 0,
   onAnimatedIndexChange,
-  mechanicFilter = "available_now",
+  onSelectShop,
+  onSelectMechanic,
+  onSearchModeChange,
+  selectedShopId = null,
+  onShopChange,
+  onShopClose,
 }: ServiceBottomSheetProps) {
   // ═══════════════ REFS ═══════════════
   const bottomSheetRef = useRef<BottomSheet>(null);
-  const animatedIndex = useSharedValue(0);
+  const searchInputRef = useRef<TextInput>(null);
+  const animatedIndex = useSharedValue(3); // Start at expanded (index 3)
 
   // ═══════════════ HOOKS ═══════════════
   const insets = useSafeAreaInsets();
   const { currentStage, sheetEntering, sheetExiting } = useBookingTransition();
 
-  // ═══════════════ STORE ═══════════════
+  // ═══════════════ SEARCH MODE STATE ═══════════════
+  const [isSearchMode, setIsSearchMode] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [hasTyped, setHasTyped] = useState(false);
+  // Track snap index before entering search mode
+  const previousSnapIndexRef = useRef(3);
+
+  // ═══════════════ SHOP PREVIEW STATE ═══════════════
+  // Toggle between shop preview and services view (only when a shop is selected from map)
+  const [showShopPreview, setShowShopPreview] = useState(false);
+  // Track the previous snap index before showing shop preview
+  const previousShopSnapIndexRef = useRef(3);
+
+  // ═══════════════ STORES ═══════════════
   const setBookingStage = useBookingStore((state) => state.setBookingStage);
-  // Call functions inside selector so Zustand tracks value changes
   const selectedCount = useBookingStore((state) => state.getSelectedServicesCount());
   const selectedTotal = useBookingStore((state) => state.getSelectedServicesTotal());
+  const availableServices = useBookingStore((state) => state.availableServices);
+  
+  // Search stores
+  const getRecentShopIds = useSearchStore((state) => state.getRecentShopIds);
+  const getSearchSuggestions = useSearchStore((state) => state.getSearchSuggestions);
+  const removeRecentShop = useSearchStore((state) => state.removeRecentShop);
+  const shops = useShopStore((state) => state.shops);
+  const shopIds = useShopStore((state) => state.shopIds);
+  const getShopById = useShopStore((state) => state.getShopById);
+  const mechanics = useMechanicStore((state) => state.mechanics);
+  const mechanicIds = useMechanicStore((state) => state.mechanicIds);
 
   // ═══════════════ COMPUTED ═══════════════
   const hasSelection = selectedCount > 0;
   const isServiceStage = currentStage === "discovery" || currentStage === "service_selection";
+
+  // ═══════════════ SEARCH COMPUTED VALUES ═══════════════
+  const recentShopIds = useMemo(() => getRecentShopIds(), [getRecentShopIds]);
+
+  const allShops = useMemo(() => {
+    return shopIds.map((id) => shops[id]).filter(Boolean);
+  }, [shops, shopIds]);
+
+  const allMechanics = useMemo(() => {
+    return mechanicIds.map((id) => mechanics[id]).filter(Boolean);
+  }, [mechanics, mechanicIds]);
+
+  const recentShops = useMemo(() => {
+    return recentShopIds
+      .map((id) => getShopById(id))
+      .filter((shop): shop is NonNullable<typeof shop> => shop !== undefined);
+  }, [recentShopIds, getShopById]);
+
+  const serviceSuggestions = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+    return getSearchSuggestions(searchQuery, availableServices).slice(0, 3);
+  }, [searchQuery, getSearchSuggestions, availableServices]);
+
+  const topMatches = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+    const lowerQuery = searchQuery.toLowerCase().trim();
+
+    const shopScores = allShops.map((shop) => {
+      const nameLower = shop.name.toLowerCase();
+      const addressLower = shop.address.toLowerCase();
+      let score = 0;
+      if (nameLower === lowerQuery) score = 100;
+      else if (nameLower.startsWith(lowerQuery)) score = 80;
+      else if (nameLower.includes(lowerQuery)) score = 60;
+      else if (addressLower.includes(lowerQuery)) score = 40;
+      return { type: "shop" as const, data: shop, score };
+    });
+
+    const mechanicScores = allMechanics.map((mechanic) => {
+      const nameLower = mechanic.name.toLowerCase();
+      const shopNameLower = mechanic.shopName.toLowerCase();
+      let score = 0;
+      if (nameLower === lowerQuery) score = 100;
+      else if (nameLower.startsWith(lowerQuery)) score = 80;
+      else if (nameLower.includes(lowerQuery)) score = 60;
+      else if (shopNameLower.includes(lowerQuery)) score = 40;
+      return { type: "mechanic" as const, data: mechanic, score };
+    });
+
+    return [...shopScores, ...mechanicScores]
+      .filter((item) => item.score > 0)
+      .sort((a, b) => b.score - a.score)
+      .slice(0, 5);
+  }, [allShops, allMechanics, searchQuery]);
+
+  const filteredRecentShops = useMemo(() => {
+    if (searchQuery.trim()) return [];
+    return recentShops.slice(0, 3);
+  }, [recentShops, searchQuery]);
+
+  const hasSearchResults = topMatches.length > 0 || serviceSuggestions.length > 0;
 
   // ═══════════════ EFFECTS ═══════════════
   // Expose animated index to parent
@@ -113,12 +235,50 @@ export function ServiceBottomSheet({
   // Expand sheet when stage changes (except discovery)
   useEffect(() => {
     if (currentStage !== "discovery" && bottomSheetRef.current) {
-      bottomSheetRef.current.snapToIndex(1);
+      bottomSheetRef.current.snapToIndex(3); // Snap to expanded
     }
   }, [currentStage]);
 
+  // Notify parent when search mode changes
+  useEffect(() => {
+    onSearchModeChange?.(isSearchMode);
+  }, [isSearchMode, onSearchModeChange]);
+
+  // Focus search input when entering search mode
+  useEffect(() => {
+    if (isSearchMode) {
+      setTimeout(() => {
+        searchInputRef.current?.focus();
+      }, 100);
+    }
+  }, [isSearchMode]);
+
+  // Auto-close search when query becomes empty after typing
+  useEffect(() => {
+    if (isSearchMode && hasTyped && searchQuery === "") {
+      const timer = setTimeout(() => {
+        exitSearchMode();
+      }, 300);
+      return () => clearTimeout(timer);
+    }
+  }, [isSearchMode, hasTyped, searchQuery]);
+
+  // Handle selected shop from map pin - show shop preview and snap to preview position
+  useEffect(() => {
+    if (selectedShopId !== null) {
+      // Save current snap index before switching to shop preview
+      previousShopSnapIndexRef.current = Math.round(animatedIndex.value);
+      setShowShopPreview(true);
+      // Snap to preview position (index 1 = 38%)
+      bottomSheetRef.current?.snapToIndex(1);
+    } else {
+      // Shop was deselected, hide shop preview
+      setShowShopPreview(false);
+    }
+  }, [selectedShopId, animatedIndex]);
+
   // ═══════════════ COMPUTED VALUES ═══════════════
-  const offsetPercent = (offsetY / SCREEN_HEIGHT) * 90;
+  const offsetPercent = (offsetY / SCREEN_HEIGHT) * 100;
 
   // Get snap points config, fallback to discovery for stages handled by pages
   const stageConfig =
@@ -126,28 +286,126 @@ export function ServiceBottomSheet({
       ? SNAP_POINTS_CONFIG[currentStage]
       : SNAP_POINTS_CONFIG.discovery;
 
+  // Four snap points: collapsed, preview, mid, expanded
+  // Shop preview mode uses the same snap points (no locking - just let user drag)
   const snapPoints = useMemo(
-    () => [`${stageConfig.collapsed - offsetPercent}%`, `${stageConfig.expanded - offsetPercent}%`],
+    () => [
+      `${stageConfig.collapsed - offsetPercent}%`,
+      `${stageConfig.preview - offsetPercent}%`,
+      `${stageConfig.mid - offsetPercent}%`,
+      `${stageConfig.expanded - offsetPercent}%`,
+    ],
     [stageConfig, offsetPercent]
   );
 
-  // Initial index: expanded (1) for non-discovery stages, collapsed (0) for discovery
-  const initialIndex = currentStage === "discovery" ? 0 : 1;
+  // Initial index: start at expanded (index 3)
+  const initialIndex = 3;
 
-  // ═══════════════ ANIMATED STYLES ═══════════════
-  // Collapsed content visibility (show when index < 0.5)
-  const collapsedStyle = useAnimatedStyle(() => ({
-    opacity: animatedIndex.value < 0.5 ? 1 : 0,
-    zIndex: animatedIndex.value < 0.5 ? 1 : 0,
-    pointerEvents: animatedIndex.value < 0.5 ? "auto" : "none",
-  }));
+  // ═══════════════ SEARCH MODE HANDLERS ═══════════════
+  // Enter search mode
+  const enterSearchMode = useCallback(() => {
+    // Save current snap index
+    previousSnapIndexRef.current = Math.round(animatedIndex.value);
+    setIsSearchMode(true);
+    // Ensure sheet is expanded
+    bottomSheetRef.current?.snapToIndex(3);
+  }, [animatedIndex]);
 
-  // Expanded content visibility (show when index >= 0.5)
-  const expandedStyle = useAnimatedStyle(() => ({
-    opacity: animatedIndex.value >= 0.5 ? 1 : 0,
-    zIndex: animatedIndex.value >= 0.5 ? 1 : 0,
-    pointerEvents: animatedIndex.value >= 0.5 ? "auto" : "none",
-  }));
+  // Exit search mode
+  const exitSearchMode = useCallback(() => {
+    Keyboard.dismiss();
+    setIsSearchMode(false);
+    setSearchQuery("");
+    setHasTyped(false);
+    // Restore to previous snap index
+    bottomSheetRef.current?.snapToIndex(previousSnapIndexRef.current);
+  }, []);
+
+  // Handle search query change
+  const handleSearchQueryChange = useCallback((text: string) => {
+    setSearchQuery(text);
+    if (text.length > 0) {
+      setHasTyped(true);
+    }
+  }, []);
+
+  // Clear search query
+  const handleClearSearch = useCallback(() => {
+    setSearchQuery("");
+    // This triggers auto-close via effect
+  }, []);
+
+  // Handle service suggestion press
+  const handleSuggestionPress = useCallback(
+    (suggestion: SearchSuggestion) => {
+      const toggleServiceSelection = useBookingStore.getState().toggleServiceSelection;
+      const setSelectedServiceCategory = useBookingStore.getState().setSelectedServiceCategory;
+      
+      if (suggestion.type === "service") {
+        toggleServiceSelection(suggestion.service.id);
+      } else {
+        setSelectedServiceCategory(suggestion.category);
+      }
+      exitSearchMode();
+    },
+    [exitSearchMode]
+  );
+
+  // Handle shop press from search
+  const handleSearchShopPress = useCallback(
+    (shopId: number) => {
+      exitSearchMode();
+      onSelectShop?.(shopId);
+    },
+    [exitSearchMode, onSelectShop]
+  );
+
+  // Handle mechanic press from search
+  const handleSearchMechanicPress = useCallback(
+    (mechanicId: number) => {
+      exitSearchMode();
+      onSelectMechanic?.(mechanicId);
+    },
+    [exitSearchMode, onSelectMechanic]
+  );
+
+  // Handle remove recent shop
+  const handleRemoveRecentShop = useCallback(
+    (shopId: number) => {
+      removeRecentShop(shopId);
+    },
+    [removeRecentShop]
+  );
+
+  // ═══════════════ SHOP PREVIEW HANDLERS ═══════════════
+  // Toggle between shop preview and services view
+  const handleShopToggle = useCallback(() => {
+    if (showShopPreview) {
+      // Switching to services view - hide preview and expand sheet
+      setShowShopPreview(false);
+      bottomSheetRef.current?.snapToIndex(3); // Expanded
+    } else {
+      // Switching to shop preview - snap to preview position
+      setShowShopPreview(true);
+      bottomSheetRef.current?.snapToIndex(1); // Preview (38%)
+    }
+  }, [showShopPreview]);
+
+  // Handle shop change from carousel
+  const handleShopPreviewChange = useCallback(
+    (shop: { id: number; latitude: number; longitude: number }) => {
+      onShopChange?.(shop);
+    },
+    [onShopChange]
+  );
+
+  // Handle shop details press
+  const handleShopPreviewDetails = useCallback(
+    (shop: { id: number }) => {
+      onSelectShop?.(shop.id);
+    },
+    [onSelectShop]
+  );
 
   // ═══════════════ HANDLERS ═══════════════
   // Service selection complete -> go to mechanic selection
@@ -160,18 +418,61 @@ export function ServiceBottomSheet({
     // Navigation is handled internally by MechanicSelectionContent
   }, []);
 
-  // Book again -> reset flow
-  // const handleBookAgain = useCallback(() => {
-  //   reset();
-  //   bottomSheetRef.current?.snapToIndex(0);
-  // }, [reset]);
+  // Handle close button press
+  // In search mode: exit search mode
+  // In browse mode: minimize to preview stage (index 1 = 38%)
+  const handleClose = useCallback(() => {
+    if (isSearchMode) {
+      exitSearchMode();
+    } else {
+      bottomSheetRef.current?.snapToIndex(1); // Snap to preview stage
+    }
+  }, [isSearchMode, exitSearchMode]);
+
+  // Handle category tap - expand to mid (50%) if below mid
+  const handleCategorySelect = useCallback(() => {
+    // Index 2 = mid (50%), so if below that, expand to mid
+    if (animatedIndex.value < 1.5) {
+      bottomSheetRef.current?.snapToIndex(2); // Snap to mid (50%)
+    }
+  }, [animatedIndex]);
 
   // ═══════════════ FOOTER ANIMATED STYLE ═══════════════
-  // Hide footer when sheet is collapsed (index < 0.5)
+  // Show footer when at 50%+ (index >= 2) OR when hasSelection
+  // We use useDerivedValue to handle the hasSelection reactive value
+  const shouldShowFooter = useDerivedValue(() => {
+    // Index 2 = mid (50%), so show footer at index >= 2 OR if hasSelection
+    return animatedIndex.value >= 1.5 || hasSelection;
+  }, [hasSelection]);
+
   const footerAnimatedStyle = useAnimatedStyle(() => ({
-    opacity: animatedIndex.value >= 0.5 ? 1 : 0,
-    pointerEvents: animatedIndex.value >= 0.5 ? "auto" : "none",
+    opacity: withTiming(shouldShowFooter.value ? 1 : 0, { duration: 200 }),
+    pointerEvents: shouldShowFooter.value ? "auto" : "none",
   }));
+
+  // ═══════════════ CLOSE BUTTON ANIMATED STYLE ═══════════════
+  // In search mode: always visible
+  // In browse mode: only show when fully expanded (index 2.5 to 3)
+  const closeButtonAnimatedStyle = useAnimatedStyle(() => {
+    if (isSearchMode) {
+      return {
+        opacity: 1,
+        pointerEvents: "auto" as const,
+      };
+    }
+
+    const opacity = interpolate(
+      animatedIndex.value,
+      [2.5, 3],
+      [0, 1],
+      Extrapolation.CLAMP
+    );
+
+    return {
+      opacity,
+      pointerEvents: opacity > 0.5 ? "auto" : "none",
+    };
+  });
 
   // Bottom inset includes safe area
   const footerBottomInset = insets.bottom;
@@ -194,8 +495,6 @@ export function ServiceBottomSheet({
         );
       }
 
-      // booking_details and payment stages are handled by FullScreenBookingView
-      // Confirmation stage uses a separate modal (no footer here)
       // Mechanic selection has no footer (buttons are in MechanicCard)
       return null;
     },
@@ -222,7 +521,7 @@ export function ServiceBottomSheet({
             exiting={sheetExiting}
             style={styles.contentWrapper}
           >
-            <ServiceSelectionContent />
+            <ServiceSelectionContent onCategorySelect={handleCategorySelect} />
           </Animated.View>
         );
 
@@ -236,13 +535,11 @@ export function ServiceBottomSheet({
           >
             <MechanicSelectionContent
               onSelectMechanic={handleMechanicSelected}
-              mechanicFilter={mechanicFilter}
             />
           </Animated.View>
         );
 
       // booking_details and payment stages are handled by FullScreenBookingView
-      // Confirmation stage uses a separate detached modal (ConfirmationModal)
       case "booking_details":
       case "payment":
       case "confirmation":
@@ -250,6 +547,213 @@ export function ServiceBottomSheet({
         return null;
     }
   };
+
+  // ═══════════════ SEARCH RESULTS RENDERER ═══════════════
+  const renderSearchResults = () => (
+    <ScrollView
+      style={styles.scrollView}
+      contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + Spacing.xl }]}
+      showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
+    >
+      {/* Service Suggestions */}
+      {serviceSuggestions.length > 0 && (
+        <View style={styles.section}>
+          <Text size="xs" weight="bold" color="#9CA3AF" style={styles.sectionLabel}>
+            SERVICES
+          </Text>
+          {serviceSuggestions.map((suggestion, index) => (
+            <TouchableOpacity
+              key={`suggestion-${index}`}
+              style={styles.resultCard}
+              onPress={() => handleSuggestionPress(suggestion)}
+              activeOpacity={0.7}
+            >
+              <View style={styles.serviceIcon}>
+                <Wrench size={18} color={BrandColors.secondary} />
+              </View>
+              <View style={styles.resultContent}>
+                <Text size="md" weight="semiBold" color={BrandColors.primary}>
+                  {suggestion.type === "service" ? suggestion.service.name : suggestion.label}
+                </Text>
+                {suggestion.type === "service" && (
+                  <Text size="sm" color="#6B7280" numberOfLines={1}>
+                    {suggestion.service.description}
+                  </Text>
+                )}
+                {suggestion.type === "category" && (
+                  <Text size="sm" color="#6B7280">
+                    Service Category
+                  </Text>
+                )}
+              </View>
+              {suggestion.type === "service" && (
+                <Text size="md" weight="bold" color={BrandColors.secondary}>
+                  ${suggestion.service.price}
+                </Text>
+              )}
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
+      {/* Top Matches (shops/mechanics) */}
+      {topMatches.length > 0 && (
+        <View style={styles.section}>
+          <Text size="xs" weight="bold" color="#9CA3AF" style={styles.sectionLabel}>
+            TOP MATCHES
+          </Text>
+          {topMatches.map((match) => {
+            if (match.type === "shop") {
+              const shop = match.data;
+              return (
+                <TouchableOpacity
+                  key={`match-shop-${shop.id}`}
+                  style={styles.resultCard}
+                  onPress={() => handleSearchShopPress(shop.id)}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.shopIcon}>
+                    <MapPin size={18} color={BrandColors.secondary} />
+                  </View>
+                  <View style={styles.resultContent}>
+                    <View style={styles.resultHeader}>
+                      <Text
+                        size="md"
+                        weight="semiBold"
+                        color={BrandColors.primary}
+                        numberOfLines={1}
+                        style={styles.resultName}
+                      >
+                        {shop.name}
+                      </Text>
+                      {shop.rating && (
+                        <View style={styles.ratingBadge}>
+                          <Star size={12} color="#F5C254" fill="#F5C254" />
+                          <Text size="xs" weight="semiBold" color={BrandColors.primary}>
+                            {shop.rating.toFixed(1)}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text size="sm" color="#6B7280" numberOfLines={1}>
+                      {shop.address}
+                    </Text>
+                  </View>
+                  {shop.hasAvailableSlots && (
+                    <View style={styles.availableBadge}>
+                      <Text size="xs" weight="semiBold" color="#22C55E">
+                        Open
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              );
+            } else {
+              const mechanic = match.data;
+              return (
+                <TouchableOpacity
+                  key={`match-mech-${mechanic.id}`}
+                  style={styles.resultCard}
+                  onPress={() => handleSearchMechanicPress(mechanic.id)}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.mechanicIcon}>
+                    <User size={18} color={BrandColors.secondary} />
+                  </View>
+                  <View style={styles.resultContent}>
+                    <View style={styles.resultHeader}>
+                      <Text
+                        size="md"
+                        weight="semiBold"
+                        color={BrandColors.primary}
+                        numberOfLines={1}
+                        style={styles.resultName}
+                      >
+                        {mechanic.name}
+                      </Text>
+                      {mechanic.rating && (
+                        <View style={styles.ratingBadge}>
+                          <Star size={12} color="#F5C254" fill="#F5C254" />
+                          <Text size="xs" weight="semiBold" color={BrandColors.primary}>
+                            {mechanic.rating.toFixed(1)}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text size="sm" color="#6B7280" numberOfLines={1}>
+                      {mechanic.shopName} • {mechanic.yearsExperience} yrs
+                    </Text>
+                  </View>
+                  {mechanic.isAvailable && (
+                    <View style={styles.availableBadge}>
+                      <Text size="xs" weight="semiBold" color="#22C55E">
+                        Available
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              );
+            }
+          })}
+        </View>
+      )}
+
+      {/* Recent Shops (when not searching) */}
+      {filteredRecentShops.length > 0 && (
+        <View style={styles.section}>
+          <Text size="xs" weight="bold" color="#9CA3AF" style={styles.sectionLabel}>
+            RECENTLY BOOKED
+          </Text>
+          {filteredRecentShops.map((shop) => (
+            <TouchableOpacity
+              key={`recent-${shop.id}`}
+              style={styles.resultCard}
+              onPress={() => handleSearchShopPress(shop.id)}
+              activeOpacity={0.7}
+            >
+              <View style={styles.recentIcon}>
+                <Clock size={18} color="#6B7280" />
+              </View>
+              <View style={styles.resultContent}>
+                <Text size="md" weight="semiBold" color={BrandColors.primary}>
+                  {shop.name}
+                </Text>
+                <Text size="sm" color="#6B7280" numberOfLines={1}>
+                  {shop.address}
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => handleRemoveRecentShop(shop.id)}
+                style={styles.removeButton}
+                hitSlop={8}
+              >
+                <X size={14} color="#9CA3AF" />
+              </TouchableOpacity>
+            </TouchableOpacity>
+          ))}
+        </View>
+      )}
+
+      {/* Empty State */}
+      {searchQuery.length === 0 && filteredRecentShops.length === 0 && (
+        <View style={styles.emptyState}>
+          <Text size="md" weight="medium" color="#9CA3AF" center>
+            Start typing to search for services, shops, or mechanics
+          </Text>
+        </View>
+      )}
+
+      {/* No Results */}
+      {searchQuery.length > 0 && !hasSearchResults && (
+        <View style={styles.emptyState}>
+          <Text size="md" weight="medium" color="#9CA3AF" center>
+            No results found for "{searchQuery}"
+          </Text>
+        </View>
+      )}
+    </ScrollView>
+  );
 
   // ═══════════════ RENDER ═══════════════
   return (
@@ -260,20 +764,115 @@ export function ServiceBottomSheet({
       animatedIndex={animatedIndex}
       enableDynamicSizing={false}
       enablePanDownToClose={false}
-      enableOverDrag={true}
+      enableOverDrag={!isSearchMode && !showShopPreview}
+      enableContentPanningGesture={!isSearchMode && !showShopPreview}
+      enableHandlePanningGesture={!isSearchMode && !showShopPreview}
       backgroundStyle={styles.bottomSheetBackground}
       handleIndicatorStyle={styles.handleIndicator}
       handleStyle={styles.handleContainer}
-      footerComponent={renderFooter}
+      footerComponent={isSearchMode ? undefined : renderFooter}
     >
-      {/* Collapsed State - visibility based on animated position */}
-      <Animated.View style={[styles.collapsedContent, styles.overlayContent, collapsedStyle]}>
-        <CollapsedContent bookingStage={currentStage} />
-      </Animated.View>
+      {/* Header - Only show for service selection stages when NOT in shop preview */}
+      {isServiceStage && !showShopPreview && (
+        <View style={styles.header}>
+          <View style={styles.headerTop}>
+            {/* Title */}
+            <Text size="xl" weight="bold" color={BrandColors.primary} style={styles.headerTitle}>
+              Select Services
+            </Text>
 
-      {/* Expanded State - stage-based content with Oto transitions */}
+            {/* Right side buttons container */}
+            <View style={styles.headerButtons}>
+              {/* Shop toggle button - only visible when a shop is selected from map */}
+              {selectedShopId !== null && (
+                <TouchableOpacity
+                  onPress={handleShopToggle}
+                  style={styles.shopToggleButton}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <Store size={20} color={BrandColors.primary} />
+                </TouchableOpacity>
+              )}
+
+              {/* X button: always visible in search mode, conditional in browse mode */}
+              <Animated.View style={closeButtonAnimatedStyle}>
+                <TouchableOpacity
+                  onPress={handleClose}
+                  style={styles.closeButton}
+                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                >
+                  <X size={24} color={BrandColors.primary} />
+                </TouchableOpacity>
+              </Animated.View>
+            </View>
+          </View>
+
+          {/* Search Bar */}
+          {isSearchMode ? (
+            <Animated.View entering={FadeIn.duration(200)} style={styles.searchInputContainer}>
+              <Search size={20} color="#9CA3AF" />
+              <TextInput
+                ref={searchInputRef}
+                style={styles.searchInput}
+                placeholder="Search services, shops, mech..."
+                placeholderTextColor="#9CA3AF"
+                value={searchQuery}
+                onChangeText={handleSearchQueryChange}
+                returnKeyType="search"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              {searchQuery.length > 0 && (
+                <TouchableOpacity onPress={handleClearSearch} hitSlop={8}>
+                  <X size={18} color="#9CA3AF" />
+                </TouchableOpacity>
+              )}
+            </Animated.View>
+          ) : (
+            <TouchableOpacity
+              onPress={enterSearchMode}
+              style={styles.searchBarTouchable}
+              activeOpacity={0.7}
+            >
+              <View style={styles.searchBar}>
+                <Search size={20} color="#9CA3AF" />
+                <Text size="md" weight="regular" color="#9CA3AF" style={styles.searchPlaceholder}>
+                  Search for services or mechanics...
+                </Text>
+              </View>
+            </TouchableOpacity>
+          )}
+        </View>
+      )}
+
+      {/* Content - Search results, shop preview, or stage content */}
       <View style={styles.expandedContainer}>
-        <Animated.View style={[styles.expandedContent, expandedStyle]}>{renderStageContent()}</Animated.View>
+        {isSearchMode ? (
+          <Animated.View 
+            key="search" 
+            entering={FadeIn.duration(200)} 
+            exiting={FadeOut.duration(150)}
+            style={styles.contentWrapper}
+          >
+            {renderSearchResults()}
+          </Animated.View>
+        ) : showShopPreview && isServiceStage ? (
+          <Animated.View
+            key="shop-preview"
+            entering={FadeIn.duration(200)}
+            exiting={FadeOut.duration(150)}
+            style={styles.contentWrapper}
+          >
+            <ShopPreviewContent
+              selectedShopId={selectedShopId}
+              onShopChange={handleShopPreviewChange}
+              onShopDetails={handleShopPreviewDetails}
+              onClose={handleShopToggle}
+            />
+          </Animated.View>
+        ) : (
+          renderStageContent()
+        )}
       </View>
     </BottomSheet>
   );
@@ -299,23 +898,158 @@ const styles = StyleSheet.create({
     height: 5,
     borderRadius: BorderRadius.full,
   },
-  overlayContent: {
-    position: "absolute",
-    left: 0,
-    right: 0,
-    top: 0,
-  },
-  collapsedContent: {
-    paddingVertical: Spacing.md,
+  header: {
     paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.md,
+  },
+  headerTop: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: Spacing.md,
+  },
+  headerTitle: {
+    flex: 1,
+  },
+  headerButtons: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+  },
+  shopToggleButton: {
+    width: 36,
+    height: 36,
+    borderRadius: BorderRadius.lg,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  closeButton: {
+    padding: Spacing.xs,
+  },
+  searchBarTouchable: {
+    marginBottom: Spacing.sm,
+  },
+  searchBar: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F3F4F6",
+    borderRadius: BorderRadius.lg,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.md,
+    gap: Spacing.sm,
+  },
+  searchPlaceholder: {
+    flex: 1,
+  },
+  // Active search input
+  searchInputContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F3F4F6",
+    borderRadius: BorderRadius.lg,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.md,
+    gap: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: FontSize.md,
+    fontFamily: FontFamily.regular,
+    color: BrandColors.primary,
+    padding: 0,
+    margin: 0,
   },
   expandedContainer: {
     flex: 1,
   },
-  expandedContent: {
-    flex: 1,
-  },
   contentWrapper: {
     flex: 1,
+  },
+  // Search results styles
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingVertical: Spacing.lg,
+    paddingHorizontal: Spacing.lg,
+  },
+  section: {
+    marginBottom: Spacing.xl,
+  },
+  sectionLabel: {
+    marginBottom: Spacing.md,
+    letterSpacing: 0.5,
+  },
+  resultCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F9FAFB",
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.md,
+    marginBottom: Spacing.sm,
+    gap: Spacing.md,
+  },
+  serviceIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: BorderRadius.lg,
+    backgroundColor: "#F0F7FF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  shopIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: BorderRadius.full,
+    backgroundColor: "#E0EDFF",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  mechanicIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: BorderRadius.full,
+    backgroundColor: "#E8F5E9",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  recentIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: BorderRadius.full,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  resultContent: {
+    flex: 1,
+  },
+  resultHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+  },
+  resultName: {
+    flex: 1,
+  },
+  ratingBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+  },
+  availableBadge: {
+    backgroundColor: "#DCFCE7",
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.full,
+  },
+  removeButton: {
+    padding: Spacing.xs,
+  },
+  emptyState: {
+    paddingVertical: Spacing["3xl"],
+    paddingHorizontal: Spacing.lg,
   },
 });
