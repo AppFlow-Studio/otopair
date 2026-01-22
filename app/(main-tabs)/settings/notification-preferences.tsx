@@ -24,7 +24,7 @@ import Animated, { interpolateColor, useAnimatedStyle, useSharedValue, withTimin
 import { BrandColors, Button, Spacing, Text } from '@/components/shared-ui';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 
-type NotificationKey = 'offers' | 'rewards' | 'pass' | 'other';
+type NotificationKey = 'offers' | 'rewards' | 'pass' | 'other' | 'bookings';
 
 const ToggleRow = ({
   title,
@@ -94,6 +94,7 @@ export default function NotificationPreferencesScreen() {
     rewards: data.notificationRewardsEnabled,
     pass: data.notificationPassEnabled,
     other: data.notificationOtherEnabled,
+    bookings: data.notificationBookingsEnabled,
   });
   const [isSaving, setIsSaving] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -105,12 +106,14 @@ export default function NotificationPreferencesScreen() {
       rewards: data.notificationRewardsEnabled,
       pass: data.notificationPassEnabled,
       other: data.notificationOtherEnabled,
+      bookings: data.notificationBookingsEnabled,
     });
   }, [
     data.notificationOffersEnabled,
     data.notificationRewardsEnabled,
     data.notificationPassEnabled,
     data.notificationOtherEnabled,
+    data.notificationBookingsEnabled,
   ]);
 
   const handleToggle = useCallback((key: NotificationKey, next: boolean) => {
@@ -128,6 +131,7 @@ export default function NotificationPreferencesScreen() {
         notificationRewardsEnabled: values.rewards,
         notificationPassEnabled: values.pass,
         notificationOtherEnabled: values.other,
+        notificationBookingsEnabled: values.bookings,
       });
       setSuccessMessage('Preferences updated.');
       setTimeout(() => setSuccessMessage(null), 1500);
@@ -136,7 +140,7 @@ export default function NotificationPreferencesScreen() {
     } finally {
       setIsSaving(false);
     }
-  }, [updateData, values.other, values.offers, values.pass, values.rewards]);
+  }, [updateData, values.other, values.offers, values.pass, values.rewards, values.bookings]);
 
   const toggleRows = useMemo(
     () => [
@@ -160,6 +164,11 @@ export default function NotificationPreferencesScreen() {
         title: 'Other',
         description: 'Events, recommendations, and other service messages',
       },
+      {
+        key: 'bookings' as const,
+        title: 'Bookings',
+        description: 'Updates and reminders about your service appointments',
+      },
     ],
     []
   );
@@ -180,15 +189,6 @@ export default function NotificationPreferencesScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.content}
       >
-        <Text weight="bold" size="md" color="#111827" style={styles.sectionTitle}>
-          Push Notifications
-        </Text>
-        <Text size="sm" color="#6B7280" style={styles.sectionBody}>
-          To turn notifications about your bookings on or off, go to the app settings on your phone.
-        </Text>
-
-        <View style={styles.divider} />
-
         {toggleRows.map((row) => (
           <ToggleRow
             key={row.key}
@@ -262,14 +262,6 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     marginBottom: Spacing.sm,
-  },
-  sectionBody: {
-    lineHeight: 20,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: 'rgba(0,0,0,0.08)',
-    marginVertical: Spacing.xl,
   },
   toggleRow: {
     flexDirection: 'row',

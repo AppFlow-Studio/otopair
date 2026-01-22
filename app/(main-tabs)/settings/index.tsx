@@ -170,8 +170,9 @@ export default function SettingsHomeScreen() {
         notificationRewardsEnabled: data.notificationRewardsEnabled,
         notificationPassEnabled: data.notificationPassEnabled,
         notificationOtherEnabled: data.notificationOtherEnabled,
+        notificationBookingsEnabled: data.notificationBookingsEnabled,
       });
-    }, [data.twoFactorEmailEnabled, data.twoFactorSmsEnabled, data.notificationOffersEnabled, data.notificationRewardsEnabled, data.notificationPassEnabled, data.notificationOtherEnabled])
+    }, [data.twoFactorEmailEnabled, data.twoFactorSmsEnabled, data.notificationOffersEnabled, data.notificationRewardsEnabled, data.notificationPassEnabled, data.notificationOtherEnabled, data.notificationBookingsEnabled])
   );
 
   // ─────────────────────────────────────────────────────────────

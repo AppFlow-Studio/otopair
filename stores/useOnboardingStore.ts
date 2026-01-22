@@ -66,6 +66,7 @@ interface OnboardingData {
   notificationRewardsEnabled: boolean;
   notificationPassEnabled: boolean;
   notificationOtherEnabled: boolean;
+  notificationBookingsEnabled: boolean;
 
   // Profile stats (used on Settings/Profile screen)
   totalBookings: number;
@@ -194,6 +195,7 @@ const INITIAL_DATA: OnboardingData = {
   notificationRewardsEnabled: true,
   notificationPassEnabled: true,
   notificationOtherEnabled: true,
+  notificationBookingsEnabled: true,
   totalBookings: 0,
   membershipTier: null,
   points: 0,

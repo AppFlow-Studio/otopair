@@ -7,6 +7,7 @@ export default function SettingsLayout() {
             <Stack.Screen name="notification-preferences" options={{ headerShown: false }} />
             <Stack.Screen name="refer-a-friend" options={{ headerShown: false }} />
             <Stack.Screen name="faq" options={{ headerShown: false }} />
+            <Stack.Screen name="faq-category" options={{ headerShown: false }} />
             <Stack.Screen name="biometric-setup" options={{ headerShown: false }} />
             <Stack.Screen name="two-factor-method" options={{ headerShown: false }} />
             <Stack.Screen name="two-factor-verify" options={{ headerShown: false }} />
