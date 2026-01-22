@@ -236,7 +236,7 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: '#E8ECF0',
-    paddingHorizontal: Spacing['2xl'],
+    paddingHorizontal: 20,
   },
   header: {
     flexDirection: 'row',

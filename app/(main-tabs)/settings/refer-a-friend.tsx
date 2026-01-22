@@ -1,129 +1,49 @@
 /**
  * ReferAFriendScreen
  *
- * PURPOSE: Referral program page where users can share their unique code and view rewards.
- *          Features hero card, referral stats, and history list.
- *
- * USED IN: app/(main-tabs)/settings/index.tsx
- *
- * PROPS: None (accessed via router)
- *
- * EXAMPLE:
- *   <ReferAFriendScreen />
- *
- * OWNER: Daniel Chelala
- * TICKET: OTO-XXX
+ * PURPOSE: iOS 26-style rewards dashboard converted from provided HTML.
  */
 
-import React, { useCallback, useMemo, useState, useRef } from 'react';
-import { 
-  Pressable, 
-  ScrollView, 
-  Share, 
-  StyleSheet, 
-  View
+import React, { useCallback, useMemo } from 'react';
+import {
+  Pressable,
+  Share,
+  StyleSheet,
+  View,
 } from 'react-native';
-import Animated, { 
-  FadeIn, 
-  FadeOut, 
-  FadeInDown,
-  FadeOutUp,
-  LinearTransition, 
-  useAnimatedStyle, 
-  withTiming 
-} from 'react-native-reanimated';
+import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { BottomSheetModal } from '@gorhom/bottom-sheet';
-import { 
-  X, 
-  HelpCircle, 
-  Handshake, 
-  UserCircle2, 
-  UserPlus2, 
-  BarChart3,
+import { BlurView } from 'expo-blur';
+import * as Clipboard from 'expo-clipboard';
+import { LinearGradient } from 'expo-linear-gradient';
+import {
+  X,
+  Gift,
+  Copy,
   Share2,
-  User,
-  ChevronDown,
+  Smartphone,
 } from 'lucide-react-native';
 
-import { AppBottomSheetModal, BrandColors, Spacing, Text } from '@/components/shared-ui';
+import { BrandColors, Text } from '@/components/shared-ui';
+import { ScrollDrivenGradientBackground } from '@/components/shared-ui/ScrollDrivenGradientBackground';
+import { FadeHeaderContainer } from '@/components/shared-ui/FadeHeaderContainer';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
-import { Layout } from '@/constants/theme';
-import { IntersectSquareIcon } from 'phosphor-react-native';
 
-const FAQ_ITEMS = [
-  {
-    id: '1',
-    question: 'How do referral codes work?',
-    answer: 'Share your unique code with friends. When they complete their first service using Otopair, you each automatically earn 250 bonus points in your wallet.',
-  },
-  {
-    id: '2',
-    question: 'When do I get my points?',
-    answer: "Points are credited to your account instantly after your referred friend's service is marked as \"Completed\" by the technician.",
-  },
-  {
-    id: '3',
-    question: 'Is there a minimum order?',
-    answer: 'Yes, the referred friend must book a service with a minimum value of $25.00 for the referral bonus to be activated for both parties.',
-  },
-  {
-    id: '4',
-    question: 'Do points expire?',
-    answer: "Referral points are valid for 90 days from the date they are credited. We'll send you a reminder notification 30 days before they expire.",
-  },
-  {
-    id: '5',
-    question: 'Can I refer multiple friends?',
-    answer: 'Absolutely! You can refer up to 50 friends. The more friends you bring to Otopair, the more points you earn towards free services.',
-  },
-];
-
-const FAQAccordionItem = ({ 
-  item, 
-  isExpanded, 
-  onToggle 
-}: { 
-  item: typeof FAQ_ITEMS[0], 
-  isExpanded: boolean, 
-  onToggle: () => void 
-}) => {
-  const rotationStyle = useAnimatedStyle(() => {
-    return {
-      transform: [{ rotate: withTiming(isExpanded ? '180deg' : '0deg') }],
-    };
-  }, [isExpanded]);
-
-  return (
-    <Animated.View 
-      layout={LinearTransition.duration(300)}
-      style={[styles.faqItem, isExpanded && styles.faqItemExpanded]}
-    >
-      <Pressable onPress={onToggle}>
-        <View style={styles.faqQuestionRow}>
-          <Text weight="semiBold" size="md" color="#111827" style={styles.faqQuestionText}>
-            {item.question}
-          </Text>
-          <Animated.View style={rotationStyle}>
-            <ChevronDown size={20} color={isExpanded ? BrandColors.secondary : "#94A3B8"} />
-          </Animated.View>
-        </View>
-        {isExpanded && (
-          <Animated.View 
-            entering={FadeIn.duration(300)} 
-            exiting={FadeOut.duration(200)}
-            style={styles.faqAnswerContainer}
-          >
-            <Text size="sm" color="#6B7280" style={styles.faqAnswerText}>
-              {item.answer}
-            </Text>
-          </Animated.View>
-        )}
-      </Pressable>
-    </Animated.View>
-  );
+const COLORS = {
+  primary: '#2463eb',
+  backgroundLight: '#F5F5F7',
+  glassLight: 'rgba(255, 255, 255, 0.72)',
+  textDark: '#1c1c1e',
+  textMuted: '#6B7280',
 };
+
+const HEADER_FADE_COLORS: [string, string, string, string] = [
+  'rgba(82, 153, 254, 1)',    // Opaque blue (BrandColors.secondary)
+  'rgba(82, 153, 254, 0.7)',
+  'rgba(82, 153, 254, 0.3)',
+  'rgba(82, 153, 254, 0)',    // Transparent
+];
 
 function stableShortHash(input: string): string {
   let h = 0;
@@ -133,22 +53,31 @@ function stableShortHash(input: string): string {
   return String(h % 1000000).padStart(6, '0');
 }
 
+const GlassPanel = ({
+  children,
+  style,
+}: {
+  children: React.ReactNode;
+  style?: object;
+}) => {
+  return (
+    <BlurView
+      intensity={20}
+      tint="light"
+      style={[
+        styles.glassPanel,
+        { backgroundColor: COLORS.glassLight },
+        style,
+      ]}
+    >
+      {children}
+    </BlurView>
+  );
+};
+
 export default function ReferAFriendScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const bottomSheetRef = useRef<BottomSheetModal>(null);
-  const snapPoints = useMemo(() => ['85%'], []);
-
-  const handleOpenFaq = useCallback(() => {
-    bottomSheetRef.current?.present();
-  }, []);
-
-  const handleCloseFaq = useCallback(() => {
-    bottomSheetRef.current?.dismiss();
-  }, []);
-
-
   const data = useOnboardingStore((s) => s.data);
 
   const referralCode = useMemo(() => {
@@ -158,215 +87,245 @@ export default function ReferAFriendScreen() {
       `${(data.firstName ?? '').trim()}${(data.lastName ?? '').trim()}`.trim() ||
       'user';
 
-    const normalized = base.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 14) || 'user';
+    const normalized =
+      base.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 14) || 'user';
     return `otopair-${normalized}${stableShortHash(normalized)}`;
   }, [data.email, data.firstName, data.lastName, data.username]);
 
-  const handleInvite = useCallback(async () => {
-    const message =
-      `Join Otopair and get 250 points on your first booking!\n\n` +
-      `Use my referral code: ${referralCode}\n`;
-    await Share.share({ message });
-  }, [referralCode]);
+  const displayCode = referralCode.toUpperCase();
 
-  // Mock data for history to match screenshot
-const history = [
-    { id: '1', name: 'Sarah Jenkins', date: 'Joined Oct 24, 2023', points: '+250 pts', status: 'Completed', color: '#E2E8F0', initials: 'SJ' },
-    { id: '2', name: 'Mike Ross', date: 'Invite sent Oct 22, 2023', points: '0 pts', status: 'Pending', color: '#F3E8FF', initials: 'MR' },
-    { id: '3', name: 'Jessica Pearson', date: 'Joined Oct 15, 2023', points: '+250 pts', status: 'Completed', color: '#FFEDD5', initials: 'JP' },
-    { id: '4', name: 'Louis Spector', date: 'Joined Oct 10, 2023', points: '+250 pts', status: 'Completed', color: '#DBEAFE', initials: 'LS' },
-    { id: '5', name: 'Donna Paulsen', date: 'Joined Oct 05, 2023', points: '+250 pts', status: 'Completed', color: '#FEE2E2', initials: 'DP' },
-    { id: '6', name: 'Harvey Specter', date: 'Joined Sep 28, 2023', points: '+250 pts', status: 'Completed', color: '#FEF3C7', initials: 'HS' },
-  ];
+  const handleCopy = useCallback(async () => {
+    await Clipboard.setStringAsync(displayCode);
+  }, [displayCode]);
+
+  const handleShare = useCallback(async () => {
+    const message =
+      `Join Otopair and get 250 points for your first booking!\n\n` +
+      `Use my referral code: ${displayCode}\n`;
+    await Share.share({ message });
+  }, [displayCode]);
 
   return (
     <View style={styles.screen}>
-      {/* Header */}
-      <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
-        <Pressable onPress={() => router.back()} style={styles.backButton} hitSlop={10}>
-          <X size={18} color="#111827" />
-        </Pressable>
-        <Text weight="bold" size="lg" color="#111827" style={styles.headerTitle}>
-          Refer a Friend
-        </Text>
-        <View style={{ width: 40 }} />
-      </View>
-
-      <ScrollView 
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + Layout.footerHeight }]}
-      >
-        {/* Main Hero Card */}
-        <View style={styles.heroCard}>
-          <View style={styles.heroIllustrationBox}>
-            <View style={styles.handshakeCircle}>
-              <Handshake size={48} color={BrandColors.secondary} strokeWidth={1.5} />
-            </View>
-          </View>
-
-          <View style={styles.heroTextContainer}>
-            <Text weight="bold" size="xs" color={BrandColors.secondary} style={styles.heroLabel}>
-              OTOPAIR REFERRAL
-            </Text>
-            <Text weight="bold" size="2xl" color="#111827" style={styles.heroTitle}>
-              Give 250, Get 250
-            </Text>
-            <Text size="sm" color="#6B7280" style={styles.heroDesc}>
-              Share your unique code. When your friend books their first service, you both earn rewards.
-            </Text>
-          </View>
-
-          {/* Give/Get Mini Cards */}
-          <View style={styles.miniCardsRow}>
-            <View style={styles.miniCard}>
-              <View style={[styles.miniIconBox, { backgroundColor: '#EFF6FF' }]}>
-                <UserCircle2 size={20} color="#3B82F6" />
+      <ScrollDrivenGradientBackground>
+        {(scrollHandler) => (
+          <>
+            <FadeHeaderContainer
+              paddingTop={insets.top + 10}
+              paddingHorizontal={20}
+              colors={HEADER_FADE_COLORS}
+              fadeHeight={20}
+            >
+              <View style={styles.header}>
+                <Pressable onPress={() => router.back()} style={styles.backButton} hitSlop={10}>
+                  <X size={18} color="#111827" />
+                </Pressable>
+                <Text weight="semiBold" size="lg" color="#fff" style={styles.headerTitle}>
+                  Refer a Friend
+                </Text>
+                <View style={{ width: 40 }} />
               </View>
-              <Text weight="semiBold" size="xs" color="#9CA3AF" style={styles.miniLabel}>YOU GET</Text>
-              <Text weight="bold" size="sm" color="#111827">250 points</Text>
-            </View>
-            <View style={styles.miniCard}>
-              <View style={[styles.miniIconBox, { backgroundColor: '#EFF6FF' }]}>
-                <UserPlus2 size={20} color="#3B82F6" />
+            </FadeHeaderContainer>
+
+            <Animated.ScrollView
+              onScroll={scrollHandler}
+              scrollEventThrottle={16}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={[
+                styles.content,
+                { paddingTop: insets.top + 80, paddingBottom: insets.bottom + 32 },
+              ]}
+            >
+            <GlassPanel style={styles.heroCard}>
+              <View style={styles.heroIconWrap}>
+                <Gift size={36} color={COLORS.primary} strokeWidth={1.75} />
               </View>
-              <Text weight="semiBold" size="xs" color="#9CA3AF" style={styles.miniLabel}>FRIEND GETS</Text>
-              <Text weight="bold" size="sm" color="#111827">250 points</Text>
-            </View>
-          </View>
-
-          <Pressable style={styles.faqLink} onPress={handleOpenFaq}>
-            <HelpCircle size={16} color={BrandColors.secondary} />
-            <Text weight="medium" size="sm" color={BrandColors.secondary}>Referral FAQ</Text>
-          </Pressable>
-
-          {/* Referral Code Box */}
-          <View style={styles.codeBox}>
-            <Text weight="bold" size="md" color="#111827" style={styles.codeText}>
-              {referralCode}
-            </Text>
-            <Pressable onPress={handleInvite} style={styles.copyBtn}>
-              <Share2 size={18} color="#FFF" />
-            </Pressable>
-          </View>
-        </View>
-
-        {/* Stats Section */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text weight="bold" size="lg" color="#111827">Referral Stats</Text>
-            <BarChart3 size={18} color="#94A3B8" />
-          </View>
-          
-          <View style={styles.statsRow}>
-            <View style={styles.statCard}>
-              <Text weight="medium" size="sm" color="#64748B">Points Earned</Text>
-              <View>
-                <Text weight="extraBold" size="2xl" color={BrandColors.secondary}>1,250</Text>
-                <Text size="xs" color="#94A3B8">Lifetime earnings</Text>
+              <View style={styles.heroTextGroup}>
+                <Text
+                  weight="extraBold"
+                  style={[styles.heroTitle, { color: COLORS.textDark } ]}
+                >
+                  Give 250, get 250
+                </Text>
+                <Text
+                  size="md"
+                  color={COLORS.textMuted}
+                  style={styles.heroDescription}
+                >
+                  Invite your friends to Otopair. They get 250 points for their first booking,
+                  and you get 250 points credit.
+                </Text>
               </View>
-            </View>
-            
-            <View style={styles.statCard}>
-              <Text weight="medium" size="sm" color="#64748B">Successful Referrals</Text>
-              <View style={styles.statBottom}>
-                <Text weight="extraBold" size="2xl" color="#111827">5</Text>
-                <View style={styles.highFiveBadge}>
-                  <Text weight="bold" size="xs" color="#16A34A">High Five!</Text>
-                </View>
-              </View>
-            </View>
-          </View>
-        </View>
-
-        {/* History Section */}
-        <View style={styles.section}>
-          <View style={styles.sectionHeader}>
-            <Text weight="bold" size="lg" color="#111827">Referral History</Text>
-            <Pressable>
-              <Text weight="semiBold" size="sm" color={BrandColors.secondary}>View All</Text>
-            </Pressable>
-          </View>
-
-          <View style={styles.historyList}>
-            {history.map((item, index) => (
-              <View 
-                key={item.id} 
+              <View
                 style={[
-                  styles.historyItem,
-                  index === history.length - 1 && { borderBottomWidth: 0 }
+                  styles.codeRow,
+                  { backgroundColor: '#FFFFFF' },
                 ]}
               >
-                <View style={[styles.avatar, { backgroundColor: item.color }]}>
-                  {item.initials ? (
-                    <Text weight="bold" size="sm" color="#1F2937">{item.initials}</Text>
-                  ) : (
-                    <User size={20} color="#64748B" />
-                  )}
-                </View>
-                <View style={styles.itemInfo}>
-                  <Text weight="bold" size="sm" color="#111827">{item.name}</Text>
-                  <Text size="xs" color="#64748B" style={{ marginTop: 2 }}>{item.date}</Text>
-                </View>
-                <View style={styles.itemRight}>
-                  <Text weight="bold" size="sm" color={item.points === '0 pts' ? '#94A3B8' : BrandColors.secondary}>
-                    {item.points}
+                <View style={styles.codeTextContainer}>
+                  <Text
+                    weight="bold"
+                    numberOfLines={1}
+                    ellipsizeMode="clip"
+                    style={[
+                      styles.codeText,
+                      { color: COLORS.textDark },
+                    ]}
+                  >
+                    {displayCode}
                   </Text>
-                  <View style={[
-                    styles.statusBadge,
-                    item.status === 'Completed' ? styles.statusCompleted : styles.statusPending
-                  ]}>
-                    <Text weight="bold" size="xs" color={item.status === 'Completed' ? '#16A34A' : '#64748B'}>
-                      {item.status}
-                    </Text>
-                  </View>
                 </View>
+                <Pressable
+                  onPress={handleCopy}
+                  style={({ pressed }) => [
+                    styles.copyButton,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Copy size={18} color={COLORS.primary} strokeWidth={2.2} />
+                  <Text weight="semiBold" style={styles.copyLabel}>
+                    Copy
+                  </Text>
+                </Pressable>
               </View>
-            ))}
-          </View>
-        </View>
-      </ScrollView>
+              <Pressable
+                onPress={handleShare}
+                style={({ pressed }) => [
+                  styles.shareButton,
+                  pressed && styles.sharePressed,
+                ]}
+              >
+                <Share2 size={20} color="#FFFFFF" strokeWidth={2} />
+                <Text weight="bold" size="md" color="#FFFFFF">
+                  Share invite
+                </Text>
+              </Pressable>
+            </GlassPanel>
 
-      {/* Sticky Footer Button */}
-      <View style={[styles.footer, { paddingBottom: insets.bottom + 20 }]}>
-        <Pressable style={styles.shareBtn} onPress={handleInvite}>
-          <Share2 size={20} color="#FFF" />
-          <Text weight="bold" size="lg" color="#FFF">Share Your Link</Text>
-        </Pressable>
-      </View>
+            <View style={styles.statsRow}>
+              <GlassPanel style={styles.statCard}>
+                <Text
+                  size="xs"
+                  color={COLORS.textMuted}
+                  style={styles.statLabel}
+                >
+                  Total credit{'\n'}earned
+                </Text>
+                <Text
+                  weight="bold"
+                  style={[styles.statValue, { color: COLORS.textDark }]}
+                >
+                  750
+                </Text>
+              </GlassPanel>
+              <GlassPanel style={styles.statCard}>
+                <Text
+                  size="xs"
+                  color={COLORS.textMuted}
+                  style={styles.statLabel}
+                >
+                  Successful{'\n'}referrals
+                </Text>
+                <Text
+                  weight="bold"
+                  style={[styles.statValue, { color: COLORS.textDark }]}
+                >
+                  3
+                </Text>
+              </GlassPanel>
+            </View>
 
-      <AppBottomSheetModal 
-        ref={bottomSheetRef} 
-        snapPoints={[ '85%', '90%' ]} 
-        initialIndex={1} 
-        title="Referral FAQ"
-        footer={
-          <View style={[ styles.faqSupportSection, {paddingBottom: insets.bottom + Spacing['2xl'] } ]}>
-            <Text size="sm" color="#94A3B8" style={styles.faqSupportLabel}>
-              Still have questions?
-            </Text>
-            <Pressable onPress={() => console.log('Contact Support')}>
-              <Text weight="bold" size="md" color={BrandColors.secondary}>
-                Contact Support
+            <GlassPanel style={styles.activityCard}>
+              <View style={styles.activityHeader}>
+                <Text
+                  weight="bold"
+                  size="md"
+                  style={{ color: COLORS.textDark }}
+                >
+                  Activity
+                </Text>
+              </View>
+
+              <Pressable style={styles.activityRow}>
+                <LinearGradient
+                  colors={['#DBEAFE', '#EFF6FF']}
+                  style={styles.avatarGradient}
+                >
+                  <Text weight="bold" size="sm" color={COLORS.primary}>
+                    SM
+                  </Text>
+                </LinearGradient>
+                <View style={styles.activityText}>
+                  <View style={styles.activityTopRow}>
+                    <Text
+                      weight="semiBold"
+                      size="sm"
+                      style={{ color: COLORS.textDark }}
+                    >
+                      Sarah M.
+                    </Text>
+                    <View style={styles.statusBadge}>
+                      <Text weight="semiBold" size="xs" color={COLORS.primary}>
+                        Completed
+                      </Text>
+                    </View>
+                  </View>
+                  <Text size="xs" color={COLORS.textMuted}>
+                    Earned 250 credit
+                  </Text>
+                </View>
+              </Pressable>
+
+              <View style={styles.activityDivider} />
+
+              <Pressable style={styles.activityRow}>
+                <View
+                  style={[
+                    styles.phoneAvatar,
+                    { backgroundColor: '#F3F4F6' },
+                  ]}
+                >
+                  <Smartphone size={20} color="#6B7280" />
+                </View>
+                <View style={styles.activityText}>
+                  <View style={styles.activityTopRow}>
+                    <Text
+                      weight="semiBold"
+                      size="sm"
+                      style={{ color: COLORS.textDark }}
+                    >
+                      Phone ending in 9021
+                    </Text>
+                    <View style={styles.pendingBadge}>
+                      <Text weight="semiBold" size="xs" color="#9CA3AF">
+                        Pending
+                      </Text>
+                    </View>
+                  </View>
+                  <Text size="xs" color={COLORS.textMuted}>
+                    Waiting for first service
+                  </Text>
+                </View>
+              </Pressable>
+            </GlassPanel>
+
+            <View style={styles.footer}>
+              <Text size="xs" color="#9CA3AF">
+                Terms apply.{' '}
+                <Text
+                  size="xs"
+                  color={COLORS.primary}
+                  onPress={() => {}}
+                  style={styles.footerLink}
+                >
+                  View referral terms
+                </Text>
               </Text>
-            </Pressable>
-          </View>
-        }
-      >
-        <View style={styles.faqSectionLabel}>
-          <Text weight="semiBold" size="xs" color="#94A3B8" style={styles.faqSectionLabelText}>
-            TOP QUESTIONS
-          </Text>
-        </View>
-
-        {FAQ_ITEMS.map((item) => (
-          <FAQAccordionItem
-            key={item.id}
-            item={item}
-            isExpanded={expandedId === item.id}
-            onToggle={() => setExpandedId(expandedId === item.id ? null : item.id)}
-          />
-        ))}
-      </AppBottomSheetModal>
+            </View>
+            </Animated.ScrollView>
+          </>
+        )}
+      </ScrollDrivenGradientBackground>
     </View>
   );
 }
@@ -374,13 +333,16 @@ const history = [
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#E8ECF0',
-    paddingHorizontal: Spacing['2xl'],
+  },
+  glassPanel: {
+    borderRadius: 24,
+    overflow: 'hidden',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingBottom: 6,
+    zIndex: 10,
   },
   backButton: {
     width: 40,
@@ -394,129 +356,87 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: 'center',
   },
-  scrollContent: {
-    paddingTop: 10,
+  content: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    gap: 16,
   },
   heroCard: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 32,
     padding: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 12,
-    elevation: 3,
-    marginBottom: 24,
+    alignItems: 'center',
   },
-  heroIllustrationBox: {
-    width: '100%',
-    aspectRatio: 2,
-    backgroundColor: '#F1F5F9',
-    borderRadius: 24,
+  heroIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 16,
+    backgroundColor: 'rgba(37, 99, 235, 0.1)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 24,
-  },
-  handshakeCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: BrandColors.secondary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  heroTextContainer: {
-    alignItems: 'center',
-    textAlign: 'center',
-    marginBottom: 24,
-  },
-  heroLabel: {
-    letterSpacing: 1,
-    marginBottom: 4,
-  },
-  heroTitle: {
-    textAlign: 'center',
-    marginBottom: 8,
-  },
-  heroDesc: {
-    textAlign: 'center',
-    lineHeight: 20,
-    paddingHorizontal: 10,
-  },
-  miniCardsRow: {
-    flexDirection: 'row',
-    gap: 12,
-    marginBottom: 16,
-  },
-  miniCard: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderWidth: 1,
-    borderColor: '#F1F5F9',
-    borderRadius: 20,
-    padding: 16,
-    alignItems: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.03,
-    shadowRadius: 4,
-    elevation: 1,
-  },
-  miniIconBox: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 10,
-  },
-  miniLabel: {
-    marginBottom: 4,
-  },
-  faqLink: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
     marginBottom: 20,
   },
-  codeBox: {
+  heroTextGroup: {
+    gap: 12,
+    marginBottom: 20,
+    alignItems: 'center',
+  },
+  heroTitle: {
+    fontSize: 28,
+    letterSpacing: -0.5,
+    textAlign: 'center',
+    paddingBottom: 6
+  },
+  heroDescription: {
+    textAlign: 'center',
+    lineHeight: 22,
+    maxWidth: 300,
+  },
+  codeRow: {
+    width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderRadius: 16,
     borderWidth: 1,
     borderColor: 'rgba(0,0,0,0.05)',
-    borderRadius: 20,
-    padding: 6,
-    paddingLeft: 20,
+    marginBottom: 16,
+    justifyContent: 'space-between',
+  },
+  codeTextContainer: {
+    flex: 1,
+    marginRight: 12,
+    overflow: 'hidden',
   },
   codeText: {
-    letterSpacing: 0.5,
+    fontFamily: 'JetBrains Mono',
+    fontSize: 16,
+    letterSpacing: 1.2,
   },
-  copyBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 14,
-    backgroundColor: BrandColors.secondary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    position: 'relative',
-  },
-  section: {
-    marginBottom: 24,
-  },
-  sectionHeader: {
+  copyButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: 16,
-    paddingHorizontal: 4,
+    gap: 6,
+    flexShrink: 0,
+  },
+  copyLabel: {
+    color: COLORS.primary,
+    fontSize: 15,
+  },
+  shareButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+    height: 52,
+    borderRadius: 12,
+    gap: 8,
+    backgroundColor: COLORS.primary,
+  },
+  pressed: {
+    opacity: 0.7,
+  },
+  sharePressed: {
+    transform: [{ scale: 0.98 }],
   },
   statsRow: {
     flexDirection: 'row',
@@ -524,145 +444,78 @@ const styles = StyleSheet.create({
   },
   statCard: {
     flex: 1,
-    height: 120,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    padding: 16,
-    justifyContent: 'space-between',
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 2,
-  },
-  statBottom: {
-    flexDirection: 'row',
-    alignItems: 'flex-end',
+    padding: 20,
+    minHeight: 100,
     justifyContent: 'space-between',
   },
-  highFiveBadge: {
-    backgroundColor: '#DCFCE7',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 12,
+  statLabel: {
+    lineHeight: 16,
   },
-  historyList: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 2,
-    overflow: 'hidden',
+  statValue: {
+    fontSize: 28,
   },
-  historyItem: {
+  activityCard: {
+    padding: 0,
+  },
+  activityHeader: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.05)',
+  },
+  activityRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 16,
-    borderBottomWidth: 1,
-    borderBottomColor: '#F1F5F9',
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    gap: 12,
   },
-  avatar: {
+  avatarGradient: {
     width: 40,
     height: 40,
-    borderRadius: 20,
+    borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 2,
-    borderColor: '#FFFFFF',
   },
-  itemInfo: {
+  phoneAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  activityText: {
     flex: 1,
-    marginLeft: 12,
-  },
-  itemRight: {
-    alignItems: 'flex-end',
     gap: 4,
   },
-  statusBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    borderWidth: 1,
-  },
-  statusCompleted: {
-    backgroundColor: '#DCFCE7',
-    borderColor: '#BBF7D0',
-  },
-  statusPending: {
-    backgroundColor: '#F1F5F9',
-    borderColor: '#E2E8F0',
-  },
-  footer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
-    paddingHorizontal: 20,
-    paddingTop: 20,
-    backgroundColor: 'rgba(232, 236, 240, 0.95)',
-  },
-  shareBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: BrandColors.secondary,
-    borderRadius: 20,
-    height: 60,
-    gap: 12,
-    shadowColor: BrandColors.secondary,
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.2,
-    shadowRadius: 15,
-    elevation: 5,
-  },
-  faqSectionLabel: {
-    marginBottom: 16,
-    paddingHorizontal: 4,
-  },
-  faqSectionLabelText: {
-    letterSpacing: 1,
-  },
-  faqItem: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    padding: 20,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.05,
-    shadowRadius: 10,
-    elevation: 2,
-  },
-  faqItemExpanded: {
-    shadowOpacity: 0.1,
-    shadowRadius: 15,
-  },
-  faqQuestionRow: {
+  activityTopRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-  },
-  faqQuestionText: {
-    flex: 1,
-    paddingRight: 16,
-  },
-  faqAnswerContainer: {
-    marginTop: 12,
-    paddingTop: 12,
-    borderTopWidth: 1,
-    borderTopColor: '#F1F5F9',
-  },
-  faqAnswerText: {
-    lineHeight: 20,
-  },
-  faqSupportSection: {
-    alignItems: 'center',
     gap: 8,
   },
-  faqSupportLabel: {
-    textAlign: 'center',
+  statusBadge: {
+    backgroundColor: 'rgba(37, 99, 235, 0.15)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  pendingBadge: {
+    backgroundColor: 'rgba(0,0,0,0.06)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  activityDivider: {
+    height: 1,
+    marginLeft: 68,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+  },
+  footer: {
+    paddingBottom: 12,
+    alignItems: 'center',
+  },
+  footerLink: {
+    textDecorationLine: 'underline',
   },
 });
