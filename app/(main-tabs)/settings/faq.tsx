@@ -38,9 +38,9 @@ import { FadeHeaderContainer } from '@/components/shared-ui/FadeHeaderContainer'
 import { getSheetContentPadding } from '@/constants/theme';
 
 const HEADER_FADE_COLORS: [string, string, string, string] = [
-  'rgba(82, 153, 254, 1)',    // Opaque blue (BrandColors.secondary)
-  'rgba(82, 153, 254, 0.7)',
-  'rgba(82, 153, 254, 0.3)',
+  'rgba(82, 153, 254, 0)',    // Opaque blue (BrandColors.secondary)
+  'rgba(82, 153, 254, 0)',
+  'rgba(82, 153, 254, 0)',
   'rgba(82, 153, 254, 0)',    // Transparent
 ];
 
@@ -84,7 +84,7 @@ export default function FAQRootScreen() {
 
   return (
     <View style={styles.screen}>
-      <ScrollDrivenGradientBackground>
+      <ScrollDrivenGradientBackground colors={['#f5f5f7', '#f5f5f7']}>
         {(scrollHandler) => (
           <>
             <FadeHeaderContainer
@@ -97,12 +97,20 @@ export default function FAQRootScreen() {
                 <Pressable onPress={() => router.back()} style={styles.backButton} hitSlop={10}>
                   <X size={18} color="#1F2937" />
                 </Pressable>
-                <Text weight="semiBold" size="lg" color="#FFFFFF" style={styles.headerTitle}>
-                  FAQ
-                </Text>
                 <View style={{ width: 40 }} />
               </View>
             </FadeHeaderContainer>
+
+            <View style={[styles.floatingHeader, { paddingTop: insets.top + 10 }]} pointerEvents="none">
+              <Text
+                weight="semiBold"
+                size="xl"
+                color="#000"
+                style={styles.headerTitle}
+              >
+                FAQ
+              </Text>
+            </View>
 
             <Animated.ScrollView
               onScroll={scrollHandler}
@@ -120,7 +128,7 @@ export default function FAQRootScreen() {
               </View>
 
         <View style={styles.section}>
-          <Text weight="semiBold" size="xs" color="#1F2937" style={styles.sectionLabel}>
+          <Text weight="semiBold" size="xs" style={styles.sectionLabel}>
             POPULAR
           </Text>
           <View style={[styles.card, styles.listCard]}>
@@ -135,10 +143,10 @@ export default function FAQRootScreen() {
                 ]}
               >
                 <View style={styles.listRowText}>
-                  <Text weight="medium" size="md" color="#111827">
+                  <Text weight="bold" size="md" color="#111827">
                     {item.title}
                   </Text>
-                  <Text size="sm" color="#6B7280">
+                  <Text weight="medium" size="sm" color="#6B7280">
                     {item.subtitle}
                   </Text>
                 </View>
@@ -149,7 +157,7 @@ export default function FAQRootScreen() {
         </View>
 
         <View style={styles.section}>
-          <Text weight="semiBold" size="xs" color="#1F2937" style={styles.sectionLabel}>
+          <Text weight="semiBold" size="xs" style={styles.sectionLabel}>
             BROWSE BY CATEGORY
           </Text>
           <View style={[styles.card, styles.listCard]}>
@@ -167,7 +175,7 @@ export default function FAQRootScreen() {
                 >
                   <View style={styles.categoryLeft}>
                     <Icon size={18} color={BrandColors.secondary} />
-                    <Text weight="medium" size="md" color="#111827">
+                    <Text weight="bold" size="md" color="#111827">
                       {item.label}
                     </Text>
                   </View>
@@ -190,7 +198,7 @@ export default function FAQRootScreen() {
               Submit a support ticket and we’ll get back to you.
             </Text>
             <Pressable style={styles.supportButton} onPress={() => console.log('Submit ticket')}>
-              <Text weight="semiBold" size="md" color={BrandColors.white}>
+              <Text weight="bold" size="md" color={BrandColors.white}>
                 Submit a ticket
               </Text>
             </Pressable>
@@ -229,6 +237,14 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: 'center',
   },
+  floatingHeader: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    alignItems: 'center',
+    zIndex: 11,
+  },
   title: {
     letterSpacing: -0.5,
     marginTop: 12,
@@ -237,17 +253,14 @@ const styles = StyleSheet.create({
   searchWrapper: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#E5E7EB',
     borderRadius: 10,
     paddingHorizontal: 16,
     height: 48,
     marginTop: 6,
     marginBottom: 18,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 2,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   searchIcon: {
     marginRight: 8,
@@ -257,6 +270,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: '#111827',
     padding: 0,
+    fontWeight: '700',
   },
   section: {
     marginBottom: 24,
@@ -265,17 +279,13 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     marginBottom: 10,
     marginLeft: 4,
+    color: '#000',
   },
   card: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#E5E7EB',
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.05)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 10,
-    elevation: 2,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
     alignItems: 'center',
     paddingVertical: 4,
   },
@@ -308,10 +318,10 @@ const styles = StyleSheet.create({
   },
   listRowDivider: {
     borderTopWidth: 1,
-    borderTopColor: 'rgba(156, 163, 175, 0.2)',
+    borderTopColor: '#D1D5DB',
   },
   rowPressed: {
-    backgroundColor: 'rgba(0, 0, 0, 0.04)',
+    backgroundColor: '#D1D5DB',
   },
   supportSection: {
     paddingBottom: Spacing['2xl'],
@@ -335,10 +345,5 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingVertical: 12,
     alignItems: 'center',
-    shadowColor: BrandColors.secondary,
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    elevation: 4,
   },
 });
