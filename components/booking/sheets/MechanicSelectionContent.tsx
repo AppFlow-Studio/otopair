@@ -14,7 +14,7 @@ import { Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native
 
 // 2. Third-party libraries
 import { BottomSheetFlatList } from "@gorhom/bottom-sheet";
-import { ChevronLeft, Search } from "lucide-react-native";
+import { Car, ChevronLeft, Search } from "lucide-react-native";
 import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -48,6 +48,8 @@ export type { MechanicFilterOption } from "@/constants/filters";
 interface MechanicSelectionContentProps {
   /** Called when user confirms mechanic selection */
   onSelectMechanic?: () => void;
+  /** Called when user taps the car icon to open car selection */
+  onCarSelect?: () => void;
 }
 
 // ============================================================================
@@ -56,6 +58,7 @@ interface MechanicSelectionContentProps {
 
 export function MechanicSelectionContent({
   onSelectMechanic,
+  onCarSelect,
 }: MechanicSelectionContentProps) {
   // ═══════════════ HOOKS ═══════════════
   const router = useRouter();
@@ -239,8 +242,10 @@ export function MechanicSelectionContent({
         <Text size="xl" weight="bold" color={BrandColors.primary}>
           Choose Mechanic
         </Text>
-        {/* Empty view for centering */}
-        <View style={styles.headerSpacer} />
+        {/* Car selection button */}
+        <Pressable style={styles.carButton} onPress={onCarSelect} hitSlop={8}>
+          <Car size={20} color={BrandColors.primary} />
+        </Pressable>
       </View>
 
       {/* Search Input - Fixed outside scroll view */}
@@ -352,6 +357,14 @@ const styles = StyleSheet.create({
   },
   headerSpacer: {
     width: 32,
+  },
+  carButton: {
+    width: 36,
+    height: 36,
+    borderRadius: BorderRadius.lg,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
   },
   searchContainer: {
     flexDirection: "row",

@@ -35,7 +35,7 @@ import {
 
 // 2. Expo & Third-party
 import BottomSheet, { BottomSheetFooterProps } from "@gorhom/bottom-sheet";
-import { Clock, MapPin, Search, Star, Store, User, Wrench, X } from "lucide-react-native";
+import { Car, Clock, MapPin, Search, Star, User, Wrench, X } from "lucide-react-native";
 import Animated, {
   Extrapolation,
   FadeIn,
@@ -54,6 +54,7 @@ import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Flow-specific components
 import { ServiceSelectionFooter } from "./footers";
+import { CarSelectionContent } from "./sheets/CarSelectionContent";
 import { MechanicSelectionContent } from "./sheets/MechanicSelectionContent";
 import { ServiceSelectionContent } from "./sheets/ServiceSelectionContent";
 import { ShopPreviewContent } from "./sheets/ShopPreviewContent";
@@ -144,6 +145,10 @@ export function ServiceBottomSheet({
   const [showShopPreview, setShowShopPreview] = useState(false);
   // Track the previous snap index before showing shop preview
   const previousShopSnapIndexRef = useRef(3);
+
+  // ═══════════════ CAR SELECTION STATE ═══════════════
+  // Toggle to show car selection carousel (user-initiated via car icon)
+  const [showCarPreview, setShowCarPreview] = useState(false);
 
   // ═══════════════ STORES ═══════════════
   const setBookingStage = useBookingStore((state) => state.setBookingStage);
@@ -407,6 +412,32 @@ export function ServiceBottomSheet({
     [onSelectShop]
   );
 
+  // ═══════════════ CAR SELECTION HANDLERS ═══════════════
+  // Track snap index before showing car preview
+  const previousCarSnapIndexRef = useRef(3);
+
+  // Toggle car selection view
+  const handleCarToggle = useCallback(() => {
+    if (showCarPreview) {
+      // Close car selection - restore previous snap index
+      setShowCarPreview(false);
+      bottomSheetRef.current?.snapToIndex(previousCarSnapIndexRef.current);
+    } else {
+      // Save current snap index before switching to car preview
+      previousCarSnapIndexRef.current = Math.round(animatedIndex.value);
+      // Open car selection - snap to preview position (index 1 = 38%)
+      setShowCarPreview(true);
+      bottomSheetRef.current?.snapToIndex(1);
+    }
+  }, [showCarPreview, animatedIndex]);
+
+  // Close car selection (called from CarSelectionContent)
+  const handleCarSelectionClose = useCallback(() => {
+    setShowCarPreview(false);
+    // Restore previous snap index
+    bottomSheetRef.current?.snapToIndex(previousCarSnapIndexRef.current);
+  }, []);
+
   // ═══════════════ HANDLERS ═══════════════
   // Service selection complete -> go to mechanic selection
   const handleServicesSelected = useCallback(() => {
@@ -535,6 +566,7 @@ export function ServiceBottomSheet({
           >
             <MechanicSelectionContent
               onSelectMechanic={handleMechanicSelected}
+              onCarSelect={handleCarToggle}
             />
           </Animated.View>
         );
@@ -764,16 +796,16 @@ export function ServiceBottomSheet({
       animatedIndex={animatedIndex}
       enableDynamicSizing={false}
       enablePanDownToClose={false}
-      enableOverDrag={!isSearchMode && !showShopPreview}
-      enableContentPanningGesture={!isSearchMode && !showShopPreview}
-      enableHandlePanningGesture={!isSearchMode && !showShopPreview}
+      enableOverDrag={!isSearchMode && !showShopPreview && !showCarPreview}
+      enableContentPanningGesture={!isSearchMode && !showShopPreview && !showCarPreview}
+      enableHandlePanningGesture={!isSearchMode && !showShopPreview && !showCarPreview}
       backgroundStyle={styles.bottomSheetBackground}
       handleIndicatorStyle={styles.handleIndicator}
       handleStyle={styles.handleContainer}
       footerComponent={isSearchMode ? undefined : renderFooter}
     >
-      {/* Header - Only show for service selection stages when NOT in shop preview */}
-      {isServiceStage && !showShopPreview && (
+      {/* Header - Only show for service selection stages when NOT in shop/car preview */}
+      {isServiceStage && !showShopPreview && !showCarPreview && (
         <View style={styles.header}>
           <View style={styles.headerTop}>
             {/* Title */}
@@ -783,16 +815,14 @@ export function ServiceBottomSheet({
 
             {/* Right side buttons container */}
             <View style={styles.headerButtons}>
-              {/* Shop toggle button - only visible when a shop is selected from map */}
-              {selectedShopId !== null && (
-                <TouchableOpacity
-                  onPress={handleShopToggle}
-                  style={styles.shopToggleButton}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                >
-                  <Store size={20} color={BrandColors.primary} />
-                </TouchableOpacity>
-              )}
+              {/* Car selection button - always visible */}
+              <TouchableOpacity
+                onPress={handleCarToggle}
+                style={styles.carToggleButton}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Car size={20} color={BrandColors.primary} />
+              </TouchableOpacity>
 
               {/* X button: always visible in search mode, conditional in browse mode */}
               <Animated.View style={closeButtonAnimatedStyle}>
@@ -845,7 +875,7 @@ export function ServiceBottomSheet({
         </View>
       )}
 
-      {/* Content - Search results, shop preview, or stage content */}
+      {/* Content - Search results, car preview, shop preview, or stage content */}
       <View style={styles.expandedContainer}>
         {isSearchMode ? (
           <Animated.View 
@@ -855,6 +885,15 @@ export function ServiceBottomSheet({
             style={styles.contentWrapper}
           >
             {renderSearchResults()}
+          </Animated.View>
+        ) : showCarPreview ? (
+          <Animated.View
+            key="car-preview"
+            entering={FadeIn.duration(200)}
+            exiting={FadeOut.duration(150)}
+            style={styles.contentWrapper}
+          >
+            <CarSelectionContent onClose={handleCarSelectionClose} />
           </Animated.View>
         ) : showShopPreview && isServiceStage ? (
           <Animated.View
@@ -917,6 +956,14 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
   },
   shopToggleButton: {
+    width: 36,
+    height: 36,
+    borderRadius: BorderRadius.lg,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  carToggleButton: {
     width: 36,
     height: 36,
     borderRadius: BorderRadius.lg,

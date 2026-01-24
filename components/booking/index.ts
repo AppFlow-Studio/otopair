@@ -7,6 +7,7 @@
 
 // Main booking components
 export { BookingMap } from "./map";
+export { CarSelectionCard, type CarSelectionCardProps } from "./CarSelectionCard";
 export { FloatingMapControls, type FloatingMapControlsProps } from "./FloatingMapControls";
 // FullSearchModal is deprecated - search is now integrated into ServiceBottomSheet
 // export { FullSearchModal, type FullSearchModalProps } from "./FullSearchModal";
