@@ -76,6 +76,7 @@ export default function MechanicDetailScreen() {
     const getShopById = useShopStore((state) => state.getShopById);
     const setBookingTypeAndProceed = useBookingStore((state) => state.setBookingTypeAndProceed);
     const resetBookingFlow = useBookingStore((state) => state.resetBookingFlow);
+    const bookingStage = useBookingStore((state) => state.bookingStage);
 
     // ═══════════════ COMPUTED VALUES ═══════════════
     const mechanicId = useMemo(() => {
@@ -126,10 +127,15 @@ export default function MechanicDetailScreen() {
 
     // ═══════════════ HANDLERS ═══════════════
     const handleBack = useCallback(() => {
-        // Reset the booking flow to discovery state with empty service selection
-        resetBookingFlow();
+        // Only reset booking flow if we're NOT in mechanic selection stage
+        // If we're in mechanic_selection, we came from "Choose Mechanic" screen
+        // and should preserve the booking state when going back
+        if (bookingStage !== "mechanic_selection") {
+            // We came from elsewhere, reset the booking flow
+            resetBookingFlow();
+        }
         router.back();
-    }, [resetBookingFlow, router]);
+    }, [bookingStage, resetBookingFlow, router]);
 
     const handleBookNow = useCallback(
         (mechanicId: number) => {

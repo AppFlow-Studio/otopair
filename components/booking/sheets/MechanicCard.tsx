@@ -1,9 +1,13 @@
 /**
  * MechanicCard
  *
+ * @deprecated This component has been replaced by ShopCard which uses a shop-centric design
+ *             with mechanic avatars. Use ShopCard from ./ShopCard instead.
+ *
  * PURPOSE: Displays a detailed mechanic/shop card with availability, services, and booking options
  *
- * USED IN: components/booking/sheets/MechanicSelectionContent.tsx
+ * USED IN: DEPRECATED - Was used in components/booking/sheets/MechanicSelectionContent.tsx
+ *          Now replaced by ShopCard in the same file.
  *
  * PROPS:
  *   - mechanic (Mechanic): The mechanic/shop data to display

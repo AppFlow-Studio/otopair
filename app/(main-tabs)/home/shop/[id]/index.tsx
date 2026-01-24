@@ -77,6 +77,7 @@ export default function ShopDetailScreen() {
   const getMechanicsByShopId = useMechanicStore((state) => state.getMechanicsByShopId);
   const setBookingTypeAndProceed = useBookingStore((state) => state.setBookingTypeAndProceed);
   const resetBookingFlow = useBookingStore((state) => state.resetBookingFlow);
+  const bookingStage = useBookingStore((state) => state.bookingStage);
   const addRecentShop = useSearchStore((state) => state.addRecentShop);
 
   // ═══════════════ COMPUTED VALUES ═══════════════
@@ -131,10 +132,16 @@ export default function ShopDetailScreen() {
 
   // ═══════════════ HANDLERS ═══════════════
   const handleBack = useCallback(() => {
-    // Reset the booking flow to discovery state with empty service selection
-    resetBookingFlow();
+    // Only reset booking flow if we're NOT in mechanic selection stage
+    // If we're in mechanic_selection, we came from "Choose Mechanic" screen
+    // and should preserve the booking state when going back
+    if (bookingStage !== "mechanic_selection") {
+      // We came from map carousel or other source, reset the booking flow
+      resetBookingFlow();
+    }
+    // Navigate back to previous screen (respects navigation history)
     router.back();
-  }, [resetBookingFlow, router]);
+  }, [bookingStage, resetBookingFlow, router]);
 
   const handleBookNow = useCallback(
     (mechanicId: number) => {

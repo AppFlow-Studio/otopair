@@ -1,7 +1,8 @@
 /**
  * MechanicSelectionContent
  *
- * PURPOSE: Displays the mechanic selection UI with search, service chips, and mechanic cards
+ * PURPOSE: Displays the mechanic selection UI with search, service chips, and shop cards
+ *          Now grouped by shop with mechanic avatars within each card
  *
  * USED IN: components/booking/ServiceBottomSheet.tsx
  *
@@ -22,21 +23,23 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Flow-specific components
+import { BookingFooter } from "./BookingFooter";
 import { DiscardServiceModal } from "./DiscardServiceModal";
-import { MechanicCard } from "./MechanicCard";
 import { ServiceChip } from "./ServiceChip";
+import { ShopCard, type ShopWithMechanics, type SelectedSlotInfo } from "./ShopCard";
 
 // 5. Constants, hooks, types, stores
 import { MECHANIC_FILTER_OPTIONS, type MechanicFilterOption } from "@/constants/filters";
-import { BorderRadius, FontFamily, getSheetContentPadding } from "@/constants/theme";
-import { useBookingStore } from "@/stores/useBookingStore";
+import { BorderRadius, FontFamily } from "@/constants/theme";
+import { useBookingStore, type SelectedMechanicSlot } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
+import type { Mechanic, MechanicAvailabilitySlot } from "@/stores/types/store.types";
 
 // ============================================================================
 // CONSTANTS
 // ============================================================================
 
-// No local constants needed - using centralized Layout from theme
+const FOOTER_HEIGHT = 100; // Approximate footer height for padding
 
 // ============================================================================
 // TYPES
@@ -53,6 +56,47 @@ interface MechanicSelectionContentProps {
 }
 
 // ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+/**
+ * Groups mechanics by their shopId and returns shop-centric data
+ */
+function groupMechanicsByShop(mechanics: Mechanic[]): ShopWithMechanics[] {
+  const shopMap = new Map<number, ShopWithMechanics>();
+
+  mechanics.forEach((mechanic) => {
+    const existing = shopMap.get(mechanic.shopId);
+    if (existing) {
+      existing.mechanics.push(mechanic);
+      // Update rating to highest
+      if (mechanic.rating > existing.rating) {
+        existing.rating = mechanic.rating;
+      }
+      // Update verified if any mechanic is verified
+      if (mechanic.isVerified) {
+        existing.isVerified = true;
+      }
+      // Update distance to closest
+      if (mechanic.distanceMi < existing.distanceMi) {
+        existing.distanceMi = mechanic.distanceMi;
+      }
+    } else {
+      shopMap.set(mechanic.shopId, {
+        shopId: mechanic.shopId,
+        shopName: mechanic.shopName,
+        rating: mechanic.rating,
+        isVerified: mechanic.isVerified,
+        distanceMi: mechanic.distanceMi,
+        mechanics: [mechanic],
+      });
+    }
+  });
+
+  return Array.from(shopMap.values());
+}
+
+// ============================================================================
 // COMPONENT
 // ============================================================================
 
@@ -63,7 +107,6 @@ export function MechanicSelectionContent({
   // ═══════════════ HOOKS ═══════════════
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const contentPadding = getSheetContentPadding(false, insets.bottom);
 
   // ═══════════════ STATE ═══════════════
   const [serviceToRemove, setServiceToRemove] = React.useState<string | null>(null);
@@ -78,12 +121,23 @@ export function MechanicSelectionContent({
   const setScheduledAppointment = useBookingStore((state) => state.setScheduledAppointment);
   const setBookingStage = useBookingStore((state) => state.setBookingStage);
   const setSkippedBookingDetails = useBookingStore((state) => state.setSkippedBookingDetails);
+  const selectedMechanicSlot = useBookingStore((state) => state.selectedMechanicSlot);
+  const setSelectedMechanicSlot = useBookingStore((state) => state.setSelectedMechanicSlot);
+  const clearSelectedMechanicSlot = useBookingStore((state) => state.clearSelectedMechanicSlot);
+  const getSelectedServicesTotal = useBookingStore((state) => state.getSelectedServicesTotal);
 
   // Memoize selected services to prevent re-renders
   const selectedServices = useMemo(
     () => availableServices.filter((service) => selectedServiceIds.includes(service.id)),
     [availableServices, selectedServiceIds]
   );
+
+  // Get service name for footer
+  const serviceName = useMemo(() => {
+    if (selectedServices.length === 0) return "";
+    if (selectedServices.length === 1) return selectedServices[0].name;
+    return `${selectedServices.length} Services`;
+  }, [selectedServices]);
 
   // ═══════════════ MECHANIC STORE ═══════════════
   const searchQuery = useMechanicStore((state) => state.filters.searchQuery);
@@ -92,6 +146,7 @@ export function MechanicSelectionContent({
   const setSearchQuery = useMechanicStore((state) => state.setSearchQuery);
   const mechanics = useMechanicStore((state) => state.mechanics);
   const mechanicIds = useMechanicStore((state) => state.mechanicIds);
+  const getMechanicById = useMechanicStore((state) => state.getMechanicById);
 
   // Memoize filtered mechanics to prevent re-renders on sheet collapse/expand
   const filteredMechanics = useMemo(() => {
@@ -126,6 +181,32 @@ export function MechanicSelectionContent({
     return filtered;
   }, [mechanics, mechanicIds, searchQuery, filterType]);
 
+  // Group mechanics by shop
+  const shopList = useMemo(() => {
+    const shops = groupMechanicsByShop(filteredMechanics);
+    
+    // Sort shops based on filter type
+    switch (filterType) {
+      case "distance":
+        return shops.sort((a, b) => a.distanceMi - b.distanceMi);
+      case "rating":
+        return shops.sort((a, b) => b.rating - a.rating);
+      case "available_now":
+      default:
+        return shops;
+    }
+  }, [filteredMechanics, filterType]);
+
+  // Convert selectedMechanicSlot to SelectedSlotInfo for ShopCard
+  const selectedSlotInfo: SelectedSlotInfo | null = useMemo(() => {
+    if (!selectedMechanicSlot) return null;
+    return {
+      shopId: selectedMechanicSlot.shopId,
+      mechanicId: selectedMechanicSlot.mechanicId,
+      slot: selectedMechanicSlot.slot,
+    };
+  }, [selectedMechanicSlot]);
+
   // ═══════════════ EFFECTS ═══════════════
   // Go back to service selection if all services are removed
   useEffect(() => {
@@ -133,6 +214,13 @@ export function MechanicSelectionContent({
       prevBookingStage();
     }
   }, [selectedServiceIds.length, prevBookingStage]);
+
+  // Clear selection when component unmounts
+  useEffect(() => {
+    return () => {
+      clearSelectedMechanicSlot();
+    };
+  }, [clearSelectedMechanicSlot]);
 
   // ═══════════════ HANDLERS ═══════════════
   const handleRemoveService = useCallback(
@@ -168,60 +256,102 @@ export function MechanicSelectionContent({
     }
   }, [serviceToRemove, toggleServiceSelection]);
 
-  const handleBookNow = useCallback(
-    (mechanicId: number, slot: { day: string; dayOfWeek: string; time: string }) => {
-      // Convert slot to scheduled appointment format
-      const now = new Date();
-      const currentMonth = now.getMonth();
-      const currentYear = now.getFullYear();
-      const dayNum = parseInt(slot.day, 10);
+  // Handle slot selection from ShopCard
+  const handleSelectSlot = useCallback(
+    (shopId: number, mechanicId: number | null, slot: MechanicAvailabilitySlot) => {
+      const shop = shopList.find((s) => s.shopId === shopId);
+      if (!shop) return;
 
-      // Construct date from slot day
-      let targetDate = new Date(currentYear, currentMonth, dayNum);
-      if (targetDate < now) {
-        targetDate = new Date(currentYear, currentMonth + 1, dayNum);
-      }
+      const mechanic = mechanicId ? getMechanicById(mechanicId) : null;
 
-      const months = ["Jan.", "Feb.", "Mar.", "Apr.", "May", "Jun.", "Jul.", "Aug.", "Sep.", "Oct.", "Nov.", "Dec."];
-      const displayDate = `${targetDate.getDate()} ${months[targetDate.getMonth()]} ${targetDate.getFullYear()}`;
-      const isoDate = targetDate.toISOString().split("T")[0];
-
-      // Set appointment in store
-      setBookingTypeAndProceed("schedule_later", mechanicId);
-      setScheduledAppointment({
-        date: isoDate,
-        time: slot.time,
-        displayDate,
+      setSelectedMechanicSlot({
+        shopId,
+        shopName: shop.shopName,
+        mechanicId,
+        mechanicName: mechanic?.name || null,
+        slot,
       });
-
-      // Go directly to payment screen (skip booking details)
-      setSkippedBookingDetails(true);
-      setBookingStage("payment", "forward");
-
-      onSelectMechanic?.();
     },
-    [router, onSelectMechanic, setBookingTypeAndProceed, setScheduledAppointment, setBookingStage, setSkippedBookingDetails]
+    [shopList, getMechanicById, setSelectedMechanicSlot]
   );
 
-  const handleScheduleLater = useCallback(
-    (mechanicId: number) => {
-      // Navigate to mechanic detail page where user can select a time slot
-      // Book Now will be disabled until a slot is selected there
-      // setBookingTypeAndProceed("schedule_later", mechanicId);
-      router.push(`/home/mechanic/${mechanicId}`);
-      onSelectMechanic?.();
+  // Handle shop details button
+  const handleShopDetails = useCallback(
+    (shopId: number) => {
+      router.push(`/home/shop/${shopId}`);
     },
-    [router, onSelectMechanic, setBookingTypeAndProceed]
+    [router]
   );
+
+  // Handle "More" availability button
+  const handleMoreAvailability = useCallback(
+    (shopId: number, mechanicId: number | null) => {
+      // Navigate to shop/mechanic detail page for full calendar
+      if (mechanicId) {
+        router.push(`/home/mechanic/${mechanicId}`);
+      } else {
+        router.push(`/home/shop/${shopId}`);
+      }
+    },
+    [router]
+  );
+
+  // Handle book button from footer
+  const handleBook = useCallback(() => {
+    if (!selectedMechanicSlot) return;
+
+    const { mechanicId, slot } = selectedMechanicSlot;
+
+    // Convert slot to scheduled appointment format
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+    const dayNum = parseInt(slot.day, 10);
+
+    // Construct date from slot day
+    let targetDate = new Date(currentYear, currentMonth, dayNum);
+    if (targetDate < now) {
+      targetDate = new Date(currentYear, currentMonth + 1, dayNum);
+    }
+
+    const months = ["Jan.", "Feb.", "Mar.", "Apr.", "May", "Jun.", "Jul.", "Aug.", "Sep.", "Oct.", "Nov.", "Dec."];
+    const displayDate = `${targetDate.getDate()} ${months[targetDate.getMonth()]} ${targetDate.getFullYear()}`;
+    const isoDate = targetDate.toISOString().split("T")[0];
+
+    // Use the first mechanic from the shop if "Any" was selected
+    const effectiveMechanicId = mechanicId || shopList.find((s) => s.shopId === selectedMechanicSlot.shopId)?.mechanics[0]?.id;
+    
+    if (!effectiveMechanicId) return;
+
+    // Set appointment in store
+    setBookingTypeAndProceed("schedule_later", effectiveMechanicId);
+    setScheduledAppointment({
+      date: isoDate,
+      time: slot.time,
+      displayDate,
+    });
+
+    // Go directly to payment screen (skip booking details)
+    setSkippedBookingDetails(true);
+    setBookingStage("payment", "forward");
+
+    onSelectMechanic?.();
+  }, [selectedMechanicSlot, shopList, setBookingTypeAndProceed, setScheduledAppointment, setSkippedBookingDetails, setBookingStage, onSelectMechanic]);
 
   // ═══════════════ FLATLIST HELPERS ═══════════════
-  const keyExtractor = useCallback((item: (typeof filteredMechanics)[0]) => String(item.id), []);
+  const keyExtractor = useCallback((item: ShopWithMechanics) => String(item.shopId), []);
 
-  const renderMechanicCard = useCallback(
-    ({ item }: { item: (typeof filteredMechanics)[0] }) => (
-      <MechanicCard mechanic={item} onBookNow={handleBookNow} onScheduleLater={handleScheduleLater} />
+  const renderShopCard = useCallback(
+    ({ item }: { item: ShopWithMechanics }) => (
+      <ShopCard
+        shop={item}
+        onSelectSlot={handleSelectSlot}
+        onShopDetails={handleShopDetails}
+        onMoreAvailability={handleMoreAvailability}
+        selectedSlot={selectedSlotInfo}
+      />
     ),
-    [handleBookNow, handleScheduleLater]
+    [handleSelectSlot, handleShopDetails, handleMoreAvailability, selectedSlotInfo]
   );
 
   // ═══════════════ FILTER HANDLER ═══════════════
@@ -262,10 +392,10 @@ export function MechanicSelectionContent({
 
       {/* Scrollable Content - Using FlatList for virtualization */}
       <BottomSheetFlatList
-        data={filteredMechanics}
+        data={shopList}
         keyExtractor={keyExtractor}
-        renderItem={renderMechanicCard}
-        contentContainerStyle={styles.scrollContent}
+        renderItem={renderShopCard}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: FOOTER_HEIGHT + insets.bottom }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         removeClippedSubviews={true}
@@ -316,7 +446,17 @@ export function MechanicSelectionContent({
             </ScrollView>
           </View>
         }
-        ListFooterComponent={<View style={{ height: contentPadding }} />}
+      />
+
+      {/* Booking Footer */}
+      <BookingFooter
+        serviceName={serviceName}
+        hasSelection={selectedMechanicSlot !== null}
+        selectedSlot={selectedMechanicSlot?.slot}
+        shopName={selectedMechanicSlot?.shopName}
+        mechanicName={selectedMechanicSlot?.mechanicName}
+        totalPrice={getSelectedServicesTotal()}
+        onBook={handleBook}
       />
 
       {/* Discard Service Modal */}

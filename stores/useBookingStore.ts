@@ -19,11 +19,25 @@ import type {
   Booking,
   BookingStage,
   BookingType,
+  MechanicAvailabilitySlot,
   ScheduledAppointment,
   Service,
   ServiceCategory,
   UserLocation,
 } from "./types/store.types";
+
+// ─────────────────────────────────────────────────────────────
+// MECHANIC SLOT SELECTION TYPE
+// ─────────────────────────────────────────────────────────────
+
+/** Selected slot in mechanic selection screen */
+export interface SelectedMechanicSlot {
+  shopId: number;
+  shopName: string;
+  mechanicId: number | null; // null means "Any"
+  mechanicName: string | null;
+  slot: MechanicAvailabilitySlot;
+}
 import { useMechanicStore } from "./useMechanicStore";
 
 // ─────────────────────────────────────────────────────────────
@@ -75,6 +89,8 @@ interface BookingState {
   scheduledAppointment: ScheduledAppointment | null;
   /** Whether booking_details was skipped (direct to payment via "Book Now") */
   skippedBookingDetails: boolean;
+  /** Selected slot in mechanic selection screen (before booking) */
+  selectedMechanicSlot: SelectedMechanicSlot | null;
 
   // ═══════════════ BOOKING STATE ═══════════════
   /** All bookings indexed by ID */
@@ -133,6 +149,10 @@ interface BookingState {
   setScheduledAppointment: (appointment: ScheduledAppointment | null) => void;
   /** Set whether booking details was skipped */
   setSkippedBookingDetails: (skipped: boolean) => void;
+  /** Set selected mechanic slot in mechanic selection screen */
+  setSelectedMechanicSlot: (slot: SelectedMechanicSlot | null) => void;
+  /** Clear selected mechanic slot */
+  clearSelectedMechanicSlot: () => void;
   /** Reset booking flow to initial state */
   resetBookingFlow: () => void;
 
@@ -295,6 +315,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   bookingType: null,
   scheduledAppointment: null,
   skippedBookingDetails: false,
+  selectedMechanicSlot: null,
   bookings: {},
   bookingIds: [],
   draftBooking: null,
@@ -429,6 +450,16 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       skippedBookingDetails: skipped,
     }),
 
+  setSelectedMechanicSlot: (slot) =>
+    set({
+      selectedMechanicSlot: slot,
+    }),
+
+  clearSelectedMechanicSlot: () =>
+    set({
+      selectedMechanicSlot: null,
+    }),
+
   resetBookingFlow: () =>
     set({
       bookingStage: "discovery",
@@ -441,6 +472,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       bookingType: null,
       scheduledAppointment: null,
       skippedBookingDetails: false,
+      selectedMechanicSlot: null,
       draftBooking: null,
     }),
 

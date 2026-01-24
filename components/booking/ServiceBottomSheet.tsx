@@ -511,8 +511,9 @@ export function ServiceBottomSheet({
   // ═══════════════ FOOTER RENDERER ═══════════════
   const renderFooter = useCallback(
     (props: BottomSheetFooterProps) => {
-      // Only show footer for service selection stage
-      if (isServiceStage) {
+      // Only show footer for service selection stage when NOT in car/shop preview mode
+      // This ensures the footer disappears when user is viewing car selection or shop carousel
+      if (isServiceStage && !showCarPreview && !showShopPreview) {
         return (
           <ServiceSelectionFooter
             {...props}
@@ -526,11 +527,13 @@ export function ServiceBottomSheet({
         );
       }
 
-      // Mechanic selection has no footer (buttons are in MechanicCard)
+      // Mechanic selection has its own sticky footer (BookingFooter in MechanicSelectionContent)
       return null;
     },
     [
       isServiceStage,
+      showCarPreview,
+      showShopPreview,
       footerBottomInset,
       footerAnimatedStyle,
       hasSelection,
