@@ -1,14 +1,30 @@
+/**
+ * NotificationPreferencesScreen
+ *
+ * PURPOSE: Allows users to manage their push notification preferences for various app features.
+ *
+ * USED IN: app/(main-tabs)/settings/index.tsx
+ *
+ * PROPS: None (accessed via router)
+ *
+ * EXAMPLE:
+ *   <NotificationPreferencesScreen />
+ *
+ * OWNER: Daniel Chelala
+ * TICKET: OTO-XXX
+ */
+
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { ArrowLeft } from 'lucide-react-native';
+import { X } from 'lucide-react-native';
 import Animated, { interpolateColor, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
 import { BrandColors, Button, Spacing, Text } from '@/components/shared-ui';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 
-type NotificationKey = 'offers' | 'rewards' | 'pass' | 'other';
+type NotificationKey = 'offers' | 'rewards' | 'pass' | 'other' | 'bookings';
 
 const ToggleRow = ({
   title,
@@ -78,6 +94,7 @@ export default function NotificationPreferencesScreen() {
     rewards: data.notificationRewardsEnabled,
     pass: data.notificationPassEnabled,
     other: data.notificationOtherEnabled,
+    bookings: data.notificationBookingsEnabled,
   });
   const [isSaving, setIsSaving] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -89,12 +106,14 @@ export default function NotificationPreferencesScreen() {
       rewards: data.notificationRewardsEnabled,
       pass: data.notificationPassEnabled,
       other: data.notificationOtherEnabled,
+      bookings: data.notificationBookingsEnabled,
     });
   }, [
     data.notificationOffersEnabled,
     data.notificationRewardsEnabled,
     data.notificationPassEnabled,
     data.notificationOtherEnabled,
+    data.notificationBookingsEnabled,
   ]);
 
   const handleToggle = useCallback((key: NotificationKey, next: boolean) => {
@@ -112,6 +131,7 @@ export default function NotificationPreferencesScreen() {
         notificationRewardsEnabled: values.rewards,
         notificationPassEnabled: values.pass,
         notificationOtherEnabled: values.other,
+        notificationBookingsEnabled: values.bookings,
       });
       setSuccessMessage('Preferences updated.');
       setTimeout(() => setSuccessMessage(null), 1500);
@@ -120,7 +140,7 @@ export default function NotificationPreferencesScreen() {
     } finally {
       setIsSaving(false);
     }
-  }, [updateData, values.other, values.offers, values.pass, values.rewards]);
+  }, [updateData, values.other, values.offers, values.pass, values.rewards, values.bookings]);
 
   const toggleRows = useMemo(
     () => [
@@ -144,6 +164,11 @@ export default function NotificationPreferencesScreen() {
         title: 'Other',
         description: 'Events, recommendations, and other service messages',
       },
+      {
+        key: 'bookings' as const,
+        title: 'Bookings',
+        description: 'Updates and reminders about your service appointments',
+      },
     ],
     []
   );
@@ -152,7 +177,7 @@ export default function NotificationPreferencesScreen() {
     <View style={[styles.screen, { paddingTop: insets.top }]}>
       <View style={styles.header}>
         <Pressable onPress={() => router.back()} style={styles.backButton} hitSlop={10}>
-          <ArrowLeft size={18} color="#111827" />
+          <X size={18} color="#111827" />
         </Pressable>
         <Text weight="semiBold" size="lg" color="#111827" style={styles.headerTitle}>
           Notification Settings
@@ -164,15 +189,6 @@ export default function NotificationPreferencesScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={styles.content}
       >
-        <Text weight="bold" size="md" color="#111827" style={styles.sectionTitle}>
-          Push Notifications
-        </Text>
-        <Text size="sm" color="#6B7280" style={styles.sectionBody}>
-          To turn notifications about your bookings on or off, go to the app settings on your phone.
-        </Text>
-
-        <View style={styles.divider} />
-
         {toggleRows.map((row) => (
           <ToggleRow
             key={row.key}
@@ -200,7 +216,7 @@ export default function NotificationPreferencesScreen() {
         ) : null}
       </ScrollView>
 
-      <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.lg }]}>
+      <View style={[styles.footer, { paddingBottom: insets.bottom + 100 }]}>
         <Button
           variant="primary"
           fullWidth
@@ -220,7 +236,7 @@ const styles = StyleSheet.create({
   screen: {
     flex: 1,
     backgroundColor: '#E8ECF0',
-    paddingHorizontal: Spacing['2xl'],
+    paddingHorizontal: 20,
   },
   header: {
     flexDirection: 'row',
@@ -246,14 +262,6 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     marginBottom: Spacing.sm,
-  },
-  sectionBody: {
-    lineHeight: 20,
-  },
-  divider: {
-    height: 1,
-    backgroundColor: 'rgba(0,0,0,0.08)',
-    marginVertical: Spacing.xl,
   },
   toggleRow: {
     flexDirection: 'row',

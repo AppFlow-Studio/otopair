@@ -123,6 +123,7 @@ export function AddPaymentScreen() {
         existingCard ? `${existingCard.expMonth.toString().padStart(2, '0')}/${existingCard.expYear}` : ''
     );
     const [cvv, setCvv] = useState('');
+    const [zipCode, setZipCode] = useState(existingCard?.zipCode || '');
     // Default behavior:
     // - First card created should be default
     // - Subsequent cards should NOT be default unless user opts in
@@ -253,7 +254,7 @@ export function AddPaymentScreen() {
 
     const handleSave = () => {
         // Basic validation
-        if (!fullName || (!isEditMode && !cardNumber) || !expiryDate || (!isEditMode && !cvv)) {
+        if (!fullName || (!isEditMode && !cardNumber) || !expiryDate || (!isEditMode && !cvv) || !zipCode) {
             console.log('Please fill in all fields');
             return;
         }
@@ -270,6 +271,7 @@ export function AddPaymentScreen() {
             expMonth: parseInt(month),
             expYear: parseInt(year),
             cardholderName: fullName,
+            zipCode,
         };
 
         if (isEditMode && cardId) {
@@ -423,6 +425,15 @@ export function AddPaymentScreen() {
                                 />
                             </View>
                         </View>
+
+                        <PaymentInput
+                            label="Zip Code"
+                            value={zipCode}
+                            onChangeText={(text: string) => setZipCode(text.replace(/\D/g, '').slice(0, 5))}
+                            placeholder="00000"
+                            keyboardType="numeric"
+                            maxLength={5}
+                        />
 
                         {/* Checkboxes - only in add mode */}
                         {!isEditMode ? (

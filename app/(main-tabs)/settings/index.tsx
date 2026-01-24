@@ -1,9 +1,26 @@
+/**
+ * SettingsHomeScreen
+ *
+ * PURPOSE: Main settings screen providing user profile overview and access to various app settings.
+ *
+ * USED IN: app/(main-tabs)/_layout.tsx (as a tab screen)
+ *
+ * PROPS: None (accessed via router)
+ *
+ * EXAMPLE:
+ *   <SettingsHomeScreen />
+ *
+ * OWNER: Daniel Chelala
+ * TICKET: OTO-XXX
+ */
+
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   Dimensions,
   Image,
   LayoutChangeEvent,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   TextInput,
@@ -28,6 +45,7 @@ import {
   Star,
   ShieldCheck,
   Fingerprint,
+  ScanFace,
   ArrowLeftRight,
   Trash2,
   Shield,
@@ -50,6 +68,7 @@ import { useShallow } from 'zustand/react/shallow';
 import { LinearGradient } from 'expo-linear-gradient';
 // @ts-ignore Expo module available at runtime
 import * as ImagePicker from 'expo-image-picker';
+import * as LocalAuthentication from 'expo-local-authentication';
 
 import { BrandColors, Button, FeedbackModal, Text, ScrollDrivenGradientBackground } from '@/components/shared-ui';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
@@ -97,6 +116,8 @@ export default function SettingsHomeScreen() {
   const scrollY = useSharedValue(0);
 
   const [nameWidth, setNameWidth] = useState(0);
+  const [biometricLabel, setBiometricLabel] = useState('Biometric Login');
+
   const handleNameLayout = useCallback((e: LayoutChangeEvent) => {
     setNameWidth(e.nativeEvent.layout.width);
   }, []);
@@ -116,6 +137,32 @@ export default function SettingsHomeScreen() {
   // ─────────────────────────────────────────────────────────────
   useFocusEffect(
     useCallback(() => {
+      const checkBiometrics = async () => {
+        try {
+          const hardware = await LocalAuthentication.hasHardwareAsync();
+          const supportedTypes = await LocalAuthentication.supportedAuthenticationTypesAsync();
+          
+          if (hardware && supportedTypes.length > 0) {
+            if (Platform.OS === 'ios') {
+              if (supportedTypes.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION)) {
+                setBiometricLabel('Face ID');
+              } else if (supportedTypes.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)) {
+                setBiometricLabel('Touch ID');
+              } else {
+                setBiometricLabel('Biometric Login');
+              }
+            } else {
+              // Android often has multiple, keeping generic
+              setBiometricLabel('Biometric Login');
+            }
+          }
+        } catch (error) {
+          console.error('Error checking biometrics:', error);
+        }
+      };
+
+      checkBiometrics();
+      
       console.log('Notification Preferences Status:', {
         twoFactorEmailEnabled: data.twoFactorEmailEnabled,
         twoFactorSmsEnabled: data.twoFactorSmsEnabled,
@@ -123,8 +170,9 @@ export default function SettingsHomeScreen() {
         notificationRewardsEnabled: data.notificationRewardsEnabled,
         notificationPassEnabled: data.notificationPassEnabled,
         notificationOtherEnabled: data.notificationOtherEnabled,
+        notificationBookingsEnabled: data.notificationBookingsEnabled,
       });
-    }, [data.twoFactorEmailEnabled, data.twoFactorSmsEnabled, data.notificationOffersEnabled, data.notificationRewardsEnabled, data.notificationPassEnabled, data.notificationOtherEnabled])
+    }, [data.twoFactorEmailEnabled, data.twoFactorSmsEnabled, data.notificationOffersEnabled, data.notificationRewardsEnabled, data.notificationPassEnabled, data.notificationOtherEnabled, data.notificationBookingsEnabled])
   );
 
   // ─────────────────────────────────────────────────────────────
@@ -535,7 +583,7 @@ export default function SettingsHomeScreen() {
                     <SettingsListItem
                       icon={<HelpCircle size={20} color="#1F2937" />}
                       label="FAQ"
-                      onPress={() => console.log('FAQ')}
+                      onPress={() => router.push('/settings/faq')}
                     />
                     <SettingsListItem
                       icon={<MessageSquare size={20} color="#1F2937" />}
@@ -561,9 +609,9 @@ export default function SettingsHomeScreen() {
                       onPress={() => router.push('/settings/two-factor-method')}
                     />
                     <SettingsListItem
-                      icon={<Fingerprint size={20} color="#1F2937" />}
-                      label="Biometric Login"
-                      onPress={() => console.log('Bio')}
+                      icon={biometricLabel === 'Face ID' ? <ScanFace size={20} color="#1F2937" /> : <Fingerprint size={20} color="#1F2937" />}
+                      label={biometricLabel}
+                      onPress={() => router.push('/settings/biometric-setup')}
                     />
                     <SettingsListItem
                       icon={<ArrowLeftRight size={20} color="#1F2937" />}

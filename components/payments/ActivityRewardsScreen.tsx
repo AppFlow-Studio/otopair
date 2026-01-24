@@ -234,13 +234,6 @@ const CardItem = ({ card, index, scrollX, total }: CardProps) => {
         },
       ]}
     >
-      {card?.isDefault ? (
-        <View style={styles.defaultBadge}>
-          <Text weight="semiBold" size="xs" color="#111827">
-            Default
-          </Text>
-        </View>
-      ) : null}
       <Animated.View style={imageParallaxStyle}>
         <Image
           source={card.image}
@@ -1001,16 +994,6 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: "rgba(0,0,0,0.05)",
     marginHorizontal: 8,
-  },
-  defaultBadge: {
-    position: "absolute",
-    top: 12,
-    left: 12,
-    zIndex: 20,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 999,
-    backgroundColor: "rgba(255,255,255,0.92)",
   },
   rewardItem: {
     flexDirection: "row",

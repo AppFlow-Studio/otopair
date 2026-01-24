@@ -251,6 +251,8 @@ export interface PaymentMethod {
   isDefault: boolean;
   /** Cardholder name (optional) */
   cardholderName?: string;
+  /** Billing zip code (optional) */
+  zipCode?: string;
   /** Card art to use for this card in the UI */
   imageKey?: PaymentCardImageKey;
   /** Date when payment method was added */

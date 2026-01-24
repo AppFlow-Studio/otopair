@@ -1,7 +1,24 @@
-import React, { useEffect } from "react";
+/**
+ * SuccessScreen
+ *
+ * PURPOSE: Displays a success message and animation after setting up 2FA or Biometrics.
+ *
+ * USED IN: app/(main-tabs)/settings/two-factor-verify.tsx, app/(main-tabs)/settings/biometric-setup.tsx
+ *
+ * PARAMS:
+ *   - type ('2fa' | 'face' | 'touch' | 'fingerprint' | 'biometric'): 2FA or the type of security enabled
+ *
+ * EXAMPLE:
+ *   router.replace({ pathname: '/settings/success', params: { type: 'face' } })
+ *
+ * OWNER: Daniel Chelala
+ * TICKET: OTO-XXX
+ */
+
+import React, { useEffect, useMemo } from "react";
 import { BackHandler, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useRouter, useLocalSearchParams } from "expo-router";
 import Animated, {
   useAnimatedProps,
   useAnimatedStyle,
@@ -11,7 +28,7 @@ import Animated, {
   interpolate,
   Extrapolation,
 } from "react-native-reanimated";
-import Svg, { Path } from "react-native-svg";
+import Svg, { Path, Circle } from "react-native-svg";
 
 import {
   BrandColors,
@@ -19,15 +36,36 @@ import {
   Spacing,
   Text,
 } from "@/components/shared-ui";
+import { Layout } from "@/constants/theme";
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
-const CHECK_PATH_LENGTH = 100;
+const AnimatedCircle = Animated.createAnimatedComponent(Circle);
+const PATH_LENGTH = 100;
 
-export default function TwoFactorSuccessScreen() {
+export default function SuccessScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { type = '2fa' } = useLocalSearchParams<{ type: '2fa' | 'face' | 'touch' | 'fingerprint' | 'biometric' }>();
 
-  // shared values for the new animation style
+  const title = useMemo(() => {
+    switch (type) {
+      case 'face': return 'Face ID Enabled';
+      case 'touch': return 'Touch ID Enabled';
+      case '2fa': return 'All done!';
+      default: return 'Biometrics Enabled';
+    }
+  }, [type]);
+
+  const subtitle = useMemo(() => {
+    switch (type) {
+      case 'face': return 'You can now use Face ID to sign in securely.';
+      case 'touch': return 'You can now use Touch ID to sign in securely.';
+      case '2fa': return 'Your two-factor authentication is enabled';
+      default: return 'You can now use biometrics to sign in securely.';
+    }
+  }, [type]);
+
+  // shared values for animations
   const progress = useSharedValue(0);
   const scale = useSharedValue(0);
   const shadowScale = useSharedValue(0);
@@ -53,7 +91,7 @@ export default function TwoFactorSuccessScreen() {
       withSpring(1, { damping: 12, stiffness: 100 })
     );
 
-    // 2. Then the checkmark "draws" itself
+    // 2. Then the icon "draws" itself
     progress.value = withDelay(
       400,
       withSpring(1, { damping: 15, stiffness: 120 })
@@ -63,12 +101,11 @@ export default function TwoFactorSuccessScreen() {
     shadowScale.value = withDelay(200, withSpring(1, { damping: 15 }));
   }, []);
 
-  const animatedCheckStyle = useAnimatedStyle(() => ({
+  const animatedIconStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
   }));
 
   const animatedShadowStyle = useAnimatedStyle(() => {
-    // The lowest point of the checkmark is reached at approx 35% of the draw animation
     const opacity = interpolate(
       progress.value,
       [0, 0.35, 0.6],
@@ -82,9 +119,27 @@ export default function TwoFactorSuccessScreen() {
     };
   });
 
-  const animatedProps = useAnimatedProps(() => ({
-    strokeDashoffset: CHECK_PATH_LENGTH * (1 - progress.value),
+  const animatedPathProps = useAnimatedProps(() => ({
+    strokeDashoffset: PATH_LENGTH * (1 - progress.value),
   }));
+
+  const renderIcon = () => {
+    // We always use the checkmark animation as requested
+    return (
+      <Svg width={160} height={160} viewBox="0 0 100 100">
+        <AnimatedPath
+          d="M25 52 L45 72 L80 34"
+          fill="none"
+          stroke={BrandColors.secondary}
+          strokeWidth={10}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeDasharray={PATH_LENGTH}
+          animatedProps={animatedPathProps}
+        />
+      </Svg>
+    );
+  };
 
   return (
     <View
@@ -92,25 +147,14 @@ export default function TwoFactorSuccessScreen() {
         styles.screen,
         {
           paddingTop: insets.top + Spacing.lg,
-          paddingBottom: insets.bottom + Spacing.xl,
+          paddingBottom: insets.bottom + Layout.footerHeight,
         },
       ]}
     >
       <View style={styles.content}>
         <View style={styles.checkContainer}>
-          <Animated.View style={[styles.checkWrap, animatedCheckStyle]}>
-            <Svg width={160} height={160} viewBox="0 0 100 100">
-              <AnimatedPath
-                d="M25 52 L45 72 L80 34"
-                fill="none"
-                stroke={BrandColors.secondary}
-                strokeWidth={10}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeDasharray={CHECK_PATH_LENGTH}
-                animatedProps={animatedProps}
-              />
-            </Svg>
+          <Animated.View style={[styles.checkWrap, animatedIconStyle]}>
+            {renderIcon()}
           </Animated.View>
 
           {/* Ground shadow underneath */}
@@ -118,13 +162,13 @@ export default function TwoFactorSuccessScreen() {
         </View>
 
         <Text weight="bold" size="3xl" color="#111827" style={styles.title}>
-          All done!
+          {title}
         </Text>
-        <Text size="md" color="#6B7280" style={styles.subtitle}>
-          Your two-factor authentication is enabled.
+        <Text size="md" color="#6B7280" style={styles.subtitle} center>
+          {subtitle}
         </Text>
       </View>
-      <View style={styles.footer}>
+      <View>
         <FooterButton
           label="Done"
           onPress={() => router.replace("/settings")}

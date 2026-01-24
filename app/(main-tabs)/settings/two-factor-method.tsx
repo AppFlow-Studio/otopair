@@ -1,3 +1,19 @@
+/**
+ * TwoFactorMethodScreen
+ *
+ * PURPOSE: Allows users to choose and manage their two-factor authentication method (SMS or Email).
+ *
+ * USED IN: app/(main-tabs)/settings/index.tsx
+ *
+ * PROPS: None (accessed via router)
+ *
+ * EXAMPLE:
+ *   <TwoFactorMethodScreen />
+ *
+ * OWNER: Daniel Chelala
+ * TICKET: OTO-XXX
+ */
+
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Modal, Pressable, StyleSheet, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -5,6 +21,7 @@ import { useRouter } from 'expo-router';
 import { Check, X, Mail, MessageSquareText } from 'lucide-react-native';
 
 import { BrandColors, Button, FontFamily, FontSize, Shadows, Spacing, Text } from '@/components/shared-ui';
+import { Layout } from '@/constants/theme';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 
 type VerificationMethod = 'sms' | 'email';
@@ -139,17 +156,6 @@ export default function TwoFactorMethodScreen() {
         )}
       </View>
 
-      <View style={[styles.footer, { paddingBottom: insets.bottom + 10 }]}>
-        <View>
-          <Text weight="semiBold" size="sm" color="#111827">
-            Two-factor authentication
-          </Text>
-          <Text size="sm" color="#6B7280">
-            Step 1 of 2
-          </Text>
-        </View>
-      </View>
-
       <Modal
         visible={showRemoveModal}
         transparent
@@ -275,12 +281,6 @@ const styles = StyleSheet.create({
   },
   errorText: {
     textAlign: 'center',
-  },
-  footer: {
-    paddingTop: Spacing.lg,
-    paddingBottom: Spacing.lg,
-    borderTopWidth: 1,
-    borderTopColor: '#E5E7EB',
   },
   removeModalBackdrop: {
     flex: 1,

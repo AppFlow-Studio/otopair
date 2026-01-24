@@ -1,12 +1,49 @@
-import React, { useCallback, useMemo, useState } from 'react';
-import { Image, Pressable, ScrollView, Share, StyleSheet, View } from 'react-native';
+/**
+ * ReferAFriendScreen
+ *
+ * PURPOSE: iOS 26-style rewards dashboard converted from provided HTML.
+ */
+
+import React, { useCallback, useMemo } from 'react';
+import {
+  Pressable,
+  Share,
+  StyleSheet,
+  View,
+} from 'react-native';
+import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import { BlurView } from 'expo-blur';
 import * as Clipboard from 'expo-clipboard';
-import { X, Copy, Gift, HelpCircle, ArrowRight } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import {
+  X,
+  Gift,
+  Copy,
+  Share2,
+  Smartphone,
+} from 'lucide-react-native';
 
-import { BrandColors, Button, Text } from '@/components/shared-ui';
+import { BrandColors, Text } from '@/components/shared-ui';
+import { ScrollDrivenGradientBackground } from '@/components/shared-ui/ScrollDrivenGradientBackground';
+import { FadeHeaderContainer } from '@/components/shared-ui/FadeHeaderContainer';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
+
+const COLORS = {
+  primary: '#2463eb',
+  backgroundLight: '#F5F5F7',
+  glassLight: 'rgba(255, 255, 255, 0.72)',
+  textDark: '#1c1c1e',
+  textMuted: '#6B7280',
+};
+
+const HEADER_FADE_COLORS: [string, string, string, string] = [
+  'rgba(82, 153, 254, 1)',    // Opaque blue (BrandColors.secondary)
+  'rgba(82, 153, 254, 0.7)',
+  'rgba(82, 153, 254, 0.3)',
+  'rgba(82, 153, 254, 0)',    // Transparent
+];
 
 function stableShortHash(input: string): string {
   let h = 0;
@@ -16,11 +53,31 @@ function stableShortHash(input: string): string {
   return String(h % 1000000).padStart(6, '0');
 }
 
+const GlassPanel = ({
+  children,
+  style,
+}: {
+  children: React.ReactNode;
+  style?: object;
+}) => {
+  return (
+    <BlurView
+      intensity={20}
+      tint="light"
+      style={[
+        styles.glassPanel,
+        { backgroundColor: COLORS.glassLight },
+        style,
+      ]}
+    >
+      {children}
+    </BlurView>
+  );
+};
+
 export default function ReferAFriendScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const [copied, setCopied] = useState(false);
-
   const data = useOnboardingStore((s) => s.data);
 
   const referralCode = useMemo(() => {
@@ -30,124 +87,245 @@ export default function ReferAFriendScreen() {
       `${(data.firstName ?? '').trim()}${(data.lastName ?? '').trim()}`.trim() ||
       'user';
 
-    const normalized = base.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 14) || 'user';
+    const normalized =
+      base.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 14) || 'user';
     return `otopair-${normalized}${stableShortHash(normalized)}`;
   }, [data.email, data.firstName, data.lastName, data.username]);
 
-  const handleCopy = useCallback(async () => {
-    await Clipboard.setStringAsync(referralCode);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1200);
-  }, [referralCode]);
+  const displayCode = referralCode.toUpperCase();
 
-  const handleInvite = useCallback(async () => {
+  const handleCopy = useCallback(async () => {
+    await Clipboard.setStringAsync(displayCode);
+  }, [displayCode]);
+
+  const handleShare = useCallback(async () => {
     const message =
-      `Join Otopair and get 250 points on your first booking!\n\n` +
-      `Use my referral code: ${referralCode}\n`;
+      `Join Otopair and get 250 points for your first booking!\n\n` +
+      `Use my referral code: ${displayCode}\n`;
     await Share.share({ message });
-  }, [referralCode]);
+  }, [displayCode]);
 
   return (
-    <View style={[styles.screen, { paddingTop: insets.top }]}>
-      {/* Header */}
-      <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.closeButton} hitSlop={10}>
-          <X size={18} color="#111827" />
-        </Pressable>
-        <Text weight="semiBold" size="lg" color="#111827" style={styles.headerTitle}>
-          Refer A Friend
-        </Text>
-        <View style={{ width: 40 }} />
-      </View>
+    <View style={styles.screen}>
+      <ScrollDrivenGradientBackground>
+        {(scrollHandler) => (
+          <>
+            <FadeHeaderContainer
+              paddingTop={insets.top + 10}
+              paddingHorizontal={20}
+              colors={HEADER_FADE_COLORS}
+              fadeHeight={20}
+            >
+              <View style={styles.header}>
+                <Pressable onPress={() => router.back()} style={styles.backButton} hitSlop={10}>
+                  <X size={18} color="#111827" />
+                </Pressable>
+                <Text weight="semiBold" size="lg" color="#fff" style={styles.headerTitle}>
+                  Refer a Friend
+                </Text>
+                <View style={{ width: 40 }} />
+              </View>
+            </FadeHeaderContainer>
 
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        // Extra padding so the bottom CTA isn't obscured by the bottom tab bar.
-        contentContainerStyle={{ paddingBottom: insets.bottom + 120 }}
-      >
-        {/* Hero */}
-        <View style={styles.hero}>
-          <View style={styles.heroImageWrap}>
-            <Image
-              source={require('@/assets/images/settings/stack-blue-tokens.png')}
-              style={styles.heroImage}
-              resizeMode="contain"
-            />
-          </View>
+            <Animated.ScrollView
+              onScroll={scrollHandler}
+              scrollEventThrottle={16}
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={[
+                styles.content,
+                { paddingTop: insets.top + 80, paddingBottom: insets.bottom + 32 },
+              ]}
+            >
+            <GlassPanel style={styles.heroCard}>
+              <View style={styles.heroIconWrap}>
+                <Gift size={36} color={COLORS.primary} strokeWidth={1.75} />
+              </View>
+              <View style={styles.heroTextGroup}>
+                <Text
+                  weight="extraBold"
+                  style={[styles.heroTitle, { color: COLORS.textDark } ]}
+                >
+                  Give 250, get 250
+                </Text>
+                <Text
+                  size="md"
+                  color={COLORS.textMuted}
+                  style={styles.heroDescription}
+                >
+                  Invite your friends to Otopair. They get 250 points for their first booking,
+                  and you get 250 points credit.
+                </Text>
+              </View>
+              <View
+                style={[
+                  styles.codeRow,
+                  { backgroundColor: '#FFFFFF' },
+                ]}
+              >
+                <View style={styles.codeTextContainer}>
+                  <Text
+                    weight="bold"
+                    numberOfLines={1}
+                    ellipsizeMode="clip"
+                    style={[
+                      styles.codeText,
+                      { color: COLORS.textDark },
+                    ]}
+                  >
+                    {displayCode}
+                  </Text>
+                </View>
+                <Pressable
+                  onPress={handleCopy}
+                  style={({ pressed }) => [
+                    styles.copyButton,
+                    pressed && styles.pressed,
+                  ]}
+                >
+                  <Copy size={18} color={COLORS.primary} strokeWidth={2.2} />
+                  <Text weight="semiBold" style={styles.copyLabel}>
+                    Copy
+                  </Text>
+                </Pressable>
+              </View>
+              <Pressable
+                onPress={handleShare}
+                style={({ pressed }) => [
+                  styles.shareButton,
+                  pressed && styles.sharePressed,
+                ]}
+              >
+                <Share2 size={20} color="#FFFFFF" strokeWidth={2} />
+                <Text weight="bold" size="md" color="#FFFFFF">
+                  Share invite
+                </Text>
+              </Pressable>
+            </GlassPanel>
 
-          <Text weight="bold" size="2xl" color="#111827" style={styles.heroTitle}>
-            Get 250 points for referring friends
-          </Text>
-          <Text size="md" color="#6B7280" style={styles.heroSubtitle}>
-            Refer up to 50 friends who are new to Otopair. If they create an account:
-          </Text>
-        </View>
-
-        {/* Info cards */}
-        <View style={styles.cards}>
-          <View style={styles.infoCard}>
-            <View style={styles.infoIconBox}>
-              <Gift size={18} color={BrandColors.secondary} />
+            <View style={styles.statsRow}>
+              <GlassPanel style={styles.statCard}>
+                <Text
+                  size="xs"
+                  color={COLORS.textMuted}
+                  style={styles.statLabel}
+                >
+                  Total credit{'\n'}earned
+                </Text>
+                <Text
+                  weight="bold"
+                  style={[styles.statValue, { color: COLORS.textDark }]}
+                >
+                  750
+                </Text>
+              </GlassPanel>
+              <GlassPanel style={styles.statCard}>
+                <Text
+                  size="xs"
+                  color={COLORS.textMuted}
+                  style={styles.statLabel}
+                >
+                  Successful{'\n'}referrals
+                </Text>
+                <Text
+                  weight="bold"
+                  style={[styles.statValue, { color: COLORS.textDark }]}
+                >
+                  3
+                </Text>
+              </GlassPanel>
             </View>
-            <View style={{ flex: 1 }}>
-              <Text weight="semiBold" size="md" color="#111827">
-                You get 250 points for your next booking
-              </Text>
-              <Text size="sm" color="#6B7280" style={{ marginTop: 4 }}>
-                $25 minimum order • Next booking only • Some merchants excluded • Valid for 90 days
-              </Text>
-            </View>
-          </View>
 
-          <View style={styles.infoCard}>
-            <View style={styles.infoIconBox}>
-              <Gift size={18} color={BrandColors.secondary} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text weight="semiBold" size="md" color="#111827">
-                Your friend gets 250 points for their first booking
-              </Text>
-              <Text size="sm" color="#6B7280" style={{ marginTop: 4 }}>
-                $25 minimum order • Next booking only • Some merchants excluded • Valid for 90 days
-              </Text>
-            </View>
-          </View>
+            <GlassPanel style={styles.activityCard}>
+              <View style={styles.activityHeader}>
+                <Text
+                  weight="bold"
+                  size="md"
+                  style={{ color: COLORS.textDark }}
+                >
+                  Activity
+                </Text>
+              </View>
 
-          <Pressable style={styles.faqCard} onPress={() => console.log('Referral FAQ pressed')}>
-            <View style={styles.infoIconBox}>
-              <HelpCircle size={18} color={BrandColors.secondary} />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text weight="semiBold" size="md" color="#111827">
-                Referral FAQ
-              </Text>
-              <Text size="sm" color="#6B7280" style={{ marginTop: 2 }}>
-                See offer terms, eligibility rules, and FAQ
-              </Text>
-            </View>
-            <ArrowRight size={18} color="#9CA3AF" />
-          </Pressable>
-        </View>
+              <Pressable style={styles.activityRow}>
+                <LinearGradient
+                  colors={['#DBEAFE', '#EFF6FF']}
+                  style={styles.avatarGradient}
+                >
+                  <Text weight="bold" size="sm" color={COLORS.primary}>
+                    SM
+                  </Text>
+                </LinearGradient>
+                <View style={styles.activityText}>
+                  <View style={styles.activityTopRow}>
+                    <Text
+                      weight="semiBold"
+                      size="sm"
+                      style={{ color: COLORS.textDark }}
+                    >
+                      Sarah M.
+                    </Text>
+                    <View style={styles.statusBadge}>
+                      <Text weight="semiBold" size="xs" color={COLORS.primary}>
+                        Completed
+                      </Text>
+                    </View>
+                  </View>
+                  <Text size="xs" color={COLORS.textMuted}>
+                    Earned 250 credit
+                  </Text>
+                </View>
+              </Pressable>
 
-        {/* Code row */}
-        <View style={styles.codeSection}>
-          <View style={styles.codeRow}>
-            <Text weight="semiBold" size="md" color="#111827" style={styles.codeText} numberOfLines={1}>
-              {referralCode}
-            </Text>
-            <Pressable onPress={handleCopy} style={styles.copyButton}>
-              <Copy size={16} color="#111827" />
-              <Text weight="medium" size="sm" color="#111827" style={{ marginLeft: 8 }}>
-                {copied ? 'Copied' : 'Copy Code'}
-              </Text>
-            </Pressable>
-          </View>
+              <View style={styles.activityDivider} />
 
-          <Button variant="primary" fullWidth style={styles.inviteButton} onPress={handleInvite}>
-            Invite Friends
-          </Button>
-        </View>
-      </ScrollView>
+              <Pressable style={styles.activityRow}>
+                <View
+                  style={[
+                    styles.phoneAvatar,
+                    { backgroundColor: '#F3F4F6' },
+                  ]}
+                >
+                  <Smartphone size={20} color="#6B7280" />
+                </View>
+                <View style={styles.activityText}>
+                  <View style={styles.activityTopRow}>
+                    <Text
+                      weight="semiBold"
+                      size="sm"
+                      style={{ color: COLORS.textDark }}
+                    >
+                      Phone ending in 9021
+                    </Text>
+                    <View style={styles.pendingBadge}>
+                      <Text weight="semiBold" size="xs" color="#9CA3AF">
+                        Pending
+                      </Text>
+                    </View>
+                  </View>
+                  <Text size="xs" color={COLORS.textMuted}>
+                    Waiting for first service
+                  </Text>
+                </View>
+              </Pressable>
+            </GlassPanel>
+
+            <View style={styles.footer}>
+              <Text size="xs" color="#9CA3AF">
+                Terms apply.{' '}
+                <Text
+                  size="xs"
+                  color={COLORS.primary}
+                  onPress={() => {}}
+                  style={styles.footerLink}
+                >
+                  View referral terms
+                </Text>
+              </Text>
+            </View>
+            </Animated.ScrollView>
+          </>
+        )}
+      </ScrollDrivenGradientBackground>
     </View>
   );
 }
@@ -155,16 +333,18 @@ export default function ReferAFriendScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#E8ECF0',
-    paddingHorizontal: 18,
+  },
+  glassPanel: {
+    borderRadius: 24,
+    overflow: 'hidden',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: 10,
-    paddingBottom: 0,
+    paddingBottom: 6,
+    zIndex: 10,
   },
-  closeButton: {
+  backButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
@@ -176,84 +356,166 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: 'center',
   },
-  hero: {
-    // Keep the hero tight so the illustration doesn't push content too far down
-    paddingBottom: 14,
+  content: {
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    gap: 16,
   },
-  heroImageWrap: {
+  heroCard: {
+    padding: 24,
+    alignItems: 'center',
+  },
+  heroIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 16,
+    backgroundColor: 'rgba(37, 99, 235, 0.1)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: -25,
-    marginBottom: -25,
+    marginBottom: 20,
   },
-  heroImage: {
-    width: 500,
-    height: 250,
+  heroTextGroup: {
+    gap: 12,
+    marginBottom: 20,
+    alignItems: 'center',
   },
   heroTitle: {
-    marginTop: 0,
-    lineHeight: 32,
+    fontSize: 28,
+    letterSpacing: -0.5,
+    textAlign: 'center',
+    paddingBottom: 6
   },
-  heroSubtitle: {
-    marginTop: 8,
+  heroDescription: {
+    textAlign: 'center',
     lineHeight: 22,
-  },
-  cards: {
-    gap: 12,
-  },
-  infoCard: {
-    flexDirection: 'row',
-    gap: 12,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    padding: 14,
-  },
-  faqCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    padding: 14,
-  },
-  infoIconBox: {
-    width: 34,
-    height: 34,
-    borderRadius: 12,
-    backgroundColor: 'rgba(82, 153, 254, 0.12)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginTop: 2,
-  },
-  codeSection: {
-    marginTop: 18,
-    gap: 14,
+    maxWidth: 300,
   },
   codeRow: {
+    width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#EEF2F7',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
     borderRadius: 16,
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.05)',
+    marginBottom: 16,
+    justifyContent: 'space-between',
+  },
+  codeTextContainer: {
+    flex: 1,
+    marginRight: 12,
+    overflow: 'hidden',
   },
   codeText: {
-    flex: 1,
-    marginRight: 10,
+    fontFamily: 'JetBrains Mono',
+    fontSize: 16,
+    letterSpacing: 1.2,
   },
   copyButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderRadius: 14,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.06)',
+    gap: 6,
+    flexShrink: 0,
   },
-  inviteButton: {
-    borderRadius: 16,
-    paddingVertical: 14,
+  copyLabel: {
+    color: COLORS.primary,
+    fontSize: 15,
+  },
+  shareButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+    height: 52,
+    borderRadius: 12,
+    gap: 8,
+    backgroundColor: COLORS.primary,
+  },
+  pressed: {
+    opacity: 0.7,
+  },
+  sharePressed: {
+    transform: [{ scale: 0.98 }],
+  },
+  statsRow: {
+    flexDirection: 'row',
+    gap: 16,
+  },
+  statCard: {
+    flex: 1,
+    padding: 20,
+    minHeight: 100,
+    justifyContent: 'space-between',
+  },
+  statLabel: {
+    lineHeight: 16,
+  },
+  statValue: {
+    fontSize: 28,
+  },
+  activityCard: {
+    padding: 0,
+  },
+  activityHeader: {
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0,0,0,0.05)',
+  },
+  activityRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    gap: 12,
+  },
+  avatarGradient: {
+    width: 40,
+    height: 40,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  phoneAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 999,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  activityText: {
+    flex: 1,
+    gap: 4,
+  },
+  activityTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  statusBadge: {
+    backgroundColor: 'rgba(37, 99, 235, 0.15)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  pendingBadge: {
+    backgroundColor: 'rgba(0,0,0,0.06)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  activityDivider: {
+    height: 1,
+    marginLeft: 68,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+  },
+  footer: {
+    paddingBottom: 12,
+    alignItems: 'center',
+  },
+  footerLink: {
+    textDecorationLine: 'underline',
   },
 });
-

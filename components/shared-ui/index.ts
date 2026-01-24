@@ -35,6 +35,11 @@ export {
     FadeFooterContainer
 } from './FadeFooterContainer';
 
+// Fade Header Container Component
+export {
+    FadeHeaderContainer
+} from './FadeHeaderContainer';
+
 // Back Button Component
 export {
     BackButton
@@ -64,6 +69,11 @@ export {
 export {
     GlassCircleButton
 } from './GlassCircleButton';
+
+// Bottom Sheet Modal
+export {
+    AppBottomSheetModal
+} from './AppBottomSheetModal';
 
 // Text Components
 export {
