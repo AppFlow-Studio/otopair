@@ -19,7 +19,6 @@ import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import {
-  X,
   Award,
   BadgeCheck,
   CalendarDays,
@@ -32,9 +31,7 @@ import {
 } from 'lucide-react-native';
 import Animated from 'react-native-reanimated';
 
-import { BrandColors, Spacing, Text } from '@/components/shared-ui';
-import { ScrollDrivenGradientBackground } from '@/components/shared-ui/ScrollDrivenGradientBackground';
-import { FadeHeaderContainer } from '@/components/shared-ui/FadeHeaderContainer';
+import { BlurHeaderOverlay, BrandColors, Spacing, Text } from '@/components/shared-ui';
 import { getSheetContentPadding } from '@/constants/theme';
 
 const HEADER_FADE_COLORS: [string, string, string, string] = [
@@ -77,55 +74,26 @@ const CATEGORIES = [
 export default function FAQRootScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-
   const handleOpenCategory = (category: string) => {
     router.push({ pathname: '/settings/faq-category', params: { category } });
   };
 
   return (
     <View style={styles.screen}>
-      <ScrollDrivenGradientBackground colors={['#f5f5f7', '#f5f5f7']}>
-        {(scrollHandler) => (
-          <>
-            <FadeHeaderContainer
-              paddingTop={insets.top + 10}
-              paddingHorizontal={20}
-              colors={HEADER_FADE_COLORS}
-              fadeHeight={20}
-            >
-              <View style={styles.header}>
-                <Pressable onPress={() => router.back()} style={styles.backButton} hitSlop={10}>
-                  <X size={18} color="#1F2937" />
-                </Pressable>
-                <View style={{ width: 40 }} />
-              </View>
-            </FadeHeaderContainer>
-
-            <View style={[styles.floatingHeader, { paddingTop: insets.top + 10 }]} pointerEvents="none">
-              <Text
-                weight="semiBold"
-                size="xl"
-                color="#000"
-                style={styles.headerTitle}
-              >
-                FAQ
-              </Text>
-            </View>
-
-            <Animated.ScrollView
-              onScroll={scrollHandler}
-              scrollEventThrottle={16}
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={[styles.container, { paddingTop: insets.top + 80, paddingBottom: getSheetContentPadding(true, insets.bottom) }]}
-            >
-              <View style={styles.searchWrapper}>
-                <Search size={18} color="#86868B" style={styles.searchIcon} />
-                <TextInput
-                  placeholder="Search FAQs"
-                  placeholderTextColor="#86868B"
-                  style={styles.searchInput}
-                />
-              </View>
+      <Animated.ScrollView
+        scrollEventThrottle={16}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[styles.container, { paddingTop: insets.top + 80, paddingBottom: getSheetContentPadding(true, insets.bottom) }]}
+      >
+        {/* ... existing content ... */}
+        <View style={styles.searchWrapper}>
+          <Search size={18} color="#86868B" style={styles.searchIcon} />
+          <TextInput
+            placeholder="Search FAQs"
+            placeholderTextColor="#86868B"
+            style={styles.searchInput}
+          />
+        </View>
 
         <View style={styles.section}>
           <Text weight="semiBold" size="xs" style={styles.sectionLabel}>
@@ -204,10 +172,9 @@ export default function FAQRootScreen() {
             </Pressable>
           </View>
         </View>
-            </Animated.ScrollView>
-          </>
-        )}
-      </ScrollDrivenGradientBackground>
+      </Animated.ScrollView>
+
+      <BlurHeaderOverlay title="FAQ" onBack={() => router.back()} />
     </View>
   );
 }
@@ -215,40 +182,10 @@ export default function FAQRootScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
+    backgroundColor: '#f5f5f7',
   },
   container: {
     paddingHorizontal: 20,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingBottom: 6,
-    zIndex: 10,
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerTitle: {
-    flex: 1,
-    textAlign: 'center',
-  },
-  floatingHeader: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    alignItems: 'center',
-    zIndex: 11,
-  },
-  title: {
-    letterSpacing: -0.5,
-    marginTop: 12,
-    marginBottom: 8,
   },
   searchWrapper: {
     flexDirection: 'row',

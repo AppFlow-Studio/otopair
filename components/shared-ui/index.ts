@@ -75,6 +75,12 @@ export {
     AppBottomSheetModal
 } from './AppBottomSheetModal';
 
+// Blur Header Overlay
+export {
+    BlurHeaderOverlay,
+    type BlurHeaderOverlayProps
+} from './BlurHeaderOverlay';
+
 // Text Components
 export {
     Body, H1,
