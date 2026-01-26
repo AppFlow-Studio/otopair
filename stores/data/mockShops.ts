@@ -20,7 +20,7 @@ export const MOCK_SHOPS: Shop[] = [
   // ═══════════════ MANHATTAN (10 shops) ═══════════════
   {
     id: 1,
-    name: "Manhattan Auto Repair Service",
+    name: "Premium Auto Care",
     address: "Harlem, Manhattan",
     latitude: 40.8025,
     longitude: -73.9312,

@@ -1,9 +1,13 @@
 /**
  * MechanicCard
  *
+ * @deprecated This component has been replaced by ShopCard which uses a shop-centric design
+ *             with mechanic avatars. Use ShopCard from ./ShopCard instead.
+ *
  * PURPOSE: Displays a detailed mechanic/shop card with availability, services, and booking options
  *
- * USED IN: components/booking/sheets/MechanicSelectionContent.tsx
+ * USED IN: DEPRECATED - Was used in components/booking/sheets/MechanicSelectionContent.tsx
+ *          Now replaced by ShopCard in the same file.
  *
  * PROPS:
  *   - mechanic (Mechanic): The mechanic/shop data to display
@@ -90,7 +94,7 @@ export const MechanicCard = memo(function MechanicCard({ mechanic, onBookNow, on
         <View style={styles.infoContainer}>
           <View style={styles.nameRow}>
             <Text size="lg" weight="bold" color={BrandColors.primary}>
-              {mechanic.shopName}
+              {mechanic.name}
             </Text>
             <View style={styles.ratingBadge}>
               <Star size={16} color={BrandColors.secondary} fill={BrandColors.secondary} />
@@ -101,7 +105,7 @@ export const MechanicCard = memo(function MechanicCard({ mechanic, onBookNow, on
           </View>
 
           <Text size="sm" weight="medium" color="#6B7280" style={{ marginBottom: 2 }}>
-            {mechanic.name}
+            {mechanic.shopName}
           </Text>
 
           <View style={styles.detailsRow}>

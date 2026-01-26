@@ -199,7 +199,7 @@ function TypewriterText({
 
 function ThinkingIndicator() {
   return (
-    <View style={styles.thinkingContainer}>
+    <View style={styles.thinkingRow}>
       <Text style={styles.thinkingText} size="sm" weight="medium">
         Thinking
       </Text>
@@ -441,7 +441,7 @@ export function AIReasoning({
         </Animated.View>
       </Pressable>
 
-      {/* Current Step Summary - Always visible when streaming */}
+      {/* Current Step Summary - Always visible when streaming (no box) */}
       {isStreaming && currentStep && (
         <CurrentStepSummary 
           step={currentStep} 
@@ -488,18 +488,21 @@ const styles = StyleSheet.create({
   container: {
     marginBottom: Spacing.sm,
   },
-  // Thinking indicator
+  // Thinking indicator row (above toggle)
+  thinkingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: Spacing.xs,
+  },
+  // Thinking indicator (standalone - for no steps state)
   thinkingContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingVertical: Spacing.xs,
-    paddingHorizontal: Spacing.sm,
-    backgroundColor: '#F3F4F6',
-    borderRadius: BorderRadius.lg,
     alignSelf: 'flex-start',
   },
   thinkingText: {
-    color: '#6B7280',
+    color: BrandColors.secondary,
     fontFamily: FontFamily.medium,
   },
   dotsContainer: {
@@ -525,15 +528,11 @@ const styles = StyleSheet.create({
     color: '#5F6368',
     fontSize: 13,
   },
-  // Current step summary (always visible when streaming)
+  // Current step summary (always visible when streaming) - no box
   currentStepContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     marginTop: Spacing.xs,
-    paddingVertical: Spacing.xs,
-    paddingHorizontal: Spacing.sm,
-    backgroundColor: '#F3F4F6',
-    borderRadius: BorderRadius.md,
     alignSelf: 'flex-start',
     maxWidth: '95%',
     gap: Spacing.xs,

@@ -1,6 +1,6 @@
 /**
  * AI Chat Types and Interfaces
- * Based on Otopair AI OpenAPI specification
+ * Based on OtoPair AI OpenAPI specification
  */
 
 // ============================================================================

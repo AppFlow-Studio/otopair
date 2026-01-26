@@ -1,5 +1,5 @@
 // 1. React & React Native
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -23,6 +23,8 @@ import { ServiceBundlesSection } from '@/components/home/ServiceBundlesSection';
 import { SuggestionsSection } from '@/components/home/SuggestionsSection';
 import { VehicleMaintenanceCard } from '@/components/home/VehicleMaintenanceCard';
 import { OtoPairIcon } from '@/components/icons/oto-pair';
+
+// 5. Stores (unused imports removed)
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
@@ -78,6 +80,11 @@ export default function HomeScreen() {
     console.log('Appointment pressed');
     // TODO: Navigate to appointment details
   };
+
+  // Search bar focus - navigate directly to map with search active
+  const handleSearchFocus = useCallback(() => {
+    router.push('/home/map?search=true');
+  }, [router]);
 
   // Custom margins for content below carousel based on active card
   const getCardMargin = (cardIndex: number): number => {
@@ -139,21 +146,6 @@ export default function HomeScreen() {
                 </View>
               </View>
 
-              {/* Right Side - Gold Tier & Bell */}
-              <View style={styles.headerRight}>
-                {/* Gold Tier Badge - Clickable */}
-                <Pressable
-                  onPress={() => setShowLoyaltyCard(true)}
-                  style={({ pressed }) => [styles.goldTierBadge, pressed && styles.goldTierBadgePressed]}
-                >
-                  <LinearGradient colors={['#fdf4b2', '#f8d34b']} style={styles.starCircle}>
-                    <Star size={18} color="#fffbdf" fill="#fffbdf" />
-                  </LinearGradient>
-                  <Text weight="semiBold" size="sm" color="#5299FE">
-                    Gold Tier
-                  </Text>
-                </Pressable>
-
                 {/* Notification Bell */}
                 <Pressable
                   style={({ pressed }) => [styles.bellButton, pressed && styles.bellButtonPressed]}
@@ -163,7 +155,6 @@ export default function HomeScreen() {
                     <View style={styles.bellDot} />
                   </View>
                 </Pressable>
-              </View>
             </View>
 
             {/* Search Bar */}
@@ -257,6 +248,7 @@ export default function HomeScreen() {
           }}
         />
       )}
+
     </View>
   );
 }

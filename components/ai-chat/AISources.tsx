@@ -168,23 +168,24 @@ function SourcePill({
 
   return (
     <Animated.View 
-      style={animatedStyle}
       entering={FadeIn.delay(index * 100).duration(200)}
     >
-      <Pressable
-        onPress={onPress}
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
-        style={({ pressed }) => [
-          styles.pill,
-          pressed && styles.pillPressed,
-        ]}
-      >
-        <Text style={styles.pillIcon}>{source.icon}</Text>
-        <Text style={styles.pillLabel} size="xs" weight="medium">
-          {source.label}
-        </Text>
-      </Pressable>
+      <Animated.View style={animatedStyle}>
+        <Pressable
+          onPress={onPress}
+          onPressIn={handlePressIn}
+          onPressOut={handlePressOut}
+          style={({ pressed }) => [
+            styles.pill,
+            pressed && styles.pillPressed,
+          ]}
+        >
+          <Text style={styles.pillIcon}>{source.icon}</Text>
+          <Text style={styles.pillLabel} size="xs" weight="medium">
+            {source.label}
+          </Text>
+        </Pressable>
+      </Animated.View>
     </Animated.View>
   );
 }

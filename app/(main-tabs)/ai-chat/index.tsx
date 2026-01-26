@@ -1,7 +1,7 @@
 /**
  * AIChatScreen
  *
- * PURPOSE: Main screen for Otopair AI diagnostic assistant with ChatGPT-style chat interface
+ * PURPOSE: Main screen for OtoPair AI diagnostic assistant with ChatGPT-style chat interface
  *
  * USED IN: app/(main-tabs)/ai-chat/_layout.tsx (tab navigation)
  *
@@ -27,7 +27,7 @@ import { View, ScrollView, StyleSheet, Pressable, Alert, Platform, KeyboardAvoid
 
 // 2. Expo & Third-party
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Animated, { useAnimatedStyle, useSharedValue, withTiming, Easing } from "react-native-reanimated";
+import Animated, { useAnimatedStyle, useSharedValue, withTiming, withDelay, Easing } from "react-native-reanimated";
 import { useRouter } from "expo-router";
 import { AlignLeft, SquarePen } from "lucide-react-native";
 import * as Clipboard from "expo-clipboard";
@@ -47,6 +47,9 @@ import {
   AIBookingCarousel,
   AIWelcomeScreen,
   AIServicePicker,
+  AIToast,
+  AIAttachmentPanel,
+  AISelectedImages,
   type AIMessage,
   type Suggestion,
   type QuickReply,
@@ -58,6 +61,7 @@ import {
 import { BrandColors, Spacing, FontFamily } from "@/constants/theme";
 import { useAIChatStore } from "@/stores/useAIChatStore";
 import { useBookingStore } from "@/stores/useBookingStore";
+import { useVoiceRecording } from "@/hooks/useVoiceRecording";
 import { createInitialState, processUserMessage, WELCOME_SUGGESTIONS } from "@/services/ai/scenarioEngine";
 import type { ConversationState, ChatMessage, AIMechanic, SelectedService } from "@/services/ai/types";
 
@@ -104,6 +108,31 @@ export default function AIChatScreen() {
   const [inputValue, setInputValue] = useState("");
   const [showHistory, setShowHistory] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  
+  // Toast state
+  const [toastMessage, setToastMessage] = useState("");
+  const [toastVisible, setToastVisible] = useState(false);
+  
+  // Attachment panel state
+  const [isAttachmentOpen, setIsAttachmentOpen] = useState(false);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [selectedImages, setSelectedImages] = useState<string[]>([]);
+  
+  const showToast = useCallback((message: string) => {
+    setToastMessage(message);
+    setToastVisible(true);
+  }, []);
+
+  // Voice recording hook
+  const {
+    isRecording,
+    isTranscribing,
+    transcript,
+    meteringValue,
+    startRecording,
+    stopRecording,
+    cancelRecording,
+  } = useVoiceRecording();
 
   // Animated bottom padding for smooth keyboard transitions
   const animatedBottomPadding = useSharedValue(bottomPadding);
@@ -111,6 +140,9 @@ export default function AIChatScreen() {
   // Track keyboard visibility with smooth animation
   useEffect(() => {
     const showSub = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow", (e) => {
+      setIsKeyboardVisible(true);
+      // Close attachment panel when keyboard opens
+      setIsAttachmentOpen(false);
       // Animate to 0 when keyboard shows (keyboard pushes content up)
       animatedBottomPadding.value = withTiming(Spacing.xs, {
         duration: Platform.OS === "ios" ? e.duration : 250,
@@ -118,6 +150,7 @@ export default function AIChatScreen() {
       });
     });
     const hideSub = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide", (e) => {
+      setIsKeyboardVisible(false);
       // Animate back to tab bar height when keyboard hides
       animatedBottomPadding.value = withTiming(bottomPadding, {
         duration: Platform.OS === "ios" ? e.duration : 250,
@@ -134,6 +167,17 @@ export default function AIChatScreen() {
   const inputContainerAnimatedStyle = useAnimatedStyle(() => ({
     paddingBottom: animatedBottomPadding.value,
   }));
+
+  // Reduce bottom padding when attachment panel is open
+  useEffect(() => {
+    if (isAttachmentOpen && !isKeyboardVisible) {
+      // Panel opening - remove padding immediately (panel handles tab bar spacing)
+      animatedBottomPadding.value = 0;
+    } else if (!isKeyboardVisible) {
+      // Panel closing - restore padding immediately (no animation to avoid gap)
+      animatedBottomPadding.value = bottomPadding;
+    }
+  }, [isAttachmentOpen, isKeyboardVisible, bottomPadding]);
 
   const handleWelcomeContinue = () => {
     setHasSeenWelcome(true);
@@ -155,16 +199,147 @@ export default function AIChatScreen() {
     }, 300); // Small delay to ensure keyboard animation starts
   }, []);
 
+  // Handle attachment panel toggle (Discord-style animation)
+  const handleToggleAttachment = useCallback(() => {
+    if (isAttachmentOpen) {
+      // Close the panel
+      setIsAttachmentOpen(false);
+    } else {
+      // Open the panel
+      if (isKeyboardVisible) {
+        // Keyboard is open - dismiss it first, then show panel after delay
+        Keyboard.dismiss();
+        // Wait for keyboard to start hiding, then show panel
+        setTimeout(() => {
+          setIsAttachmentOpen(true);
+        }, Platform.OS === "ios" ? 100 : 50);
+      } else {
+        // Keyboard is closed - just show the panel
+        setIsAttachmentOpen(true);
+      }
+    }
+  }, [isAttachmentOpen, isKeyboardVisible]);
+
+  // Handle image selection toggle from attachment panel
+  const handleToggleImage = useCallback((uri: string) => {
+    setSelectedImages(prev => {
+      if (prev.includes(uri)) {
+        return prev.filter(u => u !== uri);
+      }
+      if (prev.length >= 10) {
+        showToast("Maximum 10 images allowed");
+        return prev;
+      }
+      return [...prev, uri];
+    });
+  }, [showToast]);
+
+  // Handle removing a selected image
+  const handleRemoveImage = useCallback((uri: string) => {
+    setSelectedImages(prev => prev.filter(u => u !== uri));
+  }, []);
+
+  // Handle microphone press in - start recording
+  const handleMicPressIn = useCallback(async () => {
+    if (isProcessing) return;
+    await startRecording();
+  }, [isProcessing, startRecording]);
+
+  // Handle microphone press out - stop recording and get transcription
+  const handleMicPressOut = useCallback(async () => {
+    const transcription = await stopRecording();
+    if (transcription) {
+      setInputValue(transcription);
+      // Auto-send the transcribed message after a brief delay
+      setTimeout(() => {
+        if (transcription.trim()) {
+          // Set input and trigger send
+          setInputValue("");
+          setIsProcessing(true);
+
+          // Process with scenario engine
+          const { newState, response } = processUserMessage(state, transcription);
+
+          // Add user message immediately
+          const updatedState = {
+            ...state,
+            messages: newState.messages,
+            currentStage: newState.currentStage,
+            currentScenario: newState.currentScenario,
+            selectedPriority: newState.selectedPriority,
+            selectedShop: newState.selectedShop,
+            selectedTime: newState.selectedTime,
+          };
+          setState(updatedState);
+
+          // Simulate AI "thinking" delay
+          setTimeout(() => {
+            // Create AI response message
+            const aiMessage: ChatMessage = {
+              id: `ai_${Date.now()}`,
+              role: "assistant",
+              content: response.message,
+              timestamp: new Date().toISOString(),
+              reasoning: response.reasoning,
+              sources: response.sources,
+              quickReplies: response.quickReplies,
+              sections: response.sections,
+              shops: response.shops,
+              showServicePicker: response.showServicePicker,
+              stage: response.nextStage,
+              isStreaming: true,
+            };
+
+            setState((prevState) => {
+              const newState = {
+                ...prevState,
+                messages: [...prevState.messages, aiMessage],
+                suggestions: response.suggestions,
+                currentStage: response.nextStage,
+              };
+              queueMicrotask(() => saveCurrentConversation(newState));
+              return newState;
+            });
+
+            // Stop streaming after animation
+            setTimeout(() => {
+              setState((prev) => {
+                const finalState = {
+                  ...prev,
+                  messages: prev.messages.map((m) => (m.id === aiMessage.id ? { ...m, isStreaming: false } : m)),
+                };
+                setTimeout(() => saveCurrentConversation(finalState), 0);
+                return finalState;
+              });
+              setIsProcessing(false);
+            }, response.message.length * 30);
+          }, 1500);
+        }
+      }, 300);
+    }
+  }, [stopRecording, state, saveCurrentConversation]);
+
   // Handle sending a message
   const handleSend = useCallback(() => {
     const trimmedInput = inputValue.trim();
-    if (!trimmedInput || isProcessing) return;
+    const hasImages = selectedImages.length > 0;
+    
+    // Allow sending if there's text OR images
+    if ((!trimmedInput && !hasImages) || isProcessing) return;
 
+    // Capture images before clearing
+    const attachedImages = [...selectedImages];
+    
     setInputValue("");
+    setSelectedImages([]); // Clear selected images
+    setIsAttachmentOpen(false); // Close attachment panel
     setIsProcessing(true);
 
+    // Use a default message for image-only sends
+    const messageText = trimmedInput || (hasImages ? "Here's an image for you to analyze" : "");
+
     // Process with scenario engine
-    const { newState, response } = processUserMessage(state, trimmedInput);
+    const { newState, response } = processUserMessage(state, messageText, attachedImages);
 
     // Add user message immediately
     const updatedState = {
@@ -222,7 +397,7 @@ export default function AIChatScreen() {
         setIsProcessing(false);
       }, response.message.length * 30); // Approximate streaming time
     }, 1500); // AI thinking delay
-  }, [inputValue, state, isProcessing, saveCurrentConversation]);
+  }, [inputValue, state, isProcessing, saveCurrentConversation, selectedImages]);
 
   // Handle suggestion press
   const handleSuggestionPress = useCallback(
@@ -480,11 +655,11 @@ export default function AIChatScreen() {
   const handleCopy = useCallback(async (content: string) => {
     try {
       await Clipboard.setStringAsync(content);
-      Alert.alert("Copied", "Message copied to clipboard");
+      showToast("Message copied");
     } catch (error) {
       console.error("Copy error:", error);
     }
-  }, []);
+  }, [showToast]);
 
   // Handle speak message
   const handleSpeak = useCallback((content: string) => {
@@ -492,16 +667,17 @@ export default function AIChatScreen() {
       language: "en-US",
       rate: 1.0,
     });
-  }, []);
+    showToast("Playing audio...");
+  }, [showToast]);
 
   // Handle feedback
   const handleLike = useCallback(() => {
-    Alert.alert("Thanks!", "Your feedback helps us improve.");
-  }, []);
+    showToast("Thank you for your feedback!");
+  }, [showToast]);
 
   const handleDislike = useCallback(() => {
-    Alert.alert("Thanks!", "Your feedback helps us improve.");
-  }, []);
+    showToast("Thank you for your feedback!");
+  }, [showToast]);
 
   // Start new chat
   const startNewChat = useCallback(() => {
@@ -547,7 +723,7 @@ export default function AIChatScreen() {
         </Pressable>
 
         <Text style={styles.headerTitle} size="lg" weight="semiBold">
-          Otopair AI
+          OtoPair AI
         </Text>
 
         <Pressable
@@ -602,13 +778,18 @@ export default function AIChatScreen() {
                   )}
                 </View>
               ))}
-              {isProcessing && <AITypingIndicator />}
+              {/* Only show typing indicator if not already shown inside message with reasoning */}
+              {isProcessing && !state.messages.some(m => m.role === 'assistant' && m.reasoning && m.reasoning.length > 0 && m.isStreaming) && (
+                <View style={styles.typingIndicatorWrapper}>
+                  <AITypingIndicator />
+                </View>
+              )}
             </>
           )}
         </ScrollView>
 
         {/* Suggestions above input (only when in conversation) */}
-        {!showChatGreeting && state.suggestions.length > 0 && !isProcessing && (
+        {!showChatGreeting && state.suggestions.length > 0 && !isProcessing && !isAttachmentOpen && (
           <PromptSuggestions
             stage={state.currentStage}
             suggestions={state.suggestions}
@@ -616,6 +797,12 @@ export default function AIChatScreen() {
             disabled={isProcessing}
           />
         )}
+
+        {/* Selected Images Preview - above input */}
+        <AISelectedImages
+          images={selectedImages}
+          onRemove={handleRemoveImage}
+        />
 
         {/* Input Area with smooth keyboard animation */}
         <Animated.View style={inputContainerAnimatedStyle}>
@@ -626,8 +813,25 @@ export default function AIChatScreen() {
             isLoading={isProcessing}
             disabled={isProcessing}
             onFocus={handleInputFocus}
+            onMicPressIn={handleMicPressIn}
+            onMicPressOut={handleMicPressOut}
+            isRecording={isRecording}
+            isTranscribing={isTranscribing}
+            meteringValue={meteringValue}
+            transcript={transcript}
+            isAttachmentOpen={isAttachmentOpen}
+            onToggleAttachment={handleToggleAttachment}
+            hasImages={selectedImages.length > 0}
           />
         </Animated.View>
+
+        {/* Attachment Panel (Discord-style) - below input, pushes everything up */}
+        <AIAttachmentPanel
+          visible={isAttachmentOpen}
+          onClose={() => setIsAttachmentOpen(false)}
+          selectedImages={selectedImages}
+          onToggleImage={handleToggleImage}
+        />
       </KeyboardAvoidingView>
 
       {/* Chat History Sidebar */}
@@ -636,6 +840,13 @@ export default function AIChatScreen() {
         onClose={() => setShowHistory(false)}
         conversations={conversations}
         onSelectConversation={handleSelectConversation}
+      />
+
+      {/* Toast Notification */}
+      <AIToast
+        message={toastMessage}
+        visible={toastVisible}
+        onDismiss={() => setToastVisible(false)}
       />
     </View>
   );
@@ -693,6 +904,9 @@ const styles = StyleSheet.create({
   },
   carouselContainer: {
     marginBottom: Spacing.md,
+  },
+  typingIndicatorWrapper: {
+    paddingHorizontal: Spacing.lg,
   },
   servicePickerContainer: {
     marginHorizontal: Spacing.md,

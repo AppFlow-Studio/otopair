@@ -191,7 +191,8 @@ export function findTimeSlotByInput(input: string): TimeSlot | null {
 
 export function processUserMessage(
   state: ConversationState,
-  userInput: string
+  userInput: string,
+  images?: string[]
 ): { newState: ConversationState; response: ScenarioResponse } {
   const userMessage: ChatMessage = {
     id: `user_${Date.now()}`,
@@ -199,6 +200,7 @@ export function processUserMessage(
     content: userInput,
     timestamp: new Date().toISOString(),
     stage: state.currentStage,
+    images: images && images.length > 0 ? images : undefined,
   };
 
   let newState: ConversationState = {

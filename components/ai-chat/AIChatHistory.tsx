@@ -24,12 +24,21 @@
  */
 
 // 1. React & React Native
-import React, { useEffect, useRef } from 'react';
-import { View, ScrollView, Pressable, StyleSheet, Dimensions, Animated, TouchableWithoutFeedback } from 'react-native';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { View, ScrollView, Pressable, StyleSheet, Dimensions, TouchableWithoutFeedback, TextInput } from 'react-native';
 
 // 2. Expo & Third-party
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { X } from 'lucide-react-native';
+import { X, Search } from 'lucide-react-native';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  withSpring,
+  Easing,
+  runOnJS,
+  interpolate,
+} from 'react-native-reanimated';
 
 // 3. Shared UI (design system)
 import { Text } from '@/components/shared-ui';
@@ -40,6 +49,7 @@ import type { Conversation } from '@/stores/useAIChatStore';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const SIDEBAR_WIDTH = Math.min(SCREEN_WIDTH * 0.8, 320);
+const EXPANDED_SIDEBAR_WIDTH = SCREEN_WIDTH;
 const ANIMATION_DURATION = 300;
 
 interface AIChatHistoryProps {
@@ -58,50 +68,100 @@ export function AIChatHistory({
   isLoading = false,
 }: AIChatHistoryProps) {
   const insets = useSafeAreaInsets();
-  const slideAnim = useRef(new Animated.Value(-SIDEBAR_WIDTH)).current;
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const isAnimating = useRef(false);
-  const isVisible = useRef(false);
+  
+  // Reanimated shared values
+  const slideProgress = useSharedValue(0);
+  const expandProgress = useSharedValue(0);
+  const [isRendered, setIsRendered] = useState(false);
+  
+  // Search state
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const searchInputRef = useRef<TextInput>(null);
 
+  // Spring config for smooth expansion
+  const springConfig = {
+    damping: 20,
+    stiffness: 150,
+    mass: 0.8,
+  };
+
+  // Handle search focus - expand sidebar with smooth spring animation
+  const handleSearchFocus = useCallback(() => {
+    setIsSearchFocused(true);
+    expandProgress.value = withSpring(1, springConfig);
+  }, [expandProgress]);
+
+  // Handle search blur - collapse sidebar (only if search is empty)
+  const handleSearchBlur = useCallback(() => {
+    setIsSearchFocused(false);
+    if (!searchQuery) {
+      expandProgress.value = withSpring(0, springConfig);
+    }
+  }, [searchQuery, expandProgress]);
+
+  // Clear search and collapse
+  const handleClearSearch = useCallback(() => {
+    setSearchQuery('');
+    setIsSearchFocused(false);
+    searchInputRef.current?.blur();
+    expandProgress.value = withSpring(0, springConfig);
+  }, [expandProgress]);
+
+  // Filter conversations based on search query
+  const filteredConversations = conversations.filter((conversation) =>
+    conversation.title.toLowerCase().includes(searchQuery.toLowerCase())
+  );
+
+  // Handle visibility changes
   useEffect(() => {
-    if (visible && !isVisible.current) {
-      // Open animation
-      isVisible.current = true;
-      isAnimating.current = true;
-      Animated.parallel([
-        Animated.timing(slideAnim, {
-          toValue: 0,
-          duration: ANIMATION_DURATION,
-          useNativeDriver: true,
-        }),
-        Animated.timing(fadeAnim, {
-          toValue: 1,
-          duration: ANIMATION_DURATION,
-          useNativeDriver: true,
-        }),
-      ]).start(() => {
-        isAnimating.current = false;
+    if (visible) {
+      setIsRendered(true);
+      slideProgress.value = withTiming(1, {
+        duration: ANIMATION_DURATION,
+        easing: Easing.out(Easing.cubic),
       });
-    } else if (!visible && isVisible.current) {
-      // Close animation
-      isAnimating.current = true;
-      Animated.parallel([
-        Animated.timing(slideAnim, {
-          toValue: -SIDEBAR_WIDTH,
-          duration: ANIMATION_DURATION,
-          useNativeDriver: true,
-        }),
-        Animated.timing(fadeAnim, {
-          toValue: 0,
-          duration: ANIMATION_DURATION,
-          useNativeDriver: true,
-        }),
-      ]).start(() => {
-        isAnimating.current = false;
-        isVisible.current = false;
+    } else {
+      // Reset search state
+      setSearchQuery('');
+      setIsSearchFocused(false);
+      expandProgress.value = 0;
+      
+      slideProgress.value = withTiming(0, {
+        duration: ANIMATION_DURATION,
+        easing: Easing.in(Easing.cubic),
+      }, (finished) => {
+        if (finished) {
+          runOnJS(setIsRendered)(false);
+        }
       });
     }
-  }, [visible, slideAnim, fadeAnim]);
+  }, [visible, slideProgress, expandProgress]);
+
+  // Animated styles for backdrop
+  const backdropStyle = useAnimatedStyle(() => ({
+    opacity: slideProgress.value,
+  }));
+
+  // Animated styles for sidebar with smooth width expansion
+  const sidebarStyle = useAnimatedStyle(() => {
+    const translateX = interpolate(
+      slideProgress.value,
+      [0, 1],
+      [-SIDEBAR_WIDTH, 0]
+    );
+    
+    const width = interpolate(
+      expandProgress.value,
+      [0, 1],
+      [SIDEBAR_WIDTH, EXPANDED_SIDEBAR_WIDTH]
+    );
+
+    return {
+      transform: [{ translateX }],
+      width,
+    };
+  });
 
   const formatDate = (timestamp: string) => {
     const date = new Date(timestamp);
@@ -114,8 +174,8 @@ export function AIChatHistory({
     return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
   };
 
-  // Don't render if not visible and animation is complete
-  if (!visible && !isVisible.current) {
+  // Don't render if not visible
+  if (!isRendered) {
     return null;
   }
 
@@ -123,20 +183,15 @@ export function AIChatHistory({
     <View style={StyleSheet.absoluteFill} pointerEvents={visible ? 'auto' : 'none'}>
       {/* Backdrop with fade animation */}
       <TouchableWithoutFeedback onPress={onClose}>
-        <Animated.View
-          style={[
-            styles.backdrop,
-            { opacity: fadeAnim },
-          ]}
-        />
+        <Animated.View style={[styles.backdrop, backdropStyle]} />
       </TouchableWithoutFeedback>
       
-      {/* Sidebar with slide animation */}
+      {/* Sidebar with slide and expand animation */}
       <Animated.View
         style={[
           styles.sidebar,
           { paddingTop: insets.top },
-          { transform: [{ translateX: slideAnim }] },
+          sidebarStyle,
         ]}
       >
         {/* Header */}
@@ -144,9 +199,32 @@ export function AIChatHistory({
           <Text size="xl" weight="semiBold" style={styles.title}>
             Chat History
           </Text>
-          <Pressable onPress={onClose} style={styles.closeBtn}>
-            <X size={24} color={BrandColors.primary} />
-          </Pressable>
+        </View>
+
+        {/* Search Bar Row */}
+        <View style={styles.searchRow}>
+          <View style={[
+            styles.searchInputWrapper,
+            (isSearchFocused || searchQuery.length > 0) && styles.searchInputWrapperFocused,
+          ]}>
+            <Search size={20} color="#9CA3AF" style={styles.searchIcon} />
+            <TextInput
+              ref={searchInputRef}
+              style={styles.searchInput}
+              placeholder="Search"
+              placeholderTextColor="#9CA3AF"
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              onFocus={handleSearchFocus}
+              onBlur={handleSearchBlur}
+              returnKeyType="search"
+            />
+            {(searchQuery.length > 0 || isSearchFocused) && (
+              <Pressable onPress={handleClearSearch} style={styles.clearBtn}>
+                <X size={18} color="#6B7280" />
+              </Pressable>
+            )}
+          </View>
         </View>
 
         {/* Divider */}
@@ -157,16 +235,21 @@ export function AIChatHistory({
           style={styles.conversationsList}
           contentContainerStyle={styles.conversationsContent}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
         >
-          {conversations.length === 0 ? (
+          {filteredConversations.length === 0 ? (
             <View style={styles.emptyState}>
-              <Text style={styles.emptyText}>No conversations yet</Text>
+              <Text style={styles.emptyText}>
+                {searchQuery ? 'No results found' : 'No conversations yet'}
+              </Text>
               <Text style={styles.emptySubtext}>
-                Start a new chat to see your history here
+                {searchQuery 
+                  ? 'Try a different search term'
+                  : 'Start a new chat to see your history here'}
               </Text>
             </View>
           ) : (
-            conversations.map((conversation) => (
+            filteredConversations.map((conversation) => (
               <Pressable
                 key={conversation.id}
                 style={({ pressed }) => [
@@ -208,27 +291,51 @@ const styles = StyleSheet.create({
     ...Shadows.lg,
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing['4xl'],
-    paddingBottom: Spacing.lg,
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.xs,
   },
   title: {
     color: BrandColors.primary,
-  },
-  closeBtn: {
-    width: 40,
-    height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderRadius: BorderRadius.md,
   },
   divider: {
     height: 1,
     backgroundColor: '#E5E7EB',
     marginHorizontal: Spacing.lg,
+  },
+  searchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.md,
+  },
+  searchInputWrapper: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F3F4F6',
+    borderRadius: BorderRadius.full,
+    paddingHorizontal: Spacing.md,
+    height: 44,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+  },
+  searchInputWrapperFocused: {
+    borderColor: '#9CA3AF',
+    backgroundColor: BrandColors.white,
+  },
+  searchIcon: {
+    marginRight: Spacing.sm,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 16,
+    color: BrandColors.primary,
+    paddingVertical: 0,
+  },
+  clearBtn: {
+    padding: Spacing.xs,
+    marginLeft: Spacing.xs,
   },
   conversationsList: {
     flex: 1,
@@ -269,4 +376,3 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 });
-

@@ -103,27 +103,28 @@ function QuickReplyButton({
 
   return (
     <Animated.View
-      style={animatedStyle}
       entering={FadeInUp.delay(index * 50)
         .duration(200)
         .springify()}
     >
-      <Pressable
-        onPress={onPress}
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
-        disabled={disabled}
-        style={({ pressed }) => [
-          styles.button,
-          getButtonStyle(),
-          pressed && styles.buttonPressed,
-          disabled && styles.buttonDisabled,
-        ]}
-      >
-        <Text style={[styles.text, getTextStyle()]} size="sm" weight="semiBold">
-          {reply.text}
-        </Text>
-      </Pressable>
+      <Animated.View style={animatedStyle}>
+        <Pressable
+          onPress={onPress}
+          onPressIn={handlePressIn}
+          onPressOut={handlePressOut}
+          disabled={disabled}
+          style={({ pressed }) => [
+            styles.button,
+            getButtonStyle(),
+            pressed && styles.buttonPressed,
+            disabled && styles.buttonDisabled,
+          ]}
+        >
+          <Text style={[styles.text, getTextStyle()]} size="sm" weight="semiBold">
+            {reply.text}
+          </Text>
+        </Pressable>
+      </Animated.View>
     </Animated.View>
   );
 }

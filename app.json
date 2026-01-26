@@ -40,6 +40,13 @@
             "backgroundColor": "#000000"
           }
         }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Allow Otopair to use the microphone for voice input.",
+          "speechRecognitionPermission": "Allow Otopair to use speech recognition to transcribe your voice."
+        }
       ]
     ],
     "experiments": {

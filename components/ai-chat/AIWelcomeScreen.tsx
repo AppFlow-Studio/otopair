@@ -34,7 +34,7 @@ import { Text } from '@/components/shared-ui';
 // 4. Constants, hooks, types
 import { BrandColors, BorderRadius, Spacing, FontFamily, Shadows } from '@/constants/theme';
 
-// Otopair AI Logo
+// OtoPair AI Logo
 const OTOPAIR_AI_LOGO = require('@/assets/images/otopair-ai-logo.png');
 
 // ============================================================================
@@ -131,7 +131,7 @@ export function AIWelcomeScreen({ onContinue }: AIWelcomeScreenProps) {
           entering={FadeInUp.delay(200).duration(500)}
         >
           <Text style={styles.welcomeTitle} weight="bold">
-            Welcome to Otopair AI
+            Welcome to OtoPair AI
           </Text>
           <Text style={styles.welcomeSubtitle}>
             Your AI assistant for car diagnostics, repair tips, and maintenance scheduling.
@@ -143,7 +143,7 @@ export function AIWelcomeScreen({ onContinue }: AIWelcomeScreenProps) {
           <InfoItem
             icon={<MessageSquare size={22} color={BrandColors.secondary} />}
             title="Responses can be inaccurate"
-            description="Otopair AI may provide inaccurate information about cars, repairs, or maintenance."
+            description="OtoPair AI may provide inaccurate information about cars, repairs, or maintenance."
             delay={400}
           />
           <InfoItem
@@ -206,6 +206,8 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: Spacing.xl,
     alignItems: 'center',
+    justifyContent: 'flex-end',
+    paddingBottom: Spacing.xl,
   },
   // Logo
   logoContainer: {

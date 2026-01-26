@@ -65,6 +65,8 @@ export function FullScreenBookingView({ onClose }: FullScreenBookingViewProps) {
   const bookingType = useBookingStore((state) => state.bookingType);
   const scheduledAppointment = useBookingStore((state) => state.scheduledAppointment);
   const selectedTotal = useBookingStore((state) => state.getSelectedServicesTotal());
+  const skippedBookingDetails = useBookingStore((state) => state.skippedBookingDetails);
+  const setSkippedBookingDetails = useBookingStore((state) => state.setSkippedBookingDetails);
 
   // ═══════════════ COMPUTED ═══════════════
   const isBookingDetailsStage = bookingStage === "booking_details";
@@ -80,11 +82,20 @@ export function FullScreenBookingView({ onClose }: FullScreenBookingViewProps) {
     if (bookingStage === "booking_details") {
       prevBookingStage();
       onClose?.();
+    } else if (bookingStage === "payment") {
+      // If user came directly to payment (skipped booking details), go back to mechanic selection
+      if (skippedBookingDetails) {
+        setSkippedBookingDetails(false);
+        setBookingStage("mechanic_selection", "backward");
+        onClose?.();
+      } else {
+        // Otherwise, go to previous stage (booking_details)
+        prevBookingStage();
+      }
     } else {
-      // Otherwise (payment), go to previous stage (booking_details)
       prevBookingStage();
     }
-  }, [bookingStage, prevBookingStage, onClose]);
+  }, [bookingStage, prevBookingStage, onClose, skippedBookingDetails, setSkippedBookingDetails, setBookingStage]);
 
   const handleProceedToPayment = useCallback(() => {
     setBookingStage("payment", "forward");

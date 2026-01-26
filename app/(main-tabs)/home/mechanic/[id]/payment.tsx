@@ -58,6 +58,8 @@ export default function PaymentScreen() {
     const getFormattedAppointmentTime = useBookingStore((state) => state.getFormattedAppointmentTime);
     const createBooking = useBookingStore((state) => state.createBooking);
     const bookingType = useBookingStore((state) => state.bookingType);
+    const setBookingStage = useBookingStore((state) => state.setBookingStage);
+    const skippedBookingDetails = useBookingStore((state) => state.skippedBookingDetails);
 
     // ═══════════════ MECHANIC STORE ═══════════════
     const getMechanicById = useMechanicStore((state) => state.getMechanicById);
@@ -87,8 +89,17 @@ export default function PaymentScreen() {
 
     // ═══════════════ HANDLERS ═══════════════
     const handleBack = useCallback(() => {
+        // Reset booking stage based on where we came from
+        if (skippedBookingDetails) {
+            // We came directly from mechanic selection (via "Book" footer button)
+            // Go back to mechanic_selection stage so the bottom sheet renders correctly
+            setBookingStage("mechanic_selection", "backward");
+        } else {
+            // We came from booking details, go back to that stage
+            setBookingStage("booking_details", "backward");
+        }
         router.back();
-    }, [router]);
+    }, [router, skippedBookingDetails, setBookingStage]);
 
     const handleConfirmPayment = useCallback(() => {
         // Create the booking before navigating to confirmation

@@ -8,7 +8,7 @@
  * COMPONENTS:
  *   - AIGreeting - ChatGPT-style greeting with suggestions
  *   - AIMessageBubble - User/AI message display
- *   - AIInputBox - Text input with send/mic buttons
+ *   - AIInputBox - Text input with send/mic buttons and inline voice recording
  *   - AITypingIndicator - "Thinking" animation
  *   - AIReasoning - Collapsible thinking panel
  *   - AISources - Source citation pills
@@ -18,6 +18,8 @@
  *   - AIBookingCarousel - Mechanic booking carousel
  *   - AIWelcomeScreen - Welcome/disclaimer screen
  *   - AIChatHistory - Chat history sidebar
+ *   - AIAttachmentPanel - Discord-style attachment picker panel
+ *   - AISelectedImages - Selected images preview with remove buttons
  *
  * OWNER: Waleed Mansour
  */
@@ -31,6 +33,9 @@ export { AIMessageBubble, type AIMessage } from "./AIMessageBubble";
 export { AIInputBox } from "./AIInputBox";
 export { AITypingIndicator } from "./AITypingIndicator";
 export { AIChatHistory } from "./AIChatHistory";
+export { AIToast } from "./AIToast";
+export { AIAttachmentPanel } from "./AIAttachmentPanel";
+export { AISelectedImages } from "./AISelectedImages";
 
 // ============================================================================
 // PROMPT-KIT INSPIRED COMPONENTS

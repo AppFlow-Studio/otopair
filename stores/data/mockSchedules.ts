@@ -141,59 +141,74 @@ function generateMonthlyAvailability(
 // MECHANIC SCHEDULE DATA
 // ─────────────────────────────────────────────────────────────
 
-// Define booked days per mechanic (simulating existing appointments)
-const MECHANIC_BOOKED_DAYS: Record<number, { dec: number[]; jan: number[] }> = {
-  1: { dec: [5, 7, 14, 20, 21, 25, 28], jan: [1, 4, 11, 18, 25] },
-  2: { dec: [6, 7, 13, 14, 20, 21, 25, 27], jan: [1, 3, 10, 17, 24, 31] },
-  3: { dec: [5, 7, 12, 14, 19, 21, 25, 26, 30], jan: [1, 2, 9, 16, 23, 30] },
-  4: { dec: [7, 14, 20, 21, 25], jan: [1, 5, 12, 19, 26] },
-  5: { dec: [6, 7, 13, 14, 21, 25, 28, 30], jan: [1, 4, 6, 13, 20, 27] },
-  6: { dec: [7, 14, 21, 25, 28], jan: [1, 11, 18, 25] },
-  7: { dec: [7, 14, 21, 25], jan: [1, 4, 11, 18, 25] },
-  8: { dec: [5, 6, 7, 12, 13, 14, 19, 20, 21, 25, 26, 27], jan: [1, 2, 3, 9, 10, 16, 17, 23, 24, 30, 31] },
-  9: { dec: [7, 14, 20, 21, 25, 27], jan: [1, 3, 10, 17, 24, 31] },
-  10: { dec: [7, 14, 21, 25], jan: [1, 4, 11, 18, 25] },
-  11: { dec: [6, 7, 13, 14, 20, 21, 25, 27, 28], jan: [1, 3, 4, 10, 11, 17, 18, 24, 25, 31] },
-  12: { dec: [7, 14, 21, 25], jan: [1, 4, 11, 18, 25] },
-};
+// Helper to generate pseudo-random booked days based on mechanic ID
+function generateBookedDays(mechanicId: number): { dec: number[]; jan: number[] } {
+  // Use mechanic ID as seed for deterministic results
+  const seed = mechanicId * 7;
+  const decBooked: number[] = [7, 14, 21, 25]; // Always include common holidays/Sundays
+  const janBooked: number[] = [1, 4, 11, 18, 25];
+  
+  // Add some additional booked days based on mechanic ID
+  if (mechanicId % 2 === 0) {
+    decBooked.push(5, 13, 20, 27);
+    janBooked.push(3, 10, 17, 24, 31);
+  }
+  if (mechanicId % 3 === 0) {
+    decBooked.push(6, 12, 19, 26);
+    janBooked.push(2, 9, 16, 23, 30);
+  }
+  if (mechanicId % 5 === 0) {
+    decBooked.push(4, 11, 18, 28);
+    janBooked.push(5, 12, 19, 26);
+  }
+  
+  return {
+    dec: [...new Set(decBooked)].sort((a, b) => a - b),
+    jan: [...new Set(janBooked)].sort((a, b) => a - b),
+  };
+}
 
-// Availability scores from mockMechanics.ts
-const MECHANIC_AVAILABILITY_SCORES: Record<number, number> = {
-  1: 8,
-  2: 6,
-  3: 3,
-  4: 9,
-  5: 7,
-  6: 8,
-  7: 10,
-  8: 2,
-  9: 6,
-  10: 7,
-  11: 5,
-  12: 9,
-};
+// Helper to get availability score based on mechanic ID
+function getAvailabilityScore(mechanicId: number): number {
+  // Base scores for original mechanics
+  const baseScores: Record<number, number> = {
+    1: 8, 2: 6, 3: 3, 4: 9, 5: 7, 6: 8, 7: 10, 8: 6,
+    9: 7, 10: 5, 11: 6, 12: 2, 13: 7, 14: 5, 15: 8,
+    16: 9, 17: 3, 18: 6, 19: 5, 20: 2, 21: 5, 22: 9,
+    23: 8, 24: 7, 25: 4, 26: 6, 27: 5, 28: 9, 29: 4,
+    30: 2, 31: 7, 32: 4, 33: 2, 34: 8, 35: 6, 36: 5,
+    37: 3, 38: 4, 39: 10, 40: 4, 41: 6, 42: 7, 43: 2,
+    44: 8, 45: 5, 46: 9, 47: 5, 48: 10, 49: 6, 50: 9,
+  };
+  return baseScores[mechanicId] || 5;
+}
 
 /**
- * Generate all mechanic schedules
+ * Generate all mechanic schedules (for all 50 mechanics)
  */
 function generateAllSchedules(): Record<number, MechanicSchedule> {
   const schedules: Record<number, MechanicSchedule> = {};
 
-  for (let mechanicId = 1; mechanicId <= 12; mechanicId++) {
-    const availabilityScore = MECHANIC_AVAILABILITY_SCORES[mechanicId] || 5;
-    const bookedDays = MECHANIC_BOOKED_DAYS[mechanicId] || { dec: [], jan: [] };
+  // Generate schedules for all 50 mechanics
+  for (let mechanicId = 1; mechanicId <= 50; mechanicId++) {
+    const availabilityScore = getAvailabilityScore(mechanicId);
+    const bookedDays = generateBookedDays(mechanicId);
 
     // Generate December 2025
     const dec2025 = generateMonthlyAvailability(mechanicId, 2025, 11, availabilityScore, bookedDays.dec);
 
     // Generate January 2026
     const jan2026 = generateMonthlyAvailability(mechanicId, 2026, 0, availabilityScore, bookedDays.jan);
+    
+    // Generate February 2026
+    const feb2026 = generateMonthlyAvailability(mechanicId, 2026, 1, availabilityScore, bookedDays.jan);
 
     schedules[mechanicId] = {
       mechanicId,
       monthlySchedules: {
         "2025-11": dec2025,
         "2026-00": jan2026,
+        "2026-01": feb2026,
       },
     };
   }

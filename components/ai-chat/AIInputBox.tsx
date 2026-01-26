@@ -1,7 +1,7 @@
 /**
  * AIInputBox
  *
- * PURPOSE: ChatGPT-style text input with auto-expand, send/mic buttons, and smooth animations
+ * PURPOSE: ChatGPT-style text input with auto-expand, send/mic buttons, inline voice recording
  *
  * USED IN: app/(main-tabs)/ai-chat/index.tsx (bottom input area)
  *
@@ -13,31 +13,23 @@
  *   - placeholder (string): Input placeholder text (default: "Ask anything")
  *   - disabled (boolean): Whether input is disabled
  *   - onFocus (() => void): Callback when input gains focus
- *
- * EXAMPLE:
- *   <AIInputBox
- *     value={inputValue}
- *     onChangeText={setInputValue}
- *     onSend={handleSend}
- *     isLoading={isProcessing}
- *   />
+ *   - onMicPressIn (() => void): Callback when microphone button is pressed in
+ *   - onMicPressOut (() => void): Callback when microphone button is released
+ *   - isRecording (boolean): Whether voice recording is in progress
+ *   - isTranscribing (boolean): Whether transcription is in progress
+ *   - meteringValue (number): Audio level for waveform visualization (-160 to 0 dB)
  *
  * OWNER: Waleed Mansour
  */
 
 // 1. React & React Native
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useCallback } from 'react';
 import {
   View,
   TextInput,
   Pressable,
   StyleSheet,
   Keyboard,
-  NativeSyntheticEvent,
-  TextInputContentSizeChangeEventData,
-  LayoutAnimation,
-  Platform,
-  UIManager,
 } from 'react-native';
 
 // 2. Expo & Third-party
@@ -46,20 +38,20 @@ import Animated, {
   useSharedValue,
   withSpring,
   withTiming,
+  withRepeat,
+  withSequence,
   interpolate,
   Extrapolate,
-  FadeIn,
-  FadeOut,
+  Easing,
 } from 'react-native-reanimated';
 import { Plus, Mic, ArrowUp } from 'lucide-react-native';
 
-// 3. Constants, hooks, types
-import { BrandColors, BorderRadius, Spacing, FontFamily } from '@/constants/theme';
+// 3. Shared UI
+import { Text } from '@/components/shared-ui';
 
-// Enable LayoutAnimation on Android
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
+// 4. Constants, hooks, types
+import { BrandColors, Spacing, FontFamily } from '@/constants/theme';
+
 
 // ============================================================================
 // TYPES
@@ -73,23 +65,189 @@ interface AIInputBoxProps {
   placeholder?: string;
   disabled?: boolean;
   onFocus?: () => void;
+  onMicPressIn?: () => void;
+  onMicPressOut?: () => void;
+  isRecording?: boolean;
+  isTranscribing?: boolean;
+  meteringValue?: number;
+  transcript?: string;
+  /** Whether attachment panel is open */
+  isAttachmentOpen?: boolean;
+  /** Callback when plus button is pressed to toggle attachment panel */
+  onToggleAttachment?: () => void;
+  /** Whether there are images selected (enables send without text) */
+  hasImages?: boolean;
 }
 
 // ============================================================================
 // CONSTANTS
 // ============================================================================
 
-const MIN_INPUT_HEIGHT = 24;
-const MAX_INPUT_HEIGHT = 120; // ~5 lines
+// TextInput height constants
 const LINE_HEIGHT = 22;
+const VERTICAL_PADDING = 10; // padding top + bottom inside input
+const MIN_HEIGHT = LINE_HEIGHT + VERTICAL_PADDING; // Single line ~32px
+const MAX_HEIGHT = LINE_HEIGHT * 6 + VERTICAL_PADDING; // ~6 lines max ~142px
+
 const SPRING_CONFIG = { damping: 20, stiffness: 300, mass: 0.8 };
-const TIMING_CONFIG = { duration: 200 };
+const TIMING_CONFIG = { duration: 150 };
+
+// Compact waveform for ChatGPT-style
+const WAVEFORM_BAR_COUNT = 12;
+const WAVEFORM_BAR_WIDTH = 3;
+const WAVEFORM_BAR_GAP = 3;
+const WAVEFORM_MAX_HEIGHT = 16;
+const WAVEFORM_MIN_HEIGHT = 4;
 
 // ============================================================================
-// ANIMATED COMPONENTS
+// ANIMATED WAVEFORM BAR
 // ============================================================================
 
-const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+function AnimatedWaveformBar({ 
+  index, 
+  meteringValue, 
+  totalBars 
+}: { 
+  index: number; 
+  meteringValue: number; 
+  totalBars: number;
+}) {
+  const animatedHeight = useSharedValue(WAVEFORM_MIN_HEIGHT);
+  const phaseOffset = useSharedValue(0);
+
+  useEffect(() => {
+    phaseOffset.value = withRepeat(
+      withTiming(Math.PI * 2, { 
+        duration: 1200 + (index % 3) * 150, 
+        easing: Easing.linear 
+      }),
+      -1,
+      false
+    );
+  }, []);
+
+  useEffect(() => {
+    const normalizedMetering = Math.max(0, Math.min(1, (meteringValue + 60) / 60));
+    const centerDistance = Math.abs(index - totalBars / 2) / (totalBars / 2);
+    const positionFactor = 1 - centerDistance * 0.4;
+    
+    const targetHeight = WAVEFORM_MIN_HEIGHT + 
+      (WAVEFORM_MAX_HEIGHT - WAVEFORM_MIN_HEIGHT) * normalizedMetering * positionFactor;
+    
+    animatedHeight.value = withSpring(targetHeight, {
+      damping: 12,
+      stiffness: 200,
+      mass: 0.4,
+    });
+  }, [meteringValue]);
+
+  const barStyle = useAnimatedStyle(() => {
+    const waveOffset = Math.sin(phaseOffset.value + (index * 0.4)) * 1.5;
+    const height = Math.max(WAVEFORM_MIN_HEIGHT, animatedHeight.value + waveOffset);
+    
+    return {
+      height,
+      opacity: interpolate(height, [WAVEFORM_MIN_HEIGHT, WAVEFORM_MAX_HEIGHT], [0.6, 1]),
+    };
+  });
+
+  return (
+    <Animated.View style={[styles.waveformBar, barStyle]} />
+  );
+}
+
+// ============================================================================
+// COMPACT WAVEFORM
+// ============================================================================
+
+function CompactWaveform({ meteringValue }: { meteringValue: number }) {
+  return (
+    <View style={styles.waveformContainer}>
+      {Array.from({ length: WAVEFORM_BAR_COUNT }).map((_, index) => (
+        <AnimatedWaveformBar
+          key={index}
+          index={index}
+          meteringValue={meteringValue}
+          totalBars={WAVEFORM_BAR_COUNT}
+        />
+      ))}
+    </View>
+  );
+}
+
+// ============================================================================
+// TRANSCRIBING INDICATOR
+// ============================================================================
+
+function TranscribingIndicator() {
+  const dot1 = useSharedValue(0);
+  const dot2 = useSharedValue(0);
+  const dot3 = useSharedValue(0);
+
+  useEffect(() => {
+    dot1.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 300, easing: Easing.inOut(Easing.ease) }),
+        withTiming(0, { duration: 300, easing: Easing.inOut(Easing.ease) })
+      ),
+      -1,
+      true
+    );
+    
+    const timer1 = setTimeout(() => {
+      dot2.value = withRepeat(
+        withSequence(
+          withTiming(1, { duration: 300, easing: Easing.inOut(Easing.ease) }),
+          withTiming(0, { duration: 300, easing: Easing.inOut(Easing.ease) })
+        ),
+        -1,
+        true
+      );
+    }, 100);
+    
+    const timer2 = setTimeout(() => {
+      dot3.value = withRepeat(
+        withSequence(
+          withTiming(1, { duration: 300, easing: Easing.inOut(Easing.ease) }),
+          withTiming(0, { duration: 300, easing: Easing.inOut(Easing.ease) })
+        ),
+        -1,
+        true
+      );
+    }, 200);
+
+    return () => {
+      clearTimeout(timer1);
+      clearTimeout(timer2);
+    };
+  }, []);
+
+  const dot1Style = useAnimatedStyle(() => ({
+    opacity: interpolate(dot1.value, [0, 1], [0.4, 1]),
+    transform: [{ scale: interpolate(dot1.value, [0, 1], [0.85, 1.15]) }],
+  }));
+
+  const dot2Style = useAnimatedStyle(() => ({
+    opacity: interpolate(dot2.value, [0, 1], [0.4, 1]),
+    transform: [{ scale: interpolate(dot2.value, [0, 1], [0.85, 1.15]) }],
+  }));
+
+  const dot3Style = useAnimatedStyle(() => ({
+    opacity: interpolate(dot3.value, [0, 1], [0.4, 1]),
+    transform: [{ scale: interpolate(dot3.value, [0, 1], [0.85, 1.15]) }],
+  }));
+
+  return (
+    <View style={styles.transcribingContainer}>
+      <View style={styles.dotsRow}>
+        <Animated.View style={[styles.transcribingDot, dot1Style]} />
+        <Animated.View style={[styles.transcribingDot, dot2Style]} />
+        <Animated.View style={[styles.transcribingDot, dot3Style]} />
+      </View>
+      <Text style={styles.transcribingText}>Transcribing</Text>
+    </View>
+  );
+}
 
 // ============================================================================
 // MAIN COMPONENT
@@ -103,78 +261,80 @@ export function AIInputBox({
   placeholder = 'Ask anything',
   disabled = false,
   onFocus: onFocusProp,
+  onMicPressIn,
+  onMicPressOut,
+  isRecording = false,
+  isTranscribing = false,
+  meteringValue = -160,
+  transcript = '',
+  isAttachmentOpen = false,
+  onToggleAttachment,
+  hasImages = false,
 }: AIInputBoxProps) {
+  const showRecordingUI = isRecording || isTranscribing;
   const inputRef = useRef<TextInput>(null);
-  const [inputHeight, setInputHeight] = useState(MIN_INPUT_HEIGHT);
+  const [inputHeight, setInputHeight] = useState(MIN_HEIGHT);
   const [isFocused, setIsFocused] = useState(false);
   
-  // Animated values
+  // Animation values
   const sendButtonScale = useSharedValue(0);
   const sendButtonOpacity = useSharedValue(0);
-  const containerScale = useSharedValue(1);
+  const plusRotation = useSharedValue(0);
 
   const hasText = value.trim().length > 0;
-  const canSend = hasText && !isLoading && !disabled;
+  // Allow sending if there's text OR images
+  const canSend = (hasText || hasImages) && !isLoading && !disabled;
 
-  // Animate send button visibility based on text input
+  // Animate send button visibility (show when there's text OR images)
   useEffect(() => {
-    if (hasText) {
+    if (hasText || hasImages) {
       sendButtonScale.value = withSpring(1, SPRING_CONFIG);
       sendButtonOpacity.value = withTiming(1, TIMING_CONFIG);
     } else {
       sendButtonScale.value = withSpring(0, SPRING_CONFIG);
       sendButtonOpacity.value = withTiming(0, TIMING_CONFIG);
     }
-  }, [hasText]);
+  }, [hasText, hasImages]);
 
-  // Handle content size change for auto-expanding with smooth animation
-  const handleContentSizeChange = (
-    e: NativeSyntheticEvent<TextInputContentSizeChangeEventData>
-  ) => {
-    const { height } = e.nativeEvent.contentSize;
-    const newHeight = Math.min(Math.max(height, MIN_INPUT_HEIGHT), MAX_INPUT_HEIGHT);
-    
-    if (newHeight !== inputHeight) {
-      LayoutAnimation.configureNext(
-        LayoutAnimation.create(
-          150,
-          LayoutAnimation.Types.easeInEaseOut,
-          LayoutAnimation.Properties.scaleY
-        )
-      );
-      setInputHeight(newHeight);
+  // Animate plus button rotation when attachment panel opens/closes
+  useEffect(() => {
+    plusRotation.value = withSpring(isAttachmentOpen ? 45 : 0, {
+      damping: 15,
+      stiffness: 300,
+      mass: 0.6,
+    });
+  }, [isAttachmentOpen]);
+
+  // Handle content size changes for auto-expand/shrink
+  const handleContentSizeChange = useCallback((event: any) => {
+    const contentHeight = event.nativeEvent.contentSize.height;
+    // Clamp between min and max
+    const newHeight = Math.max(MIN_HEIGHT, Math.min(contentHeight, MAX_HEIGHT));
+    setInputHeight(newHeight);
+  }, []);
+
+  // Reset height when value is cleared
+  useEffect(() => {
+    if (value === '') {
+      setInputHeight(MIN_HEIGHT);
     }
-  };
+  }, [value]);
 
-  const handleSend = () => {
+  const handleSend = useCallback(() => {
     if (canSend) {
       Keyboard.dismiss();
       onSend();
     }
-  };
+  }, [canSend, onSend]);
 
-  const handleSendPressIn = () => {
-    if (canSend) {
-      sendButtonScale.value = withSpring(0.85, { damping: 15, stiffness: 400 });
-    }
-  };
-
-  const handleSendPressOut = () => {
-    if (hasText) {
-      sendButtonScale.value = withSpring(1, { damping: 15, stiffness: 400 });
-    }
-  };
-
-  const handleFocus = () => {
+  const handleFocus = useCallback(() => {
     setIsFocused(true);
-    containerScale.value = withSpring(1.01, SPRING_CONFIG);
     onFocusProp?.();
-  };
+  }, [onFocusProp]);
 
-  const handleBlur = () => {
+  const handleBlur = useCallback(() => {
     setIsFocused(false);
-    containerScale.value = withSpring(1, SPRING_CONFIG);
-  };
+  }, []);
 
   // Animated styles
   const sendButtonAnimatedStyle = useAnimatedStyle(() => ({
@@ -182,109 +342,115 @@ export function AIInputBox({
     opacity: sendButtonOpacity.value,
   }));
 
-  const containerAnimatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: containerScale.value }],
-  }));
-
   const micButtonAnimatedStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(
-      sendButtonOpacity.value,
-      [0, 1],
-      [1, 0],
-      Extrapolate.CLAMP
-    ),
+    opacity: interpolate(sendButtonOpacity.value, [0, 1], [1, 0], Extrapolate.CLAMP),
     transform: [
-      {
-        scale: interpolate(
-          sendButtonOpacity.value,
-          [0, 1],
-          [1, 0.8],
-          Extrapolate.CLAMP
-        ),
-      },
+      { scale: interpolate(sendButtonOpacity.value, [0, 1], [1, 0.8], Extrapolate.CLAMP) },
     ],
   }));
 
-  return (
-    <Animated.View style={[styles.container, containerAnimatedStyle]}>
-      <View style={[styles.inputCard, isFocused && styles.inputCardFocused]}>
-        {/* Text Input Row */}
-        <View style={styles.inputRow}>
-          <TextInput
-            ref={inputRef}
-            style={[styles.textInput, { minHeight: inputHeight }]}
-            value={value}
-            onChangeText={onChangeText}
-            placeholder={placeholder}
-            placeholderTextColor="#9CA3AF"
-            multiline
-            maxLength={4000}
-            editable={!isLoading && !disabled}
-            onContentSizeChange={handleContentSizeChange}
-            onSubmitEditing={handleSend}
-            blurOnSubmit={false}
-            onFocus={handleFocus}
-            onBlur={handleBlur}
-          />
-        </View>
+  // Animated style for plus button rotation (rotates 45deg to become X)
+  const plusButtonAnimatedStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${plusRotation.value}deg` }],
+  }));
 
-        {/* Action Buttons Row */}
-        <View style={styles.actionsRow}>
-          {/* Left side: Plus button */}
-          <View style={styles.leftActions}>
+  return (
+    <View style={styles.container}>
+      <View style={[
+        styles.inputCard, 
+        isFocused && styles.inputCardFocused,
+        showRecordingUI && styles.inputCardRecording,
+      ]}>
+        <View style={styles.inputRow}>
+          {/* Left side - Plus button or Recording indicator */}
+          {!showRecordingUI ? (
             <Pressable
               style={({ pressed }) => [
-                styles.iconBtn,
-                pressed && styles.iconBtnPressed,
+                styles.plusBtn,
+                pressed && styles.btnPressed,
               ]}
-              onPress={() => {
-                // TODO: Open attachment menu
-              }}
+              onPress={onToggleAttachment}
             >
-              <Plus size={20} color="#6B7280" strokeWidth={2} />
-            </Pressable>
-          </View>
-
-          {/* Right side: Mic and Send buttons stacked */}
-          <View style={styles.rightActions}>
-            <View style={styles.buttonStack}>
-              {/* Microphone Button - positioned under send button */}
-              <Animated.View style={[styles.micButtonContainer, micButtonAnimatedStyle]}>
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.iconBtn,
-                    pressed && styles.iconBtnPressed,
-                  ]}
-                  onPress={() => {
-                    // TODO: Voice input
-                  }}
-                  pointerEvents={hasText ? 'none' : 'auto'}
-                >
-                  <Mic size={20} color="#6B7280" strokeWidth={2} />
-                </Pressable>
+              <Animated.View style={plusButtonAnimatedStyle}>
+                <Plus size={20} color={isAttachmentOpen ? BrandColors.secondary : "#9CA3AF"} strokeWidth={2} />
               </Animated.View>
+            </Pressable>
+          ) : (
+            <View style={styles.recordingIndicator}>
+              {isTranscribing ? (
+                <TranscribingIndicator />
+              ) : (
+                <View style={styles.recordingLeft}>
+                  <CompactWaveform meteringValue={meteringValue} />
+                  <Text style={styles.releaseText} numberOfLines={1}>
+                    {transcript || 'Release to send'}
+                  </Text>
+                </View>
+              )}
+            </View>
+          )}
 
-              {/* Send Button - appears on top when there's text */}
-              <Animated.View style={[styles.sendButtonContainer, sendButtonAnimatedStyle]}>
+          {/* Center - Text Input (hidden when recording) */}
+          {!showRecordingUI && (
+            <TextInput
+              ref={inputRef}
+              style={[styles.textInput, { height: inputHeight }]}
+              value={value}
+              onChangeText={onChangeText}
+              placeholder={placeholder}
+              placeholderTextColor="#9CA3AF"
+              multiline
+              scrollEnabled
+              maxLength={4000}
+              editable={!isLoading && !disabled}
+              onContentSizeChange={handleContentSizeChange}
+              onFocus={handleFocus}
+              onBlur={handleBlur}
+            />
+          )}
+
+          {/* Right side buttons */}
+          <View style={styles.rightButtons}>
+            {/* Mic button - always visible when no text */}
+            <Animated.View style={[
+              styles.buttonWrapper, 
+              !showRecordingUI && micButtonAnimatedStyle
+            ]}>
+              <Pressable
+                style={({ pressed }) => [
+                  showRecordingUI ? styles.micBtnRecording : styles.micBtn,
+                  !showRecordingUI && pressed && styles.micBtnPressed,
+                ]}
+                onPressIn={onMicPressIn}
+                onPressOut={onMicPressOut}
+                delayLongPress={0}
+                pointerEvents={hasText && !showRecordingUI ? 'none' : 'auto'}
+                disabled={isLoading || disabled}
+              >
+                {showRecordingUI ? (
+                  <ArrowUp size={16} color={BrandColors.white} strokeWidth={2.5} />
+                ) : (
+                  <Mic size={18} color="#9CA3AF" strokeWidth={2} />
+                )}
+              </Pressable>
+            </Animated.View>
+
+            {/* Send button - shown when text exists */}
+            {!showRecordingUI && (
+              <Animated.View style={[styles.buttonWrapper, sendButtonAnimatedStyle]}>
                 <Pressable
                   onPress={handleSend}
-                  onPressIn={handleSendPressIn}
-                  onPressOut={handleSendPressOut}
                   disabled={!canSend}
                   style={[styles.sendBtn, isLoading && styles.sendBtnLoading]}
                 >
-                  <ArrowUp 
-                    size={18} 
-                    color={BrandColors.white} 
-                    strokeWidth={2.5}
-                  />
+                  <ArrowUp size={16} color={BrandColors.white} strokeWidth={2.5} />
                 </Pressable>
               </Animated.View>
-            </View>
+            )}
           </View>
         </View>
       </View>
-    </Animated.View>
+    </View>
   );
 }
 
@@ -299,80 +465,138 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.xs,
   },
   inputCard: {
-    backgroundColor: '#F5F5F5',
+    backgroundColor: '#F3F4F6',
     borderRadius: 24,
     borderWidth: 1,
     borderColor: 'transparent',
-    overflow: 'hidden',
   },
   inputCardFocused: {
-    borderColor: '#E0E0E0',
-    backgroundColor: '#FAFAFA',
+    backgroundColor: '#F9FAFB',
+    borderColor: '#E5E7EB',
+  },
+  inputCardRecording: {
+    backgroundColor: '#EEF2FF',
+    borderColor: BrandColors.secondary,
+    borderWidth: 1.5,
   },
   inputRow: {
-    paddingHorizontal: Spacing.md,
-    paddingTop: Spacing.md,
-    paddingBottom: Spacing.xs,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    paddingVertical: 8,
+    paddingHorizontal: 8,
+    minHeight: 48,
+  },
+  plusBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 0,
+  },
+  btnPressed: {
+    backgroundColor: 'rgba(0, 0, 0, 0.05)',
   },
   textInput: {
+    flex: 1,
     fontSize: 16,
     fontFamily: FontFamily.regular,
     color: BrandColors.primary,
     lineHeight: LINE_HEIGHT,
-    paddingVertical: 0,
-    paddingHorizontal: 0,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
   },
-  actionsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: Spacing.xs,
-    paddingBottom: Spacing.xs,
-    paddingTop: Spacing.xs,
-  },
-  leftActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  rightActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: Spacing.xs,
-  },
-  buttonStack: {
+  rightButtons: {
+    width: 32,
+    height: 32,
     position: 'relative',
-    width: 36,
-    height: 36,
   },
-  micButtonContainer: {
+  buttonWrapper: {
     position: 'absolute',
-    width: 36,
-    height: 36,
+    top: 0,
+    left: 0,
+    width: 32,
+    height: 32,
   },
-  sendButtonContainer: {
-    position: 'absolute',
-    width: 36,
-    height: 36,
-  },
-  iconBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+  micBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  iconBtnPressed: {
-    backgroundColor: 'rgba(0, 0, 0, 0.05)',
+  micBtnPressed: {
+    backgroundColor: 'rgba(99, 102, 241, 0.1)',
+  },
+  micBtnRecording: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: BrandColors.secondary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  recordingIndicator: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
   },
   sendBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
     backgroundColor: BrandColors.secondary,
     justifyContent: 'center',
     alignItems: 'center',
   },
   sendBtnLoading: {
-    backgroundColor: '#6B7280',
+    backgroundColor: '#9CA3AF',
+  },
+  recordingLeft: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginRight: 8,
+  },
+  waveformContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: WAVEFORM_BAR_GAP,
+    height: WAVEFORM_MAX_HEIGHT + 4,
+  },
+  waveformBar: {
+    width: WAVEFORM_BAR_WIDTH,
+    backgroundColor: BrandColors.secondary,
+    borderRadius: WAVEFORM_BAR_WIDTH / 2,
+  },
+  releaseText: {
+    flex: 1,
+    fontSize: 14,
+    fontFamily: FontFamily.regular,
+    color: '#6B7280',
+  },
+  transcribingContainer: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingVertical: 4,
+  },
+  dotsRow: {
+    flexDirection: 'row',
+    gap: 5,
+  },
+  transcribingDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: BrandColors.secondary,
+  },
+  transcribingText: {
+    fontSize: 14,
+    fontFamily: FontFamily.medium,
+    color: '#6B7280',
   },
 });

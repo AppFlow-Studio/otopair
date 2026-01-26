@@ -68,8 +68,7 @@ export function AITypingIndicator() {
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
-    marginBottom: Spacing.lg,
-    paddingHorizontal: Spacing.md,
+    marginBottom: Spacing.sm,
   },
   thinkingText: {
     fontSize: 16,

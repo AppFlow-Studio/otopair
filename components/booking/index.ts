@@ -7,25 +7,25 @@
 
 // Main booking components
 export { BookingMap } from "./map";
+export { CarSelectionCard, type CarSelectionCardProps } from "./CarSelectionCard";
+export { FloatingMapControls, type FloatingMapControlsProps } from "./FloatingMapControls";
+// FullSearchModal is deprecated - search is now integrated into ServiceBottomSheet
+// export { FullSearchModal, type FullSearchModalProps } from "./FullSearchModal";
 export { MechanicDetailHeader } from "./MechanicDetailHeader";
 export { MechanicDetailTabs, type MechanicDetailTab } from "./MechanicDetailTabs";
 export { MechanicServicesSection } from "./MechanicServicesSection";
-export { MechanicAvailabilityBreakdown } from "./MechanicAvailabilityBreakdown";
+export { ShopDetails } from "./ShopDetails";
 export { MechanicReviewsSection } from "./MechanicReviewsSection";
 export { ShopPortfolioSection } from "./ShopPortfolioSection";
 export { ShopStaffSection } from "./ShopStaffSection";
 export { FullScreenBookingView } from "./FullScreenBookingView";
 export { MechanicCarouselCard, type MechanicCarouselCardProps } from "./MechanicCarouselCard";
 export { MechanicCarouselSheet, type MechanicCarouselSheetProps } from "./MechanicCarouselSheet";
-export { SearchAreaButton } from "./SearchAreaButton";
 export { ShopCarouselCard, type ShopCarouselCardProps } from "./ShopCarouselCard";
 export { ServiceBottomSheet } from "./ServiceBottomSheet";
 export { ShopCarousel } from "./ShopCarousel";
 export { ShopMarker } from "./ShopMarker";
 export { TopBar, type MechanicFilterOption, type TopBarProps } from "./TopBar";
-
-// Re-export Region type from react-native-maps for convenience
-export type { Region } from "react-native-maps";
 
 // Footer components (stage-specific bottom sheet footers)
 export {

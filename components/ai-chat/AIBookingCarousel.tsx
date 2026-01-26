@@ -111,14 +111,14 @@ function MechanicCard({
 
   return (
     <Animated.View
-      style={animatedStyle}
       entering={FadeInRight.delay(index * 100).duration(300).springify()}
     >
-      <Pressable
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
-        style={styles.card}
-      >
+      <Animated.View style={animatedStyle}>
+        <Pressable
+          onPressIn={handlePressIn}
+          onPressOut={handlePressOut}
+          style={styles.card}
+        >
         {/* Header: Avatar, Name, Rating */}
         <View style={styles.header}>
           {/* Avatar */}
@@ -266,8 +266,9 @@ function MechanicCard({
           >
             {selectedSlotIndex !== null ? 'Book Now' : 'Choose a Time'}
           </Text>
-        </TouchableOpacity>
-      </Pressable>
+          </TouchableOpacity>
+        </Pressable>
+      </Animated.View>
     </Animated.View>
   );
 }

@@ -30,8 +30,14 @@ import { View, StyleSheet, Pressable } from 'react-native';
 // 2. Expo & Third-party
 import Animated, {
   FadeIn,
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+  withSequence,
 } from 'react-native-reanimated';
-import { Copy, Volume2, ThumbsUp, ThumbsDown } from 'lucide-react-native';
+import { Image } from 'expo-image';
+import { Copy, Volume2, ThumbsUp, ThumbsDown, Check } from 'lucide-react-native';
 
 // 3. Shared UI (design system)
 import { Text } from '@/components/shared-ui';
@@ -39,6 +45,7 @@ import { Text } from '@/components/shared-ui';
 // 4. Flow-specific components
 import { AIReasoning, type ReasoningStep } from './AIReasoning';
 import { AISources, type Source } from './AISources';
+import { AITypingIndicator } from './AITypingIndicator';
 import type { QuickReply } from './AIQuickReplies';
 
 // 5. Constants, hooks, types
@@ -59,6 +66,8 @@ export interface AIMessage {
   role: 'user' | 'assistant';
   content: string;
   timestamp?: string;
+  // Attached images (URIs)
+  images?: string[];
   // Enhanced properties
   reasoning?: ReasoningStep[];
   sources?: Source[];
@@ -150,22 +159,62 @@ function SectionView({ section }: { section: MessageSection }) {
 }
 
 // ============================================================================
-// ACTION BUTTON COMPONENT
+// ACTION BUTTON COMPONENT WITH ANIMATION
 // ============================================================================
 
 function ActionButton({
   icon,
+  activeIcon,
+  isActive,
   onPress,
 }: {
   icon: React.ReactNode;
+  activeIcon?: React.ReactNode;
+  isActive?: boolean;
   onPress?: () => void;
 }) {
+  const scale = useSharedValue(1);
+  const bgOpacity = useSharedValue(0);
+
+  // Animate when active state changes
+  useEffect(() => {
+    if (isActive) {
+      // Subtle pop animation - no bounce
+      scale.value = withSequence(
+        withTiming(1.15, { duration: 100 }),
+        withTiming(1, { duration: 100 })
+      );
+      bgOpacity.value = withTiming(1, { duration: 150 });
+    } else {
+      bgOpacity.value = withTiming(0, { duration: 100 });
+    }
+  }, [isActive]);
+
+  const handlePressIn = () => {
+    scale.value = withTiming(0.9, { duration: 80 });
+  };
+
+  const handlePressOut = () => {
+    scale.value = withTiming(1, { duration: 80 });
+  };
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  const bgStyle = useAnimatedStyle(() => ({
+    backgroundColor: `rgba(59, 130, 246, ${bgOpacity.value * 0.12})`,
+  }));
+
   return (
     <Pressable
-      style={({ pressed }) => [styles.actionBtn, pressed && styles.actionBtnPressed]}
       onPress={onPress}
+      onPressIn={handlePressIn}
+      onPressOut={handlePressOut}
     >
-      {icon}
+      <Animated.View style={[styles.actionBtn, animatedStyle, bgStyle]}>
+        {isActive && activeIcon ? activeIcon : icon}
+      </Animated.View>
     </Pressable>
   );
 }
@@ -213,6 +262,38 @@ export function AIMessageBubble({
   // Content is hidden while reasoning is being displayed
   const [showContent, setShowContent] = useState(!hasReasoning || !isStreaming);
   
+  // State to track action button feedback
+  const [isCopied, setIsCopied] = useState(false);
+  const [feedback, setFeedback] = useState<'like' | 'dislike' | null>(null);
+  
+  // Handle copy with visual feedback
+  const handleCopy = () => {
+    setIsCopied(true);
+    onCopy?.();
+    // Reset after 2 seconds
+    setTimeout(() => setIsCopied(false), 2000);
+  };
+  
+  // Handle like with visual feedback
+  const handleLike = () => {
+    if (feedback === 'like') {
+      setFeedback(null); // Toggle off
+    } else {
+      setFeedback('like');
+      onLike?.();
+    }
+  };
+  
+  // Handle dislike with visual feedback (toggleable)
+  const handleDislike = () => {
+    if (feedback === 'dislike') {
+      setFeedback(null); // Toggle off
+    } else {
+      setFeedback('dislike');
+      onDislike?.();
+    }
+  };
+  
   // Calculate and wait for reasoning to complete before showing content
   useEffect(() => {
     // If user message or no reasoning, show content immediately
@@ -240,16 +321,36 @@ export function AIMessageBubble({
 
   // User message - clean pill style, no avatar
   if (isUser) {
+    const hasImages = message.images && message.images.length > 0;
+    
     return (
       <Animated.View 
         style={styles.userContainer}
         entering={FadeIn.duration(200)}
       >
-        <View style={styles.userBubble}>
-          <Text style={styles.userMessageText}>
-            {message.content}
-          </Text>
-        </View>
+        {/* Attached Images */}
+        {hasImages && (
+          <View style={styles.userImagesContainer}>
+            {message.images!.map((uri, index) => (
+              <Image 
+                key={`${message.id}-img-${index}`}
+                source={{ uri }} 
+                style={styles.userAttachedImage}
+                contentFit="cover"
+                transition={150}
+              />
+            ))}
+          </View>
+        )}
+        
+        {/* Message Text (only if there's content beyond the default) */}
+        {message.content && message.content !== "Here's an image for you to analyze" && (
+          <View style={styles.userBubble}>
+            <Text style={styles.userMessageText}>
+              {message.content}
+            </Text>
+          </View>
+        )}
       </Animated.View>
     );
   }
@@ -262,6 +363,11 @@ export function AIMessageBubble({
     >
       {/* Message Content - Left aligned, no avatar */}
       <View style={styles.contentWrapper}>
+        {/* Thinking Indicator - Above reasoning when streaming */}
+        {isStreaming && hasReasoning && (
+          <AITypingIndicator />
+        )}
+
         {/* Reasoning Section (AI only) */}
         {hasReasoning && (
           <AIReasoning
@@ -305,10 +411,28 @@ export function AIMessageBubble({
         {showContent && !isStreaming && (
           <View style={styles.actionsContainer}>
             <View style={styles.actionButtons}>
-              <ActionButton icon={<Copy size={14} color="#9CA3AF" />} onPress={onCopy} />
-              <ActionButton icon={<Volume2 size={14} color="#9CA3AF" />} onPress={onSpeak} />
-              <ActionButton icon={<ThumbsUp size={14} color="#9CA3AF" />} onPress={onLike} />
-              <ActionButton icon={<ThumbsDown size={14} color="#9CA3AF" />} onPress={onDislike} />
+              <ActionButton 
+                icon={<Copy size={14} color="#9CA3AF" />} 
+                activeIcon={<Check size={14} color={BrandColors.secondary} />}
+                isActive={isCopied}
+                onPress={handleCopy} 
+              />
+              <ActionButton 
+                icon={<Volume2 size={14} color="#9CA3AF" />} 
+                onPress={onSpeak} 
+              />
+              <ActionButton 
+                icon={<ThumbsUp size={14} color="#9CA3AF" />} 
+                activeIcon={<ThumbsUp size={14} color={BrandColors.secondary} fill={BrandColors.secondary} />}
+                isActive={feedback === 'like'}
+                onPress={handleLike} 
+              />
+              <ActionButton 
+                icon={<ThumbsDown size={14} color="#9CA3AF" />} 
+                activeIcon={<ThumbsDown size={14} color={BrandColors.secondary} fill={BrandColors.secondary} />}
+                isActive={feedback === 'dislike'}
+                onPress={handleDislike} 
+              />
             </View>
           </View>
         )}
@@ -329,8 +453,8 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   userContainer: {
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
+    flexDirection: 'column',
+    alignItems: 'flex-end',
     marginBottom: Spacing.md,
     paddingHorizontal: Spacing.md,
   },
@@ -349,6 +473,20 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.sm + 2,
     paddingHorizontal: Spacing.lg,
     maxWidth: '80%',
+  },
+  // User attached images
+  userImagesContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end',
+    gap: Spacing.xs,
+    marginBottom: Spacing.xs,
+    maxWidth: '80%',
+  },
+  userAttachedImage: {
+    width: 120,
+    height: 120,
+    borderRadius: 12,
   },
   messageText: {
     color: BrandColors.primary,
@@ -420,8 +558,5 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     borderRadius: BorderRadius.sm,
-  },
-  actionBtnPressed: {
-    backgroundColor: 'rgba(0, 0, 0, 0.05)',
   },
 });

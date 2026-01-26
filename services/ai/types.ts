@@ -119,6 +119,8 @@ export interface ChatMessage {
   role: "user" | "assistant";
   content: string;
   timestamp: string;
+  // Attached images (URIs)
+  images?: string[];
   // Enhanced properties for AI messages
   reasoning?: ReasoningStep[];
   sources?: Source[];

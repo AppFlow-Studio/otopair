@@ -68,6 +68,7 @@ export default function BookingDetailsScreen() {
     const scheduledAppointment = useBookingStore((state) => state.scheduledAppointment);
     const getFormattedAppointmentDate = useBookingStore((state) => state.getFormattedAppointmentDate);
     const getFormattedAppointmentTime = useBookingStore((state) => state.getFormattedAppointmentTime);
+    const setBookingStage = useBookingStore((state) => state.setBookingStage);
 
     // ═══════════════ MECHANIC STORE ═══════════════
     const getMechanicById = useMechanicStore((state) => state.getMechanicById);
@@ -103,8 +104,10 @@ export default function BookingDetailsScreen() {
 
     // ═══════════════ HANDLERS ═══════════════
     const handleBack = useCallback(() => {
+        // Reset booking stage back to mechanic_selection so bottom sheet renders correctly
+        setBookingStage("mechanic_selection", "backward");
         router.back();
-    }, [router]);
+    }, [router, setBookingStage]);
 
     const handleContinue = useCallback(() => {
         router.push(`/home/mechanic/${id}/payment`);

@@ -19,11 +19,25 @@ import type {
   Booking,
   BookingStage,
   BookingType,
+  MechanicAvailabilitySlot,
   ScheduledAppointment,
   Service,
   ServiceCategory,
   UserLocation,
 } from "./types/store.types";
+
+// ─────────────────────────────────────────────────────────────
+// MECHANIC SLOT SELECTION TYPE
+// ─────────────────────────────────────────────────────────────
+
+/** Selected slot in mechanic selection screen */
+export interface SelectedMechanicSlot {
+  shopId: number;
+  shopName: string;
+  mechanicId: number | null; // null means "Any"
+  mechanicName: string | null;
+  slot: MechanicAvailabilitySlot;
+}
 import { useMechanicStore } from "./useMechanicStore";
 
 // ─────────────────────────────────────────────────────────────
@@ -36,6 +50,12 @@ interface BookingState {
   userLocation: UserLocation | null;
   /** Whether location is being fetched */
   isLoadingLocation: boolean;
+
+  // ═══════════════ PRE-SELECTION STATE (from search) ═══════════════
+  /** Pre-selected shop ID when coming from search (navigates directly to shop) */
+  preSelectedShopId: number | null;
+  /** Pre-selected service IDs when coming from search */
+  preSelectedServiceIds: string[];
 
   // ═══════════════ SERVICE CATEGORY STATE ═══════════════
   /** Selected service category for service list display (null = no filter) */
@@ -67,6 +87,10 @@ interface BookingState {
   bookingType: BookingType | null;
   /** Scheduled appointment date/time */
   scheduledAppointment: ScheduledAppointment | null;
+  /** Whether booking_details was skipped (direct to payment via "Book Now") */
+  skippedBookingDetails: boolean;
+  /** Selected slot in mechanic selection screen (before booking) */
+  selectedMechanicSlot: SelectedMechanicSlot | null;
 
   // ═══════════════ BOOKING STATE ═══════════════
   /** All bookings indexed by ID */
@@ -87,6 +111,14 @@ interface BookingState {
   clearUserLocation: () => void;
   /** Set location loading state */
   setLocationLoading: (loading: boolean) => void;
+
+  // ═══════════════ PRE-SELECTION ACTIONS ═══════════════
+  /** Set pre-selected shop ID (from search) */
+  setPreSelectedShop: (shopId: number | null) => void;
+  /** Set pre-selected service IDs (from search) */
+  setPreSelectedServices: (serviceIds: string[]) => void;
+  /** Clear all pre-selections */
+  clearPreSelections: () => void;
 
   // ═══════════════ SERVICE CATEGORY ACTIONS ═══════════════
   /** Set the selected service category for service list display (null to clear) */
@@ -115,6 +147,12 @@ interface BookingState {
   setBookingTypeAndProceed: (type: BookingType, mechanicId: number) => void;
   /** Set the scheduled appointment date/time */
   setScheduledAppointment: (appointment: ScheduledAppointment | null) => void;
+  /** Set whether booking details was skipped */
+  setSkippedBookingDetails: (skipped: boolean) => void;
+  /** Set selected mechanic slot in mechanic selection screen */
+  setSelectedMechanicSlot: (slot: SelectedMechanicSlot | null) => void;
+  /** Clear selected mechanic slot */
+  clearSelectedMechanicSlot: () => void;
   /** Reset booking flow to initial state */
   resetBookingFlow: () => void;
 
@@ -265,6 +303,8 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   // ═══════════════ INITIAL STATE ═══════════════
   userLocation: DEFAULT_LOCATION,
   isLoadingLocation: false,
+  preSelectedShopId: null,
+  preSelectedServiceIds: [],
   selectedServiceCategory: null, // No service category selected by default
   mapRegion: null,
   availableServices: MOCK_SERVICES,
@@ -274,6 +314,8 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   selectedMechanicId: null,
   bookingType: null,
   scheduledAppointment: null,
+  skippedBookingDetails: false,
+  selectedMechanicSlot: null,
   bookings: {},
   bookingIds: [],
   draftBooking: null,
@@ -301,6 +343,23 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   setLocationLoading: (loading) =>
     set({
       isLoadingLocation: loading,
+    }),
+
+  // ═══════════════ PRE-SELECTION ACTIONS ═══════════════
+  setPreSelectedShop: (shopId) =>
+    set({
+      preSelectedShopId: shopId,
+    }),
+
+  setPreSelectedServices: (serviceIds) =>
+    set({
+      preSelectedServiceIds: serviceIds,
+    }),
+
+  clearPreSelections: () =>
+    set({
+      preSelectedShopId: null,
+      preSelectedServiceIds: [],
     }),
 
   // ═══════════════ SERVICE CATEGORY ACTIONS ═══════════════
@@ -386,6 +445,21 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       scheduledAppointment: appointment,
     }),
 
+  setSkippedBookingDetails: (skipped) =>
+    set({
+      skippedBookingDetails: skipped,
+    }),
+
+  setSelectedMechanicSlot: (slot) =>
+    set({
+      selectedMechanicSlot: slot,
+    }),
+
+  clearSelectedMechanicSlot: () =>
+    set({
+      selectedMechanicSlot: null,
+    }),
+
   resetBookingFlow: () =>
     set({
       bookingStage: "discovery",
@@ -393,8 +467,12 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       selectedServiceIds: [],
       selectedMechanicId: null,
       selectedServiceCategory: null,
+      preSelectedShopId: null,
+      preSelectedServiceIds: [],
       bookingType: null,
       scheduledAppointment: null,
+      skippedBookingDetails: false,
+      selectedMechanicSlot: null,
       draftBooking: null,
     }),
 

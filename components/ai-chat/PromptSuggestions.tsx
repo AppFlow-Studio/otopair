@@ -188,7 +188,8 @@ export const DEFAULT_SUGGESTIONS: Record<ConversationStage, Suggestion[]> = {
 
 const styles = StyleSheet.create({
   container: {
-    paddingVertical: Spacing.sm,
+    paddingTop: Spacing.xs,
+    paddingBottom: Spacing.xs,
   },
   scrollContent: {
     paddingHorizontal: Spacing.lg,
