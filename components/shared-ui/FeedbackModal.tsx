@@ -1,16 +1,17 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
-  Modal,
   Platform,
   Pressable,
   StyleSheet,
   TextInput,
   View,
 } from 'react-native';
+import { BottomSheetModal } from '@gorhom/bottom-sheet';
 
 import { BrandColors } from '@/constants/theme';
+import { AppBottomSheetModal } from './AppBottomSheetModal';
 import { Button } from './Button';
 import { Text } from './Text';
 
@@ -36,6 +37,7 @@ export function FeedbackModal({
   const [feedback, setFeedback] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [didSucceed, setDidSucceed] = useState(false);
+  const sheetRef = useRef<BottomSheetModal>(null);
 
   const canSubmit = useMemo(() => feedback.trim().length > 0 && !isSubmitting && !didSucceed, [
     feedback,
@@ -48,6 +50,14 @@ export function FeedbackModal({
       setFeedback('');
       setIsSubmitting(false);
       setDidSucceed(false);
+    }
+  }, [visible]);
+
+  useEffect(() => {
+    if (visible) {
+      sheetRef.current?.present();
+    } else {
+      sheetRef.current?.dismiss();
     }
   }, [visible]);
 
@@ -78,102 +88,74 @@ export function FeedbackModal({
   }, [feedback, isSubmitting, onClose, onSubmit]);
 
   return (
-    <Modal transparent visible={visible} onRequestClose={onClose} animationType="fade">
-      {/* Overlay (tap outside does NOT dismiss) */}
-      <View style={styles.overlay}>
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={styles.kb}
-        >
-          <View style={styles.card}>
-            <Text weight="semiBold" size="xl" color="#111827" style={styles.title}>
-              {title}
-            </Text>
+    <AppBottomSheetModal ref={sheetRef} title={title} onClose={onClose} snapPoints={['80%', '90%']} initialIndex={1} >
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.kb}
+      >
+        <View style={styles.content}>
+          <Text weight="medium" size="sm" color="#374151" style={styles.label}>
+            Feedback
+          </Text>
 
-            <Text weight="medium" size="sm" color="#374151" style={styles.label}>
-              Feedback
-            </Text>
+          <TextInput
+            value={feedback}
+            onChangeText={setFeedback}
+            placeholder={placeholder}
+            placeholderTextColor="#9CA3AF"
+            style={styles.input}
+            multiline
+            autoFocus
+            textAlignVertical="top"
+          />
 
-            <TextInput
-              value={feedback}
-              onChangeText={setFeedback}
-              placeholder={placeholder}
-              placeholderTextColor="#9CA3AF"
-              style={styles.input}
-              multiline
-              autoFocus
-              textAlignVertical="top"
-            />
-
-            {didSucceed ? (
-              <View style={styles.successRow}>
-                <Text weight="medium" size="sm" color="#16A34A">
-                  Thanks! Your feedback was sent.
-                </Text>
-              </View>
-            ) : null}
-
-            <View style={styles.actionsRow}>
-              <Button
-                variant="ghost"
-                fullWidth
-                style={[styles.actionButton, styles.cancelButton]}
-                textColor="#111827"
-                onPress={onClose}
-                disabled={isSubmitting}
-              >
-                Cancel
-              </Button>
-
-              <Pressable
-                style={[styles.submitWrap, !canSubmit && styles.submitWrapDisabled]}
-                onPress={handleSubmit}
-                disabled={!canSubmit}
-              >
-                {isSubmitting ? (
-                  <ActivityIndicator color="#FFF" />
-                ) : (
-                  <Text weight="semiBold" size="md" color="#FFF">
-                    Submit
-                  </Text>
-                )}
-              </Pressable>
+          {didSucceed ? (
+            <View style={styles.successRow}>
+              <Text weight="medium" size="sm" color="#16A34A">
+                Thanks! Your feedback was sent.
+              </Text>
             </View>
+          ) : null}
+
+          <View style={styles.actionsRow}>
+            <Button
+              variant="ghost"
+              fullWidth
+              style={[styles.actionButton, styles.cancelButton]}
+              textColor="#111827"
+              onPress={onClose}
+              disabled={isSubmitting}
+            >
+              Cancel
+            </Button>
+
+            <Pressable
+              style={[styles.submitWrap, !canSubmit && styles.submitWrapDisabled]}
+              onPress={handleSubmit}
+              disabled={!canSubmit}
+            >
+              {isSubmitting ? (
+                <ActivityIndicator color="#FFF" />
+              ) : (
+                <Text weight="semiBold" size="md" color="#FFF">
+                  Submit
+                </Text>
+              )}
+            </Pressable>
           </View>
-        </KeyboardAvoidingView>
-      </View>
-    </Modal>
+        </View>
+      </KeyboardAvoidingView>
+    </AppBottomSheetModal>
   );
 }
 
 const styles = StyleSheet.create({
-  overlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.35)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 18,
-  },
   kb: {
     width: '100%',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
-  card: {
+  content: {
     width: '100%',
-    maxWidth: 420,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 22,
-    padding: 18,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.12,
-    shadowRadius: 24,
-    elevation: 10,
-  },
-  title: {
-    textAlign: 'center',
-    marginBottom: 14,
+    paddingTop: 4,
   },
   label: {
     marginBottom: 8,

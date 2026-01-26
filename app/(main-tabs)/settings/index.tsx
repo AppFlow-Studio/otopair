@@ -180,7 +180,7 @@ export default function SettingsHomeScreen() {
   // ─────────────────────────────────────────────────────────────
   const fullName = useMemo(() => {
     const name = `${data.firstName ?? ''} ${data.lastName ?? ''}`.trim();
-    return name.length > 0 ? name : 'Alex Johnson';
+    return name.length > 0 ? name : 'Lionel Andrés Messi Cuccitini';
   }, [data.firstName, data.lastName]);
 
   const initials = useMemo(() => {
@@ -577,8 +577,8 @@ export default function SettingsHomeScreen() {
                     />
                     <SettingsListItem
                       icon={<Headset size={20} color="#1F2937" />}
-                      label="Help Center"
-                      onPress={() => console.log('Help')}
+                      label="Contact Us"
+                      onPress={() => router.push('/settings/contact-us')}
                     />
                     <SettingsListItem
                       icon={<HelpCircle size={20} color="#1F2937" />}

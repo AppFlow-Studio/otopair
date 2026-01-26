@@ -27,7 +27,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
-import { X } from 'lucide-react-native';
+import { ArrowLeft } from 'lucide-react-native';
 
 import { Text } from './Text';
 
@@ -117,7 +117,7 @@ export function BlurHeaderOverlay({
       )}
       <View style={[styles.headerContent, { paddingTop: insets.top + 10 }]}>
         <Pressable onPress={handleBack} style={styles.backButton} hitSlop={10}>
-          <X size={18} color="#1F2937" />
+          <ArrowLeft size={20} color="#1F2937" />
         </Pressable>
         <Text weight="semiBold" size="xl" color="#000" style={styles.title}>
           {title}

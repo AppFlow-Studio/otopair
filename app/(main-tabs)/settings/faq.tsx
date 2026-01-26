@@ -14,7 +14,7 @@
  * TICKET: OTO-XXX
  */
 
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -33,6 +33,7 @@ import Animated from 'react-native-reanimated';
 
 import { BlurHeaderOverlay, BrandColors, Spacing, Text } from '@/components/shared-ui';
 import { getSheetContentPadding } from '@/constants/theme';
+import { CATEGORY_CONTENT, CategoryKey } from '@/constants/faq';
 
 const HEADER_FADE_COLORS: [string, string, string, string] = [
   'rgba(82, 153, 254, 0)',    // Opaque blue (BrandColors.secondary)
@@ -74,9 +75,49 @@ const CATEGORIES = [
 export default function FAQRootScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const [searchQuery, setSearchQuery] = useState('');
+
   const handleOpenCategory = (category: string) => {
     router.push({ pathname: '/settings/faq-category', params: { category } });
   };
+
+  // Search through all FAQ items
+  const searchResults = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+
+    const query = searchQuery.toLowerCase().trim();
+    const results: Array<{
+      category: CategoryKey;
+      categoryTitle: string;
+      item: { id: string; question: string; answer: string; actionLabel?: string };
+    }> = [];
+
+    (Object.keys(CATEGORY_CONTENT) as CategoryKey[]).forEach((categoryKey) => {
+      const category = CATEGORY_CONTENT[categoryKey];
+      
+      // Search in category title
+      if (category.title.toLowerCase().includes(query)) {
+        category.items.forEach((item) => {
+          results.push({ category: categoryKey, categoryTitle: category.title, item });
+        });
+        return;
+      }
+
+      // Search in questions and answers
+      category.items.forEach((item) => {
+        const questionMatch = item.question.toLowerCase().includes(query);
+        const answerMatch = item.answer.toLowerCase().includes(query);
+        
+        if (questionMatch || answerMatch) {
+          results.push({ category: categoryKey, categoryTitle: category.title, item });
+        }
+      });
+    });
+
+    return results;
+  }, [searchQuery]);
+
+  const isSearching = searchQuery.trim().length > 0;
 
   return (
     <View style={styles.screen}>
@@ -85,74 +126,125 @@ export default function FAQRootScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.container, { paddingTop: insets.top + 80, paddingBottom: getSheetContentPadding(true, insets.bottom) }]}
       >
-        {/* ... existing content ... */}
         <View style={styles.searchWrapper}>
           <Search size={18} color="#86868B" style={styles.searchIcon} />
           <TextInput
             placeholder="Search FAQs"
             placeholderTextColor="#86868B"
             style={styles.searchInput}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            autoCapitalize="none"
+            autoCorrect={false}
           />
         </View>
 
-        <View style={styles.section}>
-          <Text weight="semiBold" size="xs" style={styles.sectionLabel}>
-            POPULAR
-          </Text>
-          <View style={[styles.card, styles.listCard]}>
-            {POPULAR_ITEMS.map((item, index) => (
-              <Pressable
-                key={item.id}
-                onPress={() => handleOpenCategory(item.category)}
-                style={({ pressed }) => [
-                  styles.listRow,
-                  index !== 0 && styles.listRowDivider,
-                  pressed && styles.rowPressed,
-                ]}
-              >
-                <View style={styles.listRowText}>
-                  <Text weight="bold" size="md" color="#111827">
-                    {item.title}
-                  </Text>
-                  <Text weight="medium" size="sm" color="#6B7280">
-                    {item.subtitle}
-                  </Text>
-                </View>
-                <ChevronRight size={18} color="#9CA3AF" />
-              </Pressable>
-            ))}
+        {isSearching ? (
+          <View style={styles.section}>
+            <Text weight="semiBold" size="xs" style={styles.sectionLabel}>
+              SEARCH RESULTS ({searchResults.length})
+            </Text>
+            {searchResults.length > 0 ? (
+              <View style={[styles.card, styles.listCard]}>
+                {searchResults.map((result, index) => (
+                  <Pressable
+                    key={`${result.category}-${result.item.id}`}
+                    onPress={() => handleOpenCategory(result.category)}
+                    style={({ pressed }) => [
+                      styles.listRow,
+                      index !== 0 && styles.listRowDivider,
+                      pressed && styles.rowPressed,
+                    ]}
+                  >
+                    <View style={styles.listRowText}>
+                      <Text weight="bold" size="md" color="#111827">
+                        {result.item.question}
+                      </Text>
+                      <Text weight="medium" size="sm" color="#6B7280">
+                        {result.categoryTitle}
+                      </Text>
+                    </View>
+                    <ChevronRight size={18} color="#9CA3AF" />
+                  </Pressable>
+                ))}
+              </View>
+            ) : (
+              <View style={styles.emptyState}>
+                <Text size="md" color="#6B7280" style={styles.emptyStateText}>
+                  No results found for "{searchQuery}"
+                </Text>
+                <Text size="sm" color="#9CA3AF" style={styles.emptyStateHint}>
+                  Try different keywords or browse by category below
+                </Text>
+              </View>
+            )}
           </View>
-        </View>
+        ) : null}
 
-        <View style={styles.section}>
-          <Text weight="semiBold" size="xs" style={styles.sectionLabel}>
-            BROWSE BY CATEGORY
-          </Text>
-          <View style={[styles.card, styles.listCard]}>
-            {CATEGORIES.map((item, index) => {
-              const Icon = item.icon;
-              return (
-                <Pressable
-                  key={item.id}
-                  onPress={() => handleOpenCategory(item.id)}
-                  style={({ pressed }) => [
-                    styles.categoryRow,
-                    index !== 0 && styles.listRowDivider,
-                    pressed && styles.rowPressed,
-                  ]}
-                >
-                  <View style={styles.categoryLeft}>
-                    <Icon size={18} color={BrandColors.secondary} />
-                    <Text weight="bold" size="md" color="#111827">
-                      {item.label}
-                    </Text>
-                  </View>
-                  <ChevronRight size={18} color="#9CA3AF" />
-                </Pressable>
-              );
-            })}
+        {/* Show Popular section only when not searching */}
+        {!isSearching && (
+          <View style={styles.section}>
+            <Text weight="semiBold" size="xs" style={styles.sectionLabel}>
+              POPULAR
+            </Text>
+              <View style={[styles.card, styles.listCard]}>
+                {POPULAR_ITEMS.map((item, index) => (
+                  <Pressable
+                    key={item.id}
+                    onPress={() => handleOpenCategory(item.category)}
+                    style={({ pressed }) => [
+                      styles.listRow,
+                      index !== 0 && styles.listRowDivider,
+                      pressed && styles.rowPressed,
+                    ]}
+                  >
+                    <View style={styles.listRowText}>
+                      <Text weight="bold" size="md" color="#111827">
+                        {item.title}
+                      </Text>
+                      <Text weight="medium" size="sm" color="#6B7280">
+                        {item.subtitle}
+                      </Text>
+                    </View>
+                    <ChevronRight size={18} color="#9CA3AF" />
+                  </Pressable>
+                ))}
+              </View>
           </View>
-        </View>
+        )}
+
+        {/* Show Categories when not searching, or when searching with no results */}
+        {(!isSearching || (isSearching && searchResults.length === 0)) && (
+          <View style={styles.section}>
+            <Text weight="semiBold" size="xs" style={styles.sectionLabel}>
+              BROWSE BY CATEGORY
+            </Text>
+              <View style={[styles.card, styles.listCard]}>
+                {CATEGORIES.map((item, index) => {
+                  const Icon = item.icon;
+                  return (
+                    <Pressable
+                      key={item.id}
+                      onPress={() => handleOpenCategory(item.id)}
+                      style={({ pressed }) => [
+                        styles.categoryRow,
+                        index !== 0 && styles.listRowDivider,
+                        pressed && styles.rowPressed,
+                      ]}
+                    >
+                      <View style={styles.categoryLeft}>
+                        <Icon size={18} color={BrandColors.secondary} />
+                        <Text weight="bold" size="md" color="#111827">
+                          {item.label}
+                        </Text>
+                      </View>
+                      <ChevronRight size={18} color="#9CA3AF" />
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+        )}
 
         <View style={styles.supportSection}>
           <View style={styles.card}>
@@ -282,5 +374,17 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingVertical: 12,
     alignItems: 'center',
+  },
+  emptyState: {
+    paddingVertical: 32,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+  },
+  emptyStateText: {
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  emptyStateHint: {
+    textAlign: 'center',
   },
 });

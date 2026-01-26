@@ -12,6 +12,7 @@ export default function SettingsLayout() {
             <Stack.Screen name="two-factor-method" options={{ headerShown: false }} />
             <Stack.Screen name="two-factor-verify" options={{ headerShown: false }} />
             <Stack.Screen name="success" options={{ headerShown: false }} />
+            <Stack.Screen name="contact-us" options={{ headerShown: false }} />
         </Stack>
     )
 }   
