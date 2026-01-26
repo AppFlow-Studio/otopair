@@ -213,7 +213,7 @@ export function VehicleMaintenanceCard({
   return (
     <View style={styles.container}>
       {/* Section Header */}
-      <Text size="md" color="#6B7280" style={styles.sectionHeader}>
+      <Text size="md" color="#000000" style={styles.sectionHeader}>
         Vehicle Maintenance
       </Text>
 

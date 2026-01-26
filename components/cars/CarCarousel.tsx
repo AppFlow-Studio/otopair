@@ -1,46 +1,47 @@
 /**
  * CarCarousel
  *
- * PURPOSE: Displays a horizontal swipeable carousel of vehicle cards with pagination
- *          dots. The next car peeks out slightly, and vehicle details animate/morph
- *          when swiping between cars.
+ * PURPOSE: Displays a 3D circular carousel of vehicle cards that rotate like
+ *          a spinning platform. Drag to rotate or tap thumbnails to select.
  *
  * USED IN: app/(main-tabs)/cars/index.tsx (My Cars screen)
- *
- * PROPS:
- *   - vehicles (Vehicle[]): Array of vehicle objects to display
- *   - onEditMileage ((vehicleId: string) => void): Called when edit mileage is pressed [optional]
- *   - onToggleDefault ((vehicleId: string, isDefault: boolean) => void): Called when default toggle changes [optional]
- *
- * EXAMPLE:
- *   <CarCarousel
- *     vehicles={vehiclesArray}
- *     onEditMileage={(id) => console.log('Edit', id)}
- *   />
  *
  * OWNER: Ahmad Hamoudeh
  */
 
 // 1. React & React Native
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Animated,
   Dimensions,
-  FlatList,
   Image,
   ImageSourcePropType,
-  NativeScrollEvent,
-  NativeSyntheticEvent,
+  KeyboardAvoidingView,
+  Modal,
+  Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
-  Switch,
+  TextInput,
   View,
 } from 'react-native';
 
 // 2. Expo & Third-party
 import { BlurView } from 'expo-blur';
-import { Edit2 } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Calendar, Check, ChevronLeft, ChevronRight, Plus, X, XCircle } from 'lucide-react-native';
+import Svg, { Circle, Defs, LinearGradient as SvgLinearGradient, Stop } from 'react-native-svg';
 import { Easing } from 'react-native';
+import ReAnimated, {
+  Extrapolate,
+  interpolate,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+  runOnJS,
+  SharedValue,
+} from 'react-native-reanimated';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 
 // 3. Shared UI
 import { Text } from '@/components/shared-ui';
@@ -62,6 +63,10 @@ export interface Vehicle {
   nextServiceDate?: string;
   isDefault: boolean;
   imageSource?: ImageSourcePropType;
+  logoSource?: ImageSourcePropType;
+  condition?: number;
+  nextUnlock?: string;
+  gradientColors?: string[];
 }
 
 interface CarCarouselProps {
@@ -69,22 +74,1144 @@ interface CarCarouselProps {
   onEditMileage?: (vehicleId: string) => void;
   onToggleDefault?: (vehicleId: string, isDefault: boolean) => void;
   onActiveIndexChange?: (index: number) => void;
+  isFocused?: boolean;
 }
 
 // ============================================================================
 // CONSTANTS
 // ============================================================================
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-const CARD_WIDTH = SCREEN_WIDTH - 32; // Full width minus padding
-const CARD_MARGIN = 16; // Horizontal margin on each side
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const CAR_CARD_WIDTH = 280;
+const CAR_CARD_HEIGHT = 200;
+const RADIUS = SCREEN_WIDTH * 0.5;
 
-// Default images
 const DEFAULT_VEHICLE_IMAGE = require('@/assets/images/lexus.png');
 const BLUE_LAMBO_IMAGE = require('@/assets/images/bluelambo.png');
 
 // ============================================================================
-// COMPONENT
+// RING CONFIGURATION & TYPES
+// ============================================================================
+
+interface RingConfig {
+  percentage: number;
+  strokeWidth: number;
+  radius: number;
+  gradientId: string;
+  colors: string[];
+  trackOpacity: number;
+  maxPercentage: number;
+  showGlow: boolean;
+  name: string;
+  description: string;
+}
+
+// Service items that need attention
+interface ServiceItem {
+  name: string;
+  dueInfo: string;
+  status: 'overdue' | 'due_soon';
+  scoreImpact: number; // Points gained if completed
+  actionDescription: string; // Why this affects the score
+}
+
+// Metric configuration for breakdown rows
+interface MetricConfig {
+  name: string;
+  subtitle: string;
+  color: string;
+  percentage: number; // Used for progress bar and overall calculation
+  displayValue: string; // What to show instead of percentage (e.g., "5/10" or "45,000 mi")
+  scoreImpact: number; // How much this metric is affecting overall score
+}
+
+// ============================================================================
+// VEHICLE HEALTH MODAL COMPONENT
+// ============================================================================
+
+interface VehicleHealthModalProps {
+  visible: boolean;
+  onClose: () => void;
+  vehicleName: string;
+  healthPercentage: number;
+  maintenancePercentage: number;
+  servicePercentage: number;
+}
+
+const VehicleHealthModal = ({
+  visible,
+  onClose,
+  vehicleName,
+  healthPercentage,
+  maintenancePercentage,
+  servicePercentage,
+}: VehicleHealthModalProps) => {
+  const slideAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  
+  // Animated ring values for staggered animation
+  const [animatedHealth, setAnimatedHealth] = useState(0);
+  const [animatedMaintenance, setAnimatedMaintenance] = useState(0);
+  const [animatedService, setAnimatedService] = useState(0);
+  
+  // Progress bar animations
+  const [progressHealth, setProgressHealth] = useState(0);
+  const [progressMaintenance, setProgressMaintenance] = useState(0);
+  const [progressService, setProgressService] = useState(0);
+
+  // Calculate overall score (average of all three)
+  const overallScore = Math.round((healthPercentage + maintenancePercentage + servicePercentage) / 3);
+
+  // Service items that need attention with score impacts
+  // Impacts are calculated based on how they affect the overall condition:
+  // - Maintenance items affect the 70% weight portion
+  // - Service records items affect the 30% weight portion
+  // Example: +7% to Maintenance × 0.7 weight = +5 pts to Overall Condition
+  const serviceItems: ServiceItem[] = [
+    { 
+      name: 'Oil Change', 
+      dueInfo: 'Overdue by 500 miles', 
+      status: 'overdue',
+      scoreImpact: 5, // +7% to Maintenance × 0.7 = +5 pts
+      actionDescription: '+7% to Maintenance Schedule'
+    },
+    { 
+      name: 'Tire Rotation', 
+      dueInfo: 'Due in 12 days', 
+      status: 'due_soon',
+      scoreImpact: 3, // +4% to Maintenance × 0.7 = +3 pts
+      actionDescription: '+4% to Maintenance Schedule'
+    },
+    { 
+      name: 'Update Mileage', 
+      dueInfo: 'Last updated 30 days ago', 
+      status: 'due_soon',
+      scoreImpact: 3, // +10% to Usage × 0.3 = +3 pts
+      actionDescription: '+10% to Usage & Wear accuracy'
+    },
+  ];
+
+  // Maintenance: X out of Y services completed
+  // 7/10 because 3 items need attention (1 overdue + 2 due soon)
+  const maintenanceCompleted = 7;
+  const maintenanceTotal = 10;
+  const maintenanceScore = Math.round((maintenanceCompleted / maintenanceTotal) * 100);
+
+  // Usage & Wear: Based on mileage (lower = better)
+  // Score calculation: 100k+ miles starts reducing score significantly
+  const vehicleMileage = 45000; // Sample mileage
+  const getMileageScore = (miles: number) => {
+    if (miles <= 30000) return 100;
+    if (miles <= 60000) return 90;
+    if (miles <= 100000) return 75;
+    if (miles <= 150000) return 55;
+    return 35;
+  };
+  const usageScore = getMileageScore(vehicleMileage);
+
+  // Calculate Vehicle Condition based on the other metrics
+  // Maintenance has higher weight (70%) since keeping up with services matters more
+  // Usage & Wear has lower weight (30%) since mileage is less controllable
+  const calculatedCondition = Math.round(
+    (maintenanceScore * 0.7) + (usageScore * 0.3)
+  );
+
+  // Format mileage for display
+  const formatMileage = (miles: number) => {
+    if (miles >= 1000) {
+      return `${(miles / 1000).toFixed(0)}k mi`;
+    }
+    return `${miles} mi`;
+  };
+
+  // Metric configurations with clear names and explanations
+  const metrics: MetricConfig[] = [
+    {
+      name: 'Overall Vehicle Condition',
+      subtitle: 'Based on your maintenance and Usage',
+      color: '#30D158',
+      percentage: calculatedCondition,
+      displayValue: `${calculatedCondition}%`,
+      scoreImpact: 0, // No separate impact since it's derived from the below
+    },
+    {
+      name: 'Maintenance',
+      subtitle: 'More services completed = higher score',
+      color: maintenanceScore >= 75 ? '#30D158' : maintenanceScore >= 60 ? '#FFD60A' : '#FF3B5C',
+      percentage: maintenanceScore,
+      displayValue: `${maintenanceCompleted}/${maintenanceTotal}`,
+      scoreImpact: maintenanceScore >= 75 ? 0 : -(75 - maintenanceScore),
+    },
+    {
+      name: 'Usage & Wear',
+      subtitle: 'Lower mileage = higher score',
+      color: usageScore >= 75 ? '#30D158' : usageScore >= 60 ? '#FFD60A' : '#FF3B5C',
+      percentage: usageScore,
+      displayValue: formatMileage(vehicleMileage),
+      scoreImpact: usageScore >= 75 ? 0 : -(75 - usageScore),
+    },
+  ];
+
+  const needsAttention = serviceItems.length > 0;
+
+  useEffect(() => {
+    if (visible) {
+      // Reset slide position before animating
+      slideAnim.setValue(SCREEN_HEIGHT);
+      fadeAnim.setValue(0);
+      
+      // Reset animations
+      setAnimatedHealth(0);
+      setAnimatedMaintenance(0);
+      setAnimatedService(0);
+      setProgressHealth(0);
+      setProgressMaintenance(0);
+      setProgressService(0);
+
+      // Open modal animation
+      Animated.parallel([
+        Animated.spring(slideAnim, {
+          toValue: 0,
+          damping: 25,
+          stiffness: 120,
+          useNativeDriver: true,
+        }),
+        Animated.timing(fadeAnim, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: true,
+        }),
+      ]).start();
+
+      // Staggered ring animations: green first (0ms), yellow (200ms), red (400ms)
+      const animateRing = (
+        setter: (val: number) => void,
+        target: number,
+        delay: number
+      ) => {
+        setTimeout(() => {
+          const duration = 1000;
+          const steps = 60;
+          const stepDuration = duration / steps;
+          let currentStep = 0;
+
+          const interval = setInterval(() => {
+            currentStep++;
+            const progress = 1 - Math.pow(1 - currentStep / steps, 3); // easeOut
+            setter(progress * target);
+            if (currentStep >= steps) clearInterval(interval);
+          }, stepDuration);
+        }, delay);
+      };
+
+      // Overall condition first, then maintenance, then usage
+      // Uses the same values as the metrics: calculatedCondition, maintenanceScore, usageScore
+      animateRing(setAnimatedService, calculatedCondition, 0);
+      animateRing(setProgressService, calculatedCondition, 0);
+      animateRing(setAnimatedHealth, maintenanceScore, 200);
+      animateRing(setProgressHealth, maintenanceScore, 200);
+      animateRing(setAnimatedMaintenance, usageScore, 400);
+      animateRing(setProgressMaintenance, usageScore, 400);
+    } else {
+      // Close modal animation
+      Animated.parallel([
+        Animated.spring(slideAnim, {
+          toValue: SCREEN_HEIGHT,
+          damping: 20,
+          stiffness: 300,
+          useNativeDriver: true,
+        }),
+        Animated.timing(fadeAnim, {
+          toValue: 0,
+          duration: 150,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  }, [visible, calculatedCondition, maintenanceScore, usageScore]);
+
+  // Single large ring configuration
+  const modalRingSize = 180;
+  const ringStrokeWidth = 12;
+  const ringRadius = (modalRingSize / 2) - (ringStrokeWidth / 2) - 8;
+  const circumference = 2 * Math.PI * ringRadius;
+  const center = modalRingSize / 2;
+  
+  // Use calculated condition as the overall health score (animated value)
+  const overallPercentage = animatedService;
+  const strokeDashoffset = circumference * (1 - overallPercentage / 100);
+  
+  // Determine ring color based on calculated condition
+  const getRingColor = () => {
+    if (calculatedCondition >= 75) return '#30D158'; // Green
+    if (calculatedCondition >= 60) return '#FFD60A'; // Yellow
+    return '#FF3B5C'; // Red
+  };
+  
+  const ringColor = getRingColor();
+
+  const renderRings = () => (
+    <View style={modalStyles.ringsContainer}>
+      <Svg width={modalRingSize} height={modalRingSize}>
+        <Defs>
+          <SvgLinearGradient id="mainRingGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+            <Stop offset="0%" stopColor={ringColor} />
+            <Stop offset="100%" stopColor={ringColor} />
+          </SvgLinearGradient>
+        </Defs>
+
+        {/* Track (background ring) */}
+        <Circle
+          cx={center}
+          cy={center}
+          r={ringRadius}
+          stroke="rgba(48, 209, 88, 0.15)"
+          strokeWidth={ringStrokeWidth}
+          fill="none"
+        />
+        
+        {/* Progress ring */}
+        <Circle
+          cx={center}
+          cy={center}
+          r={ringRadius}
+          stroke={ringColor}
+          strokeWidth={ringStrokeWidth}
+          fill="none"
+          strokeDasharray={circumference}
+          strokeDashoffset={strokeDashoffset}
+          strokeLinecap="round"
+          rotation={-90}
+          origin={`${center}, ${center}`}
+        />
+      </Svg>
+      
+      {/* Centered percentage text */}
+      <View style={modalStyles.ringCenterContent}>
+        <View style={modalStyles.percentageRow}>
+          <Text style={modalStyles.percentageText}>{Math.round(overallPercentage)}</Text>
+          <Text style={modalStyles.percentageSymbol}>%</Text>
+        </View>
+        <Text style={modalStyles.optimizedText}>OPTIMIZED</Text>
+      </View>
+    </View>
+  );
+
+  const renderBreakdownRow = (
+    color: string,
+    name: string,
+    subtitle: string,
+    percentage: number,
+    animatedPercentage: number,
+    displayValue: string,
+    scoreImpact: number
+  ) => (
+    <View style={modalStyles.breakdownRow}>
+      <View style={modalStyles.breakdownLeft}>
+        <View style={[modalStyles.colorDot, { backgroundColor: color }]} />
+        <View style={modalStyles.breakdownTextContainer}>
+          <View style={modalStyles.breakdownHeader}>
+            <Text style={modalStyles.breakdownName}>{name}</Text>
+            <Text style={modalStyles.breakdownPercentage}>{displayValue}</Text>
+          </View>
+          <Text style={modalStyles.breakdownSubtitle}>{subtitle}</Text>
+          <View style={modalStyles.progressBarRow}>
+            <View style={modalStyles.progressBarContainer}>
+              <View 
+                style={[
+                  modalStyles.progressBar, 
+                  { 
+                    backgroundColor: color,
+                    width: `${animatedPercentage}%`,
+                  }
+                ]} 
+              />
+            </View>
+            {scoreImpact !== 0 && (
+              <View style={[
+                modalStyles.scoreImpactBadge,
+                { backgroundColor: 'rgba(255, 59, 92, 0.15)' }
+              ]}>
+                <Text style={[
+                  modalStyles.scoreImpactText,
+                  { color: '#FF3B5C' }
+                ]}>
+                  {scoreImpact}%
+                </Text>
+              </View>
+            )}
+          </View>
+        </View>
+      </View>
+    </View>
+  );
+
+  return (
+    <Modal
+      visible={visible}
+      transparent
+      animationType="none"
+      statusBarTranslucent
+      onRequestClose={onClose}
+    >
+      {/* Dark overlay - fades in */}
+      <Animated.View style={[modalStyles.overlay, { opacity: fadeAnim }]}>
+        <Pressable style={modalStyles.overlayPressable} onPress={onClose} />
+      </Animated.View>
+        
+      {/* Bottom sheet content - slides up */}
+      <Animated.View style={[modalStyles.bottomSheet, { transform: [{ translateY: slideAnim }] }]}>
+          {/* Drag handle */}
+          <View style={modalStyles.dragHandleContainer}>
+            <View style={modalStyles.dragHandle} />
+          </View>
+
+          {/* Header */}
+          <View style={modalStyles.header}>
+            <View style={modalStyles.headerTitleContainer}>
+              <Text style={modalStyles.headerTitle}>Vehicle Health</Text>
+              <Text style={modalStyles.headerSubtitle}>{vehicleName} • Premium Package</Text>
+            </View>
+            <Pressable style={modalStyles.closeButton} onPress={onClose}>
+              <X size={18} color="#666" />
+            </Pressable>
+          </View>
+
+          <View style={modalStyles.headerSeparator} />
+
+          {/* Scrollable content */}
+          <ScrollView 
+            style={modalStyles.scrollView}
+            contentContainerStyle={modalStyles.scrollContent}
+            showsVerticalScrollIndicator={false}
+            bounces={true}
+          >
+            {/* Large rings display */}
+            {renderRings()}
+
+            {/* What Affects Your Score */}
+            <View style={modalStyles.breakdownSection}>
+              <Text style={modalStyles.sectionTitle}>WHAT AFFECTS YOUR SCORE</Text>
+              
+              {/* Overall Vehicle Condition - first */}
+              {renderBreakdownRow(
+                metrics[0].color,
+                metrics[0].name,
+                metrics[0].subtitle,
+                metrics[0].percentage,
+                progressService, // Uses the calculated condition animation
+                metrics[0].displayValue,
+                metrics[0].scoreImpact
+              )}
+              {/* Maintenance */}
+              {renderBreakdownRow(
+                metrics[1].color,
+                metrics[1].name,
+                metrics[1].subtitle,
+                metrics[1].percentage,
+                progressHealth,
+                metrics[1].displayValue,
+                metrics[1].scoreImpact
+              )}
+              {/* Usage & Wear */}
+              {renderBreakdownRow(
+                metrics[2].color,
+                metrics[2].name,
+                metrics[2].subtitle,
+                metrics[2].percentage,
+                progressMaintenance,
+                metrics[2].displayValue,
+                metrics[2].scoreImpact
+              )}
+            </View>
+
+            {/* How to Improve Your Score - Glassy Style */}
+            {needsAttention && (
+              <View style={modalStyles.attentionCardOuter}>
+                <BlurView intensity={20} tint="light" style={modalStyles.attentionBlur}>
+                  <LinearGradient
+                    colors={['rgba(82, 153, 254, 0.12)', 'rgba(82, 153, 254, 0.06)']}
+                    style={StyleSheet.absoluteFill}
+                  />
+                  {/* Glossy top highlight */}
+                  <LinearGradient
+                    colors={['rgba(255, 255, 255, 0.5)', 'rgba(255, 255, 255, 0)']}
+                    locations={[0, 0.5]}
+                    style={modalStyles.attentionGloss}
+                  />
+                </BlurView>
+                <View style={modalStyles.attentionContent}>
+                  <View style={modalStyles.attentionHeader}>
+                    <Text style={modalStyles.attentionEmoji}>🔧</Text>
+                    <Text style={[modalStyles.attentionTitle, { color: '#5299FE' }]}>How to Improve Your Score</Text>
+                  </View>
+                  
+                  {serviceItems.map((item, index) => (
+                    <Pressable key={index} style={modalStyles.serviceItem}>
+                      <View style={modalStyles.serviceItemLeft}>
+                        <View style={modalStyles.serviceNameRow}>
+                          <Text style={modalStyles.serviceName}>{item.name}</Text>
+                          <View 
+                            style={[
+                              modalStyles.statusBadge,
+                              item.status === 'overdue' ? modalStyles.overdueBadge : modalStyles.dueSoonBadge
+                            ]}
+                          >
+                            <Text 
+                              style={[
+                                modalStyles.statusText,
+                                item.status === 'overdue' ? modalStyles.overdueText : modalStyles.dueSoonText
+                              ]}
+                            >
+                              {item.status === 'overdue' ? 'OVERDUE' : 'DUE SOON'}
+                            </Text>
+                          </View>
+                        </View>
+                        <Text style={modalStyles.serviceDue}>{item.dueInfo}</Text>
+                        <Text style={modalStyles.actionDescription}>{item.actionDescription}</Text>
+                      </View>
+                      <View style={modalStyles.scoreImpactBadgeLarge}>
+                        <Text style={modalStyles.scoreImpactTextLarge}>+{item.scoreImpact}%</Text>
+                      </View>
+                    </Pressable>
+                  ))}
+                  
+                  {/* Total potential improvement */}
+                  <View style={modalStyles.totalImprovementRow}>
+                    <Text style={modalStyles.totalImprovementLabel}>Complete all to gain</Text>
+                    <Text style={modalStyles.totalImprovementValue}>
+                      +{serviceItems.reduce((sum, item) => sum + item.scoreImpact, 0)}%
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            )}
+
+            {/* Bottom padding for sticky button */}
+            <View style={{ height: 20 }} />
+          </ScrollView>
+          
+          {/* Schedule Service Button - Sticky & Glassy */}
+          <View style={modalStyles.scheduleButtonContainer}>
+            <Pressable style={modalStyles.scheduleButton}>
+              <BlurView intensity={80} tint="dark" style={modalStyles.scheduleButtonBlur}>
+                <LinearGradient
+                  colors={['rgba(40, 40, 40, 0.9)', 'rgba(20, 20, 20, 0.95)']}
+                  style={StyleSheet.absoluteFill}
+                />
+                {/* Glossy top highlight */}
+                <LinearGradient
+                  colors={['rgba(255, 255, 255, 0.15)', 'rgba(255, 255, 255, 0)']}
+                  locations={[0, 0.5]}
+                  style={modalStyles.scheduleButtonGloss}
+                />
+              </BlurView>
+              <View style={modalStyles.scheduleButtonContent}>
+                <Text style={modalStyles.scheduleButtonText}>Schedule Service</Text>
+                <Calendar size={20} color="#fff" />
+              </View>
+            </Pressable>
+          </View>
+        </Animated.View>
+    </Modal>
+  );
+};
+
+const modalStyles = StyleSheet.create({
+  overlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  overlayPressable: {
+    flex: 1,
+  },
+  bottomSheet: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: SCREEN_HEIGHT * 0.85,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 20,
+  },
+  dragHandleContainer: {
+    alignItems: 'center',
+    paddingTop: 12,
+    paddingBottom: 8,
+  },
+  dragHandle: {
+    width: 40,
+    height: 4,
+    backgroundColor: 'rgba(0, 0, 0, 0.15)',
+    borderRadius: 2,
+  },
+  scrollView: {
+    maxHeight: SCREEN_HEIGHT * 0.55,
+  },
+  scrollContent: {
+    paddingHorizontal: 24,
+    paddingBottom: 20,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 24,
+    paddingTop: 20,
+    paddingBottom: 16,
+  },
+  headerTitleContainer: {
+    flex: 1,
+    alignItems: 'center',
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontFamily: 'Urbanist-SemiBold',
+    color: '#1a1a1a',
+  },
+  headerSubtitle: {
+    fontSize: 14,
+    fontFamily: 'Urbanist-Regular',
+    color: '#666',
+    marginTop: 2,
+  },
+  closeButton: {
+    position: 'absolute',
+    right: 20,
+    top: 20,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(0, 0, 0, 0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerSeparator: {
+    height: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.08)',
+    marginHorizontal: 24,
+  },
+  ringsContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: 20,
+    position: 'relative',
+  },
+  ringCenterContent: {
+    position: 'absolute',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  percentageRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+  },
+  percentageText: {
+    fontSize: 48,
+    fontFamily: 'Urbanist-Bold',
+    color: '#1a1a1a',
+    lineHeight: 52,
+  },
+  percentageSymbol: {
+    fontSize: 24,
+    fontFamily: 'Urbanist-Bold',
+    color: '#1a1a1a',
+    marginTop: 6,
+  },
+  optimizedText: {
+    fontSize: 12,
+    fontFamily: 'Urbanist-SemiBold',
+    color: '#9CA3AF',
+    letterSpacing: 1.5,
+    marginTop: 2,
+  },
+  breakdownSection: {
+    marginTop: 16,
+  },
+  sectionTitle: {
+    fontSize: 12,
+    fontFamily: 'Urbanist-SemiBold',
+    color: '#888',
+    letterSpacing: 1,
+    marginBottom: 16,
+  },
+  breakdownRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0, 0, 0, 0.06)',
+  },
+  breakdownLeft: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    flex: 1,
+  },
+  colorDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    marginRight: 12,
+    marginTop: 4,
+  },
+  breakdownTextContainer: {
+    flex: 1,
+  },
+  breakdownHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  breakdownName: {
+    fontSize: 15,
+    fontFamily: 'Urbanist-SemiBold',
+    color: '#1a1a1a',
+  },
+  breakdownSubtitle: {
+    fontSize: 12,
+    fontFamily: 'Urbanist-Regular',
+    color: '#888',
+    marginBottom: 8,
+    lineHeight: 16,
+  },
+  progressBarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  progressBarContainer: {
+    height: 6,
+    backgroundColor: 'rgba(0, 0, 0, 0.08)',
+    borderRadius: 3,
+    overflow: 'hidden',
+    flex: 1,
+  },
+  progressBar: {
+    height: '100%',
+    borderRadius: 3,
+  },
+  breakdownPercentage: {
+    fontSize: 15,
+    fontFamily: 'Urbanist-SemiBold',
+    color: '#1a1a1a',
+  },
+  scoreImpactBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  scoreImpactText: {
+    fontSize: 11,
+    fontFamily: 'Urbanist-Bold',
+  },
+  attentionCardOuter: {
+    marginTop: 24,
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.5)',
+    shadowColor: 'rgba(255, 59, 92, 0.15)',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  attentionBlur: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  attentionGloss: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: '40%',
+  },
+  attentionContent: {
+    padding: 16,
+  },
+  attentionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  attentionEmoji: {
+    fontSize: 16,
+    marginRight: 8,
+  },
+  attentionTitle: {
+    fontSize: 15,
+    fontFamily: 'Urbanist-SemiBold',
+    color: '#FF3B5C',
+  },
+  serviceItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0, 0, 0, 0.06)',
+  },
+  serviceItemLeft: {
+    flex: 1,
+  },
+  serviceName: {
+    fontSize: 14,
+    fontFamily: 'Urbanist-Medium',
+    color: '#1a1a1a',
+  },
+  serviceDue: {
+    fontSize: 12,
+    fontFamily: 'Urbanist-Regular',
+    color: '#666',
+    marginTop: 2,
+  },
+  statusBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  overdueBadge: {
+    backgroundColor: 'rgba(255, 59, 92, 0.12)',
+  },
+  dueSoonBadge: {
+    backgroundColor: 'rgba(255, 214, 10, 0.2)',
+  },
+  statusText: {
+    fontSize: 10,
+    fontFamily: 'Urbanist-Bold',
+    letterSpacing: 0.5,
+  },
+  overdueText: {
+    color: '#FF3B5C',
+  },
+  dueSoonText: {
+    color: '#B8860B',
+  },
+  serviceNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 2,
+  },
+  actionDescription: {
+    fontSize: 12,
+    fontFamily: 'Urbanist-Regular',
+    color: '#5299FE',
+    marginTop: 4,
+  },
+  scoreImpactBadgeLarge: {
+    backgroundColor: 'rgba(48, 209, 88, 0.15)',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    alignItems: 'center',
+    minWidth: 50,
+  },
+  scoreImpactTextLarge: {
+    fontSize: 18,
+    fontFamily: 'Urbanist-Bold',
+    color: '#30D158',
+  },
+  scoreImpactLabel: {
+    fontSize: 10,
+    fontFamily: 'Urbanist-Medium',
+    color: '#30D158',
+  },
+  totalImprovementRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: 16,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(0, 0, 0, 0.08)',
+  },
+  totalImprovementLabel: {
+    fontSize: 14,
+    fontFamily: 'Urbanist-Medium',
+    color: '#666',
+  },
+  totalImprovementValue: {
+    fontSize: 16,
+    fontFamily: 'Urbanist-Bold',
+    color: '#30D158',
+  },
+  scheduleButtonContainer: {
+    paddingHorizontal: 24,
+    paddingBottom: 20,
+    paddingTop: 8,
+    backgroundColor: '#fff',
+  },
+  scheduleButton: {
+    borderRadius: 25,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  scheduleButtonBlur: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  scheduleButtonGloss: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: '50%',
+  },
+  scheduleButtonContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingVertical: 16,
+  },
+  scheduleButtonText: {
+    fontSize: 16,
+    fontFamily: 'Urbanist-SemiBold',
+    color: '#fff',
+  },
+});
+
+// ============================================================================
+// APPLE ACTIVITY RINGS COMPONENT
+// ============================================================================
+
+interface ActivityRingsProps {
+  healthPercentage: number;
+  maintenancePercentage?: number;
+  servicePercentage?: number;
+  size?: number;
+  onPress?: () => void;
+}
+
+const ActivityRings = ({ 
+  healthPercentage, 
+  size = 72,
+  onPress,
+}: ActivityRingsProps) => {
+  const [animatedHealth, setAnimatedHealth] = useState(0);
+
+  useEffect(() => {
+    const duration = 1500;
+    const steps = 60;
+    const stepDuration = duration / steps;
+    let currentStep = 0;
+
+    const interval = setInterval(() => {
+      currentStep++;
+      const progress = 1 - Math.pow(1 - currentStep / steps, 3);
+      setAnimatedHealth(progress * healthPercentage);
+
+      if (currentStep >= steps) clearInterval(interval);
+    }, stepDuration);
+
+    return () => clearInterval(interval);
+  }, [healthPercentage]);
+
+  const strokeWidth = 8;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const strokeDashoffset = circumference * (1 - animatedHealth / 100);
+  const center = size / 2;
+
+  // Color based on health percentage
+  const getColor = () => {
+    if (healthPercentage >= 75) return '#30D158'; // Green
+    if (healthPercentage >= 60) return '#FFD60A'; // Yellow
+    return '#FF3B30'; // Red
+  };
+  const ringColor = getColor();
+
+  const content = (
+    <View style={{ position: 'relative' }}>
+      <Svg width={size} height={size}>
+        <Defs>
+          <SvgLinearGradient id="ringGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+            <Stop offset="0%" stopColor={ringColor} />
+            <Stop offset="50%" stopColor={ringColor} stopOpacity={0.9} />
+            <Stop offset="100%" stopColor={ringColor} stopOpacity={0.8} />
+          </SvgLinearGradient>
+        </Defs>
+
+        {/* Background track */}
+        <Circle
+          cx={center}
+          cy={center}
+          r={radius}
+          stroke={ringColor}
+          strokeWidth={strokeWidth}
+          fill="none"
+          opacity={0.15}
+        />
+        {/* Progress ring */}
+        <Circle
+          cx={center}
+          cy={center}
+          r={radius}
+          stroke="url(#ringGradient)"
+          strokeWidth={strokeWidth}
+          fill="none"
+          strokeDasharray={circumference}
+          strokeDashoffset={strokeDashoffset}
+          strokeLinecap="round"
+          rotation={-90}
+          origin={`${center}, ${center}`}
+        />
+        {/* Glow effect */}
+        <Circle
+          cx={center}
+          cy={center}
+          r={radius}
+          stroke={ringColor}
+          strokeWidth={strokeWidth + 4}
+          fill="none"
+          strokeDasharray={circumference}
+          strokeDashoffset={strokeDashoffset}
+          strokeLinecap="round"
+          rotation={-90}
+          origin={`${center}, ${center}`}
+          opacity={0.2}
+        />
+      </Svg>
+      {/* Centered percentage */}
+      <View style={activityRingStyles.centerContainer}>
+        <Text style={[activityRingStyles.percentageText, { color: ringColor }]}>
+          {Math.round(animatedHealth)}%
+        </Text>
+      </View>
+    </View>
+  );
+
+  if (onPress) {
+    return <Pressable onPress={onPress}>{content}</Pressable>;
+  }
+
+  return content;
+};
+
+const activityRingStyles = StyleSheet.create({
+  centerContainer: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  percentageText: {
+    fontSize: 16,
+    fontFamily: 'Urbanist-Bold',
+  },
+});
+
+// ============================================================================
+// 3D CAROUSEL ITEM COMPONENT
+// ============================================================================
+
+interface CarouselItemProps {
+  item: Vehicle;
+  index: number;
+  rotation: SharedValue<number>;
+  totalItems: number;
+}
+
+const CircularCarouselItem = ({ item, index, rotation, totalItems }: CarouselItemProps) => {
+  const imageSource = item.imageSource || (item.make === 'Lamborghini' ? BLUE_LAMBO_IMAGE : DEFAULT_VEHICLE_IMAGE);
+
+  const animatedStyle = useAnimatedStyle(() => {
+    const anglePerItem = (2 * Math.PI) / totalItems;
+    const baseAngle = index * anglePerItem;
+    const currentAngle = baseAngle - rotation.value;
+
+    // Calculate position on a wider arc (not full circle)
+    const x = Math.sin(currentAngle) * RADIUS * 1.2;
+    const z = Math.cos(currentAngle) * RADIUS - RADIUS;
+
+    // Scale based on Z position - front car is full size
+    const scale = interpolate(
+      z,
+      [-RADIUS * 2, -RADIUS, 0],
+      [0.5, 0.65, 1],
+      Extrapolate.CLAMP
+    );
+
+    // Opacity - hide cars further back more aggressively
+    const opacity = interpolate(
+      z,
+      [-RADIUS * 2, -RADIUS * 1.2, -RADIUS * 0.5, 0],
+      [0, 0.15, 0.4, 1],
+      Extrapolate.CLAMP
+    );
+
+    return {
+      transform: [
+        { translateX: x },
+        { scale },
+      ],
+      opacity,
+      zIndex: Math.round(z + 1000),
+    };
+  });
+
+  return (
+    <ReAnimated.View style={[styles.carouselCard, animatedStyle]}>
+      {/* Logo - Absolutely positioned behind car */}
+      {item.logoSource && (
+        <View style={[
+          styles.logoContainer,
+          item.make === 'Lamborghini' ? styles.logoContainerLambo : styles.logoContainerLexus
+        ]}>
+          <Image
+            source={item.logoSource}
+            style={[
+              styles.carouselLogo,
+              item.make === 'Lamborghini' ? styles.carouselLogoLambo : styles.carouselLogoLexus
+            ]}
+            resizeMode="contain"
+          />
+        </View>
+      )}
+      
+      {/* Car Image */}
+      <Image
+        source={imageSource}
+        style={[
+          styles.carouselCarImage,
+          item.make === 'Lexus' && styles.carouselCarImageLexus,
+          item.make === 'Lamborghini' && styles.carouselCarImageLambo
+        ]}
+        resizeMode="contain"
+      />
+      
+      {/* Simple Reflection */}
+      <Image
+        source={imageSource}
+        style={[
+          styles.carouselReflection,
+          item.make === 'Lexus' && styles.carouselReflectionLexus,
+          item.make === 'Lamborghini' && styles.carouselReflectionLambo
+        ]}
+        resizeMode="contain"
+      />
+    </ReAnimated.View>
+  );
+};
+
+// ============================================================================
+// MAIN COMPONENT
 // ============================================================================
 
 export function CarCarousel({
@@ -92,338 +1219,478 @@ export function CarCarousel({
   onEditMileage,
   onToggleDefault,
   onActiveIndexChange,
+  isFocused,
 }: CarCarouselProps) {
+  // Sort vehicles so default car is first
+  const sortedVehicles = [...vehicles].sort((a, b) => {
+    if (a.isDefault && !b.isDefault) return -1;
+    if (!a.isDefault && b.isDefault) return 1;
+    return 0;
+  });
+
   const [activeIndex, setActiveIndex] = useState(0);
-  const [showDetails, setShowDetails] = useState(false);
-  const scrollX = useRef(new Animated.Value(0)).current;
-  const flatListRef = useRef<FlatList>(null);
+  const rotation = useSharedValue(0);
+  const anglePerItem = (2 * Math.PI) / sortedVehicles.length;
+  const lastUpdatedIndex = useSharedValue(0);
 
-  // Animation values for details overlay
-  const overlayOpacity = useRef(new Animated.Value(0)).current;
-  const item1Opacity = useRef(new Animated.Value(0)).current;
-  const item2Opacity = useRef(new Animated.Value(0)).current;
-  const item3Opacity = useRef(new Animated.Value(0)).current;
-  const item1TranslateY = useRef(new Animated.Value(20)).current;
-  const item2TranslateY = useRef(new Animated.Value(20)).current;
-  const item3TranslateY = useRef(new Animated.Value(20)).current;
+  // Bottom sheet state
+  const [showBottomSheet, setShowBottomSheet] = useState(false);
+  const [sheetMode, setSheetMode] = useState<'main' | 'modelYear' | 'mileage' | 'nextService'>('main');
+  const [editMileage, setEditMileage] = useState('');
+  const [editYear, setEditYear] = useState('');
 
-  const activeVehicle = vehicles[activeIndex];
+  // Vehicle Health Modal state
+  const [showHealthModal, setShowHealthModal] = useState(false);
 
-  const handleScroll = Animated.event(
-    [{ nativeEvent: { contentOffset: { x: scrollX } } }],
-    { useNativeDriver: true }
-  );
+  // Bottom sheet animation values
+  const sheetTranslateY = useRef(new Animated.Value(300)).current;
+  const backdropOpacity = useRef(new Animated.Value(0)).current;
+  const sheetHeight = useRef(new Animated.Value(280)).current;
 
-  const handleMomentumScrollEnd = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const offsetX = event.nativeEvent.contentOffset.x;
-    const newIndex = Math.round(offsetX / SCREEN_WIDTH);
-    if (newIndex >= 0 && newIndex < vehicles.length) {
-      if (newIndex !== activeIndex) {
-        setActiveIndex(newIndex);
-        onActiveIndexChange?.(newIndex);
-        // Close details when switching cars
-        if (showDetails) {
-          setShowDetails(false);
-          overlayOpacity.setValue(0);
-          item1Opacity.setValue(0);
-          item2Opacity.setValue(0);
-          item3Opacity.setValue(0);
-        }
+  const SHEET_HEIGHTS = {
+    main: 280,
+    modelYear: 200,
+    mileage: 200,
+    nextService: 320,
+  };
+
+  const activeVehicle = sortedVehicles[activeIndex];
+
+  // Calculate overall vehicle condition (same as in modal)
+  // This should match the calculation inside VehicleHealthModal
+  const maintenanceCompleted = 7;
+  const maintenanceTotal = 10;
+  const vehicleMileage = 45000;
+  const getMileageScoreForRing = (miles: number) => {
+    if (miles <= 30000) return 100;
+    if (miles <= 60000) return 90;
+    if (miles <= 100000) return 75;
+    if (miles <= 150000) return 55;
+    return 35;
+  };
+  const maintenanceScoreForRing = Math.round((maintenanceCompleted / maintenanceTotal) * 100);
+  const usageScoreForRing = getMileageScoreForRing(vehicleMileage);
+  const overallCondition = Math.round((maintenanceScoreForRing * 0.7) + (usageScoreForRing * 0.3));
+
+  // Update active index callback - immediate, no delays
+  const updateActiveIndex = (newIndex: number) => {
+    setActiveIndex(newIndex);
+    // Call parent callback immediately - no async delays
+    onActiveIndexChange?.(newIndex);
+    if (showBottomSheet) {
+      closeBottomSheet();
+    }
+  };
+
+  // Pan gesture for rotating carousel
+  const lastTranslationX = useSharedValue(0);
+  
+  // Sync lastUpdatedIndex when activeIndex changes externally (e.g., thumbnail clicks)
+  useEffect(() => {
+    lastUpdatedIndex.value = activeIndex;
+  }, [activeIndex]);
+  
+  const panGesture = Gesture.Pan()
+    .onStart(() => {
+      lastTranslationX.value = 0;
+    })
+    .onUpdate((e) => {
+      const delta = e.translationX - lastTranslationX.value;
+      rotation.value += delta * 0.008;
+      lastTranslationX.value = e.translationX;
+      
+      // Update index in real-time during drag for instant gradient changes
+      const currentRotationInSteps = Math.round(rotation.value / anglePerItem);
+      const currentClosestIndex = (((-currentRotationInSteps % sortedVehicles.length) + sortedVehicles.length) % sortedVehicles.length);
+      
+      // Only update if the closest car has changed
+      if (currentClosestIndex !== lastUpdatedIndex.value) {
+        lastUpdatedIndex.value = currentClosestIndex;
+        runOnJS(updateActiveIndex)(currentClosestIndex);
       }
-    }
-  };
+    })
+    .onEnd((e) => {
+      const velocity = e.velocityX * 0.0005;
+      const targetRotation = rotation.value + velocity;
+      const nearestIndex = Math.round(targetRotation / anglePerItem);
+      const snappedRotation = nearestIndex * anglePerItem;
 
-  const handleDetailsPress = () => {
-    if (showDetails) {
-      // Close animation
-      Animated.sequence([
-        Animated.stagger(200, [
-          Animated.timing(item3Opacity, {
-            toValue: 0,
-            duration: 500,
-            easing: Easing.bezier(0.25, 0.1, 0.25, 1),
-            useNativeDriver: true,
-          }),
-          Animated.timing(item2Opacity, {
-            toValue: 0,
-            duration: 500,
-            easing: Easing.bezier(0.25, 0.1, 0.25, 1),
-            useNativeDriver: true,
-          }),
-          Animated.timing(item1Opacity, {
-            toValue: 0,
-            duration: 500,
-            easing: Easing.bezier(0.25, 0.1, 0.25, 1),
-            useNativeDriver: true,
-          }),
-        ]),
-        Animated.timing(overlayOpacity, {
-          toValue: 0,
-          duration: 800,
-          easing: Easing.bezier(0.25, 0.1, 0.25, 1),
-          useNativeDriver: true,
-        }),
-      ]).start(() => {
-        setShowDetails(false);
+      // Update index immediately so gradient starts changing right away
+      const normalizedIndex = (((-nearestIndex % sortedVehicles.length) + sortedVehicles.length) % sortedVehicles.length);
+      if (normalizedIndex !== lastUpdatedIndex.value) {
+        lastUpdatedIndex.value = normalizedIndex;
+      runOnJS(updateActiveIndex)(normalizedIndex);
+      }
+
+      // Slower spring animation - gives gradient time to render during rotation
+      rotation.value = withSpring(snappedRotation, {
+        damping: 25,
+        stiffness: 60, // Lower stiffness = slower animation
+        mass: 1.2, // Higher mass = slower movement
       });
-    } else {
-      setShowDetails(true);
-      // Reset values
-      overlayOpacity.setValue(0);
-      item1Opacity.setValue(0);
-      item2Opacity.setValue(0);
-      item3Opacity.setValue(0);
-      item1TranslateY.setValue(20);
-      item2TranslateY.setValue(20);
-      item3TranslateY.setValue(20);
+    });
 
-      // Open animation
-      Animated.sequence([
-        Animated.timing(overlayOpacity, {
-          toValue: 1,
-          duration: 600,
-          easing: Easing.bezier(0.25, 0.1, 0.25, 1),
-          useNativeDriver: true,
-        }),
-        Animated.stagger(300, [
-          Animated.parallel([
-            Animated.timing(item1Opacity, {
-              toValue: 1,
-              duration: 500,
-              easing: Easing.bezier(0.25, 0.1, 0.25, 1),
-              useNativeDriver: true,
-            }),
-            Animated.timing(item1TranslateY, {
-              toValue: 0,
-              duration: 500,
-              easing: Easing.bezier(0.25, 0.1, 0.25, 1),
-              useNativeDriver: true,
-            }),
-          ]),
-          Animated.parallel([
-            Animated.timing(item2Opacity, {
-              toValue: 1,
-              duration: 500,
-              easing: Easing.bezier(0.25, 0.1, 0.25, 1),
-              useNativeDriver: true,
-            }),
-            Animated.timing(item2TranslateY, {
-              toValue: 0,
-              duration: 500,
-              easing: Easing.bezier(0.25, 0.1, 0.25, 1),
-              useNativeDriver: true,
-            }),
-          ]),
-          Animated.parallel([
-            Animated.timing(item3Opacity, {
-              toValue: 1,
-              duration: 500,
-              easing: Easing.bezier(0.25, 0.1, 0.25, 1),
-              useNativeDriver: true,
-            }),
-            Animated.timing(item3TranslateY, {
-              toValue: 0,
-              duration: 500,
-              easing: Easing.bezier(0.25, 0.1, 0.25, 1),
-              useNativeDriver: true,
-            }),
-          ]),
-        ]),
-      ]).start();
+  // Rotate to specific index
+  const rotateToIndex = (targetIndex: number) => {
+    // Update index immediately so gradient starts changing right away
+    updateActiveIndex(targetIndex);
+    
+    const currentRotationInSteps = Math.round(rotation.value / anglePerItem);
+    const currentIndex = (((-currentRotationInSteps % sortedVehicles.length) + sortedVehicles.length) % sortedVehicles.length);
+    
+    let indexDiff = targetIndex - currentIndex;
+    
+    if (indexDiff > sortedVehicles.length / 2) {
+      indexDiff -= sortedVehicles.length;
+    } else if (indexDiff < -sortedVehicles.length / 2) {
+      indexDiff += sortedVehicles.length;
     }
+
+    const targetRotation = rotation.value - (indexDiff * anglePerItem);
+    
+    // Slower spring animation - gives gradient time to render during rotation
+    rotation.value = withSpring(targetRotation, {
+      damping: 25,
+      stiffness: 60, // Lower stiffness = slower animation
+      mass: 1.2, // Higher mass = slower movement
+    });
   };
 
-  const handleEditMileage = () => {
-    onEditMileage?.(activeVehicle.id);
+  // Bottom sheet functions
+  const openBottomSheet = () => {
+    setShowBottomSheet(true);
+    sheetTranslateY.setValue(300);
+    backdropOpacity.setValue(0);
+    
+    Animated.parallel([
+      Animated.spring(sheetTranslateY, {
+        toValue: 0,
+        tension: 65,
+        friction: 11,
+        useNativeDriver: false,
+      }),
+      Animated.timing(backdropOpacity, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+    ]).start();
   };
 
-  const handleToggleDefault = (value: boolean) => {
-    onToggleDefault?.(activeVehicle.id, value);
+  const closeBottomSheet = () => {
+    Animated.parallel([
+      Animated.timing(sheetTranslateY, {
+        toValue: 300,
+        duration: 250,
+        easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+        useNativeDriver: false,
+      }),
+      Animated.timing(backdropOpacity, {
+        toValue: 0,
+        duration: 200,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setShowBottomSheet(false);
+      setSheetMode('main');
+      sheetHeight.setValue(SHEET_HEIGHTS.main);
+    });
   };
 
   const detailItems = [
-    { label: 'Model Year', value: String(activeVehicle?.year || ''), opacity: item1Opacity, translateY: item1TranslateY, editable: false },
-    { label: 'Mileage', value: `${(activeVehicle?.mileage || 0).toLocaleString()} mi`, opacity: item2Opacity, translateY: item2TranslateY, editable: true },
-    { label: 'Next Service', value: activeVehicle?.nextServiceDate || 'Not Set', opacity: item3Opacity, translateY: item3TranslateY, editable: false },
+    { label: 'Model Year', value: String(activeVehicle?.year || ''), mode: 'modelYear' as const },
+    { label: 'Mileage', value: `${(activeVehicle?.mileage || 0).toLocaleString()} mi`, mode: 'mileage' as const },
+    { label: 'Next Service', value: activeVehicle?.nextServiceDate || 'Not Set', mode: 'nextService' as const },
   ];
 
-  const renderCarCard = ({ item, index }: { item: Vehicle; index: number }) => {
-    const inputRange = [
-      (index - 1) * SCREEN_WIDTH,
-      index * SCREEN_WIDTH,
-      (index + 1) * SCREEN_WIDTH,
-    ];
+  const handleDetailPress = (mode: 'modelYear' | 'mileage' | 'nextService') => {
+    if (mode === 'mileage') {
+      setEditMileage(String(activeVehicle?.mileage || ''));
+    } else if (mode === 'modelYear') {
+      setEditYear(String(activeVehicle?.year || ''));
+    }
+    setSheetMode(mode);
+    
+    Animated.spring(sheetHeight, {
+      toValue: SHEET_HEIGHTS[mode],
+      useNativeDriver: false,
+      tension: 65,
+      friction: 11,
+    }).start();
+  };
 
-    const scale = scrollX.interpolate({
-      inputRange,
-      outputRange: [0.9, 1, 0.9],
-      extrapolate: 'clamp',
-    });
-
-    const opacity = scrollX.interpolate({
-      inputRange,
-      outputRange: [0.7, 1, 0.7],
-      extrapolate: 'clamp',
-    });
-
-    // Use appropriate image based on index or provided imageSource
-    const imageSource = item.imageSource || (index === 1 ? BLUE_LAMBO_IMAGE : DEFAULT_VEHICLE_IMAGE);
-
-    return (
-      <Animated.View style={[styles.cardContainer, { transform: [{ scale }], opacity }]}>
-        <View style={styles.card}>
-          {/* Car Title */}
-          <View style={[styles.cardHeader, index === 1 && { marginLeft: -38 }]}>
-            <Text weight="bold" size="2xl" color={Colors.light.text}>
-              {item.make}
-            </Text>
-            <Text weight="bold" size="2xl" color={Colors.light.text}>
-              {item.model}
-            </Text>
-            {item.vin && (
-              <Text weight="medium" size="sm" color={BrandColors.secondary}>
-                {item.vin}
-              </Text>
-            )}
-          </View>
-
-          {/* Car Image */}
-          <View style={[styles.imageWrapper, index === 1 && { marginLeft: -40 }]}>
-            <Image
-              source={imageSource}
-              style={styles.image}
-              resizeMode="contain"
-            />
-            {/* Car shadow */}
-            <View style={styles.carShadow} />
-
-            {/* Details Overlay - only show on active card */}
-            {showDetails && index === activeIndex && (
-              <Animated.View style={[styles.detailsOverlay, { opacity: overlayOpacity }]}>
-                <BlurView intensity={25} tint="light" style={styles.blurView}>
-                  <View style={styles.blurOverlayBackground} />
-                  <Pressable style={styles.overlayContent} onPress={handleDetailsPress}>
-                    {detailItems.map((detailItem) => (
-                      <Animated.View
-                        key={detailItem.label}
-                        style={[
-                          styles.detailItem,
-                          {
-                            opacity: detailItem.opacity,
-                            transform: [{ translateY: detailItem.translateY }],
-                          },
-                        ]}
-                      >
-                        <Text size="xs" color="#6B7280" style={styles.detailLabel}>
-                          {detailItem.label}
-                        </Text>
-                        <View style={styles.valueRow}>
-                          <Text weight="bold" size="xl" color={Colors.light.text}>
-                            {detailItem.value}
-                          </Text>
-                          {detailItem.editable && (
-                            <Pressable
-                              onPress={handleEditMileage}
-                              style={({ pressed }) => [
-                                styles.editButton,
-                                pressed && styles.editButtonPressed,
-                              ]}
-                            >
-                              <Edit2 size={16} color={Colors.light.text} />
-                            </Pressable>
-                          )}
-                        </View>
-                      </Animated.View>
-                    ))}
-                  </Pressable>
-                </BlurView>
-              </Animated.View>
-            )}
-          </View>
-        </View>
-      </Animated.View>
-    );
+  const handleBackToMain = () => {
+    setSheetMode('main');
+    
+    Animated.spring(sheetHeight, {
+      toValue: SHEET_HEIGHTS.main,
+      useNativeDriver: false,
+      tension: 65,
+      friction: 11,
+    }).start();
   };
 
   return (
     <View style={styles.container}>
-      {/* Carousel */}
-      <Animated.FlatList
-        ref={flatListRef}
-        data={vehicles}
-        renderItem={renderCarCard}
-        keyExtractor={(item) => item.id}
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        pagingEnabled
-        decelerationRate="fast"
-        onScroll={handleScroll}
-        onMomentumScrollEnd={handleMomentumScrollEnd}
-        scrollEventThrottle={16}
-      />
-
-      {/* Pagination Dots */}
-      <View style={styles.pagination}>
-        {vehicles.map((_, index) => {
-          const inputRange = [
-            (index - 1) * SCREEN_WIDTH,
-            index * SCREEN_WIDTH,
-            (index + 1) * SCREEN_WIDTH,
-          ];
-
-          const dotScale = scrollX.interpolate({
-            inputRange,
-            outputRange: [1, 1.4, 1],
-            extrapolate: 'clamp',
-          });
-
-          const dotOpacity = scrollX.interpolate({
-            inputRange,
-            outputRange: [0.4, 1, 0.4],
-            extrapolate: 'clamp',
-          });
-
-          return (
-            <Animated.View
-              key={index}
-              style={[
-                styles.dot,
-                {
-                  transform: [{ scale: dotScale }],
-                  opacity: dotOpacity,
-                },
-              ]}
+      {/* 3D Circular Carousel */}
+      <GestureDetector gesture={panGesture}>
+        <View style={styles.carouselContainer}>
+          {sortedVehicles.map((item, index) => (
+            <CircularCarouselItem
+              key={item.id}
+              item={item}
+              index={index}
+              rotation={rotation}
+              totalItems={sortedVehicles.length}
             />
-          );
-        })}
+          ))}
+        </View>
+      </GestureDetector>
+
+      {/* Active Car Info */}
+      <View style={styles.activeCarInfo}>
+        <Text style={[
+          styles.heroCarName,
+          activeVehicle?.make === 'Lamborghini' && styles.heroCarNameLight
+        ]}>{activeVehicle?.make} {activeVehicle?.model}</Text>
+        <Text style={[
+          styles.heroCarMeta,
+          activeVehicle?.make === 'Lamborghini' && styles.heroCarMetaLight
+        ]}>
+          {activeVehicle?.mileage.toLocaleString()} mi  |  {activeVehicle?.year}
+        </Text>
       </View>
 
-      {/* Car Details Button */}
-      <Pressable
-        onPress={handleDetailsPress}
-        style={({ pressed }) => [
-          styles.detailsButton,
-          pressed && styles.detailsButtonPressed,
-        ]}
-      >
-        <Text weight="semiBold" size="md" color={BrandColors.white} style={styles.buttonText}>
-          {showDetails ? 'Hide Details' : 'Car Details'}
-        </Text>
-      </Pressable>
 
-      {/* Default Car Toggle */}
-      <View style={styles.toggleRow}>
-        <Text weight="medium" size="sm" color="#4B5563">
-          Set as Default Car
-        </Text>
-        <Switch
-          value={activeVehicle?.isDefault || false}
-          onValueChange={handleToggleDefault}
-          thumbColor={activeVehicle?.isDefault ? BrandColors.white : '#f4f3f4'}
-          trackColor={{ false: '#D1D5DB', true: BrandColors.secondary }}
-          style={styles.switch}
+      {/* Thumbnail Selector with Activity Rings */}
+      <View style={styles.thumbnailRow}>
+        <View style={styles.thumbnailSelector}>
+          {sortedVehicles.map((vehicle, index) => {
+            const imageSource = vehicle.imageSource || (vehicle.make === 'Lamborghini' ? BLUE_LAMBO_IMAGE : DEFAULT_VEHICLE_IMAGE);
+            const isActive = index === activeIndex;
+            
+            return (
+              <Pressable
+                key={vehicle.id}
+                onPress={() => rotateToIndex(index)}
+                style={[
+                  styles.thumbnailButton,
+                  isActive && styles.thumbnailButtonActive,
+                ]}
+              >
+                <Image
+                  source={imageSource}
+                  style={styles.thumbnailImage}
+                  resizeMode="contain"
+                />
+              </Pressable>
+            );
+          })}
+          
+          <Pressable style={styles.addCarButton}>
+            <Plus size={18} color="#000000" />
+          </Pressable>
+        </View>
+
+        {/* Activity Rings - Vehicle Condition */}
+        <ActivityRings 
+          healthPercentage={overallCondition}
+          maintenancePercentage={78}
+          servicePercentage={92}
+          size={72}
+          onPress={() => setShowHealthModal(true)}
         />
       </View>
+
+      {/* Separator */}
+      <View style={styles.separatorContainer}>
+        <View style={styles.separator} />
+        <View 
+          style={[
+            styles.separatorIndicator, 
+            { left: Spacing.lg + (activeIndex * (48 + Spacing.sm)) }
+          ]} 
+        />
+      </View>
+
+      {/* Bottom Sheet Modal */}
+      <Modal
+        visible={showBottomSheet}
+        transparent
+        animationType="none"
+        onRequestClose={closeBottomSheet}
+      >
+        <KeyboardAvoidingView 
+          style={styles.modalContainer}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={40}
+        >
+          <Animated.View 
+            style={[styles.backdrop, { opacity: backdropOpacity }]}
+          >
+            <Pressable style={StyleSheet.absoluteFill} onPress={closeBottomSheet} />
+          </Animated.View>
+
+          <Animated.View 
+            style={[
+              styles.bottomSheet,
+              { 
+                transform: [{ translateY: sheetTranslateY }],
+                height: sheetHeight,
+              }
+            ]}
+          >
+            {sheetMode !== 'main' && (
+              <Pressable style={styles.backButton} onPress={handleBackToMain}>
+                <ChevronLeft size={24} color="#6B7280" />
+              </Pressable>
+            )}
+
+            <Pressable style={styles.closeButton} onPress={closeBottomSheet}>
+              <X size={24} color="#6B7280" />
+            </Pressable>
+
+            {/* Main View */}
+            {sheetMode === 'main' && (
+              <View style={styles.sheetContent}>
+                <Image
+                  source={
+                    activeVehicle?.make === 'Lamborghini'
+                      ? require('@/assets/images/LamboLogo.png')
+                      : require('@/assets/images/LexusLogo.png')
+                  }
+                  style={styles.sheetLogo}
+                  resizeMode="contain"
+                />
+
+                <View style={styles.detailsGrid}>
+                  {detailItems.map((detailItem) => (
+                    <Pressable 
+                      key={detailItem.label} 
+                      style={({ pressed }) => [
+                        styles.sheetDetailItem,
+                        pressed && styles.detailItemPressed,
+                      ]}
+                      onPress={() => handleDetailPress(detailItem.mode)}
+                    >
+                      <Text size="xs" color="#6B7280" style={styles.detailLabel}>
+                        {detailItem.label}
+                      </Text>
+                      <View style={styles.valueRow}>
+                        <Text weight="bold" size="lg" color={Colors.light.text}>
+                          {detailItem.value}
+                        </Text>
+                        <ChevronRight size={18} color="#9CA3AF" />
+                      </View>
+                    </Pressable>
+                  ))}
+                </View>
+              </View>
+            )}
+
+            {/* Model Year Edit */}
+            {sheetMode === 'modelYear' && (
+              <View style={styles.sheetContent}>
+                <Text weight="bold" size="xl" color={Colors.light.text} style={styles.sheetTitle}>
+                  Edit Model Year
+                </Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={editYear}
+                  onChangeText={setEditYear}
+                  keyboardType="number-pad"
+                  placeholder="Enter year"
+                  placeholderTextColor="#9CA3AF"
+                />
+                <Pressable 
+                  style={({ pressed }) => [styles.saveButton, pressed && styles.saveButtonPressed]}
+                  onPress={handleBackToMain}
+                >
+                  <Text weight="semiBold" size="md" color="#FFFFFF">Save Changes</Text>
+                </Pressable>
+              </View>
+            )}
+
+            {/* Mileage Edit */}
+            {sheetMode === 'mileage' && (
+              <View style={styles.sheetContent}>
+                <Text weight="bold" size="xl" color={Colors.light.text} style={styles.sheetTitle}>
+                  Update Mileage
+                </Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={editMileage}
+                  onChangeText={setEditMileage}
+                  keyboardType="number-pad"
+                  placeholder="Enter mileage"
+                  placeholderTextColor="#9CA3AF"
+                />
+                <Pressable 
+                  style={({ pressed }) => [styles.saveButton, pressed && styles.saveButtonPressed]}
+                  onPress={() => {
+                    if (activeVehicle && onEditMileage) {
+                      onEditMileage(activeVehicle.id);
+                    }
+                    handleBackToMain();
+                  }}
+                >
+                  <Text weight="semiBold" size="md" color="#FFFFFF">Save Changes</Text>
+                </Pressable>
+              </View>
+            )}
+
+            {/* Next Service Options */}
+            {sheetMode === 'nextService' && (
+              <View style={styles.sheetContent}>
+                <Text weight="bold" size="xl" color={Colors.light.text} style={styles.sheetTitle}>
+                  Service Options
+                </Text>
+                <View style={styles.serviceOptions}>
+                  <Pressable 
+                    style={({ pressed }) => [styles.serviceOption, pressed && styles.serviceOptionPressed]}
+                    onPress={handleBackToMain}
+                  >
+                    <View style={[styles.serviceOptionIcon, { backgroundColor: '#EBF5FF' }]}>
+                      <Calendar size={20} color={BrandColors.secondary} />
+                    </View>
+                    <Text weight="medium" size="md" color={Colors.light.text}>Reschedule</Text>
+                  </Pressable>
+
+                  <Pressable 
+                    style={({ pressed }) => [styles.serviceOption, pressed && styles.serviceOptionPressed]}
+                    onPress={handleBackToMain}
+                  >
+                    <View style={[styles.serviceOptionIcon, { backgroundColor: '#FEE2E2' }]}>
+                      <XCircle size={20} color="#EF4444" />
+                    </View>
+                    <Text weight="medium" size="md" color={Colors.light.text}>Cancel</Text>
+                  </Pressable>
+
+                  <Pressable 
+                    style={({ pressed }) => [styles.serviceOption, pressed && styles.serviceOptionPressed]}
+                    onPress={handleBackToMain}
+                  >
+                    <View style={[styles.serviceOptionIcon, { backgroundColor: '#D1FAE5' }]}>
+                      <Check size={20} color="#10B981" />
+                    </View>
+                    <Text weight="medium" size="md" color={Colors.light.text}>Mark as Done</Text>
+                  </Pressable>
+                </View>
+              </View>
+            )}
+          </Animated.View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Vehicle Health Modal */}
+      <VehicleHealthModal
+        visible={showHealthModal}
+        onClose={() => setShowHealthModal(false)}
+        vehicleName={activeVehicle ? `${activeVehicle.make} ${activeVehicle.model}` : 'Vehicle'}
+        healthPercentage={activeVehicle?.condition || 85}
+        maintenancePercentage={78}
+        servicePercentage={92}
+      />
     </View>
   );
 }
@@ -434,73 +1701,228 @@ export function CarCarousel({
 
 const styles = StyleSheet.create({
   container: {
-    width: '100%',
+    flex: 1,
   },
-  cardContainer: {
-    width: SCREEN_WIDTH,
-    paddingLeft: 8,
-    paddingRight: 24,
-  },
-  card: {
-    backgroundColor: 'transparent',
-  },
-  cardHeader: {
-    paddingBottom: Spacing.sm,
-    gap: 2,
-    alignItems: 'flex-start', // Keep title left-aligned
-  },
-  imageWrapper: {
-    width: '100%',
-    aspectRatio: 16 / 10,
-    justifyContent: 'center',
+  
+  // 3D Carousel Styles
+  carouselContainer: {
+    height: SCREEN_HEIGHT * 0.38,
     alignItems: 'center',
+    justifyContent: 'center',
     position: 'relative',
-    marginLeft: -16,
+    marginTop: 60,
   },
-  image: {
-    width: '100%',
-    height: '100%',
-  },
-  carShadow: {
+  carouselCard: {
+    width: CAR_CARD_WIDTH,
+    height: CAR_CARD_HEIGHT,
+    alignItems: 'center',
+    justifyContent: 'center',
     position: 'absolute',
+  },
+  logoContainer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
     bottom: 0,
-    left: '15%',
-    right: '15%',
-    height: 30,
-    backgroundColor: 'transparent',
-    borderRadius: 100,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 15 },
-    shadowOpacity: 0.4,
-    shadowRadius: 20,
-    elevation: 20,
-    transform: [{ scaleX: 1.5 }],
-  },
-  // Details overlay
-  detailsOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: 20,
-    overflow: 'hidden',
-  },
-  blurView: {
-    flex: 1,
-    position: 'relative',
-  },
-  blurOverlayBackground: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(255, 255, 255, 0.4)',
-  },
-  overlayContent: {
-    flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    padding: Spacing.lg,
-    gap: Spacing.md,
   },
-  detailItem: {
+  logoContainerLexus: {
+    top: -280,
+  },
+  logoContainerLambo: {
+    top: -240,
+  },
+  carouselLogo: {
+    opacity: 0.08,
+  },
+  carouselLogoLexus: {
+    width: 280,
+    height: 280,
+  },
+  carouselLogoLambo: {
+    width: 240,
+    height: 240,
+  },
+  carouselCarImage: {
+    width: '115%',
+    height: 210,
+    zIndex: 1,
+    marginTop: 30,
+  },
+  carouselCarImageLexus: {
+    width: '100%',
+    height: 170,
+    marginTop: 30,
+  },
+  carouselCarImageLambo: {
+    marginTop: 110,
+  },
+  carouselReflection: {
+    width: '120%',
+    height: 220,
+    transform: [{ scaleY: -1 }],
+    opacity: 0.03,
+    marginTop: -20,
+  },
+  carouselReflectionLexus: {
+    width: '105%',
+    height: 170,
+    opacity: 0.03,
+    marginTop: -60,
+  },
+  carouselReflectionLambo: {
+    width: '115%',
+    height: 210,
+    opacity: 0.04,
+    marginTop: -50,
+    transform: [{ scaleY: -1 }, { translateY: 40 }],
+  },
+  
+  // Active Car Info
+  activeCarInfo: {
     alignItems: 'center',
-    gap: 2,
-    paddingVertical: Spacing.xs,
+    marginTop: -100,
+  },
+  heroCarName: {
+    color: '#000000',
+    fontSize: 24,
+    fontWeight: '700',
+  },
+  heroCarNameLight: {
+    color: '#ffffff',
+  },
+  heroCarMeta: {
+    marginTop: 4,
+    color: '#000000',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  heroCarMetaLight: {
+    color: 'rgba(255, 255, 255, 0.8)',
+  },
+  
+  // Thumbnail Row
+  thumbnailRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginTop: Spacing.sm,
+    marginHorizontal: Spacing.lg,
+  },
+  thumbnailSelector: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: Spacing.sm,
+  },
+  thumbnailButton: {
+    width: 48,
+    height: 48,
+    borderRadius: 10,
+    backgroundColor: 'transparent',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  thumbnailButtonActive: {},
+  thumbnailImage: {
+    width: 36,
+    height: 36,
+  },
+  addCarButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'transparent',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#000000',
+  },
+  
+  // Separator
+  separatorContainer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+  },
+  separator: {
+    height: 1.5,
+    backgroundColor: '#C4C9D4',
+  },
+  separatorIndicator: {
+    position: 'absolute',
+    top: -1,
+    width: 48,
+    height: 3,
+    backgroundColor: BrandColors.secondary,
+    borderRadius: 1.5,
+  },
+  
+  
+  // Modal Styles
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingBottom: 24,
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+  },
+  bottomSheet: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 50,
+    width: '100%',
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.lg,
+    paddingTop: Spacing.xs,
+    marginBottom: 10,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 10,
+  },
+  backButton: {
+    position: 'absolute',
+    top: Spacing.md,
+    left: Spacing.lg,
+    padding: 8,
+  },
+  closeButton: {
+    position: 'absolute',
+    top: Spacing.md,
+    right: Spacing.lg,
+    padding: 8,
+  },
+  sheetContent: {
+    alignItems: 'center',
+    paddingTop: 40,
+  },
+  sheetLogo: {
+    width: 80,
+    height: 90,
+    marginBottom: Spacing.sm,
+    marginTop: Spacing.xs,
+  },
+  detailsGrid: {
+    width: '100%',
+    gap: Spacing.sm,
+  },
+  sheetDetailItem: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+  },
+  detailItemPressed: {
+    backgroundColor: '#F3F4F6',
   },
   detailLabel: {
     textTransform: 'uppercase',
@@ -512,61 +1934,54 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
   },
-  editButton: {
-    padding: 4,
-  },
-  editButtonPressed: {
-    opacity: 0.6,
-  },
-  // Pagination dots
-  pagination: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: Spacing.md,
-    gap: 8,
-  },
-  dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#C4C4C4', // Very light grey
-  },
-  // Car Details Button
-  detailsButton: {
-    backgroundColor: BrandColors.secondary,
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.xl,
-    borderRadius: 12,
-    alignSelf: 'stretch',
-    marginHorizontal: Spacing.lg,
-    marginTop: Spacing.md,
-    shadowColor: BrandColors.secondary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
-  },
-  detailsButtonPressed: {
-    opacity: 0.9,
-    transform: [{ scale: 0.98 }],
-  },
-  buttonText: {
+  sheetTitle: {
+    marginBottom: Spacing.lg,
     textAlign: 'center',
   },
-  // Toggle row
-  toggleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+  textInput: {
+    width: '100%',
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.md,
-    marginTop: Spacing.sm,
+    fontSize: 18,
+    fontWeight: '600',
+    color: Colors.light.text,
+    marginBottom: Spacing.lg,
   },
-  switch: {
-    transform: [{ scaleX: 0.9 }, { scaleY: 0.9 }],
+  saveButton: {
+    width: '100%',
+    backgroundColor: BrandColors.secondary,
+    borderRadius: 12,
+    paddingVertical: Spacing.md,
+    alignItems: 'center',
+  },
+  saveButtonPressed: {
+    opacity: 0.9,
+  },
+  serviceOptions: {
+    width: '100%',
+    gap: Spacing.sm,
+  },
+  serviceOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#F9FAFB',
+    borderRadius: 12,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    gap: Spacing.md,
+  },
+  serviceOptionPressed: {
+    backgroundColor: '#F3F4F6',
+  },
+  serviceOptionIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
 });
 
 export default CarCarousel;
-

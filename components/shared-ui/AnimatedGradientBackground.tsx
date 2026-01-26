@@ -67,19 +67,27 @@ interface AnimatedGradientBackgroundProps {
     progress: SharedValue<number>;
     fromIndex: number;
     toIndex: number;
+    colors?: [string, string, string];
 }
 
 export function AnimatedGradientBackground({ 
     progress, 
     fromIndex, 
-    toIndex
+    toIndex,
+    colors
 }: AnimatedGradientBackgroundProps) {
     // Ensure we stay within bounds of the config array
     const safeFrom = Math.min(Math.max(0, fromIndex), SHARED_GRADIENT_CONFIGS.length - 1);
     const safeTo = Math.min(Math.max(0, toIndex), SHARED_GRADIENT_CONFIGS.length - 1);
     
-    const fromConfig = SHARED_GRADIENT_CONFIGS[safeFrom];
-    const toConfig = SHARED_GRADIENT_CONFIGS[safeTo];
+    const fromConfig = { ...SHARED_GRADIENT_CONFIGS[safeFrom] };
+    const toConfig = { ...SHARED_GRADIENT_CONFIGS[safeTo] };
+    
+    // Override colors if provided
+    if (colors) {
+        fromConfig.colors = colors;
+        toConfig.colors = colors;
+    }
     
     // State for current gradient positions (interpolated during animation)
     const [gradientPos, setGradientPos] = useState({

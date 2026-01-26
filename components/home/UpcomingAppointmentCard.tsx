@@ -33,6 +33,8 @@ import React from 'react';
 import { Pressable, StyleSheet, View } from 'react-native';
 
 // 2. Expo & Third-party
+import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 import { BriefcaseBusiness, CheckCircle, Star } from 'lucide-react-native';
 
 // 3. Shared UI
@@ -82,8 +84,29 @@ export function UpcomingAppointmentCard({
           pressed && styles.cardPressed,
         ]}
       >
-        {/* Top Section */}
-        <View style={styles.topSection}>
+        {/* Glassy/Glossy Effect Layers */}
+        <BlurView intensity={100} tint="light" style={StyleSheet.absoluteFill} />
+        <LinearGradient
+          colors={['rgba(255, 255, 255, 0.6)', 'rgba(255, 255, 255, 0.55)']}
+          style={StyleSheet.absoluteFill}
+        />
+        {/* Glossy top highlight - stronger */}
+        <LinearGradient
+          colors={['rgba(255, 255, 255, 0.7)', 'rgba(255, 255, 255, 0.3)', 'rgba(255, 255, 255, 0)']}
+          locations={[0, 0.2, 0.5]}
+          style={styles.glossyHighlight}
+        />
+        {/* Additional shine layer */}
+        <LinearGradient
+          colors={['rgba(255, 255, 255, 0.5)', 'rgba(255, 255, 255, 0)', 'rgba(255, 255, 255, 0)']}
+          locations={[0, 0.15, 0.4]}
+          style={styles.glossyShine}
+        />
+        
+        {/* Card Content */}
+        <View style={styles.cardContent} pointerEvents="box-none">
+          {/* Top Section */}
+          <View style={styles.topSection}>
           {/* Left - Business Info */}
           <View style={styles.businessInfo}>
             <View style={styles.iconContainer}>
@@ -140,6 +163,7 @@ export function UpcomingAppointmentCard({
             )}
           </View>
         </View>
+        </View>
       </Pressable>
     </View>
   );
@@ -157,16 +181,40 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
   card: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'transparent',
     borderRadius: 10,
+    overflow: 'hidden',
+    position: 'relative',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  cardContent: {
     padding: 20,
     paddingTop: 24,
     paddingBottom: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 2,
+    position: 'relative',
+    zIndex: 1,
+  },
+  glossyHighlight: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: '50%',
+    borderTopLeftRadius: 10,
+    borderTopRightRadius: 10,
+  },
+  glossyShine: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: '35%',
+    borderTopLeftRadius: 10,
+    borderTopRightRadius: 10,
   },
   cardPressed: {
     opacity: 0.95,
@@ -215,6 +263,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#F8F9FA',
     marginHorizontal: -20,
     marginBottom: -20,
+    marginTop: 20,
     paddingHorizontal: 20,
     paddingVertical: 10,
     borderBottomLeftRadius: 10,

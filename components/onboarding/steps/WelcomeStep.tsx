@@ -37,6 +37,7 @@ import {
     useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useAuthStore } from '@/stores/useAuthStore';
 
 interface WelcomeStepProps {
     onNext: () => void;
@@ -46,6 +47,7 @@ interface WelcomeStepProps {
 export function WelcomeStep({ onNext, onBack }: WelcomeStepProps) {
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
+    const { setIsNewUser } = useAuthStore();
 
     const dynamicStyles = {
         container: { paddingTop: insets.top + Spacing.lg },
@@ -58,13 +60,15 @@ export function WelcomeStep({ onNext, onBack }: WelcomeStepProps) {
     const buttonPaddingVertical = isCompact ? Spacing.sm : Spacing.lg;
 
     const handleGetStarted = () => {
-        console.log('Finished WelcomeStep');
+        console.log('Finished WelcomeStep - Create Account');
+        setIsNewUser(true); // User is creating a new account
         onNext();
     };
 
     const handleLogIn = () => {
         // TODO: Navigate to login screen
         console.log('Navigate to login');
+        setIsNewUser(false); // User is logging in (existing user)
         onBack();
     };
 

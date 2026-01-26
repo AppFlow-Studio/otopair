@@ -30,6 +30,7 @@ import {
 } from 'react-native';
 
 // 2. Expo & Third-party
+import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 
 // 3. Shared UI
@@ -39,7 +40,7 @@ import { Button, Text } from '@/components/shared-ui';
 import SharedElementModal, { LayoutInfo } from './SharedElementModal';
 
 // 5. Constants, hooks, types
-import { BorderRadius, BrandColors, Colors, Shadows, Spacing } from '@/constants/theme';
+import { BrandColors, Colors, Spacing } from '@/constants/theme';
 
 // ============================================================================
 // TYPES
@@ -109,28 +110,35 @@ export function ServiceHistory({
         ref={cardRef}
         onPress={handlePress}
         style={({ pressed }) => [
-          styles.collapsibleCard,
+          styles.cardOuter,
           pressed && styles.cardPressed,
         ]}
       >
-        {/* Preview Header */}
-        <View style={styles.headerSection}>
-          <View style={styles.collapsibleHeader}>
-            <View style={styles.headerTextContainer}>
-              <Text weight="semiBold" size="xl" color={Colors.light.text}>
-                Your Service History
-              </Text>
-              <Text size="sm" color={BrandColors.secondary}>
-                {records.length} past service{records.length !== 1 ? 's' : ''}
-              </Text>
-            </View>
+        {/* Frosted glass blur layer */}
+        <BlurView intensity={22} tint="light" style={styles.blurContainer}>
+          {/* White overlay for frosted effect */}
+          <View style={styles.whiteOverlay} />
+        </BlurView>
+        <View style={styles.collapsibleCard}>
+          {/* Preview Header */}
+          <View style={styles.headerSection}>
+            <View style={styles.collapsibleHeader}>
+              <View style={styles.headerTextContainer}>
+                <Text weight="semiBold" size="xl" color={Colors.light.text}>
+                  Your Service History
+                </Text>
+                <Text size="sm" color={Colors.light.text}>
+                  {records.length} past service{records.length !== 1 ? 's' : ''}
+                </Text>
+              </View>
 
-            {/* Arrow indicator */}
-            <Ionicons
-              name="chevron-forward"
-              size={24}
-              color="#9CA3AF"
-            />
+              {/* Arrow indicator */}
+              <Ionicons
+                name="chevron-forward"
+                size={24}
+                color="#D1D5DB"
+              />
+            </View>
           </View>
         </View>
       </Pressable>
@@ -220,6 +228,7 @@ export function ServiceHistory({
 const styles = StyleSheet.create({
   container: {
     marginTop: 24,
+    paddingHorizontal: Spacing.md,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -227,29 +236,50 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 12,
   },
-  collapsibleCard: {
-    backgroundColor: '#f9fafc',
-    borderRadius: BorderRadius.lg,
-    ...Shadows.sm,
+  cardOuter: {
+    borderRadius: 16,
     overflow: 'hidden',
+    position: 'relative',
+    // Frosted glass border
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.5)',
+    // Soft diffused shadow
+    shadowColor: 'rgba(0, 0, 0, 0.06)',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 1,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  blurContainer: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 16,
+  },
+  whiteOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255, 255, 255, 0.68)',
+  },
+  collapsibleCard: {
+    overflow: 'hidden',
+    backgroundColor: 'transparent',
+    borderRadius: 16,
   },
   cardPressed: {
     opacity: 0.9,
     transform: [{ scale: 0.98 }],
   },
   headerSection: {
-    backgroundColor: '#ffffff',
+    backgroundColor: 'transparent',
   },
   collapsibleHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.md,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   headerTextContainer: {
     flex: 1,
-    gap: 4,
+    gap: 6,
   },
   // Expanded modal content styles
   emptyState: {
@@ -289,16 +319,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   outlinedButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 14,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: 'rgba(255, 255, 255, 0.8)',
+    backgroundColor: 'rgba(255, 255, 255, 0.4)',
   },
   primaryButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 14,
+    backgroundColor: 'rgba(20, 28, 36, 0.9)',
+    shadowColor: 'rgba(0, 0, 0, 0.2)',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 8,
   },
 });
 

@@ -39,6 +39,7 @@ import {
 } from 'react-native';
 
 // 2. Expo & Third-party
+import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Coins, Gift, Star, Trophy } from 'lucide-react-native';
@@ -151,32 +152,39 @@ export function LoyaltyPoints({
         ref={cardRef}
         onPress={handlePress}
         style={({ pressed }) => [
-          styles.collapsibleCard,
+          styles.cardOuter,
           pressed && styles.cardPressed,
         ]}
       >
-        {/* Preview Header */}
-        <View style={styles.headerSection}>
-          <View style={styles.collapsibleHeader}>
-            <View style={styles.headerLeft}>
-              {/* Points Badge */}
-              <View style={styles.pointsBadge}>
-                <Coins size={16} color="#5299FE" />
-                <Text weight="semiBold" size="sm" color="#5299FE">
-                  {totalPoints} points
+        {/* Frosted glass blur layer */}
+        <BlurView intensity={22} tint="light" style={styles.blurContainer}>
+          {/* White overlay for frosted effect */}
+          <View style={styles.whiteOverlay} />
+        </BlurView>
+        <View style={styles.collapsibleCard}>
+          {/* Preview Header */}
+          <View style={styles.headerSection}>
+            <View style={styles.collapsibleHeader}>
+              <View style={styles.headerLeft}>
+                {/* Points Badge */}
+                <View style={styles.pointsBadge}>
+                  <Coins size={18} color="#5299FE" />
+                  <Text weight="bold" size="md" color="#5299FE">
+                    {totalPoints} points
+                  </Text>
+                </View>
+                <Text size="sm" color={Colors.light.text}>
+                  earned with this vehicle
                 </Text>
               </View>
-              <Text size="sm" color="#4B5563">
-                earned with this vehicle
-              </Text>
-            </View>
 
-            {/* Arrow indicator */}
-            <Ionicons
-              name="chevron-forward"
-              size={24}
-              color="#9CA3AF"
-            />
+              {/* Arrow indicator */}
+              <Ionicons
+                name="chevron-forward"
+                size={24}
+                color="#D1D5DB"
+              />
+            </View>
           </View>
         </View>
       </Pressable>
@@ -193,7 +201,7 @@ export function LoyaltyPoints({
           <View style={styles.summaryRow}>
             <View style={styles.summaryItem}>
               <Coins size={24} color="#5299FE" />
-              <Text weight="bold" size="2xl" color={Colors.light.text}>
+              <Text weight="bold" size="xl" color={Colors.light.text}>
                 {totalPoints}
               </Text>
               <Text size="sm" color="#6B7280">
@@ -348,6 +356,7 @@ export function LoyaltyPoints({
 const styles = StyleSheet.create({
   container: {
     marginTop: 24,
+    paddingHorizontal: Spacing.md,
   },
   sectionHeader: {
     flexDirection: 'row',
@@ -355,25 +364,46 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: 12,
   },
-  collapsibleCard: {
-    backgroundColor: '#f9fafc',
-    borderRadius: BorderRadius.lg,
-    ...Shadows.sm,
+  cardOuter: {
+    borderRadius: 16,
     overflow: 'hidden',
+    position: 'relative',
+    // Frosted glass border
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.5)',
+    // Soft diffused shadow
+    shadowColor: 'rgba(0, 0, 0, 0.06)',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 1,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  blurContainer: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 16,
+  },
+  whiteOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255, 255, 255, 0.68)',
+  },
+  collapsibleCard: {
+    overflow: 'hidden',
+    backgroundColor: 'transparent',
+    borderRadius: 16,
   },
   cardPressed: {
     opacity: 0.9,
     transform: [{ scale: 0.98 }],
   },
   headerSection: {
-    backgroundColor: '#ffffff',
+    backgroundColor: 'transparent',
   },
   collapsibleHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.md,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
   },
   headerLeft: {
     flexDirection: 'row',
@@ -385,10 +415,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#EBF4FF',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 16,
-    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    gap: 6,
   },
   // Expanded modal content styles
   summaryCard: {

@@ -23,7 +23,7 @@
  */
 
 // 1. React & React Native
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Dimensions,
   NativeScrollEvent,
@@ -78,10 +78,14 @@ interface ActionCardsCarouselProps {
 
   // Carousel callbacks
   onCardChange?: (index: number) => void;
+
+  // User status
+  isNewUser?: boolean; // If true, show Finish Setup card first; if false, show Appointment first
 }
 
-const CARD_WIDTH = Dimensions.get('window').width - 32; // Full width minus padding
-const CARD_GAP = 12;
+const SCREEN_WIDTH = Dimensions.get('window').width;
+const CARD_WIDTH = SCREEN_WIDTH - 32; // Visual card width
+const CARD_GAP = 0; // No gap to prevent peeking
 
 // ============================================================================
 // COMPONENT
@@ -116,21 +120,53 @@ export function ActionCardsCarousel({
 
   // Carousel callbacks
   onCardChange,
+
+  // User status
+  isNewUser = false,
 }: ActionCardsCarouselProps) {
   const scrollViewRef = useRef<ScrollView>(null);
   const [activeIndex, setActiveIndex] = useState(0);
 
-  // Build array of visible cards
-  const cards = [
+  // Build array of visible cards - reorder based on isNewUser
+  const allCards = [
     { id: 'appointment', visible: true },
     { id: 'resume', visible: showResumeBooking },
     { id: 'account', visible: showAccountSetup },
     { id: 'car', visible: showCarSetup },
   ].filter((card) => card.visible);
 
+  // Reorder cards: if new user, put account setup first; otherwise keep appointment first
+  const cards = isNewUser && showAccountSetup
+    ? [
+        allCards.find((c) => c.id === 'account'),
+        ...allCards.filter((c) => c.id !== 'account'),
+      ].filter((c): c is typeof allCards[0] => c !== undefined)
+    : allCards;
+
+  // Debug: Log card order
+  if (__DEV__) {
+    console.log('ActionCardsCarousel - isNewUser:', isNewUser, 'showAccountSetup:', showAccountSetup, 'cards:', cards.map(c => c.id));
+  }
+
+  // Scroll to correct initial card on mount or when isNewUser changes
+  useEffect(() => {
+    if (scrollViewRef.current && cards.length > 0) {
+      // If new user, scroll to account setup card (index 0)
+      // If existing user, scroll to appointment card (index 0 by default)
+      const initialIndex = 0;
+      scrollViewRef.current.scrollTo({
+        x: initialIndex * SCREEN_WIDTH,
+        animated: false,
+      });
+      setActiveIndex(initialIndex);
+      onCardChange?.(initialIndex);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isNewUser, showAccountSetup]);
+
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const contentOffsetX = event.nativeEvent.contentOffset.x;
-    const newIndex = Math.round(contentOffsetX / (CARD_WIDTH + CARD_GAP));
+    const newIndex = Math.round(contentOffsetX / SCREEN_WIDTH);
     
     if (newIndex !== activeIndex && newIndex >= 0 && newIndex < cards.length) {
       setActiveIndex(newIndex);
@@ -193,12 +229,11 @@ export function ActionCardsCarousel({
       <ScrollView
         ref={scrollViewRef}
         horizontal
-        pagingEnabled={false}
+        pagingEnabled
         showsHorizontalScrollIndicator={false}
-        snapToInterval={CARD_WIDTH + CARD_GAP}
-        snapToAlignment="start"
         decelerationRate="fast"
         contentContainerStyle={styles.scrollContent}
+        style={styles.scrollView}
         onScroll={handleScroll}
         scrollEventThrottle={16}
       >
@@ -216,19 +251,21 @@ const styles = StyleSheet.create({
   container: {
     height: 310, // Fixed height to prevent content shifting when scrolling between cards
   },
+  scrollView: {
+    marginHorizontal: -16, // Extend scroll view to edges
+  },
   scrollContent: {
-    paddingRight: 16,
     alignItems: 'flex-start',
   },
   cardContainer: {
-    width: CARD_WIDTH,
-    marginRight: CARD_GAP,
+    width: SCREEN_WIDTH,
+    paddingHorizontal: 16,
   },
   firstCard: {
-    // First card has no left margin as container already has padding
+    // First card styling if needed
   },
   lastCard: {
-    marginRight: 0,
+    // Last card styling if needed
   },
 });
 

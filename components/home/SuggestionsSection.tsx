@@ -21,6 +21,8 @@
 // 1. React & React Native
 import React from 'react';
 import {
+  Image,
+  ImageSourcePropType,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -28,6 +30,8 @@ import {
 } from 'react-native';
 
 // 2. Expo & Third-party
+import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { BriefcaseBusiness, Car, Sparkles, Truck, Wrench } from 'lucide-react-native';
 
@@ -55,7 +59,8 @@ export type ServiceType = 'mechanic' | 'mobile-mechanic' | 'mobile-detailers';
 interface ServiceCard {
   id: ServiceType;
   label: string;
-  icon: React.ReactNode;
+  icon?: React.ReactNode;
+  image?: ImageSourcePropType;
   isComingSoon?: boolean;
 }
 
@@ -71,19 +76,19 @@ const SERVICE_CARDS: ServiceCard[] = [
   {
     id: 'mechanic',
     label: 'Mechanic',
-    icon: <MechanicIcon />,
+    image: require('@/assets/images/services/mechanicicon.png'),
     isComingSoon: true,
   },
   {
     id: 'mobile-mechanic',
     label: 'Mobile\nMechanic',
-    icon: <MobileMechanicIcon />,
+    image: require('@/assets/images/services/mobilemechanic.png'),
     isComingSoon: true,
   },
   {
     id: 'mobile-detailers',
     label: 'Mobile\nDetailers',
-    icon: <MobileDetailersIcon />,
+    image: require('@/assets/images/services/mobiledetail.png'),
     isComingSoon: true,
   },
 ];
@@ -155,8 +160,8 @@ export function SuggestionsSection({ onCardPress }: SuggestionsSectionProps) {
   return (
     <View style={styles.container}>
       {/* Section Header */}
-      <Text size="md" color="#6B7280" style={styles.sectionHeader}>
-        Suggestions
+      <Text size="md" color="#000000" style={styles.sectionHeader}>
+        More
       </Text>
 
       {/* Horizontal Scroll */}
@@ -174,18 +179,44 @@ export function SuggestionsSection({ onCardPress }: SuggestionsSectionProps) {
               pressed && styles.cardPressed,
             ]}
           >
-            {/* Icon Container with Liquid Glass */}
-            {isLiquidGlassSupported && LiquidGlassView ? (
-              <LiquidGlassView style={styles.iconContainerGlass}>
-                {card.icon}
-              </LiquidGlassView>
-            ) : (
-              <View style={styles.iconContainer}>
-                {card.icon}
+            <View style={styles.cardWrapper}>
+              {/* Glassy/Glossy Effect Layers */}
+              <BlurView intensity={100} tint="light" style={StyleSheet.absoluteFill} />
+              <LinearGradient
+                colors={['rgba(255, 255, 255, 0.6)', 'rgba(255, 255, 255, 0.55)']}
+                style={StyleSheet.absoluteFill}
+              />
+              {/* Glossy top highlight - stronger */}
+              <LinearGradient
+                colors={['rgba(255, 255, 255, 0.7)', 'rgba(255, 255, 255, 0.3)', 'rgba(255, 255, 255, 0)']}
+                locations={[0, 0.2, 0.5]}
+                style={styles.glossyHighlight}
+              />
+              {/* Additional shine layer */}
+              <LinearGradient
+                colors={['rgba(255, 255, 255, 0.5)', 'rgba(255, 255, 255, 0)', 'rgba(255, 255, 255, 0)']}
+                locations={[0, 0.15, 0.4]}
+                style={styles.glossyShine}
+              />
+              
+              {/* Card Content */}
+              <View style={styles.cardContent} pointerEvents="box-none">
+                {/* Icon Container */}
+                <View style={styles.iconContainer}>
+                  {card.image ? (
+                    <Image
+                      source={card.image}
+                      style={styles.serviceImage}
+                      resizeMode="contain"
+                    />
+                  ) : (
+                    card.icon
+                  )}
+                </View>
               </View>
-            )}
-
-            {/* Label */}
+            </View>
+            
+            {/* Label - Outside the card wrapper, below it */}
             <Text
               weight="medium"
               size="sm"
@@ -215,7 +246,7 @@ const styles = StyleSheet.create({
     fontStyle: 'italic',
   },
   scrollContent: {
-    paddingLeft: 31,
+    paddingLeft: 34.5,
     paddingRight: 16,
     gap: 60,
   },
@@ -227,22 +258,50 @@ const styles = StyleSheet.create({
     opacity: 0.8,
     transform: [{ scale: 0.98 }],
   },
-  iconContainer: {
+  cardWrapper: {
     width: 70,
     height: 70,
     borderRadius: 13,
-    backgroundColor: '#FFFFFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    // Neumorphic shadow effect
+    overflow: 'hidden',
+    backgroundColor: 'transparent',
+    position: 'relative',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
+    shadowOpacity: 0.12,
     shadowRadius: 12,
     elevation: 4,
-    // Inner shadow simulation with border
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.8)',
+  },
+  cardContent: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+    position: 'relative',
+    zIndex: 1,
+  },
+  glossyHighlight: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: '50%',
+    borderTopLeftRadius: 13,
+    borderTopRightRadius: 13,
+  },
+  glossyShine: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: '35%',
+    borderTopLeftRadius: 13,
+    borderTopRightRadius: 13,
+  },
+  iconContainer: {
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   iconContainerGlass: {
     width: 70,
@@ -251,6 +310,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     overflow: 'hidden',
+  },
+  serviceImage: {
+    width: 75,
+    height: 75,
   },
   cardLabel: {
     lineHeight: 18,
