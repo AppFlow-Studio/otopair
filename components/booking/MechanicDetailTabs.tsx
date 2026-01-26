@@ -33,7 +33,7 @@ import { BorderRadius } from "@/constants/theme";
 // TYPES
 // ============================================================================
 
-export type MechanicDetailTab = "services" | "reviews" | "portfolio" | "staff";
+export type MechanicDetailTab = "services" | "schedule" | "reviews" | "portfolio" | "staff";
 
 interface MechanicDetailTabsProps {
     /** Currently active tab */
@@ -48,6 +48,7 @@ interface MechanicDetailTabsProps {
 
 const TABS: { id: MechanicDetailTab; label: string }[] = [
     { id: "services", label: "SERVICES" },
+    { id: "schedule", label: "SCHEDULE" },
     { id: "reviews", label: "REVIEWS" },
     { id: "portfolio", label: "PORTFOLIO" },
     { id: "staff", label: "STAFF" },

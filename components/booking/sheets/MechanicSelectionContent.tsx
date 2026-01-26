@@ -23,6 +23,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Flow-specific components
+import { AvailabilityModal } from "@/components/booking/modals";
 import { BookingFooter } from "./BookingFooter";
 import { DiscardServiceModal } from "./DiscardServiceModal";
 import { ServiceChip } from "./ServiceChip";
@@ -111,6 +112,9 @@ export function MechanicSelectionContent({
   // ═══════════════ STATE ═══════════════
   const [serviceToRemove, setServiceToRemove] = React.useState<string | null>(null);
   const [dontAskAgain, setDontAskAgain] = React.useState(false);
+  const [showAvailabilityModal, setShowAvailabilityModal] = React.useState(false);
+  const [availabilityMechanicId, setAvailabilityMechanicId] = React.useState<number | null>(null);
+  const [availabilityShopId, setAvailabilityShopId] = React.useState<number | null>(null);
 
   // ═══════════════ BOOKING STORE ═══════════════
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
@@ -283,18 +287,24 @@ export function MechanicSelectionContent({
     [router]
   );
 
-  // Handle "More" availability button
+  // Handle "More" availability button - opens the calendar modal
   const handleMoreAvailability = useCallback(
     (shopId: number, mechanicId: number | null) => {
-      // Navigate to shop/mechanic detail page for full calendar
-      if (mechanicId) {
-        router.push(`/home/mechanic/${mechanicId}`);
-      } else {
-        router.push(`/home/shop/${shopId}`);
-      }
+      // Pass both shopId and mechanicId to the modal
+      // The modal will show all mechanics for the shop and allow switching
+      setAvailabilityShopId(shopId);
+      setAvailabilityMechanicId(mechanicId);
+      setShowAvailabilityModal(true);
     },
-    [router]
+    []
   );
+
+  // Handle closing the availability modal
+  const handleCloseAvailabilityModal = useCallback(() => {
+    setShowAvailabilityModal(false);
+    setAvailabilityMechanicId(null);
+    setAvailabilityShopId(null);
+  }, []);
 
   // Handle book button from footer
   const handleBook = useCallback(() => {
@@ -465,6 +475,14 @@ export function MechanicSelectionContent({
         onClose={handleCloseModal}
         onConfirm={handleConfirmRemove}
         onDontAskAgain={handleDontAskAgain}
+      />
+
+      {/* Availability Calendar Modal */}
+      <AvailabilityModal
+        visible={showAvailabilityModal}
+        mechanicId={availabilityMechanicId}
+        shopId={availabilityShopId}
+        onClose={handleCloseAvailabilityModal}
       />
     </View>
   );
