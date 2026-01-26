@@ -29,7 +29,7 @@ import {
 // 2. Expo & Third-party
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Calendar, Check, ChevronLeft, ChevronRight, Plus, X, XCircle } from 'lucide-react-native';
+import { Calendar, Check, ChevronLeft, ChevronRight, Info, Plus, X, XCircle } from 'lucide-react-native';
 import Svg, { Circle, Defs, LinearGradient as SvgLinearGradient, Stop } from 'react-native-svg';
 import { Easing } from 'react-native';
 import ReAnimated, {
@@ -159,6 +159,9 @@ const VehicleHealthModal = ({
   const [progressMaintenance, setProgressMaintenance] = useState(0);
   const [progressService, setProgressService] = useState(0);
 
+  // Info modal state
+  const [showInfoModal, setShowInfoModal] = useState(false);
+
   // Calculate overall score (average of all three)
   const overallScore = Math.round((healthPercentage + maintenancePercentage + servicePercentage) / 3);
 
@@ -172,22 +175,22 @@ const VehicleHealthModal = ({
       name: 'Oil Change', 
       dueInfo: 'Overdue by 500 miles', 
       status: 'overdue',
-      scoreImpact: 5, // +7% to Maintenance × 0.7 = +5 pts
-      actionDescription: '+7% to Maintenance Schedule'
+      scoreImpact: 5, // +7% to Maintenance × 0.7 = +5%
+      actionDescription: '+5% to Overall Condition'
     },
     { 
       name: 'Tire Rotation', 
       dueInfo: 'Due in 12 days', 
       status: 'due_soon',
-      scoreImpact: 3, // +4% to Maintenance × 0.7 = +3 pts
-      actionDescription: '+4% to Maintenance Schedule'
+      scoreImpact: 3, // +4% to Maintenance × 0.7 = +3%
+      actionDescription: '+3% to Overall Condition'
     },
     { 
       name: 'Update Mileage', 
       dueInfo: 'Last updated 30 days ago', 
       status: 'due_soon',
-      scoreImpact: 3, // +10% to Usage × 0.3 = +3 pts
-      actionDescription: '+10% to Usage & Wear accuracy'
+      scoreImpact: 3, // +10% to Usage × 0.3 = +3%
+      actionDescription: '+3% to Overall Condition'
     },
   ];
 
@@ -240,7 +243,8 @@ const VehicleHealthModal = ({
       color: maintenanceScore >= 75 ? '#30D158' : maintenanceScore >= 60 ? '#FFD60A' : '#FF3B5C',
       percentage: maintenanceScore,
       displayValue: `${maintenanceCompleted}/${maintenanceTotal}`,
-      scoreImpact: maintenanceScore >= 75 ? 0 : -(75 - maintenanceScore),
+      // Weighted impact: (75 - score) × 0.7 weight
+      scoreImpact: maintenanceScore >= 75 ? 0 : -Math.round((75 - maintenanceScore) * 0.7),
     },
     {
       name: 'Usage & Wear',
@@ -248,7 +252,8 @@ const VehicleHealthModal = ({
       color: usageScore >= 75 ? '#30D158' : usageScore >= 60 ? '#FFD60A' : '#FF3B5C',
       percentage: usageScore,
       displayValue: formatMileage(vehicleMileage),
-      scoreImpact: usageScore >= 75 ? 0 : -(75 - usageScore),
+      // Weighted impact: (75 - score) × 0.3 weight
+      scoreImpact: usageScore >= 75 ? 0 : -Math.round((75 - usageScore) * 0.3),
     },
   ];
 
@@ -491,7 +496,16 @@ const VehicleHealthModal = ({
 
             {/* What Affects Your Score */}
             <View style={modalStyles.breakdownSection}>
-              <Text style={modalStyles.sectionTitle}>WHAT AFFECTS YOUR SCORE</Text>
+              <View style={modalStyles.sectionTitleRow}>
+                <Text style={modalStyles.sectionTitle}>WHAT AFFECTS YOUR SCORE</Text>
+                <Pressable 
+                  onPress={() => setShowInfoModal(true)}
+                  hitSlop={10}
+                  style={modalStyles.infoButton}
+                >
+                  <Info size={16} color="#888" />
+                </Pressable>
+              </View>
               
               {/* Overall Vehicle Condition - first */}
               {renderBreakdownRow(
@@ -613,6 +627,67 @@ const VehicleHealthModal = ({
             </Pressable>
           </View>
         </Animated.View>
+
+        {/* Info Modal - Explains the formula */}
+        <Modal
+          visible={showInfoModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowInfoModal(false)}
+        >
+          <Pressable 
+            style={modalStyles.infoModalOverlay} 
+            onPress={() => setShowInfoModal(false)}
+          >
+            <View style={modalStyles.infoModalContent}>
+              <View style={modalStyles.infoModalHeader}>
+                <Text style={modalStyles.infoModalTitle}>How We Calculate Your Score</Text>
+                <Pressable onPress={() => setShowInfoModal(false)}>
+                  <X size={20} color="#666" />
+                </Pressable>
+              </View>
+              
+              <View style={modalStyles.infoModalBody}>
+                <Text style={modalStyles.infoFormulaTitle}>Formula:</Text>
+                <View style={modalStyles.formulaBox}>
+                  <Text style={modalStyles.formulaText}>
+                    Overall = (Maintenance × 70%) + (Usage × 30%)
+                  </Text>
+                </View>
+                
+                <View style={modalStyles.infoSection}>
+                  <Text style={modalStyles.infoLabel}>Maintenance (70% weight)</Text>
+                  <Text style={modalStyles.infoDescription}>
+                    Based on services completed out of total scheduled. Example: 7/10 = 70%
+                  </Text>
+                </View>
+                
+                <View style={modalStyles.infoSection}>
+                  <Text style={modalStyles.infoLabel}>Usage & Wear (30% weight)</Text>
+                  <Text style={modalStyles.infoDescription}>
+                    Based on mileage:{'\n'}
+                    • 0-30k mi = 100%{'\n'}
+                    • 30k-60k mi = 90%{'\n'}
+                    • 60k-100k mi = 75%{'\n'}
+                    • 100k-150k mi = 55%{'\n'}
+                    • 150k+ mi = 35%
+                  </Text>
+                </View>
+                
+                <View style={modalStyles.infoExample}>
+                  <Text style={modalStyles.infoExampleTitle}>Example:</Text>
+                  <Text style={modalStyles.infoExampleText}>
+                    7/10 maintenance (70%) × 0.7 = 49%{'\n'}
+                    45k miles (90%) × 0.3 = 27%{'\n'}
+                    <Text style={{ fontFamily: 'Urbanist-Bold', color: '#30D158' }}>
+                      Total: 76%
+                    </Text>
+                  </Text>
+                </View>
+              </View>
+            </View>
+          </Pressable>
+        </Modal>
     </Modal>
   );
 };
@@ -739,7 +814,15 @@ const modalStyles = StyleSheet.create({
     fontFamily: 'Urbanist-SemiBold',
     color: '#888',
     letterSpacing: 1,
+  },
+  sectionTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     marginBottom: 16,
+  },
+  infoButton: {
+    padding: 4,
   },
   breakdownRow: {
     flexDirection: 'row',
@@ -981,6 +1064,94 @@ const modalStyles = StyleSheet.create({
     fontSize: 16,
     fontFamily: 'Urbanist-SemiBold',
     color: '#fff',
+  },
+  // Info Modal Styles
+  infoModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  infoModalContent: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    width: '100%',
+    maxWidth: 340,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  infoModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    paddingBottom: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0, 0, 0, 0.08)',
+  },
+  infoModalTitle: {
+    fontSize: 18,
+    fontFamily: 'Urbanist-Bold',
+    color: '#1a1a1a',
+  },
+  infoModalBody: {
+    padding: 20,
+  },
+  infoFormulaTitle: {
+    fontSize: 12,
+    fontFamily: 'Urbanist-SemiBold',
+    color: '#888',
+    letterSpacing: 1,
+    marginBottom: 8,
+  },
+  formulaBox: {
+    backgroundColor: 'rgba(82, 153, 254, 0.1)',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+  },
+  formulaText: {
+    fontSize: 15,
+    fontFamily: 'Urbanist-Bold',
+    color: '#5299FE',
+    textAlign: 'center',
+  },
+  infoSection: {
+    marginBottom: 16,
+  },
+  infoLabel: {
+    fontSize: 14,
+    fontFamily: 'Urbanist-SemiBold',
+    color: '#1a1a1a',
+    marginBottom: 4,
+  },
+  infoDescription: {
+    fontSize: 13,
+    fontFamily: 'Urbanist-Regular',
+    color: '#666',
+    lineHeight: 20,
+  },
+  infoExample: {
+    backgroundColor: 'rgba(48, 209, 88, 0.1)',
+    borderRadius: 12,
+    padding: 16,
+    marginTop: 8,
+  },
+  infoExampleTitle: {
+    fontSize: 12,
+    fontFamily: 'Urbanist-SemiBold',
+    color: '#30D158',
+    marginBottom: 8,
+  },
+  infoExampleText: {
+    fontSize: 13,
+    fontFamily: 'Urbanist-Medium',
+    color: '#1a1a1a',
+    lineHeight: 22,
   },
 });
 

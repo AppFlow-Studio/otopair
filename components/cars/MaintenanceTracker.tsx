@@ -308,6 +308,16 @@ export function MaintenanceTracker({ items, vehicleCondition, onBookNow, onAddIn
                         Add Info
                       </Text>
                     </Button>
+                  ) : item.status === 'on_time' ? (
+                    <Button
+                      variant="ghost"
+                      onPress={handlePrimaryPress}
+                      style={styles.remindButton}
+                    >
+                      <Text weight="semiBold" size="sm" color="#1a1a1a">
+                        Remind me
+                      </Text>
+                    </Button>
                   ) : (
                     <Button
                       variant="primary"
@@ -574,6 +584,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.8)',
     backgroundColor: 'rgba(255, 255, 255, 0.4)',
+  },
+  remindButton: {
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 14,
+    minWidth: 100,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.1)',
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
   },
 });
 
