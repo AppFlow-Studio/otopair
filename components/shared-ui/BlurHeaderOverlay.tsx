@@ -26,6 +26,7 @@ import { InteractionManager, Platform, Pressable, StyleSheet, View } from 'react
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 import { X } from 'lucide-react-native';
 
 import { Text } from './Text';
@@ -91,13 +92,26 @@ export function BlurHeaderOverlay({
   return (
     <View style={[styles.container, { height: headerHeight }]} pointerEvents="box-none" collapsable={false}>
       {showBlur ? (
-        <BlurView
-          experimentalBlurMethod={Platform.OS === 'android' ? 'dimezisBlurView' : undefined}
-          intensity={intensity}
-          tint={tint}
-          blurReductionFactor={blurReductionFactor}
-          style={StyleSheet.absoluteFill}
-        />
+        <>
+          <BlurView
+            experimentalBlurMethod={Platform.OS === 'android' ? 'dimezisBlurView' : undefined}
+            intensity={intensity}
+            tint={tint}
+            blurReductionFactor={blurReductionFactor}
+            style={StyleSheet.absoluteFill}
+          />
+          <LinearGradient
+            colors={[
+              'rgba(245, 245, 247, 1)',
+              'rgba(245, 245, 247, 0.7)',
+              'rgba(245, 245, 247, 0.3)',
+              'rgba(245, 245, 247, 0)',
+            ]}
+            locations={[0, 0.4, 0.7, 1]}
+            style={StyleSheet.absoluteFill}
+            pointerEvents="none"
+          />
+        </>
       ) : (
         <View style={styles.fallback} />
       )}

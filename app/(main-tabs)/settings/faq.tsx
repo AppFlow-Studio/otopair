@@ -182,7 +182,7 @@ export default function FAQRootScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#f5f5f7',
+    backgroundColor: BrandColors.background,
   },
   container: {
     paddingHorizontal: 20,
