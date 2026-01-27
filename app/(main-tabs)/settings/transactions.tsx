@@ -11,6 +11,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import {
   Pressable,
   ScrollView,
+  SectionList,
   StyleSheet,
   TextInput,
   View,
@@ -18,16 +19,20 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BottomSheetModal } from '@gorhom/bottom-sheet';
 import {
-  Car,
+  AlertTriangle,
+  BadgeCheck,
   ChevronRight,
   Download,
+  Fuel,
   Mail,
+  Plus,
+  Receipt,
   Search,
+  Settings,
   Sparkles,
   Wrench,
-  Fuel,
+  Car,
   CreditCard,
-  BadgeCheck,
 } from 'lucide-react-native';
 
 import {
@@ -64,21 +69,22 @@ interface TransactionItem {
   id: string;
   title: string;
   subtitle: string;
-  timeLabel?: string;
   amount: string;
   type: Exclude<TransactionFilter, 'all'>;
-  status?: TransactionStatus;
   icon: React.ElementType;
   iconColor: string;
   iconBg: string;
+  amountColor?: string;
+  badge?: { label: string; bgColor: string; textColor: string };
+  muted?: boolean;
+  strike?: boolean;
+  status?: TransactionStatus;
   detail?: TransactionDetail;
 }
 
 interface TransactionSection {
-  id: string;
   title: string;
-  muted?: boolean;
-  items: TransactionItem[];
+  data: TransactionItem[];
 }
 
 const FILTERS: Array<{ id: TransactionFilter; label: string }> = [
@@ -90,19 +96,18 @@ const FILTERS: Array<{ id: TransactionFilter; label: string }> = [
 
 const TRANSACTION_SECTIONS: TransactionSection[] = [
   {
-    id: 'oct-24',
     title: 'October 24',
-    items: [
+    data: [
       {
         id: 'tx-hawk',
         title: 'Hawk Precision Auto Works',
-        subtitle: '10:30 AM • 3 items',
+        subtitle: '10:30 AM · 3 items',
         amount: '-$94.72',
         type: 'charge',
-        status: 'completed',
         icon: Wrench,
         iconColor: '#111827',
         iconBg: '#F3F4F6',
+        status: 'completed',
         detail: {
           dateLabel: 'Oct 24, 2024 • 10:30 AM',
           status: 'completed',
@@ -122,13 +127,13 @@ const TRANSACTION_SECTIONS: TransactionSection[] = [
       {
         id: 'tx-credit',
         title: 'Ownership credits',
-        subtitle: '9:15 AM • Referral reward',
+        subtitle: '9:15 AM · Referral reward',
         amount: '+$100.00',
         type: 'credit',
-        status: 'completed',
         icon: Sparkles,
         iconColor: '#16A34A',
         iconBg: 'rgba(22, 163, 74, 0.12)',
+        status: 'completed',
         detail: {
           dateLabel: 'Oct 24, 2024 • 9:15 AM',
           status: 'completed',
@@ -144,19 +149,18 @@ const TRANSACTION_SECTIONS: TransactionSection[] = [
     ],
   },
   {
-    id: 'yesterday',
     title: 'Yesterday',
-    items: [
+    data: [
       {
         id: 'tx-lb',
         title: 'L & B Auto Repair',
         subtitle: 'Yesterday',
         amount: '-$70.77',
         type: 'charge',
-        status: 'pending',
         icon: Car,
         iconColor: '#EA580C',
         iconBg: 'rgba(234, 88, 12, 0.12)',
+        status: 'pending',
         detail: {
           dateLabel: 'Yesterday • Pending',
           status: 'pending',
@@ -172,14 +176,12 @@ const TRANSACTION_SECTIONS: TransactionSection[] = [
     ],
   },
   {
-    id: 'oct-22',
     title: 'October 22',
-    muted: true,
-    items: [
+    data: [
       {
         id: 'tx-shell',
         title: 'Shell Station',
-        subtitle: '8:20 PM • Fuel',
+        subtitle: '8:20 PM · Fuel',
         amount: '-$45.00',
         type: 'charge',
         icon: Fuel,
@@ -224,7 +226,7 @@ export default function TransactionsScreen() {
     const normalizedQuery = query.trim().toLowerCase();
 
     return TRANSACTION_SECTIONS.map((section) => {
-      const items = section.items.filter((item) => {
+      const data = section.data.filter((item) => {
         const matchesFilter = activeFilter === 'all' || item.type === activeFilter;
         if (!matchesFilter) return false;
 
@@ -233,8 +235,8 @@ export default function TransactionsScreen() {
         return content.includes(normalizedQuery);
       });
 
-      return { ...section, items };
-    }).filter((section) => section.items.length > 0);
+      return { ...section, data };
+    }).filter((section) => section.data.length > 0);
   }, [activeFilter, query]);
 
   const handleOpenDetail = (item: TransactionItem) => {
@@ -249,8 +251,11 @@ export default function TransactionsScreen() {
     <View style={[styles.screen, { backgroundColor: BrandColors.background }]}>
       <BlurHeaderOverlay title="Transactions" />
 
-      <ScrollView
+      <SectionList
+        sections={filteredSections}
+        keyExtractor={(item) => item.id}
         showsVerticalScrollIndicator={false}
+        stickySectionHeadersEnabled={true}
         contentContainerStyle={[
           styles.scrollContent,
           {
@@ -258,100 +263,115 @@ export default function TransactionsScreen() {
             paddingBottom: getSheetContentPadding(false, insets.bottom),
           },
         ]}
-      >
-        <View style={styles.controlsSection}>
-          <View style={styles.searchContainer}>
-            <Search size={18} color="#9CA3AF" />
-            <TextInput
-              placeholder="Search"
-              placeholderTextColor="#9CA3AF"
-              value={query}
-              onChangeText={setQuery}
-              style={styles.searchInput}
-            />
-          </View>
-
-          <View style={styles.segmentedControl}>
-            {FILTERS.map((filter) => {
-              const isActive = activeFilter === filter.id;
-              return (
-                <Pressable
-                  key={filter.id}
-                  onPress={() => setActiveFilter(filter.id)}
-                  style={[styles.segmentButton, isActive && styles.segmentButtonActive]}
-                >
-                  <Text
-                    weight={isActive ? 'semiBold' : 'medium'}
-                    size="xs"
-                    color={isActive ? '#111827' : '#6B7280'}
-                  >
-                    {filter.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </View>
-        </View>
-
-        <View style={styles.listSection}>
-          {filteredSections.map((section) => (
-            <View key={section.id} style={[section.muted && styles.sectionMuted]}>
-              <Text weight="medium" size="xs" color="#6B7280" style={styles.sectionLabel}>
-                {section.title.toUpperCase()}
-              </Text>
-              <View style={styles.sectionCard}>
-                {section.items.map((item, index) => {
-                  const Icon = item.icon;
-                  const isLast = index === section.items.length - 1;
-                  const amountColor =
-                    item.type === 'credit' ? '#16A34A' : item.status === 'pending' ? '#9CA3AF' : '#111827';
-
-                  return (
-                    <Pressable
-                      key={item.id}
-                      onPress={() => handleOpenDetail(item)}
-                      style={({ pressed }) => [
-                        styles.row,
-                        pressed && styles.rowPressed,
-                      ]}
-                    >
-                      <View style={styles.rowLeft}>
-                        <View style={[styles.iconBox, { backgroundColor: item.iconBg }]}>
-                          <Icon size={20} color={item.iconColor} />
-                        </View>
-                        <View style={styles.rowText}>
-                          <Text weight="semiBold" size="md" color="#111827">
-                            {item.title}
-                          </Text>
-                          <View style={styles.rowMeta}>
-                            <Text size="sm" color="#6B7280">
-                              {item.subtitle}
-                            </Text>
-                            {item.status === 'pending' && (
-                              <View style={styles.pendingBadge}>
-                                <Text weight="bold" size="xs" color="#6B7280">
-                                  Pending
-                                </Text>
-                              </View>
-                            )}
-                          </View>
-                        </View>
-                      </View>
-                      <View style={styles.rowRight}>
-                        <Text weight="medium" size="md" color={amountColor}>
-                          {item.amount}
-                        </Text>
-                        <ChevronRight size={18} color="rgba(107, 114, 128, 0.7)" />
-                      </View>
-                      {!isLast && <View style={styles.rowDivider} />}
-                    </Pressable>
-                  );
-                })}
-              </View>
+        ListHeaderComponent={
+          <View style={styles.controlsSection}>
+            <View style={styles.searchContainer}>
+              <Search size={18} color="#9CA3AF" />
+              <TextInput
+                placeholder="Search"
+                placeholderTextColor="#9CA3AF"
+                value={query}
+                onChangeText={setQuery}
+                style={styles.searchInput}
+              />
             </View>
-          ))}
-        </View>
-      </ScrollView>
+
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.chipRow}
+            >
+              {FILTERS.map((filter) => {
+                const isActive = activeFilter === filter.id;
+                return (
+                  <Pressable
+                    key={filter.id}
+                    onPress={() => setActiveFilter(filter.id)}
+                    style={[styles.chip, isActive && styles.chipActive]}
+                  >
+                    <Text
+                      weight={isActive ? 'bold' : 'medium'}
+                      size="sm"
+                      color={isActive ? '#FFFFFF' : '#86868B'}
+                    >
+                      {filter.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        }
+        renderSectionHeader={({ section }) => (
+          <View style={styles.sectionHeader}>
+            <Text weight="bold" size="xs" color="#86868B" style={styles.sectionHeaderText}>
+              {section.title.toUpperCase()}
+            </Text>
+          </View>
+        )}
+        renderItem={({ item }) => {
+          const Icon = item.icon;
+          const amountColor = item.amountColor ?? (item.amount.startsWith('+') ? '#34C759' : '#1D1D1F');
+          
+          return (
+            <Pressable
+              onPress={() => handleOpenDetail(item)}
+              style={({ pressed }) => [
+                styles.transactionRow,
+                pressed && styles.transactionRowPressed,
+                item.muted && styles.transactionRowMuted,
+              ]}
+            >
+              <View style={styles.transactionLeft}>
+                <View style={styles.transactionIconOuter}>
+                  <View style={[styles.transactionIconInner, { backgroundColor: item.iconBg }]}>
+                    <Icon size={20} color={item.iconColor} strokeWidth={2} />
+                  </View>
+                </View>
+                <View style={styles.transactionText}>
+                  <Text 
+                    weight="bold" 
+                    size="md" 
+                    color="#1D1D1F" 
+                    numberOfLines={1}
+                    style={[item.strike && styles.strikeText]}
+                  >
+                    {item.title}
+                  </Text>
+                  <Text size="sm" color="#86868B" style={styles.transactionSubtitle}>
+                    {item.subtitle}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.transactionRight}>
+                <Text 
+                  weight="bold" 
+                  size="md" 
+                  color={amountColor} 
+                  style={[styles.amountText, item.strike && styles.strikeText]}
+                >
+                  {item.amount}
+                </Text>
+                {(item.badge || item.status === 'pending') && (
+                  <View style={[
+                    styles.badge, 
+                    { backgroundColor: item.badge?.bgColor ?? '#FEF3C7' }
+                  ]}>
+                    <Text 
+                      weight="bold" 
+                      size="xs" 
+                      color={item.badge?.textColor ?? '#B45309'} 
+                      style={styles.badgeText}
+                    >
+                      {(item.badge?.label ?? 'PENDING').toUpperCase()}
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </Pressable>
+          );
+        }}
+      />
 
       <AppBottomSheetModal
         ref={sheetRef}
@@ -491,114 +511,180 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: Spacing.xl,
+    paddingHorizontal: Spacing.lg,
   },
   controlsSection: {
-    marginBottom: Spacing['2xl'],
-    gap: Spacing.lg,
+    paddingTop: Spacing.sm,
+    marginBottom: Spacing.xl,
+    gap: Spacing.md,
   },
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: 10,
-    backgroundColor: 'rgba(148, 163, 184, 0.25)',
+    backgroundColor: 'rgba(255, 255, 255, 0.8)',
     borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.03)',
+    paddingHorizontal: 16,
+    height: 48,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.02,
+    shadowRadius: 10,
+  },
+  searchIconBox: {
+    marginRight: 12,
   },
   searchInput: {
     flex: 1,
     fontSize: 16,
-    color: '#111827',
+    color: '#1D1D1F',
   },
-  segmentedControl: {
-    flexDirection: 'row',
-    backgroundColor: 'rgba(148, 163, 184, 0.2)',
-    borderRadius: 16,
-    padding: 4,
-    gap: 4,
+  chipRow: {
+    gap: 12,
+    paddingBottom: 8,
   },
-  segmentButton: {
-    flex: 1,
+  chip: {
+    paddingHorizontal: 24,
     height: 36,
-    borderRadius: 12,
+    borderRadius: 999,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  segmentButtonActive: {
-    backgroundColor: '#FFFFFF',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.08,
-    shadowRadius: 4,
-    elevation: 2,
-  },
-  listSection: {
-    gap: Spacing['2xl'],
-  },
-  sectionLabel: {
-    letterSpacing: 1,
-    marginLeft: 8,
-    marginBottom: 10,
-  },
-  sectionCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.72)',
-    borderRadius: 24,
+    backgroundColor: 'rgba(255, 255, 255, 0.7)',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.6)',
-    overflow: 'hidden',
+    borderColor: 'rgba(0, 0, 0, 0.03)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.02,
+    shadowRadius: 8,
   },
-  sectionMuted: {
+  chipActive: {
+    backgroundColor: '#1D1D1F',
+    borderColor: '#1D1D1F',
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+  },
+  sectionHeader: {
+    paddingVertical: 10,
+    paddingHorizontal: Spacing.md,
+    backgroundColor: 'rgba(245, 245, 247, 0.8)',
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(0, 0, 0, 0.05)',
+    marginHorizontal: -Spacing.lg,
+    paddingLeft: Spacing.lg + Spacing.md,
+  },
+  sectionHeaderText: {
+    letterSpacing: 1.5,
+    fontSize: 11,
+    color: '#86868B',
+  },
+  transactionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 4,
+    height: 72,
+    borderRadius: 16,
+  },
+  transactionRowPressed: {
+    backgroundColor: '#FFFFFF',
+  },
+  transactionRowMuted: {
     opacity: 0.6,
   },
-  row: {
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
-  },
-  rowPressed: {
-    backgroundColor: 'rgba(15, 23, 42, 0.04)',
-  },
-  rowDivider: {
-    position: 'absolute',
-    bottom: 0,
-    left: 72,
-    right: 0,
-    height: 1,
-    backgroundColor: 'rgba(148, 163, 184, 0.35)',
-  },
-  rowLeft: {
+  transactionLeft: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 16,
-  },
-  rowText: {
     flex: 1,
-    gap: 6,
   },
-  rowMeta: {
+  transactionIconOuter: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.06)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  transactionIconInner: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  transactionText: {
+    flex: 1,
+    justifyContent: 'center',
+    gap: 2,
+  },
+  transactionSubtitle: {
+    marginTop: 2,
+  },
+  transactionRight: {
+    alignItems: 'flex-end',
+    justifyContent: 'center',
+    gap: 4,
+  },
+  amountText: {
+    letterSpacing: -0.5,
+  },
+  strikeText: {
+    textDecorationLine: 'line-through',
+    textDecorationColor: 'rgba(0, 0, 0, 0.3)',
+  },
+  rightActionArea: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
   },
-  rowRight: {
-    position: 'absolute',
-    right: Spacing.lg,
-    top: Spacing.md,
-    alignItems: 'flex-end',
-    gap: 4,
+  badge: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.02)',
   },
-  iconBox: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
+  badgeText: {
+    letterSpacing: 0.6,
   },
   pendingBadge: {
-    backgroundColor: 'rgba(148, 163, 184, 0.4)',
-    borderRadius: 6,
-    paddingHorizontal: 6,
+    backgroundColor: '#FEF3C7',
+    paddingHorizontal: 8,
     paddingVertical: 2,
+    borderRadius: 999,
+  },
+  chevron: {
+    marginLeft: 4,
+  },
+  rowDivider: {
+    height: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.05)',
+    marginLeft: 64,
+  },
+  fab: {
+    position: 'absolute',
+    right: 24,
+    bottom: 24,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#1D1D1F',
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    elevation: 8,
   },
   sheetHeader: {
     alignItems: 'center',
