@@ -560,7 +560,7 @@ export default function SettingsHomeScreen() {
                     <SettingsListItem
                       icon={<Receipt size={20} color="#1F2937" />}
                       label="Transactions & Receipts"
-                      onPress={() => router.push('/payments')}
+                      onPress={() => router.push('/settings/transactions')}
                       isLast
                     />
                   </View>
