@@ -16,7 +16,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Dimensions, Image, Modal, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
-import { ChevronLeft, ChevronRight, User, X } from "lucide-react-native";
+import { ArrowRight, ChevronLeft, ChevronRight, User, X } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 3. Shared UI (design system)
@@ -90,6 +90,7 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
 
   // ═══════════════ LOCAL STATE ═══════════════
   // Track selected mechanic within the modal (null = "Any")
+  // For single mechanic shops, auto-select that mechanic instead of "Any"
   const [selectedMechanicId, setSelectedMechanicId] = useState<number | null>(mechanicId);
 
   // ═══════════════ MECHANIC STORE ═══════════════
@@ -111,6 +112,9 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
     return getMechanicsByShopId(shopId);
   }, [shopId, mechanicId, getMechanicsByShopId, getMechanicById]);
 
+  // Check if shop has only one mechanic (no "Any" option needed)
+  const hasSingleMechanic = shopMechanics.length === 1;
+
   // ═══════════════ SCHEDULE STORE ═══════════════
   const currentMonth = useScheduleStore((state) => state.currentMonth);
   const selectedDate = useScheduleStore((state) => state.selectedDate);
@@ -128,14 +132,62 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
   // ═══════════════ BOOKING STORE ═══════════════
   const setScheduledAppointment = useBookingStore((state) => state.setScheduledAppointment);
   const selectMechanic = useBookingStore((state) => state.selectMechanic);
+  const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
+  const availableServices = useBookingStore((state) => state.availableServices);
+  const getSelectedServicesTotal = useBookingStore((state) => state.getSelectedServicesTotal);
+  const setSelectedMechanicSlot = useBookingStore((state) => state.setSelectedMechanicSlot);
+  
+  // ═══════════════ COMPUTED SERVICE INFO ═══════════════
+  const selectedServices = useMemo(
+    () => availableServices.filter((service) => selectedServiceIds.includes(service.id)),
+    [availableServices, selectedServiceIds]
+  );
+  
+  const serviceName = useMemo(() => {
+    if (selectedServices.length === 0) return "Service";
+    if (selectedServices.length === 1) return selectedServices[0].name;
+    return `${selectedServices.length} Services`;
+  }, [selectedServices]);
+  
+  const totalPrice = getSelectedServicesTotal();
+  
+  // Compute shop name from mechanic or shopId
+  const shopName = useMemo(() => {
+    if (selectedMechanicId) {
+      const mech = getMechanicById(selectedMechanicId);
+      return mech?.shopName || "Shop";
+    }
+    if (shopMechanics.length > 0) {
+      return shopMechanics[0].shopName || "Shop";
+    }
+    if (mechanicId) {
+      const mech = getMechanicById(mechanicId);
+      return mech?.shopName || "Shop";
+    }
+    return "Shop";
+  }, [selectedMechanicId, shopMechanics, mechanicId, getMechanicById]);
+  
+  // Get selected mechanic name
+  const selectedMechanicName = useMemo(() => {
+    if (selectedMechanicId === null) return null;
+    const mech = getMechanicById(selectedMechanicId);
+    return mech?.name || null;
+  }, [selectedMechanicId, getMechanicById]);
 
   // ═══════════════ EFFECTS ═══════════════
   // Reset selected mechanic when modal opens
+  // For single mechanic shops, auto-select that mechanic
   useEffect(() => {
     if (visible) {
-      setSelectedMechanicId(mechanicId);
+      if (hasSingleMechanic) {
+        // Auto-select the only mechanic
+        setSelectedMechanicId(shopMechanics[0].id);
+      } else {
+        // Use provided mechanicId or null for "Any"
+        setSelectedMechanicId(mechanicId);
+      }
     }
-  }, [visible, mechanicId]);
+  }, [visible, mechanicId, hasSingleMechanic, shopMechanics]);
 
   // Load schedule when mechanic selection changes
   useEffect(() => {
@@ -263,6 +315,7 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
   const handleConfirm = useCallback(() => {
     // Use selected mechanic, or first mechanic if "Any" is selected
     const effectiveMechanicId = selectedMechanicId ?? shopMechanics[0]?.id ?? mechanicId;
+    const effectiveShopId = shopId ?? shopMechanics[0]?.shopId ?? (mechanicId ? getMechanicById(mechanicId)?.shopId : null);
     
     if (selectedDate && selectedTime && effectiveMechanicId !== null) {
       confirmSelection();
@@ -280,10 +333,29 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
       });
       selectMechanic(effectiveMechanicId);
 
+      // Also update selectedMechanicSlot for footer visibility
+      // Get day of week from date
+      const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+      const dayOfWeek = dayNames[selectedDate.getDay()];
+      
+      if (effectiveShopId) {
+        setSelectedMechanicSlot({
+          shopId: effectiveShopId,
+          shopName: shopName,
+          mechanicId: selectedMechanicId,
+          mechanicName: selectedMechanicName,
+          slot: {
+            day: String(selectedDate.getDate()),
+            dayOfWeek: dayOfWeek,
+            time: selectedTime,
+          },
+        });
+      }
+
       onConfirm?.(selectedDate, selectedTime, effectiveMechanicId);
     }
     onClose();
-  }, [selectedDate, selectedTime, selectedMechanicId, shopMechanics, mechanicId, confirmSelection, setScheduledAppointment, selectMechanic, onConfirm, onClose]);
+  }, [selectedDate, selectedTime, selectedMechanicId, shopMechanics, mechanicId, shopId, shopName, selectedMechanicName, confirmSelection, setScheduledAppointment, selectMechanic, setSelectedMechanicSlot, getMechanicById, onConfirm, onClose]);
 
   // ═══════════════ RENDER HELPERS ═══════════════
   const renderDayCell = useCallback(
@@ -356,7 +428,7 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
           showsVerticalScrollIndicator={false}
         >
           {/* Mechanic Selector - Only show if we have multiple mechanics */}
-          {shopMechanics.length > 0 && (
+          {shopMechanics.length > 1 && (
             <View style={styles.mechanicSection}>
               <Text size="xs" weight="bold" color="#9CA3AF" style={styles.sectionLabel}>
                 SELECT MECHANIC
@@ -366,7 +438,7 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.mechanicAvatarsContent}
               >
-                {/* "Any" option */}
+                {/* "Any" option - only show if multiple mechanics */}
                 <TouchableOpacity
                   style={styles.mechanicAvatarWrapper}
                   onPress={() => handleMechanicSelect(null)}
@@ -512,23 +584,55 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
           </View>
         </ScrollView>
 
-        {/* Footer Buttons */}
+        {/* Footer */}
         <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.md }]}>
-          <TouchableOpacity style={styles.cancelButton} onPress={handleCancel} activeOpacity={0.7}>
-            <Text size="md" weight="semiBold" color={BrandColors.primary}>
-              Cancel
-            </Text>
-          </TouchableOpacity>
+          {selectedDate && selectedTime ? (
+            // Selection made - show booking details and Book button
+            <View style={styles.bookingFooterContent}>
+              {/* Left side - booking details */}
+              <View style={styles.bookingDetailsContainer}>
+                <Text size="xs" weight="bold" color={BrandColors.secondary}>
+                  {serviceName.toUpperCase()}
+                </Text>
+                <Text size="sm" weight="bold" color={BrandColors.secondary}>
+                  {selectedDate.toLocaleDateString("en-US", { weekday: "short" })} {selectedDate.getDate()} · {selectedTime}
+                </Text>
+                <Text size="xs" weight="regular" color="#6B7280" numberOfLines={1}>
+                  with {selectedMechanicName || "Any mechanic"} at {shopName}
+                </Text>
+              </View>
 
-          <PrimaryButton
-            style={[styles.confirmButton, (!selectedDate || !selectedTime) && styles.confirmButtonDisabled]}
-            onPress={handleConfirm}
-            disabled={!selectedDate || !selectedTime}
-          >
-            <Text size="md" weight="bold" color={BrandColors.white}>
-              Confirm Date & Time
-            </Text>
-          </PrimaryButton>
+              {/* Right side - book button */}
+              <TouchableOpacity
+                style={styles.bookButton}
+                onPress={handleConfirm}
+                activeOpacity={0.8}
+              >
+                <Text size="md" weight="bold" color={BrandColors.white}>
+                  Book ${totalPrice}
+                </Text>
+                <ArrowRight size={18} color={BrandColors.white} />
+              </TouchableOpacity>
+            </View>
+          ) : (
+            // No selection - show cancel/confirm buttons
+            <View style={styles.buttonRow}>
+              <TouchableOpacity style={styles.cancelButton} onPress={handleCancel} activeOpacity={0.7}>
+                <Text size="md" weight="semiBold" color={BrandColors.primary}>
+                  Cancel
+                </Text>
+              </TouchableOpacity>
+
+              <PrimaryButton
+                style={[styles.confirmButton, styles.confirmButtonDisabled]}
+                disabled
+              >
+                <Text size="md" weight="bold" color={BrandColors.white}>
+                  Select Date & Time
+                </Text>
+              </PrimaryButton>
+            </View>
+          )}
         </View>
       </View>
     </Modal>
@@ -725,14 +829,16 @@ const styles = StyleSheet.create({
 
   // Footer
   footer: {
-    flexDirection: "row",
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.md,
-    gap: Spacing.md,
     backgroundColor: BrandColors.white,
     borderTopWidth: 1,
     borderTopColor: "#F3F4F6",
     ...Shadows.sm,
+  },
+  buttonRow: {
+    flexDirection: "row",
+    gap: Spacing.md,
   },
   cancelButton: {
     flex: 1,
@@ -751,5 +857,24 @@ const styles = StyleSheet.create({
   },
   confirmButtonDisabled: {
     opacity: 0.5,
+  },
+  // Booking footer (when date/time selected)
+  bookingFooterContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: Spacing.md,
+  },
+  bookingDetailsContainer: {
+    flex: 1,
+  },
+  bookButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    backgroundColor: BrandColors.primary,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    borderRadius: BorderRadius.full,
   },
 });

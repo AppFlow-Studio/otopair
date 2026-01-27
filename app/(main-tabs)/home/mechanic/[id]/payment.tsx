@@ -2,331 +2,427 @@
  * Payment Screen (Review & Pay)
  *
  * PURPOSE: Full-screen page for reviewing booking and payment details.
- *          Shows shop info, selected services, payment method, and appointment time.
+ *          Shows mechanic info, appointment details, vehicle, services breakdown,
+ *          price lock guarantee, and ownership credit.
  *
  * FLOW: mechanic detail → booking-details → payment → confirmation
  *
  * ROUTE: /home/mechanic/[id]/payment
  *
- * OWNER: Temurbek Sayfutdinov
+ * OWNER: Waleed Mansour
  */
 
 // 1. React & React Native
-import React, { useCallback, useMemo, useRef } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { Image, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Expo & Third-party
 import { useLocalSearchParams, useRouter } from "expo-router";
-import { BadgeCheck, Calendar, Clock, Star, User } from "lucide-react-native";
+import { Calendar, Car, ChevronRight, CreditCard, FileText, Info, Lock, Star } from "lucide-react-native";
+import Svg, { Circle } from "react-native-svg";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 3. Shared UI (design system)
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Flow-specific components
-import { BookingPageFooter, BookingPageHeader } from "@/components/booking/pages";
-import { NoPaymentMethod, PaymentMethodCard, PayOptionButton } from "@/components/booking/shared";
-import { AllAvailabilitySheet, type AllAvailabilitySheetRef } from "@/components/booking/sheets/AllAvailabilitySheet";
+import { BookingPageHeader } from "@/components/booking/pages";
+import { PaymentMethodModal } from "@/components/booking/modals/PaymentMethodModal";
 
 // 5. Constants, hooks, types, stores
-import { BorderRadius } from "@/constants/theme";
+import { BorderRadius, Shadows } from "@/constants/theme";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { usePaymentStore } from "@/stores/usePaymentStore";
+import { useVehicleStore } from "@/stores/useVehicleStore";
+
+// ============================================================================
+// CONSTANTS
+// ============================================================================
+
+const PLATFORM_FEE = 4.79;
+const OWNERSHIP_CREDIT_CURRENT = 27;
+const OWNERSHIP_CREDIT_GOAL = 50;
 
 // ============================================================================
 // COMPONENT
 // ============================================================================
 
-// DEPRECATED FOR NOW!!: WE USE  /components/booking/sheets/ReviewPayContent.tsx INSTEAD OF THIS PAGE
-// TODO: Will speak with team on best approach to handle this.
-
-
 export default function PaymentScreen() {
-    // ═══════════════ HOOKS ═══════════════
-    const router = useRouter();
-    const { id } = useLocalSearchParams<{ id: string }>();
+  // ═══════════════ HOOKS ═══════════════
+  const router = useRouter();
+  const insets = useSafeAreaInsets();
+  const { id } = useLocalSearchParams<{ id: string }>();
 
-    // ═══════════════ REFS ═══════════════
-    const allAvailabilityRef = useRef<AllAvailabilitySheetRef>(null);
+  // ═══════════════ LOCAL STATE ═══════════════
+  const [isPaymentModalVisible, setIsPaymentModalVisible] = useState(false);
 
-    // ═══════════════ BOOKING STORE ═══════════════
-    const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
-    const availableServices = useBookingStore((state) => state.availableServices);
-    const selectedMechanicId = useBookingStore((state) => state.selectedMechanicId);
-    const setScheduledAppointment = useBookingStore((state) => state.setScheduledAppointment);
-    const getFormattedAppointmentDate = useBookingStore((state) => state.getFormattedAppointmentDate);
-    const getFormattedAppointmentTime = useBookingStore((state) => state.getFormattedAppointmentTime);
-    const createBooking = useBookingStore((state) => state.createBooking);
-    const bookingType = useBookingStore((state) => state.bookingType);
-    const setBookingStage = useBookingStore((state) => state.setBookingStage);
-    const skippedBookingDetails = useBookingStore((state) => state.skippedBookingDetails);
+  // ═══════════════ BOOKING STORE ═══════════════
+  const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
+  const availableServices = useBookingStore((state) => state.availableServices);
+  const selectedMechanicId = useBookingStore((state) => state.selectedMechanicId);
+  const getFormattedAppointmentDate = useBookingStore((state) => state.getFormattedAppointmentDate);
+  const getFormattedAppointmentTime = useBookingStore((state) => state.getFormattedAppointmentTime);
+  const createBooking = useBookingStore((state) => state.createBooking);
+  const bookingType = useBookingStore((state) => state.bookingType);
+  const setBookingStage = useBookingStore((state) => state.setBookingStage);
+  const skippedBookingDetails = useBookingStore((state) => state.skippedBookingDetails);
 
-    // ═══════════════ MECHANIC STORE ═══════════════
-    const getMechanicById = useMechanicStore((state) => state.getMechanicById);
+  // ═══════════════ MECHANIC STORE ═══════════════
+  const getMechanicById = useMechanicStore((state) => state.getMechanicById);
 
-    // ═══════════════ PAYMENT STORE ═══════════════
-    const selectedPaymentMethod = usePaymentStore((state) => state.getSelectedPaymentMethod());
-    const hasPaymentMethods = usePaymentStore((state) => state.hasPaymentMethods());
+  // ═══════════════ VEHICLE STORE ═══════════════
+  const getSelectedVehicle = useVehicleStore((state) => state.getSelectedVehicle);
 
-    // ═══════════════ COMPUTED ═══════════════
-    const appointmentDate = getFormattedAppointmentDate();
-    const appointmentTime = getFormattedAppointmentTime();
+  // ═══════════════ PAYMENT STORE ═══════════════
+  const getSelectedPaymentMethod = usePaymentStore((state) => state.getSelectedPaymentMethod);
+  const hasPaymentMethods = usePaymentStore((state) => state.hasPaymentMethods);
 
-    const mechanic = useMemo(() => {
-        if (!selectedMechanicId) return null;
-        return getMechanicById(selectedMechanicId);
-    }, [selectedMechanicId, getMechanicById]);
+  // ═══════════════ COMPUTED ═══════════════
+  const appointmentDate = getFormattedAppointmentDate();
+  const appointmentTime = getFormattedAppointmentTime();
+  const selectedVehicle = getSelectedVehicle();
 
-    const selectedServices = useMemo(
-        () => availableServices.filter((service) => selectedServiceIds.includes(service.id)),
-        [availableServices, selectedServiceIds]
-    );
+  const mechanic = useMemo(() => {
+    if (!selectedMechanicId) return null;
+    return getMechanicById(selectedMechanicId);
+  }, [selectedMechanicId, getMechanicById]);
 
-    const totalPrice = useMemo(
-        () => selectedServices.reduce((total, service) => total + service.price, 0),
-        [selectedServices]
-    );
+  const selectedServices = useMemo(
+    () => availableServices.filter((service) => selectedServiceIds.includes(service.id)),
+    [availableServices, selectedServiceIds]
+  );
 
-    // ═══════════════ HANDLERS ═══════════════
-    const handleBack = useCallback(() => {
-        // Reset booking stage based on where we came from
-        if (skippedBookingDetails) {
-            // We came directly from mechanic selection (via "Book" footer button)
-            // Go back to mechanic_selection stage so the bottom sheet renders correctly
-            setBookingStage("mechanic_selection", "backward");
-        } else {
-            // We came from booking details, go back to that stage
-            setBookingStage("booking_details", "backward");
-        }
-        router.back();
-    }, [router, skippedBookingDetails, setBookingStage]);
+  const servicesTotal = useMemo(
+    () => selectedServices.reduce((total, service) => total + service.price, 0),
+    [selectedServices]
+  );
 
-    const handleConfirmPayment = useCallback(() => {
-        // Create the booking before navigating to confirmation
-        if (selectedMechanicId) {
-            try {
-                createBooking(selectedMechanicId, bookingType || "book_now");
-                router.push(`/home/mechanic/${id}/confirmation`);
-            } catch (error) {
-                console.error("Failed to create booking:", error);
-                // TODO: Show error toast to user
-            }
-        }
-    }, [router, id, selectedMechanicId, createBooking, bookingType]);
+  const totalPrice = servicesTotal + PLATFORM_FEE;
 
-    const handleChangePayment = useCallback(() => {
-        // TODO: Navigate to payment method selection
-        console.log("Change payment method");
-    }, []);
+  // Format vehicle display
+  const vehicleDisplay = selectedVehicle
+    ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}`
+    : "No vehicle selected";
 
-    const handleAddPayment = useCallback(() => {
-        // TODO: Navigate to add payment method
-        console.log("Add payment method");
-    }, []);
+  // Format appointment display
+  const appointmentDisplay = appointmentDate && appointmentTime
+    ? `${appointmentDate} • ${appointmentTime}`
+    : "Not scheduled";
 
-    const handleApplePay = useCallback(() => {
-        // TODO: Initiate Apple Pay
-        console.log("Apple Pay");
-    }, []);
+  // Ownership credit progress
+  const creditProgress = (OWNERSHIP_CREDIT_CURRENT / OWNERSHIP_CREDIT_GOAL) * 100;
+  const creditPercentage = Math.round(creditProgress);
 
-    const handleGooglePay = useCallback(() => {
-        // TODO: Initiate Google Pay
-        console.log("Google Pay");
-    }, []);
+  // Payment method
+  const selectedPaymentMethod = getSelectedPaymentMethod();
+  const hasPayment = hasPaymentMethods();
 
-    const handleChangeDateTimePress = useCallback(() => {
-        if (mechanic?.id) {
-            allAvailabilityRef.current?.open(mechanic.id);
-        }
-    }, [mechanic?.id]);
+  // Service summary for modal
+  const serviceSummary = useMemo(() => {
+    if (selectedServices.length === 0) return "Service";
+    if (selectedServices.length === 1) return selectedServices[0].name;
+    return `${selectedServices[0].name} & ${selectedServices.length - 1} more`;
+  }, [selectedServices]);
 
-    const handleAvailabilityConfirm = useCallback(
-        (date: Date, time: string) => {
-            const months = ["Jan.", "Feb.", "Mar.", "Apr.", "May", "Jun.", "Jul.", "Aug.", "Sep.", "Oct.", "Nov.", "Dec."];
-            const displayDate = `${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()}`;
-            const isoDate = date.toISOString().split("T")[0];
-
-            setScheduledAppointment({
-                date: isoDate,
-                time,
-                displayDate,
-            });
-        },
-        [setScheduledAppointment]
-    );
-
-    // ═══════════════ RENDER ═══════════════
-    if (!mechanic) {
-        return (
-            <View style={styles.container}>
-                <BookingPageHeader title="Review & Pay" onBack={handleBack} />
-                <View style={styles.errorContainer}>
-                    <Text size="md" weight="medium" color="#6B7280" center>
-                        No mechanic selected
-                    </Text>
-                </View>
-            </View>
-        );
+  // ═══════════════ HANDLERS ═══════════════
+  const handleBack = useCallback(() => {
+    if (skippedBookingDetails) {
+      setBookingStage("mechanic_selection", "backward");
+    } else {
+      setBookingStage("booking_details", "backward");
     }
+    router.back();
+  }, [router, skippedBookingDetails, setBookingStage]);
 
+  const handleConfirmPayment = useCallback(() => {
+    if (selectedMechanicId) {
+      try {
+        createBooking(selectedMechanicId, bookingType || "book_now");
+        router.push(`/home/mechanic/${id}/confirmation`);
+      } catch (error) {
+        console.error("Failed to create booking:", error);
+      }
+    }
+  }, [router, id, selectedMechanicId, createBooking, bookingType]);
+
+  const handleChangePaymentMethod = useCallback(() => {
+    setIsPaymentModalVisible(true);
+  }, []);
+
+  const handleClosePaymentModal = useCallback(() => {
+    setIsPaymentModalVisible(false);
+  }, []);
+
+  // ═══════════════ RENDER ═══════════════
+  if (!mechanic) {
     return (
-        <View style={styles.container}>
-            {/* Header */}
-            <BookingPageHeader title="Review & Pay" onBack={handleBack} />
-
-            {/* Scrollable Content */}
-            <ScrollView
-                style={styles.scrollView}
-                contentContainerStyle={styles.scrollContent}
-                showsVerticalScrollIndicator={false}
-            >
-                {/* Shop/Mechanic Info */}
-                <View style={styles.shopInfoCard}>
-                    <View style={styles.shopInfoRow}>
-                        <View style={styles.avatarContainer}>
-                            {mechanic.photoUrl ? (
-                                <Image source={{ uri: mechanic.photoUrl }} style={styles.avatar} />
-                            ) : (
-                                <View style={styles.avatarPlaceholder}>
-                                    <User size={28} color="#9CA3AF" strokeWidth={1.5} />
-                                </View>
-                            )}
-                        </View>
-
-                        <View style={styles.shopDetails}>
-                            <Text size="lg" weight="bold" color={BrandColors.primary}>
-                                {mechanic.shopName}
-                            </Text>
-                            <Text size="sm" weight="medium" color="#6B7280">
-                                {mechanic.name}
-                            </Text>
-                            <Text size="xs" weight="regular" color="#9CA3AF">
-                                {mechanic.distanceMi} mi
-                            </Text>
-                        </View>
-
-                        {/* Rating & Verified Badges */}
-                        <View style={styles.badgesContainer}>
-                            <View style={styles.ratingBadge}>
-                                <Star size={14} color={BrandColors.secondary} fill={BrandColors.secondary} />
-                                <Text size="sm" weight="bold" color={BrandColors.primary}>
-                                    {mechanic.rating.toFixed(1)}
-                                </Text>
-                            </View>
-                            {mechanic.isVerified && (
-                                <View style={styles.verifiedBadge}>
-                                    <BadgeCheck size={16} color="#10B981" />
-                                    <Text size="xs" weight="bold" color="#10B981">
-                                        Verified
-                                    </Text>
-                                </View>
-                            )}
-                        </View>
-                    </View>
-                </View>
-
-                {/* Services List */}
-                <View style={styles.servicesSection}>
-                    {selectedServices.map((service, index) => (
-                        <View key={service.id}>
-                            <View style={styles.serviceRow}>
-                                <Text size="md" weight="regular" color={BrandColors.primary}>
-                                    {service.name}
-                                </Text>
-                                <Text size="md" weight="regular" color="#6B7280">
-                                    ${service.price}
-                                </Text>
-                            </View>
-                            {index < selectedServices.length - 1 && <View style={styles.serviceDivider} />}
-                        </View>
-                    ))}
-
-                    {/* Total */}
-                    <View style={styles.totalRow}>
-                        <Text size="sm" weight="regular" color={BrandColors.secondary}>
-                            In Total
-                        </Text>
-                        <Text size="sm" weight="semiBold" color={BrandColors.secondary}>
-                            ${totalPrice}
-                        </Text>
-                    </View>
-                </View>
-
-                {/* Pay With Section */}
-                <View style={styles.sectionHeader}>
-                    <Text size="md" weight="medium" color="#6B7280">
-                        Pay With
-                    </Text>
-                </View>
-
-                <View style={styles.paymentSection}>
-                    {selectedPaymentMethod ? (
-                        <PaymentMethodCard
-                            paymentMethod={selectedPaymentMethod}
-                            onChangePress={handleChangePayment}
-                        />
-                    ) : (
-                        <NoPaymentMethod onAddPress={handleAddPayment} />
-                    )}
-
-                    {/* Apple Pay / Google Pay Options */}
-                    <View style={styles.payOptionsRow}>
-                        <PayOptionButton type="apple" onPress={handleApplePay} />
-                        <PayOptionButton type="google" onPress={handleGooglePay} />
-                    </View>
-                </View>
-
-                {/* Date & Time Section */}
-                <View style={styles.sectionHeader}>
-                    <Text size="md" weight="medium" color="#6B7280">
-                        Date & Time
-                    </Text>
-                </View>
-
-                <View style={styles.dateTimeSection}>
-                    <View style={styles.dateTimeBox}>
-                        <View style={styles.dateTimeItem}>
-                            <Calendar size={18} color={BrandColors.primary} />
-                            <Text size="md" weight="medium" color={BrandColors.primary}>
-                                {appointmentDate}
-                            </Text>
-                        </View>
-                        <View style={styles.dateTimeItem}>
-                            <Clock size={18} color={BrandColors.primary} />
-                            <Text size="md" weight="medium" color={BrandColors.primary}>
-                                {appointmentTime}
-                            </Text>
-                        </View>
-                    </View>
-
-                    <TouchableOpacity
-                        style={styles.changeDateButton}
-                        onPress={handleChangeDateTimePress}
-                        activeOpacity={0.7}
-                    >
-                        <Text size="sm" weight="semiBold" color={BrandColors.primary}>
-                            Change Date & Time
-                        </Text>
-                    </TouchableOpacity>
-
-                    <Text size="xs" weight="regular" color="#EF4444" style={styles.warningText}>
-                        Changes can't be made within 10 hours of your appointment.
-                    </Text>
-                </View>
-            </ScrollView>
-
-            {/* Footer */}
-            <BookingPageFooter
-                buttonText="Confirm & Pay"
-                onPress={handleConfirmPayment}
-                totalAmount={totalPrice}
-                showArrow={false}
-            />
-
-            {/* All Availability Sheet */}
-            <AllAvailabilitySheet ref={allAvailabilityRef} onConfirm={handleAvailabilityConfirm} />
+      <View style={styles.container}>
+        <BookingPageHeader title="Review & Pay" onBack={handleBack} />
+        <View style={styles.errorContainer}>
+          <Text size="md" weight="medium" color="#6B7280" center>
+            No mechanic selected
+          </Text>
         </View>
+      </View>
     );
+  }
+
+  return (
+    <View style={styles.container}>
+      {/* Header */}
+      <BookingPageHeader title="Review & Pay" onBack={handleBack} />
+
+      {/* Scrollable Content */}
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: 120 + insets.bottom }]}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Mechanic Card with Appointment Details */}
+        <View style={styles.mechanicCard}>
+          {/* Mechanic Info Row */}
+          <View style={styles.mechanicRow}>
+            <View style={styles.avatarWrapper}>
+              {mechanic.photoUrl ? (
+                <Image source={{ uri: mechanic.photoUrl }} style={styles.avatar} />
+              ) : (
+                <View style={styles.avatarPlaceholder}>
+                  <Text size="xl" weight="bold" color="#9CA3AF">
+                    {mechanic.name.charAt(0)}
+                  </Text>
+                </View>
+              )}
+              {/* Rating Badge */}
+              <View style={styles.ratingBadge}>
+                <Star size={10} color="#FCD34D" fill="#FCD34D" />
+                <Text size="xs" weight="bold" color={BrandColors.white}>
+                  {mechanic.rating.toFixed(1)}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.mechanicInfo}>
+              <Text size="lg" weight="bold" color={BrandColors.primary}>
+                {mechanic.name}
+              </Text>
+              <Text size="sm" weight="medium" color="#6B7280">
+                Master Mechanic
+              </Text>
+            </View>
+          </View>
+
+          {/* Divider */}
+          <View style={styles.cardDivider} />
+
+          {/* Appointment Details */}
+          <View style={styles.appointmentDetails}>
+            <View style={styles.detailRow}>
+              <Text size="xs" weight="bold" color={BrandColors.secondary} style={styles.detailLabel}>
+                APPOINTMENT
+              </Text>
+              <View style={styles.detailContent}>
+                <Calendar size={16} color="#6B7280" />
+                <Text size="sm" weight="medium" color={BrandColors.primary}>
+                  {appointmentDisplay}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.detailRow}>
+              <Text size="xs" weight="bold" color={BrandColors.secondary} style={styles.detailLabel}>
+                VEHICLE
+              </Text>
+              <View style={styles.detailContent}>
+                <Car size={16} color="#6B7280" />
+                <Text size="sm" weight="medium" color={BrandColors.primary}>
+                  {vehicleDisplay}
+                </Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* Service Breakdown Card */}
+        <View style={styles.serviceCard}>
+          <View style={styles.serviceHeader}>
+            <Text size="md" weight="bold" color={BrandColors.primary}>
+              Service Breakdown
+            </Text>
+            <FileText size={20} color="#9CA3AF" />
+          </View>
+
+          {/* Services */}
+          {selectedServices.map((service) => (
+            <View key={service.id} style={styles.serviceRow}>
+              <Text size="sm" weight="regular" color={BrandColors.primary}>
+                {service.name}
+              </Text>
+              <Text size="sm" weight="medium" color={BrandColors.primary}>
+                ${service.price.toFixed(2)}
+              </Text>
+            </View>
+          ))}
+
+          {/* Platform Fee */}
+          <View style={styles.serviceRow}>
+            <View style={styles.feeRow}>
+              <Text size="sm" weight="regular" color="#6B7280">
+                Platform Fee
+              </Text>
+              <TouchableOpacity style={styles.infoButton} activeOpacity={0.7}>
+                <Info size={14} color="#9CA3AF" />
+              </TouchableOpacity>
+            </View>
+            <Text size="sm" weight="medium" color="#6B7280">
+              ${PLATFORM_FEE.toFixed(2)}
+            </Text>
+          </View>
+
+          {/* Divider */}
+          <View style={styles.serviceDivider} />
+
+          {/* Total */}
+          <View style={styles.totalSection}>
+            <View style={styles.totalLeft}>
+              <Text size="md" weight="bold" color={BrandColors.primary}>
+                Total
+              </Text>
+              <View style={styles.savingsBadge}>
+                <Text size="xs" weight="semiBold" color={BrandColors.secondary}>
+                  → Saved $25 vs Dealership
+                </Text>
+              </View>
+            </View>
+            <Text size="2xl" weight="bold" color={BrandColors.secondary}>
+              ${totalPrice.toFixed(2)}
+            </Text>
+          </View>
+        </View>
+
+        {/* Payment Method Card */}
+        <TouchableOpacity 
+          style={styles.paymentMethodCard} 
+          onPress={handleChangePaymentMethod}
+          activeOpacity={0.7}
+        >
+          <View style={styles.paymentMethodIcon}>
+            <CreditCard size={20} color="#6B7280" />
+          </View>
+          <View style={styles.paymentMethodContent}>
+            <Text size="sm" weight="medium" color="#6B7280">
+              Payment Method
+            </Text>
+            {hasPayment && selectedPaymentMethod ? (
+              <Text size="md" weight="semiBold" color={BrandColors.primary}>
+                Via {selectedPaymentMethod.brand} ····{selectedPaymentMethod.last4}
+              </Text>
+            ) : (
+              <Text size="md" weight="semiBold" color={BrandColors.secondary}>
+                Add payment method
+              </Text>
+            )}
+          </View>
+          <ChevronRight size={20} color="#9CA3AF" />
+        </TouchableOpacity>
+
+        {/* Price Lock Guarantee */}
+        <View style={styles.guaranteeCard}>
+          <View style={styles.guaranteeIcon}>
+            <Lock size={20} color="#10B981" />
+          </View>
+          <View style={styles.guaranteeContent}>
+            <Text size="md" weight="bold" color={BrandColors.primary}>
+              Price Lock Guarantee
+            </Text>
+            <Text size="sm" weight="regular" color="#6B7280">
+              No hidden fees or surprises at the shop.
+            </Text>
+          </View>
+        </View>
+
+        {/* Ownership Credit Card */}
+        <View style={styles.creditCard}>
+          <View style={styles.creditContent}>
+            <Text size="xs" weight="bold" color="rgba(255,255,255,0.7)" style={styles.creditLabel}>
+              OWNERSHIP CREDIT
+            </Text>
+            <View style={styles.creditAmount}>
+              <Text size="2xl" weight="bold" color={BrandColors.white}>
+                ${OWNERSHIP_CREDIT_CURRENT}
+              </Text>
+              <Text size="lg" weight="medium" color="rgba(255,255,255,0.7)">
+                {" "}/ ${OWNERSHIP_CREDIT_GOAL}
+              </Text>
+            </View>
+            <Text size="sm" weight="regular" color="rgba(255,255,255,0.8)">
+              Earned towards next reward
+            </Text>
+          </View>
+
+          {/* Circular Progress */}
+          <View style={styles.progressWrapper}>
+            <Svg width={56} height={56} viewBox="0 0 56 56">
+              {/* Background Circle */}
+              <Circle
+                cx="28"
+                cy="28"
+                r="24"
+                stroke="rgba(255,255,255,0.2)"
+                strokeWidth="4"
+                fill="transparent"
+              />
+              {/* Progress Circle */}
+              <Circle
+                cx="28"
+                cy="28"
+                r="24"
+                stroke={BrandColors.white}
+                strokeWidth="4"
+                fill="transparent"
+                strokeDasharray={`${2 * Math.PI * 24}`}
+                strokeDashoffset={`${2 * Math.PI * 24 * (1 - creditProgress / 100)}`}
+                strokeLinecap="round"
+                transform="rotate(-90 28 28)"
+              />
+            </Svg>
+            <View style={styles.progressText}>
+              <Text size="sm" weight="bold" color={BrandColors.white}>
+                {creditPercentage}%
+              </Text>
+            </View>
+          </View>
+        </View>
+      </ScrollView>
+
+      {/* Footer CTA */}
+      <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.md }]}>
+        <TouchableOpacity
+          style={styles.confirmButton}
+          onPress={handleConfirmPayment}
+          activeOpacity={0.8}
+        >
+          <Text size="md" weight="bold" color={BrandColors.white}>
+            Confirm Appointment
+          </Text>
+          <View style={styles.priceTag}>
+            <Text size="sm" weight="bold" color={BrandColors.primary}>
+              ${totalPrice.toFixed(2)}
+            </Text>
+          </View>
+        </TouchableOpacity>
+      </View>
+
+      {/* Payment Method Modal */}
+      <PaymentMethodModal
+        visible={isPaymentModalVisible}
+        onClose={handleClosePaymentModal}
+        totalAmount={totalPrice}
+        serviceSummary={serviceSummary}
+        mechanicName={mechanic?.name || "Mechanic"}
+      />
+    </View>
+  );
 }
 
 // ============================================================================
@@ -334,143 +430,241 @@ export default function PaymentScreen() {
 // ============================================================================
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-        backgroundColor: BrandColors.white,
-    },
-    scrollView: {
-        flex: 1,
-    },
-    scrollContent: {
-        paddingHorizontal: Spacing.lg,
-        paddingTop: Spacing.md,
-        paddingBottom: Spacing.xl,
-    },
-    errorContainer: {
-        flex: 1,
-        alignItems: "center",
-        justifyContent: "center",
-    },
+  container: {
+    flex: 1,
+    backgroundColor: "#F9FAFB",
+  },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.lg,
+    gap: Spacing.lg,
+  },
+  errorContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
 
-    // Shop Info Card
-    shopInfoCard: {
-        marginBottom: Spacing.lg,
-    },
-    shopInfoRow: {
-        flexDirection: "row",
-        alignItems: "flex-start",
-    },
-    avatarContainer: {
-        marginRight: Spacing.md,
-    },
-    avatar: {
-        width: 56,
-        height: 56,
-        borderRadius: BorderRadius.full,
-    },
-    avatarPlaceholder: {
-        width: 56,
-        height: 56,
-        borderRadius: BorderRadius.full,
-        borderWidth: 1.5,
-        borderColor: "#F3F4F6",
-        alignItems: "center",
-        justifyContent: "center",
-        backgroundColor: "#FAFAFA",
-    },
-    shopDetails: {
-        flex: 1,
-        gap: 2,
-    },
-    badgesContainer: {
-        alignItems: "flex-end",
-        gap: Spacing.xs,
-    },
-    ratingBadge: {
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 4,
-    },
-    verifiedBadge: {
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 4,
-    },
+  // Mechanic Card
+  mechanicCard: {
+    backgroundColor: BrandColors.white,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    ...Shadows.sm,
+  },
+  mechanicRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.md,
+  },
+  avatarWrapper: {
+    position: "relative",
+  },
+  avatar: {
+    width: 64,
+    height: 64,
+    borderRadius: BorderRadius.full,
+  },
+  avatarPlaceholder: {
+    width: 64,
+    height: 64,
+    borderRadius: BorderRadius.full,
+    backgroundColor: "#E5E7EB",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  ratingBadge: {
+    position: "absolute",
+    bottom: -4,
+    left: -4,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    backgroundColor: BrandColors.primary,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.full,
+    borderWidth: 2,
+    borderColor: BrandColors.white,
+  },
+  mechanicInfo: {
+    flex: 1,
+    gap: 2,
+  },
+  cardDivider: {
+    height: 1,
+    backgroundColor: "#E5E7EB",
+    marginVertical: Spacing.lg,
+  },
+  appointmentDetails: {
+    gap: Spacing.md,
+  },
+  detailRow: {
+    gap: Spacing.xs,
+  },
+  detailLabel: {
+    letterSpacing: 0.5,
+  },
+  detailContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+  },
 
-    // Services Section
-    servicesSection: {
-        marginBottom: Spacing.xl,
-    },
-    serviceRow: {
-        flexDirection: "row",
-        justifyContent: "space-between",
-        alignItems: "center",
-        paddingVertical: Spacing.md,
-    },
-    serviceDivider: {
-        height: 1,
-        backgroundColor: "#E5E7EB",
-    },
-    totalRow: {
-        flexDirection: "row",
-        justifyContent: "space-between",
-        alignItems: "center",
-        paddingTop: Spacing.sm,
-        borderTopWidth: 1,
-        borderTopColor: "#E5E7EB",
-        marginTop: Spacing.xs,
-    },
+  // Service Card
+  serviceCard: {
+    backgroundColor: BrandColors.white,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    ...Shadows.sm,
+  },
+  serviceHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: Spacing.lg,
+  },
+  serviceRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: Spacing.sm,
+  },
+  feeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+  },
+  infoButton: {
+    padding: 2,
+  },
+  serviceDivider: {
+    height: 1,
+    backgroundColor: "#E5E7EB",
+    marginVertical: Spacing.md,
+  },
+  totalSection: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  totalLeft: {
+    gap: Spacing.xs,
+  },
+  savingsBadge: {
+    backgroundColor: "#EFF6FF",
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.md,
+  },
 
-    // Section Header
-    sectionHeader: {
-        marginBottom: Spacing.md,
-    },
+  // Payment Method Card
+  paymentMethodCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: BrandColors.white,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    gap: Spacing.md,
+    ...Shadows.sm,
+  },
+  paymentMethodIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: BorderRadius.full,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  paymentMethodContent: {
+    flex: 1,
+    gap: 2,
+  },
 
-    // Payment Section
-    paymentSection: {
-        marginBottom: Spacing.xl,
-    },
-    payOptionsRow: {
-        flexDirection: "row",
-        gap: Spacing.md,
-    },
+  // Guarantee Card
+  guaranteeCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: BrandColors.white,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    gap: Spacing.md,
+    ...Shadows.sm,
+  },
+  guaranteeIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: BorderRadius.full,
+    backgroundColor: "#ECFDF5",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  guaranteeContent: {
+    flex: 1,
+    gap: 2,
+  },
 
-    // Date & Time Section
-    dateTimeSection: {
-        backgroundColor: "#F9FAFB",
-        borderRadius: BorderRadius.lg,
-        padding: Spacing.lg,
-        marginBottom: Spacing.xl,
-    },
-    dateTimeBox: {
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "space-between",
-        backgroundColor: BrandColors.white,
-        borderRadius: BorderRadius.lg,
-        borderWidth: 1,
-        borderColor: "#E5E7EB",
-        paddingVertical: Spacing.md,
-        paddingHorizontal: Spacing.lg,
-        marginBottom: Spacing.md,
-    },
-    dateTimeItem: {
-        flexDirection: "row",
-        alignItems: "center",
-        gap: Spacing.sm,
-    },
-    changeDateButton: {
-        alignItems: "center",
-        paddingVertical: Spacing.md,
-        borderRadius: BorderRadius.md,
-        borderWidth: 1,
-        borderColor: "#E5E7EB",
-        backgroundColor: BrandColors.white,
-        marginBottom: Spacing.md,
-    },
-    warningText: {
-        textAlign: "center",
-        fontStyle: "italic",
-    },
+  // Credit Card
+  creditCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: BrandColors.secondary,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    ...Shadows.md,
+  },
+  creditContent: {
+    flex: 1,
+    gap: Spacing.xs,
+  },
+  creditLabel: {
+    letterSpacing: 0.5,
+  },
+  creditAmount: {
+    flexDirection: "row",
+    alignItems: "baseline",
+  },
+  progressWrapper: {
+    position: "relative",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  progressText: {
+    position: "absolute",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  // Footer
+  footer: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: BrandColors.white,
+    paddingTop: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    borderTopWidth: 1,
+    borderTopColor: "#E5E7EB",
+    ...Shadows.lg,
+  },
+  confirmButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: BrandColors.primary,
+    paddingVertical: Spacing.lg,
+    borderRadius: BorderRadius.xl,
+    gap: Spacing.md,
+  },
+  priceTag: {
+    backgroundColor: BrandColors.white,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs,
+    borderRadius: BorderRadius.lg,
+  },
 });
-

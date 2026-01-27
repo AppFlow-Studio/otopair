@@ -119,6 +119,9 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
     return getMechanicsByShopId(shopId);
   }, [shopId, mechanicId, getMechanicsByShopId, getMechanicById]);
 
+  // Check if shop has only one mechanic (no "Any" option needed)
+  const hasSingleMechanic = shopMechanics.length === 1;
+
   // ═══════════════ SCHEDULE STORE ═══════════════
   const currentMonth = useScheduleStore((state) => state.currentMonth);
   const selectedDate = useScheduleStore((state) => state.selectedDate);
@@ -141,6 +144,7 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
   const setBookingTypeAndProceed = useBookingStore((state) => state.setBookingTypeAndProceed);
   const setBookingStage = useBookingStore((state) => state.setBookingStage);
   const setSkippedBookingDetails = useBookingStore((state) => state.setSkippedBookingDetails);
+  const setSelectedMechanicSlot = useBookingStore((state) => state.setSelectedMechanicSlot);
 
   // ═══════════════ COMPUTED - SELECTED SERVICES ═══════════════
   const selectedServices = useMemo(() => {
@@ -161,11 +165,18 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
 
   // ═══════════════ EFFECTS ═══════════════
   // Reset selected mechanic when modal opens
+  // For single mechanic shops, auto-select that mechanic
   useEffect(() => {
     if (visible) {
-      setSelectedMechanicId(mechanicId ?? null);
+      if (hasSingleMechanic) {
+        // Auto-select the only mechanic
+        setSelectedMechanicId(shopMechanics[0].id);
+      } else {
+        // Use provided mechanicId or null for "Any"
+        setSelectedMechanicId(mechanicId ?? null);
+      }
     }
-  }, [visible, mechanicId]);
+  }, [visible, mechanicId, hasSingleMechanic, shopMechanics]);
 
   // Load schedule when mechanic selection changes
   useEffect(() => {
@@ -301,6 +312,9 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
   const handleContinue = useCallback(() => {
     // Use selected mechanic, or first mechanic if "Any" is selected
     const effectiveMechanicId = selectedMechanicId ?? shopMechanics[0]?.id ?? mechanicId;
+    const effectiveShopId = shopId ?? shopMechanics[0]?.shopId;
+    const effectiveMechanic = effectiveMechanicId ? getMechanicById(effectiveMechanicId) : null;
+    const effectiveShopName = effectiveMechanic?.shopName ?? shopMechanics[0]?.shopName ?? "";
     
     if (selectedDate && selectedTime && effectiveMechanicId !== null && effectiveMechanicId !== undefined && selectedServices.length > 0) {
       confirmSelection();
@@ -320,6 +334,24 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
       // Set booking type and mechanic
       setBookingTypeAndProceed("schedule_later", effectiveMechanicId);
       
+      // Update selectedMechanicSlot for footer visibility when navigating back
+      const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+      const dayOfWeek = dayNames[selectedDate.getDay()];
+      
+      if (effectiveShopId) {
+        setSelectedMechanicSlot({
+          shopId: effectiveShopId,
+          shopName: effectiveShopName,
+          mechanicId: selectedMechanicId,
+          mechanicName: effectiveMechanic?.name || null,
+          slot: {
+            day: String(selectedDate.getDate()),
+            dayOfWeek: dayOfWeek,
+            time: selectedTime,
+          },
+        });
+      }
+      
       // Skip booking details and go directly to payment
       setSkippedBookingDetails(true);
       setBookingStage("payment", "forward");
@@ -330,7 +362,7 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
       // Navigate to payment screen
       router.push(`/home/mechanic/${effectiveMechanicId}/payment`);
     }
-  }, [selectedDate, selectedTime, selectedMechanicId, shopMechanics, mechanicId, selectedServices.length, confirmSelection, setScheduledAppointment, setBookingTypeAndProceed, setSkippedBookingDetails, setBookingStage, onContinue, onClose, router]);
+  }, [selectedDate, selectedTime, selectedMechanicId, shopMechanics, mechanicId, shopId, selectedServices.length, confirmSelection, setScheduledAppointment, setBookingTypeAndProceed, setSelectedMechanicSlot, setSkippedBookingDetails, setBookingStage, getMechanicById, onContinue, onClose, router]);
 
   // Get mechanic name for the service card
   const getSelectedMechanicName = useCallback(() => {
@@ -411,8 +443,8 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
           contentContainerStyle={styles.scrollContent}
           showsVerticalScrollIndicator={false}
         >
-          {/* Mechanic Selector - Only show if we have mechanics */}
-          {shopMechanics.length > 0 && (
+          {/* Mechanic Selector - Only show if we have multiple mechanics */}
+          {shopMechanics.length > 1 && (
             <View style={styles.mechanicSection}>
               <Text size="xs" weight="bold" color="#9CA3AF" style={styles.sectionLabel}>
                 SELECT MECHANIC

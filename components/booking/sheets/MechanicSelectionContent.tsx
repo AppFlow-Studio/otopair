@@ -27,7 +27,7 @@ import { AvailabilityModal } from "@/components/booking/modals";
 import { BookingFooter } from "./BookingFooter";
 import { DiscardServiceModal } from "./DiscardServiceModal";
 import { ServiceChip } from "./ServiceChip";
-import { ShopCard, type ShopWithMechanics, type SelectedSlotInfo } from "./ShopCard";
+import { ShopCard, type ShopWithMechanics, type SelectedSlotInfo, type SelectedServiceInfo } from "./ShopCard";
 
 // 5. Constants, hooks, types, stores
 import { MECHANIC_FILTER_OPTIONS, type MechanicFilterOption } from "@/constants/filters";
@@ -127,7 +127,6 @@ export function MechanicSelectionContent({
   const setSkippedBookingDetails = useBookingStore((state) => state.setSkippedBookingDetails);
   const selectedMechanicSlot = useBookingStore((state) => state.selectedMechanicSlot);
   const setSelectedMechanicSlot = useBookingStore((state) => state.setSelectedMechanicSlot);
-  const clearSelectedMechanicSlot = useBookingStore((state) => state.clearSelectedMechanicSlot);
   const getSelectedServicesTotal = useBookingStore((state) => state.getSelectedServicesTotal);
 
   // Memoize selected services to prevent re-renders
@@ -211,6 +210,15 @@ export function MechanicSelectionContent({
     };
   }, [selectedMechanicSlot]);
 
+  // Create SelectedServiceInfo array for ShopCard
+  const selectedServicesForCard: SelectedServiceInfo[] = useMemo(() => {
+    return selectedServices.map((service) => ({
+      id: service.id,
+      name: service.name,
+      price: service.price,
+    }));
+  }, [selectedServices]);
+
   // ═══════════════ EFFECTS ═══════════════
   // Go back to service selection if all services are removed
   useEffect(() => {
@@ -219,12 +227,10 @@ export function MechanicSelectionContent({
     }
   }, [selectedServiceIds.length, prevBookingStage]);
 
-  // Clear selection when component unmounts
-  useEffect(() => {
-    return () => {
-      clearSelectedMechanicSlot();
-    };
-  }, [clearSelectedMechanicSlot]);
+  // Note: We intentionally do NOT clear selectedMechanicSlot on unmount
+  // because the component unmounts when navigating to payment, and we need
+  // to preserve the selection for when the user comes back from payment.
+  // The slot is cleared by resetBookingFlow when the booking is completed or cancelled.
 
   // ═══════════════ HANDLERS ═══════════════
   const handleRemoveService = useCallback(
@@ -306,6 +312,15 @@ export function MechanicSelectionContent({
     setAvailabilityShopId(null);
   }, []);
 
+  // Handle availability modal confirmation - updates the selected slot
+  const handleAvailabilityConfirm = useCallback(
+    (date: Date, time: string, confirmedMechanicId: number) => {
+      // The AvailabilityModal already updates the selectedMechanicSlot in the store
+      // This callback can be used for any additional actions if needed
+    },
+    []
+  );
+
   // Handle book button from footer
   const handleBook = useCallback(() => {
     if (!selectedMechanicSlot) return;
@@ -346,7 +361,10 @@ export function MechanicSelectionContent({
     setBookingStage("payment", "forward");
 
     onSelectMechanic?.();
-  }, [selectedMechanicSlot, shopList, setBookingTypeAndProceed, setScheduledAppointment, setSkippedBookingDetails, setBookingStage, onSelectMechanic]);
+    
+    // Navigate to payment page
+    router.push(`/home/mechanic/${effectiveMechanicId}/payment`);
+  }, [selectedMechanicSlot, shopList, setBookingTypeAndProceed, setScheduledAppointment, setSkippedBookingDetails, setBookingStage, onSelectMechanic, router]);
 
   // ═══════════════ FLATLIST HELPERS ═══════════════
   const keyExtractor = useCallback((item: ShopWithMechanics) => String(item.shopId), []);
@@ -359,9 +377,10 @@ export function MechanicSelectionContent({
         onShopDetails={handleShopDetails}
         onMoreAvailability={handleMoreAvailability}
         selectedSlot={selectedSlotInfo}
+        selectedServices={selectedServicesForCard}
       />
     ),
-    [handleSelectSlot, handleShopDetails, handleMoreAvailability, selectedSlotInfo]
+    [handleSelectSlot, handleShopDetails, handleMoreAvailability, selectedSlotInfo, selectedServicesForCard]
   );
 
   // ═══════════════ FILTER HANDLER ═══════════════
@@ -483,6 +502,7 @@ export function MechanicSelectionContent({
         mechanicId={availabilityMechanicId}
         shopId={availabilityShopId}
         onClose={handleCloseAvailabilityModal}
+        onConfirm={handleAvailabilityConfirm}
       />
     </View>
   );

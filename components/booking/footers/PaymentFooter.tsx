@@ -15,7 +15,6 @@ import { StyleSheet, View } from "react-native";
 
 // 2. Third-party libraries
 import { BottomSheetFooter, BottomSheetFooterProps } from "@gorhom/bottom-sheet";
-import { ChevronRight } from "lucide-react-native";
 import Animated from "react-native-reanimated";
 
 // 3. Shared UI (design system)
@@ -55,15 +54,14 @@ export function PaymentFooter({
       <Animated.View style={animatedStyle}>
         <View style={styles.container}>
           <PrimaryButton style={styles.button} onPress={onConfirm}>
-            <Text size="md" weight="semiBold" color={BrandColors.white}>
-              Pay
+            <Text size="md" weight="bold" color={BrandColors.white}>
+              Confirm Appointment
             </Text>
             <View style={styles.amountBadge}>
               <Text size="sm" weight="bold" color={BrandColors.primary}>
-                ${totalAmount}
+                ${totalAmount.toFixed(2)}
               </Text>
             </View>
-            <ChevronRight size={20} color={BrandColors.white} />
           </PrimaryButton>
         </View>
       </Animated.View>
