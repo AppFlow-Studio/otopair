@@ -34,7 +34,8 @@ import {
 } from "react-native";
 
 // 2. Expo & Third-party
-import BottomSheet, { BottomSheetFooterProps } from "@gorhom/bottom-sheet";
+import BottomSheet, { BottomSheetFooter, BottomSheetFooterProps } from "@gorhom/bottom-sheet";
+import { useRouter } from "expo-router";
 import { Car, Clock, MapPin, Search, Star, User, Wrench, X } from "lucide-react-native";
 import Animated, {
   Extrapolation,
@@ -131,6 +132,7 @@ export function ServiceBottomSheet({
 
   // ═══════════════ HOOKS ═══════════════
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const { currentStage, sheetEntering, sheetExiting } = useBookingTransition();
 
   // ═══════════════ SEARCH MODE STATE ═══════════════
@@ -155,6 +157,12 @@ export function ServiceBottomSheet({
   const selectedCount = useBookingStore((state) => state.getSelectedServicesCount());
   const selectedTotal = useBookingStore((state) => state.getSelectedServicesTotal());
   const availableServices = useBookingStore((state) => state.availableServices);
+  const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
+  const selectedMechanicSlot = useBookingStore((state) => state.selectedMechanicSlot);
+  const setBookingTypeAndProceed = useBookingStore((state) => state.setBookingTypeAndProceed);
+  const setScheduledAppointment = useBookingStore((state) => state.setScheduledAppointment);
+  const setSkippedBookingDetails = useBookingStore((state) => state.setSkippedBookingDetails);
+  const getMechanicById = useMechanicStore((state) => state.getMechanicById);
   
   // Search stores
   const getRecentShopIds = useSearchStore((state) => state.getRecentShopIds);
@@ -169,6 +177,15 @@ export function ServiceBottomSheet({
   // ═══════════════ COMPUTED ═══════════════
   const hasSelection = selectedCount > 0;
   const isServiceStage = currentStage === "discovery" || currentStage === "service_selection";
+  const isMechanicStage = currentStage === "mechanic_selection";
+  
+  // Compute service name for mechanic selection footer
+  const mechanicFooterServiceName = useMemo(() => {
+    const selectedServices = availableServices.filter((s) => selectedServiceIds.includes(s.id));
+    if (selectedServices.length === 0) return "";
+    if (selectedServices.length === 1) return selectedServices[0].name;
+    return `${selectedServices.length} Services`;
+  }, [availableServices, selectedServiceIds]);
 
   // ═══════════════ SEARCH COMPUTED VALUES ═══════════════
   const recentShopIds = useMemo(() => getRecentShopIds(), [getRecentShopIds]);
@@ -241,6 +258,26 @@ export function ServiceBottomSheet({
   useEffect(() => {
     if (currentStage !== "discovery" && bottomSheetRef.current) {
       bottomSheetRef.current.snapToIndex(3); // Snap to expanded
+    }
+  }, [currentStage]);
+
+  // Special handling for mechanic_selection stage - ensure sheet is always expanded
+  // This handles the case when coming back from payment page (component remounts with mechanic_selection)
+  useEffect(() => {
+    if (currentStage === "mechanic_selection") {
+      // Use multiple delayed snaps to ensure the sheet expands
+      // This handles remount scenarios where the BottomSheet takes time to initialize
+      const timer1 = setTimeout(() => {
+        bottomSheetRef.current?.snapToIndex(3);
+      }, 100);
+      const timer2 = setTimeout(() => {
+        bottomSheetRef.current?.snapToIndex(3);
+      }, 300);
+      
+      return () => {
+        clearTimeout(timer1);
+        clearTimeout(timer2);
+      };
     }
   }, [currentStage]);
 
@@ -449,6 +486,53 @@ export function ServiceBottomSheet({
     // Navigation is handled internally by MechanicSelectionContent
   }, []);
 
+  // Handle book button from mechanic selection footer
+  const handleMechanicBook = useCallback(() => {
+    if (!selectedMechanicSlot) return;
+
+    const { mechanicId, slot, shopId } = selectedMechanicSlot;
+
+    // Convert slot to scheduled appointment format
+    const now = new Date();
+    const currentMonth = now.getMonth();
+    const currentYear = now.getFullYear();
+    const dayNum = parseInt(slot.day, 10);
+
+    // Construct date from slot day
+    let targetDate = new Date(currentYear, currentMonth, dayNum);
+    if (targetDate < now) {
+      targetDate = new Date(currentYear, currentMonth + 1, dayNum);
+    }
+
+    const months = ["Jan.", "Feb.", "Mar.", "Apr.", "May", "Jun.", "Jul.", "Aug.", "Sep.", "Oct.", "Nov.", "Dec."];
+    const displayDate = `${targetDate.getDate()} ${months[targetDate.getMonth()]} ${targetDate.getFullYear()}`;
+    const isoDate = targetDate.toISOString().split("T")[0];
+
+    // Use mechanicId or find first mechanic for the shop
+    const effectiveMechanicId = mechanicId || (() => {
+      // Find a mechanic from this shop
+      const shopMechanic = mechanicIds.map(id => mechanics[id]).find(m => m?.shopId === shopId);
+      return shopMechanic?.id;
+    })();
+    
+    if (!effectiveMechanicId) return;
+
+    // Set appointment in store
+    setBookingTypeAndProceed("schedule_later", effectiveMechanicId);
+    setScheduledAppointment({
+      date: isoDate,
+      time: slot.time,
+      displayDate,
+    });
+
+    // Go directly to payment screen (skip booking details)
+    setSkippedBookingDetails(true);
+    setBookingStage("payment", "forward");
+    
+    // Navigate to payment page
+    router.push(`/home/mechanic/${effectiveMechanicId}/payment`);
+  }, [selectedMechanicSlot, mechanicIds, mechanics, setBookingTypeAndProceed, setScheduledAppointment, setSkippedBookingDetails, setBookingStage, router]);
+
   // Handle close button press
   // In search mode: exit search mode
   // In browse mode: minimize to preview stage (index 1 = 38%)
@@ -527,11 +611,74 @@ export function ServiceBottomSheet({
         );
       }
 
-      // Mechanic selection has its own sticky footer (BookingFooter in MechanicSelectionContent)
+      // Mechanic selection footer - shows immediately even while content is loading
+      if (isMechanicStage && !showCarPreview) {
+        const hasSlotSelection = selectedMechanicSlot !== null;
+        const displayMechanic = selectedMechanicSlot?.mechanicName || "Any mechanic";
+        const displayDate = selectedMechanicSlot?.slot
+          ? `${selectedMechanicSlot.slot.dayOfWeek} ${selectedMechanicSlot.slot.day} · ${selectedMechanicSlot.slot.time}`
+          : "";
+
+        return (
+          <BottomSheetFooter {...props} bottomInset={0}>
+            <View style={mechanicFooterStyles.wrapper}>
+              <View style={mechanicFooterStyles.container}>
+                {!hasSlotSelection ? (
+                  // No selection state - prompt to select time
+                  <View style={mechanicFooterStyles.noSelectionContent}>
+                    <View style={mechanicFooterStyles.serviceLabel}>
+                      <Text size="xs" weight="bold" color="#9CA3AF" style={{ letterSpacing: 0.5, marginBottom: 2 }}>
+                        SERVICE
+                      </Text>
+                      <Text size="sm" weight="bold" color={BrandColors.primary}>
+                        {mechanicFooterServiceName.toUpperCase()}
+                      </Text>
+                    </View>
+                    <View style={mechanicFooterStyles.promptContainer}>
+                      <Text size="sm" weight="medium" color="#9CA3AF">
+                        Select time to continue
+                      </Text>
+                      <Wrench size={16} color="#9CA3AF" />
+                    </View>
+                  </View>
+                ) : (
+                  // Selection made state - show details and book button
+                  <View style={mechanicFooterStyles.selectionContent}>
+                    <View style={mechanicFooterStyles.detailsContainer}>
+                      <Text size="xs" weight="bold" color={BrandColors.secondary}>
+                        {mechanicFooterServiceName.toUpperCase()}
+                      </Text>
+                      <Text size="sm" weight="bold" color={BrandColors.secondary}>
+                        {displayDate}
+                      </Text>
+                      <Text size="xs" weight="regular" color="#6B7280" numberOfLines={1}>
+                        with {displayMechanic} at {selectedMechanicSlot?.shopName}
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      style={mechanicFooterStyles.bookButton}
+                      onPress={handleMechanicBook}
+                      activeOpacity={0.8}
+                    >
+                      <Text size="md" weight="bold" color={BrandColors.white}>
+                        Book ${selectedTotal}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+              {/* White bar below footer to cover any content behind */}
+              <View style={mechanicFooterStyles.bottomBar} />
+            </View>
+          </BottomSheetFooter>
+        );
+      }
+
       return null;
     },
     [
       isServiceStage,
+      isMechanicStage,
       showCarPreview,
       showShopPreview,
       footerBottomInset,
@@ -540,6 +687,9 @@ export function ServiceBottomSheet({
       selectedCount,
       selectedTotal,
       handleServicesSelected,
+      mechanicFooterServiceName,
+      selectedMechanicSlot,
+      handleMechanicBook,
     ]
   );
 
@@ -1101,5 +1251,58 @@ const styles = StyleSheet.create({
   emptyState: {
     paddingVertical: Spacing["3xl"],
     paddingHorizontal: Spacing.lg,
+  },
+});
+
+// Mechanic selection footer styles
+const mechanicFooterStyles = StyleSheet.create({
+  wrapper: {
+    backgroundColor: BrandColors.white,
+  },
+  container: {
+    backgroundColor: BrandColors.white,
+    borderTopWidth: 1,
+    borderTopColor: "#E5E7EB",
+    paddingTop: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.md,
+  },
+  bottomBar: {
+    height: 20,
+    backgroundColor: BrandColors.white,
+  },
+  noSelectionContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    backgroundColor: "#F9FAFB",
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.md,
+  },
+  serviceLabel: {
+    flex: 1,
+  },
+  promptContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  selectionContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: Spacing.md,
+  },
+  detailsContainer: {
+    flex: 1,
+  },
+  bookButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    backgroundColor: BrandColors.primary,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    borderRadius: BorderRadius.full,
   },
 });

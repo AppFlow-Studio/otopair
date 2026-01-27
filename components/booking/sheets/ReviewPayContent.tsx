@@ -2,8 +2,8 @@
  * ReviewPayContent
  *
  * PURPOSE: Displays the Review & Pay screen after "Book Now" or "Schedule For Later"
- *          Shows mechanic info, appointment details, services breakdown,
- *          price lock guarantee, and ownership credit
+ *          Shows mechanic info, appointment details, detailed services breakdown,
+ *          and inline payment options (Apple Pay, Google Pay, saved cards).
  *          Appears before the confirmation screen
  *
  * USED IN: components/booking/ServiceBottomSheet.tsx
@@ -13,13 +13,13 @@
  */
 
 // 1. React & React Native
-import React, { useMemo, useState } from "react";
+import React, { useCallback, useMemo } from "react";
 import { Image, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
-import { Calendar, Car, ChevronRight, CreditCard, FileText, Info, Lock, Star } from "lucide-react-native";
-import Svg, { Circle } from "react-native-svg";
+import { FontAwesome } from "@expo/vector-icons";
+import { Calendar, Car, ChevronRight, FileText, Info, Lock, Star } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 
@@ -32,9 +32,6 @@ import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { usePaymentStore } from "@/stores/usePaymentStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
-
-// 5. Local components
-import { PaymentMethodModal } from "@/components/booking/modals/PaymentMethodModal";
 
 // ============================================================================
 // TYPES
@@ -52,8 +49,9 @@ interface ReviewPayContentProps {
 // ============================================================================
 
 const PLATFORM_FEE = 4.79;
-const OWNERSHIP_CREDIT_CURRENT = 27;
-const OWNERSHIP_CREDIT_GOAL = 50;
+const TAXES_AND_FEES = 5.00;
+const LABOR_RATE_PER_HOUR = 30.00;
+
 
 // ============================================================================
 // MAIN COMPONENT
@@ -64,9 +62,6 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const contentPadding = getSheetContentPadding(true, insets.bottom);
-
-  // ═══════════════ LOCAL STATE ═══════════════
-  const [isPaymentModalVisible, setIsPaymentModalVisible] = useState(false);
 
   // ═══════════════ BOOKING STORE ═══════════════
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
@@ -102,13 +97,24 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
     [availableServices, selectedServiceIds]
   );
 
-  // Compute totals
-  const servicesTotal = useMemo(
-    () => selectedServices.reduce((total, service) => total + service.price, 0),
-    [selectedServices]
-  );
-
-  const totalPrice = servicesTotal + PLATFORM_FEE;
+  // Calculate detailed breakdown
+  const breakdown = useMemo(() => {
+    const servicesTotal = selectedServices.reduce((total, service) => total + service.price, 0);
+    // Estimate labor as 60% of services total, parts as 40%
+    const laborHours = Math.max(1, Math.round((servicesTotal * 0.6) / LABOR_RATE_PER_HOUR * 2) / 2);
+    const laborCost = laborHours * LABOR_RATE_PER_HOUR;
+    const partsCost = servicesTotal - laborCost;
+    
+    return {
+      laborHours,
+      laborCost: Math.max(0, laborCost),
+      partsCost: Math.max(0, partsCost),
+      taxesAndFees: TAXES_AND_FEES,
+      platformFee: PLATFORM_FEE,
+      subtotal: servicesTotal,
+      total: servicesTotal + PLATFORM_FEE,
+    };
+  }, [selectedServices]);
 
   // Format vehicle display
   const vehicleDisplay = selectedVehicle
@@ -117,31 +123,22 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
 
   // Format appointment display
   const appointmentDisplay =
-    appointmentDate && appointmentTime ? `${appointmentDate} • ${appointmentTime}` : "Not scheduled";
-
-  // Ownership credit progress
-  const creditProgress = (OWNERSHIP_CREDIT_CURRENT / OWNERSHIP_CREDIT_GOAL) * 100;
-  const creditPercentage = Math.round(creditProgress);
+    appointmentDate && appointmentTime ? `${appointmentDate} · ${appointmentTime}` : "Not scheduled";
 
   // Payment method
   const selectedPaymentMethod = getSelectedPaymentMethod();
   const hasPayment = hasPaymentMethods();
 
-  // ═══════════════ COMPUTED FOR MODAL ═══════════════
-  const serviceSummary = useMemo(() => {
-    if (selectedServices.length === 0) return "Service";
-    if (selectedServices.length === 1) return selectedServices[0].name;
-    return `${selectedServices[0].name} & ${selectedServices.length - 1} more`;
-  }, [selectedServices]);
-
   // ═══════════════ HANDLERS ═══════════════
-  const handleChangePaymentMethod = () => {
-    setIsPaymentModalVisible(true);
-  };
+  const handleApplePay = useCallback(() => {
+    // Apple Pay integration would go here
+    console.log("Apple Pay selected");
+  }, []);
 
-  const handleClosePaymentModal = () => {
-    setIsPaymentModalVisible(false);
-  };
+  const handleGooglePay = useCallback(() => {
+    // Google Pay integration would go here
+    console.log("Google Pay selected");
+  }, []);
 
   // ═══════════════ RENDER ═══════════════
   if (!mechanic) {
@@ -250,17 +247,50 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
             <FileText size={20} color="#9CA3AF" />
           </View>
 
-          {/* Services */}
+          {/* Service Names */}
           {selectedServices.map((service) => (
             <View key={service.id} style={styles.serviceRow}>
-              <Text size="sm" weight="regular" color={BrandColors.primary}>
+              <Text size="sm" weight="medium" color={BrandColors.primary}>
                 {service.name}
               </Text>
-              <Text size="sm" weight="medium" color={BrandColors.primary}>
+              <Text size="sm" weight="semiBold" color={BrandColors.primary}>
                 ${service.price.toFixed(2)}
               </Text>
             </View>
           ))}
+
+          {/* Detailed Breakdown */}
+          <View style={styles.breakdownSection}>
+            {/* Labor */}
+            <View style={styles.breakdownRow}>
+              <Text size="sm" weight="regular" color="#6B7280">
+                Labor ({breakdown.laborHours} hrs)
+              </Text>
+              <Text size="sm" weight="medium" color="#6B7280">
+                ${breakdown.laborCost.toFixed(2)}
+              </Text>
+            </View>
+
+            {/* Parts */}
+            <View style={styles.breakdownRow}>
+              <Text size="sm" weight="regular" color="#6B7280">
+                Parts (Oil, Filter)
+              </Text>
+              <Text size="sm" weight="medium" color="#6B7280">
+                ${breakdown.partsCost.toFixed(2)}
+              </Text>
+            </View>
+
+            {/* Taxes & Fees */}
+            <View style={styles.breakdownRow}>
+              <Text size="sm" weight="regular" color="#6B7280">
+                Taxes & Fees
+              </Text>
+              <Text size="sm" weight="medium" color="#6B7280">
+                ${breakdown.taxesAndFees.toFixed(2)}
+              </Text>
+            </View>
+          </View>
 
           {/* Platform Fee */}
           <View style={styles.serviceRow}>
@@ -273,7 +303,7 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
               </TouchableOpacity>
             </View>
             <Text size="sm" weight="medium" color="#6B7280">
-              ${PLATFORM_FEE.toFixed(2)}
+              ${breakdown.platformFee.toFixed(2)}
             </Text>
           </View>
 
@@ -293,108 +323,93 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
               </View>
             </View>
             <Text size="2xl" weight="bold" color={BrandColors.secondary}>
-              ${totalPrice.toFixed(2)}
+              ${breakdown.total.toFixed(2)}
             </Text>
           </View>
         </View>
 
-        {/* Payment Method Card */}
-        <TouchableOpacity 
-          style={styles.paymentMethodCard} 
-          onPress={handleChangePaymentMethod}
-          activeOpacity={0.7}
-        >
-          <View style={styles.paymentMethodIcon}>
-            <CreditCard size={20} color="#6B7280" />
-          </View>
-          <View style={styles.paymentMethodContent}>
-            <Text size="sm" weight="medium" color="#6B7280">
-              Payment Method
-            </Text>
-            {hasPayment && selectedPaymentMethod ? (
+        {/* Payment Options Section */}
+        <View style={styles.paymentSection}>
+          {/* Apple Pay Button */}
+          <TouchableOpacity
+            style={styles.applePayButton}
+            onPress={handleApplePay}
+            activeOpacity={0.8}
+          >
+            <View style={styles.payButtonContent}>
+              <FontAwesome name="apple" size={20} color="#FFFFFF" />
+              <Text size="md" weight="semiBold" color={BrandColors.white}>
+                Pay
+              </Text>
+            </View>
+          </TouchableOpacity>
+
+          {/* Google Pay Button */}
+          <TouchableOpacity
+            style={styles.googlePayButton}
+            onPress={handleGooglePay}
+            activeOpacity={0.8}
+          >
+            <View style={styles.payButtonContent}>
+              <FontAwesome name="google" size={18} color={BrandColors.primary} />
               <Text size="md" weight="semiBold" color={BrandColors.primary}>
-                Via {selectedPaymentMethod.brand} ····{selectedPaymentMethod.last4}
-              </Text>
-            ) : (
-              <Text size="md" weight="semiBold" color={BrandColors.secondary}>
-                Add payment method
-              </Text>
-            )}
-          </View>
-          <ChevronRight size={20} color="#9CA3AF" />
-        </TouchableOpacity>
-
-        {/* Price Lock Guarantee */}
-        <View style={styles.guaranteeCard}>
-          <View style={styles.guaranteeIcon}>
-            <Lock size={20} color="#10B981" />
-          </View>
-          <View style={styles.guaranteeContent}>
-            <Text size="md" weight="bold" color={BrandColors.primary}>
-              Price Lock Guarantee
-            </Text>
-            <Text size="sm" weight="regular" color="#6B7280">
-              No hidden fees or surprises at the shop.
-            </Text>
-          </View>
-        </View>
-
-        {/* Ownership Credit Card */}
-        <View style={styles.creditCard}>
-          <View style={styles.creditContent}>
-            <Text size="xs" weight="bold" color="rgba(255,255,255,0.7)" style={styles.creditLabel}>
-              OWNERSHIP CREDIT
-            </Text>
-            <View style={styles.creditAmount}>
-              <Text size="2xl" weight="bold" color={BrandColors.white}>
-                ${OWNERSHIP_CREDIT_CURRENT}
-              </Text>
-              <Text size="lg" weight="medium" color="rgba(255,255,255,0.7)">
-                {" "}
-                / ${OWNERSHIP_CREDIT_GOAL}
+                Pay
               </Text>
             </View>
-            <Text size="sm" weight="regular" color="rgba(255,255,255,0.8)">
-              Earned towards next reward
+          </TouchableOpacity>
+
+          {/* Divider */}
+          <View style={styles.paymentDivider}>
+            <View style={styles.paymentDividerLine} />
+            <Text size="xs" weight="medium" color="#9CA3AF" style={styles.paymentDividerText}>
+              OR PAY WITH
             </Text>
+            <View style={styles.paymentDividerLine} />
           </View>
 
-          {/* Circular Progress */}
-          <View style={styles.progressWrapper}>
-            <Svg width={56} height={56} viewBox="0 0 56 56">
-              {/* Background Circle */}
-              <Circle cx="28" cy="28" r="24" stroke="rgba(255,255,255,0.2)" strokeWidth="4" fill="transparent" />
-              {/* Progress Circle */}
-              <Circle
-                cx="28"
-                cy="28"
-                r="24"
-                stroke={BrandColors.white}
-                strokeWidth="4"
-                fill="transparent"
-                strokeDasharray={`${2 * Math.PI * 24}`}
-                strokeDashoffset={`${2 * Math.PI * 24 * (1 - creditProgress / 100)}`}
-                strokeLinecap="round"
-                transform="rotate(-90 28 28)"
-              />
-            </Svg>
-            <View style={styles.progressText}>
-              <Text size="sm" weight="bold" color={BrandColors.white}>
-                {creditPercentage}%
-              </Text>
+          {/* Saved Card */}
+          {hasPayment && selectedPaymentMethod ? (
+            <View style={styles.savedCardRow}>
+              <View style={styles.cardBrandIcon}>
+                <Text size="xs" weight="bold" color={BrandColors.secondary}>
+                  {selectedPaymentMethod.brand.toUpperCase().slice(0, 4)}
+                </Text>
+              </View>
+              <View style={styles.cardDetails}>
+                <Text size="md" weight="medium" color={BrandColors.primary}>
+                  {selectedPaymentMethod.brand.charAt(0).toUpperCase() + selectedPaymentMethod.brand.slice(1)} •••• {selectedPaymentMethod.last4}
+                </Text>
+                <Text size="sm" weight="regular" color="#6B7280">
+                  Expires {String(selectedPaymentMethod.expMonth).padStart(2, "0")}/{String(selectedPaymentMethod.expYear).slice(-2)}
+                </Text>
+              </View>
+              <ChevronRight size={20} color="#9CA3AF" />
             </View>
+          ) : (
+            <View style={styles.savedCardRow}>
+              <View style={styles.cardBrandIcon}>
+                <Text size="xs" weight="bold" color="#9CA3AF">
+                  CARD
+                </Text>
+              </View>
+              <View style={styles.cardDetails}>
+                <Text size="md" weight="semiBold" color={BrandColors.secondary}>
+                  Add payment method
+                </Text>
+              </View>
+              <ChevronRight size={20} color="#9CA3AF" />
+            </View>
+          )}
+
+          {/* Security Note */}
+          <View style={styles.securityNote}>
+            <Lock size={14} color="#9CA3AF" />
+            <Text size="xs" weight="medium" color="#9CA3AF">
+              Secured & encrypted by Stripe
+            </Text>
           </View>
         </View>
       </ScrollComponent>
-
-      {/* Payment Method Modal */}
-      <PaymentMethodModal
-        visible={isPaymentModalVisible}
-        onClose={handleClosePaymentModal}
-        totalAmount={totalPrice}
-        serviceSummary={serviceSummary}
-        mechanicName={mechanic?.name || "Mechanic"}
-      />
     </View>
   );
 }
@@ -507,6 +522,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingVertical: Spacing.sm,
   },
+  breakdownSection: {
+    marginTop: Spacing.sm,
+    paddingTop: Spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: "#F3F4F6",
+  },
+  breakdownRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: Spacing.xs,
+  },
   feeRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -535,81 +562,74 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
   },
 
-  // Payment Method Card
-  paymentMethodCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: BrandColors.white,
-    borderRadius: BorderRadius.xl,
-    padding: Spacing.lg,
+  // Payment Section
+  paymentSection: {
     gap: Spacing.md,
-    ...Shadows.sm,
   },
-  paymentMethodIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: BorderRadius.full,
-    backgroundColor: "#F3F4F6",
+  applePayButton: {
+    backgroundColor: BrandColors.primary,
+    paddingVertical: Spacing.lg,
+    borderRadius: BorderRadius.xl,
     alignItems: "center",
     justifyContent: "center",
   },
-  paymentMethodContent: {
-    flex: 1,
-    gap: 2,
-  },
-
-  // Guarantee Card
-  guaranteeCard: {
-    flexDirection: "row",
-    alignItems: "center",
+  googlePayButton: {
     backgroundColor: BrandColors.white,
+    paddingVertical: Spacing.lg,
     borderRadius: BorderRadius.xl,
-    padding: Spacing.lg,
-    gap: Spacing.md,
-    ...Shadows.sm,
-  },
-  guaranteeIcon: {
-    width: 44,
-    height: 44,
-    borderRadius: BorderRadius.full,
-    backgroundColor: "#ECFDF5",
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 1.5,
+    borderColor: "#E5E7EB",
   },
-  guaranteeContent: {
-    flex: 1,
-    gap: 2,
-  },
-
-  // Credit Card
-  creditCard: {
+  payButtonContent: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: BrandColors.secondary,
-    borderRadius: BorderRadius.xl,
-    padding: Spacing.lg,
-    ...Shadows.md,
+    gap: Spacing.sm,
   },
-  creditContent: {
+  paymentDivider: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.md,
+    marginVertical: Spacing.sm,
+  },
+  paymentDividerLine: {
     flex: 1,
-    gap: Spacing.xs,
+    height: 1,
+    backgroundColor: "#E5E7EB",
   },
-  creditLabel: {
+  paymentDividerText: {
     letterSpacing: 0.5,
   },
-  creditAmount: {
+  savedCardRow: {
     flexDirection: "row",
-    alignItems: "baseline",
+    alignItems: "center",
+    backgroundColor: BrandColors.white,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    gap: Spacing.md,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
   },
-  progressWrapper: {
-    position: "relative",
+  cardBrandIcon: {
+    width: 48,
+    height: 32,
+    borderRadius: BorderRadius.sm,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    backgroundColor: "#F9FAFB",
     alignItems: "center",
     justifyContent: "center",
   },
-  progressText: {
-    position: "absolute",
+  cardDetails: {
+    flex: 1,
+    gap: 2,
+  },
+  securityNote: {
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
+    gap: Spacing.xs,
+    paddingTop: Spacing.sm,
   },
 });

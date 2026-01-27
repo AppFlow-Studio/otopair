@@ -24,7 +24,7 @@ import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Flow-specific components
 import { AvailabilityModal } from "@/components/booking/modals";
-import { BookingFooter } from "./BookingFooter";
+// BookingFooter is now rendered by ServiceBottomSheet's footerComponent
 import { DiscardServiceModal } from "./DiscardServiceModal";
 import { ServiceChip } from "./ServiceChip";
 import { ShopCard, type ShopWithMechanics, type SelectedSlotInfo, type SelectedServiceInfo } from "./ShopCard";
@@ -477,16 +477,7 @@ export function MechanicSelectionContent({
         }
       />
 
-      {/* Booking Footer */}
-      <BookingFooter
-        serviceName={serviceName}
-        hasSelection={selectedMechanicSlot !== null}
-        selectedSlot={selectedMechanicSlot?.slot}
-        shopName={selectedMechanicSlot?.shopName}
-        mechanicName={selectedMechanicSlot?.mechanicName}
-        totalPrice={getSelectedServicesTotal()}
-        onBook={handleBook}
-      />
+      {/* Footer is now handled by ServiceBottomSheet's footerComponent */}
 
       {/* Discard Service Modal */}
       <DiscardServiceModal
