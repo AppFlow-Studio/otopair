@@ -38,7 +38,7 @@ import type { Mechanic, MechanicAvailabilitySlot } from "@/stores/types/store.ty
 // CONSTANTS
 // ============================================================================
 
-const FOOTER_HEIGHT = 100; // Approximate footer height for padding
+const DEFAULT_FOOTER_INSET = 100; // Fallback padding when footer height isn't measured yet
 
 // ============================================================================
 // TYPES
@@ -52,6 +52,10 @@ interface MechanicSelectionContentProps {
   onSelectMechanic?: () => void;
   /** Called when user taps the car icon to open car selection */
   onCarSelect?: () => void;
+  /** Height of the sticky footer so the list can pad accordingly */
+  footerInset?: number;
+  /** Called when the mechanic search input gains focus */
+  onSearchFocus?: () => void;
 }
 
 // ============================================================================
@@ -102,10 +106,16 @@ function groupMechanicsByShop(mechanics: Mechanic[]): ShopWithMechanics[] {
 export function MechanicSelectionContent({
   onSelectMechanic,
   onCarSelect,
+  footerInset = 0,
+  onSearchFocus,
 }: MechanicSelectionContentProps) {
   // ═══════════════ HOOKS ═══════════════
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const bottomSpacerHeight = useMemo(
+    () => Math.max(footerInset, DEFAULT_FOOTER_INSET) + insets.bottom + Spacing.lg,
+    [footerInset, insets.bottom]
+  );
 
   // ═══════════════ STATE ═══════════════
   const [showAvailabilityModal, setShowAvailabilityModal] = React.useState(false);
@@ -378,6 +388,7 @@ export function MechanicSelectionContent({
           placeholderTextColor="#9CA3AF"
           value={searchQuery}
           onChangeText={setSearchQuery}
+          onFocus={onSearchFocus}
         />
       </View>
 
@@ -386,13 +397,14 @@ export function MechanicSelectionContent({
         data={shopList}
         keyExtractor={keyExtractor}
         renderItem={renderShopCard}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: FOOTER_HEIGHT + insets.bottom }]}
+        contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         removeClippedSubviews={true}
         maxToRenderPerBatch={5}
         windowSize={5}
         initialNumToRender={3}
+        ListFooterComponent={<View style={{ height: bottomSpacerHeight }} />}
         ListHeaderComponent={
           <View>
             {/* Filter Chips */}

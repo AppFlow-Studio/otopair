@@ -67,12 +67,6 @@ export function MechanicInfoCard({ mechanic, ratingCount }: MechanicInfoCardProp
             <Text size="lg" weight="bold" color={BrandColors.primary}>
               {mechanic.shopName}
             </Text>
-            <View style={styles.ratingBadge}>
-              <Star size={16} color={BrandColors.secondary} fill={BrandColors.secondary} />
-              <Text size="sm" weight="bold" color={BrandColors.primary}>
-                {mechanic.rating.toFixed(1)}
-              </Text>
-            </View>
           </View>
 
           <Text size="sm" weight="medium" color="#6B7280" style={{ marginBottom: 2 }}>
@@ -202,11 +196,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
     marginBottom: 4,
-  },
-  ratingBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
   },
   distanceRow: {
     flexDirection: "row",

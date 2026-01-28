@@ -18,7 +18,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Dimensions, Image, Modal, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
-import { ArrowRight, ChevronLeft, ChevronRight, User, X } from "lucide-react-native";
+import { ChevronLeft, ChevronRight, User, X } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 3. Shared UI (design system)
@@ -134,25 +134,9 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
   // ═══════════════ BOOKING STORE ═══════════════
   const setScheduledAppointment = useBookingStore((state) => state.setScheduledAppointment);
   const selectMechanic = useBookingStore((state) => state.selectMechanic);
-  const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
-  const availableServices = useBookingStore((state) => state.availableServices);
-  const getSelectedServicesTotal = useBookingStore((state) => state.getSelectedServicesTotal);
   const setSelectedMechanicSlot = useBookingStore((state) => state.setSelectedMechanicSlot);
   
   // ═══════════════ COMPUTED SERVICE INFO ═══════════════
-  const selectedServices = useMemo(
-    () => availableServices.filter((service) => selectedServiceIds.includes(service.id)),
-    [availableServices, selectedServiceIds]
-  );
-  
-  const serviceName = useMemo(() => {
-    if (selectedServices.length === 0) return "Service";
-    if (selectedServices.length === 1) return selectedServices[0].name;
-    return `${selectedServices.length} Services`;
-  }, [selectedServices]);
-  
-  const totalPrice = getSelectedServicesTotal();
-  
   // Compute shop name from mechanic or shopId
   const shopName = useMemo(() => {
     if (selectedMechanicId) {
@@ -175,6 +159,8 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
     const mech = getMechanicById(selectedMechanicId);
     return mech?.name || null;
   }, [selectedMechanicId, getMechanicById]);
+
+  const canConfirmSelection = Boolean(selectedDate && selectedTime);
 
   // ═══════════════ EFFECTS ═══════════════
   // Reset selected mechanic when modal opens
@@ -588,53 +574,27 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
 
         {/* Footer */}
         <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.md }]}>
-          {selectedDate && selectedTime ? (
-            // Selection made - show booking details and Book button
-            <View style={styles.bookingFooterContent}>
-              {/* Left side - booking details */}
-              <View style={styles.bookingDetailsContainer}>
-                <Text size="xs" weight="bold" color={BrandColors.secondary}>
-                  {serviceName.toUpperCase()}
-                </Text>
-                <Text size="sm" weight="bold" color={BrandColors.secondary}>
-                  {selectedDate.toLocaleDateString("en-US", { weekday: "short" })} {selectedDate.getDate()} · {selectedTime}
-                </Text>
-                <Text size="xs" weight="regular" color="#6B7280" numberOfLines={1}>
-                  with {selectedMechanicName || "Any mechanic"} at {shopName}
-                </Text>
-              </View>
+          <View style={styles.buttonRow}>
+            <TouchableOpacity style={styles.cancelButton} onPress={handleCancel} activeOpacity={0.7}>
+              <Text size="md" weight="semiBold" color={BrandColors.primary}>
+                Cancel
+              </Text>
+            </TouchableOpacity>
 
-              {/* Right side - book button */}
-              <TouchableOpacity
-                style={styles.bookButton}
-                onPress={handleConfirm}
-                activeOpacity={0.8}
-              >
-                <Text size="md" weight="bold" color={BrandColors.white}>
-                  Book ${totalPrice}
-                </Text>
-                <ArrowRight size={18} color={BrandColors.white} />
-              </TouchableOpacity>
-            </View>
-          ) : (
-            // No selection - show cancel/confirm buttons
-            <View style={styles.buttonRow}>
-              <TouchableOpacity style={styles.cancelButton} onPress={handleCancel} activeOpacity={0.7}>
-                <Text size="md" weight="semiBold" color={BrandColors.primary}>
-                  Cancel
-                </Text>
-              </TouchableOpacity>
-
-              <PrimaryButton
-                style={[styles.confirmButton, styles.confirmButtonDisabled]}
-                disabled
-              >
-                <Text size="md" weight="bold" color={BrandColors.white}>
-                  Select Date & Time
-                </Text>
-              </PrimaryButton>
-            </View>
-          )}
+            <PrimaryButton
+              style={[
+                styles.confirmButton,
+                !canConfirmSelection && styles.confirmButtonDisabled,
+                canConfirmSelection && styles.confirmButtonActive,
+              ]}
+              disabled={!canConfirmSelection}
+              onPress={handleConfirm}
+            >
+              <Text size="md" weight="bold" color={BrandColors.white}>
+                Select Date & Time
+              </Text>
+            </PrimaryButton>
+          </View>
         </View>
       </View>
     </Modal>
@@ -860,23 +820,11 @@ const styles = StyleSheet.create({
   confirmButtonDisabled: {
     opacity: 0.5,
   },
-  // Booking footer (when date/time selected)
-  bookingFooterContent: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: Spacing.md,
-  },
-  bookingDetailsContainer: {
-    flex: 1,
-  },
-  bookButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.sm,
-    backgroundColor: BrandColors.primary,
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.lg,
-    borderRadius: BorderRadius.full,
+  confirmButtonActive: {
+    shadowColor: BrandColors.secondary,
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
   },
 });

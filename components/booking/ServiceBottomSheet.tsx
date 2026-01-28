@@ -26,6 +26,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import {
   Dimensions,
   Keyboard,
+  LayoutChangeEvent,
   ScrollView,
   StyleSheet,
   TextInput,
@@ -46,7 +47,6 @@ import Animated, {
   useAnimatedStyle,
   useDerivedValue,
   useSharedValue,
-  withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -86,6 +86,8 @@ interface ServiceBottomSheetProps {
   onSearchModeChange?: (isSearching: boolean) => void;
   /** Currently selected shop ID from map pin (triggers shop preview mode) */
   selectedShopId?: number | null;
+  /** Incrementing key to force shop preview when same shop is tapped again */
+  shopPreviewKey?: number;
   /** Called when active shop changes in carousel (for map focus) */
   onShopChange?: (shop: { id: number; latitude: number; longitude: number }) => void;
   /** Called when shop preview is closed */
@@ -111,6 +113,20 @@ const SNAP_POINTS_CONFIG = {
   mechanic_selection: { collapsed: 23, preview: 38, mid: 55, expanded: 98 },
 } as const;
 
+const SNAP_POINT_COUNT = 4;
+
+const clampSnapIndex = (index: number | null | undefined) => {
+  if (index === null || index === undefined || Number.isNaN(index)) {
+    return 3;
+  }
+  return Math.min(SNAP_POINT_COUNT - 1, Math.max(0, index));
+};
+
+// Fade footer as the sheet passes the mid snap (index 2) so it disappears before collapsing
+const FOOTER_FADE_IN_INDEX = 2;
+const FOOTER_FADE_OUT_INDEX = 1.1;
+const FOOTER_INTERACTION_THRESHOLD = 0.05;
+
 // ============================================================================
 // COMPONENT
 // ============================================================================
@@ -122,6 +138,7 @@ export function ServiceBottomSheet({
   onSelectMechanic,
   onSearchModeChange,
   selectedShopId = null,
+  shopPreviewKey = 0,
   onShopChange,
   onShopClose,
 }: ServiceBottomSheetProps) {
@@ -147,10 +164,12 @@ export function ServiceBottomSheet({
   const [showShopPreview, setShowShopPreview] = useState(false);
   // Track the previous snap index before showing shop preview
   const previousShopSnapIndexRef = useRef(3);
+  const showShopPreviewRef = useRef(showShopPreview);
 
   // ═══════════════ CAR SELECTION STATE ═══════════════
   // Toggle to show car selection carousel (user-initiated via car icon)
   const [showCarPreview, setShowCarPreview] = useState(false);
+  const [mechanicFooterHeight, setMechanicFooterHeight] = useState(0);
 
   // ═══════════════ STORES ═══════════════
   const setBookingStage = useBookingStore((state) => state.setBookingStage);
@@ -254,17 +273,21 @@ export function ServiceBottomSheet({
     onAnimatedIndexChange?.(animatedIndex);
   }, [animatedIndex, onAnimatedIndexChange]);
 
+  useEffect(() => {
+    showShopPreviewRef.current = showShopPreview;
+  }, [showShopPreview]);
+
   // Expand sheet when stage changes (except discovery)
   useEffect(() => {
-    if (currentStage !== "discovery" && bottomSheetRef.current) {
+    if (currentStage !== "discovery" && bottomSheetRef.current && !showShopPreview && !showCarPreview) {
       bottomSheetRef.current.snapToIndex(3); // Snap to expanded
     }
-  }, [currentStage]);
+  }, [currentStage, showShopPreview, showCarPreview]);
 
   // Special handling for mechanic_selection stage - ensure sheet is always expanded
   // This handles the case when coming back from payment page (component remounts with mechanic_selection)
   useEffect(() => {
-    if (currentStage === "mechanic_selection") {
+    if (currentStage === "mechanic_selection" && !showShopPreview && !showCarPreview) {
       // Use multiple delayed snaps to ensure the sheet expands
       // This handles remount scenarios where the BottomSheet takes time to initialize
       const timer1 = setTimeout(() => {
@@ -273,13 +296,13 @@ export function ServiceBottomSheet({
       const timer2 = setTimeout(() => {
         bottomSheetRef.current?.snapToIndex(3);
       }, 300);
-      
+
       return () => {
         clearTimeout(timer1);
         clearTimeout(timer2);
       };
     }
-  }, [currentStage]);
+  }, [currentStage, showShopPreview, showCarPreview]);
 
   // Notify parent when search mode changes
   useEffect(() => {
@@ -305,19 +328,44 @@ export function ServiceBottomSheet({
     }
   }, [isSearchMode, hasTyped, searchQuery]);
 
+  const dismissShopPreview = useCallback(
+    (notifyParent: boolean) => {
+      let wasVisible = false;
+
+      setShowShopPreview((prev) => {
+        wasVisible = prev;
+        return false;
+      });
+
+      if (wasVisible) {
+        const fallbackIndex = clampSnapIndex(previousShopSnapIndexRef.current);
+        previousShopSnapIndexRef.current = fallbackIndex;
+        bottomSheetRef.current?.snapToIndex(fallbackIndex);
+      }
+
+      if (notifyParent) {
+        onShopClose?.();
+      }
+    },
+    [onShopClose]
+  );
+
   // Handle selected shop from map pin - show shop preview and snap to preview position
   useEffect(() => {
-    if (selectedShopId !== null) {
-      // Save current snap index before switching to shop preview
-      previousShopSnapIndexRef.current = Math.round(animatedIndex.value);
-      setShowShopPreview(true);
-      // Snap to preview position (index 1 = 38%)
-      bottomSheetRef.current?.snapToIndex(1);
-    } else {
-      // Shop was deselected, hide shop preview
-      setShowShopPreview(false);
+    if (selectedShopId === null) {
+      // Shop was deselected, hide shop preview and restore snap
+      dismissShopPreview(false);
+      return;
     }
-  }, [selectedShopId, animatedIndex]);
+
+    if (!showShopPreviewRef.current) {
+      previousShopSnapIndexRef.current = clampSnapIndex(Math.round(animatedIndex.value));
+    }
+
+    setShowShopPreview(true);
+    // Snap to preview position (index 1 = 38%)
+    bottomSheetRef.current?.snapToIndex(1);
+  }, [selectedShopId, shopPreviewKey, animatedIndex, dismissShopPreview]);
 
   // ═══════════════ COMPUTED VALUES ═══════════════
   const offsetPercent = (offsetY / SCREEN_HEIGHT) * 100;
@@ -420,18 +468,10 @@ export function ServiceBottomSheet({
   );
 
   // ═══════════════ SHOP PREVIEW HANDLERS ═══════════════
-  // Toggle between shop preview and services view
-  const handleShopToggle = useCallback(() => {
-    if (showShopPreview) {
-      // Switching to services view - hide preview and expand sheet
-      setShowShopPreview(false);
-      bottomSheetRef.current?.snapToIndex(3); // Expanded
-    } else {
-      // Switching to shop preview - snap to preview position
-      setShowShopPreview(true);
-      bottomSheetRef.current?.snapToIndex(1); // Preview (38%)
-    }
-  }, [showShopPreview]);
+  // Close shop preview when the card X is pressed
+  const handleShopPreviewClose = useCallback(() => {
+    dismissShopPreview(true);
+  }, [dismissShopPreview]);
 
   // Handle shop change from carousel
   const handleShopPreviewChange = useCallback(
@@ -440,6 +480,10 @@ export function ServiceBottomSheet({
     },
     [onShopChange]
   );
+
+  const handleMechanicSearchFocus = useCallback(() => {
+    bottomSheetRef.current?.snapToIndex(3);
+  }, []);
 
   // Handle shop details press
   const handleShopPreviewDetails = useCallback(
@@ -553,17 +597,23 @@ export function ServiceBottomSheet({
   }, [animatedIndex]);
 
   // ═══════════════ FOOTER ANIMATED STYLE ═══════════════
-  // Show footer when at 50%+ (index >= 2) OR when hasSelection
-  // We use useDerivedValue to handle the hasSelection reactive value
-  const shouldShowFooter = useDerivedValue(() => {
-    // Index 2 = mid (50%), so show footer at index >= 2 OR if hasSelection
-    return animatedIndex.value >= 1.5 || hasSelection;
-  }, [hasSelection]);
+  // Fade the footer once the sheet slides below the mid snap to keep the map visible
+  const footerVisibility = useDerivedValue(() => {
+    return interpolate(
+      animatedIndex.value,
+      [FOOTER_FADE_OUT_INDEX, FOOTER_FADE_IN_INDEX],
+      [0, 1],
+      Extrapolation.CLAMP
+    );
+  });
 
-  const footerAnimatedStyle = useAnimatedStyle(() => ({
-    opacity: withTiming(shouldShowFooter.value ? 1 : 0, { duration: 200 }),
-    pointerEvents: shouldShowFooter.value ? "auto" : "none",
-  }));
+  const footerAnimatedStyle = useAnimatedStyle(() => {
+    const opacity = footerVisibility.value;
+    return {
+      opacity,
+      pointerEvents: opacity > FOOTER_INTERACTION_THRESHOLD ? ("auto" as const) : ("none" as const),
+    };
+  });
 
   // ═══════════════ CLOSE BUTTON ANIMATED STYLE ═══════════════
   // In search mode: always visible
@@ -591,6 +641,10 @@ export function ServiceBottomSheet({
 
   // Bottom inset includes safe area
   const footerBottomInset = insets.bottom;
+  const handleMechanicFooterLayout = useCallback((event: LayoutChangeEvent) => {
+    const { height } = event.nativeEvent.layout;
+    setMechanicFooterHeight((prev) => (Math.abs(prev - height) < 1 ? prev : height));
+  }, []);
 
   // ═══════════════ FOOTER RENDERER ═══════════════
   const renderFooter = useCallback(
@@ -621,7 +675,10 @@ export function ServiceBottomSheet({
 
         return (
           <BottomSheetFooter {...props} bottomInset={0}>
-            <View style={mechanicFooterStyles.wrapper}>
+            <Animated.View
+              style={[footerAnimatedStyle, mechanicFooterStyles.wrapper]}
+              onLayout={handleMechanicFooterLayout}
+            >
               <View style={mechanicFooterStyles.container}>
                 {!hasSlotSelection ? (
                   // No selection state - prompt to select time
@@ -669,7 +726,7 @@ export function ServiceBottomSheet({
               </View>
               {/* White bar below footer to cover any content behind */}
               <View style={mechanicFooterStyles.bottomBar} />
-            </View>
+            </Animated.View>
           </BottomSheetFooter>
         );
       }
@@ -690,6 +747,7 @@ export function ServiceBottomSheet({
       mechanicFooterServiceName,
       selectedMechanicSlot,
       handleMechanicBook,
+      handleMechanicFooterLayout,
     ]
   );
 
@@ -717,10 +775,12 @@ export function ServiceBottomSheet({
             exiting={sheetExiting}
             style={styles.contentWrapper}
           >
-            <MechanicSelectionContent
-              onSelectMechanic={handleMechanicSelected}
-              onCarSelect={handleCarToggle}
-            />
+          <MechanicSelectionContent
+            onSelectMechanic={handleMechanicSelected}
+            onCarSelect={handleCarToggle}
+            footerInset={mechanicFooterHeight}
+            onSearchFocus={handleMechanicSearchFocus}
+          />
           </Animated.View>
         );
 
@@ -1048,7 +1108,7 @@ export function ServiceBottomSheet({
           >
             <CarSelectionContent onClose={handleCarSelectionClose} />
           </Animated.View>
-        ) : showShopPreview && isServiceStage ? (
+        ) : showShopPreview ? (
           <Animated.View
             key="shop-preview"
             entering={FadeIn.duration(200)}
@@ -1059,7 +1119,7 @@ export function ServiceBottomSheet({
               selectedShopId={selectedShopId}
               onShopChange={handleShopPreviewChange}
               onShopDetails={handleShopPreviewDetails}
-              onClose={handleShopToggle}
+              onClose={handleShopPreviewClose}
             />
           </Animated.View>
         ) : (

@@ -17,7 +17,7 @@ import { Dimensions, ScrollView, StyleSheet, TouchableOpacity, View } from "reac
 
 // 2. Third-party libraries
 import { BottomSheetBackdrop, BottomSheetModal, BottomSheetScrollView } from "@gorhom/bottom-sheet";
-import { ArrowRight, ChevronLeft, ChevronRight } from "lucide-react-native";
+import { ChevronLeft, ChevronRight } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 3. Shared UI (design system)
@@ -25,8 +25,6 @@ import { BrandColors, PrimaryButton, Spacing, Text } from "@/components/shared-u
 
 // 4. Constants, hooks, types, stores
 import { BorderRadius, Shadows } from "@/constants/theme";
-import { useBookingStore } from "@/stores/useBookingStore";
-import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useScheduleStore } from "@/stores/useScheduleStore";
 
 // ============================================================================
@@ -106,37 +104,6 @@ export const AllAvailabilitySheet = forwardRef<AllAvailabilitySheetRef, AllAvail
     const getBookedDayNumbers = useScheduleStore((state) => state.getBookedDayNumbers);
     const getTimeSlotsForSelectedDate = useScheduleStore((state) => state.getTimeSlotsForSelectedDate);
 
-    // ═══════════════ BOOKING STORE ═══════════════
-    const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
-    const availableServices = useBookingStore((state) => state.availableServices);
-    const selectedMechanicId = useBookingStore((state) => state.selectedMechanicId);
-    const getSelectedServicesTotal = useBookingStore((state) => state.getSelectedServicesTotal);
-    const setSelectedMechanicSlot = useBookingStore((state) => state.setSelectedMechanicSlot);
-
-    // ═══════════════ MECHANIC STORE ═══════════════
-    const getMechanicById = useMechanicStore((state) => state.getMechanicById);
-
-    // ═══════════════ COMPUTED SERVICE INFO ═══════════════
-    const selectedServices = useMemo(
-      () => availableServices.filter((service) => selectedServiceIds.includes(service.id)),
-      [availableServices, selectedServiceIds]
-    );
-
-    const serviceName = useMemo(() => {
-      if (selectedServices.length === 0) return "Service";
-      if (selectedServices.length === 1) return selectedServices[0].name;
-      return `${selectedServices.length} Services`;
-    }, [selectedServices]);
-
-    const totalPrice = getSelectedServicesTotal();
-
-    const mechanic = useMemo(() => {
-      if (!selectedMechanicId) return null;
-      return getMechanicById(selectedMechanicId);
-    }, [selectedMechanicId, getMechanicById]);
-
-    const shopName = mechanic?.shopName || "Shop";
-    const mechanicName = mechanic?.name || null;
 
     // ═══════════════ SNAP POINTS ═══════════════
     const snapPoints = useMemo(() => ["92%"], []);
@@ -228,6 +195,8 @@ export const AllAvailabilitySheet = forwardRef<AllAvailabilitySheetRef, AllAvail
       }
       return weeks;
     }, [calendarDays]);
+
+    const canConfirmSelection = Boolean(selectedDate && selectedTime);
 
     // ═══════════════ IMPERATIVE HANDLE ═══════════════
     useImperativeHandle(ref, () => ({
@@ -459,53 +428,27 @@ export const AllAvailabilitySheet = forwardRef<AllAvailabilitySheetRef, AllAvail
 
           {/* Footer */}
           <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.lg }]}>
-            {selectedDate && selectedTime ? (
-              // Selection made - show booking details and Book button
-              <View style={styles.bookingFooterContent}>
-                {/* Left side - booking details */}
-                <View style={styles.bookingDetailsContainer}>
-                  <Text size="xs" weight="bold" color={BrandColors.secondary}>
-                    {serviceName.toUpperCase()}
-                  </Text>
-                  <Text size="sm" weight="bold" color={BrandColors.secondary}>
-                    {selectedDate.toLocaleDateString("en-US", { weekday: "short" })} {selectedDate.getDate()} · {selectedTime}
-                  </Text>
-                  <Text size="xs" weight="regular" color="#6B7280" numberOfLines={1}>
-                    with {mechanicName || "Any mechanic"} at {shopName}
-                  </Text>
-                </View>
+            <View style={styles.buttonRow}>
+              <TouchableOpacity style={styles.cancelButton} onPress={handleCancel} activeOpacity={0.7}>
+                <Text size="md" weight="semiBold" color={BrandColors.primary}>
+                  Cancel
+                </Text>
+              </TouchableOpacity>
 
-                {/* Right side - confirm button */}
-                <TouchableOpacity
-                  style={styles.bookButton}
-                  onPress={handleConfirm}
-                  activeOpacity={0.8}
-                >
-                  <Text size="md" weight="bold" color={BrandColors.white}>
-                    Confirm
-                  </Text>
-                  <ArrowRight size={18} color={BrandColors.white} />
-                </TouchableOpacity>
-              </View>
-            ) : (
-              // No selection - show cancel/confirm buttons
-              <View style={styles.buttonRow}>
-                <TouchableOpacity style={styles.cancelButton} onPress={handleCancel} activeOpacity={0.7}>
-                  <Text size="md" weight="semiBold" color={BrandColors.primary}>
-                    Cancel
-                  </Text>
-                </TouchableOpacity>
-
-                <PrimaryButton
-                  style={[styles.confirmButton, styles.confirmButtonDisabled]}
-                  disabled
-                >
-                  <Text size="md" weight="bold" color={BrandColors.white}>
-                    Select Date & Time
-                  </Text>
-                </PrimaryButton>
-              </View>
-            )}
+              <PrimaryButton
+                style={[
+                  styles.confirmButton,
+                  !canConfirmSelection && styles.confirmButtonDisabled,
+                  canConfirmSelection && styles.confirmButtonActive,
+                ]}
+                disabled={!canConfirmSelection}
+                onPress={handleConfirm}
+              >
+                <Text size="md" weight="bold" color={BrandColors.white}>
+                  Select Date & Time
+                </Text>
+              </PrimaryButton>
+            </View>
           </View>
         </BottomSheetScrollView>
       </BottomSheetModal>
@@ -690,23 +633,11 @@ const styles = StyleSheet.create({
   confirmButtonDisabled: {
     opacity: 0.5,
   },
-  // Booking footer (when date/time selected)
-  bookingFooterContent: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    gap: Spacing.md,
-  },
-  bookingDetailsContainer: {
-    flex: 1,
-  },
-  bookButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.sm,
-    backgroundColor: BrandColors.primary,
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.lg,
-    borderRadius: BorderRadius.full,
+  confirmButtonActive: {
+    shadowColor: BrandColors.secondary,
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
   },
 });

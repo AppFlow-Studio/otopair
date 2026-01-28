@@ -75,6 +75,8 @@ interface BookingState {
   availableServices: Service[];
   /** Currently selected service IDs for booking */
   selectedServiceIds: string[];
+  /** Whether to skip the remove-service confirmation modal */
+  skipServiceRemovalConfirm: boolean;
 
   // ═══════════════ BOOKING FLOW STATE ═══════════════
   /** Current stage in the booking flow */
@@ -133,6 +135,8 @@ interface BookingState {
   toggleServiceSelection: (serviceId: string) => void;
   /** Clear all selected services */
   clearSelectedServices: () => void;
+  /** Control whether the remove-service confirmation modal should be skipped */
+  setSkipServiceRemovalConfirm: (skip: boolean) => void;
 
   // ═══════════════ BOOKING FLOW ACTIONS ═══════════════
   /** Set current booking stage with transition direction */
@@ -309,6 +313,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   mapRegion: null,
   availableServices: MOCK_SERVICES,
   selectedServiceIds: [],
+  skipServiceRemovalConfirm: false,
   bookingStage: "discovery",
   transitionDirection: "forward",
   selectedMechanicId: null,
@@ -388,6 +393,11 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   clearSelectedServices: () =>
     set({
       selectedServiceIds: [],
+    }),
+
+  setSkipServiceRemovalConfirm: (skip) =>
+    set({
+      skipServiceRemovalConfirm: skip,
     }),
 
   // ═══════════════ BOOKING FLOW ACTIONS ═══════════════
