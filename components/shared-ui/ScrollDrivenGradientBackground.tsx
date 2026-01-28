@@ -49,7 +49,7 @@ const DEFAULT_SCROLL_PER_TRANSITION = 300;
 
 export interface ScrollDrivenGradientBackgroundProps {
   /** Gradient colors passed to `AnimatedGradientBackground` (min 2). Defaults to Activity screen scheme. */
-  colors?: string[];
+  colors?: string[]; // Ahmad has colors : [string, string, string] 
   gradientScrollIndices?: number[];
   scrollPerTransition?: number;
   children: (scrollHandler: ScrollHandlerProcessed<Record<string, unknown>>) => React.ReactNode;
