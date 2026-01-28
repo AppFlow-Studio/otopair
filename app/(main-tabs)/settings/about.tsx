@@ -6,13 +6,11 @@
  * USED IN: app/(main-tabs)/settings/index.tsx
  */
 
-import React from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import React, { useCallback, useMemo } from 'react';
+import { Pressable, ScrollView, Share, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { LinearGradient } from 'expo-linear-gradient';
 import {
-  Car,
   Check,
   CheckCheck,
   Droplet,
@@ -22,12 +20,26 @@ import {
   Wrench,
 } from 'lucide-react-native';
 
-import { BlurHeaderOverlay, BrandColors, Button, Spacing, Text } from '@/components/shared-ui';
+import { OtoPairIcon } from '@/components/icons/oto-pair';
+import { BlurHeaderOverlay, BrandColors, Button, Text, buildReferralCode, buildReferralShareMessage } from '@/components/shared-ui';
 import { getSheetContentPadding } from '@/constants/theme';
+import { useOnboardingStore } from '@/stores/useOnboardingStore';
 
 export default function AboutOtopairScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const data = useOnboardingStore((s) => s.data);
+
+  const referralCode = useMemo(
+    () => buildReferralCode(data),
+    [data.email, data.firstName, data.lastName, data.username]
+  );
+
+  const displayCode = referralCode.toUpperCase();
+
+  const handleShare = useCallback(async () => {
+    await Share.share({ message: buildReferralShareMessage(displayCode) });
+  }, [displayCode]);
 
   return (
     <View style={styles.screen}>
@@ -37,14 +49,16 @@ export default function AboutOtopairScreen() {
           styles.container,
           {
             paddingTop: insets.top + 90,
-            paddingBottom: getSheetContentPadding(true, insets.bottom),
+            paddingBottom: getSheetContentPadding(false, insets.bottom),
           },
         ]}
       >
         <View style={styles.identityCard}>
-          <LinearGradient colors={['#2563EB', '#22D3EE']} style={styles.appIcon}>
-            <Car size={36} color="#FFFFFF" />
-          </LinearGradient>
+          <View style={styles.appIcon}>
+            <View style={styles.appIconMark}>
+              <OtoPairIcon />
+            </View>
+          </View>
           <Text weight="bold" size="2xl" color="#111827" style={styles.appName}>
             Otopair
           </Text>
@@ -226,15 +240,15 @@ export default function AboutOtopairScreen() {
               Invite friends. You both get points.
             </Text>
             <Text size="sm" color="#616E89" style={styles.featureBody}>
-              Share your unique code. When they book their first service, you both earn 500 points.
+              Share your unique code. When they book their first service, you each earn 250 points.
             </Text>
             <View style={styles.inviteRow}>
               <View style={styles.inviteCode}>
                 <Text weight="bold" size="sm" color="#111318" style={styles.codeText}>
-                  OTO-2024
+                  {displayCode}
                 </Text>
               </View>
-              <Pressable style={styles.inviteShare}>
+              <Pressable onPress={handleShare} style={styles.inviteShare}>
                 <Share2 size={18} color={BrandColors.secondary} />
               </Pressable>
             </View>
@@ -267,14 +281,12 @@ export default function AboutOtopairScreen() {
             backgroundColor="rgba(255, 255, 255, 0.5)"
             textColor={BrandColors.secondary}
             style={styles.secondaryButton}
+            onPress={handleShare}
           >
             Share with friends
           </Button>
         </View>
 
-        <Text size="xs" color="#9CA3AF" style={styles.footerNote}>
-          Designed for iOS 26
-        </Text>
       </ScrollView>
 
       <BlurHeaderOverlay title="About" onBack={() => router.back()} />
@@ -289,7 +301,6 @@ const styles = StyleSheet.create({
   },
   container: {
     paddingHorizontal: 20,
-    paddingBottom: Spacing['2xl'],
     gap: 20,
   },
   identityCard: {
@@ -309,6 +320,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 6,
+  },
+  appIconMark: {
+    transform: [{ scale: 0.6 }],
   },
   appName: {
     marginTop: 2,
@@ -546,11 +560,5 @@ const styles = StyleSheet.create({
   secondaryButton: {
     borderRadius: 16,
     paddingVertical: 14,
-  },
-  footerNote: {
-    textAlign: 'center',
-    letterSpacing: 1.6,
-    textTransform: 'uppercase',
-    paddingBottom: Spacing.xl,
   },
 });

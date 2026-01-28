@@ -179,7 +179,7 @@ export default function SettingsHomeScreen() {
   // ─────────────────────────────────────────────────────────────
   const fullName = useMemo(() => {
     const name = `${data.firstName ?? ''} ${data.lastName ?? ''}`.trim();
-    return name.length > 0 ? name : 'Lionel Andrés Messi Cuccitini';
+    return name.length > 0 ? name : 'John Doe';
   }, [data.firstName, data.lastName]);
 
   const initials = useMemo(() => {

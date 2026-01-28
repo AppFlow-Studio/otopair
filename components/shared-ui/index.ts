@@ -109,6 +109,13 @@ export {
     type FeedbackModalProps
 } from './FeedbackModal';
 
+// Referral helpers
+export {
+    buildReferralCode,
+    buildReferralShareMessage,
+    type ReferralProfile
+} from './ReferralUtils';
+
 // Re-export theme constants for convenience
 export {
     BorderRadius, BrandColors, ButtonStyles, Colors, FontFamily,
