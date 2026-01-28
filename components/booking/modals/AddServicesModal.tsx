@@ -1,8 +1,10 @@
 /**
  * AddServicesModal
  *
- * PURPOSE: Full-screen modal for adding/editing services during mechanic detail view
- *          Uses React Native Modal for reliable rendering outside scroll containers
+ * PURPOSE: Full-screen modal for adding/editing services during mechanic detail view.
+ *          Uses React Native Modal for reliable rendering outside scroll containers.
+ *
+ * FLOW: Booking
  *
  * USED IN: app/(main-tabs)/home/mechanic/[id]/index.tsx
  *
@@ -59,16 +61,10 @@ export function AddServicesModal({ visible, onClose }: AddServicesModalProps) {
     return availableServices.filter((service) => service.category === selectedCategory);
   }, [availableServices, selectedCategory]);
 
-  // Calculate newly added services count and total
+  // Calculate newly added services count
   const newlyAddedServices = useMemo(() => {
     return selectedServiceIds.filter((id) => !initialSelectedIds.includes(id));
   }, [selectedServiceIds, initialSelectedIds]);
-
-  const newlyAddedTotal = useMemo(() => {
-    return availableServices
-      .filter((service) => newlyAddedServices.includes(service.id))
-      .reduce((total, service) => total + service.price, 0);
-  }, [availableServices, newlyAddedServices]);
 
   // ═══════════════ HANDLERS ═══════════════
   const handleModalShow = useCallback(() => {
@@ -145,11 +141,6 @@ export function AddServicesModal({ visible, onClose }: AddServicesModalProps) {
               {service.description}
             </Text>
           </View>
-          <View style={styles.servicePriceContainer}>
-            <Text size="md" weight="semiBold" color={BrandColors.secondary}>
-              ${service.price.toFixed(2)}
-            </Text>
-          </View>
         </TouchableOpacity>
       );
     },
@@ -220,7 +211,7 @@ export function AddServicesModal({ visible, onClose }: AddServicesModalProps) {
           >
             <Text size="md" weight="semiBold" color={BrandColors.white}>
               {newlyAddedServices.length > 0
-                ? `Add ${newlyAddedServices.length} More • $${newlyAddedTotal}`
+                ? `Add ${newlyAddedServices.length} Service${newlyAddedServices.length > 1 ? "s" : ""}`
                 : "Select Services"}
             </Text>
           </PrimaryButton>
@@ -301,11 +292,6 @@ const styles = StyleSheet.create({
   },
   serviceInfo: {
     flex: 1,
-    marginRight: Spacing.md,
-  },
-  servicePriceContainer: {
-    flexDirection: "row",
-    alignItems: "center",
   },
   emptyState: {
     paddingVertical: Spacing["3xl"],

@@ -23,10 +23,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Flow-specific components
-import { BookingFooter } from "./BookingFooter";
-import { DiscardServiceModal } from "./DiscardServiceModal";
-import { ServiceChip } from "./ServiceChip";
-import { ShopCard, type ShopWithMechanics, type SelectedSlotInfo } from "./ShopCard";
+import { AvailabilityModal } from "@/components/booking/modals";
+// BookingFooter is now rendered by ServiceBottomSheet's footerComponent
+import { ShopCard, type ShopWithMechanics, type SelectedSlotInfo, type SelectedServiceInfo } from "./ShopCard";
 
 // 5. Constants, hooks, types, stores
 import { MECHANIC_FILTER_OPTIONS, type MechanicFilterOption } from "@/constants/filters";
@@ -39,7 +38,7 @@ import type { Mechanic, MechanicAvailabilitySlot } from "@/stores/types/store.ty
 // CONSTANTS
 // ============================================================================
 
-const FOOTER_HEIGHT = 100; // Approximate footer height for padding
+const DEFAULT_FOOTER_INSET = 100; // Fallback padding when footer height isn't measured yet
 
 // ============================================================================
 // TYPES
@@ -53,6 +52,10 @@ interface MechanicSelectionContentProps {
   onSelectMechanic?: () => void;
   /** Called when user taps the car icon to open car selection */
   onCarSelect?: () => void;
+  /** Height of the sticky footer so the list can pad accordingly */
+  footerInset?: number;
+  /** Called when the mechanic search input gains focus */
+  onSearchFocus?: () => void;
 }
 
 // ============================================================================
@@ -103,18 +106,24 @@ function groupMechanicsByShop(mechanics: Mechanic[]): ShopWithMechanics[] {
 export function MechanicSelectionContent({
   onSelectMechanic,
   onCarSelect,
+  footerInset = 0,
+  onSearchFocus,
 }: MechanicSelectionContentProps) {
   // ═══════════════ HOOKS ═══════════════
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const bottomSpacerHeight = useMemo(
+    () => Math.max(footerInset, DEFAULT_FOOTER_INSET) + insets.bottom + Spacing.lg,
+    [footerInset, insets.bottom]
+  );
 
   // ═══════════════ STATE ═══════════════
-  const [serviceToRemove, setServiceToRemove] = React.useState<string | null>(null);
-  const [dontAskAgain, setDontAskAgain] = React.useState(false);
+  const [showAvailabilityModal, setShowAvailabilityModal] = React.useState(false);
+  const [availabilityMechanicId, setAvailabilityMechanicId] = React.useState<number | null>(null);
+  const [availabilityShopId, setAvailabilityShopId] = React.useState<number | null>(null);
 
   // ═══════════════ BOOKING STORE ═══════════════
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
-  const toggleServiceSelection = useBookingStore((state) => state.toggleServiceSelection);
   const availableServices = useBookingStore((state) => state.availableServices);
   const prevBookingStage = useBookingStore((state) => state.prevBookingStage);
   const setBookingTypeAndProceed = useBookingStore((state) => state.setBookingTypeAndProceed);
@@ -123,7 +132,6 @@ export function MechanicSelectionContent({
   const setSkippedBookingDetails = useBookingStore((state) => state.setSkippedBookingDetails);
   const selectedMechanicSlot = useBookingStore((state) => state.selectedMechanicSlot);
   const setSelectedMechanicSlot = useBookingStore((state) => state.setSelectedMechanicSlot);
-  const clearSelectedMechanicSlot = useBookingStore((state) => state.clearSelectedMechanicSlot);
   const getSelectedServicesTotal = useBookingStore((state) => state.getSelectedServicesTotal);
 
   // Memoize selected services to prevent re-renders
@@ -207,6 +215,15 @@ export function MechanicSelectionContent({
     };
   }, [selectedMechanicSlot]);
 
+  // Create SelectedServiceInfo array for ShopCard
+  const selectedServicesForCard: SelectedServiceInfo[] = useMemo(() => {
+    return selectedServices.map((service) => ({
+      id: service.id,
+      name: service.name,
+      price: service.price,
+    }));
+  }, [selectedServices]);
+
   // ═══════════════ EFFECTS ═══════════════
   // Go back to service selection if all services are removed
   useEffect(() => {
@@ -215,47 +232,12 @@ export function MechanicSelectionContent({
     }
   }, [selectedServiceIds.length, prevBookingStage]);
 
-  // Clear selection when component unmounts
-  useEffect(() => {
-    return () => {
-      clearSelectedMechanicSlot();
-    };
-  }, [clearSelectedMechanicSlot]);
+  // Note: We intentionally do NOT clear selectedMechanicSlot on unmount
+  // because the component unmounts when navigating to payment, and we need
+  // to preserve the selection for when the user comes back from payment.
+  // The slot is cleared by resetBookingFlow when the booking is completed or cancelled.
 
   // ═══════════════ HANDLERS ═══════════════
-  const handleRemoveService = useCallback(
-    (serviceId: string) => {
-      if (dontAskAgain) {
-        // Remove directly without confirmation
-        toggleServiceSelection(serviceId);
-      } else {
-        // Show confirmation modal
-        setServiceToRemove(serviceId);
-      }
-    },
-    [dontAskAgain, toggleServiceSelection]
-  );
-
-  const handleConfirmRemove = useCallback(() => {
-    if (serviceToRemove) {
-      toggleServiceSelection(serviceToRemove);
-      setServiceToRemove(null);
-    }
-  }, [serviceToRemove, toggleServiceSelection]);
-
-  const handleCloseModal = useCallback(() => {
-    setServiceToRemove(null);
-  }, []);
-
-  const handleDontAskAgain = useCallback(() => {
-    setDontAskAgain(true);
-    // Also confirm the current removal
-    if (serviceToRemove) {
-      toggleServiceSelection(serviceToRemove);
-      setServiceToRemove(null);
-    }
-  }, [serviceToRemove, toggleServiceSelection]);
-
   // Handle slot selection from ShopCard
   const handleSelectSlot = useCallback(
     (shopId: number, mechanicId: number | null, slot: MechanicAvailabilitySlot) => {
@@ -283,17 +265,32 @@ export function MechanicSelectionContent({
     [router]
   );
 
-  // Handle "More" availability button
+  // Handle "More" availability button - opens the calendar modal
   const handleMoreAvailability = useCallback(
     (shopId: number, mechanicId: number | null) => {
-      // Navigate to shop/mechanic detail page for full calendar
-      if (mechanicId) {
-        router.push(`/home/mechanic/${mechanicId}`);
-      } else {
-        router.push(`/home/shop/${shopId}`);
-      }
+      // Pass both shopId and mechanicId to the modal
+      // The modal will show all mechanics for the shop and allow switching
+      setAvailabilityShopId(shopId);
+      setAvailabilityMechanicId(mechanicId);
+      setShowAvailabilityModal(true);
     },
-    [router]
+    []
+  );
+
+  // Handle closing the availability modal
+  const handleCloseAvailabilityModal = useCallback(() => {
+    setShowAvailabilityModal(false);
+    setAvailabilityMechanicId(null);
+    setAvailabilityShopId(null);
+  }, []);
+
+  // Handle availability modal confirmation - updates the selected slot
+  const handleAvailabilityConfirm = useCallback(
+    (date: Date, time: string, confirmedMechanicId: number) => {
+      // The AvailabilityModal already updates the selectedMechanicSlot in the store
+      // This callback can be used for any additional actions if needed
+    },
+    []
   );
 
   // Handle book button from footer
@@ -336,7 +333,10 @@ export function MechanicSelectionContent({
     setBookingStage("payment", "forward");
 
     onSelectMechanic?.();
-  }, [selectedMechanicSlot, shopList, setBookingTypeAndProceed, setScheduledAppointment, setSkippedBookingDetails, setBookingStage, onSelectMechanic]);
+    
+    // Navigate to payment page
+    router.push(`/home/mechanic/${effectiveMechanicId}/payment`);
+  }, [selectedMechanicSlot, shopList, setBookingTypeAndProceed, setScheduledAppointment, setSkippedBookingDetails, setBookingStage, onSelectMechanic, router]);
 
   // ═══════════════ FLATLIST HELPERS ═══════════════
   const keyExtractor = useCallback((item: ShopWithMechanics) => String(item.shopId), []);
@@ -349,9 +349,10 @@ export function MechanicSelectionContent({
         onShopDetails={handleShopDetails}
         onMoreAvailability={handleMoreAvailability}
         selectedSlot={selectedSlotInfo}
+        selectedServices={selectedServicesForCard}
       />
     ),
-    [handleSelectSlot, handleShopDetails, handleMoreAvailability, selectedSlotInfo]
+    [handleSelectSlot, handleShopDetails, handleMoreAvailability, selectedSlotInfo, selectedServicesForCard]
   );
 
   // ═══════════════ FILTER HANDLER ═══════════════
@@ -387,6 +388,7 @@ export function MechanicSelectionContent({
           placeholderTextColor="#9CA3AF"
           value={searchQuery}
           onChangeText={setSearchQuery}
+          onFocus={onSearchFocus}
         />
       </View>
 
@@ -395,29 +397,16 @@ export function MechanicSelectionContent({
         data={shopList}
         keyExtractor={keyExtractor}
         renderItem={renderShopCard}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: FOOTER_HEIGHT + insets.bottom }]}
+        contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         removeClippedSubviews={true}
         maxToRenderPerBatch={5}
         windowSize={5}
         initialNumToRender={3}
+        ListFooterComponent={<View style={{ height: bottomSpacerHeight }} />}
         ListHeaderComponent={
           <View>
-            {/* Selected Service Chips */}
-            {selectedServices.length > 0 && (
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={styles.chipsContainer}
-                contentContainerStyle={styles.chipsContent}
-              >
-                {selectedServices.map((service) => (
-                  <ServiceChip key={service.id} service={service} onRemove={handleRemoveService} />
-                ))}
-              </ScrollView>
-            )}
-
             {/* Filter Chips */}
             <ScrollView
               horizontal
@@ -448,23 +437,15 @@ export function MechanicSelectionContent({
         }
       />
 
-      {/* Booking Footer */}
-      <BookingFooter
-        serviceName={serviceName}
-        hasSelection={selectedMechanicSlot !== null}
-        selectedSlot={selectedMechanicSlot?.slot}
-        shopName={selectedMechanicSlot?.shopName}
-        mechanicName={selectedMechanicSlot?.mechanicName}
-        totalPrice={getSelectedServicesTotal()}
-        onBook={handleBook}
-      />
+      {/* Footer is now handled by ServiceBottomSheet's footerComponent */}
 
-      {/* Discard Service Modal */}
-      <DiscardServiceModal
-        visible={serviceToRemove !== null}
-        onClose={handleCloseModal}
-        onConfirm={handleConfirmRemove}
-        onDontAskAgain={handleDontAskAgain}
+      {/* Availability Calendar Modal */}
+      <AvailabilityModal
+        visible={showAvailabilityModal}
+        mechanicId={availabilityMechanicId}
+        shopId={availabilityShopId}
+        onClose={handleCloseAvailabilityModal}
+        onConfirm={handleAvailabilityConfirm}
       />
     </View>
   );
@@ -541,13 +522,5 @@ const styles = StyleSheet.create({
   },
   filterChipSelected: {
     backgroundColor: BrandColors.primary,
-  },
-  chipsContainer: {
-    marginTop: Spacing.sm,
-    marginBottom: Spacing.xs,
-    maxHeight: 72,
-  },
-  chipsContent: {
-    paddingVertical: Spacing.xs,
   },
 });

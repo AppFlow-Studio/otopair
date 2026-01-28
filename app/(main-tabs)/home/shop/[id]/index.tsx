@@ -38,7 +38,7 @@ import { FullScreenContainer } from "@/components/shared-ui/Container";
 import { MechanicDetailHeader } from "@/components/booking/MechanicDetailHeader";
 import { MechanicDetailTabs, type MechanicDetailTab } from "@/components/booking/MechanicDetailTabs";
 import { MechanicReviewsSection } from "@/components/booking/MechanicReviewsSection";
-import { AddServicesModal, AvailabilityModal } from "@/components/booking/modals";
+import { AddServicesModal, ShopBookingModal } from "@/components/booking/modals";
 import { ShopDetails } from "@/components/booking/ShopDetails";
 import { ShopPortfolioSection } from "@/components/booking/ShopPortfolioSection";
 import { ShopStaffSection } from "@/components/booking/ShopStaffSection";
@@ -69,8 +69,8 @@ export default function ShopDetailScreen() {
   // ═══════════════ STATE ═══════════════
   const [activeTab, setActiveTab] = useState<MechanicDetailTab>("services");
   const [showAddServicesModal, setShowAddServicesModal] = useState(false);
-  const [showAvailabilityModal, setShowAvailabilityModal] = useState(false);
-  const [availabilityMechanicId, setAvailabilityMechanicId] = useState<number | null>(null);
+  const [showBookingModal, setShowBookingModal] = useState(false);
+  const [bookingMechanicId, setBookingMechanicId] = useState<number | null>(null);
 
   // ═══════════════ STORES ═══════════════
   const getShopById = useShopStore((state) => state.getShopById);
@@ -162,17 +162,28 @@ export default function ShopDetailScreen() {
   }, []);
 
   const handleViewAllAvailability = useCallback((mechanicId: number) => {
-    setAvailabilityMechanicId(mechanicId);
-    setShowAvailabilityModal(true);
+    setBookingMechanicId(mechanicId);
+    setShowBookingModal(true);
   }, []);
 
   const handleCloseAddServicesModal = useCallback(() => {
     setShowAddServicesModal(false);
   }, []);
 
-  const handleCloseAvailabilityModal = useCallback(() => {
-    setShowAvailabilityModal(false);
-    setAvailabilityMechanicId(null);
+  const handleCloseBookingModal = useCallback(() => {
+    setShowBookingModal(false);
+    setBookingMechanicId(null);
+  }, []);
+
+  // Handle tab change - open booking modal for "schedule" tab
+  const handleTabChange = useCallback((tab: MechanicDetailTab) => {
+    if (tab === "schedule") {
+      // Open the booking modal instead of switching tabs
+      setBookingMechanicId(null); // null = "Any" mechanic
+      setShowBookingModal(true);
+    } else {
+      setActiveTab(tab);
+    }
   }, []);
 
   // ═══════════════ RENDER ═══════════════
@@ -284,7 +295,7 @@ export default function ShopDetailScreen() {
         )}
 
         {/* Tab Navigation */}
-        <MechanicDetailTabs activeTab={activeTab} onTabChange={setActiveTab} />
+        <MechanicDetailTabs activeTab={activeTab} onTabChange={handleTabChange} />
 
         {/* Tab Content */}
         <View style={styles.tabContentContainer}>{renderTabContent()}</View>
@@ -292,10 +303,11 @@ export default function ShopDetailScreen() {
 
       {/* Modal-based components - work reliably from any component hierarchy */}
       <AddServicesModal visible={showAddServicesModal} onClose={handleCloseAddServicesModal} />
-      <AvailabilityModal
-        visible={showAvailabilityModal}
-        mechanicId={availabilityMechanicId}
-        onClose={handleCloseAvailabilityModal}
+      <ShopBookingModal
+        visible={showBookingModal}
+        shopId={shop.id}
+        mechanicId={bookingMechanicId}
+        onClose={handleCloseBookingModal}
       />
     </FullScreenContainer>
   );

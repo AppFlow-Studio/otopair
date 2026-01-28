@@ -1,8 +1,10 @@
 /**
  * AllAvailabilitySheet
  *
- * PURPOSE: Full calendar view for selecting availability slots
- *          Shows month navigation, day grid with availability states, and time slots
+ * PURPOSE: Full calendar view for selecting availability slots.
+ *          Shows month navigation, day grid with availability states, and time slots.
+ *
+ * FLOW: Booking
  *
  * USED IN: components/booking/sheets/BookingDetailsContent.tsx
  *
@@ -102,6 +104,7 @@ export const AllAvailabilitySheet = forwardRef<AllAvailabilitySheetRef, AllAvail
     const getBookedDayNumbers = useScheduleStore((state) => state.getBookedDayNumbers);
     const getTimeSlotsForSelectedDate = useScheduleStore((state) => state.getTimeSlotsForSelectedDate);
 
+
     // ═══════════════ SNAP POINTS ═══════════════
     const snapPoints = useMemo(() => ["92%"], []);
 
@@ -192,6 +195,8 @@ export const AllAvailabilitySheet = forwardRef<AllAvailabilitySheetRef, AllAvail
       }
       return weeks;
     }, [calendarDays]);
+
+    const canConfirmSelection = Boolean(selectedDate && selectedTime);
 
     // ═══════════════ IMPERATIVE HANDLE ═══════════════
     useImperativeHandle(ref, () => ({
@@ -421,23 +426,29 @@ export const AllAvailabilitySheet = forwardRef<AllAvailabilitySheetRef, AllAvail
             </ScrollView>
           </View>
 
-          {/* Footer Buttons */}
+          {/* Footer */}
           <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.lg }]}>
-            <TouchableOpacity style={styles.cancelButton} onPress={handleCancel} activeOpacity={0.7}>
-              <Text size="md" weight="semiBold" color={BrandColors.primary}>
-                Cancel
-              </Text>
-            </TouchableOpacity>
+            <View style={styles.buttonRow}>
+              <TouchableOpacity style={styles.cancelButton} onPress={handleCancel} activeOpacity={0.7}>
+                <Text size="md" weight="semiBold" color={BrandColors.primary}>
+                  Cancel
+                </Text>
+              </TouchableOpacity>
 
-            <PrimaryButton
-              style={[styles.confirmButton, (!selectedDate || !selectedTime) && styles.confirmButtonDisabled]}
-              onPress={handleConfirm}
-              disabled={!selectedDate || !selectedTime}
-            >
-              <Text size="md" weight="bold" color={BrandColors.white}>
-                Confirm Date & Time
-              </Text>
-            </PrimaryButton>
+              <PrimaryButton
+                style={[
+                  styles.confirmButton,
+                  !canConfirmSelection && styles.confirmButtonDisabled,
+                  canConfirmSelection && styles.confirmButtonActive,
+                ]}
+                disabled={!canConfirmSelection}
+                onPress={handleConfirm}
+              >
+                <Text size="md" weight="bold" color={BrandColors.white}>
+                  Select Date & Time
+                </Text>
+              </PrimaryButton>
+            </View>
           </View>
         </BottomSheetScrollView>
       </BottomSheetModal>
@@ -597,10 +608,12 @@ const styles = StyleSheet.create({
 
   // Footer
   footer: {
-    flexDirection: "row",
     paddingTop: Spacing.xl,
-    gap: Spacing.md,
     marginTop: Spacing.lg,
+  },
+  buttonRow: {
+    flexDirection: "row",
+    gap: Spacing.md,
   },
   cancelButton: {
     flex: 1,
@@ -619,5 +632,12 @@ const styles = StyleSheet.create({
   },
   confirmButtonDisabled: {
     opacity: 0.5,
+  },
+  confirmButtonActive: {
+    shadowColor: BrandColors.secondary,
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
   },
 });

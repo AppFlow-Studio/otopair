@@ -62,6 +62,8 @@ export function ShopDetails({ shopId, onBookNow, onAddMoreServices, onViewAllAva
     const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
     const setScheduledAppointment = useBookingStore((state) => state.setScheduledAppointment);
     const toggleServiceSelection = useBookingStore((state) => state.toggleServiceSelection);
+    const skipServiceRemovalConfirm = useBookingStore((state) => state.skipServiceRemovalConfirm);
+    const setSkipServiceRemovalConfirm = useBookingStore((state) => state.setSkipServiceRemovalConfirm);
     const selectMechanic = useBookingStore((state) => state.selectMechanic);
     const selectedMechanicId = useBookingStore((state) => state.selectedMechanicId);
     const scheduledAppointment = useBookingStore((state) => state.scheduledAppointment);
@@ -216,9 +218,13 @@ export function ShopDetails({ shopId, onBookNow, onAddMoreServices, onViewAllAva
     }, [onAddMoreServices]);
 
     const handleRemoveServicePress = useCallback((serviceId: string) => {
+        if (skipServiceRemovalConfirm) {
+            toggleServiceSelection(serviceId);
+            return;
+        }
         setServiceToRemove(serviceId);
         setDiscardModalVisible(true);
-    }, []);
+    }, [skipServiceRemovalConfirm, toggleServiceSelection]);
 
     const handleConfirmRemoveService = useCallback(() => {
         if (serviceToRemove) {
@@ -232,6 +238,11 @@ export function ShopDetails({ shopId, onBookNow, onAddMoreServices, onViewAllAva
         setDiscardModalVisible(false);
         setServiceToRemove(null);
     }, []);
+
+    const handleDontAskAgain = useCallback(() => {
+        setSkipServiceRemovalConfirm(true);
+        handleConfirmRemoveService();
+    }, [setSkipServiceRemovalConfirm, handleConfirmRemoveService]);
 
     // ═══════════════ RENDER ═══════════════
     return (
@@ -439,6 +450,7 @@ export function ShopDetails({ shopId, onBookNow, onAddMoreServices, onViewAllAva
                 visible={discardModalVisible}
                 onClose={handleCancelRemoveService}
                 onConfirm={handleConfirmRemoveService}
+                onDontAskAgain={handleDontAskAgain}
             />
         </View>
     );

@@ -50,6 +50,13 @@ export interface SelectedSlotInfo {
   slot: MechanicAvailabilitySlot;
 }
 
+/** Service info for price display */
+export interface SelectedServiceInfo {
+  id: string;
+  name: string;
+  price: number;
+}
+
 interface ShopCardProps {
   /** The shop data with mechanics to display */
   shop: ShopWithMechanics;
@@ -61,6 +68,8 @@ interface ShopCardProps {
   onMoreAvailability: (shopId: number, mechanicId: number | null) => void;
   /** Currently selected slot (for highlighting) */
   selectedSlot: SelectedSlotInfo | null;
+  /** Selected services for displaying cost */
+  selectedServices: SelectedServiceInfo[];
 }
 
 // ============================================================================
@@ -141,9 +150,14 @@ export const ShopCard = memo(function ShopCard({
   onShopDetails,
   onMoreAvailability,
   selectedSlot,
+  selectedServices,
 }: ShopCardProps) {
+  // If only one mechanic, auto-select them (no "Any" option needed)
+  const hasSingleMechanic = shop.mechanics.length === 1;
+  const defaultMechanicId = hasSingleMechanic ? shop.mechanics[0].id : null;
+  
   // Track which mechanic is selected (null = "Any")
-  const [selectedMechanicId, setSelectedMechanicId] = useState<number | null>(null);
+  const [selectedMechanicId, setSelectedMechanicId] = useState<number | null>(defaultMechanicId);
 
   // Get availability slots based on selected mechanic
   const displayedSlots = useMemo(() => {
@@ -201,10 +215,31 @@ export const ShopCard = memo(function ShopCard({
   // Get first mechanic for verified status (use shop-level if available)
   const firstMechanic = shop.mechanics[0];
 
+  // Calculate service cost display
+  const serviceCostDisplay = useMemo(() => {
+    if (selectedServices.length === 0) return null;
+    
+    const totalPrice = selectedServices.reduce((sum, service) => sum + service.price, 0);
+    const firstName = selectedServices[0].name;
+    
+    if (selectedServices.length === 1) {
+      return `$${totalPrice} ${firstName}`;
+    } else {
+      // Truncate first service name if needed
+      const truncatedName = firstName.length > 15 ? `${firstName.slice(0, 15)}...` : firstName;
+      const moreCount = selectedServices.length - 1;
+      return `$${totalPrice} ${truncatedName} + ${moreCount} more`;
+    }
+  }, [selectedServices]);
+
   return (
     <View style={styles.container}>
-      {/* Header: Shop Name, Rating, Verified */}
-      <View style={styles.header}>
+      {/* Header: Shop Name, Rating, Verified + Arrow */}
+      <TouchableOpacity
+        style={styles.header}
+        onPress={handleShopDetails}
+        activeOpacity={0.7}
+      >
         {/* Avatar placeholder for shop */}
         <View style={styles.shopAvatarContainer}>
           <View style={styles.shopAvatarPlaceholder}>
@@ -238,9 +273,22 @@ export const ShopCard = memo(function ShopCard({
                 </Text>
               </View>
             )}
+            {/* Arrow for shop details */}
+            <View style={styles.detailsArrow}>
+              <ChevronRight size={18} color="#9CA3AF" />
+            </View>
           </View>
         </View>
-      </View>
+      </TouchableOpacity>
+
+      {/* Service Cost Display */}
+      {serviceCostDisplay && (
+        <View style={styles.serviceCostSection}>
+          <Text size="md" weight="bold" color={BrandColors.primary}>
+            {serviceCostDisplay}
+          </Text>
+        </View>
+      )}
 
       {/* SELECT MECHANIC Section */}
       <View style={styles.mechanicSection}>
@@ -252,26 +300,28 @@ export const ShopCard = memo(function ShopCard({
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.mechanicAvatarsContent}
         >
-          {/* "Any" option */}
-          <TouchableOpacity
-            style={styles.mechanicAvatarWrapper}
-            onPress={() => handleMechanicSelect(null)}
-            activeOpacity={0.7}
-          >
-            <View
-              style={[
-                styles.mechanicAvatar,
-                selectedMechanicId === null && styles.mechanicAvatarSelected,
-              ]}
+          {/* "Any" option - only show if multiple mechanics */}
+          {!hasSingleMechanic && (
+            <TouchableOpacity
+              style={styles.mechanicAvatarWrapper}
+              onPress={() => handleMechanicSelect(null)}
+              activeOpacity={0.7}
             >
-              <Text size="xs" weight="bold" color={selectedMechanicId === null ? BrandColors.secondary : "#6B7280"}>
+              <View
+                style={[
+                  styles.mechanicAvatar,
+                  selectedMechanicId === null && styles.mechanicAvatarSelected,
+                ]}
+              >
+                <Text size="xs" weight="bold" color={selectedMechanicId === null ? BrandColors.secondary : "#6B7280"}>
+                  Any
+                </Text>
+              </View>
+              <Text size="xs" weight="medium" color="#6B7280" numberOfLines={1}>
                 Any
               </Text>
-            </View>
-            <Text size="xs" weight="medium" color="#6B7280" numberOfLines={1}>
-              Any
-            </Text>
-          </TouchableOpacity>
+            </TouchableOpacity>
+          )}
 
           {/* Mechanic avatars */}
           {shop.mechanics.map((mechanic) => {
@@ -282,7 +332,8 @@ export const ShopCard = memo(function ShopCard({
                 key={mechanic.id}
                 style={styles.mechanicAvatarWrapper}
                 onPress={() => handleMechanicSelect(mechanic.id)}
-                activeOpacity={0.7}
+                activeOpacity={hasSingleMechanic ? 1 : 0.7}
+                disabled={hasSingleMechanic}
               >
                 {mechanic.photoUrl ? (
                   <Image
@@ -308,11 +359,7 @@ export const ShopCard = memo(function ShopCard({
         <Text size="sm" weight="bold" color={BrandColors.primary} style={styles.availabilityTitle}>
           Next Availability
         </Text>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.availabilitySlotsContent}
-        >
+        <View style={styles.availabilitySlotsRow}>
           {visibleSlots.map((slot, index) => {
             const isSelected = isSlotSelected(slot);
             return (
@@ -348,19 +395,8 @@ export const ShopCard = memo(function ShopCard({
               </Text>
             </TouchableOpacity>
           )}
-        </ScrollView>
+        </View>
       </View>
-
-      {/* Shop Details Button */}
-      <TouchableOpacity
-        style={styles.shopDetailsButton}
-        onPress={handleShopDetails}
-        activeOpacity={0.7}
-      >
-        <Text size="sm" weight="semiBold" color={BrandColors.primary}>
-          Shop Details
-        </Text>
-      </TouchableOpacity>
     </View>
   );
 });
@@ -457,11 +493,12 @@ const styles = StyleSheet.create({
   availabilityTitle: {
     marginBottom: Spacing.md,
   },
-  availabilitySlotsContent: {
+  availabilitySlotsRow: {
+    flexDirection: "row",
     gap: Spacing.sm,
   },
   availabilitySlot: {
-    width: 72,
+    flex: 1,
     alignItems: "center",
     paddingVertical: Spacing.md,
     backgroundColor: BrandColors.white,
@@ -474,7 +511,7 @@ const styles = StyleSheet.create({
     borderColor: BrandColors.secondary,
   },
   moreButton: {
-    width: 72,
+    flex: 1,
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: Spacing.md,
@@ -484,14 +521,13 @@ const styles = StyleSheet.create({
     borderColor: "#E5E7EB",
     gap: 4,
   },
-  shopDetailsButton: {
-    marginTop: Spacing.lg,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    backgroundColor: BrandColors.white,
+  detailsArrow: {
+    marginLeft: "auto",
+  },
+  serviceCostSection: {
+    marginTop: Spacing.md,
+    paddingTop: Spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: "#E5E7EB",
   },
 });

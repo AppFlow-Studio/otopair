@@ -148,18 +148,19 @@ export function FullScreenBookingView({ onClose }: FullScreenBookingViewProps) {
     }
 
     if (isPaymentStage) {
+      // Add platform fee to total
+      const totalWithFee = selectedTotal + 4.79;
       return (
         <View style={[styles.footer, { paddingBottom: footerBottomPadding }]}>
-          <PrimaryButton style={styles.button} onPress={handlePaymentConfirmed} fullWidth>
-            <Text size="md" weight="semiBold" color={BrandColors.white}>
-              Pay
+          <PrimaryButton style={styles.paymentButton} onPress={handlePaymentConfirmed} fullWidth>
+            <Text size="md" weight="bold" color={BrandColors.white}>
+              Confirm Appointment
             </Text>
             <View style={styles.amountBadge}>
               <Text size="sm" weight="bold" color={BrandColors.primary}>
-                ${selectedTotal}
+                ${totalWithFee.toFixed(2)}
               </Text>
             </View>
-            <ChevronRight size={20} color={BrandColors.white} />
           </PrimaryButton>
         </View>
       );
@@ -257,6 +258,15 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.lg,
     paddingVertical: Spacing.md,
   },
+  paymentButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: Spacing.md,
+    borderRadius: BorderRadius.xl,
+    paddingVertical: Spacing.lg,
+    backgroundColor: BrandColors.primary,
+  },
   buttonDisabled: {
     opacity: 0.5,
   },
@@ -264,6 +274,6 @@ const styles = StyleSheet.create({
     backgroundColor: BrandColors.white,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.xs,
-    borderRadius: BorderRadius.md,
+    borderRadius: BorderRadius.lg,
   },
 });

@@ -45,6 +45,15 @@ import { filterShops } from "@/utils/shopFilters";
 
 /** Maximum number of markers to display on the map */
 const MAX_MARKERS = 10;
+/** Default region to fall back to when location data is missing */
+const DEFAULT_REGION: Region = {
+  latitude: 40.758,
+  longitude: -73.9855,
+  latitudeDelta: 0.08,
+  longitudeDelta: 0.08,
+};
+/** Throttle in ms for region updates flowing into the store */
+const REGION_UPDATE_THROTTLE_MS = 120;
 
 interface BookingMapProps {
   /** Called when a shop marker is tapped */
@@ -82,14 +91,23 @@ export const BookingMap = forwardRef<MapView, BookingMapProps>(function BookingM
   // Track zoom level for marker display mode
   const [isZoomedIn, setIsZoomedIn] = useState(true);
 
-  // Track current visible region for dynamic pin loading
-  const [visibleRegion, setVisibleRegion] = useState<Region | null>(null);
-
   // ═══════════════ STATE-EFFECT: Store Subscriptions ═══════════════
   const userLocation = useBookingStore((state) => state.userLocation);
   const setUserLocation = useBookingStore((state) => state.setUserLocation);
   const mapRegion = useBookingStore((state) => state.mapRegion);
   const setMapRegion = useBookingStore((state) => state.setMapRegion);
+
+  // Track current visible region for dynamic pin loading
+  const [visibleRegion, setVisibleRegion] = useState<Region | null>(null);
+  const initialRegionRef = useRef<Region>(mapRegion || {
+    latitude: userLocation?.latitude ?? DEFAULT_REGION.latitude,
+    longitude: userLocation?.longitude ?? DEFAULT_REGION.longitude,
+    latitudeDelta: userLocation ? 0.05 : DEFAULT_REGION.latitudeDelta,
+    longitudeDelta: userLocation ? 0.05 : DEFAULT_REGION.longitudeDelta,
+  });
+  const pendingRegionRef = useRef<Region | null>(null);
+  const regionThrottleRef = useRef<NodeJS.Timeout | null>(null);
+  const hasInitializedRef = useRef(false);
 
   // Shop store subscriptions
   const shopsRecord = useShopStore((state) => state.shops);
@@ -202,14 +220,38 @@ export const BookingMap = forwardRef<MapView, BookingMapProps>(function BookingM
 
   // ═══════════════ STATE-EFFECT: Computed Values ═══════════════
   // Default to NYC (Midtown Manhattan) if no user location
-  const region: Region = mapRegion || {
-    latitude: userLocation?.latitude || 40.758,
-    longitude: userLocation?.longitude || -73.9855,
-    latitudeDelta: 0.08,
-    longitudeDelta: 0.08,
-  };
+  const updateVisibleRegion = useCallback((regionToSet: Region) => {
+    setVisibleRegion(regionToSet);
+    setIsZoomedIn(regionToSet.latitudeDelta < ZOOM_THRESHOLD);
+  }, []);
+
+  const region: Region = mapRegion || initialRegionRef.current;
 
   // ═══════════════ STATE-EFFECT: Effects ═══════════════
+  // [STATE-EFFECT] Request location permission and get current location on mount
+  useEffect(() => {
+    if (hasInitializedRef.current) {
+      return;
+    }
+    hasInitializedRef.current = true;
+    const seedRegion = mapRegion
+      ? mapRegion
+      : userLocation
+      ? {
+          latitude: userLocation.latitude,
+          longitude: userLocation.longitude,
+          latitudeDelta: 0.05,
+          longitudeDelta: 0.05,
+        }
+      : DEFAULT_REGION;
+
+    initialRegionRef.current = seedRegion;
+    updateVisibleRegion(seedRegion);
+    if (!mapRegion) {
+      setMapRegion(seedRegion);
+    }
+  }, [mapRegion, setMapRegion, updateVisibleRegion, userLocation]);
+
   // [STATE-EFFECT] Request location permission and get current location on mount
   useEffect(() => {
     (async () => {
@@ -227,6 +269,8 @@ export const BookingMap = forwardRef<MapView, BookingMapProps>(function BookingM
         longitudeDelta: 0.05,
       };
       setMapRegion(newRegion);
+      updateVisibleRegion(newRegion);
+      internalMapRef.current?.animateToRegion(newRegion, 350);
 
       // Reverse geocode to get location name
       try {
@@ -247,22 +291,22 @@ export const BookingMap = forwardRef<MapView, BookingMapProps>(function BookingM
         console.log("Reverse geocoding error:", error);
       }
     })();
-  }, [setMapRegion, setUserLocation]);
+  }, [setMapRegion, setUserLocation, updateVisibleRegion]);
 
   // [STATE-EFFECT] Center map on focused shop when it changes
   useEffect(() => {
     if (focusedShop && internalMapRef.current) {
-      internalMapRef.current.animateToRegion(
-        {
-          latitude: focusedShop.latitude,
-          longitude: focusedShop.longitude,
-          latitudeDelta: 0.02,
-          longitudeDelta: 0.02,
-        },
-        400
-      );
+      const nextRegion = {
+        latitude: focusedShop.latitude,
+        longitude: focusedShop.longitude,
+        latitudeDelta: 0.02,
+        longitudeDelta: 0.02,
+      };
+      internalMapRef.current.animateToRegion(nextRegion, 400);
+      updateVisibleRegion(nextRegion);
+      setMapRegion(nextRegion);
     }
-  }, [focusedShop]);
+  }, [focusedShop, setMapRegion, updateVisibleRegion]);
 
   // ═══════════════ STATE-EFFECT: Handlers ═══════════════
   const handleMarkerPress = useCallback(
@@ -273,11 +317,36 @@ export const BookingMap = forwardRef<MapView, BookingMapProps>(function BookingM
   );
 
   // Track when map region changes - dynamically load pins for visible area
-  const handleRegionChangeComplete = useCallback((newRegion: Region) => {
-    // Update visible region for dynamic pin loading
-    setVisibleRegion(newRegion);
-    // Update zoom state based on latitudeDelta
-    setIsZoomedIn(newRegion.latitudeDelta < ZOOM_THRESHOLD);
+  const flushPendingRegion = useCallback(() => {
+    if (!pendingRegionRef.current) {
+      return;
+    }
+    const latestRegion = pendingRegionRef.current;
+    pendingRegionRef.current = null;
+    updateVisibleRegion(latestRegion);
+    setMapRegion(latestRegion);
+  }, [setMapRegion, updateVisibleRegion]);
+
+  const handleRegionChangeComplete = useCallback(
+    (newRegion: Region) => {
+      pendingRegionRef.current = newRegion;
+      if (regionThrottleRef.current) {
+        return;
+      }
+      regionThrottleRef.current = setTimeout(() => {
+        regionThrottleRef.current = null;
+        flushPendingRegion();
+      }, REGION_UPDATE_THROTTLE_MS);
+    },
+    [flushPendingRegion]
+  );
+
+  useEffect(() => {
+    return () => {
+      if (regionThrottleRef.current) {
+        clearTimeout(regionThrottleRef.current);
+      }
+    };
   }, []);
 
   // ═══════════════ RENDER ═══════════════
@@ -287,7 +356,7 @@ export const BookingMap = forwardRef<MapView, BookingMapProps>(function BookingM
         ref={setMapRef}
         style={styles.map}
         provider={PROVIDER_DEFAULT}
-        region={region}
+        initialRegion={region}
         showsUserLocation
         showsMyLocationButton={false}
         onRegionChangeComplete={handleRegionChangeComplete}

@@ -63,11 +63,27 @@ interface PaymentState {
 // STORE IMPLEMENTATION
 // ─────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────
+// MOCK DATA
+// ─────────────────────────────────────────────────────────────
+
+const MOCK_PAYMENT_METHODS: PaymentMethod[] = [
+  {
+    id: "pm_visa_4242",
+    brand: "visa",
+    last4: "4242",
+    expMonth: 12,
+    expYear: 2026,
+    isDefault: true,
+    createdAt: new Date().toISOString(),
+  },
+];
+
 export const usePaymentStore = create<PaymentState>()((set, get) => ({
   // ═══════════════ INITIAL STATE ═══════════════
-  paymentMethods: [],
+  paymentMethods: MOCK_PAYMENT_METHODS,
   transactions: MOCK_TRANSACTIONS,
-  selectedPaymentMethodId: null,
+  selectedPaymentMethodId: MOCK_PAYMENT_METHODS[0]?.id ?? null,
   isLoading: false,
   error: null,
 

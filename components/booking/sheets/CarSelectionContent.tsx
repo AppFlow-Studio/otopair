@@ -176,18 +176,18 @@ export function CarSelectionContent({ onClose }: CarSelectionContentProps) {
         getItemLayout={getItemLayout}
         viewabilityConfig={viewabilityConfig.current}
         onViewableItemsChanged={onViewableItemsChanged.current}
+        style={styles.carousel}
       />
 
-      {/* Page indicator dots */}
+      {/* Pagination Dots - iOS style */}
       {vehiclesList.length > 1 && (
-        <View style={styles.dotsContainer}>
+        <View style={styles.paginationDots}>
           {vehiclesList.map((vehicle, index) => (
             <View
               key={vehicle.id}
               style={[
                 styles.dot,
                 index === activeIndex && styles.dotActive,
-                vehicle.id === selectedVehicleId && styles.dotSelected,
               ]}
             />
           ))}
@@ -212,7 +212,10 @@ export function CarSelectionContent({ onClose }: CarSelectionContentProps) {
 
 const styles = StyleSheet.create({
   container: {
-    flex: 1,
+    // Don't use flex: 1 so content doesn't expand beyond natural size
+  },
+  carousel: {
+    flexGrow: 0,
   },
   closeButton: {
     position: "absolute",
@@ -238,26 +241,20 @@ const styles = StyleSheet.create({
     width: CARD_WIDTH,
     marginRight: CARD_GAP,
   },
-  dotsContainer: {
+  paginationDots: {
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
+    gap: 8,
     paddingVertical: Spacing.md,
-    gap: Spacing.xs,
   },
   dot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: "#D1D5DB",
-  },
-  dotActive: {
-    backgroundColor: "#6B7280",
     width: 8,
     height: 8,
     borderRadius: 4,
+    backgroundColor: "#D1D5DB",
   },
-  dotSelected: {
+  dotActive: {
     backgroundColor: BrandColors.secondary,
   },
   emptyContainer: {

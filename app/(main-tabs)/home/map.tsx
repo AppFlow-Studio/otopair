@@ -76,6 +76,7 @@ export default function BookingsScreen() {
   // ═══════════════ LOCAL STATE ═══════════════
   const [sheetAnimatedIndex, setSheetAnimatedIndex] = useState<SharedValue<number> | null>(null);
   const [selectedMapShopId, setSelectedMapShopId] = useState<number | null>(null);
+  const [shopPreviewRequestKey, setShopPreviewRequestKey] = useState(0);
   const [focusedShop, setFocusedShop] = useState<Shop | null>(null);
 
   // Search mode state (controlled by ServiceBottomSheet)
@@ -165,6 +166,7 @@ export default function BookingsScreen() {
       selectShop(shop.id);
       setSelectedMapShopId(shop.id);
       setFocusedShop(shop);
+      setShopPreviewRequestKey((prev) => prev + 1);
     },
     [selectShop]
   );
@@ -292,6 +294,7 @@ export default function BookingsScreen() {
         onSelectMechanic={handleSearchSelectMechanic}
         onSearchModeChange={handleSearchModeChange}
         selectedShopId={selectedMapShopId}
+        shopPreviewKey={shopPreviewRequestKey}
         onShopChange={handleShopChange}
         onShopClose={handleShopClose}
       />

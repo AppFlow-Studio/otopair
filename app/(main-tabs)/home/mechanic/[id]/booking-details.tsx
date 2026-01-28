@@ -1,15 +1,17 @@
 /**
- * Booking Details Screen
+ * BookingDetailsScreen
  *
  * PURPOSE: Full-screen page displaying booking details after mechanic selection.
  *          Shows mechanic info, selected services with remove option, availability,
  *          and customer reviews.
  *
- * FLOW: mechanic detail → booking-details → payment → confirmation
+ * FLOW: Booking (mechanic detail → booking-details → payment → confirmation)
  *
  * ROUTE: /home/mechanic/[id]/booking-details
  *
  * OWNER: Temurbek Sayfutdinov
+ *
+ * TICKET: OTO-145
  */
 
 // DEPRECATED FOR NOW!!: WE USE  /components/booking/sheets/BookingDetailsContent.tsx INSTEAD OF THIS PAGE
@@ -17,7 +19,7 @@
 
 
 // 1. React & React Native
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Expo & Third-party
@@ -30,19 +32,12 @@ import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Flow-specific components
 import { BookingPageFooter, BookingPageHeader } from "@/components/booking/pages";
-import {
-    MechanicInfoCard,
-    RatingSummaryCard,
-    ReviewCard,
-    ServiceRow,
-} from "@/components/booking/shared";
-import { AllReviewsSheet, type AllReviewsSheetRef } from "@/components/booking/sheets/AllReviewsSheet";
+import { MechanicInfoCard, ServiceRow } from "@/components/booking/shared";
+import { AddServicesModal } from "@/components/booking/modals";
 import { DiscardServiceModal } from "@/components/booking/sheets/DiscardServiceModal";
-import { AddMoreServicesSheet, type AddMoreServicesSheetRef } from "@/components/booking/sheets/AddMoreServicesSheet";
 
 // 5. Constants, hooks, types, stores
 import { BorderRadius } from "@/constants/theme";
-import { mockReviews, ratingDistribution } from "@/stores/data/mockReviews";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 
@@ -56,15 +51,13 @@ export default function BookingDetailsScreen() {
     const insets = useSafeAreaInsets();
     const { id } = useLocalSearchParams<{ id: string }>();
 
-    // ═══════════════ REFS ═══════════════
-    const allReviewsRef = useRef<AllReviewsSheetRef>(null);
-    const addMoreServicesRef = useRef<AddMoreServicesSheetRef>(null);
-
     // ═══════════════ BOOKING STORE ═══════════════
     const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
     const availableServices = useBookingStore((state) => state.availableServices);
     const selectedMechanicId = useBookingStore((state) => state.selectedMechanicId);
     const toggleServiceSelection = useBookingStore((state) => state.toggleServiceSelection);
+    const skipServiceRemovalConfirm = useBookingStore((state) => state.skipServiceRemovalConfirm);
+    const setSkipServiceRemovalConfirm = useBookingStore((state) => state.setSkipServiceRemovalConfirm);
     const scheduledAppointment = useBookingStore((state) => state.scheduledAppointment);
     const getFormattedAppointmentDate = useBookingStore((state) => state.getFormattedAppointmentDate);
     const getFormattedAppointmentTime = useBookingStore((state) => state.getFormattedAppointmentTime);
@@ -76,6 +69,7 @@ export default function BookingDetailsScreen() {
     // ═══════════════ LOCAL STATE ═══════════════
     const [showDiscardModal, setShowDiscardModal] = useState(false);
     const [pendingRemoveServiceId, setPendingRemoveServiceId] = useState<string | null>(null);
+    const [showAddServicesModal, setShowAddServicesModal] = useState(false);
 
     // ═══════════════ COMPUTED VALUES ═══════════════
     const mechanic = useMemo(() => {
@@ -99,8 +93,8 @@ export default function BookingDetailsScreen() {
     const appointmentDate = getFormattedAppointmentDate();
     const appointmentTime = getFormattedAppointmentTime();
 
-    // Check if we can proceed (has services and appointment)
-    const canProceed = selectedServices.length > 0 && scheduledAppointment !== null;
+    // Check if we can proceed (requires at least one service)
+    const canProceed = selectedServices.length > 0;
 
     // ═══════════════ HANDLERS ═══════════════
     const handleBack = useCallback(() => {
@@ -114,13 +108,21 @@ export default function BookingDetailsScreen() {
     }, [router, id]);
 
     const handleAddMore = useCallback(() => {
-        addMoreServicesRef.current?.open();
+        setShowAddServicesModal(true);
+    }, []);
+
+    const handleCloseAddServicesModal = useCallback(() => {
+        setShowAddServicesModal(false);
     }, []);
 
     const handleRemoveService = useCallback((serviceId: string) => {
+        if (skipServiceRemovalConfirm) {
+            toggleServiceSelection(serviceId);
+            return;
+        }
         setPendingRemoveServiceId(serviceId);
         setShowDiscardModal(true);
-    }, []);
+    }, [skipServiceRemovalConfirm, toggleServiceSelection]);
 
     const handleConfirmRemove = useCallback(() => {
         if (pendingRemoveServiceId) {
@@ -135,11 +137,10 @@ export default function BookingDetailsScreen() {
         setPendingRemoveServiceId(null);
     }, []);
 
-    const handleViewAllReviews = useCallback(() => {
-        if (mechanic?.id) {
-            allReviewsRef.current?.open(mechanic.id);
-        }
-    }, [mechanic?.id]);
+    const handleDontAskAgain = useCallback(() => {
+        setSkipServiceRemovalConfirm(true);
+        handleConfirmRemove();
+    }, [setSkipServiceRemovalConfirm, handleConfirmRemove]);
 
     // ═══════════════ RENDER ═══════════════
     if (!mechanic) {
@@ -247,35 +248,6 @@ export default function BookingDetailsScreen() {
                     </>
                 )}
 
-                {/* What Our Customers Are Saying Section */}
-                <View style={styles.sectionHeader}>
-                    <Text size="md" weight="bold" color="#9CA3AF">
-                        What Our Customers Are Saying
-                    </Text>
-                </View>
-
-                <View style={styles.reviewsSection}>
-                    <RatingSummaryCard
-                        rating={mechanic.rating}
-                        ratingCount={ratingCount}
-                        distribution={ratingDistribution}
-                    />
-
-                    {mockReviews.map((review) => (
-                        <ReviewCard key={review.id} review={review} />
-                    ))}
-
-                    <TouchableOpacity
-                        style={styles.viewAllReviewsButton}
-                        activeOpacity={0.7}
-                        onPress={handleViewAllReviews}
-                    >
-                        <Text size="sm" weight="semiBold" color={BrandColors.primary}>
-                            View All Reviews
-                        </Text>
-                        <ChevronRight size={18} color={BrandColors.primary} />
-                    </TouchableOpacity>
-                </View>
             </ScrollView>
 
             {/* Footer */}
@@ -291,9 +263,9 @@ export default function BookingDetailsScreen() {
                 visible={showDiscardModal}
                 onClose={handleCloseDiscardModal}
                 onConfirm={handleConfirmRemove}
+                onDontAskAgain={handleDontAskAgain}
             />
-            <AllReviewsSheet ref={allReviewsRef} />
-            <AddMoreServicesSheet ref={addMoreServicesRef} />
+            <AddServicesModal visible={showAddServicesModal} onClose={handleCloseAddServicesModal} />
         </View>
     );
 }
@@ -387,16 +359,4 @@ const styles = StyleSheet.create({
         height: 40,
         backgroundColor: BrandColors.secondary + "30",
     },
-    reviewsSection: {
-        marginBottom: Spacing.xl,
-    },
-    viewAllReviewsButton: {
-        flexDirection: "row",
-        alignItems: "center",
-        justifyContent: "center",
-        paddingVertical: Spacing.md,
-        marginTop: Spacing.sm,
-        gap: 4,
-    },
 });
-

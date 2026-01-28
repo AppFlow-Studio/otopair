@@ -7,3 +7,4 @@
 
 export { AddServicesModal } from "./AddServicesModal";
 export { AvailabilityModal } from "./AvailabilityModal";
+export { ShopBookingModal } from "./ShopBookingModal";

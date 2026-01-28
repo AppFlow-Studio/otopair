@@ -122,11 +122,6 @@ export function ServiceSelectionContent({ onCategorySelect }: ServiceSelectionCo
               {service.description}
             </Text>
           </View>
-          <View style={styles.servicePriceContainer}>
-            <Text size="md" weight="semiBold" color={BrandColors.secondary}>
-              ${service.price.toFixed(2)}
-            </Text>
-          </View>
         </TouchableOpacity>
       );
     },
@@ -218,11 +213,6 @@ const styles = StyleSheet.create({
   },
   serviceInfo: {
     flex: 1,
-    marginRight: Spacing.md,
-  },
-  servicePriceContainer: {
-    flexDirection: "row",
-    alignItems: "center",
   },
   emptyState: {
     paddingVertical: Spacing["3xl"],

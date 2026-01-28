@@ -31,14 +31,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Local components
-import { AvailabilitySlots, MechanicInfoCard, RatingSummaryCard, ReviewCard, ServiceRow } from "../shared";
+import { AvailabilitySlots, MechanicInfoCard, ServiceRow } from "../shared";
 import { AllAvailabilitySheet, AllAvailabilitySheetRef } from "./AllAvailabilitySheet";
-import { AllReviewsSheet, AllReviewsSheetRef } from "./AllReviewsSheet";
 import { DiscardServiceModal } from "./DiscardServiceModal";
 
 // 5. Constants, hooks, types
 import { BorderRadius, getSheetContentPadding } from "@/constants/theme";
-import { mockReviews, ratingDistribution } from "@/stores/data/mockReviews";
 import type { ScheduledAppointment } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
@@ -62,7 +60,6 @@ interface BookingDetailsContentProps {
 export function BookingDetailsContent({ onAddMore, isFullScreen = false }: BookingDetailsContentProps) {
   // ═══════════════ REFS ═══════════════
   const allAvailabilityRef = useRef<AllAvailabilitySheetRef>(null);
-  const allReviewsRef = useRef<AllReviewsSheetRef>(null);
 
   // ═══════════════ HOOKS ═══════════════
   const insets = useSafeAreaInsets();
@@ -74,6 +71,8 @@ export function BookingDetailsContent({ onAddMore, isFullScreen = false }: Booki
   const selectedMechanicId = useBookingStore((state) => state.selectedMechanicId);
   const toggleServiceSelection = useBookingStore((state) => state.toggleServiceSelection);
   const setScheduledAppointment = useBookingStore((state) => state.setScheduledAppointment);
+  const skipServiceRemovalConfirm = useBookingStore((state) => state.skipServiceRemovalConfirm);
+  const setSkipServiceRemovalConfirm = useBookingStore((state) => state.setSkipServiceRemovalConfirm);
 
   // ═══════════════ SCHEDULE STORE ═══════════════
   const confirmedSelections = useScheduleStore((state) => state.confirmedSelections);
@@ -175,10 +174,17 @@ export function BookingDetailsContent({ onAddMore, isFullScreen = false }: Booki
     onAddMore?.();
   }, [onAddMore]);
 
-  const handleRemoveService = useCallback((serviceId: string) => {
-    setPendingRemoveServiceId(serviceId);
-    setShowDiscardModal(true);
-  }, []);
+  const handleRemoveService = useCallback(
+    (serviceId: string) => {
+      if (skipServiceRemovalConfirm) {
+        toggleServiceSelection(serviceId);
+        return;
+      }
+      setPendingRemoveServiceId(serviceId);
+      setShowDiscardModal(true);
+    },
+    [skipServiceRemovalConfirm, toggleServiceSelection]
+  );
 
   const handleConfirmRemove = useCallback(() => {
     if (pendingRemoveServiceId) {
@@ -192,6 +198,11 @@ export function BookingDetailsContent({ onAddMore, isFullScreen = false }: Booki
     setShowDiscardModal(false);
     setPendingRemoveServiceId(null);
   }, []);
+
+  const handleDontAskAgain = useCallback(() => {
+    setSkipServiceRemovalConfirm(true);
+    handleConfirmRemove();
+  }, [setSkipServiceRemovalConfirm, handleConfirmRemove]);
 
   const handleViewAllAvailability = useCallback(() => {
     if (mechanic?.id) {
@@ -222,12 +233,6 @@ export function BookingDetailsContent({ onAddMore, isFullScreen = false }: Booki
     },
     [mechanic?.nextAvailability, setScheduledAppointment]
   );
-
-  const handleViewAllReviews = useCallback(() => {
-    if (mechanic?.id) {
-      allReviewsRef.current?.open(mechanic.id);
-    }
-  }, [mechanic?.id]);
 
   // ═══════════════ RENDER ═══════════════
   if (!mechanic) {
@@ -298,30 +303,6 @@ export function BookingDetailsContent({ onAddMore, isFullScreen = false }: Booki
           </>
         )}
 
-        {/* What Our Customers Are Saying Section */}
-        <View style={styles.sectionHeader}>
-          <Text size="md" weight="bold" color="#9CA3AF">
-            What Our Customers Are Saying
-          </Text>
-        </View>
-
-        <View style={styles.reviewsSection}>
-          {/* Rating Summary Card */}
-          <RatingSummaryCard rating={mechanic.rating} ratingCount={ratingCount} distribution={ratingDistribution} />
-
-          {/* Review Cards */}
-          {mockReviews.map((review) => (
-            <ReviewCard key={review.id} review={review} />
-          ))}
-
-          {/* View All Reviews Button */}
-          <TouchableOpacity style={styles.viewAllReviewsButton} activeOpacity={0.7} onPress={handleViewAllReviews}>
-            <Text size="sm" weight="semiBold" color={BrandColors.primary}>
-              View All Reviews
-            </Text>
-            <ChevronRight size={18} color={BrandColors.primary} />
-          </TouchableOpacity>
-        </View>
       </ScrollComponent>
 
       {/* Discard Service Confirmation Modal */}
@@ -329,13 +310,12 @@ export function BookingDetailsContent({ onAddMore, isFullScreen = false }: Booki
         visible={showDiscardModal}
         onClose={handleCloseDiscardModal}
         onConfirm={handleConfirmRemove}
+        onDontAskAgain={handleDontAskAgain}
       />
 
       {/* All Availability Sheet */}
       <AllAvailabilitySheet ref={allAvailabilityRef} onConfirm={handleAvailabilityConfirm} />
 
-      {/* All Reviews Sheet */}
-      <AllReviewsSheet ref={allReviewsRef} />
     </View>
   );
 }
@@ -394,15 +374,4 @@ const styles = StyleSheet.create({
   },
 
   // Customer Reviews Section
-  reviewsSection: {
-    marginBottom: Spacing.xl,
-  },
-  viewAllReviewsButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: Spacing.md,
-    marginTop: Spacing.sm,
-    gap: 4,
-  },
 });
