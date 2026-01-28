@@ -37,6 +37,7 @@ import Animated, {
   useAnimatedScrollHandler,
   useSharedValue,
   type ScrollHandlerProcessed,
+  type SharedValue,
 } from 'react-native-reanimated';
 import { AnimatedGradientBackground } from './AnimatedGradientBackground';
 import { BrandColors } from '@/constants/theme';
@@ -52,6 +53,8 @@ export interface ScrollDrivenGradientBackgroundProps {
   colors?: string[]; // Ahmad has colors : [string, string, string] 
   gradientScrollIndices?: number[];
   scrollPerTransition?: number;
+  /** Optional external scrollY to sync with other animations. */
+  scrollY?: SharedValue<number>;
   children: (scrollHandler: ScrollHandlerProcessed<Record<string, unknown>>) => React.ReactNode;
 }
 
@@ -59,10 +62,12 @@ export function ScrollDrivenGradientBackground({
   colors = DEFAULT_COLORS,
   gradientScrollIndices = DEFAULT_GRADIENT_SCROLL_INDICES,
   scrollPerTransition = DEFAULT_SCROLL_PER_TRANSITION,
+  scrollY: externalScrollY,
   children,
 }: ScrollDrivenGradientBackgroundProps) {
   const bgProgress = useSharedValue(0);
-  const scrollY = useSharedValue(0);
+  const internalScrollY = useSharedValue(0);
+  const scrollY = externalScrollY ?? internalScrollY;
   const currentSegment = useSharedValue(0);
   const fromIndexSV = useSharedValue(0);
   const toIndexSV = useSharedValue(0);
