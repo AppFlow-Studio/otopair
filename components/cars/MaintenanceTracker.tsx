@@ -27,6 +27,7 @@ import React, { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
 
 // 2. Expo & Third-party
+import { BlurView } from 'expo-blur';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Circle } from 'react-native-svg';
 
@@ -53,6 +54,7 @@ export interface MaintenanceItem {
 
 interface MaintenanceTrackerProps {
   items: MaintenanceItem[];
+  vehicleCondition?: number;
   onBookNow?: (id: string) => void;
   onAddInfo?: (id: string) => void;
 }
@@ -110,10 +112,113 @@ const STATUS_CONFIG: Record<
 };
 
 // ============================================================================
+// VEHICLE HEALTH RING COMPONENT (Apple Fitness Style)
+// ============================================================================
+
+interface VehicleHealthRingProps {
+  percentage: number;
+  size?: number;
+}
+
+function VehicleHealthRing({ percentage, size = 64 }: VehicleHealthRingProps) {
+  const strokeWidth = 8;
+  const radius = (size - strokeWidth) / 2;
+  const circumference = 2 * Math.PI * radius;
+  const center = size / 2;
+  
+  // Animation state
+  const [animatedProgress, setAnimatedProgress] = useState(0);
+  
+  // Animate the ring fill on mount
+  useEffect(() => {
+    setAnimatedProgress(0);
+    
+    const duration = 1200;
+    const steps = 40;
+    const stepDuration = duration / steps;
+    let currentStep = 0;
+    
+    const interval = setInterval(() => {
+      currentStep++;
+      // Ease-out cubic animation
+      const progress = 1 - Math.pow(1 - currentStep / steps, 3);
+      setAnimatedProgress(progress * percentage);
+      
+      if (currentStep >= steps) {
+        clearInterval(interval);
+      }
+    }, stepDuration);
+    
+    return () => clearInterval(interval);
+  }, [percentage]);
+  
+  const strokeDashoffset = circumference * (1 - animatedProgress / 100);
+  
+  // Determine ring color based on percentage
+  const getRingColor = () => {
+    if (percentage >= 80) return '#22C55E'; // Green
+    if (percentage >= 60) return '#FBBF24'; // Yellow/Orange
+    if (percentage >= 40) return '#F97316'; // Orange
+    return '#EF4444'; // Red
+  };
+  
+  const ringColor = getRingColor();
+  
+  return (
+    <View style={ringStyles.container}>
+      <Svg width={size} height={size}>
+        {/* Background ring (gray track) */}
+        <Circle
+          cx={center}
+          cy={center}
+          r={radius}
+          stroke="rgba(255, 255, 255, 0.15)"
+          strokeWidth={strokeWidth}
+          fill="none"
+        />
+        {/* Foreground ring (colored progress) */}
+        <Circle
+          cx={center}
+          cy={center}
+          r={radius}
+          stroke={ringColor}
+          strokeWidth={strokeWidth}
+          fill="none"
+          strokeDasharray={circumference}
+          strokeDashoffset={strokeDashoffset}
+          strokeLinecap="round"
+          rotation={-90}
+          origin={`${center}, ${center}`}
+        />
+      </Svg>
+      {/* Percentage text in center */}
+      <View style={[ringStyles.centerText, { width: size, height: size }]}>
+        <Text weight="bold" size="md" style={{ color: ringColor }}>
+          {Math.round(animatedProgress)}%
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+const ringStyles = StyleSheet.create({
+  container: {
+    position: 'relative',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  centerText: {
+    position: 'absolute',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+});
+
+// ============================================================================
 // COMPONENT
 // ============================================================================
 
-export function MaintenanceTracker({ items, onBookNow, onAddInfo }: MaintenanceTrackerProps) {
+export function MaintenanceTracker({ items, vehicleCondition, onBookNow, onAddInfo }: MaintenanceTrackerProps) {
   // Sort items by status priority: overdue → due_soon → on_time → unknown
   const sortedItems = [...items].sort(
     (a, b) => STATUS_PRIORITY[a.status] - STATUS_PRIORITY[b.status]
@@ -129,6 +234,7 @@ export function MaintenanceTracker({ items, onBookNow, onAddInfo }: MaintenanceT
         {/* Optional "View All" link placeholder for future */}
         {/* <Text size="sm" color={BrandColors.secondary}>View All</Text> */}
       </View>
+      
 
       {/* Empty state */}
       {items.length === 0 ? (
@@ -154,24 +260,30 @@ export function MaintenanceTracker({ items, onBookNow, onAddInfo }: MaintenanceT
           };
 
           return (
-            <View key={item.id} style={styles.card}>
-              {/* Two-column layout: Left content + Right actions */}
-              <View style={styles.cardRow}>
+            <View key={item.id} style={styles.cardOuter}>
+              {/* Frosted glass blur layer */}
+              <BlurView intensity={22} tint="light" style={styles.blurContainer}>
+                {/* White overlay for frosted effect */}
+                <View style={styles.whiteOverlay} />
+              </BlurView>
+              <View style={styles.card}>
+                  {/* Two-column layout: Left content + Right actions */}
+                  <View style={styles.cardRow}>
                 {/* Left Column: Title + Detail section */}
                 <View style={styles.leftColumn}>
                   {/* Title */}
-                  <Text weight="semiBold" size="2xl" color={Colors.light.text}>
+                  <Text weight="semiBold" size="xl" color={Colors.light.text}>
                     {item.serviceName}
                   </Text>
 
                   {/* Detail row: Status Icon + Description + Detail */}
                   <View style={styles.detailSection}>
-                    {item.status !== 'unknown' && <StatusIcon key={item.id} itemId={item.id} status={item.status} />}
+                    {item.status !== 'unknown' && <StatusIcon key={item.id} itemId={item.id} status={item.status} size={20} />}
                     <View style={styles.detailTextContainer}>
-                      <Text size="sm" color="#6B7280">
+                      <Text size="sm" color={Colors.light.text}>
                         {item.description}
                       </Text>
-                      <Text weight="medium" size="sm" color={Colors.light.text}>
+                      <Text weight="semiBold" size="sm" color={Colors.light.text}>
                         {item.detail}
                       </Text>
                     </View>
@@ -181,7 +293,7 @@ export function MaintenanceTracker({ items, onBookNow, onAddInfo }: MaintenanceT
                 {/* Right Column: Badge + Button stacked */}
                 <View style={styles.rightColumn}>
                   <View style={[styles.badge, { backgroundColor: config.badgeBg }]}>
-                    <Text weight="medium" size="xs" color={config.badgeText}>
+                    <Text weight="semiBold" size="xs" color={config.badgeText}>
                       {config.label}
                     </Text>
                   </View>
@@ -192,8 +304,18 @@ export function MaintenanceTracker({ items, onBookNow, onAddInfo }: MaintenanceT
                       onPress={handlePrimaryPress}
                       style={styles.outlinedButton}
                     >
-                      <Text weight="medium" size="xs" color={Colors.light.text}>
+                      <Text weight="medium" size="sm" color={Colors.light.text}>
                         Add Info
+                      </Text>
+                    </Button>
+                  ) : item.status === 'on_time' ? (
+                    <Button
+                      variant="ghost"
+                      onPress={handlePrimaryPress}
+                      style={styles.remindButton}
+                    >
+                      <Text weight="semiBold" size="sm" color="#1a1a1a">
+                        Remind me
                       </Text>
                     </Button>
                   ) : (
@@ -202,12 +324,13 @@ export function MaintenanceTracker({ items, onBookNow, onAddInfo }: MaintenanceT
                       onPress={handlePrimaryPress}
                       style={styles.primaryButton}
                     >
-                        <Text weight="medium" size="sm" color="#FFFFFF">
+                      <Text weight="semiBold" size="sm" color="#FFFFFF">
                         Book Now
                       </Text>
                     </Button>
                   )}
                 </View>
+              </View>
               </View>
             </View>
           );
@@ -220,7 +343,7 @@ export function MaintenanceTracker({ items, onBookNow, onAddInfo }: MaintenanceT
 // Small helper component for status icon (circular progress indicators with animation)
 function StatusIcon({ 
   status, 
-  size = 32,
+  size = 20,
   itemId,
 }: { 
   status: MaintenanceStatus; 
@@ -228,7 +351,7 @@ function StatusIcon({
   itemId: string;
 }) {
   const config = STATUS_CONFIG[status];
-  const strokeWidth = 4;
+  const strokeWidth = 3;
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
   const center = size / 2;
@@ -248,7 +371,7 @@ function StatusIcon({
 
     let intervalId: ReturnType<typeof setInterval> | null = null;
 
-    // Small delay before starting animation (stagger based on itemId for visual effect)
+    // Small delay before starting animation
     const delayMs = 200;
     const startDelay = setTimeout(() => {
       const duration = 800; // ms
@@ -290,7 +413,7 @@ function StatusIcon({
             },
           ]}
         >
-          <Ionicons name="alert" size={size * 0.5} color={config.badgeText} />
+          <Ionicons name="alert" size={size * 0.55} color={config.badgeText} />
         </View>
       </View>
     );
@@ -308,7 +431,7 @@ function StatusIcon({
             stroke={config.iconColor}
             strokeWidth={strokeWidth}
             fill="none"
-            strokeDasharray="4 4"
+            strokeDasharray="3 3"
           />
         </Svg>
       </View>
@@ -316,7 +439,7 @@ function StatusIcon({
   }
 
   // Due soon / on time: animated partial arc
-  const targetProgress = 0.65;
+  const targetProgress = 0.6;
   // Calculate current strokeDashoffset based on animation progress
   // Start from full circumference (empty) and animate to target
   const currentProgress = targetProgress * animationProgress;
@@ -351,6 +474,7 @@ function StatusIcon({
 const styles = StyleSheet.create({
   container: {
     marginTop: 24,
+    paddingHorizontal: Spacing.md,
   },
   headerRow: {
     flexDirection: 'row',
@@ -361,53 +485,79 @@ const styles = StyleSheet.create({
   emptyState: {
     paddingVertical: 24,
     paddingHorizontal: 16,
-    borderRadius: BorderRadius.lg,
-    backgroundColor: 'rgba(255,255,255,0.8)',
+    borderRadius: 16,
     alignItems: 'center',
     gap: 4,
+    shadowColor: 'rgba(0, 0, 0, 0.1)',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 1,
+    shadowRadius: 16,
+    elevation: 4,
+    overflow: 'hidden',
+  },
+  cardOuter: {
+    marginBottom: 12,
+    borderRadius: 16,
+    overflow: 'hidden',
+    position: 'relative',
+    // Frosted glass border
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.5)',
+    // Soft diffused shadow
+    shadowColor: 'rgba(0, 0, 0, 0.06)',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 1,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  blurContainer: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 16,
+  },
+  whiteOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255, 255, 255, 0.38)',
   },
   card: {
-    backgroundColor: '#f9fafc',
-    borderRadius: BorderRadius.lg,
-    paddingHorizontal: Spacing.md,
-    paddingVertical: Spacing.lg,
-    marginBottom: 8,
-    ...Shadows.sm,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    overflow: 'hidden',
+    backgroundColor: 'transparent',
+    borderRadius: 16,
   },
   cardRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    alignItems: 'flex-start',
   },
   leftColumn: {
     flex: 1,
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     gap: 6,
-    paddingLeft: Spacing.xs,
   },
   rightColumn: {
     alignItems: 'flex-end',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
     gap: 10,
   },
   badge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
     borderRadius: 999,
   },
   detailSection: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    paddingLeft: Spacing.xs,
   },
   detailTextContainer: {
     flex: 1,
     gap: 2,
   },
   statusIconContainer: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -416,18 +566,33 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   primaryButton: {
-    paddingHorizontal: 7,
-    paddingVertical: 6,
-    borderRadius: 8,
-    minWidth: 65,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 14,
+    minWidth: 100,
+    backgroundColor: 'rgba(20, 28, 36, 0.9)',
+    shadowColor: 'rgba(0, 0, 0, 0.2)',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 8,
   },
   outlinedButton: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
-    minWidth: 65,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 14,
+    minWidth: 90,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: 'rgba(255, 255, 255, 0.8)',
+    backgroundColor: 'rgba(255, 255, 255, 0.4)',
+  },
+  remindButton: {
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 14,
+    minWidth: 100,
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.1)',
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
   },
 });
 

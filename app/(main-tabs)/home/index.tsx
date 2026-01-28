@@ -1,27 +1,33 @@
 // 1. React & React Native
-import React, { useEffect, useState, useCallback } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { Image, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated from 'react-native-reanimated';
 
 // 2. Expo & Third-party
+import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
-import { Bell, MapPinned, MoveRight, Star } from 'lucide-react-native';
-import Animated from 'react-native-reanimated';
+import { Bell, MoveRight, Star, Trophy } from 'lucide-react-native';
 
 // 3. Shared UI
-import { Button, ScrollDrivenGradientBackground, Spacing, Text } from '@/components/shared-ui';
+import { Button, ScrollDrivenGradientBackground, Text } from '@/components/shared-ui';
 
-// 4. Flow-specific components
+// 4. Stores
+import { useAuthStore } from '@/stores/useAuthStore';
+
+// 5. Flow-specific components
 import { ActionCardsCarousel } from '@/components/home/ActionCardsCarousel';
-import { AIAssistantButton } from '@/components/home/AIAssistantButton';
+import { AddFirstVehicleCard } from '@/components/home/AddFirstVehicleCard';
 import { LoyaltyCard } from '@/components/home/LoyaltyCard';
 import { MechanicSearchBar } from '@/components/home/MechanicSearchBar';
 import { NavigationETABar } from '@/components/home/NavigationETABar';
 import { ServiceBundlesSection } from '@/components/home/ServiceBundlesSection';
+import { MoreServicesSection } from '@/components/home/MoreServicesSection';
 import { SuggestionsSection } from '@/components/home/SuggestionsSection';
 import { VehicleMaintenanceCard } from '@/components/home/VehicleMaintenanceCard';
+import { HomeLogo } from '@/components/icons/home-logo';
 import { OtoPairIcon } from '@/components/icons/oto-pair';
 
 // 5. Stores (unused imports removed)
@@ -29,6 +35,7 @@ import { OtoPairIcon } from '@/components/icons/oto-pair';
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { isNewUser } = useAuthStore();
   const [showWelcome, setShowWelcome] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [locationName, setLocationName] = useState('Loading...');
@@ -82,20 +89,56 @@ export default function HomeScreen() {
   };
 
   // Search bar focus - navigate directly to map with search active
-  const handleSearchFocus = useCallback(() => {
-    router.push('/home/map?search=true');
-  }, [router]);
+  // const handleSearchFocus = useCallback(() => {
+  //   router.push('/home/map?search=true');
+  // }, [router]);
+
+  // // Custom margins for content below carousel based on active card
+  // const getCardMargin = (cardIndex: number): number => {
+  //   switch (cardIndex) {
+  //     case 0: // Finish Account Setup
+  //       return -70;
+  //     case 1: // Upcoming Appointment - NavigationETABar shows, so no extra margin needed
+  //       return 10;
+  //     case 2: // Resume Booking
+  //       return -100;
+  //     case 3: // Finish Car Setup
+  // Helper function to get the card type at a given index based on user status
+  
+  const getCardTypeAtIndex = (index: number): 'appointment' | 'resume' | 'account' | 'car' | null => {
+    if (isNewUser && showAccountSetup) {
+      // New user order: account, appointment, resume, car
+      switch (index) {
+        case 0: return 'account';
+        case 1: return 'appointment';
+        case 2: return 'resume';
+        case 3: return 'car';
+        default: return null;
+      }
+    } else {
+      // Existing user order: appointment, resume, account, car
+      switch (index) {
+        case 0: return 'appointment';
+        case 1: return 'resume';
+        case 2: return 'account';
+        case 3: return 'car';
+        default: return null;
+      }
+    }
+  };
 
   // Custom margins for content below carousel based on active card
   const getCardMargin = (cardIndex: number): number => {
-    switch (cardIndex) {
-      case 0: // Finish Account Setup
-        return -70;
-      case 1: // Upcoming Appointment - NavigationETABar shows, so no extra margin needed
+    const cardType = getCardTypeAtIndex(cardIndex);
+    
+    switch (cardType) {
+      case 'appointment': // Upcoming Appointment - NavigationETABar shows, so no extra margin needed
         return 10;
-      case 2: // Resume Booking
+      case 'resume': // Resume Booking
         return -100;
-      case 3: // Finish Car Setup
+      case 'account': // Finish Account Setup
+        return -70;
+      case 'car': // Finish Car Setup
         return -10;
       default:
         return 0;
@@ -109,7 +152,7 @@ export default function HomeScreen() {
   //       <View style={styles.welcomeContent}>
   //         <OtoPairIcon />
   //         <Text weight="semiBold" size="2xl" style={styles.welcomeTitle}>
-  //           OtoPair
+  //           Otopair
   //         </Text>
   //         <Button variant="secondary" onPress={() => setShowWelcome(false)}>
   //           Let's Check Your Car Now <MoveRight size={16} color="#fff" />
@@ -120,52 +163,139 @@ export default function HomeScreen() {
   // }
 
   return (
+    <ScrollDrivenGradientBackground colors={['#0b64ac', '#6298c7', '#cad7e8']}>
+      {(scrollHandler) => (
     <View style={styles.container}>
-      <ScrollDrivenGradientBackground>
-        {(scrollHandler) => (
-          <Animated.ScrollView
-            style={styles.scrollView}
-            contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 12 }]}
-            showsVerticalScrollIndicator={false}
-            scrollEnabled={!isCardSwiping}
+      {/* Full Page Scroll */}
+      <Animated.ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 12 }]}
+        showsVerticalScrollIndicator={false}
+        scrollEnabled={!isCardSwiping}
             onScroll={scrollHandler}
             scrollEventThrottle={16}
-          >
-            {/* Header */}
-            <View style={styles.header}>
-              {/* Location */}
-              <View style={styles.locationSection}>
-                <MapPinned size={20} color="#5299FE" />
-                <View style={styles.locationText}>
-                  <Text size="xs" color="#6B7280">
-                    Your Location
-                  </Text>
-                  <Text weight="semiBold" size="sm" color="#141C24">
-                    {locationName}
-                  </Text>
-                </View>
+      >
+        {/* Header */}
+        <View style={styles.header}>
+          {/* Location */}
+          <View style={styles.locationSection}>
+            <View style={{ marginTop: -8, marginLeft: 8 }}>
+              <HomeLogo size={68} />
+            </View>
+            <View style={styles.locationText}>
+              <Text size="xl" color="#FFFFFF" weight="bold">
+                Otopair
+              </Text>
+              <Text weight="semiBold" size="sm" color="#FFFFFF">
+                {locationName}
+              </Text>
+            </View>
+          </View>
+
+          {/* Right Side - Gold Tier & Bell */}
+          <View style={styles.headerRight}>
+            {/* Gold Tier Badge - Clickable */}
+            <Pressable
+              onPress={() => setShowLoyaltyCard(true)}
+              style={({ pressed }) => [styles.goldTierBadge, pressed && styles.goldTierBadgePressed]}
+            >
+              <View style={styles.glassContainer}>
+                <BlurView intensity={10} tint="dark" style={styles.glassBlur}>
+                  <View style={styles.glassOverlay} />
+                  <LinearGradient
+                    colors={['rgba(255,255,255,0.25)', 'rgba(255,255,255,0.05)']}
+                    start={{ x: 0.5, y: 0 }}
+                    end={{ x: 0.5, y: 0.5 }}
+                    style={styles.glassGloss}
+                  />
+                  <Trophy size={22} color="#FFFFFF" fill="none" strokeWidth={2} />
+                </BlurView>
               </View>
+            </Pressable>
+
+            {/* Notification Bell */}
+            <Pressable
+              style={({ pressed }) => [styles.bellButton, pressed && styles.bellButtonPressed]}
+            >
+              <View style={styles.glassContainer}>
+                <BlurView intensity={10} tint="dark" style={styles.glassBlur}>
+                  <View style={styles.glassOverlay} />
+                  <LinearGradient
+                    colors={['rgba(255,255,255,0.25)', 'rgba(255,255,255,0.05)']}
+                    start={{ x: 0.5, y: 0 }}
+                    end={{ x: 0.5, y: 0.5 }}
+                    style={styles.glassGloss}
+                  />
+                  <View style={styles.bellIconContainer}>
+                    <Bell size={22} color="#FFFFFF" fill="none" strokeWidth={2} />
+                    <View style={styles.bellDot} />
+                  </View>
+                </BlurView>
+              </View>
+            </Pressable>
 
                 {/* Notification Bell */}
-                <Pressable
+                {/* <Pressable
                   style={({ pressed }) => [styles.bellButton, pressed && styles.bellButtonPressed]}
                 >
                   <View style={styles.bellIconContainer}>
                     <Bell size={22} color="#141C24" />
                     <View style={styles.bellDot} />
                   </View>
-                </Pressable>
+                </Pressable> */}
             </View>
+          </View>
+                {/* Search Bar */}
+        <View style={styles.searchContainer}>
+          <MechanicSearchBar
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            onSubmit={handleSearch}
+            onMapPress={handleMapPress}
+            />
+          </View>
+        {/* Content Area */}
+        <View style={styles.content}>
+          {/* Action Cards Carousel */}
+          <View style={styles.carouselContainer}>
+            <ActionCardsCarousel
+              // Upcoming Appointment
+              appointmentBusinessName={'Premium\nAuto Care'}
+              appointmentMechanicName="John Rodriguez"
+              appointmentRating={4.8}
+              appointmentIsVerified={true}
+              appointmentDate="August 12, 2025"
+              appointmentTimeSlot="12:30 PM - 1:00 PM"
+              appointmentLateMinutes={30}
+              onAppointmentPress={handleAppointmentPress}
+              // Resume Booking
+              showResumeBooking={true}
+              resumeMechanicsAvailable={3}
+              resumeServicesPreview="Oil Change, Fluid Ch..."
+              // Account Setup
+              showAccountSetup={showAccountSetup}
+              onAccountSetupDismiss={() => setShowAccountSetup(false)}
+              // Car Setup
+              showCarSetup={showCarSetup}
+              onCarSetupDismiss={() => setShowCarSetup(false)}
+              // Carousel callback
+              onCardChange={(index) => setActiveCardIndex(index)}
+              // User status - determines card order
+              isNewUser={isNewUser}
+            />
+          </View>
 
-            {/* Search Bar */}
-            <View style={styles.searchContainer}>
-              <MechanicSearchBar
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-                onSubmit={handleSearch}
-                onMapPress={handleMapPress}
+          {/* Navigation ETA Bar - Only show when on Upcoming Appointment card */}
+          {getCardTypeAtIndex(activeCardIndex) === 'appointment' && (
+            <View style={styles.etaBarContainer}>
+              <NavigationETABar
+                etaMinutes={20}
+                destinationLatitude={37.7749}
+                destinationLongitude={-122.4194}
+                destinationName="Premium Auto Care"
               />
             </View>
+          )}
 
             {/* Content Area */}
             <View style={styles.content}>
@@ -205,6 +335,24 @@ export default function HomeScreen() {
                   />
                 </View>
               )}
+          {/* Vehicle Maintenance - with dynamic margin based on active card */}
+          <View style={{ marginTop: getCardMargin(activeCardIndex) }}>
+            {isNewUser ? (
+              <AddFirstVehicleCard showAccountSetup={showAccountSetup} />
+            ) : (
+            <VehicleMaintenanceCard
+              onBookNow={(vehicleId, serviceId) => {
+                console.log(`Booking service ${serviceId} for vehicle ${vehicleId}`);
+                // TODO: Navigate to booking flow
+              }}
+              onSwipeStart={() => setIsCardSwiping(true)}
+              onSwipeEnd={() => setIsCardSwiping(false)}
+            />
+            )}
+          </View>
+
+          {/* More Services Section */}
+          <MoreServicesSection />
 
               {/* Vehicle Maintenance - with dynamic margin based on active card */}
               <View style={{ marginTop: getCardMargin(activeCardIndex) }}>
@@ -218,18 +366,12 @@ export default function HomeScreen() {
                 />
               </View>
 
-              {/* Suggestions Section */}
-              <SuggestionsSection />
+          {/* Suggestions Section */}
+          <SuggestionsSection />
 
-              {/* Service Bundles Section */}
-              <ServiceBundlesSection />
-
-              {/* AI Assistant Button */}
-              {/* <AIAssistantButton /> */}
             </View>
-          </Animated.ScrollView>
-        )}
-      </ScrollDrivenGradientBackground>
+        </View>
+      </Animated.ScrollView>
 
       {/* Loyalty Card Overlay */}
       {showLoyaltyCard && (
@@ -250,6 +392,8 @@ export default function HomeScreen() {
       )}
 
     </View>
+    )}
+    </ScrollDrivenGradientBackground>
   );
 }
 
@@ -275,48 +419,43 @@ const styles = StyleSheet.create({
   // Main home screen styles
   container: {
     flex: 1,
-    backgroundColor: '#dde2ee',
   },
   scrollView: {
     flex: 1,
   },
   scrollContent: {
-    paddingBottom: 100,
+    paddingBottom: 150,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
+    paddingRight: 16,
+    paddingLeft: 0,
     marginBottom: 16,
   },
   locationSection: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 2,
+    flex: 1,
+    paddingLeft: 0,
   },
   locationText: {
-    gap: 2,
+    gap: 0,
+    marginTop: -7,
   },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 8,
   },
   goldTierBadge: {
-    flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    justifyContent: 'center',
   },
   goldTierBadgePressed: {
     opacity: 0.7,
-  },
-  starCircle: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   bellButton: {
     padding: 4,
@@ -324,24 +463,48 @@ const styles = StyleSheet.create({
   bellButtonPressed: {
     opacity: 0.7,
   },
+  glassContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.5)',
+  },
+  glassBlur: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  glassOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+  },
+  glassGloss: {
+    ...StyleSheet.absoluteFillObject,
+  },
   bellIconContainer: {
     position: 'relative',
   },
   bellDot: {
     position: 'absolute',
-    top: 0,
-    right: 0,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#5299FE',
+    top: 1,
+    right: 1,
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+    backgroundColor: '#FF3B30',
   },
   searchContainer: {
     paddingHorizontal: 16,
+    marginTop: 34,
     marginBottom: 16,
   },
   content: {
     paddingHorizontal: 16,
+  },
+  carouselContainer: {
+    marginBottom: 16,
   },
   etaBarContainer: {
     marginTop: -72,

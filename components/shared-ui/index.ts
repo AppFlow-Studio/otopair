@@ -51,6 +51,7 @@ export {
 } from './AnimatedGradientBackground';
 
 // Scroll-driven Gradient Background Wrapper
+// Scroll Driven Gradient Background Component
 export {
     ScrollDrivenGradientBackground,
     type ScrollDrivenGradientBackgroundProps

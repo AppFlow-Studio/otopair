@@ -83,7 +83,7 @@ interface AnimatedGradientBackgroundProps {
     progress: SharedValue<number>;
     fromIndex: number;
     toIndex: number;
-    colors?: string[]; // Minimum 2 colors required
+    colors?: [string, string, string];
 }
 
 export function AnimatedGradientBackground({ 
@@ -96,8 +96,14 @@ export function AnimatedGradientBackground({
     const safeFrom = Math.min(Math.max(0, fromIndex), SHARED_GRADIENT_CONFIGS.length - 1);
     const safeTo = Math.min(Math.max(0, toIndex), SHARED_GRADIENT_CONFIGS.length - 1);
     
-    const fromConfig = SHARED_GRADIENT_CONFIGS[safeFrom];
-    const toConfig = SHARED_GRADIENT_CONFIGS[safeTo];
+    const fromConfig = { ...SHARED_GRADIENT_CONFIGS[safeFrom] };
+    const toConfig = { ...SHARED_GRADIENT_CONFIGS[safeTo] };
+    
+    // Override colors if provided
+    if (colors) {
+        fromConfig.colors = colors;
+        toConfig.colors = colors;
+    }
     
     // Validate and use provided colors or fall back to config colors
     let gradientColors: string[];

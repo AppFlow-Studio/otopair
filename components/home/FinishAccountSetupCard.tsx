@@ -1,20 +1,20 @@
 /**
  * FinishAccountSetupCard
  *
- * PURPOSE: Displays a prompt card encouraging users to complete their account setup with dismiss and action buttons.
- *          "Create Account" button navigates to incomplete onboarding steps with a filtered progress bar.
- *          "About You" button navigates to the TellUsAboutFlow.
+ * PURPOSE: Displays a prompt card encouraging users to complete their account setup with step cards
  *
  * USED IN: app/(main-tabs)/home/index.tsx, components/home/ActionCardsCarousel.tsx
  *
  * PROPS:
- *   - onPress (() => void): Called when card is pressed to navigate to account setup [optional]
+ *   - onStepPress ((stepId: string) => void): Called when a step card is pressed [optional]
  *   - onDismiss (() => void): Called when dismiss button is pressed [optional]
+ *   - completedSteps (string[]): Array of completed step IDs [optional]
  *
  * EXAMPLE:
  *   <FinishAccountSetupCard
- *     onPress={() => router.push('/onboarding/profile')}
+ *     onStepPress={(stepId) => router.push(`/onboarding/${stepId}`)}
  *     onDismiss={() => hideAccountSetupPrompt()}
+ *     completedSteps={['create-account']}
  *   />
  *
  * OWNER: Ahmad Hamoudeh
@@ -25,9 +25,10 @@ import React from "react";
 import { Pressable, StyleSheet, View } from "react-native";
 
 // 2. Expo & Third-party
-import { useRouter } from "expo-router";
-import { X, Shuffle, Landmark } from "lucide-react-native";
-import { PlusCircleIcon, ShuffleIcon, UserCircleIcon, CarIcon, BankIcon } from "phosphor-react-native";
+import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
+import { Check, CreditCard, Shuffle, UserPlus, X } from 'lucide-react-native';
 
 // 3. Shared UI
 import { Text } from "@/components/shared-ui";
@@ -42,17 +43,35 @@ import { useOnboardingStore } from "@/stores/useOnboardingStore";
 // ============================================================================
 
 interface FinishAccountSetupCardProps {
-  onPress?: () => void;
+  onStepPress?: (stepId: string) => void;
   onDismiss?: () => void;
+  completedSteps?: string[];
 }
+
+interface SetupStep {
+  id: string;
+  label: string;
+  icon: React.ComponentType<{ size?: number; color?: string }>;
+}
+
+// ============================================================================
+// CONSTANTS
+// ============================================================================
+
+const SETUP_STEPS: SetupStep[] = [
+  { id: 'create-account', label: 'Create Account', icon: UserPlus },
+  { id: 'personalize', label: 'Personalize', icon: Shuffle },
+  { id: 'payment-method', label: 'Payment Method', icon: CreditCard },
+];
 
 // ============================================================================
 // COMPONENT
 // ============================================================================
 
 export function FinishAccountSetupCard({
-  onPress,
+  onStepPress,
   onDismiss,
+  completedSteps = [],
 }: FinishAccountSetupCardProps) {
   const router = useRouter();
   const isCreateAccountComplete = useOnboardingStore((state) => state.isCreateAccountComplete());
@@ -89,94 +108,122 @@ export function FinishAccountSetupCard({
       return;
     }
 
-    if (onPress) {
-      onPress();
+  const handleStepPress = (stepId: string) => {
+    if (onStepPress) {
+      onStepPress(stepId);
     } else {
-      // Default: navigate to onboarding/setup flow
-      router.push("/coming-soon");
+      // Default: navigate to step
+      router.push('/coming-soon');
     }
   };
 
-  const steps = [
-    { id: "account", label: "Create Account", icon: GradientPlusCircle },
-    { id: "personalize", label: "About You", icon: UserCircleIcon },
-    { id: "car", label: "Add Car", icon: CarIcon },
-    { id: "payment", label: "Payments", icon: BankIcon },
-  ];
+  const isStepCompleted = (stepId: string) => {
+    return completedSteps.includes(stepId);
+  };
+
+  const allStepsCompleted = SETUP_STEPS.every((step) => isStepCompleted(step.id));
+
+  // Hide card if all steps are completed
+  if (allStepsCompleted && onDismiss) {
+    return null;
+  }
 
   return (
     <View style={styles.container}>
+      {/* Section Header - Empty to maintain consistent spacing */}
+      <Text size="md" color="#000000" style={styles.sectionHeader}>
+        Account Setup
+      </Text>
+
       {/* Card */}
       <View style={styles.card}>
-        {/* Close Button */}
-        {onDismiss && (
-          <Pressable
-            onPress={onDismiss}
-            style={({ pressed }) => [
-              styles.closeButton,
-              pressed && styles.closeButtonPressed,
-            ]}
-          >
-            <X size={20} color="#9CA3AF" />
-          </Pressable>
-        )}
+        <BlurView intensity={100} tint="light" style={StyleSheet.absoluteFill} />
+        <LinearGradient
+          colors={['rgba(255, 255, 255, 0.6)', 'rgba(255, 255, 255, 0.55)']}
+          style={StyleSheet.absoluteFill}
+        />
+        {/* Glossy top highlight - stronger */}
+        <LinearGradient
+          colors={['rgba(255, 255, 255, 0.7)', 'rgba(255, 255, 255, 0.3)', 'rgba(255, 255, 255, 0)']}
+          locations={[0, 0.2, 0.5]}
+          style={styles.glossyHighlight}
+        />
+        {/* Additional shine layer */}
+        <LinearGradient
+          colors={['rgba(255, 255, 255, 0.5)', 'rgba(255, 255, 255, 0)', 'rgba(255, 255, 255, 0)']}
+          locations={[0, 0.15, 0.4]}
+          style={styles.glossyShine}
+        />
+        <View style={styles.cardContent}>
+          {/* Close Button */}
+          {onDismiss && (
+            <Pressable
+              onPress={onDismiss}
+              style={({ pressed }) => [
+                styles.closeButton,
+                pressed && styles.closeButtonPressed,
+              ]}
+            >
+              <X size={20} color="#9CA3AF" />
+            </Pressable>
+          )}
 
-        {/* Content */}
-        <View style={styles.contentSection}>
-          <Text weight="bold" size="xl" color="#141C24">
-            Finish setup
-          </Text>
-          <Text size="sm" color="#6B7280" style={styles.subtitle}>
-            Complete the steps to get full access.
-          </Text>
-        </View>
+          {/* Header Section */}
+          <View style={styles.headerSection}>
+            <Text weight="bold" size="xl" color="#141C24">
+              Finish setup
+            </Text>
+            <Text size="sm" color="#6B7280" style={styles.subtitle}>
+              Complete the steps to get full access.
+            </Text>
+          </View>
 
-        {/* Steps Horizontal List */}
-        <View style={styles.stepsContainer}>
-          {steps.map((step) => {
-            const isComplete = step.id === "account" && isCreateAccountComplete;
-            
+          {/* Step Cards Row */}
+          <View style={styles.stepsRow}>
+          {SETUP_STEPS.map((step) => {
+            const completed = isStepCompleted(step.id);
+            const IconComponent = step.icon;
+
             return (
-              <Pressable
+        <Pressable
                 key={step.id}
-                onPress={() => !isComplete && handlePress(step.id)}
-                disabled={isComplete}
-                style={({ pressed }) => [
-                  styles.stepTile,
-                  pressed && !isComplete && styles.stepTilePressed,
-                  isComplete && styles.stepTileDisabled,
-                ]}
-              >
-                <View style={[styles.iconWrapper, isComplete && styles.iconWrapperDisabled]}>
-                  {step.id === "account" ? (
-                    <step.icon size={34} color={isComplete ? "#9CA3AF" : undefined} />
-                  ) : step.id === "personalize" ? (
-                    <step.icon size={38} color="#6B7280" />
-                  ) : step.id === "car" ? (
-                    <step.icon size={36} color="#6B7280" />
-                  ) : step.id === "payment" ? (
-                    <step.icon size={36} color="#6B7280" />
+                onPress={() => handleStepPress(step.id)}
+          style={({ pressed }) => [
+                  styles.stepCard,
+                  completed && styles.stepCardCompleted,
+                  pressed && styles.stepCardPressed,
+          ]}
+        >
+                <View style={[styles.stepIconContainer, step.id === 'personalize' && styles.personalizeIconContainer]}>
+                  {completed ? (
+                    <Check size={28} color="#5299FE" />
+                  ) : step.id === 'create-account' ? (
+                    <GradientPlusCircle size={28} strokeWidth={2.5} />
                   ) : (
-                    <step.icon size={30} color="#6B7280" strokeWidth={1.5} />
+                    <IconComponent
+                      size={28}
+                      color="#6B7280"
+                    />
                   )}
                 </View>
                 <Text
-                  size="xs"
-                  color={isComplete ? "#9CA3AF" : "#141C24"}
+                  size="sm"
                   weight="medium"
-                  center
-                  style={styles.stepLabel}
+                  color={completed ? '#141C24' : '#141C24'}
+                  style={[styles.stepLabel, step.id === 'personalize' && styles.personalizeLabel]}
                 >
                   {step.label}
-                </Text>
-              </Pressable>
+          </Text>
+        </Pressable>
             );
           })}
+          </View>
         </View>
       </View>
     </View>
   );
 }
+};
 
 // ============================================================================
 // STYLES
@@ -187,14 +234,35 @@ const styles = StyleSheet.create({
     // No gap needed here as we removed sectionHeader
   },
   card: {
-    backgroundColor: "#F3F7FF", // Light bluish background like in screenshot
-    borderRadius: 20,
-    padding: 20,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.04,
-    shadowRadius: 10,
-    elevation: 2,
+    borderRadius: 16,
+    overflow: 'hidden',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  cardContent: {
+    padding: 16,
+    position: 'relative',
+  },
+  glossyHighlight: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: '50%',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
+  },
+  glossyShine: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: '35%',
+    borderTopLeftRadius: 16,
+    borderTopRightRadius: 16,
   },
   closeButton: {
     position: "absolute",
@@ -206,55 +274,50 @@ const styles = StyleSheet.create({
   closeButtonPressed: {
     opacity: 0.6,
   },
-  contentSection: {
-    marginBottom: 20,
+  headerSection: {
+    marginBottom: 16,
     paddingRight: 30, // Space for close button
   },
   subtitle: {
     marginTop: 4,
     lineHeight: 20,
   },
-  stepsContainer: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 8,
+  stepsRow: {
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
   },
-  stepTile: {
+  stepCard: {
     flex: 1,
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    paddingTop: 16,
-    paddingBottom: 12,
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 12,
+    paddingVertical: 8,
     paddingHorizontal: 8,
-    alignItems: "center",
-    justifyContent: "flex-start",
-    minHeight: 110,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 3,
-    elevation: 1,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    minHeight: 60,
   },
-  stepTilePressed: {
-    opacity: 0.8,
-    transform: [{ scale: 0.98 }],
+  stepCardCompleted: {
+    backgroundColor: '#F0F9FF',
+    borderColor: '#BFDBFE',
   },
-  stepTileDisabled: {
-    backgroundColor: "#F9FAFB",
-    opacity: 0.6,
+  stepCardPressed: {
+    opacity: 0.7,
   },
-  iconWrapper: {
-    marginBottom: 10,
-    height: 40,
-    alignItems: "center",
-    justifyContent: "center",
+  stepIconContainer: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 6,
   },
-  iconWrapperDisabled: {
-    opacity: 0.5,
+  personalizeIconContainer: {
+    marginTop: 8,
   },
   stepLabel: {
-    lineHeight: 12,
-    marginTop: 2,
+    textAlign: 'center',
+  },
+  personalizeLabel: {
+    marginTop: 4,
   },
 });
 

@@ -22,13 +22,14 @@
 import React from 'react';
 import {
   Pressable,
+  StyleSheet,
   Text as RNText,
   ScrollView,
-  StyleSheet,
   View,
 } from 'react-native';
 
 // 2. Expo & Third-party
+import { BlurView } from 'expo-blur';
 import MaskedView from '@react-native-masked-view/masked-view';
 import { LinearGradient } from 'expo-linear-gradient';
 
@@ -181,7 +182,7 @@ export function ServiceBundlesSection({
   return (
     <View style={styles.container}>
       {/* Section Header */}
-      <Text size="md" color="#6B7280" style={styles.sectionHeader}>
+      <Text size="md" color="#000000" style={styles.sectionHeader}>
         Service Bundles
       </Text>
 
@@ -193,14 +194,36 @@ export function ServiceBundlesSection({
         decelerationRate="fast"
         snapToInterval={250 + 16} // card width + gap
         snapToAlignment="start"
+        style={styles.scrollView}
       >
         {bundles.map((bundle) => {
           const themeColor = THEME_COLORS[bundle.theme];
           
           return (
             <View key={bundle.id} style={styles.card}>
-              {/* Package Name with Gradient */}
-              <View style={styles.packageName}>
+              {/* Glassy/Glossy Effect Layers */}
+              <BlurView intensity={100} tint="light" style={StyleSheet.absoluteFill} />
+              <LinearGradient
+                colors={['rgba(255, 255, 255, 0.6)', 'rgba(255, 255, 255, 0.55)']}
+                style={StyleSheet.absoluteFill}
+              />
+              {/* Glossy top highlight - stronger */}
+              <LinearGradient
+                colors={['rgba(255, 255, 255, 0.7)', 'rgba(255, 255, 255, 0.3)', 'rgba(255, 255, 255, 0)']}
+                locations={[0, 0.2, 0.5]}
+                style={styles.glossyHighlight}
+              />
+              {/* Additional shine layer */}
+              <LinearGradient
+                colors={['rgba(255, 255, 255, 0.5)', 'rgba(255, 255, 255, 0)', 'rgba(255, 255, 255, 0)']}
+                locations={[0, 0.15, 0.4]}
+                style={styles.glossyShine}
+              />
+              
+              {/* Card Content */}
+              <View style={styles.cardContent} pointerEvents="box-none">
+                {/* Package Name with Gradient */}
+                <View style={styles.packageName}>
                 <GradientText 
                   text={bundle.name} 
                   gradientColors={[themeColor.gradientStart, themeColor.gradientEnd]}
@@ -250,6 +273,7 @@ export function ServiceBundlesSection({
                   </Text>
                 </Pressable>
               </View>
+              </View>
             </View>
           );
         })}
@@ -270,22 +294,50 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     fontStyle: 'italic',
   },
+  scrollView: {
+    marginHorizontal: -16, // Extend scroll view to edges to remove hard line
+  },
   scrollContent: {
+    paddingLeft: 16,
     paddingRight: 16,
     gap: 16,
   },
   card: {
     width: 250,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: 'transparent',
     borderRadius: 10,
+    overflow: 'hidden',
+    position: 'relative',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  cardContent: {
     padding: 10,
     paddingBottom: 15,
     paddingTop: 20,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08,
-    shadowRadius: 12,
-    elevation: 4,
+    position: 'relative',
+    zIndex: 1,
+  },
+  glossyHighlight: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: '50%',
+    borderTopLeftRadius: 10,
+    borderTopRightRadius: 10,
+  },
+  glossyShine: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: '35%',
+    borderTopLeftRadius: 10,
+    borderTopRightRadius: 10,
   },
   packageName: {
     marginBottom: 8,

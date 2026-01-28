@@ -1,13 +1,16 @@
 // 1. React & React Native
-import React, { useState } from 'react';
-import { RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Animated, Dimensions, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // 2. Expo & Third-party
-// (none)
+import { useIsFocused } from '@react-navigation/native';
+import { LinearGradient } from 'expo-linear-gradient';
 
 // 3. Shared UI
 import { Text } from '@/components/shared-ui';
+
+const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 // 4. Flow-specific components
 import CarCarousel, { Vehicle } from '@/components/cars/CarCarousel';
@@ -52,6 +55,7 @@ const serviceHistoryByVehicle: Record<string, ServiceRecord[]> = {
 
 export default function CarsHomeScreen() {
   const insets = useSafeAreaInsets();
+  const isFocused = useIsFocused();
   const [refreshing, setRefreshing] = useState(false);
   const [activeVehicleIndex, setActiveVehicleIndex] = useState(0);
 
@@ -59,14 +63,18 @@ export default function CarsHomeScreen() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([
     {
       id: 'vehicle-1',
-      year: 2019,
+      year: 2022,
       make: 'Lexus',
       model: 'RX 350',
       vin: '1N6AD06W98C406256',
-      mileage: 52300,
+      mileage: 20843,
       nextServiceDate: 'Sep 15, 2024',
       isDefault: true,
       imageSource: require('@/assets/images/lexus.png'),
+      logoSource: require('@/assets/images/LexusLogo.png'),
+      condition: 82,
+      nextUnlock: 'Next unlock: Free Oil Change (320 miles)',
+      gradientColors: ['#9a9cc0', '#e7e3fd', '#e0dcf4', '#f1ecfe'], // Purple gradient with cutoff
     },
     {
       id: 'vehicle-2',
@@ -78,6 +86,10 @@ export default function CarsHomeScreen() {
       nextServiceDate: 'Oct 20, 2024',
       isDefault: false,
       imageSource: require('@/assets/images/bluelambo.png'),
+      logoSource: require('@/assets/images/LamboLogo.png'),
+      condition: 94,
+      nextUnlock: 'Next unlock: Premium Detail (1,800 miles)',
+      gradientColors: ['#5090d8', '#c0daf8', '#b8d4f8', '#d8ecff'], // Blue gradient with horizontal overlay
     },
   ]);
 
@@ -85,6 +97,46 @@ export default function CarsHomeScreen() {
   const activeVehicle = vehicles[activeVehicleIndex];
   const maintenanceItems = maintenanceByVehicle[activeVehicle?.id] || [];
   const serviceRecords = serviceHistoryByVehicle[activeVehicle?.id] || [];
+  
+  // Get gradient colors for the active vehicle (default purple gradient with cutoff)
+  const backgroundGradient = activeVehicle?.gradientColors || ['#9a9cc0', '#e7e3fd', '#e0dcf4', '#f1ecfe'];
+  
+  // Animated gradient transition - completely non-blocking
+  const [displayedGradient, setDisplayedGradient] = useState(backgroundGradient);
+  const newGradientOpacity = useRef(new Animated.Value(0)).current;
+  const animationRef = useRef<Animated.CompositeAnimation | null>(null);
+  const previousGradientRef = useRef(backgroundGradient);
+  
+  useEffect(() => {
+    // Fast comparison - check first color only (much faster than JSON.stringify)
+    const gradientChanged = previousGradientRef.current[0] !== backgroundGradient[0];
+    
+    if (gradientChanged) {
+      // Update reference immediately
+      previousGradientRef.current = backgroundGradient;
+      
+      // Stop any ongoing animation (non-blocking)
+      if (animationRef.current) {
+        animationRef.current.stop();
+      }
+      
+      // Update displayed gradient immediately - no waiting, no blocking
+      setDisplayedGradient(backgroundGradient);
+      
+      // Start crossfade animation immediately - no delays
+      newGradientOpacity.setValue(0);
+      animationRef.current = Animated.timing(newGradientOpacity, {
+        toValue: 1,
+        duration: 250,
+        useNativeDriver: true,
+      });
+      
+      animationRef.current.start(() => {
+          newGradientOpacity.setValue(0);
+        animationRef.current = null;
+      });
+    }
+  }, [backgroundGradient]);
 
   // Handle default toggle - set one as default, untoggle others
   const handleToggleDefault = (vehicleId: string, isDefault: boolean) => {
@@ -102,25 +154,75 @@ export default function CarsHomeScreen() {
     setTimeout(() => setRefreshing(false), 800);
   };
 
+  // Check if active vehicle is Lamborghini for special gradient
+  const isLambo = activeVehicle?.make === 'Lamborghini';
+
   return (
     <View style={styles.container}>
-      {/* Full Page Scroll - same as home page */}
+
+      {/* Full Page Scroll */}
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 12 }]}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#5299FE" />
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#FFFFFF" />
         }
       >
-        {/* Header - now inside ScrollView */}
-        <View style={styles.header}>
-          <Text weight="semiBold" size="xl" color="#141C24">
-            My Car
-          </Text>
+        {/* Scrolling Gradient - moves with content, floor line stays aligned with car */}
+        <View style={styles.scrollingGradientContainer} pointerEvents="none">
+          {/* Base gradient layer */}
+          <LinearGradient
+            colors={displayedGradient as [string, string, ...string[]]}
+            locations={[0, 0.33, 0.33, 1]}
+            style={StyleSheet.absoluteFill}
+          />
+          
+          {/* New gradient layer - fades in with target gradient */}
+          <Animated.View style={[StyleSheet.absoluteFill, { opacity: newGradientOpacity }]}>
+            <LinearGradient
+              colors={backgroundGradient as [string, string, ...string[]]}
+              locations={[0, 0.33, 0.335, 1]}
+              style={StyleSheet.absoluteFill}
+            />
+          </Animated.View>
+          
+          {/* Lightening gradient overlay for Lambo */}
+          <View style={{ opacity: isLambo ? 1 : 0, ...StyleSheet.absoluteFillObject }}>
+            <LinearGradient
+              colors={['rgba(255, 255, 255, 0)', 'rgba(255, 255, 255, 0.12)', 'rgba(255, 255, 255, 0.3)']}
+              locations={[0, 0.5, 1]}
+              style={StyleSheet.absoluteFill}
+            />
+            <LinearGradient
+              colors={['rgba(180, 210, 255, 0.15)', 'rgba(255, 255, 255, 0)']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0.5, y: 0 }}
+              style={StyleSheet.absoluteFill}
+            />
+          </View>
+          
+          {/* Lightening gradient overlays for Lexus */}
+          <View style={{ opacity: isLambo ? 0 : 1, ...StyleSheet.absoluteFillObject }}>
+            <LinearGradient
+              colors={['rgba(255, 255, 255, 0)', 'rgba(255, 255, 255, 0.15)', 'rgba(255, 255, 255, 0.35)']}
+              locations={[0, 0.5, 1]}
+              style={StyleSheet.absoluteFill}
+            />
+            <LinearGradient
+              colors={['rgba(255, 255, 255, 0.1)', 'rgba(255, 255, 255, 0)', 'rgba(255, 255, 255, 0.1)']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              locations={[0, 0.5, 1]}
+              style={StyleSheet.absoluteFill}
+            />
+          </View>
         </View>
 
-        {/* Car Carousel */}
+        {/* ═══════════════════════════════════════════════════════════════════
+            TOP SECTION: Vehicle Carousel
+        ═══════════════════════════════════════════════════════════════════ */}
+        <View style={styles.topSection}>
         <CarCarousel
           vehicles={vehicles}
           onActiveIndexChange={setActiveVehicleIndex}
@@ -128,11 +230,18 @@ export default function CarsHomeScreen() {
             // TODO: Implement mileage edit flow - open modal or inline edit
           }}
           onToggleDefault={handleToggleDefault}
+          isFocused={isFocused}
         />
+        </View>
 
+        {/* ═══════════════════════════════════════════════════════════════════
+            BOTTOM SECTION: Maintenance, Service History, Loyalty
+        ═══════════════════════════════════════════════════════════════════ */}
+        <View style={styles.bottomSection}>
         {/* Maintenance Tracker Section */}
         <MaintenanceTracker
           items={maintenanceItems}
+          vehicleCondition={activeVehicle?.condition}
           onBookNow={(id) => {
             // TODO: Navigate to booking flow with selected service
             console.log('Book Now for service', id);
@@ -169,6 +278,7 @@ export default function CarsHomeScreen() {
             console.log('View Full Loyalty Page');
           }}
         />
+        </View>
       </ScrollView>
     </View>
   );
@@ -177,7 +287,15 @@ export default function CarsHomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#dde2ee',
+    backgroundColor: '#f1ecfe', // Fallback
+  },
+  scrollingGradientContainer: {
+    position: 'absolute',
+    top: -SCREEN_HEIGHT * 0.5, // Extend above to cover when scrolling down
+    left: 0,
+    right: 0,
+    height: SCREEN_HEIGHT * 2.5, // Much taller to cover entire scroll content
+    zIndex: 0,
   },
   header: {
     paddingHorizontal: 16,
@@ -188,7 +306,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 0,
     paddingBottom: 120,
+  },
+  // ═══════════════ SECTION CONTAINERS ═══════════════
+  topSection: {
+    zIndex: 1,
+  },
+  bottomSection: {
+    zIndex: 1,
   },
 });
