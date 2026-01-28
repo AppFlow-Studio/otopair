@@ -12,6 +12,8 @@
  *   - tint ('light' | 'dark' | 'default'): Blur tint (default: 'light')
  *   - androidDelayMs (number): Delay before mounting BlurView on Android (default: 250)
  *   - blurReductionFactor (number): Android blur reduction factor (default: 7)
+ *   - gradientColors (string[]): Optional colors for the LinearGradient overlay
+ *   - gradientLocations (number[]): Optional locations for the LinearGradient overlay
  *
  * EXAMPLE:
  *   <BlurHeaderOverlay title="FAQ" />
@@ -40,9 +42,18 @@ export interface BlurHeaderOverlayProps {
   tint?: BlurTint;
   androidDelayMs?: number;
   blurReductionFactor?: number;
+  gradientColors?: any[];
+  gradientLocations?: number[];
 }
 
 const DEFAULT_ANDROID_DELAY_MS = 250;
+const DEFAULT_GRADIENT_COLORS = [
+  'rgba(245, 245, 247, 1)',
+  'rgba(245, 245, 247, 0.7)',
+  'rgba(245, 245, 247, 0.3)',
+  'rgba(245, 245, 247, 0)',
+];
+const DEFAULT_GRADIENT_LOCATIONS = [0, 0.4, 0.7, 1];
 
 export function BlurHeaderOverlay({
   title,
@@ -51,6 +62,8 @@ export function BlurHeaderOverlay({
   tint = 'light',
   androidDelayMs = DEFAULT_ANDROID_DELAY_MS,
   blurReductionFactor = 7,
+  gradientColors = DEFAULT_GRADIENT_COLORS,
+  gradientLocations = DEFAULT_GRADIENT_LOCATIONS,
 }: BlurHeaderOverlayProps) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -101,13 +114,8 @@ export function BlurHeaderOverlay({
             style={StyleSheet.absoluteFill}
           />
           <LinearGradient
-            colors={[
-              'rgba(245, 245, 247, 1)',
-              'rgba(245, 245, 247, 0.7)',
-              'rgba(245, 245, 247, 0.3)',
-              'rgba(245, 245, 247, 0)',
-            ]}
-            locations={[0, 0.4, 0.7, 1]}
+            colors={gradientColors as any}
+            locations={gradientLocations as any}
             style={StyleSheet.absoluteFill}
             pointerEvents="none"
           />

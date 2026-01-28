@@ -7,9 +7,10 @@
  */
 
 import React, { useCallback, useMemo } from 'react';
-import { Pressable, ScrollView, Share, StyleSheet, View } from 'react-native';
+import { Pressable, Share, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
+import Animated from 'react-native-reanimated';
 import {
   Check,
   CheckCheck,
@@ -21,7 +22,7 @@ import {
 } from 'lucide-react-native';
 
 import { OtoPairIcon } from '@/components/icons/oto-pair';
-import { BlurHeaderOverlay, BrandColors, Button, Text, buildReferralCode, buildReferralShareMessage } from '@/components/shared-ui';
+import { BlurHeaderOverlay, BrandColors, Button, ScrollDrivenGradientBackground, Text, buildReferralCode, buildReferralShareMessage } from '@/components/shared-ui';
 import { getSheetContentPadding } from '@/constants/theme';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 
@@ -43,16 +44,20 @@ export default function AboutOtopairScreen() {
 
   return (
     <View style={styles.screen}>
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={[
-          styles.container,
-          {
-            paddingTop: insets.top + 90,
-            paddingBottom: getSheetContentPadding(false, insets.bottom),
-          },
-        ]}
-      >
+      <ScrollDrivenGradientBackground scrollPerTransition={1000}>
+        {(scrollHandler) => (
+          <Animated.ScrollView
+            onScroll={scrollHandler}
+            scrollEventThrottle={16}
+            showsVerticalScrollIndicator={false}
+            contentContainerStyle={[
+              styles.container,
+              {
+                paddingTop: insets.top + 90,
+                paddingBottom: getSheetContentPadding(false, insets.bottom),
+              },
+            ]}
+          >
         <View style={styles.identityCard}>
           <View style={styles.appIcon}>
             <View style={styles.appIconMark}>
@@ -287,9 +292,20 @@ export default function AboutOtopairScreen() {
           </Button>
         </View>
 
-      </ScrollView>
+          </Animated.ScrollView>
+        )}
+      </ScrollDrivenGradientBackground>
 
-      <BlurHeaderOverlay title="About" onBack={() => router.back()} />
+      <BlurHeaderOverlay
+        title="About"
+        onBack={() => router.back()}
+        gradientColors={[
+          'rgba(82, 153, 254, 1)',
+          'rgba(82, 153, 254, 0.7)',
+          'rgba(82, 153, 254, 0.3)',
+          'rgba(82, 153, 254, 0)',
+        ]}
+      />
     </View>
   );
 }
