@@ -7,6 +7,8 @@ import { useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
 
+import { ConvexProvider, ConvexReactClient } from "convex/react";
+
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useAppFonts } from "@/hooks/use-fonts";
 
@@ -17,6 +19,10 @@ export const unstable_settings = {
   anchor: "(tabs)",
   initialRouteName: "index",
 };
+
+const convex = new ConvexReactClient(process.env.EXPO_PUBLIC_CONVEX_URL!, {
+  unsavedChangesWarning: false,
+});
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
@@ -34,22 +40,26 @@ export default function RootLayout() {
   }
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <BottomSheetModalProvider>
-        <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
-          <Stack>
-            <Stack.Screen name="index" options={{ headerShown: false }} />
-            <Stack.Screen name="(onboarding)" options={{ headerShown: false }} />
-            <Stack.Screen name="(main-tabs)" options={{ headerShown: false }} />
-            <Stack.Screen name="(tell-us-about)" options={{ headerShown: false }} />
-            <Stack.Screen name="coming-soon" options={{ headerShown: false }} />
-            <Stack.Screen name="payments" options={{ headerShown: false }} />
-            <Stack.Screen name="add-payment" options={{ headerShown: false }} />
-            <Stack.Screen name="modal" options={{ presentation: "modal", title: "Modal" }} />
-          </Stack>
-          <StatusBar style="auto" />
-        </ThemeProvider>
-      </BottomSheetModalProvider>
-    </GestureHandlerRootView>
+    <ConvexProvider client={convex}>
+      <GestureHandlerRootView style={{ flex: 1 }}>
+        <BottomSheetModalProvider>
+          <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
+            <Stack>
+              <Stack.Screen name="index" options={{ headerShown: false }} />
+              <Stack.Screen name="(onboarding)" options={{ headerShown: false }} />
+              <Stack.Screen name="(main-tabs)" options={{ headerShown: false }} />
+              <Stack.Screen name="(tell-us-about)" options={{ headerShown: false }} />
+              <Stack.Screen name="coming-soon" options={{ headerShown: false }} />
+              <Stack.Screen name="payments" options={{ headerShown: false }} />
+              <Stack.Screen name="add-payment" options={{ headerShown: false }} />
+              <Stack.Screen name="demo" options={{ headerShown: false }} />
+              <Stack.Screen name="demo-learning" options={{ headerShown: false }} />
+              <Stack.Screen name="modal" options={{ presentation: "modal", title: "Modal" }} />
+            </Stack>
+            <StatusBar style="auto" />
+          </ThemeProvider>
+        </BottomSheetModalProvider>
+      </GestureHandlerRootView>
+    </ConvexProvider>
   );
 }
