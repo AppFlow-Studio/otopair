@@ -44,7 +44,7 @@ export default function AboutOtopairScreen() {
 
   return (
     <View style={styles.screen}>
-      <ScrollDrivenGradientBackground scrollPerTransition={1000}>
+      <ScrollDrivenGradientBackground scrollPerTransition={800}>
         {(scrollHandler) => (
           <Animated.ScrollView
             onScroll={scrollHandler}

@@ -42,12 +42,11 @@
  * TICKET: OTO-XXX
  */
 
-import React, { useCallback, useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { StyleSheet, View } from 'react-native';
 import Animated, {
   Extrapolation,
   interpolate,
-  runOnJS,
   useAnimatedScrollHandler,
   useSharedValue,
   type ScrollHandlerProcessed,
@@ -61,7 +60,6 @@ const DEFAULT_COLORS: [string, string, string] = [BrandColors.secondary, BrandCo
 const DEFAULT_GRADIENT_SCROLL_INDICES = [0, 3, 6, 9];
 const DEFAULT_SCROLL_PER_TRANSITION = 300;
 
-type GradientIndices = { from: number; to: number };
 
 export interface ScrollDrivenGradientBackgroundProps {
   /** Gradient colors passed to `AnimatedGradientBackground` (min 2). Defaults to Activity screen scheme. */
@@ -84,25 +82,17 @@ export function ScrollDrivenGradientBackground({
   const internalScrollY = useSharedValue(0);
   const scrollY = externalScrollY ?? internalScrollY;
   const currentSegment = useSharedValue(0);
+  const fromIndexSV = useSharedValue(0);
+  const toIndexSV = useSharedValue(0);
 
   const safeIndices = useMemo(() => {
     const filtered = (gradientScrollIndices ?? []).filter((n) => Number.isFinite(n));
     return filtered.length >= 2 ? filtered : DEFAULT_GRADIENT_SCROLL_INDICES;
   }, [gradientScrollIndices]);
 
-  const [gradientIndices, setGradientIndices] = useState<GradientIndices>({
-    from: safeIndices[0],
-    to: safeIndices[1],
-  });
-
-  const updateGradientIndices = useCallback(
-    (segmentIndex: number) => {
-      const fromIdx = safeIndices[segmentIndex];
-      const toIdx = safeIndices[segmentIndex + 1];
-      setGradientIndices({ from: fromIdx, to: toIdx });
-    },
-    [safeIndices]
-  );
+  // Initialize shared indices on the JS thread
+  fromIndexSV.value = safeIndices[0];
+  toIndexSV.value = safeIndices[1];
 
   const scrollHandler = useAnimatedScrollHandler({
     onScroll: (event) => {
@@ -129,7 +119,8 @@ export function ScrollDrivenGradientBackground({
 
       if (segmentIndex !== currentSegment.value) {
         currentSegment.value = segmentIndex;
-        runOnJS(updateGradientIndices)(segmentIndex);
+        fromIndexSV.value = safeIndices[segmentIndex];
+        toIndexSV.value = safeIndices[segmentIndex + 1];
       }
     },
   });
@@ -139,8 +130,8 @@ export function ScrollDrivenGradientBackground({
       <View style={StyleSheet.absoluteFill}>
         <AnimatedGradientBackground
           progress={bgProgress}
-          fromIndex={gradientIndices.from}
-          toIndex={gradientIndices.to}
+          fromIndexSV={fromIndexSV}
+          toIndexSV={toIndexSV}
           colors={colors}
         />
       </View>

@@ -659,12 +659,6 @@ export default function SettingsHomeScreen() {
                       label="Logout"
                       onPress={() => setIsLogoutVisible(true)}
                     />
-                    <SettingsListItem
-                      icon={<RotateCcw size={20} color="#1F2937" />}
-                      label="Reset App Data"
-                      onPress={() => console.log('Reset')}
-                      isLast
-                    />
                   </View>
                 </View>
 
