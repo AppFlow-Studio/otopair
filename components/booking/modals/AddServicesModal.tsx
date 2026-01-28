@@ -1,8 +1,10 @@
 /**
  * AddServicesModal
  *
- * PURPOSE: Full-screen modal for adding/editing services during mechanic detail view
- *          Uses React Native Modal for reliable rendering outside scroll containers
+ * PURPOSE: Full-screen modal for adding/editing services during mechanic detail view.
+ *          Uses React Native Modal for reliable rendering outside scroll containers.
+ *
+ * FLOW: Booking
  *
  * USED IN: app/(main-tabs)/home/mechanic/[id]/index.tsx
  *

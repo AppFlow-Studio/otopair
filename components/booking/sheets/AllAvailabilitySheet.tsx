@@ -1,8 +1,10 @@
 /**
  * AllAvailabilitySheet
  *
- * PURPOSE: Full calendar view for selecting availability slots
- *          Shows month navigation, day grid with availability states, and time slots
+ * PURPOSE: Full calendar view for selecting availability slots.
+ *          Shows month navigation, day grid with availability states, and time slots.
+ *
+ * FLOW: Booking
  *
  * USED IN: components/booking/sheets/BookingDetailsContent.tsx
  *

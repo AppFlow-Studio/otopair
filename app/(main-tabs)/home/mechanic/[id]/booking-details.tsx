@@ -1,15 +1,17 @@
 /**
- * Booking Details Screen
+ * BookingDetailsScreen
  *
  * PURPOSE: Full-screen page displaying booking details after mechanic selection.
  *          Shows mechanic info, selected services with remove option, availability,
  *          and customer reviews.
  *
- * FLOW: mechanic detail → booking-details → payment → confirmation
+ * FLOW: Booking (mechanic detail → booking-details → payment → confirmation)
  *
  * ROUTE: /home/mechanic/[id]/booking-details
  *
  * OWNER: Temurbek Sayfutdinov
+ *
+ * TICKET: OTO-145
  */
 
 // DEPRECATED FOR NOW!!: WE USE  /components/booking/sheets/BookingDetailsContent.tsx INSTEAD OF THIS PAGE

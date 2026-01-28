@@ -1,9 +1,11 @@
 /**
  * AvailabilityModal
  *
- * PURPOSE: Full-screen modal for viewing all availability and selecting date/time
- *          Uses React Native Modal for reliable rendering outside scroll containers
- *          Includes mechanic selector to switch between mechanics in the shop
+ * PURPOSE: Full-screen modal for viewing all availability and selecting date/time.
+ *          Uses React Native Modal for reliable rendering outside scroll containers.
+ *          Includes mechanic selector to switch between mechanics in the shop.
+ *
+ * FLOW: Booking
  *
  * USED IN: app/(main-tabs)/home/mechanic/[id]/index.tsx
  *          components/booking/sheets/MechanicSelectionContent.tsx

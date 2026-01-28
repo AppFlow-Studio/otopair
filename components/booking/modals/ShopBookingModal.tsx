@@ -1,9 +1,11 @@
 /**
  * ShopBookingModal
  *
- * PURPOSE: Full-screen modal for complete booking experience in shop details
- *          Includes mechanic selector, calendar, time selection, services, and booking flow
- *          Uses React Native Modal for reliable rendering outside scroll containers
+ * PURPOSE: Full-screen modal for complete booking experience in shop details.
+ *          Includes mechanic selector, calendar, time selection, services, and booking flow.
+ *          Uses React Native Modal for reliable rendering outside scroll containers.
+ *
+ * FLOW: Booking
  *
  * USED IN: app/(main-tabs)/home/shop/[id]/index.tsx
  *          app/(main-tabs)/home/mechanic/[id]/index.tsx (Services tab)
