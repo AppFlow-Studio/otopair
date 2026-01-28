@@ -18,7 +18,7 @@ import { Image, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Expo & Third-party
 import { useRouter } from "expo-router";
-import { Check, Gift, Navigation, Phone, Star, X } from "lucide-react-native";
+import { Check, Gift, Navigation, Phone, Star } from "lucide-react-native";
 import Animated, {
     Easing,
     useAnimatedStyle,
@@ -236,11 +236,6 @@ export default function ConfirmationScreen() {
         resetBookingFlow();
     }, [resetBookingFlow, router]);
 
-    const handleClose = useCallback(() => {
-        router.dismissTo("/home");
-        resetBookingFlow();
-    }, [resetBookingFlow, router]);
-
     const handleAddToCalendar = useCallback(() => {
         // TODO: Implement calendar integration
         console.log("Add to calendar");
@@ -249,15 +244,6 @@ export default function ConfirmationScreen() {
     // ═══════════════ RENDER ═══════════════
     return (
         <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-            {/* Close Button */}
-            <TouchableOpacity 
-                style={styles.closeButton} 
-                onPress={handleClose}
-                activeOpacity={0.7}
-            >
-                <X size={24} color="#9CA3AF" />
-            </TouchableOpacity>
-
             {/* Main Content */}
             <View style={styles.content}>
                 {/* Success Animation */}
@@ -442,13 +428,6 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: "#F9FAFB",
-    },
-    closeButton: {
-        position: "absolute",
-        top: 56,
-        right: 16,
-        zIndex: 10,
-        padding: Spacing.sm,
     },
     content: {
         flex: 1,
