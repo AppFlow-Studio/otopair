@@ -139,6 +139,7 @@ export default function PaymentScreen() {
     if (selectedMechanicId) {
       try {
         createBooking(selectedMechanicId, bookingType || "book_now");
+        // Navigate to confirmation screen
         router.push(`/home/mechanic/${id}/confirmation`);
       } catch (error) {
         console.error("Failed to create booking:", error);

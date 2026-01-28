@@ -2,26 +2,23 @@
  * Confirmation Screen
  *
  * PURPOSE: Full-screen confirmation page after successful booking.
- *          Shows success animation, mechanic info, date/time, and action buttons.
+ *          Shows success animation, booking details card, ownership credit, and action buttons.
+ *          Styled to match the payment screen design.
  *
  * FLOW: mechanic detail → booking-details → payment → confirmation
  *
  * ROUTE: /home/mechanic/[id]/confirmation
  *
- * OWNER: Temurbek Sayfutdinov
+ * OWNER: Waleed Mansour
  */
-
-// DEPRECATED FOR NOW!!: WE USE  /components/booking/sheets/ConfirmationContent.tsx INSTEAD OF THIS PAGE
-// TODO: Will speak with team on best approach to handle this.
-
 
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo } from "react";
-import { Image, InteractionManager, StyleSheet, TouchableOpacity, View } from "react-native";
+import { Image, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Expo & Third-party
 import { useRouter } from "expo-router";
-import { BadgeCheck, Calendar, Check, Clock, Star, User } from "lucide-react-native";
+import { Check, Gift, Navigation, Phone, Star, X } from "lucide-react-native";
 import Animated, {
     Easing,
     useAnimatedStyle,
@@ -35,17 +32,23 @@ import Animated, {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 3. Shared UI (design system)
-import { BorderRadius, BrandColors, Shadows, Spacing, Text } from "@/components/shared-ui";
+import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Constants, hooks, types, stores
+import { BorderRadius, Shadows } from "@/constants/theme";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
+import { useVehicleStore } from "@/stores/useVehicleStore";
 
 // ============================================================================
 // CONSTANTS
 // ============================================================================
 
 const CONFETTI_COLORS = ["#FF6B6B", "#4ECDC4", "#FFE66D", "#95E1D3", "#F38181", "#AA96DA", "#A8D8EA", "#FCBAD3"];
+
+// Mock ownership credit data (in production, this would come from a user/rewards store)
+const OWNERSHIP_CREDIT_EARNED = 1.51;
+const OWNERSHIP_BALANCE = 27.51;
 
 // ============================================================================
 // SUB-COMPONENTS
@@ -118,12 +121,12 @@ function ConfettiParticle({
 
 function ConfettiExplosion() {
     const particles = useMemo(() => {
-        return Array.from({ length: 24 }, (_, i) => ({
+        return Array.from({ length: 20 }, (_, i) => ({
             id: i,
             color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
             delay: Math.random() * 200,
-            startX: 40 + Math.random() * 20,
-            startY: 40 + Math.random() * 20,
+            startX: 32 + Math.random() * 16,
+            startY: 32 + Math.random() * 16,
         }));
     }, []);
 
@@ -164,7 +167,7 @@ function SuccessCheckmark() {
             <ConfettiExplosion />
             <Animated.View style={[styles.successCircle, circleStyle]}>
                 <Animated.View style={checkStyle}>
-                    <Check size={40} color="#FFFFFF" strokeWidth={3} />
+                    <Check size={32} color="#FFFFFF" strokeWidth={3} />
                 </Animated.View>
             </Animated.View>
         </View>
@@ -185,6 +188,7 @@ export default function ConfirmationScreen() {
     const scheduledAppointment = useBookingStore((state) => state.scheduledAppointment);
     const resetBookingFlow = useBookingStore((state) => state.resetBookingFlow);
     const getMechanicById = useMechanicStore((state) => state.getMechanicById);
+    const getSelectedVehicle = useVehicleStore((state) => state.getSelectedVehicle);
 
     // ═══════════════ COMPUTED ═══════════════
     const mechanic = useMemo(() => {
@@ -192,31 +196,49 @@ export default function ConfirmationScreen() {
         return getMechanicById(selectedMechanicId);
     }, [selectedMechanicId, getMechanicById]);
 
-    const appointmentDate = useMemo(() => {
+    const selectedVehicle = getSelectedVehicle();
+
+    // Format date with day name (e.g., "Fri, Oct 24")
+    const formattedDate = useMemo(() => {
         if (scheduledAppointment?.date) {
             const date = new Date(scheduledAppointment.date);
-            return date.toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" });
+            const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+            const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+            return `${dayNames[date.getDay()]}, ${monthNames[date.getMonth()]} ${date.getDate()}`;
         }
         const futureDate = new Date();
         futureDate.setDate(futureDate.getDate() + 2);
-        return futureDate.toLocaleDateString("en-US", { day: "numeric", month: "short", year: "numeric" });
+        const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+        const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        return `${dayNames[futureDate.getDay()]}, ${monthNames[futureDate.getMonth()]} ${futureDate.getDate()}`;
     }, [scheduledAppointment]);
 
-    const appointmentTime = useMemo(() => {
+    // Format time (e.g., "10:00 AM")
+    const formattedTime = useMemo(() => {
         if (scheduledAppointment?.time) {
             return scheduledAppointment.time;
         }
         return "1:00 PM";
     }, [scheduledAppointment]);
 
+    // Format vehicle display
+    const vehicleDisplay = selectedVehicle
+        ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}`
+        : "No vehicle selected";
+
+    // Shop location (mock for now - would come from shop data)
+    const shopLocation = mechanic?.shopName || "Shop Location";
+
     // ═══════════════ HANDLERS ═══════════════
     const handleBackToHome = useCallback(() => {
-        // Navigate to bookings tab first
-        router.replace("/bookings");
-        // Reset booking flow after navigation animation completes
-        InteractionManager.runAfterInteractions(() => {
-            resetBookingFlow();
-        });
+        // Dismiss back to home first, then reset booking state
+        router.dismissTo("/home");
+        resetBookingFlow();
+    }, [resetBookingFlow, router]);
+
+    const handleClose = useCallback(() => {
+        router.dismissTo("/home");
+        resetBookingFlow();
     }, [resetBookingFlow, router]);
 
     const handleAddToCalendar = useCallback(() => {
@@ -227,89 +249,186 @@ export default function ConfirmationScreen() {
     // ═══════════════ RENDER ═══════════════
     return (
         <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-            {/* Content Container - Centered */}
-            <View style={styles.contentContainer}>
+            {/* Close Button */}
+            <TouchableOpacity 
+                style={styles.closeButton} 
+                onPress={handleClose}
+                activeOpacity={0.7}
+            >
+                <X size={24} color="#9CA3AF" />
+            </TouchableOpacity>
+
+            {/* Main Content */}
+            <View style={styles.content}>
                 {/* Success Animation */}
                 <SuccessCheckmark />
 
                 {/* Title */}
-                <Text size="xl" weight="bold" color={BrandColors.primary} center style={styles.title}>
-                    Thank you! Your booking has{"\n"}been confirmed.
+                <Text size="2xl" weight="bold" color={BrandColors.primary} center style={styles.title}>
+                    You're all set.
                 </Text>
 
-                {/* Mechanic Info Card */}
+                {/* Subtitle */}
+                <Text size="md" weight="regular" color="#6B7280" center style={styles.subtitle}>
+                    Your appointment with {mechanic?.name || "your mechanic"} is{"\n"}confirmed.
+                </Text>
+
+                {/* Mechanic Card - Matching Payment Screen Style */}
                 {mechanic && (
                     <View style={styles.mechanicCard}>
-                        <View style={styles.mechanicAvatar}>
-                            {mechanic.photoUrl ? (
-                                <Image source={{ uri: mechanic.photoUrl }} style={styles.avatarImage} />
-                            ) : (
-                                <View style={styles.avatarPlaceholder}>
-                                    <User size={24} color="#9CA3AF" strokeWidth={1.5} />
-                                </View>
-                            )}
-                        </View>
-
-                        <View style={styles.mechanicInfo}>
-                            <Text size="md" weight="bold" color={BrandColors.primary} numberOfLines={1}>
-                                {mechanic.shopName}
-                            </Text>
-                            <Text size="sm" weight="medium" color="#6B7280" numberOfLines={1}>
-                                {mechanic.name}
-                            </Text>
-                            <Text size="xs" weight="regular" color="#9CA3AF">
-                                {mechanic.distanceMi} mi
-                            </Text>
-                        </View>
-
-                        <View style={styles.mechanicBadges}>
-                            <View style={styles.ratingBadge}>
-                                <Star size={14} color={BrandColors.secondary} fill={BrandColors.secondary} />
-                                <Text size="sm" weight="bold" color={BrandColors.primary}>
-                                    {mechanic.rating.toFixed(1)}
-                                </Text>
-                            </View>
-                            {mechanic.isVerified && (
-                                <View style={styles.verifiedBadge}>
-                                    <BadgeCheck size={14} color="#10B981" />
-                                    <Text size="xs" weight="semiBold" color="#10B981">
-                                        Verified
+                        {/* Mechanic Info Row */}
+                        <View style={styles.mechanicRow}>
+                            <View style={styles.avatarWrapper}>
+                                {mechanic.photoUrl ? (
+                                    <Image source={{ uri: mechanic.photoUrl }} style={styles.avatar} />
+                                ) : (
+                                    <View style={styles.avatarPlaceholder}>
+                                        <Text size="xl" weight="bold" color="#9CA3AF">
+                                            {mechanic.name.charAt(0)}
+                                        </Text>
+                                    </View>
+                                )}
+                                {/* Rating Badge */}
+                                <View style={styles.ratingBadge}>
+                                    <Star size={10} color="#FCD34D" fill="#FCD34D" />
+                                    <Text size="xs" weight="bold" color={BrandColors.white}>
+                                        {mechanic.rating.toFixed(1)}
                                     </Text>
                                 </View>
-                            )}
+                            </View>
+
+                            <View style={styles.mechanicInfo}>
+                                <Text size="lg" weight="bold" color={BrandColors.primary}>
+                                    {mechanic.name}
+                                </Text>
+                                <Text size="sm" weight="medium" color="#6B7280">
+                                    {mechanic.shopName}
+                                </Text>
+                            </View>
+                        </View>
+
+                        {/* Divider */}
+                        <View style={styles.cardDivider} />
+
+                        {/* Details Grid - 2x2 Layout */}
+                        <View style={styles.detailsGrid}>
+                            {/* Row 1: DATE and TIME */}
+                            <View style={styles.detailsGridRow}>
+                                <View style={styles.detailsGridItem}>
+                                    <Text size="xs" weight="bold" color={BrandColors.secondary} style={styles.detailLabel}>
+                                        DATE
+                                    </Text>
+                                    <Text size="sm" weight="medium" color={BrandColors.primary}>
+                                        {formattedDate}
+                                    </Text>
+                                </View>
+                                <View style={styles.detailsGridItem}>
+                                    <Text size="xs" weight="bold" color={BrandColors.secondary} style={styles.detailLabel}>
+                                        TIME
+                                    </Text>
+                                    <Text size="sm" weight="medium" color={BrandColors.primary}>
+                                        {formattedTime}
+                                    </Text>
+                                </View>
+                            </View>
+
+                            {/* Row 2: LOCATION and VEHICLE */}
+                            <View style={styles.detailsGridRow}>
+                                <View style={styles.detailsGridItem}>
+                                    <Text size="xs" weight="bold" color={BrandColors.secondary} style={styles.detailLabel}>
+                                        LOCATION
+                                    </Text>
+                                    <Text size="sm" weight="medium" color={BrandColors.primary}>
+                                        {shopLocation}
+                                    </Text>
+                                </View>
+                                <View style={styles.detailsGridItem}>
+                                    <Text size="xs" weight="bold" color={BrandColors.secondary} style={styles.detailLabel}>
+                                        VEHICLE
+                                    </Text>
+                                    <Text size="sm" weight="medium" color={BrandColors.primary}>
+                                        {vehicleDisplay}
+                                    </Text>
+                                </View>
+                            </View>
+                        </View>
+
+                        {/* Divider */}
+                        <View style={styles.cardDivider} />
+
+                        {/* Action Buttons Row */}
+                        <View style={styles.actionButtonsRow}>
+                            <TouchableOpacity 
+                                style={styles.actionButton} 
+                                activeOpacity={0.7}
+                                onPress={() => console.log("Directions pressed")}
+                            >
+                                <Navigation size={16} color="#6B7280" fill="#6B7280" />
+                                <Text size="sm" weight="medium" color="#6B7280">
+                                    Directions
+                                </Text>
+                            </TouchableOpacity>
+
+                            <TouchableOpacity 
+                                style={styles.actionButton} 
+                                activeOpacity={0.7}
+                                onPress={() => console.log("Contact pressed")}
+                            >
+                                <Phone size={16} color="#6B7280" fill="#6B7280" />
+                                <Text size="sm" weight="medium" color="#6B7280">
+                                    Contact
+                                </Text>
+                            </TouchableOpacity>
                         </View>
                     </View>
                 )}
 
-                {/* Date & Time Row */}
-                <View style={styles.dateTimeRow}>
-                    <View style={styles.dateTimeItem}>
-                        <Calendar size={18} color="#6B7280" />
-                        <Text size="sm" weight="medium" color={BrandColors.primary}>
-                            {appointmentDate}
-                        </Text>
+                {/* Ownership Credit Section */}
+                <View style={styles.ownershipCreditCard}>
+                    <View style={styles.ownershipLeft}>
+                        <View style={styles.giftIconContainer}>
+                            <Gift size={20} color={BrandColors.secondary} />
+                        </View>
+                        <View style={styles.ownershipContent}>
+                            <Text size="md" weight="semiBold" color={BrandColors.secondary}>
+                                +${OWNERSHIP_CREDIT_EARNED.toFixed(2)} Ownership Credit
+                            </Text>
+                            <Text size="sm" weight="regular" color="#6B7280">
+                                Added to your rewards
+                            </Text>
+                        </View>
                     </View>
-                    <View style={styles.dateTimeItem}>
-                        <Clock size={18} color="#6B7280" />
-                        <Text size="sm" weight="medium" color={BrandColors.primary}>
-                            {appointmentTime}
+                    <View style={styles.ownershipRight}>
+                        <Text size="xs" weight="medium" color="#6B7280">
+                            BALANCE
+                        </Text>
+                        <Text size="lg" weight="bold" color={BrandColors.secondary}>
+                            ${OWNERSHIP_BALANCE.toFixed(2)}
                         </Text>
                     </View>
                 </View>
 
-                {/* Action Buttons */}
-                <View style={styles.buttonRow}>
-                    <TouchableOpacity style={styles.secondaryButton} onPress={handleAddToCalendar} activeOpacity={0.7}>
-                        <Text size="sm" weight="semiBold" color={BrandColors.primary}>
-                            Add To Calendar
-                        </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity style={styles.primaryButton} onPress={handleBackToHome} activeOpacity={0.7}>
-                        <Text size="sm" weight="semiBold" color={BrandColors.white}>
-                            View Booking
-                        </Text>
-                    </TouchableOpacity>
-                </View>
+                {/* Add to Calendar Button */}
+                <TouchableOpacity 
+                    style={styles.calendarButton} 
+                    onPress={handleAddToCalendar} 
+                    activeOpacity={0.8}
+                >
+                    <Text size="md" weight="semiBold" color={BrandColors.white}>
+                        Add to Calendar
+                    </Text>
+                </TouchableOpacity>
+
+                {/* Back to Home Link */}
+                <TouchableOpacity 
+                    style={styles.backToHomeButton} 
+                    onPress={handleBackToHome}
+                    activeOpacity={0.7}
+                >
+                    <Text size="md" weight="medium" color={BrandColors.secondary}>
+                        Back to Home
+                    </Text>
+                </TouchableOpacity>
             </View>
         </View>
     );
@@ -322,127 +441,187 @@ export default function ConfirmationScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
-        backgroundColor: BrandColors.white,
-        justifyContent: "center",
-        alignItems: "center",
+        backgroundColor: "#F9FAFB",
     },
-    contentContainer: {
-        width: "100%",
-        paddingHorizontal: Spacing.xl,
+    closeButton: {
+        position: "absolute",
+        top: 56,
+        right: 16,
+        zIndex: 10,
+        padding: Spacing.sm,
+    },
+    content: {
+        flex: 1,
+        paddingHorizontal: Spacing.lg,
+        paddingTop: Spacing.lg,
         alignItems: "center",
     },
 
     // Success Animation
     successContainer: {
-        width: 100,
-        height: 100,
+        width: 80,
+        height: 80,
         alignItems: "center",
         justifyContent: "center",
-        marginBottom: Spacing.lg,
+        marginBottom: Spacing.md,
     },
     confettiContainer: {
         position: "absolute",
-        width: 100,
-        height: 100,
+        width: 80,
+        height: 80,
     },
     successCircle: {
-        width: 72,
-        height: 72,
-        borderRadius: 36,
+        width: 60,
+        height: 60,
+        borderRadius: 30,
         backgroundColor: "#10B981",
         alignItems: "center",
         justifyContent: "center",
         ...Shadows.md,
     },
 
-    // Title
+    // Title & Subtitle
     title: {
+        marginBottom: Spacing.sm,
+    },
+    subtitle: {
         marginBottom: Spacing.xl,
-        lineHeight: 28,
+        lineHeight: 22,
     },
 
-    // Mechanic Card
+    // Mechanic Card - Matching Payment Screen
     mechanicCard: {
-        flexDirection: "row",
-        alignItems: "center",
-        backgroundColor: "#FAFAFA",
+        backgroundColor: BrandColors.white,
         borderRadius: BorderRadius.xl,
-        padding: Spacing.md,
+        padding: Spacing.lg,
         width: "100%",
         marginBottom: Spacing.lg,
+        ...Shadows.sm,
     },
-    mechanicAvatar: {
-        marginRight: Spacing.md,
+    mechanicRow: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: Spacing.md,
     },
-    avatarImage: {
-        width: 48,
-        height: 48,
+    avatarWrapper: {
+        position: "relative",
+    },
+    avatar: {
+        width: 64,
+        height: 64,
         borderRadius: BorderRadius.full,
     },
     avatarPlaceholder: {
-        width: 48,
-        height: 48,
+        width: 64,
+        height: 64,
         borderRadius: BorderRadius.full,
         backgroundColor: "#E5E7EB",
         alignItems: "center",
         justifyContent: "center",
     },
+    ratingBadge: {
+        position: "absolute",
+        bottom: -4,
+        left: -4,
+        flexDirection: "row",
+        alignItems: "center",
+        gap: 2,
+        backgroundColor: BrandColors.primary,
+        paddingHorizontal: 6,
+        paddingVertical: 2,
+        borderRadius: BorderRadius.full,
+        borderWidth: 2,
+        borderColor: BrandColors.white,
+    },
     mechanicInfo: {
         flex: 1,
         gap: 2,
     },
-    mechanicBadges: {
-        alignItems: "flex-end",
-        gap: 4,
+    cardDivider: {
+        height: 1,
+        backgroundColor: "#E5E7EB",
+        marginVertical: Spacing.lg,
     },
-    ratingBadge: {
-        flexDirection: "row",
-        alignItems: "center",
-        gap: 4,
+    
+    // Details Grid - 2x2 Layout
+    detailsGrid: {
+        gap: Spacing.md,
     },
-    verifiedBadge: {
+    detailsGridRow: {
         flexDirection: "row",
-        alignItems: "center",
-        gap: 4,
+        gap: Spacing.md,
+    },
+    detailsGridItem: {
+        flex: 1,
+        gap: Spacing.xs,
+    },
+    detailLabel: {
+        letterSpacing: 0.5,
     },
 
-    // Date & Time Row
-    dateTimeRow: {
+    // Action Buttons
+    actionButtonsRow: {
+        flexDirection: "row",
+        gap: Spacing.md,
+    },
+    actionButton: {
+        flex: 1,
         flexDirection: "row",
         alignItems: "center",
         justifyContent: "center",
-        gap: Spacing["3xl"],
-        marginBottom: Spacing.xl,
-        width: "100%",
+        gap: Spacing.sm,
+        paddingVertical: Spacing.md,
+        borderRadius: BorderRadius.lg,
+        borderWidth: 1,
+        borderColor: "#E5E7EB",
     },
-    dateTimeItem: {
+
+    // Ownership Credit Card
+    ownershipCreditCard: {
         flexDirection: "row",
         alignItems: "center",
-        gap: Spacing.sm,
+        justifyContent: "space-between",
+        backgroundColor: "#EFF6FF",
+        borderRadius: BorderRadius.xl,
+        padding: Spacing.lg,
+        width: "100%",
+        marginBottom: Spacing.xl,
+    },
+    ownershipLeft: {
+        flexDirection: "row",
+        alignItems: "center",
+        gap: Spacing.md,
+        flex: 1,
+    },
+    giftIconContainer: {
+        width: 40,
+        height: 40,
+        borderRadius: 20,
+        backgroundColor: "#DBEAFE",
+        alignItems: "center",
+        justifyContent: "center",
+    },
+    ownershipContent: {
+        flex: 1,
+        gap: 2,
+    },
+    ownershipRight: {
+        alignItems: "flex-end",
+        gap: 2,
     },
 
     // Buttons
-    buttonRow: {
-        flexDirection: "row",
-        gap: Spacing.md,
-        width: "100%",
-    },
-    secondaryButton: {
-        flex: 1,
-        paddingVertical: Spacing.md,
-        borderRadius: BorderRadius.xl,
-        borderWidth: 1.5,
-        borderColor: "#E5E7EB",
-        alignItems: "center",
-        justifyContent: "center",
-    },
-    primaryButton: {
-        flex: 1,
-        paddingVertical: Spacing.md,
-        borderRadius: BorderRadius.xl,
+    calendarButton: {
         backgroundColor: BrandColors.secondary,
+        paddingVertical: Spacing.lg,
+        paddingHorizontal: Spacing.xl,
+        borderRadius: BorderRadius.xl,
+        width: "100%",
         alignItems: "center",
-        justifyContent: "center",
+        marginBottom: Spacing.lg,
+    },
+    backToHomeButton: {
+        paddingVertical: Spacing.md,
+        alignItems: "center",
     },
 });
-
