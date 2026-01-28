@@ -25,8 +25,6 @@ import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 // 4. Flow-specific components
 import { AvailabilityModal } from "@/components/booking/modals";
 // BookingFooter is now rendered by ServiceBottomSheet's footerComponent
-import { DiscardServiceModal } from "./DiscardServiceModal";
-import { ServiceChip } from "./ServiceChip";
 import { ShopCard, type ShopWithMechanics, type SelectedSlotInfo, type SelectedServiceInfo } from "./ShopCard";
 
 // 5. Constants, hooks, types, stores
@@ -110,15 +108,12 @@ export function MechanicSelectionContent({
   const insets = useSafeAreaInsets();
 
   // ═══════════════ STATE ═══════════════
-  const [serviceToRemove, setServiceToRemove] = React.useState<string | null>(null);
-  const [dontAskAgain, setDontAskAgain] = React.useState(false);
   const [showAvailabilityModal, setShowAvailabilityModal] = React.useState(false);
   const [availabilityMechanicId, setAvailabilityMechanicId] = React.useState<number | null>(null);
   const [availabilityShopId, setAvailabilityShopId] = React.useState<number | null>(null);
 
   // ═══════════════ BOOKING STORE ═══════════════
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
-  const toggleServiceSelection = useBookingStore((state) => state.toggleServiceSelection);
   const availableServices = useBookingStore((state) => state.availableServices);
   const prevBookingStage = useBookingStore((state) => state.prevBookingStage);
   const setBookingTypeAndProceed = useBookingStore((state) => state.setBookingTypeAndProceed);
@@ -233,39 +228,6 @@ export function MechanicSelectionContent({
   // The slot is cleared by resetBookingFlow when the booking is completed or cancelled.
 
   // ═══════════════ HANDLERS ═══════════════
-  const handleRemoveService = useCallback(
-    (serviceId: string) => {
-      if (dontAskAgain) {
-        // Remove directly without confirmation
-        toggleServiceSelection(serviceId);
-      } else {
-        // Show confirmation modal
-        setServiceToRemove(serviceId);
-      }
-    },
-    [dontAskAgain, toggleServiceSelection]
-  );
-
-  const handleConfirmRemove = useCallback(() => {
-    if (serviceToRemove) {
-      toggleServiceSelection(serviceToRemove);
-      setServiceToRemove(null);
-    }
-  }, [serviceToRemove, toggleServiceSelection]);
-
-  const handleCloseModal = useCallback(() => {
-    setServiceToRemove(null);
-  }, []);
-
-  const handleDontAskAgain = useCallback(() => {
-    setDontAskAgain(true);
-    // Also confirm the current removal
-    if (serviceToRemove) {
-      toggleServiceSelection(serviceToRemove);
-      setServiceToRemove(null);
-    }
-  }, [serviceToRemove, toggleServiceSelection]);
-
   // Handle slot selection from ShopCard
   const handleSelectSlot = useCallback(
     (shopId: number, mechanicId: number | null, slot: MechanicAvailabilitySlot) => {
@@ -433,20 +395,6 @@ export function MechanicSelectionContent({
         initialNumToRender={3}
         ListHeaderComponent={
           <View>
-            {/* Selected Service Chips */}
-            {selectedServices.length > 0 && (
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                style={styles.chipsContainer}
-                contentContainerStyle={styles.chipsContent}
-              >
-                {selectedServices.map((service) => (
-                  <ServiceChip key={service.id} service={service} onRemove={handleRemoveService} />
-                ))}
-              </ScrollView>
-            )}
-
             {/* Filter Chips */}
             <ScrollView
               horizontal
@@ -478,14 +426,6 @@ export function MechanicSelectionContent({
       />
 
       {/* Footer is now handled by ServiceBottomSheet's footerComponent */}
-
-      {/* Discard Service Modal */}
-      <DiscardServiceModal
-        visible={serviceToRemove !== null}
-        onClose={handleCloseModal}
-        onConfirm={handleConfirmRemove}
-        onDontAskAgain={handleDontAskAgain}
-      />
 
       {/* Availability Calendar Modal */}
       <AvailabilityModal
@@ -570,13 +510,5 @@ const styles = StyleSheet.create({
   },
   filterChipSelected: {
     backgroundColor: BrandColors.primary,
-  },
-  chipsContainer: {
-    marginTop: Spacing.sm,
-    marginBottom: Spacing.xs,
-    maxHeight: 72,
-  },
-  chipsContent: {
-    paddingVertical: Spacing.xs,
   },
 });

@@ -2,7 +2,7 @@
  * ServiceSelectionFooter
  *
  * PURPOSE: Footer button for service selection stage
- *          Shows "Add X to Cart · $Y" when services selected, or "Select Service(s)" when empty
+ *          Shows "Add X to Cart" when services selected, or "Select Service(s)" when empty
  *
  * USED IN: components/booking/ServiceBottomSheet.tsx
  *
@@ -66,7 +66,7 @@ export function ServiceSelectionFooter({
             disabled={!hasSelection}
           >
             <Text size="md" weight="semiBold" color={BrandColors.white}>
-              {hasSelection ? `Add ${selectedCount} to Cart · $${selectedTotal}` : "Select Service(s)"}
+              {hasSelection ? `Add ${selectedCount} to Cart` : "Select Service(s)"}
             </Text>
           </PrimaryButton>
         </View>
