@@ -32,7 +32,7 @@
  */
 
 import React, { forwardRef, useCallback, useImperativeHandle, useMemo, useRef } from 'react';
-import { Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Dimensions, Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   BottomSheetBackdrop,
@@ -58,15 +58,19 @@ export const AppBottomSheetModal = forwardRef<BottomSheetModal, AppBottomSheetMo
   ({ title, children, snapPoints, initialIndex = 0, onClose, footer, contentContainerStyle }, ref) => {
     const insets = useSafeAreaInsets();
     const internalRef = useRef<BottomSheetModal>(null);
+    const { width } = Dimensions.get('window');
 
     useImperativeHandle(ref, () => internalRef.current as BottomSheetModal);
 
     const resolvedSnapPoints = useMemo(() => snapPoints ?? ['85%'], [snapPoints]);
+    
+    const modalContainerStyle = useMemo(() => ({
+      marginHorizontal: width * 0.025, // 2.5% on each side for 95% width
+    }), [width]);
 
     const handleClose = useCallback(() => {
-      onClose?.();
       internalRef.current?.dismiss();
-    }, [onClose]);
+    }, []);
 
     const renderBackdrop = useCallback(
       (props: any) => (
@@ -74,6 +78,8 @@ export const AppBottomSheetModal = forwardRef<BottomSheetModal, AppBottomSheetMo
       ),
       []
     );
+
+    const bottomGap = insets.bottom + Spacing.lg;
 
     return (
       <BottomSheetModal
@@ -84,6 +90,10 @@ export const AppBottomSheetModal = forwardRef<BottomSheetModal, AppBottomSheetMo
         backdropComponent={renderBackdrop}
         handleIndicatorStyle={styles.handleIndicator}
         backgroundStyle={styles.sheet}
+        onDismiss={onClose}
+        detached={true}
+        style={modalContainerStyle}
+        bottomInset={bottomGap}
       >
         <BottomSheetScrollView
           showsVerticalScrollIndicator={false}
@@ -120,8 +130,7 @@ AppBottomSheetModal.displayName = 'AppBottomSheetModal';
 const styles = StyleSheet.create({
   sheet: {
     backgroundColor: '#E8ECF0',
-    borderTopLeftRadius: 32,
-    borderTopRightRadius: 32,
+    borderRadius: 50,
     overflow: 'hidden',
   },
   handleIndicator: {

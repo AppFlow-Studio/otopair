@@ -21,7 +21,7 @@
  * TICKET: OTO-XXX
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Animated, { 
@@ -81,70 +81,76 @@ export const SHARED_GRADIENT_CONFIGS: GradientConfig[] = [
 
 interface AnimatedGradientBackgroundProps {
     progress: SharedValue<number>;
-    fromIndex: number;
-    toIndex: number;
-    colors?: [string, string, string];
+    fromIndex?: number;
+    toIndex?: number;
+    fromIndexSV?: SharedValue<number>;
+    toIndexSV?: SharedValue<number>;
+    colors?: string[]; // Minimum 2 colors required
 }
 
 export function AnimatedGradientBackground({ 
     progress, 
-    fromIndex, 
+    fromIndex,
     toIndex,
+    fromIndexSV,
+    toIndexSV,
     colors
 }: AnimatedGradientBackgroundProps) {
-    // Ensure we stay within bounds of the config array
-    const safeFrom = Math.min(Math.max(0, fromIndex), SHARED_GRADIENT_CONFIGS.length - 1);
-    const safeTo = Math.min(Math.max(0, toIndex), SHARED_GRADIENT_CONFIGS.length - 1);
-    
-    const fromConfig = { ...SHARED_GRADIENT_CONFIGS[safeFrom] };
-    const toConfig = { ...SHARED_GRADIENT_CONFIGS[safeTo] };
-    
-    // Override colors if provided
-    if (colors) {
-        fromConfig.colors = colors;
-        toConfig.colors = colors;
-    }
-    
-    // Validate and use provided colors or fall back to config colors
-    let gradientColors: string[];
-    if (colors) {
-        if (colors.length < 2) {
-            console.warn('AnimatedGradientBackground: colors array must have at least 2 colors. Falling back to default colors.');
-            gradientColors = toConfig.colors;
-        } else {
-            gradientColors = colors;
+    const safeFrom = useMemo(() => {
+        const base = fromIndex ?? 0;
+        return Math.min(Math.max(0, base), SHARED_GRADIENT_CONFIGS.length - 1);
+    }, [fromIndex]);
+    const safeTo = useMemo(() => {
+        const base = toIndex ?? 1;
+        return Math.min(Math.max(0, base), SHARED_GRADIENT_CONFIGS.length - 1);
+    }, [toIndex]);
+
+    const gradientColors = useMemo(() => {
+        if (colors) {
+            if (colors.length < 2) {
+                console.warn('AnimatedGradientBackground: colors array must have at least 2 colors. Falling back to default colors.');
+                return SHARED_GRADIENT_CONFIGS[safeTo].colors;
+            }
+            return colors;
         }
-    } else {
-        gradientColors = toConfig.colors;
-    }
-    
-    // State for current gradient positions (interpolated during animation)
-    const [gradientPos, setGradientPos] = useState({
-        startX: fromConfig.startX,
-        startY: fromConfig.startY,
-        endX: fromConfig.endX,
-        endY: fromConfig.endY,
+        return SHARED_GRADIENT_CONFIGS[safeTo].colors;
+    }, [colors, safeTo]);
+
+    const [gradientPos, setGradientPos] = useState(() => {
+        const fromConfig = SHARED_GRADIENT_CONFIGS[safeFrom];
+        return {
+            startX: fromConfig.startX,
+            startY: fromConfig.startY,
+            endX: fromConfig.endX,
+            endY: fromConfig.endY,
+        };
     });
-    
-    // Callback to update positions from the UI thread via runOnJS
-    const updatePositions = useCallback((p: number) => {
+
+    const updatePositions = useCallback((p: number, fromIdx: number, toIdx: number) => {
+        const fromConfig = SHARED_GRADIENT_CONFIGS[fromIdx];
+        const toConfig = SHARED_GRADIENT_CONFIGS[toIdx];
         setGradientPos({
             startX: interpolate(p, [0, 1], [fromConfig.startX, toConfig.startX]),
             startY: interpolate(p, [0, 1], [fromConfig.startY, toConfig.startY]),
             endX: interpolate(p, [0, 1], [fromConfig.endX, toConfig.endX]),
             endY: interpolate(p, [0, 1], [fromConfig.endY, toConfig.endY]),
         });
-    }, [fromConfig, toConfig]);
-    
-    // React to animation progress changes
+    }, []);
+
     useAnimatedReaction(
-        () => progress.value,
-        (currentValue) => {
-            runOnJS(updatePositions)(currentValue);
+        () => {
+            const rawFrom = fromIndexSV ? fromIndexSV.value : safeFrom;
+            const rawTo = toIndexSV ? toIndexSV.value : safeTo;
+            const fromIdx = Math.min(Math.max(0, rawFrom), SHARED_GRADIENT_CONFIGS.length - 1);
+            const toIdx = Math.min(Math.max(0, rawTo), SHARED_GRADIENT_CONFIGS.length - 1);
+            return { p: progress.value, fromIdx, toIdx };
         },
-        [updatePositions]
+        (state) => {
+            runOnJS(updatePositions)(state.p, state.fromIdx, state.toIdx);
+        },
+        [safeFrom, safeTo, fromIndexSV, toIndexSV]
     );
-    
+
     return (
         <LinearGradient
             colors={gradientColors as [string, string, ...string[]]}

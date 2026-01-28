@@ -12,6 +12,8 @@
  *   - tint ('light' | 'dark' | 'default'): Blur tint (default: 'light')
  *   - androidDelayMs (number): Delay before mounting BlurView on Android (default: 250)
  *   - blurReductionFactor (number): Android blur reduction factor (default: 7)
+ *   - gradientColors (string[]): Optional colors for the LinearGradient overlay
+ *   - gradientLocations (number[]): Optional locations for the LinearGradient overlay
  *
  * EXAMPLE:
  *   <BlurHeaderOverlay title="FAQ" />
@@ -26,7 +28,8 @@ import { InteractionManager, Platform, Pressable, StyleSheet, View } from 'react
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useFocusEffect } from 'expo-router';
 import { BlurView } from 'expo-blur';
-import { X } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { ArrowLeft } from 'lucide-react-native';
 
 import { Text } from './Text';
 
@@ -39,9 +42,18 @@ export interface BlurHeaderOverlayProps {
   tint?: BlurTint;
   androidDelayMs?: number;
   blurReductionFactor?: number;
+  gradientColors?: any[];
+  gradientLocations?: number[];
 }
 
 const DEFAULT_ANDROID_DELAY_MS = 250;
+const DEFAULT_GRADIENT_COLORS = [
+  'rgba(245, 245, 247, 1)',
+  'rgba(245, 245, 247, 0.7)',
+  'rgba(245, 245, 247, 0.3)',
+  'rgba(245, 245, 247, 0)',
+];
+const DEFAULT_GRADIENT_LOCATIONS = [0, 0.4, 0.7, 1];
 
 export function BlurHeaderOverlay({
   title,
@@ -50,6 +62,8 @@ export function BlurHeaderOverlay({
   tint = 'light',
   androidDelayMs = DEFAULT_ANDROID_DELAY_MS,
   blurReductionFactor = 7,
+  gradientColors = DEFAULT_GRADIENT_COLORS,
+  gradientLocations = DEFAULT_GRADIENT_LOCATIONS,
 }: BlurHeaderOverlayProps) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -91,19 +105,27 @@ export function BlurHeaderOverlay({
   return (
     <View style={[styles.container, { height: headerHeight }]} pointerEvents="box-none" collapsable={false}>
       {showBlur ? (
-        <BlurView
-          experimentalBlurMethod={Platform.OS === 'android' ? 'dimezisBlurView' : undefined}
-          intensity={intensity}
-          tint={tint}
-          blurReductionFactor={blurReductionFactor}
-          style={StyleSheet.absoluteFill}
-        />
+        <>
+          <BlurView
+            experimentalBlurMethod={Platform.OS === 'android' ? 'dimezisBlurView' : undefined}
+            intensity={intensity}
+            tint={tint}
+            blurReductionFactor={blurReductionFactor}
+            style={StyleSheet.absoluteFill}
+          />
+          <LinearGradient
+            colors={gradientColors as any}
+            locations={gradientLocations as any}
+            style={StyleSheet.absoluteFill}
+            pointerEvents="none"
+          />
+        </>
       ) : (
         <View style={styles.fallback} />
       )}
       <View style={[styles.headerContent, { paddingTop: insets.top + 10 }]}>
         <Pressable onPress={handleBack} style={styles.backButton} hitSlop={10}>
-          <X size={18} color="#1F2937" />
+          <ArrowLeft size={20} color="#1F2937" />
         </Pressable>
         <Text weight="semiBold" size="xl" color="#000" style={styles.title}>
           {title}

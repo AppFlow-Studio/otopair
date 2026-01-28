@@ -25,7 +25,7 @@ import {
   Smartphone,
 } from 'lucide-react-native';
 
-import { BrandColors, Text } from '@/components/shared-ui';
+import { BrandColors, Text, buildReferralCode, buildReferralShareMessage } from '@/components/shared-ui';
 import { ScrollDrivenGradientBackground } from '@/components/shared-ui/ScrollDrivenGradientBackground';
 import { FadeHeaderContainer } from '@/components/shared-ui/FadeHeaderContainer';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
@@ -44,14 +44,6 @@ const HEADER_FADE_COLORS: [string, string, string, string] = [
   'rgba(82, 153, 254, 0.3)',
   'rgba(82, 153, 254, 0)',    // Transparent
 ];
-
-function stableShortHash(input: string): string {
-  let h = 0;
-  for (let i = 0; i < input.length; i += 1) {
-    h = (h * 31 + input.charCodeAt(i)) >>> 0;
-  }
-  return String(h % 1000000).padStart(6, '0');
-}
 
 const GlassPanel = ({
   children,
@@ -80,17 +72,10 @@ export default function ReferAFriendScreen() {
   const router = useRouter();
   const data = useOnboardingStore((s) => s.data);
 
-  const referralCode = useMemo(() => {
-    const base =
-      (data.username ?? '').trim() ||
-      (data.email ?? '').split('@')[0]?.trim() ||
-      `${(data.firstName ?? '').trim()}${(data.lastName ?? '').trim()}`.trim() ||
-      'user';
-
-    const normalized =
-      base.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 14) || 'user';
-    return `otopair-${normalized}${stableShortHash(normalized)}`;
-  }, [data.email, data.firstName, data.lastName, data.username]);
+  const referralCode = useMemo(
+    () => buildReferralCode(data),
+    [data.email, data.firstName, data.lastName, data.username]
+  );
 
   const displayCode = referralCode.toUpperCase();
 
@@ -99,10 +84,7 @@ export default function ReferAFriendScreen() {
   }, [displayCode]);
 
   const handleShare = useCallback(async () => {
-    const message =
-      `Join Otopair and get 250 points for your first booking!\n\n` +
-      `Use my referral code: ${displayCode}\n`;
-    await Share.share({ message });
+    await Share.share({ message: buildReferralShareMessage(displayCode) });
   }, [displayCode]);
 
   return (

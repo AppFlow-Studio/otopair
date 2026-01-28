@@ -46,8 +46,6 @@ import {
   ShieldCheck,
   Fingerprint,
   ScanFace,
-  ArrowLeftRight,
-  Trash2,
   Shield,
   FileText,
   Info,
@@ -69,6 +67,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 // @ts-ignore Expo module available at runtime
 import * as ImagePicker from 'expo-image-picker';
 import * as LocalAuthentication from 'expo-local-authentication';
+import * as StoreReview from 'expo-store-review';
 
 import { BrandColors, Button, FeedbackModal, Text, ScrollDrivenGradientBackground } from '@/components/shared-ui';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
@@ -180,7 +179,7 @@ export default function SettingsHomeScreen() {
   // ─────────────────────────────────────────────────────────────
   const fullName = useMemo(() => {
     const name = `${data.firstName ?? ''} ${data.lastName ?? ''}`.trim();
-    return name.length > 0 ? name : 'Alex Johnson';
+    return name.length > 0 ? name : 'John Doe';
   }, [data.firstName, data.lastName]);
 
   const initials = useMemo(() => {
@@ -433,6 +432,17 @@ export default function SettingsHomeScreen() {
     router.replace('/(onboarding)');
   }, [reset, router]);
 
+  const handleRateUs = useCallback(async () => {
+    try {
+      const available = await StoreReview.isAvailableAsync();
+      if (available) {
+        await StoreReview.requestReview();
+      }
+    } catch {
+      // In-app review not available (e.g. simulator) or request failed; no-op.
+    }
+  }, []);
+
     return (
     <View style={styles.screen}>
       <ScrollDrivenGradientBackground 
@@ -560,7 +570,7 @@ export default function SettingsHomeScreen() {
                     <SettingsListItem
                       icon={<Receipt size={20} color="#1F2937" />}
                       label="Transactions & Receipts"
-                      onPress={() => router.push('/payments')}
+                      onPress={() => router.push('/settings/transactions')}
                       isLast
                     />
                   </View>
@@ -577,8 +587,8 @@ export default function SettingsHomeScreen() {
                     />
                     <SettingsListItem
                       icon={<Headset size={20} color="#1F2937" />}
-                      label="Help Center"
-                      onPress={() => console.log('Help')}
+                      label="Contact Us"
+                      onPress={() => router.push('/settings/contact-us')}
                     />
                     <SettingsListItem
                       icon={<HelpCircle size={20} color="#1F2937" />}
@@ -593,7 +603,7 @@ export default function SettingsHomeScreen() {
                     <SettingsListItem
                       icon={<Star size={20} color="#1F2937" />}
                       label="Rate Us"
-                      onPress={() => console.log('Rate')}
+                      onPress={handleRateUs}
                       isLast
                     />
                   </View>
@@ -612,16 +622,6 @@ export default function SettingsHomeScreen() {
                       icon={biometricLabel === 'Face ID' ? <ScanFace size={20} color="#1F2937" /> : <Fingerprint size={20} color="#1F2937" />}
                       label={biometricLabel}
                       onPress={() => router.push('/settings/biometric-setup')}
-                    />
-                    <SettingsListItem
-                      icon={<ArrowLeftRight size={20} color="#1F2937" />}
-                      label="Data Sharing"
-                      onPress={() => console.log('Data')}
-                    />
-                    <SettingsListItem
-                      icon={<Trash2 size={20} color="#1F2937" />}
-                      label="Delete Account"
-                      onPress={() => console.log('Delete')}
                       isLast
                     />
                   </View>
@@ -634,12 +634,12 @@ export default function SettingsHomeScreen() {
                     <SettingsListItem
                       icon={<Shield size={20} color="#1F2937" />}
                       label="Privacy Policy"
-                      onPress={() => console.log('Privacy')}
+                      onPress={() => router.push('/settings/privacy-policy')}
                     />
                     <SettingsListItem
                       icon={<FileText size={20} color="#1F2937" />}
                       label="Terms of service"
-                      onPress={() => console.log('Terms')}
+                      onPress={() => router.push('/settings/terms-of-service')}
                       isLast
                     />
                   </View>
@@ -652,18 +652,12 @@ export default function SettingsHomeScreen() {
                     <SettingsListItem
                       icon={<Info size={20} color="#1F2937" />}
                       label="About Otopair v1.0.0"
-                      onPress={() => console.log('About')}
+                      onPress={() => router.push('/settings/about')}
                     />
                     <SettingsListItem
                       icon={<LogOut size={20} color="#1F2937" />}
                       label="Logout"
                       onPress={() => setIsLogoutVisible(true)}
-                    />
-                    <SettingsListItem
-                      icon={<RotateCcw size={20} color="#1F2937" />}
-                      label="Reset App Data"
-                      onPress={() => console.log('Reset')}
-                      isLast
                     />
                   </View>
                 </View>
