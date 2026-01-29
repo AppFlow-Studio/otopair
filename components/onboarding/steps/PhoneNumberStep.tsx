@@ -23,7 +23,6 @@
 
 // TODO: Use numeric keyboard by default — defaulting to this isn't working on all devices
 
-import { useSignIn } from "@clerk/clerk-expo";
 import {
   BrandColors,
   FontFamily,
@@ -49,7 +48,6 @@ import {
   TouchableOpacity,
   ScrollView,
 } from "react-native";
-import { router } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import {
   GestureHandlerRootView,
@@ -79,7 +77,6 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
   const insets = useSafeAreaInsets();
   const { height, width } = useWindowDimensions();
   const { updateData, data } = useOnboardingStore();
-  const { signIn, setActive, isLoaded } = useSignIn();
   const [phoneNumber, setPhoneNumber] = useState("");
   const [countryCode, setCountryCode] = useState<string>(data.phoneCountryCode || "US");
   const [country, setCountry] = useState<Country | null>(null);
@@ -87,13 +84,9 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
   const [showConfirmationModal, setShowConfirmationModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [allCountries, setAllCountries] = useState<Country[]>([]);
-  const [loginLoading, setLoginLoading] = useState(false);
-  const [loginError, setLoginError] = useState<string | null>(null);
   const slideAnim = useRef(new Animated.Value(height)).current;
   const panY = useRef(new Animated.Value(0)).current;
   const currentSlidePosition = useRef(height);
-  const guestEmail = process.env.EXPO_PUBLIC_GUEST_EMAIL;
-  const guestPassword = process.env.EXPO_PUBLIC_GUEST_PASSWORD;
 
   // Track the actual position of slideAnim
   useEffect(() => {
@@ -324,35 +317,8 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
     return `+${callingCode} ${formatted}`;
   };
 
-  const handleLogIn = async () => {
-    if (loginLoading) return;
-    if (!isLoaded || !signIn) {
-      setLoginError("Sign in is not ready. Please try again.");
-      return;
-    }
-    if (!guestEmail || !guestPassword) {
-      setLoginError("Guest credentials are not configured.");
-      return;
-    }
-
-    setLoginLoading(true);
-    setLoginError(null);
-    try {
-      const result = await signIn.create({
-        identifier: guestEmail,
-        password: guestPassword,
-      });
-      if (!result.createdSessionId) {
-        throw new Error("Unable to create a session.");
-      }
-      await setActive?.({ session: result.createdSessionId });
-      router.replace("/(main-tabs)/home");
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "Unable to sign in.";
-      setLoginError(message);
-    } finally {
-      setLoginLoading(false);
-    }
+  const handleLogIn = () => {
+    console.log("Navigate to login");
   };
 
   const handleCountrySelect = (selectedCountry: Country) => {
@@ -464,22 +430,13 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
           </View>
 
           <View style={styles.loginLinkContainer}>
-            <Text style={styles.loginLinkText}>Already have an account?</Text>
-            <TouchableOpacity
-              onPress={handleLogIn}
-              disabled={loginLoading}
-              style={[styles.loginLinkButtonWrapper, loginLoading && styles.loginLinkButtonDisabled]}
-            >
-              <Text style={styles.loginLinkButton}>
-                {loginLoading ? "Logging in..." : "Log in"}
+            <Text style={styles.loginLinkText}>
+              Already have an account?{" "}
+              <Text style={styles.loginLinkButton} onPress={handleLogIn}>
+                Log in
               </Text>
-            </TouchableOpacity>
-          </View>
-          {loginError ? (
-            <Text style={styles.loginErrorText} accessibilityRole="alert">
-              {loginError}
             </Text>
-          ) : null}
+          </View>
         </ScrollView>
 
         {/* Country Picker Bottom Sheet */}
@@ -699,12 +656,9 @@ const styles = StyleSheet.create({
     paddingVertical: 0,
   },
   loginLinkContainer: {
-    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "center",
     paddingHorizontal: Spacing["2xl"],
-    marginBottom: Spacing.sm,
-    gap: Spacing.xs,
+    marginBottom: Spacing.xl,
   },
   loginLinkText: {
     fontSize: FontSize.md,
@@ -712,25 +666,10 @@ const styles = StyleSheet.create({
     color: BrandColors.white,
     opacity: 0.8,
   },
-  loginLinkButtonWrapper: {
-    paddingHorizontal: Spacing.xs,
-    paddingVertical: 4,
-  },
-  loginLinkButtonDisabled: {
-    opacity: 0.6,
-  },
   loginLinkButton: {
     fontFamily: FontFamily.semiBold,
     color: "#60A5FA",
     opacity: 1,
-  },
-  loginErrorText: {
-    textAlign: "center",
-    color: "#FCA5A5",
-    fontSize: FontSize.sm,
-    fontFamily: FontFamily.medium,
-    marginBottom: Spacing.lg,
-    paddingHorizontal: Spacing["2xl"],
   },
   bottomContainer: {
     paddingTop: Spacing.sm,
