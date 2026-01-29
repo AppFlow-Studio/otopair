@@ -129,10 +129,11 @@ export function ActionCardsCarousel({
 
   // Build array of visible cards - reorder based on isNewUser
   const allCards = [
-    { id: 'appointment', visible: true },
-    { id: 'resume', visible: showResumeBooking },
-    { id: 'car', visible: showCarSetup },
-  ].filter((card) => card.visible);
+  { id: 'appointment', visible: true },
+  { id: 'resume', visible: showResumeBooking },
+  { id: 'account', visible: showAccountSetup },  // add this
+  { id: 'car', visible: showCarSetup },
+].filter((card) => card.visible);
 
   // Reorder cards: if new user, put account setup first; otherwise keep appointment first
   const cards = isNewUser && showAccountSetup

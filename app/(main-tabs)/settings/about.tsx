@@ -29,7 +29,7 @@ import { useOnboardingStore } from '@/stores/useOnboardingStore';
 export default function AboutOtopairScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const data = useOnboardingStore((s) => s.data);
+  const data = useOnboardingStore((s: ReturnType<typeof useOnboardingStore.getState>) => s.data);
 
   const referralCode = useMemo(
     () => buildReferralCode(data),
