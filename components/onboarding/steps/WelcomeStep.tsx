@@ -17,7 +17,7 @@
  */
 
 import { useState } from 'react';
-import { useSignIn } from '@clerk/clerk-expo';
+import { useAuth, useSignIn } from '@clerk/clerk-expo';
 import {
     BrandColors,
     FontFamily,
@@ -49,6 +49,7 @@ export function WelcomeStep({ onNext, onBack }: WelcomeStepProps) {
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { setIsNewUser } = useAuthStore();
+    const { isSignedIn } = useAuth();
     const { signIn, setActive, isLoaded } = useSignIn();
     const [loginLoading, setLoginLoading] = useState(false);
     const [loginError, setLoginError] = useState<string | null>(null);
@@ -74,6 +75,14 @@ export function WelcomeStep({ onNext, onBack }: WelcomeStepProps) {
     const handleLogIn = async () => {
         if (loginLoading) return;
 
+        if (isSignedIn) {
+            console.log('Guest already signed in, routing to home');
+            setIsNewUser(false);
+            router.replace('/(main-tabs)/home');
+            onBack();
+            return;
+        }
+
         if (!isLoaded || !signIn) {
             setLoginError('Sign in is not ready. Please try again.');
             return;
@@ -88,16 +97,21 @@ export function WelcomeStep({ onNext, onBack }: WelcomeStepProps) {
         setLoginError(null);
 
         try {
-            const result = await signIn.create({
+            await signIn.create({
                 identifier: guestEmail,
+            });
+
+            const attempt = await signIn.attemptFirstFactor({
+                strategy: 'password',
                 password: guestPassword,
             });
 
-            if (!result.createdSessionId) {
+            if (attempt.status !== 'complete' || !attempt.createdSessionId) {
+                console.log('Guest login response', JSON.stringify(attempt, null, 2));
                 throw new Error('Unable to create a session.');
             }
 
-            await setActive?.({ session: result.createdSessionId });
+            await setActive?.({ session: attempt.createdSessionId });
             console.log('Guest login successful for', guestEmail);
             setIsNewUser(false);
             router.replace('/(main-tabs)/home');
