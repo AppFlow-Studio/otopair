@@ -1,7 +1,7 @@
 /**
- * StressNoteStep
+ * MaintenanceApproachStepLevel3
  *
- * PURPOSE: Optional stress note input step for user to share car service frustrations.
+ * PURPOSE: Allows users to select their approach to car maintenance.
  *
  * USED IN: components/tell-us-about/TellUsAboutFlow.tsx
  *
@@ -9,13 +9,12 @@
  *   - onNext (() => void): Callback to navigate to the next step
  *   - onBack (() => void): Callback to navigate to the previous step
  *   - progress ({ total: number; filled: number }): Progress indicator data
- *   - isLastStep (boolean): Whether this is the final step [optional]
  *
  * EXAMPLE:
- *   <StressNoteStep 
+ *   <MaintenanceApproachStepLevel3 
  *     onNext={handleNext} 
  *     onBack={handleBack} 
- *     progress={{ total: 12, filled: 5 }} 
+ *     progress={{ total: 12, filled: 3 }} 
  *   />
  *
  * OWNER: Daniel Chelala
@@ -40,27 +39,34 @@ import {
     Platform,
     StyleSheet,
     View,
-    TextInput,
+    Pressable,
     ScrollView,
     useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 
-interface StressNoteStepProps {
+interface MaintenanceApproachStepLevel3Props {
     onNext: () => void;
     onBack: () => void;
     progress: { total: number; filled: number };
-    isLastStep?: boolean;
 }
 
-export function StressNoteStep({ onNext, onBack, progress, isLastStep = false }: StressNoteStepProps) {
+const APPROACH_OPTIONS = [
+    { emoji: '🗓️', label: 'Preventive: I follow the schedule strictly' },
+    { emoji: '📊', label: 'Data-driven: I track everything and service based on actual wear' },
+    { emoji: '🛠️', label: 'Problem-solving: I address issues as they come up' },
+    { emoji: '🏎️', label: 'Performance-focused: I maintain for optimal performance' },
+    { emoji: '💰', label: "Budget-conscious: I do what's necessary when necessary" },
+] as const;
+
+export function MaintenanceApproachStepLevel3({ onNext, onBack, progress }: MaintenanceApproachStepLevel3Props) {
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
     
-    const [stressNote, setStressNote] = useState<string>(
-        data.carStressNote ?? ''
+    const [selectedApproach, setSelectedApproach] = useState<string | null>(
+        data.maintenanceApproachLevel3 ?? null
     );
 
     const dynamicStyles = {
@@ -72,13 +78,19 @@ export function StressNoteStep({ onNext, onBack, progress, isLastStep = false }:
     const buttonSize: 'md' | 'lg' = isCompact ? 'md' : 'lg';
     const buttonPaddingVertical = isCompact ? Spacing.sm : Spacing.lg;
 
-    const handleContinue = () => {
-        updateData({ carStressNote: stressNote.trim() || null });
-        onNext();
+    const handleSelectApproach = (option: typeof APPROACH_OPTIONS[number]) => {
+        const value = `${option.emoji} ${option.label}`;
+        setSelectedApproach(value);
+        updateData({ maintenanceApproachLevel3: value });
     };
 
-    // This step is always skippable (optional)
-    const buttonLabel = isLastStep ? 'Finish' : 'Continue';
+    const handleContinue = () => {
+        if (selectedApproach) {
+            onNext();
+        }
+    };
+
+    const canContinue = selectedApproach !== null;
 
     return (
         <KeyboardAvoidingView
@@ -101,33 +113,53 @@ export function StressNoteStep({ onNext, onBack, progress, isLastStep = false }:
                 >
                     <View style={styles.headerContent}>
                         <Text style={styles.title}>
-                            Is there anything that makes getting your car serviced stressful?
+                            How do you typically approach car maintenance?
                         </Text>
                         <Text style={styles.subtitle}>
-                            Optional — Share any concerns or frustrations you've had
+                            Select the style that matches you best
                         </Text>
                     </View>
 
-                    <View style={styles.inputContainer}>
-                        <TextInput
-                            style={styles.textInput}
-                            placeholder="Type your answer (optional)"
-                            placeholderTextColor="rgba(255, 255, 255, 0.5)"
-                            multiline
-                            value={stressNote}
-                            onChangeText={setStressNote}
-                            textAlignVertical="top"
-                        />
+                    <View style={styles.optionsContainer}>
+                        {APPROACH_OPTIONS.map((option) => {
+                            const value = `${option.emoji} ${option.label}`;
+                            const isSelected = selectedApproach === value;
+                            
+                            return (
+                                <Pressable
+                                    key={option.label}
+                                    onPress={() => handleSelectApproach(option)}
+                                    style={({ pressed }) => [
+                                        styles.optionButton,
+                                        isSelected && styles.optionButtonSelected,
+                                        pressed && styles.optionButtonPressed,
+                                    ]}
+                                >
+                                    <Text style={styles.optionEmoji}>{option.emoji}</Text>
+                                    <Text
+                                        style={[
+                                            styles.optionText,
+                                            isSelected && styles.optionTextSelected,
+                                        ]}
+                                    >
+                                        {option.label}
+                                    </Text>
+                                </Pressable>
+                            );
+                        })}
                     </View>
                 </ScrollView>
 
                 <FadeFooterContainer paddingBottom={insets.bottom + Spacing.lg}>
                     <FooterButton
-                        label={buttonLabel}
+                        label="Continue"
                         onPress={handleContinue}
+                        disabled={!canContinue}
                         size={buttonSize}
                         paddingVertical={buttonPaddingVertical}
-                        variant="primary"
+                        variant={canContinue ? 'primary' : undefined}
+                        backgroundColor={canContinue ? undefined : '#6B7280'}
+                        textColor={canContinue ? undefined : BrandColors.white}
                     />
                 </FadeFooterContainer>
             </View>
@@ -166,20 +198,40 @@ const styles = StyleSheet.create({
         opacity: 0.9,
         lineHeight: Spacing['2xl'],
     },
-    inputContainer: {
+    optionsContainer: {
         paddingHorizontal: Spacing['2xl'],
+        gap: Spacing.md,
     },
-    textInput: {
+    optionButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
         backgroundColor: 'rgba(255, 255, 255, 0.1)',
         borderRadius: BorderRadius.lg,
         paddingHorizontal: Spacing.lg,
         paddingVertical: Spacing.lg,
+        gap: Spacing.md,
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.2)',
+    },
+    optionButtonSelected: {
+        backgroundColor: BrandColors.white,
+        borderColor: 'rgba(255, 255, 255, 0.3)',
+    },
+    optionButtonPressed: {
+        opacity: 0.7,
+    },
+    optionEmoji: {
+        fontSize: FontSize['2xl'],
+    },
+    optionText: {
         fontSize: FontSize.lg,
         fontFamily: FontFamily.regular,
         color: BrandColors.white,
-        borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.2)',
-        minHeight: 150,
+        flex: 1,
+    },
+    optionTextSelected: {
+        color: BrandColors.secondary,
+        fontFamily: FontFamily.semiBold,
     },
     bottomContainer: {
         paddingTop: Spacing.sm,

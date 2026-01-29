@@ -1,7 +1,7 @@
 /**
- * MaintenanceApproachStep
+ * MaintenanceFrustrationStep
  *
- * PURPOSE: Allows users to select their approach to car maintenance.
+ * PURPOSE: Allows users to select their biggest frustration with car maintenance.
  *
  * USED IN: components/tell-us-about/TellUsAboutFlow.tsx
  *
@@ -9,13 +9,6 @@
  *   - onNext (() => void): Callback to navigate to the next step
  *   - onBack (() => void): Callback to navigate to the previous step
  *   - progress ({ total: number; filled: number }): Progress indicator data
- *
- * EXAMPLE:
- *   <MaintenanceApproachStep 
- *     onNext={handleNext} 
- *     onBack={handleBack} 
- *     progress={{ total: 12, filled: 3 }} 
- *   />
  *
  * OWNER: Daniel Chelala
  * TICKET: OTO-XXX
@@ -46,27 +39,26 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 
-interface MaintenanceApproachStepProps {
+interface MaintenanceFrustrationStepProps {
     onNext: () => void;
     onBack: () => void;
     progress: { total: number; filled: number };
 }
 
-const APPROACH_OPTIONS = [
-    { emoji: '🗓️', label: 'Preventive: I follow the schedule strictly' },
-    { emoji: '📊', label: 'Data-driven: I track everything and service based on actual wear' },
-    { emoji: '🛠️', label: 'Problem-solving: I address issues as they come up' },
-    { emoji: '🏎️', label: 'Performance-focused: I maintain for optimal performance' },
-    { emoji: '💰', label: "Budget-conscious: I do what's necessary when necessary" },
+const FRUSTRATION_OPTIONS = [
+    { emoji: '🤝', label: 'Finding someone I trust' },
+    { emoji: '💰', label: 'Understanding if prices are fair' },
+    { emoji: '📅', label: 'Fitting it into my schedule' },
+    { emoji: '❓', label: 'Not knowing what my car actually needs' },
 ] as const;
 
-export function MaintenanceApproachStep({ onNext, onBack, progress }: MaintenanceApproachStepProps) {
+export function MaintenanceFrustrationStep({ onNext, onBack, progress }: MaintenanceFrustrationStepProps) {
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
     
-    const [selectedApproach, setSelectedApproach] = useState<string | null>(
-        data.maintenanceApproach ?? null
+    const [selectedFrustration, setSelectedFrustration] = useState<string | null>(
+        data.maintenanceFrustration ?? null
     );
 
     const dynamicStyles = {
@@ -78,19 +70,19 @@ export function MaintenanceApproachStep({ onNext, onBack, progress }: Maintenanc
     const buttonSize: 'md' | 'lg' = isCompact ? 'md' : 'lg';
     const buttonPaddingVertical = isCompact ? Spacing.sm : Spacing.lg;
 
-    const handleSelectApproach = (option: typeof APPROACH_OPTIONS[number]) => {
+    const handleSelectFrustration = (option: typeof FRUSTRATION_OPTIONS[number]) => {
         const value = `${option.emoji} ${option.label}`;
-        setSelectedApproach(value);
-        updateData({ maintenanceApproach: value });
+        setSelectedFrustration(value);
+        updateData({ maintenanceFrustration: value });
     };
 
     const handleContinue = () => {
-        if (selectedApproach) {
+        if (selectedFrustration) {
             onNext();
         }
     };
 
-    const canContinue = selectedApproach !== null;
+    const canContinue = selectedFrustration !== null;
 
     return (
         <KeyboardAvoidingView
@@ -113,22 +105,22 @@ export function MaintenanceApproachStep({ onNext, onBack, progress }: Maintenanc
                 >
                     <View style={styles.headerContent}>
                         <Text style={styles.title}>
-                            How do you approach car maintenance?
+                            What's most frustrating about car maintenance?
                         </Text>
                         <Text style={styles.subtitle}>
-                            Select the option that best describes you
+                            Select the biggest challenge you face
                         </Text>
                     </View>
 
                     <View style={styles.optionsContainer}>
-                        {APPROACH_OPTIONS.map((option) => {
+                        {FRUSTRATION_OPTIONS.map((option) => {
                             const value = `${option.emoji} ${option.label}`;
-                            const isSelected = selectedApproach === value;
+                            const isSelected = selectedFrustration === value;
                             
                             return (
                                 <Pressable
                                     key={option.label}
-                                    onPress={() => handleSelectApproach(option)}
+                                    onPress={() => handleSelectFrustration(option)}
                                     style={({ pressed }) => [
                                         styles.optionButton,
                                         isSelected && styles.optionButtonSelected,
@@ -150,7 +142,7 @@ export function MaintenanceApproachStep({ onNext, onBack, progress }: Maintenanc
                     </View>
                 </ScrollView>
 
-                <FadeFooterContainer paddingBottom={insets.bottom + Spacing.lg}>
+                <FadeFooterContainer paddingBottom={insets.bottom + Spacing.lg} fadeVariant={0}>
                     <FooterButton
                         label="Continue"
                         onPress={handleContinue}
@@ -239,4 +231,3 @@ const styles = StyleSheet.create({
         backgroundColor: 'transparent',
     },
 });
-

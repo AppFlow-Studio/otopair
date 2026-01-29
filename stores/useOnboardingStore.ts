@@ -87,18 +87,22 @@ interface OnboardingData {
 
   // Setup questionnaire (home bottom-sheet)
   carUsage: string | null;
-  servicePriorities: string[] | null;
-  decisionHelper: string | null;
-  isTellUsAboutYourselfComplete: boolean;
-  carStressNote: string | null;
-  maintenanceTracking: string | null;
-  monthlyMileage: string | null;
   shopType: string | null;
+  maintenanceFrustration: string | null;
+  maintenanceApproachLevel3: string | null;
+  servicePriorities: (
+    | 'quick_turnaround_time'
+    | 'high_quality_service'
+    | 'convenience_location'
+    | 'transparent_pricing'
+    | 'trusted_reviews_reputation'
+  )[] | null;
+  isTellUsAboutYourselfComplete: boolean;
+  maintenanceTracking: string | null;
   whyNewOption: string[] | null;
   carTerminologyComfort: string | null;
   repairQuoteNeeds: string[] | null;
   diyTasks: string[] | null;
-  maintenanceApproach: string | null;
   primaryReason: string | null;
   shopPriorities: string[] | null;
   communicationPreference: string | null;
@@ -206,8 +210,10 @@ const INITIAL_DATA: OnboardingData = {
   locationPermissionStatus: null,
   carKnowledgeLevel: null,
   carUsage: null,
+  shopType: null,
+  maintenanceFrustration: null,
+  maintenanceApproachLevel3: null,
   servicePriorities: null,
-  decisionHelper: null,
   lastOilChange: null,
   lastTireService: null,
   brakesReplaced: null,
@@ -222,15 +228,11 @@ const INITIAL_DATA: OnboardingData = {
   vehicleVin: null,
   vehicleMileage: null,
   isTellUsAboutYourselfComplete: false,
-  carStressNote: null,
   maintenanceTracking: null,
-  monthlyMileage: null,
-  shopType: null,
   whyNewOption: null,
   carTerminologyComfort: null,
   repairQuoteNeeds: null,
   diyTasks: null,
-  maintenanceApproach: null,
   primaryReason: null,
   shopPriorities: null,
   communicationPreference: null,
