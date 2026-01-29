@@ -16,8 +16,8 @@
  * TICKET: OTO-XXX
  */
 
-// TODO: Edit login button, as it currently navigates to home screen for testing purposes
-
+import { useState } from 'react';
+import { useSignIn } from '@clerk/clerk-expo';
 import {
     BrandColors,
     FontFamily,
@@ -28,6 +28,7 @@ import {
 } from '@/components/shared-ui';
 import { FooterButton } from '@/components/shared-ui/FooterButton';
 import { Image } from 'expo-image';
+import { router } from 'expo-router';
 import { MoveRight } from 'lucide-react-native';
 import {
     KeyboardAvoidingView,
@@ -48,6 +49,11 @@ export function WelcomeStep({ onNext, onBack }: WelcomeStepProps) {
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { setIsNewUser } = useAuthStore();
+    const { signIn, setActive, isLoaded } = useSignIn();
+    const [loginLoading, setLoginLoading] = useState(false);
+    const [loginError, setLoginError] = useState<string | null>(null);
+    const guestEmail = process.env.EXPO_PUBLIC_GUEST_EMAIL;
+    const guestPassword = process.env.EXPO_PUBLIC_GUEST_PASSWORD;
 
     const dynamicStyles = {
         container: { paddingTop: insets.top + Spacing.lg },
@@ -65,11 +71,44 @@ export function WelcomeStep({ onNext, onBack }: WelcomeStepProps) {
         onNext();
     };
 
-    const handleLogIn = () => {
-        // TODO: Navigate to login screen
-        console.log('Navigate to login');
-        setIsNewUser(false); // User is logging in (existing user)
-        onBack();
+    const handleLogIn = async () => {
+        if (loginLoading) return;
+
+        if (!isLoaded || !signIn) {
+            setLoginError('Sign in is not ready. Please try again.');
+            return;
+        }
+
+        if (!guestEmail || !guestPassword) {
+            setLoginError('Guest credentials are not configured.');
+            return;
+        }
+
+        setLoginLoading(true);
+        setLoginError(null);
+
+        try {
+            const result = await signIn.create({
+                identifier: guestEmail,
+                password: guestPassword,
+            });
+
+            if (!result.createdSessionId) {
+                throw new Error('Unable to create a session.');
+            }
+
+            await setActive?.({ session: result.createdSessionId });
+            console.log('Guest login successful for', guestEmail);
+            setIsNewUser(false);
+            router.replace('/(main-tabs)/home');
+            onBack();
+        } catch (error) {
+            const message =
+                error instanceof Error ? error.message : 'Unable to sign in.';
+            setLoginError(message);
+        } finally {
+            setLoginLoading(false);
+        }
     };
 
     return (
@@ -111,13 +150,19 @@ export function WelcomeStep({ onNext, onBack }: WelcomeStepProps) {
                 </View>
                 <View style={[styles.bottomContainer, dynamicStyles.bottomContainerSecondary]}>
                     <FooterButton
-                        label="Log In"
+                        label={loginLoading ? 'Logging In...' : 'Log In'}
                         onPress={handleLogIn}
+                        disabled={loginLoading}
                         rightIcon={<MoveRight size={FontSize.md} color={BrandColors.white} />}
                         size={buttonSize}
                         paddingVertical={buttonPaddingVertical}
                         variant="secondary"
                     />
+                    {loginError ? (
+                        <Text style={styles.loginErrorText} accessibilityRole="alert">
+                            {loginError}
+                        </Text>
+                    ) : null}
                 </View>
             </View>
         </KeyboardAvoidingView>
@@ -163,6 +208,13 @@ const styles = StyleSheet.create({
     bottomContainer: {
         paddingTop: Spacing.sm,
         paddingHorizontal: Spacing['2xl'],
+    },
+    loginErrorText: {
+        textAlign: 'center',
+        color: '#FCA5A5',
+        fontSize: FontSize.sm,
+        fontFamily: FontFamily.medium,
+        marginTop: Spacing.xs,
     },
 });
 
