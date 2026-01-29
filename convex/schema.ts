@@ -2,7 +2,6 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export default defineSchema({
-
   engines: defineTable({
     cylinders: v.float64(),
     displacement_liters: v.string(),
@@ -112,16 +111,20 @@ export default defineSchema({
   // --- New tables ---
 
   users: defineTable({
-    email: v.string(),
-    phone: v.string(),
-    first_name: v.string(),
-    last_name: v.string(),
-    created_at: v.string(),
-  }),
+    clerkUserId: v.string(),
+    onboardingCompleted: v.boolean(),
+    createdAt: v.number(),
+    email: v.optional(v.string()),
+    phone: v.optional(v.string()),
+    first_name: v.optional(v.string()),
+    last_name: v.optional(v.string()),
+    created_at: v.optional(v.string()),
+  }).index("by_clerkUserId", ["clerkUserId"]),
 
   user_vehicles: defineTable({
-    user_id: v.id("users"),
-    engine_id: v.id("engines"),
+    uengine_id: v.id("engines"),
+    ser_id: v.id("users"),
+
     vin: v.optional(v.string()),
     license_plate: v.optional(v.string()),
     year: v.float64(),
@@ -173,7 +176,7 @@ export default defineSchema({
         part_name: v.string(),
         oem_number: v.string(),
         cost: v.float64(),
-      })
+      }),
     ),
     actual_parts_cost: v.float64(),
     difficulty_rating: v.float64(),
@@ -203,5 +206,4 @@ export default defineSchema({
     rating: v.float64(),
     comment: v.string(),
   }),
-
 });

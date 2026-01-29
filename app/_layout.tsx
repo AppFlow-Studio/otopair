@@ -5,15 +5,16 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from "@react-navigation/native
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
-import { type ReactNode, useEffect } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
 
-import { ConvexReactClient } from "convex/react";
+import { ConvexReactClient, useMutation } from "convex/react";
 import { ConvexProviderWithClerk } from "convex/react-clerk";
 
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useAppFonts } from "@/hooks/use-fonts";
+import { api } from "@/convex/_generated/api";
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -37,6 +38,23 @@ function ConvexClerkProvider({ children }: { children: ReactNode }) {
   );
 }
 
+function EnsureConvexUserRecord() {
+  const { isSignedIn, userId } = useAuth();
+  const ensureUser = useMutation(api.users.getOrCreateMe);
+  const lastUserRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (isSignedIn && userId && lastUserRef.current !== userId) {
+      lastUserRef.current = userId;
+      ensureUser()
+        .then(() => console.log("Ensured Convex user via RootLayout"))
+        .catch((error) => console.error("Failed to ensure Convex user via RootLayout", error));
+    }
+  }, [ensureUser, isSignedIn, userId]);
+
+  return null;
+}
+
 export default function RootLayout() {
   const colorScheme = useColorScheme();
   const [fontsLoaded, fontError] = useAppFonts();
@@ -58,6 +76,7 @@ export default function RootLayout() {
       tokenCache={tokenCache}
     >
       <ConvexClerkProvider>
+        <EnsureConvexUserRecord />
         <GestureHandlerRootView style={{ flex: 1 }}>
           <BottomSheetModalProvider>
             <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
