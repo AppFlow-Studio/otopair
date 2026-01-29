@@ -57,7 +57,6 @@ const REPAIR_QUOTE_NEEDS_OPTIONS = [
     { emoji: '🔍', label: "Explanation of what's wrong" },
     { emoji: '⏳', label: 'How urgent it really is' },
     { emoji: '🧠', label: 'Alternative options/solutions' },
-    { emoji: '💵', label: 'Comparison to typical prices' },
     { emoji: '🕐', label: 'Time it will take' },
 ] as const;
 

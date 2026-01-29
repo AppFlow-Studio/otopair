@@ -53,7 +53,6 @@ interface ServicePrioritiesStepProps {
 }
 
 const SERVICE_PRIORITY_OPTIONS = [
-    { id: '💰 Getting the best price', emoji: '💰', label: 'Getting the best price' },
     { id: '⏰ Quick turnaround time', emoji: '⏰', label: 'Quick turnaround time' },
     { id: '🏆 High-quality service', emoji: '🏆', label: 'High-quality service' },
     { id: '📍 Convenience/location', emoji: '📍', label: 'Convenience/location' },
@@ -126,7 +125,7 @@ export function ServicePrioritiesStep({ onNext, onBack, progress }: ServicePrior
                             What matters most when getting your car serviced?
                         </Text>
                         <Text style={styles.subtitle}>
-                            Choose 3 out of the 6 items ({selectedPriorities.length}/3)
+                            Choose 3 out of the 5 items ({selectedPriorities.length}/3)
                         </Text>
                     </View>
 

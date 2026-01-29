@@ -53,10 +53,10 @@ interface MaintenanceTrackingStepProps {
 }
 
 const MAINTENANCE_TRACKING_OPTIONS = [
-    { emoji: '📘', label: 'I follow the schedule in my manual' },
+    { emoji: '📘', label: 'Based on my mileage' },
     { emoji: '🛠️', label: 'I go when something feels wrong' },
     { emoji: '📩', label: 'I get reminders from my mechanic' },
-    { emoji: '📅', label: 'I use an app or calendar' },
+    { emoji: '📅', label: 'My car reminds me' },
     { emoji: '🤷', label: "I don't really track it" },
 ] as const;
 
