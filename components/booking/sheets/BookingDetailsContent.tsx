@@ -94,13 +94,13 @@ export function BookingDetailsContent({ onAddMore, isFullScreen = false }: Booki
   // Get selected services
   const selectedServices = useMemo(
     () => availableServices.filter((service) => selectedServiceIds.includes(service.id)),
-    [availableServices, selectedServiceIds]
+    [availableServices, selectedServiceIds],
   );
 
   // Compute total from selected services (reactive)
   const totalPrice = useMemo(
     () => selectedServices.reduce((total, service) => total + service.price, 0),
-    [selectedServices]
+    [selectedServices],
   );
 
   // Mock rating count based on mechanic rating
@@ -140,7 +140,7 @@ export function BookingDetailsContent({ onAddMore, isFullScreen = false }: Booki
         displayDate,
       };
     },
-    [mechanic?.nextAvailability]
+    [mechanic?.nextAvailability],
   );
 
   // ═══════════════ EFFECTS ═══════════════
@@ -183,7 +183,7 @@ export function BookingDetailsContent({ onAddMore, isFullScreen = false }: Booki
       setPendingRemoveServiceId(serviceId);
       setShowDiscardModal(true);
     },
-    [skipServiceRemovalConfirm, toggleServiceSelection]
+    [skipServiceRemovalConfirm, toggleServiceSelection],
   );
 
   const handleConfirmRemove = useCallback(() => {
@@ -215,7 +215,7 @@ export function BookingDetailsContent({ onAddMore, isFullScreen = false }: Booki
       // Find the slot index that matches the selected date/time
       const dayOfMonth = date.getDate();
       const matchingIndex = mechanic?.nextAvailability?.findIndex(
-        (slot) => parseInt(slot.day, 10) === dayOfMonth && slot.time === time
+        (slot) => parseInt(slot.day, 10) === dayOfMonth && slot.time === time,
       );
       if (matchingIndex !== undefined && matchingIndex >= 0) {
         setSelectedSlotIndex(matchingIndex);
@@ -231,7 +231,7 @@ export function BookingDetailsContent({ onAddMore, isFullScreen = false }: Booki
         });
       }
     },
-    [mechanic?.nextAvailability, setScheduledAppointment]
+    [mechanic?.nextAvailability, setScheduledAppointment],
   );
 
   // ═══════════════ RENDER ═══════════════
@@ -302,7 +302,6 @@ export function BookingDetailsContent({ onAddMore, isFullScreen = false }: Booki
             />
           </>
         )}
-
       </ScrollComponent>
 
       {/* Discard Service Confirmation Modal */}
@@ -315,7 +314,6 @@ export function BookingDetailsContent({ onAddMore, isFullScreen = false }: Booki
 
       {/* All Availability Sheet */}
       <AllAvailabilitySheet ref={allAvailabilityRef} onConfirm={handleAvailabilityConfirm} />
-
     </View>
   );
 }

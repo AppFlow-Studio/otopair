@@ -57,7 +57,6 @@ const REPAIR_QUOTE_NEEDS_OPTIONS = [
     { emoji: '🔍', label: "Explanation of what's wrong" },
     { emoji: '⏳', label: 'How urgent it really is' },
     { emoji: '🧠', label: 'Alternative options/solutions' },
-    { emoji: '💵', label: 'Comparison to typical prices' },
     { emoji: '🕐', label: 'Time it will take' },
 ] as const;
 
@@ -66,8 +65,8 @@ export function RepairQuoteNeedsStep({ onNext, onBack, progress }: RepairQuoteNe
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
     
-    const [selectedNeeds, setSelectedNeeds] = useState<string[]>(
-        data.repairQuoteNeeds ?? []
+    const [selectedNeed, setSelectedNeed] = useState<string | null>(
+        data.repairQuoteNeeds?.[0] ?? null
     );
 
     const dynamicStyles = {
@@ -79,28 +78,19 @@ export function RepairQuoteNeedsStep({ onNext, onBack, progress }: RepairQuoteNe
     const buttonSize: 'md' | 'lg' = isCompact ? 'md' : 'lg';
     const buttonPaddingVertical = isCompact ? Spacing.sm : Spacing.lg;
 
-    const handleToggleNeed = (option: typeof REPAIR_QUOTE_NEEDS_OPTIONS[number]) => {
+    const handleSelectNeed = (option: typeof REPAIR_QUOTE_NEEDS_OPTIONS[number]) => {
         const value = `${option.emoji} ${option.label}`;
-        setSelectedNeeds((prev) => {
-            const exists = prev.includes(value);
-            if (exists) {
-                const next = prev.filter((v) => v !== value);
-                updateData({ repairQuoteNeeds: next.length ? next : null });
-                return next;
-            }
-            if (prev.length >= 3) return prev;
-            const next = [...prev, value];
-            updateData({ repairQuoteNeeds: next });
-            return next;
-        });
+        setSelectedNeed(value);
+        updateData({ repairQuoteNeeds: [value] });
     };
 
     const handleContinue = () => {
-        onNext();
+        if (selectedNeed) {
+            onNext();
+        }
     };
 
-    // This step allows skipping (can continue with 0 selections)
-    // but provides better experience with some selections
+    const canContinue = selectedNeed !== null;
 
     return (
         <KeyboardAvoidingView
@@ -126,26 +116,23 @@ export function RepairQuoteNeedsStep({ onNext, onBack, progress }: RepairQuoteNe
                             When getting a repair quote, what do you need to decide?
                         </Text>
                         <Text style={styles.subtitle}>
-                            Select up to 3 ({selectedNeeds.length}/3)
+                            Select the most important information
                         </Text>
                     </View>
 
                     <View style={styles.optionsContainer}>
                         {REPAIR_QUOTE_NEEDS_OPTIONS.map((option) => {
                             const value = `${option.emoji} ${option.label}`;
-                            const isSelected = selectedNeeds.includes(value);
-                            const isDisabled = !isSelected && selectedNeeds.length >= 3;
+                            const isSelected = selectedNeed === value;
                             
                             return (
                                 <Pressable
                                     key={option.label}
-                                    onPress={() => handleToggleNeed(option)}
-                                    disabled={isDisabled}
+                                    onPress={() => handleSelectNeed(option)}
                                     style={({ pressed }) => [
                                         styles.optionButton,
                                         isSelected && styles.optionButtonSelected,
-                                        isDisabled && styles.optionButtonDisabled,
-                                        pressed && !isDisabled && styles.optionButtonPressed,
+                                        pressed && styles.optionButtonPressed,
                                     ]}
                                 >
                                     <Text style={styles.optionEmoji}>{option.emoji}</Text>
@@ -165,11 +152,14 @@ export function RepairQuoteNeedsStep({ onNext, onBack, progress }: RepairQuoteNe
 
                 <FadeFooterContainer paddingBottom={insets.bottom + Spacing.lg}>
                     <FooterButton
-                        label="Finish"
+                        label="Continue"
                         onPress={handleContinue}
+                        disabled={!canContinue}
                         size={buttonSize}
                         paddingVertical={buttonPaddingVertical}
-                        variant="primary"
+                        variant={canContinue ? 'primary' : undefined}
+                        backgroundColor={canContinue ? undefined : '#6B7280'}
+                        textColor={canContinue ? undefined : BrandColors.white}
                     />
                 </FadeFooterContainer>
             </View>

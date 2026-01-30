@@ -1,13 +1,16 @@
+import { ClerkProvider, useAuth } from "@clerk/clerk-expo";
+import { tokenCache } from "@clerk/clerk-expo/token-cache";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { DarkTheme, DefaultTheme, ThemeProvider } from "@react-navigation/native";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
-import { useEffect } from "react";
+import { type ReactNode, useEffect } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
 
-import { ConvexProvider, ConvexReactClient } from "convex/react";
+import { ConvexReactClient } from "convex/react";
+import { ConvexProviderWithClerk } from "convex/react-clerk";
 
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useAppFonts } from "@/hooks/use-fonts";
@@ -23,6 +26,16 @@ export const unstable_settings = {
 const convex = new ConvexReactClient(process.env.EXPO_PUBLIC_CONVEX_URL!, {
   unsavedChangesWarning: false,
 });
+
+function ConvexClerkProvider({ children }: { children: ReactNode }) {
+  // Convex expects the Clerk useAuth hook that matches the provider
+  const auth = useAuth();
+  return (
+    <ConvexProviderWithClerk client={convex} useAuth={() => auth}>
+      {children}
+    </ConvexProviderWithClerk>
+  );
+}
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
@@ -40,26 +53,33 @@ export default function RootLayout() {
   }
 
   return (
-    <GestureHandlerRootView style={{ flex: 1 }}>
-      <BottomSheetModalProvider>
-        <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
-          <Stack>
-            <Stack.Screen name="index" options={{ headerShown: false }} />
-            <Stack.Screen name="(onboarding)" options={{ headerShown: false }} />
-            <Stack.Screen name="(main-tabs)" options={{ headerShown: false }} />
-            <Stack.Screen name="(tell-us-about)" options={{ headerShown: false }} />
-            <Stack.Screen name="coming-soon" options={{ headerShown: false }} />
-            <Stack.Screen name="add-vehicle" options={{ headerShown: false }} />
-            <Stack.Screen name="add-car-info" options={{ headerShown: false }} />
-            <Stack.Screen name="vehicle-added" options={{ headerShown: false }} />
-            <Stack.Screen name="vin-scanner" options={{ headerShown: false }} />
-            <Stack.Screen name="payments" options={{ headerShown: false }} />
-            {/* <Stack.Screen name="payment-methods" options={{ headerShown: false }} /> */}
-            <Stack.Screen name="modal" options={{ presentation: "modal", title: "Modal" }} />
-          </Stack>
-          <StatusBar style="auto" />
-        </ThemeProvider>
-      </BottomSheetModalProvider>
-    </GestureHandlerRootView>
+    <ClerkProvider
+      publishableKey={process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!}
+      tokenCache={tokenCache}
+    >
+      <ConvexClerkProvider>
+        <GestureHandlerRootView style={{ flex: 1 }}>
+          <BottomSheetModalProvider>
+            <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
+              <Stack>
+                <Stack.Screen name="index" options={{ headerShown: false }} />
+                <Stack.Screen name="(onboarding)" options={{ headerShown: false }} />
+                <Stack.Screen name="(main-tabs)" options={{ headerShown: false }} />
+                <Stack.Screen name="(tell-us-about)" options={{ headerShown: false }} />
+                <Stack.Screen name="coming-soon" options={{ headerShown: false }} />
+                <Stack.Screen name="add-vehicle" options={{ headerShown: false }} />
+                <Stack.Screen name="add-car-info" options={{ headerShown: false }} />
+                <Stack.Screen name="vehicle-added" options={{ headerShown: false }} />
+                <Stack.Screen name="vin-scanner" options={{ headerShown: false }} />
+                <Stack.Screen name="payments" options={{ headerShown: false }} />
+                {/* <Stack.Screen name="payment-methods" options={{ headerShown: false }} /> */}
+                <Stack.Screen name="modal" options={{ presentation: "modal", title: "Modal" }} />
+              </Stack>
+              <StatusBar style="auto" />
+            </ThemeProvider>
+          </BottomSheetModalProvider>
+        </GestureHandlerRootView>
+      </ConvexClerkProvider>
+    </ClerkProvider>
   );
 }

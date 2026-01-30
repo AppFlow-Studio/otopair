@@ -63,19 +63,19 @@ interface ExperienceOption {
 const EXPERIENCE_OPTIONS: ExperienceOption[] = [
     {
         id: 1,
-        label: 'Level 1: I just drive it',
+        label: 'I prefer things explained to me',
         icon: Car,
         emoji: '🚗',
     },
     {
         id: 2,
-        label: 'Level 2: I know the basics',
+        label: 'I know some stuff',
         icon: Wrench,
         emoji: '🔧',
     },
     {
         id: 3,
-        label: "Level 3: I'm pretty hands-on",
+        label: "I'm car-savvy",
         icon: Gauge,
         emoji: '🏎️',
     },
