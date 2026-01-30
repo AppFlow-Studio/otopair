@@ -39,6 +39,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuthStore } from '@/stores/useAuthStore';
+import { useMutation } from 'convex/react';
+import { api } from '@/convex/_generated/api';
 
 interface WelcomeStepProps {
     onNext: () => void;
@@ -51,6 +53,7 @@ export function WelcomeStep({ onNext, onBack }: WelcomeStepProps) {
     const { setIsNewUser } = useAuthStore();
     const { isSignedIn } = useAuth();
     const { signIn, setActive, isLoaded } = useSignIn();
+    const ensureConvexUser = useMutation(api.users.getOrCreateMe);
     const [loginLoading, setLoginLoading] = useState(false);
     const [loginError, setLoginError] = useState<string | null>(null);
     const guestEmail = process.env.EXPO_PUBLIC_GUEST_EMAIL;
@@ -77,6 +80,12 @@ export function WelcomeStep({ onNext, onBack }: WelcomeStepProps) {
 
         if (isSignedIn) {
             console.log('Guest already signed in, routing to home');
+            try {
+                await ensureConvexUser();
+                console.log('Ensured Convex user via WelcomeStep (already signed in)');
+            } catch (error) {
+                console.error('Failed to ensure Convex user record', error);
+            }
             setIsNewUser(false);
             router.replace('/(main-tabs)/home');
             onBack();
@@ -113,6 +122,12 @@ export function WelcomeStep({ onNext, onBack }: WelcomeStepProps) {
 
             await setActive?.({ session: attempt.createdSessionId });
             console.log('Guest login successful for', guestEmail);
+            try {
+                await ensureConvexUser();
+                console.log('Ensured Convex user via WelcomeStep after login');
+            } catch (error) {
+                console.error('Failed to ensure Convex user record', error);
+            }
             setIsNewUser(false);
             router.replace('/(main-tabs)/home');
             onBack();
