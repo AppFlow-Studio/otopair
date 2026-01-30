@@ -300,7 +300,7 @@ export default function HomeScreen() {
             {/* Content Area */}
             <View style={styles.content}>
               {/* Action Cards Carousel */}
-              <ActionCardsCarousel
+              {/* <ActionCardsCarousel
                 // Upcoming Appointment
                 appointmentBusinessName={'Premium\nAuto Care'}
                 appointmentMechanicName="John Rodriguez"
@@ -322,7 +322,7 @@ export default function HomeScreen() {
                 onCarSetupDismiss={() => setShowCarSetup(false)}
                 // Carousel callback
                 onCardChange={(index) => setActiveCardIndex(index)}
-              />
+              /> */}
 
               {/* Navigation ETA Bar - Only show when on Upcoming Appointment card */}
               {activeCardIndex === 1 && (
@@ -367,7 +367,7 @@ export default function HomeScreen() {
               </View>
 
           {/* Suggestions Section */}
-          <SuggestionsSection />
+          {/* <SuggestionsSection /> */}
 
             </View>
         </View>
