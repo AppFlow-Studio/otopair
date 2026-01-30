@@ -1,7 +1,7 @@
 /**
- * TerminologyComfortStep
+ * MaintenanceApproachStepLevel1
  *
- * PURPOSE: Allows users to select their comfort level with car-related terminology.
+ * PURPOSE: Allows users to select their general approach to car maintenance.
  *
  * USED IN: components/tell-us-about/TellUsAboutFlow.tsx
  *
@@ -9,13 +9,6 @@
  *   - onNext (() => void): Callback to navigate to the next step
  *   - onBack (() => void): Callback to navigate to the previous step
  *   - progress ({ total: number; filled: number }): Progress indicator data
- *
- * EXAMPLE:
- *   <TerminologyComfortStep 
- *     onNext={handleNext} 
- *     onBack={handleBack} 
- *     progress={{ total: 12, filled: 10 }} 
- *   />
  *
  * OWNER: Daniel Chelala
  * TICKET: OTO-XXX
@@ -46,26 +39,26 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 
-interface TerminologyComfortStepProps {
+interface MaintenanceApproachStepLevel1Props {
     onNext: () => void;
     onBack: () => void;
     progress: { total: number; filled: number };
 }
 
-const TERMINOLOGY_COMFORT_OPTIONS = [
-    { emoji: '📖', label: 'I understand most car terms' },
-    { emoji: '🧩', label: 'I know some common terms' },
-    { emoji: '🗣️', label: 'I prefer simple explanations' },
-    { emoji: '🎨', label: 'Use visuals when possible' },
+const APPROACH_OPTIONS = [
+    { emoji: '🗓️', label: 'I try to stay ahead of schedule' },
+    { emoji: '⚠️', label: 'I go when something feels off' },
+    { emoji: '🖥️', label: 'I wait until the dashboard tells me' },
+    { emoji: '🤝', label: 'I follow what the shop recommends' },
 ] as const;
 
-export function TerminologyComfortStep({ onNext, onBack, progress }: TerminologyComfortStepProps) {
+export function MaintenanceApproachStepLevel1({ onNext, onBack, progress }: MaintenanceApproachStepLevel1Props) {
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
     
-    const [selectedComfort, setSelectedComfort] = useState<string | null>(
-        data.carTerminologyComfort ?? null
+    const [selectedApproach, setSelectedApproach] = useState<string | null>(
+        data.maintenanceApproachLevel1 ?? null
     );
 
     const dynamicStyles = {
@@ -77,19 +70,19 @@ export function TerminologyComfortStep({ onNext, onBack, progress }: Terminology
     const buttonSize: 'md' | 'lg' = isCompact ? 'md' : 'lg';
     const buttonPaddingVertical = isCompact ? Spacing.sm : Spacing.lg;
 
-    const handleSelectComfort = (option: typeof TERMINOLOGY_COMFORT_OPTIONS[number]) => {
+    const handleSelectApproach = (option: typeof APPROACH_OPTIONS[number]) => {
         const value = `${option.emoji} ${option.label}`;
-        setSelectedComfort(value);
-        updateData({ carTerminologyComfort: value });
+        setSelectedApproach(value);
+        updateData({ maintenanceApproachLevel1: value });
     };
 
     const handleContinue = () => {
-        if (selectedComfort) {
+        if (selectedApproach) {
             onNext();
         }
     };
 
-    const canContinue = selectedComfort !== null;
+    const canContinue = selectedApproach !== null;
 
     return (
         <KeyboardAvoidingView
@@ -112,22 +105,22 @@ export function TerminologyComfortStep({ onNext, onBack, progress }: Terminology
                 >
                     <View style={styles.headerContent}>
                         <Text style={styles.title}>
-                            How comfortable are you with car terminology?
+                            How do you typically approach car maintenance?
                         </Text>
                         <Text style={styles.subtitle}>
-                            We'll adjust our explanations accordingly
+                            Select the style that matches you best
                         </Text>
                     </View>
 
                     <View style={styles.optionsContainer}>
-                        {TERMINOLOGY_COMFORT_OPTIONS.map((option) => {
+                        {APPROACH_OPTIONS.map((option) => {
                             const value = `${option.emoji} ${option.label}`;
-                            const isSelected = selectedComfort === value;
+                            const isSelected = selectedApproach === value;
                             
                             return (
                                 <Pressable
                                     key={option.label}
-                                    onPress={() => handleSelectComfort(option)}
+                                    onPress={() => handleSelectApproach(option)}
                                     style={({ pressed }) => [
                                         styles.optionButton,
                                         isSelected && styles.optionButtonSelected,
@@ -149,7 +142,7 @@ export function TerminologyComfortStep({ onNext, onBack, progress }: Terminology
                     </View>
                 </ScrollView>
 
-                <FadeFooterContainer paddingBottom={insets.bottom + Spacing.lg}>
+                <FadeFooterContainer paddingBottom={insets.bottom + Spacing.lg} fadeVariant={0}>
                     <FooterButton
                         label="Continue"
                         onPress={handleContinue}
@@ -232,10 +225,4 @@ const styles = StyleSheet.create({
         color: BrandColors.secondary,
         fontFamily: FontFamily.semiBold,
     },
-    bottomContainer: {
-        paddingTop: Spacing.sm,
-        paddingHorizontal: Spacing['2xl'],
-        backgroundColor: 'transparent',
-    },
 });
-

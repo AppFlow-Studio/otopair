@@ -89,6 +89,7 @@ interface OnboardingData {
   carUsage: string | null;
   shopType: string | null;
   maintenanceFrustration: string | null;
+  maintenanceApproachLevel1: string | null;
   maintenanceApproachLevel3: string | null;
   servicePriorities: (
     | 'quick_turnaround_time'
@@ -99,8 +100,6 @@ interface OnboardingData {
   )[] | null;
   isTellUsAboutYourselfComplete: boolean;
   maintenanceTracking: string | null;
-  whyNewOption: string[] | null;
-  carTerminologyComfort: string | null;
   repairQuoteNeeds: string[] | null;
   diyTasks: string[] | null;
   primaryReason: string | null;
@@ -212,6 +211,7 @@ const INITIAL_DATA: OnboardingData = {
   carUsage: null,
   shopType: null,
   maintenanceFrustration: null,
+  maintenanceApproachLevel1: null,
   maintenanceApproachLevel3: null,
   servicePriorities: null,
   lastOilChange: null,
@@ -229,8 +229,6 @@ const INITIAL_DATA: OnboardingData = {
   vehicleMileage: null,
   isTellUsAboutYourselfComplete: false,
   maintenanceTracking: null,
-  whyNewOption: null,
-  carTerminologyComfort: null,
   repairQuoteNeeds: null,
   diyTasks: null,
   primaryReason: null,

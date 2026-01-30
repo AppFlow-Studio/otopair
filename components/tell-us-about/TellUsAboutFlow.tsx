@@ -33,11 +33,10 @@ import { ServicePrioritiesStep } from './steps/ServicePrioritiesStep';
 import { MaintenanceFrustrationStep } from './steps/MaintenanceFrustrationStep';
 import { MaintenanceTrackingStep } from './steps/MaintenanceTrackingStep';
 import { ShopTypeStep } from './steps/ShopTypeStep';
-import { WhyNewOptionStep } from './steps/WhyNewOptionStep';
-import { TerminologyComfortStep } from './steps/TerminologyComfortStep';
 import { RepairQuoteNeedsStep } from './steps/RepairQuoteNeedsStep';
 import { DoItYourselfStep } from './steps/DoItYourselfStep';
 import { MaintenanceApproachStepLevel3 } from './steps/MaintenanceApproachStepLevel3';
+import { MaintenanceApproachStepLevel1 } from './steps/MaintenanceApproachStepLevel1';
 import { PrimaryReasonStep } from './steps/PrimaryReasonStep';
 import { ShopPrioritiesStep } from './steps/ShopPrioritiesStep';
 import { CommunicationPreferenceStep } from './steps/CommunicationPreferenceStep';
@@ -51,10 +50,9 @@ export type TellUsAboutStep =
     | 'maintenanceFrustration'
     | 'maintenanceTracking'
     | 'shopType'
-    | 'whyNewOption'
-    | 'terminologyComfort'
     | 'repairQuoteNeeds'
     | 'doItYourself'
+    | 'maintenanceApproachLevel1'
     | 'maintenanceApproachLevel3'
     | 'primaryReason'
     | 'shopPriorities'
@@ -71,10 +69,9 @@ const STEP_INDICES: Record<TellUsAboutStep, number> = {
     maintenanceApproachLevel3: 4,
     servicePriorities: 5,
     maintenanceTracking: 6,
-    whyNewOption: 7,
-    terminologyComfort: 8,
     repairQuoteNeeds: 9,
     doItYourself: 10,
+    maintenanceApproachLevel1: 4,
     primaryReason: 11,
     shopPriorities: 12,
     communicationPreference: 13,
@@ -122,13 +119,13 @@ export function TellUsAboutFlow({ initialStep = 'experience' }: TellUsAboutFlowP
         const level = data.carKnowledgeLevel;
         
         if (level === 1) {
-            // Level 1 path: experience -> carUsage -> shopType -> maintenanceFrustration -> maintenanceApproachLevel3 -> servicePriorities
-            const steps: TellUsAboutStep[] = ['experience', 'carUsage', 'shopType', 'maintenanceFrustration', 'maintenanceApproachLevel3', 'servicePriorities'];
+            // Level 1 path: experience -> carUsage -> shopType -> maintenanceFrustration -> maintenanceApproachLevel1 -> servicePriorities
+            const steps: TellUsAboutStep[] = ['experience', 'carUsage', 'shopType', 'maintenanceFrustration', 'maintenanceApproachLevel1', 'servicePriorities'];
             const current = steps.indexOf(currentStep) + 1;
             return { total: steps.length, filled: current > 0 ? current : 1 };
         } else if (level === 2) {
-            // Level 2 path: experience -> maintenanceTracking -> shopType -> whyNewOption -> terminologyComfort -> repairQuoteNeeds
-            const steps: TellUsAboutStep[] = ['experience', 'maintenanceTracking', 'shopType', 'whyNewOption', 'terminologyComfort', 'repairQuoteNeeds'];
+            // Level 2 path: experience -> maintenanceTracking -> shopType -> repairQuoteNeeds -> servicePriorities
+            const steps: TellUsAboutStep[] = ['experience', 'maintenanceTracking', 'shopType', 'repairQuoteNeeds', 'servicePriorities'];
             const current = steps.indexOf(currentStep) + 1;
             return { total: steps.length, filled: current > 0 ? current : 1 };
         } else {
@@ -164,6 +161,9 @@ export function TellUsAboutFlow({ initialStep = 'experience' }: TellUsAboutFlowP
             case 'maintenanceFrustration':
                 goToStep('shopType');
                 break;
+            case 'maintenanceApproachLevel1':
+                goToStep('maintenanceFrustration');
+                break;
             case 'maintenanceApproachLevel3':
                 if (level === 1) {
                     goToStep('maintenanceFrustration');
@@ -173,9 +173,11 @@ export function TellUsAboutFlow({ initialStep = 'experience' }: TellUsAboutFlowP
                 break;
             case 'servicePriorities':
                 if (level === 1) {
-                    goToStep('maintenanceApproachLevel3');
+                    goToStep('maintenanceApproachLevel1');
+                } else if (level === 2) {
+                    goToStep('repairQuoteNeeds');
                 } else if (level === 3) {
-                    goToStep('terminologyComfort');
+                    goToStep('experience'); // Fixed from terminologyComfort
                 }
                 break;
             
@@ -198,15 +200,9 @@ export function TellUsAboutFlow({ initialStep = 'experience' }: TellUsAboutFlowP
             case 'additionalPreferences':
                 goToStep('communicationPreference');
                 break;
-            case 'whyNewOption':
-                goToStep('shopType');
-                break;
-            case 'terminologyComfort':
-                goToStep('whyNewOption');
-                break;
             case 'repairQuoteNeeds':
                 if (level === 2) {
-                    goToStep('terminologyComfort');
+                    goToStep('shopType');
                 } else {
                     // Level 1: no longer exists, but keeping fallback
                     goToStep('experience');
@@ -239,14 +235,6 @@ export function TellUsAboutFlow({ initialStep = 'experience' }: TellUsAboutFlowP
                 goToStep('maintenanceApproachLevel3');
                 break;
             
-            case 'maintenanceApproachLevel3':
-                if (level === 3) {
-                    goToStep('primaryReason');
-                } else {
-                    goToStep('shopType');
-                }
-                break;
-            
             case 'primaryReason':
                 goToStep('shopPriorities');
                 break;
@@ -271,11 +259,14 @@ export function TellUsAboutFlow({ initialStep = 'experience' }: TellUsAboutFlowP
                 if (level === 1) {
                     goToStep('maintenanceFrustration');
                 } else {
-                    goToStep('whyNewOption');
+                    goToStep('repairQuoteNeeds');
                 }
                 break;
             case 'maintenanceFrustration':
-                goToStep('maintenanceApproachLevel3');
+                goToStep('maintenanceApproachLevel1');
+                break;
+            case 'maintenanceApproachLevel1':
+                goToStep('servicePriorities');
                 break;
             case 'maintenanceApproachLevel3':
                 if (level === 1) {
@@ -294,19 +285,12 @@ export function TellUsAboutFlow({ initialStep = 'experience' }: TellUsAboutFlowP
             case 'maintenanceTracking':
                 goToStep('shopType');
                 break;
-            case 'whyNewOption':
-                goToStep('terminologyComfort');
-                break;
-            case 'terminologyComfort':
-                if (level === 2) {
-                    goToStep('repairQuoteNeeds');
-                } else {
-                    goToStep('servicePriorities');
-                }
-                break;
             case 'repairQuoteNeeds':
-                // Finish
-                goToStep('complete');
+                if (level === 2) {
+                    goToStep('servicePriorities');
+                } else {
+                    goToStep('complete');
+                }
                 break;
             
             default:
@@ -375,15 +359,6 @@ export function TellUsAboutFlow({ initialStep = 'experience' }: TellUsAboutFlowP
                         progress={{ total: progressInfo.total, filled: progressInfo.filled - 1 }}
                     />
                 );
-            case 'whyNewOption':
-            case 'terminologyComfort':
-                return (
-                    <TerminologyComfortStep 
-                        onNext={goNext} 
-                        onBack={goBack}
-                        progress={{ total: progressInfo.total, filled: progressInfo.filled - 1 }}
-                    />
-                );
             case 'repairQuoteNeeds':
                 return (
                     <RepairQuoteNeedsStep 
@@ -395,6 +370,14 @@ export function TellUsAboutFlow({ initialStep = 'experience' }: TellUsAboutFlowP
             case 'doItYourself':
                 return (
                     <DoItYourselfStep 
+                        onNext={goNext} 
+                        onBack={goBack}
+                        progress={{ total: progressInfo.total, filled: progressInfo.filled - 1 }}
+                    />
+                );
+            case 'maintenanceApproachLevel1':
+                return (
+                    <MaintenanceApproachStepLevel1
                         onNext={goNext} 
                         onBack={goBack}
                         progress={{ total: progressInfo.total, filled: progressInfo.filled - 1 }}
