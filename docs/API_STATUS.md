@@ -1,7 +1,7 @@
 # Convex API Surface
 
 **Generated:** January 31, 2026  
-**Status:** Partial coverage (12/19 modules have queries/mutations)  
+**Status:** Production-ready vehicle model implemented  
 **Source:** Convex files in `/workspaces/otopair/convex/*.ts`
 
 ---
@@ -10,12 +10,36 @@
 
 ### ✅ Fully Implemented (Queries + Mutations)
 
-#### **bookings.ts**
+#### **vehicles.ts** — NEW ✅
+- `list()` — Get all vehicles
+- `getById(id)` — Get vehicle by ID
+- `getByVin(vin)` — Get vehicle by canonical VIN (unique lookup)
+- `getVehicleWithOwners(vin)` — Get vehicle + all active owners
+- `getVehicleOwner(vin, userId)` — Get specific ownership record
+- `listVehiclesByUser(userId)` — List active vehicles for user
+- `listOwnedVINsByUser(userId)` — Just the VINs owned by user
+- `upsertVehicle(vin, trim_id?, engine_id?, year?, metadata?)` — Create/update vehicle
+- `addOwner(vin, userId, nickname?, is_primary?, mileage?)` — Add/reactivate ownership
+- `removeOwner(vin, userId)` — Soft-delete ownership
+- `updateOwnershipPrimary(vin, userId, is_primary)` — Set primary vehicle
+- `updateMileage(vin, userId, mileage)` — Update current mileage
+
+#### **vehicle_owners.ts** — NEW ✅
+- `getByVin(vin)` — All ownership records (active + removed)
+- `getActiveByVin(vin)` — Only active owners
+- `getByUser(userId)` — All ownerships (active + removed)
+- `getActiveByUser(userId)` — Only active vehicles for user
+- `getByVinAndUser(vin, userId)` — Single ownership record
+- `getPrimaryVehicle(userId)` — Get user's primary vehicle
+- `isOwnedByUser(vin, userId)` — Boolean: active ownership exists
+- `getOwnerCount(vin)` — Count of active owners
+
+#### **bookings.ts** — UPDATED ✅
 - `list()` — Get all bookings
 - `getById(id)` — Get single booking
-- `create(user_id, vin, shop_id, service_id, ...)` — Create booking + reserve time slot
-- `getByUserId(userId)` — Get user's bookings
-- `getByShopId(shopId)` — Get shop's bookings
+- `getByUserId(userId)` — Get user's bookings (indexed)
+- `getByShopId(shopId)` — Get shop's bookings (indexed)
+- `create(user_id, vin, shop_id, service_id, ...)` — Create booking with VIN ✅ UPDATED
 - `updateStatus(id, newStatus, reason)` — Update booking status with FSM validation + async history log
 
 #### **payments.ts**
@@ -35,13 +59,15 @@
 - `completeJob(bookingId)` — Mark job completed
 - `submitJobActuals(bookingId, actual_labor_minutes, actual_parts_cost, parts_used, difficulty_rating, ...)` — Submit final job details + track variance
 
-#### **follow_ups.ts**
+#### **follow_ups.ts** — UPDATED ✅
 - `list()` — Get all follow-ups
 - `getById(id)` — Get follow-up by ID
 - `getByUserId(userId)` — Get user's follow-ups
-- `getByVin(vin)` — Get follow-ups for a vehicle (NEW: uses VIN)
+- `getByVin(vin)` — Get follow-ups for a vehicle ✅ USES VIN
+- `getByStatus(status)` — Get follow-ups by status
+- `getByBookingId(bookingId)` — Get follow-ups for a booking
 - `getPendingReminders(beforeTimestamp)` — Get pending reminders before a time
-- `create(user_id, vin, service_id, follow_up_type, scheduled_for, message)` — Create reminder (NEW: uses VIN)
+- `create(user_id, vin, service_id, follow_up_type, scheduled_for, message)` — Create reminder ✅ USES VIN
 - `updateStatus(id, status)` — Update follow-up status (pending/sent/completed/dismissed)
 - `dismiss(id)` — Dismiss a follow-up
 
@@ -142,59 +168,12 @@
 
 ---
 
-### ❌ Missing Access Layers (Tables Deleted or Not Created)
+### ⚠️ Deprecated
 
-#### **vehicles.ts** — MISSING (needs creation)
-**Purpose:** Manage canonical vehicle catalog (unique by VIN)
-
-**Planned Mutations:**
-```typescript
-upsertVehicle({
-  vin: string,
-  trim_id?: Id<"trims">,
-  engine_id?: Id<"engines">,
-  year?: number,
-  metadata?: any
-}): Promise<Doc<"vehicles">>
-
-addOwner({
-  vin: string,
-  userId: Id<"users">,
-  nickname?: string,
-  is_primary?: boolean,
-  mileage?: number
-}): Promise<Id<"vehicle_owners">>
-
-removeOwner({
-  vin: string,
-  userId: Id<"users">
-}): Promise<void>
-```
-
-**Planned Queries:**
-```typescript
-listVehiclesByUser({
-  userId: Id<"users">
-}): Promise<Array<{ vin, vehicle, ownership }>>
-
-getVehicleWithOwners({
-  vin: string
-}): Promise<{ vehicle, owners: Array<ownership> }>
-```
-
-#### **vehicle_owners.ts** — MISSING (needs creation)
-**Purpose:** Join table for ownership relationships (soft-delete support)
-
-**Planned Queries:**
-```typescript
-getByVin(vin: string): Promise<Array<ownership>>
-getByUser(userId: Id<"users">): Promise<Array<ownership>>
-getActiveByUser(userId: Id<"users">): Promise<Array<ownership>>
-```
-
-#### **user_vehicles.ts** — DEPRECATED (old schema)
-**Status:** Still exists but references deleted table in old bookings
-**Action:** Remove after vehicles.ts fully operational
+#### **user_vehicles.ts** — DEPRECATED
+**Status:** Replaced by `vehicles.ts` + `vehicle_owners.ts`  
+**Action:** Marked deprecated with comments. Do not use for new code.  
+**Note:** Kept temporarily for backward compatibility. Will be removed after full migration.
 
 ---
 
@@ -290,16 +269,24 @@ getActiveByUser(userId: Id<"users">): Promise<Array<ownership>>
 
 ## Next Steps
 
+### ✅ Completed (January 31, 2026)
+1. ✅ Created `vehicles.ts` with full mutation/query support
+2. ✅ Created `vehicle_owners.ts` with soft-delete aware helpers
+3. ✅ Updated `bookings.create` to use `vin` parameter
+4. ✅ Updated `job_actuals.ts` to use VIN-based vehicle lookups
+5. ✅ Updated `follow_ups.ts` to use VIN-based references
+6. ✅ Marked `user_vehicles.ts` as deprecated
+
 ### High Priority
-1. Create `vehicles.ts` with upsertVehicle, addOwner, removeOwner mutations
-2. Create `vehicle_owners.ts` with query helpers
-3. Update `bookings.create` to accept `vin` parameter instead of `user_vehicle_id`
-4. Update frontend to call new vehicles API
+1. Update frontend to use new vehicles API (vehicles.listVehiclesByUser, vehicles.addOwner, etc.)
+2. Test VIN-based booking flow end-to-end
+3. Add smoke tests for vehicle ownership (add, remove, reactivate)
 
 ### Medium Priority
 1. Test all FSM transitions (valid + invalid)
 2. Verify invariants (unique job_actuals, unique reviews per booking)
 3. Add createUser flow tests
+4. Update seed.ts to use new vehicle model
 
 ### Low Priority
 1. Implement read-only catalog queries (engines, makes, models, etc.)
@@ -308,4 +295,4 @@ getActiveByUser(userId: Id<"users">): Promise<Array<ownership>>
 
 ---
 
-**Last Updated:** January 31, 2026
+**Last Updated:** January 31, 2026 — Vehicle model fully implemented

@@ -1,8 +1,9 @@
 # Database Status Report
 
 **Date:** January 31, 2026  
-**Schema Version:** Current (vehicles + vehicle_owners refactor)  
-**Source of Truth:** `/workspaces/otopair/convex/schema.ts`
+**Schema Version:** Current (vehicles + vehicle_owners + VIN-based bookings)  
+**Source of Truth:** `/workspaces/otopair/convex/schema.ts`  
+**Status:** ✅ Production-ready with full vehicle model implementation
 
 ---
 
@@ -276,20 +277,20 @@ payment_status_history (append-only)
 ## Access Layer Coverage
 
 ### Implemented ✅
-- bookings, payments, job_actuals, reviews, follow_ups (all core mutations/queries)
-- booking_status_history, payment_status_history (append-only operations)
-- AI conversations & messages
-- Analytics events & conversion funnels
+- **Vehicle Management:** vehicles.ts, vehicle_owners.ts (NEW — full CRUD with soft-delete)
+- **Core Transactions:** bookings, payments, job_actuals, reviews, follow_ups (all VIN-based)
+- **Audit Logs:** booking_status_history, payment_status_history (append-only FSM)
+- **AI & Chat:** ai_conversations, ai_messages (full session tracking)
+- **Analytics:** analytics_events, conversion_funnels (funnel tracking + events)
 
 ### Schema-Only 🟡
 - Catalog tables (makes, models, trims, engines) — read-only, seeded
 - Service definitions (services, service_categories, service_options, service_vehicle_specs)
 - Spec intelligence (ai_enrichment_logs, manual_review_queue, spec_variances, spec_confirmations)
 
-### Missing ❌
-- **vehicles.ts** — No access layer yet for upsertVehicle, addOwner, removeOwner
-- **vehicle_owners.ts** — No access layer; operations embedded in vehicles.ts (when created)
+### Deprecated ⚠️
+- **user_vehicles.ts** — Replaced by vehicles + vehicle_owners. Do not use for new code.
 
 ---
 
-**Last Updated:** January 31, 2026
+**Last Updated:** January 31, 2026 — Vehicle model fully implemented

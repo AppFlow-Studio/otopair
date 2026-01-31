@@ -41,7 +41,9 @@ import type * as time_slots from "../time_slots.js";
 import type * as trims from "../trims.js";
 import type * as user_vehicles from "../user_vehicles.js";
 import type * as users from "../users.js";
+import type * as vehicle_owners from "../vehicle_owners.js";
 import type * as vehicle_specs from "../vehicle_specs.js";
+import type * as vehicles from "../vehicles.js";
 
 import type {
   ApiFromModules,
@@ -83,7 +85,9 @@ declare const fullApi: ApiFromModules<{
   trims: typeof trims;
   user_vehicles: typeof user_vehicles;
   users: typeof users;
+  vehicle_owners: typeof vehicle_owners;
   vehicle_specs: typeof vehicle_specs;
+  vehicles: typeof vehicles;
 }>;
 
 /**

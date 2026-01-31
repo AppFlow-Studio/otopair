@@ -1,7 +1,72 @@
+/**
+ * schema.ts - Convex Database Schema
+ * 
+ * DESCRIPTION: 
+ * Central schema definition for the entire Convex database. This file defines
+ * all tables, their fields, types, relationships, and indexes. It serves as the
+ * single source of truth for the database structure.
+ * 
+ * ARCHITECTURE:
+ * - Core entities: users, vehicles, shops, mechanics, services
+ * - Booking flow: bookings, time_slots, payments (with status history)
+ * - Vehicle specs: vehicles, vehicle_owners, engines, trims, models, makes
+ * - AI/enrichment: ai_conversations, ai_messages, ai_enrichment_logs, manual_review_queue
+ * - Analytics: analytics_events, conversion_funnels
+ * - Reviews & feedback: reviews, service_insights, spec_confirmations, spec_variances
+ * - Maintenance: follow_ups, booking_status_history, payment_status_history
+ * 
+ * OWNER: Backend Team
+ */
+
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export default defineSchema({
+  /**
+   * TABLE: bookings
+   * 
+   * DESCRIPTION:
+   * Stores confirmed service bookings for vehicles at shops.
+   * Central record linking users, vehicles, shops, mechanics, and services.
+   * 
+   * FIELDS:
+   *   - user_id: References the user who made the booking
+   *   - vin: Canonical VIN (uppercase normalized) linking to vehicles table
+   *   - service_id: The service being booked (e.g., "Oil Change")
+   *   - shop_id: The shop where service will be performed
+   *   - mechanic_id: (optional) Specific mechanic assigned to the job
+   *   - time_slot_id: The chosen appointment time slot
+   *   - scheduled_date: Date of service (YYYY-MM-DD format)
+   *   - scheduled_time: Time of service (HH:MM format)
+   *   - labor_cost: Estimated labor cost in dollars
+   *   - parts_cost: Estimated parts cost in dollars
+   *   - total_cost: Sum of labor_cost + parts_cost
+   *   - status: Current booking state (e.g., "confirmed", "completed", "cancelled")
+   *   - created_at: Unix timestamp when booking was created
+   *   - updated_at: Unix timestamp of last modification
+   * 
+   * INDEXES:
+   *   - by_user_id: Query all bookings for a user
+   *   - by_shop_id: Query all bookings at a shop
+   *   - by_status: Query bookings by status (for filtering)
+   *   - by_scheduled_date: Query bookings on specific dates
+   *   - by_service_id: Query bookings for specific service
+   *   - by_user_and_status: Combined queries for user's specific-status bookings
+   *   - by_shop_and_date: Query bookings at shop on specific date
+   *   - by_shop_and_status: Query shop's bookings by status
+   *   - by_created_at: Chronological ordering of bookings
+   * 
+   * RELATIONSHIPS:
+   *   FK → users(user_id)
+   *   FK → vehicles(vin) via canonical VIN lookup
+   *   FK → shops(shop_id)
+   *   FK → services(service_id)
+   *   FK → mechanics(mechanic_id)
+   *   FK → time_slots(time_slot_id)
+   *   Has-one → payments (via booking_id)
+   *   Has-one → job_actuals (via booking_id)
+   *   Has-one → reviews (via booking_id)
+   */
   bookings: defineTable({
     labor_cost: v.float64(),
     mechanic_id: v.optional(v.id("mechanics")),
@@ -27,6 +92,29 @@ export default defineSchema({
     .index("by_shop_and_date", ["shop_id", "scheduled_date"])
     .index("by_shop_and_status", ["shop_id", "status"])
     .index("by_created_at", ["created_at"]),
+  
+  /**
+   * TABLE: engines
+   * 
+   * DESCRIPTION:
+   * Stores engine specifications for specific vehicle trims.
+   * Links trims to their precise engine characteristics.
+   * 
+   * FIELDS:
+   *   - trim_id: References the vehicle trim
+   *   - engine_code: OEM engine code/designation (e.g., "5SFE")
+   *   - cylinders: Number of cylinders (e.g., 4, 6, 8)
+   *   - displacement_liters: Engine displacement (e.g., "3.5L")
+   *   - fuel_type: Type of fuel (e.g., "gasoline", "diesel", "hybrid", "electric")
+   * 
+   * RELATIONSHIPS:
+   *   FK → trims(trim_id)
+   *   Has-many → vehicles (via engine_id)
+   *   Has-many → service_insights (via engine_id)
+   *   Has-many → service_vehicle_specs (via engine_id)
+   *   Has-many → ai_enrichment_logs (via engine_id)
+   *   Has-many → spec_variances (via engine_id)
+   */
   engines: defineTable({
     cylinders: v.float64(),
     displacement_liters: v.string(),
@@ -34,6 +122,42 @@ export default defineSchema({
     fuel_type: v.string(),
     trim_id: v.id("trims"),
   }),
+  
+  /**
+   * TABLE: job_actuals
+   * 
+   * DESCRIPTION:
+   * Records actual job performance data after service completion.
+   * Compares estimated vs actual labor/parts costs for continuous improvement.
+   * Single record per completed booking.
+   * 
+   * FIELDS:
+   *   - booking_id: References the booking this job is for
+   *   - mechanic_id: The mechanic who performed the work
+   *   - started_at: Unix timestamp when work started
+   *   - actual_labor_minutes: Actual time spent on job
+   *   - completed_at_ms: Unix timestamp when work finished
+   *   - actual_parts_cost: Actual parts cost incurred
+   *   - parts_used: Array of parts with cost, part name, OEM number
+   *   - difficulty_rating: Mechanic's assessment of job difficulty (1-5)
+   *   - technician_notes: Notes from mechanic about work performed
+   *   - created_at: When this record was created
+   *   - updated_at: Last modification timestamp
+   * 
+   * LEGACY FIELDS (DEPRECATED):
+   *   - completed_at, job_completed_at, job_started_at, logged_at: String timestamps
+   *   Use millisecond-based fields instead for all new data
+   * 
+   * INDEXES:
+   *   - by_booking_id: Get actuals for specific booking
+   *   - by_mechanic_id: Get all jobs completed by a mechanic
+   *   - by_created_at: Chronological ordering
+   * 
+   * RELATIONSHIPS:
+   *   FK → bookings(booking_id)
+   *   FK → mechanics(mechanic_id)
+   *   Has-many → spec_variances (via job_actual_id)
+   */
   job_actuals: defineTable({
     actual_labor_minutes: v.float64(),
     actual_parts_cost: v.float64(),
@@ -63,10 +187,52 @@ export default defineSchema({
     .index("by_booking_id", ["booking_id"])
     .index("by_mechanic_id", ["mechanic_id"])
     .index("by_created_at", ["created_at"]),
+  
+  /**
+   * TABLE: makes
+   * 
+   * DESCRIPTION:
+   * Stores vehicle manufacturer (make) information.
+   * Top-level in vehicle hierarchy: Makes → Models → Trims → Engines
+   * 
+   * FIELDS:
+   *   - name: Manufacturer name (e.g., "Toyota", "Honda")
+   *   - logo_url: URL to manufacturer's logo image
+   * 
+   * RELATIONSHIPS:
+   *   Has-many → models (via make_id)
+   */
   makes: defineTable({
     logo_url: v.string(),
     name: v.string(),
   }),
+  
+  /**
+   * TABLE: mechanics
+   * 
+   * DESCRIPTION:
+   * Stores individual mechanic/technician information.
+   * Each mechanic is employed at a specific shop.
+   * 
+   * FIELDS:
+   *   - shop_id: The shop this mechanic works at
+   *   - first_name: Mechanic's first name
+   *   - last_name: Mechanic's last name
+   *   - is_active: Whether mechanic is currently available
+   *   - rating: Average rating from customer reviews (0-5)
+   *   - review_count: Total number of reviews received
+   * 
+   * INDEXES:
+   *   - by_shop_id: Get all mechanics at a shop
+   *   - by_is_active: Filter for active mechanics
+   * 
+   * RELATIONSHIPS:
+   *   FK → shops(shop_id)
+   *   Has-many → bookings (via mechanic_id)
+   *   Has-many → job_actuals (via mechanic_id)
+   *   Has-many → time_slots (via mechanic_id)
+   *   Has-many → reviews (via mechanic_id)
+   */
   mechanics: defineTable({
     first_name: v.string(),
     is_active: v.boolean(),
@@ -77,10 +243,48 @@ export default defineSchema({
   })
     .index("by_shop_id", ["shop_id"])
     .index("by_is_active", ["is_active"]),
+  
+  /**
+   * TABLE: models
+   * 
+   * DESCRIPTION:
+   * Stores vehicle model information (e.g., Camry, Accord).
+   * Second level in vehicle hierarchy: Makes → Models → Trims → Engines
+   * 
+   * FIELDS:
+   *   - make_id: References the vehicle make
+   *   - name: Model name (e.g., "Camry", "Accord")
+   * 
+   * RELATIONSHIPS:
+   *   FK → makes(make_id)
+   *   Has-many → trims (via model_id)
+   */
   models: defineTable({
     make_id: v.id("makes"),
     name: v.string(),
   }),
+  
+  /**
+   * TABLE: onboarding_question_answers
+   * 
+   * DESCRIPTION:
+   * Defines predefined answer options for onboarding questions.
+   * Allows users to select from multiple choice options.
+   * 
+   * FIELDS:
+   *   - question_id: References the onboarding question
+   *   - answer_text: Display text shown to user (e.g., "Every 5,000 miles")
+   *   - answer_value: Internal value stored in database
+   *   - display_order: Order to show answer in UI
+   *   - emoji: Optional emoji icon to display with answer
+   * 
+   * INDEXES:
+   *   - by_question_id: Get all answers for a question
+   * 
+   * RELATIONSHIPS:
+   *   FK → onboarding_questions(question_id)
+   *   Has-many → user_question_answers (via answer_id)
+   */
   onboarding_question_answers: defineTable({
     answer_text: v.string(),
     answer_value: v.string(),
@@ -88,6 +292,30 @@ export default defineSchema({
     emoji: v.optional(v.string()),
     question_id: v.id("onboarding_questions"),
   }).index("by_question_id", ["question_id"]),
+  
+  /**
+   * TABLE: onboarding_questions
+   * 
+   * DESCRIPTION:
+   * Defines questions asked during user onboarding.
+   * Used to gather preferences, vehicle info, and service needs.
+   * 
+   * FIELDS:
+   *   - step_name: Onboarding step name (e.g., "vehicle_info", "preferences")
+   *   - question_text: The question text displayed to user
+   *   - question_type: Type of question (e.g., "single_choice", "multi_choice", "text")
+   *   - rank: Ordering within step
+   *   - display_order: Overall display order across all steps
+   *   - is_active: Whether question is currently shown
+   * 
+   * INDEXES:
+   *   - by_rank: Order questions within step
+   *   - by_step_name: Get all questions for a step
+   * 
+   * RELATIONSHIPS:
+   *   Has-many → onboarding_question_answers (via question_id)
+   *   Has-many → user_question_answers (via question_id)
+   */
   onboarding_questions: defineTable({
     display_order: v.float64(),
     is_active: v.boolean(),
@@ -98,6 +326,35 @@ export default defineSchema({
   })
     .index("by_rank", ["rank"])
     .index("by_step_name", ["step_name"]),
+  
+  /**
+   * TABLE: reviews
+   * 
+   * DESCRIPTION:
+   * Stores customer reviews for services and shops.
+   * Users leave ratings and comments after booking completion.
+   * 
+   * FIELDS:
+   *   - booking_id: The booking being reviewed
+   *   - user_id: The user who left the review
+   *   - shop_id: The shop being reviewed
+   *   - mechanic_id: (optional) Specific mechanic being reviewed
+   *   - rating: Star rating (typically 1-5)
+   *   - comment: Review text from user
+   *   - created_at: Unix timestamp when review was posted
+   * 
+   * INDEXES:
+   *   - by_booking_id: Get review for specific booking
+   *   - by_shop_id: Get all reviews for a shop
+   *   - by_user_id: Get all reviews from a user
+   *   - by_rating: Filter reviews by rating
+   * 
+   * RELATIONSHIPS:
+   *   FK → bookings(booking_id)
+   *   FK → users(user_id)
+   *   FK → shops(shop_id)
+   *   FK → mechanics(mechanic_id)
+   */
   reviews: defineTable({
     booking_id: v.id("bookings"),
     comment: v.string(),
@@ -111,11 +368,55 @@ export default defineSchema({
     .index("by_shop_id", ["shop_id"])
     .index("by_user_id", ["user_id"])
     .index("by_rating", ["rating"]),
+  
+  /**
+   * TABLE: service_categories
+   * 
+   * DESCRIPTION:
+   * Groups services into logical categories for UI organization.
+   * Examples: Maintenance, Repairs, Inspections, Upgrades
+   * 
+   * FIELDS:
+   *   - name: Category name (e.g., "Oil Changes")
+   *   - icon_name: Icon identifier for UI display
+   *   - display_order: Order to show categories
+   * 
+   * RELATIONSHIPS:
+   *   Has-many → services (via service_category_id)
+   */
   service_categories: defineTable({
     display_order: v.float64(),
     icon_name: v.string(),
     name: v.string(),
   }),
+  
+  /**
+   * TABLE: service_insights
+   * 
+   * DESCRIPTION:
+   * Aggregated performance data for service+engine combinations.
+   * Calculated from job_actuals to show historical averages and confidence.
+   * Used to improve cost/time estimates over time.
+   * 
+   * FIELDS:
+   *   - engine_id: The engine this data applies to
+   *   - service_id: The service being performed
+   *   - completed_jobs_count: How many jobs completed for this combo
+   *   - estimated_labor_hours: Estimated time based on service definition
+   *   - avg_actual_labor_hours: Actual average from completed jobs
+   *   - labor_variance: Difference between estimated and actual
+   *   - avg_actual_parts_cost: Average parts cost from completed jobs
+   *   - confidence_level: Confidence in these estimates (0-1 scale)
+   * 
+   * INDEXES:
+   *   - by_engine_id: Get insights for specific engine
+   *   - by_service_id: Get insights for specific service
+   *   - by_engine_and_service: Combined lookup
+   * 
+   * RELATIONSHIPS:
+   *   FK → engines(engine_id)
+   *   FK → services(service_id)
+   */
   service_insights: defineTable({
     avg_actual_labor_hours: v.float64(),
     avg_actual_parts_cost: v.float64(),
@@ -129,6 +430,27 @@ export default defineSchema({
     .index("by_engine_id", ["engine_id"])
     .index("by_service_id", ["service_id"])
     .index("by_engine_and_service", ["engine_id", "service_id"]),
+  
+  /**
+   * TABLE: service_options
+   * 
+   * DESCRIPTION:
+   * Defines optional variations for services (e.g., synthetic vs regular oil).
+   * Allows users to customize services with different parts/labor.
+   * 
+   * FIELDS:
+   *   - service_id: References the service
+   *   - option_type: Type of option (e.g., "oil_type", "filter_brand")
+   *   - option_label: Display name (e.g., "Synthetic Oil")
+   *   - labor_hours: Additional labor time for this option
+   *   - parts_cost_low: Minimum parts cost for option
+   *   - parts_cost_high: Maximum parts cost for option
+   *   - state_fee: (optional) State/local fee for this option
+   *   - display_order: Order to show options
+   * 
+   * RELATIONSHIPS:
+   *   FK → services(service_id)
+   */
   service_options: defineTable({
     display_order: v.float64(),
     labor_hours: v.float64(),
@@ -139,6 +461,32 @@ export default defineSchema({
     service_id: v.id("services"),
     state_fee: v.optional(v.float64()),
   }),
+  
+  /**
+   * TABLE: service_vehicle_specs
+   * 
+   * DESCRIPTION:
+   * Pre-calculated service specifications for specific engine+service combinations.
+   * Provides quick lookup of labor/parts estimates without complex calculations.
+   * 
+   * FIELDS:
+   *   - engine_id: The engine this spec applies to
+   *   - service_id: The service being performed
+   *   - labor_hours: Estimated labor time
+   *   - parts_cost_low: Low estimate for parts cost
+   *   - parts_cost_high: High estimate for parts cost
+   *   - confidence_score: Confidence in these specs (0-1)
+   *   - tech_notes: Technical notes for this combination
+   * 
+   * INDEXES:
+   *   - by_engine_id: Lookup by engine
+   *   - by_service_id: Lookup by service
+   *   - by_engine_and_service: Combined lookup
+   * 
+   * RELATIONSHIPS:
+   *   FK → engines(engine_id)
+   *   FK → services(service_id)
+   */
   service_vehicle_specs: defineTable({
     confidence_score: v.float64(),
     engine_id: v.id("engines"),
@@ -151,6 +499,32 @@ export default defineSchema({
     .index("by_engine_id", ["engine_id"])
     .index("by_service_id", ["service_id"])
     .index("by_engine_and_service", ["engine_id", "service_id"]),
+  
+  /**
+   * TABLE: services
+   * 
+   * DESCRIPTION:
+   * Master list of all services offered on the platform.
+   * Examples: Oil Change, Tire Rotation, Brake Inspection
+   * 
+   * FIELDS:
+   *   - name: Service name
+   *   - description: Detailed description of what service includes
+   *   - slug: URL-friendly identifier
+   *   - service_category_id: Category this service belongs to
+   *   - default_labor_hours: Default estimated labor time
+   *   - is_labor_only: Whether service has no parts cost
+   *   - has_options: Whether users can customize this service
+   *   - display_order: Order to show in UI
+   * 
+   * RELATIONSHIPS:
+   *   FK → service_categories(service_category_id)
+   *   Has-many → bookings (via service_id)
+   *   Has-many → service_options (via service_id)
+   *   Has-many → service_insights (via service_id)
+   *   Has-many → service_vehicle_specs (via service_id)
+   *   Has-many → shop_services (via service_id)
+   */
   services: defineTable({
     default_labor_hours: v.float64(),
     description: v.string(),
@@ -161,6 +535,28 @@ export default defineSchema({
     service_category_id: v.id("service_categories"),
     slug: v.string(),
   }),
+  
+  /**
+   * TABLE: shop_services
+   * 
+   * DESCRIPTION:
+   * Junction table mapping services offered at specific shops.
+   * Tracks which services each shop provides.
+   * 
+   * FIELDS:
+   *   - shop_id: References the shop
+   *   - service_id: References the service
+   *   - is_offered: Whether this shop currently offers this service
+   * 
+   * INDEXES:
+   *   - by_shop_id: Get all services offered at a shop
+   *   - by_service_id: Get all shops offering a service
+   *   - by_shop_and_service: Combined lookup
+   * 
+   * RELATIONSHIPS:
+   *   FK → shops(shop_id)
+   *   FK → services(service_id)
+   */
   shop_services: defineTable({
     is_offered: v.boolean(),
     service_id: v.id("services"),
@@ -169,6 +565,38 @@ export default defineSchema({
     .index("by_shop_id", ["shop_id"])
     .index("by_service_id", ["service_id"])
     .index("by_shop_and_service", ["shop_id", "service_id"]),
+  
+  /**
+   * TABLE: shops
+   * 
+   * DESCRIPTION:
+   * Stores automotive service shops/repair facilities.
+   * Core entity in the platform representing businesses offering services.
+   * 
+   * FIELDS:
+   *   - name: Shop name
+   *   - slug: URL-friendly shop identifier
+   *   - address: Street address
+   *   - city: City name
+   *   - state: State abbreviation
+   *   - zip: Postal code
+   *   - lat: Latitude for map display
+   *   - lng: Longitude for map display
+   *   - phone: Contact phone number
+   *   - labor_rate: Hourly labor rate in dollars
+   *   - rating: Average shop rating (0-5)
+   *   - review_count: Total number of reviews
+   *   - is_active: Whether shop is currently accepting bookings
+   *   - is_verified: Whether shop is verified by platform
+   * 
+   * RELATIONSHIPS:
+   *   Has-many → bookings (via shop_id)
+   *   Has-many → mechanics (via shop_id)
+   *   Has-many → time_slots (via shop_id)
+   *   Has-many → shops_hours (via shop_id)
+   *   Has-many → shop_services (via shop_id)
+   *   Has-many → reviews (via shop_id)
+   */
   shops: defineTable({
     address: v.string(),
     city: v.string(),
@@ -185,6 +613,28 @@ export default defineSchema({
     state: v.string(),
     zip: v.string(),
   }),
+  
+  /**
+   * TABLE: shops_hours
+   * 
+   * DESCRIPTION:
+   * Stores operating hours for shops (by day of week).
+   * One record per shop per day of week (7 records per shop max).
+   * 
+   * FIELDS:
+   *   - shop_id: References the shop
+   *   - day_name: Day name (e.g., "Monday", "Tuesday")
+   *   - day_of_week: Numeric day (0=Sunday, 1=Monday, etc.)
+   *   - is_closed: Whether shop is closed this day
+   *   - open_time: Opening time (e.g., "09:00")
+   *   - close_time: Closing time (e.g., "17:00")
+   * 
+   * INDEXES:
+   *   - by_shop_id: Get all operating hours for a shop
+   * 
+   * RELATIONSHIPS:
+   *   FK → shops(shop_id)
+   */
   shops_hours: defineTable({
     close_time: v.optional(v.string()),
     day_name: v.string(),
@@ -194,6 +644,34 @@ export default defineSchema({
     shop_id: v.id("shops"),
   })
     .index("by_shop_id", ["shop_id"]),
+  
+  /**
+   * TABLE: time_slots
+   * 
+   * DESCRIPTION:
+   * Available appointment time slots at shops.
+   * Tracks available booking slots by shop, date, and mechanic.
+   * Slots are marked as unavailable when bookings are confirmed.
+   * 
+   * FIELDS:
+   *   - shop_id: References the shop
+   *   - mechanic_id: (optional) Specific mechanic for this slot
+   *   - date: Date of slot (YYYY-MM-DD)
+   *   - start_time: Start time (HH:MM)
+   *   - end_time: End time (HH:MM)
+   *   - is_available: Whether slot is still bookable
+   * 
+   * INDEXES:
+   *   - by_shop_id: Get slots for a shop
+   *   - by_mechanic_id: Get slots for a mechanic
+   *   - by_shop_and_date: Get slots for shop on specific date
+   *   - by_availability: Filter available slots by date
+   * 
+   * RELATIONSHIPS:
+   *   FK → shops(shop_id)
+   *   FK → mechanics(mechanic_id)
+   *   Becomes-reference → bookings (via time_slot_id)
+   */
   time_slots: defineTable({
     date: v.string(),
     end_time: v.string(),
@@ -206,12 +684,56 @@ export default defineSchema({
     .index("by_mechanic_id", ["mechanic_id"])
     .index("by_shop_and_date", ["shop_id", "date"])
     .index("by_availability", ["is_available", "date"]),
+  
+  /**
+   * TABLE: trims
+   * 
+   * DESCRIPTION:
+   * Stores vehicle trim information (e.g., Camry LE, Camry XLE).
+   * Third level in vehicle hierarchy: Makes → Models → Trims → Engines
+   * 
+   * FIELDS:
+   *   - model_id: References the vehicle model
+   *   - name: Trim name (e.g., "LE", "XLE", "Limited")
+   *   - year_start: First year this trim was produced
+   *   - year_end: Last year this trim was produced
+   * 
+   * RELATIONSHIPS:
+   *   FK → models(model_id)
+   *   Has-many → engines (via trim_id)
+   *   Has-many → vehicles (via trim_id)
+   */
   trims: defineTable({
     model_id: v.id("models"),
     name: v.string(),
     year_end: v.float64(),
     year_start: v.float64(),
   }),
+  
+  /**
+   * TABLE: user_question_answers
+   * 
+   * DESCRIPTION:
+   * Stores user responses to onboarding questions.
+   * Captures user preferences and vehicle information during onboarding.
+   * 
+   * FIELDS:
+   *   - user_id: References the user
+   *   - question_id: References the onboarding question
+   *   - answer_id: (optional) References predefined answer
+   *   - answer_ids: (optional) For multi-choice, array of selected answers
+   *   - free_text_answer: (optional) For text questions, user's response
+   *   - answered_at: Unix timestamp when answered
+   * 
+   * INDEXES:
+   *   - by_user_and_question: Get user's answer to specific question
+   *   - by_user_id: Get all answers from user
+   * 
+   * RELATIONSHIPS:
+   *   FK → users(user_id)
+   *   FK → onboarding_questions(question_id)
+   *   FK → onboarding_question_answers(answer_id)
+   */
   user_question_answers: defineTable({
     answer_id: v.optional(
       v.id("onboarding_question_answers")
@@ -229,6 +751,36 @@ export default defineSchema({
       "question_id",
     ])
     .index("by_user_id", ["user_id"]),
+  
+  /**
+   * TABLE: vehicles
+   * 
+   * DESCRIPTION:
+   * Canonical vehicle catalog - one record per VIN.
+   * Vehicle ownership is tracked in vehicle_owners table.
+   * Links to vehicle specs (trim, engine, year).
+   * 
+   * FIELDS:
+   *   - vin: Vehicle Identification Number (uppercase, normalized, UNIQUE)
+   *   - trim_id: References the vehicle trim
+   *   - engine_id: References the engine specs
+   *   - year: Model year of vehicle
+   *   - metadata: Flexible field for additional vehicle data
+   *   - created_at: Unix timestamp when vehicle was added
+   *   - updated_at: Unix timestamp of last modification
+   * 
+   * INDEXES:
+   *   - by_vin: Primary lookup by VIN (unique)
+   *   - by_engine_id: Find all vehicles with specific engine
+   *   - by_trim_id: Find all vehicles with specific trim
+   * 
+   * RELATIONSHIPS:
+   *   FK → trims(trim_id)
+   *   FK → engines(engine_id)
+   *   Has-many → vehicle_owners (via vin)
+   *   Has-many → bookings (via vin)
+   *   Has-many → follow_ups (via vin)
+   */
   vehicles: defineTable({
     vin: v.string(), // canonical unique identifier
     trim_id: v.optional(v.id("trims")),
@@ -242,6 +794,33 @@ export default defineSchema({
     .index("by_engine_id", ["engine_id"])
     .index("by_trim_id", ["trim_id"]),
 
+  /**
+   * TABLE: vehicle_owners
+   * 
+   * DESCRIPTION:
+   * Tracks ownership relationships between users and vehicles.
+   * One record per user-vehicle pair. Supports vehicle removal (soft delete).
+   * 
+   * FIELDS:
+   *   - vin: Canonical VIN reference
+   *   - user_id: User who owns this vehicle
+   *   - status: "active" (currently owned) or "removed" (deleted by user)
+   *   - nickname: (optional) User's personal name for vehicle (e.g., "My Daily")
+   *   - is_primary: (optional) Whether this is user's primary vehicle
+   *   - mileage: (optional) Current vehicle mileage
+   *   - added_at: Unix timestamp when vehicle was added
+   *   - removed_at: (optional) Unix timestamp when removed
+   * 
+   * INDEXES:
+   *   - by_vin: Get all owners of a vehicle
+   *   - by_user_id: Get all vehicles owned by user
+   *   - by_vin_user: Combined lookup for specific ownership
+   *   - by_user_status: Get user's active/removed vehicles
+   * 
+   * RELATIONSHIPS:
+   *   FK → vehicles(vin)
+   *   FK → users(user_id)
+   */
   vehicle_owners: defineTable({
     vin: v.string(), // FK-like to vehicles.vin
     user_id: v.id("users"),
@@ -256,6 +835,46 @@ export default defineSchema({
     .index("by_user_id", ["user_id"])
     .index("by_vin_user", ["vin", "user_id"])
     .index("by_user_status", ["user_id", "status"]),
+  
+  /**
+   * TABLE: users
+   * 
+   * DESCRIPTION:
+   * Platform users (vehicle owners seeking maintenance services).
+   * Primary authentication via Clerk (third-party auth provider).
+   * Stores user profile, contact, and onboarding state.
+   * 
+   * FIELDS:
+   *   - clerkUserId: External ID from Clerk auth (UNIQUE)
+   *   - email: User's email address
+   *   - phone: User's phone number
+   *   - first_name: User's first name
+   *   - last_name: User's last name
+   *   - username: Username (optional, for social features)
+   *   - alias: Alternative name/nickname
+   *   - profile_photo_url: URL to user's profile picture
+   *   - car_knowledge_level: Self-reported auto knowledge (1-5 scale)
+   *   - user_intentions: Array of user goals/interests
+   *   - onboardingCompleted: Whether user finished onboarding
+   *   - tellUsAboutCompleted: Whether "Tell Us About You" section completed
+   *   - auth_provider: Which provider for auth (e.g., "oauth_google")
+   *   - createdAt: Unix timestamp of account creation
+   *   - emailConfirmed: Whether email is verified
+   *   - phoneVerified: Whether phone is verified
+   * 
+   * INDEXES:
+   *   - by_clerkUserId: Auth lookup by external ID
+   *   - by_username: Social lookup by username
+   * 
+   * RELATIONSHIPS:
+   *   Has-many → bookings (via user_id)
+   *   Has-many → payments (via user_id)
+   *   Has-many → vehicle_owners (via user_id)
+   *   Has-many → reviews (via user_id)
+   *   Has-many → ai_conversations (via user_id)
+   *   Has-many → user_question_answers (via user_id)
+   *   Has-many → follow_ups (via user_id)
+   */
   users: defineTable({
     alias: v.optional(v.string()),
     auth_provider: v.optional(v.string()),
@@ -277,6 +896,28 @@ export default defineSchema({
   })
     .index("by_clerkUserId", ["clerkUserId"])
     .index("by_username", ["username"]),
+  
+  /**
+   * TABLE: vehicle_specs
+   * 
+   * DESCRIPTION:
+   * Detailed vehicle specifications for maintenance (oil type, brake pads, etc).
+   * Contains OEM part numbers and maintenance specs for specific engines.
+   * 
+   * FIELDS:
+   *   - engine_id: References the engine
+   *   - oil_viscocity: Engine oil viscosity rating (e.g., "5W-30")
+   *   - oil_capacity_qts: Oil capacity in quarts
+   *   - oil_filter_oem: OEM oil filter part number
+   *   - front_brake_pad_oem: OEM front brake pad part number
+   *   - rear_brake_pad_oem: OEM rear brake pad part number
+   *   - battery_cca: Battery Cold Cranking Amps rating
+   *   - battery_group: Battery group size (e.g., "27F")
+   *   - parking_brake_type: Type of parking brake (e.g., "drum", "disc")
+   * 
+   * RELATIONSHIPS:
+   *   FK → engines(engine_id)
+   */
   vehicle_specs: defineTable({
     battery_cca: v.float64(),
     battery_group: v.string(),
@@ -288,7 +929,45 @@ export default defineSchema({
     parking_brake_type: v.string(),
     rear_brake_pad_oem: v.string(),
   }),
-  // Payment tracking (separate from bookings)
+  
+  // ============================================================================
+  // PAYMENT TRACKING
+  // ============================================================================
+  
+  /**
+   * TABLE: payments
+   * 
+   * DESCRIPTION:
+   * Payment records for completed bookings.
+   * Tracks payment status, method, and transaction IDs.
+   * Separate from bookings to handle multiple payments per booking (if needed).
+   * 
+   * FIELDS:
+   *   - booking_id: References the booking being paid for
+   *   - user_id: User making payment
+   *   - shop_id: Shop receiving payment
+   *   - amount: Payment amount in dollars
+   *   - payment_method: Method used ("card", "cash", "apple_pay", etc.)
+   *   - status: Payment state ("pending", "completed", "failed", "refunded")
+   *   - transaction_id: Internal transaction identifier
+   *   - stripe_payment_intent_id: Stripe payment intent ID (if using Stripe)
+   *   - idempotency_key: Key for preventing duplicate charges
+   *   - created_at: Unix timestamp when payment was initiated
+   *   - updated_at: Unix timestamp of last status update
+   * 
+   * INDEXES:
+   *   - by_booking_id: Get payment for booking
+   *   - by_user_id: Get all payments by user
+   *   - by_status: Filter payments by status
+   *   - by_idempotency_key: Prevent duplicate payments
+   *   - by_created_at: Chronological ordering
+   * 
+   * RELATIONSHIPS:
+   *   FK → bookings(booking_id)
+   *   FK → users(user_id)
+   *   FK → shops(shop_id)
+   *   Has-one → payment_status_history (via payment_id)
+   */
   payments: defineTable({
     booking_id: v.id("bookings"),
     user_id: v.id("users"),
@@ -307,7 +986,42 @@ export default defineSchema({
     .index("by_status", ["status"])
     .index("by_idempotency_key", ["idempotency_key"])
     .index("by_created_at", ["created_at"]),
-  // Follow-up reminders and maintenance scheduling
+  
+  // ============================================================================
+  // FOLLOW-UPS & MAINTENANCE
+  // ============================================================================
+  
+  /**
+   * TABLE: follow_ups
+   * 
+   * DESCRIPTION:
+   * Maintenance reminders and follow-up notifications for users.
+   * Tracks scheduled reminders for services (e.g., "Oil change due in 3000 miles").
+   * 
+   * FIELDS:
+   *   - user_id: User receiving reminder
+   *   - vin: Vehicle needing service
+   *   - booking_id: (optional) Related booking if from past service
+   *   - service_id: Service to be reminded about
+   *   - follow_up_type: Type of follow-up ("reminder", "maintenance_due", "inspection")
+   *   - scheduled_for: Unix timestamp when reminder should trigger
+   *   - status: Current state ("pending", "sent", "completed", "dismissed")
+   *   - message: Reminder message text
+   *   - created_at: When reminder was created
+   *   - sent_at: (optional) When reminder was sent to user
+   * 
+   * INDEXES:
+   *   - by_user_id: Get reminders for user
+   *   - by_vin: Get reminders for vehicle
+   *   - by_status_and_scheduled: Get pending reminders to send
+   *   - by_booking_id: Get reminders related to booking
+   * 
+   * RELATIONSHIPS:
+   *   FK → users(user_id)
+   *   FK → vehicles(vin)
+   *   FK → services(service_id)
+   *   FK → bookings(booking_id)
+   */
   follow_ups: defineTable({
     user_id: v.id("users"),
     vin: v.string(), // canonical VIN reference
@@ -324,7 +1038,39 @@ export default defineSchema({
     .index("by_vin", ["vin"])
     .index("by_status_and_scheduled", ["status", "scheduled_for"])
     .index("by_booking_id", ["booking_id"]),
-  // AI conversation sessions
+  
+  // ============================================================================
+  // AI CONVERSATIONS & ENRICHMENT
+  // ============================================================================
+  
+  /**
+   * TABLE: ai_conversations
+   * 
+   * DESCRIPTION:
+   * Conversation sessions with AI chat assistant.
+   * Tracks multi-turn conversations and whether they led to bookings.
+   * 
+   * FIELDS:
+   *   - user_id: User having conversation
+   *   - session_id: Client-generated session UUID for correlation
+   *   - started_at: Unix timestamp when conversation started
+   *   - ended_at: (optional) When conversation ended
+   *   - scenario_detected: (optional) Detected user scenario ("price_check", "booking_flow")
+   *   - message_count: Number of messages in conversation
+   *   - booking_id: (optional) Booking created from this conversation
+   *   - led_to_booking: Whether conversation resulted in booking
+   * 
+   * INDEXES:
+   *   - by_user_id: Get conversations for user
+   *   - by_session_id: Lookup by session (unique)
+   *   - by_booking_id: Get conversation that led to booking
+   *   - by_started_at: Chronological ordering
+   * 
+   * RELATIONSHIPS:
+   *   FK → users(user_id)
+   *   FK → bookings(booking_id)
+   *   Has-many → ai_messages (via conversation_id)
+   */
   ai_conversations: defineTable({
     user_id: v.id("users"),
     started_at: v.float64(),
@@ -339,7 +1085,30 @@ export default defineSchema({
     .index("by_session_id", ["session_id"])
     .index("by_booking_id", ["booking_id"])
     .index("by_started_at", ["started_at"]),
-  // Individual AI messages
+  
+  /**
+   * TABLE: ai_messages
+   * 
+   * DESCRIPTION:
+   * Individual messages in AI conversation sessions.
+   * Complete message history for analysis and training.
+   * 
+   * FIELDS:
+   *   - conversation_id: References the conversation session
+   *   - role: Message source ("user", "assistant", "system")
+   *   - content: Message text content
+   *   - timestamp: Unix timestamp when message was sent
+   *   - confidence_score: (optional) AI confidence in response (0-1)
+   *   - metadata: (optional) Additional context (detected services, shops, intent)
+   * 
+   * INDEXES:
+   *   - by_conversation_id: Get all messages in conversation
+   *   - by_role: Filter messages by role
+   *   - by_timestamp: Chronological ordering
+   * 
+   * RELATIONSHIPS:
+   *   FK → ai_conversations(conversation_id)
+   */
   ai_messages: defineTable({
     conversation_id: v.id("ai_conversations"),
     role: v.string(), // "user", "assistant", "system"
@@ -357,7 +1126,36 @@ export default defineSchema({
     .index("by_conversation_id", ["conversation_id"])
     .index("by_role", ["role"])
     .index("by_timestamp", ["timestamp"]),
-  // Analytics event tracking
+  
+  // ============================================================================
+  // ANALYTICS & CONVERSION TRACKING
+  // ============================================================================
+  
+  /**
+   * TABLE: analytics_events
+   * 
+   * DESCRIPTION:
+   * Platform event tracking for analytics and funnel optimization.
+   * Records user actions across the application (page views, bookings, payments).
+   * 
+   * FIELDS:
+   *   - user_id: (optional) User who triggered event
+   *   - event_type: Specific event ("page_view", "booking_started", "payment_completed")
+   *   - event_category: Category of event ("booking", "payment", "navigation", "ai_chat")
+   *   - event_data: (optional) Event-specific data (booking/shop/service IDs, screen names)
+   *   - timestamp: Unix timestamp when event occurred
+   *   - session_id: (optional) Client session ID for grouping events
+   * 
+   * INDEXES:
+   *   - by_user_id: Get events for user
+   *   - by_event_type: Filter by event type
+   *   - by_event_category: Filter by category
+   *   - by_timestamp: Chronological ordering
+   *   - by_session_id: Group events by session
+   * 
+   * RELATIONSHIPS:
+   *   FK → users(user_id) (optional)
+   */
   analytics_events: defineTable({
     user_id: v.optional(v.id("users")),
     event_type: v.string(), // "page_view", "booking_started", "payment_completed", etc.
@@ -379,7 +1177,37 @@ export default defineSchema({
     .index("by_event_category", ["event_category"])
     .index("by_timestamp", ["timestamp"])
     .index("by_session_id", ["session_id"]),
-  // Conversion funnel tracking
+  
+  /**
+   * TABLE: conversion_funnels
+   * 
+   * DESCRIPTION:
+   * Tracks user progression through conversion funnels.
+   * Records each step of booking/payment flows for analytics.
+   * Used to identify drop-off points and optimize conversion.
+   * 
+   * FIELDS:
+   *   - user_id: User going through funnel
+   *   - funnel_type: Type of funnel ("booking_flow", "payment_flow", "onboarding")
+   *   - stage: Current stage in funnel ("started", "service_selected", "shop_selected", etc.)
+   *   - booking_id: (optional) Associated booking
+   *   - entered_at: Unix timestamp when user entered funnel
+   *   - exited_at: (optional) When user exited/left funnel
+   *   - completed: Whether user completed entire funnel
+   *   - drop_off_reason: (optional) Why user left ("user_cancelled", "error", "timeout")
+   * 
+   * INDEXES:
+   *   - by_user_id: Get user's funnels
+   *   - by_funnel_type: Filter by funnel type
+   *   - by_booking_id: Get funnel for booking
+   *   - by_stage: Filter by stage
+   *   - by_completed: Get completed/incomplete funnels
+   *   - by_entered_at: Chronological ordering
+   * 
+   * RELATIONSHIPS:
+   *   FK → users(user_id)
+   *   FK → bookings(booking_id)
+   */
   conversion_funnels: defineTable({
     user_id: v.id("users"),
     funnel_type: v.string(), // "booking_flow", "payment_flow", "onboarding"
@@ -396,7 +1224,41 @@ export default defineSchema({
     .index("by_stage", ["stage"])
     .index("by_completed", ["completed"])
     .index("by_entered_at", ["entered_at"]),
-  // Vehicle spec AI enrichment logs
+  
+  // ============================================================================
+  // AI ENRICHMENT & QUALITY CONTROL
+  // ============================================================================
+  
+  /**
+   * TABLE: ai_enrichment_logs
+   * 
+   * DESCRIPTION:
+   * Logs AI-generated enrichments of service specs for engine+service combinations.
+   * Tracks source, confidence, and review status of AI-generated data.
+   * Used for manual review of low-confidence enrichments.
+   * 
+   * FIELDS:
+   *   - engine_id: Engine being enriched
+   *   - service_id: Service being enriched
+   *   - source: AI source ("openai", "claude", "manual")
+   *   - confidence_score: AI confidence in enrichment (0-1)
+   *   - enriched_data: Generated specs (labor hours, parts costs, notes)
+   *   - created_at: Unix timestamp when enrichment was created
+   *   - reviewed_by: (optional) User who reviewed this enrichment
+   *   - review_status: Status ("pending", "approved", "rejected")
+   * 
+   * INDEXES:
+   *   - by_engine_id: Get enrichments for engine
+   *   - by_review_status: Get pending reviews
+   *   - by_confidence: Sort by confidence level
+   *   - by_created_at: Chronological ordering
+   * 
+   * RELATIONSHIPS:
+   *   FK → engines(engine_id)
+   *   FK → services(service_id)
+   *   FK → users(reviewed_by)
+   *   Has-many → manual_review_queue (via enrichment_log_id)
+   */
   ai_enrichment_logs: defineTable({
     engine_id: v.id("engines"),
     service_id: v.id("services"),
@@ -416,7 +1278,38 @@ export default defineSchema({
     .index("by_review_status", ["review_status"])
     .index("by_confidence", ["confidence_score"])
     .index("by_created_at", ["created_at"]),
-  // Manual review queue for low-confidence AI enrichments
+  
+  /**
+   * TABLE: manual_review_queue
+   * 
+   * DESCRIPTION:
+   * Queue of AI enrichments requiring manual review.
+   * Prioritizes low-confidence or flagged enrichments for human review.
+   * 
+   * FIELDS:
+   *   - enrichment_log_id: References the enrichment to review
+   *   - engine_id: Engine needing review
+   *   - service_id: Service needing review
+   *   - priority: Review priority ("high", "medium", "low")
+   *   - reason: Why review is needed ("low_confidence", "missing_data", "user_reported")
+   *   - status: Review state ("pending", "in_review", "resolved")
+   *   - assigned_to: (optional) User assigned to review
+   *   - created_at: When review was requested
+   *   - resolved_at: (optional) When review was completed
+   * 
+   * INDEXES:
+   *   - by_status: Get pending/in-progress reviews
+   *   - by_engine_id: Get reviews for engine
+   *   - by_assigned_to: Get reviews assigned to user
+   *   - by_priority_and_status: Get high-priority pending reviews
+   *   - by_created_at: Chronological ordering
+   * 
+   * RELATIONSHIPS:
+   *   FK → ai_enrichment_logs(enrichment_log_id)
+   *   FK → engines(engine_id)
+   *   FK → services(service_id)
+   *   FK → users(assigned_to)
+   */
   manual_review_queue: defineTable({
     engine_id: v.id("engines"),
     service_id: v.id("services"),
@@ -433,7 +1326,45 @@ export default defineSchema({
     .index("by_assigned_to", ["assigned_to"])
     .index("by_priority_and_status", ["priority", "status"])
     .index("by_created_at", ["created_at"]),
-  // Spec variance tracking (actual vs predicted)
+  
+  // ============================================================================
+  // QUALITY ASSURANCE & VARIANCE TRACKING
+  // ============================================================================
+  
+  /**
+   * TABLE: spec_variances
+   * 
+   * DESCRIPTION:
+   * Tracks differences between predicted and actual job specifications.
+   * Used to identify where estimates are inaccurate and improve future predictions.
+   * 
+   * FIELDS:
+   *   - job_actual_id: References the completed job
+   *   - engine_id: Engine this service was performed on
+   *   - service_id: Service that was performed
+   *   - predicted_labor_hours: What was estimated
+   *   - actual_labor_hours: What actually took
+   *   - predicted_parts_cost: What was estimated
+   *   - actual_parts_cost: What was actually charged
+   *   - variance_percentage: Calculated variance from predictions
+   *   - flagged_for_review: Whether variance is outside acceptable range
+   *   - reviewed_at: (optional) When variance was reviewed
+   *   - notes: (optional) Review notes
+   *   - created_at: When variance was recorded
+   * 
+   * INDEXES:
+   *   - by_engine_id: Get variances for engine
+   *   - by_service_id: Get variances for service
+   *   - by_flagged: Get variances flagged for review
+   *   - by_variance: Sort by variance percentage
+   *   - by_job_actual_id: Get variance for specific job
+   *   - by_created_at: Chronological ordering
+   * 
+   * RELATIONSHIPS:
+   *   FK → job_actuals(job_actual_id)
+   *   FK → engines(engine_id)
+   *   FK → services(service_id)
+   */
   spec_variances: defineTable({
     engine_id: v.id("engines"),
     service_id: v.id("services"),
@@ -454,7 +1385,35 @@ export default defineSchema({
     .index("by_variance", ["variance_percentage"])
     .index("by_job_actual_id", ["job_actual_id"])
     .index("by_created_at", ["created_at"]),
-  // User confirmations of spec accuracy
+  
+  /**
+   * TABLE: spec_confirmations
+   * 
+   * DESCRIPTION:
+   * User confirmations of vehicle spec accuracy after service.
+   * Collects feedback on whether predicted specs matched actual service.
+   * 
+   * FIELDS:
+   *   - user_id: User providing feedback
+   *   - engine_id: Engine being confirmed
+   *   - service_id: Service being confirmed
+   *   - booking_id: The booking after which confirmation was given
+   *   - confirmed_accurate: Whether user confirmed specs were accurate
+   *   - feedback: (optional) User's feedback text
+   *   - confirmed_at: Unix timestamp when feedback was submitted
+   * 
+   * INDEXES:
+   *   - by_engine_id: Get confirmations for engine
+   *   - by_user_id: Get confirmations from user
+   *   - by_booking_id: Get confirmation for booking
+   *   - by_confirmed_at: Chronological ordering
+   * 
+   * RELATIONSHIPS:
+   *   FK → users(user_id)
+   *   FK → engines(engine_id)
+   *   FK → services(service_id)
+   *   FK → bookings(booking_id)
+   */
   spec_confirmations: defineTable({
     user_id: v.id("users"),
     engine_id: v.id("engines"),
@@ -468,7 +1427,35 @@ export default defineSchema({
     .index("by_user_id", ["user_id"])
     .index("by_booking_id", ["booking_id"])
     .index("by_confirmed_at", ["confirmed_at"]),
-  // Booking status history (append-only audit log)
+  
+  // ============================================================================
+  // AUDIT LOGS
+  // ============================================================================
+  
+  /**
+   * TABLE: booking_status_history
+   * 
+   * DESCRIPTION:
+   * Append-only audit log of booking status changes.
+   * Complete history of state transitions for compliance and debugging.
+   * One record per status change.
+   * 
+   * FIELDS:
+   *   - booking_id: The booking that changed
+   *   - old_status: Previous status (null for creation)
+   *   - new_status: New status after change
+   *   - changed_by: (optional) User who triggered change (null for system)
+   *   - reason: (optional) Reason for change ("user_requested", "auto_timeout", etc.)
+   *   - changed_at: Unix timestamp when change occurred (milliseconds)
+   * 
+   * INDEXES:
+   *   - by_booking_id: Get all status changes for booking
+   *   - by_changed_at: Chronological ordering
+   * 
+   * RELATIONSHIPS:
+   *   FK → bookings(booking_id)
+   *   FK → users(changed_by)
+   */
   booking_status_history: defineTable({
     booking_id: v.id("bookings"),
     old_status: v.optional(v.string()), // null for initial creation
@@ -479,7 +1466,30 @@ export default defineSchema({
   })
     .index("by_booking_id", ["booking_id"])
     .index("by_changed_at", ["changed_at"]),
-  // Payment status history (append-only audit log)
+  
+  /**
+   * TABLE: payment_status_history
+   * 
+   * DESCRIPTION:
+   * Append-only audit log of payment status changes.
+   * Complete history of payment state transitions including errors.
+   * One record per status change.
+   * 
+   * FIELDS:
+   *   - payment_id: The payment that changed
+   *   - old_status: Previous status (null for creation)
+   *   - new_status: New status after change
+   *   - error_code: (optional) Error code if change failed ("insufficient_funds", etc.)
+   *   - error_message: (optional) Human-readable error message
+   *   - changed_at: Unix timestamp when change occurred (milliseconds)
+   * 
+   * INDEXES:
+   *   - by_payment_id: Get all status changes for payment
+   *   - by_changed_at: Chronological ordering
+   * 
+   * RELATIONSHIPS:
+   *   FK → payments(payment_id)
+   */
   payment_status_history: defineTable({
     payment_id: v.id("payments"),
     old_status: v.optional(v.string()), // null for initial creation

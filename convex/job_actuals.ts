@@ -36,10 +36,13 @@ export const getPrefillData = query({
     const service = await ctx.db.get(booking.service_id);
 
     // Vehicle → engine → trim → model → make
-    const userVehicle = await ctx.db.get(booking.user_vehicle_id);
-    if (!userVehicle) return null;
+    const vehicle = await ctx.db
+      .query("vehicles")
+      .withIndex("by_vin", (q) => q.eq("vin", booking.vin))
+      .unique();
+    if (!vehicle) return null;
 
-    const engine = await ctx.db.get(userVehicle.engine_id);
+    const engine = vehicle.engine_id ? await ctx.db.get(vehicle.engine_id) : null;
     if (!engine) return null;
 
     const trim = await ctx.db.get(engine.trim_id);
@@ -50,7 +53,7 @@ export const getPrefillData = query({
       make?.name,
       model?.name,
       trim?.name,
-      userVehicle.year,
+      vehicle.year,
     ]
       .filter(Boolean)
       .join(" ");
@@ -222,10 +225,13 @@ export const submitJobActuals = mutation({
     const service = await ctx.db.get(booking.service_id);
     if (!service) throw new Error("Service not found");
 
-    const userVehicle = await ctx.db.get(booking.user_vehicle_id);
-    if (!userVehicle) throw new Error("User vehicle not found");
+    const vehicle = await ctx.db
+      .query("vehicles")
+      .withIndex("by_vin", (q) => q.eq("vin", booking.vin))
+      .unique();
+    if (!vehicle) throw new Error("Vehicle not found");
 
-    const engineId = userVehicle.engine_id;
+    const engineId = vehicle.engine_id;
     const actualLaborHours = jobActual.actual_labor_minutes / 60;
     const estimatedLaborHours = service.default_labor_hours;
 
@@ -317,7 +323,7 @@ export const submitJobActuals = mutation({
 
     await ctx.db.insert("follow_ups", {
       user_id: booking.user_id,
-      user_vehicle_id: booking.user_vehicle_id,
+      vin: booking.vin,
       booking_id: args.bookingId,
       service_id: booking.service_id,
       follow_up_type: "maintenance_due",

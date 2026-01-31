@@ -1,13 +1,63 @@
 import { mutation } from "./_generated/server";
 
+const TABLES_TO_CLEAR = [
+  "booking_status_history",
+  "payment_status_history",
+  "job_actuals",
+  "reviews",
+  "payments",
+  "follow_ups",
+  "bookings",
+  "ai_messages",
+  "ai_conversations",
+  "analytics_events",
+  "conversion_funnels",
+  "spec_variances",
+  "spec_confirmations",
+  "manual_review_queue",
+  "ai_enrichment_logs",
+  "service_insights",
+  "shop_services",
+  "time_slots",
+  "shops_hours",
+  "mechanics",
+  "shops",
+  "service_vehicle_specs",
+  "service_options",
+  "services",
+  "service_categories",
+  "vehicle_specs",
+  "engines",
+  "trims",
+  "models",
+  "makes",
+  "vehicle_owners",
+  "vehicles",
+  "user_question_answers",
+  "onboarding_question_answers",
+  "onboarding_questions",
+  "users",
+];
+
+const clearTables = async (ctx: any) => {
+  for (const table of TABLES_TO_CLEAR) {
+    const rows = await ctx.db.query(table).collect();
+    for (const r of rows) {
+      await ctx.db.delete(r._id);
+    }
+  }
+};
+
 export const seedUserAndVehicle = mutation({
   args: {},
   handler: async (ctx) => {
-    // Clean existing user data
+    // Clean existing user + vehicle ownership data
+    const existingOwners = await ctx.db.query("vehicle_owners").collect();
+    for (const o of existingOwners) await ctx.db.delete(o._id);
+    const existingVehicles = await ctx.db.query("vehicles").collect();
+    for (const v of existingVehicles) await ctx.db.delete(v._id);
     const existingUsers = await ctx.db.query("users").collect();
     for (const u of existingUsers) await ctx.db.delete(u._id);
-    const existingVehicles = await ctx.db.query("user_vehicles").collect();
-    for (const v of existingVehicles) await ctx.db.delete(v._id);
 
     // Look up the A25A-FKS engine
     const engines = await ctx.db.query("engines").collect();
@@ -27,15 +77,24 @@ export const seedUserAndVehicle = mutation({
     });
 
     // 2018 Toyota Camry LE
-    await ctx.db.insert("user_vehicles", {
-      user_id: userId,
+    const now = Date.now();
+    const vin = "4T1B11HK5JU123456";
+    await ctx.db.insert("vehicles", {
+      vin,
       engine_id: engine._id,
-      vin: "4T1B11HK5JU123456",
-      license_plate: "TX-ABR2018",
       year: 2018,
-      mileage: 72000,
+      created_at: now,
+      updated_at: now,
+    });
+
+    await ctx.db.insert("vehicle_owners", {
+      vin,
+      user_id: userId,
+      status: "active",
       nickname: "My Camry",
       is_primary: true,
+      mileage: 72000,
+      added_at: now,
     });
 
     return { success: true };
@@ -124,16 +183,30 @@ export const seedTimeSlots = mutation({
 export const seed = mutation({
   args: {},
   handler: async (ctx) => {
-    // --- Make ---
+    await clearTables(ctx);
+
+    const now = Date.now();
+
+    // --- Makes ---
     const toyotaId = await ctx.db.insert("makes", {
       name: "Toyota",
       logo_url: "https://upload.wikimedia.org/wikipedia/commons/9/9d/Toyota_carridge_logo.svg",
     });
 
-    // --- Model ---
+    const hondaId = await ctx.db.insert("makes", {
+      name: "Honda",
+      logo_url: "https://upload.wikimedia.org/wikipedia/commons/7/7b/Honda-logo.svg",
+    });
+
+    // --- Models ---
     const camryId = await ctx.db.insert("models", {
       make_id: toyotaId,
       name: "Camry",
+    });
+
+    const accordId = await ctx.db.insert("models", {
+      make_id: hondaId,
+      name: "Accord",
     });
 
     // --- Trims ---
@@ -151,6 +224,13 @@ export const seed = mutation({
       year_end: 2024,
     });
 
+    const sportId = await ctx.db.insert("trims", {
+      model_id: accordId,
+      name: "Sport",
+      year_start: 2019,
+      year_end: 2024,
+    });
+
     // --- Engines ---
     const engineLeId = await ctx.db.insert("engines", {
       trim_id: leId,
@@ -164,6 +244,14 @@ export const seed = mutation({
       trim_id: seId,
       engine_code: "A25A-FKS",
       displacement_liters: "2.5",
+      cylinders: 4,
+      fuel_type: "Gasoline",
+    });
+
+    const engineAccordId = await ctx.db.insert("engines", {
+      trim_id: sportId,
+      engine_code: "L15BE",
+      displacement_liters: "1.5",
       cylinders: 4,
       fuel_type: "Gasoline",
     });
@@ -191,6 +279,18 @@ export const seed = mutation({
       parking_brake_type: "Drum-in-hat",
       battery_group: "35",
       battery_cca: 550,
+    });
+
+    await ctx.db.insert("vehicle_specs", {
+      engine_id: engineAccordId,
+      oil_viscocity: "0W-20",
+      oil_capacity_qts: "3.7",
+      oil_filter_oem: "15400-PLM-A02",
+      front_brake_pad_oem: "45022-TVA-A00",
+      rear_brake_pad_oem: "43022-TVA-A00",
+      parking_brake_type: "Electric",
+      battery_group: "51R",
+      battery_cca: 500,
     });
 
     // --- Service Categories ---
@@ -227,6 +327,17 @@ export const seed = mutation({
       is_labor_only: false,
       has_options: true,
       display_order: 2,
+    });
+
+    const tireRotationId = await ctx.db.insert("services", {
+      name: "Tire Rotation",
+      slug: "tire-rotation",
+      description: "Rotate tires for even wear",
+      service_category_id: maintenanceId,
+      default_labor_hours: 0.5,
+      is_labor_only: true,
+      has_options: false,
+      display_order: 3,
     });
 
     // --- Service Options ---
@@ -291,6 +402,16 @@ export const seed = mutation({
       confidence_score: 0.9,
     });
 
+    await ctx.db.insert("service_vehicle_specs", {
+      service_id: tireRotationId,
+      engine_id: engineAccordId,
+      labor_hours: 0.5,
+      parts_cost_low: 0,
+      parts_cost_high: 0,
+      tech_notes: "Rotate tires in cross pattern. Check lug torque 80 ft-lb.",
+      confidence_score: 0.85,
+    });
+
     // --- Shops ---
     const shop1Id = await ctx.db.insert("shops", {
       name: "AutoPro Service Center",
@@ -316,8 +437,8 @@ export const seed = mutation({
       city: "Austin",
       state: "TX",
       zip: "78704",
-      lat: 30.2500,
-      lng: -97.7500,
+      lat: 30.25,
+      lng: -97.75,
       phone: "(512) 555-0200",
       rating: 4.5,
       review_count: 89,
@@ -360,12 +481,12 @@ export const seed = mutation({
     });
     await ctx.db.insert("shop_services", {
       shop_id: shop2Id,
-      service_id: brakePadsId,
+      service_id: tireRotationId,
       is_offered: true,
     });
 
     // --- Mechanics ---
-    await ctx.db.insert("mechanics", {
+    const mech1Id = await ctx.db.insert("mechanics", {
       shop_id: shop1Id,
       first_name: "Mike",
       last_name: "Johnson",
@@ -374,7 +495,7 @@ export const seed = mutation({
       review_count: 87,
     });
 
-    await ctx.db.insert("mechanics", {
+    const mech2Id = await ctx.db.insert("mechanics", {
       shop_id: shop1Id,
       first_name: "Sarah",
       last_name: "Chen",
@@ -383,7 +504,7 @@ export const seed = mutation({
       review_count: 64,
     });
 
-    await ctx.db.insert("mechanics", {
+    const mech3Id = await ctx.db.insert("mechanics", {
       shop_id: shop2Id,
       first_name: "James",
       last_name: "Rodriguez",
@@ -406,6 +527,7 @@ export const seed = mutation({
 
         await ctx.db.insert("time_slots", {
           shop_id: shop1Id,
+          mechanic_id: mech1Id,
           date: dateStr,
           start_time: startTime,
           end_time: endTime,
@@ -414,7 +536,7 @@ export const seed = mutation({
       }
     }
 
-    // --- Demo User ---
+    // --- Users ---
     const userId = await ctx.db.insert("users", {
       clerkUserId: "seed-demo-user-2",
       onboardingCompleted: true,
@@ -426,14 +548,313 @@ export const seed = mutation({
       created_at: new Date().toISOString(),
     });
 
-    // --- User Vehicle (2022 Camry LE) ---
-    await ctx.db.insert("user_vehicles", {
-      user_id: userId,
+    const user2Id = await ctx.db.insert("users", {
+      clerkUserId: "seed-demo-user-3",
+      onboardingCompleted: true,
+      createdAt: Date.now(),
+      email: "jordan@otopair.com",
+      phone: "(512) 555-1111",
+      first_name: "Jordan",
+      last_name: "Lee",
+      created_at: new Date().toISOString(),
+    });
+
+    // --- Vehicles (canonical VINs) ---
+    const vinCamry = "4T1B11HK5JU123456";
+    const vinAccord = "1HGCV1F39KA123456";
+
+    await ctx.db.insert("vehicles", {
+      vin: vinCamry,
+      trim_id: leId,
       engine_id: engineLeId,
       year: 2022,
-      mileage: 35000,
+      metadata: { color: "Silver", body_style: "Sedan" },
+      created_at: now,
+      updated_at: now,
+    });
+
+    await ctx.db.insert("vehicles", {
+      vin: vinAccord,
+      trim_id: sportId,
+      engine_id: engineAccordId,
+      year: 2021,
+      metadata: { color: "Black", body_style: "Sedan" },
+      created_at: now,
+      updated_at: now,
+    });
+
+    // --- Vehicle Owners (multi-owner demo) ---
+    await ctx.db.insert("vehicle_owners", {
+      vin: vinCamry,
+      user_id: userId,
+      status: "active",
       nickname: "My Camry",
       is_primary: true,
+      mileage: 35000,
+      added_at: now,
+    });
+
+    await ctx.db.insert("vehicle_owners", {
+      vin: vinCamry,
+      user_id: user2Id,
+      status: "active",
+      nickname: "Shared Camry",
+      is_primary: false,
+      mileage: 35200,
+      added_at: now,
+    });
+
+    await ctx.db.insert("vehicle_owners", {
+      vin: vinAccord,
+      user_id: user2Id,
+      status: "active",
+      nickname: "My Accord",
+      is_primary: true,
+      mileage: 22000,
+      added_at: now,
+    });
+
+    // --- Onboarding Questions + Answers ---
+    const q1Id = await ctx.db.insert("onboarding_questions", {
+      question_text: "How often do you service your car?",
+      question_type: "single_select",
+      display_order: 1,
+      rank: 1,
+      step_name: "maintenance",
+      is_active: true,
+    });
+
+    const a1Id = await ctx.db.insert("onboarding_question_answers", {
+      question_id: q1Id,
+      answer_text: "Every 3 months",
+      answer_value: "quarterly",
+      display_order: 1,
+      emoji: "🛠️",
+    });
+
+    await ctx.db.insert("user_question_answers", {
+      user_id: userId,
+      question_id: q1Id,
+      answer_id: a1Id,
+      answered_at: now,
+    });
+
+    // --- Booking + Payment + Status History ---
+    const slot = await ctx.db.query("time_slots").collect();
+    const timeSlot = slot[0];
+    if (!timeSlot) throw new Error("No time slots available after seed");
+
+    const bookingId = await ctx.db.insert("bookings", {
+      user_id: userId,
+      vin: vinCamry,
+      shop_id: shop1Id,
+      mechanic_id: mech2Id,
+      service_id: oilChangeId,
+      time_slot_id: timeSlot._id,
+      scheduled_date: timeSlot.date,
+      scheduled_time: timeSlot.start_time,
+      labor_cost: 47.5,
+      parts_cost: 45,
+      total_cost: 92.5,
+      status: "confirmed",
+      created_at: now,
+      updated_at: now,
+    });
+
+    await ctx.db.insert("booking_status_history", {
+      booking_id: bookingId,
+      old_status: undefined,
+      new_status: "confirmed",
+      changed_by: userId,
+      reason: "seeded",
+      changed_at: now,
+    });
+
+    const paymentId = await ctx.db.insert("payments", {
+      booking_id: bookingId,
+      user_id: userId,
+      shop_id: shop1Id,
+      amount: 92.5,
+      payment_method: "card",
+      status: "completed",
+      transaction_id: "txn_seed_001",
+      stripe_payment_intent_id: "pi_seed_001",
+      idempotency_key: "seed_001",
+      created_at: now,
+      updated_at: now,
+    });
+
+    await ctx.db.insert("payment_status_history", {
+      payment_id: paymentId,
+      old_status: "processing",
+      new_status: "completed",
+      error_code: undefined,
+      error_message: undefined,
+      changed_at: now,
+    });
+
+    // --- Job Actuals ---
+    const jobActualId = await ctx.db.insert("job_actuals", {
+      booking_id: bookingId,
+      mechanic_id: mech2Id,
+      actual_labor_minutes: 30,
+      actual_parts_cost: 42,
+      started_at: now - 30 * 60 * 1000,
+      completed_at_ms: now - 5 * 60 * 1000,
+      logged_at_ms: now,
+      created_at: now,
+      updated_at: now,
+      difficulty_rating: 2,
+      parts_used: [
+        { part_name: "Oil Filter", oem_number: "90915-YZZD4", cost: 12 },
+      ],
+      technician_notes: "Standard oil change completed.",
+    });
+
+    // --- Review ---
+    await ctx.db.insert("reviews", {
+      booking_id: bookingId,
+      shop_id: shop1Id,
+      user_id: userId,
+      mechanic_id: mech2Id,
+      rating: 5,
+      comment: "Great service!",
+      created_at: now,
+    });
+
+    // --- Follow-up ---
+    await ctx.db.insert("follow_ups", {
+      user_id: userId,
+      vin: vinCamry,
+      booking_id: bookingId,
+      service_id: oilChangeId,
+      follow_up_type: "maintenance_due",
+      scheduled_for: now + 90 * 24 * 60 * 60 * 1000,
+      status: "pending",
+      message: "Time to schedule your next oil change",
+      created_at: now,
+    });
+
+    // --- AI Conversations + Messages ---
+    const convoId = await ctx.db.insert("ai_conversations", {
+      user_id: userId,
+      started_at: now - 10 * 60 * 1000,
+      ended_at: now - 5 * 60 * 1000,
+      scenario_detected: "price_check",
+      led_to_booking: true,
+      booking_id: bookingId,
+      message_count: 2,
+      session_id: "seed-session-001",
+    });
+
+    await ctx.db.insert("ai_messages", {
+      conversation_id: convoId,
+      role: "user",
+      content: "How much is an oil change?",
+      timestamp: now - 9 * 60 * 1000,
+    });
+
+    await ctx.db.insert("ai_messages", {
+      conversation_id: convoId,
+      role: "assistant",
+      content: "Most oil changes range from $70-$110 for synthetic.",
+      timestamp: now - 8 * 60 * 1000,
+      confidence_score: 0.88,
+    });
+
+    // --- Analytics Events ---
+    await ctx.db.insert("analytics_events", {
+      user_id: userId,
+      event_type: "booking_created",
+      event_category: "booking",
+      event_data: {
+        booking_id: bookingId,
+        shop_id: shop1Id,
+        service_id: oilChangeId,
+        screen_name: "BookingConfirmation",
+      },
+      timestamp: now,
+      session_id: "seed-session-001",
+    });
+
+    // --- Conversion Funnel ---
+    await ctx.db.insert("conversion_funnels", {
+      user_id: userId,
+      funnel_type: "booking_flow",
+      stage: "completed",
+      booking_id: bookingId,
+      entered_at: now - 30 * 60 * 1000,
+      exited_at: now - 25 * 60 * 1000,
+      completed: true,
+      drop_off_reason: undefined,
+    });
+
+    // --- Service Insights ---
+    await ctx.db.insert("service_insights", {
+      engine_id: engineLeId,
+      service_id: oilChangeId,
+      avg_actual_labor_hours: 0.5,
+      avg_actual_parts_cost: 42,
+      completed_jobs_count: 10,
+      confidence_level: 0.9,
+      estimated_labor_hours: 0.5,
+      labor_variance: 0.02,
+    });
+
+    // --- AI Enrichment Logs + Manual Review Queue ---
+    const enrichLogId = await ctx.db.insert("ai_enrichment_logs", {
+      engine_id: engineLeId,
+      service_id: oilChangeId,
+      source: "openai",
+      confidence_score: 0.65,
+      enriched_data: {
+        labor_hours: 0.6,
+        parts_cost_low: 35,
+        parts_cost_high: 55,
+        tech_notes: "Standard synthetic oil change",
+      },
+      created_at: now,
+      review_status: "pending",
+      reviewed_by: undefined,
+    });
+
+    await ctx.db.insert("manual_review_queue", {
+      engine_id: engineLeId,
+      service_id: oilChangeId,
+      enrichment_log_id: enrichLogId,
+      priority: "medium",
+      reason: "low_confidence",
+      status: "pending",
+      assigned_to: undefined,
+      created_at: now,
+      resolved_at: undefined,
+    });
+
+    // --- Spec Variances ---
+    await ctx.db.insert("spec_variances", {
+      engine_id: engineLeId,
+      service_id: oilChangeId,
+      job_actual_id: jobActualId,
+      predicted_labor_hours: 0.5,
+      actual_labor_hours: 0.5,
+      predicted_parts_cost: 45,
+      actual_parts_cost: 42,
+      variance_percentage: -6.7,
+      flagged_for_review: false,
+      reviewed_at: undefined,
+      notes: undefined,
+      created_at: now,
+    });
+
+    // --- Spec Confirmations ---
+    await ctx.db.insert("spec_confirmations", {
+      user_id: userId,
+      engine_id: engineLeId,
+      service_id: oilChangeId,
+      booking_id: bookingId,
+      confirmed_accurate: true,
+      feedback: "Specs matched my vehicle.",
+      confirmed_at: now,
     });
 
     return { success: true };
@@ -468,8 +889,14 @@ export const seedLearningPipelineDemo = mutation({
     const user = users.find((u) => u.email === "demo@otopair.com");
     if (!user) throw new Error("Demo user not found. Run seed first.");
 
-    const vehicles = await ctx.db.query("user_vehicles").collect();
-    const vehicle = vehicles.find((uv) => uv.user_id === user._id);
+    const owners = await ctx.db.query("vehicle_owners").collect();
+    const owner = owners.find((o) => o.user_id === user._id && o.status === "active");
+    if (!owner) throw new Error("Demo vehicle owner not found. Run seed first.");
+
+    const vehicle = await ctx.db
+      .query("vehicles")
+      .withIndex("by_vin", (q) => q.eq("vin", owner.vin))
+      .unique();
     if (!vehicle) throw new Error("Demo vehicle not found. Run seed first.");
 
     const services = await ctx.db.query("services").collect();
@@ -498,9 +925,8 @@ export const seedLearningPipelineDemo = mutation({
 
     // 3. Find or create an available time slot
     const allSlots = await ctx.db.query("time_slots").collect();
-    let slot = allSlots.find(
-      (s) => s.shop_id === shop._id && s.is_available
-    );
+    let slot: (typeof allSlots)[number] | null =
+      allSlots.find((s) => s.shop_id === shop._id && s.is_available) ?? null;
 
     if (!slot) {
       const tomorrow = new Date();
@@ -531,7 +957,7 @@ export const seedLearningPipelineDemo = mutation({
 
     const bookingId = await ctx.db.insert("bookings", {
       user_id: user._id,
-      user_vehicle_id: vehicle._id,
+      vin: vehicle.vin,
       shop_id: shop._id,
       mechanic_id: mechanic._id,
       service_id: oilChange._id,
@@ -542,9 +968,11 @@ export const seedLearningPipelineDemo = mutation({
       parts_cost: partsCost,
       total_cost: totalCost,
       status: "confirmed",
+      created_at: Date.now(),
+      updated_at: Date.now(),
     });
 
-    const engine = await ctx.db.get(vehicle.engine_id);
+    const engine = vehicle.engine_id ? await ctx.db.get(vehicle.engine_id) : null;
 
     return {
       success: true,

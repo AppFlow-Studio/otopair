@@ -28,9 +28,10 @@ export const getByUserId = query({
 export const getByVin = query({
   args: { vin: v.string() },
   handler: async (ctx, args) => {
+    const normalizedVin = args.vin.toUpperCase().trim();
     return await ctx.db
       .query("follow_ups")
-      .withIndex("by_vin", (q) => q.eq("vin", args.vin))
+      .withIndex("by_vin", (q) => q.eq("vin", normalizedVin))
       .collect();
   },
 });
@@ -49,6 +50,28 @@ export const getPendingReminders = query({
   },
 });
 
+export const getByStatus = query({
+  args: { status: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("follow_ups")
+      .withIndex("by_status_and_scheduled", (q) =>
+        q.eq("status", args.status)
+      )
+      .collect();
+  },
+});
+
+export const getByBookingId = query({
+  args: { bookingId: v.id("bookings") },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("follow_ups")
+      .withIndex("by_booking_id", (q) => q.eq("booking_id", args.bookingId))
+      .collect();
+  },
+});
+
 export const create = mutation({
   args: {
     user_id: v.id("users"),
@@ -60,8 +83,10 @@ export const create = mutation({
     message: v.string(),
   },
   handler: async (ctx, args) => {
+    const normalizedVin = args.vin.toUpperCase().trim();
     const followUpId = await ctx.db.insert("follow_ups", {
       ...args,
+      vin: normalizedVin,
       status: "pending",
       created_at: Date.now(),
     });
