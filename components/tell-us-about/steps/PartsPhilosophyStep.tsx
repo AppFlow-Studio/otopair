@@ -1,7 +1,7 @@
 /**
- * AdditionalPreferencesStep
+ * PartsPhilosophyStep
  *
- * PURPOSE: Optional text field for users to share additional preferences.
+ * PURPOSE: Allows users to specify what matters most when it comes to car parts.
  *
  * USED IN: components/tell-us-about/TellUsAboutFlow.tsx
  *
@@ -10,15 +10,7 @@
  *   - onBack (() => void): Callback to navigate to the previous step
  *   - progress ({ total: number; filled: number }): Progress indicator data
  *
- * EXAMPLE:
- *   <AdditionalPreferencesStep 
- *     onNext={handleNext} 
- *     onBack={handleBack} 
- *     progress={{ total: 7, filled: 7 }} 
- *   />
- *
  * OWNER: Daniel Chelala
- * TICKET: OTO-XXX
  */
 
 import {
@@ -39,26 +31,33 @@ import {
     Platform,
     StyleSheet,
     View,
-    TextInput,
+    Pressable,
     ScrollView,
     useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 
-interface AdditionalPreferencesStepProps {
+interface PartsPhilosophyStepProps {
     onNext: () => void;
     onBack: () => void;
     progress: { total: number; filled: number };
 }
 
-export function AdditionalPreferencesStep({ onNext, onBack, progress }: AdditionalPreferencesStepProps) {
+const PARTS_OPTIONS = [
+    { emoji: '💎', label: 'OEM or equivalent quality only' },
+    { emoji: '💰', label: 'Best value for the money' },
+    { emoji: '👨‍🔧', label: 'Whatever the mechanic recommends' },
+    { emoji: '🔧', label: 'I often source my own parts' },
+] as const;
+
+export function PartsPhilosophyStep({ onNext, onBack, progress }: PartsPhilosophyStepProps) {
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
     
-    const [preferences, setPreferences] = useState<string>(
-        data.additionalPreferences ?? ''
+    const [selectedOption, setSelectedOption] = useState<string | null>(
+        data.partsPhilosophy ?? null
     );
 
     const dynamicStyles = {
@@ -70,15 +69,23 @@ export function AdditionalPreferencesStep({ onNext, onBack, progress }: Addition
     const buttonSize: 'md' | 'lg' = isCompact ? 'md' : 'lg';
     const buttonPaddingVertical = isCompact ? Spacing.sm : Spacing.lg;
 
-    const handleFinish = () => {
-        updateData({ additionalPreferences: preferences.trim() || null });
-        onNext();
+    const handleSelectOption = (option: typeof PARTS_OPTIONS[number]) => {
+        const value = `${option.emoji} ${option.label}`;
+        setSelectedOption(value);
+        updateData({ partsPhilosophy: value });
     };
+
+    const handleContinue = () => {
+        if (selectedOption) {
+            onNext();
+        }
+    };
+
+    const canContinue = selectedOption !== null;
 
     return (
         <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
             style={styles.keyboardView}
         >
             <View style={[styles.container, dynamicStyles.container]}>
@@ -91,38 +98,55 @@ export function AdditionalPreferencesStep({ onNext, onBack, progress }: Addition
                 <ScrollView
                     style={styles.scrollView}
                     contentContainerStyle={styles.scrollContent}
-                    keyboardShouldPersistTaps="handled"
                     showsVerticalScrollIndicator={false}
                 >
                     <View style={styles.headerContent}>
                         <Text style={styles.title}>
-                            Anything else Oto should know about your preferences?
+                            When it comes to parts, what matters most?
                         </Text>
                         <Text style={styles.subtitle}>
-                            Optional — Share any other details that would help us serve you better
+                            Select the option that best describes you
                         </Text>
                     </View>
 
-                    <View style={styles.inputContainer}>
-                        <TextInput
-                            style={styles.textInput}
-                            placeholder="Type your preferences (optional)"
-                            placeholderTextColor="rgba(255, 255, 255, 0.5)"
-                            multiline
-                            value={preferences}
-                            onChangeText={setPreferences}
-                            textAlignVertical="top"
-                        />
+                    <View style={styles.optionsContainer}>
+                        {PARTS_OPTIONS.map((option) => {
+                            const value = `${option.emoji} ${option.label}`;
+                            const isSelected = selectedOption === value;
+                            
+                            return (
+                                <Pressable
+                                    key={option.label}
+                                    onPress={() => handleSelectOption(option)}
+                                    style={({ pressed }) => [
+                                        styles.optionButton,
+                                        isSelected && styles.optionButtonSelected,
+                                        pressed && styles.optionButtonPressed,
+                                    ]}
+                                >
+                                    <Text style={styles.optionEmoji}>{option.emoji}</Text>
+                                    <Text
+                                        style={[
+                                            styles.optionText,
+                                            isSelected && styles.optionTextSelected,
+                                        ]}
+                                    >
+                                        {option.label}
+                                    </Text>
+                                </Pressable>
+                            );
+                        })}
                     </View>
                 </ScrollView>
 
                 <FadeFooterContainer paddingBottom={insets.bottom + Spacing.lg}>
                     <FooterButton
-                        label="Finish"
-                        onPress={handleFinish}
+                        label="Continue"
+                        onPress={handleContinue}
+                        disabled={!canContinue}
                         size={buttonSize}
                         paddingVertical={buttonPaddingVertical}
-                        variant="primary"
+                        variant={canContinue ? 'primary' : undefined}
                     />
                 </FadeFooterContainer>
             </View>
@@ -131,18 +155,10 @@ export function AdditionalPreferencesStep({ onNext, onBack, progress }: Addition
 }
 
 const styles = StyleSheet.create({
-    keyboardView: {
-        flex: 1,
-    },
-    container: {
-        flex: 1,
-    },
-    scrollView: {
-        flex: 1,
-    },
-    scrollContent: {
-        paddingBottom: Spacing.xl,
-    },
+    keyboardView: { flex: 1 },
+    container: { flex: 1 },
+    scrollView: { flex: 1 },
+    scrollContent: { paddingBottom: Spacing.xl },
     headerContent: {
         paddingHorizontal: Spacing['2xl'],
         marginBottom: Spacing['3xl'],
@@ -161,20 +177,35 @@ const styles = StyleSheet.create({
         opacity: 0.9,
         lineHeight: Spacing['2xl'],
     },
-    inputContainer: {
+    optionsContainer: {
         paddingHorizontal: Spacing['2xl'],
+        gap: Spacing.md,
     },
-    textInput: {
+    optionButton: {
+        flexDirection: 'row',
+        alignItems: 'center',
         backgroundColor: 'rgba(255, 255, 255, 0.1)',
         borderRadius: BorderRadius.lg,
         paddingHorizontal: Spacing.lg,
         paddingVertical: Spacing.lg,
+        gap: Spacing.md,
+        borderWidth: 1,
+        borderColor: 'rgba(255, 255, 255, 0.2)',
+    },
+    optionButtonSelected: {
+        backgroundColor: BrandColors.white,
+        borderColor: 'rgba(255, 255, 255, 0.3)',
+    },
+    optionButtonPressed: { opacity: 0.7 },
+    optionEmoji: { fontSize: FontSize['2xl'] },
+    optionText: {
         fontSize: FontSize.lg,
         fontFamily: FontFamily.regular,
         color: BrandColors.white,
-        borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.2)',
-        minHeight: 150,
+        flex: 1,
+    },
+    optionTextSelected: {
+        color: BrandColors.secondary,
+        fontFamily: FontFamily.semiBold,
     },
 });
-
