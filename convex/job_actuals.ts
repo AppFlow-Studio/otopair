@@ -1,5 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
 
 export const list = query({
   args: {},
@@ -18,8 +19,10 @@ export const getById = query({
 export const getByBookingId = query({
   args: { bookingId: v.id("bookings") },
   handler: async (ctx, args) => {
-    const all = await ctx.db.query("job_actuals").collect();
-    return all.find((row) => row.booking_id === args.bookingId) ?? null;
+    return await ctx.db
+      .query("job_actuals")
+      .withIndex("by_booking_id", (q) => q.eq("booking_id", args.bookingId))
+      .unique();
   },
 });
 
@@ -122,10 +125,18 @@ export const startJob = mutation({
       throw new Error(`Booking status is "${booking.status}", expected "confirmed"`);
     }
 
-    // Update booking status
-    await ctx.db.patch(args.bookingId, { status: "in_progress" });
+    // Invariant: Ensure only one job_actuals per booking
+    const existing = await ctx.db
+      .query("job_actuals")
+      .withIndex("by_booking_id", (q) => q.eq("booking_id", args.bookingId))
+      .unique();
+    if (existing) {
+      throw new Error("Job actuals already exist for this booking");
+    }
 
-    const now = new Date().toISOString();
+    // Update booking status
+    const now = Date.now();
+    await ctx.db.patch(args.bookingId, { status: "in_progress", updated_at: now });
 
     // Create job_actuals row
     const jobActualId = await ctx.db.insert("job_actuals", {
@@ -136,8 +147,9 @@ export const startJob = mutation({
       actual_parts_cost: 0,
       difficulty_rating: 3,
       technician_notes: "",
-      job_started_at: now,
-      completed_at: now,
+      started_at: now,
+      created_at: now,
+      updated_at: now,
     });
 
     return jobActualId;
@@ -153,14 +165,14 @@ export const completeJob = mutation({
     const jobActual = allActuals.find((r) => r.booking_id === args.bookingId);
     if (!jobActual) throw new Error("No job_actuals found for this booking");
 
-    const now = new Date().toISOString();
-    const startedAt = new Date(jobActual.job_started_at).getTime();
-    const completedAt = new Date(now).getTime();
-    const elapsedMinutes = Math.round((completedAt - startedAt) / 60000);
+    const now = Date.now();
+    const startedAt = jobActual.started_at;
+    const elapsedMinutes = Math.round((now - startedAt) / 60000);
 
     await ctx.db.patch(jobActual._id, {
-      job_completed_at: now,
+      completed_at_ms: now,
       actual_labor_minutes: elapsedMinutes,
+      updated_at: now,
     });
 
     return { elapsedMinutes };
@@ -187,7 +199,7 @@ export const submitJobActuals = mutation({
     const jobActual = allActuals.find((r) => r.booking_id === args.bookingId);
     if (!jobActual) throw new Error("No job_actuals found for this booking");
 
-    const now = new Date().toISOString();
+    const now = Date.now();
 
     // Update job_actuals with questionnaire data
     await ctx.db.patch(jobActual._id, {
@@ -195,12 +207,13 @@ export const submitJobActuals = mutation({
       actual_parts_cost: args.actual_parts_cost,
       difficulty_rating: args.difficulty_rating,
       technician_notes: args.technician_notes,
-      logged_at: now,
-      completed_at: now,
+      logged_at_ms: now,
+      completed_at_ms: now,
+      updated_at: now,
     });
 
     // Set booking to completed
-    await ctx.db.patch(args.bookingId, { status: "completed" });
+    await ctx.db.patch(args.bookingId, { status: "completed", updated_at: now });
 
     // --- Learning aggregation ---
     const booking = await ctx.db.get(args.bookingId);
@@ -215,6 +228,19 @@ export const submitJobActuals = mutation({
     const engineId = userVehicle.engine_id;
     const actualLaborHours = jobActual.actual_labor_minutes / 60;
     const estimatedLaborHours = service.default_labor_hours;
+
+    // Track analytics event for job completion
+    await ctx.db.insert("analytics_events", {
+      user_id: booking.user_id,
+      event_type: "job_completed",
+      event_category: "booking",
+      event_data: {
+        booking_id: args.bookingId,
+        shop_id: booking.shop_id,
+        service_id: booking.service_id,
+      },
+      timestamp: Date.now(),
+    });
 
     // Find or create service_insights
     const allInsights = await ctx.db.query("service_insights").collect();
@@ -269,7 +295,37 @@ export const submitJobActuals = mutation({
     if (svs) {
       const newConfidence = Math.min(1.0, svs.confidence_score + 0.02);
       await ctx.db.patch(svs._id, { confidence_score: newConfidence });
+
+      // Track spec variance if there's a significant difference
+      const predictedLabor = svs.labor_hours;
+      const predictedParts = (svs.parts_cost_low + svs.parts_cost_high) / 2;
+      
+      await ctx.scheduler.runAfter(0, internal.spec_variances.flagSpecVariance, {
+        engine_id: engineId,
+        service_id: booking.service_id,
+        job_actual_id: jobActual._id,
+        predicted_labor_hours: predictedLabor,
+        actual_labor_hours: actualLaborHours,
+        predicted_parts_cost: predictedParts,
+        actual_parts_cost: args.actual_parts_cost,
+      });
     }
+
+    // Create follow-up reminder for maintenance (7 days later for oil change, 30 days for others)
+    const followUpDays = service.slug === "oil-change" ? 90 : 180; // 3 months or 6 months
+    const scheduledFor = Date.now() + followUpDays * 24 * 60 * 60 * 1000;
+
+    await ctx.db.insert("follow_ups", {
+      user_id: booking.user_id,
+      user_vehicle_id: booking.user_vehicle_id,
+      booking_id: args.bookingId,
+      service_id: booking.service_id,
+      follow_up_type: "maintenance_due",
+      scheduled_for: scheduledFor,
+      status: "pending",
+      message: `Time to schedule your next ${service.name}`,
+      created_at: Date.now(),
+    });
 
     return { success: true };
   },
