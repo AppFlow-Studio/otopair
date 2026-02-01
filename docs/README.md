@@ -1,11 +1,9 @@
 # OtoPair Docs
 
-**Single reference:** [REFERENCE.md](./REFERENCE.md) — database schema (44 tables), access layers, API surface, implementation status, and code examples.
+**Reference:** [REFERENCE.md](./REFERENCE.md) — database schema (44 tables), access layers, API surface, implementation status, and code examples.
 
 **Checklist:** [CHECKLIST.md](./CHECKLIST.md) — what’s done, half-implemented, and not implemented (backend, add vehicle, booking flow).
 
-**Diagrams:** [diagrams.plan.md](../diagrams.plan.md) — high-level and per-part database diagrams.
+**Diagrams:** [diagrams.md](./diagrams.md) — high-level and per-part database diagrams (Mermaid).
 
-**Archive:** [archive/](./archive) — old docs (pre–vehicle refactor).
-
-**Plans:** [.cursor/plans](../.cursor/plans) — plan documents (e.g. DB fact-check, diagrams).
+**Plans:** [.cursor/plans](../.cursor/plans) — plan documents (e.g. MVP booking wiring, DB fact-check).

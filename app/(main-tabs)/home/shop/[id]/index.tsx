@@ -70,7 +70,7 @@ export default function ShopDetailScreen() {
   const [activeTab, setActiveTab] = useState<MechanicDetailTab>("services");
   const [showAddServicesModal, setShowAddServicesModal] = useState(false);
   const [showBookingModal, setShowBookingModal] = useState(false);
-  const [bookingMechanicId, setBookingMechanicId] = useState<number | null>(null);
+  const [bookingMechanicId, setBookingMechanicId] = useState<string | null>(null);
 
   // ═══════════════ STORES ═══════════════
   const getShopById = useShopStore((state) => state.getShopById);
@@ -81,10 +81,7 @@ export default function ShopDetailScreen() {
   const addRecentShop = useSearchStore((state) => state.addRecentShop);
 
   // ═══════════════ COMPUTED VALUES ═══════════════
-  const shopId = useMemo(() => {
-    const parsed = id ? parseInt(id, 10) : null;
-    return isNaN(parsed ?? 0) ? null : parsed;
-  }, [id]);
+  const shopId = id && typeof id === "string" ? id : null;
 
   const shop = useMemo(() => {
     if (!shopId) return null;
@@ -144,7 +141,7 @@ export default function ShopDetailScreen() {
   }, [bookingStage, resetBookingFlow, router]);
 
   const handleBookNow = useCallback(
-    (mechanicId: number) => {
+    (mechanicId: string) => {
       // Add shop to recent history
       if (shopId) {
         addRecentShop(shopId);
@@ -161,7 +158,7 @@ export default function ShopDetailScreen() {
     setShowAddServicesModal(true);
   }, []);
 
-  const handleViewAllAvailability = useCallback((mechanicId: number) => {
+  const handleViewAllAvailability = useCallback((mechanicId: string) => {
     setBookingMechanicId(mechanicId);
     setShowBookingModal(true);
   }, []);
@@ -278,16 +275,21 @@ export default function ShopDetailScreen() {
         ) : (
           <MechanicDetailHeader
             mechanic={{
-              id: 0,
-              name: shop.name,
+              id: "0",
               shopId: shop.id,
+              name: shop.name,
               shopName: shop.name,
-              specialties: [],
+              photoUrl: null,
               rating: shop.rating ?? 0,
-              reviewCount: 0,
+              isVerified: false,
+              distanceMi: 0,
+              services: [],
+              specialties: [],
               yearsExperience: 0,
-              avatar: null,
               isAvailable: shop.availability > 0,
+              responseTime: "Normal",
+              availability: shop.availability,
+              nextAvailability: [],
             }}
             shop={shop}
             onBack={handleBack}

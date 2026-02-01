@@ -65,7 +65,7 @@ export interface FullSearchModalProps {
   /** Called when a shop is selected */
   onSelectShop?: (shopId: number) => void;
   /** Called when a mechanic is selected */
-  onSelectMechanic?: (mechanicId: number) => void;
+  onSelectMechanic?: (mechanicId: string) => void;
 }
 
 // ============================================================================
@@ -289,7 +289,7 @@ export function FullSearchModal({
   );
 
   const handleMechanicPress = useCallback(
-    (mechanicId: number) => {
+    (mechanicId: string) => {
       onSelectMechanic?.(mechanicId);
       handleClose();
     },

@@ -41,14 +41,14 @@ import { useBookingStore } from "@/stores/useBookingStore";
 // ============================================================================
 
 interface ShopDetailsProps {
-    /** The shop ID to get mechanics for */
-    shopId: number;
+    /** The shop ID to get mechanics for (Convex _id as string) */
+    shopId: string;
     /** Called when "Book Now" is pressed, receives mechanic ID */
-    onBookNow?: (mechanicId: number) => void;
+    onBookNow?: (mechanicId: string) => void;
     /** Called when "Add More" or "Add Services" is pressed */
     onAddMoreServices?: () => void;
     /** Called when "View All Availability" is pressed, receives mechanic ID */
-    onViewAllAvailability?: (mechanicId: number) => void;
+    onViewAllAvailability?: (mechanicId: string) => void;
 }
 
 // ============================================================================
@@ -70,7 +70,7 @@ export function ShopDetails({ shopId, onBookNow, onAddMoreServices, onViewAllAva
 
     // ═══════════════ STATE ═══════════════
     // Track selected slot index for each mechanic
-    const [selectedSlots, setSelectedSlots] = useState<Record<number, number | null>>({});
+    const [selectedSlots, setSelectedSlots] = useState<Record<string, number | null>>({});
     // Discard service modal state
     const [discardModalVisible, setDiscardModalVisible] = useState(false);
     const [serviceToRemove, setServiceToRemove] = useState<string | null>(null);
@@ -163,7 +163,7 @@ export function ShopDetails({ shopId, onBookNow, onAddMoreServices, onViewAllAva
     }, []);
 
     const handleSlotSelect = useCallback(
-        (mechanicId: number, slotIndex: number) => {
+        (mechanicId: string, slotIndex: number) => {
             setSelectedSlots((prev) => {
                 const isCurrentlySelected = prev[mechanicId] === slotIndex;
 
@@ -188,12 +188,12 @@ export function ShopDetails({ shopId, onBookNow, onAddMoreServices, onViewAllAva
         [setScheduledAppointment, selectMechanic]
     );
 
-    const handleViewAllAvailability = useCallback((mechanicId: number) => {
+    const handleViewAllAvailability = useCallback((mechanicId: string) => {
         onViewAllAvailability?.(mechanicId);
     }, [onViewAllAvailability]);
 
     const handleBookNow = useCallback(
-        (mechanicId: number, slotIndex: number | null) => {
+        (mechanicId: string, slotIndex: number | null) => {
             // Get the mechanic to access their availability slots
             const mechanic = mechanicsWithSpecialties.find((m) => m.id === mechanicId);
             if (!mechanic) return;

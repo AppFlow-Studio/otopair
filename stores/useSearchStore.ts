@@ -29,7 +29,7 @@ const MAX_SERVICE_SUGGESTIONS = 3;
 
 /** A recent shop entry with timestamp */
 interface RecentShop {
-  shopId: number;
+  shopId: string;
   timestamp: number;
 }
 
@@ -66,15 +66,15 @@ interface SearchState {
   /** Clear the search query */
   clearSearchQuery: () => void;
   /** Add a shop to recent history */
-  addRecentShop: (shopId: number) => void;
+  addRecentShop: (shopId: string) => void;
   /** Remove a shop from recent history */
-  removeRecentShop: (shopId: number) => void;
+  removeRecentShop: (shopId: string) => void;
   /** Clear all recent shops */
   clearRecentShops: () => void;
 
   // ═══════════════ GETTERS ═══════════════
   /** Get recent shop IDs (most recent first) */
-  getRecentShopIds: () => number[];
+  getRecentShopIds: () => string[];
   /** Get matching services based on query */
   getMatchingServices: (query: string, availableServices: Service[]) => ServiceSuggestion[];
   /** Get matching categories based on query */

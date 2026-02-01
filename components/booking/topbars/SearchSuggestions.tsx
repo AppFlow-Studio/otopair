@@ -39,7 +39,7 @@ export interface SearchSuggestionsProps {
   /** Called when a shop is selected */
   onSelectShop?: (shopId: number) => void;
   /** Called when a mechanic is selected */
-  onSelectMechanic?: (mechanicId: number) => void;
+  onSelectMechanic?: (mechanicId: string) => void;
   /** Called when a service is selected */
   onSelectService?: (serviceId: string) => void;
   /** Called when a category is selected */
@@ -157,7 +157,7 @@ export function SearchSuggestions({
   );
 
   const handleMechanicPress = useCallback(
-    (mechanicId: number) => {
+    (mechanicId: string) => {
       onSelectMechanic?.(mechanicId);
       onSelectionMade?.();
     },

@@ -66,7 +66,7 @@ interface MechanicSelectionContentProps {
  * Groups mechanics by their shopId and returns shop-centric data
  */
 function groupMechanicsByShop(mechanics: Mechanic[]): ShopWithMechanics[] {
-  const shopMap = new Map<number, ShopWithMechanics>();
+  const shopMap = new Map<string, ShopWithMechanics>();
 
   mechanics.forEach((mechanic) => {
     const existing = shopMap.get(mechanic.shopId);
@@ -119,8 +119,8 @@ export function MechanicSelectionContent({
 
   // ═══════════════ STATE ═══════════════
   const [showAvailabilityModal, setShowAvailabilityModal] = React.useState(false);
-  const [availabilityMechanicId, setAvailabilityMechanicId] = React.useState<number | null>(null);
-  const [availabilityShopId, setAvailabilityShopId] = React.useState<number | null>(null);
+  const [availabilityMechanicId, setAvailabilityMechanicId] = React.useState<string | null>(null);
+  const [availabilityShopId, setAvailabilityShopId] = React.useState<string | null>(null);
 
   // ═══════════════ BOOKING STORE ═══════════════
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
@@ -240,7 +240,7 @@ export function MechanicSelectionContent({
   // ═══════════════ HANDLERS ═══════════════
   // Handle slot selection from ShopCard
   const handleSelectSlot = useCallback(
-    (shopId: number, mechanicId: number | null, slot: MechanicAvailabilitySlot) => {
+    (shopId: string, mechanicId: string | null, slot: MechanicAvailabilitySlot) => {
       const shop = shopList.find((s) => s.shopId === shopId);
       if (!shop) return;
 
@@ -259,7 +259,7 @@ export function MechanicSelectionContent({
 
   // Handle shop details button
   const handleShopDetails = useCallback(
-    (shopId: number) => {
+    (shopId: string) => {
       router.push(`/home/shop/${shopId}`);
     },
     [router]
@@ -267,7 +267,7 @@ export function MechanicSelectionContent({
 
   // Handle "More" availability button - opens the calendar modal
   const handleMoreAvailability = useCallback(
-    (shopId: number, mechanicId: number | null) => {
+    (shopId: string, mechanicId: string | null) => {
       // Pass both shopId and mechanicId to the modal
       // The modal will show all mechanics for the shop and allow switching
       setAvailabilityShopId(shopId);

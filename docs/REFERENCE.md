@@ -4,7 +4,7 @@
 **Source:** [convex/schema.ts](../convex/schema.ts) and `convex/*.ts`  
 **Last verified:** February 2026
 
-For high-level and per-part diagrams, see [diagrams.plan.md](../diagrams.plan.md). For fact-check and doc correction details, see [.cursor/plans](.cursor/plans).
+For high-level and per-part diagrams, see [docs/diagrams.md](diagrams.md). For plan details, see [.cursor/plans](../.cursor/plans).
 
 ---
 
@@ -19,7 +19,6 @@ For high-level and per-part diagrams, see [diagrams.plan.md](../diagrams.plan.md
 7. [API reference by module](#api-reference-by-module)
 8. [Implementation status and next steps](#implementation-status-and-next-steps)
 9. [Code examples](#code-examples)
-10. [Archive](#archive)
 
 ---
 
@@ -314,8 +313,3 @@ const pack = await getFullVehicleSpecPack({ vin });
 // pack: engine/transmission/trim specs + fitments (with optional part details)
 ```
 
----
-
-## Archive
-
-Historical docs (pre–vehicle refactor, old indexes, etc.) are in [docs/archive](./archive). Use this REFERENCE and [diagrams.plan.md](../diagrams.plan.md) for current schema and API.

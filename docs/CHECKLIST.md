@@ -1,7 +1,7 @@
 # OtoPair Implementation Checklist
 
 **Purpose:** Track what’s done, half-implemented, and not yet implemented across the app and Convex backend.  
-**See also:** [REFERENCE.md](./REFERENCE.md) (schema & API), [diagrams.plan.md](../diagrams.plan.md) (database diagrams).
+**See also:** [REFERENCE.md](./REFERENCE.md) (schema & API), [diagrams.md](./diagrams.md) (database diagrams).
 
 ---
 

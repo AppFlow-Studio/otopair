@@ -42,14 +42,14 @@ import type { Service } from "@/stores/types/store.types";
 interface ShopBookingModalProps {
   /** Whether the modal is visible */
   visible: boolean;
-  /** Shop ID to get all mechanics for */
-  shopId: number | null;
+  /** Shop ID to get all mechanics for (Convex _id as string) */
+  shopId: string | null;
   /** Mechanic ID for initial selection (optional) */
-  mechanicId?: number | null;
+  mechanicId?: string | null;
   /** Called when modal should close */
   onClose: () => void;
   /** Called when user presses Continue to go to payment */
-  onContinue?: (date: Date, time: string, mechanicId: number) => void;
+  onContinue?: (date: Date, time: string, mechanicId: string) => void;
 }
 
 type DayStatus = "available" | "booked" | "selected" | "disabled" | "normal";
@@ -98,7 +98,7 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
 
   // ═══════════════ LOCAL STATE ═══════════════
   // Track selected mechanic within the modal (null = "Any")
-  const [selectedMechanicId, setSelectedMechanicId] = useState<number | null>(mechanicId ?? null);
+  const [selectedMechanicId, setSelectedMechanicId] = useState<string | null>(mechanicId ?? null);
   // Track if add services modal is open
   const [showAddServicesModal, setShowAddServicesModal] = useState(false);
 

@@ -23,14 +23,14 @@ import type { Mechanic, MechanicFilters } from "./types/store.types";
 
 interface MechanicState {
   // ═══════════════ DATA ═══════════════
-  /** All mechanics indexed by ID */
-  mechanics: Record<number, Mechanic>;
+  /** All mechanics indexed by ID (Convex _id as string) */
+  mechanics: Record<string, Mechanic>;
   /** Ordered list of mechanic IDs */
-  mechanicIds: number[];
+  mechanicIds: string[];
 
   // ═══════════════ SELECTION ═══════════════
   /** Currently selected mechanic ID */
-  selectedMechanicId: number | null;
+  selectedMechanicId: string | null;
 
   // ═══════════════ FILTERS ═══════════════
   /** Current filter settings */
@@ -44,13 +44,13 @@ interface MechanicState {
 
   // ═══════════════ GETTERS ═══════════════
   /** Get mechanic by ID */
-  getMechanicById: (id: number) => Mechanic | undefined;
+  getMechanicById: (id: string) => Mechanic | undefined;
   /** Get filtered mechanics based on current filters */
   getFilteredMechanics: () => Mechanic[];
   /** Get currently selected mechanic */
   getSelectedMechanic: () => Mechanic | undefined;
   /** Get mechanics by shop ID */
-  getMechanicsByShopId: (shopId: number) => Mechanic[];
+  getMechanicsByShopId: (shopId: string) => Mechanic[];
 
   // ═══════════════ ACTIONS ═══════════════
   /** Set mechanics data (from API) */
@@ -79,12 +79,14 @@ const DEFAULT_FILTERS: MechanicFilters = {
 // ─────────────────────────────────────────────────────────────
 
 export const useMechanicStore = create<MechanicState>()((set, get) => {
-  // Initialize with mock data
-  const initialMechanics: Record<number, Mechanic> = {};
-  const initialMechanicIds: number[] = [];
+  // Initialize with mock data (ids as string for Convex compatibility)
+  const initialMechanics: Record<string, Mechanic> = {};
+  const initialMechanicIds: string[] = [];
   MOCK_MECHANICS.forEach((mechanic) => {
-    initialMechanics[mechanic.id] = mechanic;
-    initialMechanicIds.push(mechanic.id);
+    const id = String(mechanic.id);
+    const shopId = String(mechanic.shopId);
+    initialMechanics[id] = { ...mechanic, id, shopId };
+    initialMechanicIds.push(id);
   });
 
   return {
@@ -109,7 +111,7 @@ export const useMechanicStore = create<MechanicState>()((set, get) => {
 
     getMechanicsByShopId: (shopId) => {
       const { mechanics, mechanicIds } = get();
-      return mechanicIds.map((id) => mechanics[id]).filter((m) => m.shopId === shopId);
+      return mechanicIds.map((id) => mechanics[id]).filter((m) => m && String(m.shopId) === shopId);
     },
 
     getFilteredMechanics: () => {
@@ -151,11 +153,13 @@ export const useMechanicStore = create<MechanicState>()((set, get) => {
     // ═══════════════ ACTIONS ═══════════════
     setMechanics: (mechanics) =>
       set(() => {
-        const mechanicsRecord: Record<number, Mechanic> = {};
-        const mechanicIds: number[] = [];
+        const mechanicsRecord: Record<string, Mechanic> = {};
+        const mechanicIds: string[] = [];
         mechanics.forEach((mechanic) => {
-          mechanicsRecord[mechanic.id] = mechanic;
-          mechanicIds.push(mechanic.id);
+          const id = typeof mechanic.id === "string" ? mechanic.id : String(mechanic.id);
+          const shopId = typeof mechanic.shopId === "string" ? mechanic.shopId : String(mechanic.shopId);
+          mechanicsRecord[id] = { ...mechanic, id, shopId };
+          mechanicIds.push(id);
         });
         return {
           mechanics: mechanicsRecord,

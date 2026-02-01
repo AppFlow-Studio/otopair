@@ -62,10 +62,10 @@ export type BookingType = "book_now" | "schedule_later";
 
 /** A mechanic who works at a shop */
 export interface Mechanic {
-  /** Unique identifier */
-  id: number;
+  /** Unique identifier (Convex _id as string) */
+  id: string;
   /** Shop this mechanic works at */
-  shopId: number;
+  shopId: string;
   /** Mechanic's display name */
   name: string;
   /** Shop/business name */
@@ -131,8 +131,8 @@ export interface Booking {
 
 /** A shop/mechanic business entity */
 export interface Shop {
-  /** Unique identifier (auto-incrementing) */
-  id: number;
+  /** Unique identifier (Convex _id as string) */
+  id: string;
   /** Shop display name */
   name: string;
 

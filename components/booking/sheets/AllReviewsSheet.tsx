@@ -30,7 +30,7 @@ import { useMechanicStore } from "@/stores/useMechanicStore";
 // ============================================================================
 
 export interface AllReviewsSheetRef {
-  open: (mechanicId: number) => void;
+  open: (mechanicId: string) => void;
   close: () => void;
 }
 

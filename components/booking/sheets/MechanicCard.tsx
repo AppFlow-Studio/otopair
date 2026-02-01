@@ -47,9 +47,9 @@ interface MechanicCardProps {
   /** The mechanic data to display */
   mechanic: Mechanic;
   /** Called when "Book Now" is pressed with a selected slot */
-  onBookNow?: (mechanicId: number, slot: { day: string; dayOfWeek: string; time: string }) => void;
+  onBookNow?: (mechanicId: string, slot: { day: string; dayOfWeek: string; time: string }) => void;
   /** Called when "Schedule For Later" is pressed (navigates to mechanic detail page) */
-  onScheduleLater?: (mechanicId: number) => void;
+  onScheduleLater?: (mechanicId: string) => void;
 }
 
 // ============================================================================

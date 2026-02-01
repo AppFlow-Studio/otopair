@@ -226,19 +226,26 @@ export const MOCK_SCHEDULES = generateAllSchedules();
 /**
  * Get schedule for a specific mechanic
  */
-export function getMechanicSchedule(mechanicId: number): MechanicSchedule | null {
-  return MOCK_SCHEDULES[mechanicId] || null;
+/** Coerce mechanicId to number for mock lookup (app passes string). */
+function toNumId(mechanicId: string | number): number {
+  return typeof mechanicId === "string" ? parseInt(mechanicId, 10) : mechanicId;
+}
+
+export function getMechanicSchedule(mechanicId: string | number): MechanicSchedule | null {
+  const num = toNumId(mechanicId);
+  return Number.isNaN(num) ? null : MOCK_SCHEDULES[num] || null;
 }
 
 /**
  * Get monthly availability for a specific mechanic and month
  */
 export function getMonthlyAvailability(
-  mechanicId: number,
+  mechanicId: string | number,
   year: number,
   month: number
 ): MonthlyAvailability | null {
-  const schedule = MOCK_SCHEDULES[mechanicId];
+  const num = toNumId(mechanicId);
+  const schedule = Number.isNaN(num) ? undefined : MOCK_SCHEDULES[num];
   if (!schedule) return null;
 
   const key = `${year}-${String(month).padStart(2, "0")}`;
@@ -248,7 +255,7 @@ export function getMonthlyAvailability(
 /**
  * Get available days for a mechanic in a given month
  */
-export function getAvailableDays(mechanicId: number, year: number, month: number): DayAvailability[] {
+export function getAvailableDays(mechanicId: string | number, year: number, month: number): DayAvailability[] {
   const monthly = getMonthlyAvailability(mechanicId, year, month);
   if (!monthly) return [];
   return monthly.days.filter((day) => day.status === "available");
@@ -257,7 +264,7 @@ export function getAvailableDays(mechanicId: number, year: number, month: number
 /**
  * Get time slots for a specific date
  */
-export function getTimeSlotsForDate(mechanicId: number, date: Date): string[] {
+export function getTimeSlotsForDate(mechanicId: string | number, date: Date): string[] {
   const year = date.getFullYear();
   const month = date.getMonth();
   const day = date.getDate();

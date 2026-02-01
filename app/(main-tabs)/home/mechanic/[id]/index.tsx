@@ -69,7 +69,7 @@ export default function MechanicDetailScreen() {
     const [activeTab, setActiveTab] = useState<MechanicDetailTab>("services");
     const [showAddServicesModal, setShowAddServicesModal] = useState(false);
     const [showBookingModal, setShowBookingModal] = useState(false);
-    const [bookingMechanicId, setBookingMechanicId] = useState<number | null>(null);
+    const [bookingMechanicId, setBookingMechanicId] = useState<string | null>(null);
 
     // ═══════════════ STORES ═══════════════
     const getMechanicById = useMechanicStore((state) => state.getMechanicById);
@@ -79,10 +79,7 @@ export default function MechanicDetailScreen() {
     const bookingStage = useBookingStore((state) => state.bookingStage);
 
     // ═══════════════ COMPUTED VALUES ═══════════════
-    const mechanicId = useMemo(() => {
-        const parsed = id ? parseInt(id, 10) : null;
-        return isNaN(parsed ?? 0) ? null : parsed;
-    }, [id]);
+    const mechanicId = id && typeof id === "string" ? id : null;
 
     const mechanic = useMemo(() => {
         if (!mechanicId) return null;
@@ -138,7 +135,7 @@ export default function MechanicDetailScreen() {
     }, [bookingStage, resetBookingFlow, router]);
 
     const handleBookNow = useCallback(
-        (mechanicId: number) => {
+        (mechanicId: string) => {
             // Since user selected a specific time slot, this is a scheduled booking
             setBookingTypeAndProceed("schedule_later", mechanicId);
             router.push(`/home/mechanic/${id}/booking-details`);
@@ -150,7 +147,7 @@ export default function MechanicDetailScreen() {
         setShowAddServicesModal(true);
     }, []);
 
-    const handleViewAllAvailability = useCallback((mechanicId: number) => {
+    const handleViewAllAvailability = useCallback((mechanicId: string) => {
         setBookingMechanicId(mechanicId);
         setShowBookingModal(true);
     }, []);

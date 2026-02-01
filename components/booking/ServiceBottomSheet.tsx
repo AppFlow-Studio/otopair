@@ -81,7 +81,7 @@ interface ServiceBottomSheetProps {
   /** Called when a shop is selected from search */
   onSelectShop?: (shopId: number) => void;
   /** Called when a mechanic is selected from search */
-  onSelectMechanic?: (mechanicId: number) => void;
+  onSelectMechanic?: (mechanicId: string) => void;
   /** Callback when search mode changes (for hiding/showing map controls) */
   onSearchModeChange?: (isSearching: boolean) => void;
   /** Currently selected shop ID from map pin (triggers shop preview mode) */
@@ -452,7 +452,7 @@ export function ServiceBottomSheet({
 
   // Handle mechanic press from search
   const handleSearchMechanicPress = useCallback(
-    (mechanicId: number) => {
+    (mechanicId: string) => {
       exitSearchMode();
       onSelectMechanic?.(mechanicId);
     },

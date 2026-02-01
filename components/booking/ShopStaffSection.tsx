@@ -35,8 +35,8 @@ import { useBookingStore } from "@/stores/useBookingStore";
 // ============================================================================
 
 interface ShopStaffSectionProps {
-    /** The shop ID to get staff for */
-    shopId: number;
+    /** The shop ID to get staff for (Convex _id as string) */
+    shopId: string;
 }
 
 // ============================================================================

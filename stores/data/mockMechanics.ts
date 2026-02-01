@@ -15,6 +15,9 @@
 
 import type { Mechanic } from "../types/store.types";
 
+/** Mock mechanic type with numeric id/shopId for seed data; store coerces to string. */
+export type MockMechanic = Omit<Mechanic, "id" | "shopId"> & { id: number; shopId: number };
+
 // Helper to generate standard availability slots
 const generateAvailability = (startDay: number = 10) => [
   { dayOfWeek: "Wed", day: String(startDay), time: "9:00 AM" },
@@ -26,7 +29,7 @@ const generateAvailability = (startDay: number = 10) => [
   { dayOfWeek: "Wed", day: String(startDay + 7), time: "9:00 AM" },
 ];
 
-export const MOCK_MECHANICS: Mechanic[] = [
+export const MOCK_MECHANICS: MockMechanic[] = [
   // ═══════════════ MANHATTAN MECHANICS (Shops 1-10) ═══════════════
   {
     id: 1,

@@ -38,13 +38,13 @@ interface AvailabilityModalProps {
   /** Whether the modal is visible */
   visible: boolean;
   /** Mechanic ID to load schedule for (initial selection) */
-  mechanicId: number | null;
+  mechanicId: string | null;
   /** Shop ID to get all mechanics for mechanic selector (optional) */
-  shopId?: number | null;
+  shopId?: string | null;
   /** Called when modal should close */
   onClose: () => void;
   /** Called when user confirms selection */
-  onConfirm?: (date: Date, time: string, mechanicId: number) => void;
+  onConfirm?: (date: Date, time: string, mechanicId: string) => void;
 }
 
 type DayStatus = "available" | "booked" | "selected" | "disabled" | "normal";

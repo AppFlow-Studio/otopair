@@ -34,7 +34,7 @@ import { mockReviews, ratingDistribution } from "@/stores/data/mockReviews";
 
 interface MechanicReviewsSectionProps {
     /** The mechanic ID to show reviews for */
-    mechanicId: number;
+    mechanicId: string;
 }
 
 // ============================================================================

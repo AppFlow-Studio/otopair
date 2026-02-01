@@ -13,6 +13,13 @@
  */
 
 import { Stack } from "expo-router";
+import { useServicesFromConvex } from "@/hooks/useServicesFromConvex";
+
+/** Hydrates booking store with Convex services when home tab is active. */
+function HydrateServices() {
+  useServicesFromConvex();
+  return null;
+}
 
 export default function HomeLayout() {
   return (
@@ -44,5 +51,6 @@ export default function HomeLayout() {
         }}
       />
     </Stack>
+    </>
   );
 }

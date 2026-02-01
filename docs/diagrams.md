@@ -1,12 +1,24 @@
-# OtoPair Database Diagrams
+# Database Diagrams
 
-Diagrams reflect the current Convex schema ([convex/schema.ts](convex/schema.ts)) — 44 tables, broken into **one high-level view** and **one detailed diagram per part**.
+Mermaid diagrams for the OtoPair Convex schema. Source: [convex/schema.ts](../convex/schema.ts) (44 tables).
 
-**How to view:** Open **Markdown preview** (`Ctrl+Shift+V` or right‑click → **Open Preview**). Use **Ctrl+Shift+P** → **"Markdown: Open Preview to the Side"** if diagrams don’t render.
+**How to view:** Open Markdown preview (`Ctrl+Shift+V` or right‑click → **Open Preview**). Diagrams render in VS Code / Cursor and on GitHub.
 
 ---
 
-## High-level: database in 8 parts
+## Overview
+
+Three levels of detail:
+
+| Level | Scope | Contents |
+|-------|--------|----------|
+| **1. High** | Whole DB | One diagram: 8 domain groups and how they connect. |
+| **2. Mid** | Per domain | One diagram per part (8 parts): tables and FKs within that domain. |
+| **3. Low** | Per table + flows | **One diagram per table** (field-level, legible); then function flow diagrams (Convex queries/mutations). |
+
+---
+
+## Level 1: High-level — database in 8 parts
 
 ```mermaid
 flowchart LR
@@ -45,7 +57,9 @@ flowchart LR
 
 ---
 
-## Part 1: Core transactions
+## Level 2: Mid-level — tables and relationships by part
+
+### Part 1: Core transactions
 
 ```mermaid
 flowchart LR
@@ -77,7 +91,7 @@ flowchart LR
 
 ---
 
-## Part 2: Vehicle catalog and ownership
+### Part 2: Vehicle catalog and ownership
 
 ```mermaid
 flowchart LR
@@ -106,7 +120,7 @@ flowchart LR
 
 ---
 
-## Part 3: Vehicle intelligence (specs and fitments)
+### Part 3: Vehicle intelligence (specs and fitments)
 
 ```mermaid
 flowchart LR
@@ -134,7 +148,7 @@ flowchart LR
 
 ---
 
-## Part 4: Shops and services
+### Part 4: Shops and services
 
 ```mermaid
 flowchart LR
@@ -165,7 +179,7 @@ flowchart LR
 
 ---
 
-## Part 5: Reviews and follow-ups
+### Part 5: Reviews and follow-ups
 
 ```mermaid
 flowchart LR
@@ -190,7 +204,7 @@ flowchart LR
 
 ---
 
-## Part 6: User and onboarding
+### Part 6: User and onboarding
 
 ```mermaid
 flowchart LR
@@ -228,7 +242,7 @@ flowchart LR
 
 ---
 
-## Part 8: Spec pipeline
+### Part 8: Spec pipeline
 
 ```mermaid
 flowchart LR
@@ -257,4 +271,889 @@ flowchart LR
 
 ---
 
-*Source: [convex/schema.ts](convex/schema.ts).*
+## Level 3: Low-level — table fields and function flows
+
+Level 3 adds (1) per-table field and index definitions and (2) diagrams of Convex function flows (queries/mutations).
+
+---
+
+### Level 3 — Part 1: Core transactions (one table per diagram)
+
+#### Table: `bookings`
+
+```mermaid
+classDiagram
+  class bookings {
+    +id _id
+    +id user_id
+    +string vin
+    +id service_id
+    +id shop_id
+    +id mechanic_id
+    +id time_slot_id
+    +string scheduled_date
+    +string scheduled_time
+    +float labor_cost
+    +float parts_cost
+    +float total_cost
+    +string status
+    +float created_at
+    +float updated_at
+  }
+  note for bookings "indexes: by_user_id, by_shop_id, by_status,\nby_scheduled_date, by_service_id,\nby_user_and_status, by_shop_and_date,\nby_shop_and_status, by_created_at"
+```
+
+#### Table: `payments`
+
+```mermaid
+classDiagram
+  class payments {
+    +id _id
+    +id booking_id
+    +id user_id
+    +id shop_id
+    +float amount
+    +string payment_method
+    +string status
+    +string transaction_id
+    +string stripe_payment_intent_id
+    +string idempotency_key
+    +float created_at
+    +float updated_at
+  }
+  note for payments "indexes: by_booking_id, by_user_id,\nby_status, by_idempotency_key, by_created_at"
+```
+
+#### Table: `job_actuals`
+
+```mermaid
+classDiagram
+  class job_actuals {
+    +id _id
+    +id booking_id
+    +id mechanic_id
+    +float started_at
+    +float actual_labor_minutes
+    +float completed_at_ms
+    +float actual_parts_cost
+    +array parts_used
+    +float difficulty_rating
+    +string technician_notes
+    +float created_at
+    +float updated_at
+    +float logged_at_ms
+  }
+  note for job_actuals "indexes: by_booking_id, by_mechanic_id, by_created_at"
+```
+
+#### Table: `booking_status_history`
+
+```mermaid
+classDiagram
+  class booking_status_history {
+    +id _id
+    +id booking_id
+    +string old_status
+    +string new_status
+    +id changed_by
+    +string reason
+    +float changed_at
+  }
+  note for booking_status_history "indexes: by_booking_id, by_changed_at"
+```
+
+#### Table: `payment_status_history`
+
+```mermaid
+classDiagram
+  class payment_status_history {
+    +id _id
+    +id payment_id
+    +string old_status
+    +string new_status
+    +string error_code
+    +string error_message
+    +float changed_at
+  }
+  note for payment_status_history "indexes: by_payment_id, by_changed_at"
+```
+
+---
+
+### Level 3 — Part 2: Vehicle catalog (one table per diagram)
+
+#### Table: `makes`
+
+```mermaid
+classDiagram
+  class makes {
+    +id _id
+    +string name
+    +string logo_url
+  }
+```
+
+#### Table: `models`
+
+```mermaid
+classDiagram
+  class models {
+    +id _id
+    +id make_id
+    +string name
+  }
+```
+
+#### Table: `trims`
+
+```mermaid
+classDiagram
+  class trims {
+    +id _id
+    +id model_id
+    +string name
+    +float year_start
+    +float year_end
+  }
+```
+
+#### Table: `engines`
+
+```mermaid
+classDiagram
+  class engines {
+    +id _id
+    +id trim_id
+    +string engine_code
+    +float cylinders
+    +string displacement_liters
+    +string fuel_type
+  }
+```
+
+#### Table: `transmissions`
+
+```mermaid
+classDiagram
+  class transmissions {
+    +id _id
+    +id trim_id
+    +string transmission_type
+    +string code
+    +string notes
+    +float created_at
+    +float confidence_score
+  }
+  note for transmissions "indexes: by_trim, by_trim_type"
+```
+
+#### Table: `chassis_variants`
+
+```mermaid
+classDiagram
+  class chassis_variants {
+    +id _id
+    +id trim_id
+    +string drivetrain_type
+    +string notes
+    +float created_at
+    +float confidence_score
+  }
+  note for chassis_variants "indexes: by_trim, by_trim_drivetrain"
+```
+
+#### Table: `vehicles`
+
+```mermaid
+classDiagram
+  class vehicles {
+    +id _id
+    +string vin
+    +id trim_id
+    +id engine_id
+    +id transmission_id
+    +id chassis_id
+    +float year
+    +object metadata
+    +float created_at
+    +float updated_at
+  }
+  note for vehicles "indexes: by_vin, by_engine_id, by_trim_id,\nby_transmission, by_chassis"
+```
+
+#### Table: `vehicle_owners`
+
+```mermaid
+classDiagram
+  class vehicle_owners {
+    +id _id
+    +string vin
+    +id user_id
+    +string status
+    +string nickname
+    +boolean is_primary
+    +float mileage
+    +float added_at
+    +float removed_at
+  }
+  note for vehicle_owners "indexes: by_vin, by_user_id,\nby_vin_user, by_user_status"
+```
+
+---
+
+### Level 3 — Part 3: Vehicle intelligence (one table per diagram)
+
+#### Table: `engine_specs`
+
+```mermaid
+classDiagram
+  class engine_specs {
+    +id _id
+    +id engine_id
+    +string oil_viscosity
+    +float oil_capacity_qts
+    +string coolant_type
+    +float coolant_capacity_qts
+    +string brake_fluid_type
+    +string oil_change_interval
+    +string cabin_air_filter_interval
+    +string engine_air_filter_interval
+    +string spark_plug_interval
+    +string serpentine_belt_interval
+    +string brake_fluid_interval
+    +string coolant_interval
+    +string transmission_fluid_interval
+    +string tire_rotation_interval
+    +float confidence_score
+    +float created_at
+  }
+  note for engine_specs "indexes: by_engine"
+```
+
+#### Table: `transmission_specs`
+
+```mermaid
+classDiagram
+  class transmission_specs {
+    +id _id
+    +id transmission_id
+    +string transmission_fluid_type
+    +float transmission_fluid_capacity_qts
+    +string maintenance_interval
+    +float confidence_score
+    +float created_at
+  }
+  note for transmission_specs "indexes: by_transmission"
+```
+
+#### Table: `trim_specs`
+
+```mermaid
+classDiagram
+  class trim_specs {
+    +id _id
+    +id trim_id
+    +string tire_size_front
+    +string tire_size_rear
+    +float recommended_tire_pressure_front_psi
+    +float recommended_tire_pressure_rear_psi
+    +float lug_nut_torque_ft_lbs
+    +string parking_brake_type
+    +float confidence_score
+    +float created_at
+  }
+  note for trim_specs "indexes: by_trim"
+```
+
+#### Table: `oem_parts`
+
+```mermaid
+classDiagram
+  class oem_parts {
+    +id _id
+    +string oem_part_number
+    +string name
+    +string category
+    +string notes
+    +float created_at
+  }
+  note for oem_parts "indexes: by_part_number, by_category"
+```
+
+#### Table: `engine_part_fitments`
+
+```mermaid
+classDiagram
+  class engine_part_fitments {
+    +id _id
+    +id engine_id
+    +id part_id
+    +string role
+    +float quantity
+    +float spark_plug_gap_mm
+    +string notes
+    +float confidence_score
+    +float created_at
+  }
+  note for engine_part_fitments "indexes: by_engine, by_engine_role, by_part"
+```
+
+#### Table: `transmission_part_fitments`
+
+```mermaid
+classDiagram
+  class transmission_part_fitments {
+    +id _id
+    +id transmission_id
+    +id part_id
+    +string role
+    +float quantity
+    +string notes
+    +float confidence_score
+    +float created_at
+  }
+  note for transmission_part_fitments "indexes: by_transmission, by_transmission_role, by_part"
+```
+
+#### Table: `trim_part_fitments`
+
+```mermaid
+classDiagram
+  class trim_part_fitments {
+    +id _id
+    +id trim_id
+    +id part_id
+    +string role
+    +float quantity
+    +float wiper_size_in
+    +string notes
+    +float confidence_score
+    +float created_at
+  }
+  note for trim_part_fitments "indexes: by_trim, by_trim_role, by_part"
+```
+
+---
+
+### Level 3 — Part 4: Shops and services (one table per diagram)
+
+#### Table: `shops`
+
+```mermaid
+classDiagram
+  class shops {
+    +id _id
+    +string name
+    +string slug
+    +string address
+    +string city
+    +string state
+    +string zip
+    +float lat
+    +float lng
+    +string phone
+    +float labor_rate
+    +float rating
+    +float review_count
+    +boolean is_active
+    +boolean is_verified
+  }
+```
+
+#### Table: `mechanics`
+
+```mermaid
+classDiagram
+  class mechanics {
+    +id _id
+    +id shop_id
+    +string first_name
+    +string last_name
+    +boolean is_active
+    +float rating
+    +float review_count
+  }
+  note for mechanics "indexes: by_shop_id, by_is_active"
+```
+
+#### Table: `service_categories`
+
+```mermaid
+classDiagram
+  class service_categories {
+    +id _id
+    +string name
+    +string icon_name
+    +float display_order
+  }
+```
+
+#### Table: `services`
+
+```mermaid
+classDiagram
+  class services {
+    +id _id
+    +id service_category_id
+    +string name
+    +string description
+    +string slug
+    +float default_labor_hours
+    +boolean is_labor_only
+    +boolean has_options
+    +float display_order
+  }
+```
+
+#### Table: `service_options`
+
+```mermaid
+classDiagram
+  class service_options {
+    +id _id
+    +id service_id
+    +string option_type
+    +string option_label
+    +float labor_hours
+    +float parts_cost_low
+    +float parts_cost_high
+    +float state_fee
+    +float display_order
+  }
+```
+
+#### Table: `shop_services`
+
+```mermaid
+classDiagram
+  class shop_services {
+    +id _id
+    +id shop_id
+    +id service_id
+    +boolean is_offered
+  }
+  note for shop_services "indexes: by_shop_id, by_service_id, by_shop_and_service"
+```
+
+#### Table: `shops_hours`
+
+```mermaid
+classDiagram
+  class shops_hours {
+    +id _id
+    +id shop_id
+    +string day_name
+    +float day_of_week
+    +boolean is_closed
+    +string open_time
+    +string close_time
+  }
+  note for shops_hours "indexes: by_shop_id"
+```
+
+#### Table: `time_slots`
+
+```mermaid
+classDiagram
+  class time_slots {
+    +id _id
+    +id shop_id
+    +id mechanic_id
+    +string date
+    +string start_time
+    +string end_time
+    +boolean is_available
+  }
+  note for time_slots "indexes: by_shop_id, by_mechanic_id,\nby_shop_and_date, by_availability"
+```
+
+#### Table: `service_vehicle_specs`
+
+```mermaid
+classDiagram
+  class service_vehicle_specs {
+    +id _id
+    +id engine_id
+    +id service_id
+    +float labor_hours
+    +float parts_cost_low
+    +float parts_cost_high
+    +float confidence_score
+    +string tech_notes
+  }
+  note for service_vehicle_specs "indexes: by_engine_id, by_service_id, by_engine_and_service"
+```
+
+#### Table: `service_insights`
+
+```mermaid
+classDiagram
+  class service_insights {
+    +id _id
+    +id engine_id
+    +id service_id
+    +float completed_jobs_count
+    +float estimated_labor_hours
+    +float avg_actual_labor_hours
+    +float labor_variance
+    +float avg_actual_parts_cost
+    +float confidence_level
+  }
+  note for service_insights "indexes: by_engine_id, by_service_id, by_engine_and_service"
+```
+
+---
+
+### Level 3 — Part 5: Reviews and follow-ups (one table per diagram)
+
+#### Table: `reviews`
+
+```mermaid
+classDiagram
+  class reviews {
+    +id _id
+    +id booking_id
+    +id user_id
+    +id shop_id
+    +id mechanic_id
+    +float rating
+    +string comment
+    +float created_at
+  }
+  note for reviews "indexes: by_booking_id, by_shop_id, by_user_id, by_rating"
+```
+
+#### Table: `follow_ups`
+
+```mermaid
+classDiagram
+  class follow_ups {
+    +id _id
+    +id user_id
+    +string vin
+    +id booking_id
+    +id service_id
+    +string follow_up_type
+    +float scheduled_for
+    +string status
+    +string message
+    +float created_at
+    +float sent_at
+  }
+  note for follow_ups "indexes: by_user_id, by_vin,\nby_status_and_scheduled, by_booking_id"
+```
+
+---
+
+### Level 3 — Part 6: User and onboarding (one table per diagram)
+
+#### Table: `users`
+
+```mermaid
+classDiagram
+  class users {
+    +id _id
+    +string clerkUserId
+    +string email
+    +string phone
+    +string first_name
+    +string last_name
+    +string username
+    +string alias
+    +string profile_photo_url
+    +float car_knowledge_level
+    +array user_intentions
+    +boolean onboardingCompleted
+    +boolean tellUsAboutCompleted
+    +string auth_provider
+    +float createdAt
+    +boolean emailConfirmed
+    +boolean phoneVerified
+  }
+  note for users "indexes: by_clerkUserId, by_username"
+```
+
+#### Table: `onboarding_questions`
+
+```mermaid
+classDiagram
+  class onboarding_questions {
+    +id _id
+    +string step_name
+    +string question_text
+    +string question_type
+    +float rank
+    +float display_order
+    +boolean is_active
+  }
+  note for onboarding_questions "indexes: by_rank, by_step_name"
+```
+
+#### Table: `onboarding_question_answers`
+
+```mermaid
+classDiagram
+  class onboarding_question_answers {
+    +id _id
+    +id question_id
+    +string answer_text
+    +string answer_value
+    +float display_order
+    +string emoji
+  }
+  note for onboarding_question_answers "indexes: by_question_id"
+```
+
+#### Table: `user_question_answers`
+
+```mermaid
+classDiagram
+  class user_question_answers {
+    +id _id
+    +id user_id
+    +id question_id
+    +id answer_id
+    +array answer_ids
+    +string free_text_answer
+    +float answered_at
+  }
+  note for user_question_answers "indexes: by_user_and_question, by_user_id"
+```
+
+---
+
+### Level 3 — Part 7: AI and analytics (one table per diagram)
+
+#### Table: `ai_conversations`
+
+```mermaid
+classDiagram
+  class ai_conversations {
+    +id _id
+    +id user_id
+    +string session_id
+    +float started_at
+    +float ended_at
+    +string scenario_detected
+    +float message_count
+    +id booking_id
+    +boolean led_to_booking
+  }
+  note for ai_conversations "indexes: by_user_id, by_session_id,\nby_booking_id, by_started_at"
+```
+
+#### Table: `ai_messages`
+
+```mermaid
+classDiagram
+  class ai_messages {
+    +id _id
+    +id conversation_id
+    +string role
+    +string content
+    +float timestamp
+    +float confidence_score
+    +object metadata
+  }
+  note for ai_messages "indexes: by_conversation_id, by_role, by_timestamp"
+```
+
+#### Table: `analytics_events`
+
+```mermaid
+classDiagram
+  class analytics_events {
+    +id _id
+    +id user_id
+    +string event_type
+    +string event_category
+    +object event_data
+    +float timestamp
+    +string session_id
+  }
+  note for analytics_events "indexes: by_user_id, by_event_type,\nby_event_category, by_timestamp, by_session_id"
+```
+
+#### Table: `conversion_funnels`
+
+```mermaid
+classDiagram
+  class conversion_funnels {
+    +id _id
+    +id user_id
+    +string funnel_type
+    +string stage
+    +id booking_id
+    +float entered_at
+    +float exited_at
+    +boolean completed
+    +string drop_off_reason
+  }
+  note for conversion_funnels "indexes: by_user_id, by_funnel_type,\nby_booking_id, by_stage, by_completed, by_entered_at"
+```
+
+---
+
+### Level 3 — Part 8: Spec pipeline (one table per diagram)
+
+#### Table: `ai_enrichment_logs`
+
+```mermaid
+classDiagram
+  class ai_enrichment_logs {
+    +id _id
+    +id engine_id
+    +id service_id
+    +string source
+    +float confidence_score
+    +object enriched_data
+    +float created_at
+    +id reviewed_by
+    +string review_status
+  }
+  note for ai_enrichment_logs "indexes: by_engine_id, by_review_status,\nby_confidence, by_created_at"
+```
+
+#### Table: `manual_review_queue`
+
+```mermaid
+classDiagram
+  class manual_review_queue {
+    +id _id
+    +id enrichment_log_id
+    +id engine_id
+    +id service_id
+    +string priority
+    +string reason
+    +string status
+    +id assigned_to
+    +float created_at
+    +float resolved_at
+  }
+  note for manual_review_queue "indexes: by_status, by_engine_id,\nby_assigned_to, by_priority_and_status, by_created_at"
+```
+
+#### Table: `spec_variances`
+
+```mermaid
+classDiagram
+  class spec_variances {
+    +id _id
+    +id job_actual_id
+    +id engine_id
+    +id service_id
+    +float predicted_labor_hours
+    +float actual_labor_hours
+    +float predicted_parts_cost
+    +float actual_parts_cost
+    +float variance_percentage
+    +boolean flagged_for_review
+    +float reviewed_at
+    +string notes
+    +float created_at
+  }
+  note for spec_variances "indexes: by_engine_id, by_service_id,\nby_flagged, by_variance, by_job_actual_id, by_created_at"
+```
+
+#### Table: `spec_confirmations`
+
+```mermaid
+classDiagram
+  class spec_confirmations {
+    +id _id
+    +id user_id
+    +id engine_id
+    +id service_id
+    +id booking_id
+    +boolean confirmed_accurate
+    +string feedback
+    +float confirmed_at
+  }
+  note for spec_confirmations "indexes: by_engine_id, by_user_id,\nby_booking_id, by_confirmed_at"
+```
+
+---
+
+### Level 3: Function flows
+
+#### Flow: Booking creation (`bookings.create`)
+
+```mermaid
+flowchart TD
+  A[Client: create booking] --> B[bookings.create]
+  B --> C{Vehicle exists by VIN?}
+  C -->|No| D[Throw: Vehicle not found]
+  C -->|Yes| E{User owns vehicle?}
+  E -->|No| F[Throw: User does not own this vehicle]
+  E -->|Yes| G{Time slot available?}
+  G -->|No| H[Throw: Time slot no longer available]
+  G -->|Yes| I[Patch time_slots: is_available = false]
+  I --> J[Insert bookings]
+  J --> K[Insert analytics_events]
+  K --> L{Funnel ID provided?}
+  L -->|Yes| M[Patch conversion_funnels: completed, stage]
+  L -->|No| N[Return bookingId]
+  M --> N
+```
+
+#### Flow: Booking status update (`bookings.updateStatus`)
+
+```mermaid
+flowchart TD
+  A[Client: updateStatus] --> B[bookings.updateStatus]
+  B --> C[Get booking]
+  C --> D{Booking exists?}
+  D -->|No| E[Throw: Booking not found]
+  D -->|Yes| F[booking_status_history.validateTransition]
+  F --> G{Valid transition?}
+  G -->|No| H[Throw: invalid transition]
+  G -->|Yes| I{Terminal state?}
+  I -->|Yes| J[Throw: Cannot transition from terminal]
+  I -->|No| K[Patch bookings: status, updated_at]
+  K --> L[scheduler.runAfter: booking_status_history.log]
+  L --> M[Return success]
+```
+
+#### Flow: Payment create and status update
+
+```mermaid
+flowchart TD
+  subgraph create["payments.create"]
+    A1[Client: create payment] --> A2[payments.create]
+    A2 --> A3[Insert payments]
+    A3 --> A4[Return paymentId]
+  end
+  subgraph update["payments.updateStatus"]
+    B1[Client: updateStatus] --> B2[payments.updateStatus]
+    B2 --> B3[Get payment]
+    B3 --> B4{Valid FSM transition?}
+    B4 -->|No| B5[Throw]
+    B4 -->|Yes| B6[Patch payments: status, updated_at]
+    B6 --> B7[scheduler: payment_status_history.log]
+    B7 --> B8[Return success]
+  end
+```
+
+#### Flow: Service vehicle specs lookup (pricing)
+
+```mermaid
+flowchart TD
+  A[Client: getByEngineAndService] --> B[service_vehicle_specs.getByEngineAndService]
+  B --> C[Query by_engine_and_service index]
+  C --> D{Doc found?}
+  D -->|No| E[Return null]
+  D -->|Yes| F[Return labor_hours, parts_cost_low, parts_cost_high, confidence_score, tech_notes]
+```
+
+#### Flow: Time slot availability
+
+```mermaid
+flowchart TD
+  A[Client: getByShopAndDate or getAvailableByShopId] --> B[time_slots query]
+  B --> C[Filter: shop_id, date optional, is_available = true]
+  C --> D[Return slots]
+```
+
+---
+
+*Source: [convex/schema.ts](../convex/schema.ts). Convex modules: [bookings](../convex/bookings.ts), [payments](../convex/payments.ts), [service_vehicle_specs](../convex/service_vehicle_specs.ts), [time_slots](../convex/time_slots.ts), [booking_status_history](../convex/booking_status_history.ts).*

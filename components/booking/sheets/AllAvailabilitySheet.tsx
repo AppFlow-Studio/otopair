@@ -32,7 +32,7 @@ import { useScheduleStore } from "@/stores/useScheduleStore";
 // ============================================================================
 
 export interface AllAvailabilitySheetRef {
-  open: (mechanicId: number) => void;
+  open: (mechanicId: string) => void;
   close: () => void;
 }
 
@@ -200,7 +200,7 @@ export const AllAvailabilitySheet = forwardRef<AllAvailabilitySheetRef, AllAvail
 
     // ═══════════════ IMPERATIVE HANDLE ═══════════════
     useImperativeHandle(ref, () => ({
-      open: (mechanicId: number) => {
+      open: (mechanicId: string) => {
         // loadMechanicSchedule will restore any previous selection for this mechanic
         loadMechanicSchedule(mechanicId);
         bottomSheetModalRef.current?.present();

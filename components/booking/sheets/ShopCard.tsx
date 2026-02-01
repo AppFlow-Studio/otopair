@@ -35,7 +35,7 @@ import type { Mechanic, MechanicAvailabilitySlot } from "@/stores/types/store.ty
 
 /** Shop with grouped mechanics data */
 export interface ShopWithMechanics {
-  shopId: number;
+  shopId: string;
   shopName: string;
   rating: number;
   isVerified: boolean;
@@ -45,8 +45,8 @@ export interface ShopWithMechanics {
 
 /** Selected slot information */
 export interface SelectedSlotInfo {
-  shopId: number;
-  mechanicId: number | null; // null means "Any"
+  shopId: string;
+  mechanicId: string | null; // null means "Any"
   slot: MechanicAvailabilitySlot;
 }
 
@@ -61,11 +61,11 @@ interface ShopCardProps {
   /** The shop data with mechanics to display */
   shop: ShopWithMechanics;
   /** Called when a time slot is selected */
-  onSelectSlot: (shopId: number, mechanicId: number | null, slot: MechanicAvailabilitySlot) => void;
+  onSelectSlot: (shopId: string, mechanicId: string | null, slot: MechanicAvailabilitySlot) => void;
   /** Called when "Shop Details" is pressed */
-  onShopDetails: (shopId: number) => void;
+  onShopDetails: (shopId: string) => void;
   /** Called when "More" button is pressed to see full calendar */
-  onMoreAvailability: (shopId: number, mechanicId: number | null) => void;
+  onMoreAvailability: (shopId: string, mechanicId: string | null) => void;
   /** Currently selected slot (for highlighting) */
   selectedSlot: SelectedSlotInfo | null;
   /** Selected services for displaying cost */
@@ -86,8 +86,8 @@ const MAX_VISIBLE_SLOTS = 3;
  * Combines and sorts availability slots from all mechanics, returning earliest unique slots
  * Deduplicates slots with the same day/time, keeping the first mechanic's slot
  */
-function getEarliestAvailability(mechanics: Mechanic[], limit: number): Array<MechanicAvailabilitySlot & { mechanicId: number }> {
-  const allSlots: Array<MechanicAvailabilitySlot & { mechanicId: number }> = [];
+function getEarliestAvailability(mechanics: Mechanic[], limit: number): Array<MechanicAvailabilitySlot & { mechanicId: string }> {
+  const allSlots: Array<MechanicAvailabilitySlot & { mechanicId: string }> = [];
   
   mechanics.forEach((mechanic) => {
     mechanic.nextAvailability.forEach((slot) => {
@@ -192,7 +192,7 @@ export const ShopCard = memo(function ShopCard({
   );
 
   // Handlers
-  const handleMechanicSelect = useCallback((mechanicId: number | null) => {
+  const handleMechanicSelect = useCallback((mechanicId: string | null) => {
     setSelectedMechanicId(mechanicId);
   }, []);
 
