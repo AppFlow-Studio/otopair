@@ -34,28 +34,38 @@ import { ProgressBar } from '@/components/shared-ui/ProgressBar';
 import { BackButton } from '@/components/shared-ui/BackButton';
 import { FontAwesome } from '@expo/vector-icons';
 import { Mail } from 'lucide-react-native';
+import { useOnboardingStore } from '@/stores/useOnboardingStore';
 
 interface SignUpMethodsStepProps {
     onNext: () => void;
     onBack: () => void;
-    progress: { total: number; filled: number };
 }
 
-export function SignUpMethodsStep({ onNext, onBack, progress }: SignUpMethodsStepProps) {
+export function SignUpMethodsStep({ onNext, onBack }: SignUpMethodsStepProps) {
     const insets = useSafeAreaInsets();
+    const { updateData } = useOnboardingStore();
 
     const handleEmailSignUp = () => {
-        // Proceed to phone number step
+        updateData({ signUpMethod: 'email' });
+        // Proceed to email entry step
+        onNext();
+    };
+
+    const handleGoogleSignUp = () => {
+        updateData({ signUpMethod: 'google' });
+        onNext();
+    };
+
+    const handleAppleSignUp = () => {
+        updateData({ signUpMethod: 'apple' });
         onNext();
     };
 
     return (
         <View style={[styles.container, { paddingTop: insets.top + Spacing.lg }]}>
-            <ProgressBar
-                total={progress.total}
-                filled={progress.filled}
-                leftElement={<BackButton onBack={onBack} alwaysShow />}
-            />
+            <View style={styles.backButtonContainer}>
+                <BackButton onBack={onBack} alwaysShow />
+            </View>
 
             <View style={styles.content}>
                 <View style={styles.headerContent}>
@@ -72,7 +82,7 @@ export function SignUpMethodsStep({ onNext, onBack, progress }: SignUpMethodsSte
 
                     <FooterButton
                         label="Continue with Google"
-                        onPress={() => console.log('Google Sign Up')}
+                        onPress={handleGoogleSignUp}
                         variant="secondary"
                         backgroundColor="rgba(255, 255, 255, 0.1)"
                         textColor={BrandColors.white}
@@ -83,7 +93,7 @@ export function SignUpMethodsStep({ onNext, onBack, progress }: SignUpMethodsSte
                     {Platform.OS === 'ios' && (
                         <FooterButton
                             label="Continue with Apple"
-                            onPress={() => console.log('Apple Sign Up')}
+                            onPress={handleAppleSignUp}
                             variant="secondary"
                             backgroundColor="rgba(255, 255, 255, 0.1)"
                             textColor={BrandColors.white}
@@ -107,6 +117,12 @@ export function SignUpMethodsStep({ onNext, onBack, progress }: SignUpMethodsSte
 const styles = StyleSheet.create({
     container: {
         flex: 1,
+    },
+    backButtonContainer: {
+        paddingHorizontal: Spacing['2xl'],
+        marginBottom: Spacing.xl,
+        paddingTop: Spacing.sm,
+        alignItems: 'flex-start',
     },
     content: {
         flex: 1,

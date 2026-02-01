@@ -34,6 +34,10 @@ import { AnimatedGradientBackground } from '@/components/shared-ui';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import { WelcomeStep } from './steps/WelcomeStep';
 import { SignUpMethodsStep } from './steps/SignUpMethodsStep';
+import { LoginMethodsStep } from './steps/LoginMethodsStep';
+import { EmailEntryStep } from './steps/EmailEntryStep';
+import { CreatePasswordStep } from './steps/CreatePasswordStep';
+import { EmailPasswordLoginStep } from './steps/EmailPasswordLoginStep';
 import { PhoneNumberStep } from './steps/PhoneNumberStep';
 import { ConfirmPhoneNumberStep } from './steps/ConfirmPhoneNumberStep';
 import { NameStep } from './steps/NameStep';
@@ -43,20 +47,24 @@ import { PushNotificationsStep } from './steps/PushNotificationsStep';
 import { LocationServicesStep } from './steps/LocationServicesStep';
 
 // Define the steps in the flow
-export type OnboardingStep = 'welcome' | 'signUpMethods' | 'phone' | 'confirm' | 'name' | 'profilePhoto' | 'userIntent' | 'pushNotifications' | 'locationServices' | 'complete';
+export type OnboardingStep = 'welcome' | 'signUpMethods' | 'loginMethods' | 'email' | 'createPassword' | 'emailPasswordLogin' | 'phone' | 'confirm' | 'name' | 'profilePhoto' | 'userIntent' | 'pushNotifications' | 'locationServices' | 'complete';
 
 // Step indices mapping to SHARED_GRADIENT_CONFIGS
 const STEP_INDICES: Record<OnboardingStep, number> = {
     welcome: 0,
-    signUpMethods: 4,
-    phone: 1,
-    confirm: 2,
-    name: 3,
-    profilePhoto: 5,
-    userIntent: 6,
-    pushNotifications: 7,
-    locationServices: 8,
-    complete: 9,
+    signUpMethods: 1,
+    loginMethods: 2,
+    email: 3,
+    createPassword: 4,
+    phone: 5,
+    confirm: 6,
+    name: 7,
+    profilePhoto: 8,
+    userIntent: 9,
+    pushNotifications: 10,
+    locationServices: 11,
+    complete: 12,
+    emailPasswordLogin: 13,
 };
 
 interface OnboardingFlowProps {
@@ -67,7 +75,8 @@ interface OnboardingFlowProps {
 
 // Steps that show in the progress bar (excludes welcome and complete)
 const PROGRESS_STEPS: OnboardingStep[] = [
-    'signUpMethods',
+    'email',
+    'createPassword',
     'phone',
     'confirm',
     'name',
@@ -82,6 +91,20 @@ export function getIncompleteOnboardingSteps(): OnboardingStep[] {
     const { data } = useOnboardingStore.getState();
     
     const stepChecks: { step: OnboardingStep; isComplete: () => boolean }[] = [
+        { 
+            step: 'email', 
+            isComplete: () => {
+                if (data.signUpMethod && data.signUpMethod !== 'email') return true;
+                return !!data.email;
+            } 
+        },
+        { 
+            step: 'createPassword', 
+            isComplete: () => {
+                if (data.signUpMethod && data.signUpMethod !== 'email') return true;
+                return !!data.password;
+            } 
+        },
         { step: 'phone', isComplete: () => !!data.phoneNumber },
         { step: 'confirm', isComplete: () => !!data.phoneNumber }, // Same as phone
         { step: 'name', isComplete: () => !!(data.firstName && data.lastName) },
@@ -102,6 +125,7 @@ export function OnboardingFlow({
     filteredSteps,
     isResumeMode = false,
 }: OnboardingFlowProps) {
+    const { data } = useOnboardingStore();
     const [currentStep, setCurrentStep] = useState<OnboardingStep>(initialStep);
     const [fromStep, setFromStep] = useState<OnboardingStep>(initialStep);
     const [toStep, setToStep] = useState<OnboardingStep>(initialStep);
@@ -109,14 +133,27 @@ export function OnboardingFlow({
     // Animation progress (0 = from step, 1 = to step)
     const animationProgress = useSharedValue(1);
 
-    // Use filtered steps if provided (resume mode), otherwise use all progress steps
-    const activeSteps = filteredSteps || PROGRESS_STEPS;
+    // Use filtered steps if provided (resume mode), otherwise use progress steps
+    // Filter out 'email' if user signed up with Google or Apple
+    const activeSteps = filteredSteps || PROGRESS_STEPS.filter(step => {
+        if (step === 'email' && data.signUpMethod && data.signUpMethod !== 'email') {
+            return false;
+        }
+        if (step === 'createPassword' && data.signUpMethod && data.signUpMethod !== 'email') {
+            return false;
+        }
+        return true;
+    });
 
     // Get progress info for the current step
     const getProgressInfo = () => {
         const stepIndex = activeSteps.indexOf(currentStep);
         if (stepIndex === -1) {
             // Welcome or complete step - no progress bar
+            // Handle case where signUpMethods is active but not in progress bar
+            if (currentStep === 'signUpMethods') {
+                return { total: activeSteps.length, filled: 0 };
+            }
             return { total: activeSteps.length, filled: 0 };
         }
         return { total: activeSteps.length, filled: stepIndex };
@@ -156,6 +193,8 @@ export function OnboardingFlow({
     };
 
     const goBack = async () => {
+        const { data: latestData } = useOnboardingStore.getState();
+        
         // In resume mode, navigate within filtered steps
         if (isResumeMode && filteredSteps) {
             const currentIndex = activeSteps.indexOf(currentStep);
@@ -177,8 +216,28 @@ export function OnboardingFlow({
             case 'signUpMethods':
                 goToStep('welcome');
                 break;
+            case 'loginMethods':
+                goToStep('welcome');
+                break;
+            case 'emailPasswordLogin':
+                goToStep('loginMethods');
+                break;
+            case 'email':
+                if (latestData.authMode === 'login') {
+                    goToStep('loginMethods');
+                } else {
+                    goToStep('signUpMethods');
+                }
+                break;
+            case 'createPassword':
+                goToStep('email');
+                break;
             case 'phone':
-                goToStep('signUpMethods');
+                if (latestData.signUpMethod && latestData.signUpMethod !== 'email') {
+                    goToStep('signUpMethods');
+                } else {
+                    goToStep('createPassword');
+                }
                 break;
             case 'confirm':
                 goToStep('phone');
@@ -261,6 +320,8 @@ export function OnboardingFlow({
     };
 
     const goNext = async () => {
+        const { data: latestData } = useOnboardingStore.getState();
+
         // In resume mode, navigate within filtered steps
         if (isResumeMode && filteredSteps) {
             const currentIndex = activeSteps.indexOf(currentStep);
@@ -277,9 +338,44 @@ export function OnboardingFlow({
         // Normal mode navigation
         switch (currentStep) {
             case 'welcome':
-                goToStep('signUpMethods');
+                if (latestData.authMode === 'login') {
+                    goToStep('loginMethods');
+                } else {
+                    goToStep('signUpMethods');
+                }
                 break;
             case 'signUpMethods':
+                if (latestData.signUpMethod && latestData.signUpMethod !== 'email') {
+                    goToStep('phone');
+                } else {
+                    goToStep('email');
+                }
+                break;
+            case 'loginMethods':
+                if (latestData.signUpMethod && latestData.signUpMethod !== 'email') {
+                    // Successful login for Google/Apple handled in LoginMethodsStep
+                    break;
+                } else {
+                    goToStep('emailPasswordLogin');
+                }
+                break;
+            case 'emailPasswordLogin':
+                // Successful login handled in EmailPasswordLoginStep
+                // but we need to mark flow as complete
+                goToStep('complete');
+                break;
+            case 'email':
+                if (latestData.authMode === 'login') {
+                    // Successful login for email will be handled later
+                    // For now, let's assume it jumps to phone like sign up? 
+                    // No, login should probably go home. 
+                    router.replace('/(main-tabs)/home');
+                    goToStep('complete');
+                } else {
+                    goToStep('createPassword');
+                }
+                break;
+            case 'createPassword':
                 goToStep('phone');
                 break;
             case 'phone':
@@ -331,7 +427,15 @@ export function OnboardingFlow({
             case 'welcome':
                 return <WelcomeStep onNext={goNext} onBack={goBack} />;
             case 'signUpMethods':
-                return <SignUpMethodsStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+                return <SignUpMethodsStep onNext={goNext} onBack={goBack} />;
+            case 'loginMethods':
+                return <LoginMethodsStep onNext={goNext} onBack={goBack} />;
+            case 'emailPasswordLogin':
+                return <EmailPasswordLoginStep onNext={goNext} onBack={goBack} />;
+            case 'email':
+                return <EmailEntryStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+            case 'createPassword':
+                return <CreatePasswordStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
             case 'phone':
                 return <PhoneNumberStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
             case 'confirm':

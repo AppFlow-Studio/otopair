@@ -317,10 +317,6 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
     return `+${callingCode} ${formatted}`;
   };
 
-  const handleLogIn = () => {
-    console.log("Navigate to login");
-  };
-
   const handleCountrySelect = (selectedCountry: Country) => {
     setCountryCode(selectedCountry.cca2);
     setCountry(selectedCountry);
@@ -399,9 +395,9 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.headerContent}>
-            <Text style={styles.title}>Let's get started!</Text>
+            <Text style={styles.title}>What's your number?</Text>
             <Text style={styles.subtitle}>
-              Enter your phone number. We will send you a confirmation code there.
+              We'll send a verification code to secure your account.
             </Text>
           </View>
 
@@ -427,15 +423,6 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
               autoComplete="tel"
               textContentType="telephoneNumber"
             />
-          </View>
-
-          <View style={styles.loginLinkContainer}>
-            <Text style={styles.loginLinkText}>
-              Already have an account?{" "}
-              <Text style={styles.loginLinkButton} onPress={handleLogIn}>
-                Log in
-              </Text>
-            </Text>
           </View>
         </ScrollView>
 
@@ -654,22 +641,6 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.regular,
     color: BrandColors.white,
     paddingVertical: 0,
-  },
-  loginLinkContainer: {
-    alignItems: "center",
-    paddingHorizontal: Spacing["2xl"],
-    marginBottom: Spacing.xl,
-  },
-  loginLinkText: {
-    fontSize: FontSize.md,
-    fontFamily: FontFamily.regular,
-    color: BrandColors.white,
-    opacity: 0.8,
-  },
-  loginLinkButton: {
-    fontFamily: FontFamily.semiBold,
-    color: "#60A5FA",
-    opacity: 1,
   },
   bottomContainer: {
     paddingTop: Spacing.sm,

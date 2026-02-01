@@ -50,12 +50,14 @@ interface OnboardingData {
   // Profile Step
   firstName: string | null;
   lastName: string | null;
-  alias: string | null;
   profilePhotoUri: string | null;
   dateOfBirth: string | null; // ISO format
   phoneNumber: string | null;
   phoneCountryCode: string | null;
   email: string | null;
+  password: string | null;
+  signUpMethod: "email" | "google" | "apple" | null;
+  authMode: "signUp" | "login" | null;
   twoFactorEmailEnabled: boolean;
   twoFactorSmsEnabled: boolean;
   biometricLoginEnabled: boolean;
@@ -213,12 +215,14 @@ interface OnboardingState {
 const INITIAL_DATA: OnboardingData = {
   firstName: null,
   lastName: null,
-  alias: null,
   profilePhotoUri: null,
   dateOfBirth: null,
   phoneNumber: null,
   phoneCountryCode: null,
   email: null,
+  password: null,
+  signUpMethod: null,
+  authMode: null,
   twoFactorEmailEnabled: false,
   twoFactorSmsEnabled: false,
   biometricLoginEnabled: false,
