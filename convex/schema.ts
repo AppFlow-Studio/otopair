@@ -958,6 +958,7 @@ export default defineSchema({
    *   - code: (optional) OEM transmission code if known
    *   - notes: (optional) Additional notes
    *   - created_at: Unix timestamp when variant was added
+   *   - confidence_score: (optional) AI confidence when auto-generated
    * 
    * INDEXES:
    *   - by_trim: Get all transmissions for trim
@@ -975,6 +976,7 @@ export default defineSchema({
     code: v.optional(v.string()),
     notes: v.optional(v.string()),
     created_at: v.float64(),
+    confidence_score: v.optional(v.float64()), // 0-1, present when AI-created/selected
   })
     .index("by_trim", ["trim_id"])
     .index("by_trim_type", ["trim_id", "transmission_type"]),
@@ -991,6 +993,7 @@ export default defineSchema({
    *   - drivetrain_type: Type (e.g., "fwd", "rwd", "awd", "4wd")
    *   - notes: (optional) Additional notes about chassis
    *   - created_at: Unix timestamp when variant was added
+   *   - confidence_score: (optional) AI confidence when auto-generated
    * 
    * INDEXES:
    *   - by_trim: Get all chassis variants for trim
@@ -1005,6 +1008,7 @@ export default defineSchema({
     drivetrain_type: v.string(), // "fwd" | "rwd" | "awd" | "4wd"
     notes: v.optional(v.string()),
     created_at: v.float64(),
+    confidence_score: v.optional(v.float64()), // 0-1, present when AI-created/selected
   })
     .index("by_trim", ["trim_id"])
     .index("by_trim_drivetrain", ["trim_id", "drivetrain_type"]),
@@ -1018,24 +1022,32 @@ export default defineSchema({
    * 
    * DESCRIPTION:
    * Engine subsystem specifications (not parts, but spec data).
-   * Stores oil, coolant, brake fluid requirements keyed by engine_id.
-   * UNIQUE index ensures one spec record per engine.
+   * One row per engine_id covering fluids and maintenance intervals.
    * 
    * FIELDS:
-   *   - engine_id: References the engine (UNIQUE via index)
+   *   - engine_id: References the engine (treated as unique via index)
    *   - oil_viscosity: Oil viscosity rating (e.g., "5W-30")
    *   - oil_capacity_qts: Oil capacity in quarts
    *   - coolant_type: Coolant type/specification
    *   - coolant_capacity_qts: Coolant capacity in quarts
    *   - brake_fluid_type: (optional) Brake fluid specification
-   *   - maintenance_intervals: (optional) Maintenance interval specs
+   *   - oil_change_interval: (optional) Interval for engine oil service
+   *   - cabin_air_filter_interval: (optional) Interval for cabin filter service
+   *   - engine_air_filter_interval: (optional) Interval for engine air filter service
+   *   - spark_plug_interval: (optional) Interval for spark plug service
+   *   - serpentine_belt_interval: (optional) Interval for serpentine belt service
+   *   - brake_fluid_interval: (optional) Interval for brake fluid service
+   *   - coolant_interval: (optional) Interval for coolant service
+   *   - transmission_fluid_interval: (optional) Interval for transmission fluid service
+   *   - tire_rotation_interval: (optional) Interval for tire rotation
+   *   - confidence_score: (optional) Confidence in spec accuracy (0-1)
    *   - created_at: Unix timestamp when spec was created
    * 
    * INDEXES:
    *   - by_engine: Lookup by engine (unique)
    * 
    * RELATIONSHIPS:
-   *   FK → engines(engine_id)
+   *   FK -> engines(engine_id)
    */
   engine_specs: defineTable({
     engine_id: v.id("engines"),
@@ -1044,7 +1056,16 @@ export default defineSchema({
     coolant_type: v.optional(v.string()),
     coolant_capacity_qts: v.optional(v.float64()),
     brake_fluid_type: v.optional(v.string()),
-    maintenance_intervals: v.optional(v.string()),
+    oil_change_interval: v.optional(v.string()),
+    cabin_air_filter_interval: v.optional(v.string()),
+    engine_air_filter_interval: v.optional(v.string()),
+    spark_plug_interval: v.optional(v.string()),
+    serpentine_belt_interval: v.optional(v.string()),
+    brake_fluid_interval: v.optional(v.string()),
+    coolant_interval: v.optional(v.string()),
+    transmission_fluid_interval: v.optional(v.string()),
+    tire_rotation_interval: v.optional(v.string()),
+    confidence_score: v.optional(v.float64()), // 0-1
     created_at: v.float64(),
   })
     .index("by_engine", ["engine_id"]),
@@ -1062,6 +1083,7 @@ export default defineSchema({
    *   - transmission_fluid_type: Fluid specification
    *   - transmission_fluid_capacity_qts: Fluid capacity in quarts
    *   - maintenance_interval: (optional) Maintenance interval specs
+   *   - confidence_score: (optional) Confidence in spec accuracy (0-1)
    *   - created_at: Unix timestamp when spec was created
    * 
    * INDEXES:
@@ -1075,6 +1097,7 @@ export default defineSchema({
     transmission_fluid_type: v.optional(v.string()),
     transmission_fluid_capacity_qts: v.optional(v.float64()),
     maintenance_interval: v.optional(v.string()),
+    confidence_score: v.optional(v.float64()), // 0-1
     created_at: v.float64(),
   })
     .index("by_transmission", ["transmission_id"]),
@@ -1095,6 +1118,7 @@ export default defineSchema({
    *   - recommended_tire_pressure_rear_psi: Recommended PSI for rear
    *   - lug_nut_torque_ft_lbs: Lug nut torque specification
    *   - parking_brake_type: Type of parking brake (e.g., "drum", "disc")
+   *   - confidence_score: (optional) Confidence in spec accuracy (0-1)
    *   - created_at: Unix timestamp when spec was created
    * 
    * INDEXES:
@@ -1111,6 +1135,7 @@ export default defineSchema({
     recommended_tire_pressure_rear_psi: v.optional(v.float64()),
     lug_nut_torque_ft_lbs: v.optional(v.float64()),
     parking_brake_type: v.optional(v.string()),
+    confidence_score: v.optional(v.float64()), // 0-1
     created_at: v.float64(),
   })
     .index("by_trim", ["trim_id"]),
@@ -1133,6 +1158,7 @@ export default defineSchema({
    *   - quantity: (optional) How many units needed
    *   - spark_plug_gap_mm: (optional) Spark plug gap if applicable
    *   - notes: (optional) Additional fitment notes
+   *   - confidence_score: (optional) Confidence in fitment (0-1)
    *   - created_at: Unix timestamp when fitment was created
    * 
    * INDEXES:
@@ -1151,6 +1177,7 @@ export default defineSchema({
     quantity: v.optional(v.float64()),
     spark_plug_gap_mm: v.optional(v.float64()),
     notes: v.optional(v.string()),
+    confidence_score: v.optional(v.float64()), // 0-1
     created_at: v.float64(),
   })
     .index("by_engine", ["engine_id"])
@@ -1170,6 +1197,7 @@ export default defineSchema({
    *   - role: Part role/application (e.g., "transmission_filter", "pan_gasket")
    *   - quantity: (optional) How many units needed
    *   - notes: (optional) Additional fitment notes
+   *   - confidence_score: (optional) Confidence in fitment (0-1)
    *   - created_at: Unix timestamp when fitment was created
    * 
    * INDEXES:
@@ -1187,6 +1215,7 @@ export default defineSchema({
     role: v.string(), // transmission_filter, transmission_pan_gasket, etc.
     quantity: v.optional(v.float64()),
     notes: v.optional(v.string()),
+    confidence_score: v.optional(v.float64()), // 0-1
     created_at: v.float64(),
   })
     .index("by_transmission", ["transmission_id"])
@@ -1207,6 +1236,7 @@ export default defineSchema({
    *   - quantity: (optional) How many units needed
    *   - wiper_size_in: (optional) Wiper blade size in inches
    *   - notes: (optional) Additional fitment notes
+   *   - confidence_score: (optional) Confidence in fitment (0-1)
    *   - created_at: Unix timestamp when fitment was created
    * 
    * INDEXES:
@@ -1225,47 +1255,12 @@ export default defineSchema({
     quantity: v.optional(v.float64()),
     wiper_size_in: v.optional(v.float64()),
     notes: v.optional(v.string()),
+    confidence_score: v.optional(v.float64()), // 0-1
     created_at: v.float64(),
   })
     .index("by_trim", ["trim_id"])
     .index("by_trim_role", ["trim_id", "role"])
     .index("by_part", ["part_id"]),
-  
-  /**
-   * TABLE: vehicle_specs
-   * 
-   * DESCRIPTION:
-   * DEPRECATED: Detailed vehicle specifications for maintenance (oil type, brake pads, etc).
-   * Contains OEM part numbers and maintenance specs for specific engines.
-   * 
-   * ⚠️ DEPRECATED - Use engine_specs, transmission_specs, trim_specs, and fitment tables instead.
-   * Kept for backward compatibility. Do not use in new code.
-   * 
-   * FIELDS:
-   *   - engine_id: References the engine
-   *   - oil_viscocity: Engine oil viscosity rating (e.g., "5W-30")
-   *   - oil_capacity_qts: Oil capacity in quarts
-   *   - oil_filter_oem: OEM oil filter part number
-   *   - front_brake_pad_oem: OEM front brake pad part number
-   *   - rear_brake_pad_oem: OEM rear brake pad part number
-   *   - battery_cca: Battery Cold Cranking Amps rating
-   *   - battery_group: Battery group size (e.g., "27F")
-   *   - parking_brake_type: Type of parking brake (e.g., "drum", "disc")
-   * 
-   * RELATIONSHIPS:
-   *   FK → engines(engine_id)
-   */
-  vehicle_specs: defineTable({
-    battery_cca: v.float64(),
-    battery_group: v.string(),
-    engine_id: v.id("engines"),
-    front_brake_pad_oem: v.string(),
-    oil_capacity_qts: v.string(),
-    oil_filter_oem: v.string(),
-    oil_viscocity: v.string(),
-    parking_brake_type: v.string(),
-    rear_brake_pad_oem: v.string(),
-  }),
   
   // ============================================================================
   // PAYMENT TRACKING
