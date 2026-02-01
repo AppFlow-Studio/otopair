@@ -6,11 +6,16 @@
  * Examples: Oil Change, Tire Rotation, Brake Inspection, Transmission Fluid Flush
  * Services are organized into categories and may have options/variations.
  * 
+ * PRICING: Services do not store a fixed price. Price is determined at booking time by:
+ *   (estimated_labor_time × mechanic/shop labor_rate) + parts + %taxes + %service_fees
+ * Use services.default_labor_hours (and optional service_options / service_insights) with
+ * shops.labor_rate to compute labor; add parts estimate and tax/fee percentages.
+ * 
  * TABLE: services
  *   - Master list of all services
  *   - Belongs to a service_category
  *   - Can have multiple options (variations)
- *   - Has associated cost/time estimates
+ *   - Has default_labor_hours (used in price formula)
  *   - Referenced by bookings, shops, and specs
  * 
  * KEY RELATIONSHIPS:

@@ -91,7 +91,7 @@ For high-level and per-part diagrams, see [diagrams.plan.md](../diagrams.plan.md
 ### Services & shops (10)
 | Table | Purpose |
 |-------|---------|
-| services | Service definitions; link to service_categories |
+| services | Service definitions; link to service_categories; no price—use formula (labor×rate + parts + tax + fees) |
 | service_categories | Category grouping |
 | service_options | Labor/parts options per service |
 | shop_services | Which services each shop offers |
@@ -147,6 +147,12 @@ ai_enrichment_logs → manual_review_queue; spec_variances, spec_confirmations �
 ### Confidence score
 - **Where it applies:** transmissions, chassis_variants; engine_specs, transmission_specs, trim_specs; engine/transmission/trim_part_fitments; service_vehicle_specs; ai_enrichment_logs. Schema: optional `v.optional(v.float64())`; access layer mutations often require 0–1 on insert/upsert.
 - **Where it does not:** oem_parts (catalog); manual_review_queue, spec_variances, spec_confirmations (workflow/feedback).
+
+### Service pricing (no stored price)
+- Services do **not** have a fixed `price` field. Price is **computed at booking time** using:
+  - **Formula:** `(estimated_labor_time × mechanic/shop labor_rate) + parts + %taxes + %service_fees`
+- **Sources:** `services.default_labor_hours` (or service_options / service_insights), `shops.labor_rate`, parts from service_options / service_insights / job history; taxes and service fees as configured percentages.
+- Use this formula wherever the app needs a “price” or “total” for a service (e.g. booking flow, review & pay).
 
 ### Deprecated
 - **vehicle_specs** – Deprecated in docs; replaced by engine_specs, transmission_specs, trim_specs + fitments + oem_parts.

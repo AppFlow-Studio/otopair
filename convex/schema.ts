@@ -497,13 +497,14 @@ export default defineSchema({
    * DESCRIPTION:
    * Master list of all services offered on the platform.
    * Examples: Oil Change, Tire Rotation, Brake Inspection
+   * Price is not stored; computed at booking: (labor_time × shop labor_rate) + parts + %taxes + %service_fees.
    * 
    * FIELDS:
    *   - name: Service name
    *   - description: Detailed description of what service includes
    *   - slug: URL-friendly identifier
    *   - service_category_id: Category this service belongs to
-   *   - default_labor_hours: Default estimated labor time
+   *   - default_labor_hours: Default estimated labor time (used in price formula)
    *   - is_labor_only: Whether service has no parts cost
    *   - has_options: Whether users can customize this service
    *   - display_order: Order to show in UI
