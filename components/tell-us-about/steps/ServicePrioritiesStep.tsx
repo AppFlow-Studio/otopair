@@ -45,6 +45,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
+import { useOnboardingQuestion } from '@/hooks/useOnboardingQuestion';
 
 interface ServicePrioritiesStepProps {
     onNext: () => void;
@@ -66,7 +67,8 @@ export function ServicePrioritiesStep({ onNext, onBack, progress }: ServicePrior
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
-    
+    const { answers, saveAnswer } = useOnboardingQuestion('servicePriorities');
+
     const [selectedPriorities, setSelectedPriorities] = useState<ServicePriority[]>(
         (data.servicePriorities as ServicePriority[]) ?? []
     );
@@ -96,6 +98,10 @@ export function ServicePrioritiesStep({ onNext, onBack, progress }: ServicePrior
 
     const handleContinue = () => {
         if (selectedPriorities.length > 0) {
+            const selectedAnswerIds = answers
+                .filter(a => selectedPriorities.includes(a.answer_value as ServicePriority))
+                .map(a => a._id);
+            saveAnswer({ answerIds: selectedAnswerIds });
             onNext();
         }
     };

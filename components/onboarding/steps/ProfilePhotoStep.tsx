@@ -34,6 +34,7 @@ import { ProgressBar } from "@/components/shared-ui/ProgressBar";
 import { FooterButton } from "@/components/shared-ui/FooterButton";
 import { BackButton } from "@/components/shared-ui/BackButton";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
+import { useOnboardingPersistence } from "@/hooks/useOnboardingPersistence";
 import { useState } from "react";
 import {
   StyleSheet,
@@ -60,6 +61,7 @@ export function ProfilePhotoStep({ onNext, onBack, progress }: ProfilePhotoStepP
   const { height } = useWindowDimensions();
   const data = useOnboardingStore((state) => state.data);
   const updateData = useOnboardingStore((state) => state.updateData);
+  const { persistProfileField } = useOnboardingPersistence();
   const [imageUri, setImageUri] = useState<string | null>(
     data.profilePhotoUri ?? null
   );
@@ -135,7 +137,10 @@ export function ProfilePhotoStep({ onNext, onBack, progress }: ProfilePhotoStepP
     setShowPhotoModal(false);
   };
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
+    if (imageUri) {
+      await persistProfileField({ profile_photo_url: imageUri });
+    }
     onNext();
   };
 

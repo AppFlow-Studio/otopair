@@ -45,6 +45,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
+import { useOnboardingQuestion } from '@/hooks/useOnboardingQuestion';
 
 interface RepairQuoteNeedsStepProps {
     onNext: () => void;
@@ -64,7 +65,8 @@ export function RepairQuoteNeedsStep({ onNext, onBack, progress }: RepairQuoteNe
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
-    
+    const { answers, saveAnswer } = useOnboardingQuestion('repairQuoteNeeds');
+
     const [selectedNeed, setSelectedNeed] = useState<string | null>(
         data.repairQuoteNeeds?.[0] ?? null
     );
@@ -86,6 +88,8 @@ export function RepairQuoteNeedsStep({ onNext, onBack, progress }: RepairQuoteNe
 
     const handleContinue = () => {
         if (selectedNeed) {
+            const selectedAnswer = answers.find(a => selectedNeed === `${a.emoji} ${a.answer_text}`);
+            saveAnswer({ answerId: selectedAnswer?._id });
             onNext();
         }
     };

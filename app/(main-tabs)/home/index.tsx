@@ -163,7 +163,7 @@ export default function HomeScreen() {
   // }
 
   return (
-    <ScrollDrivenGradientBackground colors={['#0b64ac', '#6298c7', '#cad7e8']}>
+    <ScrollDrivenGradientBackground colors={['#5BA3D9', '#8FC4E8', '#d9e8f5']}>
       {(scrollHandler) => (
     <View style={styles.container}>
       {/* Full Page Scroll */}
@@ -354,7 +354,7 @@ export default function HomeScreen() {
           {/* More Services Section */}
           <MoreServicesSection />
 
-              {/* Vehicle Maintenance - with dynamic margin based on active card */}
+              {/* Vehicle Maintenance - with dynamic margin based on active card
               <View style={{ marginTop: getCardMargin(activeCardIndex) }}>
                 <VehicleMaintenanceCard
                   onBookNow={(vehicleId, serviceId) => {
@@ -364,7 +364,7 @@ export default function HomeScreen() {
                   onSwipeStart={() => setIsCardSwiping(true)}
                   onSwipeEnd={() => setIsCardSwiping(false)}
                 />
-              </View>
+              </View> */}
 
           {/* Suggestions Section */}
           {/* <SuggestionsSection /> */}
@@ -385,8 +385,7 @@ export default function HomeScreen() {
           onClose={() => setShowLoyaltyCard(false)}
           onViewFullPage={() => {
             setShowLoyaltyCard(false);
-            // TODO: Navigate to full loyalty page
-            console.log('View full loyalty page');
+            router.push('/membership');
           }}
         />
       )}

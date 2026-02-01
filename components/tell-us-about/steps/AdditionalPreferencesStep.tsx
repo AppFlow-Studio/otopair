@@ -45,6 +45,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
+import { useOnboardingQuestion } from '@/hooks/useOnboardingQuestion';
 
 interface AdditionalPreferencesStepProps {
     onNext: () => void;
@@ -56,7 +57,8 @@ export function AdditionalPreferencesStep({ onNext, onBack, progress }: Addition
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
-    
+    const { saveAnswer } = useOnboardingQuestion('additionalPreferences');
+
     const [preferences, setPreferences] = useState<string>(
         data.additionalPreferences ?? ''
     );
@@ -72,6 +74,7 @@ export function AdditionalPreferencesStep({ onNext, onBack, progress }: Addition
 
     const handleFinish = () => {
         updateData({ additionalPreferences: preferences.trim() || null });
+        saveAnswer({ freeTextAnswer: preferences.trim() || undefined });
         onNext();
     };
 

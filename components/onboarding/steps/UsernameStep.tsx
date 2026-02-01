@@ -46,6 +46,9 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
+import { useOnboardingPersistence } from "@/hooks/useOnboardingPersistence";
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
 
 interface UsernameStepProps {
   onNext: () => void;
@@ -57,9 +60,16 @@ export function UsernameStep({ onNext, onBack, progress }: UsernameStepProps) {
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
   const { data, updateData } = useOnboardingStore();
+  const { persistProfileField } = useOnboardingPersistence();
 
   const [username, setUsername] = useState(data.username || "");
   const inputRef = useRef<TextInput>(null);
+
+  const usernameCheck = useQuery(
+    api.users.checkUsernameAvailable,
+    username.trim().length >= 3 ? { username: username.trim() } : "skip"
+  );
+  const isUsernameAvailable = usernameCheck?.available ?? true;
 
   const dynamicStyles = {
     container: { paddingTop: insets.top + Spacing.lg },
@@ -70,16 +80,19 @@ export function UsernameStep({ onNext, onBack, progress }: UsernameStepProps) {
   const buttonSize: "md" | "lg" = isCompact ? "md" : "lg";
   const buttonPaddingVertical = isCompact ? Spacing.sm : Spacing.lg;
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
     updateData({
       username: username.trim(),
     });
 
-    console.log("Username saved:", useOnboardingStore.getState().data.username);
+    await persistProfileField({
+      username: username.trim(),
+    });
+
     onNext();
   };
 
-  const canContinue = username.trim().length >= 3;
+  const canContinue = username.trim().length >= 3 && isUsernameAvailable;
 
   return (
     <KeyboardAvoidingView
@@ -126,6 +139,11 @@ export function UsernameStep({ onNext, onBack, progress }: UsernameStepProps) {
               <Text style={styles.helperText}>
                 This will be your unique identifier on Otopair
               </Text>
+              {username.trim().length >= 3 && !isUsernameAvailable && (
+                <Text style={[styles.helperText, { color: '#FCA5A5', opacity: 1 }]}>
+                  Username is already taken
+                </Text>
+              )}
             </View>
           </View>
         </ScrollView>

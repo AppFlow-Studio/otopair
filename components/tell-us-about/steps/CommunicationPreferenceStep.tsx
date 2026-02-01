@@ -45,6 +45,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
+import { useOnboardingQuestion } from '@/hooks/useOnboardingQuestion';
 
 interface CommunicationPreferenceStepProps {
     onNext: () => void;
@@ -63,7 +64,8 @@ export function CommunicationPreferenceStep({ onNext, onBack, progress }: Commun
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
-    
+    const { answers, saveAnswer } = useOnboardingQuestion('communicationPreference');
+
     const [selectedPreference, setSelectedPreference] = useState<string | null>(
         data.communicationPreference ?? null
     );
@@ -85,6 +87,8 @@ export function CommunicationPreferenceStep({ onNext, onBack, progress }: Commun
 
     const handleContinue = () => {
         if (selectedPreference) {
+            const selectedAnswer = answers.find(a => selectedPreference === `${a.emoji} ${a.answer_text}`);
+            saveAnswer({ answerId: selectedAnswer?._id });
             onNext();
         }
     };

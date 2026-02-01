@@ -45,6 +45,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
+import { useOnboardingQuestion } from '@/hooks/useOnboardingQuestion';
 
 interface MaintenanceTrackingStepProps {
     onNext: () => void;
@@ -64,7 +65,8 @@ export function MaintenanceTrackingStep({ onNext, onBack, progress }: Maintenanc
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
-    
+    const { answers, saveAnswer } = useOnboardingQuestion('maintenanceTracking');
+
     const [selectedTracking, setSelectedTracking] = useState<string | null>(
         data.maintenanceTracking ?? null
     );
@@ -86,6 +88,8 @@ export function MaintenanceTrackingStep({ onNext, onBack, progress }: Maintenanc
 
     const handleContinue = () => {
         if (selectedTracking) {
+            const selectedAnswer = answers.find(a => selectedTracking === `${a.emoji} ${a.answer_text}`);
+            saveAnswer({ answerId: selectedAnswer?._id });
             onNext();
         }
     };

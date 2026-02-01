@@ -38,6 +38,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
+import { useOnboardingQuestion } from '@/hooks/useOnboardingQuestion';
 
 interface MaintenanceFrustrationStepProps {
     onNext: () => void;
@@ -56,7 +57,8 @@ export function MaintenanceFrustrationStep({ onNext, onBack, progress }: Mainten
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
-    
+    const { answers, saveAnswer } = useOnboardingQuestion('maintenanceFrustration');
+
     const [selectedFrustration, setSelectedFrustration] = useState<string | null>(
         data.maintenanceFrustration ?? null
     );
@@ -78,6 +80,8 @@ export function MaintenanceFrustrationStep({ onNext, onBack, progress }: Mainten
 
     const handleContinue = () => {
         if (selectedFrustration) {
+            const selectedAnswer = answers.find(a => selectedFrustration === `${a.emoji} ${a.answer_text}`);
+            saveAnswer({ answerId: selectedAnswer?._id });
             onNext();
         }
     };

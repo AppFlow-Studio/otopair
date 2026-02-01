@@ -46,6 +46,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
+import { useOnboardingQuestion } from '@/hooks/useOnboardingQuestion';
 
 interface DoItYourselfStepProps {
     onNext: () => void;
@@ -70,7 +71,8 @@ export function DoItYourselfStep({ onNext, onBack, progress }: DoItYourselfStepP
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
-    
+    const { answers: dbAnswers, saveAnswer } = useOnboardingQuestion('doItYourself');
+
     const presetList = DIY_OPTIONS.map(o => `${o.emoji} ${o.label}`);
     const presets = new Set<string>(presetList);
     
@@ -114,6 +116,14 @@ export function DoItYourselfStep({ onNext, onBack, progress }: DoItYourselfStepP
 
     const handleContinue = () => {
         if (selectedOptions.length > 0) {
+            const selectedAnswerIds = dbAnswers
+                .filter(a => selectedOptions.includes(`${a.emoji} ${a.answer_text}`))
+                .map(a => a._id);
+            const customText = selectedOptions.find(v => !presets.has(v));
+            saveAnswer({
+                answerIds: selectedAnswerIds.length > 0 ? selectedAnswerIds : undefined,
+                freeTextAnswer: customText || undefined,
+            });
             onNext();
         }
     };

@@ -45,6 +45,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
+import { useOnboardingPersistence } from '@/hooks/useOnboardingPersistence';
+import { useOnboardingQuestion } from '@/hooks/useOnboardingQuestion';
 import {
     BookOpen,
     Search,
@@ -127,6 +129,8 @@ export function UserIntentStep({ onNext, onBack, progress }: UserIntentStepProps
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
+    const { persistProfileField } = useOnboardingPersistence();
+    const { answers: questionAnswers, saveAnswer } = useOnboardingQuestion('userIntent');
     
     const [selectedIntents, setSelectedIntents] = useState<string[]>(
         data.userIntentions || []
@@ -155,6 +159,16 @@ export function UserIntentStep({ onNext, onBack, progress }: UserIntentStepProps
         updateData({
             userIntentions: selectedIntents,
         });
+        await persistProfileField({
+            user_intentions: selectedIntents,
+        });
+        // Also save to user_question_answers table
+        const selectedAnswerIds = questionAnswers
+            .filter((a: any) => selectedIntents.includes(a.answer_value))
+            .map((a: any) => a._id);
+        if (selectedAnswerIds.length > 0) {
+            await saveAnswer({ answerIds: selectedAnswerIds });
+        }
         // onNext will check permissions and navigate accordingly
         onNext();
     };

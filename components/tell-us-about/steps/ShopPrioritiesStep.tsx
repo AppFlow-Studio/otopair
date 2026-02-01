@@ -45,6 +45,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
+import { useOnboardingQuestion } from '@/hooks/useOnboardingQuestion';
 
 interface ShopPrioritiesStepProps {
     onNext: () => void;
@@ -66,7 +67,8 @@ export function ShopPrioritiesStep({ onNext, onBack, progress }: ShopPrioritiesS
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
-    
+    const { answers, saveAnswer } = useOnboardingQuestion('shopPriorities');
+
     const [selectedPriorities, setSelectedPriorities] = useState<string[]>(
         data.shopPriorities ?? []
     );
@@ -97,6 +99,10 @@ export function ShopPrioritiesStep({ onNext, onBack, progress }: ShopPrioritiesS
 
     const handleContinue = () => {
         if (selectedPriorities.length === 3) {
+            const selectedAnswerIds = answers
+                .filter(a => selectedPriorities.includes(a.answer_value))
+                .map(a => a._id);
+            saveAnswer({ answerIds: selectedAnswerIds });
             onNext();
         }
     };

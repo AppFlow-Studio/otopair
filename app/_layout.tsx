@@ -46,9 +46,19 @@ function EnsureConvexUserRecord() {
   useEffect(() => {
     if (isSignedIn && userId && lastUserRef.current !== userId) {
       lastUserRef.current = userId;
-      ensureUser()
+      const retryWithBackoff = async (fn: () => Promise<any>, retries = 4, delay = 1500) => {
+        // Initial delay to let Clerk JWT propagate to Convex
+        await new Promise(r => setTimeout(r, 2000));
+        for (let i = 0; i <= retries; i++) {
+          try { return await fn(); } catch (e) {
+            if (i === retries) throw e;
+            await new Promise(r => setTimeout(r, delay * Math.pow(2, i)));
+          }
+        }
+      };
+      retryWithBackoff(() => ensureUser())
         .then(() => console.log("Ensured Convex user via RootLayout"))
-        .catch((error) => console.error("Failed to ensure Convex user via RootLayout", error));
+        .catch((error) => console.error("Failed to ensure Convex user via RootLayout after retries", error));
     }
   }, [ensureUser, isSignedIn, userId]);
 
@@ -93,6 +103,7 @@ export default function RootLayout() {
                 <Stack.Screen name="payments" options={{ headerShown: false }} />
                 {/* <Stack.Screen name="payment-methods" options={{ headerShown: false }} /> */}
                 <Stack.Screen name="modal" options={{ presentation: "modal", title: "Modal" }} />
+                <Stack.Screen name="membership" options={{ headerShown: false }} />
               </Stack>
               <StatusBar style="auto" />
             </ThemeProvider>

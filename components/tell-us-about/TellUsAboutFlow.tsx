@@ -25,6 +25,10 @@ import Animated, {
 } from 'react-native-reanimated';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import { AnimatedGradientBackground } from '@/components/shared-ui';
+import { useMutation } from 'convex/react';
+import { api } from '@/convex/_generated/api';
+import { useAuth } from '@clerk/clerk-expo';
+import { usePrefetchOnboardingQuestions } from '@/hooks/usePrefetchOnboardingQuestions';
 
 // Import step components
 import { ExperienceStep } from './steps/ExperienceStep';
@@ -88,6 +92,9 @@ export function TellUsAboutFlow({ initialStep = 'experience' }: TellUsAboutFlowP
     const [fromStep, setFromStep] = useState<TellUsAboutStep>(initialStep);
     const [toStep, setToStep] = useState<TellUsAboutStep>(initialStep);
     const { data, updateData } = useOnboardingStore();
+    const { isSignedIn } = useAuth();
+    const updateProfile = useMutation(api.users.updateProfile);
+    const { isLoaded: questionsLoaded } = usePrefetchOnboardingQuestions();
     
     // Animation progress (0 = from step, 1 = to step)
     const animationProgress = useSharedValue(1);
@@ -302,6 +309,11 @@ export function TellUsAboutFlow({ initialStep = 'experience' }: TellUsAboutFlowP
     useEffect(() => {
         if (currentStep === 'complete') {
             updateData({ isTellUsAboutYourselfComplete: true });
+            if (isSignedIn) {
+                updateProfile({ tellUsAboutCompleted: true })
+                    .then(() => console.log('Tell Us About marked complete'))
+                    .catch((err) => console.error('Failed to mark Tell Us About complete:', err));
+            }
             router.back();
         }
     }, [currentStep, updateData]);

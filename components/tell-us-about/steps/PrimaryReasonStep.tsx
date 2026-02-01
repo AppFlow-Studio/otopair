@@ -46,6 +46,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
+import { useOnboardingQuestion } from '@/hooks/useOnboardingQuestion';
 
 interface PrimaryReasonStepProps {
     onNext: () => void;
@@ -65,7 +66,8 @@ export function PrimaryReasonStep({ onNext, onBack, progress }: PrimaryReasonSte
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
-    
+    const { answers, saveAnswer } = useOnboardingQuestion('primaryReason');
+
     const [selectedId, setSelectedId] = useState<string | null>(() => {
         if (!data.primaryReason) return null;
         if (data.primaryReason.startsWith('Specific repair needed:')) return 'repair';
@@ -109,6 +111,8 @@ export function PrimaryReasonStep({ onNext, onBack, progress }: PrimaryReasonSte
 
     const handleContinue = () => {
         if (canContinue) {
+            const selectedAnswer = answers.find(a => a.answer_value === selectedId);
+            saveAnswer({ answerId: selectedAnswer?._id, freeTextAnswer: selectedId === 'repair' && repairDetails.trim() ? repairDetails.trim() : undefined });
             onNext();
         }
     };
