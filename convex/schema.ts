@@ -758,12 +758,14 @@ export default defineSchema({
    * DESCRIPTION:
    * Canonical vehicle catalog - one record per VIN.
    * Vehicle ownership is tracked in vehicle_owners table.
-   * Links to vehicle specs (trim, engine, year).
+   * Links to vehicle specs (trim, engine, year, transmission, chassis).
    * 
    * FIELDS:
    *   - vin: Vehicle Identification Number (uppercase, normalized, UNIQUE)
    *   - trim_id: References the vehicle trim
    *   - engine_id: References the engine specs
+   *   - transmission_id: (optional) References the chosen transmission variant for this VIN
+   *   - chassis_id: (optional) References the chosen chassis variant for this VIN
    *   - year: Model year of vehicle
    *   - metadata: Flexible field for additional vehicle data
    *   - created_at: Unix timestamp when vehicle was added
@@ -773,10 +775,14 @@ export default defineSchema({
    *   - by_vin: Primary lookup by VIN (unique)
    *   - by_engine_id: Find all vehicles with specific engine
    *   - by_trim_id: Find all vehicles with specific trim
+   *   - by_transmission: Find all vehicles with specific transmission
+   *   - by_chassis: Find all vehicles with specific chassis variant
    * 
    * RELATIONSHIPS:
    *   FK → trims(trim_id)
    *   FK → engines(engine_id)
+   *   FK → transmissions(transmission_id) optional
+   *   FK → chassis_variants(chassis_id) optional
    *   Has-many → vehicle_owners (via vin)
    *   Has-many → bookings (via vin)
    *   Has-many → follow_ups (via vin)
@@ -785,6 +791,8 @@ export default defineSchema({
     vin: v.string(), // canonical unique identifier
     trim_id: v.optional(v.id("trims")),
     engine_id: v.optional(v.id("engines")),
+    transmission_id: v.optional(v.id("transmissions")),
+    chassis_id: v.optional(v.id("chassis_variants")),
     year: v.optional(v.float64()),
     metadata: v.optional(v.any()),
     created_at: v.float64(),
@@ -792,7 +800,9 @@ export default defineSchema({
   })
     .index("by_vin", ["vin"])
     .index("by_engine_id", ["engine_id"])
-    .index("by_trim_id", ["trim_id"]),
+    .index("by_trim_id", ["trim_id"])
+    .index("by_transmission", ["transmission_id"])
+    .index("by_chassis", ["chassis_id"]),
 
   /**
    * TABLE: vehicle_owners
@@ -897,12 +907,339 @@ export default defineSchema({
     .index("by_clerkUserId", ["clerkUserId"])
     .index("by_username", ["username"]),
   
+  // ============================================================================
+  // OEM PARTS & NORMALIZATION
+  // ============================================================================
+  
+  /**
+   * TABLE: oem_parts
+   * 
+   * DESCRIPTION:
+   * Normalized OEM part catalog. Master reference for all vehicle parts.
+   * Allows tracking of parts across multiple fitment relationships.
+   * 
+   * FIELDS:
+   *   - oem_part_number: OEM part number (UNIQUE)
+   *   - name: Part name (e.g., "Oil Filter", "Brake Pad")
+   *   - category: Part category (e.g., "filter", "brakes", "wipers", "fluids")
+   *   - notes: (optional) Additional notes about part
+   *   - created_at: Unix timestamp when part was added
+   * 
+   * INDEXES:
+   *   - by_part_number: Lookup by OEM part number (unique)
+   *   - by_category: Filter parts by category
+   * 
+   * RELATIONSHIPS:
+   *   Has-many → engine_part_fitments (via part_id)
+   *   Has-many → transmission_part_fitments (via part_id)
+   *   Has-many → trim_part_fitments (via part_id)
+   */
+  oem_parts: defineTable({
+    oem_part_number: v.string(),
+    name: v.optional(v.string()),
+    category: v.optional(v.string()), // "filter", "brakes", "wipers", "fluids", etc.
+    notes: v.optional(v.string()),
+    created_at: v.float64(),
+  })
+    .index("by_part_number", ["oem_part_number"])
+    .index("by_category", ["category"]),
+  
+  /**
+   * TABLE: transmissions
+   * 
+   * DESCRIPTION:
+   * Transmission variants for specific vehicle trims (trim-scoped).
+   * Mirrors engines table structure but for transmission-related specs.
+   * Multiple transmission types may exist for same trim year.
+   * 
+   * FIELDS:
+   *   - trim_id: References the vehicle trim
+   *   - transmission_type: Type (e.g., "automatic", "manual", "cvt", "dct")
+   *   - code: (optional) OEM transmission code if known
+   *   - notes: (optional) Additional notes
+   *   - created_at: Unix timestamp when variant was added
+   * 
+   * INDEXES:
+   *   - by_trim: Get all transmissions for trim
+   *   - by_trim_type: Combined lookup by trim and type
+   * 
+   * RELATIONSHIPS:
+   *   FK → trims(trim_id)
+   *   Has-many → transmission_specs (via transmission_id)
+   *   Has-many → transmission_part_fitments (via transmission_id)
+   *   Can be referenced by → vehicles(transmission_id)
+   */
+  transmissions: defineTable({
+    trim_id: v.id("trims"),
+    transmission_type: v.string(), // "automatic" | "manual" | "cvt" | "dct"
+    code: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    created_at: v.float64(),
+  })
+    .index("by_trim", ["trim_id"])
+    .index("by_trim_type", ["trim_id", "transmission_type"]),
+  
+  /**
+   * TABLE: chassis_variants
+   * 
+   * DESCRIPTION:
+   * Chassis and drivetrain variants for specific vehicle trims (trim-scoped).
+   * Tracks drivetrain type (FWD/RWD/AWD/4WD) for each trim.
+   * 
+   * FIELDS:
+   *   - trim_id: References the vehicle trim
+   *   - drivetrain_type: Type (e.g., "fwd", "rwd", "awd", "4wd")
+   *   - notes: (optional) Additional notes about chassis
+   *   - created_at: Unix timestamp when variant was added
+   * 
+   * INDEXES:
+   *   - by_trim: Get all chassis variants for trim
+   *   - by_trim_drivetrain: Combined lookup by trim and drivetrain type
+   * 
+   * RELATIONSHIPS:
+   *   FK → trims(trim_id)
+   *   Can be referenced by → vehicles(chassis_id)
+   */
+  chassis_variants: defineTable({
+    trim_id: v.id("trims"),
+    drivetrain_type: v.string(), // "fwd" | "rwd" | "awd" | "4wd"
+    notes: v.optional(v.string()),
+    created_at: v.float64(),
+  })
+    .index("by_trim", ["trim_id"])
+    .index("by_trim_drivetrain", ["trim_id", "drivetrain_type"]),
+  
+  // ============================================================================
+  // SUBSYSTEM-LEVEL SPECS (NOT PARTS - SPECIFICATION DATA)
+  // ============================================================================
+  
+  /**
+   * TABLE: engine_specs
+   * 
+   * DESCRIPTION:
+   * Engine subsystem specifications (not parts, but spec data).
+   * Stores oil, coolant, brake fluid requirements keyed by engine_id.
+   * UNIQUE index ensures one spec record per engine.
+   * 
+   * FIELDS:
+   *   - engine_id: References the engine (UNIQUE via index)
+   *   - oil_viscosity: Oil viscosity rating (e.g., "5W-30")
+   *   - oil_capacity_qts: Oil capacity in quarts
+   *   - coolant_type: Coolant type/specification
+   *   - coolant_capacity_qts: Coolant capacity in quarts
+   *   - brake_fluid_type: (optional) Brake fluid specification
+   *   - maintenance_intervals: (optional) Maintenance interval specs
+   *   - created_at: Unix timestamp when spec was created
+   * 
+   * INDEXES:
+   *   - by_engine: Lookup by engine (unique)
+   * 
+   * RELATIONSHIPS:
+   *   FK → engines(engine_id)
+   */
+  engine_specs: defineTable({
+    engine_id: v.id("engines"),
+    oil_viscosity: v.optional(v.string()),
+    oil_capacity_qts: v.optional(v.float64()),
+    coolant_type: v.optional(v.string()),
+    coolant_capacity_qts: v.optional(v.float64()),
+    brake_fluid_type: v.optional(v.string()),
+    maintenance_intervals: v.optional(v.string()),
+    created_at: v.float64(),
+  })
+    .index("by_engine", ["engine_id"]),
+  
+  /**
+   * TABLE: transmission_specs
+   * 
+   * DESCRIPTION:
+   * Transmission subsystem specifications (not parts, but spec data).
+   * Stores transmission fluid and maintenance specs keyed by transmission_id.
+   * UNIQUE index ensures one spec record per transmission.
+   * 
+   * FIELDS:
+   *   - transmission_id: References the transmission (UNIQUE via index)
+   *   - transmission_fluid_type: Fluid specification
+   *   - transmission_fluid_capacity_qts: Fluid capacity in quarts
+   *   - maintenance_interval: (optional) Maintenance interval specs
+   *   - created_at: Unix timestamp when spec was created
+   * 
+   * INDEXES:
+   *   - by_transmission: Lookup by transmission (unique)
+   * 
+   * RELATIONSHIPS:
+   *   FK → transmissions(transmission_id)
+   */
+  transmission_specs: defineTable({
+    transmission_id: v.id("transmissions"),
+    transmission_fluid_type: v.optional(v.string()),
+    transmission_fluid_capacity_qts: v.optional(v.float64()),
+    maintenance_interval: v.optional(v.string()),
+    created_at: v.float64(),
+  })
+    .index("by_transmission", ["transmission_id"]),
+  
+  /**
+   * TABLE: trim_specs
+   * 
+   * DESCRIPTION:
+   * Trim-level specifications (not parts, but spec data).
+   * Stores tire, lug nut, parking brake specs keyed by trim_id.
+   * UNIQUE index ensures one spec record per trim.
+   * 
+   * FIELDS:
+   *   - trim_id: References the trim (UNIQUE via index)
+   *   - tire_size_front: Front tire size (e.g., "205/55R16")
+   *   - tire_size_rear: (optional, nullable) Rear tire size
+   *   - recommended_tire_pressure_front_psi: Recommended PSI for front
+   *   - recommended_tire_pressure_rear_psi: Recommended PSI for rear
+   *   - lug_nut_torque_ft_lbs: Lug nut torque specification
+   *   - parking_brake_type: Type of parking brake (e.g., "drum", "disc")
+   *   - created_at: Unix timestamp when spec was created
+   * 
+   * INDEXES:
+   *   - by_trim: Lookup by trim (unique)
+   * 
+   * RELATIONSHIPS:
+   *   FK → trims(trim_id)
+   */
+  trim_specs: defineTable({
+    trim_id: v.id("trims"),
+    tire_size_front: v.optional(v.string()),
+    tire_size_rear: v.optional(v.string()),
+    recommended_tire_pressure_front_psi: v.optional(v.float64()),
+    recommended_tire_pressure_rear_psi: v.optional(v.float64()),
+    lug_nut_torque_ft_lbs: v.optional(v.float64()),
+    parking_brake_type: v.optional(v.string()),
+    created_at: v.float64(),
+  })
+    .index("by_trim", ["trim_id"]),
+  
+  // ============================================================================
+  // FITMENT MAPPINGS (VARIANT -> PART)
+  // ============================================================================
+  
+  /**
+   * TABLE: engine_part_fitments
+   * 
+   * DESCRIPTION:
+   * Maps OEM parts to specific engines with role/application context.
+   * Enables querying: "What parts fit this engine for these roles?"
+   * 
+   * FIELDS:
+   *   - engine_id: References the engine
+   *   - part_id: References the OEM part
+   *   - role: Part role/application (e.g., "oil_filter", "spark_plug", "serpentine_belt")
+   *   - quantity: (optional) How many units needed
+   *   - spark_plug_gap_mm: (optional) Spark plug gap if applicable
+   *   - notes: (optional) Additional fitment notes
+   *   - created_at: Unix timestamp when fitment was created
+   * 
+   * INDEXES:
+   *   - by_engine: Get all fitments for engine
+   *   - by_engine_role: Get fitment for specific role (treated as unique in code)
+   *   - by_part: Find which engines use this part
+   * 
+   * RELATIONSHIPS:
+   *   FK → engines(engine_id)
+   *   FK → oem_parts(part_id)
+   */
+  engine_part_fitments: defineTable({
+    engine_id: v.id("engines"),
+    part_id: v.id("oem_parts"),
+    role: v.string(), // oil_filter, spark_plug, serpentine_belt, engine_air_filter, etc.
+    quantity: v.optional(v.float64()),
+    spark_plug_gap_mm: v.optional(v.float64()),
+    notes: v.optional(v.string()),
+    created_at: v.float64(),
+  })
+    .index("by_engine", ["engine_id"])
+    .index("by_engine_role", ["engine_id", "role"])
+    .index("by_part", ["part_id"]),
+  
+  /**
+   * TABLE: transmission_part_fitments
+   * 
+   * DESCRIPTION:
+   * Maps OEM parts to specific transmissions with role/application context.
+   * Enables querying: "What parts fit this transmission for these roles?"
+   * 
+   * FIELDS:
+   *   - transmission_id: References the transmission
+   *   - part_id: References the OEM part
+   *   - role: Part role/application (e.g., "transmission_filter", "pan_gasket")
+   *   - quantity: (optional) How many units needed
+   *   - notes: (optional) Additional fitment notes
+   *   - created_at: Unix timestamp when fitment was created
+   * 
+   * INDEXES:
+   *   - by_transmission: Get all fitments for transmission
+   *   - by_transmission_role: Get fitment for specific role (treated as unique in code)
+   *   - by_part: Find which transmissions use this part
+   * 
+   * RELATIONSHIPS:
+   *   FK → transmissions(transmission_id)
+   *   FK → oem_parts(part_id)
+   */
+  transmission_part_fitments: defineTable({
+    transmission_id: v.id("transmissions"),
+    part_id: v.id("oem_parts"),
+    role: v.string(), // transmission_filter, transmission_pan_gasket, etc.
+    quantity: v.optional(v.float64()),
+    notes: v.optional(v.string()),
+    created_at: v.float64(),
+  })
+    .index("by_transmission", ["transmission_id"])
+    .index("by_transmission_role", ["transmission_id", "role"])
+    .index("by_part", ["part_id"]),
+  
+  /**
+   * TABLE: trim_part_fitments
+   * 
+   * DESCRIPTION:
+   * Maps OEM parts to specific trims with role/application context.
+   * Enables querying: "What parts fit this trim for these roles?"
+   * 
+   * FIELDS:
+   *   - trim_id: References the trim
+   *   - part_id: References the OEM part
+   *   - role: Part role/application (e.g., "battery", "wiper_blade_driver", "brake_rotor")
+   *   - quantity: (optional) How many units needed
+   *   - wiper_size_in: (optional) Wiper blade size in inches
+   *   - notes: (optional) Additional fitment notes
+   *   - created_at: Unix timestamp when fitment was created
+   * 
+   * INDEXES:
+   *   - by_trim: Get all fitments for trim
+   *   - by_trim_role: Get fitment for specific role (treated as unique in code)
+   *   - by_part: Find which trims use this part
+   * 
+   * RELATIONSHIPS:
+   *   FK → trims(trim_id)
+   *   FK → oem_parts(part_id)
+   */
+  trim_part_fitments: defineTable({
+    trim_id: v.id("trims"),
+    part_id: v.id("oem_parts"),
+    role: v.string(), // battery, wiper_blade_driver, wiper_blade_passenger, brake_rotor, etc.
+    quantity: v.optional(v.float64()),
+    wiper_size_in: v.optional(v.float64()),
+    notes: v.optional(v.string()),
+    created_at: v.float64(),
+  })
+    .index("by_trim", ["trim_id"])
+    .index("by_trim_role", ["trim_id", "role"])
+    .index("by_part", ["part_id"]),
+  
   /**
    * TABLE: vehicle_specs
    * 
    * DESCRIPTION:
-   * Detailed vehicle specifications for maintenance (oil type, brake pads, etc).
+   * DEPRECATED: Detailed vehicle specifications for maintenance (oil type, brake pads, etc).
    * Contains OEM part numbers and maintenance specs for specific engines.
+   * 
+   * ⚠️ DEPRECATED - Use engine_specs, transmission_specs, trim_specs, and fitment tables instead.
+   * Kept for backward compatibility. Do not use in new code.
    * 
    * FIELDS:
    *   - engine_id: References the engine

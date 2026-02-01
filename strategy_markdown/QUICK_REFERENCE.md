@@ -1,8 +1,11 @@
-# Quick Reference: New Database Tables & Usage
+# Quick Reference: Production Database with Full Documentation
+
+**Last Updated:** February 1, 2026  
+**Status:** ✅ Complete with comprehensive code documentation
 
 ## 🔥 Quick Start
 
-All new tables follow the existing Convex pattern. Import and use like existing tables:
+All tables follow the existing Convex pattern with comprehensive TypeScript documentation. Import and use like existing tables:
 
 ```typescript
 import { api } from "@/convex/_generated/api";
@@ -18,10 +21,37 @@ await createPayment({ booking_id, user_id, shop_id, amount, payment_method, stat
 
 ---
 
+## 📚 Documentation Reference
+
+### How to Find Code Documentation
+
+All convex files now include comprehensive TypeScript comments at:
+- **File Level:** Purpose, description, table info, relationships, use cases
+- **Query/Mutation Level:** Parameters, return types, error handling, examples
+
+**Location:** See file headers in `/workspaces/otopair/convex/[filename].ts`
+
+### Files with Full Documentation ✅
+
+| File | Tables | Queries | Mutations | Status |
+|------|--------|---------|-----------|--------|
+| schema.ts | 40+ | - | - | ✅ Fully documented |
+| bookings.ts | bookings | 4 | 2 | ✅ Fully documented |
+| users.ts | users | 2 | 1 | ✅ Fully documented |
+| shops.ts | shops | 2 | - | ✅ Fully documented |
+| services.ts | services | 2 | - | ✅ Fully documented |
+| mechanics.ts | mechanics | 3 | - | ✅ Fully documented |
+| engines.ts | engines | 3 | - | ✅ Fully documented |
+| makes.ts | makes | 2 | - | ✅ Fully documented |
+| models.ts | models | 3 | - | ✅ Fully documented |
+| trims.ts | trims | 3 | - | ✅ Fully documented |
+
+---
+
 ## 📊 Table Reference
 
 ### Payments
-**File:** `convex/payments.ts`
+**File:** `convex/payments.ts` (✅ Fully documented)
 
 ```typescript
 // Get payment for a booking

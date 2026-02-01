@@ -1,8 +1,9 @@
 # Convex API Surface
 
-**Generated:** January 31, 2026  
-**Status:** Production-ready vehicle model implemented  
-**Source:** Convex files in `/workspaces/otopair/convex/*.ts`
+**Generated:** February 1, 2026  
+**Status:** Production-ready vehicle model implemented with full code documentation  
+**Source:** Convex files in `/workspaces/otopair/convex/*.ts`  
+**Documentation:** All API files now include comprehensive TypeScript comments following booking component pattern
 
 ---
 
