@@ -143,10 +143,7 @@ export default defineSchema({
    *   - technician_notes: Notes from mechanic about work performed
    *   - created_at: When this record was created
    *   - updated_at: Last modification timestamp
-   * 
-   * LEGACY FIELDS (DEPRECATED):
-   *   - completed_at, job_completed_at, job_started_at, logged_at: String timestamps
-   *   Use millisecond-based fields instead for all new data
+   *   - logged_at_ms: Unix timestamp when job was logged
    * 
    * INDEXES:
    *   - by_booking_id: Get actuals for specific booking
@@ -162,12 +159,6 @@ export default defineSchema({
     actual_labor_minutes: v.float64(),
     actual_parts_cost: v.float64(),
     booking_id: v.id("bookings"),
-    // Legacy string timestamps (optional, deprecated)
-    completed_at: v.optional(v.string()),
-    job_completed_at: v.optional(v.string()),
-    job_started_at: v.optional(v.string()),
-    logged_at: v.optional(v.string()),
-    // New standardized timestamps (v.float64() Unix ms)
     started_at: v.float64(),
     completed_at_ms: v.optional(v.float64()),
     logged_at_ms: v.optional(v.float64()),
