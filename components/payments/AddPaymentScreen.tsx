@@ -32,7 +32,6 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { 
-    ArrowLeft, 
     Check,
     Eye,
     EyeOff
@@ -45,9 +44,9 @@ import {
     BrandColors, 
     Spacing, 
     AnimatedGradientBackground,
-    GlassCircleButton,
     Input,
     PrimaryButton,
+    BlurHeaderOverlay,
 } from '@/components/shared-ui';
 import MaterialCommunityIcons from '@expo/vector-icons/MaterialCommunityIcons';
 import { PaymentIcon } from 'react-native-payment-icons'
@@ -309,19 +308,17 @@ export function AddPaymentScreen() {
                 />
             </View>
 
-            {/* Header */}
-            <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
-                <GlassCircleButton 
-                    size={40} 
-                    onPress={() => router.back()}
-                >
-                    <ArrowLeft size={20} color="#FFF" strokeWidth={2.5} />
-                </GlassCircleButton>
-                <Text weight="semiBold" size="xl" color="#FFF" style={styles.headerTitle}>
-                    {isEditMode ? 'Edit Payment Method' : 'Add Payment Method'}
-                </Text>
-                <View style={{ width: 40 }} />
-            </View>
+            <BlurHeaderOverlay
+                title={isEditMode ? 'Edit Payment Method' : 'Add Payment Method'}
+                titleColor={BrandColors.white}
+                onBack={() => router.back()}
+                gradientColors={[
+                    'rgba(82, 153, 254, 1)',
+                    'rgba(82, 153, 254, 0.7)',
+                    'rgba(82, 153, 254, 0.3)',
+                    'rgba(82, 153, 254, 0)',
+                ]}
+            />
 
             <KeyboardAvoidingView 
                 behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -330,7 +327,7 @@ export function AddPaymentScreen() {
                 <ScrollView 
                     showsVerticalScrollIndicator={false}
                     keyboardShouldPersistTaps="handled"
-                    contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 40 }]}
+                    contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 80, paddingBottom: insets.bottom + 40 }]}
                 >
                     {/* Card Preview */}
                     <View style={styles.cardPreviewContainer}>
@@ -504,17 +501,6 @@ const styles = StyleSheet.create({
     container: {
         flex: 1,
         backgroundColor: '#1E3A8A',
-    },
-    header: {
-        flexDirection: 'row',
-        alignItems: 'center',
-        paddingHorizontal: 20,
-        height: 100,
-        zIndex: 10,
-    },
-    headerTitle: {
-        flex: 1,
-        textAlign: 'center',
     },
     scrollContent: {
         paddingHorizontal: 20,

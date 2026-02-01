@@ -28,6 +28,7 @@ import {
   View,
   Modal,
   TouchableWithoutFeedback,
+  Pressable,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
@@ -69,8 +70,8 @@ import {
   Spacing,
   ScrollDrivenGradientBackground,
   SolidProgressBar,
-  GlassCircleButton,
   FooterButton,
+  BlurHeaderOverlay,
 } from "@/components/shared-ui";
 import { usePaymentStore } from "@/stores/usePaymentStore";
 
@@ -451,43 +452,6 @@ export function ActivityRewardsScreen() {
       <ScrollDrivenGradientBackground>
         {(scrollHandler) => (
           <>
-            {/* Header */}
-            <View style={[styles.header, { paddingTop: insets.top + 10 }]}>
-              <View style={styles.headerLeft}>
-                <GlassCircleButton size={40} onPress={() => router.back()}>
-                  <ArrowLeft size={20} color="#FFF" strokeWidth={2.5} />
-                </GlassCircleButton>
-              </View>
-
-              <Text
-                weight="semiBold"
-                size="xl"
-                color="#FFF"
-                style={styles.headerTitle}
-              >
-                Activities
-              </Text>
-
-              <View style={styles.headerRight}>
-                {hasCards && (
-                  <>
-                    <GlassCircleButton
-                      size={40}
-                      onPress={() => router.push("/add-payment")}
-                    >
-                      <Plus size={20} color="#FFF" strokeWidth={2.5} />
-                    </GlassCircleButton>
-                    <GlassCircleButton
-                      size={40}
-                      onPress={() => setIsMenuVisible(true)}
-                    >
-                      <Ellipsis size={20} color="#FFF" strokeWidth={2.5} />
-                    </GlassCircleButton>
-                  </>
-                )}
-              </View>
-            </View>
-
             {/* Ellipsis Menu Modal */}
             <Modal
               transparent={true}
@@ -578,7 +542,7 @@ export function ActivityRewardsScreen() {
               showsVerticalScrollIndicator={false}
               contentContainerStyle={[
                 styles.scrollContent,
-                { paddingBottom: insets.bottom + 40 },
+                { paddingTop: insets.top + 64, paddingBottom: insets.bottom + 40 },
               ]}
             >
               {/* Dynamic Stacked Cards or Empty State */}
@@ -785,6 +749,38 @@ export function ActivityRewardsScreen() {
           </>
         )}
       </ScrollDrivenGradientBackground>
+
+            <BlurHeaderOverlay
+              title="Activities"
+              titleColor={BrandColors.white}
+              onBack={() => router.back()}
+              gradientColors={[
+                "rgba(82, 153, 254, 1)",
+                "rgba(82, 153, 254, 0.7)",
+                "rgba(82, 153, 254, 0.3)",
+                "rgba(82, 153, 254, 0)",
+              ]}
+              rightElement={
+                hasCards ? (
+                  <>
+                    <Pressable
+                      onPress={() => router.push("/add-payment")}
+                      style={styles.headerIconButton}
+                      hitSlop={10}
+                    >
+                      <Plus size={20} color="#1F2937" strokeWidth={2.5} />
+                    </Pressable>
+                    <Pressable
+                      onPress={() => setIsMenuVisible(true)}
+                      style={styles.headerIconButton}
+                      hitSlop={10}
+                    >
+                      <Ellipsis size={20} color="#1F2937" strokeWidth={2.5} />
+                    </Pressable>
+                  </>
+                ) : null
+              }
+            />
     </View>
   );
 }
@@ -794,33 +790,16 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#1E3A8A", // Fallback color
   },
-  header: {
-    flexDirection: "row",
+  headerIconButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: "#FFFFFF",
     alignItems: "center",
-    paddingHorizontal: 20,
-    height: 100,
-    zIndex: 10,
-  },
-  backButton: {
-    padding: 4,
-  },
-  headerLeft: {
-    width: 100,
-    alignItems: "flex-start",
-  },
-  headerTitle: {
-    flex: 1,
-    textAlign: "center",
-  },
-  headerRight: {
-    width: 100,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-end",
-    gap: 12,
+    justifyContent: "center",
   },
   scrollContent: {
-    paddingTop: 10,
+    paddingTop: 80,
   },
   cardSection: {
     marginBottom: 10,

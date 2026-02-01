@@ -18,9 +18,9 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Modal, Pressable, StyleSheet, TouchableOpacity, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { Check, X, Mail, MessageSquareText } from 'lucide-react-native';
+import { Check, Mail, MessageSquareText } from 'lucide-react-native';
 
-import { BrandColors, Button, FontFamily, FontSize, Shadows, Spacing, Text } from '@/components/shared-ui';
+import { BrandColors, Button, FontFamily, FontSize, Shadows, Spacing, Text, BlurHeaderOverlay } from '@/components/shared-ui';
 import { Layout } from '@/constants/theme';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 
@@ -102,18 +102,14 @@ export default function TwoFactorMethodScreen() {
   );
 
   return (
-    <View style={[styles.screen, { paddingTop: insets.top }]}>
-      <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backButton} hitSlop={10}>
-          <X size={18} color="#111827" />
-        </Pressable>
-        <Text weight="semiBold" size="lg" color="#111827" style={styles.headerTitle}>
-          Two-Factor Authentication
-        </Text>
-        <View style={{ width: 40 }} />
-      </View>
+    <View style={styles.screen}>
+      <BlurHeaderOverlay
+        title="Two-Factor Authentication"
+        titleColor="#111827"
+        onBack={() => router.back()}
+      />
 
-      <View style={styles.content}>
+      <View style={[styles.content, { paddingTop: insets.top + 80 }]}>
         <Text weight="bold" size="3xl" color="#111827" style={styles.title}>
           Add an extra layer of security to your account
         </Text>
@@ -209,24 +205,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#E8ECF0',
     paddingHorizontal: Spacing['2xl'],
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingTop: 10,
-    paddingBottom: 0,
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerTitle: {
-    flex: 1,
-    textAlign: 'center',
   },
   content: {
     flex: 1,

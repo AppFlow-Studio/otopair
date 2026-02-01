@@ -114,6 +114,7 @@ export {
 export {
     buildReferralCode,
     buildReferralShareMessage,
+    useReferralCode,
     type ReferralProfile
 } from './ReferralUtils';
 

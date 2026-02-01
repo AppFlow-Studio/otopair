@@ -18,10 +18,9 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import { X } from 'lucide-react-native';
 import Animated, { interpolateColor, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 
-import { BrandColors, Button, Spacing, Text } from '@/components/shared-ui';
+import { BrandColors, Button, Spacing, Text, BlurHeaderOverlay } from '@/components/shared-ui';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 
 type NotificationKey = 'offers' | 'rewards' | 'pass' | 'other' | 'bookings';
@@ -174,20 +173,16 @@ export default function NotificationPreferencesScreen() {
   );
 
   return (
-    <View style={[styles.screen, { paddingTop: insets.top }]}>
-      <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.backButton} hitSlop={10}>
-          <X size={18} color="#111827" />
-        </Pressable>
-        <Text weight="semiBold" size="lg" color="#111827" style={styles.headerTitle}>
-          Notification Settings
-        </Text>
-        <View style={{ width: 40 }} />
-      </View>
+    <View style={styles.screen}>
+      <BlurHeaderOverlay
+        title="Notification Settings"
+        titleColor="#111827"
+        onBack={() => router.back()}
+      />
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[styles.content, { paddingTop: insets.top + 80 }]}
       >
         {toggleRows.map((row) => (
           <ToggleRow
@@ -237,24 +232,6 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#E8ECF0',
     paddingHorizontal: 20,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingTop: 10,
-    paddingBottom: 6,
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerTitle: {
-    flex: 1,
-    textAlign: 'center',
   },
   content: {
     paddingTop: Spacing['2xl'],

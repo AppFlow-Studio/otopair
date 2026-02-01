@@ -72,6 +72,7 @@ export default function RootLayout() {
                 <Stack.Screen name="vehicle-added" options={{ headerShown: false }} />
                 <Stack.Screen name="vin-scanner" options={{ headerShown: false }} />
                 <Stack.Screen name="payments" options={{ headerShown: false }} />
+                <Stack.Screen name="add-payment" options={{ headerShown: false }} />
                 {/* <Stack.Screen name="payment-methods" options={{ headerShown: false }} /> */}
                 <Stack.Screen name="modal" options={{ presentation: "modal", title: "Modal" }} />
               </Stack>

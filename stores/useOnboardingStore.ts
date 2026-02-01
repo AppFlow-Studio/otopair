@@ -51,7 +51,6 @@ interface OnboardingData {
   firstName: string | null;
   lastName: string | null;
   alias: string | null;
-  username: string | null;
   profilePhotoUri: string | null;
   dateOfBirth: string | null; // ISO format
   phoneNumber: string | null;
@@ -215,7 +214,6 @@ const INITIAL_DATA: OnboardingData = {
   firstName: null,
   lastName: null,
   alias: null,
-  username: null,
   profilePhotoUri: null,
   dateOfBirth: null,
   phoneNumber: null,
@@ -353,7 +351,7 @@ export const useOnboardingStore = create<OnboardingState>()((set, get) => ({
     switch (currentSetupStep) {
       case "create_account":
         return Boolean(
-          data.phoneNumber && data.firstName && data.lastName && data.username,
+          data.phoneNumber && data.firstName && data.lastName,
         );
       case "tell_us_about_yourself":
         return Boolean(data.firstName && data.lastName);
@@ -408,7 +406,6 @@ export const useOnboardingStore = create<OnboardingState>()((set, get) => ({
       data.phoneNumber &&
       data.firstName &&
       data.lastName &&
-      data.username &&
       data.profilePhotoUri &&
       data.userIntentions &&
       data.userIntentions.length > 0 &&

@@ -1,7 +1,7 @@
 /**
  * NameStep
  *
- * PURPOSE: Collects the user's first name, last name, and optional alias.
+ * PURPOSE: Collects the user's first name and last name.
  *
  * USED IN: components/onboarding/OnboardingFlow.tsx
  *
@@ -57,7 +57,6 @@ export function NameStep({ onNext, onBack, progress }: NameStepProps) {
 
   const [firstName, setFirstName] = useState(data.firstName || "");
   const [lastName, setLastName] = useState(data.lastName || "");
-  const [alias, setAlias] = useState(data.alias || "");
 
   const dynamicStyles = {
     container: { paddingTop: insets.top + Spacing.lg },
@@ -72,10 +71,9 @@ export function NameStep({ onNext, onBack, progress }: NameStepProps) {
     updateData({
       firstName: firstName.trim(),
       lastName: lastName.trim(),
-      alias: alias.trim(),
     });
 
-    console.log("Name saved:", { firstName: useOnboardingStore.getState().data.firstName, lastName: useOnboardingStore.getState().data.lastName, alias: useOnboardingStore.getState().data.alias });
+    console.log("Name saved:", { firstName: useOnboardingStore.getState().data.firstName, lastName: useOnboardingStore.getState().data.lastName });
     onNext();
   };
 
@@ -133,18 +131,6 @@ export function NameStep({ onNext, onBack, progress }: NameStepProps) {
                 autoComplete="family-name"
                 textContentType="familyName"
               />
-            </View>
-
-            <View style={styles.inputWrapper}>
-              <TextInput
-                style={styles.input}
-                placeholder="Alias"
-                placeholderTextColor="#9CA3AF"
-                value={alias}
-                onChangeText={setAlias}
-                autoCapitalize="words"
-              />
-              <Text style={styles.helperText}>Optional</Text>
             </View>
           </View>
         </ScrollView>

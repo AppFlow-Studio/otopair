@@ -33,25 +33,25 @@ import Animated, {
 import { AnimatedGradientBackground } from '@/components/shared-ui';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import { WelcomeStep } from './steps/WelcomeStep';
+import { SignUpMethodsStep } from './steps/SignUpMethodsStep';
 import { PhoneNumberStep } from './steps/PhoneNumberStep';
 import { ConfirmPhoneNumberStep } from './steps/ConfirmPhoneNumberStep';
 import { NameStep } from './steps/NameStep';
-import { UsernameStep } from './steps/UsernameStep';
 import { ProfilePhotoStep } from './steps/ProfilePhotoStep';
 import { UserIntentStep } from './steps/UserIntentStep';
 import { PushNotificationsStep } from './steps/PushNotificationsStep';
 import { LocationServicesStep } from './steps/LocationServicesStep';
 
 // Define the steps in the flow
-export type OnboardingStep = 'welcome' | 'phone' | 'confirm' | 'name' | 'username' | 'profilePhoto' | 'userIntent' | 'pushNotifications' | 'locationServices' | 'complete';
+export type OnboardingStep = 'welcome' | 'signUpMethods' | 'phone' | 'confirm' | 'name' | 'profilePhoto' | 'userIntent' | 'pushNotifications' | 'locationServices' | 'complete';
 
 // Step indices mapping to SHARED_GRADIENT_CONFIGS
 const STEP_INDICES: Record<OnboardingStep, number> = {
     welcome: 0,
+    signUpMethods: 4,
     phone: 1,
     confirm: 2,
     name: 3,
-    username: 4,
     profilePhoto: 5,
     userIntent: 6,
     pushNotifications: 7,
@@ -67,10 +67,10 @@ interface OnboardingFlowProps {
 
 // Steps that show in the progress bar (excludes welcome and complete)
 const PROGRESS_STEPS: OnboardingStep[] = [
+    'signUpMethods',
     'phone',
     'confirm',
     'name',
-    'username',
     'profilePhoto',
     'userIntent',
     'pushNotifications',
@@ -85,7 +85,6 @@ export function getIncompleteOnboardingSteps(): OnboardingStep[] {
         { step: 'phone', isComplete: () => !!data.phoneNumber },
         { step: 'confirm', isComplete: () => !!data.phoneNumber }, // Same as phone
         { step: 'name', isComplete: () => !!(data.firstName && data.lastName) },
-        { step: 'username', isComplete: () => !!data.username },
         { step: 'profilePhoto', isComplete: () => !!data.profilePhotoUri },
         { step: 'userIntent', isComplete: () => !!(data.userIntentions && data.userIntentions.length > 0) },
         // Permissions are considered complete if user has made a choice (granted or denied)
@@ -175,8 +174,11 @@ export function OnboardingFlow({
             case 'welcome':
                 goToStep('complete');
                 break;
-            case 'phone':
+            case 'signUpMethods':
                 goToStep('welcome');
+                break;
+            case 'phone':
+                goToStep('signUpMethods');
                 break;
             case 'confirm':
                 goToStep('phone');
@@ -184,11 +186,8 @@ export function OnboardingFlow({
             case 'name':
                 goToStep('confirm');
                 break;
-            case 'username':
-                goToStep('name');
-                break;
             case 'profilePhoto':
-                goToStep('username');
+                goToStep('name');
                 break;
             case 'userIntent':
                 goToStep('profilePhoto');
@@ -278,6 +277,9 @@ export function OnboardingFlow({
         // Normal mode navigation
         switch (currentStep) {
             case 'welcome':
+                goToStep('signUpMethods');
+                break;
+            case 'signUpMethods':
                 goToStep('phone');
                 break;
             case 'phone':
@@ -287,9 +289,6 @@ export function OnboardingFlow({
                 goToStep('name');
                 break;
             case 'name':
-                goToStep('username');
-                break;
-            case 'username':
                 goToStep('profilePhoto');
                 break;
             case 'profilePhoto':
@@ -331,14 +330,14 @@ export function OnboardingFlow({
         switch (currentStep) {
             case 'welcome':
                 return <WelcomeStep onNext={goNext} onBack={goBack} />;
+            case 'signUpMethods':
+                return <SignUpMethodsStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
             case 'phone':
                 return <PhoneNumberStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
             case 'confirm':
                 return <ConfirmPhoneNumberStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
             case 'name':
                 return <NameStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
-            case 'username':
-                return <UsernameStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
             case 'profilePhoto':
                 return <ProfilePhotoStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
             case 'userIntent':
