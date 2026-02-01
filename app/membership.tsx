@@ -35,8 +35,7 @@ const AVATAR_SIZE = 56;
 const ACTION_BUTTON_SIZE = 64;
 const GLASS_ICON_SIZE = 40;
 const DEAL_CARD_WIDTH = SCREEN_WIDTH * 0.7;
-const REDEEM_SHEET_HEIGHT = 680;
-const ELITE_SHEET_HEIGHT = 800;
+const SHEET_HEIGHT = SCREEN_HEIGHT * 0.9;
 
 // Sample rewards data
 const EARN_REWARDS = [
@@ -114,11 +113,11 @@ export default function MembershipPage() {
   const [showEliteSheet, setShowEliteSheet] = useState(false);
   
   // Bottom sheet animation values
-  const sheetTranslateY = useRef(new Animated.Value(REDEEM_SHEET_HEIGHT)).current;
+  const sheetTranslateY = useRef(new Animated.Value(SHEET_HEIGHT)).current;
   const backdropOpacity = useRef(new Animated.Value(0)).current;
   
   // Elite sheet animation values
-  const eliteSheetTranslateY = useRef(new Animated.Value(ELITE_SHEET_HEIGHT)).current;
+  const eliteSheetTranslateY = useRef(new Animated.Value(SHEET_HEIGHT)).current;
   const eliteBackdropOpacity = useRef(new Animated.Value(0)).current;
 
   const handleBack = () => {
@@ -128,19 +127,19 @@ export default function MembershipPage() {
   // Redeem sheet functions
   const openRedeemSheet = () => {
     setShowRedeemSheet(true);
-    sheetTranslateY.setValue(REDEEM_SHEET_HEIGHT);
+    sheetTranslateY.setValue(SHEET_HEIGHT);
     backdropOpacity.setValue(0);
     
     Animated.parallel([
       Animated.spring(sheetTranslateY, {
         toValue: 0,
-        tension: 65,
-        friction: 11,
+        tension: 40,
+        friction: 12,
         useNativeDriver: false,
       }),
       Animated.timing(backdropOpacity, {
         toValue: 1,
-        duration: 300,
+        duration: 400,
         useNativeDriver: true,
       }),
     ]).start();
@@ -149,7 +148,7 @@ export default function MembershipPage() {
   const closeRedeemSheet = () => {
     Animated.parallel([
       Animated.timing(sheetTranslateY, {
-        toValue: REDEEM_SHEET_HEIGHT,
+        toValue: SHEET_HEIGHT,
         duration: 250,
         easing: Easing.bezier(0.25, 0.1, 0.25, 1),
         useNativeDriver: false,
@@ -167,19 +166,19 @@ export default function MembershipPage() {
   // Elite sheet functions
   const openEliteSheet = () => {
     setShowEliteSheet(true);
-    eliteSheetTranslateY.setValue(ELITE_SHEET_HEIGHT);
+    eliteSheetTranslateY.setValue(SHEET_HEIGHT);
     eliteBackdropOpacity.setValue(0);
     
     Animated.parallel([
       Animated.spring(eliteSheetTranslateY, {
         toValue: 0,
-        tension: 65,
-        friction: 11,
+        tension: 40,
+        friction: 12,
         useNativeDriver: false,
       }),
       Animated.timing(eliteBackdropOpacity, {
         toValue: 1,
-        duration: 300,
+        duration: 700,
         useNativeDriver: true,
       }),
     ]).start();
@@ -188,7 +187,7 @@ export default function MembershipPage() {
   const closeEliteSheet = () => {
     Animated.parallel([
       Animated.timing(eliteSheetTranslateY, {
-        toValue: ELITE_SHEET_HEIGHT,
+        toValue: SHEET_HEIGHT,
         duration: 300,
         easing: Easing.bezier(0.25, 0.1, 0.25, 1),
         useNativeDriver: false,
@@ -785,7 +784,7 @@ export default function MembershipPage() {
                   {/* Benefit 1 */}
                   <View style={eliteStyles.benefitRow}>
                     <View style={eliteStyles.benefitIcon}>
-                      <Building2 size={18} color="#6B7280" strokeWidth={1.5} />
+                      <Building2 size={18} color="#5299FE" strokeWidth={1.5} />
                     </View>
                     <Text size="md" color="#1F2937">
                       Priority booking with trusted shops
@@ -795,7 +794,7 @@ export default function MembershipPage() {
                   {/* Benefit 2 */}
                   <View style={eliteStyles.benefitRow}>
                     <View style={eliteStyles.benefitIcon}>
-                      <Zap size={18} color="#6B7280" strokeWidth={1.5} />
+                      <Zap size={18} color="#5299FE" strokeWidth={1.5} />
                     </View>
                     <Text size="md" color="#1F2937">
                       Faster dispute resolution
@@ -805,7 +804,7 @@ export default function MembershipPage() {
                   {/* Benefit 3 */}
                   <View style={eliteStyles.benefitRow}>
                     <View style={eliteStyles.benefitIcon}>
-                      <Wrench size={18} color="#6B7280" strokeWidth={1.5} />
+                      <Wrench size={18} color="#5299FE" strokeWidth={1.5} />
                     </View>
                     <Text size="md" color="#1F2937">
                       Waived diagnostics when applicable
@@ -815,7 +814,7 @@ export default function MembershipPage() {
                   {/* Benefit 4 */}
                   <View style={eliteStyles.benefitRow}>
                     <View style={eliteStyles.benefitIcon}>
-                      <Headphones size={18} color="#6B7280" strokeWidth={1.5} />
+                      <Headphones size={18} color="#5299FE" strokeWidth={1.5} />
                     </View>
                     <Text size="md" color="#1F2937">
                       Concierge support when issues arise
@@ -1213,6 +1212,7 @@ const redeemStyles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
+    height: SHEET_HEIGHT,
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,
@@ -1375,6 +1375,7 @@ const redeemStyles = StyleSheet.create({
     paddingVertical: Spacing.lg,
     alignItems: 'center',
     marginBottom: Spacing.md,
+    marginTop: Spacing["3xl"],
   },
   redeemButtonPressed: {
     opacity: 0.9,
@@ -1398,6 +1399,7 @@ const eliteStyles = StyleSheet.create({
     bottom: 0,
     left: 0,
     right: 0,
+    height: SHEET_HEIGHT,
     backgroundColor: '#FFFFFF',
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,

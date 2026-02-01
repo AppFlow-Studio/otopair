@@ -162,6 +162,22 @@ const VehicleHealthModal = ({
   // Info modal state
   const [showInfoModal, setShowInfoModal] = useState(false);
 
+  // Selected services state
+  const [selectedServices, setSelectedServices] = useState<Set<number>>(new Set());
+
+  // Toggle service selection
+  const toggleServiceSelection = (index: number) => {
+    setSelectedServices(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(index)) {
+        newSet.delete(index);
+      } else {
+        newSet.add(index);
+      }
+      return newSet;
+    });
+  };
+
   // Calculate overall score (average of all three)
   const overallScore = Math.round((healthPercentage + maintenancePercentage + servicePercentage) / 3);
 
@@ -556,39 +572,56 @@ const VehicleHealthModal = ({
                 </BlurView>
                 <View style={modalStyles.attentionContent}>
                   <View style={modalStyles.attentionHeader}>
-                    <Text style={modalStyles.attentionEmoji}>🔧</Text>
                     <Text style={[modalStyles.attentionTitle, { color: '#5299FE' }]}>How to Improve Your Score</Text>
                   </View>
                   
-                  {serviceItems.map((item, index) => (
-                    <Pressable key={index} style={modalStyles.serviceItem}>
-                      <View style={modalStyles.serviceItemLeft}>
-                        <View style={modalStyles.serviceNameRow}>
-                          <Text style={modalStyles.serviceName}>{item.name}</Text>
-                          <View 
-                            style={[
-                              modalStyles.statusBadge,
-                              item.status === 'overdue' ? modalStyles.overdueBadge : modalStyles.dueSoonBadge
-                            ]}
-                          >
-                            <Text 
+                  {serviceItems.map((item, index) => {
+                    const isSelected = selectedServices.has(index);
+                    return (
+                      <Pressable 
+                        key={index} 
+                        style={[
+                          modalStyles.serviceItem,
+                          isSelected && modalStyles.serviceItemSelected
+                        ]}
+                        onPress={() => toggleServiceSelection(index)}
+                      >
+                        {/* Checkbox */}
+                        <View style={[
+                          modalStyles.checkbox,
+                          isSelected && modalStyles.checkboxSelected
+                        ]}>
+                          {isSelected && <Check size={14} color="#fff" strokeWidth={3} />}
+                        </View>
+                        
+                        <View style={modalStyles.serviceItemLeft}>
+                          <View style={modalStyles.serviceNameRow}>
+                            <Text style={modalStyles.serviceName}>{item.name}</Text>
+                            <View 
                               style={[
-                                modalStyles.statusText,
-                                item.status === 'overdue' ? modalStyles.overdueText : modalStyles.dueSoonText
+                                modalStyles.statusBadge,
+                                item.status === 'overdue' ? modalStyles.overdueBadge : modalStyles.dueSoonBadge
                               ]}
                             >
-                              {item.status === 'overdue' ? 'OVERDUE' : 'DUE SOON'}
-                            </Text>
+                              <Text 
+                                style={[
+                                  modalStyles.statusText,
+                                  item.status === 'overdue' ? modalStyles.overdueText : modalStyles.dueSoonText
+                                ]}
+                              >
+                                {item.status === 'overdue' ? 'OVERDUE' : 'DUE SOON'}
+                              </Text>
+                            </View>
                           </View>
+                          <Text style={modalStyles.serviceDue}>{item.dueInfo}</Text>
+                          <Text style={modalStyles.actionDescription}>{item.actionDescription}</Text>
                         </View>
-                        <Text style={modalStyles.serviceDue}>{item.dueInfo}</Text>
-                        <Text style={modalStyles.actionDescription}>{item.actionDescription}</Text>
-                      </View>
-                      <View style={modalStyles.scoreImpactBadgeLarge}>
-                        <Text style={modalStyles.scoreImpactTextLarge}>+{item.scoreImpact}%</Text>
-                      </View>
-                    </Pressable>
-                  ))}
+                        <View style={modalStyles.scoreImpactBadgeLarge}>
+                          <Text style={modalStyles.scoreImpactTextLarge}>+{item.scoreImpact}%</Text>
+                        </View>
+                      </Pressable>
+                    );
+                  })}
                   
                   {/* Total potential improvement */}
                   <View style={modalStyles.totalImprovementRow}>
@@ -610,7 +643,9 @@ const VehicleHealthModal = ({
             <Pressable style={modalStyles.scheduleButton}>
               <BlurView intensity={80} tint="dark" style={modalStyles.scheduleButtonBlur}>
                 <LinearGradient
-                  colors={['rgba(40, 40, 40, 0.9)', 'rgba(20, 20, 20, 0.95)']}
+                  colors={selectedServices.size > 0 
+                    ? ['rgba(82, 153, 254, 0.95)', 'rgba(60, 120, 220, 0.98)']
+                    : ['rgba(40, 40, 40, 0.9)', 'rgba(20, 20, 20, 0.95)']}
                   style={StyleSheet.absoluteFill}
                 />
                 {/* Glossy top highlight */}
@@ -621,7 +656,13 @@ const VehicleHealthModal = ({
                 />
               </BlurView>
               <View style={modalStyles.scheduleButtonContent}>
-                <Text style={modalStyles.scheduleButtonText}>Schedule Service</Text>
+                <Text style={modalStyles.scheduleButtonText}>
+                  {selectedServices.size === 0 
+                    ? 'Schedule Service' 
+                    : selectedServices.size === 1 
+                      ? '1 service selected'
+                      : `${selectedServices.size} services selected`}
+                </Text>
                 <Calendar size={20} color="#fff" />
               </View>
             </Pressable>
@@ -924,10 +965,6 @@ const modalStyles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
-  attentionEmoji: {
-    fontSize: 16,
-    marginRight: 8,
-  },
   attentionTitle: {
     fontSize: 15,
     fontFamily: 'Urbanist-SemiBold',
@@ -936,10 +973,32 @@ const modalStyles = StyleSheet.create({
   serviceItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
     paddingVertical: 12,
     borderTopWidth: 1,
     borderTopColor: 'rgba(0, 0, 0, 0.06)',
+    gap: 12,
+  },
+  serviceItemSelected: {
+    backgroundColor: 'rgba(82, 153, 254, 0.08)',
+    marginHorizontal: -16,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderTopWidth: 0,
+    marginTop: 4,
+  },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: 'rgba(0, 0, 0, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#fff',
+  },
+  checkboxSelected: {
+    backgroundColor: '#5299FE',
+    borderColor: '#5299FE',
   },
   serviceItemLeft: {
     flex: 1,
@@ -1674,12 +1733,15 @@ export function CarCarousel({
       </View>
 
       {/* Separator */}
-      <View style={styles.separatorContainer}>
+      <View style={[
+        styles.separatorContainer,
+        { width: (sortedVehicles.length * 48) + ((sortedVehicles.length - 1) * Spacing.sm) }
+      ]}>
         <View style={styles.separator} />
         <View 
           style={[
             styles.separatorIndicator, 
-            { left: Spacing.lg + (activeIndex * (48 + Spacing.sm)) }
+            { left: activeIndex * (48 + Spacing.sm) }
           ]} 
         />
       </View>
@@ -2013,8 +2075,7 @@ const styles = StyleSheet.create({
   // Separator
   separatorContainer: {
     position: 'absolute',
-    left: 0,
-    right: 0,
+    left: Spacing.lg,
     bottom: 0,
   },
   separator: {
