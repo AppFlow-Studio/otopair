@@ -161,6 +161,8 @@ export const upsertVehicle = mutation({
     vin: v.string(),
     trim_id: v.optional(v.id("trims")),
     engine_id: v.optional(v.id("engines")),
+    transmission_id: v.optional(v.id("transmissions")),
+    chassis_id: v.optional(v.id("chassis_variants")),
     year: v.optional(v.float64()),
     metadata: v.optional(v.any()),
   },
@@ -179,6 +181,9 @@ export const upsertVehicle = mutation({
       const updates: any = { updated_at: Date.now() };
       if (args.trim_id !== undefined) updates.trim_id = args.trim_id;
       if (args.engine_id !== undefined) updates.engine_id = args.engine_id;
+      if (args.transmission_id !== undefined)
+        updates.transmission_id = args.transmission_id;
+      if (args.chassis_id !== undefined) updates.chassis_id = args.chassis_id;
       if (args.year !== undefined) updates.year = args.year;
       if (args.metadata !== undefined) updates.metadata = args.metadata;
       
@@ -192,6 +197,8 @@ export const upsertVehicle = mutation({
         vin: normalizedVin,
         trim_id: args.trim_id,
         engine_id: args.engine_id,
+        transmission_id: args.transmission_id,
+        chassis_id: args.chassis_id,
         year: args.year,
         metadata: args.metadata,
         created_at: now,

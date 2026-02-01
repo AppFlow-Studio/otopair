@@ -1,4 +1,4 @@
-import { mutation } from "./_generated/server";
+import { mutation, internalMutation } from "./_generated/server";
 
 const TABLES_TO_CLEAR = [
   "booking_status_history",
@@ -980,6 +980,354 @@ export const seedLearningPipelineDemo = mutation({
       engineId: vehicle.engine_id,
       mechanicId: mechanic._id,
       summary: `Booking created: Oil Change for ${engine?.engine_code ?? "unknown"} at ${shop.name} with ${mechanic.first_name} ${mechanic.last_name}`,
+    };
+  },
+});
+
+/**
+ * Internal demo seed for vehicle intelligence tables (specs + fitments).
+ *
+ * Idempotently seeds a Camry LE powertrain with specs, fitments, and a demo VIN.
+ */
+export const seedVehicleIntelligenceDemoData = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+
+    const ensureMake = async (name: string, logo_url: string) => {
+      const existing = (await ctx.db.query("makes").collect()).find((m) => m.name === name);
+      if (existing) return existing;
+      const id = await ctx.db.insert("makes", { name, logo_url });
+      return (await ctx.db.get(id))!;
+    };
+
+    const ensureModel = async (make_id: any, name: string) => {
+      const existing = (await ctx.db.query("models").collect()).find(
+        (m) => m.make_id === make_id && m.name === name
+      );
+      if (existing) return existing;
+      const id = await ctx.db.insert("models", { make_id, name });
+      return (await ctx.db.get(id))!;
+    };
+
+    const ensureTrim = async (model_id: any, name: string, year_start: number, year_end: number) => {
+      const existing = (await ctx.db.query("trims").collect()).find(
+        (t) => t.model_id === model_id && t.name === name
+      );
+      if (existing) return existing;
+      const id = await ctx.db.insert("trims", { model_id, name, year_start, year_end });
+      return (await ctx.db.get(id))!;
+    };
+
+    const ensureEngine = async (trim_id: any) => {
+      const existing = (await ctx.db.query("engines").collect()).find(
+        (e) => e.trim_id === trim_id && e.engine_code === "A25A-FKS"
+      );
+      if (existing) return existing;
+      const id = await ctx.db.insert("engines", {
+        trim_id,
+        engine_code: "A25A-FKS",
+        displacement_liters: "2.5",
+        cylinders: 4,
+        fuel_type: "Gasoline",
+      });
+      return (await ctx.db.get(id))!;
+    };
+
+    const ensureTransmission = async (trim_id: any) => {
+      const existing = await ctx.db
+        .query("transmissions")
+        .withIndex("by_trim_type", (q) => q.eq("trim_id", trim_id).eq("transmission_type", "automatic"))
+        .unique();
+      if (existing) {
+        const updates: Record<string, any> = {};
+        if (!existing.code) updates.code = "UA80E";
+        if (!existing.notes) updates.notes = "8-speed automatic";
+        if (existing.confidence_score === undefined) updates.confidence_score = 0.9;
+        if (Object.keys(updates).length > 0) {
+          await ctx.db.patch(existing._id, updates);
+        }
+        return (await ctx.db.get(existing._id))!;
+      }
+      const id = await ctx.db.insert("transmissions", {
+        trim_id,
+        transmission_type: "automatic",
+        code: "UA80E",
+        notes: "8-speed automatic",
+        confidence_score: 0.9,
+        created_at: now,
+      });
+      return (await ctx.db.get(id))!;
+    };
+
+    const ensureChassisVariant = async (trim_id: any) => {
+      const existing = await ctx.db
+        .query("chassis_variants")
+        .withIndex("by_trim_drivetrain", (q) => q.eq("trim_id", trim_id).eq("drivetrain_type", "fwd"))
+        .unique();
+      if (existing) {
+        const updates: Record<string, any> = {};
+        if (!existing.notes) updates.notes = "Front-wheel drive platform";
+        if (existing.confidence_score === undefined) updates.confidence_score = 0.88;
+        if (Object.keys(updates).length > 0) {
+          await ctx.db.patch(existing._id, updates);
+        }
+        return (await ctx.db.get(existing._id))!;
+      }
+      const id = await ctx.db.insert("chassis_variants", {
+        trim_id,
+        drivetrain_type: "fwd",
+        notes: "Front-wheel drive platform",
+        confidence_score: 0.88,
+        created_at: now,
+      });
+      return (await ctx.db.get(id))!;
+    };
+
+    const ensurePart = async (
+      oem_part_number: string,
+      name: string,
+      category?: string,
+      notes?: string
+    ) => {
+      const existing = await ctx.db
+        .query("oem_parts")
+        .withIndex("by_part_number", (q) => q.eq("oem_part_number", oem_part_number))
+        .unique();
+      if (existing) return existing;
+      const id = await ctx.db.insert("oem_parts", {
+        oem_part_number,
+        name,
+        category,
+        notes,
+        created_at: now,
+      });
+      return (await ctx.db.get(id))!;
+    };
+
+    const ensureEngineSpecs = async (engine_id: any) => {
+      const existing = await ctx.db
+        .query("engine_specs")
+        .withIndex("by_engine", (q) => q.eq("engine_id", engine_id))
+        .unique();
+      const payload = {
+        oil_viscosity: "0W-20",
+        oil_capacity_qts: 4.8,
+        coolant_type: "Toyota Super Long Life",
+        coolant_capacity_qts: 9.2,
+        brake_fluid_type: "DOT 3",
+        oil_change_interval: "10,000 miles / 12 months",
+        cabin_air_filter_interval: "15,000 miles",
+        engine_air_filter_interval: "15,000 miles",
+        spark_plug_interval: "120,000 miles",
+        serpentine_belt_interval: "90,000 miles",
+        transmission_fluid_interval: "60,000 miles (inspect)",
+        tire_rotation_interval: "5,000 miles",
+        confidence_score: 0.93,
+      };
+      if (existing) {
+        await ctx.db.patch(existing._id, payload);
+        return (await ctx.db.get(existing._id))!;
+      }
+      const id = await ctx.db.insert("engine_specs", {
+        ...payload,
+        engine_id,
+        created_at: now,
+      });
+      return (await ctx.db.get(id))!;
+    };
+
+    const ensureTransmissionSpecs = async (transmission_id: any) => {
+      const existing = await ctx.db
+        .query("transmission_specs")
+        .withIndex("by_transmission", (q) => q.eq("transmission_id", transmission_id))
+        .unique();
+      const payload = {
+        transmission_fluid_type: "Toyota WS ATF",
+        transmission_fluid_capacity_qts: 7.6,
+        maintenance_interval: "Inspect every 60,000 miles; service at 120,000 miles",
+        confidence_score: 0.9,
+      };
+      if (existing) {
+        await ctx.db.patch(existing._id, payload);
+        return (await ctx.db.get(existing._id))!;
+      }
+      const id = await ctx.db.insert("transmission_specs", {
+        ...payload,
+        transmission_id,
+        created_at: now,
+      });
+      return (await ctx.db.get(id))!;
+    };
+
+    const ensureTrimSpecs = async (trim_id: any) => {
+      const existing = await ctx.db
+        .query("trim_specs")
+        .withIndex("by_trim", (q) => q.eq("trim_id", trim_id))
+        .unique();
+      const payload = {
+        tire_size_front: "205/65R16",
+        tire_size_rear: "205/65R16",
+        recommended_tire_pressure_front_psi: 35,
+        recommended_tire_pressure_rear_psi: 35,
+        lug_nut_torque_ft_lbs: 76,
+        parking_brake_type: "drum-in-hat",
+        confidence_score: 0.9,
+      };
+      if (existing) {
+        await ctx.db.patch(existing._id, payload);
+        return (await ctx.db.get(existing._id))!;
+      }
+      const id = await ctx.db.insert("trim_specs", {
+        ...payload,
+        trim_id,
+        created_at: now,
+      });
+      return (await ctx.db.get(id))!;
+    };
+
+    const ensureEngineFitment = async (engine_id: any, role: string, part_id: any, extras: any) => {
+      const existing = await ctx.db
+        .query("engine_part_fitments")
+        .withIndex("by_engine_role", (q) => q.eq("engine_id", engine_id).eq("role", role))
+        .unique();
+      const payload = {
+        part_id,
+        role,
+        created_at: existing ? existing.created_at : now,
+        ...extras,
+      };
+      if (existing) {
+        await ctx.db.patch(existing._id, payload);
+        return (await ctx.db.get(existing._id))!;
+      }
+      const id = await ctx.db.insert("engine_part_fitments", {
+        engine_id,
+        ...payload,
+      });
+      return (await ctx.db.get(id))!;
+    };
+
+    const ensureTransmissionFitment = async (transmission_id: any, role: string, part_id: any, extras: any) => {
+      const existing = await ctx.db
+        .query("transmission_part_fitments")
+        .withIndex("by_transmission_role", (q) => q.eq("transmission_id", transmission_id).eq("role", role))
+        .unique();
+      const payload = { part_id, role, created_at: existing ? existing.created_at : now, ...extras };
+      if (existing) {
+        await ctx.db.patch(existing._id, payload);
+        return (await ctx.db.get(existing._id))!;
+      }
+      const id = await ctx.db.insert("transmission_part_fitments", {
+        transmission_id,
+        ...payload,
+      });
+      return (await ctx.db.get(id))!;
+    };
+
+    const ensureTrimFitment = async (trim_id: any, role: string, part_id: any, extras: any) => {
+      const existing = await ctx.db
+        .query("trim_part_fitments")
+        .withIndex("by_trim_role", (q) => q.eq("trim_id", trim_id).eq("role", role))
+        .unique();
+      const payload = { part_id, role, created_at: existing ? existing.created_at : now, ...extras };
+      if (existing) {
+        await ctx.db.patch(existing._id, payload);
+        return (await ctx.db.get(existing._id))!;
+      }
+      const id = await ctx.db.insert("trim_part_fitments", {
+        trim_id,
+        ...payload,
+      });
+      return (await ctx.db.get(id))!;
+    };
+
+    const ensureVehicle = async (
+      vin: string,
+      fields: { trim_id: any; engine_id: any; transmission_id: any; chassis_id: any; year: number }
+    ) => {
+      const normalized = vin.toUpperCase().trim();
+      const existing = await ctx.db.query("vehicles").withIndex("by_vin", (q) => q.eq("vin", normalized)).unique();
+      if (existing) {
+        await ctx.db.patch(existing._id, {
+          ...fields,
+          updated_at: now,
+        });
+        return (await ctx.db.get(existing._id))!;
+      }
+      const id = await ctx.db.insert("vehicles", {
+        vin: normalized,
+        ...fields,
+        created_at: now,
+        updated_at: now,
+      });
+      return (await ctx.db.get(id))!;
+    };
+
+    // --- Hierarchy ---
+    const make = await ensureMake(
+      "Toyota",
+      "https://upload.wikimedia.org/wikipedia/commons/9/9d/Toyota_carridge_logo.svg"
+    );
+    const model = await ensureModel(make._id, "Camry");
+    const trim = await ensureTrim(model._id, "LE", 2018, 2024);
+    const engine = await ensureEngine(trim._id);
+    const transmission = await ensureTransmission(trim._id);
+    const chassis = await ensureChassisVariant(trim._id);
+
+    // --- Parts ---
+    const oilFilter = await ensurePart("90915-YZZN1", "Engine Oil Filter", "filter", "Toyota OEM");
+    const engineAirFilter = await ensurePart("17801-0H050", "Engine Air Filter", "filter");
+    const cabinAirFilter = await ensurePart("87139-07010", "Cabin Air Filter", "filter");
+    const atfFilter = await ensurePart("35330-33050", "ATF Filter Kit", "transmission");
+    const battery = await ensurePart("35-AGM", "Group 35 AGM Battery", "battery");
+
+    // --- Specs ---
+    await ensureEngineSpecs(engine._id);
+    await ensureTransmissionSpecs(transmission._id);
+    await ensureTrimSpecs(trim._id);
+
+    // --- Fitments ---
+    await ensureEngineFitment(engine._id, "oil_filter", oilFilter._id, {
+      quantity: 1,
+      confidence_score: 0.92,
+    });
+    await ensureEngineFitment(engine._id, "engine_air_filter", engineAirFilter._id, {
+      quantity: 1,
+      confidence_score: 0.9,
+    });
+    await ensureEngineFitment(engine._id, "cabin_air_filter", cabinAirFilter._id, {
+      quantity: 1,
+      confidence_score: 0.9,
+    });
+
+    await ensureTransmissionFitment(transmission._id, "transmission_filter", atfFilter._id, {
+      quantity: 1,
+      confidence_score: 0.9,
+    });
+
+    await ensureTrimFitment(trim._id, "battery", battery._id, {
+      quantity: 1,
+      confidence_score: 0.9,
+    });
+
+    // --- Demo vehicle with VIN ---
+    const vin = "4T1B11HK5JU123456";
+    const vehicle = await ensureVehicle(vin, {
+      trim_id: trim._id,
+      engine_id: engine._id,
+      transmission_id: transmission._id,
+      chassis_id: chassis._id,
+      year: 2018,
+    });
+
+    return {
+      vin: vehicle.vin,
+      trim_id: trim._id,
+      engine_id: engine._id,
+      transmission_id: transmission._id,
+      chassis_id: chassis._id,
+      parts_seeded: [oilFilter._id, engineAirFilter._id, cabinAirFilter._id, atfFilter._id, battery._id],
     };
   },
 });
