@@ -58,7 +58,7 @@ export const getByMechanicId = query({
   handler: async (ctx, args) => {
     const reviews = await ctx.db
       .query("reviews")
-      .withIndex("by_user_id", (q) => q.eq("user_id", args.mechanicId))
+      .withIndex("by_mechanic_id", (q) => q.eq("mechanic_id", args.mechanicId))
       .collect();
     return await Promise.all(
       reviews.map(async (review) => {

@@ -36,6 +36,7 @@ import { Text } from '@/components/shared-ui';
 
 // 4. Constants, hooks, types
 import { BrandColors, BorderRadius, Spacing, FontFamily } from '@/constants/theme';
+import { formatDistanceMiles } from '@/utils/geo';
 import type { AIMechanic } from '@/services/ai/types';
 
 // Legacy type alias
@@ -152,7 +153,7 @@ function MechanicCard({
 
             <View style={styles.detailsRow}>
               <Text style={styles.distanceText} size="xs">
-                {mechanic.distanceMi} mi
+                {formatDistanceMiles(mechanic.distanceMi)}
               </Text>
               {mechanic.isVerified && (
                 <View style={styles.verifiedBadge}>

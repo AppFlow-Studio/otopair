@@ -129,15 +129,13 @@ export const useShopStore = create<ShopState>()((set, get) => {
       // Filter by service IDs
       if (filters.serviceIds.length > 0) {
         filtered = filtered.filter((shop) =>
-          filters.serviceIds.some((serviceId) => shop.serviceIds.includes(serviceId))
+          filters.serviceIds.some((serviceId) => shop.serviceIds.includes(serviceId)),
         );
       }
 
       // Filter by max distance (if distanceKm is set)
       if (filters.maxDistance < 50) {
-        filtered = filtered.filter(
-          (shop) => shop.distanceKm === null || shop.distanceKm <= filters.maxDistance
-        );
+        filtered = filtered.filter((shop) => shop.distanceKm === null || shop.distanceKm <= filters.maxDistance);
       }
 
       return filtered;
@@ -180,4 +178,3 @@ export const useShopStore = create<ShopState>()((set, get) => {
       }),
   };
 });
-

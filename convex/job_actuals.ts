@@ -49,22 +49,11 @@ export const getPrefillData = query({
     const model = trim ? await ctx.db.get(trim.model_id) : null;
     const make = model ? await ctx.db.get(model.make_id) : null;
 
-    const vehicleLabel = [
-      make?.name,
-      model?.name,
-      trim?.name,
-      vehicle.year,
-    ]
-      .filter(Boolean)
-      .join(" ");
+    const vehicleLabel = [make?.name, model?.name, trim?.name, vehicle.year].filter(Boolean).join(" ");
 
     // Mechanic
-    const mechanic = booking.mechanic_id
-      ? await ctx.db.get(booking.mechanic_id)
-      : null;
-    const mechanicName = mechanic
-      ? `${mechanic.first_name} ${mechanic.last_name}`
-      : "Unassigned";
+    const mechanic = booking.mechanic_id ? await ctx.db.get(booking.mechanic_id) : null;
+    const mechanicName = mechanic ? `${mechanic.first_name} ${mechanic.last_name}` : "Unassigned";
 
     // Vehicle specs for suggested parts
     const allSpecs = await ctx.db.query("vehicle_specs").collect();
@@ -81,25 +70,70 @@ export const getPrefillData = query({
       if (slug === "oil-change") {
         suggestedParts.push({
           part_name: "Oil Filter",
-          oem_number: specs.oil_filter_oem,
+          oem_number: specs.oil_filter_oem ?? "",
           cost: 12,
         });
         suggestedParts.push({
-          part_name: `Synthetic Oil ${specs.oil_capacity_qts}qt`,
-          oem_number: specs.oil_viscocity,
+          part_name: `Synthetic Oil ${specs.oil_capacity_qts ?? "—"}qt`,
+          oem_number: specs.oil_viscocity ?? "",
           cost: 35,
         });
+        if (specs.oil_drain_plug_gasket_oem) {
+          suggestedParts.push({
+            part_name: "Drain Plug Gasket",
+            oem_number: specs.oil_drain_plug_gasket_oem,
+            cost: 2,
+          });
+        }
       } else if (slug === "brake-pads") {
         suggestedParts.push({
           part_name: "Front Brake Pads",
-          oem_number: specs.front_brake_pad_oem,
+          oem_number: specs.front_brake_pad_oem ?? "",
           cost: 45,
         });
         suggestedParts.push({
           part_name: "Rear Brake Pads",
-          oem_number: specs.rear_brake_pad_oem,
+          oem_number: specs.rear_brake_pad_oem ?? "",
           cost: 40,
         });
+      } else if (slug === "engine-air-filter" && specs.engine_air_filter_oem) {
+        suggestedParts.push({
+          part_name: "Engine Air Filter",
+          oem_number: specs.engine_air_filter_oem,
+          cost: 25,
+        });
+      } else if (slug === "cabin-air-filter" && specs.cabin_air_filter_oem) {
+        suggestedParts.push({
+          part_name: "Cabin Air Filter",
+          oem_number: specs.cabin_air_filter_oem,
+          cost: 22,
+        });
+      } else if (slug === "spark-plugs" && specs.spark_plug_oem) {
+        const qty = specs.spark_plug_quantity ?? 4;
+        suggestedParts.push({
+          part_name: `Spark Plugs (×${qty})`,
+          oem_number: specs.spark_plug_oem,
+          cost: 12 * qty,
+        });
+      } else if (slug === "serpentine-belt" && specs.serpentine_belt_oem) {
+        suggestedParts.push({
+          part_name: "Serpentine Belt",
+          oem_number: specs.serpentine_belt_oem,
+          cost: 45,
+        });
+      } else if (slug === "brake-rotors" && specs.front_brake_rotor_oem) {
+        suggestedParts.push({
+          part_name: "Front Brake Rotors",
+          oem_number: specs.front_brake_rotor_oem ?? "",
+          cost: 85,
+        });
+        if (specs.rear_brake_rotor_oem) {
+          suggestedParts.push({
+            part_name: "Rear Brake Rotors",
+            oem_number: specs.rear_brake_rotor_oem,
+            cost: 75,
+          });
+        }
       }
     }
 
@@ -190,7 +224,7 @@ export const submitJobActuals = mutation({
         part_name: v.string(),
         oem_number: v.string(),
         cost: v.float64(),
-      })
+      }),
     ),
     actual_parts_cost: v.float64(),
     difficulty_rating: v.float64(),
@@ -250,21 +284,14 @@ export const submitJobActuals = mutation({
 
     // Find or create service_insights
     const allInsights = await ctx.db.query("service_insights").collect();
-    const existing = allInsights.find(
-      (r) => r.service_id === booking.service_id && r.engine_id === engineId
-    );
+    const existing = allInsights.find((r) => r.service_id === booking.service_id && r.engine_id === engineId);
 
     if (existing) {
       const oldCount = existing.completed_jobs_count;
       const newCount = oldCount + 1;
-      const newAvgLabor =
-        (existing.avg_actual_labor_hours * oldCount + actualLaborHours) / newCount;
-      const newAvgParts =
-        (existing.avg_actual_parts_cost * oldCount + args.actual_parts_cost) / newCount;
-      const laborVariance =
-        estimatedLaborHours > 0
-          ? (newAvgLabor - estimatedLaborHours) / estimatedLaborHours
-          : 0;
+      const newAvgLabor = (existing.avg_actual_labor_hours * oldCount + actualLaborHours) / newCount;
+      const newAvgParts = (existing.avg_actual_parts_cost * oldCount + args.actual_parts_cost) / newCount;
+      const laborVariance = estimatedLaborHours > 0 ? (newAvgLabor - estimatedLaborHours) / estimatedLaborHours : 0;
       const confidence = Math.min(1.0, 0.5 + 0.15 * Math.log(newCount));
 
       await ctx.db.patch(existing._id, {
@@ -276,9 +303,7 @@ export const submitJobActuals = mutation({
       });
     } else {
       const laborVariance =
-        estimatedLaborHours > 0
-          ? (actualLaborHours - estimatedLaborHours) / estimatedLaborHours
-          : 0;
+        estimatedLaborHours > 0 ? (actualLaborHours - estimatedLaborHours) / estimatedLaborHours : 0;
       const confidence = Math.min(1.0, 0.5 + 0.15 * Math.log(1));
 
       await ctx.db.insert("service_insights", {
@@ -295,9 +320,7 @@ export const submitJobActuals = mutation({
 
     // Bump service_vehicle_specs confidence_score
     const allSVS = await ctx.db.query("service_vehicle_specs").collect();
-    const svs = allSVS.find(
-      (r) => r.service_id === booking.service_id && r.engine_id === engineId
-    );
+    const svs = allSVS.find((r) => r.service_id === booking.service_id && r.engine_id === engineId);
     if (svs) {
       const newConfidence = Math.min(1.0, svs.confidence_score + 0.02);
       await ctx.db.patch(svs._id, { confidence_score: newConfidence });
@@ -305,7 +328,7 @@ export const submitJobActuals = mutation({
       // Track spec variance if there's a significant difference
       const predictedLabor = svs.labor_hours;
       const predictedParts = (svs.parts_cost_low + svs.parts_cost_high) / 2;
-      
+
       await ctx.scheduler.runAfter(0, internal.spec_variances.flagSpecVariance, {
         engine_id: engineId,
         service_id: booking.service_id,

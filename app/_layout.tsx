@@ -41,16 +41,23 @@ function ConvexClerkProvider({ children }: { children: ReactNode }) {
 function EnsureConvexUserRecord() {
   const { isSignedIn, userId } = useAuth();
   const ensureUser = useMutation(api.users.getOrCreateMe);
+  const claimSeedData = useMutation(api.seed.claimSeedDataForCurrentUser);
   const lastUserRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (isSignedIn && userId && lastUserRef.current !== userId) {
       lastUserRef.current = userId;
       ensureUser()
-        .then(() => console.log("Ensured Convex user via RootLayout"))
+        .then(() => {
+          console.log("Ensured Convex user via RootLayout");
+          return claimSeedData();
+        })
+        .then((result) => {
+          if (result?.claimed) console.log("Claimed seed data for guest account");
+        })
         .catch((error) => console.error("Failed to ensure Convex user via RootLayout", error));
     }
-  }, [ensureUser, isSignedIn, userId]);
+  }, [ensureUser, claimSeedData, isSignedIn, userId]);
 
   return null;
 }

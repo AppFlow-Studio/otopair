@@ -22,12 +22,7 @@ import { Pressable, StyleSheet, View } from "react-native";
 import { BlurView } from "expo-blur";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ArrowLeft } from "lucide-react-native";
-import Animated, {
-  interpolate,
-  useAnimatedRef,
-  useAnimatedStyle,
-  useScrollOffset,
-} from "react-native-reanimated";
+import Animated, { interpolate, useAnimatedRef, useAnimatedStyle, useScrollOffset } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 3. Shared UI (design system)
@@ -37,13 +32,14 @@ import { FullScreenContainer } from "@/components/shared-ui/Container";
 // 4. Flow-specific components
 import { MechanicDetailHeader } from "@/components/booking/MechanicDetailHeader";
 import { MechanicDetailTabs, type MechanicDetailTab } from "@/components/booking/MechanicDetailTabs";
-import { MechanicReviewsSection } from "@/components/booking/MechanicReviewsSection";
+import { ShopReviewsSection } from "@/components/booking/ShopReviewsSection";
 import { AddServicesModal, ShopBookingModal } from "@/components/booking/modals";
 import { ShopDetails } from "@/components/booking/ShopDetails";
 import { ShopPortfolioSection } from "@/components/booking/ShopPortfolioSection";
 import { ShopStaffSection } from "@/components/booking/ShopStaffSection";
 
 // 5. Constants, hooks, types, stores
+import { calculateDistanceMiles } from "@/utils/geo";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useSearchStore } from "@/stores/useSearchStore";
@@ -79,6 +75,7 @@ export default function ShopDetailScreen() {
   const resetBookingFlow = useBookingStore((state) => state.resetBookingFlow);
   const bookingStage = useBookingStore((state) => state.bookingStage);
   const addRecentShop = useSearchStore((state) => state.addRecentShop);
+  const userLocation = useBookingStore((state) => state.userLocation);
 
   // ═══════════════ COMPUTED VALUES ═══════════════
   const shopId = id && typeof id === "string" ? id : null;
@@ -151,7 +148,7 @@ export default function ShopDetailScreen() {
       setBookingTypeAndProceed("schedule_later", mechanicId);
       router.push(`/home/mechanic/${mechanicId}/booking-details`);
     },
-    [shopId, addRecentShop, setBookingTypeAndProceed, router]
+    [shopId, addRecentShop, setBookingTypeAndProceed, router],
   );
 
   const handleAddMoreServices = useCallback(() => {
@@ -209,16 +206,7 @@ export default function ShopDetailScreen() {
           />
         );
       case "reviews":
-        // Use primary mechanic for reviews, or fall back to showing shop-level content
-        return primaryMechanic ? (
-          <MechanicReviewsSection mechanicId={primaryMechanic.id} />
-        ) : (
-          <View style={styles.emptyTabContent}>
-            <Text size="md" color="#6B7280">
-              No reviews available
-            </Text>
-          </View>
-        );
+        return <ShopReviewsSection shopId={shop.id} />;
       case "portfolio":
         return <ShopPortfolioSection shopId={shop.id} />;
       case "staff":
@@ -282,7 +270,10 @@ export default function ShopDetailScreen() {
               photoUrl: null,
               rating: shop.rating ?? 0,
               isVerified: false,
-              distanceMi: 0,
+              distanceMi:
+                userLocation && shop.latitude != null && shop.longitude != null
+                  ? calculateDistanceMiles(userLocation.latitude, userLocation.longitude, shop.latitude, shop.longitude)
+                  : 0,
               services: [],
               specialties: [],
               yearsExperience: 0,

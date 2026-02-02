@@ -64,10 +64,12 @@ import { ShopPreviewContent } from "./sheets/ShopPreviewContent";
 import { BorderRadius, FontFamily, FontSize, Shadows } from "@/constants/theme";
 import { useBookingTransition } from "@/hooks/useBookingTransition";
 import type { ServiceCategory } from "@/stores/types/store.types";
+import { useServiceVehicleSpecsForEngine } from "@/hooks/useServiceVehicleSpecsForEngine";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useSearchStore, type SearchSuggestion } from "@/stores/useSearchStore";
 import { useShopStore } from "@/stores/useShopStore";
+import { useVehicleStore } from "@/stores/useVehicleStore";
 
 // ============================================================================
 // TYPES
@@ -182,7 +184,7 @@ export function ServiceBottomSheet({
   const setScheduledAppointment = useBookingStore((state) => state.setScheduledAppointment);
   const setSkippedBookingDetails = useBookingStore((state) => state.setSkippedBookingDetails);
   const getMechanicById = useMechanicStore((state) => state.getMechanicById);
-  
+
   // Search stores
   const getRecentShopIds = useSearchStore((state) => state.getRecentShopIds);
   const getSearchSuggestions = useSearchStore((state) => state.getSearchSuggestions);
@@ -197,7 +199,14 @@ export function ServiceBottomSheet({
   const hasSelection = selectedCount > 0;
   const isServiceStage = currentStage === "discovery" || currentStage === "service_selection";
   const isMechanicStage = currentStage === "mechanic_selection";
-  
+
+  // Car-specific (engine-specific) labor/parts for footer price
+  const selectedVehicle = useVehicleStore((state) => state.getSelectedVehicle());
+  const engineSpecs = useServiceVehicleSpecsForEngine(
+    selectedVehicle?.engineId,
+    selectedServiceIds,
+  );
+
   // Compute service name for mechanic selection footer
   const mechanicFooterServiceName = useMemo(() => {
     const selectedServices = availableServices.filter((s) => selectedServiceIds.includes(s.id));
@@ -205,6 +214,38 @@ export function ServiceBottomSheet({
     if (selectedServices.length === 1) return selectedServices[0].name;
     return `${selectedServices.length} Services`;
   }, [availableServices, selectedServiceIds]);
+
+  // Mechanic footer total: use (labor_rate × time) + parts, engine-specific when available
+  const mechanicFooterTotal = useMemo(() => {
+    if (!selectedMechanicSlot?.shopId) return selectedTotal;
+    const shop = shops[selectedMechanicSlot.shopId];
+    const laborRate = shop?.labor_rate;
+    const selectedServices = availableServices.filter((s) => selectedServiceIds.includes(s.id));
+    // Use engine-specific labor/parts when available, else service defaults
+    const getLaborHours = (s: (typeof selectedServices)[0]) =>
+      engineSpecs[s.id]?.labor_hours ?? s.default_labor_hours;
+    const getParts = (s: (typeof selectedServices)[0]) =>
+      engineSpecs[s.id]?.parts_cost_avg ?? s.default_parts_estimate;
+    const hasFormulaParams =
+      laborRate != null &&
+      selectedServices.every(
+        (s) => getLaborHours(s) != null && getParts(s) != null,
+      );
+    if (!hasFormulaParams) return selectedTotal;
+    const total = selectedServices.reduce(
+      (sum, s) =>
+        sum + laborRate! * (getLaborHours(s) ?? 0) + (getParts(s) ?? 0),
+      0,
+    );
+    return Math.round(total);
+  }, [
+    selectedMechanicSlot?.shopId,
+    shops,
+    availableServices,
+    selectedServiceIds,
+    selectedTotal,
+    engineSpecs,
+  ]);
 
   // ═══════════════ SEARCH COMPUTED VALUES ═══════════════
   const recentShopIds = useMemo(() => getRecentShopIds(), [getRecentShopIds]);
@@ -347,7 +388,7 @@ export function ServiceBottomSheet({
         onShopClose?.();
       }
     },
-    [onShopClose]
+    [onShopClose],
   );
 
   // Handle selected shop from map pin - show shop preview and snap to preview position
@@ -385,7 +426,7 @@ export function ServiceBottomSheet({
       `${stageConfig.mid - offsetPercent}%`,
       `${stageConfig.expanded - offsetPercent}%`,
     ],
-    [stageConfig, offsetPercent]
+    [stageConfig, offsetPercent],
   );
 
   // Initial index: start at expanded (index 3)
@@ -430,7 +471,7 @@ export function ServiceBottomSheet({
     (suggestion: SearchSuggestion) => {
       const toggleServiceSelection = useBookingStore.getState().toggleServiceSelection;
       const setSelectedServiceCategory = useBookingStore.getState().setSelectedServiceCategory;
-      
+
       if (suggestion.type === "service") {
         toggleServiceSelection(suggestion.service.id);
       } else {
@@ -438,7 +479,7 @@ export function ServiceBottomSheet({
       }
       exitSearchMode();
     },
-    [exitSearchMode]
+    [exitSearchMode],
   );
 
   // Handle shop press from search
@@ -447,7 +488,7 @@ export function ServiceBottomSheet({
       exitSearchMode();
       onSelectShop?.(shopId);
     },
-    [exitSearchMode, onSelectShop]
+    [exitSearchMode, onSelectShop],
   );
 
   // Handle mechanic press from search
@@ -456,7 +497,7 @@ export function ServiceBottomSheet({
       exitSearchMode();
       onSelectMechanic?.(mechanicId);
     },
-    [exitSearchMode, onSelectMechanic]
+    [exitSearchMode, onSelectMechanic],
   );
 
   // Handle remove recent shop
@@ -464,7 +505,7 @@ export function ServiceBottomSheet({
     (shopId: number) => {
       removeRecentShop(shopId);
     },
-    [removeRecentShop]
+    [removeRecentShop],
   );
 
   // ═══════════════ SHOP PREVIEW HANDLERS ═══════════════
@@ -478,7 +519,7 @@ export function ServiceBottomSheet({
     (shop: { id: number; latitude: number; longitude: number }) => {
       onShopChange?.(shop);
     },
-    [onShopChange]
+    [onShopChange],
   );
 
   const handleMechanicSearchFocus = useCallback(() => {
@@ -490,7 +531,7 @@ export function ServiceBottomSheet({
     (shop: { id: number }) => {
       onSelectShop?.(shop.id);
     },
-    [onSelectShop]
+    [onSelectShop],
   );
 
   // ═══════════════ CAR SELECTION HANDLERS ═══════════════
@@ -553,12 +594,14 @@ export function ServiceBottomSheet({
     const isoDate = targetDate.toISOString().split("T")[0];
 
     // Use mechanicId or find first mechanic for the shop
-    const effectiveMechanicId = mechanicId || (() => {
-      // Find a mechanic from this shop
-      const shopMechanic = mechanicIds.map(id => mechanics[id]).find(m => m?.shopId === shopId);
-      return shopMechanic?.id;
-    })();
-    
+    const effectiveMechanicId =
+      mechanicId ||
+      (() => {
+        // Find a mechanic from this shop
+        const shopMechanic = mechanicIds.map((id) => mechanics[id]).find((m) => m?.shopId === shopId);
+        return shopMechanic?.id;
+      })();
+
     if (!effectiveMechanicId) return;
 
     // Set appointment in store
@@ -572,10 +615,19 @@ export function ServiceBottomSheet({
     // Go directly to payment screen (skip booking details)
     setSkippedBookingDetails(true);
     setBookingStage("payment", "forward");
-    
+
     // Navigate to payment page
     router.push(`/home/mechanic/${effectiveMechanicId}/payment`);
-  }, [selectedMechanicSlot, mechanicIds, mechanics, setBookingTypeAndProceed, setScheduledAppointment, setSkippedBookingDetails, setBookingStage, router]);
+  }, [
+    selectedMechanicSlot,
+    mechanicIds,
+    mechanics,
+    setBookingTypeAndProceed,
+    setScheduledAppointment,
+    setSkippedBookingDetails,
+    setBookingStage,
+    router,
+  ]);
 
   // Handle close button press
   // In search mode: exit search mode
@@ -599,12 +651,7 @@ export function ServiceBottomSheet({
   // ═══════════════ FOOTER ANIMATED STYLE ═══════════════
   // Fade the footer once the sheet slides below the mid snap to keep the map visible
   const footerVisibility = useDerivedValue(() => {
-    return interpolate(
-      animatedIndex.value,
-      [FOOTER_FADE_OUT_INDEX, FOOTER_FADE_IN_INDEX],
-      [0, 1],
-      Extrapolation.CLAMP
-    );
+    return interpolate(animatedIndex.value, [FOOTER_FADE_OUT_INDEX, FOOTER_FADE_IN_INDEX], [0, 1], Extrapolation.CLAMP);
   });
 
   const footerAnimatedStyle = useAnimatedStyle(() => {
@@ -626,12 +673,7 @@ export function ServiceBottomSheet({
       };
     }
 
-    const opacity = interpolate(
-      animatedIndex.value,
-      [2.5, 3],
-      [0, 1],
-      Extrapolation.CLAMP
-    );
+    const opacity = interpolate(animatedIndex.value, [2.5, 3], [0, 1], Extrapolation.CLAMP);
 
     return {
       opacity,
@@ -718,7 +760,7 @@ export function ServiceBottomSheet({
                       activeOpacity={0.8}
                     >
                       <Text size="md" weight="bold" color={BrandColors.white}>
-                        Book ${selectedTotal}
+                        Book ${mechanicFooterTotal}
                       </Text>
                     </TouchableOpacity>
                   </View>
@@ -742,13 +784,13 @@ export function ServiceBottomSheet({
       footerAnimatedStyle,
       hasSelection,
       selectedCount,
-      selectedTotal,
+      mechanicFooterTotal,
       handleServicesSelected,
       mechanicFooterServiceName,
       selectedMechanicSlot,
       handleMechanicBook,
       handleMechanicFooterLayout,
-    ]
+    ],
   );
 
   // ═══════════════ CONTENT RENDERER ═══════════════
@@ -757,30 +799,20 @@ export function ServiceBottomSheet({
       case "discovery":
       case "service_selection":
         return (
-          <Animated.View
-            key="service"
-            entering={sheetEntering}
-            exiting={sheetExiting}
-            style={styles.contentWrapper}
-          >
+          <Animated.View key="service" entering={sheetEntering} exiting={sheetExiting} style={styles.contentWrapper}>
             <ServiceSelectionContent onCategorySelect={handleCategorySelect} />
           </Animated.View>
         );
 
       case "mechanic_selection":
         return (
-          <Animated.View
-            key="mechanic"
-            entering={sheetEntering}
-            exiting={sheetExiting}
-            style={styles.contentWrapper}
-          >
-          <MechanicSelectionContent
-            onSelectMechanic={handleMechanicSelected}
-            onCarSelect={handleCarToggle}
-            footerInset={mechanicFooterHeight}
-            onSearchFocus={handleMechanicSearchFocus}
-          />
+          <Animated.View key="mechanic" entering={sheetEntering} exiting={sheetExiting} style={styles.contentWrapper}>
+            <MechanicSelectionContent
+              onSelectMechanic={handleMechanicSelected}
+              onCarSelect={handleCarToggle}
+              footerInset={mechanicFooterHeight}
+              onSearchFocus={handleMechanicSearchFocus}
+            />
           </Animated.View>
         );
 
@@ -968,11 +1000,7 @@ export function ServiceBottomSheet({
                   {shop.address}
                 </Text>
               </View>
-              <TouchableOpacity
-                onPress={() => handleRemoveRecentShop(shop.id)}
-                style={styles.removeButton}
-                hitSlop={8}
-              >
+              <TouchableOpacity onPress={() => handleRemoveRecentShop(shop.id)} style={styles.removeButton} hitSlop={8}>
                 <X size={14} color="#9CA3AF" />
               </TouchableOpacity>
             </TouchableOpacity>
@@ -1072,11 +1100,7 @@ export function ServiceBottomSheet({
               )}
             </Animated.View>
           ) : (
-            <TouchableOpacity
-              onPress={enterSearchMode}
-              style={styles.searchBarTouchable}
-              activeOpacity={0.7}
-            >
+            <TouchableOpacity onPress={enterSearchMode} style={styles.searchBarTouchable} activeOpacity={0.7}>
               <View style={styles.searchBar}>
                 <Search size={20} color="#9CA3AF" />
                 <Text size="md" weight="regular" color="#9CA3AF" style={styles.searchPlaceholder}>
@@ -1091,9 +1115,9 @@ export function ServiceBottomSheet({
       {/* Content - Search results, car preview, shop preview, or stage content */}
       <View style={styles.expandedContainer}>
         {isSearchMode ? (
-          <Animated.View 
-            key="search" 
-            entering={FadeIn.duration(200)} 
+          <Animated.View
+            key="search"
+            entering={FadeIn.duration(200)}
             exiting={FadeOut.duration(150)}
             style={styles.contentWrapper}
           >

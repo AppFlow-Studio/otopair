@@ -1,26 +1,11 @@
 import React, { useState } from "react";
-import {
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
-  StyleSheet,
-  ActivityIndicator,
-  Alert,
-} from "react-native";
+import { View, Text, ScrollView, TouchableOpacity, StyleSheet, ActivityIndicator, Alert } from "react-native";
 import { useQuery, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { Id } from "@/convex/_generated/dataModel";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
-import {
-  BrandColors,
-  FontFamily,
-  FontSize,
-  Spacing,
-  BorderRadius,
-  Shadows,
-} from "@/constants/theme";
+import { BrandColors, FontFamily, FontSize, Spacing, BorderRadius, Shadows } from "@/constants/theme";
 
 type StepKey = "vehicle" | "service" | "shop" | "time" | "mechanic" | "confirm";
 
@@ -70,39 +55,24 @@ export default function DemoScreen() {
 
   // Queries — cascading, each conditional on previous selection
   const makes = useQuery(api.makes.list);
-  const models = useQuery(
-    api.models.getByMakeId,
-    selectedMake ? { makeId: selectedMake } : "skip"
-  );
-  const trims = useQuery(
-    api.trims.getByModelId,
-    selectedModel ? { modelId: selectedModel } : "skip"
-  );
-  const engines = useQuery(
-    api.engines.getByTrimId,
-    selectedTrim ? { trimId: selectedTrim } : "skip"
-  );
+  const models = useQuery(api.models.getByMakeId, selectedMake ? { makeId: selectedMake } : "skip");
+  const trims = useQuery(api.trims.getByModelId, selectedModel ? { modelId: selectedModel } : "skip");
+  const engines = useQuery(api.engines.getByTrimId, selectedTrim ? { trimId: selectedTrim } : "skip");
   const services = useQuery(api.services.list);
   const shopServices = useQuery(
     api.shop_services.getByServiceId,
-    selectedService ? { serviceId: selectedService } : "skip"
+    selectedService ? { serviceId: selectedService } : "skip",
   );
-  const allShopSlots = useQuery(
-    api.time_slots.getAvailableByShopId,
-    selectedShop ? { shopId: selectedShop } : "skip"
-  );
-  const mechanics = useQuery(
-    api.mechanics.getByShopId,
-    selectedShop ? { shopId: selectedShop } : "skip"
-  );
+  const allShopSlots = useQuery(api.time_slots.getAvailableByShopId, selectedShop ? { shopId: selectedShop } : "skip");
+  const mechanics = useQuery(api.mechanics.getByShopId, selectedShop ? { shopId: selectedShop } : "skip");
   const mechanicSlots = useQuery(
     api.time_slots.getAvailableByShopAndDateTime,
     selectedShop && selectedDate && selectedTime
       ? { shopId: selectedShop, date: selectedDate, startTime: selectedTime }
-      : "skip"
+      : "skip",
   );
   const users = useQuery(api.users.list);
-  const userVehicles = useQuery(api.user_vehicles.list);
+  const vehicleOwnerships = useQuery(api.vehicle_owners.getByUser, users?.[0]?._id ? { userId: users[0]._id } : "skip");
 
   const createBooking = useMutation(api.bookings.create);
 
@@ -162,18 +132,11 @@ export default function DemoScreen() {
   };
 
   const handleBook = async () => {
-    if (
-      !selectedService ||
-      !selectedShop ||
-      !resolvedTimeSlotId ||
-      !selectedDate ||
-      !resolvedTimeSlotData
-    )
-      return;
+    if (!selectedService || !selectedShop || !resolvedTimeSlotId || !selectedDate || !resolvedTimeSlotData) return;
 
     const user = users?.[0];
-    const vehicle = userVehicles?.[0];
-    if (!user || !vehicle) {
+    const ownership = vehicleOwnerships?.[0];
+    if (!user || !ownership) {
       Alert.alert("Error", "No demo user/vehicle found. Run the seed script first.");
       return;
     }
@@ -192,7 +155,7 @@ export default function DemoScreen() {
     try {
       await createBooking({
         user_id: user._id,
-        user_vehicle_id: vehicle._id,
+        vin: ownership.vin,
         shop_id: selectedShop,
         mechanic_id: mechanicId,
         service_id: selectedService,
@@ -226,9 +189,7 @@ export default function DemoScreen() {
             {complete ? "\u2713" : step.number}
           </Text>
         </View>
-        <Text style={[styles.stepTitle, isActive && styles.stepTitleActive]}>
-          {step.label}
-        </Text>
+        <Text style={[styles.stepTitle, isActive && styles.stepTitleActive]}>{step.label}</Text>
         {complete && !isActive && (
           <Text style={styles.stepSummary} numberOfLines={1}>
             {getStepSummary(step.key)}
@@ -257,26 +218,15 @@ export default function DemoScreen() {
     }
   };
 
-  const renderOptionButton = (
-    label: string,
-    isSelected: boolean,
-    onPress: () => void,
-    subtitle?: string
-  ) => (
+  const renderOptionButton = (label: string, isSelected: boolean, onPress: () => void, subtitle?: string) => (
     <TouchableOpacity
       key={label}
       style={[styles.optionButton, isSelected && styles.optionButtonSelected]}
       onPress={onPress}
       activeOpacity={0.7}
     >
-      <Text style={[styles.optionText, isSelected && styles.optionTextSelected]}>
-        {label}
-      </Text>
-      {subtitle && (
-        <Text style={[styles.optionSubtext, isSelected && styles.optionSubtextSelected]}>
-          {subtitle}
-        </Text>
-      )}
+      <Text style={[styles.optionText, isSelected && styles.optionTextSelected]}>{label}</Text>
+      {subtitle && <Text style={[styles.optionSubtext, isSelected && styles.optionSubtextSelected]}>{subtitle}</Text>}
     </TouchableOpacity>
   );
 
@@ -304,7 +254,7 @@ export default function DemoScreen() {
               setModelLabel("");
               setTrimLabel("");
               setEngineLabel("");
-            })
+            }),
           )}
         </View>
       )}
@@ -325,7 +275,7 @@ export default function DemoScreen() {
                   setSelectedEngine(null);
                   setTrimLabel("");
                   setEngineLabel("");
-                })
+                }),
               )}
             </View>
           )}
@@ -350,8 +300,8 @@ export default function DemoScreen() {
                     setSelectedEngine(null);
                     setEngineLabel("");
                   },
-                  `${trim.year_start}–${trim.year_end}`
-                )
+                  `${trim.year_start}–${trim.year_end}`,
+                ),
               )}
             </View>
           )}
@@ -375,8 +325,8 @@ export default function DemoScreen() {
                     setEngineLabel(engine.engine_code);
                     setActiveStep("service");
                   },
-                  `${engine.displacement_liters}L ${engine.cylinders}-cyl ${engine.fuel_type}`
-                )
+                  `${engine.displacement_liters}L ${engine.cylinders}-cyl ${engine.fuel_type}`,
+                ),
               )}
             </View>
           )}
@@ -402,8 +352,8 @@ export default function DemoScreen() {
                 setShopLabel("");
                 setActiveStep("shop");
               },
-              service.description
-            )
+              service.description,
+            ),
           )}
         </View>
       )}
@@ -437,9 +387,9 @@ export default function DemoScreen() {
                     setTimeLabel("");
                     setActiveStep("time");
                   },
-                  `${ss.shop.rating}\u2605 (${ss.shop.review_count}) \u00B7 $${ss.shop.labor_rate}/hr`
+                  `${ss.shop.rating}\u2605 (${ss.shop.review_count}) \u00B7 $${ss.shop.labor_rate}/hr`,
                 )
-              : null
+              : null,
           )}
         </View>
       )}
@@ -467,7 +417,7 @@ export default function DemoScreen() {
                   setSelectedMechanic(null);
                   setMechanicLabel("");
                   setTimeLabel("");
-                })
+                }),
               )}
             </View>
           </ScrollView>
@@ -481,19 +431,15 @@ export default function DemoScreen() {
             ) : (
               <View style={styles.optionGrid}>
                 {uniqueTimesForDate.map((t) =>
-                  renderOptionButton(
-                    `${t.start_time} – ${t.end_time}`,
-                    selectedTime === t.start_time,
-                    () => {
-                      setSelectedTime(t.start_time);
-                      setResolvedTimeSlotId(null);
-                      setResolvedTimeSlotData(null);
-                      setSelectedMechanic(null);
-                      setMechanicLabel("");
-                      setTimeLabel(`${t.start_time} – ${t.end_time}`);
-                      setActiveStep("mechanic");
-                    }
-                  )
+                  renderOptionButton(`${t.start_time} – ${t.end_time}`, selectedTime === t.start_time, () => {
+                    setSelectedTime(t.start_time);
+                    setResolvedTimeSlotId(null);
+                    setResolvedTimeSlotData(null);
+                    setSelectedMechanic(null);
+                    setMechanicLabel("");
+                    setTimeLabel(`${t.start_time} – ${t.end_time}`);
+                    setActiveStep("mechanic");
+                  }),
                 )}
               </View>
             )}
@@ -507,16 +453,12 @@ export default function DemoScreen() {
     if (!mechanics || !mechanicSlots) return renderLoading();
 
     // Only show mechanics who have an available slot at the selected time
-    const availableMechanicIds = new Set(
-      mechanicSlots.map((s) => s.mechanic_id).filter(Boolean)
-    );
+    const availableMechanicIds = new Set(mechanicSlots.map((s) => s.mechanic_id).filter(Boolean));
     const availableMechanics = mechanics.filter((m) => availableMechanicIds.has(m._id));
 
     const resolveMechanicSlot = (mechanicId: string | null) => {
       if (!mechanicSlots || mechanicSlots.length === 0) return;
-      const slot = mechanicId
-        ? mechanicSlots.find((s) => s.mechanic_id === mechanicId)
-        : mechanicSlots[0];
+      const slot = mechanicId ? mechanicSlots.find((s) => s.mechanic_id === mechanicId) : mechanicSlots[0];
       if (slot) {
         setResolvedTimeSlotId(slot._id);
         setResolvedTimeSlotData({ start_time: slot.start_time, end_time: slot.end_time });
@@ -538,7 +480,7 @@ export default function DemoScreen() {
                 resolveMechanicSlot(null);
                 setActiveStep("confirm");
               },
-              "First available technician"
+              "First available technician",
             )}
             {availableMechanics.map((mech) =>
               renderOptionButton(
@@ -550,8 +492,8 @@ export default function DemoScreen() {
                   resolveMechanicSlot(mech._id as string);
                   setActiveStep("confirm");
                 },
-                `${mech.rating}\u2605 (${mech.review_count} reviews)`
-              )
+                `${mech.rating}\u2605 (${mech.review_count} reviews)`,
+              ),
             )}
           </View>
         )}
@@ -572,9 +514,7 @@ export default function DemoScreen() {
             <Text style={styles.successDetail}>
               {dateLabel} {timeLabel}
             </Text>
-            {mechanicLabel !== "No Preference" && (
-              <Text style={styles.successDetail}>Mechanic: {mechanicLabel}</Text>
-            )}
+            {mechanicLabel !== "No Preference" && <Text style={styles.successDetail}>Mechanic: {mechanicLabel}</Text>}
           </View>
         </View>
       );
@@ -615,20 +555,13 @@ export default function DemoScreen() {
             {laborHours}hr x ${shopRate}/hr = ${laborCost.toFixed(2)}
           </Text>
           <Text style={styles.summaryRow}>
-            <Text style={styles.summaryLabel}>Parts (est.): </Text>
-            ${partsCost.toFixed(2)}
+            <Text style={styles.summaryLabel}>Parts (est.): </Text>${partsCost.toFixed(2)}
           </Text>
           <View style={styles.divider} />
-          <Text style={styles.totalRow}>
-            Total: ${totalCost.toFixed(2)}
-          </Text>
+          <Text style={styles.totalRow}>Total: ${totalCost.toFixed(2)}</Text>
         </View>
 
-        <TouchableOpacity
-          style={styles.bookButton}
-          onPress={handleBook}
-          activeOpacity={0.8}
-        >
+        <TouchableOpacity style={styles.bookButton} onPress={handleBook} activeOpacity={0.8}>
           <Text style={styles.bookButtonText}>Confirm Booking</Text>
         </TouchableOpacity>
       </View>

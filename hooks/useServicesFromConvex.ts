@@ -31,27 +31,29 @@ function mapCategoryNameToKey(name: string | undefined): ServiceCategory {
 }
 
 /**
- * Map a Convex service doc (with serviceCategory) to store Service.
+ * Map a Convex service doc (with serviceCategory, default_parts_estimate) to store Service.
  * id = doc._id as string, price = labor estimate + parts + fees.
  */
-function mapConvexServiceToStore(
-  doc: {
-    _id: Id<"services">;
-    name: string;
-    description: string;
-    default_labor_hours: number;
-    serviceCategory?: { name?: string } | null;
-  }
-): Service {
+function mapConvexServiceToStore(doc: {
+  _id: Id<"services">;
+  name: string;
+  description: string;
+  default_labor_hours: number;
+  default_parts_estimate?: number;
+  serviceCategory?: { name?: string } | null;
+}): Service {
   const category = mapCategoryNameToKey(doc.serviceCategory?.name);
+  const parts = doc.default_parts_estimate ?? DEFAULT_PARTS;
   const laborCost = doc.default_labor_hours * DEFAULT_LABOR_RATE;
-  const price = laborCost + DEFAULT_PARTS + TAX_AND_FEES;
+  const price = laborCost + parts + TAX_AND_FEES;
   return {
     id: doc._id,
     name: doc.name,
     description: doc.description,
     price,
     category,
+    default_labor_hours: doc.default_labor_hours,
+    default_parts_estimate: parts,
   };
 }
 
@@ -66,7 +68,16 @@ export function useServicesFromConvex() {
   const services: Service[] = useMemo(() => {
     if (!convexServices || !Array.isArray(convexServices)) return [];
     return convexServices.map((doc) =>
-      mapConvexServiceToStore(doc as { _id: Id<"services">; name: string; description: string; default_labor_hours: number; serviceCategory?: { name?: string } | null })
+      mapConvexServiceToStore(
+        doc as {
+          _id: Id<"services">;
+          name: string;
+          description: string;
+          default_labor_hours: number;
+          default_parts_estimate?: number;
+          serviceCategory?: { name?: string } | null;
+        },
+      ),
     );
   }, [convexServices]);
 

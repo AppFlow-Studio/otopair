@@ -267,7 +267,7 @@ function ReviewCard({ review }: { review: Review }) {
 
 export const AllReviewsSheet = forwardRef<AllReviewsSheetRef, AllReviewsSheetProps>(function AllReviewsSheet(
   { onClose },
-  ref
+  ref,
 ) {
   // ═══════════════ REFS ═══════════════
   const bottomSheetModalRef = useRef<BottomSheetModal>(null);
@@ -328,7 +328,7 @@ export const AllReviewsSheet = forwardRef<AllReviewsSheetRef, AllReviewsSheetPro
         onClose?.();
       }
     },
-    [onClose]
+    [onClose],
   );
 
   const handleClose = useCallback(() => {
@@ -342,7 +342,7 @@ export const AllReviewsSheet = forwardRef<AllReviewsSheetRef, AllReviewsSheetPro
   // ═══════════════ RENDER HELPERS ═══════════════
   const renderBackdrop = useCallback(
     (props: any) => <BottomSheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} opacity={0.5} />,
-    []
+    [],
   );
 
   // ═══════════════ RENDER ═══════════════
@@ -647,7 +647,3 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing["3xl"],
   },
 });
-
-
-
-

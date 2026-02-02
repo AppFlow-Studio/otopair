@@ -16,9 +16,13 @@ export const getById = query({
 });
 
 export const getByShopAndDate = query({
-  args: { shopId: v.id("shops"), date: v.string() },
+  args: {
+    shopId: v.id("shops"),
+    date: v.string(),
+    mechanicId: v.optional(v.id("mechanics")),
+  },
   handler: async (ctx, args) => {
-    return await ctx.db
+    const slots = await ctx.db
       .query("time_slots")
       .filter((q) =>
         q.and(
@@ -28,6 +32,10 @@ export const getByShopAndDate = query({
         )
       )
       .collect();
+    if (args.mechanicId !== undefined) {
+      return slots.filter((s) => s.mechanic_id === undefined || s.mechanic_id === args.mechanicId);
+    }
+    return slots;
   },
 });
 
@@ -60,5 +68,107 @@ export const getAvailableByShopAndDateTime = query({
         )
       )
       .collect();
+  },
+});
+
+/**
+ * Next N available slots for a shop, optionally filtered by mechanic.
+ * When mechanicId is omitted ("Any"), returns earliest N distinct date+time slots (one per time).
+ * When mechanicId is set, returns that mechanic's slots.
+ */
+export const getNextAvailableByShop = query({
+  args: {
+    shopId: v.id("shops"),
+    limit: v.optional(v.number()),
+    mechanicId: v.optional(v.id("mechanics")),
+  },
+  handler: async (ctx, args) => {
+    const limit = args.limit ?? 12;
+    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+
+    const slots = await ctx.db
+      .query("time_slots")
+      .withIndex("by_shop_id", (q) => q.eq("shop_id", args.shopId))
+      .collect();
+
+    const filtered = slots
+      .filter((s) => {
+        if (!s.is_available) return false;
+        if (s.date < today) return false;
+        if (args.mechanicId !== undefined) {
+          return s.mechanic_id === undefined || s.mechanic_id === args.mechanicId;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const d = a.date.localeCompare(b.date);
+        if (d !== 0) return d;
+        return a.start_time.localeCompare(b.start_time);
+      });
+
+    if (args.mechanicId !== undefined) {
+      return filtered.slice(0, limit);
+    }
+
+    // "Any" selected: deduplicate by (date, start_time), keep first slot per distinct time
+    const seen = new Set<string>();
+    const distinct: typeof filtered = [];
+    for (const s of filtered) {
+      const key = `${s.date}-${s.start_time}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      distinct.push(s);
+      if (distinct.length >= limit) break;
+    }
+    return distinct;
+  },
+});
+
+/**
+ * Calendar availability for a shop (and optional mechanic) for a given month.
+ * Returns which dates have at least one available slot vs which have slots but all booked.
+ * Used by AvailabilityModal "All Availability" calendar highlighting.
+ */
+export const getAvailabilityByShopAndMonth = query({
+  args: {
+    shopId: v.id("shops"),
+    year: v.number(),
+    month: v.number(), // 0-indexed (0 = January)
+    mechanicId: v.optional(v.id("mechanics")),
+  },
+  handler: async (ctx, args) => {
+    const start = new Date(args.year, args.month, 1);
+    const end = new Date(args.year, args.month + 1, 0);
+    const startStr = start.toISOString().slice(0, 10);
+    const endStr = end.toISOString().slice(0, 10);
+
+    const slots = await ctx.db
+      .query("time_slots")
+      .withIndex("by_shop_id", (q) => q.eq("shop_id", args.shopId))
+      .collect();
+
+    const inRange = slots.filter((s) => {
+      if (s.date < startStr || s.date > endStr) return false;
+      if (args.mechanicId !== undefined) {
+        return s.mechanic_id === undefined || s.mechanic_id === args.mechanicId;
+      }
+      return true;
+    });
+
+    const availableDates = new Set<string>();
+    const bookedDates = new Set<string>();
+
+    for (const s of inRange) {
+      if (s.is_available) {
+        availableDates.add(s.date);
+      } else {
+        bookedDates.add(s.date);
+      }
+    }
+
+    return {
+      availableDates: [...availableDates],
+      bookedDates: [...bookedDates],
+    };
   },
 });

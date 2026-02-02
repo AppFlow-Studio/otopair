@@ -13,8 +13,8 @@
  */
 
 // 1. React & React Native
-import React, { useCallback, useMemo } from "react";
-import { Image, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
+import React, { useCallback, useMemo, useState } from "react";
+import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Expo & Third-party
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -30,6 +30,7 @@ import { BookingPageHeader } from "@/components/booking/pages";
 
 // 5. Constants, hooks, types, stores
 import { BorderRadius, Shadows } from "@/constants/theme";
+import { useCreateBookingConvex } from "@/hooks/useCreateBookingConvex";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { usePaymentStore } from "@/stores/usePaymentStore";
@@ -40,11 +41,10 @@ import { useVehicleStore } from "@/stores/useVehicleStore";
 // ============================================================================
 
 const PLATFORM_FEE = 4.79;
-const TAXES_AND_FEES = 5.00;
+const TAXES_AND_FEES = 5.0;
 
 // Labor rate per hour (for breakdown display)
-const LABOR_RATE_PER_HOUR = 30.00;
-
+const LABOR_RATE_PER_HOUR = 30.0;
 
 // ============================================================================
 // COMPONENT
@@ -62,8 +62,9 @@ export default function PaymentScreen() {
   const selectedMechanicId = useBookingStore((state) => state.selectedMechanicId);
   const getFormattedAppointmentDate = useBookingStore((state) => state.getFormattedAppointmentDate);
   const getFormattedAppointmentTime = useBookingStore((state) => state.getFormattedAppointmentTime);
-  const createBooking = useBookingStore((state) => state.createBooking);
+  const { createBookingConvex } = useCreateBookingConvex();
   const bookingType = useBookingStore((state) => state.bookingType);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const setBookingStage = useBookingStore((state) => state.setBookingStage);
   const skippedBookingDetails = useBookingStore((state) => state.skippedBookingDetails);
 
@@ -89,17 +90,17 @@ export default function PaymentScreen() {
 
   const selectedServices = useMemo(
     () => availableServices.filter((service) => selectedServiceIds.includes(service.id)),
-    [availableServices, selectedServiceIds]
+    [availableServices, selectedServiceIds],
   );
 
   // Calculate detailed breakdown
   const breakdown = useMemo(() => {
     const servicesTotal = selectedServices.reduce((total, service) => total + service.price, 0);
     // Estimate labor as 60% of services total, parts as 40%
-    const laborHours = Math.max(1, Math.round((servicesTotal * 0.6) / LABOR_RATE_PER_HOUR * 2) / 2);
+    const laborHours = Math.max(1, Math.round(((servicesTotal * 0.6) / LABOR_RATE_PER_HOUR) * 2) / 2);
     const laborCost = laborHours * LABOR_RATE_PER_HOUR;
     const partsCost = servicesTotal - laborCost;
-    
+
     return {
       laborHours,
       laborCost: Math.max(0, laborCost),
@@ -117,9 +118,8 @@ export default function PaymentScreen() {
     : "No vehicle selected";
 
   // Format appointment display
-  const appointmentDisplay = appointmentDate && appointmentTime
-    ? `${appointmentDate} · ${appointmentTime}`
-    : "Not scheduled";
+  const appointmentDisplay =
+    appointmentDate && appointmentTime ? `${appointmentDate} · ${appointmentTime}` : "Not scheduled";
 
   // Payment method
   const selectedPaymentMethod = getSelectedPaymentMethod();
@@ -135,17 +135,19 @@ export default function PaymentScreen() {
     router.back();
   }, [router, skippedBookingDetails, setBookingStage]);
 
-  const handleConfirmPayment = useCallback(() => {
-    if (selectedMechanicId) {
-      try {
-        createBooking(selectedMechanicId, bookingType || "book_now");
-        // Navigate to confirmation screen
-        router.push(`/home/mechanic/${id}/confirmation`);
-      } catch (error) {
-        console.error("Failed to create booking:", error);
-      }
+  const handleConfirmPayment = useCallback(async () => {
+    if (!selectedMechanicId) return;
+    setIsSubmitting(true);
+    try {
+      await createBookingConvex(selectedMechanicId, bookingType || "book_now");
+      router.push(`/home/mechanic/${id}/confirmation`);
+    } catch (error: unknown) {
+      console.error("Failed to create booking:", error);
+      Alert.alert("Booking Failed", error instanceof Error ? error.message : "Something went wrong. Please try again.");
+    } finally {
+      setIsSubmitting(false);
     }
-  }, [router, id, selectedMechanicId, createBooking, bookingType]);
+  }, [router, id, selectedMechanicId, createBookingConvex, bookingType]);
 
   const handleApplePay = useCallback(() => {
     // Apple Pay integration would go here
@@ -339,11 +341,7 @@ export default function PaymentScreen() {
         {/* Payment Options Section */}
         <View style={styles.paymentSection}>
           {/* Apple Pay Button */}
-          <TouchableOpacity
-            style={styles.applePayButton}
-            onPress={handleApplePay}
-            activeOpacity={0.8}
-          >
+          <TouchableOpacity style={styles.applePayButton} onPress={handleApplePay} activeOpacity={0.8}>
             <View style={styles.payButtonContent}>
               <FontAwesome name="apple" size={20} color="#FFFFFF" />
               <Text size="md" weight="semiBold" color={BrandColors.white}>
@@ -353,11 +351,7 @@ export default function PaymentScreen() {
           </TouchableOpacity>
 
           {/* Google Pay Button */}
-          <TouchableOpacity
-            style={styles.googlePayButton}
-            onPress={handleGooglePay}
-            activeOpacity={0.8}
-          >
+          <TouchableOpacity style={styles.googlePayButton} onPress={handleGooglePay} activeOpacity={0.8}>
             <View style={styles.payButtonContent}>
               <FontAwesome name="google" size={18} color={BrandColors.primary} />
               <Text size="md" weight="semiBold" color={BrandColors.primary}>
@@ -385,10 +379,12 @@ export default function PaymentScreen() {
               </View>
               <View style={styles.cardDetails}>
                 <Text size="md" weight="medium" color={BrandColors.primary}>
-                  {selectedPaymentMethod.brand.charAt(0).toUpperCase() + selectedPaymentMethod.brand.slice(1)} •••• {selectedPaymentMethod.last4}
+                  {selectedPaymentMethod.brand.charAt(0).toUpperCase() + selectedPaymentMethod.brand.slice(1)} ••••{" "}
+                  {selectedPaymentMethod.last4}
                 </Text>
                 <Text size="sm" weight="regular" color="#6B7280">
-                  Expires {String(selectedPaymentMethod.expMonth).padStart(2, "0")}/{String(selectedPaymentMethod.expYear).slice(-2)}
+                  Expires {String(selectedPaymentMethod.expMonth).padStart(2, "0")}/
+                  {String(selectedPaymentMethod.expYear).slice(-2)}
                 </Text>
               </View>
               <ChevronRight size={20} color="#9CA3AF" />
@@ -422,13 +418,18 @@ export default function PaymentScreen() {
       {/* Footer CTA */}
       <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.md }]}>
         <TouchableOpacity
-          style={styles.confirmButton}
+          style={[styles.confirmButton, isSubmitting && styles.confirmButtonDisabled]}
           onPress={handleConfirmPayment}
           activeOpacity={0.8}
+          disabled={isSubmitting}
         >
-          <Text size="md" weight="bold" color={BrandColors.white}>
-            Confirm Appointment
-          </Text>
+          {isSubmitting ? (
+            <ActivityIndicator color={BrandColors.white} size="small" />
+          ) : (
+            <Text size="md" weight="bold" color={BrandColors.white}>
+              Confirm Appointment
+            </Text>
+          )}
           <View style={styles.priceTag}>
             <Text size="sm" weight="bold" color={BrandColors.primary}>
               ${breakdown.total.toFixed(2)}
@@ -680,6 +681,9 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.lg,
     borderRadius: BorderRadius.xl,
     gap: Spacing.md,
+  },
+  confirmButtonDisabled: {
+    opacity: 0.7,
   },
   priceTag: {
     backgroundColor: BrandColors.white,

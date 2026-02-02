@@ -23,7 +23,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BrandColors, PrimaryButton, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Constants, hooks, types, stores
-import { SERVICE_CATEGORIES } from "@/constants/services";
 import { BorderRadius, Shadows } from "@/constants/theme";
 import type { Service, ServiceCategory } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
@@ -55,6 +54,7 @@ export function AddServicesModal({ visible, onClose }: AddServicesModalProps) {
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
   const toggleServiceSelection = useBookingStore((state) => state.toggleServiceSelection);
   const availableServices = useBookingStore((state) => state.availableServices);
+  const getServiceCategories = useBookingStore((state) => state.getServiceCategories);
 
   // ═══════════════ COMPUTED VALUES ═══════════════
   const filteredServices = useMemo(() => {
@@ -175,7 +175,7 @@ export function AddServicesModal({ visible, onClose }: AddServicesModalProps) {
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.categoryTabsContent}
           >
-            {SERVICE_CATEGORIES.map(renderCategoryTab)}
+            {getServiceCategories().map(renderCategoryTab)}
           </ScrollView>
         </View>
 

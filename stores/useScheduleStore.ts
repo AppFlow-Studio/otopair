@@ -279,4 +279,3 @@ export const useScheduleStore = create<ScheduleState>()((set, get) => ({
     return `${dateStr} at ${selectedTime}`;
   },
 }));
-

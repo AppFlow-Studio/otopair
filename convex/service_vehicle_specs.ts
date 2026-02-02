@@ -27,9 +27,7 @@ export const getByEngineAndService = query({
   handler: async (ctx, args) => {
     const doc = await ctx.db
       .query("service_vehicle_specs")
-      .withIndex("by_engine_and_service", (q) =>
-        q.eq("engine_id", args.engineId).eq("service_id", args.serviceId)
-      )
+      .withIndex("by_engine_and_service", (q) => q.eq("engine_id", args.engineId).eq("service_id", args.serviceId))
       .unique();
     if (!doc) return null;
     return {
@@ -39,5 +37,37 @@ export const getByEngineAndService = query({
       confidence_score: doc.confidence_score,
       tech_notes: doc.tech_notes,
     };
+  },
+});
+
+/**
+ * Lookup labor/parts specs for an engine + multiple services (car-specific pricing).
+ * Returns map of serviceId -> { labor_hours, parts_cost_avg } for pricing formula.
+ */
+export const getSpecsForEngineAndServices = query({
+  args: {
+    engineId: v.id("engines"),
+    serviceIds: v.array(v.id("services")),
+  },
+  handler: async (ctx, args) => {
+    const specs: Record<
+      string,
+      { labor_hours: number; parts_cost_avg: number }
+    > = {};
+    for (const serviceId of args.serviceIds) {
+      const doc = await ctx.db
+        .query("service_vehicle_specs")
+        .withIndex("by_engine_and_service", (q) =>
+          q.eq("engine_id", args.engineId).eq("service_id", serviceId)
+        )
+        .unique();
+      if (doc) {
+        specs[serviceId] = {
+          labor_hours: doc.labor_hours,
+          parts_cost_avg: (doc.parts_cost_low + doc.parts_cost_high) / 2,
+        };
+      }
+    }
+    return specs;
   },
 });

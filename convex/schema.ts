@@ -124,6 +124,52 @@ export default defineSchema({
   }),
   
   /**
+   * TABLE: vehicle_specs
+   *
+   * DESCRIPTION:
+   * Engine-level OEM part numbers for job actuals and suggested parts.
+   * Supports verified pricing and comparison engine for MVP services.
+   * Fluids/intervals live in engine_specs; tire/wipers in trim_specs; transmission deferred.
+   *
+   * FIELDS:
+   *   - engine_id: References the engine
+   *   - oil_viscocity: Oil viscosity (e.g., "0W-20")
+   *   - oil_capacity_qts: Oil capacity as string (e.g., "4.8")
+   *   - oil_filter_oem: OEM oil filter part number
+   *   - oil_drain_plug_gasket_oem: OEM drain plug gasket (replaced at every oil change)
+   *   - front_brake_pad_oem, rear_brake_pad_oem: Brake pad part numbers
+   *   - front_brake_rotor_oem, rear_brake_rotor_oem: Brake rotor part numbers
+   *   - parking_brake_type: Type of parking brake
+   *   - battery_group, battery_cca: Battery specs
+   *   - engine_air_filter_oem, cabin_air_filter_oem: Air filter part numbers
+   *   - spark_plug_oem, spark_plug_quantity, spark_plug_gap_mm: Spark plug specs
+   *   - serpentine_belt_oem: Serpentine belt part number
+   *
+   * RELATIONSHIPS:
+   *   FK → engines(engine_id)
+   */
+  vehicle_specs: defineTable({
+    engine_id: v.id("engines"),
+    oil_viscocity: v.optional(v.string()),
+    oil_capacity_qts: v.optional(v.string()),
+    oil_filter_oem: v.optional(v.string()),
+    oil_drain_plug_gasket_oem: v.optional(v.string()),
+    front_brake_pad_oem: v.optional(v.string()),
+    rear_brake_pad_oem: v.optional(v.string()),
+    front_brake_rotor_oem: v.optional(v.string()),
+    rear_brake_rotor_oem: v.optional(v.string()),
+    parking_brake_type: v.optional(v.string()),
+    battery_group: v.optional(v.string()),
+    battery_cca: v.optional(v.float64()),
+    engine_air_filter_oem: v.optional(v.string()),
+    cabin_air_filter_oem: v.optional(v.string()),
+    spark_plug_oem: v.optional(v.string()),
+    spark_plug_quantity: v.optional(v.float64()),
+    spark_plug_gap_mm: v.optional(v.float64()),
+    serpentine_belt_oem: v.optional(v.string()),
+  }).index("by_engine_id", ["engine_id"]),
+
+  /**
    * TABLE: job_actuals
    * 
    * DESCRIPTION:
@@ -337,6 +383,7 @@ export default defineSchema({
    * INDEXES:
    *   - by_booking_id: Get review for specific booking
    *   - by_shop_id: Get all reviews for a shop
+   *   - by_mechanic_id: Get all reviews for a mechanic
    *   - by_user_id: Get all reviews from a user
    *   - by_rating: Filter reviews by rating
    * 
@@ -357,6 +404,7 @@ export default defineSchema({
   })
     .index("by_booking_id", ["booking_id"])
     .index("by_shop_id", ["shop_id"])
+    .index("by_mechanic_id", ["mechanic_id"])
     .index("by_user_id", ["user_id"])
     .index("by_rating", ["rating"]),
   
@@ -451,7 +499,7 @@ export default defineSchema({
     parts_cost_low: v.float64(),
     service_id: v.id("services"),
     state_fee: v.optional(v.float64()),
-  }),
+  }).index("by_service_id", ["service_id"]),
   
   /**
    * TABLE: service_vehicle_specs
@@ -605,6 +653,50 @@ export default defineSchema({
     state: v.string(),
     zip: v.string(),
   }),
+
+  /**
+   * TABLE: cdn_assets
+   *
+   * DESCRIPTION:
+   * Stores CDN/content URLs for reusable media (portfolio images, logos, etc.).
+   * Portfolio and other features reference assets by id to avoid duplicating URLs.
+   *
+   * FIELDS:
+   *   - url: Full URL to the asset (e.g. CDN or storage URL)
+   *   - type: Optional asset type (e.g. "image", "video")
+   *   - caption: Optional caption for display
+   *
+   * RELATIONSHIPS:
+   *   Referenced by shop_portfolio (content_id)
+   */
+  cdn_assets: defineTable({
+    url: v.string(),
+    type: v.optional(v.string()),
+    caption: v.optional(v.string()),
+  }),
+
+  /**
+   * TABLE: shop_portfolio
+   *
+   * DESCRIPTION:
+   * Links shops to CDN assets for portfolio/gallery display.
+   * Each row is one portfolio item (image) for a shop; order by display_order.
+   *
+   * FIELDS:
+   *   - shop_id: The shop this item belongs to
+   *   - content_id: Reference to cdn_assets (the image URL)
+   *   - display_order: Order to show in gallery (lower first)
+   *
+   * RELATIONSHIPS:
+   *   FK → shops(shop_id)
+   *   FK → cdn_assets(content_id)
+   */
+  shop_portfolio: defineTable({
+    shop_id: v.id("shops"),
+    content_id: v.id("cdn_assets"),
+    display_order: v.float64(),
+  })
+    .index("by_shop_id", ["shop_id"]),
   
   /**
    * TABLE: shops_hours
@@ -639,26 +731,29 @@ export default defineSchema({
   
   /**
    * TABLE: time_slots
-   * 
+   *
    * DESCRIPTION:
-   * Available appointment time slots at shops.
-   * Tracks available booking slots by shop, date, and mechanic.
-   * Slots are marked as unavailable when bookings are confirmed.
-   * 
+   * Available appointment time slots at shops. Each mechanic is treated as an
+   * individual bay with their own calendar: the same (shop, date, time) can
+   * have multiple rows (one per mechanic). Slots are marked unavailable when
+   * a booking is confirmed for that time_slot_id.
+   *
    * FIELDS:
    *   - shop_id: References the shop
-   *   - mechanic_id: (optional) Specific mechanic for this slot
+   *   - mechanic_id: (optional) Mechanic/bay this slot belongs to. When set,
+   *     this slot is that mechanic's availability; when omitted, slot is
+   *     shop-level (any mechanic). Seed data creates slots per mechanic.
    *   - date: Date of slot (YYYY-MM-DD)
    *   - start_time: Start time (HH:MM)
    *   - end_time: End time (HH:MM)
    *   - is_available: Whether slot is still bookable
-   * 
+   *
    * INDEXES:
    *   - by_shop_id: Get slots for a shop
-   *   - by_mechanic_id: Get slots for a mechanic
+   *   - by_mechanic_id: Get slots for a mechanic (per-bay calendar)
    *   - by_shop_and_date: Get slots for shop on specific date
    *   - by_availability: Filter available slots by date
-   * 
+   *
    * RELATIONSHIPS:
    *   FK → shops(shop_id)
    *   FK → mechanics(mechanic_id)
@@ -1099,16 +1194,18 @@ export default defineSchema({
    * 
    * DESCRIPTION:
    * Trim-level specifications (not parts, but spec data).
-   * Stores tire, lug nut, parking brake specs keyed by trim_id.
+   * Stores tire, lug nut, wiper blade, parking brake specs keyed by trim_id.
    * UNIQUE index ensures one spec record per trim.
    * 
    * FIELDS:
    *   - trim_id: References the trim (UNIQUE via index)
    *   - tire_size_front: Front tire size (e.g., "205/55R16")
-   *   - tire_size_rear: (optional, nullable) Rear tire size
+   *   - tire_size_rear: (optional, nullable) Rear tire size (staggered setups)
    *   - recommended_tire_pressure_front_psi: Recommended PSI for front
    *   - recommended_tire_pressure_rear_psi: Recommended PSI for rear
    *   - lug_nut_torque_ft_lbs: Lug nut torque specification
+   *   - wiper_blade_driver_size_in, wiper_blade_passenger_size_in: Wiper sizes in inches
+   *   - wiper_blade_rear_size_in: (optional) Rear wiper size; null if no rear wiper
    *   - parking_brake_type: Type of parking brake (e.g., "drum", "disc")
    *   - confidence_score: (optional) Confidence in spec accuracy (0-1)
    *   - created_at: Unix timestamp when spec was created
@@ -1126,6 +1223,9 @@ export default defineSchema({
     recommended_tire_pressure_front_psi: v.optional(v.float64()),
     recommended_tire_pressure_rear_psi: v.optional(v.float64()),
     lug_nut_torque_ft_lbs: v.optional(v.float64()),
+    wiper_blade_driver_size_in: v.optional(v.float64()),
+    wiper_blade_passenger_size_in: v.optional(v.float64()),
+    wiper_blade_rear_size_in: v.optional(v.float64()),
     parking_brake_type: v.optional(v.string()),
     confidence_score: v.optional(v.float64()), // 0-1
     created_at: v.float64(),

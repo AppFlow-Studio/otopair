@@ -122,7 +122,7 @@ export const useMechanicStore = create<MechanicState>()((set, get) => {
       if (filters.searchQuery.trim()) {
         const query = filters.searchQuery.toLowerCase();
         filtered = filtered.filter(
-          (mechanic) => mechanic.name.toLowerCase().includes(query) || mechanic.shopName.toLowerCase().includes(query)
+          (mechanic) => mechanic.name.toLowerCase().includes(query) || mechanic.shopName.toLowerCase().includes(query),
         );
       }
 

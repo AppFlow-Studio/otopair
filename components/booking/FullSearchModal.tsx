@@ -20,15 +20,7 @@
 
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Dimensions,
-  Keyboard,
-  ScrollView,
-  StyleSheet,
-  TextInput,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { Dimensions, Keyboard, ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from "react-native";
 
 // 2. Expo & Third-party
 import BottomSheet from "@gorhom/bottom-sheet";
@@ -133,7 +125,7 @@ export function FullSearchModal({
       `${SNAP_POINTS_CONFIG.mid - offsetPercent}%`,
       `${SNAP_POINTS_CONFIG.expanded - offsetPercent}%`,
     ],
-    [offsetPercent]
+    [offsetPercent],
   );
 
   // Get all shops as array
@@ -277,7 +269,7 @@ export function FullSearchModal({
       }
       handleClose();
     },
-    [onSelectService, onSelectCategory, handleClose]
+    [onSelectService, onSelectCategory, handleClose],
   );
 
   const handleShopPress = useCallback(
@@ -285,7 +277,7 @@ export function FullSearchModal({
       onSelectShop?.(shopId);
       handleClose();
     },
-    [onSelectShop, handleClose]
+    [onSelectShop, handleClose],
   );
 
   const handleMechanicPress = useCallback(
@@ -293,14 +285,14 @@ export function FullSearchModal({
       onSelectMechanic?.(mechanicId);
       handleClose();
     },
-    [onSelectMechanic, handleClose]
+    [onSelectMechanic, handleClose],
   );
 
   const handleRemoveRecentShop = useCallback(
     (shopId: number) => {
       removeRecentShop(shopId);
     },
-    [removeRecentShop]
+    [removeRecentShop],
   );
 
   // ═══════════════ RENDER ═══════════════
@@ -365,212 +357,210 @@ export function FullSearchModal({
 
       {/* Search Results */}
       <View style={styles.resultsContainer}>
-          {/* Search Results */}
-          <ScrollView
-            style={styles.scrollView}
-            contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + Spacing.xl }]}
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-          >
-            {/* Service Suggestions */}
-            {serviceSuggestions.length > 0 && (
-              <View style={styles.section}>
-                <Text size="xs" weight="bold" color="#9CA3AF" style={styles.sectionLabel}>
-                  SERVICES
-                </Text>
-                {serviceSuggestions.map((suggestion, index) => (
-                  <TouchableOpacity
-                    key={`suggestion-${index}`}
-                    style={styles.resultCard}
-                    onPress={() => handleSuggestionPress(suggestion)}
-                    activeOpacity={0.7}
-                  >
-                    <View style={styles.serviceIcon}>
-                      <Wrench size={18} color={BrandColors.secondary} />
-                    </View>
-                    <View style={styles.resultContent}>
-                      <Text size="md" weight="semiBold" color={BrandColors.primary}>
-                        {suggestion.type === "service"
-                          ? suggestion.service.name
-                          : suggestion.label}
-                      </Text>
-                      {suggestion.type === "service" && (
-                        <Text size="sm" color="#6B7280" numberOfLines={1}>
-                          {suggestion.service.description}
-                        </Text>
-                      )}
-                      {suggestion.type === "category" && (
-                        <Text size="sm" color="#6B7280">
-                          Service Category
-                        </Text>
-                      )}
-                    </View>
+        {/* Search Results */}
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + Spacing.xl }]}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          {/* Service Suggestions */}
+          {serviceSuggestions.length > 0 && (
+            <View style={styles.section}>
+              <Text size="xs" weight="bold" color="#9CA3AF" style={styles.sectionLabel}>
+                SERVICES
+              </Text>
+              {serviceSuggestions.map((suggestion, index) => (
+                <TouchableOpacity
+                  key={`suggestion-${index}`}
+                  style={styles.resultCard}
+                  onPress={() => handleSuggestionPress(suggestion)}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.serviceIcon}>
+                    <Wrench size={18} color={BrandColors.secondary} />
+                  </View>
+                  <View style={styles.resultContent}>
+                    <Text size="md" weight="semiBold" color={BrandColors.primary}>
+                      {suggestion.type === "service" ? suggestion.service.name : suggestion.label}
+                    </Text>
                     {suggestion.type === "service" && (
-                      <Text size="md" weight="bold" color={BrandColors.secondary}>
-                        ${suggestion.service.price}
+                      <Text size="sm" color="#6B7280" numberOfLines={1}>
+                        {suggestion.service.description}
                       </Text>
                     )}
-                  </TouchableOpacity>
-                ))}
-              </View>
-            )}
-
-            {/* Top Matches (shops/mechanics) */}
-            {topMatches.length > 0 && (
-              <View style={styles.section}>
-                <Text size="xs" weight="bold" color="#9CA3AF" style={styles.sectionLabel}>
-                  TOP MATCHES
-                </Text>
-                {topMatches.map((match, index) => {
-                  if (match.type === "shop") {
-                    const shop = match.data;
-                    return (
-                      <TouchableOpacity
-                        key={`match-shop-${shop.id}`}
-                        style={styles.resultCard}
-                        onPress={() => handleShopPress(shop.id)}
-                        activeOpacity={0.7}
-                      >
-                        <View style={styles.shopIcon}>
-                          <MapPin size={18} color={BrandColors.secondary} />
-                        </View>
-                        <View style={styles.resultContent}>
-                          <View style={styles.resultHeader}>
-                            <Text
-                              size="md"
-                              weight="semiBold"
-                              color={BrandColors.primary}
-                              numberOfLines={1}
-                              style={styles.resultName}
-                            >
-                              {shop.name}
-                            </Text>
-                            {shop.rating && (
-                              <View style={styles.ratingBadge}>
-                                <Star size={12} color="#F5C254" fill="#F5C254" />
-                                <Text size="xs" weight="semiBold" color={BrandColors.primary}>
-                                  {shop.rating.toFixed(1)}
-                                </Text>
-                              </View>
-                            )}
-                          </View>
-                          <Text size="sm" color="#6B7280" numberOfLines={1}>
-                            {shop.address}
-                          </Text>
-                        </View>
-                        {shop.hasAvailableSlots && (
-                          <View style={styles.availableBadge}>
-                            <Text size="xs" weight="semiBold" color="#22C55E">
-                              Open
-                            </Text>
-                          </View>
-                        )}
-                      </TouchableOpacity>
-                    );
-                  } else {
-                    const mechanic = match.data;
-                    return (
-                      <TouchableOpacity
-                        key={`match-mech-${mechanic.id}`}
-                        style={styles.resultCard}
-                        onPress={() => handleMechanicPress(mechanic.id)}
-                        activeOpacity={0.7}
-                      >
-                        <View style={styles.mechanicIcon}>
-                          <User size={18} color={BrandColors.secondary} />
-                        </View>
-                        <View style={styles.resultContent}>
-                          <View style={styles.resultHeader}>
-                            <Text
-                              size="md"
-                              weight="semiBold"
-                              color={BrandColors.primary}
-                              numberOfLines={1}
-                              style={styles.resultName}
-                            >
-                              {mechanic.name}
-                            </Text>
-                            {mechanic.rating && (
-                              <View style={styles.ratingBadge}>
-                                <Star size={12} color="#F5C254" fill="#F5C254" />
-                                <Text size="xs" weight="semiBold" color={BrandColors.primary}>
-                                  {mechanic.rating.toFixed(1)}
-                                </Text>
-                              </View>
-                            )}
-                          </View>
-                          <Text size="sm" color="#6B7280" numberOfLines={1}>
-                            {mechanic.shopName} • {mechanic.yearsExperience} yrs
-                          </Text>
-                        </View>
-                        {mechanic.isAvailable && (
-                          <View style={styles.availableBadge}>
-                            <Text size="xs" weight="semiBold" color="#22C55E">
-                              Available
-                            </Text>
-                          </View>
-                        )}
-                      </TouchableOpacity>
-                    );
-                  }
-                })}
-              </View>
-            )}
-
-            {/* Recent Shops (when not searching) */}
-            {filteredRecentShops.length > 0 && (
-              <View style={styles.section}>
-                <Text size="xs" weight="bold" color="#9CA3AF" style={styles.sectionLabel}>
-                  RECENTLY BOOKED
-                </Text>
-                {filteredRecentShops.map((shop) => (
-                  <TouchableOpacity
-                    key={`recent-${shop.id}`}
-                    style={styles.resultCard}
-                    onPress={() => handleShopPress(shop.id)}
-                    activeOpacity={0.7}
-                  >
-                    <View style={styles.recentIcon}>
-                      <Clock size={18} color="#6B7280" />
-                    </View>
-                    <View style={styles.resultContent}>
-                      <Text size="md" weight="semiBold" color={BrandColors.primary}>
-                        {shop.name}
+                    {suggestion.type === "category" && (
+                      <Text size="sm" color="#6B7280">
+                        Service Category
                       </Text>
-                      <Text size="sm" color="#6B7280" numberOfLines={1}>
-                        {shop.address}
-                      </Text>
-                    </View>
+                    )}
+                  </View>
+                  {suggestion.type === "service" && (
+                    <Text size="md" weight="bold" color={BrandColors.secondary}>
+                      ${suggestion.service.price}
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+
+          {/* Top Matches (shops/mechanics) */}
+          {topMatches.length > 0 && (
+            <View style={styles.section}>
+              <Text size="xs" weight="bold" color="#9CA3AF" style={styles.sectionLabel}>
+                TOP MATCHES
+              </Text>
+              {topMatches.map((match, index) => {
+                if (match.type === "shop") {
+                  const shop = match.data;
+                  return (
                     <TouchableOpacity
-                      onPress={() => handleRemoveRecentShop(shop.id)}
-                      style={styles.removeButton}
-                      hitSlop={8}
+                      key={`match-shop-${shop.id}`}
+                      style={styles.resultCard}
+                      onPress={() => handleShopPress(shop.id)}
+                      activeOpacity={0.7}
                     >
-                      <X size={14} color="#9CA3AF" />
+                      <View style={styles.shopIcon}>
+                        <MapPin size={18} color={BrandColors.secondary} />
+                      </View>
+                      <View style={styles.resultContent}>
+                        <View style={styles.resultHeader}>
+                          <Text
+                            size="md"
+                            weight="semiBold"
+                            color={BrandColors.primary}
+                            numberOfLines={1}
+                            style={styles.resultName}
+                          >
+                            {shop.name}
+                          </Text>
+                          {shop.rating && (
+                            <View style={styles.ratingBadge}>
+                              <Star size={12} color="#F5C254" fill="#F5C254" />
+                              <Text size="xs" weight="semiBold" color={BrandColors.primary}>
+                                {shop.rating.toFixed(1)}
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+                        <Text size="sm" color="#6B7280" numberOfLines={1}>
+                          {shop.address}
+                        </Text>
+                      </View>
+                      {shop.hasAvailableSlots && (
+                        <View style={styles.availableBadge}>
+                          <Text size="xs" weight="semiBold" color="#22C55E">
+                            Open
+                          </Text>
+                        </View>
+                      )}
                     </TouchableOpacity>
+                  );
+                } else {
+                  const mechanic = match.data;
+                  return (
+                    <TouchableOpacity
+                      key={`match-mech-${mechanic.id}`}
+                      style={styles.resultCard}
+                      onPress={() => handleMechanicPress(mechanic.id)}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.mechanicIcon}>
+                        <User size={18} color={BrandColors.secondary} />
+                      </View>
+                      <View style={styles.resultContent}>
+                        <View style={styles.resultHeader}>
+                          <Text
+                            size="md"
+                            weight="semiBold"
+                            color={BrandColors.primary}
+                            numberOfLines={1}
+                            style={styles.resultName}
+                          >
+                            {mechanic.name}
+                          </Text>
+                          {mechanic.rating && (
+                            <View style={styles.ratingBadge}>
+                              <Star size={12} color="#F5C254" fill="#F5C254" />
+                              <Text size="xs" weight="semiBold" color={BrandColors.primary}>
+                                {mechanic.rating.toFixed(1)}
+                              </Text>
+                            </View>
+                          )}
+                        </View>
+                        <Text size="sm" color="#6B7280" numberOfLines={1}>
+                          {mechanic.shopName} • {mechanic.yearsExperience} yrs
+                        </Text>
+                      </View>
+                      {mechanic.isAvailable && (
+                        <View style={styles.availableBadge}>
+                          <Text size="xs" weight="semiBold" color="#22C55E">
+                            Available
+                          </Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  );
+                }
+              })}
+            </View>
+          )}
+
+          {/* Recent Shops (when not searching) */}
+          {filteredRecentShops.length > 0 && (
+            <View style={styles.section}>
+              <Text size="xs" weight="bold" color="#9CA3AF" style={styles.sectionLabel}>
+                RECENTLY BOOKED
+              </Text>
+              {filteredRecentShops.map((shop) => (
+                <TouchableOpacity
+                  key={`recent-${shop.id}`}
+                  style={styles.resultCard}
+                  onPress={() => handleShopPress(shop.id)}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.recentIcon}>
+                    <Clock size={18} color="#6B7280" />
+                  </View>
+                  <View style={styles.resultContent}>
+                    <Text size="md" weight="semiBold" color={BrandColors.primary}>
+                      {shop.name}
+                    </Text>
+                    <Text size="sm" color="#6B7280" numberOfLines={1}>
+                      {shop.address}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    onPress={() => handleRemoveRecentShop(shop.id)}
+                    style={styles.removeButton}
+                    hitSlop={8}
+                  >
+                    <X size={14} color="#9CA3AF" />
                   </TouchableOpacity>
-                ))}
-              </View>
-            )}
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
 
-            {/* Empty State */}
-            {localQuery.length === 0 && filteredRecentShops.length === 0 && (
-              <View style={styles.emptyState}>
-                <Text size="md" weight="medium" color="#9CA3AF" center>
-                  Start typing to search for services, shops, or mechanics
-                </Text>
-              </View>
-            )}
+          {/* Empty State */}
+          {localQuery.length === 0 && filteredRecentShops.length === 0 && (
+            <View style={styles.emptyState}>
+              <Text size="md" weight="medium" color="#9CA3AF" center>
+                Start typing to search for services, shops, or mechanics
+              </Text>
+            </View>
+          )}
 
-            {/* No Results */}
-            {localQuery.length > 0 && !hasSearchResults && (
-              <View style={styles.emptyState}>
-                <Text size="md" weight="medium" color="#9CA3AF" center>
-                  No results found for "{localQuery}"
-                </Text>
-              </View>
-            )}
-          </ScrollView>
+          {/* No Results */}
+          {localQuery.length > 0 && !hasSearchResults && (
+            <View style={styles.emptyState}>
+              <Text size="md" weight="medium" color="#9CA3AF" center>
+                No results found for "{localQuery}"
+              </Text>
+            </View>
+          )}
+        </ScrollView>
       </View>
     </BottomSheet>
   );

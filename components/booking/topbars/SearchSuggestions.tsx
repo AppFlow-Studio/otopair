@@ -97,7 +97,7 @@ export function SearchSuggestions({
     if (!query.trim()) return null;
     const suggestions = getSearchSuggestions(query, availableServices);
     // Only return service type, not category
-    const serviceOnly = suggestions.find(s => s.type === "service");
+    const serviceOnly = suggestions.find((s) => s.type === "service");
     return serviceOnly || null;
   }, [query, getSearchSuggestions, availableServices]);
 
@@ -153,7 +153,7 @@ export function SearchSuggestions({
       onSelectShop?.(shopId);
       onSelectionMade?.();
     },
-    [onSelectShop, onSelectionMade]
+    [onSelectShop, onSelectionMade],
   );
 
   const handleMechanicPress = useCallback(
@@ -161,7 +161,7 @@ export function SearchSuggestions({
       onSelectMechanic?.(mechanicId);
       onSelectionMade?.();
     },
-    [onSelectMechanic, onSelectionMade]
+    [onSelectMechanic, onSelectionMade],
   );
 
   const handleSuggestionPress = useCallback(
@@ -173,14 +173,14 @@ export function SearchSuggestions({
       }
       onSelectionMade?.();
     },
-    [onSelectService, onSelectCategory, onSelectionMade]
+    [onSelectService, onSelectCategory, onSelectionMade],
   );
 
   const handleRemoveRecentShop = useCallback(
     (shopId: number) => {
       removeRecentShop(shopId);
     },
-    [removeRecentShop]
+    [removeRecentShop],
   );
 
   const handleDismiss = useCallback(() => {
@@ -199,15 +199,8 @@ export function SearchSuggestions({
   return (
     <>
       {/* Backdrop to dismiss when tapping outside */}
-      <Pressable
-        style={styles.backdrop}
-        onPress={handleDismiss}
-      />
-      <Animated.View
-        style={styles.container}
-        entering={FadeIn.duration(150)}
-        exiting={FadeOut.duration(100)}
-      >
+      <Pressable style={styles.backdrop} onPress={handleDismiss} />
+      <Animated.View style={styles.container} entering={FadeIn.duration(150)} exiting={FadeOut.duration(100)}>
         <View style={styles.suggestionsContent}>
           {/* Service Suggestion Card (1 card at top) */}
           {serviceSuggestion && serviceSuggestion.type === "service" && (
@@ -254,7 +247,13 @@ export function SearchSuggestions({
                       </View>
                       <View style={styles.matchContent}>
                         <View style={styles.matchHeader}>
-                          <Text size="sm" weight="semiBold" color={BrandColors.primary} numberOfLines={1} style={styles.matchName}>
+                          <Text
+                            size="sm"
+                            weight="semiBold"
+                            color={BrandColors.primary}
+                            numberOfLines={1}
+                            style={styles.matchName}
+                          >
                             {shop.name}
                           </Text>
                           {shop.rating && (
@@ -293,7 +292,13 @@ export function SearchSuggestions({
                       </View>
                       <View style={styles.matchContent}>
                         <View style={styles.matchHeader}>
-                          <Text size="sm" weight="semiBold" color={BrandColors.primary} numberOfLines={1} style={styles.matchName}>
+                          <Text
+                            size="sm"
+                            weight="semiBold"
+                            color={BrandColors.primary}
+                            numberOfLines={1}
+                            style={styles.matchName}
+                          >
                             {mechanic.name}
                           </Text>
                           {mechanic.rating && (

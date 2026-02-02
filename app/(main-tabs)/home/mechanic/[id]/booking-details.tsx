@@ -40,6 +40,7 @@ import { DiscardServiceModal } from "@/components/booking/sheets/DiscardServiceM
 import { BorderRadius } from "@/constants/theme";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
+import { useShopStore } from "@/stores/useShopStore";
 
 // ============================================================================
 // COMPONENT
@@ -66,6 +67,9 @@ export default function BookingDetailsScreen() {
     // ═══════════════ MECHANIC STORE ═══════════════
     const getMechanicById = useMechanicStore((state) => state.getMechanicById);
 
+    // ═══════════════ SHOP STORE (for shop-specific pricing) ═══════════════
+    const getShopById = useShopStore((state) => state.getShopById);
+
     // ═══════════════ LOCAL STATE ═══════════════
     const [showDiscardModal, setShowDiscardModal] = useState(false);
     const [pendingRemoveServiceId, setPendingRemoveServiceId] = useState<string | null>(null);
@@ -82,9 +86,27 @@ export default function BookingDetailsScreen() {
         [availableServices, selectedServiceIds]
     );
 
+    // Shop-specific pricing: labor_rate × default_labor_hours + default_parts_estimate (matches ShopDetails)
+    const shop = useMemo(
+        () => (mechanic?.shopId ? getShopById(mechanic.shopId) : null),
+        [mechanic?.shopId, getShopById]
+    );
+    const laborRate = shop?.labor_rate ?? 80;
     const totalPrice = useMemo(
-        () => selectedServices.reduce((total, service) => total + service.price, 0),
-        [selectedServices]
+        () =>
+            selectedServices.reduce(
+                (total, service) =>
+                    total +
+                    laborRate * (service.default_labor_hours ?? 0) +
+                    (service.default_parts_estimate ?? 0),
+                0
+            ),
+        [selectedServices, laborRate]
+    );
+    const getServicePrice = useCallback(
+        (service: (typeof selectedServices)[0]) =>
+            laborRate * (service.default_labor_hours ?? 0) + (service.default_parts_estimate ?? 0),
+        [laborRate]
     );
 
     const ratingCount = mechanic ? Math.floor(mechanic.rating * 25 + 27) : 0;

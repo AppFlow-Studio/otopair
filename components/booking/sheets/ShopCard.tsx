@@ -26,6 +26,8 @@ import { BadgeCheck, Calendar, ChevronRight, Star, User } from "lucide-react-nat
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Constants, hooks, types
+import { useNextAvailabilityForShop } from "@/hooks/useNextAvailabilityForShop";
+import { formatDistanceMiles } from "@/utils/geo";
 import { BorderRadius } from "@/constants/theme";
 import type { Mechanic, MechanicAvailabilitySlot } from "@/stores/types/store.types";
 
@@ -41,7 +43,17 @@ export interface ShopWithMechanics {
   isVerified: boolean;
   distanceMi: number;
   mechanics: Mechanic[];
+  /** Hourly labor rate in dollars (for price = labor_rate × time + parts) */
+  laborRate?: number;
 }
+
+/** Slot with optional Convex booking fields */
+export type SlotWithBookingMeta = MechanicAvailabilitySlot & {
+  timeSlotId?: string;
+  scheduledDate?: string;
+  scheduledTime?: string;
+  mechanicId?: string;
+};
 
 /** Selected slot information */
 export interface SelectedSlotInfo {
@@ -55,13 +67,17 @@ export interface SelectedServiceInfo {
   id: string;
   name: string;
   price: number;
+  /** Labor hours (for formula: labor_rate × time + parts) */
+  default_labor_hours?: number;
+  /** Parts cost in dollars */
+  default_parts_estimate?: number;
 }
 
 interface ShopCardProps {
   /** The shop data with mechanics to display */
   shop: ShopWithMechanics;
-  /** Called when a time slot is selected */
-  onSelectSlot: (shopId: string, mechanicId: string | null, slot: MechanicAvailabilitySlot) => void;
+  /** Called when a time slot is selected (slot may include timeSlotId/scheduledDate/scheduledTime from Convex) */
+  onSelectSlot: (shopId: string, mechanicId: string | null, slot: SlotWithBookingMeta) => void;
   /** Called when "Shop Details" is pressed */
   onShopDetails: (shopId: string) => void;
   /** Called when "More" button is pressed to see full calendar */
@@ -86,9 +102,12 @@ const MAX_VISIBLE_SLOTS = 3;
  * Combines and sorts availability slots from all mechanics, returning earliest unique slots
  * Deduplicates slots with the same day/time, keeping the first mechanic's slot
  */
-function getEarliestAvailability(mechanics: Mechanic[], limit: number): Array<MechanicAvailabilitySlot & { mechanicId: string }> {
+function getEarliestAvailability(
+  mechanics: Mechanic[],
+  limit: number,
+): Array<MechanicAvailabilitySlot & { mechanicId: string }> {
   const allSlots: Array<MechanicAvailabilitySlot & { mechanicId: string }> = [];
-  
+
   mechanics.forEach((mechanic) => {
     mechanic.nextAvailability.forEach((slot) => {
       allSlots.push({ ...slot, mechanicId: mechanic.id });
@@ -100,7 +119,7 @@ function getEarliestAvailability(mechanics: Mechanic[], limit: number): Array<Me
     const dayA = parseInt(a.day, 10);
     const dayB = parseInt(b.day, 10);
     if (dayA !== dayB) return dayA - dayB;
-    
+
     // Parse time for comparison (e.g., "9:00 AM" vs "2:00 PM")
     const timeA = parseTime(a.time);
     const timeB = parseTime(b.time);
@@ -110,8 +129,8 @@ function getEarliestAvailability(mechanics: Mechanic[], limit: number): Array<Me
   // Deduplicate slots with the same day and time
   // Keep the first occurrence (first mechanic that has this slot)
   const seen = new Set<string>();
-  const uniqueSlots: Array<MechanicAvailabilitySlot & { mechanicId: number }> = [];
-  
+  const uniqueSlots: Array<MechanicAvailabilitySlot & { mechanicId: string }> = [];
+
   for (const slot of allSlots) {
     const key = `${slot.dayOfWeek}-${slot.day}-${slot.time}`;
     if (!seen.has(key)) {
@@ -129,14 +148,14 @@ function getEarliestAvailability(mechanics: Mechanic[], limit: number): Array<Me
 function parseTime(timeStr: string): number {
   const match = timeStr.match(/(\d+):(\d+)\s*(AM|PM)/i);
   if (!match) return 0;
-  
+
   let hours = parseInt(match[1], 10);
   const minutes = parseInt(match[2], 10);
   const isPM = match[3].toUpperCase() === "PM";
-  
+
   if (isPM && hours !== 12) hours += 12;
   if (!isPM && hours === 12) hours = 0;
-  
+
   return hours * 60 + minutes;
 }
 
@@ -155,40 +174,62 @@ export const ShopCard = memo(function ShopCard({
   // If only one mechanic, auto-select them (no "Any" option needed)
   const hasSingleMechanic = shop.mechanics.length === 1;
   const defaultMechanicId = hasSingleMechanic ? shop.mechanics[0].id : null;
-  
-  // Track which mechanic is selected (null = "Any")
-  const [selectedMechanicId, setSelectedMechanicId] = useState<number | null>(defaultMechanicId);
 
-  // Get availability slots based on selected mechanic
-  const displayedSlots = useMemo(() => {
+  // Track which mechanic is selected (null = "Any")
+  const [selectedMechanicId, setSelectedMechanicId] = useState<string | null>(defaultMechanicId);
+
+  // Convex: next availability for this shop (and selected mechanic when one is chosen)
+  const { slots: convexSlots, hasSlots: hasConvexSlots, isLoading: convexSlotsLoading } = useNextAvailabilityForShop(
+    shop.shopId,
+    selectedMechanicId,
+    MAX_VISIBLE_SLOTS + 4
+  );
+
+  // Get availability slots: prefer Convex when available, else fall back to mechanic.nextAvailability (mock)
+  const displayedSlots = useMemo((): Array<SlotWithBookingMeta> => {
+    if (hasConvexSlots && convexSlots.length > 0) {
+      return convexSlots.map((s) => ({
+        dayOfWeek: s.dayOfWeek,
+        day: s.day,
+        time: s.time,
+        timeSlotId: s.timeSlotId as string,
+        scheduledDate: s.scheduledDate,
+        scheduledTime: s.scheduledTime,
+        mechanicId: s.mechanicId,
+      }));
+    }
     if (selectedMechanicId === null) {
-      // "Any" selected - combine and sort all mechanics' slots
-      return getEarliestAvailability(shop.mechanics, MAX_VISIBLE_SLOTS + 4); // Get extra for "More"
-    } else {
-      // Specific mechanic selected
-      const mechanic = shop.mechanics.find((m) => m.id === selectedMechanicId);
-      return mechanic?.nextAvailability.slice(0, MAX_VISIBLE_SLOTS + 4).map(slot => ({
+      return getEarliestAvailability(shop.mechanics, MAX_VISIBLE_SLOTS + 4);
+    }
+    const mechanic = shop.mechanics.find((m) => m.id === selectedMechanicId);
+    return (
+      mechanic?.nextAvailability.slice(0, MAX_VISIBLE_SLOTS + 4).map((slot) => ({
         ...slot,
         mechanicId: selectedMechanicId,
-      })) || [];
-    }
-  }, [shop.mechanics, selectedMechanicId]);
+      })) || []
+    );
+  }, [shop.mechanics, selectedMechanicId, hasConvexSlots, convexSlots]);
 
   // Slots to show (first 3)
   const visibleSlots = displayedSlots.slice(0, MAX_VISIBLE_SLOTS);
   const hasMoreSlots = displayedSlots.length > MAX_VISIBLE_SLOTS;
 
-  // Check if a slot is selected for this shop
+  // Check if a slot is selected for this shop (when "Any", match mechanicId so the right bay highlights)
   const isSlotSelected = useCallback(
-    (slot: MechanicAvailabilitySlot) => {
+    (slot: SlotWithBookingMeta) => {
       if (!selectedSlot || selectedSlot.shopId !== shop.shopId) return false;
-      return (
+      const timeMatch =
         selectedSlot.slot.day === slot.day &&
         selectedSlot.slot.dayOfWeek === slot.dayOfWeek &&
-        selectedSlot.slot.time === slot.time
-      );
+        selectedSlot.slot.time === slot.time;
+      if (!timeMatch) return false;
+      // When multiple mechanics have the same time (e.g. two 8:00 AM bays), match by mechanicId
+      if (slot.mechanicId != null && selectedSlot.mechanicId != null) {
+        return selectedSlot.mechanicId === slot.mechanicId;
+      }
+      return true;
     },
-    [selectedSlot, shop.shopId]
+    [selectedSlot, shop.shopId],
   );
 
   // Handlers
@@ -197,11 +238,11 @@ export const ShopCard = memo(function ShopCard({
   }, []);
 
   const handleSlotPress = useCallback(
-    (slot: MechanicAvailabilitySlot & { mechanicId?: number }) => {
-      const mechanicId = selectedMechanicId === null ? (slot.mechanicId || null) : selectedMechanicId;
+    (slot: SlotWithBookingMeta) => {
+      const mechanicId = selectedMechanicId === null ? slot.mechanicId ?? null : selectedMechanicId;
       onSelectSlot(shop.shopId, mechanicId, slot);
     },
-    [onSelectSlot, shop.shopId, selectedMechanicId]
+    [onSelectSlot, shop.shopId, selectedMechanicId],
   );
 
   const handleShopDetails = useCallback(() => {
@@ -215,31 +256,43 @@ export const ShopCard = memo(function ShopCard({
   // Get first mechanic for verified status (use shop-level if available)
   const firstMechanic = shop.mechanics[0];
 
-  // Calculate service cost display
+  // Calculate service cost: (labor_rate × service time) + parts per shop, or fallback to sum(price)
   const serviceCostDisplay = useMemo(() => {
     if (selectedServices.length === 0) return null;
-    
-    const totalPrice = selectedServices.reduce((sum, service) => sum + service.price, 0);
+
+    const laborRate = shop.laborRate;
+    const hasFormulaParams =
+      laborRate != null &&
+      selectedServices.every(
+        (s) =>
+          s.default_labor_hours != null &&
+          s.default_parts_estimate != null,
+      );
+
+    const totalPrice = hasFormulaParams
+      ? selectedServices.reduce(
+          (sum, s) =>
+            sum +
+            laborRate! * (s.default_labor_hours ?? 0) +
+            (s.default_parts_estimate ?? 0),
+          0,
+        )
+      : selectedServices.reduce((sum, s) => sum + s.price, 0);
+
     const firstName = selectedServices[0].name;
-    
+    const firstDisplay = firstName.charAt(0).toUpperCase() + firstName.slice(1).toLowerCase();
+
     if (selectedServices.length === 1) {
-      return `$${totalPrice} ${firstName}`;
-    } else {
-      // Truncate first service name if needed
-      const truncatedName = firstName.length > 15 ? `${firstName.slice(0, 15)}...` : firstName;
-      const moreCount = selectedServices.length - 1;
-      return `$${totalPrice} ${truncatedName} + ${moreCount} more`;
+      return `${firstDisplay} $${Math.round(totalPrice)}`;
     }
-  }, [selectedServices]);
+    const moreCount = selectedServices.length - 1;
+    return `${firstDisplay} + ${moreCount} more... $${Math.round(totalPrice)}`;
+  }, [selectedServices, shop.laborRate]);
 
   return (
     <View style={styles.container}>
       {/* Header: Shop Name, Rating, Verified + Arrow */}
-      <TouchableOpacity
-        style={styles.header}
-        onPress={handleShopDetails}
-        activeOpacity={0.7}
-      >
+      <TouchableOpacity style={styles.header} onPress={handleShopDetails} activeOpacity={0.7}>
         {/* Avatar placeholder for shop */}
         <View style={styles.shopAvatarContainer}>
           <View style={styles.shopAvatarPlaceholder}>
@@ -263,7 +316,7 @@ export const ShopCard = memo(function ShopCard({
 
           <View style={styles.detailsRow}>
             <Text size="xs" weight="regular" color="#9CA3AF">
-              {shop.distanceMi} mi
+              {formatDistanceMiles(shop.distanceMi)}
             </Text>
             {shop.isVerified && (
               <View style={styles.verifiedBadge}>
@@ -307,12 +360,7 @@ export const ShopCard = memo(function ShopCard({
               onPress={() => handleMechanicSelect(null)}
               activeOpacity={0.7}
             >
-              <View
-                style={[
-                  styles.mechanicAvatar,
-                  selectedMechanicId === null && styles.mechanicAvatarSelected,
-                ]}
-              >
+              <View style={[styles.mechanicAvatar, selectedMechanicId === null && styles.mechanicAvatarSelected]}>
                 <Text size="xs" weight="bold" color={selectedMechanicId === null ? BrandColors.secondary : "#6B7280"}>
                   Any
                 </Text>
@@ -360,40 +408,48 @@ export const ShopCard = memo(function ShopCard({
           Next Availability
         </Text>
         <View style={styles.availabilitySlotsRow}>
-          {visibleSlots.map((slot, index) => {
-            const isSelected = isSlotSelected(slot);
-            return (
-              <TouchableOpacity
-                key={`${slot.dayOfWeek}-${slot.day}-${slot.time}-${index}`}
-                style={[styles.availabilitySlot, isSelected && styles.selectedSlot]}
-                onPress={() => handleSlotPress(slot)}
-                activeOpacity={0.7}
-              >
-                <Text size="xs" weight="medium" color={isSelected ? BrandColors.primary : "#6B7280"}>
-                  {slot.dayOfWeek}
-                </Text>
-                <Text size="lg" weight="bold" color={isSelected ? BrandColors.primary : "#374151"}>
-                  {slot.day}
-                </Text>
-                <Text size="xs" weight="medium" color={isSelected ? BrandColors.primary : "#6B7280"}>
-                  {slot.time}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
+          {convexSlotsLoading && visibleSlots.length === 0 ? (
+            <Text size="sm" weight="medium" color="#6B7280" style={styles.emptySlotsText}>
+              Loading times…
+            </Text>
+          ) : visibleSlots.length === 0 ? (
+            <Text size="sm" weight="medium" color="#6B7280" style={styles.emptySlotsText}>
+              No times available
+            </Text>
+          ) : (
+            <>
+              {visibleSlots.map((slot, index) => {
+                const isSelected = isSlotSelected(slot);
+                return (
+                  <TouchableOpacity
+                    key={`${slot.dayOfWeek}-${slot.day}-${slot.time}-${index}`}
+                    style={[styles.availabilitySlot, isSelected && styles.selectedSlot]}
+                    onPress={() => handleSlotPress(slot)}
+                    activeOpacity={0.7}
+                  >
+                    <Text size="xs" weight="medium" color={isSelected ? BrandColors.primary : "#6B7280"}>
+                      {slot.dayOfWeek}
+                    </Text>
+                    <Text size="lg" weight="bold" color={isSelected ? BrandColors.primary : "#374151"}>
+                      {slot.day}
+                    </Text>
+                    <Text size="xs" weight="medium" color={isSelected ? BrandColors.primary : "#6B7280"}>
+                      {slot.time}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
 
-          {/* "More" button */}
-          {hasMoreSlots && (
-            <TouchableOpacity
-              style={styles.moreButton}
-              onPress={handleMorePress}
-              activeOpacity={0.7}
-            >
-              <Calendar size={20} color="#6B7280" />
-              <Text size="xs" weight="medium" color="#6B7280">
-                More
-              </Text>
-            </TouchableOpacity>
+              {/* "More" button */}
+              {hasMoreSlots && (
+                <TouchableOpacity style={styles.moreButton} onPress={handleMorePress} activeOpacity={0.7}>
+                  <Calendar size={20} color="#6B7280" />
+                  <Text size="xs" weight="medium" color="#6B7280">
+                    More
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </>
           )}
         </View>
       </View>
@@ -520,6 +576,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#E5E7EB",
     gap: 4,
+  },
+  emptySlotsText: {
+    paddingVertical: Spacing.md,
   },
   detailsArrow: {
     marginLeft: "auto",

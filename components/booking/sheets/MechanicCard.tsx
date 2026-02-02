@@ -37,6 +37,7 @@ import { BrandColors, PrimaryButton, Spacing, Text } from "@/components/shared-u
 
 // 4. Constants, hooks, types
 import { BorderRadius } from "@/constants/theme";
+import { formatDistanceMiles } from "@/utils/geo";
 import type { Mechanic } from "@/stores/types/store.types";
 
 // ============================================================================
@@ -110,7 +111,7 @@ export const MechanicCard = memo(function MechanicCard({ mechanic, onBookNow, on
 
           <View style={styles.detailsRow}>
             <Text size="xs" weight="regular" color="#9CA3AF">
-              {mechanic.distanceMi} mi
+              {formatDistanceMiles(mechanic.distanceMi)}
             </Text>
             {mechanic.isVerified && (
               <View style={styles.verifiedBadge}>

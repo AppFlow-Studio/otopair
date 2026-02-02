@@ -1,4 +1,12 @@
-import { mutation, internalMutation } from "./_generated/server";
+import { action, internalMutation, mutation } from "./_generated/server";
+import { api, internal } from "./_generated/api";
+
+/**
+ * Seed creates a demo user with clerkUserId "seed-demo-user-2". When you sign in with the
+ * Clerk account from .env.local (EXPO_PUBLIC_GUEST_EMAIL / EXPO_PUBLIC_GUEST_PASSWORD),
+ * claimSeedDataForCurrentUser runs and reassigns that seed user's data to your account.
+ */
+const SEED_DEMO_CLERK_USER_ID = "seed-demo-user-2";
 
 const TABLES_TO_CLEAR = [
   "booking_status_history",
@@ -17,16 +25,27 @@ const TABLES_TO_CLEAR = [
   "manual_review_queue",
   "ai_enrichment_logs",
   "service_insights",
+  "shop_portfolio",
   "shop_services",
   "time_slots",
   "shops_hours",
   "mechanics",
   "shops",
+  "cdn_assets",
   "service_vehicle_specs",
   "service_options",
   "services",
   "service_categories",
   "vehicle_specs",
+  "engine_part_fitments",
+  "transmission_part_fitments",
+  "trim_part_fitments",
+  "engine_specs",
+  "transmission_specs",
+  "trim_specs",
+  "oem_parts",
+  "chassis_variants",
+  "transmissions",
   "engines",
   "trims",
   "models",
@@ -64,9 +83,9 @@ export const seedUserAndVehicle = mutation({
     const engine = engines.find((e) => e.engine_code === "A25A-FKS");
     if (!engine) throw new Error("Engine A25A-FKS not found. Seed vehicle data first.");
 
-    // Demo user
+    // Demo user (claimSeedDataForCurrentUser reassigns to signed-in guest account)
     const userId = await ctx.db.insert("users", {
-      clerkUserId: "seed-demo-user-1",
+      clerkUserId: SEED_DEMO_CLERK_USER_ID,
       onboardingCompleted: true,
       createdAt: Date.now(),
       email: "demo@otopair.com",
@@ -98,6 +117,81 @@ export const seedUserAndVehicle = mutation({
     });
 
     return { success: true };
+  },
+});
+
+/**
+ * Reassigns all seed demo user data to the currently signed-in user (e.g. guest account from
+ * .env.local). Run seed first, then sign in with EXPO_PUBLIC_GUEST_EMAIL / EXPO_PUBLIC_GUEST_PASSWORD;
+ * this mutation is called on sign-in so the guest account gets vehicles, bookings, etc.
+ * Idempotent: if current user already has data or no seed user exists, no-op.
+ */
+export const claimSeedDataForCurrentUser = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return { claimed: false, reason: "not_authenticated" as const };
+
+    const clerkUserId = identity.subject;
+    const currentUser = await ctx.db
+      .query("users")
+      .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", clerkUserId))
+      .unique();
+    if (!currentUser) return { claimed: false, reason: "current_user_not_found" as const };
+
+    const myOwners = await ctx.db
+      .query("vehicle_owners")
+      .withIndex("by_user_id", (q) => q.eq("user_id", currentUser._id))
+      .collect();
+    if (myOwners.length > 0) return { claimed: false, reason: "already_has_data" as const };
+
+    const seedUser = await ctx.db
+      .query("users")
+      .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", SEED_DEMO_CLERK_USER_ID))
+      .unique();
+    if (!seedUser) return { claimed: false, reason: "no_seed_user" as const };
+
+    const seedId = seedUser._id;
+    const currentId = currentUser._id;
+
+    const reassign = async (table: "vehicle_owners" | "bookings" | "payments" | "reviews" | "user_question_answers" | "follow_ups" | "ai_conversations" | "conversion_funnels" | "spec_confirmations") => {
+      const rows = await ctx.db.query(table).collect();
+      for (const row of rows) {
+        if (row.user_id === seedId) await ctx.db.patch(row._id, { user_id: currentId });
+      }
+    };
+    await reassign("vehicle_owners");
+    await reassign("bookings");
+    await reassign("payments");
+    await reassign("reviews");
+    await reassign("user_question_answers");
+    await reassign("follow_ups");
+    await reassign("ai_conversations");
+    await reassign("conversion_funnels");
+    await reassign("spec_confirmations");
+
+    const analyticsRows = await ctx.db.query("analytics_events").collect();
+    for (const row of analyticsRows) {
+      if (row.user_id === seedId) await ctx.db.patch(row._id, { user_id: currentId });
+    }
+
+    const statusHistoryRows = await ctx.db.query("booking_status_history").collect();
+    for (const row of statusHistoryRows) {
+      if (row.changed_by === seedId) await ctx.db.patch(row._id, { changed_by: currentId });
+    }
+
+    const enrichRows = await ctx.db.query("ai_enrichment_logs").collect();
+    for (const row of enrichRows) {
+      if (row.reviewed_by === seedId) await ctx.db.patch(row._id, { reviewed_by: currentId });
+    }
+
+    const reviewQueueRows = await ctx.db.query("manual_review_queue").collect();
+    for (const row of reviewQueueRows) {
+      if (row.assigned_to === seedId) await ctx.db.patch(row._id, { assigned_to: currentId });
+    }
+
+    await ctx.db.delete(seedId);
+    return { claimed: true };
   },
 });
 
@@ -141,9 +235,8 @@ export const seedTimeSlots = mutation({
         date.setDate(date.getDate() + dayOffset);
         const dateStr = date.toISOString().split("T")[0];
 
-        // Convert JS getDay() (0=Sun) to DB convention (0=Mon, 6=Sun)
-        const jsDay = date.getDay();
-        const dbDay = (jsDay + 6) % 7;
+        // Schema: 0=Sunday, 1=Monday, ... 6=Saturday (same as JS getDay())
+        const dbDay = date.getDay();
 
         const dayHours = shopHours[dbDay];
         if (!dayHours || dayHours.is_closed) continue;
@@ -177,6 +270,20 @@ export const seedTimeSlots = mutation({
     }
 
     return { success: true, slotsCreated: totalCreated };
+  },
+});
+
+/**
+ * One-command seed: runs base seed, vehicle intelligence (OEM parts, fitments, specs),
+ * then regenerates time slots. Use: npx convex run seed:seedAll
+ */
+export const seedAll = action({
+  args: {},
+  handler: async (ctx) => {
+    await ctx.runMutation(api.seed.seed);
+    await ctx.runMutation(internal.seed.seedVehicleIntelligenceDemoData);
+    const result = await ctx.runMutation(api.seed.seedTimeSlots);
+    return { success: true, ...result };
   },
 });
 
@@ -256,17 +363,67 @@ export const seed = mutation({
       fuel_type: "Gasoline",
     });
 
-    // --- Vehicle Specs ---
+    // --- Engine Specs (oil, fluids, maintenance intervals) ---
+    await ctx.db.insert("engine_specs", {
+      engine_id: engineLeId,
+      oil_viscosity: "0W-20",
+      oil_capacity_qts: 4.8,
+      coolant_type: "Toyota Super Long Life",
+      coolant_capacity_qts: 9.2,
+      brake_fluid_type: "DOT 3",
+      oil_change_interval: "10,000 miles / 12 months",
+      cabin_air_filter_interval: "15,000 miles",
+      engine_air_filter_interval: "15,000 miles",
+      tire_rotation_interval: "5,000 miles",
+      confidence_score: 0.93,
+      created_at: now,
+    });
+
+    await ctx.db.insert("engine_specs", {
+      engine_id: engineSeId,
+      oil_viscosity: "0W-20",
+      oil_capacity_qts: 4.8,
+      coolant_type: "Toyota Super Long Life",
+      coolant_capacity_qts: 9.2,
+      brake_fluid_type: "DOT 3",
+      oil_change_interval: "10,000 miles / 12 months",
+      tire_rotation_interval: "5,000 miles",
+      confidence_score: 0.93,
+      created_at: now,
+    });
+
+    await ctx.db.insert("engine_specs", {
+      engine_id: engineAccordId,
+      oil_viscosity: "0W-20",
+      oil_capacity_qts: 3.7,
+      coolant_type: "Honda Type 2",
+      brake_fluid_type: "DOT 3",
+      oil_change_interval: "7,500 miles / 12 months",
+      tire_rotation_interval: "7,500 miles",
+      confidence_score: 0.9,
+      created_at: now,
+    });
+
+    // --- Vehicle Specs (OEM part numbers for job_actuals suggested parts) ---
     await ctx.db.insert("vehicle_specs", {
       engine_id: engineLeId,
       oil_viscocity: "0W-20",
       oil_capacity_qts: "4.8",
       oil_filter_oem: "90915-YZZD4",
+      oil_drain_plug_gasket_oem: "90430-12031",
       front_brake_pad_oem: "04465-06200",
       rear_brake_pad_oem: "04466-06210",
+      front_brake_rotor_oem: "43512-06820",
+      rear_brake_rotor_oem: "42431-06930",
       parking_brake_type: "Drum-in-hat",
       battery_group: "35",
       battery_cca: 550,
+      engine_air_filter_oem: "17801-0H050",
+      cabin_air_filter_oem: "87139-07010",
+      spark_plug_oem: "90919-01253",
+      spark_plug_quantity: 4,
+      spark_plug_gap_mm: 1.0,
+      serpentine_belt_oem: "90916-02536",
     });
 
     await ctx.db.insert("vehicle_specs", {
@@ -274,11 +431,20 @@ export const seed = mutation({
       oil_viscocity: "0W-20",
       oil_capacity_qts: "4.8",
       oil_filter_oem: "90915-YZZD4",
+      oil_drain_plug_gasket_oem: "90430-12031",
       front_brake_pad_oem: "04465-06200",
       rear_brake_pad_oem: "04466-06210",
+      front_brake_rotor_oem: "43512-06820",
+      rear_brake_rotor_oem: "42431-06930",
       parking_brake_type: "Drum-in-hat",
       battery_group: "35",
       battery_cca: 550,
+      engine_air_filter_oem: "17801-0H050",
+      cabin_air_filter_oem: "87139-07010",
+      spark_plug_oem: "90919-01253",
+      spark_plug_quantity: 4,
+      spark_plug_gap_mm: 1.0,
+      serpentine_belt_oem: "90916-02536",
     });
 
     await ctx.db.insert("vehicle_specs", {
@@ -286,11 +452,20 @@ export const seed = mutation({
       oil_viscocity: "0W-20",
       oil_capacity_qts: "3.7",
       oil_filter_oem: "15400-PLM-A02",
+      oil_drain_plug_gasket_oem: "94109-12000",
       front_brake_pad_oem: "45022-TVA-A00",
       rear_brake_pad_oem: "43022-TVA-A00",
+      front_brake_rotor_oem: "45251-TVA-A00",
+      rear_brake_rotor_oem: "43251-TVA-A00",
       parking_brake_type: "Electric",
       battery_group: "51R",
       battery_cca: 500,
+      engine_air_filter_oem: "17220-5PC-A00",
+      cabin_air_filter_oem: "80292-S5A-A01",
+      spark_plug_oem: "98079-56805",
+      spark_plug_quantity: 4,
+      spark_plug_gap_mm: 0.9,
+      serpentine_belt_oem: "38920-P5R-A01",
     });
 
     // --- Service Categories ---
@@ -447,11 +622,11 @@ export const seed = mutation({
       is_verified: true,
     });
 
-    // --- Shop Hours (Mon-Sat for both shops) ---
-    const dayNames = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+    // --- Shop Hours (Mon-Sat for both shops; schema: 0=Sunday, 1=Monday, ... 6=Saturday) ---
+    const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
     for (const shopId of [shop1Id, shop2Id]) {
       for (let d = 0; d < 7; d++) {
-        const isSunday = d === 6;
+        const isSunday = d === 0;
         await ctx.db.insert("shops_hours", {
           shop_id: shopId,
           day_of_week: d,
@@ -463,27 +638,35 @@ export const seed = mutation({
       }
     }
 
-    // --- Shop Services ---
-    await ctx.db.insert("shop_services", {
-      shop_id: shop1Id,
-      service_id: oilChangeId,
-      is_offered: true,
+    // --- Shop Services (both shops offer all services) ---
+    for (const shopId of [shop1Id, shop2Id]) {
+      await ctx.db.insert("shop_services", { shop_id: shopId, service_id: oilChangeId, is_offered: true });
+      await ctx.db.insert("shop_services", { shop_id: shopId, service_id: brakePadsId, is_offered: true });
+      await ctx.db.insert("shop_services", { shop_id: shopId, service_id: tireRotationId, is_offered: true });
+    }
+
+    // --- CDN assets (portfolio images) ---
+    const asset1Id = await ctx.db.insert("cdn_assets", {
+      url: "https://images.unsplash.com/photo-1486754735734-325b5831c3ad?w=800&h=600&fit=crop",
+      type: "image",
+      caption: "Shop bay",
     });
-    await ctx.db.insert("shop_services", {
-      shop_id: shop1Id,
-      service_id: brakePadsId,
-      is_offered: true,
+    const asset2Id = await ctx.db.insert("cdn_assets", {
+      url: "https://images.unsplash.com/photo-1492144534655-ae79c964c9d7?w=800&h=600&fit=crop",
+      type: "image",
+      caption: "Service area",
     });
-    await ctx.db.insert("shop_services", {
-      shop_id: shop2Id,
-      service_id: oilChangeId,
-      is_offered: true,
+    const asset3Id = await ctx.db.insert("cdn_assets", {
+      url: "https://images.unsplash.com/photo-1493238792000-8113da705763?w=800&h=600&fit=crop",
+      type: "image",
+      caption: "Waiting area",
     });
-    await ctx.db.insert("shop_services", {
-      shop_id: shop2Id,
-      service_id: tireRotationId,
-      is_offered: true,
-    });
+
+    // --- Shop portfolio (link shops to cdn_assets) ---
+    for (const [order, assetId] of [asset1Id, asset2Id, asset3Id].entries()) {
+      await ctx.db.insert("shop_portfolio", { shop_id: shop1Id, content_id: assetId, display_order: order });
+      await ctx.db.insert("shop_portfolio", { shop_id: shop2Id, content_id: assetId, display_order: order });
+    }
 
     // --- Mechanics ---
     const mech1Id = await ctx.db.insert("mechanics", {
@@ -513,32 +696,39 @@ export const seed = mutation({
       review_count: 51,
     });
 
-    // --- Time Slots (next 3 days, 6 slots/day for shop 1) ---
+    // --- Time Slots (next 7 days, multiple slots per mechanic) ---
     const today = new Date();
-    for (let dayOffset = 0; dayOffset < 3; dayOffset++) {
+    const mechanicsWithSlots = [
+      { shop_id: shop1Id, mechanic_id: mech1Id },
+      { shop_id: shop1Id, mechanic_id: mech2Id },
+      { shop_id: shop2Id, mechanic_id: mech3Id },
+    ];
+    const startHours = [8, 9, 10, 11, 13, 14, 15];
+
+    for (let dayOffset = 1; dayOffset <= 7; dayOffset++) {
       const date = new Date(today);
-      date.setDate(date.getDate() + dayOffset + 1);
+      date.setDate(date.getDate() + dayOffset);
       const dateStr = date.toISOString().split("T")[0];
 
-      const startHours = [8, 9, 10, 11, 13, 14];
-      for (const hour of startHours) {
-        const startTime = `${hour.toString().padStart(2, "0")}:00`;
-        const endTime = `${(hour + 1).toString().padStart(2, "0")}:00`;
-
-        await ctx.db.insert("time_slots", {
-          shop_id: shop1Id,
-          mechanic_id: mech1Id,
-          date: dateStr,
-          start_time: startTime,
-          end_time: endTime,
-          is_available: true,
-        });
+      for (const { shop_id, mechanic_id } of mechanicsWithSlots) {
+        for (const hour of startHours) {
+          const startTime = `${hour.toString().padStart(2, "0")}:00`;
+          const endTime = `${(hour + 1).toString().padStart(2, "0")}:00`;
+          await ctx.db.insert("time_slots", {
+            shop_id,
+            mechanic_id,
+            date: dateStr,
+            start_time: startTime,
+            end_time: endTime,
+            is_available: true,
+          });
+        }
       }
     }
 
-    // --- Users ---
+    // --- Users (main demo user; claimSeedDataForCurrentUser reassigns to signed-in guest account) ---
     const userId = await ctx.db.insert("users", {
-      clerkUserId: "seed-demo-user-2",
+      clerkUserId: SEED_DEMO_CLERK_USER_ID,
       onboardingCompleted: true,
       createdAt: Date.now(),
       email: "demo@otopair.com",
@@ -1171,6 +1361,8 @@ export const seedVehicleIntelligenceDemoData = internalMutation({
         recommended_tire_pressure_front_psi: 35,
         recommended_tire_pressure_rear_psi: 35,
         lug_nut_torque_ft_lbs: 76,
+        wiper_blade_driver_size_in: 26,
+        wiper_blade_passenger_size_in: 18,
         parking_brake_type: "drum-in-hat",
         confidence_score: 0.9,
       };

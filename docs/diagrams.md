@@ -1,8 +1,8 @@
 # Database Diagrams
 
-Mermaid diagrams for the OtoPair Convex schema. Source: [convex/schema.ts](../convex/schema.ts) (44 tables).
+Mermaid diagrams for the OtoPair Convex schema — **single source** for all database diagrams. Source: [convex/schema.ts](../convex/schema.ts) (44 tables).
 
-**How to view:** Open Markdown preview (`Ctrl+Shift+V` or right‑click → **Open Preview**). Diagrams render in VS Code / Cursor and on GitHub.
+**How to view:** Open Markdown preview (`Ctrl+Shift+V` or right‑click → **Open Preview**). Use **Ctrl+Shift+P** → **"Markdown: Open Preview to the Side"** if diagrams don't render. Diagrams render in VS Code / Cursor and on GitHub.
 
 ---
 
@@ -10,11 +10,11 @@ Mermaid diagrams for the OtoPair Convex schema. Source: [convex/schema.ts](../co
 
 Three levels of detail:
 
-| Level | Scope | Contents |
-|-------|--------|----------|
-| **1. High** | Whole DB | One diagram: 8 domain groups and how they connect. |
-| **2. Mid** | Per domain | One diagram per part (8 parts): tables and FKs within that domain. |
-| **3. Low** | Per table + flows | **One diagram per table** (field-level, legible); then function flow diagrams (Convex queries/mutations). |
+| Level       | Scope             | Contents                                                                                                  |
+| ----------- | ----------------- | --------------------------------------------------------------------------------------------------------- |
+| **1. High** | Whole DB          | One diagram: 8 domain groups and how they connect.                                                        |
+| **2. Mid**  | Per domain        | One diagram per part (8 parts): tables and FKs within that domain.                                        |
+| **3. Low**  | Per table + flows | **One diagram per table** (field-level, legible); then function flow diagrams (Convex queries/mutations). |
 
 ---
 
@@ -44,16 +44,16 @@ flowchart LR
   VehicleIntel --> SpecPipeline
 ```
 
-| Part | Tables |
-|------|--------|
-| **1. Core transactions** | bookings, payments, job_actuals, booking_status_history, payment_status_history |
-| **2. Vehicle catalog and ownership** | makes, models, trims, engines, transmissions, chassis_variants, vehicles, vehicle_owners |
-| **3. Vehicle intelligence** | engine_specs, transmission_specs, trim_specs, oem_parts, engine_part_fitments, transmission_part_fitments, trim_part_fitments |
-| **4. Shops and services** | shops, mechanics, services, service_categories, service_options, shop_services, shops_hours, time_slots, service_vehicle_specs, service_insights |
-| **5. Reviews and follow-ups** | reviews, follow_ups |
-| **6. User and onboarding** | users, user_question_answers, onboarding_questions, onboarding_question_answers |
-| **7. AI and analytics** | ai_conversations, ai_messages, analytics_events, conversion_funnels |
-| **8. Spec pipeline** | ai_enrichment_logs, manual_review_queue, spec_variances, spec_confirmations |
+| Part                                 | Tables                                                                                                                                           |
+| ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **1. Core transactions**             | bookings, payments, job_actuals, booking_status_history, payment_status_history                                                                  |
+| **2. Vehicle catalog and ownership** | makes, models, trims, engines, transmissions, chassis_variants, vehicles, vehicle_owners                                                         |
+| **3. Vehicle intelligence**          | engine_specs, transmission_specs, trim_specs, vehicle_specs, oem_parts, engine_part_fitments, transmission_part_fitments, trim_part_fitments     |
+| **4. Shops and services**            | shops, mechanics, services, service_categories, service_options, shop_services, shops_hours, time_slots, service_vehicle_specs, service_insights, cdn_assets, shop_portfolio |
+| **5. Reviews and follow-ups**        | reviews, follow_ups                                                                                                                              |
+| **6. User and onboarding**           | users, user_question_answers, onboarding_questions, onboarding_question_answers                                                                  |
+| **7. AI and analytics**              | ai_conversations, ai_messages, analytics_events, conversion_funnels                                                                              |
+| **8. Spec pipeline**                 | ai_enrichment_logs, manual_review_queue, spec_variances, spec_confirmations                                                                      |
 
 ---
 
@@ -130,6 +130,7 @@ flowchart LR
   engine_specs[engine_specs]
   transmission_specs[transmission_specs]
   trim_specs[trim_specs]
+  vehicle_specs[vehicle_specs]
   oem_parts[oem_parts]
   engine_fit[engine_part_fitments]
   trans_fit[transmission_part_fitments]
@@ -137,6 +138,7 @@ flowchart LR
 
   engines -->|engine_id| engine_specs
   engines -->|engine_id| engine_fit
+  engines -->|engine_id| vehicle_specs
   transmissions -->|transmission_id| transmission_specs
   transmissions -->|transmission_id| trans_fit
   trims -->|trim_id| trim_specs
@@ -162,6 +164,8 @@ flowchart LR
   time_slots[time_slots]
   service_vehicle_specs[service_vehicle_specs]
   service_insights[service_insights]
+  cdn_assets[cdn_assets]
+  shop_portfolio[shop_portfolio]
   engines[engines]
 
   service_categories -->|service_category_id| services
@@ -173,6 +177,8 @@ flowchart LR
   shops -->|shop_id| shop_services
   shops -->|shop_id| shops_hours
   shops -->|shop_id| time_slots
+  shops -->|shop_id| shop_portfolio
+  shop_portfolio -->|content_id| cdn_assets
   engines -->|engine_id| service_insights
   engines -->|engine_id| service_vehicle_specs
 ```
@@ -530,6 +536,34 @@ classDiagram
   note for engine_specs "indexes: by_engine"
 ```
 
+#### Table: `vehicle_specs`
+
+```mermaid
+classDiagram
+  class vehicle_specs {
+    +id _id
+    +id engine_id
+    +string oil_viscocity
+    +string oil_capacity_qts
+    +string oil_filter_oem
+    +string oil_drain_plug_gasket_oem
+    +string front_brake_pad_oem
+    +string rear_brake_pad_oem
+    +string front_brake_rotor_oem
+    +string rear_brake_rotor_oem
+    +string parking_brake_type
+    +string battery_group
+    +float battery_cca
+    +string engine_air_filter_oem
+    +string cabin_air_filter_oem
+    +string spark_plug_oem
+    +float spark_plug_quantity
+    +float spark_plug_gap_mm
+    +string serpentine_belt_oem
+  }
+  note for vehicle_specs "indexes: by_engine_id; used by job_actuals for suggested parts"
+```
+
 #### Table: `transmission_specs`
 
 ```mermaid
@@ -558,6 +592,9 @@ classDiagram
     +float recommended_tire_pressure_front_psi
     +float recommended_tire_pressure_rear_psi
     +float lug_nut_torque_ft_lbs
+    +float wiper_blade_driver_size_in
+    +float wiper_blade_passenger_size_in
+    +float wiper_blade_rear_size_in
     +string parking_brake_type
     +float confidence_score
     +float created_at
@@ -802,6 +839,32 @@ classDiagram
   note for service_insights "indexes: by_engine_id, by_service_id, by_engine_and_service"
 ```
 
+#### Table: `cdn_assets`
+
+```mermaid
+classDiagram
+  class cdn_assets {
+    +id _id
+    +string url
+    +string type
+    +string caption
+  }
+  note for cdn_assets "Stores CDN/content URLs; referenced by shop_portfolio"
+```
+
+#### Table: `shop_portfolio`
+
+```mermaid
+classDiagram
+  class shop_portfolio {
+    +id _id
+    +id shop_id
+    +id content_id
+    +float display_order
+  }
+  note for shop_portfolio "indexes: by_shop_id"
+```
+
 ---
 
 ### Level 3 — Part 5: Reviews and follow-ups (one table per diagram)
@@ -820,7 +883,7 @@ classDiagram
     +string comment
     +float created_at
   }
-  note for reviews "indexes: by_booking_id, by_shop_id, by_user_id, by_rating"
+  note for reviews "indexes: by_booking_id, by_shop_id, by_mechanic_id, by_user_id, by_rating"
 ```
 
 #### Table: `follow_ups`
@@ -1134,15 +1197,30 @@ flowchart TD
   end
 ```
 
-#### Flow: Service vehicle specs lookup (pricing)
+#### Flow: Service vehicle specs lookup (car-specific pricing)
 
 ```mermaid
 flowchart TD
-  A[Client: getByEngineAndService] --> B[service_vehicle_specs.getByEngineAndService]
-  B --> C[Query by_engine_and_service index]
-  C --> D{Doc found?}
-  D -->|No| E[Return null]
-  D -->|Yes| F[Return labor_hours, parts_cost_low, parts_cost_high, confidence_score, tech_notes]
+  A[Client: getSpecsForEngineAndServices engineId, serviceIds] --> B[service_vehicle_specs.getSpecsForEngineAndServices]
+  B --> C[For each serviceId: query by_engine_and_service index]
+  C --> D{Spec found?}
+  D -->|No| E[Use services.default_labor_hours + service_options fallback]
+  D -->|Yes| F[Return labor_hours, parts_cost_avg per service]
+  F --> G[ShopCard/Footer: price = labor_rate × labor_hours + parts]
+  E --> G
+```
+
+Single-service lookup: `getByEngineAndService(engineId, serviceId)` returns one spec or null.
+
+#### Flow: Job actuals prefill (suggested parts)
+
+```mermaid
+flowchart TD
+  A[Client: getPrefillData bookingId] --> B[job_actuals.getPrefillData]
+  B --> C[Get booking, vehicle, engine]
+  C --> D[Query vehicle_specs by engine_id]
+  D --> E[Lookup suggested parts by service slug]
+  E --> F[Return vehicleLabel, serviceName, suggestedParts OEM numbers]
 ```
 
 #### Flow: Time slot availability
@@ -1156,4 +1234,4 @@ flowchart TD
 
 ---
 
-*Source: [convex/schema.ts](../convex/schema.ts). Convex modules: [bookings](../convex/bookings.ts), [payments](../convex/payments.ts), [service_vehicle_specs](../convex/service_vehicle_specs.ts), [time_slots](../convex/time_slots.ts), [booking_status_history](../convex/booking_status_history.ts).*
+_Source: [convex/schema.ts](../convex/schema.ts). Convex modules: [bookings](../convex/bookings.ts), [payments](../convex/payments.ts), [job_actuals](../convex/job_actuals.ts), [service_vehicle_specs](../convex/service_vehicle_specs.ts), [time_slots](../convex/time_slots.ts), [booking_status_history](../convex/booking_status_history.ts), [vehicle_specs](../convex/vehicle_specs.ts)._

@@ -130,6 +130,9 @@ export const upsertTrimSpecs = mutation({
     recommended_tire_pressure_front_psi: v.optional(v.float64()),
     recommended_tire_pressure_rear_psi: v.optional(v.float64()),
     lug_nut_torque_ft_lbs: v.optional(v.float64()),
+    wiper_blade_driver_size_in: v.optional(v.float64()),
+    wiper_blade_passenger_size_in: v.optional(v.float64()),
+    wiper_blade_rear_size_in: v.optional(v.float64()),
     parking_brake_type: v.optional(v.string()),
     confidence_score: v.float64(),
   },
@@ -147,6 +150,9 @@ export const upsertTrimSpecs = mutation({
       recommended_tire_pressure_front_psi: args.recommended_tire_pressure_front_psi,
       recommended_tire_pressure_rear_psi: args.recommended_tire_pressure_rear_psi,
       lug_nut_torque_ft_lbs: args.lug_nut_torque_ft_lbs,
+      wiper_blade_driver_size_in: args.wiper_blade_driver_size_in,
+      wiper_blade_passenger_size_in: args.wiper_blade_passenger_size_in,
+      wiper_blade_rear_size_in: args.wiper_blade_rear_size_in,
       parking_brake_type: args.parking_brake_type,
       confidence_score: args.confidence_score,
     });
@@ -213,7 +219,7 @@ const collectConfidence = (
   entries: ConfidenceEntry[],
   table: string,
   id: any,
-  confidence: number | null | undefined
+  confidence: number | null | undefined,
 ) => {
   if (confidence === null || confidence === undefined) return;
   entries.push({ table, id: id as string, confidence_score: confidence });
@@ -236,7 +242,7 @@ const fetchFitmentsWithParts = async (
   table: "engine_part_fitments" | "transmission_part_fitments" | "trim_part_fitments",
   indexName: string,
   field: string,
-  value: any
+  value: any,
 ) => {
   const fitments = await ctx.db
     .query(table)
@@ -247,7 +253,7 @@ const fetchFitmentsWithParts = async (
     fitments.map(async (f: any) => {
       const part = await ctx.db.get(f.part_id);
       return { ...f, part };
-    })
+    }),
   );
 
   return expanded;
@@ -288,7 +294,10 @@ export const getFullVehicleSpecPack = query({
             .unique()
         : null,
       vehicle.trim_id
-        ? ctx.db.query("trim_specs").withIndex("by_trim", (q) => q.eq("trim_id", vehicle.trim_id)).unique()
+        ? ctx.db
+            .query("trim_specs")
+            .withIndex("by_trim", (q) => q.eq("trim_id", vehicle.trim_id))
+            .unique()
         : null,
     ]);
 
@@ -302,12 +311,10 @@ export const getFullVehicleSpecPack = query({
             "transmission_part_fitments",
             "by_transmission",
             "transmission_id",
-            vehicle.transmission_id
+            vehicle.transmission_id,
           )
         : [],
-      vehicle.trim_id
-        ? fetchFitmentsWithParts(ctx, "trim_part_fitments", "by_trim", "trim_id", vehicle.trim_id)
-        : [],
+      vehicle.trim_id ? fetchFitmentsWithParts(ctx, "trim_part_fitments", "by_trim", "trim_id", vehicle.trim_id) : [],
     ]);
 
     const confidenceEntries: ConfidenceEntry[] = [];
@@ -316,33 +323,29 @@ export const getFullVehicleSpecPack = query({
       confidenceEntries,
       "transmission_specs",
       transmissionSpecs?._id,
-      transmissionSpecs?.confidence_score
+      transmissionSpecs?.confidence_score,
     );
     collectConfidence(confidenceEntries, "trim_specs", trimSpecs?._id, trimSpecs?.confidence_score);
 
     engineFitments.forEach((f: any) =>
-      collectConfidence(confidenceEntries, "engine_part_fitments", f._id, f.confidence_score)
+      collectConfidence(confidenceEntries, "engine_part_fitments", f._id, f.confidence_score),
     );
     transmissionFitments.forEach((f: any) =>
-      collectConfidence(confidenceEntries, "transmission_part_fitments", f._id, f.confidence_score)
+      collectConfidence(confidenceEntries, "transmission_part_fitments", f._id, f.confidence_score),
     );
     trimFitments.forEach((f: any) =>
-      collectConfidence(confidenceEntries, "trim_part_fitments", f._id, f.confidence_score)
+      collectConfidence(confidenceEntries, "trim_part_fitments", f._id, f.confidence_score),
     );
 
     collectConfidence(confidenceEntries, "transmissions", transmission?._id, transmission?.confidence_score);
     collectConfidence(confidenceEntries, "chassis_variants", chassis_variant?._id, chassis_variant?.confidence_score);
 
     const overall =
-      confidenceEntries.length > 0
-        ? Math.min(...confidenceEntries.map((entry) => entry.confidence_score))
-        : null;
+      confidenceEntries.length > 0 ? Math.min(...confidenceEntries.map((entry) => entry.confidence_score)) : null;
 
     const lowest =
       confidenceEntries.length > 0
-        ? confidenceEntries.reduce((min, entry) =>
-            entry.confidence_score < min.confidence_score ? entry : min
-          )
+        ? confidenceEntries.reduce((min, entry) => (entry.confidence_score < min.confidence_score ? entry : min))
         : null;
 
     const partsById = buildPartsMap([engineFitments, transmissionFitments, trimFitments]);

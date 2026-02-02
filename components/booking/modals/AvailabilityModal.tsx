@@ -25,6 +25,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BrandColors, PrimaryButton, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Constants, hooks, types, stores
+import { useCalendarAvailabilityForShop } from "@/hooks/useCalendarAvailabilityForShop";
+import { useTimeSlotsForShop } from "@/hooks/useTimeSlotsForShop";
+import { displayTimeToHHMM } from "@/utils/timeSlotUtils";
 import { BorderRadius, Shadows } from "@/constants/theme";
 import { useScheduleStore } from "@/stores/useScheduleStore";
 import { useBookingStore } from "@/stores/useBookingStore";
@@ -93,7 +96,7 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
   // ═══════════════ LOCAL STATE ═══════════════
   // Track selected mechanic within the modal (null = "Any")
   // For single mechanic shops, auto-select that mechanic instead of "Any"
-  const [selectedMechanicId, setSelectedMechanicId] = useState<number | null>(mechanicId);
+  const [selectedMechanicId, setSelectedMechanicId] = useState<string | null>(mechanicId ?? null);
 
   // ═══════════════ MECHANIC STORE ═══════════════
   const getMechanicsByShopId = useMechanicStore((state) => state.getMechanicsByShopId);
@@ -131,11 +134,29 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
   const getBookedDayNumbers = useScheduleStore((state) => state.getBookedDayNumbers);
   const getTimeSlotsForSelectedDate = useScheduleStore((state) => state.getTimeSlotsForSelectedDate);
 
+  const effectiveShopId = shopId ?? shopMechanics[0]?.shopId ?? (mechanicId ? getMechanicById(mechanicId)?.shopId : null);
+  const effectiveMechanicId = selectedMechanicId ?? shopMechanics[0]?.id ?? mechanicId;
+
+  // ═══════════════ CONVEX: calendar availability (Available / Booked highlighting) ═══════════════
+  const convexCalendar = useCalendarAvailabilityForShop(
+    effectiveShopId,
+    currentMonth.getFullYear(),
+    currentMonth.getMonth(),
+    effectiveMechanicId ?? undefined
+  );
+
+  const selectedDateISO = selectedDate ? selectedDate.toISOString().split("T")[0] : null;
+  const { timeOptions: convexTimeOptions, getSlotIdByDisplayTime } = useTimeSlotsForShop(
+    effectiveShopId,
+    selectedDateISO,
+    effectiveMechanicId ?? undefined
+  );
+
   // ═══════════════ BOOKING STORE ═══════════════
   const setScheduledAppointment = useBookingStore((state) => state.setScheduledAppointment);
   const selectMechanic = useBookingStore((state) => state.selectMechanic);
   const setSelectedMechanicSlot = useBookingStore((state) => state.setSelectedMechanicSlot);
-  
+
   // ═══════════════ COMPUTED SERVICE INFO ═══════════════
   // Compute shop name from mechanic or shopId
   const shopName = useMemo(() => {
@@ -152,7 +173,7 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
     }
     return "Shop";
   }, [selectedMechanicId, shopMechanics, mechanicId, getMechanicById]);
-  
+
   // Get selected mechanic name
   const selectedMechanicName = useMemo(() => {
     if (selectedMechanicId === null) return null;
@@ -189,18 +210,23 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
   }, [visible, selectedMechanicId, shopMechanics, mechanicId, loadMechanicSchedule]);
 
   // ═══════════════ MECHANIC SELECTOR HANDLER ═══════════════
-  const handleMechanicSelect = useCallback((id: number | null) => {
+  const handleMechanicSelect = useCallback((id: string | null) => {
     setSelectedMechanicId(id);
   }, []);
 
   // ═══════════════ COMPUTED VALUES ═══════════════
-  const availableDays = getAvailableDayNumbers();
-  const bookedDays = getBookedDayNumbers();
+  // Use Convex calendar data when we have a shop (so Available/Booked highlighting reflects real data)
+  const useConvexCalendar = Boolean(effectiveShopId);
+  const availableDays = useConvexCalendar ? convexCalendar.availableDayNumbers : getAvailableDayNumbers();
+  const bookedDays = useConvexCalendar ? convexCalendar.bookedDayNumbers : getBookedDayNumbers();
 
   const timeSlots = useMemo(() => {
+    if (effectiveShopId && selectedDateISO && convexTimeOptions.length > 0) {
+      return convexTimeOptions;
+    }
     const slots = getTimeSlotsForSelectedDate();
     return slots.length > 0 ? slots : DEFAULT_TIME_SLOTS;
-  }, [selectedDate, getTimeSlotsForSelectedDate]);
+  }, [effectiveShopId, selectedDateISO, convexTimeOptions, selectedDate, getTimeSlotsForSelectedDate]);
 
   const selectedDayNumber = selectedDate?.getDate() ?? null;
 
@@ -225,7 +251,7 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
       });
     }
 
-    // Current month days
+    // Current month days (when using Convex we only use available/booked from data; no Sunday default)
     for (let i = 1; i <= daysInMonth; i++) {
       let status: DayStatus = "normal";
 
@@ -235,11 +261,9 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
         status = "available";
       } else if (bookedDays.includes(i)) {
         status = "booked";
-      } else {
+      } else if (!useConvexCalendar) {
         const dayOfWeek = new Date(year, month, i).getDay();
-        if (dayOfWeek === 0) {
-          status = "booked";
-        }
+        if (dayOfWeek === 0) status = "booked"; // mock: Sunday = booked
       }
 
       days.push({
@@ -260,7 +284,7 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
     }
 
     return days;
-  }, [currentMonth, selectedDayNumber, availableDays, bookedDays]);
+  }, [currentMonth, selectedDayNumber, availableDays, bookedDays, useConvexCalendar]);
 
   // Split days into weeks
   const calendarWeeks = useMemo(() => {
@@ -286,14 +310,14 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
       const newDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day.date);
       selectDate(newDate);
     },
-    [currentMonth, selectDate]
+    [currentMonth, selectDate],
   );
 
   const handleTimePress = useCallback(
     (time: string) => {
       selectTime(time);
     },
-    [selectTime]
+    [selectTime],
   );
 
   const handleCancel = useCallback(() => {
@@ -303,8 +327,9 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
   const handleConfirm = useCallback(() => {
     // Use selected mechanic, or first mechanic if "Any" is selected
     const effectiveMechanicId = selectedMechanicId ?? shopMechanics[0]?.id ?? mechanicId;
-    const effectiveShopId = shopId ?? shopMechanics[0]?.shopId ?? (mechanicId ? getMechanicById(mechanicId)?.shopId : null);
-    
+    const effectiveShopId =
+      shopId ?? shopMechanics[0]?.shopId ?? (mechanicId ? getMechanicById(mechanicId)?.shopId : null);
+
     if (selectedDate && selectedTime && effectiveMechanicId !== null) {
       confirmSelection();
 
@@ -325,8 +350,9 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
       // Get day of week from date
       const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
       const dayOfWeek = dayNames[selectedDate.getDay()];
-      
+
       if (effectiveShopId) {
+        const timeSlotId = getSlotIdByDisplayTime(selectedTime);
         setSelectedMechanicSlot({
           shopId: effectiveShopId,
           shopName: shopName,
@@ -337,13 +363,33 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
             dayOfWeek: dayOfWeek,
             time: selectedTime,
           },
+          ...(timeSlotId && { timeSlotId: timeSlotId as string }),
+          scheduledDate: isoDate,
+          scheduledTime: displayTimeToHHMM(selectedTime),
         });
       }
 
       onConfirm?.(selectedDate, selectedTime, effectiveMechanicId);
     }
     onClose();
-  }, [selectedDate, selectedTime, selectedMechanicId, shopMechanics, mechanicId, shopId, shopName, selectedMechanicName, confirmSelection, setScheduledAppointment, selectMechanic, setSelectedMechanicSlot, getMechanicById, onConfirm, onClose]);
+  }, [
+    selectedDate,
+    selectedTime,
+    selectedMechanicId,
+    shopMechanics,
+    mechanicId,
+    shopId,
+    shopName,
+    selectedMechanicName,
+    confirmSelection,
+    setScheduledAppointment,
+    selectMechanic,
+    setSelectedMechanicSlot,
+    getMechanicById,
+    getSlotIdByDisplayTime,
+    onConfirm,
+    onClose,
+  ]);
 
   // ═══════════════ RENDER HELPERS ═══════════════
   const renderDayCell = useCallback(
@@ -387,17 +433,12 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
         </TouchableOpacity>
       );
     },
-    [handleDayPress]
+    [handleDayPress],
   );
 
   // ═══════════════ RENDER ═══════════════
   return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      presentationStyle="pageSheet"
-      onRequestClose={handleCancel}
-    >
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={handleCancel}>
       <View style={[styles.container, { paddingTop: insets.top }]}>
         {/* Header */}
         <View style={styles.header}>
@@ -432,13 +473,12 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
                   onPress={() => handleMechanicSelect(null)}
                   activeOpacity={0.7}
                 >
-                  <View
-                    style={[
-                      styles.mechanicAvatar,
-                      selectedMechanicId === null && styles.mechanicAvatarSelected,
-                    ]}
-                  >
-                    <Text size="xs" weight="bold" color={selectedMechanicId === null ? BrandColors.secondary : "#6B7280"}>
+                  <View style={[styles.mechanicAvatar, selectedMechanicId === null && styles.mechanicAvatarSelected]}>
+                    <Text
+                      size="xs"
+                      weight="bold"
+                      color={selectedMechanicId === null ? BrandColors.secondary : "#6B7280"}
+                    >
                       Any
                     </Text>
                   </View>

@@ -25,10 +25,14 @@ export interface Service {
   name: string;
   /** Brief description of the service */
   description: string;
-  /** Price in dollars */
+  /** Price in dollars (fallback when labor_rate not available) */
   price: number;
   /** Category this service belongs to */
   category: ServiceCategory;
+  /** Default labor hours (for price = labor_rate × time + parts) */
+  default_labor_hours?: number;
+  /** Default parts estimate in dollars (for price formula) */
+  default_parts_estimate?: number;
 }
 
 /** User's current location for map and shop discovery */
@@ -163,6 +167,10 @@ export interface Shop {
   // ─── Services ───
   /** Service IDs offered by this shop */
   serviceIds: string[];
+
+  // ─── Pricing ───
+  /** Hourly labor rate in dollars (for price calculation) */
+  labor_rate?: number;
 }
 
 /** Shop filter options */

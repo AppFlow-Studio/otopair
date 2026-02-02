@@ -172,7 +172,7 @@ export const useSearchStore = create<SearchState>()((set, get) => ({
         type: "category",
         category: cat.key,
         label: cat.label,
-      })
+      }),
     );
   },
 
