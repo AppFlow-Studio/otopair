@@ -17,7 +17,7 @@ export function useCalendarAvailabilityForShop(
   shopId: string | null,
   year: number,
   month: number,
-  mechanicId: string | null | undefined
+  mechanicId: string | null | undefined,
 ) {
   const result = useQuery(
     api.time_slots.getAvailabilityByShopAndMonth,
@@ -28,7 +28,7 @@ export function useCalendarAvailabilityForShop(
           month,
           mechanicId: mechanicId === undefined || mechanicId === null ? undefined : (mechanicId as Id<"mechanics">),
         }
-      : "skip"
+      : "skip",
   );
 
   return useMemo(() => {

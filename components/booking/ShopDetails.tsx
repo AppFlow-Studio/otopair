@@ -116,14 +116,14 @@ export function ShopDetails({ shopId, onBookNow, onAddMoreServices, onViewAllAva
     [availableServices, selectedServiceIds],
   );
 
-  // Shop-specific pricing: labor_rate × default_labor_hours + default_parts_estimate (from Convex)
-  const laborRate = shop?.labor_rate ?? 80;
+  // Shop-specific pricing: labor_rate × default_labor_hours + default_parts_estimate (shop rate only)
+  const laborRate = shop?.labor_rate;
   const totalPrice = useMemo(
     () =>
       selectedServices.reduce(
         (total, service) =>
           total +
-          laborRate * (service.default_labor_hours ?? 0) +
+          (laborRate ?? 0) * (service.default_labor_hours ?? 0) +
           (service.default_parts_estimate ?? 0),
         0
       ),
@@ -133,7 +133,7 @@ export function ShopDetails({ shopId, onBookNow, onAddMoreServices, onViewAllAva
   // Per-service shop price for display (for ServiceRow priceOverride)
   const getServicePrice = useCallback(
     (service: (typeof selectedServices)[0]) =>
-      laborRate * (service.default_labor_hours ?? 0) + (service.default_parts_estimate ?? 0),
+      (laborRate ?? 0) * (service.default_labor_hours ?? 0) + (service.default_parts_estimate ?? 0),
     [laborRate],
   );
 

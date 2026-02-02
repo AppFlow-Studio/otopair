@@ -29,11 +29,7 @@ export interface TimeSlotOption {
   displayTime: string;
 }
 
-export function useTimeSlotsForShop(
-  shopId: string | null,
-  date: string | null,
-  mechanicId?: string | null
-) {
+export function useTimeSlotsForShop(shopId: string | null, date: string | null, mechanicId?: string | null) {
   const slots = useQuery(
     api.time_slots.getByShopAndDate,
     shopId && date

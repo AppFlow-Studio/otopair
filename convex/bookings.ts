@@ -7,11 +7,11 @@
  * Bookings link users, vehicles, shops, mechanics, and services together.
  *
  * TABLE: bookings
- *   - Stores confirmed service appointments
- *   - One record per booking (user + vehicle + shop + service + time)
- *   - Status progresses: confirmed → completed/cancelled
+ *   - Stores service appointment requests and confirmed appointments
+ *   - One record per booking (user + vehicle + shop + services + time)
+ *   - Status progresses: pending (user submitted) → confirmed (shop accepts) → completed/cancelled
  *   - VIN normalized to uppercase for consistency
- *   - Time slot becomes unavailable when booking is confirmed
+ *   - Time slot becomes unavailable when user confirms appointment (pending); shop can then accept or cancel
  *
  * KEY ENTITIES:
  *   - bookings: Main booking records
@@ -177,13 +177,13 @@ export const create = mutation({
       throw new Error("User does not own this vehicle");
     }
 
-    // Verify the slot is still available (race-condition guard)
+    // Verify the slot is still available (no pending/confirmed booking on it)
     const slot = await ctx.db.get(args.time_slot_id);
     if (!slot || !slot.is_available) {
       throw new Error("This time slot is no longer available.");
     }
 
-    // Mark the time slot as unavailable
+    // Mark slot unavailable until booking is freed (cancelled/no_show/completed via updateStatus)
     await ctx.db.patch(args.time_slot_id, { is_available: false });
 
     const { session_id, funnel_id, service_id, ...bookingData } = args;
@@ -192,9 +192,15 @@ export const create = mutation({
       ...bookingData,
       vin: normalizedVin,
       service_ids: [service_id],
-      status: "confirmed",
+      status: "pending",
       created_at: now,
       updated_at: now,
+    });
+
+    await ctx.db.insert("booking_status_history", {
+      booking_id: bookingId,
+      new_status: "pending",
+      changed_at: now,
     });
 
     // Track analytics event
@@ -286,13 +292,13 @@ export const createBatch = mutation({
       throw new Error("User does not own this vehicle");
     }
 
-    // Verify slot is still available
+    // Verify slot is still available (no pending/confirmed booking on it)
     const slot = await ctx.db.get(args.time_slot_id);
     if (!slot || !slot.is_available) {
       throw new Error("This time slot is no longer available.");
     }
 
-    // Mark slot unavailable once (one appointment = one slot)
+    // Mark slot unavailable until booking is freed (cancelled/no_show/completed via updateStatus)
     await ctx.db.patch(args.time_slot_id, { is_available: false });
 
     const labor_cost = args.services.reduce((sum, s) => sum + s.labor_cost, 0);
@@ -321,14 +327,14 @@ export const createBatch = mutation({
       parts_cost,
       total_cost,
       estimated_labor_minutes: estimated_labor_minutes > 0 ? estimated_labor_minutes : undefined,
-      status: "confirmed",
+      status: "pending",
       created_at: now,
       updated_at: now,
     });
 
     await ctx.db.insert("booking_status_history", {
       booking_id: bookingId,
-      new_status: "confirmed",
+      new_status: "pending",
       changed_at: now,
     });
 
@@ -369,7 +375,8 @@ export const createBatch = mutation({
  *
  * SIDE EFFECTS:
  *   1. Updates booking status
- *   2. Logs change to booking_status_history (async)
+ *   2. If new status is cancelled | no_show | completed, sets the booking's time_slot is_available = true (releases slot for mechanics)
+ *   3. Logs change to booking_status_history (async)
  *
  * ARGS:
  *   - bookingId: Booking to update
@@ -417,6 +424,12 @@ export const updateStatus = mutation({
       status: args.newStatus,
       updated_at: now,
     });
+
+    // When booking is freed (cancelled, no_show, completed), release the time slot so it shows available on the mechanics side
+    const slotReleasingStatuses = ["cancelled", "no_show", "completed"];
+    if (slotReleasingStatuses.includes(args.newStatus) && booking.time_slot_id) {
+      await ctx.db.patch(booking.time_slot_id, { is_available: true });
+    }
 
     // Log status change to history (async, non-blocking)
     await ctx.scheduler.runAfter(0, internal.booking_status_history.log, {

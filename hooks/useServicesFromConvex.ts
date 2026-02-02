@@ -3,7 +3,7 @@
  *
  * Fetches services from Convex (api.services.list, optional api.service_categories.list),
  * maps to store Service[] with id as string (Convex _id), and hydrates useBookingStore.
- * Price estimate: (default_labor_hours × defaultLaborRate) + defaultParts + tax + fees.
+ * Price: parts only (no labor rate without shop). Labor is computed with shop.labor_rate where shop is known.
  *
  * USED IN: Layout or home entry to hydrate availableServices; gates MOCK_SERVICES when Convex data is present.
  */
@@ -16,9 +16,7 @@ import type { ServiceCategory } from "@/stores/types/store.types";
 import type { Service } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
 
-const DEFAULT_LABOR_RATE = 80;
 const DEFAULT_PARTS = 0;
-const TAX_AND_FEES = 0;
 
 /** Map Convex category name to app ServiceCategory */
 function mapCategoryNameToKey(name: string | undefined): ServiceCategory {
@@ -32,7 +30,7 @@ function mapCategoryNameToKey(name: string | undefined): ServiceCategory {
 
 /**
  * Map a Convex service doc (with serviceCategory, default_parts_estimate) to store Service.
- * id = doc._id as string, price = labor estimate + parts + fees.
+ * price = parts only; labor is computed with shop.labor_rate where shop is known (no default rate).
  */
 function mapConvexServiceToStore(doc: {
   _id: Id<"services">;
@@ -44,8 +42,7 @@ function mapConvexServiceToStore(doc: {
 }): Service {
   const category = mapCategoryNameToKey(doc.serviceCategory?.name);
   const parts = doc.default_parts_estimate ?? DEFAULT_PARTS;
-  const laborCost = doc.default_labor_hours * DEFAULT_LABOR_RATE;
-  const price = laborCost + parts + TAX_AND_FEES;
+  const price = parts;
   return {
     id: doc._id,
     name: doc.name,

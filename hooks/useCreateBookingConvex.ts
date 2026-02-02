@@ -17,6 +17,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { useUserFromConvex } from "./useUserFromConvex";
 import { useVehicleOwnershipFromConvex } from "./useVehicleOwnershipFromConvex";
 import { useMechanicStore } from "@/stores/useMechanicStore";
+import { useShopStore } from "@/stores/useShopStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { displayTimeToHHMM } from "@/utils/timeSlotUtils";
@@ -26,13 +27,13 @@ export function useCreateBookingConvex() {
   const { userId } = useUserFromConvex();
   const { primaryVin } = useVehicleOwnershipFromConvex();
   const getMechanicById = useMechanicStore((s) => s.getMechanicById);
+  const getShopById = useShopStore((s) => s.getShopById);
 
   const selectedServiceIds = useBookingStore((s) => s.selectedServiceIds);
   const selectedMechanicId = useBookingStore((s) => s.selectedMechanicId);
   const availableServices = useBookingStore((s) => s.availableServices);
   const selectedMechanicSlot = useBookingStore((s) => s.selectedMechanicSlot);
   const scheduledAppointment = useBookingStore((s) => s.scheduledAppointment);
-  const getSelectedServicesTotal = useBookingStore((s) => s.getSelectedServicesTotal);
   const createBooking = useBookingStore((s) => s.createBooking);
 
   // Resolve shopId: from selectedMechanicSlot or from selected mechanic's shop
@@ -90,19 +91,24 @@ export function useCreateBookingConvex() {
         throw new Error("No services selected");
       }
 
-      const totalPrice = getSelectedServicesTotal();
-      const laborRatio = 0.6;
-      const laborTotal = totalPrice * laborRatio;
-      const partsTotal = totalPrice * (1 - laborRatio);
-      const perServiceLabor = laborTotal / selectedServices.length;
-      const perServiceParts = partsTotal / selectedServices.length;
-
-      const services = selectedServices.map((s) => ({
-        service_id: s.id as Id<"services">,
-        labor_cost: perServiceLabor,
-        parts_cost: perServiceParts,
-        labor_hours: s.default_labor_hours ?? 0.5,
-      }));
+      // Use only shop labor rate (no default)
+      const shop = shopId ? getShopById(shopId) : null;
+      const laborRate = shop?.labor_rate;
+      if (!shop || laborRate == null || laborRate === undefined) {
+        throw new Error("Shop labor rate is required to create a booking.");
+      }
+      // Use only shop labor rate: actual labor = rate × hours, actual parts = service default_parts_estimate
+      const services = selectedServices.map((s) => {
+        const hours = s.default_labor_hours ?? 0.5;
+        const laborCost = laborRate * hours;
+        const partsCost = s.default_parts_estimate ?? 0;
+        return {
+          service_id: s.id as Id<"services">,
+          labor_cost: laborCost,
+          parts_cost: partsCost,
+          labor_hours: hours,
+        };
+      });
 
       const scheduledDateVal = scheduledAppointment?.date ?? new Date().toISOString().split("T")[0];
       const scheduledTimeVal = scheduledAppointment?.time ? displayTimeToHHMM(scheduledAppointment.time) : "09:00";
@@ -134,7 +140,7 @@ export function useCreateBookingConvex() {
       selectedServiceIds,
       availableServices,
       scheduledAppointment,
-      getSelectedServicesTotal,
+      getShopById,
       resolveTimeSlotId,
       createBatch,
       createBooking,

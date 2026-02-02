@@ -13,7 +13,7 @@
 | Component | Description |
 |-----------|-------------|
 | **users.getMe** | Returns current authenticated user (Clerk identity). Used for `userId` in booking mutations. |
-| **bookings.createBatch** | Creates **one** booking per appointment (one time slot). Accepts multiple services plus optional `taxes_and_fees`, `platform_fee`; stores `service_ids`; `total_cost` = labor + parts + taxes + platform fee (full amount customer pays). Marks slot unavailable once; returns single booking ID. |
+| **bookings.createBatch** | Creates **one** booking per appointment (one time slot). Accepts `services` (per-service `labor_cost`, `parts_cost`, `labor_hours`); optional `taxes_and_fees`, `platform_fee`. Labor/parts come from **shop labor rate only** (no default): `labor_cost = shop.labor_rate × default_labor_hours`, `parts_cost = default_parts_estimate` per service. Stores `service_ids`; `total_cost` = labor + parts + taxes + platform fee (full amount customer pays). Initial `status: "pending"`. Marks slot unavailable once; returns single booking ID. |
 
 ### Hooks & Store Caching
 
@@ -117,7 +117,7 @@
 | **useShopsFromConvex** | Provides `labor_rate` per shop for per-shop pricing |
 | **useServicesFromConvex** | Provides `default_labor_hours`, `default_parts_estimate` (from first `service_options`) as fallback |
 
-**Price formula:** `(shop.labor_rate × labor_hours) + parts` per service, summed.
+**Price formula:** `(shop.labor_rate × labor_hours) + parts` per service, summed. **Only the shop’s declared labor rate is used; there is no default labor rate.** In the UI, `laborRate = shop?.labor_rate` (no fallback in the declaration); a fallback is applied only at calculation sites where a number is required for arithmetic.
 
 - **Car-specific:** When selected vehicle has `engine_id` (from Convex), `service_vehicle_specs.getSpecsForEngineAndServices` returns `labor_hours` and `parts_cost_avg` per service.
 - **Fallback:** When no engine-specific spec exists, uses `services.default_labor_hours` and `service_options.parts_cost` (average of first option).
@@ -221,8 +221,8 @@ When the user taps **"Confirm Appointment"** on the payment screen, the app inse
 |------|--------|
 | 1. Validate | Vehicle exists; user has active ownership in `vehicle_owners`; time slot exists and `is_available === true`. |
 | 2. Reserve slot | Patch `time_slots` for the chosen `time_slot_id`: `is_available: false` (once per appointment). |
-| 3. Insert booking | **One** row in **bookings** (one appointment = one row): `user_id`, `vin`, `shop_id`, `mechanic_id`, `time_slot_id`, `scheduled_date`, `scheduled_time`, `service_ids` (array of service IDs), aggregated `labor_cost`, `parts_cost`, `total_cost` (= labor + parts + taxes_and_fees + platform_fee; full amount customer pays), `estimated_labor_minutes`, `status: "confirmed"`. |
-| 4. Status history | One row in **booking_status_history**: `booking_id`, `new_status: "confirmed"`, `changed_at`. |
+| 3. Insert booking | **One** row in **bookings** (one appointment = one row): `user_id`, `vin`, `shop_id`, `mechanic_id`, `time_slot_id`, `scheduled_date`, `scheduled_time`, `service_ids` (array of service IDs), aggregated `labor_cost`, `parts_cost`, `total_cost` (= labor + parts + taxes_and_fees + platform_fee; full amount customer pays), `estimated_labor_minutes`, `status: "pending"`. Labor/parts are from **shop labor rate only** (hook sends per-service `labor_cost` = shop.labor_rate × default_labor_hours, `parts_cost` = default_parts_estimate; no default rate). |
+| 4. Status history | One row in **booking_status_history**: `booking_id`, `new_status: "pending"`, `changed_at`. |
 | 5. Analytics | One row in **analytics_events**: `event_type: "booking_created"`, `event_category: "booking"`, `booking_id`, `shop_id`, `service_id` (first service from `service_ids`, for event payload). |
 | 6. Optional | If `funnel_id` is passed, complete the conversion funnel. |
 
@@ -230,9 +230,9 @@ When the user taps **"Confirm Appointment"** on the payment screen, the app inse
 
 | Table | Content |
 |-------|---------|
-| **bookings** | **One** record per appointment: `user_id`, `vin`, `shop_id`, `mechanic_id`, `time_slot_id`, `scheduled_date`, `scheduled_time`, `service_ids` (array of service IDs), `labor_cost` (total), `parts_cost` (total), `total_cost` (labor + parts + taxes & fees + platform fee; matches Review & Pay Total), `estimated_labor_minutes`, `status: "confirmed"`. |
+| **bookings** | **One** record per appointment: `user_id`, `vin`, `shop_id`, `mechanic_id`, `time_slot_id`, `scheduled_date`, `scheduled_time`, `service_ids` (array of service IDs), `labor_cost` (total), `parts_cost` (total), `total_cost` (labor + parts + taxes & fees + platform fee; matches Review & Pay Total), `estimated_labor_minutes`, `status: "pending"`. Labor/parts derived only from shop’s labor rate and service defaults (no default labor rate). |
 | **time_slots** | The chosen slot's row is patched: `is_available: false`. |
-| **booking_status_history** | One row: `booking_id`, `new_status: "confirmed"`, `changed_at`. |
+| **booking_status_history** | One row: `booking_id`, `new_status: "pending"`, `changed_at`. |
 | **analytics_events** | One row: `booking_created` with `booking_id`, `shop_id`, `service_id` (first service from booking’s `service_ids`). |
 
 ### Flow coverage
@@ -261,6 +261,7 @@ On sign-in, `claimSeedDataForCurrentUser` runs automatically: it reassigns the s
 
 ### Doc history
 
+- **Labor rate:** Only the shop’s declared `labor_rate` is used for pricing and for createBatch; no default labor rate. In the UI, `laborRate = shop?.labor_rate` (fallback only at calculation sites where a number is required). useCreateBookingConvex throws if shop or labor_rate is missing when creating a booking. Per-service costs sent to createBatch: `labor_cost = shop.labor_rate × default_labor_hours`, `parts_cost = default_parts_estimate` (no ratio).
 - **total_cost includes taxes & platform fee:** February 2026 – `total_cost` in DB = labor + parts + taxes_and_fees + platform_fee (full amount customer pays). Review & Pay screen Total = subtotal + Taxes & Fees + Platform Fee to match. createBatch accepts optional `taxes_and_fees`, `platform_fee`; hook passes TAXES_AND_FEES (5.0), PLATFORM_FEE (4.79).
-- **One booking per appointment:** February 2026 – `createBatch` now creates **one** booking row per appointment (not N rows per N services). Bookings table has `service_ids` array, `estimated_labor_minutes`, and aggregated `labor_cost`/`parts_cost`/`total_cost`. One time slot per appointment; no double-booking conflict. `service_id` column removed; use `service_ids` only.
+- **One booking per appointment:** February 2026 – `createBatch` now creates **one** booking row per appointment (not N rows per N services). Bookings table has `service_ids` array, `estimated_labor_minutes`, and aggregated `labor_cost`/`parts_cost`/`total_cost`. One time slot per appointment; no double-booking conflict. `service_id` column removed; use `service_ids` only. Initial booking status is **pending** (shop can accept); booking_status_history logs `new_status: "pending"`.
 - **Section 5 (Confirm Appointment):** Added February 2026 – documents Convex insert on "Confirm Appointment", shopId/timeSlotId resolution, `createBatch` side effects, and tables populated (bookings, time_slots, booking_status_history, analytics_events).

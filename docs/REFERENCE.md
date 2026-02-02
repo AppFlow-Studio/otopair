@@ -168,7 +168,7 @@ ai_enrichment_logs → manual_review_queue; spec_variances, spec_confirmations �
 - **Sources (priority order):**
   1. **Car-specific:** `service_vehicle_specs` (engine_id + service_id) → `labor_hours`, `parts_cost_low`, `parts_cost_high` (use avg). Used when selected vehicle has `engine_id`.
   2. **Fallback:** `services.default_labor_hours`, `service_options` (first option) → `parts_cost_low`, `parts_cost_high` (use avg).
-- **Shop labor rate:** `shops.labor_rate` for per-shop pricing (Choose Mechanic, footer).
+- **Shop labor rate:** Only the shop’s declared `shops.labor_rate` is used; there is no default labor rate. In the UI, `laborRate = shop?.labor_rate`; fallback only at calculation sites where a number is required. useCreateBookingConvex requires shop and labor_rate when creating a booking (throws otherwise). createBatch receives per-service labor/parts from the hook: `labor_cost = shop.labor_rate × default_labor_hours`, `parts_cost = default_parts_estimate`.
 - **Display format:** `Oil change + x more... $80` (service names first, total price last) in ShopCard and footer.
 - Use this formula wherever the app needs a “price” or “total” for a service (e.g. booking flow, review & pay).
 
@@ -235,7 +235,7 @@ ai_enrichment_logs → manual_review_queue; spec_variances, spec_confirmations �
 
 ### bookings.ts
 
-- list(), getById(id), getByUserId(userId), getByShopId(shopId), create(...), **createBatch(...)** (one booking per appointment with `service_ids` and aggregated cost/time), updateStatus(bookingId, newStatus, reason?)
+- list(), getById(id), getByUserId(userId), getByShopId(shopId), create(...), **createBatch(...)** (one booking per appointment with `service_ids` and aggregated cost/time; labor/parts from shop labor rate only, no default; initial status `pending`), updateStatus(bookingId, newStatus, reason?)
 
 ### payments.ts
 
@@ -350,7 +350,7 @@ await addOwner({ vin, userId, nickname: "My Car", is_primary: true, mileage: 420
 
 **Single-service:** `bookings.create(...)` – one row with `service_ids: [service_id]`.
 
-**Multi-service (one appointment):** `bookings.createBatch(...)` – one row per appointment; `services` array; aggregated costs and `estimated_labor_minutes`; returns `[bookingId]`.
+**Multi-service (one appointment):** `bookings.createBatch(...)` – one row per appointment; `services` array (per-service labor_cost, parts_cost from shop labor rate only: labor_cost = shop.labor_rate × default_labor_hours, parts_cost = default_parts_estimate); aggregated costs and `estimated_labor_minutes`; initial status `pending`; returns `[bookingId]`.
 
 ```typescript
 await createBatch({

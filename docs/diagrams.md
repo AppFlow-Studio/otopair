@@ -1146,7 +1146,7 @@ classDiagram
 
 **Single-service:** `bookings.create` – one booking with `service_ids: [service_id]`.
 
-**Multi-service (app flow):** `bookings.createBatch` – one booking per appointment; accepts `services` payload (for aggregates) and optional `taxes_and_fees`, `platform_fee`; stores `service_ids` (array of IDs); total_cost = labor + parts + taxes_and_fees + platform_fee (full amount customer pays); marks one time slot unavailable; returns `[bookingId]`.
+**Multi-service (app flow):** `bookings.createBatch` – one booking per appointment; accepts `services` payload (per-service labor_cost, parts_cost from **shop labor rate only**: labor_cost = shop.labor_rate × default_labor_hours, parts_cost = default_parts_estimate); optional `taxes_and_fees`, `platform_fee`; stores `service_ids` (array of IDs); total_cost = labor + parts + taxes_and_fees + platform_fee (full amount customer pays); initial status `pending`; marks one time slot unavailable; returns `[bookingId]`.
 
 ```mermaid
 flowchart TD

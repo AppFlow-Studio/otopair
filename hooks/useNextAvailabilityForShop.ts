@@ -31,7 +31,7 @@ const DEFAULT_LIMIT = 12;
 export function useNextAvailabilityForShop(
   shopId: string | null,
   mechanicId: string | null | undefined,
-  limit: number = DEFAULT_LIMIT
+  limit: number = DEFAULT_LIMIT,
 ) {
   const convexSlots = useQuery(
     api.time_slots.getNextAvailableByShop,
@@ -41,7 +41,7 @@ export function useNextAvailabilityForShop(
           limit,
           mechanicId: mechanicId === undefined || mechanicId === null ? undefined : (mechanicId as Id<"mechanics">),
         }
-      : "skip"
+      : "skip",
   );
 
   const slots = useMemo((): NextAvailabilitySlot[] => {

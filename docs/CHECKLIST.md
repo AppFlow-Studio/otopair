@@ -70,7 +70,7 @@
 - [x] **Shops/mechanics** – useShopsFromConvex, useMechanicsFromConvex hydrate useShopStore and useMechanicStore from Convex
 - [x] **Time slots** – useTimeSlotsForShop in ShopBookingModal; useNextAvailabilityForShop in ShopCard and ShopDetails; Convex time_slots shown; timeSlotId set on confirm for createBatch
 - [x] **Vehicle** – useVehicleOwnershipFromConvex hydrates useVehicleStore from vehicle_owners; primaryVin used for createBatch; engineId passed for car-specific pricing
-- [x] **Service pricing** – (labor_rate × labor_hours) + parts; car-specific from service_vehicle_specs when vehicle has engine_id; shop detail uses shop.labor_rate for per-service and total; display format "Oil change + x more... $80" in ShopCard and footer; prices formatted to 2 decimals
+- [x] **Service pricing** – (labor_rate × labor_hours) + parts; **only shop’s declared labor rate** (no default); car-specific from service_vehicle_specs when vehicle has engine_id; shop detail uses shop.labor_rate for per-service and total; display format "Oil change + x more... $80" in ShopCard and footer; prices formatted to 2 decimals
 - [x] **Distance & ratings** – Distance computed from userLocation to shop (utils/geo); ratings from Convex (shops.rating, mechanics.rating); distance displayed with formatDistanceMiles (1 decimal)
 - [x] **Shop detail** – ShopDetails: Convex pricing (shop.labor_rate + service defaults), Convex schedule (useNextAvailabilityForShop, slots grouped by mechanic); ShopReviewsSection uses api.reviews.getByShopId; ShopPortfolioSection uses useShopPortfolioFromConvex (cdn_assets + shop_portfolio); MechanicReviewsSection uses api.reviews.getByMechanicId
 
@@ -104,4 +104,4 @@
 
 **Last updated:** February 2026. Update this file when completing items or adding new work.
 
-- **Booking model:** One booking row per appointment (`service_ids` array, estimated_labor_minutes, aggregated costs); createBatch returns single ID.
+- **Booking model:** One booking row per appointment (`service_ids` array, estimated_labor_minutes, aggregated costs); createBatch returns single ID. Labor/parts from shop labor rate only (no default); initial status `pending`.

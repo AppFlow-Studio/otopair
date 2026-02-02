@@ -134,7 +134,7 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
     () => (effectiveShopId ? getShopById(effectiveShopId) : null),
     [effectiveShopId, getShopById],
   );
-  const laborRate = shop?.labor_rate ?? 80;
+  const laborRate = shop?.labor_rate;
 
   // ═══════════════ SCHEDULE STORE ═══════════════
   const currentMonth = useScheduleStore((state) => state.currentMonth);
@@ -188,7 +188,7 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
       selectedServices.reduce(
         (total, service) =>
           total +
-          laborRate * (service.default_labor_hours ?? 0) +
+          (laborRate ?? 0) * (service.default_labor_hours ?? 0) +
           (service.default_parts_estimate ?? 0),
         0,
       ),
@@ -197,7 +197,7 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
 
   const getServicePrice = useCallback(
     (service: Service) =>
-      laborRate * (service.default_labor_hours ?? 0) + (service.default_parts_estimate ?? 0),
+      (laborRate ?? 0) * (service.default_labor_hours ?? 0) + (service.default_parts_estimate ?? 0),
     [laborRate],
   );
 

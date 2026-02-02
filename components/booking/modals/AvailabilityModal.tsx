@@ -134,7 +134,8 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
   const getBookedDayNumbers = useScheduleStore((state) => state.getBookedDayNumbers);
   const getTimeSlotsForSelectedDate = useScheduleStore((state) => state.getTimeSlotsForSelectedDate);
 
-  const effectiveShopId = shopId ?? shopMechanics[0]?.shopId ?? (mechanicId ? getMechanicById(mechanicId)?.shopId : null);
+  const effectiveShopId =
+    shopId ?? shopMechanics[0]?.shopId ?? (mechanicId ? getMechanicById(mechanicId)?.shopId : null);
   const effectiveMechanicId = selectedMechanicId ?? shopMechanics[0]?.id ?? mechanicId;
 
   // ═══════════════ CONVEX: calendar availability (Available / Booked highlighting) ═══════════════
@@ -142,14 +143,14 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
     effectiveShopId,
     currentMonth.getFullYear(),
     currentMonth.getMonth(),
-    effectiveMechanicId ?? undefined
+    effectiveMechanicId ?? undefined,
   );
 
   const selectedDateISO = selectedDate ? selectedDate.toISOString().split("T")[0] : null;
   const { timeOptions: convexTimeOptions, getSlotIdByDisplayTime } = useTimeSlotsForShop(
     effectiveShopId,
     selectedDateISO,
-    effectiveMechanicId ?? undefined
+    effectiveMechanicId ?? undefined,
   );
 
   // ═══════════════ BOOKING STORE ═══════════════
