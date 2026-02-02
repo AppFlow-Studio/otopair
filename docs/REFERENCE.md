@@ -46,7 +46,7 @@ For high-level and per-part diagrams, see [docs/diagrams.md](diagrams.md). For p
 
 | Table                  | Purpose                                                                     |
 | ---------------------- | --------------------------------------------------------------------------- |
-| bookings               | One row per appointment; links user, vin, shop, time_slot; `service_ids` array (service IDs), aggregated labor/parts/total cost, `estimated_labor_minutes`; status FSM |
+| bookings               | One row per appointment; links user, vin, shop, time_slot; `service_ids` array (service IDs), aggregated labor/parts cost; `total_cost` = labor + parts + taxes_and_fees + platform_fee (full amount customer pays); `estimated_labor_minutes`; status FSM |
 | payments               | Payment per booking; idempotency_key; status FSM                            |
 | job_actuals            | Actual work per booking (labor, parts, notes); one per booking              |
 | booking_status_history | Append-only booking status transitions                                      |
@@ -357,6 +357,7 @@ await createBatch({
   user_id, vin, shop_id, mechanic_id?, time_slot_id,
   scheduled_date, scheduled_time,
   services: [{ service_id, labor_cost, parts_cost, labor_hours? }, ...], // payload; DB stores service_ids (array of IDs only)
+  taxes_and_fees?, platform_fee?, // optional; included in total_cost (full amount customer pays)
   session_id?, funnel_id?,
 });
 ```

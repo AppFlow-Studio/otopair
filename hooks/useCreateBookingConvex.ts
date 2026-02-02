@@ -107,6 +107,9 @@ export function useCreateBookingConvex() {
       const scheduledDateVal = scheduledAppointment?.date ?? new Date().toISOString().split("T")[0];
       const scheduledTimeVal = scheduledAppointment?.time ? displayTimeToHHMM(scheduledAppointment.time) : "09:00";
 
+      const TAXES_AND_FEES = 5.0;
+      const PLATFORM_FEE = 4.79;
+
       const bookingIds = await createBatch({
         user_id: userId,
         vin,
@@ -116,6 +119,8 @@ export function useCreateBookingConvex() {
         scheduled_date: scheduledDateVal,
         scheduled_time: scheduledTimeVal,
         services,
+        taxes_and_fees: TAXES_AND_FEES,
+        platform_fee: PLATFORM_FEE,
       });
 
       // One appointment = one booking ID

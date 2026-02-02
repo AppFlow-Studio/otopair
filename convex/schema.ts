@@ -40,7 +40,7 @@ export default defineSchema({
    *   - scheduled_time: Time of service (HH:MM format)
    *   - labor_cost: Total estimated labor cost (all services) in dollars
    *   - parts_cost: Total estimated parts cost (all services) in dollars
-   *   - total_cost: Sum of labor_cost + parts_cost
+   *   - total_cost: Full amount customer pays (labor_cost + parts_cost + taxes_and_fees + platform_fee)
    *   - estimated_labor_minutes: Total estimated time for all services (minutes)
    *   - status: Current booking state (e.g., "confirmed", "completed", "cancelled")
    *   - created_at: Unix timestamp when booking was created

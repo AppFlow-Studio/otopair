@@ -233,6 +233,8 @@ export const create = mutation({
  * ARGS:
  *   - user_id, vin, shop_id, mechanic_id?, time_slot_id, scheduled_date, scheduled_time
  *   - services: Array of { service_id, labor_cost, parts_cost, labor_hours? }
+ *   - taxes_and_fees: (optional) Taxes & fees to include in total_cost
+ *   - platform_fee: (optional) Platform fee to include in total_cost
  *   - session_id, funnel_id: optional
  *
  * RETURNS: Single-element array [bookingId]
@@ -254,6 +256,8 @@ export const createBatch = mutation({
         labor_hours: v.optional(v.float64()),
       }),
     ),
+    taxes_and_fees: v.optional(v.float64()),
+    platform_fee: v.optional(v.float64()),
     session_id: v.optional(v.string()),
     funnel_id: v.optional(v.id("conversion_funnels")),
   },
@@ -293,7 +297,9 @@ export const createBatch = mutation({
 
     const labor_cost = args.services.reduce((sum, s) => sum + s.labor_cost, 0);
     const parts_cost = args.services.reduce((sum, s) => sum + s.parts_cost, 0);
-    const total_cost = labor_cost + parts_cost;
+    const taxes_and_fees = args.taxes_and_fees ?? 0;
+    const platform_fee = args.platform_fee ?? 0;
+    const total_cost = labor_cost + parts_cost + taxes_and_fees + platform_fee;
     const estimated_labor_minutes = args.services.reduce(
       (sum, s) => sum + (s.labor_hours ?? 0) * 60,
       0,

@@ -113,7 +113,7 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
       taxesAndFees: TAXES_AND_FEES,
       platformFee: PLATFORM_FEE,
       subtotal: servicesTotal,
-      total: servicesTotal + PLATFORM_FEE,
+      total: servicesTotal + TAXES_AND_FEES + PLATFORM_FEE,
     };
   }, [selectedServices]);
 

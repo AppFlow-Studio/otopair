@@ -13,7 +13,7 @@
 | Component | Description |
 |-----------|-------------|
 | **users.getMe** | Returns current authenticated user (Clerk identity). Used for `userId` in booking mutations. |
-| **bookings.createBatch** | Creates **one** booking per appointment (one time slot). Accepts multiple services; stores them in `service_ids` (array of IDs) and aggregates total cost and estimated time. Marks slot unavailable once; returns single booking ID. |
+| **bookings.createBatch** | Creates **one** booking per appointment (one time slot). Accepts multiple services plus optional `taxes_and_fees`, `platform_fee`; stores `service_ids`; `total_cost` = labor + parts + taxes + platform fee (full amount customer pays). Marks slot unavailable once; returns single booking ID. |
 
 ### Hooks & Store Caching
 
@@ -221,7 +221,7 @@ When the user taps **"Confirm Appointment"** on the payment screen, the app inse
 |------|--------|
 | 1. Validate | Vehicle exists; user has active ownership in `vehicle_owners`; time slot exists and `is_available === true`. |
 | 2. Reserve slot | Patch `time_slots` for the chosen `time_slot_id`: `is_available: false` (once per appointment). |
-| 3. Insert booking | **One** row in **bookings** (one appointment = one row): `user_id`, `vin`, `shop_id`, `mechanic_id`, `time_slot_id`, `scheduled_date`, `scheduled_time`, `service_ids` (array of service IDs), aggregated `labor_cost`, `parts_cost`, `total_cost`, `estimated_labor_minutes`, `status: "confirmed"`. |
+| 3. Insert booking | **One** row in **bookings** (one appointment = one row): `user_id`, `vin`, `shop_id`, `mechanic_id`, `time_slot_id`, `scheduled_date`, `scheduled_time`, `service_ids` (array of service IDs), aggregated `labor_cost`, `parts_cost`, `total_cost` (= labor + parts + taxes_and_fees + platform_fee; full amount customer pays), `estimated_labor_minutes`, `status: "confirmed"`. |
 | 4. Status history | One row in **booking_status_history**: `booking_id`, `new_status: "confirmed"`, `changed_at`. |
 | 5. Analytics | One row in **analytics_events**: `event_type: "booking_created"`, `event_category: "booking"`, `booking_id`, `shop_id`, `service_id` (first service from `service_ids`, for event payload). |
 | 6. Optional | If `funnel_id` is passed, complete the conversion funnel. |
@@ -230,7 +230,7 @@ When the user taps **"Confirm Appointment"** on the payment screen, the app inse
 
 | Table | Content |
 |-------|---------|
-| **bookings** | **One** record per appointment: `user_id`, `vin`, `shop_id`, `mechanic_id`, `time_slot_id`, `scheduled_date`, `scheduled_time`, `service_ids` (array of service IDs), `labor_cost` (total), `parts_cost` (total), `total_cost`, `estimated_labor_minutes`, `status: "confirmed"`. |
+| **bookings** | **One** record per appointment: `user_id`, `vin`, `shop_id`, `mechanic_id`, `time_slot_id`, `scheduled_date`, `scheduled_time`, `service_ids` (array of service IDs), `labor_cost` (total), `parts_cost` (total), `total_cost` (labor + parts + taxes & fees + platform fee; matches Review & Pay Total), `estimated_labor_minutes`, `status: "confirmed"`. |
 | **time_slots** | The chosen slot's row is patched: `is_available: false`. |
 | **booking_status_history** | One row: `booking_id`, `new_status: "confirmed"`, `changed_at`. |
 | **analytics_events** | One row: `booking_created` with `booking_id`, `shop_id`, `service_id` (first service from booking’s `service_ids`). |
@@ -261,5 +261,6 @@ On sign-in, `claimSeedDataForCurrentUser` runs automatically: it reassigns the s
 
 ### Doc history
 
+- **total_cost includes taxes & platform fee:** February 2026 – `total_cost` in DB = labor + parts + taxes_and_fees + platform_fee (full amount customer pays). Review & Pay screen Total = subtotal + Taxes & Fees + Platform Fee to match. createBatch accepts optional `taxes_and_fees`, `platform_fee`; hook passes TAXES_AND_FEES (5.0), PLATFORM_FEE (4.79).
 - **One booking per appointment:** February 2026 – `createBatch` now creates **one** booking row per appointment (not N rows per N services). Bookings table has `service_ids` array, `estimated_labor_minutes`, and aggregated `labor_cost`/`parts_cost`/`total_cost`. One time slot per appointment; no double-booking conflict. `service_id` column removed; use `service_ids` only.
 - **Section 5 (Confirm Appointment):** Added February 2026 – documents Convex insert on "Confirm Appointment", shopId/timeSlotId resolution, `createBatch` side effects, and tables populated (bookings, time_slots, booking_status_history, analytics_events).
