@@ -19,10 +19,7 @@ export interface PortfolioItem {
 }
 
 export function useShopPortfolioFromConvex(shopId: string | null) {
-  const items = useQuery(
-    api.shop_portfolio.listByShopId,
-    shopId ? { shopId: shopId as Id<"shops"> } : "skip"
-  );
+  const items = useQuery(api.shop_portfolio.listByShopId, shopId ? { shopId: shopId as Id<"shops"> } : "skip");
 
   const portfolio = useMemo((): PortfolioItem[] => {
     if (!items) return [];

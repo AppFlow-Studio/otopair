@@ -55,7 +55,7 @@ export function MechanicReviewsSection({ mechanicId }: MechanicReviewsSectionPro
 
   const convexReviews = useQuery(
     api.reviews.getByMechanicId,
-    mechanicId ? { mechanicId: mechanicId as Id<"mechanics"> } : "skip"
+    mechanicId ? { mechanicId: mechanicId as Id<"mechanics"> } : "skip",
   );
 
   const { reviews, rating, ratingCount, distribution } = useMemo(() => {

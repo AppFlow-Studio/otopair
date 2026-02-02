@@ -25,7 +25,13 @@ import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 // 4. Flow-specific components
 import { AvailabilityModal } from "@/components/booking/modals";
 // BookingFooter is now rendered by ServiceBottomSheet's footerComponent
-import { ShopCard, type ShopWithMechanics, type SelectedSlotInfo, type SelectedServiceInfo, type SlotWithBookingMeta } from "./ShopCard";
+import {
+  ShopCard,
+  type ShopWithMechanics,
+  type SelectedSlotInfo,
+  type SelectedServiceInfo,
+  type SlotWithBookingMeta,
+} from "./ShopCard";
 
 // 5. Constants, hooks, types, stores
 import { MECHANIC_FILTER_OPTIONS, type MechanicFilterOption } from "@/constants/filters";
@@ -71,10 +77,7 @@ interface MechanicSelectionContentProps {
  * Groups mechanics by their shopId and returns shop-centric data.
  * Merges laborRate from shops map when available.
  */
-function groupMechanicsByShop(
-  mechanics: Mechanic[],
-  shopIdToLaborRate?: Map<string, number>,
-): ShopWithMechanics[] {
+function groupMechanicsByShop(mechanics: Mechanic[], shopIdToLaborRate?: Map<string, number>): ShopWithMechanics[] {
   const shopMap = new Map<string, ShopWithMechanics>();
 
   mechanics.forEach((mechanic) => {

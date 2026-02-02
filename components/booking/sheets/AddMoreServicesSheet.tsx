@@ -97,7 +97,7 @@ export const AddMoreServicesSheet = forwardRef<AddMoreServicesSheetRef, AddMoreS
           onClose?.();
         }
       },
-      [onClose]
+      [onClose],
     );
 
     const handleCancel = useCallback(() => {
@@ -116,7 +116,7 @@ export const AddMoreServicesSheet = forwardRef<AddMoreServicesSheetRef, AddMoreS
       (serviceId: string) => {
         toggleServiceSelection(serviceId);
       },
-      [toggleServiceSelection]
+      [toggleServiceSelection],
     );
 
     const handleCategorySelect = useCallback((category: ServiceCategory) => {
@@ -126,7 +126,7 @@ export const AddMoreServicesSheet = forwardRef<AddMoreServicesSheetRef, AddMoreS
     // ═══════════════ RENDER HELPERS ═══════════════
     const renderBackdrop = useCallback(
       (props: any) => <BottomSheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} opacity={0.5} />,
-      []
+      [],
     );
 
     const renderCategoryTab = useCallback(
@@ -151,7 +151,7 @@ export const AddMoreServicesSheet = forwardRef<AddMoreServicesSheetRef, AddMoreS
           </TouchableOpacity>
         );
       },
-      [selectedCategory, handleCategorySelect]
+      [selectedCategory, handleCategorySelect],
     );
 
     const renderServiceItem = useCallback(
@@ -176,7 +176,7 @@ export const AddMoreServicesSheet = forwardRef<AddMoreServicesSheetRef, AddMoreS
           </TouchableOpacity>
         );
       },
-      [selectedServiceIds, handleServicePress]
+      [selectedServiceIds, handleServicePress],
     );
 
     // ═══════════════ RENDER ═══════════════
@@ -251,7 +251,7 @@ export const AddMoreServicesSheet = forwardRef<AddMoreServicesSheetRef, AddMoreS
         </View>
       </BottomSheetModal>
     );
-  }
+  },
 );
 
 // ============================================================================

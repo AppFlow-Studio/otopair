@@ -84,6 +84,81 @@ export const getByUserId = query({
 });
 
 /**
+ * QUERY: getRecentlyBookedShopIdsByUserId
+ * Get unique shop IDs the user has booked at, ordered by most recent booking first.
+ * Used to show "Recently booked" in booking flow search.
+ *
+ * ARGS:
+ *   - userId: User ID
+ *   - limit: Max number of shop IDs to return (default 5)
+ *
+ * RETURNS: Array of shop IDs (most recently booked first)
+ */
+export const getRecentlyBookedShopIdsByUserId = query({
+  args: {
+    userId: v.id("users"),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const limit = args.limit ?? 5;
+    const bookings = await ctx.db
+      .query("bookings")
+      .withIndex("by_user_id", (q) => q.eq("user_id", args.userId))
+      .collect();
+    // Sort by most recent booking first
+    bookings.sort((a, b) => b.created_at - a.created_at);
+    const seen = new Set<string>();
+    const shopIds: string[] = [];
+    for (const b of bookings) {
+      const id = b.shop_id;
+      if (!seen.has(id)) {
+        seen.add(id);
+        shopIds.push(id);
+        if (shopIds.length >= limit) break;
+      }
+    }
+    return shopIds;
+  },
+});
+
+/**
+ * QUERY: getRecentlyBookedMechanicIdsByUserId
+ * Get unique mechanic IDs the user has booked with, ordered by most recent booking first.
+ * Only includes bookings that have mechanic_id set.
+ *
+ * ARGS:
+ *   - userId: User ID
+ *   - limit: Max number of mechanic IDs to return (default 5)
+ *
+ * RETURNS: Array of mechanic IDs (most recently booked first)
+ */
+export const getRecentlyBookedMechanicIdsByUserId = query({
+  args: {
+    userId: v.id("users"),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const limit = args.limit ?? 5;
+    const bookings = await ctx.db
+      .query("bookings")
+      .withIndex("by_user_id", (q) => q.eq("user_id", args.userId))
+      .collect();
+    bookings.sort((a, b) => b.created_at - a.created_at);
+    const seen = new Set<string>();
+    const mechanicIds: string[] = [];
+    for (const b of bookings) {
+      const mid = b.mechanic_id;
+      if (mid && !seen.has(mid)) {
+        seen.add(mid);
+        mechanicIds.push(mid);
+        if (mechanicIds.length >= limit) break;
+      }
+    }
+    return mechanicIds;
+  },
+});
+
+/**
  * QUERY: getByShopId
  * Get all bookings for a specific shop.
  * Used by shops to view their upcoming appointments.

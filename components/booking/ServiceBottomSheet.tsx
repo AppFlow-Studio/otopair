@@ -63,8 +63,10 @@ import { ShopPreviewContent } from "./sheets/ShopPreviewContent";
 // 5. Constants, hooks, types, stores
 import { BorderRadius, FontFamily, FontSize, Shadows } from "@/constants/theme";
 import { useBookingTransition } from "@/hooks/useBookingTransition";
-import type { ServiceCategory } from "@/stores/types/store.types";
+import { useRecentlyBookedMechanicIdsFromConvex } from "@/hooks/useRecentlyBookedMechanicIdsFromConvex";
+import { useRecentlyBookedShopIdsFromConvex } from "@/hooks/useRecentlyBookedShopIdsFromConvex";
 import { useServiceVehicleSpecsForEngine } from "@/hooks/useServiceVehicleSpecsForEngine";
+import type { ServiceCategory } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useSearchStore, type SearchSuggestion } from "@/stores/useSearchStore";
@@ -194,6 +196,8 @@ export function ServiceBottomSheet({
   const getShopById = useShopStore((state) => state.getShopById);
   const mechanics = useMechanicStore((state) => state.mechanics);
   const mechanicIds = useMechanicStore((state) => state.mechanicIds);
+  const { recentlyBookedShopIds } = useRecentlyBookedShopIdsFromConvex(5);
+  const { recentlyBookedMechanicIds } = useRecentlyBookedMechanicIdsFromConvex(5);
 
   // ═══════════════ COMPUTED ═══════════════
   const hasSelection = selectedCount > 0;
@@ -249,6 +253,10 @@ export function ServiceBottomSheet({
 
   // ═══════════════ SEARCH COMPUTED VALUES ═══════════════
   const recentShopIds = useMemo(() => getRecentShopIds(), [getRecentShopIds]);
+  const recentShopIdsForDisplay = useMemo(() => {
+    const inMemory = recentShopIds.filter((id) => !recentlyBookedShopIds.includes(id));
+    return [...recentlyBookedShopIds, ...inMemory].slice(0, 5);
+  }, [recentlyBookedShopIds, recentShopIds]);
 
   const allShops = useMemo(() => {
     return shopIds.map((id) => shops[id]).filter(Boolean);
@@ -259,10 +267,16 @@ export function ServiceBottomSheet({
   }, [mechanics, mechanicIds]);
 
   const recentShops = useMemo(() => {
-    return recentShopIds
+    return recentShopIdsForDisplay
       .map((id) => getShopById(id))
       .filter((shop): shop is NonNullable<typeof shop> => shop !== undefined);
-  }, [recentShopIds, getShopById]);
+  }, [recentShopIdsForDisplay, getShopById]);
+
+  const recentMechanics = useMemo(() => {
+    return recentlyBookedMechanicIds
+      .map((id) => getMechanicById(id))
+      .filter((m): m is NonNullable<typeof m> => m !== undefined);
+  }, [recentlyBookedMechanicIds, getMechanicById]);
 
   const serviceSuggestions = useMemo(() => {
     if (!searchQuery.trim()) return [];
@@ -301,10 +315,9 @@ export function ServiceBottomSheet({
       .slice(0, 5);
   }, [allShops, allMechanics, searchQuery]);
 
-  const filteredRecentShops = useMemo(() => {
-    if (searchQuery.trim()) return [];
-    return recentShops.slice(0, 3);
-  }, [recentShops, searchQuery]);
+  const filteredRecentShops = useMemo(() => recentShops.slice(0, 3), [recentShops]);
+  const filteredRecentMechanics = useMemo(() => recentMechanics.slice(0, 3), [recentMechanics]);
+  const hasRecentlyBooked = filteredRecentShops.length > 0 || filteredRecentMechanics.length > 0;
 
   const hasSearchResults = topMatches.length > 0 || serviceSuggestions.length > 0;
 
@@ -976,21 +989,21 @@ export function ServiceBottomSheet({
         </View>
       )}
 
-      {/* Recent Shops (when not searching) */}
-      {filteredRecentShops.length > 0 && (
+      {/* Recently booked (shops + mechanics; show even while searching) */}
+      {hasRecentlyBooked && (
         <View style={styles.section}>
           <Text size="xs" weight="bold" color="#9CA3AF" style={styles.sectionLabel}>
             RECENTLY BOOKED
           </Text>
           {filteredRecentShops.map((shop) => (
             <TouchableOpacity
-              key={`recent-${shop.id}`}
+              key={`recent-shop-${shop.id}`}
               style={styles.resultCard}
               onPress={() => handleSearchShopPress(shop.id)}
               activeOpacity={0.7}
             >
               <View style={styles.recentIcon}>
-                <Clock size={18} color="#6B7280" />
+                <MapPin size={18} color={BrandColors.secondary} />
               </View>
               <View style={styles.resultContent}>
                 <Text size="md" weight="semiBold" color={BrandColors.primary}>
@@ -1005,11 +1018,39 @@ export function ServiceBottomSheet({
               </TouchableOpacity>
             </TouchableOpacity>
           ))}
+          {filteredRecentMechanics.map((mechanic) => (
+            <TouchableOpacity
+              key={`recent-mech-${mechanic.id}`}
+              style={styles.resultCard}
+              onPress={() => handleSearchMechanicPress(mechanic.id)}
+              activeOpacity={0.7}
+            >
+              <View style={styles.recentIcon}>
+                <User size={18} color={BrandColors.secondary} />
+              </View>
+              <View style={styles.resultContent}>
+                <Text size="md" weight="semiBold" color={BrandColors.primary}>
+                  {mechanic.name}
+                </Text>
+                <Text size="sm" color="#6B7280" numberOfLines={1}>
+                  {mechanic.shopName}
+                  {mechanic.title ? ` • ${mechanic.title}` : ""}
+                </Text>
+              </View>
+              {mechanic.isAvailable && (
+                <View style={styles.availableBadge}>
+                  <Text size="xs" weight="semiBold" color="#22C55E">
+                    Available
+                  </Text>
+                </View>
+              )}
+            </TouchableOpacity>
+          ))}
         </View>
       )}
 
       {/* Empty State */}
-      {searchQuery.length === 0 && filteredRecentShops.length === 0 && (
+      {searchQuery.length === 0 && !hasRecentlyBooked && (
         <View style={styles.emptyState}>
           <Text size="md" weight="medium" color="#9CA3AF" center>
             Start typing to search for services, shops, or mechanics

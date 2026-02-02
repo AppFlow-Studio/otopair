@@ -14,6 +14,8 @@
 |-----------|-------------|
 | **users.getMe** | Returns current authenticated user (Clerk identity). Used for `userId` in booking mutations. |
 | **bookings.createBatch** | Creates **one** booking per appointment (one time slot). Accepts `services` (per-service `labor_cost`, `parts_cost`, `labor_hours`); optional `taxes_and_fees`, `platform_fee`. Labor/parts come from **shop labor rate only** (no default): `labor_cost = shop.labor_rate × default_labor_hours`, `parts_cost = default_parts_estimate` per service. Stores `service_ids`; `total_cost` = labor + parts + taxes + platform fee (full amount customer pays). Initial `status: "pending"`. Marks slot unavailable once; returns single booking ID. |
+| **bookings.getRecentlyBookedShopIdsByUserId** | Returns unique shop IDs the user has booked at, ordered by most recent booking first (for "Recently booked" in booking flow search). Args: `userId`, optional `limit` (default 5). |
+| **bookings.getRecentlyBookedMechanicIdsByUserId** | Returns unique mechanic IDs the user has booked with, ordered by most recent booking first (only bookings with `mechanic_id` set). Args: `userId`, optional `limit` (default 5). |
 
 ### Hooks & Store Caching
 
@@ -25,6 +27,8 @@
 | **useServicesFromConvex** | Loads services catalog (default_labor_hours, default_parts_estimate) | `useBookingStore.availableServices` |
 | **useServiceVehicleSpecsForEngine** | Loads car-specific labor/parts from `service_vehicle_specs` | MechanicSelectionContent, ServiceBottomSheet footer |
 | **useCreateBookingConvex** | Calls `api.bookings.createBatch`, reads from stores, resolves time slots | Uses Convex reactivity for cache refresh |
+| **useRecentlyBookedShopIdsFromConvex** | Loads user's recently booked shop IDs (from Convex booking history, most recent first) | Used by FullSearchModal, SearchSuggestions, ServiceBottomSheet for "Recently booked" section |
+| **useRecentlyBookedMechanicIdsFromConvex** | Loads user's recently booked mechanic IDs (from Convex booking history, most recent first) | Same components for "Recently booked" (shops + mechanics) |
 
 ### Store Updates
 
@@ -90,7 +94,7 @@
 
 | Component | Data Source (Current) | Target (Convex) |
 |-----------|------------------------|-----------------|
-| **Search bar / FullSearchModal** | useShopStore, useMechanicStore | Convex (hydrated via useShopsFromConvex, useMechanicsFromConvex) |
+| **Search bar / FullSearchModal** | useShopStore, useMechanicStore; **recently booked:** useRecentlyBookedShopIdsFromConvex + useSearchStore (merge: Convex first, then in-memory recent) | Convex (hydrated via useShopsFromConvex, useMechanicsFromConvex) |
 | **SearchSuggestions** | Same | Same |
 | **ServiceBottomSheet** | Same | Same |
 | **ShopBookingModal / AvailabilityModal** | useTimeSlotsForShop, useNextAvailabilityForShop | Convex time_slots (implemented) |
@@ -106,6 +110,10 @@
 | **useTimeSlotsForShop** | `time_slots.getByShopAndDate` (when shop + date selected) | ShopBookingModal; sets selectedMechanicSlot.timeSlotId |
 | **useNextAvailabilityForShop** | `time_slots.getNextAvailableByShop` (shop + optional mechanic) | ShopCard "Next Availability"; ShopDetails inline schedule (slots grouped by mechanic_id) |
 | **useShopPortfolioFromConvex** | `shop_portfolio.listByShopId` (returns items with cdn_assets URLs) | ShopPortfolioSection |
+| **useRecentlyBookedShopIdsFromConvex** | `bookings.getRecentlyBookedShopIdsByUserId` (user's unique shop IDs by most recent booking) | FullSearchModal, SearchSuggestions, ServiceBottomSheet — "Recently booked" section (shops; Convex first, then useSearchStore recent) |
+| **useRecentlyBookedMechanicIdsFromConvex** | `bookings.getRecentlyBookedMechanicIdsByUserId` (user's unique mechanic IDs by most recent booking) | Same — "Recently booked" section (mechanics; shown even while searching) |
+
+**Recently booked (booking flow search):** The "Recently booked" section shows **even while searching** (not only when the query is empty). It includes **shops and mechanics**: (1) Shops from Convex (`getRecentlyBookedShopIdsByUserId`) first, then in-memory recent shops from `useSearchStore`; (2) Mechanics from Convex (`getRecentlyBookedMechanicIdsByUserId`). Up to 3 shops and 3 mechanics are shown. Shops use MapPin icon and optional remove (X); mechanics use User icon and "Available" badge when applicable.
 
 **Next Availability & mechanic schedules (Choose Mechanic):** ShopCard uses `useNextAvailabilityForShop(shopId, mechanicId)` so "Next Availability" shows real Convex time slots. When "Any" is selected, slots are shop-level; when a mechanic is selected, slots are filtered to that mechanic. Selecting a slot sets `selectedMechanicSlot.timeSlotId`, `scheduledDate`, and `scheduledTime` for Convex booking.
 
@@ -156,7 +164,7 @@
 
 1. **Home layout / main tabs** – Run `useServicesFromConvex`, `useServiceCategoriesFromConvex`, `useShopsFromConvex`, and `useMechanicsFromConvex` when home tab is active (app/(main-tabs)/home/_layout.tsx).
 2. **Availability flow** – When user selects shop + date + time, fetch `time_slots.getByShopAndDate`, resolve `timeSlotId`, and set `selectedMechanicSlot.timeSlotId` before payment.
-3. **Search** – FullSearchModal, SearchSuggestions, ServiceBottomSheet use `useShopStore` and `useMechanicStore`; hydrating these stores from Convex automatically feeds the search.
+3. **Search** – FullSearchModal, SearchSuggestions, ServiceBottomSheet use `useShopStore` and `useMechanicStore`; hydrating these stores from Convex automatically feeds the search. "Recently booked" (shops + mechanics) is shown **even while searching**, backed by `useRecentlyBookedShopIdsFromConvex` and `useRecentlyBookedMechanicIdsFromConvex` (Convex booking history) plus `useSearchStore` (in-memory recent shops); Convex list is shown first, then in-memory recent.
 4. **Shop detail** – Shop details pricing uses `getShopById(shopId).labor_rate`; schedule uses `useNextAvailabilityForShop(shopId)` grouped by mechanic; reviews use `api.reviews.getByShopId`; portfolio uses `api.shop_portfolio.listByShopId` (cdn_assets).
 
 ---
@@ -300,6 +308,8 @@ On sign-in, `claimSeedDataForCurrentUser` runs automatically: it reassigns the s
 
 ### Doc history
 
+- **Recently booked (shops + mechanics, while searching):** February 2026 – "Recently booked" shows shops and mechanics from Convex (`getRecentlyBookedShopIdsByUserId`, `getRecentlyBookedMechanicIdsByUserId`) plus in-memory recent shops; section is visible **even while searching**. FullSearchModal, SearchSuggestions, ServiceBottomSheet updated.
+- **Recently booked shops:** February 2026 – Booking flow search shows "Recently booked" from Convex via `bookings.getRecentlyBookedShopIdsByUserId` and `useRecentlyBookedShopIdsFromConvex`; merged with in-memory recent from useSearchStore (Convex first, then in-memory).
 - **Labor rate:** Only the shop’s declared `labor_rate` is used for pricing and for createBatch; no default labor rate. In the UI, `laborRate = shop?.labor_rate` (fallback only at calculation sites where a number is required). useCreateBookingConvex throws if shop or labor_rate is missing when creating a booking. Per-service costs sent to createBatch: `labor_cost = shop.labor_rate × default_labor_hours`, `parts_cost = default_parts_estimate` (no ratio).
 - **total_cost includes taxes & platform fee:** February 2026 – `total_cost` in DB = labor + parts + taxes_and_fees + platform_fee (full amount customer pays). Review & Pay screen Total = subtotal + Taxes & Fees + Platform Fee to match. createBatch accepts optional `taxes_and_fees`, `platform_fee`; hook passes TAXES_AND_FEES (5.0), PLATFORM_FEE (4.79).
 - **One booking per appointment:** February 2026 – `createBatch` now creates **one** booking row per appointment (not N rows per N services). Bookings table has `service_ids` array, `estimated_labor_minutes`, and aggregated `labor_cost`/`parts_cost`/`total_cost`. One time slot per appointment; no double-booking conflict. `service_id` column removed; use `service_ids` only. Initial booking status is **pending** (shop can accept); booking_status_history logs `new_status: "pending"`.

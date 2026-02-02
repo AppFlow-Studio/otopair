@@ -34,6 +34,8 @@ import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 // 4. Constants, hooks, types, stores
 import { BorderRadius, FontFamily, FontSize, Shadows } from "@/constants/theme";
 import type { ServiceCategory } from "@/stores/types/store.types";
+import { useRecentlyBookedMechanicIdsFromConvex } from "@/hooks/useRecentlyBookedMechanicIdsFromConvex";
+import { useRecentlyBookedShopIdsFromConvex } from "@/hooks/useRecentlyBookedShopIdsFromConvex";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useSearchStore, type SearchSuggestion } from "@/stores/useSearchStore";
@@ -112,9 +114,16 @@ export function FullSearchModal({
   const getShopById = useShopStore((state) => state.getShopById);
   const mechanics = useMechanicStore((state) => state.mechanics);
   const mechanicIds = useMechanicStore((state) => state.mechanicIds);
+  const getMechanicById = useMechanicStore((state) => state.getMechanicById);
+  const { recentlyBookedShopIds } = useRecentlyBookedShopIdsFromConvex(5);
+  const { recentlyBookedMechanicIds } = useRecentlyBookedMechanicIdsFromConvex(5);
 
   // ═══════════════ COMPUTED VALUES ═══════════════
   const recentShopIds = useMemo(() => getRecentShopIds(), [getRecentShopIds]);
+  const recentShopIdsForDisplay = useMemo(() => {
+    const inMemory = recentShopIds.filter((id) => !recentlyBookedShopIds.includes(id));
+    return [...recentlyBookedShopIds, ...inMemory].slice(0, 5);
+  }, [recentlyBookedShopIds, recentShopIds]);
 
   // Calculate snap points with offset (same as ServiceBottomSheet)
   const offsetPercent = (offsetY / SCREEN_HEIGHT) * 100;
@@ -138,12 +147,19 @@ export function FullSearchModal({
     return mechanicIds.map((id) => mechanics[id]).filter(Boolean);
   }, [mechanics, mechanicIds]);
 
-  // Recent shops for when there's no query
+  // Recent shops (recently booked from Convex first, then in-memory recent)
   const recentShops = useMemo(() => {
-    return recentShopIds
+    return recentShopIdsForDisplay
       .map((id) => getShopById(id))
       .filter((shop): shop is NonNullable<typeof shop> => shop !== undefined);
-  }, [recentShopIds, getShopById]);
+  }, [recentShopIdsForDisplay, getShopById]);
+
+  // Recent mechanics (from Convex booking history)
+  const recentMechanics = useMemo(() => {
+    return recentlyBookedMechanicIds
+      .map((id) => getMechanicById(id))
+      .filter((m): m is NonNullable<typeof m> => m !== undefined);
+  }, [recentlyBookedMechanicIds, getMechanicById]);
 
   // Service suggestions (top 3)
   const serviceSuggestions = useMemo(() => {
@@ -191,11 +207,10 @@ export function FullSearchModal({
       .slice(0, 5);
   }, [allShops, allMechanics, localQuery]);
 
-  // Recent shops (only show when not searching)
-  const filteredRecentShops = useMemo(() => {
-    if (localQuery.trim()) return [];
-    return recentShops.slice(0, 3);
-  }, [recentShops, localQuery]);
+  // Recently booked shops and mechanics (show even while searching)
+  const filteredRecentShops = useMemo(() => recentShops.slice(0, 3), [recentShops]);
+  const filteredRecentMechanics = useMemo(() => recentMechanics.slice(0, 3), [recentMechanics]);
+  const hasRecentlyBooked = filteredRecentShops.length > 0 || filteredRecentMechanics.length > 0;
 
   // ═══════════════ HANDLERS ═══════════════
   // X button closes and returns to service sheet immediately
@@ -507,21 +522,21 @@ export function FullSearchModal({
             </View>
           )}
 
-          {/* Recent Shops (when not searching) */}
-          {filteredRecentShops.length > 0 && (
+          {/* Recently booked (shops + mechanics; show even while searching) */}
+          {hasRecentlyBooked && (
             <View style={styles.section}>
               <Text size="xs" weight="bold" color="#9CA3AF" style={styles.sectionLabel}>
                 RECENTLY BOOKED
               </Text>
               {filteredRecentShops.map((shop) => (
                 <TouchableOpacity
-                  key={`recent-${shop.id}`}
+                  key={`recent-shop-${shop.id}`}
                   style={styles.resultCard}
                   onPress={() => handleShopPress(shop.id)}
                   activeOpacity={0.7}
                 >
                   <View style={styles.recentIcon}>
-                    <Clock size={18} color="#6B7280" />
+                    <MapPin size={18} color={BrandColors.secondary} />
                   </View>
                   <View style={styles.resultContent}>
                     <Text size="md" weight="semiBold" color={BrandColors.primary}>
@@ -540,11 +555,39 @@ export function FullSearchModal({
                   </TouchableOpacity>
                 </TouchableOpacity>
               ))}
+              {filteredRecentMechanics.map((mechanic) => (
+                <TouchableOpacity
+                  key={`recent-mech-${mechanic.id}`}
+                  style={styles.resultCard}
+                  onPress={() => handleMechanicPress(mechanic.id)}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.recentIcon}>
+                    <User size={18} color={BrandColors.secondary} />
+                  </View>
+                  <View style={styles.resultContent}>
+                    <Text size="md" weight="semiBold" color={BrandColors.primary}>
+                      {mechanic.name}
+                    </Text>
+                    <Text size="sm" color="#6B7280" numberOfLines={1}>
+                      {mechanic.shopName}
+                      {mechanic.title ? ` • ${mechanic.title}` : ""}
+                    </Text>
+                  </View>
+                  {mechanic.isAvailable && (
+                    <View style={styles.availableBadge}>
+                      <Text size="xs" weight="semiBold" color="#22C55E">
+                        Available
+                      </Text>
+                    </View>
+                  )}
+                </TouchableOpacity>
+              ))}
             </View>
           )}
 
           {/* Empty State */}
-          {localQuery.length === 0 && filteredRecentShops.length === 0 && (
+          {localQuery.length === 0 && !hasRecentlyBooked && (
             <View style={styles.emptyState}>
               <Text size="md" weight="medium" color="#9CA3AF" center>
                 Start typing to search for services, shops, or mechanics

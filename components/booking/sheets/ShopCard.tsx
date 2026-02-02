@@ -179,11 +179,11 @@ export const ShopCard = memo(function ShopCard({
   const [selectedMechanicId, setSelectedMechanicId] = useState<string | null>(defaultMechanicId);
 
   // Convex: next availability for this shop (and selected mechanic when one is chosen)
-  const { slots: convexSlots, hasSlots: hasConvexSlots, isLoading: convexSlotsLoading } = useNextAvailabilityForShop(
-    shop.shopId,
-    selectedMechanicId,
-    MAX_VISIBLE_SLOTS + 4
-  );
+  const {
+    slots: convexSlots,
+    hasSlots: hasConvexSlots,
+    isLoading: convexSlotsLoading,
+  } = useNextAvailabilityForShop(shop.shopId, selectedMechanicId, MAX_VISIBLE_SLOTS + 4);
 
   // Get availability slots: prefer Convex when available, else fall back to mechanic.nextAvailability (mock)
   const displayedSlots = useMemo((): Array<SlotWithBookingMeta> => {
@@ -239,7 +239,7 @@ export const ShopCard = memo(function ShopCard({
 
   const handleSlotPress = useCallback(
     (slot: SlotWithBookingMeta) => {
-      const mechanicId = selectedMechanicId === null ? slot.mechanicId ?? null : selectedMechanicId;
+      const mechanicId = selectedMechanicId === null ? (slot.mechanicId ?? null) : selectedMechanicId;
       onSelectSlot(shop.shopId, mechanicId, slot);
     },
     [onSelectSlot, shop.shopId, selectedMechanicId],
@@ -263,18 +263,11 @@ export const ShopCard = memo(function ShopCard({
     const laborRate = shop.laborRate;
     const hasFormulaParams =
       laborRate != null &&
-      selectedServices.every(
-        (s) =>
-          s.default_labor_hours != null &&
-          s.default_parts_estimate != null,
-      );
+      selectedServices.every((s) => s.default_labor_hours != null && s.default_parts_estimate != null);
 
     const totalPrice = hasFormulaParams
       ? selectedServices.reduce(
-          (sum, s) =>
-            sum +
-            laborRate! * (s.default_labor_hours ?? 0) +
-            (s.default_parts_estimate ?? 0),
+          (sum, s) => sum + laborRate! * (s.default_labor_hours ?? 0) + (s.default_parts_estimate ?? 0),
           0,
         )
       : selectedServices.reduce((sum, s) => sum + s.price, 0);

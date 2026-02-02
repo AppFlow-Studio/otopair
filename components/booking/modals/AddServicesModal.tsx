@@ -89,7 +89,7 @@ export function AddServicesModal({ visible, onClose }: AddServicesModalProps) {
     (serviceId: string) => {
       toggleServiceSelection(serviceId);
     },
-    [toggleServiceSelection]
+    [toggleServiceSelection],
   );
 
   const handleCategorySelect = useCallback((category: ServiceCategory) => {
@@ -119,7 +119,7 @@ export function AddServicesModal({ visible, onClose }: AddServicesModalProps) {
         </TouchableOpacity>
       );
     },
-    [selectedCategory, handleCategorySelect]
+    [selectedCategory, handleCategorySelect],
   );
 
   const renderServiceItem = useCallback(
@@ -144,7 +144,7 @@ export function AddServicesModal({ visible, onClose }: AddServicesModalProps) {
         </TouchableOpacity>
       );
     },
-    [selectedServiceIds, handleServicePress]
+    [selectedServiceIds, handleServicePress],
   );
 
   // ═══════════════ RENDER ═══════════════

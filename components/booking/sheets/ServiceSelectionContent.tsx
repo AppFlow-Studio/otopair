@@ -65,7 +65,7 @@ export function ServiceSelectionContent({ onCategorySelect }: ServiceSelectionCo
     (serviceId: string) => {
       toggleServiceSelection(serviceId);
     },
-    [toggleServiceSelection]
+    [toggleServiceSelection],
   );
 
   const handleCategorySelect = useCallback(
@@ -74,7 +74,7 @@ export function ServiceSelectionContent({ onCategorySelect }: ServiceSelectionCo
       // Notify parent to expand sheet if minimized
       onCategorySelect?.();
     },
-    [onCategorySelect]
+    [onCategorySelect],
   );
 
   // ═══════════════ RENDER HELPERS ═══════════════
@@ -100,7 +100,7 @@ export function ServiceSelectionContent({ onCategorySelect }: ServiceSelectionCo
         </TouchableOpacity>
       );
     },
-    [selectedCategory, handleCategorySelect]
+    [selectedCategory, handleCategorySelect],
   );
 
   const renderServiceItem = useCallback(
@@ -125,7 +125,7 @@ export function ServiceSelectionContent({ onCategorySelect }: ServiceSelectionCo
         </TouchableOpacity>
       );
     },
-    [selectedServiceIds, handleServicePress]
+    [selectedServiceIds, handleServicePress],
   );
 
   // ═══════════════ RENDER ═══════════════

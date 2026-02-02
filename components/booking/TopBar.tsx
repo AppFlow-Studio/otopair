@@ -182,7 +182,7 @@ export function TopBar({
         onRemoveFilter?.(filter);
       }
     },
-    [categoryChipLabel, setSelectedServiceCategory, onRemoveFilter]
+    [categoryChipLabel, setSelectedServiceCategory, onRemoveFilter],
   );
 
   // Filter handlers

@@ -8,12 +8,10 @@ export const list = query({
     return await Promise.all(
       reviews.map(async (review) => {
         const shop = await ctx.db.get(review.shop_id);
-        const mechanic = review.mechanic_id
-          ? await ctx.db.get(review.mechanic_id)
-          : null;
+        const mechanic = review.mechanic_id ? await ctx.db.get(review.mechanic_id) : null;
         const user = await ctx.db.get(review.user_id);
         return { ...review, shop, mechanic, user };
-      })
+      }),
     );
   },
 });
@@ -26,9 +24,7 @@ export const getById = query({
       return null;
     }
     const shop = await ctx.db.get(review.shop_id);
-    const mechanic = review.mechanic_id
-      ? await ctx.db.get(review.mechanic_id)
-      : null;
+    const mechanic = review.mechanic_id ? await ctx.db.get(review.mechanic_id) : null;
     const user = await ctx.db.get(review.user_id);
     return { ...review, shop, mechanic, user };
   },
@@ -43,12 +39,10 @@ export const getByShopId = query({
       .collect();
     return await Promise.all(
       reviews.map(async (review) => {
-        const mechanic = review.mechanic_id
-          ? await ctx.db.get(review.mechanic_id)
-          : null;
+        const mechanic = review.mechanic_id ? await ctx.db.get(review.mechanic_id) : null;
         const user = await ctx.db.get(review.user_id);
         return { ...review, mechanic, user };
-      })
+      }),
     );
   },
 });
@@ -65,7 +59,7 @@ export const getByMechanicId = query({
         const shop = await ctx.db.get(review.shop_id);
         const user = await ctx.db.get(review.user_id);
         return { ...review, shop, user };
-      })
+      }),
     );
   },
 });

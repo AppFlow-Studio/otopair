@@ -82,31 +82,30 @@ export function ShopPortfolioSection({ shopId }: ShopPortfolioSectionProps) {
 // ============================================================================
 
 const styles = StyleSheet.create({
-    container: {
-        paddingVertical: Spacing.lg,
-    },
-    header: {
-        marginBottom: Spacing.lg,
-    },
-    grid: {
-        flexDirection: "row",
-        flexWrap: "wrap",
-        gap: Spacing.sm,
-    },
-    imageContainer: {
-        width: "48%",
-        aspectRatio: 1,
-        borderRadius: BorderRadius.lg,
-        overflow: "hidden",
-        backgroundColor: "#F3F4F6",
-    },
-    image: {
-        width: "100%",
-        height: "100%",
-    },
-    emptyContainer: {
-        paddingVertical: Spacing.xl,
-        alignItems: "center",
-    },
+  container: {
+    paddingVertical: Spacing.lg,
+  },
+  header: {
+    marginBottom: Spacing.lg,
+  },
+  grid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: Spacing.sm,
+  },
+  imageContainer: {
+    width: "48%",
+    aspectRatio: 1,
+    borderRadius: BorderRadius.lg,
+    overflow: "hidden",
+    backgroundColor: "#F3F4F6",
+  },
+  image: {
+    width: "100%",
+    height: "100%",
+  },
+  emptyContainer: {
+    paddingVertical: Spacing.xl,
+    alignItems: "center",
+  },
 });
-

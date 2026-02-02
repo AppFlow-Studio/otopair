@@ -33,7 +33,7 @@ export const listByShopId = query({
             url: asset?.url ?? null,
             caption: asset?.caption ?? null,
           };
-        })
+        }),
     );
 
     return withUrls.filter((x) => x.url != null);

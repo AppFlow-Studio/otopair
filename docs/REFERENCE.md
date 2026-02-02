@@ -235,7 +235,7 @@ ai_enrichment_logs â†’ manual_review_queue; spec_variances, spec_confirmations â
 
 ### bookings.ts
 
-- list(), getById(id), getByUserId(userId), getByShopId(shopId), create(...), **createBatch(...)** (one booking per appointment with `service_ids` and aggregated cost/time; labor/parts from shop labor rate only, no default; initial status `pending`), updateStatus(bookingId, newStatus, reason?)
+- list(), getById(id), getByUserId(userId), **getRecentlyBookedShopIdsByUserId(userId, limit?)** (unique shop IDs user has booked at, most recent first; default limit 5), **getRecentlyBookedMechanicIdsByUserId(userId, limit?)** (unique mechanic IDs user has booked with, most recent first; only bookings with mechanic_id; default limit 5), getByShopId(shopId), create(...), **createBatch(...)** (one booking per appointment with `service_ids` and aggregated cost/time; labor/parts from shop labor rate only, no default; initial status `pending`), updateStatus(bookingId, newStatus, reason?)
 
 ### payments.ts
 
