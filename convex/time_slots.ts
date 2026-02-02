@@ -28,8 +28,8 @@ export const getByShopAndDate = query({
         q.and(
           q.eq(q.field("shop_id"), args.shopId),
           q.eq(q.field("date"), args.date),
-          q.eq(q.field("is_available"), true)
-        )
+          q.eq(q.field("is_available"), true),
+        ),
       )
       .collect();
     if (args.mechanicId !== undefined) {
@@ -44,12 +44,7 @@ export const getAvailableByShopId = query({
   handler: async (ctx, args) => {
     return await ctx.db
       .query("time_slots")
-      .filter((q) =>
-        q.and(
-          q.eq(q.field("shop_id"), args.shopId),
-          q.eq(q.field("is_available"), true)
-        )
-      )
+      .filter((q) => q.and(q.eq(q.field("shop_id"), args.shopId), q.eq(q.field("is_available"), true)))
       .collect();
   },
 });
@@ -64,8 +59,8 @@ export const getAvailableByShopAndDateTime = query({
           q.eq(q.field("shop_id"), args.shopId),
           q.eq(q.field("date"), args.date),
           q.eq(q.field("start_time"), args.startTime),
-          q.eq(q.field("is_available"), true)
-        )
+          q.eq(q.field("is_available"), true),
+        ),
       )
       .collect();
   },
@@ -149,7 +144,7 @@ export const getNextAvailableByShopPerMechanic = query({
       .withIndex("by_shop_id", (q) => q.eq("shop_id", args.shopId))
       .collect();
 
-    const result: { mechanicId: typeof mechanics[0]["_id"]; slots: typeof allSlots }[] = [];
+    const result: { mechanicId: (typeof mechanics)[0]["_id"]; slots: typeof allSlots }[] = [];
 
     for (const mechanic of mechanics) {
       const mechanicSlots = allSlots

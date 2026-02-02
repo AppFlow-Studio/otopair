@@ -120,7 +120,7 @@ export function ShopStaffSection({ shopId }: ShopStaffSectionProps) {
                   {mechanic.rating.toFixed(1)}
                 </Text>
                 <Text size="xs" weight="regular" color="#6B7280">
-                  ({(mechanic.reviewCount ?? 0)} reviews)
+                  ({mechanic.reviewCount ?? 0} reviews)
                 </Text>
               </View>
 

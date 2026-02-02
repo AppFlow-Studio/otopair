@@ -55,28 +55,28 @@ export function ShopReviewsSection({ shopId }: ShopReviewsSectionProps) {
   const getShopById = useShopStore((state) => state.getShopById);
   const shop = useMemo(() => (shopId ? getShopById(shopId) : null), [shopId, getShopById]);
 
-  const convexReviews = useQuery(
-    api.reviews.getByShopId,
-    shopId ? { shopId: shopId as Id<"shops"> } : "skip"
-  );
+  const convexReviews = useQuery(api.reviews.getByShopId, shopId ? { shopId: shopId as Id<"shops"> } : "skip");
 
   const { reviews, rating, ratingCount, distribution } = useMemo(() => {
     if (!convexReviews || !Array.isArray(convexReviews)) {
-      return { reviews: [], rating: 0, ratingCount: 0, distribution: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 } as Record<1 | 2 | 3 | 4 | 5, number> };
+      return {
+        reviews: [],
+        rating: 0,
+        ratingCount: 0,
+        distribution: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 } as Record<1 | 2 | 3 | 4 | 5, number>,
+      };
     }
     const mapped: Review[] = convexReviews.map((r) => {
       const u = r.user as { first_name?: string; last_name?: string } | null;
-      const userName = u
-        ? [u.first_name, u.last_name].filter(Boolean).join(" ").trim() || "Customer"
-        : "Customer";
+      const userName = u ? [u.first_name, u.last_name].filter(Boolean).join(" ").trim() || "Customer" : "Customer";
       return {
-      id: r._id,
-      userName,
-      avatarUrl: null,
-      rating: r.rating,
-      timeAgo: formatTimeAgo(r.created_at),
-      text: r.comment,
-    };
+        id: r._id,
+        userName,
+        avatarUrl: null,
+        rating: r.rating,
+        timeAgo: formatTimeAgo(r.created_at),
+        text: r.comment,
+      };
     });
     const avg = mapped.length ? mapped.reduce((s, x) => s + x.rating, 0) / mapped.length : 0;
     const dist = buildDistribution(convexReviews);
@@ -126,11 +126,7 @@ export function ShopReviewsSection({ shopId }: ShopReviewsSectionProps) {
 
   return (
     <View style={styles.container}>
-      <RatingSummaryCard
-        rating={rating}
-        ratingCount={ratingCount}
-        distribution={distribution}
-      />
+      <RatingSummaryCard rating={rating} ratingCount={ratingCount} distribution={distribution} />
       <View style={styles.reviewsHeader}>
         <Text size="lg" weight="bold" color={BrandColors.primary}>
           Customer Reviews ({reviews.length})

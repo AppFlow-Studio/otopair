@@ -79,7 +79,7 @@ flowchart LR
   users -->|user_id| bookings
   vehicles -->|vin| bookings
   shops -->|shop_id| bookings
-  bookings -->|service_ids[]| services
+  bookings -->|service_ids| services
   mechanics -->|mechanic_id| bookings
   time_slots -->|time_slot_id| bookings
   bookings -->|booking_id| payments

@@ -19,7 +19,7 @@ const DEFAULT_LIMIT_PER_MECHANIC = 12;
 
 export function useNextAvailabilityPerMechanicForShop(
   shopId: string | null,
-  limitPerMechanic: number = DEFAULT_LIMIT_PER_MECHANIC
+  limitPerMechanic: number = DEFAULT_LIMIT_PER_MECHANIC,
 ) {
   const convexResult = useQuery(
     api.time_slots.getNextAvailableByShopPerMechanic,
@@ -28,7 +28,7 @@ export function useNextAvailabilityPerMechanicForShop(
           shopId: shopId as Id<"shops">,
           limitPerMechanic,
         }
-      : "skip"
+      : "skip",
   );
 
   const slotsByMechanicId = useMemo((): Record<string, MechanicAvailabilitySlot[]> => {
