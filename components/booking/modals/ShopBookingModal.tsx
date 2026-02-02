@@ -30,6 +30,7 @@ import { AddServicesModal } from "./AddServicesModal";
 
 // 5. Constants, hooks, types, stores
 import { BorderRadius, Shadows } from "@/constants/theme";
+import { useCalendarAvailabilityForShop } from "@/hooks/useCalendarAvailabilityForShop";
 import { useTimeSlotsForShop } from "@/hooks/useTimeSlotsForShop";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
@@ -150,11 +151,21 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
   const getTimeSlotsForSelectedDate = useScheduleStore((state) => state.getTimeSlotsForSelectedDate);
 
   const selectedDateStr = selectedDate ? selectedDate.toISOString().split("T")[0] : null;
+  const effectiveMechanicId = selectedMechanicId ?? shopMechanics[0]?.id ?? mechanicId;
+
+  // Convex calendar: which days have available slots vs booked (for Available/Booked highlighting)
+  const convexCalendar = useCalendarAvailabilityForShop(
+    effectiveShopId,
+    currentMonth.getFullYear(),
+    currentMonth.getMonth(),
+    effectiveMechanicId ?? undefined
+  );
+
   const {
     timeOptions: convexTimeOptions,
     hasSlots: hasConvexSlots,
     getSlotIdByDisplayTime,
-  } = useTimeSlotsForShop(shopId, selectedDateStr);
+  } = useTimeSlotsForShop(effectiveShopId, selectedDateStr, effectiveMechanicId ?? undefined);
 
   // ═══════════════ BOOKING STORE ═══════════════
   const setScheduledAppointment = useBookingStore((state) => state.setScheduledAppointment);
@@ -230,8 +241,10 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
   }, []);
 
   // ═══════════════ COMPUTED VALUES ═══════════════
-  const availableDays = getAvailableDayNumbers();
-  const bookedDays = getBookedDayNumbers();
+  // Use Convex calendar when we have a shop so Available/Booked reflect real data
+  const useConvexCalendar = Boolean(effectiveShopId);
+  const availableDays = useConvexCalendar ? convexCalendar.availableDayNumbers : getAvailableDayNumbers();
+  const bookedDays = useConvexCalendar ? convexCalendar.bookedDayNumbers : getBookedDayNumbers();
 
   const timeSlots = useMemo(() => {
     if (hasConvexSlots && convexTimeOptions.length > 0) return convexTimeOptions;
@@ -272,11 +285,9 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
         status = "available";
       } else if (bookedDays.includes(i)) {
         status = "booked";
-      } else {
+      } else if (!useConvexCalendar) {
         const dayOfWeek = new Date(year, month, i).getDay();
-        if (dayOfWeek === 0) {
-          status = "booked";
-        }
+        if (dayOfWeek === 0) status = "booked";
       }
 
       days.push({
@@ -297,7 +308,7 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
     }
 
     return days;
-  }, [currentMonth, selectedDayNumber, availableDays, bookedDays]);
+  }, [currentMonth, selectedDayNumber, availableDays, bookedDays, useConvexCalendar]);
 
   // Split days into weeks
   const calendarWeeks = useMemo(() => {

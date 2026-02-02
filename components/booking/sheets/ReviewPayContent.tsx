@@ -27,6 +27,7 @@ import { useRouter } from "expo-router";
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Constants, hooks, types
+import { getPartsBreakdown } from "@/constants/services";
 import { BorderRadius, Shadows, getSheetContentPadding } from "@/constants/theme";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
@@ -115,6 +116,16 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
       total: servicesTotal + PLATFORM_FEE,
     };
   }, [selectedServices]);
+
+  // Parts breakdown: each part listed and labelled as (Part)
+  const partsBreakdown = useMemo(
+    () =>
+      getPartsBreakdown(
+        selectedServices.map((s) => s.name),
+        breakdown.partsCost
+      ),
+    [selectedServices, breakdown.partsCost]
+  );
 
   // Format vehicle display
   const vehicleDisplay = selectedVehicle
@@ -271,15 +282,17 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
               </Text>
             </View>
 
-            {/* Parts */}
-            <View style={styles.breakdownRow}>
-              <Text size="sm" weight="regular" color="#6B7280">
-                Parts (Oil, Filter)
-              </Text>
-              <Text size="sm" weight="medium" color="#6B7280">
-                ${breakdown.partsCost.toFixed(2)}
-              </Text>
-            </View>
+            {/* Parts: each part listed and labelled as (Part) */}
+            {partsBreakdown.map((part, index) => (
+              <View key={`${part.name}-${index}`} style={styles.breakdownRow}>
+                <Text size="sm" weight="regular" color="#6B7280">
+                  {part.name} (Part)
+                </Text>
+                <Text size="sm" weight="medium" color="#6B7280">
+                  ${part.cost.toFixed(2)}
+                </Text>
+              </View>
+            ))}
 
             {/* Taxes & Fees */}
             <View style={styles.breakdownRow}>

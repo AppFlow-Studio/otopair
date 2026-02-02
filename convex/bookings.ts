@@ -186,12 +186,12 @@ export const create = mutation({
     // Mark the time slot as unavailable
     await ctx.db.patch(args.time_slot_id, { is_available: false });
 
-    // Insert the booking with VIN
-    const { session_id, funnel_id, ...bookingData } = args;
+    const { session_id, funnel_id, service_id, ...bookingData } = args;
     const now = Date.now();
     const bookingId = await ctx.db.insert("bookings", {
       ...bookingData,
       vin: normalizedVin,
+      service_ids: [service_id],
       status: "confirmed",
       created_at: now,
       updated_at: now,
@@ -227,15 +227,15 @@ export const create = mutation({
 
 /**
  * MUTATION: createBatch
- * Create multiple service bookings for the same time slot (e.g. Oil Change + Tire Rotation).
- * Marks the slot unavailable once, inserts N booking records.
+ * Create one booking for an appointment (one time slot) with multiple services.
+ * Total cost and estimated time are aggregated; one row per appointment.
  *
  * ARGS:
  *   - user_id, vin, shop_id, mechanic_id?, time_slot_id, scheduled_date, scheduled_time
- *   - services: Array of { service_id, labor_cost, parts_cost } (total_cost = labor + parts per service)
+ *   - services: Array of { service_id, labor_cost, parts_cost, labor_hours? }
  *   - session_id, funnel_id: optional
  *
- * RETURNS: Array of created booking IDs
+ * RETURNS: Single-element array [bookingId]
  */
 export const createBatch = mutation({
   args: {
@@ -251,6 +251,7 @@ export const createBatch = mutation({
         service_id: v.id("services"),
         labor_cost: v.float64(),
         parts_cost: v.float64(),
+        labor_hours: v.optional(v.float64()),
       }),
     ),
     session_id: v.optional(v.string()),
@@ -287,56 +288,67 @@ export const createBatch = mutation({
       throw new Error("This time slot is no longer available.");
     }
 
-    // Mark slot unavailable once
+    // Mark slot unavailable once (one appointment = one slot)
     await ctx.db.patch(args.time_slot_id, { is_available: false });
 
+    const labor_cost = args.services.reduce((sum, s) => sum + s.labor_cost, 0);
+    const parts_cost = args.services.reduce((sum, s) => sum + s.parts_cost, 0);
+    const total_cost = labor_cost + parts_cost;
+    const estimated_labor_minutes = args.services.reduce(
+      (sum, s) => sum + (s.labor_hours ?? 0) * 60,
+      0,
+    );
+
     const now = Date.now();
-    const bookingIds: (typeof args.time_slot_id)[] = [];
+    const firstServiceId = args.services[0].service_id;
 
-    for (const svc of args.services) {
-      const total_cost = svc.labor_cost + svc.parts_cost;
-      const bookingId = await ctx.db.insert("bookings", {
-        user_id: args.user_id,
-        vin: normalizedVin,
+    const bookingId = await ctx.db.insert("bookings", {
+      user_id: args.user_id,
+      vin: normalizedVin,
+      shop_id: args.shop_id,
+      mechanic_id: args.mechanic_id,
+      service_ids: args.services.map((s) => s.service_id),
+      time_slot_id: args.time_slot_id,
+      scheduled_date: args.scheduled_date,
+      scheduled_time: args.scheduled_time,
+      labor_cost,
+      parts_cost,
+      total_cost,
+      estimated_labor_minutes: estimated_labor_minutes > 0 ? estimated_labor_minutes : undefined,
+      status: "confirmed",
+      created_at: now,
+      updated_at: now,
+    });
+
+    await ctx.db.insert("booking_status_history", {
+      booking_id: bookingId,
+      new_status: "confirmed",
+      changed_at: now,
+    });
+
+    await ctx.db.insert("analytics_events", {
+      user_id: args.user_id,
+      event_type: "booking_created",
+      event_category: "booking",
+      event_data: {
+        booking_id: bookingId,
         shop_id: args.shop_id,
-        mechanic_id: args.mechanic_id,
-        service_id: svc.service_id,
-        time_slot_id: args.time_slot_id,
-        scheduled_date: args.scheduled_date,
-        scheduled_time: args.scheduled_time,
-        labor_cost: svc.labor_cost,
-        parts_cost: svc.parts_cost,
-        total_cost,
-        status: "confirmed",
-        created_at: now,
-        updated_at: now,
-      });
-      bookingIds.push(bookingId);
-
-      await ctx.db.insert("analytics_events", {
-        user_id: args.user_id,
-        event_type: "booking_created",
-        event_category: "booking",
-        event_data: {
-          booking_id: bookingId,
-          shop_id: args.shop_id,
-          service_id: svc.service_id,
-        },
-        timestamp: Date.now(),
-        session_id: args.session_id,
-      });
-    }
+        service_id: firstServiceId,
+      },
+      timestamp: Date.now(),
+      session_id: args.session_id,
+    });
 
     if (args.funnel_id) {
       await ctx.db.patch(args.funnel_id, {
         completed: true,
         exited_at: Date.now(),
-        booking_id: bookingIds[0],
+        booking_id: bookingId,
         stage: "completed",
       });
     }
 
-    return bookingIds;
+    return [bookingId];
   },
 });
 

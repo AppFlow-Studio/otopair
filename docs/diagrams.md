@@ -79,7 +79,7 @@ flowchart LR
   users -->|user_id| bookings
   vehicles -->|vin| bookings
   shops -->|shop_id| bookings
-  services -->|service_id| bookings
+  bookings -->|service_ids[]| services
   mechanics -->|mechanic_id| bookings
   time_slots -->|time_slot_id| bookings
   bookings -->|booking_id| payments
@@ -287,26 +287,29 @@ Level 3 adds (1) per-table field and index definitions and (2) diagrams of Conve
 
 #### Table: `bookings`
 
+One row per appointment. Multiple services are stored in the `service_ids` array; costs and time are aggregated on the row.
+
 ```mermaid
 classDiagram
   class bookings {
     +id _id
     +id user_id
     +string vin
-    +id service_id
+    +array service_ids (optional: list of service IDs)
+    +float estimated_labor_minutes (optional)
     +id shop_id
     +id mechanic_id
     +id time_slot_id
     +string scheduled_date
     +string scheduled_time
-    +float labor_cost
-    +float parts_cost
+    +float labor_cost (total)
+    +float parts_cost (total)
     +float total_cost
     +string status
     +float created_at
     +float updated_at
   }
-  note for bookings "indexes: by_user_id, by_shop_id, by_status,\nby_scheduled_date, by_service_id,\nby_user_and_status, by_shop_and_date,\nby_shop_and_status, by_created_at"
+  note for bookings "indexes: by_user_id, by_shop_id, by_status,\nby_scheduled_date, by_user_and_status, by_shop_and_date,\nby_shop_and_status, by_created_at"
 ```
 
 #### Table: `payments`
@@ -1139,11 +1142,15 @@ classDiagram
 
 ### Level 3: Function flows
 
-#### Flow: Booking creation (`bookings.create`)
+#### Flow: Booking creation (`bookings.create` / `bookings.createBatch`)
+
+**Single-service:** `bookings.create` – one booking with `service_ids: [service_id]`.
+
+**Multi-service (app flow):** `bookings.createBatch` – one booking per appointment; accepts `services` payload (for aggregates); stores `service_ids` (array of IDs); aggregates labor_cost, parts_cost, total_cost, estimated_labor_minutes; marks one time slot unavailable; returns `[bookingId]`.
 
 ```mermaid
 flowchart TD
-  A[Client: create booking] --> B[bookings.create]
+  A[Client: create booking] --> B[bookings.create or createBatch]
   B --> C{Vehicle exists by VIN?}
   C -->|No| D[Throw: Vehicle not found]
   C -->|Yes| E{User owns vehicle?}
@@ -1151,12 +1158,13 @@ flowchart TD
   E -->|Yes| G{Time slot available?}
   G -->|No| H[Throw: Time slot no longer available]
   G -->|Yes| I[Patch time_slots: is_available = false]
-  I --> J[Insert bookings]
-  J --> K[Insert analytics_events]
-  K --> L{Funnel ID provided?}
-  L -->|Yes| M[Patch conversion_funnels: completed, stage]
-  L -->|No| N[Return bookingId]
-  M --> N
+  I --> J[Insert one bookings row]
+  J --> K[Insert booking_status_history]
+  K --> L[Insert analytics_events]
+  L --> M{Funnel ID provided?}
+  M -->|Yes| N[Patch conversion_funnels: completed, stage]
+  M -->|No| O[Return bookingId or array]
+  N --> O
 ```
 
 #### Flow: Booking status update (`bookings.updateStatus`)

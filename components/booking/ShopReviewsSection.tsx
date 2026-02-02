@@ -17,6 +17,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 import { RatingSummaryCard, ReviewCard } from "@/components/booking/shared";
 import type { Review } from "@/components/booking/shared";
+import { useShopStore } from "@/stores/useShopStore";
 
 function formatTimeAgo(createdAt: number): string {
   const diff = Date.now() - createdAt;
@@ -51,6 +52,9 @@ interface ShopReviewsSectionProps {
 }
 
 export function ShopReviewsSection({ shopId }: ShopReviewsSectionProps) {
+  const getShopById = useShopStore((state) => state.getShopById);
+  const shop = useMemo(() => (shopId ? getShopById(shopId) : null), [shopId, getShopById]);
+
   const convexReviews = useQuery(
     api.reviews.getByShopId,
     shopId ? { shopId: shopId as Id<"shops"> } : "skip"
@@ -95,11 +99,27 @@ export function ShopReviewsSection({ shopId }: ShopReviewsSectionProps) {
   }
 
   if (reviews.length === 0) {
+    const shopRating = shop?.rating ?? null;
+    const shopReviewCount = shop?.reviewCount ?? 0;
+    const hasShopAggregate = shopRating != null && shopReviewCount > 0;
     return (
       <View style={styles.emptyContainer}>
-        <Text size="md" weight="medium" color="#9CA3AF" center>
-          No reviews yet for this shop
-        </Text>
+        {hasShopAggregate ? (
+          <View style={styles.container}>
+            <RatingSummaryCard
+              rating={shopRating}
+              ratingCount={shopReviewCount}
+              distribution={{ 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }}
+            />
+            <Text size="sm" weight="medium" color="#9CA3AF" center style={styles.emptyText}>
+              No customer reviews yet.
+            </Text>
+          </View>
+        ) : (
+          <Text size="md" weight="medium" color="#9CA3AF" center>
+            No reviews yet for this shop
+          </Text>
+        )}
       </View>
     );
   }
@@ -133,4 +153,5 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   reviewsList: { gap: Spacing.md, paddingBottom: Spacing.xl },
   emptyContainer: { paddingVertical: Spacing.xl, alignItems: "center" },
+  emptyText: { marginTop: Spacing.md },
 });

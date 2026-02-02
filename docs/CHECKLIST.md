@@ -63,7 +63,7 @@
 
 ### Done (Convex integration)
 
-- [x] **Create booking** – Payment screen uses useCreateBookingConvex; calls api.bookings.createBatch when user, vin, shop, timeSlotId available; falls back to local create otherwise
+- [x] **Create booking** – Payment screen uses useCreateBookingConvex; calls api.bookings.createBatch when user, vin, shop, timeSlotId available (one booking per appointment with `service_ids` and aggregated cost/time); falls back to local create otherwise
 - [x] **User** – useUserFromConvex (users.getMe) provides Convex userId for mutations
 - [x] **Services** – useServicesFromConvex loads Convex services; useBookingStore.availableServices hydrated
 - [x] **Service categories** – useServiceCategoriesFromConvex loads Convex service_categories; useBookingStore.serviceCategories / getServiceCategories(); Select Services tabs use Convex categories
@@ -103,3 +103,5 @@
 ---
 
 **Last updated:** February 2026. Update this file when completing items or adding new work.
+
+- **Booking model:** One booking row per appointment (`service_ids` array, estimated_labor_minutes, aggregated costs); createBatch returns single ID.

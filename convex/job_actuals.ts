@@ -1,6 +1,12 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
+import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
+
+/** Primary service ID for a booking: first entry in service_ids */
+function primaryServiceId(booking: { service_ids?: Id<"services">[] }): Id<"services"> | undefined {
+  return booking.service_ids?.[0];
+}
 
 export const list = query({
   args: {},
@@ -32,8 +38,8 @@ export const getPrefillData = query({
     const booking = await ctx.db.get(args.bookingId);
     if (!booking) return null;
 
-    // Service
-    const service = await ctx.db.get(booking.service_id);
+    const serviceId = primaryServiceId(booking);
+    const service = serviceId ? await ctx.db.get(serviceId) : null;
 
     // Vehicle → engine → trim → model → make
     const vehicle = await ctx.db
@@ -143,7 +149,7 @@ export const getPrefillData = query({
       serviceSlug: service?.slug ?? "",
       engineCode: engine.engine_code,
       engineId: engine._id,
-      serviceId: booking.service_id,
+      serviceId: serviceId,
       mechanicName,
       suggestedParts,
     };
@@ -256,7 +262,9 @@ export const submitJobActuals = mutation({
     const booking = await ctx.db.get(args.bookingId);
     if (!booking) throw new Error("Booking not found");
 
-    const service = await ctx.db.get(booking.service_id);
+    const sid = primaryServiceId(booking);
+    if (!sid) throw new Error("Booking has no service");
+    const service = await ctx.db.get(sid);
     if (!service) throw new Error("Service not found");
 
     const vehicle = await ctx.db
@@ -277,14 +285,14 @@ export const submitJobActuals = mutation({
       event_data: {
         booking_id: args.bookingId,
         shop_id: booking.shop_id,
-        service_id: booking.service_id,
+        service_id: sid,
       },
       timestamp: Date.now(),
     });
 
     // Find or create service_insights
     const allInsights = await ctx.db.query("service_insights").collect();
-    const existing = allInsights.find((r) => r.service_id === booking.service_id && r.engine_id === engineId);
+    const existing = allInsights.find((r) => r.service_id === sid && r.engine_id === engineId);
 
     if (existing) {
       const oldCount = existing.completed_jobs_count;
@@ -307,7 +315,7 @@ export const submitJobActuals = mutation({
       const confidence = Math.min(1.0, 0.5 + 0.15 * Math.log(1));
 
       await ctx.db.insert("service_insights", {
-        service_id: booking.service_id,
+        service_id: sid,
         engine_id: engineId,
         estimated_labor_hours: estimatedLaborHours,
         avg_actual_labor_hours: actualLaborHours,
@@ -320,7 +328,7 @@ export const submitJobActuals = mutation({
 
     // Bump service_vehicle_specs confidence_score
     const allSVS = await ctx.db.query("service_vehicle_specs").collect();
-    const svs = allSVS.find((r) => r.service_id === booking.service_id && r.engine_id === engineId);
+    const svs = allSVS.find((r) => r.service_id === sid && r.engine_id === engineId);
     if (svs) {
       const newConfidence = Math.min(1.0, svs.confidence_score + 0.02);
       await ctx.db.patch(svs._id, { confidence_score: newConfidence });
@@ -331,7 +339,7 @@ export const submitJobActuals = mutation({
 
       await ctx.scheduler.runAfter(0, internal.spec_variances.flagSpecVariance, {
         engine_id: engineId,
-        service_id: booking.service_id,
+        service_id: sid,
         job_actual_id: jobActual._id,
         predicted_labor_hours: predictedLabor,
         actual_labor_hours: actualLaborHours,
@@ -348,7 +356,7 @@ export const submitJobActuals = mutation({
       user_id: booking.user_id,
       vin: booking.vin,
       booking_id: args.bookingId,
-      service_id: booking.service_id,
+      service_id: sid,
       follow_up_type: "maintenance_due",
       scheduled_for: scheduledFor,
       status: "pending",

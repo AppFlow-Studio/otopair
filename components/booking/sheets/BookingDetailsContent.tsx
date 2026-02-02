@@ -124,8 +124,8 @@ export function BookingDetailsContent({ onAddMore, isFullScreen = false }: Booki
     [laborRate],
   );
 
-  // Mock rating count based on mechanic rating
-  const ratingCount = mechanic ? Math.floor(mechanic.rating * 25 + 27) : 0;
+  // Rating and review count from Convex (mechanic.rating / mechanic.reviewCount)
+  const ratingCount = mechanic?.reviewCount ?? 0;
 
   // ═══════════════ HELPER FUNCTIONS ═══════════════
   /** Create a ScheduledAppointment from a slot */

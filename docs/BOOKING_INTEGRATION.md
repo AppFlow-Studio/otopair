@@ -13,7 +13,7 @@
 | Component | Description |
 |-----------|-------------|
 | **users.getMe** | Returns current authenticated user (Clerk identity). Used for `userId` in booking mutations. |
-| **bookings.createBatch** | Creates multiple service bookings for the same time slot (e.g. Oil Change + Tire Rotation). Marks slot unavailable once, inserts N booking records. |
+| **bookings.createBatch** | Creates **one** booking per appointment (one time slot). Accepts multiple services; stores them in `service_ids` (array of IDs) and aggregates total cost and estimated time. Marks slot unavailable once; returns single booking ID. |
 
 ### Hooks & Store Caching
 
@@ -50,7 +50,7 @@
 
 ### Behaviour
 
-1. **Convex create path** – When `userId`, `vin`, `shopId`, and `timeSlotId` (or resolvable slot) are present, the app uses `createBatch` to create bookings in Convex.
+1. **Convex create path** – When `userId`, `vin`, `shopId`, and `timeSlotId` (or resolvable slot) are present, the app uses `createBatch` to create **one** booking in Convex (one row per appointment, with `service_ids` and aggregated costs/time).
 2. **Local fallback** – Otherwise uses existing local `createBooking` so the flow still works without Convex data.
 3. **Stores as cache** – Convex data is written into stores; Convex queries keep the UI in sync.
 
@@ -193,7 +193,56 @@ The `time_slots` table supports **one slot per mechanic per (shop, date, time)**
 
 ---
 
-## 5. Clerk guest account (.env.local) ↔ seed data
+## 5. Confirm Appointment – Convex Insert & Tables
+
+When the user taps **"Confirm Appointment"** on the payment screen, the app inserts a real appointment into Convex and updates related tables.
+
+### Trigger
+
+| Location | Action |
+|----------|--------|
+| **Payment screen** (`app/(main-tabs)/home/mechanic/[id]/payment.tsx`) | User taps "Confirm Appointment" → calls `createBookingConvex(selectedMechanicId, bookingType)` from `useCreateBookingConvex`. |
+
+### Resolving shopId and timeSlotId
+
+| Source | How it's resolved |
+|--------|--------------------|
+| **shopId** | `selectedMechanicSlot?.shopId` **or** `getMechanicById(selectedMechanicId)?.shopId`. Works when coming from the Book Appointment modal (slot set there) or from Shop Details inline "Book Now" (slot set in ShopDetails). |
+| **timeSlotId** | `selectedMechanicSlot?.timeSlotId` **or** Convex `time_slots.getAvailableByShopAndDateTime(shopId, date, startTime)`; when a mechanic is selected, the hook picks the slot whose `mechanic_id` matches so the correct bay is booked. |
+
+### When Convex insert runs
+
+- **Required:** `userId` (Convex user), `vin` (owned vehicle), `shopId`, `timeSlotId`, at least one selected service.
+- **Missing any of the above:** Fallback to local-only `createBooking` (no Convex insert).
+
+### Convex mutation: `bookings.createBatch`
+
+| Step | Effect |
+|------|--------|
+| 1. Validate | Vehicle exists; user has active ownership in `vehicle_owners`; time slot exists and `is_available === true`. |
+| 2. Reserve slot | Patch `time_slots` for the chosen `time_slot_id`: `is_available: false` (once per appointment). |
+| 3. Insert booking | **One** row in **bookings** (one appointment = one row): `user_id`, `vin`, `shop_id`, `mechanic_id`, `time_slot_id`, `scheduled_date`, `scheduled_time`, `service_ids` (array of service IDs), aggregated `labor_cost`, `parts_cost`, `total_cost`, `estimated_labor_minutes`, `status: "confirmed"`. |
+| 4. Status history | One row in **booking_status_history**: `booking_id`, `new_status: "confirmed"`, `changed_at`. |
+| 5. Analytics | One row in **analytics_events**: `event_type: "booking_created"`, `event_category: "booking"`, `booking_id`, `shop_id`, `service_id` (first service from `service_ids`, for event payload). |
+| 6. Optional | If `funnel_id` is passed, complete the conversion funnel. |
+
+### Tables populated on Confirm Appointment
+
+| Table | Content |
+|-------|---------|
+| **bookings** | **One** record per appointment: `user_id`, `vin`, `shop_id`, `mechanic_id`, `time_slot_id`, `scheduled_date`, `scheduled_time`, `service_ids` (array of service IDs), `labor_cost` (total), `parts_cost` (total), `total_cost`, `estimated_labor_minutes`, `status: "confirmed"`. |
+| **time_slots** | The chosen slot's row is patched: `is_available: false`. |
+| **booking_status_history** | One row: `booking_id`, `new_status: "confirmed"`, `changed_at`. |
+| **analytics_events** | One row: `booking_created` with `booking_id`, `shop_id`, `service_id` (first service from booking’s `service_ids`). |
+
+### Flow coverage
+
+- **From Book Appointment modal:** Modal sets `selectedMechanicSlot` (shopId, timeSlotId, scheduledDate, scheduledTime) on "Continue" → payment has everything for Convex insert.
+- **From Shop Details inline "Book Now":** ShopDetails sets `selectedMechanicSlot` (shopId, shopName, mechanicId, slot, scheduledDate, scheduledTime) and `scheduledAppointment` when user taps "Book Now" on an inline slot → payment resolves `timeSlotId` via `getAvailableByShopAndDateTime` filtered by mechanic.
+
+---
+
+## 6. Clerk guest account (.env.local) ↔ seed data
 
 The app uses the **Clerk account defined in `.env.local`** (e.g. `EXPO_PUBLIC_GUEST_EMAIL` / `EXPO_PUBLIC_GUEST_PASSWORD`) as the test account. To have that account see vehicles, bookings, and other seed data:
 
@@ -207,3 +256,10 @@ On sign-in, `claimSeedDataForCurrentUser` runs automatically: it reassigns the s
 ---
 
 **Last updated:** February 2026.
+
+---
+
+### Doc history
+
+- **One booking per appointment:** February 2026 – `createBatch` now creates **one** booking row per appointment (not N rows per N services). Bookings table has `service_ids` array, `estimated_labor_minutes`, and aggregated `labor_cost`/`parts_cost`/`total_cost`. One time slot per appointment; no double-booking conflict. `service_id` column removed; use `service_ids` only.
+- **Section 5 (Confirm Appointment):** Added February 2026 – documents Convex insert on "Confirm Appointment", shopId/timeSlotId resolution, `createBatch` side effects, and tables populated (bookings, time_slots, booking_status_history, analytics_events).

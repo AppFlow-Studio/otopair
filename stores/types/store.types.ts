@@ -76,8 +76,10 @@ export interface Mechanic {
   shopName: string;
   /** Profile photo URL */
   photoUrl: string | null;
-  /** Average rating (0-5) */
+  /** Average rating (0-5) from Convex reviews */
   rating: number;
+  /** Number of reviews (from Convex) for display */
+  reviewCount?: number;
   /** Whether the mechanic is verified */
   isVerified: boolean;
   /** Distance in miles from user */
@@ -151,8 +153,10 @@ export interface Shop {
   distanceKm: number | null;
 
   // ─── Details ───
-  /** Average rating (0-5) */
+  /** Average rating (0-5) from Convex reviews */
   rating: number | null;
+  /** Number of reviews (from Convex) for display */
+  reviewCount?: number;
   /** Shop image URL */
   imageUrl: string | null;
 

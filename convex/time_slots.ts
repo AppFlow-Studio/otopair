@@ -125,6 +125,53 @@ export const getNextAvailableByShop = query({
 });
 
 /**
+ * Next N available slots per mechanic for a shop.
+ * Returns one list of slots per mechanic so each mechanic card can show their own time slots.
+ * Used by ShopDetails "Available Mechanics & Bays" to show slots for Mike, Sarah, etc.
+ */
+export const getNextAvailableByShopPerMechanic = query({
+  args: {
+    shopId: v.id("shops"),
+    limitPerMechanic: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const limitPerMechanic = args.limitPerMechanic ?? 12;
+    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+
+    const mechanics = await ctx.db
+      .query("mechanics")
+      .withIndex("by_shop_id", (q) => q.eq("shop_id", args.shopId))
+      .filter((q) => q.eq(q.field("is_active"), true))
+      .collect();
+
+    const allSlots = await ctx.db
+      .query("time_slots")
+      .withIndex("by_shop_id", (q) => q.eq("shop_id", args.shopId))
+      .collect();
+
+    const result: { mechanicId: typeof mechanics[0]["_id"]; slots: typeof allSlots }[] = [];
+
+    for (const mechanic of mechanics) {
+      const mechanicSlots = allSlots
+        .filter((s) => {
+          if (!s.is_available) return false;
+          if (s.date < today) return false;
+          return s.mechanic_id === mechanic._id;
+        })
+        .sort((a, b) => {
+          const d = a.date.localeCompare(b.date);
+          if (d !== 0) return d;
+          return a.start_time.localeCompare(b.start_time);
+        })
+        .slice(0, limitPerMechanic);
+      result.push({ mechanicId: mechanic._id, slots: mechanicSlots });
+    }
+
+    return result;
+  },
+});
+
+/**
  * Calendar availability for a shop (and optional mechanic) for a given month.
  * Returns which dates have at least one available slot vs which have slots but all booked.
  * Used by AvailabilityModal "All Availability" calendar highlighting.

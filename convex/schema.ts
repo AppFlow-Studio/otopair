@@ -32,15 +32,16 @@ export default defineSchema({
    * FIELDS:
    *   - user_id: References the user who made the booking
    *   - vin: Canonical VIN (uppercase normalized) linking to vehicles table
-   *   - service_id: The service being booked (e.g., "Oil Change")
+   *   - service_ids: Array of service IDs (id("services")) for this appointment
    *   - shop_id: The shop where service will be performed
    *   - mechanic_id: (optional) Specific mechanic assigned to the job
-   *   - time_slot_id: The chosen appointment time slot
+   *   - time_slot_id: The chosen appointment time slot (one slot per appointment)
    *   - scheduled_date: Date of service (YYYY-MM-DD format)
    *   - scheduled_time: Time of service (HH:MM format)
-   *   - labor_cost: Estimated labor cost in dollars
-   *   - parts_cost: Estimated parts cost in dollars
+   *   - labor_cost: Total estimated labor cost (all services) in dollars
+   *   - parts_cost: Total estimated parts cost (all services) in dollars
    *   - total_cost: Sum of labor_cost + parts_cost
+   *   - estimated_labor_minutes: Total estimated time for all services (minutes)
    *   - status: Current booking state (e.g., "confirmed", "completed", "cancelled")
    *   - created_at: Unix timestamp when booking was created
    *   - updated_at: Unix timestamp of last modification
@@ -50,7 +51,6 @@ export default defineSchema({
    *   - by_shop_id: Query all bookings at a shop
    *   - by_status: Query bookings by status (for filtering)
    *   - by_scheduled_date: Query bookings on specific dates
-   *   - by_service_id: Query bookings for specific service
    *   - by_user_and_status: Combined queries for user's specific-status bookings
    *   - by_shop_and_date: Query bookings at shop on specific date
    *   - by_shop_and_status: Query shop's bookings by status
@@ -60,7 +60,6 @@ export default defineSchema({
    *   FK → users(user_id)
    *   FK → vehicles(vin) via canonical VIN lookup
    *   FK → shops(shop_id)
-   *   FK → services(service_id)
    *   FK → mechanics(mechanic_id)
    *   FK → time_slots(time_slot_id)
    *   Has-one → payments (via booking_id)
@@ -73,7 +72,8 @@ export default defineSchema({
     parts_cost: v.float64(),
     scheduled_date: v.string(),
     scheduled_time: v.string(),
-    service_id: v.id("services"),
+    service_ids: v.optional(v.array(v.id("services"))),
+    estimated_labor_minutes: v.optional(v.float64()),
     shop_id: v.id("shops"),
     status: v.string(),
     time_slot_id: v.id("time_slots"),
@@ -87,7 +87,6 @@ export default defineSchema({
     .index("by_shop_id", ["shop_id"])
     .index("by_status", ["status"])
     .index("by_scheduled_date", ["scheduled_date"])
-    .index("by_service_id", ["service_id"])
     .index("by_user_and_status", ["user_id", "status"])
     .index("by_shop_and_date", ["shop_id", "scheduled_date"])
     .index("by_shop_and_status", ["shop_id", "status"])

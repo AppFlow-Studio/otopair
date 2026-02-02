@@ -291,7 +291,7 @@ export const AllReviewsSheet = forwardRef<AllReviewsSheetRef, AllReviewsSheetPro
     return getMechanicById(mechanicId);
   }, [mechanicId, getMechanicById]);
 
-  const ratingCount = mechanic ? Math.floor(mechanic.rating * 25 + 27) : 0;
+  const ratingCount = mechanic?.reviewCount ?? 0;
 
   // Filtered reviews based on selected filter
   const filteredReviews = useMemo(() => {

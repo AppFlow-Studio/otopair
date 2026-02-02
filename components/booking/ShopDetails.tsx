@@ -36,7 +36,7 @@ import type { MechanicAvailabilitySlot, ScheduledAppointment } from "@/stores/ty
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useShopStore } from "@/stores/useShopStore";
 import { useBookingStore } from "@/stores/useBookingStore";
-import { useNextAvailabilityForShop } from "@/hooks/useNextAvailabilityForShop";
+import { useNextAvailabilityPerMechanicForShop } from "@/hooks/useNextAvailabilityPerMechanicForShop";
 
 // ============================================================================
 // TYPES
@@ -68,11 +68,12 @@ export function ShopDetails({ shopId, onBookNow, onAddMoreServices, onViewAllAva
   const skipServiceRemovalConfirm = useBookingStore((state) => state.skipServiceRemovalConfirm);
   const setSkipServiceRemovalConfirm = useBookingStore((state) => state.setSkipServiceRemovalConfirm);
   const selectMechanic = useBookingStore((state) => state.selectMechanic);
+  const setSelectedMechanicSlot = useBookingStore((state) => state.setSelectedMechanicSlot);
   const selectedMechanicId = useBookingStore((state) => state.selectedMechanicId);
   const scheduledAppointment = useBookingStore((state) => state.scheduledAppointment);
 
-  // Convex time slots for this shop (all mechanics); grouped by mechanic for inline slots
-  const { slots: nextSlots } = useNextAvailabilityForShop(shopId, undefined, 48);
+  // Convex time slots per mechanic for this shop (each mechanic gets their own slots)
+  const { slotsByMechanicId: slotsByMechanicIdFromHook } = useNextAvailabilityPerMechanicForShop(shopId, 48);
 
   // ═══════════════ STATE ═══════════════
   // Track selected slot index for each mechanic
@@ -136,16 +137,8 @@ export function ShopDetails({ shopId, onBookNow, onAddMoreServices, onViewAllAva
     [laborRate],
   );
 
-  // Group Convex next-availability slots by mechanic_id for inline schedule
-  const slotsByMechanicId = useMemo(() => {
-    const map: Record<string, MechanicAvailabilitySlot[]> = {};
-    nextSlots.forEach((s) => {
-      const key = s.mechanicId ?? "";
-      if (!map[key]) map[key] = [];
-      map[key].push({ dayOfWeek: s.dayOfWeek, day: s.day, time: s.time });
-    });
-    return map;
-  }, [nextSlots]);
+  // Slots per mechanic from Convex (each mechanic has their own list)
+  const slotsByMechanicId = slotsByMechanicIdFromHook;
 
   // Map specialty IDs to service names and merge Convex availability per mechanic
   const mechanicsWithSpecialties = useMemo(() => {
@@ -235,23 +228,40 @@ export function ShopDetails({ shopId, onBookNow, onAddMoreServices, onViewAllAva
 
   const handleBookNow = useCallback(
     (mechanicId: string, slotIndex: number | null) => {
-      // Get the mechanic to access their availability slots
       const mechanic = mechanicsWithSpecialties.find((m) => m.id === mechanicId);
       if (!mechanic) return;
 
-      // If there's an inline slot selected, set the appointment in the store
       if (slotIndex !== null && mechanic.nextAvailability?.[slotIndex]) {
         const slot = mechanic.nextAvailability[slotIndex];
         const appointment = convertSlotToAppointment(slot);
-        // Mark that this is an inline selection so the effect won't clear slots
         hasInlineSelectionRef.current = true;
         setScheduledAppointment(appointment);
         selectMechanic(mechanicId);
+        // Set selectedMechanicSlot so payment screen has shopId and can insert Convex booking
+        if (shop) {
+          setSelectedMechanicSlot({
+            shopId: shop.id,
+            shopName: shop.name,
+            mechanicId,
+            mechanicName: mechanic.name,
+            slot: { day: slot.day, dayOfWeek: slot.dayOfWeek, time: slot.time },
+            scheduledDate: appointment.date,
+            scheduledTime: appointment.time,
+          });
+        }
       }
 
       onBookNow?.(mechanicId);
     },
-    [onBookNow, mechanicsWithSpecialties, convertSlotToAppointment, setScheduledAppointment, selectMechanic],
+    [
+      shop,
+      mechanicsWithSpecialties,
+      convertSlotToAppointment,
+      setScheduledAppointment,
+      selectMechanic,
+      setSelectedMechanicSlot,
+      onBookNow,
+    ],
   );
 
   const handleAddServices = useCallback(() => {

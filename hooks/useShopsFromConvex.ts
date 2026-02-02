@@ -24,6 +24,7 @@ function mapConvexShopToStore(shop: Doc<"shops">, serviceIds: string[]): Shop {
     longitude: shop.lng,
     distanceKm: null,
     rating: shop.rating ?? null,
+    reviewCount: shop.review_count != null ? Math.round(Number(shop.review_count)) : undefined,
     imageUrl: null,
     availability: shop.is_active ? 7 : 0,
     hasAvailableSlots: shop.is_active,

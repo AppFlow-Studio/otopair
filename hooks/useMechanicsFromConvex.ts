@@ -24,6 +24,7 @@ function mapConvexMechanicToStore(mechanic: Doc<"mechanics"> & { shop?: { name: 
     shopName,
     photoUrl: null,
     rating: mechanic.rating ?? 0,
+    reviewCount: mechanic.review_count != null ? Math.round(Number(mechanic.review_count)) : undefined,
     isVerified: false,
     distanceMi: 0,
     services: [],

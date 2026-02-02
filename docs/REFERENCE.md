@@ -46,7 +46,7 @@ For high-level and per-part diagrams, see [docs/diagrams.md](diagrams.md). For p
 
 | Table                  | Purpose                                                                     |
 | ---------------------- | --------------------------------------------------------------------------- |
-| bookings               | Service appointments; links user, vin, shop, service, time_slot; status FSM |
+| bookings               | One row per appointment; links user, vin, shop, time_slot; `service_ids` array (service IDs), aggregated labor/parts/total cost, `estimated_labor_minutes`; status FSM |
 | payments               | Payment per booking; idempotency_key; status FSM                            |
 | job_actuals            | Actual work per booking (labor, parts, notes); one per booking              |
 | booking_status_history | Append-only booking status transitions                                      |
@@ -235,7 +235,7 @@ ai_enrichment_logs → manual_review_queue; spec_variances, spec_confirmations �
 
 ### bookings.ts
 
-- list(), getById(id), getByUserId(userId), getByShopId(shopId), create(...), updateStatus(bookingId, newStatus, reason?)
+- list(), getById(id), getByUserId(userId), getByShopId(shopId), create(...), **createBatch(...)** (one booking per appointment with `service_ids` and aggregated cost/time), updateStatus(bookingId, newStatus, reason?)
 
 ### payments.ts
 
@@ -348,10 +348,15 @@ await addOwner({ vin, userId, nickname: "My Car", is_primary: true, mileage: 420
 
 ### Create booking (VIN-based)
 
+**Single-service:** `bookings.create(...)` – one row with `service_ids: [service_id]`.
+
+**Multi-service (one appointment):** `bookings.createBatch(...)` – one row per appointment; `services` array; aggregated costs and `estimated_labor_minutes`; returns `[bookingId]`.
+
 ```typescript
-await createBooking({
-  user_id, vin, shop_id, service_id, time_slot_id,
-  scheduled_date, scheduled_time, labor_cost, parts_cost, total_cost,
+await createBatch({
+  user_id, vin, shop_id, mechanic_id?, time_slot_id,
+  scheduled_date, scheduled_time,
+  services: [{ service_id, labor_cost, parts_cost, labor_hours? }, ...], // payload; DB stores service_ids (array of IDs only)
   session_id?, funnel_id?,
 });
 ```

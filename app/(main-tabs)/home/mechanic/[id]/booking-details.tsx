@@ -109,7 +109,7 @@ export default function BookingDetailsScreen() {
         [laborRate]
     );
 
-    const ratingCount = mechanic ? Math.floor(mechanic.rating * 25 + 27) : 0;
+    const ratingCount = mechanic?.reviewCount ?? 0;
 
     // Get formatted date and time from store
     const appointmentDate = getFormattedAppointmentDate();
@@ -205,6 +205,7 @@ export default function BookingDetailsScreen() {
                             key={service.id}
                             service={service}
                             onRemove={() => handleRemoveService(service.id)}
+                            priceOverride={getServicePrice(service)}
                         />
                     ))}
 
@@ -212,7 +213,7 @@ export default function BookingDetailsScreen() {
                     <View style={styles.servicesFooter}>
                         <View style={styles.totalBadge}>
                             <Text size="md" weight="bold" color="#6B7280">
-                                In total ${totalPrice}
+                                In total ${totalPrice.toFixed(2)}
                             </Text>
                         </View>
                         <TouchableOpacity

@@ -16,16 +16,17 @@ import { useUserFromConvex } from "./useUserFromConvex";
 import { useBookingStore } from "@/stores/useBookingStore";
 
 function convexBookingToStore(doc: Doc<"bookings">): Booking {
+  const serviceIds = doc.service_ids ?? [];
   return {
     id: doc._id,
     userId: doc.user_id,
     shopId: doc.shop_id,
     vehicleId: doc.vin,
-    serviceIds: [doc.service_id],
+    serviceIds,
     status: doc.status as Booking["status"],
     scheduledDate: doc.scheduled_date,
     scheduledTime: doc.scheduled_time,
-    estimatedDuration: 60,
+    estimatedDuration: doc.estimated_labor_minutes ?? 60,
     totalPrice: doc.total_cost,
     createdAt: new Date(doc.created_at).toISOString(),
     updatedAt: new Date(doc.updated_at).toISOString(),

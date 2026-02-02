@@ -269,6 +269,7 @@ export default function ShopDetailScreen() {
               shopName: shop.name,
               photoUrl: null,
               rating: shop.rating ?? 0,
+              reviewCount: shop.reviewCount,
               isVerified: false,
               distanceMi:
                 userLocation && shop.latitude != null && shop.longitude != null

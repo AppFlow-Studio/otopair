@@ -29,11 +29,13 @@ import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 import { BookingPageHeader } from "@/components/booking/pages";
 
 // 5. Constants, hooks, types, stores
+import { getPartsBreakdown } from "@/constants/services";
 import { BorderRadius, Shadows } from "@/constants/theme";
 import { useCreateBookingConvex } from "@/hooks/useCreateBookingConvex";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { usePaymentStore } from "@/stores/usePaymentStore";
+import { useShopStore } from "@/stores/useShopStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 
 // ============================================================================
@@ -71,6 +73,9 @@ export default function PaymentScreen() {
   // ═══════════════ MECHANIC STORE ═══════════════
   const getMechanicById = useMechanicStore((state) => state.getMechanicById);
 
+  // ═══════════════ SHOP STORE (for shop-specific pricing) ═══════════════
+  const getShopById = useShopStore((state) => state.getShopById);
+
   // ═══════════════ VEHICLE STORE ═══════════════
   const getSelectedVehicle = useVehicleStore((state) => state.getSelectedVehicle);
 
@@ -93,9 +98,22 @@ export default function PaymentScreen() {
     [availableServices, selectedServiceIds],
   );
 
-  // Calculate detailed breakdown
+  // Shop-specific services total: labor_rate × default_labor_hours + default_parts_estimate (matches ShopDetails / modal)
+  const shop = useMemo(
+    () => (mechanic?.shopId ? getShopById(mechanic.shopId) : null),
+    [mechanic?.shopId, getShopById],
+  );
+  const laborRate = shop?.labor_rate ?? 80;
+
+  // Calculate detailed breakdown (subtotal uses shop-specific total)
   const breakdown = useMemo(() => {
-    const servicesTotal = selectedServices.reduce((total, service) => total + service.price, 0);
+    const servicesTotal = selectedServices.reduce(
+      (total, service) =>
+        total +
+        laborRate * (service.default_labor_hours ?? 0) +
+        (service.default_parts_estimate ?? 0),
+      0,
+    );
     // Estimate labor as 60% of services total, parts as 40%
     const laborHours = Math.max(1, Math.round(((servicesTotal * 0.6) / LABOR_RATE_PER_HOUR) * 2) / 2);
     const laborCost = laborHours * LABOR_RATE_PER_HOUR;
@@ -110,7 +128,17 @@ export default function PaymentScreen() {
       subtotal: servicesTotal,
       total: servicesTotal + PLATFORM_FEE,
     };
-  }, [selectedServices]);
+  }, [selectedServices, laborRate]);
+
+  // Parts breakdown: each part listed and labelled as (Part)
+  const partsBreakdown = useMemo(
+    () =>
+      getPartsBreakdown(
+        selectedServices.map((s) => s.name),
+        breakdown.partsCost
+      ),
+    [selectedServices, breakdown.partsCost]
+  );
 
   // Format vehicle display
   const vehicleDisplay = selectedVehicle
@@ -281,15 +309,17 @@ export default function PaymentScreen() {
               </Text>
             </View>
 
-            {/* Parts */}
-            <View style={styles.breakdownRow}>
-              <Text size="sm" weight="regular" color="#6B7280">
-                Parts (Oil, Filter)
-              </Text>
-              <Text size="sm" weight="medium" color="#6B7280">
-                ${breakdown.partsCost.toFixed(2)}
-              </Text>
-            </View>
+            {/* Parts: each part listed and labelled as (Part) */}
+            {partsBreakdown.map((part, index) => (
+              <View key={`${part.name}-${index}`} style={styles.breakdownRow}>
+                <Text size="sm" weight="regular" color="#6B7280">
+                  {part.name} (Part)
+                </Text>
+                <Text size="sm" weight="medium" color="#6B7280">
+                  ${part.cost.toFixed(2)}
+                </Text>
+              </View>
+            ))}
 
             {/* Taxes & Fees */}
             <View style={styles.breakdownRow}>
