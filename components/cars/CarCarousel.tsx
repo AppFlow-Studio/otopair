@@ -10,12 +10,13 @@
  */
 
 // 1. React & React Native
-import React, { useEffect, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Dimensions,
   Image,
   ImageSourcePropType,
+  InteractionManager,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -1358,7 +1359,7 @@ interface CarouselItemProps {
   totalItems: number;
 }
 
-const CircularCarouselItem = ({ item, index, rotation, totalItems }: CarouselItemProps) => {
+const CircularCarouselItem = memo(({ item, index, rotation, totalItems }: CarouselItemProps) => {
   const imageSource = item.imageSource || (item.make === 'Lamborghini' ? BLUE_LAMBO_IMAGE : DEFAULT_VEHICLE_IMAGE);
 
   const animatedStyle = useAnimatedStyle(() => {
@@ -1438,7 +1439,7 @@ const CircularCarouselItem = ({ item, index, rotation, totalItems }: CarouselIte
       />
     </ReAnimated.View>
   );
-};
+});
 
 // ============================================================================
 // MAIN COMPONENT
@@ -1451,12 +1452,13 @@ export function CarCarousel({
   onActiveIndexChange,
   isFocused,
 }: CarCarouselProps) {
-  // Sort vehicles so default car is first
-  const sortedVehicles = [...vehicles].sort((a, b) => {
-    if (a.isDefault && !b.isDefault) return -1;
-    if (!a.isDefault && b.isDefault) return 1;
-    return 0;
-  });
+  // Sort vehicles so default car is first - memoized to prevent re-renders
+  const sortedVehicles = useMemo(() => 
+    [...vehicles].sort((a, b) => {
+      if (a.isDefault && !b.isDefault) return -1;
+      if (!a.isDefault && b.isDefault) return 1;
+      return 0;
+    }), [vehicles]);
 
   const [activeIndex, setActiveIndex] = useState(0);
   const rotation = useSharedValue(0);
@@ -1502,42 +1504,32 @@ export function CarCarousel({
   const usageScoreForRing = getMileageScoreForRing(vehicleMileage);
   const overallCondition = Math.round((maintenanceScoreForRing * 0.7) + (usageScoreForRing * 0.3));
 
-  // Update active index callback - immediate, no delays
-  const updateActiveIndex = (newIndex: number) => {
-    setActiveIndex(newIndex);
-    // Call parent callback immediately - no async delays
-    onActiveIndexChange?.(newIndex);
-    if (showBottomSheet) {
-      closeBottomSheet();
-    }
-  };
+  // Deferred state update - waits for ALL animations to complete before updating
+  const deferredStateUpdate = useCallback((newIndex: number) => {
+    // Wait for animations to complete, then update state
+    InteractionManager.runAfterInteractions(() => {
+      setActiveIndex(newIndex);
+      onActiveIndexChange?.(newIndex);
+    });
+  }, [onActiveIndexChange]);
 
   // Pan gesture for rotating carousel
   const lastTranslationX = useSharedValue(0);
-  
-  // Sync lastUpdatedIndex when activeIndex changes externally (e.g., thumbnail clicks)
-  useEffect(() => {
-    lastUpdatedIndex.value = activeIndex;
-  }, [activeIndex]);
   
   const panGesture = Gesture.Pan()
     .onStart(() => {
       lastTranslationX.value = 0;
     })
     .onUpdate((e) => {
+      // Only update rotation - NO state updates during drag
       const delta = e.translationX - lastTranslationX.value;
       rotation.value += delta * 0.008;
       lastTranslationX.value = e.translationX;
       
-      // Update index in real-time during drag for instant gradient changes
+      // Track index in shared value only - no JS bridge calls
       const currentRotationInSteps = Math.round(rotation.value / anglePerItem);
       const currentClosestIndex = (((-currentRotationInSteps % sortedVehicles.length) + sortedVehicles.length) % sortedVehicles.length);
-      
-      // Only update if the closest car has changed
-      if (currentClosestIndex !== lastUpdatedIndex.value) {
-        lastUpdatedIndex.value = currentClosestIndex;
-        runOnJS(updateActiveIndex)(currentClosestIndex);
-      }
+      lastUpdatedIndex.value = currentClosestIndex;
     })
     .onEnd((e) => {
       const velocity = e.velocityX * 0.0005;
@@ -1545,26 +1537,24 @@ export function CarCarousel({
       const nearestIndex = Math.round(targetRotation / anglePerItem);
       const snappedRotation = nearestIndex * anglePerItem;
 
-      // Update index immediately so gradient starts changing right away
-      const normalizedIndex = (((-nearestIndex % sortedVehicles.length) + sortedVehicles.length) % sortedVehicles.length);
-      if (normalizedIndex !== lastUpdatedIndex.value) {
-        lastUpdatedIndex.value = normalizedIndex;
-      runOnJS(updateActiveIndex)(normalizedIndex);
-      }
-
-      // Slower spring animation - gives gradient time to render during rotation
+      // Start spring animation FIRST - less bouncy
       rotation.value = withSpring(snappedRotation, {
-        damping: 25,
-        stiffness: 60, // Lower stiffness = slower animation
-        mass: 1.2, // Higher mass = slower movement
+        damping: 28,
+        stiffness: 120,
       });
+
+      // Then update state after animation starts
+      const normalizedIndex = (((-nearestIndex % sortedVehicles.length) + sortedVehicles.length) % sortedVehicles.length);
+      lastUpdatedIndex.value = normalizedIndex;
+      runOnJS(deferredStateUpdate)(normalizedIndex);
     });
 
   // Rotate to specific index
-  const rotateToIndex = (targetIndex: number) => {
-    // Update index immediately so gradient starts changing right away
-    updateActiveIndex(targetIndex);
+  const rotateToIndex = useCallback((targetIndex: number) => {
+    // Update shared value immediately for gesture tracking
+    lastUpdatedIndex.value = targetIndex;
     
+    // Calculate and start animation FIRST
     const currentRotationInSteps = Math.round(rotation.value / anglePerItem);
     const currentIndex = (((-currentRotationInSteps % sortedVehicles.length) + sortedVehicles.length) % sortedVehicles.length);
     
@@ -1578,13 +1568,23 @@ export function CarCarousel({
 
     const targetRotation = rotation.value - (indexDiff * anglePerItem);
     
-    // Slower spring animation - gives gradient time to render during rotation
+    // Start animation FIRST - smooth with minimal bounce
     rotation.value = withSpring(targetRotation, {
-      damping: 25,
-      stiffness: 60, // Lower stiffness = slower animation
-      mass: 1.2, // Higher mass = slower movement
+      damping: 28,
+      stiffness: 120,
     });
-  };
+    
+    // Close bottom sheet immediately if needed
+    if (showBottomSheet) {
+      closeBottomSheet();
+    }
+    
+    // Wait for animation to complete before updating state
+    InteractionManager.runAfterInteractions(() => {
+      setActiveIndex(targetIndex);
+      onActiveIndexChange?.(targetIndex);
+    });
+  }, [anglePerItem, sortedVehicles.length, showBottomSheet, onActiveIndexChange]);
 
   // Bottom sheet functions
   const openBottomSheet = () => {
