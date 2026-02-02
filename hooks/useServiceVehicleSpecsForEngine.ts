@@ -13,10 +13,7 @@ import { useMemo } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 
-export function useServiceVehicleSpecsForEngine(
-  engineId: string | undefined,
-  serviceIds: string[],
-) {
+export function useServiceVehicleSpecsForEngine(engineId: string | undefined, serviceIds: string[]) {
   const convexSpecs = useQuery(
     api.service_vehicle_specs.getSpecsForEngineAndServices,
     engineId && serviceIds.length > 0

@@ -50,16 +50,11 @@ export const getSpecsForEngineAndServices = query({
     serviceIds: v.array(v.id("services")),
   },
   handler: async (ctx, args) => {
-    const specs: Record<
-      string,
-      { labor_hours: number; parts_cost_avg: number }
-    > = {};
+    const specs: Record<string, { labor_hours: number; parts_cost_avg: number }> = {};
     for (const serviceId of args.serviceIds) {
       const doc = await ctx.db
         .query("service_vehicle_specs")
-        .withIndex("by_engine_and_service", (q) =>
-          q.eq("engine_id", args.engineId).eq("service_id", serviceId)
-        )
+        .withIndex("by_engine_and_service", (q) => q.eq("engine_id", args.engineId).eq("service_id", serviceId))
         .unique();
       if (doc) {
         specs[serviceId] = {
