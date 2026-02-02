@@ -131,6 +131,7 @@
 
 - `_id` → `id` (as string)
 - `address` + `city` + `state` + `zip` → `address`
+- `phone` → `phone` (for Contact / tel: link; used on confirmation and shop carousel cards)
 - `lat`, `lng` → `latitude`, `longitude`
 - `rating`, `review_count` → `rating`
 - `serviceIds` from `shop_services.getByShopId`
@@ -242,6 +243,44 @@ When the user taps **"Confirm Appointment"** on the payment screen, the app inse
 
 ---
 
+## 5.5. Confirmation screen – Directions, Contact, Add to Calendar
+
+After a successful booking, the confirmation screen (`app/(main-tabs)/home/mechanic/[id]/confirmation.tsx`) uses **shop data from the DB** for post-booking actions.
+
+### Data source
+
+| Data | Source |
+|------|--------|
+| **Shop** | `useQuery(api.shops.getById, { id: shopId })` where `shopId` = `selectedMechanicSlot?.shopId` or `mechanic?.shopId` |
+| **Full address** | `[shop.address, shop.city, shop.state, shop.zip].join(", ")` for display and maps |
+| **LOCATION** | Full address when shop is loaded; fallback to mechanic name or "Shop Location" |
+
+### Directions
+
+- **Implementation:** `utils/linking.openMapsForAddress(fullAddress)`.
+- **Behaviour:** Opens Google Maps (or default maps app) with destination = shop address. Uses `expo-linking`; URL: `https://www.google.com/maps/dir/?api=1&destination=...`.
+- **UI:** "Directions" button disabled when no address.
+
+### Contact
+
+- **Implementation:** `utils/linking.openPhone(shop.phone)`.
+- **Behaviour:** Opens native dialer with shop phone (`tel:` URL). User can then place the call.
+- **UI:** "Contact" button disabled when no shop phone.
+
+### Add to Calendar
+
+- **Implementation:** `expo-calendar` – request permission, get writable calendar, `Calendar.createEventAsync(calendarId, { title, startDate, endDate, location })`.
+- **Title:** `Service at {shop.name ?? mechanic.shopName}`.
+- **Start/end:** Parsed from `scheduledAppointment.date` (YYYY-MM-DD) and `scheduledAppointment.time` (e.g. "2:00 PM"); end = start + 1 hour.
+- **Location:** Full shop address when available.
+- **Platform:** Not supported on web (alert shown); iOS/Android use native calendar.
+
+### Carousel components (Directions / Contact)
+
+- **MechanicCarouselSheet** and **ShopPreviewContent** use the same behaviour for each shop card: `onDirections` → `openMapsForAddress(shop.address)`, `onCall` → `openPhone(shop.phone)` when `shop.phone` is set. Store `Shop` type includes `phone`; `useShopsFromConvex` maps Convex `shop.phone` into the store.
+
+---
+
 ## 6. Clerk guest account (.env.local) ↔ seed data
 
 The app uses the **Clerk account defined in `.env.local`** (e.g. `EXPO_PUBLIC_GUEST_EMAIL` / `EXPO_PUBLIC_GUEST_PASSWORD`) as the test account. To have that account see vehicles, bookings, and other seed data:
@@ -265,3 +304,4 @@ On sign-in, `claimSeedDataForCurrentUser` runs automatically: it reassigns the s
 - **total_cost includes taxes & platform fee:** February 2026 – `total_cost` in DB = labor + parts + taxes_and_fees + platform_fee (full amount customer pays). Review & Pay screen Total = subtotal + Taxes & Fees + Platform Fee to match. createBatch accepts optional `taxes_and_fees`, `platform_fee`; hook passes TAXES_AND_FEES (5.0), PLATFORM_FEE (4.79).
 - **One booking per appointment:** February 2026 – `createBatch` now creates **one** booking row per appointment (not N rows per N services). Bookings table has `service_ids` array, `estimated_labor_minutes`, and aggregated `labor_cost`/`parts_cost`/`total_cost`. One time slot per appointment; no double-booking conflict. `service_id` column removed; use `service_ids` only. Initial booking status is **pending** (shop can accept); booking_status_history logs `new_status: "pending"`.
 - **Section 5 (Confirm Appointment):** Added February 2026 – documents Convex insert on "Confirm Appointment", shopId/timeSlotId resolution, `createBatch` side effects, and tables populated (bookings, time_slots, booking_status_history, analytics_events).
+- **Section 5.5 (Confirmation – Directions, Contact, Add to Calendar):** February 2026 – confirmation screen fetches shop via `api.shops.getById`; Directions (openMapsForAddress), Contact (openPhone), Add to Calendar (expo-calendar) use shop address/phone/name and scheduledAppointment from DB. Store Shop type and useShopsFromConvex include `phone` for carousel Contact.

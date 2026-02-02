@@ -21,6 +21,7 @@ function mapConvexMechanicToStore(mechanic: Doc<"mechanics"> & { shop?: { name: 
     id: mechanic._id as string,
     shopId: mechanic.shop_id as string,
     name,
+    title: mechanic.title,
     shopName,
     photoUrl: null,
     rating: mechanic.rating ?? 0,

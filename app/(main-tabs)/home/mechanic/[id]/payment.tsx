@@ -102,7 +102,7 @@ export default function PaymentScreen() {
   );
   const laborRate = shop?.labor_rate;
 
-  // Calculate detailed breakdown (subtotal uses shop labor rate only)
+  // Calculate detailed breakdown (subtotal = sum of labor + parts per service; DB values only, no fallbacks)
   const breakdown = useMemo(() => {
     const rate = laborRate ?? 0;
     const servicesTotal = selectedServices.reduce(
@@ -129,6 +129,13 @@ export default function PaymentScreen() {
       total: servicesTotal + TAXES_AND_FEES + PLATFORM_FEE,
     };
   }, [selectedServices, laborRate]);
+
+  // Per-service line total (labor + parts) so breakdown lines sum to subtotal
+  const getServiceLineTotal = useCallback(
+    (service: (typeof selectedServices)[0]) =>
+      (laborRate ?? 0) * (service.default_labor_hours ?? 0) + (service.default_parts_estimate ?? 0),
+    [laborRate],
+  );
 
   // Parts breakdown: each part listed and labelled as (Part)
   const partsBreakdown = useMemo(
@@ -240,7 +247,7 @@ export default function PaymentScreen() {
                 {mechanic.name}
               </Text>
               <Text size="sm" weight="medium" color="#6B7280">
-                Master Mechanic
+                {mechanic.title ?? mechanic.shopName}
               </Text>
             </View>
           </View>
@@ -285,14 +292,14 @@ export default function PaymentScreen() {
             <FileText size={20} color="#9CA3AF" />
           </View>
 
-          {/* Service Names */}
+          {/* Service names with line total (labor + parts) so lines sum to subtotal */}
           {selectedServices.map((service) => (
             <View key={service.id} style={styles.serviceRow}>
               <Text size="sm" weight="medium" color={BrandColors.primary}>
                 {service.name}
               </Text>
               <Text size="sm" weight="semiBold" color={BrandColors.primary}>
-                ${service.price.toFixed(2)}
+                ${getServiceLineTotal(service).toFixed(2)}
               </Text>
             </View>
           ))}

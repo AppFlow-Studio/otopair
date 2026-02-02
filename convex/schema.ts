@@ -254,10 +254,11 @@ export default defineSchema({
    *   - shop_id: The shop this mechanic works at
    *   - first_name: Mechanic's first name
    *   - last_name: Mechanic's last name
+   *   - title: Optional job title (e.g. "Master Mechanic"); when empty, UI shows shop name under mechanic name
    *   - is_active: Whether mechanic is currently available
    *   - rating: Average rating from customer reviews (0-5)
    *   - review_count: Total number of reviews received
-   * 
+   *
    * INDEXES:
    *   - by_shop_id: Get all mechanics at a shop
    *   - by_is_active: Filter for active mechanics
@@ -276,6 +277,7 @@ export default defineSchema({
     rating: v.float64(),
     review_count: v.float64(),
     shop_id: v.id("shops"),
+    title: v.optional(v.string()),
   })
     .index("by_shop_id", ["shop_id"])
     .index("by_is_active", ["is_active"]),

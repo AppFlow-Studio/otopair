@@ -66,12 +66,12 @@ export function MechanicInfoCard({ mechanic, ratingCount }: MechanicInfoCardProp
         <View style={styles.mechanicInfo}>
           <View style={styles.nameRow}>
             <Text size="lg" weight="bold" color={BrandColors.primary}>
-              {mechanic.shopName}
+              {mechanic.name}
             </Text>
           </View>
 
           <Text size="sm" weight="medium" color="#6B7280" style={{ marginBottom: 2 }}>
-            {mechanic.name}
+            {mechanic.title ?? mechanic.shopName}
           </Text>
 
           <View style={styles.distanceRow}>

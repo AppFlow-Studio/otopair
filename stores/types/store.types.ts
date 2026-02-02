@@ -72,6 +72,8 @@ export interface Mechanic {
   shopId: string;
   /** Mechanic's display name */
   name: string;
+  /** Optional job title (e.g. "Master Mechanic"); when empty, UI shows shopName under name */
+  title?: string;
   /** Shop/business name */
   shopName: string;
   /** Profile photo URL */
@@ -143,8 +145,10 @@ export interface Shop {
   name: string;
 
   // ─── Location ───
-  /** Street address */
+  /** Street address (or full address line) */
   address: string;
+  /** Shop phone for Contact / tel: link */
+  phone?: string;
   /** Latitude coordinate */
   latitude: number;
   /** Longitude coordinate */

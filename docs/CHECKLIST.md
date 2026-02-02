@@ -78,14 +78,13 @@
 
 - [ ] **Payment** – PaymentMethodModal/usePaymentStore mock. Need api.payments.create (and Stripe if required) after booking
 - [ ] **Funnel/analytics** – No api.conversion_funnels.\* or api.analytics_events.track in booking flow
-- [ ] **Confirmation** – No Convex booking id; Directions/Contact are placeholders; no api.follow_ups.create
+- [ ] **Confirmation** – No Convex booking id on screen; no api.follow_ups.create after confirmation
 
 ### Not implemented
 
 - [ ] conversion_funnels: startFunnel (flow start), updateStage (stage changes), completeFunnel (success), abandonFunnel (back/close)
 - [ ] analytics_events.track for booking_started, booking_completed, payment_completed
-- [ ] Confirmation: pass booking id from server; wire Directions (shop address), Contact (shop/mechanic); implement Add to Calendar
-- [ ] Optional: api.follow_ups.create after confirmation (vin, service_id, scheduled_for)
+- [ ] Confirmation: pass booking id from server to confirmation screen; optional api.follow_ups.create after confirmation (vin, service_id, scheduled_for)
 - [ ] Error handling: no mechanic/vehicle/payment method; Convex/network errors with retry or cancel
 
 ---
@@ -98,10 +97,11 @@
 | **Add vehicle**          | UI                                                                 | —                                 | Wire to Convex; spec pack in UI                              |
 | **Booking flow UI**      | Full (discovery → confirmation)                                    | —                                 | —                                                            |
 | **Booking → Convex**     | createBatch, services, shops, mechanics, time_slots, user, vehicle | payments.create; funnel/analytics | —                                                            |
-| **Confirmation**         | Success UI                                                         | —                                 | Server booking id, Directions, Contact, Calendar, follow_ups |
+| **Confirmation**         | Success UI; Directions, Contact, Add to Calendar (shop from DB)    | —                                 | Server booking id, follow_ups                               |
 
 ---
 
 **Last updated:** February 2026. Update this file when completing items or adding new work.
 
 - **Booking model:** One booking row per appointment (`service_ids` array, estimated_labor_minutes, aggregated costs); createBatch returns single ID. Labor/parts from shop labor rate only (no default); initial status `pending`.
+- **Confirmation (Directions, Contact, Add to Calendar):** Confirmation screen fetches shop via `api.shops.getById(shopId)` (shopId from selectedMechanicSlot or mechanic). **Directions** uses `utils/linking.openMapsForAddress(fullAddress)` (Google Maps). **Contact** uses `utils/linking.openPhone(shop.phone)` (native dialer). **Add to Calendar** uses expo-calendar (permission, createEventAsync with title "Service at {shopName}", start/end from scheduledAppointment, location). Same Directions/Contact wiring in MechanicCarouselSheet and ShopPreviewContent using store shop address/phone (useShopsFromConvex maps `phone` to store Shop).

@@ -16,8 +16,6 @@ import type { ServiceCategory } from "@/stores/types/store.types";
 import type { Service } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
 
-const DEFAULT_PARTS = 0;
-
 /** Map Convex category name to app ServiceCategory */
 function mapCategoryNameToKey(name: string | undefined): ServiceCategory {
   if (!name) return "basic_maintenance";
@@ -30,7 +28,8 @@ function mapCategoryNameToKey(name: string | undefined): ServiceCategory {
 
 /**
  * Map a Convex service doc (with serviceCategory, default_parts_estimate) to store Service.
- * price = parts only; labor is computed with shop.labor_rate where shop is known (no default rate).
+ * No fallbacks: use DB default_labor_hours and default_parts_estimate as-is.
+ * price = parts only (for display where labor is computed separately).
  */
 function mapConvexServiceToStore(doc: {
   _id: Id<"services">;
@@ -41,16 +40,15 @@ function mapConvexServiceToStore(doc: {
   serviceCategory?: { name?: string } | null;
 }): Service {
   const category = mapCategoryNameToKey(doc.serviceCategory?.name);
-  const parts = doc.default_parts_estimate ?? DEFAULT_PARTS;
-  const price = parts;
+  const default_parts_estimate = doc.default_parts_estimate;
   return {
     id: doc._id,
     name: doc.name,
     description: doc.description,
-    price,
+    price: default_parts_estimate ?? 0,
     category,
     default_labor_hours: doc.default_labor_hours,
-    default_parts_estimate: parts,
+    default_parts_estimate,
   };
 }
 

@@ -682,6 +682,7 @@ export const seed = mutation({
       shop_id: shop1Id,
       first_name: "Sarah",
       last_name: "Chen",
+      title: "Master Mechanic",
       is_active: true,
       rating: 4.7,
       review_count: 64,

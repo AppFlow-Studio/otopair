@@ -153,7 +153,7 @@ export function MechanicDetailHeader({ mechanic, shop, onBack }: MechanicDetailH
             <View style={[styles.contentOverlay, { bottom: Spacing.xs }]}>
                 <View style={styles.infoContainer}>
                     <Text size="3xl" weight="bold" color={BrandColors.primary} style={styles.shopName}>
-                        {mechanic.shopName}
+                        {mechanic.title ?? mechanic.shopName}
                     </Text>
 
                     {/* Specialties */}

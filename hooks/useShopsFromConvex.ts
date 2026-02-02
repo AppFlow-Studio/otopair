@@ -20,6 +20,7 @@ function mapConvexShopToStore(shop: Doc<"shops">, serviceIds: string[]): Shop {
     id: shop._id,
     name: shop.name,
     address: address || "Address not available",
+    phone: shop.phone,
     latitude: shop.lat,
     longitude: shop.lng,
     distanceKm: null,

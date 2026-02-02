@@ -97,9 +97,9 @@ export function useCreateBookingConvex() {
       if (!shop || laborRate == null || laborRate === undefined) {
         throw new Error("Shop labor rate is required to create a booking.");
       }
-      // Use only shop labor rate: actual labor = rate × hours, actual parts = service default_parts_estimate
+      // DB values only: labor = rate × default_labor_hours, parts = default_parts_estimate (no fallbacks)
       const services = selectedServices.map((s) => {
-        const hours = s.default_labor_hours ?? 0.5;
+        const hours = s.default_labor_hours ?? 0;
         const laborCost = laborRate * hours;
         const partsCost = s.default_parts_estimate ?? 0;
         return {

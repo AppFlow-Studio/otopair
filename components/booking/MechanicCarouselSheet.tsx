@@ -58,6 +58,7 @@ import { ShopCarouselCard } from "./ShopCarouselCard";
 import { Spacing } from "@/constants/theme";
 import type { Shop } from "@/stores/types/store.types";
 import { useShopStore } from "@/stores/useShopStore";
+import { openMapsForAddress, openPhone } from "@/utils/linking";
 
 // ============================================================================
 // TYPES
@@ -191,14 +192,6 @@ export function MechanicCarouselSheet({
     }
   });
 
-  const handleCall = useCallback(() => {
-    // TODO: Implement phone call
-  }, []);
-
-  const handleDirections = useCallback(() => {
-    // TODO: Open maps app with directions
-  }, []);
-
   const handleDetails = useCallback(() => {
     if (activeShop) {
       onMechanicSelect?.(activeShop);
@@ -219,14 +212,14 @@ export function MechanicCarouselSheet({
           <ShopCarouselCard
             shop={item}
             isActive={isActive}
-            onCall={handleCall}
-            onDirections={handleDirections}
+            onCall={() => item.phone && openPhone(item.phone)}
+            onDirections={() => openMapsForAddress(item.address)}
             onDetails={handleDetails}
           />
         </View>
       );
     },
-    [activeIndex, handleCall, handleDirections, handleDetails]
+    [activeIndex, handleDetails]
   );
 
   const getItemLayout = useCallback(

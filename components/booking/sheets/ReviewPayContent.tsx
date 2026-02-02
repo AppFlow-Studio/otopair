@@ -107,7 +107,7 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
     [availableServices, selectedServiceIds]
   );
 
-  // Calculate detailed breakdown (shop labor rate only)
+  // Calculate detailed breakdown (shop labor rate only; DB values only, no fallbacks)
   const breakdown = useMemo(() => {
     const rate = laborRate ?? 0;
     const servicesTotal = selectedServices.reduce(
@@ -134,6 +134,13 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
       total: servicesTotal + TAXES_AND_FEES + PLATFORM_FEE,
     };
   }, [selectedServices, laborRate]);
+
+  // Per-service line total (labor + parts) so breakdown lines sum to subtotal
+  const getServiceLineTotal = useCallback(
+    (service: (typeof selectedServices)[0]) =>
+      (laborRate ?? 0) * (service.default_labor_hours ?? 0) + (service.default_parts_estimate ?? 0),
+    [laborRate],
+  );
 
   // Parts breakdown: each part listed and labelled as (Part)
   const partsBreakdown = useMemo(
@@ -227,7 +234,7 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
                 {mechanic.name}
               </Text>
               <Text size="sm" weight="medium" color="#6B7280">
-                Master Mechanic
+                {mechanic.title ?? mechanic.shopName}
               </Text>
             </View>
           </View>
@@ -276,14 +283,14 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
             <FileText size={20} color="#9CA3AF" />
           </View>
 
-          {/* Service Names */}
+          {/* Service names with line total (labor + parts) so lines sum to subtotal */}
           {selectedServices.map((service) => (
             <View key={service.id} style={styles.serviceRow}>
               <Text size="sm" weight="medium" color={BrandColors.primary}>
                 {service.name}
               </Text>
               <Text size="sm" weight="semiBold" color={BrandColors.primary}>
-                ${service.price.toFixed(2)}
+                ${getServiceLineTotal(service).toFixed(2)}
               </Text>
             </View>
           ))}

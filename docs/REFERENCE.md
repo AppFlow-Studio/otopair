@@ -322,6 +322,7 @@ ai_enrichment_logs â†’ manual_review_queue; spec_variances, spec_confirmations â
 - Vehicle intelligence: oemParts, specs (including getFullVehicleSpecPack), fitments, transmissions, chassis_variants.
 - AI, analytics, conversion_funnels (use startFunnel, updateStage, completeFunnel, abandonFunnel).
 - Spec pipeline and services/shops Convex files exist (confirm as needed).
+- **Confirmation screen (post-booking):** Shop from `api.shops.getById(shopId)`; **Directions** via `utils/linking.openMapsForAddress(address)` (Google Maps); **Contact** via `utils/linking.openPhone(shop.phone)` (native dialer); **Add to Calendar** via expo-calendar (permission, createEventAsync with shop name, scheduled date/time, location). Store Shop type and useShopsFromConvex include `phone` for Contact on confirmation and shop carousel cards.
 
 ### Next steps (priority)
 

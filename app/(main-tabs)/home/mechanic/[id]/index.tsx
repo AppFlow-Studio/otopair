@@ -227,7 +227,7 @@ export default function MechanicDetailScreen() {
 
           <View style={styles.titleContainer}>
             <Text size="lg" weight="bold" color={BrandColors.primary} numberOfLines={1}>
-              {mechanic.shopName}
+              {mechanic.title ?? mechanic.shopName}
             </Text>
           </View>
 

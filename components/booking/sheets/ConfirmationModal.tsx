@@ -216,10 +216,10 @@ function CompactMechanicCard() {
       {/* Info */}
       <View style={styles.mechanicInfo}>
         <Text size="md" weight="bold" color={BrandColors.primary} numberOfLines={1}>
-          {mechanic.shopName}
+          {mechanic.name}
         </Text>
         <Text size="sm" weight="medium" color="#6B7280" numberOfLines={1}>
-          {mechanic.name}
+          {mechanic.title ?? mechanic.shopName}
         </Text>
         <Text size="xs" weight="regular" color="#9CA3AF">
           {formatDistanceMiles(mechanic.distanceMi)}

@@ -490,7 +490,7 @@ export function FullSearchModal({
                           )}
                         </View>
                         <Text size="sm" color="#6B7280" numberOfLines={1}>
-                          {mechanic.shopName} • {mechanic.yearsExperience} yrs
+                          {mechanic.title ?? mechanic.shopName} • {mechanic.yearsExperience} yrs
                         </Text>
                       </View>
                       {mechanic.isAvailable && (

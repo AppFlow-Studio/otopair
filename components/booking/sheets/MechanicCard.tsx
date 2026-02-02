@@ -106,7 +106,7 @@ export const MechanicCard = memo(function MechanicCard({ mechanic, onBookNow, on
           </View>
 
           <Text size="sm" weight="medium" color="#6B7280" style={{ marginBottom: 2 }}>
-            {mechanic.shopName}
+            {mechanic.title ?? mechanic.shopName}
           </Text>
 
           <View style={styles.detailsRow}>

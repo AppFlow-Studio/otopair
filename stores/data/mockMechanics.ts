@@ -85,6 +85,7 @@ export const MOCK_MECHANICS: MockMechanic[] = [
     id: 3,
     shopId: 3,
     name: "Sarah Chen",
+    title: "Master Mechanic",
     shopName: "M&H Auto Repair",
     rating: 4.9,
     isVerified: true,
