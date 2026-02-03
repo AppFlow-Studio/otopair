@@ -14,9 +14,11 @@
 
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo } from "react";
-import { Image, StyleSheet, TouchableOpacity, View } from "react-native";
+import { Alert, Image, Platform, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Expo & Third-party
+import * as Calendar from "expo-calendar";
+import * as Linking from "expo-linking";
 import { useRouter } from "expo-router";
 import { Check, Gift, Navigation, Phone, Star } from "lucide-react-native";
 import Animated, {
@@ -30,15 +32,19 @@ import Animated, {
     withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useQuery } from "convex/react";
 
 // 3. Shared UI (design system)
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Constants, hooks, types, stores
+import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { BorderRadius, Shadows } from "@/constants/theme";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
+import { openMapsForAddress, openPhone } from "@/utils/linking";
 
 // ============================================================================
 // CONSTANTS
@@ -185,10 +191,18 @@ export default function ConfirmationScreen() {
 
     // ═══════════════ STORES ═══════════════
     const selectedMechanicId = useBookingStore((state) => state.selectedMechanicId);
+    const selectedMechanicSlot = useBookingStore((state) => state.selectedMechanicSlot);
     const scheduledAppointment = useBookingStore((state) => state.scheduledAppointment);
     const resetBookingFlow = useBookingStore((state) => state.resetBookingFlow);
     const getMechanicById = useMechanicStore((state) => state.getMechanicById);
     const getSelectedVehicle = useVehicleStore((state) => state.getSelectedVehicle);
+
+    // Shop from DB (for address, phone, name)
+    const shopId = selectedMechanicSlot?.shopId ?? mechanic?.shopId;
+    const shop = useQuery(
+        api.shops.getById,
+        shopId ? { id: shopId as Id<"shops"> } : "skip"
+    );
 
     // ═══════════════ COMPUTED ═══════════════
     const mechanic = useMemo(() => {
@@ -197,6 +211,11 @@ export default function ConfirmationScreen() {
     }, [selectedMechanicId, getMechanicById]);
 
     const selectedVehicle = getSelectedVehicle();
+
+    const fullAddress = useMemo(() => {
+        if (!shop) return "";
+        return [shop.address, shop.city, shop.state, shop.zip].filter(Boolean).join(", ");
+    }, [shop]);
 
     // Format date with day name (e.g., "Fri, Oct 24")
     const formattedDate = useMemo(() => {
@@ -226,20 +245,70 @@ export default function ConfirmationScreen() {
         ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}`
         : "No vehicle selected";
 
-    // Shop location (mock for now - would come from shop data)
-    const shopLocation = mechanic?.shopName || "Shop Location";
+    const shopLocation = fullAddress || mechanic?.shopName || "Shop Location";
 
     // ═══════════════ HANDLERS ═══════════════
     const handleBackToHome = useCallback(() => {
-        // Dismiss back to home first, then reset booking state
         router.dismissTo("/home");
         resetBookingFlow();
     }, [resetBookingFlow, router]);
 
-    const handleAddToCalendar = useCallback(() => {
-        // TODO: Implement calendar integration
-        console.log("Add to calendar");
-    }, []);
+    const handleDirections = useCallback(() => {
+        if (fullAddress) openMapsForAddress(fullAddress);
+    }, [fullAddress]);
+
+    const handleContact = useCallback(() => {
+        if (shop?.phone) openPhone(shop.phone);
+    }, [shop?.phone]);
+
+    const handleAddToCalendar = useCallback(async () => {
+        const shopName = shop?.name ?? mechanic?.shopName ?? "Shop";
+        const dateStr = scheduledAppointment?.date;
+        const timeStr = scheduledAppointment?.time ?? "2:00 PM";
+        if (!dateStr) {
+            Alert.alert("No date", "Appointment date is missing.");
+            return;
+        }
+        try {
+            const { status } = await Calendar.requestCalendarPermissionsAsync();
+            if (status !== "granted") {
+                Alert.alert("Calendar access", "Calendar permission is required to add the appointment.");
+                return;
+            }
+            const calendars = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
+            const writable = calendars.filter((c) => c.allowsModifications !== false);
+            const calendarId = writable[0]?.id ?? calendars[0]?.id;
+            if (!calendarId) {
+                Alert.alert("Calendar", "No calendar available to add the event.");
+                return;
+            }
+            const [year, month, day] = dateStr.split("-").map(Number);
+            const timeMatch = timeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
+            let hour = 14;
+            let minute = 0;
+            if (timeMatch) {
+                hour = parseInt(timeMatch[1], 10);
+                minute = parseInt(timeMatch[2], 10);
+                if ((timeMatch[3] ?? "").toUpperCase() === "PM" && hour < 12) hour += 12;
+                if ((timeMatch[3] ?? "").toUpperCase() === "AM" && hour === 12) hour = 0;
+            }
+            const startDate = new Date(year, month - 1, day, hour, minute, 0, 0);
+            const endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
+            await Calendar.createEventAsync(calendarId, {
+                title: `Service at ${shopName}`,
+                startDate,
+                endDate,
+                location: fullAddress || undefined,
+            });
+            Alert.alert("Added", "Appointment added to your calendar.");
+        } catch (e) {
+            if (Platform.OS === "web") {
+                Alert.alert("Not supported", "Adding to calendar is not supported on web.");
+                return;
+            }
+            Alert.alert("Error", "Could not add to calendar. Please try again.");
+        }
+    }, [shop?.name, mechanic?.shopName, scheduledAppointment?.date, scheduledAppointment?.time, fullAddress]);
 
     // ═══════════════ RENDER ═══════════════
     return (
@@ -288,7 +357,7 @@ export default function ConfirmationScreen() {
                                     {mechanic.name}
                                 </Text>
                                 <Text size="sm" weight="medium" color="#6B7280">
-                                    {mechanic.shopName}
+                                    {mechanic.title ?? mechanic.shopName}
                                 </Text>
                             </View>
                         </View>
@@ -347,10 +416,11 @@ export default function ConfirmationScreen() {
                             <TouchableOpacity 
                                 style={styles.actionButton} 
                                 activeOpacity={0.7}
-                                onPress={() => console.log("Directions pressed")}
+                                onPress={handleDirections}
+                                disabled={!fullAddress}
                             >
-                                <Navigation size={16} color="#6B7280" fill="#6B7280" />
-                                <Text size="sm" weight="medium" color="#6B7280">
+                                <Navigation size={16} color={fullAddress ? "#6B7280" : "#9CA3AF"} fill={fullAddress ? "#6B7280" : "#9CA3AF"} />
+                                <Text size="sm" weight="medium" color={fullAddress ? "#6B7280" : "#9CA3AF"}>
                                     Directions
                                 </Text>
                             </TouchableOpacity>
@@ -358,10 +428,11 @@ export default function ConfirmationScreen() {
                             <TouchableOpacity 
                                 style={styles.actionButton} 
                                 activeOpacity={0.7}
-                                onPress={() => console.log("Contact pressed")}
+                                onPress={handleContact}
+                                disabled={!shop?.phone}
                             >
-                                <Phone size={16} color="#6B7280" fill="#6B7280" />
-                                <Text size="sm" weight="medium" color="#6B7280">
+                                <Phone size={16} color={shop?.phone ? "#6B7280" : "#9CA3AF"} fill={shop?.phone ? "#6B7280" : "#9CA3AF"} />
+                                <Text size="sm" weight="medium" color={shop?.phone ? "#6B7280" : "#9CA3AF"}>
                                     Contact
                                 </Text>
                             </TouchableOpacity>

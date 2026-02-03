@@ -8,12 +8,10 @@ export const list = query({
     return await Promise.all(
       reviews.map(async (review) => {
         const shop = await ctx.db.get(review.shop_id);
-        const mechanic = review.mechanic_id
-          ? await ctx.db.get(review.mechanic_id)
-          : null;
+        const mechanic = review.mechanic_id ? await ctx.db.get(review.mechanic_id) : null;
         const user = await ctx.db.get(review.user_id);
         return { ...review, shop, mechanic, user };
-      })
+      }),
     );
   },
 });
@@ -26,9 +24,7 @@ export const getById = query({
       return null;
     }
     const shop = await ctx.db.get(review.shop_id);
-    const mechanic = review.mechanic_id
-      ? await ctx.db.get(review.mechanic_id)
-      : null;
+    const mechanic = review.mechanic_id ? await ctx.db.get(review.mechanic_id) : null;
     const user = await ctx.db.get(review.user_id);
     return { ...review, shop, mechanic, user };
   },
@@ -39,16 +35,14 @@ export const getByShopId = query({
   handler: async (ctx, args) => {
     const reviews = await ctx.db
       .query("reviews")
-      .filter((q) => q.eq(q.field("shop_id"), args.shopId))
+      .withIndex("by_shop_id", (q) => q.eq("shop_id", args.shopId))
       .collect();
     return await Promise.all(
       reviews.map(async (review) => {
-        const mechanic = review.mechanic_id
-          ? await ctx.db.get(review.mechanic_id)
-          : null;
+        const mechanic = review.mechanic_id ? await ctx.db.get(review.mechanic_id) : null;
         const user = await ctx.db.get(review.user_id);
         return { ...review, mechanic, user };
-      })
+      }),
     );
   },
 });
@@ -58,14 +52,14 @@ export const getByMechanicId = query({
   handler: async (ctx, args) => {
     const reviews = await ctx.db
       .query("reviews")
-      .filter((q) => q.eq(q.field("mechanic_id"), args.mechanicId))
+      .withIndex("by_mechanic_id", (q) => q.eq("mechanic_id", args.mechanicId))
       .collect();
     return await Promise.all(
       reviews.map(async (review) => {
         const shop = await ctx.db.get(review.shop_id);
         const user = await ctx.db.get(review.user_id);
         return { ...review, shop, user };
-      })
+      }),
     );
   },
 });
@@ -80,6 +74,22 @@ export const submit = mutation({
     comment: v.string(),
   },
   handler: async (ctx, args) => {
+    // Verify booking exists and is completed
+    const booking = await ctx.db.get(args.booking_id);
+    if (!booking) throw new Error("Booking not found");
+    if (booking.status !== "completed") {
+      throw new Error(`Cannot review booking with status "${booking.status}", expected "completed"`);
+    }
+
+    // Invariant: Ensure only one review per booking
+    const existing = await ctx.db
+      .query("reviews")
+      .withIndex("by_booking_id", (q) => q.eq("booking_id", args.booking_id))
+      .unique();
+    if (existing) {
+      throw new Error("Booking has already been reviewed");
+    }
+
     const reviewId = await ctx.db.insert("reviews", {
       booking_id: args.booking_id,
       user_id: args.user_id,
@@ -87,6 +97,7 @@ export const submit = mutation({
       mechanic_id: args.mechanic_id ?? undefined,
       rating: args.rating,
       comment: args.comment,
+      created_at: Date.now(),
     });
     return await ctx.db.get(reviewId);
   },

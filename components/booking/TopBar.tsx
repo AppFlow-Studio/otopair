@@ -56,7 +56,6 @@ import { DynamicFilterChips, MechanicTabs, SearchBar, type MechanicFilterOption 
 // 5. Constants, hooks, types, stores
 import { AnimationDuration } from "@/constants/animations";
 import { SHOP_FILTER_OPTIONS } from "@/constants/filters";
-import { SERVICE_CATEGORIES_COMPACT } from "@/constants/services";
 import { BorderRadius } from "@/constants/theme";
 import { useBookingTransition } from "@/hooks/useBookingTransition";
 import type { FilterOption, ServiceCategory } from "@/stores/types/store.types";
@@ -127,6 +126,7 @@ export function TopBar({
   // ═══════════════ BOOKING STORE ═══════════════
   const selectedServiceCategory = useBookingStore((state) => state.selectedServiceCategory);
   const setSelectedServiceCategory = useBookingStore((state) => state.setSelectedServiceCategory);
+  const getServiceCategories = useBookingStore((state) => state.getServiceCategories);
 
   // ═══════════════ TRANSITION HOOK ═══════════════
   const { currentStage, topBarEntering, topBarExiting, crossfadeEntering, crossfadeExiting, goBack } =
@@ -165,7 +165,7 @@ export function TopBar({
   // ═══════════════ CATEGORY FILTER CHIP ═══════════════
   // Get category label if a category is selected
   const categoryChipLabel = selectedServiceCategory
-    ? SERVICE_CATEGORIES_COMPACT.find((cat) => cat.key === selectedServiceCategory)?.label
+    ? getServiceCategories().find((cat) => cat.key === selectedServiceCategory)?.label
     : null;
 
   // Combine active filters with category chip
@@ -182,7 +182,7 @@ export function TopBar({
         onRemoveFilter?.(filter);
       }
     },
-    [categoryChipLabel, setSelectedServiceCategory, onRemoveFilter]
+    [categoryChipLabel, setSelectedServiceCategory, onRemoveFilter],
   );
 
   // Filter handlers

@@ -66,7 +66,13 @@
         }
       ],
       "expo-secure-store",
-      "expo-web-browser"
+      "expo-web-browser",
+      [
+        "expo-calendar",
+        {
+          "calendarPermission": "Allow Otopair to add your service appointments to your calendar."
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true,

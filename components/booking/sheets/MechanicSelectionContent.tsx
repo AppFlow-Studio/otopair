@@ -25,14 +25,25 @@ import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 // 4. Flow-specific components
 import { AvailabilityModal } from "@/components/booking/modals";
 // BookingFooter is now rendered by ServiceBottomSheet's footerComponent
-import { ShopCard, type ShopWithMechanics, type SelectedSlotInfo, type SelectedServiceInfo } from "./ShopCard";
+import {
+  ShopCard,
+  type ShopWithMechanics,
+  type SelectedSlotInfo,
+  type SelectedServiceInfo,
+  type SlotWithBookingMeta,
+} from "./ShopCard";
 
 // 5. Constants, hooks, types, stores
 import { MECHANIC_FILTER_OPTIONS, type MechanicFilterOption } from "@/constants/filters";
 import { BorderRadius, FontFamily } from "@/constants/theme";
+import { calculateDistanceMiles } from "@/utils/geo";
+import { hhmmToDisplayTime } from "@/utils/timeSlotUtils";
+import { useServiceVehicleSpecsForEngine } from "@/hooks/useServiceVehicleSpecsForEngine";
 import { useBookingStore, type SelectedMechanicSlot } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
-import type { Mechanic, MechanicAvailabilitySlot } from "@/stores/types/store.types";
+import { useShopStore } from "@/stores/useShopStore";
+import { useVehicleStore } from "@/stores/useVehicleStore";
+import type { Mechanic } from "@/stores/types/store.types";
 
 // ============================================================================
 // CONSTANTS
@@ -63,10 +74,11 @@ interface MechanicSelectionContentProps {
 // ============================================================================
 
 /**
- * Groups mechanics by their shopId and returns shop-centric data
+ * Groups mechanics by their shopId and returns shop-centric data.
+ * Merges laborRate from shops map when available.
  */
-function groupMechanicsByShop(mechanics: Mechanic[]): ShopWithMechanics[] {
-  const shopMap = new Map<number, ShopWithMechanics>();
+function groupMechanicsByShop(mechanics: Mechanic[], shopIdToLaborRate?: Map<string, number>): ShopWithMechanics[] {
+  const shopMap = new Map<string, ShopWithMechanics>();
 
   mechanics.forEach((mechanic) => {
     const existing = shopMap.get(mechanic.shopId);
@@ -92,6 +104,7 @@ function groupMechanicsByShop(mechanics: Mechanic[]): ShopWithMechanics[] {
         isVerified: mechanic.isVerified,
         distanceMi: mechanic.distanceMi,
         mechanics: [mechanic],
+        laborRate: shopIdToLaborRate?.get(mechanic.shopId),
       });
     }
   });
@@ -114,13 +127,13 @@ export function MechanicSelectionContent({
   const insets = useSafeAreaInsets();
   const bottomSpacerHeight = useMemo(
     () => Math.max(footerInset, DEFAULT_FOOTER_INSET) + insets.bottom + Spacing.lg,
-    [footerInset, insets.bottom]
+    [footerInset, insets.bottom],
   );
 
   // ═══════════════ STATE ═══════════════
   const [showAvailabilityModal, setShowAvailabilityModal] = React.useState(false);
-  const [availabilityMechanicId, setAvailabilityMechanicId] = React.useState<number | null>(null);
-  const [availabilityShopId, setAvailabilityShopId] = React.useState<number | null>(null);
+  const [availabilityMechanicId, setAvailabilityMechanicId] = React.useState<string | null>(null);
+  const [availabilityShopId, setAvailabilityShopId] = React.useState<string | null>(null);
 
   // ═══════════════ BOOKING STORE ═══════════════
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
@@ -133,11 +146,12 @@ export function MechanicSelectionContent({
   const selectedMechanicSlot = useBookingStore((state) => state.selectedMechanicSlot);
   const setSelectedMechanicSlot = useBookingStore((state) => state.setSelectedMechanicSlot);
   const getSelectedServicesTotal = useBookingStore((state) => state.getSelectedServicesTotal);
+  const userLocation = useBookingStore((state) => state.userLocation);
 
   // Memoize selected services to prevent re-renders
   const selectedServices = useMemo(
     () => availableServices.filter((service) => selectedServiceIds.includes(service.id)),
-    [availableServices, selectedServiceIds]
+    [availableServices, selectedServiceIds],
   );
 
   // Get service name for footer
@@ -156,19 +170,53 @@ export function MechanicSelectionContent({
   const mechanicIds = useMechanicStore((state) => state.mechanicIds);
   const getMechanicById = useMechanicStore((state) => state.getMechanicById);
 
-  // Memoize filtered mechanics to prevent re-renders on sheet collapse/expand
+  // Selected vehicle for car-specific (engine-specific) labor/parts
+  const selectedVehicle = useVehicleStore((state) => state.getSelectedVehicle());
+  const engineId = selectedVehicle?.engineId;
+  const engineSpecs = useServiceVehicleSpecsForEngine(engineId, selectedServiceIds);
+
+  // Shop labor rates and coordinates for price and distance (Convex data)
+  const shops = useShopStore((state) => state.shops);
+  const getShopById = useShopStore((state) => state.getShopById);
+  const shopIdToLaborRate = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const id of Object.keys(shops)) {
+      const laborRate = shops[id]?.labor_rate;
+      if (laborRate != null) m.set(id, laborRate);
+    }
+    return m;
+  }, [shops]);
+
+  // Memoize filtered mechanics with distance from user to shop (Convex shop lat/lng + booking userLocation)
   const filteredMechanics = useMemo(() => {
     let filtered = mechanicIds.map((id) => mechanics[id]).filter(Boolean);
+
+    // Enrich with distance from user to shop (mechanics don't have coords; use shop lat/lng from Convex)
+    if (userLocation?.latitude != null && userLocation?.longitude != null) {
+      filtered = filtered.map((m) => {
+        const shop = getShopById(m.shopId);
+        if (shop?.latitude != null && shop?.longitude != null) {
+          const distanceMi = calculateDistanceMiles(
+            userLocation.latitude,
+            userLocation.longitude,
+            shop.latitude,
+            shop.longitude,
+          );
+          return { ...m, distanceMi };
+        }
+        return m;
+      });
+    }
 
     // Filter by search query
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(
-        (mechanic) => mechanic.name.toLowerCase().includes(query) || mechanic.shopName.toLowerCase().includes(query)
+        (mechanic) => mechanic.name.toLowerCase().includes(query) || mechanic.shopName.toLowerCase().includes(query),
       );
     }
 
-    // Apply filter type and sort
+    // Apply filter type and sort (rating/distance from Convex and computed distance)
     switch (filterType) {
       case "available_now":
         filtered = filtered
@@ -187,23 +235,23 @@ export function MechanicSelectionContent({
     }
 
     return filtered;
-  }, [mechanics, mechanicIds, searchQuery, filterType]);
+  }, [mechanics, mechanicIds, searchQuery, filterType, userLocation, getShopById]);
 
-  // Group mechanics by shop
+  // Group mechanics by shop (with labor rates for price calculation)
   const shopList = useMemo(() => {
-    const shops = groupMechanicsByShop(filteredMechanics);
-    
+    const list = groupMechanicsByShop(filteredMechanics, shopIdToLaborRate);
+
     // Sort shops based on filter type
     switch (filterType) {
       case "distance":
-        return shops.sort((a, b) => a.distanceMi - b.distanceMi);
+        return list.sort((a, b) => a.distanceMi - b.distanceMi);
       case "rating":
-        return shops.sort((a, b) => b.rating - a.rating);
+        return list.sort((a, b) => b.rating - a.rating);
       case "available_now":
       default:
-        return shops;
+        return list;
     }
-  }, [filteredMechanics, filterType]);
+  }, [filteredMechanics, filterType, shopIdToLaborRate]);
 
   // Convert selectedMechanicSlot to SelectedSlotInfo for ShopCard
   const selectedSlotInfo: SelectedSlotInfo | null = useMemo(() => {
@@ -215,14 +263,21 @@ export function MechanicSelectionContent({
     };
   }, [selectedMechanicSlot]);
 
-  // Create SelectedServiceInfo array for ShopCard
+  // Create SelectedServiceInfo array for ShopCard (engine-specific labor/parts when available)
   const selectedServicesForCard: SelectedServiceInfo[] = useMemo(() => {
-    return selectedServices.map((service) => ({
-      id: service.id,
-      name: service.name,
-      price: service.price,
-    }));
-  }, [selectedServices]);
+    return selectedServices.map((service) => {
+      const spec = engineSpecs[service.id];
+      const laborHours = spec?.labor_hours ?? service.default_labor_hours;
+      const partsEstimate = spec?.parts_cost_avg ?? service.default_parts_estimate;
+      return {
+        id: service.id,
+        name: service.name,
+        price: service.price,
+        default_labor_hours: laborHours,
+        default_parts_estimate: partsEstimate,
+      };
+    });
+  }, [selectedServices, engineSpecs]);
 
   // ═══════════════ EFFECTS ═══════════════
   // Go back to service selection if all services are removed
@@ -238,9 +293,9 @@ export function MechanicSelectionContent({
   // The slot is cleared by resetBookingFlow when the booking is completed or cancelled.
 
   // ═══════════════ HANDLERS ═══════════════
-  // Handle slot selection from ShopCard
+  // Handle slot selection from ShopCard (slot may include Convex timeSlotId/scheduledDate/scheduledTime)
   const handleSelectSlot = useCallback(
-    (shopId: number, mechanicId: number | null, slot: MechanicAvailabilitySlot) => {
+    (shopId: string, mechanicId: string | null, slot: SlotWithBookingMeta) => {
       const shop = shopList.find((s) => s.shopId === shopId);
       if (!shop) return;
 
@@ -251,31 +306,31 @@ export function MechanicSelectionContent({
         shopName: shop.shopName,
         mechanicId,
         mechanicName: mechanic?.name || null,
-        slot,
+        slot: { dayOfWeek: slot.dayOfWeek, day: slot.day, time: slot.time },
+        timeSlotId: slot.timeSlotId,
+        scheduledDate: slot.scheduledDate,
+        scheduledTime: slot.scheduledTime,
       });
     },
-    [shopList, getMechanicById, setSelectedMechanicSlot]
+    [shopList, getMechanicById, setSelectedMechanicSlot],
   );
 
   // Handle shop details button
   const handleShopDetails = useCallback(
-    (shopId: number) => {
+    (shopId: string) => {
       router.push(`/home/shop/${shopId}`);
     },
-    [router]
+    [router],
   );
 
   // Handle "More" availability button - opens the calendar modal
-  const handleMoreAvailability = useCallback(
-    (shopId: number, mechanicId: number | null) => {
-      // Pass both shopId and mechanicId to the modal
-      // The modal will show all mechanics for the shop and allow switching
-      setAvailabilityShopId(shopId);
-      setAvailabilityMechanicId(mechanicId);
-      setShowAvailabilityModal(true);
-    },
-    []
-  );
+  const handleMoreAvailability = useCallback((shopId: string, mechanicId: string | null) => {
+    // Pass both shopId and mechanicId to the modal
+    // The modal will show all mechanics for the shop and allow switching
+    setAvailabilityShopId(shopId);
+    setAvailabilityMechanicId(mechanicId);
+    setShowAvailabilityModal(true);
+  }, []);
 
   // Handle closing the availability modal
   const handleCloseAvailabilityModal = useCallback(() => {
@@ -285,46 +340,51 @@ export function MechanicSelectionContent({
   }, []);
 
   // Handle availability modal confirmation - updates the selected slot
-  const handleAvailabilityConfirm = useCallback(
-    (date: Date, time: string, confirmedMechanicId: number) => {
-      // The AvailabilityModal already updates the selectedMechanicSlot in the store
-      // This callback can be used for any additional actions if needed
-    },
-    []
-  );
+  const handleAvailabilityConfirm = useCallback((date: Date, time: string, confirmedMechanicId: number) => {
+    // The AvailabilityModal already updates the selectedMechanicSlot in the store
+    // This callback can be used for any additional actions if needed
+  }, []);
 
   // Handle book button from footer
   const handleBook = useCallback(() => {
     if (!selectedMechanicSlot) return;
 
-    const { mechanicId, slot } = selectedMechanicSlot;
+    const { mechanicId, slot, scheduledDate, scheduledTime } = selectedMechanicSlot;
 
-    // Convert slot to scheduled appointment format
-    const now = new Date();
-    const currentMonth = now.getMonth();
-    const currentYear = now.getFullYear();
-    const dayNum = parseInt(slot.day, 10);
-
-    // Construct date from slot day
-    let targetDate = new Date(currentYear, currentMonth, dayNum);
-    if (targetDate < now) {
-      targetDate = new Date(currentYear, currentMonth + 1, dayNum);
+    // Use Convex slot date/time when present (from "Next Availability" integration)
+    let isoDate: string;
+    let displayDate: string;
+    if (scheduledDate) {
+      isoDate = scheduledDate;
+      const [y, m, d] = scheduledDate.split("-").map(Number);
+      const months = ["Jan.", "Feb.", "Mar.", "Apr.", "May", "Jun.", "Jul.", "Aug.", "Sep.", "Oct.", "Nov.", "Dec."];
+      displayDate = `${d} ${months[m - 1]} ${y}`;
+    } else {
+      const now = new Date();
+      const currentMonth = now.getMonth();
+      const currentYear = now.getFullYear();
+      const dayNum = parseInt(slot.day, 10);
+      let targetDate = new Date(currentYear, currentMonth, dayNum);
+      if (targetDate < now) {
+        targetDate = new Date(currentYear, currentMonth + 1, dayNum);
+      }
+      const months = ["Jan.", "Feb.", "Mar.", "Apr.", "May", "Jun.", "Jul.", "Aug.", "Sep.", "Oct.", "Nov.", "Dec."];
+      displayDate = `${targetDate.getDate()} ${months[targetDate.getMonth()]} ${targetDate.getFullYear()}`;
+      isoDate = targetDate.toISOString().split("T")[0];
     }
 
-    const months = ["Jan.", "Feb.", "Mar.", "Apr.", "May", "Jun.", "Jul.", "Aug.", "Sep.", "Oct.", "Nov.", "Dec."];
-    const displayDate = `${targetDate.getDate()} ${months[targetDate.getMonth()]} ${targetDate.getFullYear()}`;
-    const isoDate = targetDate.toISOString().split("T")[0];
+    const timeDisplay = scheduledTime ? hhmmToDisplayTime(scheduledTime) : slot.time;
 
     // Use the first mechanic from the shop if "Any" was selected
-    const effectiveMechanicId = mechanicId || shopList.find((s) => s.shopId === selectedMechanicSlot.shopId)?.mechanics[0]?.id;
-    
+    const effectiveMechanicId =
+      mechanicId || shopList.find((s) => s.shopId === selectedMechanicSlot.shopId)?.mechanics[0]?.id;
+
     if (!effectiveMechanicId) return;
 
-    // Set appointment in store
     setBookingTypeAndProceed("schedule_later", effectiveMechanicId);
     setScheduledAppointment({
       date: isoDate,
-      time: slot.time,
+      time: timeDisplay,
       displayDate,
     });
 
@@ -333,10 +393,19 @@ export function MechanicSelectionContent({
     setBookingStage("payment", "forward");
 
     onSelectMechanic?.();
-    
+
     // Navigate to payment page
     router.push(`/home/mechanic/${effectiveMechanicId}/payment`);
-  }, [selectedMechanicSlot, shopList, setBookingTypeAndProceed, setScheduledAppointment, setSkippedBookingDetails, setBookingStage, onSelectMechanic, router]);
+  }, [
+    selectedMechanicSlot,
+    shopList,
+    setBookingTypeAndProceed,
+    setScheduledAppointment,
+    setSkippedBookingDetails,
+    setBookingStage,
+    onSelectMechanic,
+    router,
+  ]);
 
   // ═══════════════ FLATLIST HELPERS ═══════════════
   const keyExtractor = useCallback((item: ShopWithMechanics) => String(item.shopId), []);
@@ -352,7 +421,7 @@ export function MechanicSelectionContent({
         selectedServices={selectedServicesForCard}
       />
     ),
-    [handleSelectSlot, handleShopDetails, handleMoreAvailability, selectedSlotInfo, selectedServicesForCard]
+    [handleSelectSlot, handleShopDetails, handleMoreAvailability, selectedSlotInfo, selectedServicesForCard],
   );
 
   // ═══════════════ FILTER HANDLER ═══════════════
@@ -360,7 +429,7 @@ export function MechanicSelectionContent({
     (filter: MechanicFilterOption) => {
       setFilters({ filterType: filter });
     },
-    [setFilters]
+    [setFilters],
   );
 
   return (

@@ -19,24 +19,20 @@
  */
 
 // 1. React & React Native
-import React, { useState, useCallback } from 'react';
-import { View, ScrollView, Pressable, StyleSheet, Image, TouchableOpacity } from 'react-native';
+import React, { useState, useCallback } from "react";
+import { View, ScrollView, Pressable, StyleSheet, Image, TouchableOpacity } from "react-native";
 
 // 2. Expo & Third-party
-import Animated, {
-  FadeInRight,
-  useAnimatedStyle,
-  useSharedValue,
-  withSpring,
-} from 'react-native-reanimated';
-import { Star, BadgeCheck, User, Clock } from 'lucide-react-native';
+import Animated, { FadeInRight, useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
+import { Star, BadgeCheck, User, Clock } from "lucide-react-native";
 
 // 3. Shared UI (design system)
-import { Text } from '@/components/shared-ui';
+import { Text } from "@/components/shared-ui";
 
 // 4. Constants, hooks, types
-import { BrandColors, BorderRadius, Spacing, FontFamily } from '@/constants/theme';
-import type { AIMechanic } from '@/services/ai/types';
+import { BrandColors, BorderRadius, Spacing, FontFamily } from "@/constants/theme";
+import { formatDistanceMiles } from "@/utils/geo";
+import type { AIMechanic } from "@/services/ai/types";
 
 // Legacy type alias
 export type AIShop = AIMechanic;
@@ -102,170 +98,158 @@ function MechanicCard({
   // Get response time color
   const getResponseTimeColor = (time: string) => {
     switch (time) {
-      case 'Quick': return '#10B981';
-      case 'Normal': return '#F59E0B';
-      case 'Slow': return '#EF4444';
-      default: return '#6B7280';
+      case "Quick":
+        return "#10B981";
+      case "Normal":
+        return "#F59E0B";
+      case "Slow":
+        return "#EF4444";
+      default:
+        return "#6B7280";
     }
   };
 
   return (
     <Animated.View
-      entering={FadeInRight.delay(index * 100).duration(300).springify()}
+      entering={FadeInRight.delay(index * 100)
+        .duration(300)
+        .springify()}
     >
       <Animated.View style={animatedStyle}>
-        <Pressable
-          onPressIn={handlePressIn}
-          onPressOut={handlePressOut}
-          style={styles.card}
-        >
-        {/* Header: Avatar, Name, Rating */}
-        <View style={styles.header}>
-          {/* Avatar */}
-          <View style={styles.avatarContainer}>
-            {mechanic.photoUrl ? (
-              <Image source={{ uri: mechanic.photoUrl }} style={styles.avatar} />
-            ) : (
-              <View style={styles.avatarPlaceholder}>
-                <User size={28} color="#9CA3AF" />
+        <Pressable onPressIn={handlePressIn} onPressOut={handlePressOut} style={styles.card}>
+          {/* Header: Avatar, Name, Rating */}
+          <View style={styles.header}>
+            {/* Avatar */}
+            <View style={styles.avatarContainer}>
+              {mechanic.photoUrl ? (
+                <Image source={{ uri: mechanic.photoUrl }} style={styles.avatar} />
+              ) : (
+                <View style={styles.avatarPlaceholder}>
+                  <User size={28} color="#9CA3AF" />
+                </View>
+              )}
+            </View>
+
+            {/* Info */}
+            <View style={styles.infoContainer}>
+              <View style={styles.nameRow}>
+                <Text style={styles.shopName} weight="bold" numberOfLines={1}>
+                  {mechanic.shopName}
+                </Text>
+                <View style={styles.ratingBadge}>
+                  <Star size={14} color="#F59E0B" fill="#F59E0B" />
+                  <Text style={styles.ratingText} size="sm" weight="bold">
+                    {mechanic.rating.toFixed(1)}
+                  </Text>
+                </View>
+              </View>
+
+              <Text style={styles.mechanicName} size="sm" weight="medium">
+                {mechanic.name}
+              </Text>
+
+              <View style={styles.detailsRow}>
+                <Text style={styles.distanceText} size="xs">
+                  {formatDistanceMiles(mechanic.distanceMi)}
+                </Text>
+                {mechanic.isVerified && (
+                  <View style={styles.verifiedBadge}>
+                    <BadgeCheck size={14} color="#10B981" />
+                    <Text style={styles.verifiedText} size="xs" weight="bold">
+                      Verified
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </View>
+          </View>
+
+          {/* Services */}
+          <Text style={styles.servicesText} size="sm" numberOfLines={2}>
+            {mechanic.services.join(", ")}
+          </Text>
+
+          {/* Tags Row */}
+          <View style={styles.tagsRow}>
+            {mechanic.isAvailable && (
+              <View style={styles.availableTag}>
+                <View style={styles.availableDot} />
+                <Text style={styles.tagText} size="xs" weight="medium">
+                  Available
+                </Text>
+              </View>
+            )}
+            <View style={styles.responseTag}>
+              <Clock size={12} color="#6B7280" />
+              <Text
+                style={[styles.responseText, { color: getResponseTimeColor(mechanic.responseTime) }]}
+                size="xs"
+                weight="bold"
+              >
+                {mechanic.responseTime}
+              </Text>
+            </View>
+            {mechanic.price && (
+              <View style={styles.priceTag}>
+                <Text style={styles.priceText} size="sm" weight="bold">
+                  {mechanic.price}
+                </Text>
               </View>
             )}
           </View>
 
-          {/* Info */}
-          <View style={styles.infoContainer}>
-            <View style={styles.nameRow}>
-              <Text style={styles.shopName} weight="bold" numberOfLines={1}>
-                {mechanic.shopName}
-              </Text>
-              <View style={styles.ratingBadge}>
-                <Star size={14} color="#F59E0B" fill="#F59E0B" />
-                <Text style={styles.ratingText} size="sm" weight="bold">
-                  {mechanic.rating.toFixed(1)}
-                </Text>
-              </View>
-            </View>
-
-            <Text style={styles.mechanicName} size="sm" weight="medium">
-              {mechanic.name}
+          {/* Next Availability Slots */}
+          <View style={styles.availabilitySection}>
+            <Text style={styles.availabilityTitle} size="sm" weight="bold">
+              Next Available
             </Text>
-
-            <View style={styles.detailsRow}>
-              <Text style={styles.distanceText} size="xs">
-                {mechanic.distanceMi} mi
-              </Text>
-              {mechanic.isVerified && (
-                <View style={styles.verifiedBadge}>
-                  <BadgeCheck size={14} color="#10B981" />
-                  <Text style={styles.verifiedText} size="xs" weight="bold">
-                    Verified
-                  </Text>
-                </View>
-              )}
-            </View>
-          </View>
-        </View>
-
-        {/* Services */}
-        <Text style={styles.servicesText} size="sm" numberOfLines={2}>
-          {mechanic.services.join(', ')}
-        </Text>
-
-        {/* Tags Row */}
-        <View style={styles.tagsRow}>
-          {mechanic.isAvailable && (
-            <View style={styles.availableTag}>
-              <View style={styles.availableDot} />
-              <Text style={styles.tagText} size="xs" weight="medium">
-                Available
-              </Text>
-            </View>
-          )}
-          <View style={styles.responseTag}>
-            <Clock size={12} color="#6B7280" />
-            <Text
-              style={[styles.responseText, { color: getResponseTimeColor(mechanic.responseTime) }]}
-              size="xs"
-              weight="bold"
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.slotsContainer}
+              nestedScrollEnabled
             >
-              {mechanic.responseTime}
-            </Text>
+              {mechanic.nextAvailability.slice(0, 4).map((slot, slotIndex) => {
+                const isSlotSelected = slotIndex === selectedSlotIndex;
+                return (
+                  <TouchableOpacity
+                    key={slotIndex}
+                    style={[styles.slot, isSlotSelected && styles.slotSelected]}
+                    onPress={() => handleSlotPress(slotIndex)}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.slotDay, isSlotSelected && styles.slotTextSelected]} size="xs" weight="medium">
+                      {slot.dayOfWeek}
+                    </Text>
+                    <Text style={[styles.slotDate, isSlotSelected && styles.slotTextSelected]} size="lg" weight="bold">
+                      {slot.day}
+                    </Text>
+                    <Text
+                      style={[styles.slotTime, isSlotSelected && styles.slotTextSelected]}
+                      size="xs"
+                      weight="medium"
+                    >
+                      {slot.time}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
           </View>
-          {mechanic.price && (
-            <View style={styles.priceTag}>
-              <Text style={styles.priceText} size="sm" weight="bold">
-                {mechanic.price}
-              </Text>
-            </View>
-          )}
-        </View>
 
-        {/* Next Availability Slots */}
-        <View style={styles.availabilitySection}>
-          <Text style={styles.availabilityTitle} size="sm" weight="bold">
-            Next Available
-          </Text>
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.slotsContainer}
-            nestedScrollEnabled
+          {/* Book Now Button */}
+          <TouchableOpacity
+            style={[styles.selectButton, selectedSlotIndex !== null && styles.selectButtonEnabled]}
+            onPress={handleBookNow}
+            activeOpacity={0.7}
+            disabled={selectedSlotIndex === null}
           >
-            {mechanic.nextAvailability.slice(0, 4).map((slot, slotIndex) => {
-              const isSlotSelected = slotIndex === selectedSlotIndex;
-              return (
-                <TouchableOpacity
-                  key={slotIndex}
-                  style={[styles.slot, isSlotSelected && styles.slotSelected]}
-                  onPress={() => handleSlotPress(slotIndex)}
-                  activeOpacity={0.7}
-                >
-                  <Text
-                    style={[styles.slotDay, isSlotSelected && styles.slotTextSelected]}
-                    size="xs"
-                    weight="medium"
-                  >
-                    {slot.dayOfWeek}
-                  </Text>
-                  <Text
-                    style={[styles.slotDate, isSlotSelected && styles.slotTextSelected]}
-                    size="lg"
-                    weight="bold"
-                  >
-                    {slot.day}
-                  </Text>
-                  <Text
-                    style={[styles.slotTime, isSlotSelected && styles.slotTextSelected]}
-                    size="xs"
-                    weight="medium"
-                  >
-                    {slot.time}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
-        </View>
-
-        {/* Book Now Button */}
-        <TouchableOpacity
-          style={[
-            styles.selectButton,
-            selectedSlotIndex !== null && styles.selectButtonEnabled,
-          ]}
-          onPress={handleBookNow}
-          activeOpacity={0.7}
-          disabled={selectedSlotIndex === null}
-        >
-          <Text
-            style={[
-              styles.selectButtonText,
-              selectedSlotIndex !== null && styles.selectButtonTextEnabled,
-            ]}
-            weight="semiBold"
-          >
-            {selectedSlotIndex !== null ? 'Book Now' : 'Choose a Time'}
-          </Text>
+            <Text
+              style={[styles.selectButtonText, selectedSlotIndex !== null && styles.selectButtonTextEnabled]}
+              weight="semiBold"
+            >
+              {selectedSlotIndex !== null ? "Book Now" : "Choose a Time"}
+            </Text>
           </TouchableOpacity>
         </Pressable>
       </Animated.View>
@@ -277,10 +261,7 @@ function MechanicCard({
 // MAIN COMPONENT
 // ============================================================================
 
-export function AIBookingCarousel({
-  shops,
-  onBookNow,
-}: AIBookingCarouselProps) {
+export function AIBookingCarousel({ shops, onBookNow }: AIBookingCarouselProps) {
   if (!shops || shops.length === 0) {
     return null;
   }
@@ -323,14 +304,14 @@ const styles = StyleSheet.create({
   },
   card: {
     width: 300,
-    backgroundColor: 'rgba(255, 255, 255, 0.6)', // Semi-transparent, faded like suggestion pills
+    backgroundColor: "rgba(255, 255, 255, 0.6)", // Semi-transparent, faded like suggestion pills
     borderRadius: BorderRadius.xl,
     padding: Spacing.lg,
   },
   // Header
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     marginBottom: Spacing.md,
   },
   avatarContainer: {
@@ -346,18 +327,18 @@ const styles = StyleSheet.create({
     height: 56,
     borderRadius: BorderRadius.full,
     backgroundColor: BrandColors.white,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     borderWidth: 1.5,
-    borderColor: '#E5E7EB',
+    borderColor: "#E5E7EB",
   },
   infoContainer: {
     flex: 1,
   },
   nameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     marginBottom: 2,
   },
   shopName: {
@@ -367,50 +348,50 @@ const styles = StyleSheet.create({
     marginRight: Spacing.xs,
   },
   mechanicName: {
-    color: '#6B7280',
+    color: "#6B7280",
     marginBottom: 4,
   },
   ratingBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 4,
   },
   ratingText: {
     color: BrandColors.primary,
   },
   detailsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: Spacing.md,
   },
   distanceText: {
-    color: '#9CA3AF',
+    color: "#9CA3AF",
   },
   verifiedBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 4,
   },
   verifiedText: {
-    color: '#10B981',
+    color: "#10B981",
   },
   // Services
   servicesText: {
-    color: '#6B7280',
+    color: "#6B7280",
     lineHeight: 18,
     marginBottom: Spacing.md,
   },
   // Tags
   tagsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: Spacing.sm,
     marginBottom: Spacing.md,
-    flexWrap: 'wrap',
+    flexWrap: "wrap",
   },
   availableTag: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     backgroundColor: BrandColors.white,
     paddingHorizontal: Spacing.sm,
     paddingVertical: 4,
@@ -420,15 +401,15 @@ const styles = StyleSheet.create({
     width: 6,
     height: 6,
     borderRadius: BorderRadius.full,
-    backgroundColor: '#10B981',
+    backgroundColor: "#10B981",
     marginRight: 6,
   },
   tagText: {
-    color: '#374151',
+    color: "#374151",
   },
   responseTag: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     backgroundColor: BrandColors.white,
     paddingHorizontal: Spacing.sm,
     paddingVertical: 4,
@@ -439,7 +420,7 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.bold,
   },
   priceTag: {
-    backgroundColor: BrandColors.secondary + '15',
+    backgroundColor: BrandColors.secondary + "15",
     paddingHorizontal: Spacing.sm,
     paddingVertical: 4,
     borderRadius: BorderRadius.md,
@@ -460,41 +441,41 @@ const styles = StyleSheet.create({
   },
   slot: {
     width: 64,
-    alignItems: 'center',
+    alignItems: "center",
     paddingVertical: Spacing.sm,
     backgroundColor: BrandColors.white,
     borderRadius: BorderRadius.lg,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: "#E5E7EB",
   },
   slotSelected: {
-    backgroundColor: BrandColors.secondary + '15',
+    backgroundColor: BrandColors.secondary + "15",
     borderColor: BrandColors.secondary,
   },
   slotDay: {
-    color: '#6B7280',
+    color: "#6B7280",
   },
   slotDate: {
-    color: '#374151',
+    color: "#374151",
   },
   slotTime: {
-    color: '#6B7280',
+    color: "#6B7280",
   },
   slotTextSelected: {
     color: BrandColors.secondary,
   },
   // Select Button
   selectButton: {
-    backgroundColor: '#E4E7EC',
+    backgroundColor: "#E4E7EC",
     borderRadius: BorderRadius.lg,
     paddingVertical: Spacing.md,
-    alignItems: 'center',
+    alignItems: "center",
   },
   selectButtonEnabled: {
     backgroundColor: BrandColors.secondary,
   },
   selectButtonText: {
-    color: '#9CA3AF',
+    color: "#9CA3AF",
     fontSize: 14,
   },
   selectButtonTextEnabled: {

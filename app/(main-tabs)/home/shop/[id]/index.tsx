@@ -22,12 +22,7 @@ import { Pressable, StyleSheet, View } from "react-native";
 import { BlurView } from "expo-blur";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { ArrowLeft } from "lucide-react-native";
-import Animated, {
-  interpolate,
-  useAnimatedRef,
-  useAnimatedStyle,
-  useScrollOffset,
-} from "react-native-reanimated";
+import Animated, { interpolate, useAnimatedRef, useAnimatedStyle, useScrollOffset } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 3. Shared UI (design system)
@@ -37,13 +32,14 @@ import { FullScreenContainer } from "@/components/shared-ui/Container";
 // 4. Flow-specific components
 import { MechanicDetailHeader } from "@/components/booking/MechanicDetailHeader";
 import { MechanicDetailTabs, type MechanicDetailTab } from "@/components/booking/MechanicDetailTabs";
-import { MechanicReviewsSection } from "@/components/booking/MechanicReviewsSection";
+import { ShopReviewsSection } from "@/components/booking/ShopReviewsSection";
 import { AddServicesModal, ShopBookingModal } from "@/components/booking/modals";
 import { ShopDetails } from "@/components/booking/ShopDetails";
 import { ShopPortfolioSection } from "@/components/booking/ShopPortfolioSection";
 import { ShopStaffSection } from "@/components/booking/ShopStaffSection";
 
 // 5. Constants, hooks, types, stores
+import { calculateDistanceMiles } from "@/utils/geo";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useSearchStore } from "@/stores/useSearchStore";
@@ -70,7 +66,7 @@ export default function ShopDetailScreen() {
   const [activeTab, setActiveTab] = useState<MechanicDetailTab>("services");
   const [showAddServicesModal, setShowAddServicesModal] = useState(false);
   const [showBookingModal, setShowBookingModal] = useState(false);
-  const [bookingMechanicId, setBookingMechanicId] = useState<number | null>(null);
+  const [bookingMechanicId, setBookingMechanicId] = useState<string | null>(null);
 
   // ═══════════════ STORES ═══════════════
   const getShopById = useShopStore((state) => state.getShopById);
@@ -79,12 +75,10 @@ export default function ShopDetailScreen() {
   const resetBookingFlow = useBookingStore((state) => state.resetBookingFlow);
   const bookingStage = useBookingStore((state) => state.bookingStage);
   const addRecentShop = useSearchStore((state) => state.addRecentShop);
+  const userLocation = useBookingStore((state) => state.userLocation);
 
   // ═══════════════ COMPUTED VALUES ═══════════════
-  const shopId = useMemo(() => {
-    const parsed = id ? parseInt(id, 10) : null;
-    return isNaN(parsed ?? 0) ? null : parsed;
-  }, [id]);
+  const shopId = id && typeof id === "string" ? id : null;
 
   const shop = useMemo(() => {
     if (!shopId) return null;
@@ -144,7 +138,7 @@ export default function ShopDetailScreen() {
   }, [bookingStage, resetBookingFlow, router]);
 
   const handleBookNow = useCallback(
-    (mechanicId: number) => {
+    (mechanicId: string) => {
       // Add shop to recent history
       if (shopId) {
         addRecentShop(shopId);
@@ -154,14 +148,14 @@ export default function ShopDetailScreen() {
       setBookingTypeAndProceed("schedule_later", mechanicId);
       router.push(`/home/mechanic/${mechanicId}/booking-details`);
     },
-    [shopId, addRecentShop, setBookingTypeAndProceed, router]
+    [shopId, addRecentShop, setBookingTypeAndProceed, router],
   );
 
   const handleAddMoreServices = useCallback(() => {
     setShowAddServicesModal(true);
   }, []);
 
-  const handleViewAllAvailability = useCallback((mechanicId: number) => {
+  const handleViewAllAvailability = useCallback((mechanicId: string) => {
     setBookingMechanicId(mechanicId);
     setShowBookingModal(true);
   }, []);
@@ -212,16 +206,7 @@ export default function ShopDetailScreen() {
           />
         );
       case "reviews":
-        // Use primary mechanic for reviews, or fall back to showing shop-level content
-        return primaryMechanic ? (
-          <MechanicReviewsSection mechanicId={primaryMechanic.id} />
-        ) : (
-          <View style={styles.emptyTabContent}>
-            <Text size="md" color="#6B7280">
-              No reviews available
-            </Text>
-          </View>
-        );
+        return <ShopReviewsSection shopId={shop.id} />;
       case "portfolio":
         return <ShopPortfolioSection shopId={shop.id} />;
       case "staff":
@@ -278,16 +263,25 @@ export default function ShopDetailScreen() {
         ) : (
           <MechanicDetailHeader
             mechanic={{
-              id: 0,
-              name: shop.name,
+              id: "0",
               shopId: shop.id,
+              name: shop.name,
               shopName: shop.name,
-              specialties: [],
+              photoUrl: null,
               rating: shop.rating ?? 0,
-              reviewCount: 0,
+              reviewCount: shop.reviewCount,
+              isVerified: false,
+              distanceMi:
+                userLocation && shop.latitude != null && shop.longitude != null
+                  ? calculateDistanceMiles(userLocation.latitude, userLocation.longitude, shop.latitude, shop.longitude)
+                  : 0,
+              services: [],
+              specialties: [],
               yearsExperience: 0,
-              avatar: null,
               isAvailable: shop.availability > 0,
+              responseTime: "Normal",
+              availability: shop.availability,
+              nextAvailability: [],
             }}
             shop={shop}
             onBack={handleBack}

@@ -40,6 +40,7 @@ import { DiscardServiceModal } from "@/components/booking/sheets/DiscardServiceM
 import { BorderRadius } from "@/constants/theme";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
+import { useShopStore } from "@/stores/useShopStore";
 
 // ============================================================================
 // COMPONENT
@@ -66,6 +67,9 @@ export default function BookingDetailsScreen() {
     // ═══════════════ MECHANIC STORE ═══════════════
     const getMechanicById = useMechanicStore((state) => state.getMechanicById);
 
+    // ═══════════════ SHOP STORE (for shop-specific pricing) ═══════════════
+    const getShopById = useShopStore((state) => state.getShopById);
+
     // ═══════════════ LOCAL STATE ═══════════════
     const [showDiscardModal, setShowDiscardModal] = useState(false);
     const [pendingRemoveServiceId, setPendingRemoveServiceId] = useState<string | null>(null);
@@ -82,12 +86,30 @@ export default function BookingDetailsScreen() {
         [availableServices, selectedServiceIds]
     );
 
+    // Shop-specific pricing: labor_rate × default_labor_hours + default_parts_estimate (shop rate only)
+    const shop = useMemo(
+        () => (mechanic?.shopId ? getShopById(mechanic.shopId) : null),
+        [mechanic?.shopId, getShopById]
+    );
+    const laborRate = shop?.labor_rate;
     const totalPrice = useMemo(
-        () => selectedServices.reduce((total, service) => total + service.price, 0),
-        [selectedServices]
+        () =>
+            selectedServices.reduce(
+                (total, service) =>
+                    total +
+                    (laborRate ?? 0) * (service.default_labor_hours ?? 0) +
+                    (service.default_parts_estimate ?? 0),
+                0
+            ),
+        [selectedServices, laborRate]
+    );
+    const getServicePrice = useCallback(
+        (service: (typeof selectedServices)[0]) =>
+            (laborRate ?? 0) * (service.default_labor_hours ?? 0) + (service.default_parts_estimate ?? 0),
+        [laborRate]
     );
 
-    const ratingCount = mechanic ? Math.floor(mechanic.rating * 25 + 27) : 0;
+    const ratingCount = mechanic?.reviewCount ?? 0;
 
     // Get formatted date and time from store
     const appointmentDate = getFormattedAppointmentDate();
@@ -183,6 +205,7 @@ export default function BookingDetailsScreen() {
                             key={service.id}
                             service={service}
                             onRemove={() => handleRemoveService(service.id)}
+                            priceOverride={getServicePrice(service)}
                         />
                     ))}
 
@@ -190,7 +213,7 @@ export default function BookingDetailsScreen() {
                     <View style={styles.servicesFooter}>
                         <View style={styles.totalBadge}>
                             <Text size="md" weight="bold" color="#6B7280">
-                                In total ${totalPrice}
+                                In total ${totalPrice.toFixed(2)}
                             </Text>
                         </View>
                         <TouchableOpacity

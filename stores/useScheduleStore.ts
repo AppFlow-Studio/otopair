@@ -35,10 +35,10 @@ interface ConfirmedSelection {
 
 interface ScheduleState {
   // ═══════════════ SCHEDULE DATA ═══════════════
-  /** All mechanic schedules indexed by mechanic ID */
-  schedules: Record<number, MechanicSchedule>;
+  /** All mechanic schedules indexed by mechanic ID (string for Convex compatibility) */
+  schedules: Record<string, MechanicSchedule>;
   /** Currently selected mechanic ID for viewing schedule */
-  selectedMechanicId: number | null;
+  selectedMechanicId: string | null;
   /** Currently viewed month */
   currentMonth: Date;
   /** Selected date on calendar */
@@ -46,7 +46,7 @@ interface ScheduleState {
   /** Selected time slot */
   selectedTime: string | null;
   /** Confirmed selections per mechanic (persisted until booking is complete) */
-  confirmedSelections: Record<number, ConfirmedSelection>;
+  confirmedSelections: Record<string, ConfirmedSelection>;
   /** Loading state */
   isLoading: boolean;
   /** Error message */
@@ -54,7 +54,7 @@ interface ScheduleState {
 
   // ═══════════════ ACTIONS ═══════════════
   /** Load schedule for a specific mechanic */
-  loadMechanicSchedule: (mechanicId: number) => void;
+  loadMechanicSchedule: (mechanicId: string) => void;
   /** Set the current month being viewed */
   setCurrentMonth: (date: Date) => void;
   /** Go to previous month */
@@ -70,7 +70,7 @@ interface ScheduleState {
   /** Clear selection */
   clearSelection: () => void;
   /** Clear confirmed selection for a mechanic */
-  clearConfirmedSelection: (mechanicId: number) => void;
+  clearConfirmedSelection: (mechanicId: string) => void;
   /** Reset to initial state */
   reset: () => void;
 
@@ -97,9 +97,15 @@ interface ScheduleState {
 // STORE IMPLEMENTATION
 // ─────────────────────────────────────────────────────────────
 
+// Convert mock schedules (keyed by number) to string keys for app consistency
+const initialSchedules: Record<string, MechanicSchedule> = {};
+Object.entries(MOCK_SCHEDULES).forEach(([k, v]) => {
+  initialSchedules[k] = v;
+});
+
 export const useScheduleStore = create<ScheduleState>()((set, get) => ({
   // ═══════════════ INITIAL STATE ═══════════════
-  schedules: MOCK_SCHEDULES,
+  schedules: initialSchedules,
   selectedMechanicId: null,
   currentMonth: new Date(),
   selectedDate: null,
@@ -273,4 +279,3 @@ export const useScheduleStore = create<ScheduleState>()((set, get) => ({
     return `${dateStr} at ${selectedTime}`;
   },
 }));
-

@@ -36,6 +36,8 @@ export interface Vehicle {
   imageSource?: ImageSourcePropType;
   /** Whether this is the default vehicle */
   isDefault?: boolean;
+  /** Convex engine ID for car-specific service labor/parts (from vehicles.engine_id) */
+  engineId?: string;
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -96,6 +98,15 @@ interface VehicleState {
   getAllVehicles: () => Vehicle[];
   /** Set a vehicle as default */
   setDefaultVehicle: (vehicleId: string) => void;
+  /** Hydrate store from Convex vehicle ownership data (replaces mock when present) */
+  setVehiclesFromConvex: (data: ConvexVehicleOwnership[]) => void;
+}
+
+/** Shape from api.vehicles.listVehiclesByUser (subset of fields we use) */
+interface ConvexVehicleOwnership {
+  vin: string;
+  vehicle: { year?: number; metadata?: unknown; engine_id?: string } | null;
+  ownership?: { is_primary?: boolean; mileage?: number; nickname?: string };
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -140,18 +151,48 @@ export const useVehicleStore = create<VehicleState>()((set, get) => ({
   setDefaultVehicle: (vehicleId) => {
     set((state) => {
       const updatedVehicles = { ...state.vehicles };
-      
+
       // Remove default from all vehicles
       Object.keys(updatedVehicles).forEach((id) => {
         updatedVehicles[id] = { ...updatedVehicles[id], isDefault: false };
       });
-      
+
       // Set new default
       if (updatedVehicles[vehicleId]) {
         updatedVehicles[vehicleId] = { ...updatedVehicles[vehicleId], isDefault: true };
       }
-      
+
       return { vehicles: updatedVehicles };
+    });
+  },
+
+  setVehiclesFromConvex: (data) => {
+    if (!data || data.length === 0) return;
+    const vehiclesRecord: Record<string, Vehicle> = {};
+    const ids: string[] = [];
+    data.forEach((r) => {
+      if (!r.vehicle) return;
+      const vin = r.vin.toUpperCase().trim();
+      const year = r.vehicle?.year ?? new Date().getFullYear();
+      const meta = r.vehicle?.metadata as { make?: string; model?: string } | undefined;
+      const v: Vehicle = {
+        id: vin,
+        vin,
+        year,
+        make: meta?.make ?? "Vehicle",
+        model: meta?.model ?? "",
+        mileage: r.ownership?.mileage,
+        isDefault: r.ownership?.is_primary ?? ids.length === 0,
+        engineId: r.vehicle?.engine_id as string | undefined,
+      };
+      vehiclesRecord[vin] = v;
+      ids.push(vin);
+    });
+    const primary = data.find((r) => r.ownership?.is_primary) ?? data[0];
+    set({
+      vehicles: vehiclesRecord,
+      vehicleIds: ids,
+      selectedVehicleId: primary ? primary.vin.toUpperCase().trim() : (ids[0] ?? null),
     });
   },
 }));

@@ -24,6 +24,8 @@ import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 // 4. Constants, hooks, types, stores
 import { BorderRadius, Shadows } from "@/constants/theme";
 import type { ServiceCategory, Shop } from "@/stores/types/store.types";
+import { useRecentlyBookedMechanicIdsFromConvex } from "@/hooks/useRecentlyBookedMechanicIdsFromConvex";
+import { useRecentlyBookedShopIdsFromConvex } from "@/hooks/useRecentlyBookedShopIdsFromConvex";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useSearchStore, type SearchSuggestion } from "@/stores/useSearchStore";
@@ -39,7 +41,7 @@ export interface SearchSuggestionsProps {
   /** Called when a shop is selected */
   onSelectShop?: (shopId: number) => void;
   /** Called when a mechanic is selected */
-  onSelectMechanic?: (mechanicId: number) => void;
+  onSelectMechanic?: (mechanicId: string) => void;
   /** Called when a service is selected */
   onSelectService?: (serviceId: string) => void;
   /** Called when a category is selected */
@@ -70,6 +72,9 @@ export function SearchSuggestions({
   const getShopById = useShopStore((state) => state.getShopById);
   const mechanics = useMechanicStore((state) => state.mechanics);
   const mechanicIds = useMechanicStore((state) => state.mechanicIds);
+  const getMechanicById = useMechanicStore((state) => state.getMechanicById);
+  const { recentlyBookedShopIds } = useRecentlyBookedShopIdsFromConvex(5);
+  const { recentlyBookedMechanicIds } = useRecentlyBookedMechanicIdsFromConvex(5);
 
   // ═══════════════ COMPUTED VALUES ═══════════════
   // Get all shops as array
@@ -82,22 +87,33 @@ export function SearchSuggestions({
     return mechanicIds.map((id) => mechanics[id]).filter(Boolean);
   }, [mechanics, mechanicIds]);
 
-  // Recent shop IDs
+  // Recent shop IDs (recently booked from Convex first, then in-memory recent)
   const recentShopIds = useMemo(() => getRecentShopIds(), [getRecentShopIds]);
+  const recentShopIdsForDisplay = useMemo(() => {
+    const inMemory = recentShopIds.filter((id) => !recentlyBookedShopIds.includes(id));
+    return [...recentlyBookedShopIds, ...inMemory].slice(0, 5);
+  }, [recentlyBookedShopIds, recentShopIds]);
 
-  // Recent shops for when there's no query
+  // Recent shops (recently booked from Convex first, then in-memory recent)
   const recentShops = useMemo(() => {
-    return recentShopIds
+    return recentShopIdsForDisplay
       .map((id) => getShopById(id))
       .filter((shop): shop is NonNullable<typeof shop> => shop !== undefined);
-  }, [recentShopIds, getShopById]);
+  }, [recentShopIdsForDisplay, getShopById]);
+
+  // Recent mechanics (from Convex booking history)
+  const recentMechanics = useMemo(() => {
+    return recentlyBookedMechanicIds
+      .map((id) => getMechanicById(id))
+      .filter((m): m is NonNullable<typeof m> => m !== undefined);
+  }, [recentlyBookedMechanicIds, getMechanicById]);
 
   // Service suggestions (top 1 only for card display)
   const serviceSuggestion = useMemo(() => {
     if (!query.trim()) return null;
     const suggestions = getSearchSuggestions(query, availableServices);
     // Only return service type, not category
-    const serviceOnly = suggestions.find(s => s.type === "service");
+    const serviceOnly = suggestions.find((s) => s.type === "service");
     return serviceOnly || null;
   }, [query, getSearchSuggestions, availableServices]);
 
@@ -141,11 +157,10 @@ export function SearchSuggestions({
       .slice(0, 3);
   }, [allShops, allMechanics, query]);
 
-  // Recent shops (only show when not searching)
-  const filteredRecentShops = useMemo(() => {
-    if (query.trim()) return [];
-    return recentShops;
-  }, [recentShops, query]);
+  // Recently booked shops and mechanics (show even while searching)
+  const filteredRecentShops = useMemo(() => recentShops.slice(0, 3), [recentShops]);
+  const filteredRecentMechanics = useMemo(() => recentMechanics.slice(0, 3), [recentMechanics]);
+  const hasRecentlyBooked = filteredRecentShops.length > 0 || filteredRecentMechanics.length > 0;
 
   // ═══════════════ HANDLERS ═══════════════
   const handleShopPress = useCallback(
@@ -153,15 +168,15 @@ export function SearchSuggestions({
       onSelectShop?.(shopId);
       onSelectionMade?.();
     },
-    [onSelectShop, onSelectionMade]
+    [onSelectShop, onSelectionMade],
   );
 
   const handleMechanicPress = useCallback(
-    (mechanicId: number) => {
+    (mechanicId: string) => {
       onSelectMechanic?.(mechanicId);
       onSelectionMade?.();
     },
-    [onSelectMechanic, onSelectionMade]
+    [onSelectMechanic, onSelectionMade],
   );
 
   const handleSuggestionPress = useCallback(
@@ -173,14 +188,14 @@ export function SearchSuggestions({
       }
       onSelectionMade?.();
     },
-    [onSelectService, onSelectCategory, onSelectionMade]
+    [onSelectService, onSelectCategory, onSelectionMade],
   );
 
   const handleRemoveRecentShop = useCallback(
     (shopId: number) => {
       removeRecentShop(shopId);
     },
-    [removeRecentShop]
+    [removeRecentShop],
   );
 
   const handleDismiss = useCallback(() => {
@@ -190,24 +205,16 @@ export function SearchSuggestions({
 
   // ═══════════════ RENDER ═══════════════
   const hasSearchResults = topMatches.length > 0 || serviceSuggestion !== null;
-  const hasRecentShops = filteredRecentShops.length > 0;
   const hasQuery = query.trim().length > 0;
-  const hasContent = hasSearchResults || hasRecentShops || hasQuery;
+  const hasContent = hasSearchResults || hasRecentlyBooked || hasQuery;
 
   if (!hasContent) return null;
 
   return (
     <>
       {/* Backdrop to dismiss when tapping outside */}
-      <Pressable
-        style={styles.backdrop}
-        onPress={handleDismiss}
-      />
-      <Animated.View
-        style={styles.container}
-        entering={FadeIn.duration(150)}
-        exiting={FadeOut.duration(100)}
-      >
+      <Pressable style={styles.backdrop} onPress={handleDismiss} />
+      <Animated.View style={styles.container} entering={FadeIn.duration(150)} exiting={FadeOut.duration(100)}>
         <View style={styles.suggestionsContent}>
           {/* Service Suggestion Card (1 card at top) */}
           {serviceSuggestion && serviceSuggestion.type === "service" && (
@@ -254,7 +261,13 @@ export function SearchSuggestions({
                       </View>
                       <View style={styles.matchContent}>
                         <View style={styles.matchHeader}>
-                          <Text size="sm" weight="semiBold" color={BrandColors.primary} numberOfLines={1} style={styles.matchName}>
+                          <Text
+                            size="sm"
+                            weight="semiBold"
+                            color={BrandColors.primary}
+                            numberOfLines={1}
+                            style={styles.matchName}
+                          >
                             {shop.name}
                           </Text>
                           {shop.rating && (
@@ -293,7 +306,13 @@ export function SearchSuggestions({
                       </View>
                       <View style={styles.matchContent}>
                         <View style={styles.matchHeader}>
-                          <Text size="sm" weight="semiBold" color={BrandColors.primary} numberOfLines={1} style={styles.matchName}>
+                          <Text
+                            size="sm"
+                            weight="semiBold"
+                            color={BrandColors.primary}
+                            numberOfLines={1}
+                            style={styles.matchName}
+                          >
                             {mechanic.name}
                           </Text>
                           {mechanic.rating && (
@@ -306,7 +325,7 @@ export function SearchSuggestions({
                           )}
                         </View>
                         <Text size="xs" color="#6B7280" numberOfLines={1}>
-                          {mechanic.shopName} • {mechanic.yearsExperience} yrs
+                          {mechanic.title ?? mechanic.shopName} • {mechanic.yearsExperience} yrs
                         </Text>
                       </View>
                       {mechanic.isAvailable && (
@@ -323,21 +342,21 @@ export function SearchSuggestions({
             </View>
           )}
 
-          {/* Recent Shops (when not searching) */}
-          {filteredRecentShops.length > 0 && (
+          {/* Recently booked (shops + mechanics; show even while searching) */}
+          {hasRecentlyBooked && (
             <View style={styles.matchesSection}>
               <Text size="xs" weight="bold" color="#9CA3AF" style={styles.sectionLabel}>
                 RECENTLY BOOKED
               </Text>
-              {filteredRecentShops.slice(0, 3).map((shop) => (
+              {filteredRecentShops.map((shop) => (
                 <TouchableOpacity
-                  key={`recent-${shop.id}`}
+                  key={`recent-shop-${shop.id}`}
                   style={styles.matchCard}
                   onPress={() => handleShopPress(shop.id)}
                   activeOpacity={0.7}
                 >
                   <View style={styles.recentIcon}>
-                    <Clock size={18} color="#6B7280" />
+                    <MapPin size={18} color={BrandColors.secondary} />
                   </View>
                   <View style={styles.matchContent}>
                     <Text size="sm" weight="semiBold" color={BrandColors.primary}>
@@ -354,6 +373,34 @@ export function SearchSuggestions({
                   >
                     <X size={14} color="#9CA3AF" />
                   </TouchableOpacity>
+                </TouchableOpacity>
+              ))}
+              {filteredRecentMechanics.map((mechanic) => (
+                <TouchableOpacity
+                  key={`recent-mech-${mechanic.id}`}
+                  style={styles.matchCard}
+                  onPress={() => handleMechanicPress(mechanic.id)}
+                  activeOpacity={0.7}
+                >
+                  <View style={styles.recentIcon}>
+                    <User size={18} color={BrandColors.secondary} />
+                  </View>
+                  <View style={styles.matchContent}>
+                    <Text size="sm" weight="semiBold" color={BrandColors.primary}>
+                      {mechanic.name}
+                    </Text>
+                    <Text size="xs" color="#6B7280" numberOfLines={1}>
+                      {mechanic.shopName}
+                      {mechanic.title ? ` • ${mechanic.title}` : ""}
+                    </Text>
+                  </View>
+                  {mechanic.isAvailable && (
+                    <View style={styles.availableBadge}>
+                      <Text size="xs" weight="semiBold" color="#22C55E">
+                        Available
+                      </Text>
+                    </View>
+                  )}
                 </TouchableOpacity>
               ))}
             </View>

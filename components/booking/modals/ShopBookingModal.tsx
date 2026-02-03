@@ -30,9 +30,12 @@ import { AddServicesModal } from "./AddServicesModal";
 
 // 5. Constants, hooks, types, stores
 import { BorderRadius, Shadows } from "@/constants/theme";
-import { useScheduleStore } from "@/stores/useScheduleStore";
+import { useCalendarAvailabilityForShop } from "@/hooks/useCalendarAvailabilityForShop";
+import { useTimeSlotsForShop } from "@/hooks/useTimeSlotsForShop";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
+import { useScheduleStore } from "@/stores/useScheduleStore";
+import { useShopStore } from "@/stores/useShopStore";
 import type { Service } from "@/stores/types/store.types";
 
 // ============================================================================
@@ -42,14 +45,14 @@ import type { Service } from "@/stores/types/store.types";
 interface ShopBookingModalProps {
   /** Whether the modal is visible */
   visible: boolean;
-  /** Shop ID to get all mechanics for */
-  shopId: number | null;
+  /** Shop ID to get all mechanics for (Convex _id as string) */
+  shopId: string | null;
   /** Mechanic ID for initial selection (optional) */
-  mechanicId?: number | null;
+  mechanicId?: string | null;
   /** Called when modal should close */
   onClose: () => void;
   /** Called when user presses Continue to go to payment */
-  onContinue?: (date: Date, time: string, mechanicId: number) => void;
+  onContinue?: (date: Date, time: string, mechanicId: string) => void;
 }
 
 type DayStatus = "available" | "booked" | "selected" | "disabled" | "normal";
@@ -98,7 +101,7 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
 
   // ═══════════════ LOCAL STATE ═══════════════
   // Track selected mechanic within the modal (null = "Any")
-  const [selectedMechanicId, setSelectedMechanicId] = useState<number | null>(mechanicId ?? null);
+  const [selectedMechanicId, setSelectedMechanicId] = useState<string | null>(mechanicId ?? null);
   // Track if add services modal is open
   const [showAddServicesModal, setShowAddServicesModal] = useState(false);
 
@@ -124,6 +127,15 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
   // Check if shop has only one mechanic (no "Any" option needed)
   const hasSingleMechanic = shopMechanics.length === 1;
 
+  // ═══════════════ SHOP STORE (for shop-specific pricing) ═══════════════
+  const getShopById = useShopStore((state) => state.getShopById);
+  const effectiveShopId = shopId ?? shopMechanics[0]?.shopId ?? null;
+  const shop = useMemo(
+    () => (effectiveShopId ? getShopById(effectiveShopId) : null),
+    [effectiveShopId, getShopById],
+  );
+  const laborRate = shop?.labor_rate;
+
   // ═══════════════ SCHEDULE STORE ═══════════════
   const currentMonth = useScheduleStore((state) => state.currentMonth);
   const selectedDate = useScheduleStore((state) => state.selectedDate);
@@ -137,6 +149,23 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
   const getAvailableDayNumbers = useScheduleStore((state) => state.getAvailableDayNumbers);
   const getBookedDayNumbers = useScheduleStore((state) => state.getBookedDayNumbers);
   const getTimeSlotsForSelectedDate = useScheduleStore((state) => state.getTimeSlotsForSelectedDate);
+
+  const selectedDateStr = selectedDate ? selectedDate.toISOString().split("T")[0] : null;
+  const effectiveMechanicId = selectedMechanicId ?? shopMechanics[0]?.id ?? mechanicId;
+
+  // Convex calendar: which days have available slots vs booked (for Available/Booked highlighting)
+  const convexCalendar = useCalendarAvailabilityForShop(
+    effectiveShopId,
+    currentMonth.getFullYear(),
+    currentMonth.getMonth(),
+    effectiveMechanicId ?? undefined
+  );
+
+  const {
+    timeOptions: convexTimeOptions,
+    hasSlots: hasConvexSlots,
+    getSlotIdByDisplayTime,
+  } = useTimeSlotsForShop(effectiveShopId, selectedDateStr, effectiveMechanicId ?? undefined);
 
   // ═══════════════ BOOKING STORE ═══════════════
   const setScheduledAppointment = useBookingStore((state) => state.setScheduledAppointment);
@@ -153,9 +182,24 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
     return availableServices.filter((service) => selectedServiceIds.includes(service.id));
   }, [availableServices, selectedServiceIds]);
 
-  const totalPrice = useMemo(() => {
-    return selectedServices.reduce((total, service) => total + service.price, 0);
-  }, [selectedServices]);
+  // Shop-specific total: labor_rate × default_labor_hours + default_parts_estimate (matches ShopDetails)
+  const totalPrice = useMemo(
+    () =>
+      selectedServices.reduce(
+        (total, service) =>
+          total +
+          (laborRate ?? 0) * (service.default_labor_hours ?? 0) +
+          (service.default_parts_estimate ?? 0),
+        0,
+      ),
+    [selectedServices, laborRate],
+  );
+
+  const getServicePrice = useCallback(
+    (service: Service) =>
+      (laborRate ?? 0) * (service.default_labor_hours ?? 0) + (service.default_parts_estimate ?? 0),
+    [laborRate],
+  );
 
   const totalDuration = useMemo(() => {
     // Estimate 30 min per service for now
@@ -197,13 +241,16 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
   }, []);
 
   // ═══════════════ COMPUTED VALUES ═══════════════
-  const availableDays = getAvailableDayNumbers();
-  const bookedDays = getBookedDayNumbers();
+  // Use Convex calendar when we have a shop so Available/Booked reflect real data
+  const useConvexCalendar = Boolean(effectiveShopId);
+  const availableDays = useConvexCalendar ? convexCalendar.availableDayNumbers : getAvailableDayNumbers();
+  const bookedDays = useConvexCalendar ? convexCalendar.bookedDayNumbers : getBookedDayNumbers();
 
   const timeSlots = useMemo(() => {
+    if (hasConvexSlots && convexTimeOptions.length > 0) return convexTimeOptions;
     const slots = getTimeSlotsForSelectedDate();
     return slots.length > 0 ? slots : DEFAULT_TIME_SLOTS;
-  }, [selectedDate, getTimeSlotsForSelectedDate]);
+  }, [hasConvexSlots, convexTimeOptions, selectedDate, getTimeSlotsForSelectedDate]);
 
   const selectedDayNumber = selectedDate?.getDate() ?? null;
 
@@ -238,11 +285,9 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
         status = "available";
       } else if (bookedDays.includes(i)) {
         status = "booked";
-      } else {
+      } else if (!useConvexCalendar) {
         const dayOfWeek = new Date(year, month, i).getDay();
-        if (dayOfWeek === 0) {
-          status = "booked";
-        }
+        if (dayOfWeek === 0) status = "booked";
       }
 
       days.push({
@@ -263,7 +308,7 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
     }
 
     return days;
-  }, [currentMonth, selectedDayNumber, availableDays, bookedDays]);
+  }, [currentMonth, selectedDayNumber, availableDays, bookedDays, useConvexCalendar]);
 
   // Split days into weeks
   const calendarWeeks = useMemo(() => {
@@ -289,14 +334,14 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
       const newDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day.date);
       selectDate(newDate);
     },
-    [currentMonth, selectDate]
+    [currentMonth, selectDate],
   );
 
   const handleTimePress = useCallback(
     (time: string) => {
       selectTime(time);
     },
-    [selectTime]
+    [selectTime],
   );
 
   const handleCancel = useCallback(() => {
@@ -317,8 +362,14 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
     const effectiveShopId = shopId ?? shopMechanics[0]?.shopId;
     const effectiveMechanic = effectiveMechanicId ? getMechanicById(effectiveMechanicId) : null;
     const effectiveShopName = effectiveMechanic?.shopName ?? shopMechanics[0]?.shopName ?? "";
-    
-    if (selectedDate && selectedTime && effectiveMechanicId !== null && effectiveMechanicId !== undefined && selectedServices.length > 0) {
+
+    if (
+      selectedDate &&
+      selectedTime &&
+      effectiveMechanicId !== null &&
+      effectiveMechanicId !== undefined &&
+      selectedServices.length > 0
+    ) {
       confirmSelection();
 
       // Format date as "DD Mon. YYYY"
@@ -332,15 +383,16 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
         time: selectedTime,
         displayDate,
       });
-      
+
       // Set booking type and mechanic
       setBookingTypeAndProceed("schedule_later", effectiveMechanicId);
-      
+
       // Update selectedMechanicSlot for footer visibility when navigating back
       const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
       const dayOfWeek = dayNames[selectedDate.getDay()];
-      
+
       if (effectiveShopId) {
+        const timeSlotId = getSlotIdByDisplayTime(selectedTime);
         setSelectedMechanicSlot({
           shopId: effectiveShopId,
           shopName: effectiveShopName,
@@ -351,20 +403,42 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
             dayOfWeek: dayOfWeek,
             time: selectedTime,
           },
+          timeSlotId: timeSlotId ?? undefined,
+          scheduledDate: isoDate,
+          scheduledTime: selectedTime,
         });
       }
-      
+
       // Skip booking details and go directly to payment
       setSkippedBookingDetails(true);
       setBookingStage("payment", "forward");
 
       onContinue?.(selectedDate, selectedTime, effectiveMechanicId);
       onClose();
-      
+
       // Navigate to payment screen
       router.push(`/home/mechanic/${effectiveMechanicId}/payment`);
     }
-  }, [selectedDate, selectedTime, selectedMechanicId, shopMechanics, mechanicId, shopId, selectedServices.length, confirmSelection, setScheduledAppointment, setBookingTypeAndProceed, setSelectedMechanicSlot, setSkippedBookingDetails, setBookingStage, getMechanicById, onContinue, onClose, router]);
+  }, [
+    selectedDate,
+    selectedTime,
+    selectedMechanicId,
+    shopMechanics,
+    mechanicId,
+    shopId,
+    selectedServices.length,
+    confirmSelection,
+    setScheduledAppointment,
+    setBookingTypeAndProceed,
+    setSelectedMechanicSlot,
+    setSkippedBookingDetails,
+    setBookingStage,
+    getMechanicById,
+    getSlotIdByDisplayTime,
+    onContinue,
+    onClose,
+    router,
+  ]);
 
   // Get mechanic name for the service card
   const getSelectedMechanicName = useCallback(() => {
@@ -417,17 +491,12 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
         </TouchableOpacity>
       );
     },
-    [handleDayPress]
+    [handleDayPress],
   );
 
   // ═══════════════ RENDER ═══════════════
   return (
-    <Modal
-      visible={visible}
-      animationType="slide"
-      presentationStyle="pageSheet"
-      onRequestClose={handleCancel}
-    >
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={handleCancel}>
       <View style={[styles.container, { paddingTop: insets.top }]}>
         {/* Header */}
         <View style={styles.header}>
@@ -462,13 +531,12 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
                   onPress={() => handleMechanicSelect(null)}
                   activeOpacity={0.7}
                 >
-                  <View
-                    style={[
-                      styles.mechanicAvatar,
-                      selectedMechanicId === null && styles.mechanicAvatarSelected,
-                    ]}
-                  >
-                    <Text size="xs" weight="bold" color={selectedMechanicId === null ? BrandColors.secondary : "#6B7280"}>
+                  <View style={[styles.mechanicAvatar, selectedMechanicId === null && styles.mechanicAvatarSelected]}>
+                    <Text
+                      size="xs"
+                      weight="bold"
+                      color={selectedMechanicId === null ? BrandColors.secondary : "#6B7280"}
+                    >
                       Any
                     </Text>
                   </View>
@@ -613,7 +681,7 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
                           {service.name}
                         </Text>
                         <Text size="md" weight="semiBold" color={BrandColors.primary}>
-                          ${service.price.toFixed(2)}
+                          ${getServicePrice(service).toFixed(2)}
                         </Text>
                       </View>
                       <Text size="sm" weight="regular" color="#9CA3AF">
@@ -639,11 +707,7 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
             )}
 
             {/* Add Another Service Button */}
-            <TouchableOpacity 
-              style={styles.addServiceButton} 
-              onPress={handleAddService}
-              activeOpacity={0.7}
-            >
+            <TouchableOpacity style={styles.addServiceButton} onPress={handleAddService} activeOpacity={0.7}>
               <Plus size={18} color={BrandColors.secondary} />
               <Text size="md" weight="semiBold" color={BrandColors.secondary}>
                 Add another service
@@ -676,10 +740,7 @@ export function ShopBookingModal({ visible, shopId, mechanicId, onClose, onConti
       </View>
 
       {/* Add Services Modal */}
-      <AddServicesModal
-        visible={showAddServicesModal}
-        onClose={handleCloseAddServicesModal}
-      />
+      <AddServicesModal visible={showAddServicesModal} onClose={handleCloseAddServicesModal} />
     </Modal>
   );
 }

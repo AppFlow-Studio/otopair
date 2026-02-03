@@ -27,10 +27,12 @@ import { useRouter } from "expo-router";
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Constants, hooks, types
+import { getPartsBreakdown } from "@/constants/services";
 import { BorderRadius, Shadows, getSheetContentPadding } from "@/constants/theme";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { usePaymentStore } from "@/stores/usePaymentStore";
+import { useShopStore } from "@/stores/useShopStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 
 // ============================================================================
@@ -50,8 +52,6 @@ interface ReviewPayContentProps {
 
 const PLATFORM_FEE = 4.79;
 const TAXES_AND_FEES = 5.00;
-const LABOR_RATE_PER_HOUR = 30.00;
-
 
 // ============================================================================
 // MAIN COMPONENT
@@ -73,6 +73,9 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
   // ═══════════════ MECHANIC STORE ═══════════════
   const getMechanicById = useMechanicStore((state) => state.getMechanicById);
 
+  // ═══════════════ SHOP STORE ═══════════════
+  const getShopById = useShopStore((state) => state.getShopById);
+
   // ═══════════════ VEHICLE STORE ═══════════════
   const getSelectedVehicle = useVehicleStore((state) => state.getSelectedVehicle);
 
@@ -91,30 +94,63 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
     return getMechanicById(selectedMechanicId);
   }, [selectedMechanicId, getMechanicById]);
 
+  // Shop for pricing (shop labor rate only)
+  const shop = useMemo(
+    () => (mechanic?.shopId ? getShopById(mechanic.shopId) : null),
+    [mechanic?.shopId, getShopById],
+  );
+  const laborRate = shop?.labor_rate;
+
   // Get selected services
   const selectedServices = useMemo(
     () => availableServices.filter((service) => selectedServiceIds.includes(service.id)),
     [availableServices, selectedServiceIds]
   );
 
-  // Calculate detailed breakdown
+  // Calculate detailed breakdown (shop labor rate only; DB values only, no fallbacks)
   const breakdown = useMemo(() => {
-    const servicesTotal = selectedServices.reduce((total, service) => total + service.price, 0);
-    // Estimate labor as 60% of services total, parts as 40%
-    const laborHours = Math.max(1, Math.round((servicesTotal * 0.6) / LABOR_RATE_PER_HOUR * 2) / 2);
-    const laborCost = laborHours * LABOR_RATE_PER_HOUR;
-    const partsCost = servicesTotal - laborCost;
-    
+    const rate = laborRate ?? 0;
+    const servicesTotal = selectedServices.reduce(
+      (total, service) =>
+        total +
+        rate * (service.default_labor_hours ?? 0) +
+        (service.default_parts_estimate ?? 0),
+      0,
+    );
+    const laborHours = selectedServices.reduce(
+      (sum, s) => sum + (s.default_labor_hours ?? 0),
+      0,
+    );
+    const laborCost = laborHours * rate;
+    const partsCost = Math.max(0, servicesTotal - laborCost);
+
     return {
       laborHours,
       laborCost: Math.max(0, laborCost),
-      partsCost: Math.max(0, partsCost),
+      partsCost,
       taxesAndFees: TAXES_AND_FEES,
       platformFee: PLATFORM_FEE,
       subtotal: servicesTotal,
-      total: servicesTotal + PLATFORM_FEE,
+      total: servicesTotal + TAXES_AND_FEES + PLATFORM_FEE,
     };
-  }, [selectedServices]);
+  }, [selectedServices, laborRate]);
+
+  // Per-service line total (labor + parts) so breakdown lines sum to subtotal
+  const getServiceLineTotal = useCallback(
+    (service: (typeof selectedServices)[0]) =>
+      (laborRate ?? 0) * (service.default_labor_hours ?? 0) + (service.default_parts_estimate ?? 0),
+    [laborRate],
+  );
+
+  // Parts breakdown: each part listed and labelled as (Part)
+  const partsBreakdown = useMemo(
+    () =>
+      getPartsBreakdown(
+        selectedServices.map((s) => s.name),
+        breakdown.partsCost
+      ),
+    [selectedServices, breakdown.partsCost]
+  );
 
   // Format vehicle display
   const vehicleDisplay = selectedVehicle
@@ -198,7 +234,7 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
                 {mechanic.name}
               </Text>
               <Text size="sm" weight="medium" color="#6B7280">
-                Master Mechanic
+                {mechanic.title ?? mechanic.shopName}
               </Text>
             </View>
           </View>
@@ -247,14 +283,14 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
             <FileText size={20} color="#9CA3AF" />
           </View>
 
-          {/* Service Names */}
+          {/* Service names with line total (labor + parts) so lines sum to subtotal */}
           {selectedServices.map((service) => (
             <View key={service.id} style={styles.serviceRow}>
               <Text size="sm" weight="medium" color={BrandColors.primary}>
                 {service.name}
               </Text>
               <Text size="sm" weight="semiBold" color={BrandColors.primary}>
-                ${service.price.toFixed(2)}
+                ${getServiceLineTotal(service).toFixed(2)}
               </Text>
             </View>
           ))}
@@ -271,15 +307,17 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
               </Text>
             </View>
 
-            {/* Parts */}
-            <View style={styles.breakdownRow}>
-              <Text size="sm" weight="regular" color="#6B7280">
-                Parts (Oil, Filter)
-              </Text>
-              <Text size="sm" weight="medium" color="#6B7280">
-                ${breakdown.partsCost.toFixed(2)}
-              </Text>
-            </View>
+            {/* Parts: each part listed and labelled as (Part) */}
+            {partsBreakdown.map((part, index) => (
+              <View key={`${part.name}-${index}`} style={styles.breakdownRow}>
+                <Text size="sm" weight="regular" color="#6B7280">
+                  {part.name} (Part)
+                </Text>
+                <Text size="sm" weight="medium" color="#6B7280">
+                  ${part.cost.toFixed(2)}
+                </Text>
+              </View>
+            ))}
 
             {/* Taxes & Fees */}
             <View style={styles.breakdownRow}>

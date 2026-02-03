@@ -36,6 +36,7 @@ import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Constants, hooks, types, stores
 import { BorderRadius, Shadows } from "@/constants/theme";
+import { formatDistanceMiles } from "@/utils/geo";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 
@@ -215,13 +216,13 @@ function CompactMechanicCard() {
       {/* Info */}
       <View style={styles.mechanicInfo}>
         <Text size="md" weight="bold" color={BrandColors.primary} numberOfLines={1}>
-          {mechanic.shopName}
-        </Text>
-        <Text size="sm" weight="medium" color="#6B7280" numberOfLines={1}>
           {mechanic.name}
         </Text>
+        <Text size="sm" weight="medium" color="#6B7280" numberOfLines={1}>
+          {mechanic.title ?? mechanic.shopName}
+        </Text>
         <Text size="xs" weight="regular" color="#9CA3AF">
-          {mechanic.distanceMi} mi
+          {formatDistanceMiles(mechanic.distanceMi)}
         </Text>
       </View>
 
