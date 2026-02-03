@@ -1,16 +1,16 @@
 import { BookingCard, type Booking } from '@/components/bookings/BookingCard';
 import { LiveTrackerCard, type LiveTracking } from '@/components/bookings/LiveTrackerCard';
-import { Text } from '@/components/shared-ui';
+import { ScrollDrivenGradientBackground, Text } from '@/components/shared-ui';
 import { Calendar, Search, SlidersHorizontal } from 'lucide-react-native';
 import React, { useCallback, useState } from 'react';
 import {
     Pressable,
     RefreshControl,
-    ScrollView,
     StyleSheet,
     TextInput,
     View,
 } from 'react-native';
+import Animated from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // ============================================================================
@@ -190,12 +190,16 @@ export default function BookingsScreen() {
   };
 
   return (
+    <ScrollDrivenGradientBackground colors={['#5BA3D9', '#8FC4E8', '#d9e8f5']}>
+      {(scrollHandler) => (
     <View style={styles.container}>
       {/* Full Page Scroll - same as home page */}
-      <ScrollView
+      <Animated.ScrollView
         style={styles.scrollView}
         contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 12 }]}
         showsVerticalScrollIndicator={false}
+        onScroll={scrollHandler}
+        scrollEventThrottle={16}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -206,7 +210,7 @@ export default function BookingsScreen() {
       >
         {/* Header */}
         <View style={styles.header}>
-          <Text weight="bold" size="xl" color="#1F2937">
+          <Text weight="bold" size="xl" color="#FFFFFF">
             My Bookings
           </Text>
         </View>
@@ -223,7 +227,7 @@ export default function BookingsScreen() {
             <Text
               weight="semiBold"
               size="sm"
-              color={activeTab === 'liveTracker' ? '#1F2937' : '#6B7280'}
+              color={activeTab === 'liveTracker' ? '#1F2937' : '#FFFFFF'}
             >
               Live Tracker
             </Text>
@@ -238,7 +242,7 @@ export default function BookingsScreen() {
             <Text
               weight="semiBold"
               size="sm"
-              color={activeTab === 'upcoming' ? '#1F2937' : '#6B7280'}
+              color={activeTab === 'upcoming' ? '#1F2937' : '#FFFFFF'}
             >
               Upcoming
             </Text>
@@ -253,7 +257,7 @@ export default function BookingsScreen() {
             <Text
               weight="semiBold"
               size="sm"
-              color={activeTab === 'history' ? '#1F2937' : '#6B7280'}
+              color={activeTab === 'history' ? '#1F2937' : '#FFFFFF'}
             >
               History
             </Text>
@@ -335,8 +339,10 @@ export default function BookingsScreen() {
             </View>
           )}
         </View>
-      </ScrollView>
+      </Animated.ScrollView>
     </View>
+      )}
+    </ScrollDrivenGradientBackground>
   );
 }
 
@@ -347,7 +353,6 @@ export default function BookingsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#dde2ee',
   },
   header: {
     paddingHorizontal: 20,
@@ -358,11 +363,11 @@ const styles = StyleSheet.create({
   tabContainer: {
     flexDirection: 'row',
     marginHorizontal: 20,
-    backgroundColor: '#dde2ee',
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
     borderRadius: 25,
     padding: 4,
     borderWidth: 1,
-    borderColor: '#D1D5DB',
+    borderColor: 'rgba(255, 255, 255, 0.5)',
   },
   tab: {
     flex: 1,

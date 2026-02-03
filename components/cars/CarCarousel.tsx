@@ -1523,7 +1523,7 @@ export function CarCarousel({
     .onUpdate((e) => {
       // Only update rotation - NO state updates during drag
       const delta = e.translationX - lastTranslationX.value;
-      rotation.value += delta * 0.008;
+      rotation.value -= delta * 0.008; // Reversed: swipe right = car goes right
       lastTranslationX.value = e.translationX;
       
       // Track index in shared value only - no JS bridge calls
@@ -1532,7 +1532,7 @@ export function CarCarousel({
       lastUpdatedIndex.value = currentClosestIndex;
     })
     .onEnd((e) => {
-      const velocity = e.velocityX * 0.0005;
+      const velocity = e.velocityX * -0.0005; // Reversed to match swipe direction
       const targetRotation = rotation.value + velocity;
       const nearestIndex = Math.round(targetRotation / anglePerItem);
       const snappedRotation = nearestIndex * anglePerItem;
