@@ -16,6 +16,9 @@ export const seedUserAndVehicle = mutation({
 
     // Demo user
     const userId = await ctx.db.insert("users", {
+      clerkUserId: "seed-demo-user-1",
+      onboardingCompleted: true,
+      createdAt: Date.now(),
       email: "demo@otopair.com",
       phone: "(512) 555-9999",
       first_name: "Alex",
@@ -413,6 +416,9 @@ export const seed = mutation({
 
     // --- Demo User ---
     const userId = await ctx.db.insert("users", {
+      clerkUserId: "seed-demo-user-2",
+      onboardingCompleted: true,
+      createdAt: Date.now(),
       email: "demo@otopair.com",
       phone: "(512) 555-9999",
       first_name: "Alex",

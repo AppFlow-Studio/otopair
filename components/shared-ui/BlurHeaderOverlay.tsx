@@ -135,8 +135,15 @@ export function BlurHeaderOverlay({
       ) : (
         <View style={styles.fallback} />
       )}
+
+      <View style={[styles.absoluteTitleContainer, { top: insets.top + 10 }]} pointerEvents="none">
+        <Text weight="semiBold" size="xl" color={titleColor} style={styles.title} numberOfLines={1}>
+          {title}
+        </Text>
+      </View>
+
       <View style={[styles.headerContent, { paddingTop: insets.top + 10 }]}>
-        <View style={styles.sideContainer}>
+        <View style={styles.leftContainer}>
           <Pressable 
             onPress={handleBack} 
             style={[styles.backButton, { backgroundColor: backButtonBgColor }]} 
@@ -145,10 +152,8 @@ export function BlurHeaderOverlay({
             <ArrowLeft size={20} color={backButtonIconColor} />
           </Pressable>
         </View>
-        <Text weight="semiBold" size="xl" color={titleColor} style={styles.title} numberOfLines={1}>
-          {title}
-        </Text>
-        <View style={[styles.sideContainer, styles.rightContainer]}>
+
+        <View style={styles.rightContainer}>
           {rightElement || <View style={{ width: 40 }} />}
         </View>
       </View>
@@ -175,17 +180,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     justifyContent: 'space-between',
   },
-  sideContainer: {
-    minWidth: 44,
+  leftContainer: {
     alignItems: 'flex-start',
     justifyContent: 'center',
+    zIndex: 1, // Ensure buttons are on top
   },
   rightContainer: {
-    minWidth: 44,
     alignItems: 'flex-end',
     flexDirection: 'row',
     justifyContent: 'flex-end',
     gap: 12,
+    zIndex: 1, // Ensure buttons are on top
+  },
+  absoluteTitleContainer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    width: '100%',
+    height: 40, // Match button height for vertical alignment
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 0,
   },
   backButton: {
     width: 40,
@@ -195,7 +210,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   title: {
-    flex: 1,
     textAlign: 'center',
   },
 });

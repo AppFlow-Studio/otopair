@@ -35,6 +35,7 @@ import { FooterButton } from '@/components/shared-ui/FooterButton';
 import { ProgressBar } from '@/components/shared-ui/ProgressBar';
 import { BackButton } from '@/components/shared-ui/BackButton';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
+import { useOnboardingQuestion } from '@/hooks/useOnboardingQuestion';
 
 interface EmailEntryStepProps {
     onNext: () => void;

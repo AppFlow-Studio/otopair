@@ -16,6 +16,8 @@
  * TICKET: OTO-XXX
  */
 
+import { useState } from 'react';
+import { useAuth, useSignIn } from '@clerk/clerk-expo';
 import {
     BrandColors,
     FontFamily,
@@ -26,6 +28,7 @@ import {
 } from '@/components/shared-ui';
 import { FooterButton } from '@/components/shared-ui/FooterButton';
 import { Image } from 'expo-image';
+import { router } from 'expo-router';
 import { MoveRight } from 'lucide-react-native';
 import {
     KeyboardAvoidingView,
@@ -37,6 +40,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
+import { useMutation } from 'convex/react';
+import { api } from '@/convex/_generated/api';
 
 interface WelcomeStepProps {
     onNext: () => void;
@@ -48,6 +53,13 @@ export function WelcomeStep({ onNext, onBack }: WelcomeStepProps) {
     const { height } = useWindowDimensions();
     const { setIsNewUser } = useAuthStore();
     const { updateData: updateOnboardingData } = useOnboardingStore();
+    const { isSignedIn } = useAuth();
+    const { signIn, setActive, isLoaded } = useSignIn();
+    const ensureConvexUser = useMutation(api.users.getOrCreateMe);
+    const [loginLoading, setLoginLoading] = useState(false);
+    const [loginError, setLoginError] = useState<string | null>(null);
+    const guestEmail = process.env.EXPO_PUBLIC_GUEST_EMAIL;
+    const guestPassword = process.env.EXPO_PUBLIC_GUEST_PASSWORD;
 
     const dynamicStyles = {
         container: { paddingTop: insets.top + Spacing.lg },
@@ -66,10 +78,71 @@ export function WelcomeStep({ onNext, onBack }: WelcomeStepProps) {
         onNext();
     };
 
-    const handleLogInStep = () => {
-        setIsNewUser(false);
-        updateOnboardingData({ authMode: 'login' });
-        onNext();
+    const handleLogIn = async () => {
+        if (loginLoading) return;
+
+        if (isSignedIn) {
+            console.log('Guest already signed in, routing to home');
+            try {
+                await ensureConvexUser();
+                console.log('Ensured Convex user via WelcomeStep (already signed in)');
+            } catch (error) {
+                console.error('Failed to ensure Convex user record', error);
+            }
+            setIsNewUser(false);
+            updateOnboardingData({ authMode: 'login' });
+            router.replace('/(main-tabs)/home');
+            onBack();
+            return;
+        }
+
+        if (!isLoaded || !signIn) {
+            setLoginError('Sign in is not ready. Please try again.');
+            return;
+        }
+
+        if (!guestEmail || !guestPassword) {
+            setLoginError('Guest credentials are not configured.');
+            return;
+        }
+
+        setLoginLoading(true);
+        setLoginError(null);
+
+        try {
+            await signIn.create({
+                identifier: guestEmail,
+            });
+
+            const attempt = await signIn.attemptFirstFactor({
+                strategy: 'password',
+                password: guestPassword,
+            });
+
+            if (attempt.status !== 'complete' || !attempt.createdSessionId) {
+                console.log('Guest login response', JSON.stringify(attempt, null, 2));
+                throw new Error('Unable to create a session.');
+            }
+
+            await setActive?.({ session: attempt.createdSessionId });
+            console.log('Guest login successful for', guestEmail);
+            try {
+                await ensureConvexUser();
+                console.log('Ensured Convex user via WelcomeStep after login');
+            } catch (error) {
+                console.error('Failed to ensure Convex user record', error);
+            }
+            setIsNewUser(false);
+            updateOnboardingData({ authMode: 'login' });
+            router.replace('/(main-tabs)/home');
+            onBack();
+        } catch (error) {
+            const message =
+                error instanceof Error ? error.message : 'Unable to sign in.';
+            setLoginError(message);
+        } finally {
+            setLoginLoading(false);
+        }
     };
 
     return (
@@ -111,13 +184,19 @@ export function WelcomeStep({ onNext, onBack }: WelcomeStepProps) {
                 </View>
                 <View style={[styles.bottomContainer, dynamicStyles.bottomContainerSecondary]}>
                     <FooterButton
-                        label="Log In"
-                        onPress={handleLogInStep}
+                        label={loginLoading ? 'Logging In...' : 'Log In'}
+                        onPress={handleLogIn}
+                        disabled={loginLoading}
                         rightIcon={<MoveRight size={FontSize.md} color={BrandColors.white} />}
                         size={buttonSize}
                         paddingVertical={buttonPaddingVertical}
                         variant="secondary"
                     />
+                    {loginError ? (
+                        <Text style={styles.loginErrorText} accessibilityRole="alert">
+                            {loginError}
+                        </Text>
+                    ) : null}
                 </View>
             </View>
         </KeyboardAvoidingView>
@@ -164,5 +243,11 @@ const styles = StyleSheet.create({
         paddingTop: Spacing.sm,
         paddingHorizontal: Spacing['2xl'],
     },
+    loginErrorText: {
+        textAlign: 'center',
+        color: '#FCA5A5',
+        fontSize: FontSize.sm,
+        fontFamily: FontFamily.medium,
+        marginTop: Spacing.xs,
+    },
 });
-

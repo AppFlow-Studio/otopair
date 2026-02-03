@@ -1,7 +1,7 @@
 /**
  * index
  *
- * PURPOSE: Redirects to the onboarding flow. Includes dev shortcut to demo screen.
+ * PURPOSE: Auth-aware routing entry point. Routes to onboarding, home, or resume based on auth state.
  *
  * USED IN: app/_layout.tsx
  *
@@ -11,81 +11,53 @@
  * TICKET: OTO-XXX
  */
 
-import { View, TouchableOpacity, Text, StyleSheet } from "react-native";
-import { Redirect, useRouter } from "expo-router";
-import { useState } from "react";
-import { BrandColors, FontFamily, FontSize, Spacing, BorderRadius } from "@/constants/theme";
+import { View, ActivityIndicator, StyleSheet } from "react-native";
+import { Redirect } from "expo-router";
+import { useAuth } from "@clerk/clerk-expo";
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
+import { BrandColors } from "@/constants/theme";
 
 export default function Index() {
-  const router = useRouter();
-  const [goToOnboarding, setGoToOnboarding] = useState(false);
+  const { isSignedIn, isLoaded } = useAuth();
+  const me = useQuery(api.users.getMe);
+  // Wait for Clerk to load
+  if (!isLoaded) {
+    return (
+      <View style={styles.loading}>
+        <ActivityIndicator size="large" color={BrandColors.white} />
+      </View>
+    );
+  }
 
-  if (goToOnboarding) {
+  // Not signed in → go to onboarding (starts at signup)
+  if (!isSignedIn) {
     return <Redirect href="/(onboarding)" />;
   }
 
-  return (
-    <View style={styles.container}>
-      <TouchableOpacity
-        style={styles.primaryButton}
-        onPress={() => setGoToOnboarding(true)}
-        activeOpacity={0.8}
-      >
-        <Text style={styles.primaryText}>Continue to App</Text>
-      </TouchableOpacity>
+  // Signed in but Convex user not loaded yet
+  if (me === undefined) {
+    return (
+      <View style={styles.loading}>
+        <ActivityIndicator size="large" color={BrandColors.white} />
+      </View>
+    );
+  }
 
-      <TouchableOpacity
-        style={styles.demoButton}
-        onPress={() => router.push("/demo")}
-        activeOpacity={0.8}
-      >
-        <Text style={styles.demoText}>Go to Demo Booking</Text>
-      </TouchableOpacity>
+  // Signed in + onboarding complete → go to home
+  if (me?.onboardingCompleted) {
+    return <Redirect href="/(main-tabs)/home" />;
+  }
 
-      <TouchableOpacity
-        style={[styles.demoButton, { backgroundColor: "#22C55E" }]}
-        onPress={() => router.push("/demo-learning")}
-        activeOpacity={0.8}
-      >
-        <Text style={styles.demoText}>Go to Learning Pipeline Demo</Text>
-      </TouchableOpacity>
-    </View>
-  );
+  // Signed in + onboarding NOT complete → resume onboarding
+  return <Redirect href="/(onboarding)" />;
 }
 
 const styles = StyleSheet.create({
-  container: {
+  loading: {
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: BrandColors.primary,
-    gap: Spacing.lg,
-    paddingHorizontal: Spacing["3xl"],
-  },
-  primaryButton: {
-    backgroundColor: BrandColors.white,
-    borderRadius: BorderRadius.lg,
-    paddingVertical: Spacing.lg,
-    paddingHorizontal: Spacing["3xl"],
-    width: "100%",
-    alignItems: "center",
-  },
-  primaryText: {
-    fontFamily: FontFamily.bold,
-    fontSize: FontSize.md,
-    color: BrandColors.primary,
-  },
-  demoButton: {
-    backgroundColor: BrandColors.secondary,
-    borderRadius: BorderRadius.lg,
-    paddingVertical: Spacing.lg,
-    paddingHorizontal: Spacing["3xl"],
-    width: "100%",
-    alignItems: "center",
-  },
-  demoText: {
-    fontFamily: FontFamily.bold,
-    fontSize: FontSize.md,
-    color: BrandColors.white,
   },
 });

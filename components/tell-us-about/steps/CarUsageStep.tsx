@@ -45,6 +45,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
+import { useOnboardingQuestion } from '@/hooks/useOnboardingQuestion';
 
 interface CarUsageStepProps {
     onNext: () => void;
@@ -66,7 +67,8 @@ export function CarUsageStep({ onNext, onBack, progress }: CarUsageStepProps) {
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
-    
+    const { answers, saveAnswer } = useOnboardingQuestion('carUsage');
+
     const [selectedUsage, setSelectedUsage] = useState<string | null>(
         data.carUsage ?? null
     );
@@ -88,6 +90,8 @@ export function CarUsageStep({ onNext, onBack, progress }: CarUsageStepProps) {
 
     const handleContinue = () => {
         if (selectedUsage) {
+            const selectedAnswer = answers.find(a => selectedUsage === `${a.emoji} ${a.answer_text}`);
+            saveAnswer({ answerId: selectedAnswer?._id });
             onNext();
         }
     };

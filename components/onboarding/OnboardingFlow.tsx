@@ -11,60 +11,75 @@
  *   - isResumeMode (boolean): Whether this is a resume flow (affects completion behavior)
  *
  * EXAMPLE:
- *   <OnboardingFlow initialStep="welcome" />
- *   <OnboardingFlow 
- *     initialStep="profilePhoto" 
- *     filteredSteps={['profilePhoto', 'userIntent']} 
- *     isResumeMode={true} 
+ *   <OnboardingFlow initialStep="signup" />
+ *   <OnboardingFlow
+ *     initialStep="profilePhoto"
+ *     filteredSteps={['profilePhoto', 'userIntent']}
+ *     isResumeMode={true}
  *   />
- *
- * OWNER: Daniel Chelala
- * TICKET: OTO-XXX
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
 import { StyleSheet, View, Keyboard } from 'react-native';
 import { router } from 'expo-router';
-import Animated, { 
-    useSharedValue, 
-    withTiming, 
+import Animated, {
+    useSharedValue,
+    withTiming,
     Easing,
 } from 'react-native-reanimated';
 import { AnimatedGradientBackground } from '@/components/shared-ui';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
-import { WelcomeStep } from './steps/WelcomeStep';
-import { SignUpMethodsStep } from './steps/SignUpMethodsStep';
-import { LoginMethodsStep } from './steps/LoginMethodsStep';
-import { EmailEntryStep } from './steps/EmailEntryStep';
-import { CreatePasswordStep } from './steps/CreatePasswordStep';
-import { EmailPasswordLoginStep } from './steps/EmailPasswordLoginStep';
+import { useAuth } from '@clerk/clerk-expo';
+import { usePrefetchOnboardingQuestions } from '@/hooks/usePrefetchOnboardingQuestions';
+import { useMutation } from 'convex/react';
+import { api } from '@/convex/_generated/api';
+import { SignupStep } from './steps/SignupStep';
+import { EmailSignupStep } from './steps/EmailSignupStep';
+import { EmailVerificationStep } from './steps/EmailVerificationStep';
+import { LoginStep } from './steps/LoginStep';
 import { PhoneNumberStep } from './steps/PhoneNumberStep';
 import { ConfirmPhoneNumberStep } from './steps/ConfirmPhoneNumberStep';
 import { NameStep } from './steps/NameStep';
+import { EmailConfirmStep } from './steps/EmailConfirmStep';
 import { ProfilePhotoStep } from './steps/ProfilePhotoStep';
 import { UserIntentStep } from './steps/UserIntentStep';
 import { PushNotificationsStep } from './steps/PushNotificationsStep';
 import { LocationServicesStep } from './steps/LocationServicesStep';
+import { WelcomeStep } from './steps/WelcomeStep';
 
 // Define the steps in the flow
-export type OnboardingStep = 'welcome' | 'signUpMethods' | 'loginMethods' | 'email' | 'createPassword' | 'emailPasswordLogin' | 'phone' | 'confirm' | 'name' | 'profilePhoto' | 'userIntent' | 'pushNotifications' | 'locationServices' | 'complete';
+export type OnboardingStep =
+    | 'welcome'
+    | 'signup'
+    | 'emailSignup'
+    | 'emailVerify'
+    | 'login'
+    | 'phone'
+    | 'confirm'
+    | 'name'
+    | 'emailConfirm'
+    | 'profilePhoto'
+    | 'userIntent'
+    | 'pushNotifications'
+    | 'locationServices'
+    | 'complete';
 
 // Step indices mapping to SHARED_GRADIENT_CONFIGS
 const STEP_INDICES: Record<OnboardingStep, number> = {
     welcome: 0,
-    signUpMethods: 1,
-    loginMethods: 2,
-    email: 3,
-    createPassword: 4,
-    phone: 5,
-    confirm: 6,
-    name: 7,
-    profilePhoto: 8,
-    userIntent: 9,
-    pushNotifications: 10,
-    locationServices: 11,
-    complete: 12,
-    emailPasswordLogin: 13,
+    signup: 0,
+    emailSignup: 0,
+    emailVerify: 0,
+    login: 0,
+    phone: 1,
+    confirm: 2,
+    name: 3,
+    emailConfirm: 3,
+    profilePhoto: 5,
+    userIntent: 6,
+    pushNotifications: 7,
+    locationServices: 8,
+    complete: 9,
 };
 
 interface OnboardingFlowProps {
@@ -73,13 +88,12 @@ interface OnboardingFlowProps {
     isResumeMode?: boolean;
 }
 
-// Steps that show in the progress bar (excludes welcome and complete)
+// Steps that show in the progress bar (excludes signup/login screens and complete)
 const PROGRESS_STEPS: OnboardingStep[] = [
-    'email',
-    'createPassword',
     'phone',
     'confirm',
     'name',
+    'emailConfirm',
     'profilePhoto',
     'userIntent',
     'pushNotifications',
@@ -89,28 +103,14 @@ const PROGRESS_STEPS: OnboardingStep[] = [
 // Helper to get incomplete onboarding steps based on store data
 export function getIncompleteOnboardingSteps(): OnboardingStep[] {
     const { data } = useOnboardingStore.getState();
-    
+
     const stepChecks: { step: OnboardingStep; isComplete: () => boolean }[] = [
-        { 
-            step: 'email', 
-            isComplete: () => {
-                if (data.signUpMethod && data.signUpMethod !== 'email') return true;
-                return !!data.email;
-            } 
-        },
-        { 
-            step: 'createPassword', 
-            isComplete: () => {
-                if (data.signUpMethod && data.signUpMethod !== 'email') return true;
-                return !!data.password;
-            } 
-        },
         { step: 'phone', isComplete: () => !!data.phoneNumber },
-        { step: 'confirm', isComplete: () => !!data.phoneNumber }, // Same as phone
+        { step: 'confirm', isComplete: () => !!data.phoneVerified },
         { step: 'name', isComplete: () => !!(data.firstName && data.lastName) },
+        { step: 'emailConfirm', isComplete: () => !!data.emailConfirmed },
         { step: 'profilePhoto', isComplete: () => !!data.profilePhotoUri },
         { step: 'userIntent', isComplete: () => !!(data.userIntentions && data.userIntentions.length > 0) },
-        // Permissions are considered complete if user has made a choice (granted or denied)
         { step: 'pushNotifications', isComplete: () => data.pushNotificationStatus !== null },
         { step: 'locationServices', isComplete: () => data.locationPermissionStatus !== null },
     ];
@@ -120,8 +120,8 @@ export function getIncompleteOnboardingSteps(): OnboardingStep[] {
         .map(({ step }) => step);
 }
 
-export function OnboardingFlow({ 
-    initialStep = 'welcome',
+export function OnboardingFlow({
+    initialStep = 'signup',
     filteredSteps,
     isResumeMode = false,
 }: OnboardingFlowProps) {
@@ -129,60 +129,51 @@ export function OnboardingFlow({
     const [currentStep, setCurrentStep] = useState<OnboardingStep>(initialStep);
     const [fromStep, setFromStep] = useState<OnboardingStep>(initialStep);
     const [toStep, setToStep] = useState<OnboardingStep>(initialStep);
-    
+    const { isSignedIn } = useAuth();
+    const completeOnboarding = useMutation(api.users.completeOnboarding);
+    usePrefetchOnboardingQuestions();
+
     // Animation progress (0 = from step, 1 = to step)
     const animationProgress = useSharedValue(1);
 
-    // Use filtered steps if provided (resume mode), otherwise use progress steps
-    // Filter out 'email' if user signed up with Google or Apple
-    const activeSteps = filteredSteps || PROGRESS_STEPS.filter(step => {
-        if (step === 'email' && data.signUpMethod && data.signUpMethod !== 'email') {
-            return false;
-        }
-        if (step === 'createPassword' && data.signUpMethod && data.signUpMethod !== 'email') {
-            return false;
-        }
-        return true;
-    });
-
+    // Use filtered steps if provided (resume mode), otherwise use all progress steps
+    const activeSteps = filteredSteps || PROGRESS_STEPS;
+    console.log('activeSteps', activeSteps);
+    console.log('currentStep', currentStep);
     // Get progress info for the current step
     const getProgressInfo = () => {
         const stepIndex = activeSteps.indexOf(currentStep);
         if (stepIndex === -1) {
-            // Welcome or complete step - no progress bar
-            // Handle case where signUpMethods is active but not in progress bar
-            if (currentStep === 'signUpMethods') {
-                return { total: activeSteps.length, filled: 0 };
-            }
+            // Signup/login/complete step - no progress bar
             return { total: activeSteps.length, filled: 0 };
         }
         return { total: activeSteps.length, filled: stepIndex };
     };
 
     const progressInfo = getProgressInfo();
-    
+
     // Handle step changes with animation
     const goToStep = (nextStep: OnboardingStep) => {
         if (nextStep === currentStep) return;
-        
+
         // Dismiss keyboard when transitioning
         Keyboard.dismiss();
-        
+
         // Set up transition
         setFromStep(currentStep);
         setToStep(nextStep);
-        
+
         // Reset and animate
         animationProgress.value = 0;
         animationProgress.value = withTiming(1, {
             duration: 1200,
             easing: Easing.bezier(0.25, 0.1, 0.25, 1),
         });
-        
+
         // Update current step
         setCurrentStep(nextStep);
     };
-    
+
     // Helper function to determine previous step after locationServices based on notification permissions
     const getPreviousStepAfterLocationServices = async (): Promise<OnboardingStep> => {
         const hasNotifications = await checkNotificationPermissions();
@@ -199,51 +190,37 @@ export function OnboardingFlow({
         if (isResumeMode && filteredSteps) {
             const currentIndex = activeSteps.indexOf(currentStep);
             if (currentIndex <= 0) {
-                // First step in resume mode - go back to home
                 router.back();
                 return;
             }
-            // Go to previous step in filtered list
             goToStep(activeSteps[currentIndex - 1]);
             return;
         }
 
         // Normal mode navigation
         switch (currentStep) {
-            case 'welcome':
-                goToStep('complete');
+            case 'signup':
                 break;
-            case 'signUpMethods':
-                goToStep('welcome');
+            case 'emailSignup':
+                goToStep('signup');
                 break;
-            case 'loginMethods':
-                goToStep('welcome');
+            case 'emailVerify':
+                goToStep('emailSignup');
                 break;
-            case 'emailPasswordLogin':
-                goToStep('loginMethods');
-                break;
-            case 'email':
-                if (latestData.authMode === 'login') {
-                    goToStep('loginMethods');
-                } else {
-                    goToStep('signUpMethods');
-                }
-                break;
-            case 'createPassword':
-                goToStep('email');
+            case 'login':
+                goToStep('signup');
                 break;
             case 'phone':
-                if (latestData.signUpMethod && latestData.signUpMethod !== 'email') {
-                    goToStep('signUpMethods');
-                } else {
-                    goToStep('createPassword');
-                }
+                goToStep('signup');
                 break;
             case 'confirm':
                 goToStep('phone');
                 break;
             case 'name':
                 goToStep('confirm');
+                break;
+            case 'emailConfirm':
+                goToStep('name');
                 break;
             case 'profilePhoto':
                 goToStep('name');
@@ -263,7 +240,7 @@ export function OnboardingFlow({
                 break;
         }
     };
-    
+
     // Helper function to normalize push notification status
     const normalizePushStatus = (s: string | null | undefined): 'granted' | 'provisional' | 'denied' | 'undetermined' => {
         if (s === 'granted' || s === 'provisional' || s === 'denied' || s === 'undetermined') {
@@ -325,58 +302,34 @@ export function OnboardingFlow({
         // In resume mode, navigate within filtered steps
         if (isResumeMode && filteredSteps) {
             const currentIndex = activeSteps.indexOf(currentStep);
+            console.log('currentIndex', currentIndex);
+            console.log('activeSteps', activeSteps);
             if (currentIndex >= activeSteps.length - 1) {
-                // Last step in resume mode - complete and go back to home
                 goToStep('complete');
                 return;
             }
-            // Go to next step in filtered list
             goToStep(activeSteps[currentIndex + 1]);
             return;
         }
 
         // Normal mode navigation
         switch (currentStep) {
-            case 'welcome':
-                if (latestData.authMode === 'login') {
-                    goToStep('loginMethods');
-                } else {
-                    goToStep('signUpMethods');
-                }
-                break;
-            case 'signUpMethods':
-                if (latestData.signUpMethod && latestData.signUpMethod !== 'email') {
-                    goToStep('phone');
-                } else {
-                    goToStep('email');
-                }
-                break;
-            case 'loginMethods':
-                if (latestData.signUpMethod && latestData.signUpMethod !== 'email') {
-                    // Successful login for Google/Apple handled in LoginMethodsStep
-                    break;
-                } else {
-                    goToStep('emailPasswordLogin');
-                }
-                break;
-            case 'emailPasswordLogin':
-                // Successful login handled in EmailPasswordLoginStep
-                // but we need to mark flow as complete
-                goToStep('complete');
-                break;
-            case 'email':
-                if (latestData.authMode === 'login') {
-                    // Successful login for email will be handled later
-                    // For now, let's assume it jumps to phone like sign up? 
-                    // No, login should probably go home. 
-                    router.replace('/(main-tabs)/home');
-                    goToStep('complete');
-                } else {
-                    goToStep('createPassword');
-                }
-                break;
-            case 'createPassword':
+            case 'signup':
+                // OAuth success goes directly to phone
                 goToStep('phone');
+                break;
+            case 'emailSignup':
+                goToStep('emailVerify');
+                break;
+            case 'emailVerify':
+                // Email verified, session created, go to phone
+                goToStep('phone');
+                break;
+            case 'login':
+                // Login success - check onboarding status and route accordingly
+                // This is handled by the LoginStep component which calls onNext
+                // The app/index.tsx will handle routing based on onboardingCompleted
+                goToStep('complete');
                 break;
             case 'phone':
                 goToStep('confirm');
@@ -385,6 +338,9 @@ export function OnboardingFlow({
                 goToStep('name');
                 break;
             case 'name':
+                goToStep('emailConfirm');
+                break;
+            case 'emailConfirm':
                 goToStep('profilePhoto');
                 break;
             case 'profilePhoto':
@@ -411,11 +367,16 @@ export function OnboardingFlow({
     // Navigate to home screen when onboarding is complete
     useEffect(() => {
         if (currentStep === 'complete') {
+            // Mark onboarding complete in Convex if signed in
+            if (isSignedIn) {
+                completeOnboarding()
+                    .then(() => console.log('Onboarding marked complete'))
+                    .catch((err) => console.error('Failed to mark onboarding complete:', err));
+            }
+
             if (isResumeMode) {
-                // In resume mode, go back to where user came from
                 router.back();
             } else {
-                // In normal onboarding, replace with home
                 router.replace('/(main-tabs)/home');
             }
         }
@@ -424,24 +385,29 @@ export function OnboardingFlow({
     // Render the current step component
     const renderStep = () => {
         switch (currentStep) {
-            case 'welcome':
-                return <WelcomeStep onNext={goNext} onBack={goBack} />;
-            case 'signUpMethods':
-                return <SignUpMethodsStep onNext={goNext} onBack={goBack} />;
-            case 'loginMethods':
-                return <LoginMethodsStep onNext={goNext} onBack={goBack} />;
-            case 'emailPasswordLogin':
-                return <EmailPasswordLoginStep onNext={goNext} onBack={goBack} />;
-            case 'email':
-                return <EmailEntryStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
-            case 'createPassword':
-                return <CreatePasswordStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+            case 'signup':
+                return (
+                    <SignupStep
+                        onNext={goNext}
+                        onBack={goBack}
+                        onEmailSignup={() => goToStep('emailSignup')}
+                        onLogin={() => goToStep('login')}
+                    />
+                );
+            case 'emailSignup':
+                return <EmailSignupStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+            case 'emailVerify':
+                return <EmailVerificationStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+            case 'login':
+                return <LoginStep onNext={goNext} onBack={goBack} />;
             case 'phone':
                 return <PhoneNumberStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
             case 'confirm':
                 return <ConfirmPhoneNumberStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
             case 'name':
                 return <NameStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+            case 'emailConfirm':
+                return <EmailConfirmStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
             case 'profilePhoto':
                 return <ProfilePhotoStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
             case 'userIntent':
@@ -450,6 +416,8 @@ export function OnboardingFlow({
                 return <PushNotificationsStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
             case 'locationServices':
                 return <LocationServicesStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+            case 'welcome':
+                return <WelcomeStep onNext={goNext} onBack={goBack} />;
             case 'complete':
                 return null;
             default:
@@ -461,13 +429,13 @@ export function OnboardingFlow({
         <View style={styles.container}>
             {/* Animated gradient background */}
             <View style={styles.gradientContainer} pointerEvents="none">
-                <AnimatedGradientBackground 
+                <AnimatedGradientBackground
                     progress={animationProgress}
                     fromIndex={STEP_INDICES[fromStep]}
                     toIndex={STEP_INDICES[toStep]}
                 />
             </View>
-            
+
             {/* Content */}
             <View style={styles.content}>
                 {renderStep()}
@@ -490,4 +458,3 @@ const styles = StyleSheet.create({
         flex: 1,
     },
 });
-

@@ -45,6 +45,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
+import { useOnboardingQuestion } from '@/hooks/useOnboardingQuestion';
 import { Car, Wrench, Gauge, FlaskConical } from 'lucide-react-native';
 
 interface ExperienceStepProps {
@@ -85,7 +86,8 @@ export function ExperienceStep({ onNext, onBack, progress }: ExperienceStepProps
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
-    
+    const { answers, saveAnswer } = useOnboardingQuestion('experience');
+
     const [selectedLevel, setSelectedLevel] = useState<1 | 2 | 3 | null>(
         data.carKnowledgeLevel ?? null
     );
@@ -106,6 +108,8 @@ export function ExperienceStep({ onNext, onBack, progress }: ExperienceStepProps
 
     const handleContinue = () => {
         if (selectedLevel) {
+            const selectedAnswer = answers.find(a => a.answer_value === String(selectedLevel));
+            saveAnswer({ answerId: selectedAnswer?._id });
             onNext();
         }
     };

@@ -283,6 +283,7 @@ export default function ReferAFriendScreen() {
 
       <BlurHeaderOverlay
         title="Refer a Friend"
+        titleColor={BrandColors.white}
         onBack={() => router.back()}
         gradientColors={[
           'rgba(82, 153, 254, 1)',

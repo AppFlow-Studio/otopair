@@ -56,8 +56,8 @@ import {
 } from "react-native-gesture-handler";
 import { Country } from "react-native-country-picker-modal";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
+import { useUser, useSignUp } from "@clerk/clerk-expo";
 import { Search } from "lucide-react-native";
-
 // Try to import getAllCountries from the library
 let getAllCountries: ((locale?: string) => Promise<Country[]>) | undefined;
 try {
@@ -285,16 +285,45 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
     setShowConfirmationModal(true);
   };
 
-  const handleConfirmPhoneNumber = () => {
+  const { user } = useUser();
+  const { signUp } = useSignUp();
+
+  const handleConfirmPhoneNumber = async () => {
     const fullPhoneNumber = `+${getCallingCode()}${phoneNumber.replace(
       /\D/g,
       ""
     )}`;
-    updateData({ 
+    updateData({
       phoneNumber: fullPhoneNumber,
-      phoneCountryCode: countryCode
+      phoneCountryCode: countryCode,
     });
     setShowConfirmationModal(false);
+
+    // Two paths: if user exists (OAuth flow), use user.createPhoneNumber.
+    // If no user yet (email signup with missing_requirements), use signUp flow.
+    if (user) {
+      try {
+        const phoneNumberResource = await user.createPhoneNumber({
+          phoneNumber: fullPhoneNumber,
+        });
+        await phoneNumberResource.prepareVerification();
+        updateData({ phoneNumberId: phoneNumberResource.id });
+        console.log("Phone verification prepared via user for:", fullPhoneNumber);
+      } catch (err) {
+        console.error("Failed to prepare phone verification via user:", err);
+      }
+    } else if (signUp) {
+      try {
+        await signUp.update({ phoneNumber: fullPhoneNumber });
+        await signUp.preparePhoneNumberVerification({ strategy: "phone_code" });
+        // Store a marker so ConfirmPhoneNumberStep knows to use signUp flow
+        updateData({ phoneNumberId: "signup_flow" });
+        console.log("Phone verification prepared via signUp for:", fullPhoneNumber);
+      } catch (err) {
+        console.error("Failed to prepare phone verification via signUp:", err);
+      }
+    }
+
     onNext();
   };
 

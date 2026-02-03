@@ -43,6 +43,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
+import { useOnboardingPersistence } from "@/hooks/useOnboardingPersistence";
 
 interface NameStepProps {
   onNext: () => void;
@@ -54,6 +55,7 @@ export function NameStep({ onNext, onBack, progress }: NameStepProps) {
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
   const { data, updateData } = useOnboardingStore();
+  const { persistProfileField } = useOnboardingPersistence();
 
   const [firstName, setFirstName] = useState(data.firstName || "");
   const [lastName, setLastName] = useState(data.lastName || "");
@@ -67,13 +69,17 @@ export function NameStep({ onNext, onBack, progress }: NameStepProps) {
   const buttonSize: "md" | "lg" = isCompact ? "md" : "lg";
   const buttonPaddingVertical = isCompact ? Spacing.sm : Spacing.lg;
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
     updateData({
       firstName: firstName.trim(),
       lastName: lastName.trim(),
     });
 
-    console.log("Name saved:", { firstName: useOnboardingStore.getState().data.firstName, lastName: useOnboardingStore.getState().data.lastName });
+    await persistProfileField({
+      first_name: firstName.trim(),
+      last_name: lastName.trim(),
+    });
+
     onNext();
   };
 

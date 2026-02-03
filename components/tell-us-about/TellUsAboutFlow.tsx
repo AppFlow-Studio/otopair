@@ -15,16 +15,20 @@
  * TICKET: OTO-XXX
  */
 
-import React, { useState, useCallback, useEffect } from "react";
-import { StyleSheet, View, Keyboard } from "react-native";
-import { router } from "expo-router";
-import Animated, {
-  useSharedValue,
-  withTiming,
-  Easing,
-} from "react-native-reanimated";
-import { useOnboardingStore } from "@/stores/useOnboardingStore";
-import { AnimatedGradientBackground } from "@/components/shared-ui";
+import React, { useState, useCallback, useEffect } from 'react';
+import { StyleSheet, View, Keyboard } from 'react-native';
+import { router } from 'expo-router';
+import Animated, { 
+    useSharedValue, 
+    withTiming, 
+    Easing,
+} from 'react-native-reanimated';
+import { useOnboardingStore } from '@/stores/useOnboardingStore';
+import { AnimatedGradientBackground } from '@/components/shared-ui';
+import { useMutation } from 'convex/react';
+import { api } from '@/convex/_generated/api';
+import { useAuth } from '@clerk/clerk-expo';
+import { usePrefetchOnboardingQuestions } from '@/hooks/usePrefetchOnboardingQuestions';
 
 // Import step components
 import { ExperienceStep } from "./steps/ExperienceStep";
@@ -83,82 +87,61 @@ interface TellUsAboutFlowProps {
   initialStep?: TellUsAboutStep;
 }
 
-export function TellUsAboutFlow({
-  initialStep = "experience",
-}: TellUsAboutFlowProps) {
-  const [currentStep, setCurrentStep] = useState<TellUsAboutStep>(initialStep);
-  const [fromStep, setFromStep] = useState<TellUsAboutStep>(initialStep);
-  const [toStep, setToStep] = useState<TellUsAboutStep>(initialStep);
-  const { data, updateData } = useOnboardingStore();
-
-  // Animation progress (0 = from step, 1 = to step)
-  const animationProgress = useSharedValue(1);
-
-  // Handle step changes with animation
-  const goToStep = (nextStep: TellUsAboutStep) => {
-    if (nextStep === currentStep) return;
-
-    // Dismiss keyboard when transitioning
-    Keyboard.dismiss();
-
-    // Set up transition
-    setFromStep(currentStep);
-    setToStep(nextStep);
-
-    // Reset and animate
-    animationProgress.value = 0;
-    animationProgress.value = withTiming(1, {
-      duration: 1200,
-      easing: Easing.bezier(0.25, 0.1, 0.25, 1),
-    });
-
-    // Update current step
-    setCurrentStep(nextStep);
-  };
-
-  // Get total steps and current step index based on knowledge level
-  const getProgressInfo = () => {
-    const level = data.carKnowledgeLevel;
-
-    if (level === 1) {
-      // Level 1 path: experience -> carUsage -> shopType -> maintenanceFrustration -> maintenanceApproachLevel1 -> servicePriorities
-      const steps: TellUsAboutStep[] = [
-        "experience",
-        "carUsage",
-        "shopType",
-        "maintenanceFrustration",
-        "maintenanceApproachLevel1",
-        "servicePriorities",
-      ];
-      const current = steps.indexOf(currentStep) + 1;
-      return { total: steps.length, filled: current > 0 ? current : 1 };
-    } else if (level === 2) {
-      // Level 2 path: experience -> maintenanceTracking -> shopType -> repairQuoteNeeds -> servicePriorities
-      const steps: TellUsAboutStep[] = [
-        "experience",
-        "maintenanceTracking",
-        "shopType",
-        "repairQuoteNeeds",
-        "servicePriorities",
-      ];
-      const current = steps.indexOf(currentStep) + 1;
-      return { total: steps.length, filled: current > 0 ? current : 1 };
-    } else {
-      // Level 3 path: experience -> serviceHistory -> partsPhilosophy -> maintenanceApproachLevel3 -> shopPriorities -> householdRole -> decisionStyle -> servicePriorities
-      const steps: TellUsAboutStep[] = [
-        "experience",
-        "serviceHistory",
-        "partsPhilosophy",
-        "maintenanceApproachLevel3",
-        "shopPriorities",
-        "householdRole",
-        "decisionStyle",
-        "servicePriorities",
-      ];
-      const current = steps.indexOf(currentStep) + 1;
-      return { total: steps.length, filled: current > 0 ? current : 1 };
-    }
-  };
+export function TellUsAboutFlow({ initialStep = 'experience' }: TellUsAboutFlowProps) {
+    const [currentStep, setCurrentStep] = useState<TellUsAboutStep>(initialStep);
+    const [fromStep, setFromStep] = useState<TellUsAboutStep>(initialStep);
+    const [toStep, setToStep] = useState<TellUsAboutStep>(initialStep);
+    const { data, updateData } = useOnboardingStore();
+    const { isSignedIn } = useAuth();
+    const updateProfile = useMutation(api.users.updateProfile);
+    const { isLoaded: questionsLoaded } = usePrefetchOnboardingQuestions();
+    
+    // Animation progress (0 = from step, 1 = to step)
+    const animationProgress = useSharedValue(1);
+    
+    // Handle step changes with animation
+    const goToStep = (nextStep: TellUsAboutStep) => {
+        if (nextStep === currentStep) return;
+        
+        // Dismiss keyboard when transitioning
+        Keyboard.dismiss();
+        
+        // Set up transition
+        setFromStep(currentStep);
+        setToStep(nextStep);
+        
+        // Reset and animate
+        animationProgress.value = 0;
+        animationProgress.value = withTiming(1, {
+            duration: 1200,
+            easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+        });
+        
+        // Update current step
+        setCurrentStep(nextStep);
+    };
+    
+    // Get total steps and current step index based on knowledge level
+    const getProgressInfo = () => {
+        const level = data.carKnowledgeLevel;
+        
+        if (level === 1) {
+            // Level 1 path: experience -> carUsage -> shopType -> maintenanceFrustration -> maintenanceApproachLevel1 -> servicePriorities
+            const steps: TellUsAboutStep[] = ['experience', 'carUsage', 'shopType', 'maintenanceFrustration', 'maintenanceApproachLevel1', 'servicePriorities'];
+            const current = steps.indexOf(currentStep) + 1;
+            return { total: steps.length, filled: current > 0 ? current : 1 };
+        } else if (level === 2) {
+            // Level 2 path: experience -> maintenanceTracking -> shopType -> repairQuoteNeeds -> servicePriorities
+            const steps: TellUsAboutStep[] = ['experience', 'maintenanceTracking', 'shopType', 'repairQuoteNeeds', 'servicePriorities'];
+            const current = steps.indexOf(currentStep) + 1;
+            return { total: steps.length, filled: current > 0 ? current : 1 };
+        } else {
+            // Level 3 path: experience -> serviceHistory -> partsPhilosophy -> maintenanceApproachLevel3 -> shopPriorities -> householdRole -> decisionStyle -> servicePriorities
+            const steps: TellUsAboutStep[] = ['experience', 'serviceHistory', 'partsPhilosophy', 'maintenanceApproachLevel3', 'shopPriorities', 'householdRole', 'decisionStyle', 'servicePriorities'];
+            const current = steps.indexOf(currentStep) + 1;
+            return { total: steps.length, filled: current > 0 ? current : 1 };
+        }
+    };
 
   const goBack = () => {
     const level = data.carKnowledgeLevel;
@@ -216,21 +199,6 @@ export function TellUsAboutFlow({
       // Level 2 back navigation
       case "maintenanceTracking":
         goToStep("experience");
-        break;
-      case "serviceHistory":
-        goToStep("experience");
-        break;
-      case "partsPhilosophy":
-        goToStep("serviceHistory");
-        break;
-      case "shopPriorities":
-        goToStep("maintenanceApproachLevel3");
-        break;
-      case "householdRole":
-        goToStep("shopPriorities");
-        break;
-      case "decisionStyle":
-        goToStep("householdRole");
         break;
       case "repairQuoteNeeds":
         if (level === 2) {
@@ -313,9 +281,6 @@ export function TellUsAboutFlow({
           goToStep("shopType");
         }
         break;
-      case "servicePriorities":
-        goToStep("complete");
-        break;
 
       // Level 2 forward navigation
       case "maintenanceTracking":
@@ -334,13 +299,18 @@ export function TellUsAboutFlow({
     }
   };
 
-  // Navigate back to home screen when flow is complete
-  useEffect(() => {
-    if (currentStep === "complete") {
-      updateData({ isTellUsAboutYourselfComplete: true });
-      router.back();
-    }
-  }, [currentStep, updateData]);
+    // Navigate back to home screen when flow is complete
+    useEffect(() => {
+        if (currentStep === 'complete') {
+            updateData({ isTellUsAboutYourselfComplete: true });
+            if (isSignedIn) {
+                updateProfile({ tellUsAboutCompleted: true })
+                    .then(() => console.log('Tell Us About marked complete'))
+                    .catch((err) => console.error('Failed to mark Tell Us About complete:', err));
+            }
+            router.back();
+        }
+    }, [currentStep, updateData]);
 
   const progressInfo = getProgressInfo();
 

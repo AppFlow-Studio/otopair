@@ -171,6 +171,12 @@ interface OnboardingData {
   vehicleVin: string | null;
   vehicleMileage: number | null;
 
+  // Auth fields
+  authProvider: 'google' | 'apple' | 'email' | null;
+  emailConfirmed: boolean;
+  phoneVerified: boolean;
+  phoneNumberId: string | null;
+
   // Feedback submissions (saved from Settings > Feedback)
   feedbackSubmissions: {
     id: string;
@@ -273,6 +279,11 @@ const INITIAL_DATA: OnboardingData = {
   shopPriorities: null,
   communicationPreference: null,
   additionalPreferences: null,
+
+  authProvider: null,
+  emailConfirmed: false,
+  phoneVerified: false,
+  phoneNumberId: null,
 
   feedbackSubmissions: [],
 };

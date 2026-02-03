@@ -2,7 +2,6 @@ import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export default defineSchema({
-
   engines: defineTable({
     cylinders: v.float64(),
     displacement_liters: v.string(),
@@ -112,16 +111,31 @@ export default defineSchema({
   // --- New tables ---
 
   users: defineTable({
-    email: v.string(),
-    phone: v.string(),
-    first_name: v.string(),
-    last_name: v.string(),
-    created_at: v.string(),
-  }),
+    clerkUserId: v.string(),
+    onboardingCompleted: v.boolean(),
+    createdAt: v.number(),
+    email: v.optional(v.string()),
+    emailConfirmed: v.optional(v.boolean()),
+    phone: v.optional(v.string()),
+    phoneVerified: v.optional(v.boolean()),
+    first_name: v.optional(v.string()),
+    last_name: v.optional(v.string()),
+    alias: v.optional(v.string()),
+    username: v.optional(v.string()),
+    profile_photo_url: v.optional(v.string()),
+    user_intentions: v.optional(v.array(v.string())),
+    car_knowledge_level: v.optional(v.number()),
+    auth_provider: v.optional(v.string()),
+    tellUsAboutCompleted: v.optional(v.boolean()),
+    created_at: v.optional(v.string()),
+  })
+    .index("by_clerkUserId", ["clerkUserId"])
+    .index("by_username", ["username"]),
 
   user_vehicles: defineTable({
-    user_id: v.id("users"),
     engine_id: v.id("engines"),
+    user_id: v.id("users"),
+
     vin: v.optional(v.string()),
     license_plate: v.optional(v.string()),
     year: v.float64(),
@@ -173,7 +187,7 @@ export default defineSchema({
         part_name: v.string(),
         oem_number: v.string(),
         cost: v.float64(),
-      })
+      }),
     ),
     actual_parts_cost: v.float64(),
     difficulty_rating: v.float64(),
@@ -204,4 +218,33 @@ export default defineSchema({
     comment: v.string(),
   }),
 
+  onboarding_questions: defineTable({
+    question_text: v.string(),
+    rank: v.number(),
+    step_name: v.string(),
+    question_type: v.string(),
+    display_order: v.number(),
+    is_active: v.boolean(),
+  })
+    .index("by_rank", ["rank"])
+    .index("by_step_name", ["step_name"]),
+
+  onboarding_question_answers: defineTable({
+    question_id: v.id("onboarding_questions"),
+    answer_text: v.string(),
+    answer_value: v.string(),
+    display_order: v.number(),
+    emoji: v.optional(v.string()),
+  }).index("by_question_id", ["question_id"]),
+
+  user_question_answers: defineTable({
+    user_id: v.id("users"),
+    question_id: v.id("onboarding_questions"),
+    answer_id: v.optional(v.id("onboarding_question_answers")),
+    answer_ids: v.optional(v.array(v.id("onboarding_question_answers"))),
+    free_text_answer: v.optional(v.string()),
+    answered_at: v.number(),
+  })
+    .index("by_user_id", ["user_id"])
+    .index("by_user_and_question", ["user_id", "question_id"]),
 });

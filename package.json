@@ -26,6 +26,7 @@
     "convex": "^1.31.6",
     "credit-card-type": "^10.1.0",
     "expo": "~54.0.25",
+    "expo-auth-session": "^7.0.10",
     "expo-av": "~16.0.8",
     "expo-blur": "~15.0.8",
     "expo-camera": "~17.0.10",
