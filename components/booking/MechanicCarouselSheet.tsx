@@ -31,22 +31,10 @@
 
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Dimensions,
-  FlatList,
-  Pressable,
-  StyleSheet,
-  View,
-  ViewToken,
-} from "react-native";
+import { Dimensions, FlatList, Pressable, StyleSheet, View, ViewToken } from "react-native";
 
 // 2. Expo & Third-party
-import Animated, {
-  SlideInDown,
-  SlideOutDown,
-  FadeIn,
-  FadeOut,
-} from "react-native-reanimated";
+import Animated, { SlideInDown, SlideOutDown, FadeIn, FadeOut } from "react-native-reanimated";
 
 // 3. Shared UI (design system)
 // (none required)
@@ -146,12 +134,7 @@ export function MechanicCarouselSheet({
       .filter(Boolean)
       .map((shop) => ({
         shop,
-        distance: calculateDistanceKm(
-          selectedShop.latitude,
-          selectedShop.longitude,
-          shop.latitude,
-          shop.longitude
-        ),
+        distance: calculateDistanceKm(selectedShop.latitude, selectedShop.longitude, shop.latitude, shop.longitude),
       }))
       // Sort by distance from selected shop (nearest first)
       .sort((a, b) => a.distance - b.distance)
@@ -219,7 +202,7 @@ export function MechanicCarouselSheet({
         </View>
       );
     },
-    [activeIndex, handleDetails]
+    [activeIndex, handleDetails],
   );
 
   const getItemLayout = useCallback(
@@ -228,9 +211,8 @@ export function MechanicCarouselSheet({
       offset: SNAP_INTERVAL * index,
       index,
     }),
-    []
+    [],
   );
-
 
   // ═══════════════ RENDER ═══════════════
   if (!visible || shopsList.length === 0) {
@@ -240,11 +222,7 @@ export function MechanicCarouselSheet({
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
       {/* Invisible backdrop to detect taps outside */}
-      <Animated.View
-        entering={FadeIn.duration(150)}
-        exiting={FadeOut.duration(150)}
-        style={StyleSheet.absoluteFill}
-      >
+      <Animated.View entering={FadeIn.duration(150)} exiting={FadeOut.duration(150)} style={StyleSheet.absoluteFill}>
         <Pressable style={styles.backdrop} onPress={handleBackdropPress} />
       </Animated.View>
 

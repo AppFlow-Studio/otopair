@@ -122,10 +122,8 @@ export function ShopDetails({ shopId, onBookNow, onAddMoreServices, onViewAllAva
     () =>
       selectedServices.reduce(
         (total, service) =>
-          total +
-          (laborRate ?? 0) * (service.default_labor_hours ?? 0) +
-          (service.default_parts_estimate ?? 0),
-        0
+          total + (laborRate ?? 0) * (service.default_labor_hours ?? 0) + (service.default_parts_estimate ?? 0),
+        0,
       ),
     [selectedServices, laborRate],
   );

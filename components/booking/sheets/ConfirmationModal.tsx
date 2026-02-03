@@ -93,11 +93,17 @@ function ConfettiParticle({
     const endX = (Math.random() - 0.5) * 150;
     const endY = Math.random() * 80 + 40;
 
-    opacity.value = withDelay(delay, withSequence(withTiming(1, { duration: 200 }), withDelay(800, withTiming(0, { duration: 400 }))));
+    opacity.value = withDelay(
+      delay,
+      withSequence(withTiming(1, { duration: 200 }), withDelay(800, withTiming(0, { duration: 400 }))),
+    );
     translateY.value = withDelay(delay, withSpring(-endY, { damping: 8, stiffness: 100 }));
     translateX.value = withDelay(delay, withSpring(endX, { damping: 10, stiffness: 80 }));
     rotate.value = withDelay(delay, withRepeat(withTiming(360, { duration: 1000, easing: Easing.linear }), 2));
-    scale.value = withDelay(delay, withSequence(withSpring(1, { damping: 8 }), withDelay(600, withTiming(0, { duration: 300 }))));
+    scale.value = withDelay(
+      delay,
+      withSequence(withSpring(1, { damping: 8 }), withDelay(600, withTiming(0, { duration: 300 }))),
+    );
   }, []);
 
   const animatedStyle = useAnimatedStyle(() => ({
@@ -253,7 +259,7 @@ function CompactMechanicCard() {
 
 export const ConfirmationModal = forwardRef<ConfirmationModalRef, ConfirmationModalProps>(function ConfirmationModal(
   { onBackToHome, onAddToCalendar },
-  ref
+  ref,
 ) {
   // ═══════════════ REFS ═══════════════
   const bottomSheetModalRef = useRef<BottomSheetModal>(null);
@@ -319,15 +325,9 @@ export const ConfirmationModal = forwardRef<ConfirmationModalRef, ConfirmationMo
   // ═══════════════ RENDER HELPERS ═══════════════
   const renderBackdrop = useCallback(
     (props: any) => (
-      <BottomSheetBackdrop
-        {...props}
-        disappearsOnIndex={-1}
-        appearsOnIndex={0}
-        opacity={0.6}
-        pressBehavior="none"
-      />
+      <BottomSheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} opacity={0.6} pressBehavior="none" />
     ),
-    []
+    [],
   );
 
   // ═══════════════ RENDER ═══════════════
@@ -530,4 +530,3 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 });
-

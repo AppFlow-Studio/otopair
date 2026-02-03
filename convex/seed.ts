@@ -154,7 +154,18 @@ export const claimSeedDataForCurrentUser = mutation({
     const seedId = seedUser._id;
     const currentId = currentUser._id;
 
-    const reassign = async (table: "vehicle_owners" | "bookings" | "payments" | "reviews" | "user_question_answers" | "follow_ups" | "ai_conversations" | "conversion_funnels" | "spec_confirmations") => {
+    const reassign = async (
+      table:
+        | "vehicle_owners"
+        | "bookings"
+        | "payments"
+        | "reviews"
+        | "user_question_answers"
+        | "follow_ups"
+        | "ai_conversations"
+        | "conversion_funnels"
+        | "spec_confirmations",
+    ) => {
       const rows = await ctx.db.query(table).collect();
       for (const row of rows) {
         if (row.user_id === seedId) await ctx.db.patch(row._id, { user_id: currentId });
@@ -210,7 +221,10 @@ export const seedTimeSlots = mutation({
     const allShopHours = await ctx.db.query("shops_hours").collect();
 
     // 3. Build lookup: shopId → dbDayOfWeek → { open_time, close_time, is_closed }
-    const hoursMap: Record<string, Record<number, { open_time?: string; close_time?: string; is_closed: boolean }>> = {};
+    const hoursMap: Record<
+      string,
+      Record<number, { open_time?: string; close_time?: string; is_closed: boolean }>
+    > = {};
     for (const h of allShopHours) {
       const shopKey = h.shop_id as string;
       if (!hoursMap[shopKey]) hoursMap[shopKey] = {};
@@ -896,9 +910,7 @@ export const seed = mutation({
       created_at: now,
       updated_at: now,
       difficulty_rating: 2,
-      parts_used: [
-        { part_name: "Oil Filter", oem_number: "90915-YZZD4", cost: 12 },
-      ],
+      parts_used: [{ part_name: "Oil Filter", oem_number: "90915-YZZD4", cost: 12 }],
       technician_notes: "Standard oil change completed.",
     });
 
@@ -1057,9 +1069,7 @@ export const seedLearningPipelineDemo = mutation({
   handler: async (ctx) => {
     // 1. Clean existing demo bookings (confirmed/in_progress) + their job_actuals + service_insights
     const allBookings = await ctx.db.query("bookings").collect();
-    const demoBookings = allBookings.filter(
-      (b) => b.status === "confirmed" || b.status === "in_progress"
-    );
+    const demoBookings = allBookings.filter((b) => b.status === "confirmed" || b.status === "in_progress");
     for (const b of demoBookings) {
       const allActuals = await ctx.db.query("job_actuals").collect();
       const related = allActuals.filter((ja) => ja.booking_id === b._id);
@@ -1116,8 +1126,7 @@ export const seedLearningPipelineDemo = mutation({
 
     // 3. Find or create an available time slot
     const allSlots = await ctx.db.query("time_slots").collect();
-    let slot: (typeof allSlots)[number] | null =
-      allSlots.find((s) => s.shop_id === shop._id && s.is_available) ?? null;
+    let slot: (typeof allSlots)[number] | null = allSlots.find((s) => s.shop_id === shop._id && s.is_available) ?? null;
 
     if (!slot) {
       const tomorrow = new Date();
@@ -1193,18 +1202,14 @@ export const seedVehicleIntelligenceDemoData = internalMutation({
     };
 
     const ensureModel = async (make_id: any, name: string) => {
-      const existing = (await ctx.db.query("models").collect()).find(
-        (m) => m.make_id === make_id && m.name === name
-      );
+      const existing = (await ctx.db.query("models").collect()).find((m) => m.make_id === make_id && m.name === name);
       if (existing) return existing;
       const id = await ctx.db.insert("models", { make_id, name });
       return (await ctx.db.get(id))!;
     };
 
     const ensureTrim = async (model_id: any, name: string, year_start: number, year_end: number) => {
-      const existing = (await ctx.db.query("trims").collect()).find(
-        (t) => t.model_id === model_id && t.name === name
-      );
+      const existing = (await ctx.db.query("trims").collect()).find((t) => t.model_id === model_id && t.name === name);
       if (existing) return existing;
       const id = await ctx.db.insert("trims", { model_id, name, year_start, year_end });
       return (await ctx.db.get(id))!;
@@ -1212,7 +1217,7 @@ export const seedVehicleIntelligenceDemoData = internalMutation({
 
     const ensureEngine = async (trim_id: any) => {
       const existing = (await ctx.db.query("engines").collect()).find(
-        (e) => e.trim_id === trim_id && e.engine_code === "A25A-FKS"
+        (e) => e.trim_id === trim_id && e.engine_code === "A25A-FKS",
       );
       if (existing) return existing;
       const id = await ctx.db.insert("engines", {
@@ -1275,12 +1280,7 @@ export const seedVehicleIntelligenceDemoData = internalMutation({
       return (await ctx.db.get(id))!;
     };
 
-    const ensurePart = async (
-      oem_part_number: string,
-      name: string,
-      category?: string,
-      notes?: string
-    ) => {
+    const ensurePart = async (oem_part_number: string, name: string, category?: string, notes?: string) => {
       const existing = await ctx.db
         .query("oem_parts")
         .withIndex("by_part_number", (q) => q.eq("oem_part_number", oem_part_number))
@@ -1437,10 +1437,13 @@ export const seedVehicleIntelligenceDemoData = internalMutation({
 
     const ensureVehicle = async (
       vin: string,
-      fields: { trim_id: any; engine_id: any; transmission_id: any; chassis_id: any; year: number }
+      fields: { trim_id: any; engine_id: any; transmission_id: any; chassis_id: any; year: number },
     ) => {
       const normalized = vin.toUpperCase().trim();
-      const existing = await ctx.db.query("vehicles").withIndex("by_vin", (q) => q.eq("vin", normalized)).unique();
+      const existing = await ctx.db
+        .query("vehicles")
+        .withIndex("by_vin", (q) => q.eq("vin", normalized))
+        .unique();
       if (existing) {
         await ctx.db.patch(existing._id, {
           ...fields,
@@ -1460,7 +1463,7 @@ export const seedVehicleIntelligenceDemoData = internalMutation({
     // --- Hierarchy ---
     const make = await ensureMake(
       "Toyota",
-      "https://upload.wikimedia.org/wikipedia/commons/9/9d/Toyota_carridge_logo.svg"
+      "https://upload.wikimedia.org/wikipedia/commons/9/9d/Toyota_carridge_logo.svg",
     );
     const model = await ensureModel(make._id, "Camry");
     const trim = await ensureTrim(model._id, "LE", 2018, 2024);

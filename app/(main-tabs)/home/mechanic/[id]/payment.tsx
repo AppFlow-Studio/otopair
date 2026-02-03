@@ -96,26 +96,17 @@ export default function PaymentScreen() {
   );
 
   // Shop-specific only: labor_rate × default_labor_hours + default_parts_estimate (no default rate)
-  const shop = useMemo(
-    () => (mechanic?.shopId ? getShopById(mechanic.shopId) : null),
-    [mechanic?.shopId, getShopById],
-  );
+  const shop = useMemo(() => (mechanic?.shopId ? getShopById(mechanic.shopId) : null), [mechanic?.shopId, getShopById]);
   const laborRate = shop?.labor_rate;
 
   // Calculate detailed breakdown (subtotal = sum of labor + parts per service; DB values only, no fallbacks)
   const breakdown = useMemo(() => {
     const rate = laborRate ?? 0;
     const servicesTotal = selectedServices.reduce(
-      (total, service) =>
-        total +
-        rate * (service.default_labor_hours ?? 0) +
-        (service.default_parts_estimate ?? 0),
+      (total, service) => total + rate * (service.default_labor_hours ?? 0) + (service.default_parts_estimate ?? 0),
       0,
     );
-    const laborHours = selectedServices.reduce(
-      (sum, s) => sum + (s.default_labor_hours ?? 0),
-      0,
-    );
+    const laborHours = selectedServices.reduce((sum, s) => sum + (s.default_labor_hours ?? 0), 0);
     const laborCost = laborHours * rate;
     const partsCost = Math.max(0, servicesTotal - laborCost);
 
@@ -142,9 +133,9 @@ export default function PaymentScreen() {
     () =>
       getPartsBreakdown(
         selectedServices.map((s) => s.name),
-        breakdown.partsCost
+        breakdown.partsCost,
       ),
-    [selectedServices, breakdown.partsCost]
+    [selectedServices, breakdown.partsCost],
   );
 
   // Format vehicle display

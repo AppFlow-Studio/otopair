@@ -51,7 +51,7 @@ interface ReviewPayContentProps {
 // ============================================================================
 
 const PLATFORM_FEE = 4.79;
-const TAXES_AND_FEES = 5.00;
+const TAXES_AND_FEES = 5.0;
 
 // ============================================================================
 // MAIN COMPONENT
@@ -95,32 +95,23 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
   }, [selectedMechanicId, getMechanicById]);
 
   // Shop for pricing (shop labor rate only)
-  const shop = useMemo(
-    () => (mechanic?.shopId ? getShopById(mechanic.shopId) : null),
-    [mechanic?.shopId, getShopById],
-  );
+  const shop = useMemo(() => (mechanic?.shopId ? getShopById(mechanic.shopId) : null), [mechanic?.shopId, getShopById]);
   const laborRate = shop?.labor_rate;
 
   // Get selected services
   const selectedServices = useMemo(
     () => availableServices.filter((service) => selectedServiceIds.includes(service.id)),
-    [availableServices, selectedServiceIds]
+    [availableServices, selectedServiceIds],
   );
 
   // Calculate detailed breakdown (shop labor rate only; DB values only, no fallbacks)
   const breakdown = useMemo(() => {
     const rate = laborRate ?? 0;
     const servicesTotal = selectedServices.reduce(
-      (total, service) =>
-        total +
-        rate * (service.default_labor_hours ?? 0) +
-        (service.default_parts_estimate ?? 0),
+      (total, service) => total + rate * (service.default_labor_hours ?? 0) + (service.default_parts_estimate ?? 0),
       0,
     );
-    const laborHours = selectedServices.reduce(
-      (sum, s) => sum + (s.default_labor_hours ?? 0),
-      0,
-    );
+    const laborHours = selectedServices.reduce((sum, s) => sum + (s.default_labor_hours ?? 0), 0);
     const laborCost = laborHours * rate;
     const partsCost = Math.max(0, servicesTotal - laborCost);
 
@@ -147,9 +138,9 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
     () =>
       getPartsBreakdown(
         selectedServices.map((s) => s.name),
-        breakdown.partsCost
+        breakdown.partsCost,
       ),
-    [selectedServices, breakdown.partsCost]
+    [selectedServices, breakdown.partsCost],
   );
 
   // Format vehicle display
@@ -244,11 +235,7 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
 
           {/* Appointment Details */}
           <View style={styles.appointmentDetails}>
-            <TouchableOpacity 
-              style={styles.detailRow} 
-              onPress={onChangeDatePress}
-              activeOpacity={0.7}
-            >
+            <TouchableOpacity style={styles.detailRow} onPress={onChangeDatePress} activeOpacity={0.7}>
               <Text size="xs" weight="bold" color={BrandColors.secondary} style={styles.detailLabel}>
                 APPOINTMENT
               </Text>
@@ -369,11 +356,7 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
         {/* Payment Options Section */}
         <View style={styles.paymentSection}>
           {/* Apple Pay Button */}
-          <TouchableOpacity
-            style={styles.applePayButton}
-            onPress={handleApplePay}
-            activeOpacity={0.8}
-          >
+          <TouchableOpacity style={styles.applePayButton} onPress={handleApplePay} activeOpacity={0.8}>
             <View style={styles.payButtonContent}>
               <FontAwesome name="apple" size={20} color="#FFFFFF" />
               <Text size="md" weight="semiBold" color={BrandColors.white}>
@@ -383,11 +366,7 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
           </TouchableOpacity>
 
           {/* Google Pay Button */}
-          <TouchableOpacity
-            style={styles.googlePayButton}
-            onPress={handleGooglePay}
-            activeOpacity={0.8}
-          >
+          <TouchableOpacity style={styles.googlePayButton} onPress={handleGooglePay} activeOpacity={0.8}>
             <View style={styles.payButtonContent}>
               <FontAwesome name="google" size={18} color={BrandColors.primary} />
               <Text size="md" weight="semiBold" color={BrandColors.primary}>
@@ -415,10 +394,12 @@ export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: Re
               </View>
               <View style={styles.cardDetails}>
                 <Text size="md" weight="medium" color={BrandColors.primary}>
-                  {selectedPaymentMethod.brand.charAt(0).toUpperCase() + selectedPaymentMethod.brand.slice(1)} •••• {selectedPaymentMethod.last4}
+                  {selectedPaymentMethod.brand.charAt(0).toUpperCase() + selectedPaymentMethod.brand.slice(1)} ••••{" "}
+                  {selectedPaymentMethod.last4}
                 </Text>
                 <Text size="sm" weight="regular" color="#6B7280">
-                  Expires {String(selectedPaymentMethod.expMonth).padStart(2, "0")}/{String(selectedPaymentMethod.expYear).slice(-2)}
+                  Expires {String(selectedPaymentMethod.expMonth).padStart(2, "0")}/
+                  {String(selectedPaymentMethod.expYear).slice(-2)}
                 </Text>
               </View>
               <ChevronRight size={20} color="#9CA3AF" />

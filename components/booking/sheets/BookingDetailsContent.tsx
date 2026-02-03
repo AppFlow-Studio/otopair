@@ -102,18 +102,13 @@ export function BookingDetailsContent({ onAddMore, isFullScreen = false }: Booki
   );
 
   // Shop-specific pricing: labor_rate × default_labor_hours + default_parts_estimate (shop rate only)
-  const shop = useMemo(
-    () => (mechanic?.shopId ? getShopById(mechanic.shopId) : null),
-    [mechanic?.shopId, getShopById],
-  );
+  const shop = useMemo(() => (mechanic?.shopId ? getShopById(mechanic.shopId) : null), [mechanic?.shopId, getShopById]);
   const laborRate = shop?.labor_rate;
   const totalPrice = useMemo(
     () =>
       selectedServices.reduce(
         (total, service) =>
-          total +
-          (laborRate ?? 0) * (service.default_labor_hours ?? 0) +
-          (service.default_parts_estimate ?? 0),
+          total + (laborRate ?? 0) * (service.default_labor_hours ?? 0) + (service.default_parts_estimate ?? 0),
         0,
       ),
     [selectedServices, laborRate],

@@ -558,13 +558,20 @@ export function ServiceBottomSheet({
       setShowCarPreview(false);
       bottomSheetRef.current?.snapToIndex(previousCarSnapIndexRef.current);
     } else {
+      // When opening car view from search mode, exit search so the car UI is shown
+      if (isSearchMode) {
+        Keyboard.dismiss();
+        setIsSearchMode(false);
+        setSearchQuery("");
+        setHasTyped(false);
+      }
       // Save current snap index before switching to car preview
       previousCarSnapIndexRef.current = Math.round(animatedIndex.value);
-      // Open car selection - snap to preview position (index 1 = 38%)
+      // Open car selection - snap to mid position (index 2 = 55%) for better visibility
       setShowCarPreview(true);
-      bottomSheetRef.current?.snapToIndex(1);
+      bottomSheetRef.current?.snapToIndex(2);
     }
-  }, [showCarPreview, animatedIndex]);
+  }, [showCarPreview, isSearchMode, animatedIndex]);
 
   // Close car selection (called from CarSelectionContent)
   const handleCarSelectionClose = useCallback(() => {
@@ -704,6 +711,25 @@ export function ServiceBottomSheet({
   // ═══════════════ FOOTER RENDERER ═══════════════
   const renderFooter = useCallback(
     (props: BottomSheetFooterProps) => {
+      // Car selection mode: single Confirm button to close sheet
+      if (showCarPreview) {
+        return (
+          <BottomSheetFooter {...props} bottomInset={insets.bottom}>
+            <View style={carConfirmFooterStyles.container}>
+              <TouchableOpacity
+                style={carConfirmFooterStyles.confirmButton}
+                onPress={handleCarSelectionClose}
+                activeOpacity={0.8}
+              >
+                <Text size="md" weight="semiBold" color={BrandColors.white}>
+                  Confirm
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </BottomSheetFooter>
+        );
+      }
+
       // Only show footer for service selection stage when NOT in car/shop preview mode
       // This ensures the footer disappears when user is viewing car selection or shop carousel
       if (isServiceStage && !showCarPreview && !showShopPreview) {
@@ -793,6 +819,8 @@ export function ServiceBottomSheet({
       isMechanicStage,
       showCarPreview,
       showShopPreview,
+      insets.bottom,
+      handleCarSelectionClose,
       footerBottomInset,
       footerAnimatedStyle,
       hasSelection,
@@ -1288,9 +1316,11 @@ const styles = StyleSheet.create({
   },
   expandedContainer: {
     flex: 1,
+    minHeight: 0,
   },
   contentWrapper: {
     flex: 1,
+    minHeight: 0,
   },
   // Search results styles
   scrollView: {
@@ -1376,6 +1406,23 @@ const styles = StyleSheet.create({
   emptyState: {
     paddingVertical: Spacing["3xl"],
     paddingHorizontal: Spacing.lg,
+  },
+});
+
+// Car selection footer: single Confirm button
+const carConfirmFooterStyles = StyleSheet.create({
+  container: {
+    backgroundColor: BrandColors.white,
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.lg,
+  },
+  confirmButton: {
+    backgroundColor: BrandColors.secondary,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.lg,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });
 

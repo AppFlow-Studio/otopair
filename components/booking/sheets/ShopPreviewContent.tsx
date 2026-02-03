@@ -11,14 +11,7 @@
 
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Dimensions,
-  FlatList,
-  StyleSheet,
-  TouchableOpacity,
-  View,
-  ViewToken,
-} from "react-native";
+import { Dimensions, FlatList, StyleSheet, TouchableOpacity, View, ViewToken } from "react-native";
 
 // 2. Third-party libraries
 import { X } from "lucide-react-native";
@@ -79,12 +72,7 @@ function calculateDistanceKm(lat1: number, lon1: number, lat2: number, lon2: num
 // COMPONENT
 // ============================================================================
 
-export function ShopPreviewContent({
-  selectedShopId,
-  onShopChange,
-  onShopDetails,
-  onClose,
-}: ShopPreviewContentProps) {
+export function ShopPreviewContent({ selectedShopId, onShopChange, onShopDetails, onClose }: ShopPreviewContentProps) {
   // ═══════════════ REFS ═══════════════
   const flatListRef = useRef<FlatList<Shop>>(null);
 
@@ -115,12 +103,7 @@ export function ShopPreviewContent({
       .filter(Boolean)
       .map((shop) => ({
         shop,
-        distance: calculateDistanceKm(
-          selectedShop.latitude,
-          selectedShop.longitude,
-          shop.latitude,
-          shop.longitude
-        ),
+        distance: calculateDistanceKm(selectedShop.latitude, selectedShop.longitude, shop.latitude, shop.longitude),
       }))
       // Sort by distance from selected shop (nearest first)
       .sort((a, b) => a.distance - b.distance)
@@ -184,7 +167,7 @@ export function ShopPreviewContent({
         </View>
       );
     },
-    [activeIndex, handleDetails]
+    [activeIndex, handleDetails],
   );
 
   const getItemLayout = useCallback(
@@ -193,7 +176,7 @@ export function ShopPreviewContent({
       offset: SNAP_INTERVAL * index,
       index,
     }),
-    []
+    [],
   );
 
   // ═══════════════ RENDER ═══════════════
@@ -225,13 +208,7 @@ export function ShopPreviewContent({
       {shopsList.length > 1 && (
         <View style={styles.dotsContainer}>
           {shopsList.map((_, index) => (
-            <View
-              key={index}
-              style={[
-                styles.dot,
-                index === activeIndex && styles.dotActive,
-              ]}
-            />
+            <View key={index} style={[styles.dot, index === activeIndex && styles.dotActive]} />
           ))}
         </View>
       )}

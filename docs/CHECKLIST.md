@@ -91,13 +91,13 @@
 
 ## 4. Summary table
 
-| Area                     | Done                                                               | Half-implemented                  | Not implemented                                              |
-| ------------------------ | ------------------------------------------------------------------ | --------------------------------- | ------------------------------------------------------------ |
-| **Convex schema & APIs** | Full (46 tables, vehicle intelligence, core, funnel, cdn_assets, shop_portfolio) | Seed data                         | Tests                                                        |
-| **Add vehicle**          | UI                                                                 | —                                 | Wire to Convex; spec pack in UI                              |
-| **Booking flow UI**      | Full (discovery → confirmation)                                    | —                                 | —                                                            |
-| **Booking → Convex**     | createBatch, services, shops, mechanics, time_slots, user, vehicle | payments.create; funnel/analytics | —                                                            |
-| **Confirmation**         | Success UI; Directions, Contact, Add to Calendar (shop from DB)    | —                                 | Server booking id, follow_ups                               |
+| Area                     | Done                                                                             | Half-implemented                  | Not implemented                 |
+| ------------------------ | -------------------------------------------------------------------------------- | --------------------------------- | ------------------------------- |
+| **Convex schema & APIs** | Full (46 tables, vehicle intelligence, core, funnel, cdn_assets, shop_portfolio) | Seed data                         | Tests                           |
+| **Add vehicle**          | UI                                                                               | —                                 | Wire to Convex; spec pack in UI |
+| **Booking flow UI**      | Full (discovery → confirmation)                                                  | —                                 | —                               |
+| **Booking → Convex**     | createBatch, services, shops, mechanics, time_slots, user, vehicle               | payments.create; funnel/analytics | —                               |
+| **Confirmation**         | Success UI; Directions, Contact, Add to Calendar (shop from DB)                  | —                                 | Server booking id, follow_ups   |
 
 ---
 

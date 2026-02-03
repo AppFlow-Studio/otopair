@@ -38,8 +38,7 @@ export function useCreateBookingConvex() {
 
   // Resolve shopId: from selectedMechanicSlot or from selected mechanic's shop
   const effectiveShopId =
-    selectedMechanicSlot?.shopId ??
-    (selectedMechanicId ? getMechanicById(selectedMechanicId)?.shopId : null);
+    selectedMechanicSlot?.shopId ?? (selectedMechanicId ? getMechanicById(selectedMechanicId)?.shopId : null);
 
   const scheduledDate = scheduledAppointment?.date;
   const scheduledTimeHHMM = scheduledAppointment?.time ? displayTimeToHHMM(scheduledAppointment.time) : null;
