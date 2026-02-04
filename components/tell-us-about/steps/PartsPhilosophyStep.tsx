@@ -1,7 +1,7 @@
 /**
- * MaintenanceApproachStep
+ * PartsPhilosophyStep
  *
- * PURPOSE: Allows users to select their approach to car maintenance.
+ * PURPOSE: Allows users to specify what matters most when it comes to car parts.
  *
  * USED IN: components/tell-us-about/TellUsAboutFlow.tsx
  *
@@ -10,15 +10,7 @@
  *   - onBack (() => void): Callback to navigate to the previous step
  *   - progress ({ total: number; filled: number }): Progress indicator data
  *
- * EXAMPLE:
- *   <MaintenanceApproachStep 
- *     onNext={handleNext} 
- *     onBack={handleBack} 
- *     progress={{ total: 12, filled: 3 }} 
- *   />
- *
  * OWNER: Daniel Chelala
- * TICKET: OTO-XXX
  */
 
 import {
@@ -45,28 +37,28 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
+import { useOnboardingQuestion } from '@/hooks/useOnboardingQuestion';
 
-interface MaintenanceApproachStepProps {
+interface PartsPhilosophyStepProps {
     onNext: () => void;
     onBack: () => void;
     progress: { total: number; filled: number };
 }
 
-const APPROACH_OPTIONS = [
-    { emoji: '🗓️', label: 'Preventive: I follow the schedule strictly' },
-    { emoji: '📊', label: 'Data-driven: I track everything and service based on actual wear' },
-    { emoji: '🛠️', label: 'Problem-solving: I address issues as they come up' },
-    { emoji: '🏎️', label: 'Performance-focused: I maintain for optimal performance' },
-    { emoji: '💰', label: "Budget-conscious: I do what's necessary when necessary" },
+const PARTS_OPTIONS = [
+    { emoji: '💎', label: 'OEM or equivalent quality only' },
+    { emoji: '💰', label: 'Best value for the money' },
+    { emoji: '👨‍🔧', label: 'Whatever the mechanic recommends' },
+    { emoji: '🔧', label: 'I often source my own parts' },
 ] as const;
 
-export function MaintenanceApproachStep({ onNext, onBack, progress }: MaintenanceApproachStepProps) {
+export function PartsPhilosophyStep({ onNext, onBack, progress }: PartsPhilosophyStepProps) {
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
     
-    const [selectedApproach, setSelectedApproach] = useState<string | null>(
-        data.maintenanceApproach ?? null
+    const [selectedOption, setSelectedOption] = useState<string | null>(
+        data.partsPhilosophy ?? null
     );
 
     const dynamicStyles = {
@@ -78,24 +70,23 @@ export function MaintenanceApproachStep({ onNext, onBack, progress }: Maintenanc
     const buttonSize: 'md' | 'lg' = isCompact ? 'md' : 'lg';
     const buttonPaddingVertical = isCompact ? Spacing.sm : Spacing.lg;
 
-    const handleSelectApproach = (option: typeof APPROACH_OPTIONS[number]) => {
+    const handleSelectOption = (option: typeof PARTS_OPTIONS[number]) => {
         const value = `${option.emoji} ${option.label}`;
-        setSelectedApproach(value);
-        updateData({ maintenanceApproach: value });
+        setSelectedOption(value);
+        updateData({ partsPhilosophy: value });
     };
 
     const handleContinue = () => {
-        if (selectedApproach) {
+        if (selectedOption) {
             onNext();
         }
     };
 
-    const canContinue = selectedApproach !== null;
+    const canContinue = selectedOption !== null;
 
     return (
         <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
             style={styles.keyboardView}
         >
             <View style={[styles.container, dynamicStyles.container]}>
@@ -108,12 +99,11 @@ export function MaintenanceApproachStep({ onNext, onBack, progress }: Maintenanc
                 <ScrollView
                     style={styles.scrollView}
                     contentContainerStyle={styles.scrollContent}
-                    keyboardShouldPersistTaps="handled"
                     showsVerticalScrollIndicator={false}
                 >
                     <View style={styles.headerContent}>
                         <Text style={styles.title}>
-                            How do you approach car maintenance?
+                            When it comes to parts, what matters most?
                         </Text>
                         <Text style={styles.subtitle}>
                             Select the option that best describes you
@@ -121,14 +111,14 @@ export function MaintenanceApproachStep({ onNext, onBack, progress }: Maintenanc
                     </View>
 
                     <View style={styles.optionsContainer}>
-                        {APPROACH_OPTIONS.map((option) => {
+                        {PARTS_OPTIONS.map((option) => {
                             const value = `${option.emoji} ${option.label}`;
-                            const isSelected = selectedApproach === value;
+                            const isSelected = selectedOption === value;
                             
                             return (
                                 <Pressable
                                     key={option.label}
-                                    onPress={() => handleSelectApproach(option)}
+                                    onPress={() => handleSelectOption(option)}
                                     style={({ pressed }) => [
                                         styles.optionButton,
                                         isSelected && styles.optionButtonSelected,
@@ -158,8 +148,6 @@ export function MaintenanceApproachStep({ onNext, onBack, progress }: Maintenanc
                         size={buttonSize}
                         paddingVertical={buttonPaddingVertical}
                         variant={canContinue ? 'primary' : undefined}
-                        backgroundColor={canContinue ? undefined : '#6B7280'}
-                        textColor={canContinue ? undefined : BrandColors.white}
                     />
                 </FadeFooterContainer>
             </View>
@@ -168,18 +156,10 @@ export function MaintenanceApproachStep({ onNext, onBack, progress }: Maintenanc
 }
 
 const styles = StyleSheet.create({
-    keyboardView: {
-        flex: 1,
-    },
-    container: {
-        flex: 1,
-    },
-    scrollView: {
-        flex: 1,
-    },
-    scrollContent: {
-        paddingBottom: Spacing.xl,
-    },
+    keyboardView: { flex: 1 },
+    container: { flex: 1 },
+    scrollView: { flex: 1 },
+    scrollContent: { paddingBottom: Spacing.xl },
     headerContent: {
         paddingHorizontal: Spacing['2xl'],
         marginBottom: Spacing['3xl'],
@@ -217,12 +197,8 @@ const styles = StyleSheet.create({
         backgroundColor: BrandColors.white,
         borderColor: 'rgba(255, 255, 255, 0.3)',
     },
-    optionButtonPressed: {
-        opacity: 0.7,
-    },
-    optionEmoji: {
-        fontSize: FontSize['2xl'],
-    },
+    optionButtonPressed: { opacity: 0.7 },
+    optionEmoji: { fontSize: FontSize['2xl'] },
     optionText: {
         fontSize: FontSize.lg,
         fontFamily: FontFamily.regular,
@@ -233,10 +209,4 @@ const styles = StyleSheet.create({
         color: BrandColors.secondary,
         fontFamily: FontFamily.semiBold,
     },
-    bottomContainer: {
-        paddingTop: Spacing.sm,
-        paddingHorizontal: Spacing['2xl'],
-        backgroundColor: 'transparent',
-    },
 });
-

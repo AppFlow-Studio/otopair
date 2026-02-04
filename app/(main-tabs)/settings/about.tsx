@@ -4,17 +4,27 @@
  * PURPOSE: Highlights app features and version details.
  *
  * USED IN: app/(main-tabs)/settings/index.tsx
+ *
+ * EXAMPLE:
+ *   <Stack.Screen name="about" />
+ *
+ * OWNER: Daniel Chelala
+ * TICKET: OTO-XXX
  */
 
-import React, { useCallback, useMemo } from 'react';
+import React, { useCallback, useMemo, useState, useEffect } from 'react';
 import { Pressable, Share, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
+import { BlurView } from 'expo-blur';
 import Animated from 'react-native-reanimated';
+import Svg, { Circle } from 'react-native-svg';
 import {
   Check,
   CheckCheck,
   Droplet,
+  FileText,
+  Info,
   Rocket,
   Share2,
   Sparkles,
@@ -22,19 +32,16 @@ import {
 } from 'lucide-react-native';
 
 import { OtoPairIcon } from '@/components/icons/oto-pair';
-import { BlurHeaderOverlay, BrandColors, Button, ScrollDrivenGradientBackground, Text, buildReferralCode, buildReferralShareMessage } from '@/components/shared-ui';
-import { getSheetContentPadding } from '@/constants/theme';
+import { BlurHeaderOverlay, BrandColors, Button, ScrollDrivenGradientBackground, Text, buildReferralShareMessage, useReferralCode } from '@/components/shared-ui';
+import { getSheetContentPadding, BorderRadius, Spacing } from '@/constants/theme';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 
 export default function AboutOtopairScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const data = useOnboardingStore((s) => s.data);
+  const data = useOnboardingStore((s: ReturnType<typeof useOnboardingStore.getState>) => s.data);
 
-  const referralCode = useMemo(
-    () => buildReferralCode(data),
-    [data.email, data.firstName, data.lastName, data.username]
-  );
+  const referralCode = useReferralCode(data);
 
   const displayCode = referralCode.toUpperCase();
 
@@ -124,25 +131,60 @@ export default function AboutOtopairScreen() {
             <Text size="sm" color="#616E89" style={styles.featureBody}>
               Get notified for upcoming due dates and book appointments instantly with one tap.
             </Text>
-            <View style={styles.miniRow}>
-              <View style={styles.miniRowLeft}>
-                <View style={styles.iconBubble}>
-                  <Droplet size={18} color="#EA580C" />
-                </View>
-                <View>
-                  <Text weight="bold" size="sm" color="#111318">
-                    Oil Change
-                  </Text>
-                  <Text weight="medium" size="xs" color="#EF4444">
-                    Due in 2 days
-                  </Text>
+            <View style={styles.showcaseCardOuter}>
+              <BlurView intensity={22} tint="light" style={styles.showcaseBlurContainer}>
+                <View style={styles.showcaseWhiteOverlay} />
+              </BlurView>
+              <View style={styles.showcaseCard}>
+                <View style={styles.showcaseCardRow}>
+                  <View style={styles.showcaseLeftColumn}>
+                    <Text weight="semiBold" size="lg" color="#111827">
+                      Oil Change
+                    </Text>
+                    <View style={styles.showcaseDetailSection}>
+                      <View style={styles.showcaseStatusIconContainer}>
+                        <Svg width={18} height={18}>
+                          <Circle
+                            cx={9}
+                            cy={9}
+                            r={7.5}
+                            stroke="#FDBA74"
+                            strokeWidth={3}
+                            fill="none"
+                            strokeDasharray={2 * Math.PI * 7.5}
+                            strokeDashoffset={(2 * Math.PI * 7.5) * (1 - 0.6)}
+                            strokeLinecap="round"
+                            rotation={-90}
+                            origin="9, 9"
+                          />
+                        </Svg>
+                      </View>
+                      <View style={styles.showcaseDetailTextContainer}>
+                        <Text size="xs" color="#111827">
+                          Last oil change
+                        </Text>
+                        <Text weight="semiBold" size="xs" color="#111827">
+                          Mar 2025
+                        </Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  <View style={styles.showcaseRightColumn}>
+                    <View style={[styles.showcaseBadge, { backgroundColor: '#FDEAD7' }]}>
+                      <Text weight="semiBold" size="xs" color="#f89829">
+                        Due Soon
+                      </Text>
+                    </View>
+
+                    <Pressable style={styles.showcasePrimaryButton}>
+                      <Text weight="semiBold" size="xs" color="#FFFFFF">
+                        Book Now
+                      </Text>
+                    </Pressable>
+                  </View>
                 </View>
               </View>
-              <Pressable style={styles.miniButton}>
-                <Text weight="semiBold" size="xs" color="#FFFFFF">
-                  Book
-                </Text>
-              </Pressable>
             </View>
           </View>
 
@@ -159,22 +201,10 @@ export default function AboutOtopairScreen() {
                   Why is my brake light on?
                 </Text>
               </View>
-              <View style={[styles.chatBubble, styles.chatBubbleLight]}>
-                <Text size="xs" color="#111318">
+              <View style={styles.showcaseAiTextContainer}>
+                <Text style={styles.showcaseMessageText}>
                   It could mean low brake fluid or worn pads. Let&apos;s check your last service.
                 </Text>
-              </View>
-              <View style={styles.chatActions}>
-                <View style={styles.chatChip}>
-                  <Text weight="medium" size="xs" color={BrandColors.secondary}>
-                    Schedule checkup
-                  </Text>
-                </View>
-                <View style={styles.chatChip}>
-                  <Text weight="medium" size="xs" color={BrandColors.secondary}>
-                    Dismiss
-                  </Text>
-                </View>
               </View>
             </View>
           </View>
@@ -186,29 +216,81 @@ export default function AboutOtopairScreen() {
             <Text size="sm" color="#616E89" style={styles.featureBody}>
               Clear, itemized breakdowns of every service. No hidden fees, just transparent pricing.
             </Text>
-            <View style={styles.receiptCard}>
-              <View style={styles.receiptRow}>
-                <Text size="xs" color="#6B7280">
-                  Synthetic Oil 5W-30
+            <View style={styles.showcaseServiceCard}>
+              <View style={styles.showcaseServiceHeader}>
+                <Text size="md" weight="bold" color={BrandColors.primary}>
+                  Service Breakdown
                 </Text>
-                <Text weight="bold" size="xs" color="#111318">
-                  $45.00
+                <FileText size={20} color="#9CA3AF" />
+              </View>
+
+              <View style={styles.showcaseServiceRow}>
+                <Text size="sm" weight="medium" color={BrandColors.primary}>
+                  Oil Change
+                </Text>
+                <Text size="sm" weight="semiBold" color={BrandColors.primary}>
+                  $65.00
                 </Text>
               </View>
-              <View style={styles.receiptRow}>
-                <Text size="xs" color="#6B7280">
-                  Labor (0.5hr)
-                </Text>
-                <Text weight="bold" size="xs" color="#111318">
-                  $50.00
+
+              <View style={styles.showcaseBreakdownSection}>
+                <View style={styles.showcaseBreakdownRow}>
+                  <Text size="sm" weight="regular" color="#6B7280">
+                    Labor (1.5 hrs)
+                  </Text>
+                  <Text size="sm" weight="medium" color="#6B7280">
+                    $45.00
+                  </Text>
+                </View>
+
+                <View style={styles.showcaseBreakdownRow}>
+                  <Text size="sm" weight="regular" color="#6B7280">
+                    Parts (Oil, Filter)
+                  </Text>
+                  <Text size="sm" weight="medium" color="#6B7280">
+                    $20.00
+                  </Text>
+                </View>
+
+                <View style={styles.showcaseBreakdownRow}>
+                  <Text size="sm" weight="regular" color="#6B7280">
+                    Taxes & Fees
+                  </Text>
+                  <Text size="sm" weight="medium" color="#6B7280">
+                    $5.00
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.showcaseServiceRow}>
+                <View style={styles.showcaseFeeRow}>
+                  <Text size="sm" weight="regular" color="#6B7280">
+                    Platform Fee
+                  </Text>
+                  <View style={styles.showcaseInfoButton}>
+                    <Info size={14} color="#9CA3AF" />
+                  </View>
+                </View>
+                <Text size="sm" weight="medium" color="#6B7280">
+                  $4.79
                 </Text>
               </View>
-              <View style={[styles.receiptRow, styles.receiptTotalRow]}>
-                <Text weight="bold" size="sm" color="#111318">
-                  Total Paid
-                </Text>
-                <Text weight="bold" size="sm" color={BrandColors.secondary}>
-                  $95.00
+
+              <View style={styles.showcaseServiceDivider} />
+
+              <View style={styles.showcaseTotalSection}>
+                <View style={styles.showcaseTotalLeft}>
+                  <Text size="md" weight="bold" color={BrandColors.primary}>
+                    Total
+                  </Text>
+                  <View style={styles.showcaseSavingsBadge}>
+                    <Text size="xs" weight="semiBold" color={BrandColors.secondary}>
+                      → Saved $25 vs Dealership
+                    </Text>
+                  </View>
+                </View>
+                <Text size="2xl" weight="bold" color={BrandColors.secondary}>
+                  $69.79
                 </Text>
               </View>
             </View>
@@ -298,6 +380,7 @@ export default function AboutOtopairScreen() {
 
       <BlurHeaderOverlay
         title="About"
+        titleColor={BrandColors.white}
         onBack={() => router.back()}
         gradientColors={[
           'rgba(82, 153, 254, 1)',
@@ -407,35 +490,6 @@ const styles = StyleSheet.create({
   progressDotMuted: {
     backgroundColor: '#E5E7EB',
   },
-  miniRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: 'rgba(255, 255, 255, 0.6)',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.4)',
-    padding: 12,
-  },
-  miniRowLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-  },
-  iconBubble: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: 'rgba(251, 146, 60, 0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  miniButton: {
-    backgroundColor: BrandColors.secondary,
-    borderRadius: 999,
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-  },
   chatCard: {
     backgroundColor: 'rgba(255, 255, 255, 0.6)',
     borderRadius: 14,
@@ -445,15 +499,14 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   chatBubble: {
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 16,
-    maxWidth: '85%',
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.full,
+    maxWidth: '80%',
   },
   chatBubblePrimary: {
     backgroundColor: BrandColors.secondary,
     alignSelf: 'flex-end',
-    borderTopRightRadius: 6,
   },
   chatBubbleLight: {
     backgroundColor: 'rgba(229, 231, 235, 0.8)',
@@ -471,25 +524,6 @@ const styles = StyleSheet.create({
     borderColor: '#E5E7EB',
     paddingHorizontal: 10,
     paddingVertical: 4,
-  },
-  receiptCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.6)',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.4)',
-    padding: 14,
-    gap: 10,
-  },
-  receiptRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(209, 213, 219, 0.7)',
-    paddingBottom: 8,
-  },
-  receiptTotalRow: {
-    borderBottomWidth: 0,
-    paddingBottom: 0,
   },
   rewardsCard: {
     backgroundColor: 'rgba(255, 255, 255, 0.6)',
@@ -576,5 +610,154 @@ const styles = StyleSheet.create({
   secondaryButton: {
     borderRadius: 16,
     paddingVertical: 14,
+  },
+  // Showcase card styles (mirrored from MaintenanceTracker)
+  showcaseCardOuter: {
+    marginTop: 4,
+    borderRadius: 16,
+    overflow: 'hidden',
+    position: 'relative',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.5)',
+    shadowColor: 'rgba(0, 0, 0, 0.06)',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 1,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  showcaseBlurContainer: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 16,
+  },
+  showcaseWhiteOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255, 255, 255, 0.38)',
+  },
+  showcaseCard: {
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    overflow: 'hidden',
+    backgroundColor: 'transparent',
+    borderRadius: 16,
+  },
+  showcaseCardRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  showcaseLeftColumn: {
+    flex: 1,
+    justifyContent: 'flex-start',
+    gap: 6,
+  },
+  showcaseRightColumn: {
+    alignItems: 'flex-end',
+    justifyContent: 'flex-start',
+    gap: 10,
+  },
+  showcaseBadge: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: 999,
+  },
+  showcaseDetailSection: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  showcaseDetailTextContainer: {
+    flex: 1,
+    gap: 2,
+  },
+  showcaseStatusIconContainer: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  showcasePrimaryButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 12,
+    minWidth: 90,
+    backgroundColor: 'rgba(20, 28, 36, 0.9)',
+    shadowColor: 'rgba(0, 0, 0, 0.2)',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  showcaseAiTextContainer: {
+    paddingVertical: 4, // Spacing.xs
+  },
+  showcaseMessageText: {
+    color: '#141C24', // BrandColors.primary
+    lineHeight: 20,
+    fontSize: 13,
+  },
+  showcaseServiceCard: {
+    backgroundColor: BrandColors.white,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    marginTop: 4,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.5)',
+    shadowColor: 'rgba(0, 0, 0, 0.06)',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 1,
+    shadowRadius: 8,
+    elevation: 2,
+  },
+  showcaseServiceHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: Spacing.md,
+  },
+  showcaseServiceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: Spacing.xs,
+  },
+  showcaseBreakdownSection: {
+    marginTop: Spacing.xs,
+    paddingTop: Spacing.xs,
+    borderTopWidth: 1,
+    borderTopColor: '#F3F4F6',
+  },
+  showcaseBreakdownRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 2,
+  },
+  showcaseFeeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  showcaseInfoButton: {
+    padding: 2,
+  },
+  showcaseServiceDivider: {
+    height: 1,
+    backgroundColor: '#E5E7EB',
+    marginVertical: Spacing.sm,
+  },
+  showcaseTotalSection: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  showcaseTotalLeft: {
+    gap: 2,
+  },
+  showcaseSavingsBadge: {
+    backgroundColor: '#EFF6FF',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
   },
 });

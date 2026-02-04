@@ -25,9 +25,8 @@ import {
   Smartphone,
 } from 'lucide-react-native';
 
-import { BrandColors, Text, buildReferralCode, buildReferralShareMessage } from '@/components/shared-ui';
+import { BrandColors, Text, BlurHeaderOverlay, buildReferralShareMessage, useReferralCode } from '@/components/shared-ui';
 import { ScrollDrivenGradientBackground } from '@/components/shared-ui/ScrollDrivenGradientBackground';
-import { FadeHeaderContainer } from '@/components/shared-ui/FadeHeaderContainer';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 
 const COLORS = {
@@ -37,13 +36,6 @@ const COLORS = {
   textDark: '#1c1c1e',
   textMuted: '#6B7280',
 };
-
-const HEADER_FADE_COLORS: [string, string, string, string] = [
-  'rgba(82, 153, 254, 1)',    // Opaque blue (BrandColors.secondary)
-  'rgba(82, 153, 254, 0.7)',
-  'rgba(82, 153, 254, 0.3)',
-  'rgba(82, 153, 254, 0)',    // Transparent
-];
 
 const GlassPanel = ({
   children,
@@ -72,10 +64,7 @@ export default function ReferAFriendScreen() {
   const router = useRouter();
   const data = useOnboardingStore((s) => s.data);
 
-  const referralCode = useMemo(
-    () => buildReferralCode(data),
-    [data.email, data.firstName, data.lastName, data.username]
-  );
+  const referralCode = useReferralCode(data);
 
   const displayCode = referralCode.toUpperCase();
 
@@ -92,23 +81,6 @@ export default function ReferAFriendScreen() {
       <ScrollDrivenGradientBackground>
         {(scrollHandler) => (
           <>
-            <FadeHeaderContainer
-              paddingTop={insets.top + 10}
-              paddingHorizontal={20}
-              colors={HEADER_FADE_COLORS}
-              fadeHeight={20}
-            >
-              <View style={styles.header}>
-                <Pressable onPress={() => router.back()} style={styles.backButton} hitSlop={10}>
-                  <X size={18} color="#111827" />
-                </Pressable>
-                <Text weight="semiBold" size="lg" color="#fff" style={styles.headerTitle}>
-                  Refer a Friend
-                </Text>
-                <View style={{ width: 40 }} />
-              </View>
-            </FadeHeaderContainer>
-
             <Animated.ScrollView
               onScroll={scrollHandler}
               scrollEventThrottle={16}
@@ -308,6 +280,18 @@ export default function ReferAFriendScreen() {
           </>
         )}
       </ScrollDrivenGradientBackground>
+
+      <BlurHeaderOverlay
+        title="Refer a Friend"
+        titleColor={BrandColors.white}
+        onBack={() => router.back()}
+        gradientColors={[
+          'rgba(82, 153, 254, 1)',
+          'rgba(82, 153, 254, 0.7)',
+          'rgba(82, 153, 254, 0.3)',
+          'rgba(82, 153, 254, 0)',
+        ]}
+      />
     </View>
   );
 }
@@ -319,24 +303,6 @@ const styles = StyleSheet.create({
   glassPanel: {
     borderRadius: 24,
     overflow: 'hidden',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingBottom: 6,
-    zIndex: 10,
-  },
-  backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  headerTitle: {
-    flex: 1,
-    textAlign: 'center',
   },
   content: {
     paddingHorizontal: 20,

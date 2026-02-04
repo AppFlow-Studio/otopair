@@ -39,6 +39,7 @@ interface FooterButtonProps {
     label: string;
     onPress: () => void;
     disabled?: boolean;
+    leftIcon?: ReactNode;
     rightIcon?: ReactNode;
     size?: 'sm' | 'md' | 'lg';
     paddingVertical?: number;
@@ -53,6 +54,7 @@ export function FooterButton({
     label,
     onPress,
     disabled = false,
+    leftIcon,
     rightIcon,
     size = 'lg',
     paddingVertical,
@@ -70,6 +72,7 @@ export function FooterButton({
             paddingVertical={paddingVertical ?? Spacing.lg}
             onPress={onPress}
             disabled={disabled}
+            leftIcon={leftIcon}
             rightIcon={rightIcon}
             variant={variant}
             backgroundColor={backgroundColor}

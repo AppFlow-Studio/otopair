@@ -30,16 +30,15 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { X, ArrowLeft } from 'lucide-react-native';
 import { 
   BrandColors, 
   FontFamily, 
   FontSize, 
   Spacing, 
   Text, 
-  GlassCircleButton,
   BorderRadius,
-  Shadows
+  Shadows,
+  BlurHeaderOverlay
 } from '@/components/shared-ui';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 
@@ -177,13 +176,11 @@ export default function TwoFactorAuthScreen() {
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       style={styles.screen}
     >
-      <View style={[styles.container, { paddingTop: insets.top + 10 }]}>
-        {/* Header */}
-        <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.closeButton} hitSlop={10}>
-          <ArrowLeft size={18} color="#111827" />
-        </Pressable>
-        </View>
+      <BlurHeaderOverlay
+        title=""
+        onBack={() => router.back()}
+      />
+      <View style={[styles.container, { paddingTop: insets.top + 80 }]}>
 
         <View style={styles.content}>
           <Text weight="bold" size="3xl" color="#111827" style={styles.title}>
@@ -266,12 +263,6 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: Spacing['2xl'],
   },
-  header: {
-    marginBottom: Spacing.xl,
-  },
-  backButton: {
-    marginLeft: 0, // Adjust for shadow/rim
-  },
   content: {
     flex: 1,
   },
@@ -282,14 +273,6 @@ const styles = StyleSheet.create({
   subtitle: {
     marginBottom: Spacing['3xl'],
     lineHeight: 22,
-  },
-  closeButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   codeContainer: {
     flexDirection: 'row',

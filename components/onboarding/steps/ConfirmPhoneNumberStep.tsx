@@ -47,10 +47,11 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
+import { useUser, useSignUp } from "@clerk/clerk-expo";
+import { useOnboardingPersistence } from "@/hooks/useOnboardingPersistence";
+import { useMutation } from "convex/react";
+import { api } from "@/convex/_generated/api";
 import { X } from "lucide-react-native";
-
-// TODO: Replace with actual code verification logic
-const CORRECT_CODE = "676767";
 
 interface ConfirmPhoneNumberStepProps {
   onNext: () => void;
@@ -65,12 +66,18 @@ export function ConfirmPhoneNumberStep({
 }: ConfirmPhoneNumberStepProps) {
   const insets = useSafeAreaInsets();
   const { height, width } = useWindowDimensions();
-  const { data } = useOnboardingStore();
+  const { data, updateData } = useOnboardingStore();
+  const { user } = useUser();
+  const { signUp, setActive } = useSignUp();
+  const { persistProfileField } = useOnboardingPersistence();
+  const ensureConvexUser = useMutation(api.users.getOrCreateMe);
+  const isSignUpFlow = data.phoneNumberId === "signup_flow";
 
   const [code, setCode] = useState(["", "", "", "", "", ""]);
   const [focusedIndex, setFocusedIndex] = useState(0);
   const [timeRemaining, setTimeRemaining] = useState(60);
   const [showErrorModal, setShowErrorModal] = useState(false);
+  const [verifying, setVerifying] = useState(false);
   const inputRefs = useRef<(TextInput | null)[]>([]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const slideAnim = useRef(new Animated.Value(height)).current;
@@ -100,18 +107,84 @@ export function ConfirmPhoneNumberStep({
 
   useEffect(() => {
     const fullCode = code.join("");
-    if (fullCode.length === 6) {
-      if (fullCode === CORRECT_CODE) {
-        console.log("Code verified successfully");
+    if (fullCode.length === 6 && !verifying) {
+      verifyPhoneCode(fullCode);
+    }
+  }, [code]);
+
+  const verifyPhoneCode = async (fullCode: string) => {
+    setVerifying(true);
+
+    try {
+      if (isSignUpFlow && signUp) {
+        // Email signup flow: verify via signUp object
+        const result = await signUp.attemptPhoneNumberVerification({ code: fullCode });
+        console.log("Phone verified via signUp, status:", result.status);
+
+        if (result.status === "complete" && result.createdSessionId) {
+          await setActive?.({ session: result.createdSessionId });
+          // Retry with backoff — Clerk JWT needs time to propagate to Convex
+          const retryWithBackoff = async (fn: () => Promise<any>, retries = 3, delay = 1000) => {
+            for (let i = 0; i <= retries; i++) {
+              try { return await fn(); } catch (e) {
+                if (i === retries) throw e;
+                await new Promise(r => setTimeout(r, delay * Math.pow(2, i)));
+              }
+            }
+          };
+          try {
+            await retryWithBackoff(() => ensureConvexUser());
+          } catch (e) {
+            console.error("Failed to ensure Convex user after retries:", e);
+          }
+        }
+
+        updateData({ phoneVerified: true });
+        await persistProfileField({
+          phone: data.phoneNumber || undefined,
+          phoneVerified: true,
+        });
+        onNext();
+      } else if (user) {
+        // OAuth flow: verify via user object
+        const phoneNumberId = data.phoneNumberId;
+        const phoneNumberResource = user.phoneNumbers.find(
+          (p) => p.id === phoneNumberId
+        );
+
+        if (phoneNumberResource) {
+          await phoneNumberResource.attemptVerification({ code: fullCode });
+          console.log("Phone verified successfully");
+        } else {
+          // Fallback: try the most recent phone number
+          const latestPhone = user.phoneNumbers[user.phoneNumbers.length - 1];
+          if (latestPhone) {
+            await latestPhone.attemptVerification({ code: fullCode });
+            console.log("Phone verified successfully (fallback)");
+          } else {
+            throw new Error("No phone number found to verify");
+          }
+        }
+
+        updateData({ phoneVerified: true });
+        await persistProfileField({
+          phone: data.phoneNumber || undefined,
+          phoneVerified: true,
+        });
         onNext();
       } else {
-        setShowErrorModal(true);
-        setCode(["", "", "", "", "", ""]);
-        setFocusedIndex(0);
-        inputRefs.current[0]?.focus();
+        throw new Error("No user or signUp session available");
       }
+    } catch (err) {
+      console.error("Phone verification failed:", err);
+      setShowErrorModal(true);
+      setCode(["", "", "", "", "", ""]);
+      setFocusedIndex(0);
+      inputRefs.current[0]?.focus();
+    } finally {
+      setVerifying(false);
     }
-  }, [code, onNext]);
+  };
 
   // Animate error modal slide up
   useEffect(() => {
@@ -164,12 +237,29 @@ export function ConfirmPhoneNumberStep({
     }
   };
 
-  const handleResendCode = () => {
+  const handleResendCode = async () => {
     setTimeRemaining(60);
     setCode(["", "", "", "", "", ""]);
     setFocusedIndex(0);
     inputRefs.current[0]?.focus();
-    console.log("Resending code...");
+
+    try {
+      if (isSignUpFlow && signUp) {
+        await signUp.preparePhoneNumberVerification({ strategy: "phone_code" });
+        console.log("Resent verification code via signUp");
+      } else if (user) {
+        const phoneNumberId = data.phoneNumberId;
+        const phoneNumberResource = user.phoneNumbers.find(
+          (p) => p.id === phoneNumberId
+        );
+        if (phoneNumberResource) {
+          await phoneNumberResource.prepareVerification();
+          console.log("Resent verification code via user");
+        }
+      }
+    } catch (err) {
+      console.error("Failed to resend code:", err);
+    }
   };
 
   const handleCloseErrorModal = () => {

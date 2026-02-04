@@ -1,7 +1,7 @@
 /**
- * WhyNewOptionStep
+ * MaintenanceApproachStepLevel1
  *
- * PURPOSE: Allows users to select why they are looking for a new car service option.
+ * PURPOSE: Allows users to select their general approach to car maintenance.
  *
  * USED IN: components/tell-us-about/TellUsAboutFlow.tsx
  *
@@ -9,13 +9,6 @@
  *   - onNext (() => void): Callback to navigate to the next step
  *   - onBack (() => void): Callback to navigate to the previous step
  *   - progress ({ total: number; filled: number }): Progress indicator data
- *
- * EXAMPLE:
- *   <WhyNewOptionStep 
- *     onNext={handleNext} 
- *     onBack={handleBack} 
- *     progress={{ total: 12, filled: 9 }} 
- *   />
  *
  * OWNER: Daniel Chelala
  * TICKET: OTO-XXX
@@ -41,40 +34,34 @@ import {
     View,
     Pressable,
     ScrollView,
-    TextInput,
     useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
+import { useOnboardingQuestion } from '@/hooks/useOnboardingQuestion';
 
-interface WhyNewOptionStepProps {
+interface MaintenanceApproachStepLevel1Props {
     onNext: () => void;
     onBack: () => void;
     progress: { total: number; filled: number };
 }
 
-const WHY_NEW_OPTION_OPTIONS = [
-    { emoji: '💸', label: 'Want better prices' },
-    { emoji: '⏰', label: 'Convenience' },
-    { emoji: '🧾', label: 'More transparency' },
-    { emoji: '⚠️', label: 'Lost trust' },
+const APPROACH_OPTIONS = [
+    { emoji: '🗓️', label: 'I try to stay ahead of schedule' },
+    { emoji: '⚠️', label: 'I go when something feels off' },
+    { emoji: '🖥️', label: 'I wait until the dashboard tells me' },
+    { emoji: '🤝', label: 'I follow what the shop recommends' },
 ] as const;
 
-export function WhyNewOptionStep({ onNext, onBack, progress }: WhyNewOptionStepProps) {
+export function MaintenanceApproachStepLevel1({ onNext, onBack, progress }: MaintenanceApproachStepLevel1Props) {
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
-    
-    const presetList = WHY_NEW_OPTION_OPTIONS.map(o => `${o.emoji} ${o.label}`);
-    const presets = new Set<string>(presetList);
-    
-    const [selectedOptions, setSelectedOptions] = useState<string[]>(
-        data.whyNewOption ?? []
+    const { answers, saveAnswer } = useOnboardingQuestion('maintenanceApproachLevel1');
+
+    const [selectedApproach, setSelectedApproach] = useState<string | null>(
+        data.maintenanceApproachLevel1 ?? null
     );
-    const [otherInput, setOtherInput] = useState<string>(() => {
-        const custom = (data.whyNewOption ?? []).find((v) => !presets.has(v));
-        return custom ?? '';
-    });
 
     const dynamicStyles = {
         container: { paddingTop: insets.top + Spacing.lg },
@@ -85,34 +72,21 @@ export function WhyNewOptionStep({ onNext, onBack, progress }: WhyNewOptionStepP
     const buttonSize: 'md' | 'lg' = isCompact ? 'md' : 'lg';
     const buttonPaddingVertical = isCompact ? Spacing.sm : Spacing.lg;
 
-    const handleToggleOption = (option: typeof WHY_NEW_OPTION_OPTIONS[number]) => {
+    const handleSelectApproach = (option: typeof APPROACH_OPTIONS[number]) => {
         const value = `${option.emoji} ${option.label}`;
-        setSelectedOptions((prev) => {
-            const exists = prev.includes(value);
-            const next = exists ? prev.filter((v) => v !== value) : [...prev, value];
-            updateData({ whyNewOption: next.length ? next : null });
-            return next;
-        });
-    };
-
-    const handleChangeOther = (text: string) => {
-        setOtherInput(text);
-        setSelectedOptions((prev) => {
-            const filtered = prev.filter((v) => presets.has(v));
-            const trimmed = text.trim();
-            const next = trimmed ? [...filtered, trimmed] : filtered;
-            updateData({ whyNewOption: next.length ? next : null });
-            return next;
-        });
+        setSelectedApproach(value);
+        updateData({ maintenanceApproachLevel1: value });
     };
 
     const handleContinue = () => {
-        if (selectedOptions.length > 0) {
+        if (selectedApproach) {
+            const selectedAnswer = answers.find(a => selectedApproach === `${a.emoji} ${a.answer_text}`);
+            saveAnswer({ answerId: selectedAnswer?._id });
             onNext();
         }
     };
 
-    const canContinue = selectedOptions.length > 0;
+    const canContinue = selectedApproach !== null;
 
     return (
         <KeyboardAvoidingView
@@ -135,22 +109,22 @@ export function WhyNewOptionStep({ onNext, onBack, progress }: WhyNewOptionStepP
                 >
                     <View style={styles.headerContent}>
                         <Text style={styles.title}>
-                            Why are you looking for a new option?
+                            How do you typically approach car maintenance?
                         </Text>
                         <Text style={styles.subtitle}>
-                            Select all that apply
+                            Select the style that matches you best
                         </Text>
                     </View>
 
                     <View style={styles.optionsContainer}>
-                        {WHY_NEW_OPTION_OPTIONS.map((option) => {
+                        {APPROACH_OPTIONS.map((option) => {
                             const value = `${option.emoji} ${option.label}`;
-                            const isSelected = selectedOptions.includes(value);
+                            const isSelected = selectedApproach === value;
                             
                             return (
                                 <Pressable
                                     key={option.label}
-                                    onPress={() => handleToggleOption(option)}
+                                    onPress={() => handleSelectApproach(option)}
                                     style={({ pressed }) => [
                                         styles.optionButton,
                                         isSelected && styles.optionButtonSelected,
@@ -169,19 +143,10 @@ export function WhyNewOptionStep({ onNext, onBack, progress }: WhyNewOptionStepP
                                 </Pressable>
                             );
                         })}
-                        
-                        <TextInput
-                            style={styles.otherInput}
-                            placeholder="Other (Please specify)"
-                            placeholderTextColor="rgba(255, 255, 255, 0.5)"
-                            value={otherInput}
-                            onChangeText={handleChangeOther}
-                            returnKeyType="done"
-                        />
                     </View>
                 </ScrollView>
 
-                <FadeFooterContainer paddingBottom={insets.bottom + Spacing.lg}>
+                <FadeFooterContainer paddingBottom={insets.bottom + Spacing.lg} fadeVariant={0}>
                     <FooterButton
                         label="Continue"
                         onPress={handleContinue}
@@ -264,22 +229,4 @@ const styles = StyleSheet.create({
         color: BrandColors.secondary,
         fontFamily: FontFamily.semiBold,
     },
-    otherInput: {
-        backgroundColor: 'rgba(255, 255, 255, 0.1)',
-        borderRadius: BorderRadius.lg,
-        paddingHorizontal: Spacing.lg,
-        paddingVertical: Spacing.lg,
-        fontSize: FontSize.lg,
-        fontFamily: FontFamily.regular,
-        color: BrandColors.white,
-        borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.2)',
-        marginTop: Spacing.sm,
-    },
-    bottomContainer: {
-        paddingTop: Spacing.sm,
-        paddingHorizontal: Spacing['2xl'],
-        backgroundColor: 'transparent',
-    },
 });
-

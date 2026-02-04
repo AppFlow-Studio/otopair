@@ -1,7 +1,7 @@
 /**
- * TerminologyComfortStep
+ * ServiceHistoryStep
  *
- * PURPOSE: Allows users to select their comfort level with car-related terminology.
+ * PURPOSE: Allows users to specify if they keep track of their car's service history.
  *
  * USED IN: components/tell-us-about/TellUsAboutFlow.tsx
  *
@@ -10,15 +10,7 @@
  *   - onBack (() => void): Callback to navigate to the previous step
  *   - progress ({ total: number; filled: number }): Progress indicator data
  *
- * EXAMPLE:
- *   <TerminologyComfortStep 
- *     onNext={handleNext} 
- *     onBack={handleBack} 
- *     progress={{ total: 12, filled: 10 }} 
- *   />
- *
  * OWNER: Daniel Chelala
- * TICKET: OTO-XXX
  */
 
 import {
@@ -45,27 +37,27 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
+import { useOnboardingQuestion } from '@/hooks/useOnboardingQuestion';
 
-interface TerminologyComfortStepProps {
+interface ServiceHistoryStepProps {
     onNext: () => void;
     onBack: () => void;
     progress: { total: number; filled: number };
 }
 
-const TERMINOLOGY_COMFORT_OPTIONS = [
-    { emoji: '📖', label: 'I understand most car terms' },
-    { emoji: '🧩', label: 'I know some common terms' },
-    { emoji: '🗣️', label: 'I prefer simple explanations' },
-    { emoji: '🎨', label: 'Use visuals when possible' },
+const HISTORY_OPTIONS = [
+    { emoji: '📋', label: 'Yes, I save receipts/records' },
+    { emoji: '📂', label: "Somewhat, but it's scattered" },
+    { emoji: '🤷', label: 'Not really' },
 ] as const;
 
-export function TerminologyComfortStep({ onNext, onBack, progress }: TerminologyComfortStepProps) {
+export function ServiceHistoryStep({ onNext, onBack, progress }: ServiceHistoryStepProps) {
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
     
-    const [selectedComfort, setSelectedComfort] = useState<string | null>(
-        data.carTerminologyComfort ?? null
+    const [selectedOption, setSelectedOption] = useState<string | null>(
+        data.serviceHistoryTracked ?? null
     );
 
     const dynamicStyles = {
@@ -77,24 +69,23 @@ export function TerminologyComfortStep({ onNext, onBack, progress }: Terminology
     const buttonSize: 'md' | 'lg' = isCompact ? 'md' : 'lg';
     const buttonPaddingVertical = isCompact ? Spacing.sm : Spacing.lg;
 
-    const handleSelectComfort = (option: typeof TERMINOLOGY_COMFORT_OPTIONS[number]) => {
+    const handleSelectOption = (option: typeof HISTORY_OPTIONS[number]) => {
         const value = `${option.emoji} ${option.label}`;
-        setSelectedComfort(value);
-        updateData({ carTerminologyComfort: value });
+        setSelectedOption(value);
+        updateData({ serviceHistoryTracked: value });
     };
 
     const handleContinue = () => {
-        if (selectedComfort) {
+        if (selectedOption) {
             onNext();
         }
     };
 
-    const canContinue = selectedComfort !== null;
+    const canContinue = selectedOption !== null;
 
     return (
         <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
             style={styles.keyboardView}
         >
             <View style={[styles.container, dynamicStyles.container]}>
@@ -107,27 +98,26 @@ export function TerminologyComfortStep({ onNext, onBack, progress }: Terminology
                 <ScrollView
                     style={styles.scrollView}
                     contentContainerStyle={styles.scrollContent}
-                    keyboardShouldPersistTaps="handled"
                     showsVerticalScrollIndicator={false}
                 >
                     <View style={styles.headerContent}>
                         <Text style={styles.title}>
-                            How comfortable are you with car terminology?
+                            Do you keep track of your car's service history?
                         </Text>
                         <Text style={styles.subtitle}>
-                            We'll adjust our explanations accordingly
+                            Select the option that best describes you
                         </Text>
                     </View>
 
                     <View style={styles.optionsContainer}>
-                        {TERMINOLOGY_COMFORT_OPTIONS.map((option) => {
+                        {HISTORY_OPTIONS.map((option) => {
                             const value = `${option.emoji} ${option.label}`;
-                            const isSelected = selectedComfort === value;
+                            const isSelected = selectedOption === value;
                             
                             return (
                                 <Pressable
                                     key={option.label}
-                                    onPress={() => handleSelectComfort(option)}
+                                    onPress={() => handleSelectOption(option)}
                                     style={({ pressed }) => [
                                         styles.optionButton,
                                         isSelected && styles.optionButtonSelected,
@@ -157,8 +147,6 @@ export function TerminologyComfortStep({ onNext, onBack, progress }: Terminology
                         size={buttonSize}
                         paddingVertical={buttonPaddingVertical}
                         variant={canContinue ? 'primary' : undefined}
-                        backgroundColor={canContinue ? undefined : '#6B7280'}
-                        textColor={canContinue ? undefined : BrandColors.white}
                     />
                 </FadeFooterContainer>
             </View>
@@ -167,18 +155,10 @@ export function TerminologyComfortStep({ onNext, onBack, progress }: Terminology
 }
 
 const styles = StyleSheet.create({
-    keyboardView: {
-        flex: 1,
-    },
-    container: {
-        flex: 1,
-    },
-    scrollView: {
-        flex: 1,
-    },
-    scrollContent: {
-        paddingBottom: Spacing.xl,
-    },
+    keyboardView: { flex: 1 },
+    container: { flex: 1 },
+    scrollView: { flex: 1 },
+    scrollContent: { paddingBottom: Spacing.xl },
     headerContent: {
         paddingHorizontal: Spacing['2xl'],
         marginBottom: Spacing['3xl'],
@@ -216,12 +196,8 @@ const styles = StyleSheet.create({
         backgroundColor: BrandColors.white,
         borderColor: 'rgba(255, 255, 255, 0.3)',
     },
-    optionButtonPressed: {
-        opacity: 0.7,
-    },
-    optionEmoji: {
-        fontSize: FontSize['2xl'],
-    },
+    optionButtonPressed: { opacity: 0.7 },
+    optionEmoji: { fontSize: FontSize['2xl'] },
     optionText: {
         fontSize: FontSize.lg,
         fontFamily: FontFamily.regular,
@@ -232,10 +208,4 @@ const styles = StyleSheet.create({
         color: BrandColors.secondary,
         fontFamily: FontFamily.semiBold,
     },
-    bottomContainer: {
-        paddingTop: Spacing.sm,
-        paddingHorizontal: Spacing['2xl'],
-        backgroundColor: 'transparent',
-    },
 });
-

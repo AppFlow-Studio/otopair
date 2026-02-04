@@ -45,6 +45,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
+import { useOnboardingQuestion } from '@/hooks/useOnboardingQuestion';
 
 interface MaintenanceTrackingStepProps {
     onNext: () => void;
@@ -53,10 +54,10 @@ interface MaintenanceTrackingStepProps {
 }
 
 const MAINTENANCE_TRACKING_OPTIONS = [
-    { emoji: '📘', label: 'I follow the schedule in my manual' },
+    { emoji: '📘', label: 'Based on my mileage' },
     { emoji: '🛠️', label: 'I go when something feels wrong' },
     { emoji: '📩', label: 'I get reminders from my mechanic' },
-    { emoji: '📅', label: 'I use an app or calendar' },
+    { emoji: '📅', label: 'My car reminds me' },
     { emoji: '🤷', label: "I don't really track it" },
 ] as const;
 
@@ -64,7 +65,8 @@ export function MaintenanceTrackingStep({ onNext, onBack, progress }: Maintenanc
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
-    
+    const { answers, saveAnswer } = useOnboardingQuestion('maintenanceTracking');
+
     const [selectedTracking, setSelectedTracking] = useState<string | null>(
         data.maintenanceTracking ?? null
     );
@@ -86,6 +88,8 @@ export function MaintenanceTrackingStep({ onNext, onBack, progress }: Maintenanc
 
     const handleContinue = () => {
         if (selectedTracking) {
+            const selectedAnswer = answers.find(a => selectedTracking === `${a.emoji} ${a.answer_text}`);
+            saveAnswer({ answerId: selectedAnswer?._id });
             onNext();
         }
     };

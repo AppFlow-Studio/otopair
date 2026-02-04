@@ -14,10 +14,14 @@
  *   - blurReductionFactor (number): Android blur reduction factor (default: 7)
  *   - gradientColors (string[]): Optional colors for the LinearGradient overlay
  *   - gradientLocations (number[]): Optional locations for the LinearGradient overlay
+ *   - titleColor (string): Optional color for the title text (default: '#000')
+ *   - rightElement (React.ReactNode): Optional element to render on the right side
+ *   - backButtonIconColor (string): Optional olor for the back button icon (default: '#1F2937')
+ *   - backButtonBgColor (string): Optional color for the back button background (default: '#FFFFFF')
  *
  * EXAMPLE:
  *   <BlurHeaderOverlay title="FAQ" />
- *   <BlurHeaderOverlay title="Settings" onBack={() => router.back()} />
+ *   <BlurHeaderOverlay title="Settings" titleColor="#FFF" onBack={() => router.back()} />
  *
  * OWNER: Daniel Chelala
  * TICKET: OTO-XXX
@@ -44,6 +48,10 @@ export interface BlurHeaderOverlayProps {
   blurReductionFactor?: number;
   gradientColors?: any[];
   gradientLocations?: number[];
+  titleColor?: string;
+  rightElement?: React.ReactNode;
+  backButtonIconColor?: string;
+  backButtonBgColor?: string;
 }
 
 const DEFAULT_ANDROID_DELAY_MS = 250;
@@ -64,6 +72,10 @@ export function BlurHeaderOverlay({
   blurReductionFactor = 7,
   gradientColors = DEFAULT_GRADIENT_COLORS,
   gradientLocations = DEFAULT_GRADIENT_LOCATIONS,
+  titleColor = '#000',
+  rightElement,
+  backButtonIconColor = '#1F2937',
+  backButtonBgColor = '#FFFFFF',
 }: BlurHeaderOverlayProps) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -123,14 +135,27 @@ export function BlurHeaderOverlay({
       ) : (
         <View style={styles.fallback} />
       )}
-      <View style={[styles.headerContent, { paddingTop: insets.top + 10 }]}>
-        <Pressable onPress={handleBack} style={styles.backButton} hitSlop={10}>
-          <ArrowLeft size={20} color="#1F2937" />
-        </Pressable>
-        <Text weight="semiBold" size="xl" color="#000" style={styles.title}>
+
+      <View style={[styles.absoluteTitleContainer, { top: insets.top + 10 }]} pointerEvents="none">
+        <Text weight="semiBold" size="xl" color={titleColor} style={styles.title} numberOfLines={1}>
           {title}
         </Text>
-        <View style={{ width: 40 }} />
+      </View>
+
+      <View style={[styles.headerContent, { paddingTop: insets.top + 10 }]}>
+        <View style={styles.leftContainer}>
+          <Pressable 
+            onPress={handleBack} 
+            style={[styles.backButton, { backgroundColor: backButtonBgColor }]} 
+            hitSlop={10}
+          >
+            <ArrowLeft size={20} color={backButtonIconColor} />
+          </Pressable>
+        </View>
+
+        <View style={styles.rightContainer}>
+          {rightElement || <View style={{ width: 40 }} />}
+        </View>
       </View>
     </View>
   );
@@ -153,17 +178,38 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
+    justifyContent: 'space-between',
+  },
+  leftContainer: {
+    alignItems: 'flex-start',
+    justifyContent: 'center',
+    zIndex: 1, // Ensure buttons are on top
+  },
+  rightContainer: {
+    alignItems: 'flex-end',
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 12,
+    zIndex: 1, // Ensure buttons are on top
+  },
+  absoluteTitleContainer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    width: '100%',
+    height: 40, // Match button height for vertical alignment
+    justifyContent: 'center',
+    alignItems: 'center',
+    zIndex: 0,
   },
   backButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
   },
   title: {
-    flex: 1,
     textAlign: 'center',
   },
 });

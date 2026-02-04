@@ -1,7 +1,7 @@
 /**
- * PrimaryReasonStep
+ * MaintenanceFrustrationStep
  *
- * PURPOSE: Allows users to select what brings them to Otopair.
+ * PURPOSE: Allows users to select their biggest frustration with car maintenance.
  *
  * USED IN: components/tell-us-about/TellUsAboutFlow.tsx
  *
@@ -9,13 +9,6 @@
  *   - onNext (() => void): Callback to navigate to the next step
  *   - onBack (() => void): Callback to navigate to the previous step
  *   - progress ({ total: number; filled: number }): Progress indicator data
- *
- * EXAMPLE:
- *   <PrimaryReasonStep 
- *     onNext={handleNext} 
- *     onBack={handleBack} 
- *     progress={{ total: 7, filled: 4 }} 
- *   />
  *
  * OWNER: Daniel Chelala
  * TICKET: OTO-XXX
@@ -41,43 +34,34 @@ import {
     View,
     Pressable,
     ScrollView,
-    TextInput,
     useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
+import { useOnboardingQuestion } from '@/hooks/useOnboardingQuestion';
 
-interface PrimaryReasonStepProps {
+interface MaintenanceFrustrationStepProps {
     onNext: () => void;
     onBack: () => void;
     progress: { total: number; filled: number };
 }
 
-const PRIMARY_REASONS = [
-    { id: 'scheduled', emoji: '📅', label: 'Scheduled maintenance coming up' },
-    { id: 'repair', emoji: '🔧', label: 'Specific repair needed' },
-    { id: 'comparing', emoji: '⚖️', label: 'Comparing shops for quality/specialization' },
-    { id: 'trust', emoji: '🤝', label: 'Looking for a shop I can trust long-term' },
-    { id: 'exploring', emoji: '🔍', label: 'Just exploring options' },
+const FRUSTRATION_OPTIONS = [
+    { emoji: '🤝', label: 'Finding someone I trust' },
+    { emoji: '💰', label: 'Understanding if prices are fair' },
+    { emoji: '📅', label: 'Fitting it into my schedule' },
+    { emoji: '❓', label: 'Not knowing what my car actually needs' },
 ] as const;
 
-export function PrimaryReasonStep({ onNext, onBack, progress }: PrimaryReasonStepProps) {
+export function MaintenanceFrustrationStep({ onNext, onBack, progress }: MaintenanceFrustrationStepProps) {
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
-    
-    const [selectedId, setSelectedId] = useState<string | null>(() => {
-        if (!data.primaryReason) return null;
-        if (data.primaryReason.startsWith('Specific repair needed:')) return 'repair';
-        return PRIMARY_REASONS.find(r => r.label === data.primaryReason)?.id ?? null;
-    });
+    const { answers, saveAnswer } = useOnboardingQuestion('maintenanceFrustration');
 
-    const [repairDetails, setRepairDetails] = useState<string>(() => {
-        if (data.primaryReason?.startsWith('Specific repair needed:')) {
-            return data.primaryReason.replace('Specific repair needed:', '').trim();
-        }
-        return '';
-    });
+    const [selectedFrustration, setSelectedFrustration] = useState<string | null>(
+        data.maintenanceFrustration ?? null
+    );
 
     const dynamicStyles = {
         container: { paddingTop: insets.top + Spacing.lg },
@@ -88,32 +72,21 @@ export function PrimaryReasonStep({ onNext, onBack, progress }: PrimaryReasonSte
     const buttonSize: 'md' | 'lg' = isCompact ? 'md' : 'lg';
     const buttonPaddingVertical = isCompact ? Spacing.sm : Spacing.lg;
 
-    const handleSelect = (id: string) => {
-        setSelectedId(id);
-        const reason = PRIMARY_REASONS.find(r => r.id === id);
-        if (id !== 'repair' && reason) {
-            updateData({ primaryReason: reason.label });
-        } else if (id === 'repair') {
-            const detail = repairDetails.trim();
-            updateData({ primaryReason: detail ? `Specific repair needed: ${detail}` : 'Specific repair needed' });
-        }
-    };
-
-    const handleRepairDetailsChange = (text: string) => {
-        setRepairDetails(text);
-        if (selectedId === 'repair') {
-            const trimmed = text.trim();
-            updateData({ primaryReason: trimmed ? `Specific repair needed: ${trimmed}` : 'Specific repair needed' });
-        }
+    const handleSelectFrustration = (option: typeof FRUSTRATION_OPTIONS[number]) => {
+        const value = `${option.emoji} ${option.label}`;
+        setSelectedFrustration(value);
+        updateData({ maintenanceFrustration: value });
     };
 
     const handleContinue = () => {
-        if (canContinue) {
+        if (selectedFrustration) {
+            const selectedAnswer = answers.find(a => selectedFrustration === `${a.emoji} ${a.answer_text}`);
+            saveAnswer({ answerId: selectedAnswer?._id });
             onNext();
         }
     };
 
-    const canContinue = selectedId !== null;
+    const canContinue = selectedFrustration !== null;
 
     return (
         <KeyboardAvoidingView
@@ -136,56 +109,44 @@ export function PrimaryReasonStep({ onNext, onBack, progress }: PrimaryReasonSte
                 >
                     <View style={styles.headerContent}>
                         <Text style={styles.title}>
-                            What brings you to Otopair?
+                            What's most frustrating about car maintenance?
                         </Text>
                         <Text style={styles.subtitle}>
-                            Select the option that best fits your situation
+                            Select the biggest challenge you face
                         </Text>
                     </View>
 
                     <View style={styles.optionsContainer}>
-                        {PRIMARY_REASONS.map((option) => {
-                            const isSelected = selectedId === option.id;
+                        {FRUSTRATION_OPTIONS.map((option) => {
+                            const value = `${option.emoji} ${option.label}`;
+                            const isSelected = selectedFrustration === value;
                             
                             return (
-                                <View key={option.id} style={styles.optionWrapper}>
-                                    <Pressable
-                                        onPress={() => handleSelect(option.id)}
-                                        style={({ pressed }) => [
-                                            styles.optionButton,
-                                            isSelected && styles.optionButtonSelected,
-                                            pressed && styles.optionButtonPressed,
+                                <Pressable
+                                    key={option.label}
+                                    onPress={() => handleSelectFrustration(option)}
+                                    style={({ pressed }) => [
+                                        styles.optionButton,
+                                        isSelected && styles.optionButtonSelected,
+                                        pressed && styles.optionButtonPressed,
+                                    ]}
+                                >
+                                    <Text style={styles.optionEmoji}>{option.emoji}</Text>
+                                    <Text
+                                        style={[
+                                            styles.optionText,
+                                            isSelected && styles.optionTextSelected,
                                         ]}
                                     >
-                                        <Text style={styles.optionEmoji}>{option.emoji}</Text>
-                                        <Text
-                                            style={[
-                                                styles.optionText,
-                                                isSelected && styles.optionTextSelected,
-                                            ]}
-                                        >
-                                            {option.label}
-                                        </Text>
-                                    </Pressable>
-                                    
-                                    {isSelected && option.id === 'repair' && (
-                                        <TextInput
-                                            style={styles.detailInput}
-                                            placeholder="What repair do you need?"
-                                            placeholderTextColor="rgba(255, 255, 255, 0.5)"
-                                            value={repairDetails}
-                                            onChangeText={handleRepairDetailsChange}
-                                            autoFocus
-                                            returnKeyType="done"
-                                        />
-                                    )}
-                                </View>
+                                        {option.label}
+                                    </Text>
+                                </Pressable>
                             );
                         })}
                     </View>
                 </ScrollView>
 
-                <FadeFooterContainer paddingBottom={insets.bottom + Spacing.lg}>
+                <FadeFooterContainer paddingBottom={insets.bottom + Spacing.lg} fadeVariant={0}>
                     <FooterButton
                         label="Continue"
                         onPress={handleContinue}
@@ -237,9 +198,6 @@ const styles = StyleSheet.create({
         paddingHorizontal: Spacing['2xl'],
         gap: Spacing.md,
     },
-    optionWrapper: {
-        gap: Spacing.sm,
-    },
     optionButton: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -271,17 +229,9 @@ const styles = StyleSheet.create({
         color: BrandColors.secondary,
         fontFamily: FontFamily.semiBold,
     },
-    detailInput: {
-        backgroundColor: 'rgba(255, 255, 255, 0.05)',
-        borderRadius: BorderRadius.md,
-        paddingHorizontal: Spacing.lg,
-        paddingVertical: Spacing.md,
-        fontSize: FontSize.md,
-        fontFamily: FontFamily.regular,
-        color: BrandColors.white,
-        borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.15)',
-        marginLeft: Spacing.lg,
+    bottomContainer: {
+        paddingTop: Spacing.sm,
+        paddingHorizontal: Spacing['2xl'],
+        backgroundColor: 'transparent',
     },
 });
-

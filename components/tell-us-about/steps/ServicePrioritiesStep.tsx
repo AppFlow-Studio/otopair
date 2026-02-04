@@ -1,7 +1,7 @@
 /**
  * ServicePrioritiesStep
  *
- * PURPOSE: Allows users to select their top 3 priorities for car service.
+ * PURPOSE: Allows users to select their priorities for car service.
  *
  * USED IN: components/tell-us-about/TellUsAboutFlow.tsx
  *
@@ -45,6 +45,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
+import { useOnboardingQuestion } from '@/hooks/useOnboardingQuestion';
 
 interface ServicePrioritiesStepProps {
     onNext: () => void;
@@ -53,21 +54,23 @@ interface ServicePrioritiesStepProps {
 }
 
 const SERVICE_PRIORITY_OPTIONS = [
-    { id: '💰 Getting the best price', emoji: '💰', label: 'Getting the best price' },
-    { id: '⏰ Quick turnaround time', emoji: '⏰', label: 'Quick turnaround time' },
-    { id: '🏆 High-quality service', emoji: '🏆', label: 'High-quality service' },
-    { id: '📍 Convenience/location', emoji: '📍', label: 'Convenience/location' },
-    { id: '🧾 Transparent pricing/no surprises', emoji: '🧾', label: 'Transparent pricing/no surprises' },
-    { id: '⭐ Trusted reviews/reputation', emoji: '⭐', label: 'Trusted reviews/reputation' },
+    { id: 'quick_turnaround_time', emoji: '⏰', label: 'Quick turnaround time' },
+    { id: 'high_quality_service', emoji: '🏆', label: 'High-quality service' },
+    { id: 'convenience_location', emoji: '📍', label: 'Convenience/location' },
+    { id: 'transparent_pricing', emoji: '🧾', label: 'Transparent pricing/no surprises' },
+    { id: 'trusted_reviews_reputation', emoji: '⭐', label: 'Trusted reviews/reputation' },
 ] as const;
+
+type ServicePriority = typeof SERVICE_PRIORITY_OPTIONS[number]['id'];
 
 export function ServicePrioritiesStep({ onNext, onBack, progress }: ServicePrioritiesStepProps) {
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
-    
-    const [selectedPriorities, setSelectedPriorities] = useState<string[]>(
-        data.servicePriorities ?? []
+    const { answers, saveAnswer } = useOnboardingQuestion('servicePriorities');
+
+    const [selectedPriorities, setSelectedPriorities] = useState<ServicePriority[]>(
+        (data.servicePriorities as ServicePriority[]) ?? []
     );
 
     const dynamicStyles = {
@@ -79,7 +82,7 @@ export function ServicePrioritiesStep({ onNext, onBack, progress }: ServicePrior
     const buttonSize: 'md' | 'lg' = isCompact ? 'md' : 'lg';
     const buttonPaddingVertical = isCompact ? Spacing.sm : Spacing.lg;
 
-    const handleTogglePriority = (id: string) => {
+    const handleTogglePriority = (id: ServicePriority) => {
         setSelectedPriorities((prev) => {
             const isSelected = prev.includes(id);
             if (isSelected) {
@@ -87,7 +90,6 @@ export function ServicePrioritiesStep({ onNext, onBack, progress }: ServicePrior
                 updateData({ servicePriorities: next.length ? next : null });
                 return next;
             }
-            if (prev.length >= 3) return prev;
             const next = [...prev, id];
             updateData({ servicePriorities: next });
             return next;
@@ -95,12 +97,16 @@ export function ServicePrioritiesStep({ onNext, onBack, progress }: ServicePrior
     };
 
     const handleContinue = () => {
-        if (selectedPriorities.length === 3) {
+        if (selectedPriorities.length > 0) {
+            const selectedAnswerIds = answers
+                .filter(a => selectedPriorities.includes(a.answer_value as ServicePriority))
+                .map(a => a._id);
+            saveAnswer({ answerIds: selectedAnswerIds });
             onNext();
         }
     };
 
-    const canContinue = selectedPriorities.length === 3;
+    const canContinue = selectedPriorities.length > 0;
 
     return (
         <KeyboardAvoidingView
@@ -126,36 +132,26 @@ export function ServicePrioritiesStep({ onNext, onBack, progress }: ServicePrior
                             What matters most when getting your car serviced?
                         </Text>
                         <Text style={styles.subtitle}>
-                            Choose 3 out of the 6 items ({selectedPriorities.length}/3)
+                            Select all that apply
                         </Text>
                     </View>
 
                     <View style={styles.optionsContainer}>
                         {SERVICE_PRIORITY_OPTIONS.map((option) => {
-                            const rankIndex = selectedPriorities.indexOf(option.id);
-                            const isSelected = rankIndex !== -1;
-                            const isDisabled = !isSelected && selectedPriorities.length >= 3;
+                            const isSelected = selectedPriorities.includes(option.id);
                             
                             return (
                                 <Pressable
                                     key={option.id}
                                     onPress={() => handleTogglePriority(option.id)}
-                                    disabled={isDisabled}
                                     style={({ pressed }) => [
                                         styles.optionButton,
                                         isSelected && styles.optionButtonSelected,
-                                        isDisabled && styles.optionButtonDisabled,
-                                        pressed && !isDisabled && styles.optionButtonPressed,
+                                        pressed && styles.optionButtonPressed,
                                     ]}
                                 >
                                     <View style={styles.rankRow}>
-                                        {isSelected ? (
-                                            <View style={styles.rankBadge}>
-                                                <Text style={styles.rankBadgeText}>{rankIndex + 1}</Text>
-                                            </View>
-                                        ) : (
-                                            <Text style={styles.optionEmoji}>{option.emoji}</Text>
-                                        )}
+                                        <Text style={styles.optionEmoji}>{option.emoji}</Text>
                                         <Text
                                             style={[
                                                 styles.optionText,
@@ -173,7 +169,7 @@ export function ServicePrioritiesStep({ onNext, onBack, progress }: ServicePrior
 
                 <FadeFooterContainer paddingBottom={insets.bottom + Spacing.lg}>
                     <FooterButton
-                        label="Continue"
+                        label="Finish"
                         onPress={handleContinue}
                         disabled={!canContinue}
                         size={buttonSize}

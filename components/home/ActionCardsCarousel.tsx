@@ -127,41 +127,28 @@ export function ActionCardsCarousel({
   const scrollViewRef = useRef<ScrollView>(null);
   const [activeIndex, setActiveIndex] = useState(0);
 
-  // Build array of visible cards - reorder based on isNewUser
+  // Build array of visible cards - account setup first when visible, then appointment, resume, car
   const allCards = [
+    { id: 'account', visible: showAccountSetup },
     { id: 'appointment', visible: true },
     { id: 'resume', visible: showResumeBooking },
     { id: 'car', visible: showCarSetup },
   ].filter((card) => card.visible);
 
-  // Reorder cards: if new user, put account setup first; otherwise keep appointment first
-  const cards = isNewUser && showAccountSetup
-    ? [
-        allCards.find((c) => c.id === 'account'),
-        ...allCards.filter((c) => c.id !== 'account'),
-      ].filter((c): c is typeof allCards[0] => c !== undefined)
-    : allCards;
+  const cards = allCards;
 
-  // Debug: Log card order
-  if (__DEV__) {
-    console.log('ActionCardsCarousel - isNewUser:', isNewUser, 'showAccountSetup:', showAccountSetup, 'cards:', cards.map(c => c.id));
-  }
-
-  // Scroll to correct initial card on mount or when isNewUser changes
+  // Scroll to first card on mount or when card list changes
   useEffect(() => {
     if (scrollViewRef.current && cards.length > 0) {
-      // If new user, scroll to account setup card (index 0)
-      // If existing user, scroll to appointment card (index 0 by default)
-      const initialIndex = 0;
       scrollViewRef.current.scrollTo({
-        x: initialIndex * SCREEN_WIDTH,
+        x: 0,
         animated: false,
       });
-      setActiveIndex(initialIndex);
-      onCardChange?.(initialIndex);
+      setActiveIndex(0);
+      onCardChange?.(0);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isNewUser, showAccountSetup]);
+  }, [showAccountSetup, showResumeBooking, showCarSetup]);
 
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const contentOffsetX = event.nativeEvent.contentOffset.x;

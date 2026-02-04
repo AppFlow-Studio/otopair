@@ -45,6 +45,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
+import { useOnboardingQuestion } from '@/hooks/useOnboardingQuestion';
 
 interface CarUsageStepProps {
     onNext: () => void;
@@ -53,11 +54,11 @@ interface CarUsageStepProps {
 }
 
 const CAR_USAGE_OPTIONS = [
-    { emoji: '🎉', label: 'Rarely (special occasions)' },
-    { emoji: '🛒', label: 'Weekend errands only' },
-    { emoji: '🚙', label: 'Daily commute to work/school' },
-    { emoji: '🗺️', label: 'Frequent long trips' },
-    { emoji: '🚕', label: 'Uber/Lyft/delivery driving' },
+    { emoji: '🚗', label: 'Rarely (special occasions)' },
+    { emoji: '🛒', label: 'A few times a month' },
+    { emoji: '🚙', label: 'A few times a week' },
+    { emoji: '🏙️', label: 'Daily' },
+    { emoji: '🛣️', label: 'For work (Uber/Lyft/deliver, etc.)' },
 ] as const;
 
 type CarUsageOption = `${typeof CAR_USAGE_OPTIONS[number]['emoji']} ${typeof CAR_USAGE_OPTIONS[number]['label']}`;
@@ -66,7 +67,8 @@ export function CarUsageStep({ onNext, onBack, progress }: CarUsageStepProps) {
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
-    
+    const { answers, saveAnswer } = useOnboardingQuestion('carUsage');
+
     const [selectedUsage, setSelectedUsage] = useState<string | null>(
         data.carUsage ?? null
     );
@@ -88,6 +90,8 @@ export function CarUsageStep({ onNext, onBack, progress }: CarUsageStepProps) {
 
     const handleContinue = () => {
         if (selectedUsage) {
+            const selectedAnswer = answers.find(a => selectedUsage === `${a.emoji} ${a.answer_text}`);
+            saveAnswer({ answerId: selectedAnswer?._id });
             onNext();
         }
     };
@@ -115,7 +119,7 @@ export function CarUsageStep({ onNext, onBack, progress }: CarUsageStepProps) {
                 >
                     <View style={styles.headerContent}>
                         <Text style={styles.title}>
-                            How do you typically use your car?
+                            How often do you drive?
                         </Text>
                         <Text style={styles.subtitle}>
                             This helps us understand your driving habits

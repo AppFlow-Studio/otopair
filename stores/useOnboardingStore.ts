@@ -19,29 +19,29 @@
  * TICKET: OTO-XXX
  */
 
-import { create } from 'zustand';
+import { create } from "zustand";
 
 // ─────────────────────────────────────────────────────────────
 // STEP DEFINITIONS (like an enum table)
 // ─────────────────────────────────────────────────────────────
 export const ONBOARDING_STEPS = [
-  'welcome',
-  'permissions',
-  'profile',
-  'car_knowledge',
-  'add_vehicle',
-  'success',
+  "welcome",
+  "permissions",
+  "profile",
+  "car_knowledge",
+  "add_vehicle",
+  "success",
 ] as const;
 
 export const SETUP_STEPS = [
-  'create_account',
-  'tell_us_about_yourself',
-  'add_your_car',
-  'set_up_payment_method',
+  "create_account",
+  "tell_us_about_yourself",
+  "add_your_car",
+  "set_up_payment_method",
 ] as const;
 
-export type OnboardingStep = typeof ONBOARDING_STEPS[number];
-export type SetupStep = typeof SETUP_STEPS[number];
+export type OnboardingStep = (typeof ONBOARDING_STEPS)[number];
+export type SetupStep = (typeof SETUP_STEPS)[number];
 
 // ─────────────────────────────────────────────────────────────
 // COLLECTED DATA SCHEMA
@@ -50,17 +50,18 @@ interface OnboardingData {
   // Profile Step
   firstName: string | null;
   lastName: string | null;
-  alias: string | null;
-  username: string | null;
   profilePhotoUri: string | null;
-  dateOfBirth: string | null;     // ISO format
+  dateOfBirth: string | null; // ISO format
   phoneNumber: string | null;
   phoneCountryCode: string | null;
   email: string | null;
+  password: string | null;
+  signUpMethod: "email" | "google" | "apple" | null;
+  authMode: "signUp" | "login" | null;
   twoFactorEmailEnabled: boolean;
   twoFactorSmsEnabled: boolean;
   biometricLoginEnabled: boolean;
-  biometricLoginType: 'face' | 'touch' | 'fingerprint' | 'biometric' | null;
+  biometricLoginType: "face" | "touch" | "fingerprint" | "biometric" | null;
   biometricLoginSkipped: boolean;
   notificationOffersEnabled: boolean;
   notificationRewardsEnabled: boolean;
@@ -78,54 +79,89 @@ interface OnboardingData {
 
   // Permissions Step
   pushNotificationsGranted: boolean;
-  pushNotificationStatus: 'granted' | 'provisional' | 'denied' | 'undetermined' | null;
+  pushNotificationStatus:
+    | "granted"
+    | "provisional"
+    | "denied"
+    | "undetermined"
+    | null;
   locationGranted: boolean;
-  locationPermissionStatus: 'granted' | 'denied' | 'undetermined' | null;
+  locationPermissionStatus: "granted" | "denied" | "undetermined" | null;
 
   // Car Knowledge Step
   carKnowledgeLevel: 1 | 2 | 3 | null;
 
   // Setup questionnaire (home bottom-sheet)
   carUsage: string | null;
-  servicePriorities: string[] | null;
-  decisionHelper: string | null;
-  isTellUsAboutYourselfComplete: boolean;
-  carStressNote: string | null;
-  maintenanceTracking: string | null;
-  monthlyMileage: string | null;
   shopType: string | null;
-  whyNewOption: string[] | null;
-  carTerminologyComfort: string | null;
+  maintenanceFrustration: string | null;
+  maintenanceApproachLevel1: string | null;
+  maintenanceApproachLevel3: string | null;
+  serviceHistoryTracked: string | null;
+  partsPhilosophy: string | null;
+  householdRole: string | null;
+  decisionMakingStyle: string | null;
+  servicePriorities:
+    | (
+        | "quick_turnaround_time"
+        | "high_quality_service"
+        | "convenience_location"
+        | "transparent_pricing"
+        | "trusted_reviews_reputation"
+      )[]
+    | null;
+  isTellUsAboutYourselfComplete: boolean;
+  maintenanceTracking: string | null;
   repairQuoteNeeds: string[] | null;
   diyTasks: string[] | null;
-  maintenanceApproach: string | null;
   primaryReason: string | null;
   shopPriorities: string[] | null;
   communicationPreference: string | null;
   additionalPreferences: string | null;
 
   // Beginner Oil Change Step
-  lastOilChange: 'last_3_months' | '3_6_months' | '6_plus_months' | 'dont_remember' | string | null;
+  lastOilChange:
+    | "last_3_months"
+    | "3_6_months"
+    | "6_plus_months"
+    | "dont_remember"
+    | string
+    | null;
 
   // Tire Service Step
-  lastTireService: 'lt_1_year' | '1_2_years' | '2_plus_years' | 'dont_remember' | null;
+  lastTireService:
+    | "lt_1_year"
+    | "1_2_years"
+    | "2_plus_years"
+    | "dont_remember"
+    | null;
 
   // Brakes Step
-  brakesReplaced: 'recently' | 'not_recently' | 'lt_1_year' | '1_2_years' | '2_plus_years' | 'dont_remember' | string | null; //ISO string when known
+  brakesReplaced:
+    | "recently"
+    | "not_recently"
+    | "lt_1_year"
+    | "1_2_years"
+    | "2_plus_years"
+    | "dont_remember"
+    | string
+    | null; //ISO string when known
 
   // Battery Replacement Step
-  lastBatteryReplacement: 'within_last_year' | 'more_than_year_ago' | 'dont_remember' | null;
+  lastBatteryReplacement:
+    | "within_last_year"
+    | "more_than_year_ago"
+    | "dont_remember"
+    | null;
 
   // Beginner Inspection Step
-  lastInspection: string | 'dont_remember' | null; // ISO string when known
+  lastInspection: string | "dont_remember" | null; // ISO string when known
 
   // Pro Mileage Step
-  lastOilMileage: string | 'dont_remember' | null;
+  lastOilMileage: string | "dont_remember" | null;
 
   // Services 12 Months Step
   services12months: string[] | null;
-
-  
 
   // Vehicle Step
   vehicleMake: string | null;
@@ -134,6 +170,12 @@ interface OnboardingData {
   vehiclePlate: string | null;
   vehicleVin: string | null;
   vehicleMileage: number | null;
+
+  // Auth fields
+  authProvider: 'google' | 'apple' | 'email' | null;
+  emailConfirmed: boolean;
+  phoneVerified: boolean;
+  phoneNumberId: string | null;
 
   // Feedback submissions (saved from Settings > Feedback)
   feedbackSubmissions: {
@@ -163,7 +205,7 @@ interface OnboardingState {
   setStep: (step: OnboardingStep) => void;
   completeStep: (step: OnboardingStep) => void;
   setSetupStep: (step: SetupStep) => void;
-  completeSetupStep: (step: SetupStep) => void
+  completeSetupStep: (step: SetupStep) => void;
   updateData: (updates: Partial<OnboardingData>) => void;
   addFeedbackSubmission: (message: string) => void;
   canProceed: () => boolean;
@@ -171,7 +213,7 @@ interface OnboardingState {
   isCreateAccountComplete: () => boolean;
 
   // Computed
-  getProgress: () => number;  // 0-100
+  getProgress: () => number; // 0-100
   isStepCompleted: (step: OnboardingStep) => boolean;
   isSetupStepCompleted: (step: SetupStep) => boolean;
 }
@@ -179,13 +221,14 @@ interface OnboardingState {
 const INITIAL_DATA: OnboardingData = {
   firstName: null,
   lastName: null,
-  alias: null,
-  username: null,
   profilePhotoUri: null,
   dateOfBirth: null,
   phoneNumber: null,
   phoneCountryCode: null,
   email: null,
+  password: null,
+  signUpMethod: null,
+  authMode: null,
   twoFactorEmailEnabled: false,
   twoFactorSmsEnabled: false,
   biometricLoginEnabled: false,
@@ -206,8 +249,15 @@ const INITIAL_DATA: OnboardingData = {
   locationPermissionStatus: null,
   carKnowledgeLevel: null,
   carUsage: null,
+  shopType: null,
+  maintenanceFrustration: null,
+  maintenanceApproachLevel1: null,
+  maintenanceApproachLevel3: null,
+  serviceHistoryTracked: null,
+  partsPhilosophy: null,
+  householdRole: null,
+  decisionMakingStyle: null,
   servicePriorities: null,
-  decisionHelper: null,
   lastOilChange: null,
   lastTireService: null,
   brakesReplaced: null,
@@ -222,26 +272,25 @@ const INITIAL_DATA: OnboardingData = {
   vehicleVin: null,
   vehicleMileage: null,
   isTellUsAboutYourselfComplete: false,
-  carStressNote: null,
   maintenanceTracking: null,
-  monthlyMileage: null,
-  shopType: null,
-  whyNewOption: null,
-  carTerminologyComfort: null,
   repairQuoteNeeds: null,
   diyTasks: null,
-  maintenanceApproach: null,
   primaryReason: null,
   shopPriorities: null,
   communicationPreference: null,
   additionalPreferences: null,
+
+  authProvider: null,
+  emailConfirmed: false,
+  phoneVerified: false,
+  phoneNumberId: null,
 
   feedbackSubmissions: [],
 };
 
 export const useOnboardingStore = create<OnboardingState>()((set, get) => ({
   // Onboarding (Old flow, TODO: remove after migration)
-  currentStep: 'welcome',
+  currentStep: "welcome",
   completedSteps: [],
   setStep: (step) => set({ currentStep: step }),
   completeStep: (step) => {
@@ -253,7 +302,7 @@ export const useOnboardingStore = create<OnboardingState>()((set, get) => ({
   },
 
   // Setup (New flow)
-  currentSetupStep: 'create_account',
+  currentSetupStep: "create_account",
   completedSetupSteps: [],
   setSetupStep: (step: SetupStep) => set({ currentSetupStep: step }),
   completeSetupStep: (step: SetupStep) => {
@@ -295,17 +344,19 @@ export const useOnboardingStore = create<OnboardingState>()((set, get) => ({
 
     // Validation for onboarding step (legacy)
     switch (currentStep) {
-      case 'welcome':
+      case "welcome":
         return true;
-      case 'permissions':
-        return true;  // Can skip, but we ask
-      case 'profile':
+      case "permissions":
+        return true; // Can skip, but we ask
+      case "profile":
         return Boolean(data.firstName && data.lastName);
-      case 'car_knowledge':
+      case "car_knowledge":
         return data.carKnowledgeLevel !== null;
-      case 'add_vehicle':
-        return Boolean(data.vehicleMake && data.vehicleModel && data.vehicleYear);
-      case 'success':
+      case "add_vehicle":
+        return Boolean(
+          data.vehicleMake && data.vehicleModel && data.vehicleYear,
+        );
+      case "success":
         return true;
       default:
         break;
@@ -313,13 +364,17 @@ export const useOnboardingStore = create<OnboardingState>()((set, get) => ({
 
     // Validation for setup step (new flow)
     switch (currentSetupStep) {
-      case 'create_account':
-        return Boolean(data.phoneNumber && data.firstName && data.lastName && data.username);
-      case 'tell_us_about_yourself':
+      case "create_account":
+        return Boolean(
+          data.phoneNumber && data.firstName && data.lastName,
+        );
+      case "tell_us_about_yourself":
         return Boolean(data.firstName && data.lastName);
-      case 'add_your_car':
-        return Boolean(data.vehicleMake && data.vehicleModel && data.vehicleYear);
-      case 'set_up_payment_method':
+      case "add_your_car":
+        return Boolean(
+          data.vehicleMake && data.vehicleModel && data.vehicleYear,
+        );
+      case "set_up_payment_method":
         return true; // Payment method can be optional
       default:
         return false;
@@ -331,9 +386,19 @@ export const useOnboardingStore = create<OnboardingState>()((set, get) => ({
     // Prefer new setup steps if any used, else fallback to old
     if (completedSetupSteps.length > 0) {
       // You may need to define SETUP_STEPS somewhere
-      return Math.round((completedSetupSteps.length / (typeof SETUP_STEPS !== 'undefined' ? SETUP_STEPS.length : 1)) * 100);
+      return Math.round(
+        (completedSetupSteps.length /
+          (typeof SETUP_STEPS !== "undefined" ? SETUP_STEPS.length : 1)) *
+          100,
+      );
     }
-    return Math.round((completedSteps.length / (typeof ONBOARDING_STEPS !== 'undefined' ? ONBOARDING_STEPS.length : 1)) * 100);
+    return Math.round(
+      (completedSteps.length /
+        (typeof ONBOARDING_STEPS !== "undefined"
+          ? ONBOARDING_STEPS.length
+          : 1)) *
+        100,
+    );
   },
 
   isStepCompleted: (step) => get().completedSteps.includes(step),
@@ -341,9 +406,9 @@ export const useOnboardingStore = create<OnboardingState>()((set, get) => ({
 
   reset: () => {
     set({
-      currentStep: 'welcome',
+      currentStep: "welcome",
       completedSteps: [],
-      currentSetupStep: 'create_account',
+      currentSetupStep: "create_account",
       completedSetupSteps: [],
       data: INITIAL_DATA,
     });
@@ -353,14 +418,14 @@ export const useOnboardingStore = create<OnboardingState>()((set, get) => ({
     const { data } = get();
     // Simplified version of the checks in OnboardingFlow.tsx
     return Boolean(
-      data.phoneNumber && 
-      data.firstName && 
-      data.lastName && 
-      data.username && 
-      data.profilePhotoUri && 
-      data.userIntentions && data.userIntentions.length > 0 &&
+      data.phoneNumber &&
+      data.firstName &&
+      data.lastName &&
+      data.profilePhotoUri &&
+      data.userIntentions &&
+      data.userIntentions.length > 0 &&
       data.pushNotificationStatus !== null &&
-      data.locationPermissionStatus !== null
+      data.locationPermissionStatus !== null,
     );
   },
 }));

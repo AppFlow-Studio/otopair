@@ -45,6 +45,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
+import { useOnboardingQuestion } from '@/hooks/useOnboardingQuestion';
 import { Car, Wrench, Gauge, FlaskConical } from 'lucide-react-native';
 
 interface ExperienceStepProps {
@@ -63,19 +64,19 @@ interface ExperienceOption {
 const EXPERIENCE_OPTIONS: ExperienceOption[] = [
     {
         id: 1,
-        label: 'Level 1: I just drive it',
+        label: 'I prefer things explained to me',
         icon: Car,
         emoji: '🚗',
     },
     {
         id: 2,
-        label: 'Level 2: I know the basics',
+        label: 'I know some stuff',
         icon: Wrench,
         emoji: '🔧',
     },
     {
         id: 3,
-        label: "Level 3: I'm pretty hands-on",
+        label: "I'm car-savvy",
         icon: Gauge,
         emoji: '🏎️',
     },
@@ -85,7 +86,8 @@ export function ExperienceStep({ onNext, onBack, progress }: ExperienceStepProps
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
-    
+    const { answers, saveAnswer } = useOnboardingQuestion('experience');
+
     const [selectedLevel, setSelectedLevel] = useState<1 | 2 | 3 | null>(
         data.carKnowledgeLevel ?? null
     );
@@ -106,6 +108,8 @@ export function ExperienceStep({ onNext, onBack, progress }: ExperienceStepProps
 
     const handleContinue = () => {
         if (selectedLevel) {
+            const selectedAnswer = answers.find(a => a.answer_value === String(selectedLevel));
+            saveAnswer({ answerId: selectedAnswer?._id });
             onNext();
         }
     };

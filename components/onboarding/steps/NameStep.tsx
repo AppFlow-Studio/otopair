@@ -1,7 +1,7 @@
 /**
  * NameStep
  *
- * PURPOSE: Collects the user's first name, last name, and optional alias.
+ * PURPOSE: Collects the user's first name and last name.
  *
  * USED IN: components/onboarding/OnboardingFlow.tsx
  *
@@ -43,6 +43,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
+import { useOnboardingPersistence } from "@/hooks/useOnboardingPersistence";
 
 interface NameStepProps {
   onNext: () => void;
@@ -54,10 +55,10 @@ export function NameStep({ onNext, onBack, progress }: NameStepProps) {
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
   const { data, updateData } = useOnboardingStore();
+  const { persistProfileField } = useOnboardingPersistence();
 
   const [firstName, setFirstName] = useState(data.firstName || "");
   const [lastName, setLastName] = useState(data.lastName || "");
-  const [alias, setAlias] = useState(data.alias || "");
 
   const dynamicStyles = {
     container: { paddingTop: insets.top + Spacing.lg },
@@ -68,14 +69,17 @@ export function NameStep({ onNext, onBack, progress }: NameStepProps) {
   const buttonSize: "md" | "lg" = isCompact ? "md" : "lg";
   const buttonPaddingVertical = isCompact ? Spacing.sm : Spacing.lg;
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
     updateData({
       firstName: firstName.trim(),
       lastName: lastName.trim(),
-      alias: alias.trim(),
     });
 
-    console.log("Name saved:", { firstName: useOnboardingStore.getState().data.firstName, lastName: useOnboardingStore.getState().data.lastName, alias: useOnboardingStore.getState().data.alias });
+    await persistProfileField({
+      first_name: firstName.trim(),
+      last_name: lastName.trim(),
+    });
+
     onNext();
   };
 
@@ -133,18 +137,6 @@ export function NameStep({ onNext, onBack, progress }: NameStepProps) {
                 autoComplete="family-name"
                 textContentType="familyName"
               />
-            </View>
-
-            <View style={styles.inputWrapper}>
-              <TextInput
-                style={styles.input}
-                placeholder="Alias"
-                placeholderTextColor="#9CA3AF"
-                value={alias}
-                onChangeText={setAlias}
-                autoCapitalize="words"
-              />
-              <Text style={styles.helperText}>Optional</Text>
             </View>
           </View>
         </ScrollView>

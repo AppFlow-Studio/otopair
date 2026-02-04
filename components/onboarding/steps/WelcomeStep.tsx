@@ -39,6 +39,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuthStore } from '@/stores/useAuthStore';
+import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import { useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 
@@ -51,6 +52,7 @@ export function WelcomeStep({ onNext, onBack }: WelcomeStepProps) {
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { setIsNewUser } = useAuthStore();
+    const { updateData: updateOnboardingData } = useOnboardingStore();
     const { isSignedIn } = useAuth();
     const { signIn, setActive, isLoaded } = useSignIn();
     const ensureConvexUser = useMutation(api.users.getOrCreateMe);
@@ -72,6 +74,7 @@ export function WelcomeStep({ onNext, onBack }: WelcomeStepProps) {
     const handleGetStarted = () => {
         console.log('Finished WelcomeStep - Create Account');
         setIsNewUser(true); // User is creating a new account
+        updateOnboardingData({ authMode: 'signUp' });
         onNext();
     };
 
@@ -87,6 +90,7 @@ export function WelcomeStep({ onNext, onBack }: WelcomeStepProps) {
                 console.error('Failed to ensure Convex user record', error);
             }
             setIsNewUser(false);
+            updateOnboardingData({ authMode: 'login' });
             router.replace('/(main-tabs)/home');
             onBack();
             return;
@@ -129,6 +133,7 @@ export function WelcomeStep({ onNext, onBack }: WelcomeStepProps) {
                 console.error('Failed to ensure Convex user record', error);
             }
             setIsNewUser(false);
+            updateOnboardingData({ authMode: 'login' });
             router.replace('/(main-tabs)/home');
             onBack();
         } catch (error) {
@@ -246,4 +251,3 @@ const styles = StyleSheet.create({
         marginTop: Spacing.xs,
     },
 });
-

@@ -13,7 +13,7 @@ export default function OnboardingScreen() {
         ? JSON.parse(params.filteredSteps) as OnboardingStep[]
         : undefined;
     
-    const initialStep = (params.initialStep as OnboardingStep) || 'welcome';
+    const initialStep = (params.initialStep as OnboardingStep) || 'signup';
     const isResumeMode = params.isResumeMode === 'true';
 
     return (
