@@ -10,19 +10,19 @@
 
 // 1. React & React Native
 import React, { useState, useEffect, useRef } from 'react';
-import { Dimensions, Pressable, StyleSheet, View, Image, TextInput, Keyboard, Platform, Animated } from 'react-native';
+import { ActivityIndicator, Dimensions, Pressable, StyleSheet, View, Image, TextInput, Keyboard, Platform, Animated } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // 2. Expo & Third-party
 import { StatusBar } from 'expo-status-bar';
 import { useRouter } from 'expo-router';
 import { ArrowLeft, QrCode, Edit3 } from 'lucide-react-native';
+import { useAction } from 'convex/react';
 
-// 3. Shared UI
+// 3. App imports
 import { Text } from '@/components/shared-ui';
-
-// 4. Constants
 import { Spacing } from '@/constants/theme';
+import { api } from '@/convex/_generated/api';
 
 // ============================================================================
 // COMPONENT
@@ -43,7 +43,11 @@ export default function AddVehicleScreen() {
   const router = useRouter();
   const [vinNumber, setVinNumber] = useState('');
   const [keyboardVisible, setKeyboardVisible] = useState(false);
+  const [isDecoding, setIsDecoding] = useState(false);
+  const [decodeError, setDecodeError] = useState<string | null>(null);
   const keyboardHeight = useRef(new Animated.Value(0)).current;
+
+  const decodeVin = useAction(api.vehicle_pipeline.decodeVin);
 
   // Listen to keyboard events with smooth animation
   useEffect(() => {
@@ -79,12 +83,44 @@ export default function AddVehicleScreen() {
     router.back();
   };
 
-  const handleVinSubmit = () => {
-    if (vinNumber.trim().length > 0) {
-      router.push({
-        pathname: '/add-car-info',
-        params: { vin: vinNumber },
-      });
+  const handleVinSubmit = async () => {
+    const vin = vinNumber.trim().toUpperCase();
+    if (vin.length !== 17) {
+      setDecodeError('VIN must be exactly 17 characters');
+      return;
+    }
+
+    setIsDecoding(true);
+    setDecodeError(null);
+    Keyboard.dismiss();
+
+    try {
+      const result = await decodeVin({ vin });
+
+      if (result.success) {
+        router.push({
+          pathname: '/add-vehicle-review',
+          params: {
+            vin: result.vin,
+            make: result.make,
+            model: result.model,
+            year: String(result.year),
+            trim: result.trim,
+            trimId: result.trimId,
+            engineId: result.engineId,
+            engineCode: result.engineCode,
+            displacement: result.displacement,
+            cylinders: String(result.cylinders),
+            fuelType: result.fuelType,
+          },
+        });
+      } else {
+        setDecodeError(result.error || 'Could not decode VIN');
+      }
+    } catch (err) {
+      setDecodeError(err instanceof Error ? err.message : 'Failed to decode VIN');
+    } finally {
+      setIsDecoding(false);
     }
   };
 
@@ -199,33 +235,66 @@ export default function AddVehicleScreen() {
           bottom: keyboardHeight,
         }
       ]}>
+        {/* Error Message */}
+        {decodeError ? (
+          <View style={styles.errorBanner}>
+            <Text size="sm" color="#FF4444" style={styles.errorText}>
+              {decodeError}
+            </Text>
+          </View>
+        ) : null}
+
         {/* VIN Input Field */}
         <TextInput
           style={styles.vinInput}
           placeholder="Enter VIN"
           placeholderTextColor="#999999"
           value={vinNumber}
-          onChangeText={setVinNumber}
+          onChangeText={(text) => {
+            setVinNumber(text);
+            if (decodeError) setDecodeError(null);
+          }}
           autoCapitalize="characters"
           autoCorrect={false}
           maxLength={17}
           returnKeyType="done"
           onSubmitEditing={handleVinSubmit}
+          editable={!isDecoding}
         />
 
-        {/* Scan VIN Button */}
-        <Pressable
-          onPress={handleScanVin}
-          style={({ pressed }) => [
-            styles.scanVinButton,
-            pressed && styles.scanVinButtonPressed,
-          ]}
-        >
-          <QrCode size={20} color="#FFFFFF" strokeWidth={2} />
-          <Text weight="semiBold" size="md" color="#FFFFFF" style={styles.scanVinButtonText}>
-            SCAN VIN
-          </Text>
-        </Pressable>
+        {/* Decode / Scan VIN Button */}
+        {vinNumber.trim().length > 0 ? (
+          <Pressable
+            onPress={handleVinSubmit}
+            disabled={isDecoding}
+            style={({ pressed }) => [
+              styles.scanVinButton,
+              pressed && styles.scanVinButtonPressed,
+              isDecoding && styles.buttonDisabled,
+            ]}
+          >
+            {isDecoding ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Text weight="semiBold" size="md" color="#FFFFFF" style={styles.scanVinButtonText}>
+                DECODE VIN
+              </Text>
+            )}
+          </Pressable>
+        ) : (
+          <Pressable
+            onPress={handleScanVin}
+            style={({ pressed }) => [
+              styles.scanVinButton,
+              pressed && styles.scanVinButtonPressed,
+            ]}
+          >
+            <QrCode size={20} color="#FFFFFF" strokeWidth={2} />
+            <Text weight="semiBold" size="md" color="#FFFFFF" style={styles.scanVinButtonText}>
+              SCAN VIN
+            </Text>
+          </Pressable>
+        )}
 
         {/* Manual Entry Link */}
         <Pressable
@@ -375,5 +444,17 @@ const styles = StyleSheet.create({
   },
   manualEntryText: {
     textDecorationLine: 'underline',
+  },
+  errorBanner: {
+    backgroundColor: '#FFF0F0',
+    borderRadius: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 16,
+  },
+  errorText: {
+    textAlign: 'center',
+  },
+  buttonDisabled: {
+    opacity: 0.6,
   },
 });

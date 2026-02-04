@@ -7,7 +7,7 @@
  */
 
 import { useState } from 'react';
-import { useSignIn, useAuth } from '@clerk/clerk-expo';
+import { useSignIn, useAuth, useSSO } from '@clerk/clerk-expo';
 import * as WebBrowser from 'expo-web-browser';
 import {
     BrandColors,
@@ -31,11 +31,8 @@ import {
     ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useOnboardingStore } from '@/stores/useOnboardingStore';
-import { useMutation, useQuery } from 'convex/react';
+import { useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
-import { router } from 'expo-router';
-import { useSSO } from '@clerk/clerk-expo';
 import { Mail } from 'lucide-react-native';
 
 WebBrowser.maybeCompleteAuthSession();
@@ -51,15 +48,13 @@ export function LoginStep({ onNext, onBack }: LoginStepProps) {
     const { signIn, setActive: setSignInActive, isLoaded } = useSignIn();
     const { signOut, isSignedIn } = useAuth();
     const ensureConvexUser = useMutation(api.users.getOrCreateMe);
+    const { startSSOFlow } = useSSO();
 
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [loading, setLoading] = useState<'google' | 'apple' | 'email' | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [showEmailForm, setShowEmailForm] = useState(false);
-
-    const { startSSOFlow: startGoogleSSO } = useSSO();
-    const { startSSOFlow: startAppleSSO } = useSSO();
 
     const dynamicStyles = {
         container: { paddingTop: insets.top + Spacing.lg },
@@ -70,16 +65,30 @@ export function LoginStep({ onNext, onBack }: LoginStepProps) {
     const buttonSize: 'md' | 'lg' = isCompact ? 'md' : 'lg';
     const buttonPaddingVertical = isCompact ? Spacing.sm : Spacing.lg;
 
+    // Retry helper to wait for Clerk JWT to propagate to Convex
+    const ensureConvexUserWithRetry = async (retries = 3, delay = 1500) => {
+        // Small delay to let Clerk JWT propagate
+        await new Promise(r => setTimeout(r, 1000));
+        for (let i = 0; i <= retries; i++) {
+            try {
+                await ensureConvexUser();
+                return;
+            } catch (e) {
+                if (i === retries) throw e;
+                await new Promise(r => setTimeout(r, delay * Math.pow(2, i)));
+            }
+        }
+    };
+
     const handleOAuthLogin = async (strategy: 'google' | 'apple') => {
         if (loading) return;
         setLoading(strategy);
         setError(null);
 
         try {
-            const startSSO = strategy === 'google' ? startGoogleSSO : startAppleSSO;
             const ssoStrategy = strategy === 'google' ? 'oauth_google' : 'oauth_apple';
 
-            const { createdSessionId, setActive } = await startSSO({
+            const { createdSessionId, setActive } = await startSSOFlow({
                 strategy: ssoStrategy,
                 redirectUrl: 'otopair://oauth-callback',
                 redirectUrlComplete: 'otopair://oauth-callback',
@@ -89,12 +98,11 @@ export function LoginStep({ onNext, onBack }: LoginStepProps) {
                 await setActive({ session: createdSessionId });
 
                 try {
-                    await ensureConvexUser();
+                    await ensureConvexUserWithRetry();
                 } catch (e) {
                     console.error('Failed to ensure Convex user', e);
                 }
 
-                // Route based on onboarding status - handled by onNext
                 onNext();
             }
         } catch (err) {
@@ -127,7 +135,7 @@ export function LoginStep({ onNext, onBack }: LoginStepProps) {
             await setSignInActive?.({ session: result.createdSessionId });
 
             try {
-                await ensureConvexUser();
+                await ensureConvexUserWithRetry();
             } catch (e) {
                 console.error('Failed to ensure Convex user', e);
             }

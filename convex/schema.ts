@@ -120,7 +120,7 @@ export default defineSchema({
     engine_code: v.string(),
     fuel_type: v.string(),
     trim_id: v.id("trims"),
-  }),
+  }).index("by_trim_id", ["trim_id"]),
   
   /**
    * TABLE: vehicle_specs
@@ -241,7 +241,7 @@ export default defineSchema({
   makes: defineTable({
     logo_url: v.string(),
     name: v.string(),
-  }),
+  }).index("by_name", ["name"]),
   
   /**
    * TABLE: mechanics
@@ -300,7 +300,7 @@ export default defineSchema({
   models: defineTable({
     make_id: v.id("makes"),
     name: v.string(),
-  }),
+  }).index("by_make_id", ["make_id"]),
   
   /**
    * TABLE: onboarding_question_answers
@@ -796,7 +796,7 @@ export default defineSchema({
     name: v.string(),
     year_end: v.float64(),
     year_start: v.float64(),
-  }),
+  }).index("by_model_id", ["model_id"]),
   
   /**
    * TABLE: user_question_answers
@@ -1985,4 +1985,93 @@ export default defineSchema({
   })
     .index("by_payment_id", ["payment_id"])
     .index("by_changed_at", ["changed_at"]),
+
+
+// ============================================
+// TABLE: smartcar_connections
+// ============================================
+
+// * TABLE: smartcar_connections
+// * 
+// * DESCRIPTION:
+// * Stores Smartcar OAuth tokens separately from vehicle_owners.
+// * This keeps secrets isolated and lets you query connection
+// * status without loading tokens into client queries.
+// * 
+// * FIELDS:
+// *   - vehicleOwnerId: The vehicle owner that the connection belongs to
+// *   - smartcarVehicleId: Smartcar's internal vehicle ID
+// *   - accessToken: Smartcar access token
+// *   - refreshToken: Smartcar refresh token
+// *   - tokenExpiresAt: Unix timestamp when token expires (milliseconds)
+// *   - connectedAt: Unix timestamp when connection was established (milliseconds)
+// *   - lastSyncedAt: Unix timestamp when last sync occurred (milliseconds)
+// *   - permissions: Array of Smartcar permissions granted
+// *   - status: Connection status ("active", "expired", "revoked")
+// * 
+// * INDEXES:
+// *   - by_vehicle_owner: Get all connections for a vehicle owner
+// *   - by_smartcar_vehicle_id: Get a connection by Smartcar vehicle ID
+// *   - by_status: Get all connections by status
+// * 
+// * RELATIONSHIPS:
+// *   FK → vehicle_owners(vehicleOwnerId)
+
+ smartcar_connections: defineTable({
+  // Links to vehicle_owners (the user-vehicle relationship)
+  vehicleOwnerId: v.id("vehicle_owners"),
+  // Smartcar's internal vehicle ID
+  smartcarVehicleId: v.string(),
+  // OAuth tokens
+  accessToken: v.string(),
+  refreshToken: v.string(),
+  tokenExpiresAt: v.float64(), // Unix ms
+  // Connection metadata
+  connectedAt: v.float64(),
+  lastSyncedAt: v.optional(v.float64()),
+  permissions: v.optional(v.array(v.string())),
+  // Status: 'active' | 'expired' | 'revoked'
+  status: v.string(),
+})
+  .index("by_vehicle_owner", ["vehicleOwnerId"])
+  .index("by_smartcar_vehicle_id", ["smartcarVehicleId"])
+  .index("by_status", ["status"]),
+
+// ============================================
+// TABLE: vehicle_health_snapshots
+// ============================================
+
+// * TABLE: vehicle_health_snapshots
+// * 
+// * DESCRIPTION:
+// * Stores historical data points from Smartcar webhooks.
+// * Odometer, tire pressure, oil life, fuel, etc.
+// * 
+// * FIELDS:
+// *   - vehicleOwnerId: The vehicle owner that the connection belongs to
+// *   - smartcarVehicleId: Smartcar's internal vehicle ID
+// *   - snapshotType: Type of snapshot ("odometer", "tire_pressure", "oil_life", "fuel")
+// *   - data: JSON data of the snapshot
+// *   - source: Source of the snapshot ("smartcar", "manual", "obd")
+// *   - recordedAt: Unix timestamp when the snapshot was captured (milliseconds)
+// *   - createdAt: Unix timestamp when we stored it (milliseconds)
+// * 
+// * INDEXES:
+// *   - by_vehicle_owner: Get all connections for a vehicle owner
+// *   - by_smartcar_vehicle_id: Get all snapshots by Smartcar vehicle ID
+// *   - by_snapshot_type: Get all snapshots by type
+// * 
+// * RELATIONSHIPS:
+// *   FK → smartcar_connections(vehicleOwnerId)
+ vehicle_health_snapshots: defineTable({
+  vehicleOwnerId: v.id("vehicle_owners"),
+  snapshotType: v.string(), // 'odometer' | 'tire_pressure' | 'oil_life' | 'fuel' | 'battery'
+  data: v.any(), // Flexible JSON — shape varies by type
+  source: v.string(), // 'smartcar' | 'manual' | 'obd'
+  recordedAt: v.float64(), // When the data was captured
+  createdAt: v.float64(), // When we stored it
+})
+  .index("by_vehicle_owner", ["vehicleOwnerId"])
+  .index("by_vehicle_and_type", ["vehicleOwnerId", "snapshotType"])
+
 });

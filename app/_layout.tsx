@@ -58,9 +58,6 @@ function EnsureConvexUserRecord() {
         }
       };
       retryWithBackoff(() => ensureUser())
-        .then(() => console.log("Ensured Convex user via RootLayout"))
-        .catch((error) => console.error("Failed to ensure Convex user via RootLayout after retries", error));
-      ensureUser()
         .then(() => {
           console.log("Ensured Convex user via RootLayout");
           return claimSeedData();
@@ -68,7 +65,7 @@ function EnsureConvexUserRecord() {
         .then((result) => {
           if (result?.claimed) console.log("Claimed seed data for guest account");
         })
-        .catch((error) => console.error("Failed to ensure Convex user via RootLayout", error));
+        .catch((error) => console.error("Failed to ensure Convex user via RootLayout after retries", error));
     }
   }, [ensureUser, claimSeedData, isSignedIn, userId]);
 
@@ -110,6 +107,7 @@ export default function RootLayout() {
                 <Stack.Screen name="add-car-info" options={{ headerShown: false }} />
                 <Stack.Screen name="vehicle-added" options={{ headerShown: false }} />
                 <Stack.Screen name="vin-scanner" options={{ headerShown: false }} />
+                <Stack.Screen name="add-vehicle-review" options={{ headerShown: false }} />
                 <Stack.Screen name="payments" options={{ headerShown: false }} />
                 {/* <Stack.Screen name="payment-methods" options={{ headerShown: false }} /> */}
                 <Stack.Screen name="modal" options={{ presentation: "modal", title: "Modal" }} />
