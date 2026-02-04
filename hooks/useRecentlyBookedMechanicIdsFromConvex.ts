@@ -16,10 +16,7 @@ const DEFAULT_LIMIT = 5;
 
 export function useRecentlyBookedMechanicIdsFromConvex(limit = DEFAULT_LIMIT) {
   const { userId } = useUserFromConvex();
-  const mechanicIds = useQuery(
-    api.bookings.getRecentlyBookedMechanicIdsByUserId,
-    userId ? { userId, limit } : "skip"
-  );
+  const mechanicIds = useQuery(api.bookings.getRecentlyBookedMechanicIdsByUserId, userId ? { userId, limit } : "skip");
 
   return {
     recentlyBookedMechanicIds: mechanicIds ?? [],

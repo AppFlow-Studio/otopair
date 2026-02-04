@@ -16,10 +16,7 @@ const DEFAULT_LIMIT = 5;
 
 export function useRecentlyBookedShopIdsFromConvex(limit = DEFAULT_LIMIT) {
   const { userId } = useUserFromConvex();
-  const shopIds = useQuery(
-    api.bookings.getRecentlyBookedShopIdsByUserId,
-    userId ? { userId, limit } : "skip"
-  );
+  const shopIds = useQuery(api.bookings.getRecentlyBookedShopIdsByUserId, userId ? { userId, limit } : "skip");
 
   return {
     recentlyBookedShopIds: shopIds ?? [],
