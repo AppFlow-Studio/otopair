@@ -308,15 +308,21 @@ export const seed = mutation({
 
     const now = Date.now();
 
-    // --- Makes ---
+    // --- Makes (logo stored in cdn_assets, makes reference by id) ---
+    const toyotaLogoId = await ctx.db.insert("cdn_assets", {
+      url: "https://upload.wikimedia.org/wikipedia/commons/9/9d/Toyota_carridge_logo.svg",
+    });
     const toyotaId = await ctx.db.insert("makes", {
       name: "Toyota",
-      logo_url: "https://upload.wikimedia.org/wikipedia/commons/9/9d/Toyota_carridge_logo.svg",
+      logo: toyotaLogoId,
     });
 
+    const hondaLogoId = await ctx.db.insert("cdn_assets", {
+      url: "https://upload.wikimedia.org/wikipedia/commons/7/7b/Honda-logo.svg",
+    });
     const hondaId = await ctx.db.insert("makes", {
       name: "Honda",
-      logo_url: "https://upload.wikimedia.org/wikipedia/commons/7/7b/Honda-logo.svg",
+      logo: hondaLogoId,
     });
 
     // --- Models ---
@@ -1194,10 +1200,11 @@ export const seedVehicleIntelligenceDemoData = internalMutation({
   handler: async (ctx) => {
     const now = Date.now();
 
-    const ensureMake = async (name: string, logo_url: string) => {
+    const ensureMake = async (name: string, logoUrl: string) => {
       const existing = (await ctx.db.query("makes").collect()).find((m) => m.name === name);
       if (existing) return existing;
-      const id = await ctx.db.insert("makes", { name, logo_url });
+      const logoId = await ctx.db.insert("cdn_assets", { url: logoUrl });
+      const id = await ctx.db.insert("makes", { name, logo: logoId });
       return (await ctx.db.get(id))!;
     };
 
@@ -1525,5 +1532,297 @@ export const seedVehicleIntelligenceDemoData = internalMutation({
       chassis_id: chassis._id,
       parts_seeded: [oilFilter._id, engineAirFilter._id, cabinAirFilter._id, atfFilter._id, battery._id],
     };
+  },
+});
+
+/** John Doe account: clerkUserId user_38uSI8ArZJ0HMY9AwvQLOZiIo53 */
+const JOHN_DOE_CLERK_USER_ID = "user_38uSI8ArZJ0HMY9AwvQLOZiIo53";
+
+/**
+ * Seeds past (completed) bookings for the John Doe account so the History tab
+ * shows data. Run: npx convex run seed:seedPastBookingsForJohnDoe
+ */
+export const seedPastBookingsForJohnDoe = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", JOHN_DOE_CLERK_USER_ID))
+      .unique();
+    if (!user) {
+      throw new Error(
+        `User with clerkUserId ${JOHN_DOE_CLERK_USER_ID} (John Doe) not found. Ensure the account exists.`
+      );
+    }
+
+    const owners = await ctx.db
+      .query("vehicle_owners")
+      .withIndex("by_user_id", (q) => q.eq("user_id", user._id))
+      .collect();
+    let vin: string;
+    if (owners.length > 0) {
+      vin = owners[0].vin;
+    } else {
+      const vehicles = await ctx.db.query("vehicles").collect();
+      if (vehicles.length === 0) throw new Error("No vehicles in DB. Run full seed first.");
+      vin = vehicles[0].vin;
+      await ctx.db.insert("vehicle_owners", {
+        vin,
+        user_id: user._id,
+        status: "active",
+        nickname: "My Car",
+        is_primary: true,
+        mileage: 40000,
+        added_at: Date.now(),
+      });
+    }
+
+    const shops = await ctx.db.query("shops").collect();
+    const mechanics = await ctx.db.query("mechanics").collect();
+    const services = await ctx.db.query("services").collect();
+    const oilChange = services.find((s) => s.slug === "oil-change");
+    const brakePads = services.find((s) => s.slug === "brake-pads");
+    const tireRotation = services.find((s) => s.slug === "tire-rotation");
+    if (!shops.length || !mechanics.length || !oilChange) {
+      throw new Error("Shops, mechanics, or Oil Change service missing. Run full seed first.");
+    }
+
+    const shop1 = shops[0];
+    const shop2 = shops[1] ?? shop1;
+    const mech1 = mechanics.find((m) => m.shop_id === shop1._id) ?? mechanics[0];
+    const mech2 = mechanics.find((m) => m.shop_id === shop2._id) ?? mech1;
+
+    const pastBookings = [
+      { daysAgo: 14, service: oilChange, shop: shop1, mechanic: mech1, labor: 47.5, parts: 45 },
+      { daysAgo: 30, service: brakePads, shop: shop1, mechanic: mech2, labor: 95, parts: 60 },
+      { daysAgo: 60, service: oilChange, shop: shop2, mechanic: mech2, labor: 42.5, parts: 40 },
+      { daysAgo: 90, service: tireRotation, shop: shop1, mechanic: mech1, labor: 47.5, parts: 0 },
+    ];
+
+    const now = Date.now();
+    let created = 0;
+
+    for (const { daysAgo, service, shop, mechanic, labor, parts } of pastBookings) {
+      const date = new Date(now);
+      date.setDate(date.getDate() - daysAgo);
+      const dateStr = date.toISOString().split("T")[0];
+      const createdAt = now - daysAgo * 24 * 60 * 60 * 1000;
+      const totalCost = labor + parts;
+
+      const timeSlotId = await ctx.db.insert("time_slots", {
+        shop_id: shop._id,
+        mechanic_id: mechanic._id,
+        date: dateStr,
+        start_time: "10:00",
+        end_time: "11:00",
+        is_available: false,
+      });
+
+      const bookingId = await ctx.db.insert("bookings", {
+        user_id: user._id,
+        vin,
+        shop_id: shop._id,
+        mechanic_id: mechanic._id,
+        service_ids: [service._id],
+        time_slot_id: timeSlotId,
+        scheduled_date: dateStr,
+        scheduled_time: "10:00",
+        labor_cost: labor,
+        parts_cost: parts,
+        total_cost: totalCost,
+        status: "completed",
+        created_at: createdAt,
+        updated_at: createdAt,
+      });
+
+      await ctx.db.insert("booking_status_history", {
+        booking_id: bookingId,
+        old_status: "confirmed",
+        new_status: "completed",
+        changed_by: user._id,
+        reason: "seeded_past",
+        changed_at: createdAt,
+      });
+
+      const paymentId = await ctx.db.insert("payments", {
+        booking_id: bookingId,
+        user_id: user._id,
+        shop_id: shop._id,
+        amount: totalCost,
+        payment_method: "card",
+        status: "completed",
+        transaction_id: `txn_johndoe_past_${created}`,
+        stripe_payment_intent_id: `pi_johndoe_past_${created}`,
+        idempotency_key: `johndoe_past_${created}`,
+        created_at: createdAt,
+        updated_at: createdAt,
+      });
+
+      await ctx.db.insert("payment_status_history", {
+        payment_id: paymentId,
+        old_status: "processing",
+        new_status: "completed",
+        error_code: undefined,
+        error_message: undefined,
+        changed_at: createdAt,
+      });
+
+      const completedAt = createdAt + 45 * 60 * 1000;
+      await ctx.db.insert("job_actuals", {
+        booking_id: bookingId,
+        mechanic_id: mechanic._id,
+        actual_labor_minutes: 45,
+        actual_parts_cost: parts,
+        started_at: createdAt,
+        completed_at_ms: completedAt,
+        logged_at_ms: completedAt,
+        created_at: completedAt,
+        updated_at: completedAt,
+        difficulty_rating: 2,
+        parts_used: [{ part_name: "Service parts", oem_number: "N/A", cost: parts }],
+        technician_notes: "Completed as requested.",
+      });
+
+      await ctx.db.insert("reviews", {
+        booking_id: bookingId,
+        shop_id: shop._id,
+        user_id: user._id,
+        mechanic_id: mechanic._id,
+        rating: 5,
+        comment: "Great service, would book again.",
+        created_at: completedAt,
+      });
+
+      created++;
+    }
+
+    return { success: true, pastBookingsCreated: created };
+  },
+});
+
+/**
+ * Seeds one live (in_progress) booking for the John Doe account so the Live Tracker
+ * tab shows data. Run: npx convex run seed:seedLiveBookingForJohnDoe
+ */
+export const seedLiveBookingForJohnDoe = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", JOHN_DOE_CLERK_USER_ID))
+      .unique();
+    if (!user) {
+      throw new Error(
+        `User with clerkUserId ${JOHN_DOE_CLERK_USER_ID} (John Doe) not found. Ensure the account exists.`
+      );
+    }
+
+    const owners = await ctx.db
+      .query("vehicle_owners")
+      .withIndex("by_user_id", (q) => q.eq("user_id", user._id))
+      .collect();
+    let vin: string;
+    if (owners.length > 0) {
+      vin = owners[0].vin;
+    } else {
+      const vehicles = await ctx.db.query("vehicles").collect();
+      if (vehicles.length === 0) throw new Error("No vehicles in DB. Run full seed first.");
+      vin = vehicles[0].vin;
+      await ctx.db.insert("vehicle_owners", {
+        vin,
+        user_id: user._id,
+        status: "active",
+        nickname: "My Car",
+        is_primary: true,
+        mileage: 40000,
+        added_at: Date.now(),
+      });
+    }
+
+    const shops = await ctx.db.query("shops").collect();
+    const mechanics = await ctx.db.query("mechanics").collect();
+    const services = await ctx.db.query("services").collect();
+    const oilChange = services.find((s) => s.slug === "oil-change");
+    if (!shops.length || !mechanics.length || !oilChange) {
+      throw new Error("Shops, mechanics, or Oil Change service missing. Run full seed first.");
+    }
+
+    const shop = shops[0];
+    const mechanic = mechanics.find((m) => m.shop_id === shop._id) ?? mechanics[0];
+    const now = Date.now();
+    const today = new Date(now).toISOString().split("T")[0];
+    const labor = 47.5;
+    const parts = 45;
+    const totalCost = labor + parts;
+    const estimatedMinutes = 45;
+    const startedAtSeconds = Math.floor(now / 1000) - 600;
+
+    const timeSlotId = await ctx.db.insert("time_slots", {
+      shop_id: shop._id,
+      mechanic_id: mechanic._id,
+      date: today,
+      start_time: "10:00",
+      end_time: "11:00",
+      is_available: false,
+    });
+
+    const bookingId = await ctx.db.insert("bookings", {
+      user_id: user._id,
+      vin,
+      shop_id: shop._id,
+      mechanic_id: mechanic._id,
+      service_ids: [oilChange._id],
+      time_slot_id: timeSlotId,
+      scheduled_date: today,
+      scheduled_time: "10:00",
+      labor_cost: labor,
+      parts_cost: parts,
+      total_cost: totalCost,
+      status: "in_progress",
+      live_stage: "service_in_progress",
+      estimated_labor_minutes: estimatedMinutes,
+      created_at: now,
+      updated_at: now,
+    });
+
+    await ctx.db.insert("booking_status_history", {
+      booking_id: bookingId,
+      old_status: "confirmed",
+      new_status: "in_progress",
+      changed_by: user._id,
+      reason: "seeded_live",
+      changed_at: now,
+    });
+
+    await ctx.db.insert("job_actuals", {
+      booking_id: bookingId,
+      mechanic_id: mechanic._id,
+      actual_labor_minutes: estimatedMinutes,
+      actual_parts_cost: parts,
+      started_at: startedAtSeconds,
+      completed_at_ms: undefined,
+      logged_at_ms: undefined,
+      created_at: now,
+      updated_at: now,
+      difficulty_rating: 2,
+      parts_used: [],
+      technician_notes: "Service in progress.",
+    });
+
+    await ctx.db.insert("payments", {
+      booking_id: bookingId,
+      user_id: user._id,
+      shop_id: shop._id,
+      amount: totalCost,
+      payment_method: "card",
+      status: "completed",
+      transaction_id: "txn_johndoe_live",
+      stripe_payment_intent_id: "pi_johndoe_live",
+      idempotency_key: "johndoe_live",
+      created_at: now,
+      updated_at: now,
+    });
+
+    return { success: true, bookingId };
   },
 });

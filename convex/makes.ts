@@ -49,7 +49,7 @@ export const list = query({
  *   {
  *     _id: make id,
  *     name: string (e.g., "Toyota"),
- *     logo_url: string
+ *     logo: id("cdn_assets") | undefined — reference to content table for logo URL
  *   }
  */
 export const getById = query({

@@ -151,6 +151,7 @@
 - `shop_id` → `shopId`
 - `first_name` + `last_name` → `name`
 - Shop name from shops lookup → `shopName`
+- **`photoUrl`** – resolved from `mechanic.photo` → cdn_assets.url (list/getById/getByShopId); used for Live Tracker and booking cards
 
 **Convex Shop → Store Shop (pricing)**
 
@@ -169,7 +170,35 @@
 
 ---
 
-## 4. Full Booking Flow (End-to-End)
+## 4. My Bookings & Live Tracker
+
+### Data source
+
+| Screen / Tab   | Hook / API | Data |
+|----------------|------------|------|
+| **My Bookings** | **useMyBookingsWithDetails** | Splits `api.bookings.getByUserIdWithDetails(userId)` into `liveTracking`, `upcomingBookings`, `historyBookings` by status and date |
+| **Live Tracker** | Same | First in_progress booking → LiveTrackerCard; uses **live_stage**, progressPercent, currentStage, stages |
+| **Upcoming**     | Same | Bookings that are not completed/cancelled and not in_progress, with scheduled_date ≥ today |
+| **History**     | Same | Bookings with status completed/cancelled or scheduled_date &lt; today; search/filter by query |
+
+### Stored Live Tracker stage
+
+- **`bookings.live_stage`** (optional): When `status === "in_progress"`, one of `"booking_confirmed"` | `"service_in_progress"` | `"vehicle_ready"`. Set by `updateStatus(..., "in_progress")` to `"service_in_progress"`; cleared when status becomes completed/cancelled/no_show.
+- **`bookings.updateLiveStage(bookingId, liveStage)`** – mechanic/shop can advance the stage (e.g. to `"vehicle_ready"`). Only allowed when booking is in_progress.
+
+### Query and adapter
+
+- **getByUserIdWithDetails** returns per booking: shopName, shopPhone, mechanicName, **mechanicImageUrl** (mechanic.photo → cdn_assets), vehicleDisplay, licensePlate, makeLogoUrl, serviceNames; for in_progress: **liveStage**, **currentStage** (display title), **progressPercent** (from job_actuals elapsed time or stage-based fallback), delayMinutes.
+- **utils/bookingAdapter.ts**: **stagesFromLiveStage(liveStage, progressPercent)** builds the four UI stages (Booking Confirmed → Service in Progress → Your vehicle is ready → Service Completed) with completed/current/pending from stored `live_stage`; fallback to progress-based heuristic when liveStage is missing. **adaptConvexBookingWithDetailsToLiveTracking(row)** uses row.liveStage and row.progressPercent for LiveTrackerCard.
+
+### Seed (demo data)
+
+- **seed:seedPastBookingsForJohnDoe** – creates 4 completed (past) bookings for user with clerkUserId `user_38uSI8ArZJ0HMY9AwvQLOZiIo53` so the History tab shows data. Run: `npx convex run seed:seedPastBookingsForJohnDoe`.
+- **seed:seedLiveBookingForJohnDoe** – creates one in_progress booking with `live_stage: "service_in_progress"` and job_actuals so the Live Tracker tab shows data. Run: `npx convex run seed:seedLiveBookingForJohnDoe`.
+
+---
+
+## 5. Full Booking Flow (End-to-End)
 
 ```
 Discovery (map/home)

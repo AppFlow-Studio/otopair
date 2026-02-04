@@ -1,142 +1,33 @@
 /**
  * BookingsScreen
  *
- * PURPOSE: Main screen for discovering and booking auto repair shops
+ * PURPOSE: My Bookings screen – Live Tracker, Upcoming, and History from Convex.
  *
  * USED IN: app/(main-tabs)/bookings/_layout.tsx
  *
  * FEATURES:
- *   - Location-based shop discovery with top bar navigation
- *   - Service-based filtering
- *   - Map view with nearby shops
- *   - State managed via useBookingStore and useShopStore
+ *   - Live Tracker: in_progress booking with progress and contact shop
+ *   - Upcoming: pending/confirmed future bookings
+ *   - History: completed/cancelled or past bookings with search
  *
  * OWNER: Waleed Mansour
  */
 import { BookingCard, type Booking } from "@/components/bookings/BookingCard";
-import { LiveTrackerCard, type LiveTracking } from "@/components/bookings/LiveTrackerCard";
+import { LiveTrackerCard } from "@/components/bookings/LiveTrackerCard";
 import { Text } from "@/components/shared-ui";
+import { useMyBookingsWithDetails } from "@/hooks/useMyBookingsWithDetails";
 import { Calendar, Search, SlidersHorizontal } from "lucide-react-native";
 import React, { useCallback, useState } from "react";
-import { Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import {
+  Linking,
+  Pressable,
+  RefreshControl,
+  ScrollView,
+  StyleSheet,
+  TextInput,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-
-// ============================================================================
-// SAMPLE DATA
-// ============================================================================
-
-const SAMPLE_LIVE_TRACKING: LiveTracking = {
-  id: "live-1",
-  carModel: "BMW M5",
-  carYear: "2019",
-  licensePlate: "RPH 468",
-  mechanicName: "John Rodriguez",
-  shopName: "Premium auto care",
-  mechanicImage: "https://randomuser.me/api/portraits/men/32.jpg",
-  shopPhone: "+1 234 567 8900",
-  currentStage: "Car checked in",
-  progressPercent: 25,
-  delayMinutes: 45,
-  stages: [
-    {
-      id: "1",
-      title: "Booking Confirmed",
-      description: "Your appointment is set.",
-      status: "completed",
-    },
-    {
-      id: "2",
-      title: "Service in Progress",
-      description: "Currently working on your vehicle.",
-      status: "current",
-    },
-    {
-      id: "3",
-      title: "Your vehicle is ready",
-      description: "You will be notified when ready.",
-      status: "pending",
-    },
-    {
-      id: "4",
-      title: "Service Completed",
-      description: "Your service is completed",
-      status: "pending",
-    },
-  ],
-};
-
-const SAMPLE_UPCOMING_BOOKINGS: Booking[] = [
-  {
-    id: "1",
-    services: ["Oil Change", "Tire Rotation", "Brake Check"],
-    carModel: "BMW M5",
-    carYear: "2019",
-    licensePlate: "RPH 468",
-    mechanicName: "John Rodriguez",
-    shopName: "Premium auto care",
-    mechanicImage: "https://randomuser.me/api/portraits/men/32.jpg",
-    date: "Tuesday, Sep 10",
-    time: "2:30 PM",
-    status: "confirmed",
-  },
-  {
-    id: "2",
-    services: ["Brake Pads", "Fluid Check"],
-    carModel: "BMW M5",
-    carYear: "2019",
-    licensePlate: "RPH 468",
-    mechanicName: "John Rodriguez",
-    shopName: "Premium auto care",
-    mechanicImage: "https://randomuser.me/api/portraits/men/32.jpg",
-    date: "Tuesday, Sep 10",
-    time: "2:30 PM",
-    status: "pending",
-  },
-  {
-    id: "3",
-    services: ["Oil Change", "Filter Replacement", "Diagnostics"],
-    carModel: "BMW M5",
-    carYear: "2019",
-    licensePlate: "RPH 468",
-    mechanicName: "John Rodriguez",
-    shopName: "Premium auto care",
-    mechanicImage: "https://randomuser.me/api/portraits/men/32.jpg",
-    date: "Tuesday, Sep 10",
-    time: "2:30 PM",
-    status: "delayed",
-  },
-];
-
-const SAMPLE_HISTORY_BOOKINGS: Booking[] = [
-  {
-    id: "4",
-    services: ["Oil Change", "Tire Rotation", "Brake Check"],
-    carModel: "BMW M5",
-    carYear: "2019",
-    licensePlate: "RPH 468",
-    mechanicName: "John Rodriguez",
-    shopName: "Premium auto care",
-    mechanicImage: "https://randomuser.me/api/portraits/men/32.jpg",
-    date: "Tuesday, Sep 10",
-    time: "2:30 PM",
-    status: "completed",
-    totalCost: 240.0,
-  },
-  {
-    id: "5",
-    services: ["Oil Change", "Filter Replacement", "Diagnostics"],
-    carModel: "BMW M5",
-    carYear: "2019",
-    licensePlate: "RPH 468",
-    mechanicName: "John Rodriguez",
-    shopName: "Premium auto care",
-    mechanicImage: "https://randomuser.me/api/portraits/men/32.jpg",
-    date: "Tuesday, Sep 10",
-    time: "2:30 PM",
-    status: "completed",
-    totalCost: 240.0,
-  },
-];
 
 // ============================================================================
 // TYPES
@@ -150,15 +41,21 @@ type TabType = "liveTracker" | "upcoming" | "history";
 
 export default function BookingsScreen() {
   const insets = useSafeAreaInsets();
-  // Default to liveTracker when there's an active service
-  const hasActiveService = true; // This would come from your state/API
+  const {
+    liveTracking,
+    upcomingBookings,
+    historyBookings,
+    isLoading,
+  } = useMyBookingsWithDetails();
+
+  const hasActiveService = !!liveTracking;
   const [activeTab, setActiveTab] = useState<TabType>(hasActiveService ? "liveTracker" : "upcoming");
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
-  const bookings = activeTab === "upcoming" ? SAMPLE_UPCOMING_BOOKINGS : SAMPLE_HISTORY_BOOKINGS;
+  const bookings = activeTab === "upcoming" ? upcomingBookings : historyBookings;
 
-  // Filter bookings based on search query
+  // Filter bookings based on search query (history tab)
   const filteredBookings = bookings.filter(
     (booking) =>
       booking.services.some((s) => s.toLowerCase().includes(searchQuery.toLowerCase())) ||
@@ -168,9 +65,7 @@ export default function BookingsScreen() {
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
-    setTimeout(() => {
-      setRefreshing(false);
-    }, 1500);
+    setTimeout(() => setRefreshing(false), 1500);
   }, []);
 
   const handleViewDetails = (bookingId: string) => {
@@ -193,9 +88,11 @@ export default function BookingsScreen() {
     console.log("Toggle favorite for booking:", bookingId);
   };
 
-  const handleContactShop = () => {
-    console.log("Contact shop");
-  };
+  const handleContactShop = useCallback(() => {
+    if (liveTracking?.shopPhone) {
+      Linking.openURL(`tel:${liveTracking.shopPhone}`);
+    }
+  }, [liveTracking?.shopPhone]);
 
   return (
     <View style={styles.container}>
@@ -267,9 +164,9 @@ export default function BookingsScreen() {
         <View style={styles.content}>
           {activeTab === "liveTracker" ? (
             // Live Tracker Content
-            hasActiveService ? (
+            hasActiveService && liveTracking ? (
               <LiveTrackerCard
-                tracking={SAMPLE_LIVE_TRACKING}
+                tracking={liveTracking}
                 onReschedule={() => handleReschedule()}
                 onContactShop={handleContactShop}
               />

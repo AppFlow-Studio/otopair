@@ -35,6 +35,28 @@ import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { internal } from "./_generated/api";
 
+/** Live Tracker stage slugs stored on bookings when status is in_progress */
+export const LIVE_STAGE_SLUGS = [
+  "booking_confirmed",
+  "service_in_progress",
+  "vehicle_ready",
+] as const;
+export type LiveStageSlug = (typeof LIVE_STAGE_SLUGS)[number];
+
+/** Display title for each live stage (for currentStage in UI) */
+export const LIVE_STAGE_TITLES: Record<string, string> = {
+  booking_confirmed: "Booking Confirmed",
+  service_in_progress: "Service in Progress",
+  vehicle_ready: "Your vehicle is ready",
+};
+
+/** Progress percent when no job_actuals elapsed time (stage-based fallback) */
+const LIVE_STAGE_PROGRESS: Record<string, number> = {
+  booking_confirmed: 25,
+  service_in_progress: 50,
+  vehicle_ready: 90,
+};
+
 /**
  * QUERY: list
  * Returns all bookings in the system.
@@ -80,6 +102,148 @@ export const getByUserId = query({
       .query("bookings")
       .withIndex("by_user_id", (q) => q.eq("user_id", args.userId))
       .collect();
+  },
+});
+
+/**
+ * QUERY: getByUserIdWithDetails
+ * Get all bookings for a user with shop, mechanic, vehicle, and service names resolved.
+ * Used by My Bookings screen for Live Tracker, Upcoming, and History.
+ *
+ * ARGS:
+ *   - userId: User ID
+ *
+ * RETURNS: Array of booking rows with display fields (shopName, shopPhone, mechanicName, vehicleDisplay, licensePlate, serviceNames, progressPercent?, currentStage?, delayMinutes?)
+ */
+export const getByUserIdWithDetails = query({
+  args: { userId: v.id("users") },
+  handler: async (ctx, args) => {
+    const bookings = await ctx.db
+      .query("bookings")
+      .withIndex("by_user_id", (q) => q.eq("user_id", args.userId))
+      .collect();
+
+    const results = await Promise.all(
+      bookings.map(async (booking) => {
+        const shop = await ctx.db.get(booking.shop_id);
+        const mechanic = booking.mechanic_id
+          ? await ctx.db.get(booking.mechanic_id)
+          : null;
+        const shopName = shop?.name ?? "Unknown Shop";
+        const shopPhone = shop?.phone ?? "";
+        const mechanicName = mechanic
+          ? `${mechanic.first_name} ${mechanic.last_name}`
+          : shopName;
+        let mechanicImageUrl: string | undefined;
+        if (mechanic?.photo) {
+          const photoAsset = await ctx.db.get(mechanic.photo);
+          mechanicImageUrl = photoAsset?.url;
+        }
+
+        const serviceIds = booking.service_ids ?? [];
+        const serviceNames = await Promise.all(
+          serviceIds.map(async (id) => {
+            const svc = await ctx.db.get(id);
+            return svc?.name ?? "";
+          })
+        ).then((a) => a.filter(Boolean));
+
+        const vehicle = await ctx.db
+          .query("vehicles")
+          .withIndex("by_vin", (q) => q.eq("vin", booking.vin))
+          .unique();
+        let vehicleDisplay = "Unknown Vehicle";
+        let licensePlate = booking.vin.slice(-4);
+        let makeLogoUrl: string | undefined;
+        if (vehicle) {
+          const parts: string[] = [];
+          if (vehicle.trim_id) {
+            const trim = await ctx.db.get(vehicle.trim_id);
+            if (trim) {
+              const model = await ctx.db.get(trim.model_id);
+              if (model) {
+                const make = await ctx.db.get(model.make_id);
+                if (make) {
+                  parts.push(make.name);
+                  if (make.logo) {
+                    const logoAsset = await ctx.db.get(make.logo);
+                    makeLogoUrl = logoAsset?.url;
+                  }
+                }
+                parts.push(model.name);
+              }
+              parts.push(trim.name);
+            }
+          }
+          if (vehicle.year != null) parts.push(String(vehicle.year));
+          if (parts.length > 0) vehicleDisplay = parts.join(" ");
+        }
+
+        let progressPercent: number | undefined;
+        let currentStage: string | undefined;
+        let delayMinutes: number | undefined;
+        const liveStage = booking.live_stage;
+        if (booking.status === "in_progress") {
+          const jobActual = await ctx.db
+            .query("job_actuals")
+            .withIndex("by_booking_id", (q) => q.eq("booking_id", booking._id))
+            .unique();
+          const estimatedMinutes = booking.estimated_labor_minutes ?? 60;
+          // Use stored live_stage for currentStage when set; else infer from job_actual
+          if (liveStage && LIVE_STAGE_TITLES[liveStage]) {
+            currentStage = LIVE_STAGE_TITLES[liveStage];
+          } else if (jobActual) {
+            currentStage = "Service in Progress";
+          } else {
+            currentStage = "Car checked in";
+          }
+          // Progress: from job_actuals elapsed when available, else from live_stage
+          if (jobActual) {
+            const elapsedMs = Date.now() - jobActual.started_at * 1000;
+            const totalMs = estimatedMinutes * 60 * 1000;
+            progressPercent = Math.min(
+              100,
+              Math.round((elapsedMs / totalMs) * 100)
+            );
+            const scheduledStartMs =
+              new Date(
+                `${booking.scheduled_date}T${booking.scheduled_time}`
+              ).getTime();
+            const lateMs = Date.now() - scheduledStartMs;
+            if (lateMs > 0)
+              delayMinutes = Math.round(lateMs / 60000);
+          } else {
+            progressPercent =
+              (liveStage && LIVE_STAGE_PROGRESS[liveStage]) ?? 25;
+          }
+        }
+
+        return {
+          _id: booking._id,
+          status: booking.status,
+          scheduled_date: booking.scheduled_date,
+          scheduled_time: booking.scheduled_time,
+          total_cost: booking.total_cost,
+          shop_id: booking.shop_id,
+          mechanic_id: booking.mechanic_id,
+          vin: booking.vin,
+          shopName,
+          shopPhone,
+          mechanicName,
+          mechanicImageUrl,
+          vehicleDisplay,
+          licensePlate,
+          makeLogoUrl,
+          serviceNames,
+          progressPercent,
+          currentStage,
+          delayMinutes,
+          liveStage: liveStage ?? undefined,
+        };
+      })
+    );
+
+    return results;
   },
 });
 
@@ -493,12 +657,18 @@ export const updateStatus = mutation({
       throw new Error(`Cannot transition from terminal state: ${booking.status}`);
     }
 
-    // Patch booking with new status
+    // Patch booking with new status; set or clear live_stage for Live Tracker
     const now = Date.now();
-    await ctx.db.patch(args.bookingId, {
+    const patch: { status: string; updated_at: number; live_stage?: string } = {
       status: args.newStatus,
       updated_at: now,
-    });
+    };
+    if (args.newStatus === "in_progress") {
+      patch.live_stage = "service_in_progress";
+    } else if (["cancelled", "no_show", "completed"].includes(args.newStatus)) {
+      patch.live_stage = undefined;
+    }
+    await ctx.db.patch(args.bookingId, patch);
 
     // When booking is freed (cancelled, no_show, completed), release the time slot so it shows available on the mechanics side
     const slotReleasingStatuses = ["cancelled", "no_show", "completed"];
@@ -516,5 +686,39 @@ export const updateStatus = mutation({
     });
 
     return { success: true, oldStatus: booking.status, newStatus: args.newStatus };
+  },
+});
+
+/**
+ * MUTATION: updateLiveStage
+ * Update the Live Tracker stage for an in_progress booking.
+ * Used when mechanic/shop advances the stage (e.g. "vehicle_ready").
+ *
+ * ARGS:
+ *   - bookingId: Booking to update
+ *   - liveStage: "booking_confirmed" | "service_in_progress" | "vehicle_ready"
+ *
+ * THROWS: "Booking not found" | "Booking is not in progress" | "Invalid live stage"
+ */
+export const updateLiveStage = mutation({
+  args: {
+    bookingId: v.id("bookings"),
+    liveStage: v.union(
+      v.literal("booking_confirmed"),
+      v.literal("service_in_progress"),
+      v.literal("vehicle_ready")
+    ),
+  },
+  handler: async (ctx, args) => {
+    const booking = await ctx.db.get(args.bookingId);
+    if (!booking) throw new Error("Booking not found");
+    if (booking.status !== "in_progress") {
+      throw new Error("Booking is not in progress");
+    }
+    await ctx.db.patch(args.bookingId, {
+      live_stage: args.liveStage,
+      updated_at: Date.now(),
+    });
+    return { success: true, liveStage: args.liveStage };
   },
 });

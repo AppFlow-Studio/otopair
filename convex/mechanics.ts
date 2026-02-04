@@ -43,7 +43,10 @@ export const list = query({
     return await Promise.all(
       mechanics.map(async (mechanic) => {
         const shop = await ctx.db.get(mechanic.shop_id);
-        return { ...mechanic, shop };
+        const photoUrl = mechanic.photo
+          ? (await ctx.db.get(mechanic.photo))?.url
+          : undefined;
+        return { ...mechanic, shop, photoUrl };
       })
     );
   },
@@ -76,7 +79,10 @@ export const getById = query({
       return null;
     }
     const shop = await ctx.db.get(mechanic.shop_id);
-    return { ...mechanic, shop };
+    const photoUrl = mechanic.photo
+      ? (await ctx.db.get(mechanic.photo))?.url
+      : undefined;
+    return { ...mechanic, shop, photoUrl };
   },
 });
 
@@ -96,7 +102,7 @@ export const getById = query({
 export const getByShopId = query({
   args: { shopId: v.id("shops") },
   handler: async (ctx, args) => {
-    return await ctx.db
+    const mechanics = await ctx.db
       .query("mechanics")
       .filter((q) =>
         q.and(
@@ -105,5 +111,13 @@ export const getByShopId = query({
         )
       )
       .collect();
+    return await Promise.all(
+      mechanics.map(async (mechanic) => {
+        const photoUrl = mechanic.photo
+          ? (await ctx.db.get(mechanic.photo))?.url
+          : undefined;
+        return { ...mechanic, photoUrl };
+      })
+    );
   },
 });

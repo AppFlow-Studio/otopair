@@ -398,7 +398,7 @@ classDiagram
   class makes {
     +id _id
     +string name
-    +string logo_url
+    +id logo (→ cdn_assets)
   }
 ```
 

@@ -43,6 +43,7 @@ export default defineSchema({
    *   - total_cost: Full amount customer pays (labor_cost + parts_cost + taxes_and_fees + platform_fee)
    *   - estimated_labor_minutes: Total estimated time for all services (minutes)
    *   - status: Current booking state (e.g., "confirmed", "completed", "cancelled")
+   *   - live_stage: When status is "in_progress", current Live Tracker stage: "booking_confirmed" | "service_in_progress" | "vehicle_ready"
    *   - created_at: Unix timestamp when booking was created
    *   - updated_at: Unix timestamp of last modification
    *
@@ -68,6 +69,7 @@ export default defineSchema({
    */
   bookings: defineTable({
     labor_cost: v.float64(),
+    live_stage: v.optional(v.string()), // "booking_confirmed" | "service_in_progress" | "vehicle_ready" when status is in_progress
     mechanic_id: v.optional(v.id("mechanics")),
     parts_cost: v.float64(),
     scheduled_date: v.string(),
@@ -233,13 +235,14 @@ export default defineSchema({
    *
    * FIELDS:
    *   - name: Manufacturer name (e.g., "Toyota", "Honda")
-   *   - logo_url: URL to manufacturer's logo image
+   *   - logo: Reference to cdn_assets (content) for manufacturer logo image
    *
    * RELATIONSHIPS:
    *   Has-many → models (via make_id)
+   *   FK → cdn_assets(logo) for logo URL
    */
   makes: defineTable({
-    logo_url: v.string(),
+    logo: v.optional(v.id("cdn_assets")),
     name: v.string(),
   }),
 
@@ -255,6 +258,7 @@ export default defineSchema({
    *   - first_name: Mechanic's first name
    *   - last_name: Mechanic's last name
    *   - title: Optional job title (e.g. "Master Mechanic"); when empty, UI shows shop name under mechanic name
+   *   - photo: Optional reference to cdn_assets for profile/avatar image
    *   - is_active: Whether mechanic is currently available
    *   - rating: Average rating from customer reviews (0-5)
    *   - review_count: Total number of reviews received
@@ -265,6 +269,7 @@ export default defineSchema({
    *
    * RELATIONSHIPS:
    *   FK → shops(shop_id)
+   *   FK → cdn_assets(photo) for profile image URL
    *   Has-many → bookings (via mechanic_id)
    *   Has-many → job_actuals (via mechanic_id)
    *   Has-many → time_slots (via mechanic_id)
@@ -274,6 +279,7 @@ export default defineSchema({
     first_name: v.string(),
     is_active: v.boolean(),
     last_name: v.string(),
+    photo: v.optional(v.id("cdn_assets")),
     rating: v.float64(),
     review_count: v.float64(),
     shop_id: v.id("shops"),

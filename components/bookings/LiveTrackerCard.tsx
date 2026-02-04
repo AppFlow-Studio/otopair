@@ -25,7 +25,7 @@ import React, { useState } from 'react';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
 
 // 2. Expo & Third-party
-import { Check, ChevronDown, ChevronUp, Clock, Phone } from 'lucide-react-native';
+import { Car, Check, ChevronDown, ChevronUp, Clock, Phone, User } from 'lucide-react-native';
 
 // 3. Shared UI
 import { Text } from '@/components/shared-ui';
@@ -47,6 +47,8 @@ export interface LiveTracking {
   carModel: string;
   carYear: string;
   licensePlate: string;
+  /** Make logo URL from cdn_assets (content); used as car thumbnail when no vehicle image */
+  makeLogoUrl?: string;
   // Mechanic info
   mechanicName: string;
   shopName: string;
@@ -76,6 +78,8 @@ export function LiveTrackerCard({
   onContactShop,
 }: LiveTrackerCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const [carImageError, setCarImageError] = useState(false);
+  const showCarPlaceholder = !tracking.makeLogoUrl?.trim() || carImageError;
 
   const toggleExpanded = () => {
     setIsExpanded(!isExpanded);
@@ -117,11 +121,18 @@ export function LiveTrackerCard({
       <View style={styles.infoRow}>
         {/* Car Info */}
         <View style={styles.carInfo}>
-          <Image 
-            source={require('@/assets/images/bmwm5.png')} 
-            style={styles.carImage}
-            resizeMode="contain"
-          />
+          {showCarPlaceholder ? (
+            <View style={styles.carPlaceholder}>
+              <Car size={20} color="#9CA3AF" strokeWidth={1.5} />
+            </View>
+          ) : (
+            <Image
+              source={{ uri: tracking.makeLogoUrl! }}
+              style={styles.carImage}
+              resizeMode="contain"
+              onError={() => setCarImageError(true)}
+            />
+          )}
           <View style={styles.carDetails}>
             <Text weight="bold" size="sm" color="#1F2937">
               {tracking.carModel} {tracking.carYear}
@@ -134,10 +145,13 @@ export function LiveTrackerCard({
 
         {/* Mechanic Info */}
         <View style={styles.mechanicInfo}>
-          <Image 
-            source={{ uri: tracking.mechanicImage || 'https://randomuser.me/api/portraits/men/32.jpg' }} 
-            style={styles.mechanicImage}
-          />
+          {tracking.mechanicImage ? (
+            <Image source={{ uri: tracking.mechanicImage }} style={styles.mechanicImage} />
+          ) : (
+            <View style={styles.mechanicPlaceholder}>
+              <User size={18} color="#9CA3AF" strokeWidth={1.5} />
+            </View>
+          )}
           <View style={styles.mechanicDetails}>
             <Text weight="bold" size="sm" color="#1F2937">
               {tracking.mechanicName}
@@ -291,6 +305,15 @@ const styles = StyleSheet.create({
     height: 32,
     marginRight: 8,
   },
+  carPlaceholder: {
+    width: 36,
+    height: 36,
+    marginRight: 8,
+    borderRadius: 18,
+    backgroundColor: '#E5E7EB',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   carDetails: {
     gap: 2,
   },
@@ -304,6 +327,15 @@ const styles = StyleSheet.create({
     height: 36,
     borderRadius: 18,
     marginRight: 8,
+  },
+  mechanicPlaceholder: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    marginRight: 8,
+    backgroundColor: '#E5E7EB',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   mechanicDetails: {
     gap: 2,

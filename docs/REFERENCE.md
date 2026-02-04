@@ -46,7 +46,7 @@ For high-level and per-part diagrams, see [docs/diagrams.md](diagrams.md). For p
 
 | Table                  | Purpose                                                                     |
 | ---------------------- | --------------------------------------------------------------------------- |
-| bookings               | One row per appointment; links user, vin, shop, time_slot; `service_ids` array (service IDs), aggregated labor/parts cost; `total_cost` = labor + parts + taxes_and_fees + platform_fee (full amount customer pays); `estimated_labor_minutes`; status FSM |
+| bookings               | One row per appointment; links user, vin, shop, time_slot; `service_ids` array (service IDs), aggregated labor/parts cost; `total_cost` = labor + parts + taxes_and_fees + platform_fee (full amount customer pays); `estimated_labor_minutes`; status FSM; **`live_stage`** (optional, when status is `in_progress`): `"booking_confirmed"` \| `"service_in_progress"` \| `"vehicle_ready"` for Live Tracker stage |
 | payments               | Payment per booking; idempotency_key; status FSM                            |
 | job_actuals            | Actual work per booking (labor, parts, notes); one per booking              |
 | booking_status_history | Append-only booking status transitions                                      |
@@ -101,11 +101,11 @@ For high-level and per-part diagrams, see [docs/diagrams.md](diagrams.md). For p
 | service_options    | Labor/parts options per service                                                                         |
 | shop_services      | Which services each shop offers                                                                         |
 | shops              | Service centers                                                                                         |
-| mechanics          | Shop staff                                                                                              |
+| mechanics          | Shop staff; optional **`photo`** → cdn_assets for profile/avatar image                                  |
 | shops_hours        | Operating hours per shop                                                                                |
 | time_slots         | Booking slots per shop/mechanic                                                                         |
 | service_insights   | Aggregated engine+service performance data                                                              |
-| cdn_assets         | CDN/content URLs (portfolio images, etc.); referenced by shop_portfolio                                 |
+| cdn_assets         | CDN/content URLs (portfolio images, logos, mechanic photos); referenced by shop_portfolio, makes.logo, mechanics.photo |
 | shop_portfolio     | Links shops to cdn_assets for portfolio/gallery display (content_id, display_order)                       |
 
 ### Reviews & follow-ups (2)
@@ -185,6 +185,13 @@ ai_enrichment_logs → manual_review_queue; spec_variances, spec_confirmations �
 
 - One job_actuals per booking; one review per booking; review only when booking status is completed.
 
+### Live Tracker (My Bookings)
+
+- **Stored stage:** When `bookings.status === "in_progress"`, optional **`live_stage`** holds the current Live Tracker stage: `"booking_confirmed"` | `"service_in_progress"` | `"vehicle_ready"`. Cleared when status becomes completed/cancelled/no_show.
+- **Query:** `bookings.getByUserIdWithDetails(userId)` returns for each booking: `liveStage`, `currentStage` (display title), `progressPercent` (from job_actuals elapsed time when available, else from stage-based fallback), `mechanicImageUrl` (mechanic.photo → cdn_assets.url).
+- **Adapter:** `utils/bookingAdapter.ts` — `stagesFromLiveStage(liveStage, progressPercent)` builds the four UI stages (completed/current/pending) from stored `live_stage`; when `liveStage` is missing, falls back to progress-based heuristic. `adaptConvexBookingWithDetailsToLiveTracking(row)` uses `row.liveStage` and `row.progressPercent` for LiveTrackerCard.
+- **Mutations:** `bookings.updateStatus(..., "in_progress")` sets `live_stage = "service_in_progress"`; transition to completed/cancelled/no_show clears `live_stage`. **`bookings.updateLiveStage(bookingId, liveStage)`** — mechanic/shop can advance stage to `"vehicle_ready"` etc.; only allowed when booking is in_progress.
+
 ### FSM (booking status)
 
 - pending → confirmed | cancelled
@@ -235,7 +242,7 @@ ai_enrichment_logs → manual_review_queue; spec_variances, spec_confirmations �
 
 ### bookings.ts
 
-- list(), getById(id), getByUserId(userId), **getRecentlyBookedShopIdsByUserId(userId, limit?)** (unique shop IDs user has booked at, most recent first; default limit 5), **getRecentlyBookedMechanicIdsByUserId(userId, limit?)** (unique mechanic IDs user has booked with, most recent first; only bookings with mechanic_id; default limit 5), getByShopId(shopId), create(...), **createBatch(...)** (one booking per appointment with `service_ids` and aggregated cost/time; labor/parts from shop labor rate only, no default; initial status `pending`), updateStatus(bookingId, newStatus, reason?)
+- list(), getById(id), getByUserId(userId), **getByUserIdWithDetails(userId)** (bookings with shop/mechanic/vehicle/service names, **liveStage**, progressPercent, currentStage, delayMinutes, mechanicImageUrl; used by My Bookings Live Tracker / Upcoming / History), **getRecentlyBookedShopIdsByUserId(userId, limit?)**, **getRecentlyBookedMechanicIdsByUserId(userId, limit?)**, getByShopId(shopId), create(...), **createBatch(...)** (one booking per appointment; initial status `pending`), **updateStatus(bookingId, newStatus, reason?)** (sets `live_stage` when newStatus is `in_progress`, clears when completed/cancelled/no_show), **updateLiveStage(bookingId, liveStage)** (`"booking_confirmed"` | `"service_in_progress"` | `"vehicle_ready"`; only when booking is in_progress)
 
 ### payments.ts
 
@@ -256,6 +263,10 @@ ai_enrichment_logs → manual_review_queue; spec_variances, spec_confirmations �
 ### cdn_assets.ts
 
 - list(), getById(id)
+
+### mechanics.ts
+
+- list(), getById(id), getByShopId(shopId) – each returns mechanic(s) with resolved **photoUrl** (mechanic.photo → cdn_assets.url); list/getById also include **shop** object
 
 ### shop_portfolio.ts
 
@@ -317,8 +328,9 @@ ai_enrichment_logs → manual_review_queue; spec_variances, spec_confirmations �
 
 ### Done
 
-- Schema: 46 tables; VIN-based vehicles + vehicle_owners; normalized vehicle intelligence; cdn_assets + shop_portfolio for portfolio images.
-- Core: vehicles, vehicle_owners, bookings, payments, job_actuals, reviews, follow_ups, status history with FSM.
+- Schema: 46 tables; VIN-based vehicles + vehicle_owners; normalized vehicle intelligence; cdn_assets + shop_portfolio for portfolio images. **bookings.live_stage** (optional, when in_progress); **mechanics.photo** → cdn_assets.
+- Core: vehicles, vehicle_owners, bookings, payments, job_actuals, reviews, follow_ups, status history with FSM. **My Bookings / Live Tracker:** getByUserIdWithDetails (liveStage, progressPercent, currentStage, mechanicImageUrl), updateStatus sets/clears live_stage, updateLiveStage(bookingId, liveStage); adapter stagesFromLiveStage; mechanics list/getById/getByShopId return photoUrl.
+- **Seed (demo):** seedPastBookingsForJohnDoe (past bookings for History tab), seedLiveBookingForJohnDoe (one in_progress booking for Live Tracker).
 - Vehicle intelligence: oemParts, specs (including getFullVehicleSpecPack), fitments, transmissions, chassis_variants.
 - AI, analytics, conversion_funnels (use startFunnel, updateStage, completeFunnel, abandonFunnel).
 - Spec pipeline and services/shops Convex files exist (confirm as needed).
@@ -376,4 +388,22 @@ await completeFunnel({ id: funnelId, booking_id }); // or abandonFunnel({ id: fu
 ```typescript
 const pack = await getFullVehicleSpecPack({ vin });
 // pack: engine/transmission/trim specs + fitments (with optional part details)
+```
+
+### Live Tracker: update stage (mechanic/shop)
+
+```typescript
+// Only when booking.status === "in_progress"
+await updateLiveStage({ bookingId, liveStage: "vehicle_ready" });
+// liveStage: "booking_confirmed" | "service_in_progress" | "vehicle_ready"
+```
+
+### Seed: past and live bookings (John Doe demo)
+
+```bash
+# Past bookings for History tab (clerkUserId: user_38uSI8ArZJ0HMY9AwvQLOZiIo53)
+npx convex run seed:seedPastBookingsForJohnDoe
+
+# One in-progress booking for Live Tracker tab (same user)
+npx convex run seed:seedLiveBookingForJohnDoe
 ```
