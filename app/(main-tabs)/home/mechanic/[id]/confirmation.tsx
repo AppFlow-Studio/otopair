@@ -14,7 +14,7 @@
 
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo } from "react";
-import { Image, StyleSheet, TouchableOpacity, View } from "react-native";
+import { Image, ScrollView, StyleSheet, TouchableOpacity, View, useWindowDimensions } from "react-native";
 
 // 2. Expo & Third-party
 import { useRouter } from "expo-router";
@@ -119,19 +119,20 @@ function ConfettiParticle({
     );
 }
 
-function ConfettiExplosion() {
+function ConfettiExplosion({ containerSize }: { containerSize: number }) {
     const particles = useMemo(() => {
+        const center = containerSize / 2 - 8;
         return Array.from({ length: 20 }, (_, i) => ({
             id: i,
             color: CONFETTI_COLORS[i % CONFETTI_COLORS.length],
             delay: Math.random() * 200,
-            startX: 32 + Math.random() * 16,
-            startY: 32 + Math.random() * 16,
+            startX: center + Math.random() * 16,
+            startY: center + Math.random() * 16,
         }));
-    }, []);
+    }, [containerSize]);
 
     return (
-        <View style={styles.confettiContainer} pointerEvents="none">
+        <>
             {particles.map((particle) => (
                 <ConfettiParticle
                     key={particle.id}
@@ -141,11 +142,11 @@ function ConfettiExplosion() {
                     startY={particle.startY}
                 />
             ))}
-        </View>
+        </>
     );
 }
 
-function SuccessCheckmark() {
+function SuccessCheckmark({ isCompact }: { isCompact: boolean }) {
     const scale = useSharedValue(0);
     const checkScale = useSharedValue(0);
 
@@ -162,12 +163,18 @@ function SuccessCheckmark() {
         transform: [{ scale: checkScale.value }],
     }));
 
+    const containerSize = isCompact ? 64 : 80;
+    const circleSize = isCompact ? 48 : 60;
+    const checkSize = isCompact ? 24 : 32;
+
     return (
-        <View style={styles.successContainer}>
-            <ConfettiExplosion />
-            <Animated.View style={[styles.successCircle, circleStyle]}>
+        <View style={[styles.successContainer, { width: containerSize, height: containerSize }]}>
+            <View style={[styles.confettiContainer, { width: containerSize, height: containerSize }]} pointerEvents="none">
+                <ConfettiExplosion containerSize={containerSize} />
+            </View>
+            <Animated.View style={[styles.successCircle, circleStyle, { width: circleSize, height: circleSize, borderRadius: circleSize / 2 }]}>
                 <Animated.View style={checkStyle}>
-                    <Check size={32} color="#FFFFFF" strokeWidth={3} />
+                    <Check size={checkSize} color="#FFFFFF" strokeWidth={3} />
                 </Animated.View>
             </Animated.View>
         </View>
@@ -182,6 +189,8 @@ export default function ConfirmationScreen() {
     // ═══════════════ HOOKS ═══════════════
     const router = useRouter();
     const insets = useSafeAreaInsets();
+    const { height } = useWindowDimensions();
+    const isCompact = height < 720;
 
     // ═══════════════ STORES ═══════════════
     const selectedMechanicId = useBookingStore((state) => state.selectedMechanicId);
@@ -242,40 +251,61 @@ export default function ConfirmationScreen() {
     }, []);
 
     // ═══════════════ RENDER ═══════════════
+    const dynamicStyles = {
+        subtitle: { marginBottom: isCompact ? Spacing.md : Spacing.xl },
+        mechanicCard: { padding: isCompact ? Spacing.md : Spacing.lg, marginBottom: isCompact ? Spacing.md : Spacing.lg },
+        avatar: { width: isCompact ? 56 : 64, height: isCompact ? 56 : 64 },
+        cardDivider: { marginVertical: isCompact ? Spacing.md : Spacing.lg },
+        detailsGrid: { gap: isCompact ? Spacing.sm : Spacing.md },
+        actionButton: { paddingVertical: isCompact ? Spacing.sm : Spacing.md },
+        ownershipCard: { padding: isCompact ? Spacing.md : Spacing.lg, marginBottom: isCompact ? Spacing.md : Spacing.xl },
+        calendarButton: { paddingVertical: isCompact ? Spacing.md : Spacing.lg, marginBottom: isCompact ? Spacing.sm : Spacing.lg },
+        backToHome: { paddingVertical: isCompact ? Spacing.xs : Spacing.md },
+    };
+
     return (
-        <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-            {/* Main Content */}
-            <View style={styles.content}>
+        <View style={styles.container}>
+            <ScrollView 
+                style={styles.scrollView}
+                contentContainerStyle={[
+                    styles.scrollContent,
+                    { 
+                        paddingTop: insets.top + (isCompact ? Spacing.md : Spacing.lg), 
+                        paddingBottom: insets.bottom + Spacing.xl 
+                    }
+                ]}
+                showsVerticalScrollIndicator={false}
+            >
                 {/* Success Animation */}
-                <SuccessCheckmark />
+                <SuccessCheckmark isCompact={isCompact} />
 
                 {/* Title */}
-                <Text size="2xl" weight="bold" color={BrandColors.primary} center style={styles.title}>
+                <Text size={isCompact ? "xl" : "2xl"} weight="bold" color={BrandColors.primary} center style={styles.title}>
                     You're all set.
                 </Text>
 
                 {/* Subtitle */}
-                <Text size="md" weight="regular" color="#6B7280" center style={styles.subtitle}>
+                <Text size="md" weight="regular" color="#6B7280" center style={[styles.subtitle, dynamicStyles.subtitle]}>
                     Your appointment with {mechanic?.name || "your mechanic"} is{"\n"}confirmed.
                 </Text>
 
                 {/* Mechanic Card - Matching Payment Screen Style */}
                 {mechanic && (
-                    <View style={styles.mechanicCard}>
+                    <View style={[styles.mechanicCard, dynamicStyles.mechanicCard]}>
                         {/* Mechanic Info Row */}
                         <View style={styles.mechanicRow}>
                             <View style={styles.avatarWrapper}>
                                 {mechanic.photoUrl ? (
-                                    <Image source={{ uri: mechanic.photoUrl }} style={styles.avatar} />
+                                    <Image source={{ uri: mechanic.photoUrl }} style={[styles.avatar, dynamicStyles.avatar]} />
                                 ) : (
-                                    <View style={styles.avatarPlaceholder}>
+                                    <View style={[styles.avatarPlaceholder, dynamicStyles.avatar]}>
                                         <Text size="xl" weight="bold" color="#9CA3AF">
                                             {mechanic.name.charAt(0)}
                                         </Text>
                                     </View>
                                 )}
                                 {/* Rating Badge */}
-                                <View style={styles.ratingBadge}>
+                                <View style={[styles.ratingBadge, { bottom: isCompact ? -2 : -4, left: isCompact ? -2 : -4, borderWidth: isCompact ? 1.5 : 2 }]}>
                                     <Star size={10} color="#FCD34D" fill="#FCD34D" />
                                     <Text size="xs" weight="bold" color={BrandColors.white}>
                                         {mechanic.rating.toFixed(1)}
@@ -294,10 +324,10 @@ export default function ConfirmationScreen() {
                         </View>
 
                         {/* Divider */}
-                        <View style={styles.cardDivider} />
+                        <View style={[styles.cardDivider, dynamicStyles.cardDivider]} />
 
                         {/* Details Grid - 2x2 Layout */}
-                        <View style={styles.detailsGrid}>
+                        <View style={[styles.detailsGrid, dynamicStyles.detailsGrid]}>
                             {/* Row 1: DATE and TIME */}
                             <View style={styles.detailsGridRow}>
                                 <View style={styles.detailsGridItem}>
@@ -340,12 +370,12 @@ export default function ConfirmationScreen() {
                         </View>
 
                         {/* Divider */}
-                        <View style={styles.cardDivider} />
+                        <View style={[styles.cardDivider, dynamicStyles.cardDivider]} />
 
                         {/* Action Buttons Row */}
                         <View style={styles.actionButtonsRow}>
                             <TouchableOpacity 
-                                style={styles.actionButton} 
+                                style={[styles.actionButton, dynamicStyles.actionButton]} 
                                 activeOpacity={0.7}
                                 onPress={() => console.log("Directions pressed")}
                             >
@@ -356,7 +386,7 @@ export default function ConfirmationScreen() {
                             </TouchableOpacity>
 
                             <TouchableOpacity 
-                                style={styles.actionButton} 
+                                style={[styles.actionButton, dynamicStyles.actionButton]} 
                                 activeOpacity={0.7}
                                 onPress={() => console.log("Contact pressed")}
                             >
@@ -370,9 +400,9 @@ export default function ConfirmationScreen() {
                 )}
 
                 {/* Ownership Credit Section */}
-                <View style={styles.ownershipCreditCard}>
+                <View style={[styles.ownershipCreditCard, dynamicStyles.ownershipCard]}>
                     <View style={styles.ownershipLeft}>
-                        <View style={styles.giftIconContainer}>
+                        <View style={[styles.giftIconContainer, { width: isCompact ? 36 : 40, height: isCompact ? 36 : 40, borderRadius: isCompact ? 18 : 20 }]}>
                             <Gift size={20} color={BrandColors.secondary} />
                         </View>
                         <View style={styles.ownershipContent}>
@@ -396,7 +426,7 @@ export default function ConfirmationScreen() {
 
                 {/* Add to Calendar Button */}
                 <TouchableOpacity 
-                    style={styles.calendarButton} 
+                    style={[styles.calendarButton, dynamicStyles.calendarButton]} 
                     onPress={handleAddToCalendar} 
                     activeOpacity={0.8}
                 >
@@ -407,7 +437,7 @@ export default function ConfirmationScreen() {
 
                 {/* Back to Home Link */}
                 <TouchableOpacity 
-                    style={styles.backToHomeButton} 
+                    style={[styles.backToHomeButton, dynamicStyles.backToHome]} 
                     onPress={handleBackToHome}
                     activeOpacity={0.7}
                 >
@@ -415,7 +445,7 @@ export default function ConfirmationScreen() {
                         Back to Home
                     </Text>
                 </TouchableOpacity>
-            </View>
+            </ScrollView>
         </View>
     );
 }
@@ -429,30 +459,24 @@ const styles = StyleSheet.create({
         flex: 1,
         backgroundColor: "#F9FAFB",
     },
-    content: {
+    scrollView: {
         flex: 1,
+    },
+    scrollContent: {
         paddingHorizontal: Spacing.lg,
-        paddingTop: Spacing.lg,
         alignItems: "center",
     },
 
     // Success Animation
     successContainer: {
-        width: 80,
-        height: 80,
         alignItems: "center",
         justifyContent: "center",
         marginBottom: Spacing.md,
     },
     confettiContainer: {
         position: "absolute",
-        width: 80,
-        height: 80,
     },
     successCircle: {
-        width: 60,
-        height: 60,
-        borderRadius: 30,
         backgroundColor: "#10B981",
         alignItems: "center",
         justifyContent: "center",
@@ -464,7 +488,6 @@ const styles = StyleSheet.create({
         marginBottom: Spacing.sm,
     },
     subtitle: {
-        marginBottom: Spacing.xl,
         lineHeight: 22,
     },
 
@@ -472,9 +495,7 @@ const styles = StyleSheet.create({
     mechanicCard: {
         backgroundColor: BrandColors.white,
         borderRadius: BorderRadius.xl,
-        padding: Spacing.lg,
         width: "100%",
-        marginBottom: Spacing.lg,
         ...Shadows.sm,
     },
     mechanicRow: {
@@ -486,13 +507,9 @@ const styles = StyleSheet.create({
         position: "relative",
     },
     avatar: {
-        width: 64,
-        height: 64,
         borderRadius: BorderRadius.full,
     },
     avatarPlaceholder: {
-        width: 64,
-        height: 64,
         borderRadius: BorderRadius.full,
         backgroundColor: "#E5E7EB",
         alignItems: "center",
@@ -500,8 +517,6 @@ const styles = StyleSheet.create({
     },
     ratingBadge: {
         position: "absolute",
-        bottom: -4,
-        left: -4,
         flexDirection: "row",
         alignItems: "center",
         gap: 2,
@@ -509,7 +524,6 @@ const styles = StyleSheet.create({
         paddingHorizontal: 6,
         paddingVertical: 2,
         borderRadius: BorderRadius.full,
-        borderWidth: 2,
         borderColor: BrandColors.white,
     },
     mechanicInfo: {
@@ -519,12 +533,10 @@ const styles = StyleSheet.create({
     cardDivider: {
         height: 1,
         backgroundColor: "#E5E7EB",
-        marginVertical: Spacing.lg,
     },
     
     // Details Grid - 2x2 Layout
     detailsGrid: {
-        gap: Spacing.md,
     },
     detailsGridRow: {
         flexDirection: "row",
@@ -549,7 +561,6 @@ const styles = StyleSheet.create({
         alignItems: "center",
         justifyContent: "center",
         gap: Spacing.sm,
-        paddingVertical: Spacing.md,
         borderRadius: BorderRadius.lg,
         borderWidth: 1,
         borderColor: "#E5E7EB",
@@ -562,9 +573,7 @@ const styles = StyleSheet.create({
         justifyContent: "space-between",
         backgroundColor: "#EFF6FF",
         borderRadius: BorderRadius.xl,
-        padding: Spacing.lg,
         width: "100%",
-        marginBottom: Spacing.xl,
     },
     ownershipLeft: {
         flexDirection: "row",
@@ -573,9 +582,6 @@ const styles = StyleSheet.create({
         flex: 1,
     },
     giftIconContainer: {
-        width: 40,
-        height: 40,
-        borderRadius: 20,
         backgroundColor: "#DBEAFE",
         alignItems: "center",
         justifyContent: "center",
@@ -592,15 +598,12 @@ const styles = StyleSheet.create({
     // Buttons
     calendarButton: {
         backgroundColor: BrandColors.secondary,
-        paddingVertical: Spacing.lg,
         paddingHorizontal: Spacing.xl,
         borderRadius: BorderRadius.xl,
         width: "100%",
         alignItems: "center",
-        marginBottom: Spacing.lg,
     },
     backToHomeButton: {
-        paddingVertical: Spacing.md,
         alignItems: "center",
     },
 });
