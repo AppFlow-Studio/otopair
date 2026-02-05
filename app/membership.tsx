@@ -35,8 +35,7 @@ const AVATAR_SIZE = 56;
 const ACTION_BUTTON_SIZE = 64;
 const GLASS_ICON_SIZE = 40;
 const DEAL_CARD_WIDTH = SCREEN_WIDTH * 0.7;
-const REDEEM_SHEET_HEIGHT = 680;
-const ELITE_SHEET_HEIGHT = 800;
+const SHEET_HEIGHT = SCREEN_HEIGHT * 0.9;
 
 // Sample rewards data
 const EARN_REWARDS = [
@@ -114,11 +113,11 @@ export default function MembershipPage() {
   const [showEliteSheet, setShowEliteSheet] = useState(false);
   
   // Bottom sheet animation values
-  const sheetTranslateY = useRef(new Animated.Value(REDEEM_SHEET_HEIGHT)).current;
+  const sheetTranslateY = useRef(new Animated.Value(SHEET_HEIGHT)).current;
   const backdropOpacity = useRef(new Animated.Value(0)).current;
   
   // Elite sheet animation values
-  const eliteSheetTranslateY = useRef(new Animated.Value(ELITE_SHEET_HEIGHT)).current;
+  const eliteSheetTranslateY = useRef(new Animated.Value(SHEET_HEIGHT)).current;
   const eliteBackdropOpacity = useRef(new Animated.Value(0)).current;
 
   const handleBack = () => {
@@ -128,19 +127,19 @@ export default function MembershipPage() {
   // Redeem sheet functions
   const openRedeemSheet = () => {
     setShowRedeemSheet(true);
-    sheetTranslateY.setValue(REDEEM_SHEET_HEIGHT);
+    sheetTranslateY.setValue(SHEET_HEIGHT);
     backdropOpacity.setValue(0);
     
     Animated.parallel([
       Animated.spring(sheetTranslateY, {
         toValue: 0,
-        tension: 65,
-        friction: 11,
+        tension: 40,
+        friction: 12,
         useNativeDriver: false,
       }),
       Animated.timing(backdropOpacity, {
         toValue: 1,
-        duration: 300,
+        duration: 400,
         useNativeDriver: true,
       }),
     ]).start();
@@ -149,7 +148,7 @@ export default function MembershipPage() {
   const closeRedeemSheet = () => {
     Animated.parallel([
       Animated.timing(sheetTranslateY, {
-        toValue: REDEEM_SHEET_HEIGHT,
+        toValue: SHEET_HEIGHT,
         duration: 250,
         easing: Easing.bezier(0.25, 0.1, 0.25, 1),
         useNativeDriver: false,
@@ -167,19 +166,19 @@ export default function MembershipPage() {
   // Elite sheet functions
   const openEliteSheet = () => {
     setShowEliteSheet(true);
-    eliteSheetTranslateY.setValue(ELITE_SHEET_HEIGHT);
+    eliteSheetTranslateY.setValue(SHEET_HEIGHT);
     eliteBackdropOpacity.setValue(0);
     
     Animated.parallel([
       Animated.spring(eliteSheetTranslateY, {
         toValue: 0,
-        tension: 65,
-        friction: 11,
+        tension: 40,
+        friction: 12,
         useNativeDriver: false,
       }),
       Animated.timing(eliteBackdropOpacity, {
         toValue: 1,
-        duration: 300,
+        duration: 700,
         useNativeDriver: true,
       }),
     ]).start();
@@ -188,7 +187,7 @@ export default function MembershipPage() {
   const closeEliteSheet = () => {
     Animated.parallel([
       Animated.timing(eliteSheetTranslateY, {
-        toValue: ELITE_SHEET_HEIGHT,
+        toValue: SHEET_HEIGHT,
         duration: 300,
         easing: Easing.bezier(0.25, 0.1, 0.25, 1),
         useNativeDriver: false,
@@ -785,7 +784,7 @@ export default function MembershipPage() {
                   {/* Benefit 1 */}
                   <View style={eliteStyles.benefitRow}>
                     <View style={eliteStyles.benefitIcon}>
-                      <Building2 size={18} color="#6B7280" strokeWidth={1.5} />
+                      <Building2 size={18} color="#5299FE" strokeWidth={1.5} />
                     </View>
                     <Text size="md" color="#1F2937">
                       Priority booking with trusted shops
@@ -795,7 +794,7 @@ export default function MembershipPage() {
                   {/* Benefit 2 */}
                   <View style={eliteStyles.benefitRow}>
                     <View style={eliteStyles.benefitIcon}>
-                      <Zap size={18} color="#6B7280" strokeWidth={1.5} />
+                      <Zap size={18} color="#5299FE" strokeWidth={1.5} />
                     </View>
                     <Text size="md" color="#1F2937">
                       Faster dispute resolution
@@ -805,7 +804,7 @@ export default function MembershipPage() {
                   {/* Benefit 3 */}
                   <View style={eliteStyles.benefitRow}>
                     <View style={eliteStyles.benefitIcon}>
-                      <Wrench size={18} color="#6B7280" strokeWidth={1.5} />
+                      <Wrench size={18} color="#5299FE" strokeWidth={1.5} />
                     </View>
                     <Text size="md" color="#1F2937">
                       Waived diagnostics when applicable
@@ -815,7 +814,7 @@ export default function MembershipPage() {
                   {/* Benefit 4 */}
                   <View style={eliteStyles.benefitRow}>
                     <View style={eliteStyles.benefitIcon}>
-                      <Headphones size={18} color="#6B7280" strokeWidth={1.5} />
+                      <Headphones size={18} color="#5299FE" strokeWidth={1.5} />
                     </View>
                     <Text size="md" color="#1F2937">
                       Concierge support when issues arise
@@ -1210,17 +1209,17 @@ const redeemStyles = StyleSheet.create({
   },
   bottomSheet: {
     position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
+    bottom: SCREEN_HEIGHT * 0.015,
+    left: SCREEN_WIDTH * 0.025,
+    right: SCREEN_WIDTH * 0.025,
+    width: SCREEN_WIDTH * 0.95,
     backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 32,
-    borderTopRightRadius: 32,
+    borderRadius: 40,
     paddingBottom: 10,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
     elevation: 10,
   },
   dragHandleContainer: {
@@ -1239,34 +1238,34 @@ const redeemStyles = StyleSheet.create({
     alignItems: 'center',
   },
   iconContainer: {
-    width: 60,
-    height: 60,
-    borderRadius: 16,
+    width: 50,
+    height: 50,
+    borderRadius: 14,
     backgroundColor: '#EBF4FF',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: Spacing.lg,
+    marginBottom: Spacing.md,
   },
   balanceLabel: {
     letterSpacing: 1.5,
-    marginBottom: Spacing.xs,
+    marginBottom: 4,
   },
   sheetBalanceAmount: {
-    fontSize: 44,
-    lineHeight: 52,
+    fontSize: 38,
+    lineHeight: 44,
     color: '#1F2937',
-    marginBottom: Spacing.xs,
+    marginBottom: 4,
   },
   balanceSubtitle: {
     textAlign: 'center',
-    marginBottom: Spacing.xl,
+    marginBottom: Spacing.md,
   },
   selectionCard: {
     width: '100%',
     backgroundColor: '#F9FAFB',
-    borderRadius: 16,
-    padding: Spacing.lg,
-    marginBottom: Spacing.xl,
+    borderRadius: 14,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
     borderWidth: 2,
     borderColor: 'transparent',
   },
@@ -1278,7 +1277,7 @@ const redeemStyles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: Spacing.md,
+    marginBottom: Spacing.sm,
   },
   checkCircle: {
     width: 26,
@@ -1312,18 +1311,18 @@ const redeemStyles = StyleSheet.create({
   },
   otherOptionsTitle: {
     alignSelf: 'flex-start',
-    marginBottom: Spacing.md,
+    marginBottom: Spacing.sm,
   },
   otherOptionRow: {
     width: '100%',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: Spacing.md,
+    paddingVertical: Spacing.sm,
     paddingHorizontal: Spacing.md,
     backgroundColor: '#F9FAFB',
     borderRadius: 12,
-    marginBottom: Spacing.lg,
+    marginBottom: Spacing.md,
     borderWidth: 2,
     borderColor: 'transparent',
   },
@@ -1361,7 +1360,7 @@ const redeemStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     paddingHorizontal: Spacing.sm,
-    marginBottom: Spacing.xl,
+    marginBottom: Spacing.md,
     gap: Spacing.sm,
   },
   disclaimerText: {
@@ -1371,10 +1370,10 @@ const redeemStyles = StyleSheet.create({
   redeemButton: {
     width: '100%',
     backgroundColor: '#5299FE',
-    borderRadius: 28,
-    paddingVertical: Spacing.lg,
+    borderRadius: 24,
+    paddingVertical: Spacing.md,
     alignItems: 'center',
-    marginBottom: Spacing.md,
+    marginBottom: Spacing.sm,
   },
   redeemButtonPressed: {
     opacity: 0.9,
@@ -1395,17 +1394,17 @@ const eliteStyles = StyleSheet.create({
   },
   bottomSheet: {
     position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
+    bottom: SCREEN_HEIGHT * 0.015,
+    left: SCREEN_WIDTH * 0.025,
+    right: SCREEN_WIDTH * 0.025,
+    width: SCREEN_WIDTH * 0.95,
     backgroundColor: '#FFFFFF',
-    borderTopLeftRadius: 32,
-    borderTopRightRadius: 32,
-    paddingBottom: 40,
+    borderRadius: 40,
+    paddingBottom: 24,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
     elevation: 10,
   },
   dragHandleContainer: {
@@ -1424,31 +1423,31 @@ const eliteStyles = StyleSheet.create({
     alignItems: 'center',
   },
   iconContainer: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
     backgroundColor: '#EBF4FF',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: Spacing.md,
+    marginBottom: Spacing.sm,
   },
   title: {
-    marginBottom: Spacing.xs,
+    marginBottom: 4,
   },
   subtitle: {
     textAlign: 'center',
-    marginBottom: Spacing.xl,
+    marginBottom: Spacing.md,
   },
   requirementCard: {
     width: '100%',
     backgroundColor: '#F9FAFB',
-    borderRadius: 16,
-    padding: Spacing.lg,
-    marginBottom: Spacing.xl,
+    borderRadius: 14,
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
   },
   requirementLabel: {
     letterSpacing: 1,
-    marginBottom: Spacing.md,
+    marginBottom: Spacing.sm,
   },
   requirementContent: {
     flexDirection: 'row',
@@ -1472,33 +1471,33 @@ const eliteStyles = StyleSheet.create({
   },
   unlocksTitle: {
     alignSelf: 'flex-start',
-    marginBottom: Spacing.md,
+    marginBottom: Spacing.sm,
   },
   benefitsList: {
     width: '100%',
-    marginBottom: Spacing.lg,
+    marginBottom: Spacing.sm,
   },
   benefitRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: Spacing.md,
+    paddingVertical: Spacing.sm,
     borderBottomWidth: 1,
     borderBottomColor: '#F3F4F6',
   },
   benefitIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+    width: 32,
+    height: 32,
+    borderRadius: 8,
     backgroundColor: '#F9FAFB',
     justifyContent: 'center',
     alignItems: 'center',
-    marginRight: Spacing.md,
+    marginRight: Spacing.sm,
   },
   disclaimerRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
     paddingHorizontal: Spacing.sm,
-    marginBottom: Spacing.xl,
+    marginBottom: Spacing.md,
     gap: Spacing.sm,
   },
   disclaimerText: {
@@ -1508,8 +1507,8 @@ const eliteStyles = StyleSheet.create({
   gotItButton: {
     width: '100%',
     backgroundColor: '#5299FE',
-    borderRadius: 28,
-    paddingVertical: Spacing.lg,
+    borderRadius: 24,
+    paddingVertical: Spacing.md,
     alignItems: 'center',
   },
   gotItButtonPressed: {

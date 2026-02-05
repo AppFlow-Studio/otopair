@@ -1,5 +1,5 @@
 // 1. React & React Native
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Dimensions, RefreshControl, ScrollView, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -93,69 +93,39 @@ export default function CarsHomeScreen() {
     },
   ]);
 
-  // Get current vehicle and its data
-  const activeVehicle = vehicles[activeVehicleIndex];
-  const maintenanceItems = maintenanceByVehicle[activeVehicle?.id] || [];
-  const serviceRecords = serviceHistoryByVehicle[activeVehicle?.id] || [];
+  // Memoize current vehicle and its data to prevent unnecessary re-renders
+  const activeVehicle = useMemo(() => vehicles[activeVehicleIndex], [vehicles, activeVehicleIndex]);
+  const maintenanceItems = useMemo(() => maintenanceByVehicle[activeVehicle?.id] || [], [activeVehicle?.id]);
+  const serviceRecords = useMemo(() => serviceHistoryByVehicle[activeVehicle?.id] || [], [activeVehicle?.id]);
   
-  // Get gradient colors for the active vehicle (default purple gradient with cutoff)
-  const backgroundGradient = activeVehicle?.gradientColors || ['#9a9cc0', '#e7e3fd', '#e0dcf4', '#f1ecfe'];
-  
-  // Animated gradient transition - completely non-blocking
-  const [displayedGradient, setDisplayedGradient] = useState(backgroundGradient);
-  const newGradientOpacity = useRef(new Animated.Value(0)).current;
-  const animationRef = useRef<Animated.CompositeAnimation | null>(null);
-  const previousGradientRef = useRef(backgroundGradient);
+  // Pre-render all gradients - just animate opacity, NO re-renders
+  // Lexus is index 0, Lambo is index 1
+  const lamboOpacity = useRef(new Animated.Value(0)).current;
   
   useEffect(() => {
-    // Fast comparison - check first color only (much faster than JSON.stringify)
-    const gradientChanged = previousGradientRef.current[0] !== backgroundGradient[0];
-    
-    if (gradientChanged) {
-      // Update reference immediately
-      previousGradientRef.current = backgroundGradient;
-      
-      // Stop any ongoing animation (non-blocking)
-      if (animationRef.current) {
-        animationRef.current.stop();
-      }
-      
-      // Update displayed gradient immediately - no waiting, no blocking
-      setDisplayedGradient(backgroundGradient);
-      
-      // Start crossfade animation immediately - no delays
-      newGradientOpacity.setValue(0);
-      animationRef.current = Animated.timing(newGradientOpacity, {
-        toValue: 1,
-        duration: 250,
-        useNativeDriver: true,
-      });
-      
-      animationRef.current.start(() => {
-          newGradientOpacity.setValue(0);
-        animationRef.current = null;
-      });
-    }
-  }, [backgroundGradient]);
+    // Animate opacity based on which car is active - no state updates, no re-renders
+    Animated.timing(lamboOpacity, {
+      toValue: activeVehicleIndex === 1 ? 1 : 0,
+      duration: 300,
+      useNativeDriver: true,
+    }).start();
+  }, [activeVehicleIndex]);
 
   // Handle default toggle - set one as default, untoggle others
-  const handleToggleDefault = (vehicleId: string, isDefault: boolean) => {
+  const handleToggleDefault = useCallback((vehicleId: string, isDefault: boolean) => {
     setVehicles((prev) =>
       prev.map((v) => ({
         ...v,
         isDefault: v.id === vehicleId ? isDefault : false,
       }))
     );
-  };
+  }, []);
 
-  const handleRefresh = () => {
+  const handleRefresh = useCallback(() => {
     setRefreshing(true);
     // TODO: Fetch latest maintenance data from API/store
     setTimeout(() => setRefreshing(false), 800);
-  };
-
-  // Check if active vehicle is Lamborghini for special gradient
-  const isLambo = activeVehicle?.make === 'Lamborghini';
+  }, []);
 
   return (
     <View style={styles.container}>
@@ -169,41 +139,15 @@ export default function CarsHomeScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#FFFFFF" />
         }
       >
-        {/* Scrolling Gradient - moves with content, floor line stays aligned with car */}
+        {/* Scrolling Gradient - PRE-RENDERED for both cars, only opacity animates */}
         <View style={styles.scrollingGradientContainer} pointerEvents="none">
-          {/* Base gradient layer */}
-          <LinearGradient
-            colors={displayedGradient as [string, string, ...string[]]}
-            locations={[0, 0.33, 0.33, 1]}
-            style={StyleSheet.absoluteFill}
-          />
-          
-          {/* New gradient layer - fades in with target gradient */}
-          <Animated.View style={[StyleSheet.absoluteFill, { opacity: newGradientOpacity }]}>
+          {/* LEXUS gradient - always rendered, fades out when Lambo selected */}
+          <Animated.View style={[StyleSheet.absoluteFill, { opacity: Animated.subtract(1, lamboOpacity) }]}>
             <LinearGradient
-              colors={backgroundGradient as [string, string, ...string[]]}
-              locations={[0, 0.33, 0.335, 1]}
+              colors={['#9a9cc0', '#e7e3fd', '#e0dcf4', '#f1ecfe']}
+              locations={[0, 0.33, 0.33, 1]}
               style={StyleSheet.absoluteFill}
             />
-          </Animated.View>
-          
-          {/* Lightening gradient overlay for Lambo */}
-          <View style={{ opacity: isLambo ? 1 : 0, ...StyleSheet.absoluteFillObject }}>
-            <LinearGradient
-              colors={['rgba(255, 255, 255, 0)', 'rgba(255, 255, 255, 0.12)', 'rgba(255, 255, 255, 0.3)']}
-              locations={[0, 0.5, 1]}
-              style={StyleSheet.absoluteFill}
-            />
-            <LinearGradient
-              colors={['rgba(180, 210, 255, 0.15)', 'rgba(255, 255, 255, 0)']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 0.5, y: 0 }}
-              style={StyleSheet.absoluteFill}
-            />
-          </View>
-          
-          {/* Lightening gradient overlays for Lexus */}
-          <View style={{ opacity: isLambo ? 0 : 1, ...StyleSheet.absoluteFillObject }}>
             <LinearGradient
               colors={['rgba(255, 255, 255, 0)', 'rgba(255, 255, 255, 0.15)', 'rgba(255, 255, 255, 0.35)']}
               locations={[0, 0.5, 1]}
@@ -216,7 +160,27 @@ export default function CarsHomeScreen() {
               locations={[0, 0.5, 1]}
               style={StyleSheet.absoluteFill}
             />
-          </View>
+          </Animated.View>
+          
+          {/* LAMBO gradient - always rendered, fades in when Lambo selected */}
+          <Animated.View style={[StyleSheet.absoluteFill, { opacity: lamboOpacity }]}>
+            <LinearGradient
+              colors={['#5090d8', '#c0daf8', '#b8d4f8', '#d8ecff']}
+              locations={[0, 0.33, 0.335, 1]}
+              style={StyleSheet.absoluteFill}
+            />
+            <LinearGradient
+              colors={['rgba(255, 255, 255, 0)', 'rgba(255, 255, 255, 0.12)', 'rgba(255, 255, 255, 0.3)']}
+              locations={[0, 0.5, 1]}
+              style={StyleSheet.absoluteFill}
+            />
+            <LinearGradient
+              colors={['rgba(180, 210, 255, 0.15)', 'rgba(255, 255, 255, 0)']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 0.5, y: 0 }}
+              style={StyleSheet.absoluteFill}
+            />
+          </Animated.View>
         </View>
 
         {/* ═══════════════════════════════════════════════════════════════════
