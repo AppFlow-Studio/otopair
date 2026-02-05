@@ -765,13 +765,13 @@ export default defineSchema({
       v.object({
         question: v.string(),
         answer: v.string(),
-      })
+      }),
     ),
     user_intentions: v.optional(
       v.object({
         question: v.string(),
         intentions: v.array(v.string()),
-      })
+      }),
     ),
     car_knowledge_level: v.optional(v.float64()),
     last_updated: v.float64(),
@@ -920,8 +920,7 @@ export default defineSchema({
     phoneVerified: v.optional(v.boolean()),
     profile_photo_url: v.optional(v.string()),
     tellUsAboutCompleted: v.optional(v.boolean()),
-  })
-    .index("by_clerkUserId", ["clerkUserId"]),
+  }).index("by_clerkUserId", ["clerkUserId"]),
 
   // ============================================================================
   // OEM PARTS & NORMALIZATION

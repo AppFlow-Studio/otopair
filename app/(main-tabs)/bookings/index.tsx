@@ -82,136 +82,130 @@ export default function BookingsScreen() {
   }, [liveTracking?.shopPhone]);
 
   return (
-    <ScrollDrivenGradientBackground colors={['#5BA3D9', '#8FC4E8', '#d9e8f5']}>
+    <ScrollDrivenGradientBackground colors={["#5BA3D9", "#8FC4E8", "#d9e8f5"]}>
       {(scrollHandler) => (
-    <View style={styles.container}>
-      {/* Full Page Scroll - same as home page */}
-      <Animated.ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 12 }]}
-        showsVerticalScrollIndicator={false}
-        onScroll={scrollHandler}
-        scrollEventThrottle={16}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor="#3B82F6"
-          />
-        }
-      >
-        {/* Header */}
-        <View style={styles.header}>
-          <Text weight="bold" size="xl" color="#FFFFFF">
-            My Bookings
-          </Text>
-        </View>
+        <View style={styles.container}>
+          {/* Full Page Scroll - same as home page */}
+          <Animated.ScrollView
+            style={styles.scrollView}
+            contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 12 }]}
+            showsVerticalScrollIndicator={false}
+            onScroll={scrollHandler}
+            scrollEventThrottle={16}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor="#3B82F6" />}
+          >
+            {/* Header */}
+            <View style={styles.header}>
+              <Text weight="bold" size="xl" color="#FFFFFF">
+                My Bookings
+              </Text>
+            </View>
 
-        {/* Tab Switcher */}
-        <View style={styles.tabContainer}>
-          <Pressable
-            onPress={() => setActiveTab("liveTracker")}
-            style={[styles.tab, activeTab === "liveTracker" && styles.activeTab]}
-          >
-            <Text weight="semiBold" size="sm" color={activeTab === "liveTracker" ? "#1F2937" : "#6B7280"}>
-              Live Tracker
-            </Text>
-          </Pressable>
-          <Pressable
-            onPress={() => setActiveTab("upcoming")}
-            style={[styles.tab, activeTab === "upcoming" && styles.activeTab]}
-          >
-            <Text weight="semiBold" size="sm" color={activeTab === "upcoming" ? "#1F2937" : "#6B7280"}>
-              Upcoming
-            </Text>
-          </Pressable>
-          <Pressable
-            onPress={() => setActiveTab("history")}
-            style={[styles.tab, activeTab === "history" && styles.activeTab]}
-          >
-            <Text weight="semiBold" size="sm" color={activeTab === "history" ? "#1F2937" : "#6B7280"}>
-              History
-            </Text>
-          </Pressable>
-        </View>
-
-        {/* Search Bar - Only for History */}
-        {activeTab === "history" && (
-          <View style={styles.searchRow}>
-            <View style={styles.searchContainer}>
-              <Search size={18} color="#9CA3AF" strokeWidth={2} />
-              <TextInput
-                style={styles.searchInput}
-                placeholder="Search for past bookings..."
-                placeholderTextColor="#9CA3AF"
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-              />
-              <Pressable style={styles.filterButton}>
-                <SlidersHorizontal size={18} color="#6B7280" strokeWidth={2} />
+            {/* Tab Switcher */}
+            <View style={styles.tabContainer}>
+              <Pressable
+                onPress={() => setActiveTab("liveTracker")}
+                style={[styles.tab, activeTab === "liveTracker" && styles.activeTab]}
+              >
+                <Text weight="semiBold" size="sm" color={activeTab === "liveTracker" ? "#1F2937" : "#6B7280"}>
+                  Live Tracker
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setActiveTab("upcoming")}
+                style={[styles.tab, activeTab === "upcoming" && styles.activeTab]}
+              >
+                <Text weight="semiBold" size="sm" color={activeTab === "upcoming" ? "#1F2937" : "#6B7280"}>
+                  Upcoming
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={() => setActiveTab("history")}
+                style={[styles.tab, activeTab === "history" && styles.activeTab]}
+              >
+                <Text weight="semiBold" size="sm" color={activeTab === "history" ? "#1F2937" : "#6B7280"}>
+                  History
+                </Text>
               </Pressable>
             </View>
-            <Pressable style={styles.calendarButton}>
-              <Calendar size={20} color="#6B7280" strokeWidth={2} />
-            </Pressable>
-          </View>
-        )}
 
-        {/* Booking Content */}
-        <View style={styles.content}>
-          {activeTab === "liveTracker" ? (
-            // Live Tracker Content
-            hasActiveService && liveTracking ? (
-              <LiveTrackerCard
-                tracking={liveTracking}
-                onReschedule={() => handleReschedule()}
-                onContactShop={handleContactShop}
-              />
-            ) : (
-              <View style={styles.emptyState}>
-                <View style={styles.emptyIconContainer}>
-                  <Calendar size={48} color="#9CA3AF" strokeWidth={1.5} />
+            {/* Search Bar - Only for History */}
+            {activeTab === "history" && (
+              <View style={styles.searchRow}>
+                <View style={styles.searchContainer}>
+                  <Search size={18} color="#9CA3AF" strokeWidth={2} />
+                  <TextInput
+                    style={styles.searchInput}
+                    placeholder="Search for past bookings..."
+                    placeholderTextColor="#9CA3AF"
+                    value={searchQuery}
+                    onChangeText={setSearchQuery}
+                  />
+                  <Pressable style={styles.filterButton}>
+                    <SlidersHorizontal size={18} color="#6B7280" strokeWidth={2} />
+                  </Pressable>
                 </View>
-                <Text weight="semiBold" size="lg" color="#374151" center>
-                  No Active Service
-                </Text>
-                <Text weight="regular" size="sm" color="#6B7280" center style={styles.emptyText}>
-                  You don't have any service in progress. Book a service to get started!
-                </Text>
+                <Pressable style={styles.calendarButton}>
+                  <Calendar size={20} color="#6B7280" strokeWidth={2} />
+                </Pressable>
               </View>
-            )
-          ) : filteredBookings.length > 0 ? (
-            // Upcoming or History Content
-            filteredBookings.map((booking) => (
-              <BookingCard
-                key={booking.id}
-                booking={booking}
-                variant={activeTab}
-                onViewDetails={handleViewDetails}
-                onCancelBooking={handleCancelBooking}
-                onReschedule={handleReschedule}
-                onDownloadPdf={handleDownloadPdf}
-                onToggleFavorite={handleToggleFavorite}
-              />
-            ))
-          ) : (
-            <View style={styles.emptyState}>
-              <View style={styles.emptyIconContainer}>
-                <Calendar size={48} color="#9CA3AF" strokeWidth={1.5} />
-              </View>
-              <Text weight="semiBold" size="lg" color="#374151" center>
-                No {activeTab === "upcoming" ? "Upcoming" : "Past"} Bookings
-              </Text>
-              <Text weight="regular" size="sm" color="#6B7280" center style={styles.emptyText}>
-                {activeTab === "upcoming"
-                  ? "You don't have any upcoming appointments. Book a service to get started!"
-                  : "You haven't completed any bookings yet."}
-              </Text>
+            )}
+
+            {/* Booking Content */}
+            <View style={styles.content}>
+              {activeTab === "liveTracker" ? (
+                // Live Tracker Content
+                hasActiveService && liveTracking ? (
+                  <LiveTrackerCard
+                    tracking={liveTracking}
+                    onReschedule={() => handleReschedule()}
+                    onContactShop={handleContactShop}
+                  />
+                ) : (
+                  <View style={styles.emptyState}>
+                    <View style={styles.emptyIconContainer}>
+                      <Calendar size={48} color="#9CA3AF" strokeWidth={1.5} />
+                    </View>
+                    <Text weight="semiBold" size="lg" color="#374151" center>
+                      No Active Service
+                    </Text>
+                    <Text weight="regular" size="sm" color="#6B7280" center style={styles.emptyText}>
+                      You don't have any service in progress. Book a service to get started!
+                    </Text>
+                  </View>
+                )
+              ) : filteredBookings.length > 0 ? (
+                // Upcoming or History Content
+                filteredBookings.map((booking) => (
+                  <BookingCard
+                    key={booking.id}
+                    booking={booking}
+                    variant={activeTab}
+                    onViewDetails={handleViewDetails}
+                    onCancelBooking={handleCancelBooking}
+                    onReschedule={handleReschedule}
+                    onDownloadPdf={handleDownloadPdf}
+                    onToggleFavorite={handleToggleFavorite}
+                  />
+                ))
+              ) : (
+                <View style={styles.emptyState}>
+                  <View style={styles.emptyIconContainer}>
+                    <Calendar size={48} color="#9CA3AF" strokeWidth={1.5} />
+                  </View>
+                  <Text weight="semiBold" size="lg" color="#374151" center>
+                    No {activeTab === "upcoming" ? "Upcoming" : "Past"} Bookings
+                  </Text>
+                  <Text weight="regular" size="sm" color="#6B7280" center style={styles.emptyText}>
+                    {activeTab === "upcoming"
+                      ? "You don't have any upcoming appointments. Book a service to get started!"
+                      : "You haven't completed any bookings yet."}
+                  </Text>
+                </View>
+              )}
             </View>
-          )}
+          </Animated.ScrollView>
         </View>
-      </Animated.ScrollView>
-    </View>
       )}
     </ScrollDrivenGradientBackground>
   );
@@ -240,11 +234,11 @@ const styles = StyleSheet.create({
     // padding: 4,
     // borderWidth: 1,
     // borderColor: "#D1D5DB",
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    backgroundColor: "rgba(255, 255, 255, 0.3)",
     borderRadius: 25,
     padding: 4,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.5)',
+    borderColor: "rgba(255, 255, 255, 0.5)",
   },
   tab: {
     flex: 1,
