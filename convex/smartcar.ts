@@ -11,13 +11,7 @@
  */
 
 import { v } from "convex/values";
-import {
-  action,
-  query,
-  internalMutation,
-  internalQuery,
-  internalAction,
-} from "./_generated/server";
+import { action, query, internalMutation, internalQuery, internalAction } from "./_generated/server";
 import { internal } from "./_generated/api";
 
 // ============================================
@@ -54,9 +48,7 @@ export const getConnectionStatus = query({
   handler: async (ctx, args) => {
     const connection = await ctx.db
       .query("smartcar_connections")
-      .withIndex("by_vehicle_owner", (q) =>
-        q.eq("vehicleOwnerId", args.vehicleOwnerId)
-      )
+      .withIndex("by_vehicle_owner", (q) => q.eq("vehicleOwnerId", args.vehicleOwnerId))
       .first();
 
     if (!connection) return { connected: false };
@@ -87,9 +79,7 @@ export const getUserConnectedVehicles = query({
     for (const vo of vehicleOwners) {
       const connection = await ctx.db
         .query("smartcar_connections")
-        .withIndex("by_vehicle_owner", (q) =>
-          q.eq("vehicleOwnerId", vo._id)
-        )
+        .withIndex("by_vehicle_owner", (q) => q.eq("vehicleOwnerId", vo._id))
         .first();
 
       results.push({
@@ -140,14 +130,9 @@ export const exchangeCodeAndConnect = action({
           fetchFromSmartcar(tokens.access_token, smartcarVehicleId, "/odometer"),
         ]);
 
-        const vehicleInfo =
-          info.status === "fulfilled" ? info.value : null;
-        const vin =
-          vinData.status === "fulfilled" ? vinData.value?.vin : null;
-        const odometer =
-          odometerData.status === "fulfilled"
-            ? odometerData.value?.distance
-            : null;
+        const vehicleInfo = info.status === "fulfilled" ? info.value : null;
+        const vin = vinData.status === "fulfilled" ? vinData.value?.vin : null;
+        const odometer = odometerData.status === "fulfilled" ? odometerData.value?.distance : null;
 
         if (!vehicleInfo || !vin) {
           console.error(`Failed to get info/VIN for ${smartcarVehicleId}`);
@@ -156,37 +141,31 @@ export const exchangeCodeAndConnect = action({
 
         // ── Step 4: Run VIN through pipeline (Stage 1 + 2) ──
         // Process NHTSA decode → create makes/models/trims/engines
-        const pipelineResult = await ctx.runAction(
-          internal.vehicle_pipeline.processVin,
-          { vin }
-        );
+        const pipelineResult = await ctx.runAction(internal.vehicle_pipeline.processVin, { vin });
 
         // ── Step 5: Create vehicle_owner + vehicle records ──
-        const vehicleOwnerId = await ctx.runMutation(
-          internal.smartcar.createVehicleOwnerFromSmartcar,
-          {
-            userId: args.userId,
-            vin,
-            mileage: odometer || 0,
-            nickname: `${vehicleInfo.year} ${vehicleInfo.make} ${vehicleInfo.model}`,
-            engineId: pipelineResult?.engineId || null,
-            vehicleData: pipelineResult
-              ? {
-                  year: pipelineResult.year,
-                  trimId: pipelineResult.trimId,
-                  engineId: pipelineResult.engineId,
-                  make: pipelineResult.make,
-                  model: pipelineResult.model,
-                }
-              : {
-                  year: vehicleInfo.year,
-                  trimId: null,
-                  engineId: null,
-                  make: vehicleInfo.make,
-                  model: vehicleInfo.model,
-                },
-          }
-        );
+        const vehicleOwnerId = await ctx.runMutation(internal.smartcar.createVehicleOwnerFromSmartcar, {
+          userId: args.userId,
+          vin,
+          mileage: odometer || 0,
+          nickname: `${vehicleInfo.year} ${vehicleInfo.make} ${vehicleInfo.model}`,
+          engineId: pipelineResult?.engineId || null,
+          vehicleData: pipelineResult
+            ? {
+                year: pipelineResult.year,
+                trimId: pipelineResult.trimId,
+                engineId: pipelineResult.engineId,
+                make: pipelineResult.make,
+                model: pipelineResult.model,
+              }
+            : {
+                year: vehicleInfo.year,
+                trimId: null,
+                engineId: null,
+                make: vehicleInfo.make,
+                model: vehicleInfo.model,
+              },
+        });
 
         // ── Step 6: Store Smartcar connection (tokens) ──
         await ctx.runMutation(internal.smartcar.storeConnection, {
@@ -213,21 +192,17 @@ export const exchangeCodeAndConnect = action({
         // ── Step 8: Trigger AI enrichment if engine_id exists ──
         if (pipelineResult?.engineId) {
           // Schedule AI enrichment (non-blocking)
-          await ctx.scheduler.runAfter(
-            0,
-            internal.vehicle_pipeline.enrichVehicleSpecs,
-            {
-              engineId: pipelineResult.engineId,
-              make: pipelineResult.make,
-              model: pipelineResult.model,
-              year: pipelineResult.year,
-              trim: pipelineResult.trim,
-              engineCode: pipelineResult.engineCode,
-              displacement: pipelineResult.displacement,
-              cylinders: pipelineResult.cylinders,
-              fuelType: pipelineResult.fuelType,
-            }
-          );
+          await ctx.scheduler.runAfter(0, internal.vehicle_pipeline.enrichVehicleSpecs, {
+            engineId: pipelineResult.engineId,
+            make: pipelineResult.make,
+            model: pipelineResult.model,
+            year: pipelineResult.year,
+            trim: pipelineResult.trim,
+            engineCode: pipelineResult.engineCode,
+            displacement: pipelineResult.displacement,
+            cylinders: pipelineResult.cylinders,
+            fuelType: pipelineResult.fuelType,
+          });
         }
 
         connectedVehicles.push({
@@ -262,10 +237,9 @@ export const fetchVehicleData = action({
   args: { vehicleOwnerId: v.id("vehicle_owners") },
   handler: async (ctx, args) => {
     // Get connection
-    const connection = await ctx.runQuery(
-      internal.smartcar.getConnectionByOwner,
-      { vehicleOwnerId: args.vehicleOwnerId }
-    );
+    const connection = await ctx.runQuery(internal.smartcar.getConnectionByOwner, {
+      vehicleOwnerId: args.vehicleOwnerId,
+    });
 
     if (!connection || connection.status !== "active") {
       return { error: "Vehicle not connected" };
@@ -297,10 +271,7 @@ export const fetchVehicleData = action({
     }
 
     // Fetch data via batch endpoint
-    const data = await fetchBatchData(
-      accessToken,
-      connection.smartcarVehicleId
-    );
+    const data = await fetchBatchData(accessToken, connection.smartcarVehicleId);
 
     // Update mileage on vehicle_owners
     if (data.odometer) {
@@ -325,10 +296,9 @@ export const fetchVehicleData = action({
 export const disconnectVehicle = action({
   args: { vehicleOwnerId: v.id("vehicle_owners") },
   handler: async (ctx, args) => {
-    const connection = await ctx.runQuery(
-      internal.smartcar.getConnectionByOwner,
-      { vehicleOwnerId: args.vehicleOwnerId }
-    );
+    const connection = await ctx.runQuery(internal.smartcar.getConnectionByOwner, {
+      vehicleOwnerId: args.vehicleOwnerId,
+    });
 
     if (!connection) {
       return { success: false, error: "No connection found" };
@@ -337,15 +307,12 @@ export const disconnectVehicle = action({
     // Revoke at Smartcar
     if (connection.accessToken) {
       try {
-        await fetch(
-          `${SMARTCAR_API}/vehicles/${connection.smartcarVehicleId}/application`,
-          {
-            method: "DELETE",
-            headers: {
-              Authorization: `Bearer ${connection.accessToken}`,
-            },
-          }
-        );
+        await fetch(`${SMARTCAR_API}/vehicles/${connection.smartcarVehicleId}/application`, {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${connection.accessToken}`,
+          },
+        });
       } catch (err) {
         console.error("Smartcar revoke failed:", err);
       }
@@ -374,7 +341,7 @@ export const checkCompatibility = action({
       const scopes = "read_vehicle_info read_odometer read_location read_tires read_engine_oil read_fuel";
       const response = await fetch(
         `${SMARTCAR_API}/compatibility?vin=${args.vin}&scope=${encodeURIComponent(scopes)}&country=US`,
-        { headers: { Authorization: basicAuth() } }
+        { headers: { Authorization: basicAuth() } },
       );
 
       if (!response.ok) {
@@ -415,10 +382,9 @@ export const syncVehicleFromWebhook = internalAction({
   },
   handler: async (ctx, args) => {
     // Find the connection
-    const connection = await ctx.runQuery(
-      internal.smartcar.getConnectionBySmartcarId,
-      { smartcarVehicleId: args.smartcarVehicleId }
-    );
+    const connection = await ctx.runQuery(internal.smartcar.getConnectionBySmartcarId, {
+      smartcarVehicleId: args.smartcarVehicleId,
+    });
 
     if (!connection || connection.status !== "active") {
       console.log(`No active connection for ${args.smartcarVehicleId}`);
@@ -448,10 +414,7 @@ export const syncVehicleFromWebhook = internalAction({
     }
 
     // Fetch vehicle data
-    const data = await fetchBatchData(
-      accessToken,
-      args.smartcarVehicleId
-    );
+    const data = await fetchBatchData(accessToken, args.smartcarVehicleId);
 
     // Update mileage
     if (data.odometer) {
@@ -513,9 +476,7 @@ export const getConnectionByOwner = internalQuery({
   handler: async (ctx, args) => {
     return await ctx.db
       .query("smartcar_connections")
-      .withIndex("by_vehicle_owner", (q) =>
-        q.eq("vehicleOwnerId", args.vehicleOwnerId)
-      )
+      .withIndex("by_vehicle_owner", (q) => q.eq("vehicleOwnerId", args.vehicleOwnerId))
       .first();
   },
 });
@@ -525,9 +486,7 @@ export const getConnectionBySmartcarId = internalQuery({
   handler: async (ctx, args) => {
     return await ctx.db
       .query("smartcar_connections")
-      .withIndex("by_smartcar_vehicle_id", (q) =>
-        q.eq("smartcarVehicleId", args.smartcarVehicleId)
-      )
+      .withIndex("by_smartcar_vehicle_id", (q) => q.eq("smartcarVehicleId", args.smartcarVehicleId))
       .first();
   },
 });
@@ -574,23 +533,28 @@ export const createVehicleOwnerFromSmartcar = internalMutation({
       return existing._id;
     }
 
-    // Check if vehicle record exists
+    // Check if vehicle record exists; create if missing (so My Cars can display it)
     const existingVehicles = await ctx.db
       .query("vehicles")
       .withIndex("by_vin", (q) => q.eq("vin", args.vin))
       .collect();
 
-    if (existingVehicles.length === 0 && args.vehicleData.engineId && args.vehicleData.trimId) {
-      // Create vehicle record
-      await ctx.db.insert("vehicles", {
+    if (existingVehicles.length === 0) {
+      const vehicleRecord: Record<string, unknown> = {
         vin: args.vin,
         year: args.vehicleData.year,
-        trim_id: args.vehicleData.trimId,
-        engine_id: args.vehicleData.engineId,
-        metadata: { body_style: "", color: "" },
+        metadata: {
+          make: args.vehicleData.make ?? "",
+          model: args.vehicleData.model ?? "",
+          body_style: "",
+          color: "",
+        },
         created_at: now,
         updated_at: now,
-      });
+      };
+      if (args.vehicleData.trimId) vehicleRecord.trim_id = args.vehicleData.trimId;
+      if (args.vehicleData.engineId) vehicleRecord.engine_id = args.vehicleData.engineId;
+      await ctx.db.insert("vehicles", vehicleRecord as any);
     }
 
     // Create vehicle_owner record
@@ -626,9 +590,7 @@ export const storeConnection = internalMutation({
     // Check for existing connection
     const existing = await ctx.db
       .query("smartcar_connections")
-      .withIndex("by_vehicle_owner", (q) =>
-        q.eq("vehicleOwnerId", args.vehicleOwnerId)
-      )
+      .withIndex("by_vehicle_owner", (q) => q.eq("vehicleOwnerId", args.vehicleOwnerId))
       .first();
 
     if (existing) {
@@ -802,40 +764,32 @@ async function fetchVehicleIds(accessToken: string): Promise<string[]> {
   return data.vehicles || [];
 }
 
-async function fetchFromSmartcar(
-  accessToken: string,
-  vehicleId: string,
-  path: string
-) {
-  const response = await fetch(
-    `${SMARTCAR_API}/vehicles/${vehicleId}${path}`,
-    { headers: { Authorization: `Bearer ${accessToken}` } }
-  );
+async function fetchFromSmartcar(accessToken: string, vehicleId: string, path: string) {
+  const response = await fetch(`${SMARTCAR_API}/vehicles/${vehicleId}${path}`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+  });
   if (!response.ok) return null;
   return response.json();
 }
 
 async function fetchBatchData(accessToken: string, smartcarVehicleId: string) {
-  const response = await fetch(
-    `${SMARTCAR_API}/vehicles/${smartcarVehicleId}/batch`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        requests: [
-          { path: "/" },
-          { path: "/odometer" },
-          { path: "/location" },
-          { path: "/tires/pressure" },
-          { path: "/engine/oil" },
-          { path: "/fuel" },
-        ],
-      }),
-    }
-  );
+  const response = await fetch(`${SMARTCAR_API}/vehicles/${smartcarVehicleId}/batch`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      requests: [
+        { path: "/" },
+        { path: "/odometer" },
+        { path: "/location" },
+        { path: "/tires/pressure" },
+        { path: "/engine/oil" },
+        { path: "/fuel" },
+      ],
+    }),
+  });
 
   if (!response.ok) {
     // Fallback to individual requests
@@ -854,8 +808,7 @@ async function fetchBatchData(accessToken: string, smartcarVehicleId: string) {
 }
 
 async function fetchIndividual(accessToken: string, vehicleId: string) {
-  const get = (path: string) =>
-    fetchFromSmartcar(accessToken, vehicleId, path);
+  const get = (path: string) => fetchFromSmartcar(accessToken, vehicleId, path);
 
   const [info, odo, loc, tires, oil, fuel] = await Promise.allSettled([
     get(""),
@@ -868,9 +821,7 @@ async function fetchIndividual(accessToken: string, vehicleId: string) {
 
   return {
     info: info.status === "fulfilled" ? info.value : null,
-    odometer: formatOdometer(
-      odo.status === "fulfilled" ? odo.value : null
-    ),
+    odometer: formatOdometer(odo.status === "fulfilled" ? odo.value : null),
     location: loc.status === "fulfilled" ? loc.value : null,
     tirePressure: tires.status === "fulfilled" ? tires.value : null,
     oilLife: oil.status === "fulfilled" ? oil.value : null,

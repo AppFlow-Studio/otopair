@@ -2,7 +2,7 @@
 
 **Purpose:** Documents the `vehicle_specs` and related schema changes to support MVP services, verified pricing, and Vehicle Health—aligned with Otopair's product vision. Defines what is in scope now vs. deferred.
 
-**See also:** [BOOKING_INTEGRATION.md](./BOOKING_INTEGRATION.md), [REFERENCE.md](./REFERENCE.md), [convex/schema.ts](../convex/schema.ts).
+**See also:** [BOOKING_INTEGRATION.md](./BOOKING_INTEGRATION.md), [REFERENCE.md](./REFERENCE.md), [convex/schema.ts](../convex/schema.ts). **How specs get populated:** [ADD_VEHICLE_PIPELINE.md](./ADD_VEHICLE_PIPELINE.md) — NHTSA VIN decode + Anthropic Claude AI (engine_specs, vehicle_specs, trim_specs, service_vehicle_specs).
 
 ---
 

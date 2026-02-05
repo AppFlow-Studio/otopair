@@ -41,15 +41,16 @@
 
 ### Done
 
-- [x] add-car-info UI and flow (VIN, trim, engine, etc.)
+- [x] **VIN path** – add-vehicle.tsx → decodeVin (NHTSA) → add-vehicle-review.tsx → confirmVehicleForUser; creates vehicles, vehicle_owners; schedules AI enrichment (engine_specs, vehicle_specs, trim_specs, service_vehicle_specs). See [ADD_VEHICLE_PIPELINE.md](./ADD_VEHICLE_PIPELINE.md).
+- [x] **Smartcar path** – add-vehicle-review.tsx "Connect My Car" → useSmartcar.connect → exchangeCodeAndConnect; same NHTSA + AI pipeline; stores smartcar_connections, vehicle_health_snapshots.
+- [x] add-car-info UI and flow (manual VIN, trim, engine, etc.)
 
 ### Half-implemented
 
-- [ ] **Convex wiring** – add-car-info does not call Convex (no useQuery/useMutation for api.vehicles._, api.specs._); needs vehicles.upsertVehicle, vehicles.addOwner, specs.getFullVehicleSpecPack, transmissions.listByTrimId, chassis_variants.listByTrimId
+- [ ] **Manual add-car-info Convex wiring** – add-car-info does not call Convex (no useQuery/useMutation for api.vehicles._, api.specs._); needs vehicles.upsertVehicle, vehicles.addOwner, specs.getFullVehicleSpecPack, transmissions.listByTrimId, chassis_variants.listByTrimId
 
 ### Not implemented
 
-- [ ] Wire add-car flow to Convex (vehicles, vehicle_owners, specs, transmissions, chassis_variants)
 - [ ] Show getFullVehicleSpecPack(vin) and confidence in UI where relevant
 
 ---
@@ -99,13 +100,13 @@
 
 ## 5. Summary table
 
-| Area                     | Done                                                                             | Half-implemented                  | Not implemented                 |
-| ------------------------ | -------------------------------------------------------------------------------- | --------------------------------- | ------------------------------- |
-| **Convex schema & APIs** | Full (46 tables, vehicle intelligence, core, funnel, cdn_assets, shop_portfolio) | Seed data                         | Tests                           |
-| **Add vehicle**          | UI                                                                               | —                                 | Wire to Convex; spec pack in UI |
-| **Booking flow UI**      | Full (discovery → confirmation)                                                  | —                                 | —                               |
-| **Booking → Convex**     | createBatch, services, shops, mechanics, time_slots, user, vehicle               | payments.create; funnel/analytics | —                               |
-| **Confirmation**         | Success UI; Directions, Contact, Add to Calendar (shop from DB)                  | —                                 | Server booking id, follow_ups   |
+| Area                     | Done                                                                             | Half-implemented                  | Not implemented               |
+| ------------------------ | -------------------------------------------------------------------------------- | --------------------------------- | ----------------------------- |
+| **Convex schema & APIs** | Full (46 tables, vehicle intelligence, core, funnel, cdn_assets, shop_portfolio) | Seed data                         | Tests                         |
+| **Add vehicle**          | VIN + Smartcar paths wired to Convex (NHTSA + AI pipeline)                       | add-car-info manual flow          | Spec pack in UI               |
+| **Booking flow UI**      | Full (discovery → confirmation)                                                  | —                                 | —                             |
+| **Booking → Convex**     | createBatch, services, shops, mechanics, time_slots, user, vehicle               | payments.create; funnel/analytics | —                             |
+| **Confirmation**         | Success UI; Directions, Contact, Add to Calendar (shop from DB)                  | —                                 | Server booking id, follow_ups |
 
 ---
 

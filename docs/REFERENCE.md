@@ -117,9 +117,9 @@ For high-level and per-part diagrams, see [docs/diagrams.md](diagrams.md). For p
 
 ### User & onboarding (2)
 
-| Table                         | Purpose                                                                 |
-| ----------------------------- | ----------------------------------------------------------------------- |
-| users                         | Profiles; Clerk auth (clerkUserId)                                      |
+| Table                        | Purpose                                                                                                              |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| users                        | Profiles; Clerk auth (clerkUserId)                                                                                   |
 | onboarding_questions_answers | User Q&A: one row per user, `questions_and_answers` JSON, `last_updated`. Question text and options live in the app. |
 
 ### AI & analytics (4)
@@ -208,12 +208,12 @@ ai_enrichment_logs → manual_review_queue; spec_variances, spec_confirmations �
 
 The home screen “Finish setup” card shows four steps: **Create Account**, **About You**, **Add Car**, **Payments**. Completion is determined from Convex so it persists across reloads.
 
-| Step            | Completion source                                                                 |
-| --------------- | --------------------------------------------------------------------------------- |
-| Create Account  | `users.onboardingCompleted === true` (or in-session store `isCreateAccountComplete`) |
-| About You       | `users.tellUsAboutCompleted === true` (or store `isTellUsAboutYourselfComplete`); set by Tell Us About flow via `users.updateProfile({ tellUsAboutCompleted: true })` |
-| Add Car         | At least one **active** row in `vehicle_owners` for the current user (`vehicle_owners.getActiveByUser(userId)`); tap navigates to `/add-vehicle` |
-| Payments        | No completion check yet; tap navigates to `/payments`                            |
+| Step           | Completion source                                                                                                                                                     |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Create Account | `users.onboardingCompleted === true` (or in-session store `isCreateAccountComplete`)                                                                                  |
+| About You      | `users.tellUsAboutCompleted === true` (or store `isTellUsAboutYourselfComplete`); set by Tell Us About flow via `users.updateProfile({ tellUsAboutCompleted: true })` |
+| Add Car        | At least one **active** row in `vehicle_owners` for the current user (`vehicle_owners.getActiveByUser(userId)`); tap navigates to `/add-vehicle`                      |
+| Payments       | No completion check yet; tap navigates to `/payments`                                                                                                                 |
 
 **Component:** `components/home/FinishAccountSetupCard.tsx`. Uses `api.users.getMe` and `api.vehicle_owners.getActiveByUser(userId)` (with `me._id` from getMe). Steps are greyed out and non-tappable when complete.
 
@@ -340,6 +340,19 @@ The home screen “Finish setup” card shows four steps: **Create Account**, **
 - **getByEngineAndService**(engineId, serviceId) – single engine+service spec
 - **getSpecsForEngineAndServices**(engineId, serviceIds[]) – car-specific labor/parts for pricing; returns map of serviceId → { labor_hours, parts_cost_avg }
 
+### vehicle_pipeline.ts (Add Vehicle)
+
+- **decodeVin**(vin) – NHTSA decode; upserts makes/models/trims/engines; returns decoded fields for review screen.
+- **confirmVehicleForUser**(vin, trimId, engineId, year, make, model, trim, engineCode, displacement, cylinders, fuelType) – creates vehicle + vehicle_owner; schedules enrichVehicleSpecs.
+
+### smartcar.ts
+
+- **exchangeCodeAndConnect**(code, userId) – OAuth code → tokens; fetch vehicles, VIN, odometer; processVin; create vehicle_owner/vehicle; store connection; schedule enrichVehicleSpecs.
+- **fetchVehicleData**(vehicleOwnerId) – on-demand sync; refreshes tokens; returns odometer, location, tires, oil, fuel.
+- **disconnectVehicle**(vehicleOwnerId) – revoke at Smartcar; delete connection.
+- **checkCompatibility**(vin) – VIN compatibility check with Smartcar.
+- **getConnectionStatus**(vehicleOwnerId), **getUserConnectedVehicles**(userId) – queries.
+
 ---
 
 ## Implementation status and next steps
@@ -368,9 +381,22 @@ The home screen “Finish setup” card shows four steps: **Create Account**, **
 
 ---
 
+## Add Vehicle Pipeline (NHTSA + Smartcar + AI)
+
+When a user adds a car via VIN or Smartcar Connect, the pipeline:
+
+1. **Stage 2 (NHTSA):** `vehicle_pipeline.processVin` decodes the VIN and upserts makes, models, trims, engines.
+2. **Stage 3 (Claude):** `enrichVehicleSpecs` populates engine_specs, vehicle_specs, trim_specs, and service_vehicle_specs via Anthropic AI.
+
+See [ADD_VEHICLE_PIPELINE.md](ADD_VEHICLE_PIPELINE.md) for full flow, entry points, and env vars.
+
+---
+
 ## Code examples
 
-### Add vehicle and owner
+### Add vehicle and owner (via pipeline)
+
+Use `vehicle_pipeline.decodeVin` + `vehicle_pipeline.confirmVehicleForUser` (or Smartcar `exchangeCodeAndConnect`) for the full NHTSA + AI pipeline. For direct writes:
 
 ```typescript
 await upsertVehicle({ vin, trim_id, engine_id, year });

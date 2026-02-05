@@ -56,29 +56,30 @@ export default function CarsHomeScreen() {
   // Map Convex list to Vehicle[] for CarCarousel
   const vehicles: Vehicle[] = useMemo(() => {
     if (!listVehicles?.length) return [];
-    return listVehicles
-      .filter((r) => r.vehicle != null)
-      .map((r, i) => {
-        const v = r.vehicle!;
-        const o = r.ownership;
-        const meta = (v as { metadata?: { make?: string; model?: string } }).metadata;
-        const gradient = DEFAULT_GRADIENTS[i % DEFAULT_GRADIENTS.length];
-        return {
-          id: r.vin,
-          year: v.year ?? 0,
-          make: meta?.make ?? "Vehicle",
-          model: meta?.model ?? r.vin.slice(-6),
-          vin: r.vin,
-          mileage: o?.mileage ?? 0,
-          nextServiceDate: undefined,
-          isDefault: o?.is_primary ?? false,
-          imageSource: undefined,
-          logoSource: undefined,
-          condition: undefined,
-          nextUnlock: undefined,
-          gradientColors: gradient,
-        };
-      });
+    return listVehicles.map((r, i) => {
+      const v = r.vehicle;
+      const o = r.ownership;
+      const meta = v ? (v as { metadata?: { make?: string; model?: string } }).metadata : undefined;
+      const gradient = DEFAULT_GRADIENTS[i % DEFAULT_GRADIENTS.length];
+      // Use vehicle metadata when present; fallback to ownership.nickname (e.g. "2023 Honda Civic")
+      const displayMake = meta?.make ?? o?.nickname?.split(" ")[1] ?? "Vehicle";
+      const displayModel = meta?.model ?? o?.nickname?.split(" ").slice(2).join(" ") ?? r.vin.slice(-6);
+      return {
+        id: r.vin,
+        year: v?.year ?? 0,
+        make: displayMake,
+        model: displayModel,
+        vin: r.vin,
+        mileage: o?.mileage ?? 0,
+        nextServiceDate: undefined,
+        isDefault: o?.is_primary ?? false,
+        imageSource: undefined,
+        logoSource: undefined,
+        condition: undefined,
+        nextUnlock: undefined,
+        gradientColors: gradient,
+      };
+    });
   }, [listVehicles]);
 
   // Clamp active index when list changes

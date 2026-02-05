@@ -252,6 +252,7 @@ export default function ReviewVehicleDetailsScreen() {
   const { vin, manual } = useLocalSearchParams<{ vin: string; manual: string }>();
   const { userId } = useUserFromConvex();
   const addOwner = useMutation(api.vehicles.addOwner);
+  const upsertVehicle = useMutation(api.vehicles.upsertVehicle);
 
   // Check if this is manual entry mode (no VIN provided)
   const isManualEntry = manual === "true";
@@ -354,18 +355,38 @@ export default function ReviewVehicleDetailsScreen() {
   }, []);
 
   const handleConfirmVehicle = async () => {
-    const normalizedVin = typeof vin === "string" ? vin.trim().toUpperCase() : "";
-    if (userId && normalizedVin.length > 0) {
-      try {
-        await addOwner({
-          vin: normalizedVin,
-          userId,
-          is_primary: true,
-          mileage: mileage ? Number(mileage) : undefined,
-        });
-      } catch (e) {
-        console.warn("Convex addOwner failed", e);
-      }
+    if (!userId) {
+      router.push("/vehicle-added");
+      return;
+    }
+
+    try {
+      const normalizedVin =
+        typeof vin === "string" && vin.trim().length === 17
+          ? vin.trim().toUpperCase()
+          : `MANUAL-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
+
+      // Ensure vehicle exists (upsertVehicle creates if missing; addOwner also ensures it)
+      await upsertVehicle({
+        vin: normalizedVin,
+        year: year ? parseFloat(year) : undefined,
+        metadata: {
+          make: brand || "",
+          model: model || "",
+          body_style: bodyStyle || "",
+          color: selectedColor || "",
+        },
+      });
+
+      await addOwner({
+        vin: normalizedVin,
+        userId,
+        is_primary: true,
+        nickname: brand && model && year ? `${year} ${brand} ${model}` : undefined,
+        mileage: mileage ? Number(mileage) : undefined,
+      });
+    } catch (e) {
+      console.warn("Convex add vehicle failed", e);
     }
     router.push("/vehicle-added");
   };
