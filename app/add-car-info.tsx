@@ -9,7 +9,7 @@
  */
 
 // 1. React & React Native
-import React, { useMemo, useRef, useState, useCallback, useEffect } from 'react';
+import React, { useMemo, useRef, useState, useCallback, useEffect } from "react";
 import {
   Dimensions,
   Pressable,
@@ -22,31 +22,36 @@ import {
   Keyboard,
   Platform,
   KeyboardAvoidingView,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 2. Expo & Third-party
-import { StatusBar } from 'expo-status-bar';
-import { useRouter, useLocalSearchParams } from 'expo-router';
-import { ArrowLeft, ChevronDown, ChevronLeft, Car, Bike, Truck, Check, X } from 'lucide-react-native';
-import { BottomSheetModal, BottomSheetBackdrop, BottomSheetFlatList } from '@gorhom/bottom-sheet';
-import LottieView from 'lottie-react-native';
+import { StatusBar } from "expo-status-bar";
+import { useRouter, useLocalSearchParams } from "expo-router";
+import { ArrowLeft, ChevronDown, ChevronLeft, Car, Bike, Truck, Check, X } from "lucide-react-native";
+import { BottomSheetModal, BottomSheetBackdrop, BottomSheetFlatList } from "@gorhom/bottom-sheet";
+import LottieView from "lottie-react-native";
 
-// 3. Shared UI
-import { Text } from '@/components/shared-ui';
+// 3. Convex & hooks
+import { useMutation } from "convex/react";
+import { api } from "@/convex/_generated/api";
+import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 
-// 4. Constants
-import { Spacing, BorderRadius, FontFamily } from '@/constants/theme';
+// 4. Shared UI
+import { Text } from "@/components/shared-ui";
+
+// 5. Constants
+import { Spacing, BorderRadius, FontFamily } from "@/constants/theme";
 
 // ============================================================================
 // CONSTANTS
 // ============================================================================
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
 // Calculate keyboard offset based on screen height
 const getKeyboardOffset = () => {
-  if (Platform.OS !== 'ios') return 0;
+  if (Platform.OS !== "ios") return 0;
   // iPhone 14 Pro Max (~932 points) needs more offset
   // iPhone 17 Pro (~852 points) needs minimal offset
   if (SCREEN_HEIGHT >= 920) return 50;
@@ -54,33 +59,33 @@ const getKeyboardOffset = () => {
 };
 
 // Accent color for selections
-const ACCENT_COLOR = '#5299FE';
+const ACCENT_COLOR = "#5299FE";
 
 // Vehicle colours
 const COLOURS = [
-  { id: 'black', label: 'Black', color: '#1a1a1a' },
-  { id: 'midnight-silver', label: 'Midnight Silver', color: '#4A4A4A' },
-  { id: 'silver', label: 'Silver', color: '#C0C0C0' },
-  { id: 'white', label: 'White', color: '#FFFFFF' },
-  { id: 'gray', label: 'Gray', color: '#808080' },
-  { id: 'red', label: 'Red', color: '#DC2626' },
-  { id: 'blue', label: 'Blue', color: '#2563EB' },
-  { id: 'green', label: 'Green', color: '#16A34A' },
-  { id: 'beige', label: 'Beige', color: '#D4B896' },
-  { id: 'brown', label: 'Brown', color: '#8B4513' },
+  { id: "black", label: "Black", color: "#1a1a1a" },
+  { id: "midnight-silver", label: "Midnight Silver", color: "#4A4A4A" },
+  { id: "silver", label: "Silver", color: "#C0C0C0" },
+  { id: "white", label: "White", color: "#FFFFFF" },
+  { id: "gray", label: "Gray", color: "#808080" },
+  { id: "red", label: "Red", color: "#DC2626" },
+  { id: "blue", label: "Blue", color: "#2563EB" },
+  { id: "green", label: "Green", color: "#16A34A" },
+  { id: "beige", label: "Beige", color: "#D4B896" },
+  { id: "brown", label: "Brown", color: "#8B4513" },
 ];
 
 // Vehicle types / Body Styles
 const BODY_STYLES = [
-  { id: 'sedan', label: 'Sedan', Icon: Car },
-  { id: 'suv', label: 'SUV', Icon: Car },
-  { id: 'coupe', label: 'Coupe', Icon: Car },
-  { id: 'hatchback', label: 'Hatchback', Icon: Car },
-  { id: 'wagon', label: 'Wagon', Icon: Car },
-  { id: 'convertible', label: 'Convertible', Icon: Car },
-  { id: 'truck', label: 'Truck', Icon: Truck },
-  { id: 'van', label: 'Van', Icon: Car },
-  { id: 'motorcycle', label: 'Motorcycle', Icon: Bike },
+  { id: "sedan", label: "Sedan", Icon: Car },
+  { id: "suv", label: "SUV", Icon: Car },
+  { id: "coupe", label: "Coupe", Icon: Car },
+  { id: "hatchback", label: "Hatchback", Icon: Car },
+  { id: "wagon", label: "Wagon", Icon: Car },
+  { id: "convertible", label: "Convertible", Icon: Car },
+  { id: "truck", label: "Truck", Icon: Truck },
+  { id: "van", label: "Van", Icon: Car },
+  { id: "motorcycle", label: "Motorcycle", Icon: Bike },
 ];
 
 // Years (last 30 years)
@@ -88,42 +93,154 @@ const YEARS = Array.from({ length: 30 }, (_, i) => (2025 - i).toString());
 
 // Popular brands
 const BRANDS = [
-  'Acura', 'Alfa Romeo', 'Aston Martin', 'Audi', 'Bentley', 'BMW', 'Buick',
-  'Cadillac', 'Chevrolet', 'Chrysler', 'Dodge', 'Ferrari', 'Fiat', 'Ford',
-  'Genesis', 'GMC', 'Honda', 'Hyundai', 'Infiniti', 'Jaguar', 'Jeep', 'Kia',
-  'Lamborghini', 'Land Rover', 'Lexus', 'Lincoln', 'Maserati', 'Mazda',
-  'McLaren', 'Mercedes-Benz', 'Mini', 'Mitsubishi', 'Nissan', 'Porsche',
-  'Ram', 'Rolls-Royce', 'Subaru', 'Tesla', 'Toyota', 'Volkswagen', 'Volvo',
+  "Acura",
+  "Alfa Romeo",
+  "Aston Martin",
+  "Audi",
+  "Bentley",
+  "BMW",
+  "Buick",
+  "Cadillac",
+  "Chevrolet",
+  "Chrysler",
+  "Dodge",
+  "Ferrari",
+  "Fiat",
+  "Ford",
+  "Genesis",
+  "GMC",
+  "Honda",
+  "Hyundai",
+  "Infiniti",
+  "Jaguar",
+  "Jeep",
+  "Kia",
+  "Lamborghini",
+  "Land Rover",
+  "Lexus",
+  "Lincoln",
+  "Maserati",
+  "Mazda",
+  "McLaren",
+  "Mercedes-Benz",
+  "Mini",
+  "Mitsubishi",
+  "Nissan",
+  "Porsche",
+  "Ram",
+  "Rolls-Royce",
+  "Subaru",
+  "Tesla",
+  "Toyota",
+  "Volkswagen",
+  "Volvo",
 ];
 
 // Models per brand (simplified - in real app would come from API)
 const BRAND_MODELS: Record<string, string[]> = {
-  'Lexus': ['ES', 'GS', 'GX', 'IS', 'LC', 'LS', 'LX', 'NX', 'RC', 'RX', 'UX', 'RX350', 'RX450h', 'ES350', 'NX300'],
-  'Toyota': ['4Runner', 'Avalon', 'Camry', 'Corolla', 'GR86', 'Highlander', 'Land Cruiser', 'Prius', 'RAV4', 'Sequoia', 'Supra', 'Tacoma', 'Tundra', 'Venza'],
-  'Honda': ['Accord', 'Civic', 'CR-V', 'HR-V', 'Insight', 'Odyssey', 'Passport', 'Pilot', 'Ridgeline'],
-  'BMW': ['2 Series', '3 Series', '4 Series', '5 Series', '7 Series', '8 Series', 'i4', 'i7', 'iX', 'M3', 'M4', 'M5', 'X1', 'X3', 'X5', 'X7', 'Z4'],
-  'Mercedes-Benz': ['A-Class', 'C-Class', 'CLA', 'CLS', 'E-Class', 'EQE', 'EQS', 'G-Class', 'GLA', 'GLB', 'GLC', 'GLE', 'GLS', 'S-Class', 'SL'],
-  'Audi': ['A3', 'A4', 'A5', 'A6', 'A7', 'A8', 'e-tron', 'Q3', 'Q4', 'Q5', 'Q7', 'Q8', 'R8', 'RS6', 'S4', 'S5', 'TT'],
-  'Tesla': ['Model 3', 'Model S', 'Model X', 'Model Y', 'Cybertruck'],
-  'Ford': ['Bronco', 'Edge', 'Escape', 'Expedition', 'Explorer', 'F-150', 'Maverick', 'Mustang', 'Ranger'],
-  'Chevrolet': ['Blazer', 'Bolt', 'Camaro', 'Colorado', 'Corvette', 'Equinox', 'Malibu', 'Silverado', 'Suburban', 'Tahoe', 'Trailblazer', 'Traverse'],
+  Lexus: ["ES", "GS", "GX", "IS", "LC", "LS", "LX", "NX", "RC", "RX", "UX", "RX350", "RX450h", "ES350", "NX300"],
+  Toyota: [
+    "4Runner",
+    "Avalon",
+    "Camry",
+    "Corolla",
+    "GR86",
+    "Highlander",
+    "Land Cruiser",
+    "Prius",
+    "RAV4",
+    "Sequoia",
+    "Supra",
+    "Tacoma",
+    "Tundra",
+    "Venza",
+  ],
+  Honda: ["Accord", "Civic", "CR-V", "HR-V", "Insight", "Odyssey", "Passport", "Pilot", "Ridgeline"],
+  BMW: [
+    "2 Series",
+    "3 Series",
+    "4 Series",
+    "5 Series",
+    "7 Series",
+    "8 Series",
+    "i4",
+    "i7",
+    "iX",
+    "M3",
+    "M4",
+    "M5",
+    "X1",
+    "X3",
+    "X5",
+    "X7",
+    "Z4",
+  ],
+  "Mercedes-Benz": [
+    "A-Class",
+    "C-Class",
+    "CLA",
+    "CLS",
+    "E-Class",
+    "EQE",
+    "EQS",
+    "G-Class",
+    "GLA",
+    "GLB",
+    "GLC",
+    "GLE",
+    "GLS",
+    "S-Class",
+    "SL",
+  ],
+  Audi: ["A3", "A4", "A5", "A6", "A7", "A8", "e-tron", "Q3", "Q4", "Q5", "Q7", "Q8", "R8", "RS6", "S4", "S5", "TT"],
+  Tesla: ["Model 3", "Model S", "Model X", "Model Y", "Cybertruck"],
+  Ford: ["Bronco", "Edge", "Escape", "Expedition", "Explorer", "F-150", "Maverick", "Mustang", "Ranger"],
+  Chevrolet: [
+    "Blazer",
+    "Bolt",
+    "Camaro",
+    "Colorado",
+    "Corvette",
+    "Equinox",
+    "Malibu",
+    "Silverado",
+    "Suburban",
+    "Tahoe",
+    "Trailblazer",
+    "Traverse",
+  ],
 };
 
 // Drivetrains
 const DRIVETRAINS = [
-  'Front-Wheel Drive (FWD)',
-  'Rear-Wheel Drive (RWD)',
-  'All-Wheel Drive (AWD)',
-  'Four-Wheel Drive (4WD)',
+  "Front-Wheel Drive (FWD)",
+  "Rear-Wheel Drive (RWD)",
+  "All-Wheel Drive (AWD)",
+  "Four-Wheel Drive (4WD)",
 ];
 
 // Trims (common across brands)
 const TRIMS = [
-  'Base', 'Sport', 'Premium', 'Luxury', 'Limited', 'Platinum', 'F Sport',
-  'S', 'SE', 'SEL', 'XLE', 'XSE', 'Touring', 'GT', 'RS', 'AMG', 'M Sport',
+  "Base",
+  "Sport",
+  "Premium",
+  "Luxury",
+  "Limited",
+  "Platinum",
+  "F Sport",
+  "S",
+  "SE",
+  "SEL",
+  "XLE",
+  "XSE",
+  "Touring",
+  "GT",
+  "RS",
+  "AMG",
+  "M Sport",
 ];
 
-type SheetMode = 'brand' | 'model' | 'year' | 'color' | 'bodyStyle' | 'trim' | 'drivetrain';
+type SheetMode = "brand" | "model" | "year" | "color" | "bodyStyle" | "trim" | "drivetrain";
 
 // ============================================================================
 // COMPONENT
@@ -133,30 +250,32 @@ export default function ReviewVehicleDetailsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { vin, manual } = useLocalSearchParams<{ vin: string; manual: string }>();
-  
+  const { userId } = useUserFromConvex();
+  const addOwner = useMutation(api.vehicles.addOwner);
+
   // Check if this is manual entry mode (no VIN provided)
-  const isManualEntry = manual === 'true';
-  
+  const isManualEntry = manual === "true";
+
   // State - Hardcoded Lexus RX350 details for VIN mode, blank for manual mode
-  const [year, setYear] = useState(isManualEntry ? '' : '2023');
-  const [brand, setBrand] = useState(isManualEntry ? '' : 'Lexus');
-  const [model, setModel] = useState(isManualEntry ? '' : 'RX350');
-  const [trim, setTrim] = useState(isManualEntry ? '' : 'F Sport');
-  const [drivetrain, setDrivetrain] = useState(isManualEntry ? '' : 'All-Wheel Drive (AWD)');
-  const [bodyStyle, setBodyStyle] = useState(isManualEntry ? '' : 'suv');
-  const [selectedColor, setSelectedColor] = useState(isManualEntry ? '' : 'midnight-silver');
-  const [mileage, setMileage] = useState('');
+  const [year, setYear] = useState(isManualEntry ? "" : "2023");
+  const [brand, setBrand] = useState(isManualEntry ? "" : "Lexus");
+  const [model, setModel] = useState(isManualEntry ? "" : "RX350");
+  const [trim, setTrim] = useState(isManualEntry ? "" : "F Sport");
+  const [drivetrain, setDrivetrain] = useState(isManualEntry ? "" : "All-Wheel Drive (AWD)");
+  const [bodyStyle, setBodyStyle] = useState(isManualEntry ? "" : "suv");
+  const [selectedColor, setSelectedColor] = useState(isManualEntry ? "" : "midnight-silver");
+  const [mileage, setMileage] = useState("");
   const [isEditing, setIsEditing] = useState(isManualEntry);
-  const [sheetMode, setSheetMode] = useState<SheetMode>('brand');
+  const [sheetMode, setSheetMode] = useState<SheetMode>("brand");
   const [isLoadingComplete, setIsLoadingComplete] = useState(false);
   const [showCarImageAfterAnimation, setShowCarImageAfterAnimation] = useState(false);
   const hasAnimationPlayedRef = useRef(false);
-  
+
   // Refs
   const pickerSheetRef = useRef<BottomSheetModal>(null);
-  
+
   // Snap points for picker sheet - taller for longer lists
-  const snapPoints = useMemo(() => ['92%'], []);
+  const snapPoints = useMemo(() => ["92%"], []);
 
   // Check if all required fields are filled (for manual entry)
   const allFieldsFilled = useMemo(() => {
@@ -164,10 +283,10 @@ export default function ReviewVehicleDetailsScreen() {
   }, [brand, model, year, selectedColor, bodyStyle, trim, drivetrain]);
 
   // Get color object by id
-  const getColorById = (id: string) => COLOURS.find(c => c.id === id) || null;
-  
+  const getColorById = (id: string) => COLOURS.find((c) => c.id === id) || null;
+
   // Get body style object by id
-  const getBodyStyleById = (id: string) => BODY_STYLES.find(b => b.id === id) || null;
+  const getBodyStyleById = (id: string) => BODY_STYLES.find((b) => b.id === id) || null;
 
   // Get models for selected brand
   const availableModels = useMemo(() => {
@@ -200,7 +319,7 @@ export default function ReviewVehicleDetailsScreen() {
 
   const handleSelectBrand = useCallback((selectedBrand: string) => {
     setBrand(selectedBrand);
-    setModel(''); // Reset model when brand changes
+    setModel(""); // Reset model when brand changes
     pickerSheetRef.current?.dismiss();
   }, []);
 
@@ -234,19 +353,21 @@ export default function ReviewVehicleDetailsScreen() {
     pickerSheetRef.current?.dismiss();
   }, []);
 
-  const handleConfirmVehicle = () => {
-    console.log('Confirming vehicle:', {
-      vin,
-      year,
-      brand,
-      model,
-      trim,
-      drivetrain,
-      bodyStyle,
-      color: selectedColor,
-      mileage,
-    });
-    router.push('/vehicle-added');
+  const handleConfirmVehicle = async () => {
+    const normalizedVin = typeof vin === "string" ? vin.trim().toUpperCase() : "";
+    if (userId && normalizedVin.length > 0) {
+      try {
+        await addOwner({
+          vin: normalizedVin,
+          userId,
+          is_primary: true,
+          mileage: mileage ? Number(mileage) : undefined,
+        });
+      } catch (e) {
+        console.warn("Convex addOwner failed", e);
+      }
+    }
+    router.push("/vehicle-added");
   };
 
   const handleToggleEdit = () => {
@@ -254,15 +375,8 @@ export default function ReviewVehicleDetailsScreen() {
   };
 
   const renderBackdrop = useCallback(
-    (props: any) => (
-      <BottomSheetBackdrop
-        {...props}
-        disappearsOnIndex={-1}
-        appearsOnIndex={0}
-        opacity={0.5}
-      />
-    ),
-    []
+    (props: any) => <BottomSheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} opacity={0.5} />,
+    [],
   );
 
   const currentColor = getColorById(selectedColor);
@@ -271,33 +385,41 @@ export default function ReviewVehicleDetailsScreen() {
   // Get sheet title based on mode
   const getSheetTitle = () => {
     switch (sheetMode) {
-      case 'brand': return 'Select Brand';
-      case 'model': return 'Select Model';
-      case 'year': return 'Select Year';
-      case 'color': return 'Select Color';
-      case 'bodyStyle': return 'Select Body Style';
-      case 'trim': return 'Select Trim';
-      case 'drivetrain': return 'Select Drivetrain';
-      default: return 'Select';
+      case "brand":
+        return "Select Brand";
+      case "model":
+        return "Select Model";
+      case "year":
+        return "Select Year";
+      case "color":
+        return "Select Color";
+      case "bodyStyle":
+        return "Select Body Style";
+      case "trim":
+        return "Select Trim";
+      case "drivetrain":
+        return "Select Drivetrain";
+      default:
+        return "Select";
     }
   };
 
   // Memoized picker data for stable reference
   const pickerData = useMemo(() => {
     switch (sheetMode) {
-      case 'brand':
+      case "brand":
         return BRANDS;
-      case 'model':
+      case "model":
         return availableModels;
-      case 'year':
+      case "year":
         return YEARS;
-      case 'color':
+      case "color":
         return COLOURS;
-      case 'bodyStyle':
+      case "bodyStyle":
         return BODY_STYLES;
-      case 'trim':
+      case "trim":
         return TRIMS;
-      case 'drivetrain':
+      case "drivetrain":
         return DRIVETRAINS;
       default:
         return [];
@@ -306,130 +428,151 @@ export default function ReviewVehicleDetailsScreen() {
 
   // Key extractor for FlatList
   const keyExtractor = useCallback((item: any) => {
-    if (typeof item === 'string') return item;
+    if (typeof item === "string") return item;
     return item.id || item.label;
   }, []);
 
   // Render item for FlatList
-  const renderPickerItem = useCallback(({ item }: { item: any }) => {
-    switch (sheetMode) {
-      case 'brand':
-        return (
-          <Pressable
-            onPress={() => handleSelectBrand(item)}
-            style={({ pressed }) => [styles.pickerItem, pressed && styles.pickerItemPressed]}
-          >
-            <Text size="md" color="#000000">{item}</Text>
-            {brand === item && <Check size={20} color={ACCENT_COLOR} strokeWidth={3} />}
-          </Pressable>
-        );
+  const renderPickerItem = useCallback(
+    ({ item }: { item: any }) => {
+      switch (sheetMode) {
+        case "brand":
+          return (
+            <Pressable
+              onPress={() => handleSelectBrand(item)}
+              style={({ pressed }) => [styles.pickerItem, pressed && styles.pickerItemPressed]}
+            >
+              <Text size="md" color="#000000">
+                {item}
+              </Text>
+              {brand === item && <Check size={20} color={ACCENT_COLOR} strokeWidth={3} />}
+            </Pressable>
+          );
 
-      case 'model':
-        return (
-          <Pressable
-            onPress={() => handleSelectModel(item)}
-            style={({ pressed }) => [styles.pickerItem, pressed && styles.pickerItemPressed]}
-          >
-            <Text size="md" color="#000000">{item}</Text>
-            {model === item && <Check size={20} color={ACCENT_COLOR} strokeWidth={3} />}
-          </Pressable>
-        );
+        case "model":
+          return (
+            <Pressable
+              onPress={() => handleSelectModel(item)}
+              style={({ pressed }) => [styles.pickerItem, pressed && styles.pickerItemPressed]}
+            >
+              <Text size="md" color="#000000">
+                {item}
+              </Text>
+              {model === item && <Check size={20} color={ACCENT_COLOR} strokeWidth={3} />}
+            </Pressable>
+          );
 
-      case 'year':
-        return (
-          <Pressable
-            onPress={() => handleSelectYear(item)}
-            style={({ pressed }) => [styles.pickerItem, pressed && styles.pickerItemPressed]}
-          >
-            <Text size="md" color="#000000">{item}</Text>
-            {year === item && <Check size={20} color={ACCENT_COLOR} strokeWidth={3} />}
-          </Pressable>
-        );
+        case "year":
+          return (
+            <Pressable
+              onPress={() => handleSelectYear(item)}
+              style={({ pressed }) => [styles.pickerItem, pressed && styles.pickerItemPressed]}
+            >
+              <Text size="md" color="#000000">
+                {item}
+              </Text>
+              {year === item && <Check size={20} color={ACCENT_COLOR} strokeWidth={3} />}
+            </Pressable>
+          );
 
-      case 'color':
-        return (
-          <Pressable
-            onPress={() => handleSelectColor(item.id)}
-            style={({ pressed }) => [styles.pickerItem, pressed && styles.pickerItemPressed]}
-          >
-            <View style={styles.pickerItemLeft}>
-              <View style={[
-                styles.pickerColorDot,
-                { backgroundColor: item.color },
-                item.id === 'white' && styles.pickerColorDotBorder
-              ]} />
-              <Text size="md" color="#000000">{item.label}</Text>
-            </View>
-            {selectedColor === item.id && <Check size={20} color={ACCENT_COLOR} strokeWidth={3} />}
-          </Pressable>
-        );
-
-      case 'bodyStyle':
-        const IconComponent = item.Icon;
-        return (
-          <Pressable
-            onPress={() => handleSelectBodyStyle(item.id)}
-            style={({ pressed }) => [styles.pickerItem, pressed && styles.pickerItemPressed]}
-          >
-            <View style={styles.pickerItemLeft}>
-              <View style={styles.pickerIconContainer}>
-                <IconComponent size={20} color="#666666" />
+        case "color":
+          return (
+            <Pressable
+              onPress={() => handleSelectColor(item.id)}
+              style={({ pressed }) => [styles.pickerItem, pressed && styles.pickerItemPressed]}
+            >
+              <View style={styles.pickerItemLeft}>
+                <View
+                  style={[
+                    styles.pickerColorDot,
+                    { backgroundColor: item.color },
+                    item.id === "white" && styles.pickerColorDotBorder,
+                  ]}
+                />
+                <Text size="md" color="#000000">
+                  {item.label}
+                </Text>
               </View>
-              <Text size="md" color="#000000">{item.label}</Text>
-            </View>
-            {bodyStyle === item.id && <Check size={20} color={ACCENT_COLOR} strokeWidth={3} />}
-          </Pressable>
-        );
+              {selectedColor === item.id && <Check size={20} color={ACCENT_COLOR} strokeWidth={3} />}
+            </Pressable>
+          );
 
-      case 'trim':
-        return (
-          <Pressable
-            onPress={() => handleSelectTrim(item)}
-            style={({ pressed }) => [styles.pickerItem, pressed && styles.pickerItemPressed]}
-          >
-            <Text size="md" color="#000000">{item}</Text>
-            {trim === item && <Check size={20} color={ACCENT_COLOR} strokeWidth={3} />}
-          </Pressable>
-        );
+        case "bodyStyle":
+          const IconComponent = item.Icon;
+          return (
+            <Pressable
+              onPress={() => handleSelectBodyStyle(item.id)}
+              style={({ pressed }) => [styles.pickerItem, pressed && styles.pickerItemPressed]}
+            >
+              <View style={styles.pickerItemLeft}>
+                <View style={styles.pickerIconContainer}>
+                  <IconComponent size={20} color="#666666" />
+                </View>
+                <Text size="md" color="#000000">
+                  {item.label}
+                </Text>
+              </View>
+              {bodyStyle === item.id && <Check size={20} color={ACCENT_COLOR} strokeWidth={3} />}
+            </Pressable>
+          );
 
-      case 'drivetrain':
-        return (
-          <Pressable
-            onPress={() => handleSelectDrivetrain(item)}
-            style={({ pressed }) => [styles.pickerItem, pressed && styles.pickerItemPressed]}
-          >
-            <Text size="md" color="#000000">{item}</Text>
-            {drivetrain === item && <Check size={20} color={ACCENT_COLOR} strokeWidth={3} />}
-          </Pressable>
-        );
+        case "trim":
+          return (
+            <Pressable
+              onPress={() => handleSelectTrim(item)}
+              style={({ pressed }) => [styles.pickerItem, pressed && styles.pickerItemPressed]}
+            >
+              <Text size="md" color="#000000">
+                {item}
+              </Text>
+              {trim === item && <Check size={20} color={ACCENT_COLOR} strokeWidth={3} />}
+            </Pressable>
+          );
 
-      default:
-        return null;
-    }
-  }, [
-    sheetMode,
-    brand,
-    model,
-    year,
-    selectedColor,
-    bodyStyle,
-    trim,
-    drivetrain,
-    handleSelectBrand,
-    handleSelectModel,
-    handleSelectYear,
-    handleSelectColor,
-    handleSelectBodyStyle,
-    handleSelectTrim,
-    handleSelectDrivetrain,
-  ]);
+        case "drivetrain":
+          return (
+            <Pressable
+              onPress={() => handleSelectDrivetrain(item)}
+              style={({ pressed }) => [styles.pickerItem, pressed && styles.pickerItemPressed]}
+            >
+              <Text size="md" color="#000000">
+                {item}
+              </Text>
+              {drivetrain === item && <Check size={20} color={ACCENT_COLOR} strokeWidth={3} />}
+            </Pressable>
+          );
+
+        default:
+          return null;
+      }
+    },
+    [
+      sheetMode,
+      brand,
+      model,
+      year,
+      selectedColor,
+      bodyStyle,
+      trim,
+      drivetrain,
+      handleSelectBrand,
+      handleSelectModel,
+      handleSelectYear,
+      handleSelectColor,
+      handleSelectBodyStyle,
+      handleSelectTrim,
+      handleSelectDrivetrain,
+    ],
+  );
 
   // Empty state component for model picker
   const ListEmptyComponent = useCallback(() => {
-    if (sheetMode === 'model' && availableModels.length === 0) {
+    if (sheetMode === "model" && availableModels.length === 0) {
       return (
         <View style={styles.emptyState}>
-          <Text size="md" color="#999999">Please select a brand first</Text>
+          <Text size="md" color="#999999">
+            Please select a brand first
+          </Text>
         </View>
       );
     }
@@ -437,13 +580,13 @@ export default function ReviewVehicleDetailsScreen() {
   }, [sheetMode, availableModels.length]);
 
   return (
-    <KeyboardAvoidingView 
+    <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
       keyboardVerticalOffset={getKeyboardOffset()}
     >
       <StatusBar style="dark" />
-      
+
       {/* Content */}
       <ScrollView
         style={styles.scrollView}
@@ -464,7 +607,7 @@ export default function ReviewVehicleDetailsScreen() {
             <ArrowLeft size={24} color="#000000" strokeWidth={2} />
           </Pressable>
           <Text weight="bold" size="xl" color="#000000" style={styles.headerTitle}>
-            {isManualEntry ? 'Add Vehicle Details' : 'Review Vehicle Details'}
+            {isManualEntry ? "Add Vehicle Details" : "Review Vehicle Details"}
           </Text>
           <View style={styles.headerSpacer} />
         </View>
@@ -474,11 +617,7 @@ export default function ReviewVehicleDetailsScreen() {
           <View style={styles.imageContainer}>
             {/* Show car image for VIN mode OR after animation completes in manual mode */}
             {(!isManualEntry || showCarImageAfterAnimation) && (
-              <Image
-                source={require('@/assets/images/lexus.png')}
-                style={styles.carImage}
-                resizeMode="contain"
-              />
+              <Image source={require("@/assets/images/lexus.png")} style={styles.carImage} resizeMode="contain" />
             )}
             {!isManualEntry && (
               <View style={styles.extractedBadge}>
@@ -490,7 +629,7 @@ export default function ReviewVehicleDetailsScreen() {
             {/* Loading Animation for manual entry */}
             {isManualEntry && isLoadingComplete && (
               <LottieView
-                source={require('@/assets/animations/loading-dots-blue.json')}
+                source={require("@/assets/animations/loading-dots-blue.json")}
                 autoPlay
                 loop
                 style={styles.lottieAnimation}
@@ -506,14 +645,14 @@ export default function ReviewVehicleDetailsScreen() {
             {/* Brand & Model */}
             <Pressable
               style={[styles.gridItem, styles.gridItemLeft]}
-              onPress={isEditing ? () => openPicker('brand') : undefined}
+              onPress={isEditing ? () => openPicker("brand") : undefined}
             >
               <Text weight="semiBold" size="xs" color={ACCENT_COLOR} style={styles.gridLabel}>
                 BRAND & MODEL
               </Text>
               <View style={styles.selectableField}>
                 <Text weight="bold" size="lg" color={brand || model ? "#000000" : "#CCCCCC"}>
-                  {brand && model ? `${brand} ${model}` : brand || 'Select brand'}
+                  {brand && model ? `${brand} ${model}` : brand || "Select brand"}
                 </Text>
                 {isEditing && <ChevronDown size={16} color="#999999" style={styles.chevron} />}
               </View>
@@ -522,14 +661,14 @@ export default function ReviewVehicleDetailsScreen() {
             {/* Year */}
             <Pressable
               style={[styles.gridItem, styles.gridItemRight]}
-              onPress={isEditing ? () => openPicker('year') : undefined}
+              onPress={isEditing ? () => openPicker("year") : undefined}
             >
               <Text weight="semiBold" size="xs" color={ACCENT_COLOR} style={styles.gridLabel}>
                 YEAR
               </Text>
               <View style={styles.selectableField}>
                 <Text weight="bold" size="lg" color={year ? "#000000" : "#CCCCCC"}>
-                  {year || 'Select year'}
+                  {year || "Select year"}
                 </Text>
                 {isEditing && <ChevronDown size={16} color="#999999" style={styles.chevron} />}
               </View>
@@ -538,7 +677,7 @@ export default function ReviewVehicleDetailsScreen() {
             {/* Color */}
             <Pressable
               style={[styles.gridItem, styles.gridItemLeft, styles.gridItemBottom]}
-              onPress={isEditing ? () => openPicker('color') : undefined}
+              onPress={isEditing ? () => openPicker("color") : undefined}
             >
               <Text weight="semiBold" size="xs" color={ACCENT_COLOR} style={styles.gridLabel}>
                 COLOR
@@ -547,10 +686,14 @@ export default function ReviewVehicleDetailsScreen() {
                 {currentColor ? (
                   <>
                     <View style={[styles.colorDot, { backgroundColor: currentColor.color }]} />
-                    <Text weight="bold" size="lg" color="#000000">{currentColor.label}</Text>
+                    <Text weight="bold" size="lg" color="#000000">
+                      {currentColor.label}
+                    </Text>
                   </>
                 ) : (
-                  <Text weight="bold" size="lg" color="#CCCCCC">Select color</Text>
+                  <Text weight="bold" size="lg" color="#CCCCCC">
+                    Select color
+                  </Text>
                 )}
                 {isEditing && <ChevronDown size={16} color="#999999" style={styles.chevron} />}
               </View>
@@ -559,14 +702,14 @@ export default function ReviewVehicleDetailsScreen() {
             {/* Body Style */}
             <Pressable
               style={[styles.gridItem, styles.gridItemRight, styles.gridItemBottom]}
-              onPress={isEditing ? () => openPicker('bodyStyle') : undefined}
+              onPress={isEditing ? () => openPicker("bodyStyle") : undefined}
             >
               <Text weight="semiBold" size="xs" color={ACCENT_COLOR} style={styles.gridLabel}>
                 BODY STYLE
               </Text>
               <View style={styles.selectableField}>
                 <Text weight="bold" size="lg" color={currentBodyStyle ? "#000000" : "#CCCCCC"}>
-                  {currentBodyStyle ? currentBodyStyle.label : 'Select style'}
+                  {currentBodyStyle ? currentBodyStyle.label : "Select style"}
                 </Text>
                 {isEditing && <ChevronDown size={16} color="#999999" style={styles.chevron} />}
               </View>
@@ -576,7 +719,9 @@ export default function ReviewVehicleDetailsScreen() {
 
         {/* Mileage Input */}
         <View style={styles.mileageSection}>
-          <Text size="md" color="#666666" style={styles.mileageLabel}>Mileage</Text>
+          <Text size="md" color="#666666" style={styles.mileageLabel}>
+            Mileage
+          </Text>
           <View style={styles.mileageInputContainer}>
             <TextInput
               style={styles.mileageInput}
@@ -587,7 +732,9 @@ export default function ReviewVehicleDetailsScreen() {
               keyboardType="number-pad"
               inputAccessoryViewID="mileageInputAccessory"
             />
-            <Text size="md" color="#999999" style={styles.mileageSuffix}>mi</Text>
+            <Text size="md" color="#999999" style={styles.mileageSuffix}>
+              mi
+            </Text>
           </View>
           <Text size="xs" color="#999999" style={styles.mileageHelper}>
             (estimate is okay)
@@ -595,7 +742,7 @@ export default function ReviewVehicleDetailsScreen() {
         </View>
 
         {/* Keyboard Accessory for Mileage Input (iOS only) */}
-        {Platform.OS === 'ios' && (
+        {Platform.OS === "ios" && (
           <InputAccessoryView nativeID="mileageInputAccessory">
             <View style={styles.keyboardAccessory}>
               <View style={styles.keyboardAccessorySpacer} />
@@ -603,7 +750,9 @@ export default function ReviewVehicleDetailsScreen() {
                 onPress={() => Keyboard.dismiss()}
                 style={({ pressed }) => [styles.keyboardDoneButton, pressed && styles.buttonPressed]}
               >
-                <Text weight="semiBold" size="md" color={ACCENT_COLOR}>Done</Text>
+                <Text weight="semiBold" size="md" color={ACCENT_COLOR}>
+                  Done
+                </Text>
               </Pressable>
             </View>
           </InputAccessoryView>
@@ -614,18 +763,17 @@ export default function ReviewVehicleDetailsScreen() {
           <Text weight="semiBold" size="xs" color="#999999" style={styles.sectionLabel}>
             VEHICLE DETAILS
           </Text>
-          
+
           {/* Model (separate selection if brand is selected) */}
           {brand && (
             <>
-              <Pressable
-                style={styles.detailRow}
-                onPress={isEditing ? () => openPicker('model') : undefined}
-              >
-                <Text size="md" color="#666666">Model</Text>
+              <Pressable style={styles.detailRow} onPress={isEditing ? () => openPicker("model") : undefined}>
+                <Text size="md" color="#666666">
+                  Model
+                </Text>
                 <View style={styles.detailValue}>
                   <Text weight="semiBold" size="md" color={model ? "#000000" : "#CCCCCC"}>
-                    {model || 'Select model'}
+                    {model || "Select model"}
                   </Text>
                   {isEditing && <ChevronDown size={16} color="#999999" />}
                 </View>
@@ -635,14 +783,13 @@ export default function ReviewVehicleDetailsScreen() {
           )}
 
           {/* Trim */}
-          <Pressable
-            style={styles.detailRow}
-            onPress={isEditing ? () => openPicker('trim') : undefined}
-          >
-            <Text size="md" color="#666666">Trim</Text>
+          <Pressable style={styles.detailRow} onPress={isEditing ? () => openPicker("trim") : undefined}>
+            <Text size="md" color="#666666">
+              Trim
+            </Text>
             <View style={styles.detailValue}>
               <Text weight="semiBold" size="md" color={trim ? "#000000" : "#CCCCCC"}>
-                {trim || 'Select trim'}
+                {trim || "Select trim"}
               </Text>
               {isEditing && <ChevronDown size={16} color="#999999" />}
             </View>
@@ -650,14 +797,13 @@ export default function ReviewVehicleDetailsScreen() {
           <View style={styles.divider} />
 
           {/* Drivetrain */}
-          <Pressable
-            style={styles.detailRow}
-            onPress={isEditing ? () => openPicker('drivetrain') : undefined}
-          >
-            <Text size="md" color="#666666">Drivetrain</Text>
+          <Pressable style={styles.detailRow} onPress={isEditing ? () => openPicker("drivetrain") : undefined}>
+            <Text size="md" color="#666666">
+              Drivetrain
+            </Text>
             <View style={styles.detailValue}>
               <Text weight="semiBold" size="md" color={drivetrain ? "#000000" : "#CCCCCC"}>
-                {drivetrain || 'Select drivetrain'}
+                {drivetrain || "Select drivetrain"}
               </Text>
               {isEditing && <ChevronDown size={16} color="#999999" />}
             </View>
@@ -675,7 +821,7 @@ export default function ReviewVehicleDetailsScreen() {
             Confirm & Add Vehicle
           </Text>
         </Pressable>
-        
+
         <Pressable
           onPress={handleToggleEdit}
           style={({ pressed }) => [styles.editButton, pressed && styles.editButtonPressed]}
@@ -686,7 +832,7 @@ export default function ReviewVehicleDetailsScreen() {
             color={isEditing ? ACCENT_COLOR : "#000000"}
             style={[styles.editButtonText, isEditing && styles.editButtonTextActive]}
           >
-            {isEditing ? 'Done Editing' : 'Edit Information'}
+            {isEditing ? "Done Editing" : "Edit Information"}
           </Text>
         </Pressable>
       </View>
@@ -743,11 +889,11 @@ export default function ReviewVehicleDetailsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     paddingHorizontal: Spacing.md,
     paddingBottom: Spacing.sm,
     marginBottom: Spacing.xs,
@@ -755,15 +901,15 @@ const styles = StyleSheet.create({
   backButton: {
     width: 40,
     height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   buttonPressed: {
     opacity: 0.7,
   },
   headerTitle: {
     flex: 1,
-    textAlign: 'left',
+    textAlign: "left",
     marginLeft: Spacing.xs,
   },
   headerSpacer: {
@@ -779,13 +925,13 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.md,
   },
   imageContainer: {
-    backgroundColor: '#F5F5F5',
+    backgroundColor: "#F5F5F5",
     borderRadius: BorderRadius.xl,
     padding: Spacing.lg,
-    alignItems: 'center',
-    justifyContent: 'center',
-    position: 'relative',
-    minHeight: 180 + (Spacing.lg * 2), // Same height as when image is present
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+    minHeight: 180 + Spacing.lg * 2, // Same height as when image is present
   },
   carImage: {
     width: SCREEN_WIDTH - 64,
@@ -793,24 +939,24 @@ const styles = StyleSheet.create({
   },
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(245, 245, 245, 0.9)',
+    backgroundColor: "rgba(245, 245, 245, 0.9)",
     borderRadius: BorderRadius.xl,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   lottieAnimation: {
     width: 200,
     height: 100,
   },
   extractedBadge: {
-    position: 'absolute',
+    position: "absolute",
     bottom: 12,
     right: 12,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: BorderRadius.md,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
@@ -822,46 +968,46 @@ const styles = StyleSheet.create({
   // Details Card
   detailsCard: {
     marginHorizontal: Spacing.lg,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     borderRadius: BorderRadius.xl,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,
     shadowRadius: 8,
     elevation: 3,
     marginBottom: Spacing.md,
     borderWidth: 1,
-    borderColor: '#F0F0F0',
+    borderColor: "#F0F0F0",
   },
   gridContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    flexDirection: "row",
+    flexWrap: "wrap",
   },
   gridItem: {
-    width: '50%',
+    width: "50%",
     padding: Spacing.lg,
   },
   gridItemLeft: {
     borderRightWidth: 1,
-    borderRightColor: '#F0F0F0',
+    borderRightColor: "#F0F0F0",
   },
   gridItemRight: {},
   gridItemBottom: {
     borderTopWidth: 1,
-    borderTopColor: '#F0F0F0',
+    borderTopColor: "#F0F0F0",
   },
   gridLabel: {
     marginBottom: Spacing.xs,
     letterSpacing: 0.5,
   },
   selectableField: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: Spacing.xs,
   },
   colorDisplay: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: Spacing.sm,
   },
   colorDot: {
@@ -869,7 +1015,7 @@ const styles = StyleSheet.create({
     height: 20,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#E0E0E0',
+    borderColor: "#E0E0E0",
   },
   chevron: {
     marginLeft: 4,
@@ -884,19 +1030,19 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
   detailRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     paddingVertical: Spacing.md,
   },
   detailValue: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: Spacing.xs,
   },
   divider: {
     height: 1,
-    backgroundColor: '#F0F0F0',
+    backgroundColor: "#F0F0F0",
   },
   // Mileage Section
   mileageSection: {
@@ -907,9 +1053,9 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.sm,
   },
   mileageInputContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#F5F5F5',
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F5F5F5",
     borderRadius: BorderRadius.lg,
     paddingHorizontal: Spacing.md,
   },
@@ -917,7 +1063,7 @@ const styles = StyleSheet.create({
     flex: 1,
     fontFamily: FontFamily.regular,
     fontSize: 16,
-    color: '#000000',
+    color: "#000000",
     paddingVertical: Spacing.md,
   },
   mileageSuffix: {
@@ -928,14 +1074,14 @@ const styles = StyleSheet.create({
   },
   // Keyboard Accessory
   keyboardAccessory: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'flex-end',
-    backgroundColor: '#F0F0F0',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "flex-end",
+    backgroundColor: "#F0F0F0",
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
     borderTopWidth: 1,
-    borderTopColor: '#D0D0D0',
+    borderTopColor: "#D0D0D0",
   },
   keyboardAccessorySpacer: {
     flex: 1,
@@ -946,19 +1092,19 @@ const styles = StyleSheet.create({
   },
   // Footer
   footer: {
-    position: 'absolute',
+    position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.lg,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
   },
   confirmButton: {
     backgroundColor: ACCENT_COLOR,
     borderRadius: BorderRadius.full,
     paddingVertical: Spacing.lg,
-    alignItems: 'center',
+    alignItems: "center",
     marginBottom: Spacing.md,
   },
   confirmButtonPressed: {
@@ -968,21 +1114,21 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
   },
   editButton: {
-    alignItems: 'center',
+    alignItems: "center",
     paddingVertical: Spacing.sm,
   },
   editButtonPressed: {
     opacity: 0.7,
   },
   editButtonText: {
-    textDecorationLine: 'underline',
+    textDecorationLine: "underline",
   },
   editButtonTextActive: {
-    textDecorationLine: 'none',
+    textDecorationLine: "none",
   },
   // Bottom Sheet Styles
   sheetBackground: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
   },
@@ -990,30 +1136,30 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   sheetHandle: {
-    backgroundColor: '#E0E0E0',
+    backgroundColor: "#E0E0E0",
     width: 40,
   },
   sheetHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.md,
     borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
+    borderBottomColor: "#F0F0F0",
   },
   sheetHeaderSpacer: {
     width: 40,
   },
   sheetTitle: {
-    textAlign: 'center',
+    textAlign: "center",
     flex: 1,
   },
   sheetCloseButton: {
     width: 40,
     height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   sheetContent: {
     paddingHorizontal: Spacing.lg,
@@ -1023,19 +1169,19 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   pickerItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingVertical: Spacing.lg,
     borderBottomWidth: 1,
-    borderBottomColor: '#F0F0F0',
+    borderBottomColor: "#F0F0F0",
   },
   pickerItemPressed: {
-    backgroundColor: '#F5F5F5',
+    backgroundColor: "#F5F5F5",
   },
   pickerItemLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: Spacing.md,
   },
   pickerColorDot: {
@@ -1045,18 +1191,18 @@ const styles = StyleSheet.create({
   },
   pickerColorDotBorder: {
     borderWidth: 1,
-    borderColor: '#E0E0E0',
+    borderColor: "#E0E0E0",
   },
   pickerIconContainer: {
     width: 32,
     height: 32,
     borderRadius: BorderRadius.md,
-    backgroundColor: '#F5F5F5',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#F5F5F5",
+    justifyContent: "center",
+    alignItems: "center",
   },
   emptyState: {
     paddingVertical: Spacing.xl,
-    alignItems: 'center',
+    alignItems: "center",
   },
 });
