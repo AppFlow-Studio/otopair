@@ -112,6 +112,11 @@ export function FinishAccountSetupCard({
       return;
     }
 
+    if (stepId === "car") {
+      router.push("/add-vehicle");
+      return;
+    }
+
     if (onPress) {
       onPress();
     } else {

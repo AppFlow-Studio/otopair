@@ -122,7 +122,7 @@ export default defineSchema({
     engine_code: v.string(),
     fuel_type: v.string(),
     trim_id: v.id("trims"),
-  }),
+  }).index("by_trim_id", ["trim_id"]),
 
   /**
    * TABLE: vehicle_specs
@@ -244,7 +244,7 @@ export default defineSchema({
   makes: defineTable({
     logo: v.optional(v.id("cdn_assets")),
     name: v.string(),
-  }),
+  }).index("by_name", ["name"]),
 
   /**
    * TABLE: mechanics
@@ -306,7 +306,7 @@ export default defineSchema({
   models: defineTable({
     make_id: v.id("makes"),
     name: v.string(),
-  }),
+  }).index("by_make_id", ["make_id"]),
 
   /**
    * TABLE: reviews
@@ -737,7 +737,7 @@ export default defineSchema({
     name: v.string(),
     year_end: v.float64(),
     year_start: v.float64(),
-  }),
+  }).index("by_model_id", ["model_id"]),
 
   /**
    * TABLE: onboarding_questions_answers
@@ -1903,4 +1903,40 @@ export default defineSchema({
   })
     .index("by_payment_id", ["payment_id"])
     .index("by_changed_at", ["changed_at"]),
+
+  /**
+   * TABLE: smartcar_connections
+   * Stores Smartcar OAuth tokens separately from vehicle_owners.
+   * FK → vehicle_owners(vehicleOwnerId)
+   */
+  smartcar_connections: defineTable({
+    vehicleOwnerId: v.id("vehicle_owners"),
+    smartcarVehicleId: v.string(),
+    accessToken: v.string(),
+    refreshToken: v.string(),
+    tokenExpiresAt: v.float64(),
+    connectedAt: v.float64(),
+    lastSyncedAt: v.optional(v.float64()),
+    permissions: v.optional(v.array(v.string())),
+    status: v.string(),
+  })
+    .index("by_vehicle_owner", ["vehicleOwnerId"])
+    .index("by_smartcar_vehicle_id", ["smartcarVehicleId"])
+    .index("by_status", ["status"]),
+
+  /**
+   * TABLE: vehicle_health_snapshots
+   * Stores historical data points from Smartcar webhooks (odometer, tire pressure, oil life, fuel).
+   * FK → vehicle_owners(vehicleOwnerId)
+   */
+  vehicle_health_snapshots: defineTable({
+    vehicleOwnerId: v.id("vehicle_owners"),
+    snapshotType: v.string(),
+    data: v.any(),
+    source: v.string(),
+    recordedAt: v.float64(),
+    createdAt: v.float64(),
+  })
+    .index("by_vehicle_owner", ["vehicleOwnerId"])
+    .index("by_vehicle_and_type", ["vehicleOwnerId", "snapshotType"]),
 });

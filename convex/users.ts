@@ -96,20 +96,14 @@ export const getById = query({
 /**
  * MUTATION: getOrCreateMe
  * Get current authenticated user or create if doesn't exist.
- * Called on app startup to initialize user account.
+ * Called on app startup and after login to initialize/sync user account.
+ *
+ * Pulls profile data from the Clerk identity token so the Convex
+ * record stays in sync with Clerk (email, name, picture, verification).
  *
  * VALIDATION:
  *   - Must be authenticated via Clerk
  *   - Uses identity.subject (clerkUserId) for lookup
- *
- * RETURNS:
- *   {
- *     _id: user id,
- *     clerkUserId: string,
- *     onboardingCompleted: false,
- *     createdAt: timestamp,
- *     ... other fields
- *   }
  *
  * THROWS:
  *   - "Not authenticated": If no auth identity found
@@ -123,18 +117,46 @@ export const getOrCreateMe = mutation({
     }
 
     const clerkUserId = identity.subject;
-
+    console.log("clerkUserId", clerkUserId);
     const existing = await ctx.db
       .query("users")
       .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", clerkUserId))
       .unique();
 
     if (existing) {
+      // Sync key fields from Clerk on every login so Convex stays current
+      const updates: Record<string, any> = {};
+      if (identity.email && existing.email !== identity.email) {
+        updates.email = identity.email;
+      }
+      if (identity.emailVerified !== undefined && existing.emailConfirmed !== identity.emailVerified) {
+        updates.emailConfirmed = identity.emailVerified;
+      }
+      if (identity.givenName && !existing.first_name) {
+        updates.first_name = identity.givenName;
+      }
+      if (identity.familyName && !existing.last_name) {
+        updates.last_name = identity.familyName;
+      }
+      if (identity.pictureUrl && !existing.profile_photo_url) {
+        updates.profile_photo_url = identity.pictureUrl;
+      }
+
+      if (Object.keys(updates).length > 0) {
+        await ctx.db.patch(existing._id, updates);
+        return await ctx.db.get(existing._id);
+      }
       return existing;
     }
 
+    // New user — seed with everything Clerk provides
     const userId = await ctx.db.insert("users", {
       clerkUserId,
+      email: identity.email || undefined,
+      emailConfirmed: identity.emailVerified || undefined,
+      first_name: identity.givenName || undefined,
+      last_name: identity.familyName || undefined,
+      profile_photo_url: identity.pictureUrl || undefined,
       onboardingCompleted: false,
       createdAt: Date.now(),
     });
