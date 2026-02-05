@@ -243,6 +243,7 @@ export default defineSchema({
    */
   makes: defineTable({
     logo: v.optional(v.id("cdn_assets")),
+    logo_url: v.optional(v.string()),
     name: v.string(),
   }).index("by_name", ["name"]),
 

@@ -16,11 +16,11 @@ export const getEngineSpecs = internalQuery({
   args: { engineId: v.id("engines") },
   handler: async (ctx, args) => {
     return (
-      await ctx.db
+      (await ctx.db
         .query("engine_specs")
         .withIndex("by_engine", (q) => q.eq("engine_id", args.engineId))
-        .first()
-    ) || null;
+        .first()) || null
+    );
   },
 });
 
@@ -57,6 +57,7 @@ export const upsertMake = internalMutation({
 
     return await ctx.db.insert("makes", {
       name: args.name,
+      logo_url: "",
     });
   },
 });
@@ -69,9 +70,7 @@ export const upsertModel = internalMutation({
       .withIndex("by_make_id", (q) => q.eq("make_id", args.makeId))
       .collect();
 
-    const match = existing.find(
-      (m) => m.name.toLowerCase() === args.name.toLowerCase()
-    );
+    const match = existing.find((m) => m.name.toLowerCase() === args.name.toLowerCase());
     if (match) return match._id;
 
     return await ctx.db.insert("models", {
@@ -94,10 +93,7 @@ export const upsertTrim = internalMutation({
       .collect();
 
     const match = existing.find(
-      (t) =>
-        t.name.toLowerCase() === args.name.toLowerCase() &&
-        args.year >= t.year_start &&
-        args.year <= t.year_end
+      (t) => t.name.toLowerCase() === args.name.toLowerCase() && args.year >= t.year_start && args.year <= t.year_end,
     );
     if (match) return match._id;
 
@@ -127,8 +123,7 @@ export const upsertEngine = internalMutation({
     const match = existing.find(
       (e) =>
         e.engine_code === args.engineCode ||
-        (e.cylinders === args.cylinders &&
-          e.displacement_liters === args.displacement)
+        (e.cylinders === args.cylinders && e.displacement_liters === args.displacement),
     );
     if (match) return match._id;
 
@@ -217,15 +212,11 @@ export const storeTrimSpecs = internalMutation({
       trim_id: args.trimId,
       tire_size_front: s.tire_size_front || "N/A",
       tire_size_rear: s.tire_size_rear || "N/A",
-      recommended_tire_pressure_front_psi:
-        parseFloat(s.recommended_tire_pressure_front_psi) || 0,
-      recommended_tire_pressure_rear_psi:
-        parseFloat(s.recommended_tire_pressure_rear_psi) || 0,
+      recommended_tire_pressure_front_psi: parseFloat(s.recommended_tire_pressure_front_psi) || 0,
+      recommended_tire_pressure_rear_psi: parseFloat(s.recommended_tire_pressure_rear_psi) || 0,
       lug_nut_torque_ft_lbs: parseFloat(s.lug_nut_torque_ft_lbs) || 0,
-      wiper_blade_driver_size_in:
-        parseFloat(s.wiper_blade_driver_size_in) || 0,
-      wiper_blade_passenger_size_in:
-        parseFloat(s.wiper_blade_passenger_size_in) || 0,
+      wiper_blade_driver_size_in: parseFloat(s.wiper_blade_driver_size_in) || 0,
+      wiper_blade_passenger_size_in: parseFloat(s.wiper_blade_passenger_size_in) || 0,
       parking_brake_type: s.parking_brake_type || "N/A",
       confidence_score: args.confidenceScore,
       created_at: Date.now(),
@@ -243,9 +234,7 @@ export const logEnrichment = internalMutation({
     source: v.string(),
   },
   handler: async (ctx, args) => {
-    console.log(
-      `Enrichment logged: engine=${args.engineId} score=${args.confidenceScore} source=${args.source}`
-    );
+    console.log(`Enrichment logged: engine=${args.engineId} score=${args.confidenceScore} source=${args.source}`);
   },
 });
 
@@ -297,9 +286,7 @@ export const upsertServiceVehicleSpec = internalMutation({
   handler: async (ctx, args) => {
     const existing = await ctx.db
       .query("service_vehicle_specs")
-      .withIndex("by_engine_and_service", (q) =>
-        q.eq("engine_id", args.engineId).eq("service_id", args.serviceId)
-      )
+      .withIndex("by_engine_and_service", (q) => q.eq("engine_id", args.engineId).eq("service_id", args.serviceId))
       .first();
 
     if (existing) {
