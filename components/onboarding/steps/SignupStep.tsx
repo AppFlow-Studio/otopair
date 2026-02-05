@@ -36,10 +36,10 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
-import { useMutation } from 'convex/react';
-import { api } from '@/convex/_generated/api';
+import { useEnsureConvexUser } from '@/hooks/useEnsureConvexUser';
 import { useSSO } from '@clerk/clerk-expo';
 import { Mail } from 'lucide-react-native';
+import { useAuthStore } from '@/stores/useAuthStore';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -54,7 +54,8 @@ export function SignupStep({ onNext, onBack, onEmailSignup, onLogin }: SignupSte
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData } = useOnboardingStore();
-    const ensureConvexUser = useMutation(api.users.getOrCreateMe);
+    const ensureConvexUser = useEnsureConvexUser();
+    const { setIsNewUser, setIsAuthenticated } = useAuthStore();
     const [loading, setLoading] = useState<'google' | 'apple' | null>(null);
     const [error, setError] = useState<string | null>(null);
 
@@ -73,6 +74,7 @@ export function SignupStep({ onNext, onBack, onEmailSignup, onLogin }: SignupSte
         if (loading) return;
         setLoading(strategy);
         setError(null);
+        setIsNewUser(true);
 
         try {
             const startSSO = strategy === 'google' ? startGoogleSSO : startAppleSSO;
@@ -86,6 +88,7 @@ export function SignupStep({ onNext, onBack, onEmailSignup, onLogin }: SignupSte
 
             if (createdSessionId && setActive) {
                 await setActive({ session: createdSessionId });
+                setIsAuthenticated(true);
 
                 // Prefill data from OAuth
                 const firstName = signUp?.firstName;
@@ -114,6 +117,11 @@ export function SignupStep({ onNext, onBack, onEmailSignup, onLogin }: SignupSte
         } finally {
             setLoading(null);
         }
+    };
+
+    const handleEmailSignupPress = () => {
+        setIsNewUser(true);
+        onEmailSignup();
     };
 
     return (
@@ -178,7 +186,7 @@ export function SignupStep({ onNext, onBack, onEmailSignup, onLogin }: SignupSte
                     {/* Email */}
                     <Pressable
                         style={[styles.oauthButton, styles.emailButton]}
-                        onPress={onEmailSignup}
+                        onPress={handleEmailSignupPress}
                         disabled={loading !== null}
                     >
                         <Mail size={20} color={BrandColors.white} />

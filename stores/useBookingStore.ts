@@ -15,6 +15,7 @@
  */
 
 import { create } from "zustand";
+import { SERVICE_CATEGORIES, type ServiceCategoryItem } from "@/constants/services";
 import type {
   Booking,
   BookingStage,
@@ -32,11 +33,17 @@ import type {
 
 /** Selected slot in mechanic selection screen */
 export interface SelectedMechanicSlot {
-  shopId: number;
+  shopId: string;
   shopName: string;
-  mechanicId: number | null; // null means "Any"
+  mechanicId: string | null; // null means "Any"
   mechanicName: string | null;
   slot: MechanicAvailabilitySlot;
+  /** Convex time_slot_id for booking.create */
+  timeSlotId?: string;
+  /** Scheduled date YYYY-MM-DD */
+  scheduledDate?: string;
+  /** Scheduled time (e.g. "09:00") */
+  scheduledTime?: string;
 }
 import { useMechanicStore } from "./useMechanicStore";
 
@@ -53,7 +60,7 @@ interface BookingState {
 
   // ═══════════════ PRE-SELECTION STATE (from search) ═══════════════
   /** Pre-selected shop ID when coming from search (navigates directly to shop) */
-  preSelectedShopId: number | null;
+  preSelectedShopId: string | null;
   /** Pre-selected service IDs when coming from search */
   preSelectedServiceIds: string[];
 
@@ -71,8 +78,10 @@ interface BookingState {
   } | null;
 
   // ═══════════════ SERVICE SELECTION STATE ═══════════════
-  /** Available services to choose from */
+  /** Available services to choose from (from Convex when loaded) */
   availableServices: Service[];
+  /** Service categories for UI tabs (from Convex when loaded; empty = use constants fallback) */
+  serviceCategories: ServiceCategoryItem[];
   /** Currently selected service IDs for booking */
   selectedServiceIds: string[];
   /** Whether to skip the remove-service confirmation modal */
@@ -84,7 +93,7 @@ interface BookingState {
   /** Direction of the current transition (for animations) */
   transitionDirection: "forward" | "backward";
   /** Selected mechanic ID (null = "Any Available") */
-  selectedMechanicId: number | null;
+  selectedMechanicId: string | null;
   /** Booking type - immediate or scheduled */
   bookingType: BookingType | null;
   /** Scheduled appointment date/time */
@@ -116,7 +125,7 @@ interface BookingState {
 
   // ═══════════════ PRE-SELECTION ACTIONS ═══════════════
   /** Set pre-selected shop ID (from search) */
-  setPreSelectedShop: (shopId: number | null) => void;
+  setPreSelectedShop: (shopId: string | null) => void;
   /** Set pre-selected service IDs (from search) */
   setPreSelectedServices: (serviceIds: string[]) => void;
   /** Clear all pre-selections */
@@ -146,9 +155,9 @@ interface BookingState {
   /** Go to previous stage in booking flow */
   prevBookingStage: () => void;
   /** Select a mechanic (null for "Any Available") */
-  selectMechanic: (mechanicId: number | null) => void;
+  selectMechanic: (mechanicId: string | null) => void;
   /** Set booking type and proceed to booking details */
-  setBookingTypeAndProceed: (type: BookingType, mechanicId: number) => void;
+  setBookingTypeAndProceed: (type: BookingType, mechanicId: string) => void;
   /** Set the scheduled appointment date/time */
   setScheduledAppointment: (appointment: ScheduledAppointment | null) => void;
   /** Set whether booking details was skipped */
@@ -165,8 +174,14 @@ interface BookingState {
   setDraftBooking: (draft: Partial<Booking> | null) => void;
   /** Clear all booking state */
   clearBookingState: () => void;
-  /** Create a new booking from current state */
-  createBooking: (mechanicId: number, bookingType: BookingType) => string;
+  /** Create a new booking from current state (local only; use api.bookings.create for Convex) */
+  createBooking: (mechanicId: string, bookingType: BookingType) => string;
+  /** Hydrate available services from Convex (replaces/gates MOCK_SERVICES) */
+  setAvailableServices: (services: Service[]) => void;
+  /** Hydrate service categories from Convex (for Select Services tabs) */
+  setServiceCategories: (categories: ServiceCategoryItem[]) => void;
+  /** Hydrate bookings from Convex (cache for user's bookings) */
+  setBookingsFromConvex: (bookings: Booking[]) => void;
   /** Get a booking by ID */
   getBookingById: (id: string) => Booking | null;
   /** Get all upcoming bookings (pending or confirmed, future dates) */
@@ -179,6 +194,8 @@ interface BookingState {
   getSelectedServicesTotal: () => number;
   /** Get count of selected services */
   getSelectedServicesCount: () => number;
+  /** Get service categories for UI (Convex when loaded, else constants) */
+  getServiceCategories: () => ServiceCategoryItem[];
   /** Get services filtered by current category */
   getServicesByCategory: () => Service[];
   /** Get selected services as array */
@@ -312,6 +329,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   selectedServiceCategory: null, // No service category selected by default
   mapRegion: null,
   availableServices: MOCK_SERVICES,
+  serviceCategories: [],
   selectedServiceIds: [],
   skipServiceRemovalConfirm: false,
   bookingStage: "discovery",
@@ -393,6 +411,27 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   clearSelectedServices: () =>
     set({
       selectedServiceIds: [],
+    }),
+
+  setAvailableServices: (services) =>
+    set({
+      availableServices: services,
+    }),
+
+  setServiceCategories: (categories) =>
+    set({
+      serviceCategories: categories,
+    }),
+
+  setBookingsFromConvex: (bookings) =>
+    set(() => {
+      const byId: Record<string, Booking> = {};
+      const ids: string[] = [];
+      bookings.forEach((b) => {
+        byId[b.id] = b;
+        ids.push(b.id);
+      });
+      return { bookings: byId, bookingIds: ids };
     }),
 
   setSkipServiceRemovalConfirm: (skip) =>
@@ -517,6 +556,11 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   getSelectedServicesCount: () => {
     const { selectedServiceIds } = get();
     return selectedServiceIds.length;
+  },
+
+  getServiceCategories: () => {
+    const { serviceCategories } = get();
+    return serviceCategories.length > 0 ? serviceCategories : SERVICE_CATEGORIES;
   },
 
   getSelectedServices: () => {

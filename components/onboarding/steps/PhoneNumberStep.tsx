@@ -11,10 +11,10 @@
  *   - progress ({ total: number; filled: number }): Progress indicator data
  *
  * EXAMPLE:
- *   <PhoneNumberStep 
- *     onNext={handleNext} 
- *     onBack={handleBack} 
- *     progress={{ total: 8, filled: 0 }} 
+ *   <PhoneNumberStep
+ *     onNext={handleNext}
+ *     onBack={handleBack}
+ *     progress={{ total: 8, filled: 0 }}
  *   />
  *
  * OWNER: Daniel Chelala
@@ -23,13 +23,7 @@
 
 // TODO: Use numeric keyboard by default — defaulting to this isn't working on all devices
 
-import {
-  BrandColors,
-  FontFamily,
-  FontSize,
-  Spacing,
-  Text,
-} from "@/components/shared-ui";
+import { BrandColors, FontFamily, FontSize, Spacing, Text } from "@/components/shared-ui";
 import { ProgressBar } from "@/components/shared-ui/ProgressBar";
 import { FooterButton } from "@/components/shared-ui/FooterButton";
 import { BackButton } from "@/components/shared-ui/BackButton";
@@ -49,11 +43,7 @@ import {
   ScrollView,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import {
-  GestureHandlerRootView,
-  PanGestureHandler,
-  State,
-} from "react-native-gesture-handler";
+import { GestureHandlerRootView, PanGestureHandler, State } from "react-native-gesture-handler";
 import { Country } from "react-native-country-picker-modal";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import { useUser, useSignUp } from "@clerk/clerk-expo";
@@ -115,15 +105,15 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
                 Array.isArray(c.callingCode) &&
                 c.callingCode.length > 0 &&
                 c.callingCode[0] &&
-                c.callingCode[0].trim() !== ""
+                c.callingCode[0].trim() !== "",
             );
             setAllCountries(validCountries);
 
             // Set initial country based on store
-            const initialCountry = validCountries.find(c => c.cca2 === (data.phoneCountryCode || "US"));
+            const initialCountry = validCountries.find((c) => c.cca2 === (data.phoneCountryCode || "US"));
             if (initialCountry) {
               setCountry(initialCountry);
-              
+
               // If we have a phone number in store, strip the calling code for display
               if (data.phoneNumber) {
                 const prefix = `+${initialCountry.callingCode[0]}`;
@@ -158,10 +148,10 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
         setAllCountries(commonCountries);
 
         // Set initial country from fallback
-        const initialCountry = commonCountries.find(c => c.cca2 === (data.phoneCountryCode || "US"));
+        const initialCountry = commonCountries.find((c) => c.cca2 === (data.phoneCountryCode || "US"));
         if (initialCountry) {
           setCountry(initialCountry);
-          
+
           if (data.phoneNumber) {
             const prefix = `+${initialCountry.callingCode[0]}`;
             if (data.phoneNumber.startsWith(prefix)) {
@@ -188,20 +178,17 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
         Array.isArray(c.callingCode) &&
         c.callingCode.length > 0 &&
         c.callingCode[0] &&
-        c.callingCode[0].trim() !== ""
+        c.callingCode[0].trim() !== "",
     );
 
     if (!searchQuery.trim()) {
       const usCountry = validCountries.find((c: Country) => c.cca2 === "US");
-      const otherCountries = validCountries.filter(
-        (c: Country) => c.cca2 !== "US"
-      );
+      const otherCountries = validCountries.filter((c: Country) => c.cca2 !== "US");
       return usCountry ? [usCountry, ...otherCountries] : validCountries;
     }
     const query = searchQuery.toLowerCase();
     return validCountries.filter((c: Country) => {
-      const name =
-        typeof c.name === "string" ? c.name : (c.name as any)?.common || "";
+      const name = typeof c.name === "string" ? c.name : (c.name as any)?.common || "";
       const nameStr = typeof name === "string" ? name : "";
       return (
         nameStr.toLowerCase().includes(query) ||
@@ -243,16 +230,13 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
   const handleGestureStateChange = (event: any) => {
     if (event.nativeEvent.oldState === State.ACTIVE) {
       const { translationY, velocityY } = event.nativeEvent;
-      
+
       // Only consider downward movement
       const clampedTranslation = Math.max(0, translationY);
       const currentVisualPosition = currentSlidePosition.current + clampedTranslation;
 
       // Dismiss if dragged down far enough or with velocity
-      if (
-        velocityY > 500 ||
-        (clampedTranslation > 100 && currentVisualPosition > COLLAPSED_POSITION + 50)
-      ) {
+      if (velocityY > 500 || (clampedTranslation > 100 && currentVisualPosition > COLLAPSED_POSITION + 50)) {
         slideAnim.setValue(currentVisualPosition);
         panY.setValue(0);
         handleClosePicker();
@@ -287,20 +271,23 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
 
   const { user } = useUser();
   const { signUp } = useSignUp();
+  const [prepError, setPrepError] = useState<string | null>(null);
+  const [prepLoading, setPrepLoading] = useState(false);
 
   const handleConfirmPhoneNumber = async () => {
-    const fullPhoneNumber = `+${getCallingCode()}${phoneNumber.replace(
-      /\D/g,
-      ""
-    )}`;
+    const fullPhoneNumber = `+${getCallingCode()}${phoneNumber.replace(/\D/g, "")}`;
     updateData({
       phoneNumber: fullPhoneNumber,
       phoneCountryCode: countryCode,
     });
     setShowConfirmationModal(false);
+    setPrepError(null);
+    setPrepLoading(true);
 
     // Two paths: if user exists (OAuth flow), use user.createPhoneNumber.
     // If no user yet (email signup with missing_requirements), use signUp flow.
+    let prepared = false;
+
     if (user) {
       try {
         const phoneNumberResource = await user.createPhoneNumber({
@@ -309,22 +296,30 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
         await phoneNumberResource.prepareVerification();
         updateData({ phoneNumberId: phoneNumberResource.id });
         console.log("Phone verification prepared via user for:", fullPhoneNumber);
+        prepared = true;
       } catch (err) {
         console.error("Failed to prepare phone verification via user:", err);
+        setPrepError(err instanceof Error ? err.message : "Couldn't send verification code. Please try again.");
       }
     } else if (signUp) {
       try {
         await signUp.update({ phoneNumber: fullPhoneNumber });
         await signUp.preparePhoneNumberVerification({ strategy: "phone_code" });
-        // Store a marker so ConfirmPhoneNumberStep knows to use signUp flow
         updateData({ phoneNumberId: "signup_flow" });
         console.log("Phone verification prepared via signUp for:", fullPhoneNumber);
+        prepared = true;
       } catch (err) {
         console.error("Failed to prepare phone verification via signUp:", err);
+        setPrepError(err instanceof Error ? err.message : "Couldn't send verification code. Please try again.");
       }
+    } else {
+      setPrepError("Sign-in session not ready. Please go back and try signing in again.");
     }
 
-    onNext();
+    setPrepLoading(false);
+    if (prepared) {
+      onNext();
+    }
   };
 
   const handleGoBack = () => {
@@ -337,10 +332,7 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
     if (cleaned.length === 0) return `+${callingCode}`;
 
     if (callingCode === "1" && cleaned.length === 10) {
-      return `+${callingCode} ${cleaned.slice(0, 3)} ${cleaned.slice(
-        3,
-        6
-      )} ${cleaned.slice(6)}`;
+      return `+${callingCode} ${cleaned.slice(0, 3)} ${cleaned.slice(3, 6)} ${cleaned.slice(6)}`;
     }
     const formatted = cleaned.match(/.{1,4}/g)?.join(" ") || cleaned;
     return `+${callingCode} ${formatted}`;
@@ -366,15 +358,11 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
         onPress={() => handleCountrySelect(item)}
       >
         <View style={styles.countryItemFlag}>
-          <Text style={styles.countryItemFlagText}>
-            {getFlagEmoji(item.cca2)}
-          </Text>
+          <Text style={styles.countryItemFlagText}>{getFlagEmoji(item.cca2)}</Text>
         </View>
         <Text style={styles.countryItemCode}>+{item.callingCode[0]}</Text>
         <Text style={styles.countryItemName} numberOfLines={1}>
-          {typeof item.name === "string"
-            ? item.name
-            : item.name?.common || item.cca2}
+          {typeof item.name === "string" ? item.name : item.name?.common || item.cca2}
         </Text>
       </TouchableOpacity>
     );
@@ -425,20 +413,13 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
         >
           <View style={styles.headerContent}>
             <Text style={styles.title}>What's your number?</Text>
-            <Text style={styles.subtitle}>
-              We'll send a verification code to secure your account.
-            </Text>
+            <Text style={styles.subtitle}>We'll send a verification code to secure your account.</Text>
           </View>
 
           <View style={styles.inputContainer}>
-            <Pressable
-              onPress={() => setShowCountryPicker(true)}
-              style={styles.countryCodeContainer}
-            >
+            <Pressable onPress={() => setShowCountryPicker(true)} style={styles.countryCodeContainer}>
               <View style={styles.flagContainer}>
-                <Text style={styles.countryCodeText}>
-                  {getFlagEmoji(countryCode)}
-                </Text>
+                <Text style={styles.countryCodeText}>{getFlagEmoji(countryCode)}</Text>
               </View>
               <Text style={styles.countryCodeNumber}>+{getCallingCode()}</Text>
             </Pressable>
@@ -456,17 +437,9 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
         </ScrollView>
 
         {/* Country Picker Bottom Sheet */}
-        <Modal
-          visible={showCountryPicker}
-          transparent
-          animationType="none"
-          onRequestClose={handleClosePicker}
-        >
+        <Modal visible={showCountryPicker} transparent animationType="none" onRequestClose={handleClosePicker}>
           <GestureHandlerRootView style={{ flex: 1 }}>
-            <Pressable
-              style={styles.bottomSheetBackdrop}
-              onPress={handleClosePicker}
-            >
+            <Pressable style={styles.bottomSheetBackdrop} onPress={handleClosePicker}>
               <Animated.View
                 style={[
                   styles.bottomSheet,
@@ -490,11 +463,7 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
 
                     <View style={[styles.bottomSheetHeader, { gap: width < 360 ? Spacing.xs : Spacing.md }]}>
                       <View style={styles.searchContainer}>
-                        <Search
-                          size={width < 360 ? 18 : 20}
-                          color="#9CA3AF"
-                          style={styles.searchIcon}
-                        />
+                        <Search size={width < 360 ? 18 : 20} color="#9CA3AF" style={styles.searchIcon} />
                         <TextInput
                           style={styles.searchInput}
                           placeholder="Search country / region"
@@ -504,11 +473,10 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
                           autoFocus={false}
                         />
                       </View>
-                      <TouchableOpacity
-                        onPress={handleClosePicker}
-                        style={styles.cancelButton}
-                      >
-                        <Text style={[styles.cancelButtonText, { fontSize: width < 360 ? FontSize.sm : FontSize.md }]}>Cancel</Text>
+                      <TouchableOpacity onPress={handleClosePicker} style={styles.cancelButton}>
+                        <Text style={[styles.cancelButtonText, { fontSize: width < 360 ? FontSize.sm : FontSize.md }]}>
+                          Cancel
+                        </Text>
                       </TouchableOpacity>
                     </View>
                   </Animated.View>
@@ -516,11 +484,7 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
 
                 {/* FlatList is outside PanGestureHandler so it can scroll */}
                 <FlatList
-                  data={
-                    filteredCountries.length > 0
-                      ? filteredCountries
-                      : allCountries
-                  }
+                  data={filteredCountries.length > 0 ? filteredCountries : allCountries}
                   renderItem={renderCountryItem}
                   keyExtractor={(item) => item.cca2}
                   style={styles.countryList}
@@ -539,37 +503,18 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
         </Modal>
 
         {/* Confirmation Modal */}
-        <Modal
-          visible={showConfirmationModal}
-          transparent
-          animationType="fade"
-          onRequestClose={handleGoBack}
-        >
-          <Pressable
-            style={styles.confirmationModalBackdrop}
-            onPress={handleGoBack}
-          >
-            <Pressable
-              style={styles.confirmationModal}
-              onPress={(e) => e.stopPropagation()}
-            >
+        <Modal visible={showConfirmationModal} transparent animationType="fade" onRequestClose={handleGoBack}>
+          <Pressable style={styles.confirmationModalBackdrop} onPress={handleGoBack}>
+            <Pressable style={styles.confirmationModal} onPress={(e) => e.stopPropagation()}>
               <Text style={styles.confirmationPhoneNumber}>
                 {getFlagEmoji(countryCode)} {formatPhoneNumberForDisplay()}
               </Text>
-              <Text style={styles.confirmationQuestion}>
-                Is this number correct?
-              </Text>
+              <Text style={styles.confirmationQuestion}>Is this number correct?</Text>
               <View style={styles.confirmationButtons}>
-                <TouchableOpacity
-                  style={styles.confirmButton}
-                  onPress={handleConfirmPhoneNumber}
-                >
+                <TouchableOpacity style={styles.confirmButton} onPress={handleConfirmPhoneNumber}>
                   <Text style={styles.confirmButtonText}>Confirm</Text>
                 </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.goBackButton}
-                  onPress={handleGoBack}
-                >
+                <TouchableOpacity style={styles.goBackButton} onPress={handleGoBack}>
                   <Text style={styles.goBackButtonText}>Go back</Text>
                 </TouchableOpacity>
               </View>
@@ -578,10 +523,15 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
         </Modal>
 
         <View style={[styles.bottomContainer, dynamicStyles.bottomContainer]}>
+          {prepError ? (
+            <Text style={styles.prepError} accessibilityRole="alert">
+              {prepError}
+            </Text>
+          ) : null}
           <FooterButton
             label="Continue"
             onPress={handleCreateAccount}
-            disabled={!canCreateAccount}
+            disabled={!canCreateAccount || prepLoading}
             size={buttonSize}
             paddingVertical={buttonPaddingVertical}
             variant={canCreateAccount ? "primary" : undefined}
@@ -613,14 +563,14 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.bold,
     color: BrandColors.white,
     marginBottom: Spacing.md,
-    lineHeight: Spacing['5xl'],
+    lineHeight: Spacing["5xl"],
   },
   subtitle: {
     fontSize: FontSize.lg,
     fontFamily: FontFamily.regular,
     color: BrandColors.white,
     opacity: 0.9,
-    lineHeight: Spacing['2xl'],
+    lineHeight: Spacing["2xl"],
   },
   inputContainer: {
     flexDirection: "row",
@@ -671,10 +621,18 @@ const styles = StyleSheet.create({
     color: BrandColors.white,
     paddingVertical: 0,
   },
+  prepError: {
+    fontSize: FontSize.sm,
+    fontFamily: FontFamily.regular,
+    color: "#FCA5A5",
+    marginBottom: Spacing.sm,
+    paddingHorizontal: Spacing["2xl"],
+    textAlign: "center",
+  },
   bottomContainer: {
     paddingTop: Spacing.sm,
     paddingHorizontal: Spacing["2xl"],
-    backgroundColor: 'transparent',
+    backgroundColor: "transparent",
   },
   bottomSheetBackdrop: {
     flex: 1,
@@ -724,8 +682,8 @@ const styles = StyleSheet.create({
     paddingVertical: 0,
     minWidth: 0,
   },
-  cancelButton: { 
-    paddingVertical: Spacing.sm, 
+  cancelButton: {
+    paddingVertical: Spacing.sm,
     paddingHorizontal: Spacing.sm,
     marginLeft: Spacing.xs,
   },

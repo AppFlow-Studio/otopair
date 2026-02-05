@@ -31,8 +31,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
-import { useMutation } from 'convex/react';
-import { api } from '@/convex/_generated/api';
+import { useEnsureConvexUser } from '@/hooks/useEnsureConvexUser';
 import { X } from 'lucide-react-native';
 
 interface EmailVerificationStepProps {
@@ -46,7 +45,7 @@ export function EmailVerificationStep({ onNext, onBack, progress }: EmailVerific
     const { height, width } = useWindowDimensions();
     const { data } = useOnboardingStore();
     const { signUp, setActive, isLoaded } = useSignUp();
-    const ensureConvexUser = useMutation(api.users.getOrCreateMe);
+    const ensureConvexUser = useEnsureConvexUser();
 
     const [code, setCode] = useState(['', '', '', '', '', '']);
     const [focusedIndex, setFocusedIndex] = useState(0);

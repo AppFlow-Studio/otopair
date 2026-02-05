@@ -20,9 +20,9 @@ import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Constants, hooks, types, stores
 import { SheetDrivenAnimation } from "@/constants/animations";
-import { SERVICE_CATEGORIES } from "@/constants/services";
 import { BorderRadius } from "@/constants/theme";
 import type { ServiceCategory } from "@/stores/types/store.types";
+import { useBookingStore } from "@/stores/useBookingStore";
 
 // ============================================================================
 // CONSTANTS
@@ -48,6 +48,9 @@ export interface DiscoveryTabsProps {
 // ============================================================================
 
 export function DiscoveryTabs({ onServiceSelect, selectedService, sheetAnimatedIndex }: DiscoveryTabsProps) {
+  const getServiceCategories = useBookingStore((state) => state.getServiceCategories);
+  const serviceCategories = getServiceCategories();
+
   // Animation for service tabs (sheet-driven: fade out when expanded)
   const serviceTabsAnimatedStyle = useAnimatedStyle(() => {
     if (!sheetAnimatedIndex) {
@@ -63,7 +66,7 @@ export function DiscoveryTabs({ onServiceSelect, selectedService, sheetAnimatedI
   return (
     <Animated.View style={serviceTabsAnimatedStyle}>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.serviceTabs}>
-        {SERVICE_CATEGORIES.map((service) => {
+        {serviceCategories.map((service) => {
           const isSelected = selectedService === service.key;
           return (
             <TouchableOpacity

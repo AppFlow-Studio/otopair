@@ -75,6 +75,7 @@ export default function BookingsScreen() {
 
   // ═══════════════ LOCAL STATE ═══════════════
   const [sheetAnimatedIndex, setSheetAnimatedIndex] = useState<SharedValue<number> | null>(null);
+  const [mapRelevantIndex, setMapRelevantIndex] = useState<SharedValue<number> | null>(null);
   const [selectedMapShopId, setSelectedMapShopId] = useState<number | null>(null);
   const [shopPreviewRequestKey, setShopPreviewRequestKey] = useState(0);
   const [focusedShop, setFocusedShop] = useState<Shop | null>(null);
@@ -91,6 +92,13 @@ export default function BookingsScreen() {
   const handleAnimatedIndexChange = useCallback((animatedIndex: SharedValue<number>) => {
     setSheetAnimatedIndex(animatedIndex);
   }, []);
+
+  const handleMapRelevantIndexChange = useCallback((index: SharedValue<number>) => {
+    setMapRelevantIndex(index);
+  }, []);
+
+  /** For map/back controls: uses smoothly animated value when opening car selection, else sheet index */
+  const indexForMap = mapRelevantIndex ?? sheetAnimatedIndex;
 
   // ═══════════════ SHOP STORE ═══════════════
   const selectShop = useShopStore((state) => state.selectShop);
@@ -206,13 +214,13 @@ export default function BookingsScreen() {
   // ═══════════════ ANIMATED STYLES ═══════════════
   // Fade out and slide left when sheet is fully expanded (same as map controls)
   const backButtonAnimatedStyle = useAnimatedStyle(() => {
-    if (!sheetAnimatedIndex) {
+    if (!indexForMap) {
       return { opacity: 1, transform: [{ translateX: 0 }] };
     }
 
     // Start fading at index 2.5, fully hidden at index 3
     const opacity = interpolate(
-      sheetAnimatedIndex.value,
+      indexForMap.value,
       [2.5, 3],
       [1, 0],
       Extrapolation.CLAMP
@@ -220,7 +228,7 @@ export default function BookingsScreen() {
 
     // Slide left (opposite of map controls which slide right)
     const translateX = interpolate(
-      sheetAnimatedIndex.value,
+      indexForMap.value,
       [2.5, 3],
       [0, -60],
       Extrapolation.CLAMP
@@ -230,7 +238,7 @@ export default function BookingsScreen() {
       opacity,
       transform: [{ translateX }],
     };
-  });
+  }, [indexForMap]);
 
   // ═══════════════ RENDER ═══════════════
   // Full-screen stages (booking_details, payment) are rendered on top of everything
@@ -244,7 +252,7 @@ export default function BookingsScreen() {
       <BookingMap
         ref={mapRef}
         onShopSelect={handleShopSelect}
-        sheetAnimatedIndex={sheetAnimatedIndex ?? undefined}
+        sheetAnimatedIndex={indexForMap ?? undefined}
         focusedShop={focusedShop}
       />
 
@@ -273,7 +281,7 @@ export default function BookingsScreen() {
           onFilterPress={handleFilterPress}
           onRecenterPress={handleRecenter}
           isFilterActive={hasActiveFilter}
-          sheetAnimatedIndex={sheetAnimatedIndex ?? undefined}
+          sheetAnimatedIndex={indexForMap ?? undefined}
         />
       )}
 
@@ -290,6 +298,7 @@ export default function BookingsScreen() {
       <ServiceBottomSheet
         offsetY={VERTICAL_OFFSET}
         onAnimatedIndexChange={handleAnimatedIndexChange}
+        onMapRelevantIndexChange={handleMapRelevantIndexChange}
         onSelectShop={handleSearchSelectShop}
         onSelectMechanic={handleSearchSelectMechanic}
         onSearchModeChange={handleSearchModeChange}

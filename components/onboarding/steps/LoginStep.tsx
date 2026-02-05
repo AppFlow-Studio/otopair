@@ -6,7 +6,7 @@
  * USED IN: components/onboarding/OnboardingFlow.tsx
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useSignIn, useAuth } from '@clerk/clerk-expo';
 import * as WebBrowser from 'expo-web-browser';
 import {
@@ -32,11 +32,11 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
-import { useMutation, useQuery } from 'convex/react';
-import { api } from '@/convex/_generated/api';
 import { router } from 'expo-router';
 import { useSSO } from '@clerk/clerk-expo';
 import { Mail } from 'lucide-react-native';
+import { useAuthStore } from '@/stores/useAuthStore';
+import { useEnsureConvexUser } from '@/hooks/useEnsureConvexUser';
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -49,8 +49,9 @@ export function LoginStep({ onNext, onBack }: LoginStepProps) {
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { signIn, setActive: setSignInActive, isLoaded } = useSignIn();
-    const { signOut, isSignedIn } = useAuth();
-    const ensureConvexUser = useMutation(api.users.getOrCreateMe);
+    const { isSignedIn } = useAuth();
+    const ensureConvexUser = useEnsureConvexUser();
+    const { setIsNewUser, setIsAuthenticated } = useAuthStore();
 
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -60,6 +61,15 @@ export function LoginStep({ onNext, onBack }: LoginStepProps) {
 
     const { startSSOFlow: startGoogleSSO } = useSSO();
     const { startSSOFlow: startAppleSSO } = useSSO();
+
+    // Already signed in → go straight to home
+    useEffect(() => {
+        if (isLoaded && isSignedIn) {
+            setIsNewUser(false);
+            setIsAuthenticated(true);
+            router.replace('/(main-tabs)/home');
+        }
+    }, [isLoaded, isSignedIn, setIsAuthenticated, setIsNewUser]);
 
     const dynamicStyles = {
         container: { paddingTop: insets.top + Spacing.lg },
@@ -87,14 +97,14 @@ export function LoginStep({ onNext, onBack }: LoginStepProps) {
 
             if (createdSessionId && setActive) {
                 await setActive({ session: createdSessionId });
-
                 try {
                     await ensureConvexUser();
                 } catch (e) {
                     console.error('Failed to ensure Convex user', e);
                 }
-
-                // Route based on onboarding status - handled by onNext
+                setIsNewUser(false);
+                setIsAuthenticated(true);
+                router.replace('/(main-tabs)/home');
                 onNext();
             }
         } catch (err) {
@@ -125,13 +135,14 @@ export function LoginStep({ onNext, onBack }: LoginStepProps) {
             }
 
             await setSignInActive?.({ session: result.createdSessionId });
-
             try {
                 await ensureConvexUser();
             } catch (e) {
                 console.error('Failed to ensure Convex user', e);
             }
-
+            setIsNewUser(false);
+            setIsAuthenticated(true);
+            router.replace('/(main-tabs)/home');
             onNext();
         } catch (err: any) {
             const message = err?.errors?.[0]?.longMessage
@@ -254,18 +265,6 @@ export function LoginStep({ onNext, onBack }: LoginStepProps) {
                     {error ? (
                         <Text style={styles.errorText}>{error}</Text>
                     ) : null}
-
-                    {/* DEBUG: Logout button */}
-                    {isSignedIn && (
-                        <View style={{ paddingHorizontal: Spacing['2xl'], marginTop: Spacing['2xl'] }}>
-                            <Pressable
-                                style={[styles.oauthButton, { backgroundColor: '#EF4444' }]}
-                                onPress={() => signOut()}
-                            >
-                                <Text style={styles.appleText}>DEBUG: Sign Out</Text>
-                            </Pressable>
-                        </View>
-                    )}
                 </ScrollView>
 
                 {showEmailForm && (

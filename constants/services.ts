@@ -52,3 +52,39 @@ export const SERVICE_CATEGORY_TO_IDS: Record<ServiceCategory, string[]> = {
 export function getServiceIdsForCategory(category: ServiceCategory): string[] {
   return SERVICE_CATEGORY_TO_IDS[category] || [];
 }
+
+// ============================================================================
+// SERVICE PARTS (for Review & Pay breakdown)
+// ============================================================================
+
+/**
+ * Maps service display name to part names shown in the Service Breakdown.
+ * Used to list each part on its own line with "(Part)" label.
+ */
+export const SERVICE_PARTS: Record<string, string[]> = {
+  "Oil Change": ["Oil", "Filter"],
+  "Brake Pad Replacement": ["Brake Pads"],
+  "Tire Rotation": [],
+};
+
+export interface BreakdownPart {
+  name: string;
+  cost: number;
+}
+
+/**
+ * Builds a list of parts with individual costs from selected services and total parts cost.
+ * Parts cost is split equally among all part names. If no part names exist, returns one generic "Parts" entry.
+ */
+export function getPartsBreakdown(serviceNames: string[], totalPartsCost: number): BreakdownPart[] {
+  const partNames: string[] = [];
+  for (const name of serviceNames) {
+    const parts = SERVICE_PARTS[name];
+    if (parts?.length) partNames.push(...parts);
+  }
+  if (partNames.length === 0) {
+    return totalPartsCost > 0 ? [{ name: "Parts", cost: totalPartsCost }] : [];
+  }
+  const costPerPart = totalPartsCost / partNames.length;
+  return partNames.map((name) => ({ name, cost: costPerPart }));
+}

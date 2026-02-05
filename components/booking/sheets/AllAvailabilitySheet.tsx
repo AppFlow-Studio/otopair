@@ -32,7 +32,7 @@ import { useScheduleStore } from "@/stores/useScheduleStore";
 // ============================================================================
 
 export interface AllAvailabilitySheetRef {
-  open: (mechanicId: number) => void;
+  open: (mechanicId: string) => void;
   close: () => void;
 }
 
@@ -103,7 +103,6 @@ export const AllAvailabilitySheet = forwardRef<AllAvailabilitySheetRef, AllAvail
     const getAvailableDayNumbers = useScheduleStore((state) => state.getAvailableDayNumbers);
     const getBookedDayNumbers = useScheduleStore((state) => state.getBookedDayNumbers);
     const getTimeSlotsForSelectedDate = useScheduleStore((state) => state.getTimeSlotsForSelectedDate);
-
 
     // ═══════════════ SNAP POINTS ═══════════════
     const snapPoints = useMemo(() => ["92%"], []);
@@ -200,7 +199,7 @@ export const AllAvailabilitySheet = forwardRef<AllAvailabilitySheetRef, AllAvail
 
     // ═══════════════ IMPERATIVE HANDLE ═══════════════
     useImperativeHandle(ref, () => ({
-      open: (mechanicId: number) => {
+      open: (mechanicId: string) => {
         // loadMechanicSchedule will restore any previous selection for this mechanic
         loadMechanicSchedule(mechanicId);
         bottomSheetModalRef.current?.present();
@@ -217,7 +216,7 @@ export const AllAvailabilitySheet = forwardRef<AllAvailabilitySheetRef, AllAvail
           onClose?.();
         }
       },
-      [onClose]
+      [onClose],
     );
 
     const handlePrevMonth = useCallback(() => {
@@ -234,14 +233,14 @@ export const AllAvailabilitySheet = forwardRef<AllAvailabilitySheetRef, AllAvail
         const newDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day.date);
         selectDate(newDate);
       },
-      [currentMonth, selectDate]
+      [currentMonth, selectDate],
     );
 
     const handleTimePress = useCallback(
       (time: string) => {
         selectTime(time);
       },
-      [selectTime]
+      [selectTime],
     );
 
     const handleCancel = useCallback(() => {
@@ -259,7 +258,7 @@ export const AllAvailabilitySheet = forwardRef<AllAvailabilitySheetRef, AllAvail
     // ═══════════════ RENDER HELPERS ═══════════════
     const renderBackdrop = useCallback(
       (props: any) => <BottomSheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} opacity={0.5} />,
-      []
+      [],
     );
 
     const renderDayCell = useCallback(
@@ -305,7 +304,7 @@ export const AllAvailabilitySheet = forwardRef<AllAvailabilitySheetRef, AllAvail
           </TouchableOpacity>
         );
       },
-      [handleDayPress]
+      [handleDayPress],
     );
 
     // ═══════════════ RENDER ═══════════════
@@ -453,7 +452,7 @@ export const AllAvailabilitySheet = forwardRef<AllAvailabilitySheetRef, AllAvail
         </BottomSheetScrollView>
       </BottomSheetModal>
     );
-  }
+  },
 );
 
 // ============================================================================

@@ -28,6 +28,7 @@ import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Constants
 import { BorderRadius } from "@/constants/theme";
+import { formatDistanceMiles } from "@/utils/geo";
 
 // 5. Types
 import type { Mechanic } from "@/stores/types/store.types";
@@ -65,17 +66,17 @@ export function MechanicInfoCard({ mechanic, ratingCount }: MechanicInfoCardProp
         <View style={styles.mechanicInfo}>
           <View style={styles.nameRow}>
             <Text size="lg" weight="bold" color={BrandColors.primary}>
-              {mechanic.shopName}
+              {mechanic.name}
             </Text>
           </View>
 
           <Text size="sm" weight="medium" color="#6B7280" style={{ marginBottom: 2 }}>
-            {mechanic.name}
+            {mechanic.title ?? mechanic.shopName}
           </Text>
 
           <View style={styles.distanceRow}>
             <Text size="xs" weight="regular" color="#9CA3AF">
-              {mechanic.distanceMi} mi
+              {formatDistanceMiles(mechanic.distanceMi)}
             </Text>
             {mechanic.isVerified && (
               <View style={styles.verifiedBadge}>
@@ -274,6 +275,3 @@ const styles = StyleSheet.create({
     gap: 4,
   },
 });
-
-
-

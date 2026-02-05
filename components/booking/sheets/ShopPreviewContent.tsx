@@ -11,14 +11,7 @@
 
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Dimensions,
-  FlatList,
-  StyleSheet,
-  TouchableOpacity,
-  View,
-  ViewToken,
-} from "react-native";
+import { Dimensions, FlatList, StyleSheet, TouchableOpacity, View, ViewToken } from "react-native";
 
 // 2. Third-party libraries
 import { X } from "lucide-react-native";
@@ -33,6 +26,7 @@ import { ShopCarouselCard } from "../ShopCarouselCard";
 import { BorderRadius, Spacing } from "@/constants/theme";
 import type { Shop } from "@/stores/types/store.types";
 import { useShopStore } from "@/stores/useShopStore";
+import { openMapsForAddress, openPhone } from "@/utils/linking";
 
 // ============================================================================
 // TYPES
@@ -78,12 +72,7 @@ function calculateDistanceKm(lat1: number, lon1: number, lat2: number, lon2: num
 // COMPONENT
 // ============================================================================
 
-export function ShopPreviewContent({
-  selectedShopId,
-  onShopChange,
-  onShopDetails,
-  onClose,
-}: ShopPreviewContentProps) {
+export function ShopPreviewContent({ selectedShopId, onShopChange, onShopDetails, onClose }: ShopPreviewContentProps) {
   // ═══════════════ REFS ═══════════════
   const flatListRef = useRef<FlatList<Shop>>(null);
 
@@ -114,12 +103,7 @@ export function ShopPreviewContent({
       .filter(Boolean)
       .map((shop) => ({
         shop,
-        distance: calculateDistanceKm(
-          selectedShop.latitude,
-          selectedShop.longitude,
-          shop.latitude,
-          shop.longitude
-        ),
+        distance: calculateDistanceKm(selectedShop.latitude, selectedShop.longitude, shop.latitude, shop.longitude),
       }))
       // Sort by distance from selected shop (nearest first)
       .sort((a, b) => a.distance - b.distance)
@@ -160,14 +144,6 @@ export function ShopPreviewContent({
     }
   });
 
-  const handleCall = useCallback(() => {
-    // TODO: Implement phone call
-  }, []);
-
-  const handleDirections = useCallback(() => {
-    // TODO: Open maps app with directions
-  }, []);
-
   const handleDetails = useCallback(() => {
     if (activeShop) {
       onShopDetails?.(activeShop);
@@ -184,14 +160,14 @@ export function ShopPreviewContent({
           <ShopCarouselCard
             shop={item}
             isActive={isActive}
-            onCall={handleCall}
-            onDirections={handleDirections}
+            onCall={() => item.phone && openPhone(item.phone)}
+            onDirections={() => openMapsForAddress(item.address)}
             onDetails={handleDetails}
           />
         </View>
       );
     },
-    [activeIndex, handleCall, handleDirections, handleDetails]
+    [activeIndex, handleDetails],
   );
 
   const getItemLayout = useCallback(
@@ -200,7 +176,7 @@ export function ShopPreviewContent({
       offset: SNAP_INTERVAL * index,
       index,
     }),
-    []
+    [],
   );
 
   // ═══════════════ RENDER ═══════════════
@@ -232,13 +208,7 @@ export function ShopPreviewContent({
       {shopsList.length > 1 && (
         <View style={styles.dotsContainer}>
           {shopsList.map((_, index) => (
-            <View
-              key={index}
-              style={[
-                styles.dot,
-                index === activeIndex && styles.dotActive,
-              ]}
-            />
+            <View key={index} style={[styles.dot, index === activeIndex && styles.dotActive]} />
           ))}
         </View>
       )}

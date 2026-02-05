@@ -1,20 +1,22 @@
 import { ClerkProvider, useAuth } from "@clerk/clerk-expo";
+// Persistent session: tokenCache uses expo-secure-store so auth survives app reload/restart
 import { tokenCache } from "@clerk/clerk-expo/token-cache";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { DarkTheme, DefaultTheme, ThemeProvider } from "@react-navigation/native";
 import { Stack } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
-import { type ReactNode, useEffect, useRef } from "react";
+import { type ReactNode, useEffect, useRef, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
 
-import { ConvexReactClient, useMutation } from "convex/react";
+import { ConvexReactClient } from "convex/react";
 import { ConvexProviderWithClerk } from "convex/react-clerk";
 
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useAppFonts } from "@/hooks/use-fonts";
-import { api } from "@/convex/_generated/api";
+import { useEnsureConvexUser } from "@/hooks/useEnsureConvexUser";
+import { useAuthStore } from "@/stores/useAuthStore";
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
@@ -40,27 +42,72 @@ function ConvexClerkProvider({ children }: { children: ReactNode }) {
 
 function EnsureConvexUserRecord() {
   const { isSignedIn, userId } = useAuth();
-  const ensureUser = useMutation(api.users.getOrCreateMe);
+  const ensureUser = useEnsureConvexUser();
   const lastUserRef = useRef<string | null>(null);
+  const [retryTrigger, setRetryTrigger] = useState(0);
 
   useEffect(() => {
-    if (isSignedIn && userId && lastUserRef.current !== userId) {
-      lastUserRef.current = userId;
-      const retryWithBackoff = async (fn: () => Promise<any>, retries = 4, delay = 1500) => {
-        // Initial delay to let Clerk JWT propagate to Convex
-        await new Promise(r => setTimeout(r, 2000));
-        for (let i = 0; i <= retries; i++) {
-          try { return await fn(); } catch (e) {
-            if (i === retries) throw e;
-            await new Promise(r => setTimeout(r, delay * Math.pow(2, i)));
-          }
-        }
-      };
-      retryWithBackoff(() => ensureUser())
-        .then(() => console.log("Ensured Convex user via RootLayout"))
-        .catch((error) => console.error("Failed to ensure Convex user via RootLayout after retries", error));
+    if (!isSignedIn) {
+      lastUserRef.current = null;
+      return;
     }
-  }, [ensureUser, isSignedIn, userId]);
+    if (!userId) return;
+    // Only run if we haven't already succeeded for this userId (set on success below)
+    if (lastUserRef.current === userId) return;
+
+    let cancelled = false;
+    const retryWithBackoff = async (fn: () => Promise<any>, retries = 6, delay = 1500) => {
+      // Initial delay so Clerk JWT has time to propagate to Convex after login
+      await new Promise((r) => setTimeout(r, 5000));
+      for (let i = 0; i <= retries; i++) {
+        if (cancelled) return;
+        try {
+          return await fn();
+        } catch (e: any) {
+          if (e?.message?.includes("Not authenticated") && i < retries) {
+            await new Promise((r) => setTimeout(r, delay * Math.pow(2, i)));
+            continue;
+          }
+          if (i === retries) throw e;
+          await new Promise((r) => setTimeout(r, delay * Math.pow(2, i)));
+        }
+      }
+    };
+
+    retryWithBackoff(() => ensureUser())
+      .then(() => {
+        if (!cancelled) {
+          lastUserRef.current = userId;
+          console.log("Ensured Convex user via RootLayout", { clerkUserId: userId });
+        }
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        // On login, JWT can take a moment to reach Convex; schedule one more try
+        if (error?.message?.includes("Not authenticated")) {
+          setTimeout(() => setRetryTrigger((t) => t + 1), 5000);
+          return;
+        }
+        console.error("Failed to ensure Convex user via RootLayout after retries", error);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [ensureUser, isSignedIn, userId, retryTrigger]);
+
+  return null;
+}
+
+/** Keep the local auth store in sync with Clerk session state */
+function SyncAuthStoreWithClerk() {
+  const { isSignedIn, isLoaded } = useAuth();
+  const setIsAuthenticated = useAuthStore((s) => s.setIsAuthenticated);
+
+  useEffect(() => {
+    if (!isLoaded) return;
+    setIsAuthenticated(isSignedIn);
+  }, [isLoaded, isSignedIn, setIsAuthenticated]);
 
   return null;
 }
@@ -81,12 +128,10 @@ export default function RootLayout() {
   }
 
   return (
-    <ClerkProvider
-      publishableKey={process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!}
-      tokenCache={tokenCache}
-    >
+    <ClerkProvider publishableKey={process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!} tokenCache={tokenCache}>
       <ConvexClerkProvider>
         <EnsureConvexUserRecord />
+        <SyncAuthStoreWithClerk />
         <GestureHandlerRootView style={{ flex: 1 }}>
           <BottomSheetModalProvider>
             <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>

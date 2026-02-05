@@ -37,6 +37,7 @@ import { BrandColors, PrimaryButton, Spacing, Text } from "@/components/shared-u
 
 // 4. Constants, hooks, types
 import { BorderRadius } from "@/constants/theme";
+import { formatDistanceMiles } from "@/utils/geo";
 import type { Mechanic } from "@/stores/types/store.types";
 
 // ============================================================================
@@ -47,9 +48,9 @@ interface MechanicCardProps {
   /** The mechanic data to display */
   mechanic: Mechanic;
   /** Called when "Book Now" is pressed with a selected slot */
-  onBookNow?: (mechanicId: number, slot: { day: string; dayOfWeek: string; time: string }) => void;
+  onBookNow?: (mechanicId: string, slot: { day: string; dayOfWeek: string; time: string }) => void;
   /** Called when "Schedule For Later" is pressed (navigates to mechanic detail page) */
-  onScheduleLater?: (mechanicId: number) => void;
+  onScheduleLater?: (mechanicId: string) => void;
 }
 
 // ============================================================================
@@ -105,12 +106,12 @@ export const MechanicCard = memo(function MechanicCard({ mechanic, onBookNow, on
           </View>
 
           <Text size="sm" weight="medium" color="#6B7280" style={{ marginBottom: 2 }}>
-            {mechanic.shopName}
+            {mechanic.title ?? mechanic.shopName}
           </Text>
 
           <View style={styles.detailsRow}>
             <Text size="xs" weight="regular" color="#9CA3AF">
-              {mechanic.distanceMi} mi
+              {formatDistanceMiles(mechanic.distanceMi)}
             </Text>
             {mechanic.isVerified && (
               <View style={styles.verifiedBadge}>

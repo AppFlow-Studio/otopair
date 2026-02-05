@@ -104,7 +104,7 @@ function MechanicCarouselCardComponent({
       {/* Location Status */}
       <View style={styles.locationRow}>
         <Text weight="semiBold" size="lg" color={BrandColors.primary}>
-          At {mechanic.shopName}
+          {mechanic.title ? mechanic.title : `At ${mechanic.shopName}`}
         </Text>
         {/* Shop Image/Icon */}
         <View style={styles.shopImageContainer}>
@@ -255,5 +255,3 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.full,
   },
 });
-
-

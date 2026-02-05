@@ -35,7 +35,7 @@ export default function Index() {
     return <Redirect href="/(onboarding)" />;
   }
 
-  // Signed in but Convex user not loaded yet
+  // Signed in but Convex user not loaded yet (query still loading)
   if (me === undefined) {
     return (
       <View style={styles.loading}>
@@ -44,8 +44,13 @@ export default function Index() {
     );
   }
 
+  // Signed in but no Convex user yet → go to home (layout ensures user in background; no welcome loop)
+  if (me === null) {
+    return <Redirect href="/(main-tabs)/home" />;
+  }
+
   // Signed in + onboarding complete → go to home
-  if (me?.onboardingCompleted) {
+  if (me.onboardingCompleted) {
     return <Redirect href="/(main-tabs)/home" />;
   }
 

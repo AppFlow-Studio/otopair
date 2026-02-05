@@ -1,17 +1,18 @@
 /**
  * CarSelectionCard
  *
- * PURPOSE: Individual vehicle card for the car selection carousel
- *          Horizontal layout with thumbnail on left, details on right
- *          Matches the shop carousel card theme
+ * PURPOSE: Vehicle card for car selection. Supports two layouts:
+ *          - "card": Horizontal card with thumbnail left, details right, Select/Selected button (carousel)
+ *          - "row": Compact vertical-list row — details left, car icon right, tappable row, checkmark when selected
  *
  * USED IN: components/booking/sheets/CarSelectionContent.tsx
  *
  * PROPS:
  *   - vehicle (Vehicle): The vehicle data to display
- *   - isActive (boolean): Whether this card is currently active/focused
+ *   - variant ("card" | "row"): Layout style
+ *   - isActive (boolean): Whether this card is currently active/focused (card only)
  *   - isSelected (boolean): Whether this vehicle is currently selected
- *   - onSelect (() => void): Called when Select button is tapped
+ *   - onSelect (() => void): Called when row/card is tapped or Select is pressed
  *
  * OWNER: Waleed Mansour
  */
@@ -37,11 +38,13 @@ import type { Vehicle } from "@/stores/useVehicleStore";
 export interface CarSelectionCardProps {
   /** The vehicle data to display */
   vehicle: Vehicle;
-  /** Whether this card is currently active/focused */
+  /** "card" = horizontal card with button; "row" = compact list row */
+  variant?: "card" | "row";
+  /** Whether this card is currently active/focused (card variant only) */
   isActive?: boolean;
   /** Whether this vehicle is currently selected for booking */
   isSelected?: boolean;
-  /** Called when Select button is tapped */
+  /** Called when row or Select button is tapped */
   onSelect?: () => void;
 }
 
@@ -67,10 +70,64 @@ function truncateVin(vin: string | undefined): string {
 
 function CarSelectionCardComponent({
   vehicle,
+  variant = "card",
   isActive = false,
   isSelected = false,
   onSelect,
 }: CarSelectionCardProps) {
+  const isRow = variant === "row";
+
+  if (isRow) {
+    return (
+      <TouchableOpacity style={[styles.row, isSelected && styles.rowSelected]} onPress={onSelect} activeOpacity={0.7}>
+        {isSelected && (
+          <View style={styles.rowCheckmark}>
+            <Check size={16} color={BrandColors.secondary} strokeWidth={2.5} />
+          </View>
+        )}
+        <View style={styles.rowContent}>
+          <View style={styles.rowDetails}>
+            <View style={styles.titleRow}>
+              <Text weight="bold" size="md" color={BrandColors.primary} numberOfLines={1} style={styles.rowTitle}>
+                {vehicle.make} {vehicle.model}
+              </Text>
+              {vehicle.isDefault && (
+                <View style={styles.defaultBadge}>
+                  <Text size="xs" color="#22C55E" weight="bold">
+                    Default
+                  </Text>
+                </View>
+              )}
+            </View>
+            <View style={styles.subtitleRow}>
+              <Text size="sm" color="#6B7280">
+                {vehicle.year}
+              </Text>
+              <Text size="sm" color="#D1D5DB">
+                {" · "}
+              </Text>
+              <Text size="sm" color="#6B7280">
+                {formatMileage(vehicle.mileage)}
+              </Text>
+            </View>
+            {vehicle.vin && (
+              <Text size="xs" color="#9CA3AF" style={styles.vin}>
+                {truncateVin(vehicle.vin)}
+              </Text>
+            )}
+          </View>
+          <View style={styles.rowIcon}>
+            {vehicle.imageSource ? (
+              <Image source={vehicle.imageSource} style={styles.rowImage} resizeMode="cover" />
+            ) : (
+              <Car size={28} color="#9CA3AF" />
+            )}
+          </View>
+        </View>
+      </TouchableOpacity>
+    );
+  }
+
   return (
     <View style={[styles.card, isActive && styles.cardActive]}>
       {/* Main content row: Image + Details */}
@@ -78,11 +135,7 @@ function CarSelectionCardComponent({
         {/* Vehicle Image Thumbnail */}
         <View style={styles.imageContainer}>
           {vehicle.imageSource ? (
-            <Image
-              source={vehicle.imageSource}
-              style={styles.image}
-              resizeMode="cover"
-            />
+            <Image source={vehicle.imageSource} style={styles.image} resizeMode="cover" />
           ) : (
             <View style={styles.imagePlaceholder}>
               <Car size={32} color="#9CA3AF" />
@@ -94,13 +147,7 @@ function CarSelectionCardComponent({
         <View style={styles.detailsContainer}>
           {/* Title row: Make Model + Default badge */}
           <View style={styles.titleRow}>
-            <Text
-              weight="bold"
-              size="lg"
-              color={BrandColors.primary}
-              numberOfLines={1}
-              style={styles.title}
-            >
+            <Text weight="bold" size="lg" color={BrandColors.primary} numberOfLines={1} style={styles.title}>
               {vehicle.make} {vehicle.model}
             </Text>
             {vehicle.isDefault && (
@@ -168,6 +215,57 @@ export const CarSelectionCard = memo(CarSelectionCardComponent);
 // ============================================================================
 
 const styles = StyleSheet.create({
+  // Row variant (vertical list)
+  row: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F9FAFB",
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.md,
+    paddingRight: Spacing.lg,
+    borderWidth: 1.5,
+    borderColor: "#E5E7EB",
+    marginBottom: Spacing.sm,
+  },
+  rowSelected: {
+    borderColor: BrandColors.secondary,
+    backgroundColor: "rgba(82, 153, 254, 0.06)",
+  },
+  rowCheckmark: {
+    position: "absolute",
+    top: Spacing.sm,
+    right: Spacing.sm,
+    zIndex: 1,
+  },
+  rowContent: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  rowDetails: {
+    flex: 1,
+    minWidth: 0,
+  },
+  rowTitle: {
+    flexShrink: 1,
+    marginBottom: 2,
+  },
+  rowIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: BorderRadius.md,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    marginLeft: Spacing.md,
+  },
+  rowImage: {
+    width: "100%",
+    height: "100%",
+  },
+  // Card variant (carousel)
   card: {
     backgroundColor: "#F9FAFB",
     borderRadius: BorderRadius["2xl"],

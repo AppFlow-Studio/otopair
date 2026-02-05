@@ -11,10 +11,10 @@
  *   - progress ({ total: number; filled: number }): Progress indicator data
  *
  * EXAMPLE:
- *   <ConfirmPhoneNumberStep 
- *     onNext={handleNext} 
- *     onBack={handleBack} 
- *     progress={{ total: 8, filled: 1 }} 
+ *   <ConfirmPhoneNumberStep
+ *     onNext={handleNext}
+ *     onBack={handleBack}
+ *     progress={{ total: 8, filled: 1 }}
  *   />
  *
  * OWNER: Daniel Chelala
@@ -23,13 +23,7 @@
 
 // TODO: Replace with actual code verification logic
 
-import {
-  BrandColors,
-  FontFamily,
-  FontSize,
-  Spacing,
-  Text,
-} from "@/components/shared-ui";
+import { BrandColors, FontFamily, FontSize, Spacing, Text } from "@/components/shared-ui";
 import { ProgressBar } from "@/components/shared-ui/ProgressBar";
 import { BackButton } from "@/components/shared-ui/BackButton";
 import { useState, useEffect, useRef } from "react";
@@ -49,8 +43,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import { useUser, useSignUp } from "@clerk/clerk-expo";
 import { useOnboardingPersistence } from "@/hooks/useOnboardingPersistence";
-import { useMutation } from "convex/react";
-import { api } from "@/convex/_generated/api";
+import { useEnsureConvexUser } from "@/hooks/useEnsureConvexUser";
 import { X } from "lucide-react-native";
 
 interface ConfirmPhoneNumberStepProps {
@@ -59,28 +52,31 @@ interface ConfirmPhoneNumberStepProps {
   progress: { total: number; filled: number };
 }
 
-export function ConfirmPhoneNumberStep({
-  onNext,
-  onBack,
-  progress,
-}: ConfirmPhoneNumberStepProps) {
+export function ConfirmPhoneNumberStep({ onNext, onBack, progress }: ConfirmPhoneNumberStepProps) {
   const insets = useSafeAreaInsets();
   const { height, width } = useWindowDimensions();
   const { data, updateData } = useOnboardingStore();
   const { user } = useUser();
   const { signUp, setActive } = useSignUp();
   const { persistProfileField } = useOnboardingPersistence();
-  const ensureConvexUser = useMutation(api.users.getOrCreateMe);
+  const ensureConvexUser = useEnsureConvexUser();
   const isSignUpFlow = data.phoneNumberId === "signup_flow";
 
   const [code, setCode] = useState(["", "", "", "", "", ""]);
   const [focusedIndex, setFocusedIndex] = useState(0);
   const [timeRemaining, setTimeRemaining] = useState(60);
   const [showErrorModal, setShowErrorModal] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
   const inputRefs = useRef<(TextInput | null)[]>([]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const slideAnim = useRef(new Animated.Value(height)).current;
+
+  const isVerificationNotStartedError = (msg: string | null) =>
+    msg != null &&
+    (msg.includes("Verification wasn't started") ||
+      msg.includes("No phone number found") ||
+      msg.includes("No user or signUp session"));
 
   const formatPhoneNumberForDisplay = () => {
     const phone = data.phoneNumber || "";
@@ -114,8 +110,26 @@ export function ConfirmPhoneNumberStep({
 
   const verifyPhoneCode = async (fullCode: string) => {
     setVerifying(true);
+    setErrorMessage(null);
 
     try {
+      // No valid path: verification was never prepared (e.g. user landed here without sending a code)
+      if (isSignUpFlow && !signUp) {
+        setErrorMessage("Verification wasn't started. Go back and confirm your number to receive a code.");
+        setShowErrorModal(true);
+        return;
+      }
+      if (!isSignUpFlow && !user) {
+        setErrorMessage("Verification wasn't started. Go back and confirm your number to receive a code.");
+        setShowErrorModal(true);
+        return;
+      }
+      if (!isSignUpFlow && user && !data.phoneNumberId && (!user.phoneNumbers || user.phoneNumbers.length === 0)) {
+        setErrorMessage("Verification wasn't started. Go back and confirm your number to receive a code.");
+        setShowErrorModal(true);
+        return;
+      }
+
       if (isSignUpFlow && signUp) {
         // Email signup flow: verify via signUp object
         const result = await signUp.attemptPhoneNumberVerification({ code: fullCode });
@@ -123,19 +137,10 @@ export function ConfirmPhoneNumberStep({
 
         if (result.status === "complete" && result.createdSessionId) {
           await setActive?.({ session: result.createdSessionId });
-          // Retry with backoff — Clerk JWT needs time to propagate to Convex
-          const retryWithBackoff = async (fn: () => Promise<any>, retries = 3, delay = 1000) => {
-            for (let i = 0; i <= retries; i++) {
-              try { return await fn(); } catch (e) {
-                if (i === retries) throw e;
-                await new Promise(r => setTimeout(r, delay * Math.pow(2, i)));
-              }
-            }
-          };
           try {
-            await retryWithBackoff(() => ensureConvexUser());
+            await ensureConvexUser();
           } catch (e) {
-            console.error("Failed to ensure Convex user after retries:", e);
+            console.error("Failed to ensure Convex user after phone verification:", e);
           }
         }
 
@@ -148,21 +153,21 @@ export function ConfirmPhoneNumberStep({
       } else if (user) {
         // OAuth flow: verify via user object
         const phoneNumberId = data.phoneNumberId;
-        const phoneNumberResource = user.phoneNumbers.find(
-          (p) => p.id === phoneNumberId
-        );
+        const phoneNumberResource = user.phoneNumbers.find((p) => p.id === phoneNumberId);
 
         if (phoneNumberResource) {
           await phoneNumberResource.attemptVerification({ code: fullCode });
           console.log("Phone verified successfully");
         } else {
           // Fallback: try the most recent phone number
-          const latestPhone = user.phoneNumbers[user.phoneNumbers.length - 1];
+          const latestPhone = user.phoneNumbers?.[user.phoneNumbers.length - 1];
           if (latestPhone) {
             await latestPhone.attemptVerification({ code: fullCode });
             console.log("Phone verified successfully (fallback)");
           } else {
-            throw new Error("No phone number found to verify");
+            setErrorMessage("Verification wasn't started. Go back and confirm your number to receive a code.");
+            setShowErrorModal(true);
+            return;
           }
         }
 
@@ -173,10 +178,13 @@ export function ConfirmPhoneNumberStep({
         });
         onNext();
       } else {
-        throw new Error("No user or signUp session available");
+        setErrorMessage("Verification wasn't started. Go back and confirm your number to receive a code.");
+        setShowErrorModal(true);
+        return;
       }
     } catch (err) {
       console.error("Phone verification failed:", err);
+      setErrorMessage(err instanceof Error ? err.message : "Verification failed. Please try again.");
       setShowErrorModal(true);
       setCode(["", "", "", "", "", ""]);
       setFocusedIndex(0);
@@ -249,9 +257,7 @@ export function ConfirmPhoneNumberStep({
         console.log("Resent verification code via signUp");
       } else if (user) {
         const phoneNumberId = data.phoneNumberId;
-        const phoneNumberResource = user.phoneNumbers.find(
-          (p) => p.id === phoneNumberId
-        );
+        const phoneNumberResource = user.phoneNumbers.find((p) => p.id === phoneNumberId);
         if (phoneNumberResource) {
           await phoneNumberResource.prepareVerification();
           console.log("Resent verification code via user");
@@ -264,14 +270,19 @@ export function ConfirmPhoneNumberStep({
 
   const handleCloseErrorModal = () => {
     setShowErrorModal(false);
+    setErrorMessage(null);
+  };
+
+  const handleGoBackFromError = () => {
+    setShowErrorModal(false);
+    setErrorMessage(null);
+    onBack();
   };
 
   const formatTimer = (seconds: number) => {
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
-    return `${mins.toString().padStart(2, "0")}:${secs
-      .toString()
-      .padStart(2, "0")}`;
+    return `${mins.toString().padStart(2, "0")}:${secs.toString().padStart(2, "0")}`;
   };
 
   // Calculate responsive box width for smaller screens
@@ -281,7 +292,7 @@ export function ConfirmPhoneNumberStep({
   const availableWidth = width - containerPadding;
   const calculatedBoxWidth = Math.max(
     40, // Minimum width
-    Math.floor((availableWidth - totalMarginSpace) / 6)
+    Math.floor((availableWidth - totalMarginSpace) / 6),
   );
 
   const dynamicStyles = {
@@ -290,10 +301,7 @@ export function ConfirmPhoneNumberStep({
   };
 
   return (
-    <KeyboardAvoidingView
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
-      style={styles.keyboardView}
-    >
+    <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.keyboardView}>
       <View style={[styles.container, dynamicStyles.container]}>
         <ProgressBar
           total={progress.total}
@@ -303,9 +311,7 @@ export function ConfirmPhoneNumberStep({
 
         <View style={styles.headerContent}>
           <Text style={styles.title}>6-digit code</Text>
-          <Text style={styles.subtitle}>
-            Enter the code sent to {formatPhoneNumberForDisplay()}
-          </Text>
+          <Text style={styles.subtitle}>Enter the code sent to {formatPhoneNumberForDisplay()}</Text>
         </View>
 
         <View style={styles.codeContainer}>
@@ -316,11 +322,7 @@ export function ConfirmPhoneNumberStep({
                 ref={(ref) => {
                   inputRefs.current[index] = ref;
                 }}
-                style={[
-                  styles.codeInput,
-                  dynamicStyles.codeInput,
-                  focusedIndex === index && styles.codeInputFocused,
-                ]}
+                style={[styles.codeInput, dynamicStyles.codeInput, focusedIndex === index && styles.codeInputFocused]}
                 value={digit}
                 onChangeText={(value) => handleCodeChange(value, index)}
                 onKeyPress={(e) => handleKeyPress(e, index)}
@@ -336,9 +338,7 @@ export function ConfirmPhoneNumberStep({
 
         <View style={styles.resendContainer}>
           {timeRemaining > 0 ? (
-            <Text style={styles.resendTimer}>
-              Resend code in {formatTimer(timeRemaining)}
-            </Text>
+            <Text style={styles.resendTimer}>Resend code in {formatTimer(timeRemaining)}</Text>
           ) : (
             <Pressable onPress={handleResendCode}>
               <Text style={styles.resendButton}>Resend code</Text>
@@ -349,16 +349,8 @@ export function ConfirmPhoneNumberStep({
         <View style={{ flex: 1 }} />
       </View>
 
-      <Modal
-        visible={showErrorModal}
-        transparent
-        animationType="none"
-        onRequestClose={handleCloseErrorModal}
-      >
-        <Pressable
-          style={styles.errorModalBackdrop}
-          onPress={handleCloseErrorModal}
-        >
+      <Modal visible={showErrorModal} transparent animationType="none" onRequestClose={handleCloseErrorModal}>
+        <Pressable style={styles.errorModalBackdrop} onPress={handleCloseErrorModal}>
           <Animated.View
             style={[
               styles.errorModal,
@@ -372,16 +364,21 @@ export function ConfirmPhoneNumberStep({
             <View style={styles.errorIconContainer}>
               <X size={48} color="#EF4444" strokeWidth={3} />
             </View>
-            <Text style={styles.errorTitle}>Incorrect code entered</Text>
-            <Text style={styles.errorMessage}>
-              Please check the code and try again
+            <Text style={styles.errorTitle}>
+              {errorMessage && isVerificationNotStartedError(errorMessage)
+                ? "Verification not started"
+                : "Incorrect code entered"}
             </Text>
-            <TouchableOpacity
-              style={styles.errorButton}
-              onPress={handleCloseErrorModal}
-            >
-              <Text style={styles.errorButtonText}>Got it</Text>
-            </TouchableOpacity>
+            <Text style={styles.errorMessage}>{errorMessage || "Please check the code and try again"}</Text>
+            {errorMessage && isVerificationNotStartedError(errorMessage) ? (
+              <TouchableOpacity style={styles.errorButton} onPress={handleGoBackFromError}>
+                <Text style={styles.errorButtonText}>Go back</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity style={styles.errorButton} onPress={handleCloseErrorModal}>
+                <Text style={styles.errorButtonText}>Got it</Text>
+              </TouchableOpacity>
+            )}
           </Animated.View>
         </Pressable>
       </Modal>
@@ -401,14 +398,14 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.bold,
     color: BrandColors.white,
     marginBottom: Spacing.md,
-    lineHeight: Spacing['5xl'],
+    lineHeight: Spacing["5xl"],
   },
   subtitle: {
     fontSize: FontSize.lg,
     fontFamily: FontFamily.regular,
     color: BrandColors.white,
     opacity: 0.9,
-    lineHeight: Spacing['2xl'],
+    lineHeight: Spacing["2xl"],
   },
   codeContainer: {
     flexDirection: "row",

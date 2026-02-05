@@ -31,22 +31,10 @@
 
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Dimensions,
-  FlatList,
-  Pressable,
-  StyleSheet,
-  View,
-  ViewToken,
-} from "react-native";
+import { Dimensions, FlatList, Pressable, StyleSheet, View, ViewToken } from "react-native";
 
 // 2. Expo & Third-party
-import Animated, {
-  SlideInDown,
-  SlideOutDown,
-  FadeIn,
-  FadeOut,
-} from "react-native-reanimated";
+import Animated, { SlideInDown, SlideOutDown, FadeIn, FadeOut } from "react-native-reanimated";
 
 // 3. Shared UI (design system)
 // (none required)
@@ -58,6 +46,7 @@ import { ShopCarouselCard } from "./ShopCarouselCard";
 import { Spacing } from "@/constants/theme";
 import type { Shop } from "@/stores/types/store.types";
 import { useShopStore } from "@/stores/useShopStore";
+import { openMapsForAddress, openPhone } from "@/utils/linking";
 
 // ============================================================================
 // TYPES
@@ -145,12 +134,7 @@ export function MechanicCarouselSheet({
       .filter(Boolean)
       .map((shop) => ({
         shop,
-        distance: calculateDistanceKm(
-          selectedShop.latitude,
-          selectedShop.longitude,
-          shop.latitude,
-          shop.longitude
-        ),
+        distance: calculateDistanceKm(selectedShop.latitude, selectedShop.longitude, shop.latitude, shop.longitude),
       }))
       // Sort by distance from selected shop (nearest first)
       .sort((a, b) => a.distance - b.distance)
@@ -191,14 +175,6 @@ export function MechanicCarouselSheet({
     }
   });
 
-  const handleCall = useCallback(() => {
-    // TODO: Implement phone call
-  }, []);
-
-  const handleDirections = useCallback(() => {
-    // TODO: Open maps app with directions
-  }, []);
-
   const handleDetails = useCallback(() => {
     if (activeShop) {
       onMechanicSelect?.(activeShop);
@@ -219,14 +195,14 @@ export function MechanicCarouselSheet({
           <ShopCarouselCard
             shop={item}
             isActive={isActive}
-            onCall={handleCall}
-            onDirections={handleDirections}
+            onCall={() => item.phone && openPhone(item.phone)}
+            onDirections={() => openMapsForAddress(item.address)}
             onDetails={handleDetails}
           />
         </View>
       );
     },
-    [activeIndex, handleCall, handleDirections, handleDetails]
+    [activeIndex, handleDetails],
   );
 
   const getItemLayout = useCallback(
@@ -235,9 +211,8 @@ export function MechanicCarouselSheet({
       offset: SNAP_INTERVAL * index,
       index,
     }),
-    []
+    [],
   );
-
 
   // ═══════════════ RENDER ═══════════════
   if (!visible || shopsList.length === 0) {
@@ -247,11 +222,7 @@ export function MechanicCarouselSheet({
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
       {/* Invisible backdrop to detect taps outside */}
-      <Animated.View
-        entering={FadeIn.duration(150)}
-        exiting={FadeOut.duration(150)}
-        style={StyleSheet.absoluteFill}
-      >
+      <Animated.View entering={FadeIn.duration(150)} exiting={FadeOut.duration(150)} style={StyleSheet.absoluteFill}>
         <Pressable style={styles.backdrop} onPress={handleBackdropPress} />
       </Animated.View>
 

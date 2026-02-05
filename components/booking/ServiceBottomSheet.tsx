@@ -43,10 +43,13 @@ import Animated, {
   FadeIn,
   FadeOut,
   interpolate,
+  runOnUI,
   SharedValue,
+  useAnimatedReaction,
   useAnimatedStyle,
   useDerivedValue,
   useSharedValue,
+  withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -63,11 +66,15 @@ import { ShopPreviewContent } from "./sheets/ShopPreviewContent";
 // 5. Constants, hooks, types, stores
 import { BorderRadius, FontFamily, FontSize, Shadows } from "@/constants/theme";
 import { useBookingTransition } from "@/hooks/useBookingTransition";
+import { useRecentlyBookedMechanicIdsFromConvex } from "@/hooks/useRecentlyBookedMechanicIdsFromConvex";
+import { useRecentlyBookedShopIdsFromConvex } from "@/hooks/useRecentlyBookedShopIdsFromConvex";
+import { useServiceVehicleSpecsForEngine } from "@/hooks/useServiceVehicleSpecsForEngine";
 import type { ServiceCategory } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useSearchStore, type SearchSuggestion } from "@/stores/useSearchStore";
 import { useShopStore } from "@/stores/useShopStore";
+import { useVehicleStore } from "@/stores/useVehicleStore";
 
 // ============================================================================
 // TYPES
@@ -78,10 +85,12 @@ interface ServiceBottomSheetProps {
   offsetY?: number;
   /** Callback to expose animated index to parent */
   onAnimatedIndexChange?: (animatedIndex: SharedValue<number>) => void;
+  /** Callback to expose map-relevant index (smoothly animates when opening car selection so map controls don't pop) */
+  onMapRelevantIndexChange?: (mapRelevantIndex: SharedValue<number>) => void;
   /** Called when a shop is selected from search */
   onSelectShop?: (shopId: number) => void;
   /** Called when a mechanic is selected from search */
-  onSelectMechanic?: (mechanicId: number) => void;
+  onSelectMechanic?: (mechanicId: string) => void;
   /** Callback when search mode changes (for hiding/showing map controls) */
   onSearchModeChange?: (isSearching: boolean) => void;
   /** Currently selected shop ID from map pin (triggers shop preview mode) */
@@ -99,6 +108,16 @@ interface ServiceBottomSheetProps {
 // ============================================================================
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
+
+// Car selection: sheet grows with vehicle count, capped at 5 visible rows then scrolls
+const CAR_SELECTION_MAX_VISIBLE = 5;
+const CAR_SELECTION_HANDLE_HEIGHT = 44;
+const CAR_SELECTION_HEADER_HEIGHT = 110;
+const CAR_SELECTION_ROW_HEIGHT = 92;
+const CAR_SELECTION_ADD_ROW_HEIGHT = 72;
+const CAR_SELECTION_FOOTER_HEIGHT = 80;
+const CAR_SELECTION_PADDING = 28;
+const CAR_SELECTION_EMPTY_HEIGHT = 280;
 
 // Snap points: collapsed (23%), preview (38%), mid (55%), expanded (98%)
 // Collapsed: only title + search bar visible
@@ -134,6 +153,7 @@ const FOOTER_INTERACTION_THRESHOLD = 0.05;
 export function ServiceBottomSheet({
   offsetY = 0,
   onAnimatedIndexChange,
+  onMapRelevantIndexChange,
   onSelectShop,
   onSelectMechanic,
   onSearchModeChange,
@@ -146,6 +166,9 @@ export function ServiceBottomSheet({
   const bottomSheetRef = useRef<BottomSheet>(null);
   const searchInputRef = useRef<TextInput>(null);
   const animatedIndex = useSharedValue(3); // Start at expanded (index 3)
+  /** For map controls: when opening car selection we animate 3→0 so controls don't pop; when false, follows animatedIndex */
+  const mapRelevantIndex = useSharedValue(3);
+  const showCarPreviewSV = useSharedValue(0);
 
   // ═══════════════ HOOKS ═══════════════
   const insets = useSafeAreaInsets();
@@ -167,8 +190,8 @@ export function ServiceBottomSheet({
   const showShopPreviewRef = useRef(showShopPreview);
 
   // ═══════════════ CAR SELECTION STATE ═══════════════
-  // Toggle to show car selection carousel (user-initiated via car icon)
   const [showCarPreview, setShowCarPreview] = useState(false);
+  const [pendingCarCloseSnapIndex, setPendingCarCloseSnapIndex] = useState<number | null>(null);
   const [mechanicFooterHeight, setMechanicFooterHeight] = useState(0);
 
   // ═══════════════ STORES ═══════════════
@@ -182,7 +205,7 @@ export function ServiceBottomSheet({
   const setScheduledAppointment = useBookingStore((state) => state.setScheduledAppointment);
   const setSkippedBookingDetails = useBookingStore((state) => state.setSkippedBookingDetails);
   const getMechanicById = useMechanicStore((state) => state.getMechanicById);
-  
+
   // Search stores
   const getRecentShopIds = useSearchStore((state) => state.getRecentShopIds);
   const getSearchSuggestions = useSearchStore((state) => state.getSearchSuggestions);
@@ -192,12 +215,19 @@ export function ServiceBottomSheet({
   const getShopById = useShopStore((state) => state.getShopById);
   const mechanics = useMechanicStore((state) => state.mechanics);
   const mechanicIds = useMechanicStore((state) => state.mechanicIds);
+  const { recentlyBookedShopIds } = useRecentlyBookedShopIdsFromConvex(5);
+  const { recentlyBookedMechanicIds } = useRecentlyBookedMechanicIdsFromConvex(5);
 
   // ═══════════════ COMPUTED ═══════════════
   const hasSelection = selectedCount > 0;
   const isServiceStage = currentStage === "discovery" || currentStage === "service_selection";
   const isMechanicStage = currentStage === "mechanic_selection";
-  
+
+  // Car-specific (engine-specific) labor/parts for footer price
+  const selectedVehicle = useVehicleStore((state) => state.getSelectedVehicle());
+  const vehicleCount = useVehicleStore((state) => state.vehicleIds.length);
+  const engineSpecs = useServiceVehicleSpecsForEngine(selectedVehicle?.engineId, selectedServiceIds);
+
   // Compute service name for mechanic selection footer
   const mechanicFooterServiceName = useMemo(() => {
     const selectedServices = availableServices.filter((s) => selectedServiceIds.includes(s.id));
@@ -206,8 +236,31 @@ export function ServiceBottomSheet({
     return `${selectedServices.length} Services`;
   }, [availableServices, selectedServiceIds]);
 
+  // Mechanic footer total: use (labor_rate × time) + parts, engine-specific when available
+  const mechanicFooterTotal = useMemo(() => {
+    if (!selectedMechanicSlot?.shopId) return selectedTotal;
+    const shop = shops[selectedMechanicSlot.shopId];
+    const laborRate = shop?.labor_rate;
+    const selectedServices = availableServices.filter((s) => selectedServiceIds.includes(s.id));
+    // Use engine-specific labor/parts when available, else service defaults
+    const getLaborHours = (s: (typeof selectedServices)[0]) => engineSpecs[s.id]?.labor_hours ?? s.default_labor_hours;
+    const getParts = (s: (typeof selectedServices)[0]) => engineSpecs[s.id]?.parts_cost_avg ?? s.default_parts_estimate;
+    const hasFormulaParams =
+      laborRate != null && selectedServices.every((s) => getLaborHours(s) != null && getParts(s) != null);
+    if (!hasFormulaParams) return selectedTotal;
+    const total = selectedServices.reduce(
+      (sum, s) => sum + laborRate! * (getLaborHours(s) ?? 0) + (getParts(s) ?? 0),
+      0,
+    );
+    return Math.round(total);
+  }, [selectedMechanicSlot?.shopId, shops, availableServices, selectedServiceIds, selectedTotal, engineSpecs]);
+
   // ═══════════════ SEARCH COMPUTED VALUES ═══════════════
   const recentShopIds = useMemo(() => getRecentShopIds(), [getRecentShopIds]);
+  const recentShopIdsForDisplay = useMemo(() => {
+    const inMemory = recentShopIds.filter((id) => !recentlyBookedShopIds.includes(id));
+    return [...recentlyBookedShopIds, ...inMemory].slice(0, 5);
+  }, [recentlyBookedShopIds, recentShopIds]);
 
   const allShops = useMemo(() => {
     return shopIds.map((id) => shops[id]).filter(Boolean);
@@ -218,10 +271,16 @@ export function ServiceBottomSheet({
   }, [mechanics, mechanicIds]);
 
   const recentShops = useMemo(() => {
-    return recentShopIds
+    return recentShopIdsForDisplay
       .map((id) => getShopById(id))
       .filter((shop): shop is NonNullable<typeof shop> => shop !== undefined);
-  }, [recentShopIds, getShopById]);
+  }, [recentShopIdsForDisplay, getShopById]);
+
+  const recentMechanics = useMemo(() => {
+    return recentlyBookedMechanicIds
+      .map((id) => getMechanicById(id))
+      .filter((m): m is NonNullable<typeof m> => m !== undefined);
+  }, [recentlyBookedMechanicIds, getMechanicById]);
 
   const serviceSuggestions = useMemo(() => {
     if (!searchQuery.trim()) return [];
@@ -260,10 +319,9 @@ export function ServiceBottomSheet({
       .slice(0, 5);
   }, [allShops, allMechanics, searchQuery]);
 
-  const filteredRecentShops = useMemo(() => {
-    if (searchQuery.trim()) return [];
-    return recentShops.slice(0, 3);
-  }, [recentShops, searchQuery]);
+  const filteredRecentShops = useMemo(() => recentShops.slice(0, 3), [recentShops]);
+  const filteredRecentMechanics = useMemo(() => recentMechanics.slice(0, 3), [recentMechanics]);
+  const hasRecentlyBooked = filteredRecentShops.length > 0 || filteredRecentMechanics.length > 0;
 
   const hasSearchResults = topMatches.length > 0 || serviceSuggestions.length > 0;
 
@@ -274,8 +332,64 @@ export function ServiceBottomSheet({
   }, [animatedIndex, onAnimatedIndexChange]);
 
   useEffect(() => {
+    onMapRelevantIndexChange?.(mapRelevantIndex);
+  }, [mapRelevantIndex, onMapRelevantIndexChange]);
+
+  // Keep map-relevant index in sync when not in car selection; animate 3→0 when opening car selection
+  useEffect(() => {
+    showCarPreviewSV.value = showCarPreview ? 1 : 0;
+    if (showCarPreview) {
+      runOnUI(() => {
+        "worklet";
+        mapRelevantIndex.value = animatedIndex.value;
+        mapRelevantIndex.value = withTiming(0, { duration: 250 });
+      })();
+    } else {
+      runOnUI(() => {
+        "worklet";
+        mapRelevantIndex.value = animatedIndex.value;
+      })();
+    }
+  }, [showCarPreview]);
+
+  useAnimatedReaction(
+    () => animatedIndex.value,
+    (v) => {
+      if (showCarPreviewSV.value === 0) {
+        mapRelevantIndex.value = v;
+      }
+    },
+  );
+
+  useEffect(() => {
     showShopPreviewRef.current = showShopPreview;
   }, [showShopPreview]);
+
+  // When car selection opens, snap to the single dynamic point (index 0)
+  // When car selection opens, snap to the single dynamic point (index 0)
+  useEffect(() => {
+    if (showCarPreview) {
+      const id = setTimeout(() => bottomSheetRef.current?.snapToIndex(0), 50);
+      return () => clearTimeout(id);
+    }
+  }, [showCarPreview]);
+
+  useEffect(() => {
+    if (showCarPreview) {
+      const id = setTimeout(() => bottomSheetRef.current?.snapToIndex(0), 50);
+      return () => clearTimeout(id);
+    }
+  }, [showCarPreview, vehicleCount]);
+
+  // After closing car selection: we passed index=0; now snap to saved index and clear pending
+  useEffect(() => {
+    if (!showCarPreview && pendingCarCloseSnapIndex !== null) {
+      const target = pendingCarCloseSnapIndex;
+      setPendingCarCloseSnapIndex(null);
+      const id = setTimeout(() => bottomSheetRef.current?.snapToIndex(target), 50);
+      return () => clearTimeout(id);
+    }
+  }, [showCarPreview, pendingCarCloseSnapIndex]);
 
   // Expand sheet when stage changes (except discovery)
   useEffect(() => {
@@ -347,7 +461,7 @@ export function ServiceBottomSheet({
         onShopClose?.();
       }
     },
-    [onShopClose]
+    [onShopClose],
   );
 
   // Handle selected shop from map pin - show shop preview and snap to preview position
@@ -376,20 +490,37 @@ export function ServiceBottomSheet({
       ? SNAP_POINTS_CONFIG[currentStage]
       : SNAP_POINTS_CONFIG.discovery;
 
-  // Four snap points: collapsed, preview, mid, expanded
-  // Shop preview mode uses the same snap points (no locking - just let user drag)
-  const snapPoints = useMemo(
-    () => [
+  const carSelectionHeightPx = useMemo(() => {
+    if (vehicleCount === 0) return CAR_SELECTION_EMPTY_HEIGHT;
+    const visibleRows = Math.min(vehicleCount, CAR_SELECTION_MAX_VISIBLE);
+    return (
+      CAR_SELECTION_HANDLE_HEIGHT +
+      CAR_SELECTION_HEADER_HEIGHT +
+      visibleRows * CAR_SELECTION_ROW_HEIGHT +
+      CAR_SELECTION_ADD_ROW_HEIGHT +
+      CAR_SELECTION_FOOTER_HEIGHT +
+      CAR_SELECTION_PADDING
+    );
+  }, [vehicleCount]);
+
+  const carSelectionSnapPercent = useMemo(() => {
+    const percent = (carSelectionHeightPx / SCREEN_HEIGHT) * 100;
+    return Math.min(92, Math.max(35, percent));
+  }, [carSelectionHeightPx]);
+
+  const snapPoints = useMemo(() => {
+    if (showCarPreview) {
+      return [`${carSelectionSnapPercent}%`];
+    }
+    return [
       `${stageConfig.collapsed - offsetPercent}%`,
       `${stageConfig.preview - offsetPercent}%`,
       `${stageConfig.mid - offsetPercent}%`,
       `${stageConfig.expanded - offsetPercent}%`,
-    ],
-    [stageConfig, offsetPercent]
-  );
+    ];
+  }, [showCarPreview, carSelectionSnapPercent, stageConfig, offsetPercent]);
 
-  // Initial index: start at expanded (index 3)
-  const initialIndex = 3;
+  const bottomSheetIndex = showCarPreview ? 0 : pendingCarCloseSnapIndex !== null ? 0 : 3;
 
   // ═══════════════ SEARCH MODE HANDLERS ═══════════════
   // Enter search mode
@@ -430,7 +561,7 @@ export function ServiceBottomSheet({
     (suggestion: SearchSuggestion) => {
       const toggleServiceSelection = useBookingStore.getState().toggleServiceSelection;
       const setSelectedServiceCategory = useBookingStore.getState().setSelectedServiceCategory;
-      
+
       if (suggestion.type === "service") {
         toggleServiceSelection(suggestion.service.id);
       } else {
@@ -438,7 +569,7 @@ export function ServiceBottomSheet({
       }
       exitSearchMode();
     },
-    [exitSearchMode]
+    [exitSearchMode],
   );
 
   // Handle shop press from search
@@ -447,16 +578,16 @@ export function ServiceBottomSheet({
       exitSearchMode();
       onSelectShop?.(shopId);
     },
-    [exitSearchMode, onSelectShop]
+    [exitSearchMode, onSelectShop],
   );
 
   // Handle mechanic press from search
   const handleSearchMechanicPress = useCallback(
-    (mechanicId: number) => {
+    (mechanicId: string) => {
       exitSearchMode();
       onSelectMechanic?.(mechanicId);
     },
-    [exitSearchMode, onSelectMechanic]
+    [exitSearchMode, onSelectMechanic],
   );
 
   // Handle remove recent shop
@@ -464,7 +595,7 @@ export function ServiceBottomSheet({
     (shopId: number) => {
       removeRecentShop(shopId);
     },
-    [removeRecentShop]
+    [removeRecentShop],
   );
 
   // ═══════════════ SHOP PREVIEW HANDLERS ═══════════════
@@ -478,7 +609,7 @@ export function ServiceBottomSheet({
     (shop: { id: number; latitude: number; longitude: number }) => {
       onShopChange?.(shop);
     },
-    [onShopChange]
+    [onShopChange],
   );
 
   const handleMechanicSearchFocus = useCallback(() => {
@@ -490,33 +621,32 @@ export function ServiceBottomSheet({
     (shop: { id: number }) => {
       onSelectShop?.(shop.id);
     },
-    [onSelectShop]
+    [onSelectShop],
   );
 
   // ═══════════════ CAR SELECTION HANDLERS ═══════════════
-  // Track snap index before showing car preview
   const previousCarSnapIndexRef = useRef(3);
 
-  // Toggle car selection view
   const handleCarToggle = useCallback(() => {
     if (showCarPreview) {
-      // Close car selection - restore previous snap index
+      setPendingCarCloseSnapIndex(previousCarSnapIndexRef.current);
       setShowCarPreview(false);
-      bottomSheetRef.current?.snapToIndex(previousCarSnapIndexRef.current);
     } else {
-      // Save current snap index before switching to car preview
+      if (isSearchMode) {
+        Keyboard.dismiss();
+        setIsSearchMode(false);
+        setSearchQuery("");
+        setHasTyped(false);
+      }
       previousCarSnapIndexRef.current = Math.round(animatedIndex.value);
-      // Open car selection - snap to preview position (index 1 = 38%)
       setShowCarPreview(true);
-      bottomSheetRef.current?.snapToIndex(1);
+      requestAnimationFrame(() => bottomSheetRef.current?.snapToIndex(0));
     }
-  }, [showCarPreview, animatedIndex]);
+  }, [showCarPreview, isSearchMode, animatedIndex]);
 
-  // Close car selection (called from CarSelectionContent)
   const handleCarSelectionClose = useCallback(() => {
+    setPendingCarCloseSnapIndex(previousCarSnapIndexRef.current);
     setShowCarPreview(false);
-    // Restore previous snap index
-    bottomSheetRef.current?.snapToIndex(previousCarSnapIndexRef.current);
   }, []);
 
   // ═══════════════ HANDLERS ═══════════════
@@ -553,12 +683,14 @@ export function ServiceBottomSheet({
     const isoDate = targetDate.toISOString().split("T")[0];
 
     // Use mechanicId or find first mechanic for the shop
-    const effectiveMechanicId = mechanicId || (() => {
-      // Find a mechanic from this shop
-      const shopMechanic = mechanicIds.map(id => mechanics[id]).find(m => m?.shopId === shopId);
-      return shopMechanic?.id;
-    })();
-    
+    const effectiveMechanicId =
+      mechanicId ||
+      (() => {
+        // Find a mechanic from this shop
+        const shopMechanic = mechanicIds.map((id) => mechanics[id]).find((m) => m?.shopId === shopId);
+        return shopMechanic?.id;
+      })();
+
     if (!effectiveMechanicId) return;
 
     // Set appointment in store
@@ -572,10 +704,19 @@ export function ServiceBottomSheet({
     // Go directly to payment screen (skip booking details)
     setSkippedBookingDetails(true);
     setBookingStage("payment", "forward");
-    
+
     // Navigate to payment page
     router.push(`/home/mechanic/${effectiveMechanicId}/payment`);
-  }, [selectedMechanicSlot, mechanicIds, mechanics, setBookingTypeAndProceed, setScheduledAppointment, setSkippedBookingDetails, setBookingStage, router]);
+  }, [
+    selectedMechanicSlot,
+    mechanicIds,
+    mechanics,
+    setBookingTypeAndProceed,
+    setScheduledAppointment,
+    setSkippedBookingDetails,
+    setBookingStage,
+    router,
+  ]);
 
   // Handle close button press
   // In search mode: exit search mode
@@ -599,12 +740,7 @@ export function ServiceBottomSheet({
   // ═══════════════ FOOTER ANIMATED STYLE ═══════════════
   // Fade the footer once the sheet slides below the mid snap to keep the map visible
   const footerVisibility = useDerivedValue(() => {
-    return interpolate(
-      animatedIndex.value,
-      [FOOTER_FADE_OUT_INDEX, FOOTER_FADE_IN_INDEX],
-      [0, 1],
-      Extrapolation.CLAMP
-    );
+    return interpolate(animatedIndex.value, [FOOTER_FADE_OUT_INDEX, FOOTER_FADE_IN_INDEX], [0, 1], Extrapolation.CLAMP);
   });
 
   const footerAnimatedStyle = useAnimatedStyle(() => {
@@ -626,12 +762,7 @@ export function ServiceBottomSheet({
       };
     }
 
-    const opacity = interpolate(
-      animatedIndex.value,
-      [2.5, 3],
-      [0, 1],
-      Extrapolation.CLAMP
-    );
+    const opacity = interpolate(animatedIndex.value, [2.5, 3], [0, 1], Extrapolation.CLAMP);
 
     return {
       opacity,
@@ -649,6 +780,25 @@ export function ServiceBottomSheet({
   // ═══════════════ FOOTER RENDERER ═══════════════
   const renderFooter = useCallback(
     (props: BottomSheetFooterProps) => {
+      // Car selection mode: single Confirm button to close sheet
+      if (showCarPreview) {
+        return (
+          <BottomSheetFooter {...props} bottomInset={insets.bottom}>
+            <View style={carConfirmFooterStyles.container}>
+              <TouchableOpacity
+                style={carConfirmFooterStyles.confirmButton}
+                onPress={handleCarSelectionClose}
+                activeOpacity={0.8}
+              >
+                <Text size="md" weight="semiBold" color={BrandColors.white}>
+                  Confirm
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </BottomSheetFooter>
+        );
+      }
+
       // Only show footer for service selection stage when NOT in car/shop preview mode
       // This ensures the footer disappears when user is viewing car selection or shop carousel
       if (isServiceStage && !showCarPreview && !showShopPreview) {
@@ -718,7 +868,7 @@ export function ServiceBottomSheet({
                       activeOpacity={0.8}
                     >
                       <Text size="md" weight="bold" color={BrandColors.white}>
-                        Book ${selectedTotal}
+                        Book ${mechanicFooterTotal}
                       </Text>
                     </TouchableOpacity>
                   </View>
@@ -738,17 +888,19 @@ export function ServiceBottomSheet({
       isMechanicStage,
       showCarPreview,
       showShopPreview,
+      insets.bottom,
+      handleCarSelectionClose,
       footerBottomInset,
       footerAnimatedStyle,
       hasSelection,
       selectedCount,
-      selectedTotal,
+      mechanicFooterTotal,
       handleServicesSelected,
       mechanicFooterServiceName,
       selectedMechanicSlot,
       handleMechanicBook,
       handleMechanicFooterLayout,
-    ]
+    ],
   );
 
   // ═══════════════ CONTENT RENDERER ═══════════════
@@ -757,30 +909,20 @@ export function ServiceBottomSheet({
       case "discovery":
       case "service_selection":
         return (
-          <Animated.View
-            key="service"
-            entering={sheetEntering}
-            exiting={sheetExiting}
-            style={styles.contentWrapper}
-          >
+          <Animated.View key="service" entering={sheetEntering} exiting={sheetExiting} style={styles.contentWrapper}>
             <ServiceSelectionContent onCategorySelect={handleCategorySelect} />
           </Animated.View>
         );
 
       case "mechanic_selection":
         return (
-          <Animated.View
-            key="mechanic"
-            entering={sheetEntering}
-            exiting={sheetExiting}
-            style={styles.contentWrapper}
-          >
-          <MechanicSelectionContent
-            onSelectMechanic={handleMechanicSelected}
-            onCarSelect={handleCarToggle}
-            footerInset={mechanicFooterHeight}
-            onSearchFocus={handleMechanicSearchFocus}
-          />
+          <Animated.View key="mechanic" entering={sheetEntering} exiting={sheetExiting} style={styles.contentWrapper}>
+            <MechanicSelectionContent
+              onSelectMechanic={handleMechanicSelected}
+              onCarSelect={handleCarToggle}
+              footerInset={mechanicFooterHeight}
+              onSearchFocus={handleMechanicSearchFocus}
+            />
           </Animated.View>
         );
 
@@ -927,7 +1069,7 @@ export function ServiceBottomSheet({
                       )}
                     </View>
                     <Text size="sm" color="#6B7280" numberOfLines={1}>
-                      {mechanic.shopName} • {mechanic.yearsExperience} yrs
+                      {mechanic.title ?? mechanic.shopName} • {mechanic.yearsExperience} yrs
                     </Text>
                   </View>
                   {mechanic.isAvailable && (
@@ -944,21 +1086,21 @@ export function ServiceBottomSheet({
         </View>
       )}
 
-      {/* Recent Shops (when not searching) */}
-      {filteredRecentShops.length > 0 && (
+      {/* Recently booked (shops + mechanics; show even while searching) */}
+      {hasRecentlyBooked && (
         <View style={styles.section}>
           <Text size="xs" weight="bold" color="#9CA3AF" style={styles.sectionLabel}>
             RECENTLY BOOKED
           </Text>
           {filteredRecentShops.map((shop) => (
             <TouchableOpacity
-              key={`recent-${shop.id}`}
+              key={`recent-shop-${shop.id}`}
               style={styles.resultCard}
               onPress={() => handleSearchShopPress(shop.id)}
               activeOpacity={0.7}
             >
               <View style={styles.recentIcon}>
-                <Clock size={18} color="#6B7280" />
+                <MapPin size={18} color={BrandColors.secondary} />
               </View>
               <View style={styles.resultContent}>
                 <Text size="md" weight="semiBold" color={BrandColors.primary}>
@@ -968,20 +1110,44 @@ export function ServiceBottomSheet({
                   {shop.address}
                 </Text>
               </View>
-              <TouchableOpacity
-                onPress={() => handleRemoveRecentShop(shop.id)}
-                style={styles.removeButton}
-                hitSlop={8}
-              >
+              <TouchableOpacity onPress={() => handleRemoveRecentShop(shop.id)} style={styles.removeButton} hitSlop={8}>
                 <X size={14} color="#9CA3AF" />
               </TouchableOpacity>
+            </TouchableOpacity>
+          ))}
+          {filteredRecentMechanics.map((mechanic) => (
+            <TouchableOpacity
+              key={`recent-mech-${mechanic.id}`}
+              style={styles.resultCard}
+              onPress={() => handleSearchMechanicPress(mechanic.id)}
+              activeOpacity={0.7}
+            >
+              <View style={styles.recentIcon}>
+                <User size={18} color={BrandColors.secondary} />
+              </View>
+              <View style={styles.resultContent}>
+                <Text size="md" weight="semiBold" color={BrandColors.primary}>
+                  {mechanic.name}
+                </Text>
+                <Text size="sm" color="#6B7280" numberOfLines={1}>
+                  {mechanic.shopName}
+                  {mechanic.title ? ` • ${mechanic.title}` : ""}
+                </Text>
+              </View>
+              {mechanic.isAvailable && (
+                <View style={styles.availableBadge}>
+                  <Text size="xs" weight="semiBold" color="#22C55E">
+                    Available
+                  </Text>
+                </View>
+              )}
             </TouchableOpacity>
           ))}
         </View>
       )}
 
       {/* Empty State */}
-      {searchQuery.length === 0 && filteredRecentShops.length === 0 && (
+      {searchQuery.length === 0 && !hasRecentlyBooked && (
         <View style={styles.emptyState}>
           <Text size="md" weight="medium" color="#9CA3AF" center>
             Start typing to search for services, shops, or mechanics
@@ -1005,7 +1171,7 @@ export function ServiceBottomSheet({
     <BottomSheet
       ref={bottomSheetRef}
       snapPoints={snapPoints}
-      index={initialIndex}
+      index={bottomSheetIndex}
       animatedIndex={animatedIndex}
       enableDynamicSizing={false}
       enablePanDownToClose={false}
@@ -1072,11 +1238,7 @@ export function ServiceBottomSheet({
               )}
             </Animated.View>
           ) : (
-            <TouchableOpacity
-              onPress={enterSearchMode}
-              style={styles.searchBarTouchable}
-              activeOpacity={0.7}
-            >
+            <TouchableOpacity onPress={enterSearchMode} style={styles.searchBarTouchable} activeOpacity={0.7}>
               <View style={styles.searchBar}>
                 <Search size={20} color="#9CA3AF" />
                 <Text size="md" weight="regular" color="#9CA3AF" style={styles.searchPlaceholder}>
@@ -1091,9 +1253,9 @@ export function ServiceBottomSheet({
       {/* Content - Search results, car preview, shop preview, or stage content */}
       <View style={styles.expandedContainer}>
         {isSearchMode ? (
-          <Animated.View 
-            key="search" 
-            entering={FadeIn.duration(200)} 
+          <Animated.View
+            key="search"
+            entering={FadeIn.duration(200)}
             exiting={FadeOut.duration(150)}
             style={styles.contentWrapper}
           >
@@ -1223,9 +1385,11 @@ const styles = StyleSheet.create({
   },
   expandedContainer: {
     flex: 1,
+    minHeight: 0,
   },
   contentWrapper: {
     flex: 1,
+    minHeight: 0,
   },
   // Search results styles
   scrollView: {
@@ -1311,6 +1475,23 @@ const styles = StyleSheet.create({
   emptyState: {
     paddingVertical: Spacing["3xl"],
     paddingHorizontal: Spacing.lg,
+  },
+});
+
+// Car selection footer: single Confirm button
+const carConfirmFooterStyles = StyleSheet.create({
+  container: {
+    backgroundColor: BrandColors.white,
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.md,
+    paddingBottom: Spacing.lg,
+  },
+  confirmButton: {
+    backgroundColor: BrandColors.secondary,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.lg,
+    alignItems: "center",
+    justifyContent: "center",
   },
 });
 

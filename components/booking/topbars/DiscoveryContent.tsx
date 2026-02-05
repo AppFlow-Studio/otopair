@@ -23,9 +23,9 @@ import { BrandColors, GhostButton, Spacing, Text } from "@/components/shared-ui"
 // 4. Constants, hooks, types, stores
 import { SheetDrivenAnimation } from "@/constants/animations";
 import { SHOP_FILTER_OPTIONS } from "@/constants/filters";
-import { SERVICE_CATEGORIES } from "@/constants/services";
 import { BorderRadius, Shadows } from "@/constants/theme";
 import type { FilterOption, ServiceCategory } from "@/stores/types/store.types";
+import { useBookingStore } from "@/stores/useBookingStore";
 
 // ============================================================================
 // CONSTANTS
@@ -69,6 +69,8 @@ export function DiscoveryContent({
 }: DiscoveryContentProps) {
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const insets = useSafeAreaInsets();
+  const getServiceCategories = useBookingStore((state) => state.getServiceCategories);
+  const serviceCategories = getServiceCategories();
 
   // Animation for service tabs
   const serviceTabsAnimatedStyle = useAnimatedStyle(() => {
@@ -155,7 +157,7 @@ export function DiscoveryContent({
       {/* Service Category Tabs */}
       <Animated.View style={serviceTabsAnimatedStyle}>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.serviceTabs}>
-          {SERVICE_CATEGORIES.map((service) => {
+          {serviceCategories.map((service) => {
             const isSelected = selectedService === service.key;
             return (
               <TouchableOpacity
