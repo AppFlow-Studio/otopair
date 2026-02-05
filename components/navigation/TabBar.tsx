@@ -37,6 +37,16 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
         });
     }
   }, [state.index, buttonWidth, visibleRoutes]);
+
+  // Get options for the currently focused route
+  const focusedOptions = descriptors[state.routes[state.index].key].options;
+
+  // Check if tab bar should be hidden based on options
+  // We use a safe check because tabBarStyle can be an array or a single style object
+  const tabBarStyle = StyleSheet.flatten(focusedOptions.tabBarStyle) as any;
+  if (tabBarStyle?.display === 'none') {
+    return null;
+  }
   
   return (
     <View onLayout={onTabbarLayout} style={[styles.tabbar, { paddingBottom: insets.bottom + 12 }]}>

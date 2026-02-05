@@ -110,6 +110,11 @@ export {
     type FeedbackModalProps
 } from './FeedbackModal';
 
+// Finish Later Component
+export {
+    FinishLater
+} from './FinishLater';
+
 // Referral helpers
 export {
     buildReferralCode,

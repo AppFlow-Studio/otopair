@@ -76,6 +76,9 @@ interface OnboardingData {
 
   // User intentions for using app
   userIntentions: string[] | null;
+  heardAboutOtopair: string | null;
+  visitReason: string | null;
+  zipCode: string | null;
 
   // Permissions Step
   pushNotificationsGranted: boolean;
@@ -243,6 +246,9 @@ const INITIAL_DATA: OnboardingData = {
   membershipTier: null,
   points: 0,
   userIntentions: null,
+  heardAboutOtopair: null,
+  visitReason: null,
+  zipCode: null,
   pushNotificationsGranted: false,
   pushNotificationStatus: null,
   locationGranted: false,

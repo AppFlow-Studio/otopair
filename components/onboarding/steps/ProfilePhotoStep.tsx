@@ -29,6 +29,7 @@ import {
   FontSize,
   Spacing,
   Text,
+  FinishLater,
 } from "@/components/shared-ui";
 import { ProgressBar } from "@/components/shared-ui/ProgressBar";
 import { FooterButton } from "@/components/shared-ui/FooterButton";
@@ -157,6 +158,7 @@ export function ProfilePhotoStep({ onNext, onBack, progress }: ProfilePhotoStepP
         filled={progress.filled}
         leftElement={<BackButton onBack={onBack} alwaysShow />}
       />
+      <FinishLater />
 
       <View style={styles.content}>
         <View style={styles.photoContainer}>
@@ -191,18 +193,6 @@ export function ProfilePhotoStep({ onNext, onBack, progress }: ProfilePhotoStepP
           backgroundColor={canContinue ? undefined : "#6B7280"}
           textColor={canContinue ? undefined : BrandColors.white}
         />
-        {!canContinue && (
-          <>
-            <View style={styles.buttonSpacer} />
-            <FooterButton
-              label="Skip for now"
-              onPress={handleSkip}
-              size={buttonSize}
-              paddingVertical={buttonPaddingVertical}
-              variant="secondary"
-            />
-          </>
-        )}
       </View>
 
       <Modal

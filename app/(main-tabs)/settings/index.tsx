@@ -584,7 +584,7 @@ export default function SettingsHomeScreen() {
                     <Text size="xs" color="#6B7280">Bookings</Text>
                   </View>
                   <View style={styles.statDivider} />
-                  <View style={styles.statItem}>
+                  <View style={styles.centerStatItem}>
                     <Text weight="bold" size="lg" color="#111827">{membershipTier}</Text>
                     <Text size="xs" color="#6B7280">Member</Text>
                   </View>
@@ -954,11 +954,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    paddingHorizontal: 20,
     marginBottom: 24,
   },
   statItem: {
     alignItems: 'center',
-    paddingHorizontal: 24,
+    minWidth: 80,
+  },
+  centerStatItem: {
+    flex: 1,
+    alignItems: 'center',
+    paddingHorizontal: 10,
   },
   statDivider: {
     width: 1,

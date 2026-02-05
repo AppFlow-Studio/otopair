@@ -43,6 +43,9 @@ import { NameStep } from './steps/NameStep';
 import { EmailConfirmStep } from './steps/EmailConfirmStep';
 import { ProfilePhotoStep } from './steps/ProfilePhotoStep';
 import { UserIntentStep } from './steps/UserIntentStep';
+import { HeardAboutStep } from './steps/HeardAboutStep';
+import { VisitReasonStep } from './steps/VisitReasonStep';
+import { ZipCodeStep } from './steps/ZipCodeStep';
 import { PushNotificationsStep } from './steps/PushNotificationsStep';
 import { LocationServicesStep } from './steps/LocationServicesStep';
 import { WelcomeStep } from './steps/WelcomeStep';
@@ -60,6 +63,9 @@ export type OnboardingStep =
     | 'emailConfirm'
     | 'profilePhoto'
     | 'userIntent'
+    | 'heardAbout'
+    | 'visitReason'
+    | 'zipCode'
     | 'pushNotifications'
     | 'locationServices'
     | 'complete';
@@ -77,9 +83,12 @@ const STEP_INDICES: Record<OnboardingStep, number> = {
     emailConfirm: 3,
     profilePhoto: 5,
     userIntent: 6,
-    pushNotifications: 7,
-    locationServices: 8,
-    complete: 9,
+    heardAbout: 7,
+    visitReason: 8,
+    zipCode: 9,
+    pushNotifications: 10,
+    locationServices: 11,
+    complete: 12,
 };
 
 interface OnboardingFlowProps {
@@ -96,6 +105,9 @@ const PROGRESS_STEPS: OnboardingStep[] = [
     'emailConfirm',
     'profilePhoto',
     'userIntent',
+    'heardAbout',
+    'visitReason',
+    'zipCode',
     'pushNotifications',
     'locationServices',
 ];
@@ -111,6 +123,9 @@ export function getIncompleteOnboardingSteps(): OnboardingStep[] {
         { step: 'emailConfirm', isComplete: () => !!data.emailConfirmed },
         { step: 'profilePhoto', isComplete: () => !!data.profilePhotoUri },
         { step: 'userIntent', isComplete: () => !!(data.userIntentions && data.userIntentions.length > 0) },
+        { step: 'heardAbout', isComplete: () => !!data.heardAboutOtopair },
+        { step: 'visitReason', isComplete: () => !!data.visitReason },
+        { step: 'zipCode', isComplete: () => !!data.zipCode },
         { step: 'pushNotifications', isComplete: () => data.pushNotificationStatus !== null },
         { step: 'locationServices', isComplete: () => data.locationPermissionStatus !== null },
     ];
@@ -174,14 +189,8 @@ export function OnboardingFlow({
         setCurrentStep(nextStep);
     };
 
-    // Helper function to determine previous step after locationServices based on notification permissions
-    const getPreviousStepAfterLocationServices = async (): Promise<OnboardingStep> => {
-        const hasNotifications = await checkNotificationPermissions();
-        if (hasNotifications) {
-            return 'userIntent';
-        }
-        return 'pushNotifications';
-    };
+    // Helper function to determine previous step after locationServices
+    const getPreviousStepAfterLocationServices = (): OnboardingStep => 'pushNotifications';
 
     const goBack = async () => {
         const { data: latestData } = useOnboardingStore.getState();
@@ -228,12 +237,20 @@ export function OnboardingFlow({
             case 'userIntent':
                 goToStep('profilePhoto');
                 break;
-            case 'pushNotifications':
+            case 'heardAbout':
                 goToStep('userIntent');
                 break;
+            case 'visitReason':
+                goToStep('heardAbout');
+                break;
+            case 'zipCode':
+                goToStep('visitReason');
+                break;
+            case 'pushNotifications':
+                goToStep('zipCode');
+                break;
             case 'locationServices': {
-                const previousStep = await getPreviousStepAfterLocationServices();
-                goToStep(previousStep);
+                goToStep(getPreviousStepAfterLocationServices());
                 break;
             }
             default:
@@ -241,60 +258,8 @@ export function OnboardingFlow({
         }
     };
 
-    // Helper function to normalize push notification status
-    const normalizePushStatus = (s: string | null | undefined): 'granted' | 'provisional' | 'denied' | 'undetermined' => {
-        if (s === 'granted' || s === 'provisional' || s === 'denied' || s === 'undetermined') {
-            return s;
-        }
-        return 'undetermined';
-    };
-
-    // Helper function to check notification permissions
-    const checkNotificationPermissions = async (): Promise<boolean> => {
-        try {
-            // @ts-ignore
-            const mod = await import('expo-notifications');
-            const res = await mod.getPermissionsAsync();
-            const normalized = normalizePushStatus(res.status);
-            return normalized === 'granted' || normalized === 'provisional';
-        } catch {
-            return false;
-        }
-    };
-
-    // Helper function to check location permissions
-    const checkLocationPermissions = async (): Promise<boolean> => {
-        try {
-            // @ts-ignore
-            const mod = await import('expo-location');
-            const res = await mod.getForegroundPermissionsAsync();
-            return res.status === 'granted' || res.granted === true;
-        } catch {
-            return false;
-        }
-    };
-
-    // Helper function to determine next step after userIntent based on permissions
-    const getNextStepAfterUserIntent = async (): Promise<OnboardingStep> => {
-        const hasNotifications = await checkNotificationPermissions();
-        if (!hasNotifications) {
-            return 'pushNotifications';
-        }
-        const hasLocation = await checkLocationPermissions();
-        if (hasLocation) {
-            return 'complete';
-        }
-        return 'locationServices';
-    };
-
-    // Helper function to determine next step after pushNotifications based on location permissions
-    const getNextStepAfterPushNotifications = async (): Promise<OnboardingStep> => {
-        const hasLocation = await checkLocationPermissions();
-        if (hasLocation) {
-            return 'complete';
-        }
-        return 'locationServices';
-    };
+    // Helper function to determine next step after pushNotifications
+    const getNextStepAfterPushNotifications = (): OnboardingStep => 'locationServices';
 
     const goNext = async () => {
         const { data: latestData } = useOnboardingStore.getState();
@@ -351,16 +316,21 @@ export function OnboardingFlow({
             case 'profilePhoto':
                 goToStep('userIntent');
                 break;
-            case 'userIntent': {
-                const nextStep = await getNextStepAfterUserIntent();
-                goToStep(nextStep);
+            case 'userIntent':
+                goToStep('heardAbout');
                 break;
-            }
-            case 'pushNotifications': {
-                const nextStep = await getNextStepAfterPushNotifications();
-                goToStep(nextStep);
+            case 'heardAbout':
+                goToStep('visitReason');
                 break;
-            }
+            case 'visitReason':
+                goToStep('zipCode');
+                break;
+            case 'zipCode':
+                goToStep('pushNotifications');
+                break;
+            case 'pushNotifications':
+                goToStep(getNextStepAfterPushNotifications());
+                break;
             case 'locationServices':
                 goToStep('complete');
                 break;
@@ -416,6 +386,12 @@ export function OnboardingFlow({
                 return <ProfilePhotoStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
             case 'userIntent':
                 return <UserIntentStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+            case 'heardAbout':
+                return <HeardAboutStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+            case 'visitReason':
+                return <VisitReasonStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+            case 'zipCode':
+                return <ZipCodeStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
             case 'pushNotifications':
                 return <PushNotificationsStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
             case 'locationServices':
