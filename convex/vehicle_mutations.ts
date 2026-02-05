@@ -57,7 +57,6 @@ export const upsertMake = internalMutation({
 
     return await ctx.db.insert("makes", {
       name: args.name,
-      logo_url: "",
     });
   },
 });

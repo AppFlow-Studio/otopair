@@ -70,7 +70,7 @@ import * as LocalAuthentication from "expo-local-authentication";
 import * as StoreReview from "expo-store-review";
 
 import { BrandColors, Button, FeedbackModal, Text, ScrollDrivenGradientBackground } from "@/components/shared-ui";
-import { useAuth } from "@clerk/clerk-expo";
+import { useAuth, useUser } from "@clerk/clerk-expo";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useAuthStore } from "@/stores/useAuthStore";
@@ -119,6 +119,7 @@ export default function SettingsHomeScreen() {
   const router = useRouter();
   const scrollY = useSharedValue(0);
   const { signOut } = useAuth();
+  const { user: clerkUser } = useUser();
   const resetAuth = useAuthStore((s) => s.reset);
 
   // Convex: current user and user-scoped data
@@ -222,8 +223,10 @@ export default function SettingsHomeScreen() {
 
   const profilePhotoUri = useMemo(() => {
     if (me?.profile_photo_url) return me.profile_photo_url;
-    return data.profilePhotoUri ?? null;
-  }, [me?.profile_photo_url, data.profilePhotoUri]);
+    if (data.profilePhotoUri) return data.profilePhotoUri;
+    // Fallback: Clerk profile image (e.g. Google/Apple avatar) so Settings matches sign-in identity
+    return clerkUser?.imageUrl ?? null;
+  }, [me?.profile_photo_url, data.profilePhotoUri, clerkUser?.imageUrl]);
 
   const totalBookingsText = useMemo(() => {
     if (typeof convexBookings === "object" && Array.isArray(convexBookings)) {
