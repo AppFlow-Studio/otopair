@@ -100,6 +100,13 @@ export const updateStatus = mutation({
       error_message,
     });
 
+    // Create user-facing transaction when payment completes
+    if (status === "completed") {
+      await ctx.scheduler.runAfter(0, internal.transactions.createFromPayment, {
+        payment_id: id,
+      });
+    }
+
     return await ctx.db.get(id);
   },
 });

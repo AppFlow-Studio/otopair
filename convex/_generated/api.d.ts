@@ -45,6 +45,7 @@ import type * as spec_confirmations from "../spec_confirmations.js";
 import type * as spec_variances from "../spec_variances.js";
 import type * as specs from "../specs.js";
 import type * as time_slots from "../time_slots.js";
+import type * as transactions from "../transactions.js";
 import type * as transmissions from "../transmissions.js";
 import type * as trims from "../trims.js";
 import type * as users from "../users.js";
@@ -96,6 +97,7 @@ declare const fullApi: ApiFromModules<{
   spec_variances: typeof spec_variances;
   specs: typeof specs;
   time_slots: typeof time_slots;
+  transactions: typeof transactions;
   transmissions: typeof transmissions;
   trims: typeof trims;
   users: typeof users;

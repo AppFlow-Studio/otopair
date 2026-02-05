@@ -44,6 +44,9 @@ import {
   Text,
 } from '@/components/shared-ui';
 import { getSheetContentPadding } from '@/constants/theme';
+import { useUserFromConvex } from '@/hooks/useUserFromConvex';
+import { useTransactionsFromConvex } from '@/hooks/useTransactionsFromConvex';
+import type { Doc } from '@/convex/_generated/dataModel';
 
 type TransactionFilter = 'all' | 'charge' | 'credit' | 'refund';
 type TransactionStatus = 'completed' | 'pending';
@@ -94,113 +97,101 @@ const FILTERS: Array<{ id: TransactionFilter; label: string }> = [
   { id: 'refund', label: 'Refunds' },
 ];
 
-const TRANSACTION_SECTIONS: TransactionSection[] = [
-  {
-    title: 'October 24',
-    data: [
-      {
-        id: 'tx-hawk',
-        title: 'Hawk Precision Auto Works',
-        subtitle: '10:30 AM · 3 items',
-        amount: '-$94.72',
-        type: 'charge',
-        icon: Wrench,
-        iconColor: '#111827',
-        iconBg: '#F3F4F6',
-        status: 'completed',
-        detail: {
-          dateLabel: 'Oct 24, 2024 • 10:30 AM',
-          status: 'completed',
-          lineItems: [
-            { label: 'Basic oil change', amount: '$45.00' },
-            { label: 'Basic filter change', amount: '$25.00' },
-            { label: 'Tire rotation', amount: '$15.00' },
-          ],
-          subtotal: '$85.00',
-          taxLabel: 'Tax (8.875%)',
-          taxAmount: '$9.72',
-          total: '$94.72',
-          paymentMethod: 'VISA •••• 1234',
-          rewards: '+95 pts',
-        },
-      },
-      {
-        id: 'tx-credit',
-        title: 'Ownership credits',
-        subtitle: '9:15 AM · Referral reward',
-        amount: '+$100.00',
-        type: 'credit',
-        icon: Sparkles,
-        iconColor: '#16A34A',
-        iconBg: 'rgba(22, 163, 74, 0.12)',
-        status: 'completed',
-        detail: {
-          dateLabel: 'Oct 24, 2024 • 9:15 AM',
-          status: 'completed',
-          lineItems: [{ label: 'Referral reward', amount: '$100.00' }],
-          subtotal: '$100.00',
-          taxLabel: 'Tax (0%)',
-          taxAmount: '$0.00',
-          total: '$100.00',
-          paymentMethod: 'Otopair credits',
-          rewards: '+0 pts',
-        },
-      },
-    ],
-  },
-  {
-    title: 'Yesterday',
-    data: [
-      {
-        id: 'tx-lb',
-        title: 'L & B Auto Repair',
-        subtitle: 'Yesterday',
-        amount: '-$70.77',
-        type: 'charge',
-        icon: Car,
-        iconColor: '#EA580C',
-        iconBg: 'rgba(234, 88, 12, 0.12)',
-        status: 'pending',
-        detail: {
-          dateLabel: 'Yesterday • Pending',
-          status: 'pending',
-          lineItems: [{ label: 'Repair estimate', amount: '$70.77' }],
-          subtotal: '$70.77',
-          taxLabel: 'Tax (0%)',
-          taxAmount: '$0.00',
-          total: '$70.77',
-          paymentMethod: 'VISA •••• 1234',
-          rewards: '+0 pts',
-        },
-      },
-    ],
-  },
-  {
-    title: 'October 22',
-    data: [
-      {
-        id: 'tx-shell',
-        title: 'Shell Station',
-        subtitle: '8:20 PM · Fuel',
-        amount: '-$45.00',
-        type: 'charge',
-        icon: Fuel,
-        iconColor: '#111827',
-        iconBg: '#F3F4F6',
-      },
-      {
-        id: 'tx-premium',
-        title: 'Otopair Premium',
-        subtitle: 'Monthly Subscription',
-        amount: '-$12.99',
-        type: 'charge',
-        icon: CreditCard,
-        iconColor: '#2563EB',
-        iconBg: 'rgba(37, 99, 235, 0.12)',
-      },
-    ],
-  },
-];
+const ICON_MAP: Record<
+  string,
+  { icon: typeof Wrench; iconColor: string; iconBg: string }
+> = {
+  wrench: { icon: Wrench, iconColor: '#111827', iconBg: '#F3F4F6' },
+  leaf: { icon: Sparkles, iconColor: '#16A34A', iconBg: 'rgba(22, 163, 74, 0.12)' },
+  sparkles: { icon: Sparkles, iconColor: '#16A34A', iconBg: 'rgba(22, 163, 74, 0.12)' },
+  car: { icon: Car, iconColor: '#EA580C', iconBg: 'rgba(234, 88, 12, 0.12)' },
+  fuel: { icon: Fuel, iconColor: '#111827', iconBg: '#F3F4F6' },
+  card: { icon: CreditCard, iconColor: '#2563EB', iconBg: 'rgba(37, 99, 235, 0.12)' },
+};
+
+function formatSectionTitle(createdAtMs: number): string {
+  const d = new Date(createdAtMs);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const yesterday = today - 24 * 60 * 60 * 1000;
+  const dayStart = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  if (dayStart === today) return 'Today';
+  if (dayStart === yesterday) return 'Yesterday';
+  const month = d.toLocaleString('en-US', { month: 'long' });
+  return `${month} ${d.getDate()}`;
+}
+
+function formatTime(createdAtMs: number): string {
+  return new Date(createdAtMs).toLocaleTimeString('en-US', {
+    hour: 'numeric',
+    minute: '2-digit',
+    hour12: true,
+  });
+}
+
+function formatAmount(amount: number): string {
+  const abs = Math.abs(amount);
+  const formatted = `$${abs.toFixed(2)}`;
+  return amount >= 0 ? `+${formatted}` : `-${formatted}`;
+}
+
+function formatDateLabel(createdAtMs: number): string {
+  const d = new Date(createdAtMs);
+  return d.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  }) + ' • ' + formatTime(createdAtMs);
+}
+
+function transactionDocToItem(doc: Doc<'transactions'>): TransactionItem {
+  const iconType = doc.icon_type ?? 'wrench';
+  const { icon, iconColor, iconBg } = ICON_MAP[iconType] ?? ICON_MAP.wrench;
+  const amountStr = formatAmount(doc.amount);
+  const subtitle = doc.sub_description ?? formatTime(doc.created_at);
+  const status = doc.status as TransactionStatus;
+  const detail: TransactionDetail = {
+    dateLabel: formatDateLabel(doc.created_at),
+    status,
+    lineItems: [{ label: doc.description, amount: formatAmount(Math.abs(doc.amount)) }],
+    subtotal: formatAmount(Math.abs(doc.amount)),
+    taxLabel: 'Tax (0%)',
+    taxAmount: '$0.00',
+    total: amountStr.startsWith('+') ? amountStr : amountStr.slice(1),
+    paymentMethod: doc.transaction_type === 'credit' ? 'Otopair credits' : 'VISA •••• 1234',
+    rewards: '+0 pts',
+  };
+  return {
+    id: doc._id as string,
+    title: doc.description,
+    subtitle,
+    amount: amountStr,
+    type: doc.transaction_type as Exclude<TransactionFilter, 'all'>,
+    icon,
+    iconColor,
+    iconBg,
+    status,
+    detail,
+  };
+}
+
+function buildSectionsFromTransactions(
+  transactions: Doc<'transactions'>[]
+): TransactionSection[] {
+  const sections: { title: string; data: TransactionItem[]; sortKey: number }[] = [];
+  const byTitle: Record<string, { data: TransactionItem[]; sortKey: number }> = {};
+  for (const doc of transactions) {
+    const title = formatSectionTitle(doc.created_at);
+    if (!byTitle[title]) {
+      byTitle[title] = { data: [], sortKey: doc.created_at };
+    }
+    byTitle[title].data.push(transactionDocToItem(doc));
+  }
+  return Object.entries(byTitle)
+    .map(([title, { data, sortKey }]) => ({ title, data, sortKey }))
+    .sort((a, b) => b.sortKey - a.sortKey)
+    .map(({ title, data }) => ({ title, data }));
+}
 
 const DEFAULT_DETAIL: TransactionDetail = {
   dateLabel: 'Oct 24, 2024 • 10:30 AM',
@@ -217,27 +208,29 @@ const DEFAULT_DETAIL: TransactionDetail = {
 export default function TransactionsScreen() {
   const insets = useSafeAreaInsets();
   const sheetRef = useRef<BottomSheetModal>(null);
-
+  const { userId } = useUserFromConvex();
   const [query, setQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<TransactionFilter>('all');
   const [selectedTransaction, setSelectedTransaction] = useState<TransactionItem | null>(null);
 
+  const transactionType =
+    activeFilter === 'all' ? undefined : (activeFilter as 'charge' | 'credit' | 'refund');
+  const { transactions } = useTransactionsFromConvex(userId, transactionType);
+
   const filteredSections = useMemo(() => {
+    const sections = buildSectionsFromTransactions(transactions);
     const normalizedQuery = query.trim().toLowerCase();
-
-    return TRANSACTION_SECTIONS.map((section) => {
-      const data = section.data.filter((item) => {
-        const matchesFilter = activeFilter === 'all' || item.type === activeFilter;
-        if (!matchesFilter) return false;
-
-        if (!normalizedQuery) return true;
-        const content = `${item.title} ${item.subtitle}`.toLowerCase();
-        return content.includes(normalizedQuery);
-      });
-
-      return { ...section, data };
-    }).filter((section) => section.data.length > 0);
-  }, [activeFilter, query]);
+    if (!normalizedQuery) return sections;
+    return sections
+      .map((section) => ({
+        ...section,
+        data: section.data.filter((item) => {
+          const content = `${item.title} ${item.subtitle}`.toLowerCase();
+          return content.includes(normalizedQuery);
+        }),
+      }))
+      .filter((section) => section.data.length > 0);
+  }, [transactions, query]);
 
   const handleOpenDetail = (item: TransactionItem) => {
     setSelectedTransaction(item);

@@ -77,6 +77,7 @@ import { useAuthStore } from "@/stores/useAuthStore";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import { usePaymentStore } from "@/stores/usePaymentStore";
+import { useTransactionsFromConvex } from "@/hooks/useTransactionsFromConvex";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
@@ -129,7 +130,7 @@ export default function SettingsHomeScreen() {
   const bookingIds = useBookingStore((s) => s.bookingIds);
   const vehicleIds = useVehicleStore((s) => s.vehicleIds);
   const paymentMethods = usePaymentStore((s) => s.paymentMethods);
-  const transactions = usePaymentStore((s) => s.transactions);
+  const { transactions: convexTransactions } = useTransactionsFromConvex(me?._id ?? undefined);
 
   const [nameWidth, setNameWidth] = useState(0);
   const [biometricLabel, setBiometricLabel] = useState("Biometric Login");
@@ -253,7 +254,7 @@ export default function SettingsHomeScreen() {
 
   const vehicleCount = vehicleIds?.length ?? 0;
   const paymentMethodCount = paymentMethods?.length ?? 0;
-  const transactionCount = transactions?.length ?? 0;
+  const transactionCount = convexTransactions.length;
 
   // ─────────────────────────────────────────────────────────────
   // Animated Styles

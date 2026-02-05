@@ -1337,6 +1337,59 @@ export default defineSchema({
     .index("by_idempotency_key", ["idempotency_key"])
     .index("by_created_at", ["created_at"]),
 
+  /**
+   * TABLE: transactions
+   *
+   * DESCRIPTION:
+   * User-facing transaction history for the Transactions screen.
+   * Unified list of charges, credits, and refunds (shop payments, subscriptions,
+   * referral rewards, ownership credits, etc.).
+   *
+   * FIELDS:
+   *   - user_id: User who owns this transaction
+   *   - created_at: Unix timestamp (for grouping by date and sorting)
+   *   - description: Main label (e.g. "Hawk Precision Auto Works", "Ownership credits")
+   *   - sub_description: Extra detail (e.g. "3 items", "Referral reward", "Monthly Subscription")
+   *   - amount: Signed amount in dollars (negative = charge/refund, positive = credit)
+   *   - currency: ISO currency code (e.g. "USD")
+   *   - status: "completed" | "pending" | "refunded"
+   *   - transaction_type: "charge" | "credit" | "refund"
+   *   - shop_id: (optional) Shop when transaction is shop-related
+   *   - booking_id: (optional) Booking when transaction is from a booking payment
+   *   - payment_id: (optional) Link to payments table
+   *   - icon_type: (optional) UI hint: "wrench" | "leaf" | "car" | "fuel" | "card" | etc.
+   *
+   * INDEXES:
+   *   - by_user_id: All transactions for a user
+   *   - by_user_id_created_at: Chronological list for user (desc)
+   *   - by_user_id_type: Filter by user + transaction_type
+   *
+   * RELATIONSHIPS:
+   *   FK → users(user_id)
+   *   FK → shops(shop_id) optional
+   *   FK → bookings(booking_id) optional
+   *   FK → payments(payment_id) optional
+   */
+  transactions: defineTable({
+    user_id: v.id("users"),
+    created_at: v.float64(),
+    description: v.string(),
+    sub_description: v.optional(v.string()),
+    amount: v.float64(), // negative = charge/refund, positive = credit
+    currency: v.string(), // "USD"
+    status: v.string(), // "completed" | "pending" | "refunded"
+    transaction_type: v.string(), // "charge" | "credit" | "refund"
+    shop_id: v.optional(v.id("shops")),
+    booking_id: v.optional(v.id("bookings")),
+    payment_id: v.optional(v.id("payments")),
+    icon_type: v.optional(v.string()),
+  })
+    .index("by_user_id", ["user_id"])
+    .index("by_user_id_created_at", ["user_id", "created_at"])
+    .index("by_user_id_type", ["user_id", "transaction_type"])
+    .index("by_user_id_type_created_at", ["user_id", "transaction_type", "created_at"])
+    .index("by_payment_id", ["payment_id"]),
+
   // ============================================================================
   // FOLLOW-UPS & MAINTENANCE
   // ============================================================================
