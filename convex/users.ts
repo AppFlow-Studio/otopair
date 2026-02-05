@@ -154,6 +154,7 @@ export const getOrCreateMe = mutation({
  */
 export const updateProfile = mutation({
   args: {
+    auth_provider: v.optional(v.string()),
     phone: v.optional(v.string()),
     phoneVerified: v.optional(v.boolean()),
     email: v.optional(v.string()),
@@ -180,6 +181,7 @@ export const updateProfile = mutation({
     }
 
     const updates: Record<string, unknown> = {};
+    if (args.auth_provider !== undefined) updates.auth_provider = args.auth_provider;
     if (args.phone !== undefined) updates.phone = args.phone;
     if (args.phoneVerified !== undefined) updates.phoneVerified = args.phoneVerified;
     if (args.email !== undefined) updates.email = args.email;

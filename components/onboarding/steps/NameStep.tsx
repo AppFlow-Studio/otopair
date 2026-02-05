@@ -78,6 +78,7 @@ export function NameStep({ onNext, onBack, progress }: NameStepProps) {
     await persistProfileField({
       first_name: firstName.trim(),
       last_name: lastName.trim(),
+      ...(data.authProvider && { auth_provider: data.authProvider }),
     });
 
     onNext();
