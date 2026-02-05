@@ -6,8 +6,8 @@ This doc summarizes differences between **Daniel's Convex schema** (daniel-dev b
 
 ## 1. Tables only in Daniel's schema (we do not have)
 
-| Table | Daniel's purpose | Our equivalent / note |
-|-------|------------------|------------------------|
+| Table             | Daniel's purpose                                                                              | Our equivalent / note                                                                                                                     |
+| ----------------- | --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | **user_vehicles** | Links user to vehicle with engine_id, mileage, nickname, vin, year, is_primary, license_plate | We use **vehicle_owners** + **vehicles** (VIN-centric). We do **not** add user_vehicles; our bookings and flows use vin + vehicle_owners. |
 
 **Decision:** We do not add `user_vehicles`. Our app uses `vehicles` (by VIN) and `vehicle_owners` (user–vehicle link). Daniel's booking flow that expected `user_vehicle_id` would need to be wired to our `vin` + `vehicle_owners` model if we ever port that part of his flow.
@@ -33,35 +33,35 @@ We have many tables Daniel's schema does not define. These stay as-is and are no
 
 ### bookings
 
-| Aspect | Daniel | Ours |
-|--------|--------|------|
-| Vehicle link | **user_vehicle_id** (id("user_vehicles")) | **vin** (string, canonical VIN) |
-| Services | **service_id** (single id("services")) | **service_ids** (optional array of id("services")) |
-| Extra fields | — | **live_stage**, **created_at**, **updated_at**, **estimated_labor_minutes** |
+| Aspect       | Daniel                                    | Ours                                                                        |
+| ------------ | ----------------------------------------- | --------------------------------------------------------------------------- |
+| Vehicle link | **user_vehicle_id** (id("user_vehicles")) | **vin** (string, canonical VIN)                                             |
+| Services     | **service_id** (single id("services"))    | **service_ids** (optional array of id("services"))                          |
+| Extra fields | —                                         | **live_stage**, **created_at**, **updated_at**, **estimated_labor_minutes** |
 
 We keep our shape (vin, service_ids, etc.). Daniel's UI that assumed a single service or user_vehicle_id would need to be adapted to vin + service_ids.
 
 ### job_actuals
 
-| Aspect | Daniel | Ours |
-|--------|--------|------|
+| Aspect      | Daniel                                                                              | Ours                                                                       |
+| ----------- | ----------------------------------------------------------------------------------- | -------------------------------------------------------------------------- |
 | Time fields | **job_started_at**, **job_completed_at**, **completed_at**, **logged_at** (strings) | **started_at**, **completed_at_ms**, **logged_at_ms** (float64 timestamps) |
 
 We keep our timestamps and field names.
 
 ### makes
 
-| Aspect | Daniel | Ours |
-|--------|--------|------|
-| Logo | **logo_url** (string) | **logo** (optional id("cdn_assets")) |
+| Aspect | Daniel                | Ours                                 |
+| ------ | --------------------- | ------------------------------------ |
+| Logo   | **logo_url** (string) | **logo** (optional id("cdn_assets")) |
 
 We keep **logo** as cdn_assets reference.
 
 ### mechanics
 
-| Aspect | Daniel | Ours |
-|--------|--------|------|
-| Extra | — | **photo** (optional id("cdn_assets")), **title** (optional string) |
+| Aspect | Daniel | Ours                                                               |
+| ------ | ------ | ------------------------------------------------------------------ |
+| Extra  | —      | **photo** (optional id("cdn_assets")), **title** (optional string) |
 
 We keep photo and title.
 
@@ -80,7 +80,7 @@ Structure is effectively the same (clerkUserId, email, phone, first_name, last_n
 
 ### vehicle_specs (Daniel) vs vehicle_specs / engine_specs / trim_specs (ours)
 
-- Daniel: single **vehicle_specs** with **engine_id**, **oil_***, **battery_***, **brake_***, etc.
+- Daniel: single **vehicle_specs** with **engine_id**, **oil\_\***, **battery\_\***, **brake\_\***, etc.
 - Ours: **vehicle_specs** (engine-level OEM parts), **engine_specs**, **transmission_specs**, **trim_specs** (normalized by subsystem).
 
 We keep our split (engine_specs, transmission_specs, trim_specs, vehicle_specs).

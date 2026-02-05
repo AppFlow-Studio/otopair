@@ -43,10 +43,13 @@ import Animated, {
   FadeIn,
   FadeOut,
   interpolate,
+  runOnUI,
   SharedValue,
+  useAnimatedReaction,
   useAnimatedStyle,
   useDerivedValue,
   useSharedValue,
+  withTiming,
 } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -82,6 +85,8 @@ interface ServiceBottomSheetProps {
   offsetY?: number;
   /** Callback to expose animated index to parent */
   onAnimatedIndexChange?: (animatedIndex: SharedValue<number>) => void;
+  /** Callback to expose map-relevant index (smoothly animates when opening car selection so map controls don't pop) */
+  onMapRelevantIndexChange?: (mapRelevantIndex: SharedValue<number>) => void;
   /** Called when a shop is selected from search */
   onSelectShop?: (shopId: number) => void;
   /** Called when a mechanic is selected from search */
@@ -105,15 +110,14 @@ interface ServiceBottomSheetProps {
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 
 // Car selection: sheet grows with vehicle count, capped at 5 visible rows then scrolls
-// Heights tuned so 3–5 cards + header + "Add a vehicle" row + Confirm footer fit without clipping
 const CAR_SELECTION_MAX_VISIBLE = 5;
-const CAR_SELECTION_HANDLE_HEIGHT = 44; // handle bar area at top of sheet
+const CAR_SELECTION_HANDLE_HEIGHT = 44;
 const CAR_SELECTION_HEADER_HEIGHT = 110;
-const CAR_SELECTION_ROW_HEIGHT = 92; // card padding + content (title, subtitle, vin) + margin
-const CAR_SELECTION_ADD_ROW_HEIGHT = 72; // "Add a vehicle" row (paddingVertical, marginTop, content)
+const CAR_SELECTION_ROW_HEIGHT = 92;
+const CAR_SELECTION_ADD_ROW_HEIGHT = 72;
 const CAR_SELECTION_FOOTER_HEIGHT = 80;
-const CAR_SELECTION_PADDING = 28; // space below list/add row before footer
-const CAR_SELECTION_EMPTY_HEIGHT = 280; // when no vehicles
+const CAR_SELECTION_PADDING = 28;
+const CAR_SELECTION_EMPTY_HEIGHT = 280;
 
 // Snap points: collapsed (23%), preview (38%), mid (55%), expanded (98%)
 // Collapsed: only title + search bar visible
@@ -149,6 +153,7 @@ const FOOTER_INTERACTION_THRESHOLD = 0.05;
 export function ServiceBottomSheet({
   offsetY = 0,
   onAnimatedIndexChange,
+  onMapRelevantIndexChange,
   onSelectShop,
   onSelectMechanic,
   onSearchModeChange,
@@ -161,6 +166,9 @@ export function ServiceBottomSheet({
   const bottomSheetRef = useRef<BottomSheet>(null);
   const searchInputRef = useRef<TextInput>(null);
   const animatedIndex = useSharedValue(3); // Start at expanded (index 3)
+  /** For map controls: when opening car selection we animate 3→0 so controls don't pop; when false, follows animatedIndex */
+  const mapRelevantIndex = useSharedValue(3);
+  const showCarPreviewSV = useSharedValue(0);
 
   // ═══════════════ HOOKS ═══════════════
   const insets = useSafeAreaInsets();
@@ -182,8 +190,8 @@ export function ServiceBottomSheet({
   const showShopPreviewRef = useRef(showShopPreview);
 
   // ═══════════════ CAR SELECTION STATE ═══════════════
-  // Toggle to show car selection carousel (user-initiated via car icon)
   const [showCarPreview, setShowCarPreview] = useState(false);
+  const [pendingCarCloseSnapIndex, setPendingCarCloseSnapIndex] = useState<number | null>(null);
   const [mechanicFooterHeight, setMechanicFooterHeight] = useState(0);
 
   // ═══════════════ STORES ═══════════════
@@ -218,10 +226,7 @@ export function ServiceBottomSheet({
   // Car-specific (engine-specific) labor/parts for footer price
   const selectedVehicle = useVehicleStore((state) => state.getSelectedVehicle());
   const vehicleCount = useVehicleStore((state) => state.vehicleIds.length);
-  const engineSpecs = useServiceVehicleSpecsForEngine(
-    selectedVehicle?.engineId,
-    selectedServiceIds,
-  );
+  const engineSpecs = useServiceVehicleSpecsForEngine(selectedVehicle?.engineId, selectedServiceIds);
 
   // Compute service name for mechanic selection footer
   const mechanicFooterServiceName = useMemo(() => {
@@ -238,30 +243,17 @@ export function ServiceBottomSheet({
     const laborRate = shop?.labor_rate;
     const selectedServices = availableServices.filter((s) => selectedServiceIds.includes(s.id));
     // Use engine-specific labor/parts when available, else service defaults
-    const getLaborHours = (s: (typeof selectedServices)[0]) =>
-      engineSpecs[s.id]?.labor_hours ?? s.default_labor_hours;
-    const getParts = (s: (typeof selectedServices)[0]) =>
-      engineSpecs[s.id]?.parts_cost_avg ?? s.default_parts_estimate;
+    const getLaborHours = (s: (typeof selectedServices)[0]) => engineSpecs[s.id]?.labor_hours ?? s.default_labor_hours;
+    const getParts = (s: (typeof selectedServices)[0]) => engineSpecs[s.id]?.parts_cost_avg ?? s.default_parts_estimate;
     const hasFormulaParams =
-      laborRate != null &&
-      selectedServices.every(
-        (s) => getLaborHours(s) != null && getParts(s) != null,
-      );
+      laborRate != null && selectedServices.every((s) => getLaborHours(s) != null && getParts(s) != null);
     if (!hasFormulaParams) return selectedTotal;
     const total = selectedServices.reduce(
-      (sum, s) =>
-        sum + laborRate! * (getLaborHours(s) ?? 0) + (getParts(s) ?? 0),
+      (sum, s) => sum + laborRate! * (getLaborHours(s) ?? 0) + (getParts(s) ?? 0),
       0,
     );
     return Math.round(total);
-  }, [
-    selectedMechanicSlot?.shopId,
-    shops,
-    availableServices,
-    selectedServiceIds,
-    selectedTotal,
-    engineSpecs,
-  ]);
+  }, [selectedMechanicSlot?.shopId, shops, availableServices, selectedServiceIds, selectedTotal, engineSpecs]);
 
   // ═══════════════ SEARCH COMPUTED VALUES ═══════════════
   const recentShopIds = useMemo(() => getRecentShopIds(), [getRecentShopIds]);
@@ -340,9 +332,40 @@ export function ServiceBottomSheet({
   }, [animatedIndex, onAnimatedIndexChange]);
 
   useEffect(() => {
+    onMapRelevantIndexChange?.(mapRelevantIndex);
+  }, [mapRelevantIndex, onMapRelevantIndexChange]);
+
+  // Keep map-relevant index in sync when not in car selection; animate 3→0 when opening car selection
+  useEffect(() => {
+    showCarPreviewSV.value = showCarPreview ? 1 : 0;
+    if (showCarPreview) {
+      runOnUI(() => {
+        "worklet";
+        mapRelevantIndex.value = animatedIndex.value;
+        mapRelevantIndex.value = withTiming(0, { duration: 250 });
+      })();
+    } else {
+      runOnUI(() => {
+        "worklet";
+        mapRelevantIndex.value = animatedIndex.value;
+      })();
+    }
+  }, [showCarPreview]);
+
+  useAnimatedReaction(
+    () => animatedIndex.value,
+    (v) => {
+      if (showCarPreviewSV.value === 0) {
+        mapRelevantIndex.value = v;
+      }
+    },
+  );
+
+  useEffect(() => {
     showShopPreviewRef.current = showShopPreview;
   }, [showShopPreview]);
 
+  // When car selection opens, snap to the single dynamic point (index 0)
   // When car selection opens, snap to the single dynamic point (index 0)
   useEffect(() => {
     if (showCarPreview) {
@@ -351,13 +374,22 @@ export function ServiceBottomSheet({
     }
   }, [showCarPreview]);
 
-  // When in car selection and vehicle count changes, re-snap so sheet height updates
   useEffect(() => {
     if (showCarPreview) {
       const id = setTimeout(() => bottomSheetRef.current?.snapToIndex(0), 50);
       return () => clearTimeout(id);
     }
   }, [showCarPreview, vehicleCount]);
+
+  // After closing car selection: we passed index=0; now snap to saved index and clear pending
+  useEffect(() => {
+    if (!showCarPreview && pendingCarCloseSnapIndex !== null) {
+      const target = pendingCarCloseSnapIndex;
+      setPendingCarCloseSnapIndex(null);
+      const id = setTimeout(() => bottomSheetRef.current?.snapToIndex(target), 50);
+      return () => clearTimeout(id);
+    }
+  }, [showCarPreview, pendingCarCloseSnapIndex]);
 
   // Expand sheet when stage changes (except discovery)
   useEffect(() => {
@@ -458,7 +490,6 @@ export function ServiceBottomSheet({
       ? SNAP_POINTS_CONFIG[currentStage]
       : SNAP_POINTS_CONFIG.discovery;
 
-  // Car selection: single dynamic snap point that grows with vehicle count (capped at 5 cars)
   const carSelectionHeightPx = useMemo(() => {
     if (vehicleCount === 0) return CAR_SELECTION_EMPTY_HEIGHT;
     const visibleRows = Math.min(vehicleCount, CAR_SELECTION_MAX_VISIBLE);
@@ -477,25 +508,19 @@ export function ServiceBottomSheet({
     return Math.min(92, Math.max(35, percent));
   }, [carSelectionHeightPx]);
 
-  // Four snap points: collapsed, preview, mid, expanded (or single point when car selection)
-  // Shop preview mode uses the same snap points (no locking - just let user drag)
-  const snapPoints = useMemo(
-    () => {
-      if (showCarPreview) {
-        return [`${carSelectionSnapPercent}%`];
-      }
-      return [
-        `${stageConfig.collapsed - offsetPercent}%`,
-        `${stageConfig.preview - offsetPercent}%`,
-        `${stageConfig.mid - offsetPercent}%`,
-        `${stageConfig.expanded - offsetPercent}%`,
-      ];
-    },
-    [showCarPreview, carSelectionSnapPercent, stageConfig, offsetPercent],
-  );
+  const snapPoints = useMemo(() => {
+    if (showCarPreview) {
+      return [`${carSelectionSnapPercent}%`];
+    }
+    return [
+      `${stageConfig.collapsed - offsetPercent}%`,
+      `${stageConfig.preview - offsetPercent}%`,
+      `${stageConfig.mid - offsetPercent}%`,
+      `${stageConfig.expanded - offsetPercent}%`,
+    ];
+  }, [showCarPreview, carSelectionSnapPercent, stageConfig, offsetPercent]);
 
-  // Initial index: start at expanded (index 3). When car selection is open we have 1 snap point so index must be 0.
-  const bottomSheetIndex = showCarPreview ? 0 : 3;
+  const bottomSheetIndex = showCarPreview ? 0 : pendingCarCloseSnapIndex !== null ? 0 : 3;
 
   // ═══════════════ SEARCH MODE HANDLERS ═══════════════
   // Enter search mode
@@ -600,38 +625,28 @@ export function ServiceBottomSheet({
   );
 
   // ═══════════════ CAR SELECTION HANDLERS ═══════════════
-  // Track snap index before showing car preview
   const previousCarSnapIndexRef = useRef(3);
 
-  // Toggle car selection view
   const handleCarToggle = useCallback(() => {
     if (showCarPreview) {
-      // Close car selection - restore previous snap index
+      setPendingCarCloseSnapIndex(previousCarSnapIndexRef.current);
       setShowCarPreview(false);
-      bottomSheetRef.current?.snapToIndex(previousCarSnapIndexRef.current);
     } else {
-      // When opening car view from search mode, exit search so the car UI is shown
       if (isSearchMode) {
         Keyboard.dismiss();
         setIsSearchMode(false);
         setSearchQuery("");
         setHasTyped(false);
       }
-      // Save current snap index before switching to car preview
       previousCarSnapIndexRef.current = Math.round(animatedIndex.value);
-      // Open car selection - snap points will be a single dynamic height; snap after state update
       setShowCarPreview(true);
-      requestAnimationFrame(() => {
-        bottomSheetRef.current?.snapToIndex(0);
-      });
+      requestAnimationFrame(() => bottomSheetRef.current?.snapToIndex(0));
     }
   }, [showCarPreview, isSearchMode, animatedIndex]);
 
-  // Close car selection (called from CarSelectionContent)
   const handleCarSelectionClose = useCallback(() => {
+    setPendingCarCloseSnapIndex(previousCarSnapIndexRef.current);
     setShowCarPreview(false);
-    // Restore previous snap index
-    bottomSheetRef.current?.snapToIndex(previousCarSnapIndexRef.current);
   }, []);
 
   // ═══════════════ HANDLERS ═══════════════

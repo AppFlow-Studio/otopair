@@ -44,13 +44,13 @@ For high-level and per-part diagrams, see [docs/diagrams.md](diagrams.md). For p
 
 ### Core transactions (5)
 
-| Table                  | Purpose                                                                     |
-| ---------------------- | --------------------------------------------------------------------------- |
+| Table                  | Purpose                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | bookings               | One row per appointment; links user, vin, shop, time_slot; `service_ids` array (service IDs), aggregated labor/parts cost; `total_cost` = labor + parts + taxes_and_fees + platform_fee (full amount customer pays); `estimated_labor_minutes`; status FSM; **`live_stage`** (optional, when status is `in_progress`): `"booking_confirmed"` \| `"service_in_progress"` \| `"vehicle_ready"` for Live Tracker stage |
-| payments               | Payment per booking; idempotency_key; status FSM                            |
-| job_actuals            | Actual work per booking (labor, parts, notes); one per booking              |
-| booking_status_history | Append-only booking status transitions                                      |
-| payment_status_history | Append-only payment status transitions                                      |
+| payments               | Payment per booking; idempotency_key; status FSM                                                                                                                                                                                                                                                                                                                                                                    |
+| job_actuals            | Actual work per booking (labor, parts, notes); one per booking                                                                                                                                                                                                                                                                                                                                                      |
+| booking_status_history | Append-only booking status transitions                                                                                                                                                                                                                                                                                                                                                                              |
+| payment_status_history | Append-only payment status transitions                                                                                                                                                                                                                                                                                                                                                                              |
 
 ### Vehicle management (2)
 
@@ -94,26 +94,26 @@ For high-level and per-part diagrams, see [docs/diagrams.md](diagrams.md). For p
 
 ### Services & shops (12)
 
-| Table              | Purpose                                                                                                 |
-| ------------------ | ------------------------------------------------------------------------------------------------------- |
-| services           | Service definitions; link to service_categories; no price—use formula (labor×rate + parts + tax + fees) |
-| service_categories | Category grouping                                                                                       |
-| service_options    | Labor/parts options per service                                                                         |
-| shop_services      | Which services each shop offers                                                                         |
-| shops              | Service centers                                                                                         |
-| mechanics          | Shop staff; optional **`photo`** → cdn_assets for profile/avatar image                                  |
-| shops_hours        | Operating hours per shop                                                                                |
-| time_slots         | Booking slots per shop/mechanic                                                                         |
-| service_insights   | Aggregated engine+service performance data                                                              |
+| Table              | Purpose                                                                                                                |
+| ------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| services           | Service definitions; link to service_categories; no price—use formula (labor×rate + parts + tax + fees)                |
+| service_categories | Category grouping                                                                                                      |
+| service_options    | Labor/parts options per service                                                                                        |
+| shop_services      | Which services each shop offers                                                                                        |
+| shops              | Service centers                                                                                                        |
+| mechanics          | Shop staff; optional **`photo`** → cdn_assets for profile/avatar image                                                 |
+| shops_hours        | Operating hours per shop                                                                                               |
+| time_slots         | Booking slots per shop/mechanic                                                                                        |
+| service_insights   | Aggregated engine+service performance data                                                                             |
 | cdn_assets         | CDN/content URLs (portfolio images, logos, mechanic photos); referenced by shop_portfolio, makes.logo, mechanics.photo |
-| shop_portfolio     | Links shops to cdn_assets for portfolio/gallery display (content_id, display_order)                       |
+| shop_portfolio     | Links shops to cdn_assets for portfolio/gallery display (content_id, display_order)                                    |
 
 ### Reviews & follow-ups (2)
 
-| Table      | Purpose                                                              |
-| ---------- | -------------------------------------------------------------------- |
+| Table      | Purpose                                                                                                               |
+| ---------- | --------------------------------------------------------------------------------------------------------------------- |
 | reviews    | One per booking; user, shop, mechanic_id (optional), rating, comment; indexes: by_shop_id, by_mechanic_id, by_user_id |
-| follow_ups | Maintenance reminders; keyed by user_id, vin, service_id, booking_id |
+| follow_ups | Maintenance reminders; keyed by user_id, vin, service_id, booking_id                                                  |
 
 ### User & onboarding (4)
 

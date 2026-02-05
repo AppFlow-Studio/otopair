@@ -199,7 +199,7 @@ git merge-base waleedcodespace origin/daniel-dev
 
 1. **Backup and fetch**
    - `git fetch origin daniel-dev`
-   - `git branch waleedcodespace-backup`  (optional)
+   - `git branch waleedcodespace-backup` (optional)
 
 2. **Merge**
    - `git merge origin/daniel-dev -m "Merge daniel-dev: frontend/design; keep our Convex and backend"`
@@ -216,14 +216,14 @@ git merge-base waleedcodespace origin/daniel-dev
    - Example:  
      `git checkout waleedcodespace -- hooks/useBookingsFromConvex.ts hooks/useCalendarAvailabilityForShop.ts ... docs/ package.json package-lock.json`
    - Restore .env if it was deleted:  
-     `git checkout waleedcodespace -- .env`  (if tracked).
+     `git checkout waleedcodespace -- .env` (if tracked).
 
 5. **Take Daniel's version for conflicting frontend file**
    - `git checkout origin/daniel-dev -- app/_layout.tsx`
 
 6. **Regenerated Convex types**
    - After adding the additive Convex files, restore our `convex/_generated/api.d.ts` for the commit so the repo is consistent:  
-     `git checkout waleedcodespace -- convex/_generated/api.d.ts`  
+     `git checkout waleedcodespace -- convex/_generated/api.d.ts`
    - Then run `npx convex dev` (or `npx convex codegen`) locally so Convex regenerates types including the new onboarding API.
 
 7. **Commit**
