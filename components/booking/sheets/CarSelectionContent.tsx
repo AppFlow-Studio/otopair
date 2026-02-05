@@ -72,19 +72,6 @@ export function CarSelectionContent({ onClose, onAddVehicle }: CarSelectionConte
   );
 
   // ═══════════════ RENDER ═══════════════
-  if (vehiclesList.length === 0) {
-    return (
-      <View style={styles.emptyContainer}>
-        <Text size="lg" weight="medium" color="#6B7280" center>
-          No vehicles found
-        </Text>
-        <Text size="md" color="#9CA3AF" center style={{ marginTop: Spacing.sm }}>
-          Add a vehicle to get started
-        </Text>
-      </View>
-    );
-  }
-
   return (
     <View style={styles.container}>
       {/* Close button */}
@@ -192,11 +179,5 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderStyle: "dashed",
     borderColor: "#D1D5DB",
-  },
-  emptyContainer: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    padding: Spacing.xl,
   },
 });
