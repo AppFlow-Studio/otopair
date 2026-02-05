@@ -33,7 +33,9 @@ import { PlusCircleIcon, ShuffleIcon, UserCircleIcon, CarIcon, BankIcon } from "
 import { Text } from "@/components/shared-ui";
 import { GradientPlusCircle } from "@/components/icons/gradient-plus-circle";
 
-// 4. Store & Utilities
+// 4. Convex & Store & Utilities
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
 import { getIncompleteOnboardingSteps } from "@/components/onboarding/OnboardingFlow";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 
@@ -55,7 +57,23 @@ export function FinishAccountSetupCard({
   onDismiss,
 }: FinishAccountSetupCardProps) {
   const router = useRouter();
-  const isCreateAccountComplete = useOnboardingStore((state) => state.isCreateAccountComplete());
+  const me = useQuery(api.users.getMe);
+  const activeVehicleOwnerships = useQuery(
+    api.vehicle_owners.getActiveByUser,
+    me?._id ? { userId: me._id } : "skip",
+  );
+  const hasCarRegistered = (activeVehicleOwnerships?.length ?? 0) > 0;
+
+  const isCreateAccountCompleteFromStore = useOnboardingStore((state) => state.isCreateAccountComplete());
+  // Persisted in Convex so "Create Account" stays complete after reload
+  const isCreateAccountComplete =
+    isCreateAccountCompleteFromStore || me?.onboardingCompleted === true;
+  const isTellUsAboutYourselfCompleteFromStore = useOnboardingStore(
+    (state) => state.data.isTellUsAboutYourselfComplete,
+  );
+  // Persisted in Convex so "About you" stays complete after reload
+  const isTellUsAboutYourselfComplete =
+    isTellUsAboutYourselfCompleteFromStore || me?.tellUsAboutCompleted === true;
 
   const handlePress = (stepId?: string) => {
     if (stepId === "personalize") {
@@ -65,6 +83,11 @@ export function FinishAccountSetupCard({
 
     if (stepId === "payment") {
       router.push("/payments");
+      return;
+    }
+
+    if (stepId === "car") {
+      router.push("/add-vehicle");
       return;
     }
 
@@ -134,7 +157,10 @@ export function FinishAccountSetupCard({
         {/* Steps Horizontal List */}
         <View style={styles.stepsContainer}>
           {steps.map((step) => {
-            const isComplete = step.id === "account" && isCreateAccountComplete;
+            const isComplete =
+              (step.id === "account" && isCreateAccountComplete) ||
+              (step.id === "personalize" && isTellUsAboutYourselfComplete) ||
+              (step.id === "car" && hasCarRegistered);
             
             return (
               <Pressable
@@ -151,9 +177,9 @@ export function FinishAccountSetupCard({
                   {step.id === "account" ? (
                     <step.icon size={34} color={isComplete ? "#9CA3AF" : undefined} />
                   ) : step.id === "personalize" ? (
-                    <step.icon size={38} color="#6B7280" />
+                    <step.icon size={38} color={isComplete ? "#9CA3AF" : "#6B7280"} />
                   ) : step.id === "car" ? (
-                    <step.icon size={36} color="#6B7280" />
+                    <step.icon size={36} color={isComplete ? "#9CA3AF" : "#6B7280"} />
                   ) : step.id === "payment" ? (
                     <step.icon size={36} color="#6B7280" />
                   ) : (

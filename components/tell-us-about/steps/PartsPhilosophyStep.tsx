@@ -37,7 +37,6 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
-import { useOnboardingQuestion } from '@/hooks/useOnboardingQuestion';
 
 interface PartsPhilosophyStepProps {
     onNext: () => void;

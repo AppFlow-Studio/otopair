@@ -52,9 +52,7 @@ const TABLES_TO_CLEAR = [
   "makes",
   "vehicle_owners",
   "vehicles",
-  "user_question_answers",
-  "onboarding_question_answers",
-  "onboarding_questions",
+  "onboarding_questions_answers",
   "users",
 ];
 
@@ -88,11 +86,11 @@ export const seedUserAndVehicle = mutation({
       clerkUserId: SEED_DEMO_CLERK_USER_ID,
       onboardingCompleted: true,
       createdAt: Date.now(),
+      lastUpdated: Date.now(),
       email: "demo@otopair.com",
       phone: "(512) 555-9999",
       first_name: "Alex",
       last_name: "Rivera",
-      created_at: new Date().toISOString(),
     });
 
     // 2018 Toyota Camry LE
@@ -160,7 +158,7 @@ export const claimSeedDataForCurrentUser = mutation({
         | "bookings"
         | "payments"
         | "reviews"
-        | "user_question_answers"
+        | "onboarding_questions_answers"
         | "follow_ups"
         | "ai_conversations"
         | "conversion_funnels"
@@ -175,7 +173,7 @@ export const claimSeedDataForCurrentUser = mutation({
     await reassign("bookings");
     await reassign("payments");
     await reassign("reviews");
-    await reassign("user_question_answers");
+    await reassign("onboarding_questions_answers");
     await reassign("follow_ups");
     await reassign("ai_conversations");
     await reassign("conversion_funnels");
@@ -752,22 +750,22 @@ export const seed = mutation({
       clerkUserId: SEED_DEMO_CLERK_USER_ID,
       onboardingCompleted: true,
       createdAt: Date.now(),
+      lastUpdated: Date.now(),
       email: "demo@otopair.com",
       phone: "(512) 555-9999",
       first_name: "Alex",
       last_name: "Demo",
-      created_at: new Date().toISOString(),
     });
 
     const user2Id = await ctx.db.insert("users", {
       clerkUserId: "seed-demo-user-3",
       onboardingCompleted: true,
       createdAt: Date.now(),
+      lastUpdated: Date.now(),
       email: "jordan@otopair.com",
       phone: "(512) 555-1111",
       first_name: "Jordan",
       last_name: "Lee",
-      created_at: new Date().toISOString(),
     });
 
     // --- Vehicles (canonical VINs) ---
@@ -825,29 +823,13 @@ export const seed = mutation({
       added_at: now,
     });
 
-    // --- Onboarding Questions + Answers ---
-    const q1Id = await ctx.db.insert("onboarding_questions", {
-      question_text: "How often do you service your car?",
-      question_type: "single_select",
-      display_order: 1,
-      rank: 1,
-      step_name: "maintenance",
-      is_active: true,
-    });
-
-    const a1Id = await ctx.db.insert("onboarding_question_answers", {
-      question_id: q1Id,
-      answer_text: "Every 3 months",
-      answer_value: "quarterly",
-      display_order: 1,
-      emoji: "🛠️",
-    });
-
-    await ctx.db.insert("user_question_answers", {
+    // --- Onboarding Q&A (unified table) ---
+    await ctx.db.insert("onboarding_questions_answers", {
       user_id: userId,
-      question_id: q1Id,
-      answer_id: a1Id,
-      answered_at: now,
+      questions_and_answers: [
+        { question: "How often do you service your car?", answer: "Every 3 months" },
+      ],
+      last_updated: now,
     });
 
     // --- Booking + Payment + Status History ---

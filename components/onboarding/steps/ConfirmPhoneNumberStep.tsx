@@ -137,6 +137,8 @@ export function ConfirmPhoneNumberStep({ onNext, onBack, progress }: ConfirmPhon
 
         if (result.status === "complete" && result.createdSessionId) {
           await setActive?.({ session: result.createdSessionId });
+          // Brief delay so Clerk session and JWT propagate before Convex calls
+          await new Promise((r) => setTimeout(r, 400));
           try {
             await ensureConvexUser();
           } catch (e) {
@@ -144,11 +146,12 @@ export function ConfirmPhoneNumberStep({ onNext, onBack, progress }: ConfirmPhon
           }
         }
 
+        const phoneToSave = data.phoneNumber ?? (isSignUpFlow && signUp?.phoneNumber ? String(signUp.phoneNumber) : undefined);
         updateData({ phoneVerified: true });
-        await persistProfileField({
-          phone: data.phoneNumber || undefined,
-          phoneVerified: true,
-        });
+        await persistProfileField(
+          { phone: phoneToSave || undefined, phoneVerified: true },
+          { skipSignedInCheck: true }
+        );
         onNext();
       } else if (user) {
         // OAuth flow: verify via user object
@@ -171,11 +174,14 @@ export function ConfirmPhoneNumberStep({ onNext, onBack, progress }: ConfirmPhon
           }
         }
 
+        const phoneToSave =
+          data.phoneNumber ??
+          (user?.phoneNumbers?.[0]?.phoneNumber ?? user?.phoneNumbers?.[user.phoneNumbers.length - 1]?.phoneNumber);
         updateData({ phoneVerified: true });
-        await persistProfileField({
-          phone: data.phoneNumber || undefined,
-          phoneVerified: true,
-        });
+        await persistProfileField(
+          { phone: phoneToSave || undefined, phoneVerified: true },
+          { skipSignedInCheck: true }
+        );
         onNext();
       } else {
         setErrorMessage("Verification wasn't started. Go back and confirm your number to receive a code.");

@@ -2,49 +2,34 @@ import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useAuth } from "@clerk/clerk-expo";
 import { useCallback } from "react";
-import { Id } from "@/convex/_generated/dataModel";
-import { useOnboardingQuestionsStore } from "@/stores/useOnboardingQuestionsStore";
 
 /**
- * Hook for Tell-Us-About steps to read question data from the Zustand cache
- * and persist user answers to Convex.
+ * Hook to persist user answers to onboarding_questions_answers (Convex).
+ * Question text and options are defined in each step component.
  */
-export function useOnboardingQuestion(stepName: string) {
+export function useOnboardingQuestion(_stepName?: string) {
   const { isSignedIn } = useAuth();
-  const question = useOnboardingQuestionsStore((s) => s.questions[stepName]) ?? null;
-  const answers = useOnboardingQuestionsStore((s) => s.answers[stepName]) ?? [];
-  const isLoaded = useOnboardingQuestionsStore((s) => s.isLoaded);
+  const saveQuestionAnswerMutation = useMutation(
+    api.onboarding_questions_answers.saveQuestionAnswer
+  );
 
-  const saveAnswerMutation = useMutation(api.user_question_answers.saveAnswer);
-
-  const saveAnswer = useCallback(
-    async (params: {
-      answerId?: Id<"onboarding_question_answers">;
-      answerIds?: Id<"onboarding_question_answers">[];
-      freeTextAnswer?: string;
-    }) => {
-      if (!isSignedIn || !question) {
-        console.log("Not signed in or no question, skipping answer save");
+  const saveQuestionAnswer = useCallback(
+    async (questionText: string, answerText: string) => {
+      if (!isSignedIn) {
+        console.log("Not signed in, skipping answer save");
         return;
       }
       try {
-        await saveAnswerMutation({
-          questionId: question._id,
-          answerId: params.answerId,
-          answerIds: params.answerIds,
-          freeTextAnswer: params.freeTextAnswer,
+        await saveQuestionAnswerMutation({
+          question: questionText,
+          answer: answerText,
         });
       } catch (error) {
-        console.error("Failed to save answer:", error);
+        console.error("Failed to save onboarding Q&A:", error);
       }
     },
-    [isSignedIn, question, saveAnswerMutation]
+    [isSignedIn, saveQuestionAnswerMutation]
   );
 
-  return {
-    question,
-    answers,
-    isLoading: !isLoaded,
-    saveAnswer,
-  };
+  return { saveQuestionAnswer };
 }

@@ -33,6 +33,9 @@ import { CarSelectionCard } from "../CarSelectionCard";
 import { BorderRadius, Spacing } from "@/constants/theme";
 import { useVehicleStore, type Vehicle } from "@/stores/useVehicleStore";
 
+/** Sheet height shows this many rows; more than this → list becomes scrollable. Must match ServiceBottomSheet CAR_SELECTION_MAX_VISIBLE. */
+const MAX_VISIBLE_ROWS = 5;
+
 // ============================================================================
 // TYPES
 // ============================================================================
@@ -103,12 +106,12 @@ export function CarSelectionContent({ onClose, onAddVehicle }: CarSelectionConte
         </Text>
       </View>
 
-      {/* List: scrollable only when more than 5 cars (sheet height is capped at 5 visible) */}
+      {/* List: maxed at 5 visible rows; more than 5 cars → scrollable */}
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={vehiclesList.length > 5}
-        scrollEnabled={vehiclesList.length > 5}
+        showsVerticalScrollIndicator={vehiclesList.length > MAX_VISIBLE_ROWS}
+        scrollEnabled={vehiclesList.length > MAX_VISIBLE_ROWS}
       >
         {vehiclesList.map((vehicle) => (
           <CarSelectionCard

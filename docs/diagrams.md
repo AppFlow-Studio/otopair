@@ -51,7 +51,7 @@ flowchart LR
 | **3. Vehicle intelligence**          | engine_specs, transmission_specs, trim_specs, vehicle_specs, oem_parts, engine_part_fitments, transmission_part_fitments, trim_part_fitments                                 |
 | **4. Shops and services**            | shops, mechanics, services, service_categories, service_options, shop_services, shops_hours, time_slots, service_vehicle_specs, service_insights, cdn_assets, shop_portfolio |
 | **5. Reviews and follow-ups**        | reviews, follow_ups                                                                                                                                                          |
-| **6. User and onboarding**           | users, user_question_answers, onboarding_questions, onboarding_question_answers                                                                                              |
+| **6. User and onboarding**           | users, onboarding_questions_answers                                                                                         |
 | **7. AI and analytics**              | ai_conversations, ai_messages, analytics_events, conversion_funnels                                                                                                          |
 | **8. Spec pipeline**                 | ai_enrichment_logs, manual_review_queue, spec_variances, spec_confirmations                                                                                                  |
 
@@ -215,14 +215,9 @@ flowchart LR
 ```mermaid
 flowchart LR
   users[users]
-  onboarding_questions[onboarding_questions]
-  onboarding_question_answers[onboarding_question_answers]
-  user_question_answers[user_question_answers]
+  onboarding_questions_answers[onboarding_questions_answers]
 
-  onboarding_questions -->|question_id| onboarding_question_answers
-  onboarding_questions -->|question_id| user_question_answers
-  users -->|user_id| user_question_answers
-  onboarding_question_answers -->|answer_id| user_question_answers
+  users -->|user_id| onboarding_questions_answers
 ```
 
 ---
@@ -924,11 +919,7 @@ classDiagram
     +string phone
     +string first_name
     +string last_name
-    +string username
-    +string alias
     +string profile_photo_url
-    +float car_knowledge_level
-    +array user_intentions
     +boolean onboardingCompleted
     +boolean tellUsAboutCompleted
     +string auth_provider
@@ -936,54 +927,24 @@ classDiagram
     +boolean emailConfirmed
     +boolean phoneVerified
   }
-  note for users "indexes: by_clerkUserId, by_username"
+  note for users "indexes: by_clerkUserId"
 ```
 
-#### Table: `onboarding_questions`
+#### Table: `onboarding_questions_answers`
+
+Unified Q&A per user; one row per user. See [ONBOARDING_QA.md](./ONBOARDING_QA.md).
 
 ```mermaid
 classDiagram
-  class onboarding_questions {
-    +id _id
-    +string step_name
-    +string question_text
-    +string question_type
-    +float rank
-    +float display_order
-    +boolean is_active
-  }
-  note for onboarding_questions "indexes: by_rank, by_step_name"
-```
-
-#### Table: `onboarding_question_answers`
-
-```mermaid
-classDiagram
-  class onboarding_question_answers {
-    +id _id
-    +id question_id
-    +string answer_text
-    +string answer_value
-    +float display_order
-    +string emoji
-  }
-  note for onboarding_question_answers "indexes: by_question_id"
-```
-
-#### Table: `user_question_answers`
-
-```mermaid
-classDiagram
-  class user_question_answers {
+  class onboarding_questions_answers {
     +id _id
     +id user_id
-    +id question_id
-    +id answer_id
-    +array answer_ids
-    +string free_text_answer
-    +float answered_at
+    +array questions_and_answers
+    +object user_intentions { question, intentions }
+    +float car_knowledge_level
+    +float last_updated
   }
-  note for user_question_answers "indexes: by_user_and_question, by_user_id"
+  note for onboarding_questions_answers "indexes: by_user_id"
 ```
 
 ---

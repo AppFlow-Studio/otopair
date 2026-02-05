@@ -57,7 +57,7 @@ export function MaintenanceFrustrationStep({ onNext, onBack, progress }: Mainten
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
-    const { answers, saveAnswer } = useOnboardingQuestion('maintenanceFrustration');
+    const { saveQuestionAnswer } = useOnboardingQuestion('maintenanceFrustration');
 
     const [selectedFrustration, setSelectedFrustration] = useState<string | null>(
         data.maintenanceFrustration ?? null
@@ -80,8 +80,9 @@ export function MaintenanceFrustrationStep({ onNext, onBack, progress }: Mainten
 
     const handleContinue = () => {
         if (selectedFrustration) {
-            const selectedAnswer = answers.find(a => selectedFrustration === `${a.emoji} ${a.answer_text}`);
-            saveAnswer({ answerId: selectedAnswer?._id });
+            const label = FRUSTRATION_OPTIONS.find(o => `${o.emoji} ${o.label}` === selectedFrustration)?.label ?? selectedFrustration;
+            const questionText = "What's your biggest frustration with car maintenance?";
+            saveQuestionAnswer(questionText, label);
             onNext();
         }
     };

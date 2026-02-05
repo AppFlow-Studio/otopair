@@ -16,7 +16,7 @@
 - [x] AI & analytics: ai_conversations.ts, ai_messages.ts, analytics_events.ts, conversion_funnels.ts
 - [x] Spec pipeline: ai_enrichment_logs.ts, manual_review_queue.ts, spec_variances.ts, spec_confirmations.ts
 - [x] Services/shops: services.ts, service_categories.ts, service_options.ts, shop_services.ts, shops.ts, mechanics.ts, shops_hours.ts, time_slots.ts, service_vehicle_specs.ts, service_insights.ts, cdn_assets.ts, shop_portfolio.ts
-- [x] User/infra: users.ts (getOrCreateMe), onboarding_questions, onboarding_question_answers, user_question_answers
+- [x] User/infra: users.ts (getOrCreateMe), onboarding_questions_answers only (Q&A in app; see [ONBOARDING_QA.md](./ONBOARDING_QA.md))
 - [x] Catalog: makes.ts, models.ts, trims.ts, engines.ts (list/getById/getBy\*)
 
 ### Half-implemented
@@ -29,7 +29,15 @@
 
 ---
 
-## 2. Frontend – Add vehicle flow
+## 2. Home – Finish setup card
+
+### Done
+
+- [x] **Step completion from Convex** – Create Account (users.onboardingCompleted), About You (users.tellUsAboutCompleted), Add Car (vehicle_owners.getActiveByUser); FinishAccountSetupCard uses api.users.getMe and api.vehicle_owners.getActiveByUser; steps grey out and persist across reloads. See REFERENCE.md § Finish setup card (home).
+
+---
+
+## 3. Frontend – Add vehicle flow
 
 ### Done
 
@@ -46,7 +54,7 @@
 
 ---
 
-## 3. Frontend – Booking flow (components/booking)
+## 4. Frontend – Booking flow (components/booking)
 
 **Scope:** `components/booking/` and app routes: home map, shop/[id], mechanic/[id], booking-details, payment, confirmation.
 
@@ -89,7 +97,7 @@
 
 ---
 
-## 4. Summary table
+## 5. Summary table
 
 | Area                     | Done                                                                             | Half-implemented                  | Not implemented                 |
 | ------------------------ | -------------------------------------------------------------------------------- | --------------------------------- | ------------------------------- |

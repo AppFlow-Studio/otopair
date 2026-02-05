@@ -115,14 +115,12 @@ For high-level and per-part diagrams, see [docs/diagrams.md](diagrams.md). For p
 | reviews    | One per booking; user, shop, mechanic_id (optional), rating, comment; indexes: by_shop_id, by_mechanic_id, by_user_id |
 | follow_ups | Maintenance reminders; keyed by user_id, vin, service_id, booking_id                                                  |
 
-### User & onboarding (4)
+### User & onboarding (2)
 
-| Table                       | Purpose                                                 |
-| --------------------------- | ------------------------------------------------------- |
-| users                       | Profiles; Clerk auth (clerkUserId)                      |
-| onboarding_questions        | Survey questions and steps                              |
-| onboarding_question_answers | Answer options per question                             |
-| user_question_answers       | User’s chosen answers (user_id, question_id, answer_id) |
+| Table                         | Purpose                                                                 |
+| ----------------------------- | ----------------------------------------------------------------------- |
+| users                         | Profiles; Clerk auth (clerkUserId)                                      |
+| onboarding_questions_answers | User Q&A: one row per user, `questions_and_answers` JSON, `last_updated`. Question text and options live in the app. |
 
 ### AI & analytics (4)
 
@@ -206,6 +204,19 @@ ai_enrichment_logs → manual_review_queue; spec_variances, spec_confirmations �
 - completed → refunded
 - Terminal: failed, refunded, cancelled
 
+### Finish setup card (home)
+
+The home screen “Finish setup” card shows four steps: **Create Account**, **About You**, **Add Car**, **Payments**. Completion is determined from Convex so it persists across reloads.
+
+| Step            | Completion source                                                                 |
+| --------------- | --------------------------------------------------------------------------------- |
+| Create Account  | `users.onboardingCompleted === true` (or in-session store `isCreateAccountComplete`) |
+| About You       | `users.tellUsAboutCompleted === true` (or store `isTellUsAboutYourselfComplete`); set by Tell Us About flow via `users.updateProfile({ tellUsAboutCompleted: true })` |
+| Add Car         | At least one **active** row in `vehicle_owners` for the current user (`vehicle_owners.getActiveByUser(userId)`); tap navigates to `/add-vehicle` |
+| Payments        | No completion check yet; tap navigates to `/payments`                            |
+
+**Component:** `components/home/FinishAccountSetupCard.tsx`. Uses `api.users.getMe` and `api.vehicle_owners.getActiveByUser(userId)` (with `me._id` from getMe). Steps are greyed out and non-tappable when complete.
+
 ### Timestamps
 
 - Stored as float64 Unix milliseconds (Date.now()).
@@ -221,7 +232,7 @@ ai_enrichment_logs → manual_review_queue; spec_variances, spec_confirmations �
 - **AI & analytics:** ai_conversations.ts, ai_messages.ts, analytics_events.ts, conversion_funnels.ts
 - **Spec pipeline:** ai_enrichment_logs.ts, manual_review_queue.ts, spec_variances.ts, spec_confirmations.ts (Convex files exist; confirm exports if needed)
 - **Services/shops:** services.ts, service_categories.ts, service_options.ts, service_vehicle_specs.ts, shop_services.ts, shops.ts, mechanics.ts, shops_hours.ts, time_slots.ts, service_insights.ts, cdn_assets.ts, shop_portfolio.ts
-- **User/infra:** users.ts (getOrCreateMe, list, getById), plus onboarding and user_question_answers as present in convex
+- **User/infra:** users.ts (getMe, getOrCreateMe, updateProfile, completeOnboarding, list, getById). **Finish setup card** uses getMe (onboardingCompleted, tellUsAboutCompleted) and vehicle_owners.getActiveByUser for step completion. See [ONBOARDING_QA.md](./ONBOARDING_QA.md) for onboarding_questions_answers.
 
 ### Catalog (read-style)
 
@@ -236,9 +247,16 @@ ai_enrichment_logs → manual_review_queue; spec_variances, spec_confirmations �
 - list(), getById(id), getByVin(vin), getVehicleWithOwners(vin), getVehicleOwner(vin, userId), listVehiclesByUser(userId), listOwnedVINsByUser(userId)
 - upsertVehicle(vin, trim_id?, engine_id?, transmission_id?, chassis_id?, year?, metadata?), addOwner(vin, userId, nickname?, is_primary?, mileage?), removeOwner(vin, userId), updateOwnershipPrimary(vin, userId, is_primary), updateMileage(vin, userId, mileage)
 
+### users.ts
+
+- **getMe()** – current user by Clerk identity; returns user with onboardingCompleted, tellUsAboutCompleted, etc. Used by Finish setup card.
+- getOrCreateMe(), getById(id), list()
+- **updateProfile(** phone?, phoneVerified?, email?, emailConfirmed?, first_name?, last_name?, profile_photo_url?, **tellUsAboutCompleted?** **)** – partial profile update; Tell Us About flow sets tellUsAboutCompleted when complete.
+- completeOnboarding() – sets onboardingCompleted to true.
+
 ### vehicle_owners.ts
 
-- getByVin(vin), getActiveByVin(vin), getByUser(userId), getActiveByUser(userId), getByVinAndUser(vin, userId), getPrimaryVehicle(userId), isOwnedByUser(vin, userId), getOwnerCount(vin)
+- getByVin(vin), getActiveByVin(vin), getByUser(userId), **getActiveByUser(userId)** (used by Finish setup card for “Add Car” completion), getByVinAndUser(vin, userId), getPrimaryVehicle(userId), isOwnedByUser(vin, userId), getOwnerCount(vin)
 
 ### bookings.ts
 

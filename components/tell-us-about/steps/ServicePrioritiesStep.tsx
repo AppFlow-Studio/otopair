@@ -67,7 +67,7 @@ export function ServicePrioritiesStep({ onNext, onBack, progress }: ServicePrior
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
-    const { answers, saveAnswer } = useOnboardingQuestion('servicePriorities');
+    const { saveQuestionAnswer } = useOnboardingQuestion('servicePriorities');
 
     const [selectedPriorities, setSelectedPriorities] = useState<ServicePriority[]>(
         (data.servicePriorities as ServicePriority[]) ?? []
@@ -98,10 +98,11 @@ export function ServicePrioritiesStep({ onNext, onBack, progress }: ServicePrior
 
     const handleContinue = () => {
         if (selectedPriorities.length > 0) {
-            const selectedAnswerIds = answers
-                .filter(a => selectedPriorities.includes(a.answer_value as ServicePriority))
-                .map(a => a._id);
-            saveAnswer({ answerIds: selectedAnswerIds });
+            const labels = selectedPriorities
+                .map(id => SERVICE_PRIORITY_OPTIONS.find(o => o.id === id)?.label)
+                .filter(Boolean) as string[];
+            const questionText = 'What are your priorities for car service?';
+            saveQuestionAnswer(questionText, labels.join(', '));
             onNext();
         }
     };

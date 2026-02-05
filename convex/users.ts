@@ -18,7 +18,7 @@
  *   - Has-many: vehicle_owners (via user_id)
  *   - Has-many: reviews (via user_id)
  *   - Has-many: ai_conversations (via user_id)
- *   - Has-many: user_question_answers (via user_id)
+ *   - Has-many: onboarding_questions_answers (via user_id)
  *   - Has-many: analytics_events (via user_id)
  *
  * USE CASES:
@@ -80,12 +80,9 @@ export const getMe = query({
  *     phone: string,
  *     first_name: string,
  *     last_name: string,
- *     username: string,
  *     profile_photo_url: string,
- *     car_knowledge_level: number (1-5),
  *     onboardingCompleted: boolean,
  *     tellUsAboutCompleted: boolean,
- *     user_intentions: string[],
  *     ... other fields
  *   }
  */
@@ -164,7 +161,6 @@ export const updateProfile = mutation({
     first_name: v.optional(v.string()),
     last_name: v.optional(v.string()),
     profile_photo_url: v.optional(v.string()),
-    user_intentions: v.optional(v.array(v.string())),
     tellUsAboutCompleted: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
@@ -191,13 +187,13 @@ export const updateProfile = mutation({
     if (args.first_name !== undefined) updates.first_name = args.first_name;
     if (args.last_name !== undefined) updates.last_name = args.last_name;
     if (args.profile_photo_url !== undefined) updates.profile_photo_url = args.profile_photo_url;
-    if (args.user_intentions !== undefined) updates.user_intentions = args.user_intentions;
     if (args.tellUsAboutCompleted !== undefined) updates.tellUsAboutCompleted = args.tellUsAboutCompleted;
 
     if (Object.keys(updates).length === 0) {
       return user;
     }
 
+    updates.lastUpdated = Date.now();
     await ctx.db.patch(user._id, updates);
     return await ctx.db.get(user._id);
   },
@@ -230,7 +226,7 @@ export const completeOnboarding = mutation({
       throw new Error("User not found");
     }
 
-    await ctx.db.patch(user._id, { onboardingCompleted: true });
+    await ctx.db.patch(user._id, { onboardingCompleted: true, lastUpdated: Date.now() });
     return await ctx.db.get(user._id);
   },
 });

@@ -10,6 +10,8 @@
 
 **Merge strategy (daniel-dev):** [MERGE_DANIEL_DEV.md](./MERGE_DANIEL_DEV.md) — how to merge `daniel-dev` into `waleedcodespace` while keeping our Convex backend; file rules, step-by-step, schema adaptation for additive onboarding Convex files, and copy-paste commands.
 
+**Onboarding Q&A:** [ONBOARDING_QA.md](./ONBOARDING_QA.md) — unified onboarding Q&A table (`onboarding_questions_answers`), questions-and-answers JSON, `last_updated`, and Convex/frontend usage. **Finish setup card:** REFERENCE.md § Finish setup card (home) — step completion (Create Account, About You, Add Car, Payments) from Convex (`users.onboardingCompleted`, `users.tellUsAboutCompleted`, `vehicle_owners.getActiveByUser`).
+
 **Auth & session:** [AUTH_SESSION.md](./AUTH_SESSION.md) — Clerk + Convex auth, session persistence (expo-secure-store), redirect-to-home when already signed in, and troubleshooting the transient “Not authenticated” Convex error.
 
 **Plans:** [.cursor/plans](../.cursor/plans) — plan documents (e.g. MVP booking wiring, DB fact-check).

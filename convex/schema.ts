@@ -309,69 +309,6 @@ export default defineSchema({
   }),
 
   /**
-   * TABLE: onboarding_question_answers
-   *
-   * DESCRIPTION:
-   * Defines predefined answer options for onboarding questions.
-   * Allows users to select from multiple choice options.
-   *
-   * FIELDS:
-   *   - question_id: References the onboarding question
-   *   - answer_text: Display text shown to user (e.g., "Every 5,000 miles")
-   *   - answer_value: Internal value stored in database
-   *   - display_order: Order to show answer in UI
-   *   - emoji: Optional emoji icon to display with answer
-   *
-   * INDEXES:
-   *   - by_question_id: Get all answers for a question
-   *
-   * RELATIONSHIPS:
-   *   FK → onboarding_questions(question_id)
-   *   Has-many → user_question_answers (via answer_id)
-   */
-  onboarding_question_answers: defineTable({
-    answer_text: v.string(),
-    answer_value: v.string(),
-    display_order: v.float64(),
-    emoji: v.optional(v.string()),
-    question_id: v.id("onboarding_questions"),
-  }).index("by_question_id", ["question_id"]),
-
-  /**
-   * TABLE: onboarding_questions
-   *
-   * DESCRIPTION:
-   * Defines questions asked during user onboarding.
-   * Used to gather preferences, vehicle info, and service needs.
-   *
-   * FIELDS:
-   *   - step_name: Onboarding step name (e.g., "vehicle_info", "preferences")
-   *   - question_text: The question text displayed to user
-   *   - question_type: Type of question (e.g., "single_choice", "multi_choice", "text")
-   *   - rank: Ordering within step
-   *   - display_order: Overall display order across all steps
-   *   - is_active: Whether question is currently shown
-   *
-   * INDEXES:
-   *   - by_rank: Order questions within step
-   *   - by_step_name: Get all questions for a step
-   *
-   * RELATIONSHIPS:
-   *   Has-many → onboarding_question_answers (via question_id)
-   *   Has-many → user_question_answers (via question_id)
-   */
-  onboarding_questions: defineTable({
-    display_order: v.float64(),
-    is_active: v.boolean(),
-    question_text: v.string(),
-    question_type: v.string(),
-    rank: v.float64(),
-    step_name: v.string(),
-  })
-    .index("by_rank", ["rank"])
-    .index("by_step_name", ["step_name"]),
-
-  /**
    * TABLE: reviews
    *
    * DESCRIPTION:
@@ -803,39 +740,42 @@ export default defineSchema({
   }),
 
   /**
-   * TABLE: user_question_answers
+   * TABLE: onboarding_questions_answers
    *
    * DESCRIPTION:
-   * Stores user responses to onboarding questions.
-   * Captures user preferences and vehicle information during onboarding.
+   * Unified table per user for onboarding Q&A (data intelligence). One row per user;
+   * questions_and_answers is an array of { question, answer }; last_updated on every save.
    *
    * FIELDS:
    *   - user_id: References the user
-   *   - question_id: References the onboarding question
-   *   - answer_id: (optional) References predefined answer
-   *   - answer_ids: (optional) For multi-choice, array of selected answers
-   *   - free_text_answer: (optional) For text questions, user's response
-   *   - answered_at: Unix timestamp when answered
+   *   - questions_and_answers: Array of { question: string, answer: string }
+   *   - user_intentions: Optional { question, intentions } for "What do you want to use Otopair for?"
+   *   - car_knowledge_level: Optional self-reported auto knowledge (1–3 scale from experience step)
+   *   - last_updated: Unix timestamp of last update
    *
    * INDEXES:
-   *   - by_user_and_question: Get user's answer to specific question
-   *   - by_user_id: Get all answers from user
+   *   - by_user_id: Get Q&A for a user (unique per user)
    *
    * RELATIONSHIPS:
    *   FK → users(user_id)
-   *   FK → onboarding_questions(question_id)
-   *   FK → onboarding_question_answers(answer_id)
    */
-  user_question_answers: defineTable({
-    answer_id: v.optional(v.id("onboarding_question_answers")),
-    answer_ids: v.optional(v.array(v.id("onboarding_question_answers"))),
-    answered_at: v.float64(),
-    free_text_answer: v.optional(v.string()),
-    question_id: v.id("onboarding_questions"),
+  onboarding_questions_answers: defineTable({
     user_id: v.id("users"),
-  })
-    .index("by_user_and_question", ["user_id", "question_id"])
-    .index("by_user_id", ["user_id"]),
+    questions_and_answers: v.array(
+      v.object({
+        question: v.string(),
+        answer: v.string(),
+      })
+    ),
+    user_intentions: v.optional(
+      v.object({
+        question: v.string(),
+        intentions: v.array(v.string()),
+      })
+    ),
+    car_knowledge_level: v.optional(v.float64()),
+    last_updated: v.float64(),
+  }).index("by_user_id", ["user_id"]),
 
   /**
    * TABLE: vehicles
@@ -945,21 +885,17 @@ export default defineSchema({
    *   - phone: User's phone number
    *   - first_name: User's first name
    *   - last_name: User's last name
-   *   - username: Username (optional, for social features)
-   *   - alias: Alternative name/nickname
    *   - profile_photo_url: URL to user's profile picture
-   *   - car_knowledge_level: Self-reported auto knowledge (1-5 scale)
-   *   - user_intentions: Array of user goals/interests
    *   - onboardingCompleted: Whether user finished onboarding
    *   - tellUsAboutCompleted: Whether "Tell Us About You" section completed
    *   - auth_provider: Which provider for auth (e.g., "oauth_google")
-   *   - createdAt: Unix timestamp of account creation
+   *   - createdAt: Unix timestamp of account creation (single creation timestamp)
+   *   - lastUpdated: Unix timestamp of last profile/state update
    *   - emailConfirmed: Whether email is verified
    *   - phoneVerified: Whether phone is verified
    *
    * INDEXES:
    *   - by_clerkUserId: Auth lookup by external ID
-   *   - by_username: Social lookup by username
    *
    * RELATIONSHIPS:
    *   Has-many → bookings (via user_id)
@@ -967,30 +903,25 @@ export default defineSchema({
    *   Has-many → vehicle_owners (via user_id)
    *   Has-many → reviews (via user_id)
    *   Has-many → ai_conversations (via user_id)
-   *   Has-many → user_question_answers (via user_id)
+   *   Has-many → onboarding_questions_answers (via user_id)
    *   Has-many → follow_ups (via user_id)
    */
   users: defineTable({
-    alias: v.optional(v.string()),
     auth_provider: v.optional(v.string()),
-    car_knowledge_level: v.optional(v.float64()),
     clerkUserId: v.string(),
     createdAt: v.float64(),
-    created_at: v.optional(v.string()),
     email: v.optional(v.string()),
     emailConfirmed: v.optional(v.boolean()),
     first_name: v.optional(v.string()),
     last_name: v.optional(v.string()),
+    lastUpdated: v.optional(v.float64()),
     onboardingCompleted: v.boolean(),
     phone: v.optional(v.string()),
     phoneVerified: v.optional(v.boolean()),
     profile_photo_url: v.optional(v.string()),
     tellUsAboutCompleted: v.optional(v.boolean()),
-    user_intentions: v.optional(v.array(v.string())),
-    username: v.optional(v.string()),
   })
-    .index("by_clerkUserId", ["clerkUserId"])
-    .index("by_username", ["username"]),
+    .index("by_clerkUserId", ["clerkUserId"]),
 
   // ============================================================================
   // OEM PARTS & NORMALIZATION

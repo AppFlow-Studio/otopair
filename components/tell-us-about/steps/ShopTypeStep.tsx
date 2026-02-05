@@ -65,7 +65,7 @@ export function ShopTypeStep({ onNext, onBack, progress }: ShopTypeStepProps) {
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
-    const { answers, saveAnswer } = useOnboardingQuestion('shopType');
+    const { saveQuestionAnswer } = useOnboardingQuestion('shopType');
 
     const [selectedShopType, setSelectedShopType] = useState<string | null>(
         data.shopType ?? null
@@ -88,8 +88,9 @@ export function ShopTypeStep({ onNext, onBack, progress }: ShopTypeStepProps) {
 
     const handleContinue = () => {
         if (selectedShopType) {
-            const selectedAnswer = answers.find(a => selectedShopType === `${a.emoji} ${a.answer_text}`);
-            saveAnswer({ answerId: selectedAnswer?._id });
+            const label = SHOP_TYPE_OPTIONS.find(o => `${o.emoji} ${o.label}` === selectedShopType)?.label ?? selectedShopType;
+            const questionText = 'Where do you typically take your car?';
+            saveQuestionAnswer(questionText, label);
             onNext();
         }
     };

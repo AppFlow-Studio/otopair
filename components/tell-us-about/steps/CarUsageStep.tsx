@@ -67,7 +67,7 @@ export function CarUsageStep({ onNext, onBack, progress }: CarUsageStepProps) {
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
-    const { answers, saveAnswer } = useOnboardingQuestion('carUsage');
+    const { saveQuestionAnswer } = useOnboardingQuestion('carUsage');
 
     const [selectedUsage, setSelectedUsage] = useState<string | null>(
         data.carUsage ?? null
@@ -90,8 +90,9 @@ export function CarUsageStep({ onNext, onBack, progress }: CarUsageStepProps) {
 
     const handleContinue = () => {
         if (selectedUsage) {
-            const selectedAnswer = answers.find(a => selectedUsage === `${a.emoji} ${a.answer_text}`);
-            saveAnswer({ answerId: selectedAnswer?._id });
+            const label = CAR_USAGE_OPTIONS.find(o => `${o.emoji} ${o.label}` === selectedUsage)?.label ?? selectedUsage;
+            const questionText = 'How often do you drive?';
+            saveQuestionAnswer(questionText, label);
             onNext();
         }
     };

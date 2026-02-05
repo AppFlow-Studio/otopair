@@ -56,7 +56,10 @@ export function EmailConfirmStep({ onNext, onBack, progress }: EmailConfirmStepP
 
     const handleConfirm = async () => {
         updateData({ emailConfirmed: true });
-        await persistProfileField({ emailConfirmed: true });
+        await persistProfileField({
+            email: data.email || undefined,
+            emailConfirmed: true,
+        });
         onNext();
     };
 

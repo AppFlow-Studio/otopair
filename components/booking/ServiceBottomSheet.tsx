@@ -3,7 +3,7 @@
  *
  * PURPOSE: Flighty-style bottom sheet for service discovery and selection.
  *          Shows at 98% by default with title, search bar, categories, and services.
- *          Four snap points: 23% (collapsed), 38% (preview), 55% (mid), 98% (expanded).
+ *          Five snap points: 23% (collapsed), 38% (preview), 55% (mid), 98% (expanded), and a 5th dynamic point for car selection (height by vehicle count, up to 5 cars; >5 cars = scrollable list).
  *          Footer only shows at 55%+ OR when a service is selected.
  *          X button minimizes to preview (38%) - does NOT navigate back.
  *          Search mode: transforms content to active search with results.
@@ -43,6 +43,7 @@ import Animated, {
   FadeIn,
   FadeOut,
   interpolate,
+  runOnJS,
   runOnUI,
   SharedValue,
   useAnimatedReaction,
@@ -109,7 +110,7 @@ interface ServiceBottomSheetProps {
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 
-// Car selection: sheet grows with vehicle count, capped at 5 visible rows then scrolls
+// Car selection: sheet grows with vehicle count, maxed at 5 visible rows; > 5 cars → list scrolls inside
 const CAR_SELECTION_MAX_VISIBLE = 5;
 const CAR_SELECTION_HANDLE_HEIGHT = 44;
 const CAR_SELECTION_HEADER_HEIGHT = 110;
@@ -132,19 +133,26 @@ const SNAP_POINTS_CONFIG = {
   mechanic_selection: { collapsed: 23, preview: 38, mid: 55, expanded: 98 },
 } as const;
 
-const SNAP_POINT_COUNT = 4;
+// Service sheet uses 4 snap points only. Car selection snap is added only when car panel is open.
+const SERVICE_SNAP_COUNT = 4;
+// When car panel is open we have 5 points; car selection is at index 3 (0=collapsed, 1=preview, 2=mid, 3=car, 4=expanded).
+const CAR_SELECTION_SNAP_INDEX = 3;
 
+// Clamp to service sheet indices (0–3); used when restoring after closing car selection (we're back to 4 points).
 const clampSnapIndex = (index: number | null | undefined) => {
   if (index === null || index === undefined || Number.isNaN(index)) {
-    return 3;
+    return SERVICE_SNAP_COUNT - 1;
   }
-  return Math.min(SNAP_POINT_COUNT - 1, Math.max(0, index));
+  return Math.min(SERVICE_SNAP_COUNT - 1, Math.max(0, index));
 };
 
 // Fade footer as the sheet passes the mid snap (index 2) so it disappears before collapsing
 const FOOTER_FADE_IN_INDEX = 2;
 const FOOTER_FADE_OUT_INDEX = 1.1;
 const FOOTER_INTERACTION_THRESHOLD = 0.05;
+
+// Duration for map-relevant index animation (open/close car selection) so map controls transition smoothly
+const MAP_INDEX_ANIMATION_DURATION = 280;
 
 // ============================================================================
 // COMPONENT
@@ -165,10 +173,12 @@ export function ServiceBottomSheet({
   // ═══════════════ REFS ═══════════════
   const bottomSheetRef = useRef<BottomSheet>(null);
   const searchInputRef = useRef<TextInput>(null);
-  const animatedIndex = useSharedValue(3); // Start at expanded (index 3)
-  /** For map controls: when opening car selection we animate 3→0 so controls don't pop; when false, follows animatedIndex */
-  const mapRelevantIndex = useSharedValue(3);
+  const animatedIndex = useSharedValue(SERVICE_SNAP_COUNT - 1); // Start at expanded (index 3 when 4 points)
+  /** For map controls: when opening car selection we animate so controls don't pop; when false, follows animatedIndex */
+  const mapRelevantIndex = useSharedValue(SERVICE_SNAP_COUNT - 1);
   const showCarPreviewSV = useSharedValue(0);
+  /** Target index for map when closing car selection; used in worklet to animate mapRelevantIndex smoothly */
+  const mapTargetOnCarCloseSV = useSharedValue(-1);
 
   // ═══════════════ HOOKS ═══════════════
   const insets = useSafeAreaInsets();
@@ -180,19 +190,21 @@ export function ServiceBottomSheet({
   const [searchQuery, setSearchQuery] = useState("");
   const [hasTyped, setHasTyped] = useState(false);
   // Track snap index before entering search mode
-  const previousSnapIndexRef = useRef(3);
+  const previousSnapIndexRef = useRef(SERVICE_SNAP_COUNT - 1);
 
   // ═══════════════ SHOP PREVIEW STATE ═══════════════
   // Toggle between shop preview and services view (only when a shop is selected from map)
   const [showShopPreview, setShowShopPreview] = useState(false);
   // Track the previous snap index before showing shop preview
-  const previousShopSnapIndexRef = useRef(3);
+  const previousShopSnapIndexRef = useRef(SERVICE_SNAP_COUNT - 1);
   const showShopPreviewRef = useRef(showShopPreview);
 
   // ═══════════════ CAR SELECTION STATE ═══════════════
   const [showCarPreview, setShowCarPreview] = useState(false);
   const [pendingCarCloseSnapIndex, setPendingCarCloseSnapIndex] = useState<number | null>(null);
   const [mechanicFooterHeight, setMechanicFooterHeight] = useState(0);
+  const showCarPreviewRef = useRef(showCarPreview);
+  const previousCarSnapIndexRef = useRef(SERVICE_SNAP_COUNT - 1);
 
   // ═══════════════ STORES ═══════════════
   const setBookingStage = useBookingStore((state) => state.setBookingStage);
@@ -335,28 +347,50 @@ export function ServiceBottomSheet({
     onMapRelevantIndexChange?.(mapRelevantIndex);
   }, [mapRelevantIndex, onMapRelevantIndexChange]);
 
-  // Keep map-relevant index in sync when not in car selection; animate 3→0 when opening car selection
+  // Keep map-relevant index in sync: opening car → animate to 0; closing car → animate to target (2 or 3) so map controls transition smoothly
   useEffect(() => {
     showCarPreviewSV.value = showCarPreview ? 1 : 0;
     if (showCarPreview) {
       runOnUI(() => {
         "worklet";
         mapRelevantIndex.value = animatedIndex.value;
-        mapRelevantIndex.value = withTiming(0, { duration: 250 });
+        mapRelevantIndex.value = withTiming(0, { duration: MAP_INDEX_ANIMATION_DURATION });
       })();
     } else {
-      runOnUI(() => {
-        "worklet";
-        mapRelevantIndex.value = animatedIndex.value;
-      })();
+      if (pendingCarCloseSnapIndex !== null) {
+        const target = clampSnapIndex(pendingCarCloseSnapIndex);
+        mapTargetOnCarCloseSV.value = target;
+        runOnUI(() => {
+          "worklet";
+          const t = mapTargetOnCarCloseSV.value;
+          mapRelevantIndex.value = withTiming(t, { duration: MAP_INDEX_ANIMATION_DURATION });
+        })();
+      } else {
+        runOnUI(() => {
+          "worklet";
+          mapRelevantIndex.value = animatedIndex.value;
+        })();
+      }
     }
-  }, [showCarPreview]);
+  }, [showCarPreview, pendingCarCloseSnapIndex]);
+
+  const updatePreviousCarIndex = useCallback((v: number) => {
+    previousCarSnapIndexRef.current = clampSnapIndex(v);
+  }, []);
 
   useAnimatedReaction(
     () => animatedIndex.value,
     (v) => {
       if (showCarPreviewSV.value === 0) {
         mapRelevantIndex.value = v;
+        // Track last discovery snap index (0–3) so we can restore after closing car selection; ignore index 4
+        const rounded = Math.round(v);
+        // When in car selection (5 points), only track 0,1,2,4 so we don't save index 3 (car); when 4 points, track all
+        if (showCarPreviewRef.current) {
+          if (rounded >= 0 && rounded !== CAR_SELECTION_SNAP_INDEX) runOnJS(updatePreviousCarIndex)(rounded);
+        } else {
+          runOnJS(updatePreviousCarIndex)(rounded);
+        }
       }
     },
   );
@@ -365,58 +399,67 @@ export function ServiceBottomSheet({
     showShopPreviewRef.current = showShopPreview;
   }, [showShopPreview]);
 
-  // When car selection opens, snap to the single dynamic point (index 0)
-  // When car selection opens, snap to the single dynamic point (index 0)
   useEffect(() => {
-    if (showCarPreview) {
-      const id = setTimeout(() => bottomSheetRef.current?.snapToIndex(0), 50);
-      return () => clearTimeout(id);
-    }
+    showCarPreviewRef.current = showCarPreview;
   }, [showCarPreview]);
 
+  // When car selection opens, snap to the 5th point (index 4 = car selection)
   useEffect(() => {
     if (showCarPreview) {
-      const id = setTimeout(() => bottomSheetRef.current?.snapToIndex(0), 50);
+      const id = setTimeout(() => snapToIndexSafe(CAR_SELECTION_SNAP_INDEX), 50);
       return () => clearTimeout(id);
     }
-  }, [showCarPreview, vehicleCount]);
+  }, [showCarPreview, vehicleCount, snapToIndexSafe]);
 
-  // After closing car selection: we passed index=0; now snap to saved index and clear pending
+  // After closing car selection: snap sheet to target; clear pending after map animation so map controls aren't overwritten mid-transition
   useEffect(() => {
     if (!showCarPreview && pendingCarCloseSnapIndex !== null) {
-      const target = pendingCarCloseSnapIndex;
-      setPendingCarCloseSnapIndex(null);
-      const id = setTimeout(() => bottomSheetRef.current?.snapToIndex(target), 50);
-      return () => clearTimeout(id);
+      const target = clampSnapIndex(pendingCarCloseSnapIndex);
+      const snapId = setTimeout(() => snapToIndexSafe(target), 50);
+      const clearId = setTimeout(() => setPendingCarCloseSnapIndex(null), MAP_INDEX_ANIMATION_DURATION);
+      return () => {
+        clearTimeout(snapId);
+        clearTimeout(clearId);
+      };
     }
-  }, [showCarPreview, pendingCarCloseSnapIndex]);
+  }, [showCarPreview, pendingCarCloseSnapIndex, snapToIndexSafe]);
 
-  // Expand sheet when stage changes (except discovery)
+  // Expand on stage change (not on car toggle). Mechanic stage gets an extra nudge to stay expanded.
+  const previousStageRef = useRef(currentStage);
   useEffect(() => {
-    if (currentStage !== "discovery" && bottomSheetRef.current && !showShopPreview && !showCarPreview) {
-      bottomSheetRef.current.snapToIndex(3); // Snap to expanded
+    const previousStage = previousStageRef.current;
+    const stageChanged = previousStage !== currentStage;
+
+    // General expand when leaving discovery
+    if (
+      stageChanged &&
+      currentStage !== "discovery" &&
+      !showShopPreview &&
+      !showCarPreview
+    ) {
+      snapToIndexSafe(snapPointsLength - 1);
     }
-  }, [currentStage, showShopPreview, showCarPreview]);
 
-  // Special handling for mechanic_selection stage - ensure sheet is always expanded
-  // This handles the case when coming back from payment page (component remounts with mechanic_selection)
-  useEffect(() => {
-    if (currentStage === "mechanic_selection" && !showShopPreview && !showCarPreview) {
-      // Use multiple delayed snaps to ensure the sheet expands
-      // This handles remount scenarios where the BottomSheet takes time to initialize
-      const timer1 = setTimeout(() => {
-        bottomSheetRef.current?.snapToIndex(3);
-      }, 100);
-      const timer2 = setTimeout(() => {
-        bottomSheetRef.current?.snapToIndex(3);
-      }, 300);
-
+    // Mechanic selection: double snap to guard against remount timing
+    if (
+      stageChanged &&
+      currentStage === "mechanic_selection" &&
+      !showShopPreview &&
+      !showCarPreview
+    ) {
+      previousStageRef.current = currentStage;
+      const timer1 = setTimeout(() => snapToIndexSafe(snapPointsLength - 1), 100);
+      const timer2 = setTimeout(() => snapToIndexSafe(snapPointsLength - 1), 300);
       return () => {
         clearTimeout(timer1);
         clearTimeout(timer2);
       };
     }
-  }, [currentStage, showShopPreview, showCarPreview]);
+
+    if (stageChanged) {
+      previousStageRef.current = currentStage;
+    }
+  }, [currentStage, showShopPreview, showCarPreview, snapToIndexSafe, snapPointsLength]);
 
   // Notify parent when search mode changes
   useEffect(() => {
@@ -454,14 +497,14 @@ export function ServiceBottomSheet({
       if (wasVisible) {
         const fallbackIndex = clampSnapIndex(previousShopSnapIndexRef.current);
         previousShopSnapIndexRef.current = fallbackIndex;
-        bottomSheetRef.current?.snapToIndex(fallbackIndex);
+        snapToIndexSafe(fallbackIndex);
       }
 
       if (notifyParent) {
         onShopClose?.();
       }
     },
-    [onShopClose],
+    [onShopClose, snapToIndexSafe],
   );
 
   // Handle selected shop from map pin - show shop preview and snap to preview position
@@ -472,14 +515,19 @@ export function ServiceBottomSheet({
       return;
     }
 
+    // If car selection is open, skip snapping to avoid out-of-range indices; shop preview will be handled after closing car selection
+    if (showCarPreview) {
+      return;
+    }
+
     if (!showShopPreviewRef.current) {
       previousShopSnapIndexRef.current = clampSnapIndex(Math.round(animatedIndex.value));
     }
 
     setShowShopPreview(true);
     // Snap to preview position (index 1 = 38%)
-    bottomSheetRef.current?.snapToIndex(1);
-  }, [selectedShopId, shopPreviewKey, animatedIndex, dismissShopPreview]);
+    snapToIndexSafe(1);
+  }, [selectedShopId, shopPreviewKey, animatedIndex, dismissShopPreview, showCarPreview, snapToIndexSafe]);
 
   // ═══════════════ COMPUTED VALUES ═══════════════
   const offsetPercent = (offsetY / SCREEN_HEIGHT) * 100;
@@ -508,19 +556,44 @@ export function ServiceBottomSheet({
     return Math.min(92, Math.max(35, percent));
   }, [carSelectionHeightPx]);
 
+  // Service sheet: 4 snap points only (no car selection). When car panel is open: 5 points, ascending, last = max height.
   const snapPoints = useMemo(() => {
-    if (showCarPreview) {
-      return [`${carSelectionSnapPercent}%`];
-    }
-    return [
+    const base = [
       `${stageConfig.collapsed - offsetPercent}%`,
       `${stageConfig.preview - offsetPercent}%`,
       `${stageConfig.mid - offsetPercent}%`,
       `${stageConfig.expanded - offsetPercent}%`,
     ];
-  }, [showCarPreview, carSelectionSnapPercent, stageConfig, offsetPercent]);
+    if (!showCarPreview) {
+      return base;
+    }
+    const carPercent = Math.min(carSelectionSnapPercent, stageConfig.expanded - offsetPercent);
+    return [
+      `${stageConfig.collapsed - offsetPercent}%`,
+      `${stageConfig.preview - offsetPercent}%`,
+      `${stageConfig.mid - offsetPercent}%`,
+      `${carPercent}%`,
+      `${stageConfig.expanded - offsetPercent}%`,
+    ];
+  }, [showCarPreview, stageConfig, offsetPercent, carSelectionSnapPercent]);
 
-  const bottomSheetIndex = showCarPreview ? 0 : pendingCarCloseSnapIndex !== null ? 0 : 3;
+  const snapPointsLength = snapPoints.length;
+
+  const snapToIndexSafe = useCallback(
+    (index: number) => {
+      const maxIndex = Math.max(0, snapPointsLength - 1);
+      const clamped = Math.min(maxIndex, Math.max(-1, index));
+      bottomSheetRef.current?.snapToIndex(clamped);
+    },
+    [snapPointsLength],
+  );
+
+  const bottomSheetIndexUnclamped =
+    showCarPreview ? CAR_SELECTION_SNAP_INDEX : pendingCarCloseSnapIndex ?? clampSnapIndex(previousCarSnapIndexRef.current);
+  const bottomSheetIndex = (() => {
+    const maxIndex = Math.max(0, snapPointsLength - 1);
+    return Math.min(maxIndex, Math.max(-1, bottomSheetIndexUnclamped));
+  })();
 
   // ═══════════════ SEARCH MODE HANDLERS ═══════════════
   // Enter search mode
@@ -529,8 +602,8 @@ export function ServiceBottomSheet({
     previousSnapIndexRef.current = Math.round(animatedIndex.value);
     setIsSearchMode(true);
     // Ensure sheet is expanded
-    bottomSheetRef.current?.snapToIndex(3);
-  }, [animatedIndex]);
+    snapToIndexSafe(snapPointsLength - 1);
+  }, [animatedIndex, snapToIndexSafe, snapPointsLength]);
 
   // Exit search mode
   const exitSearchMode = useCallback(() => {
@@ -539,8 +612,8 @@ export function ServiceBottomSheet({
     setSearchQuery("");
     setHasTyped(false);
     // Restore to previous snap index
-    bottomSheetRef.current?.snapToIndex(previousSnapIndexRef.current);
-  }, []);
+    snapToIndexSafe(previousSnapIndexRef.current);
+  }, [snapToIndexSafe]);
 
   // Handle search query change
   const handleSearchQueryChange = useCallback((text: string) => {
@@ -613,8 +686,8 @@ export function ServiceBottomSheet({
   );
 
   const handleMechanicSearchFocus = useCallback(() => {
-    bottomSheetRef.current?.snapToIndex(3);
-  }, []);
+    snapToIndexSafe(snapPointsLength - 1);
+  }, [snapToIndexSafe, snapPointsLength]);
 
   // Handle shop details press
   const handleShopPreviewDetails = useCallback(
@@ -625,8 +698,6 @@ export function ServiceBottomSheet({
   );
 
   // ═══════════════ CAR SELECTION HANDLERS ═══════════════
-  const previousCarSnapIndexRef = useRef(3);
-
   const handleCarToggle = useCallback(() => {
     if (showCarPreview) {
       setPendingCarCloseSnapIndex(previousCarSnapIndexRef.current);
@@ -640,9 +711,9 @@ export function ServiceBottomSheet({
       }
       previousCarSnapIndexRef.current = Math.round(animatedIndex.value);
       setShowCarPreview(true);
-      requestAnimationFrame(() => bottomSheetRef.current?.snapToIndex(0));
+      requestAnimationFrame(() => snapToIndexSafe(CAR_SELECTION_SNAP_INDEX));
     }
-  }, [showCarPreview, isSearchMode, animatedIndex]);
+  }, [showCarPreview, isSearchMode, animatedIndex, snapToIndexSafe]);
 
   const handleCarSelectionClose = useCallback(() => {
     setPendingCarCloseSnapIndex(previousCarSnapIndexRef.current);
@@ -725,17 +796,17 @@ export function ServiceBottomSheet({
     if (isSearchMode) {
       exitSearchMode();
     } else {
-      bottomSheetRef.current?.snapToIndex(1); // Snap to preview stage
+      snapToIndexSafe(1); // Snap to preview stage
     }
-  }, [isSearchMode, exitSearchMode]);
+  }, [isSearchMode, exitSearchMode, snapToIndexSafe]);
 
   // Handle category tap - expand to mid (50%) if below mid
   const handleCategorySelect = useCallback(() => {
     // Index 2 = mid (50%), so if below that, expand to mid
     if (animatedIndex.value < 1.5) {
-      bottomSheetRef.current?.snapToIndex(2); // Snap to mid (50%)
+      snapToIndexSafe(2); // Snap to mid (50%)
     }
-  }, [animatedIndex]);
+  }, [animatedIndex, snapToIndexSafe]);
 
   // ═══════════════ FOOTER ANIMATED STYLE ═══════════════
   // Fade the footer once the sheet slides below the mid snap to keep the map visible
@@ -762,7 +833,7 @@ export function ServiceBottomSheet({
       };
     }
 
-    const opacity = interpolate(animatedIndex.value, [2.5, 3], [0, 1], Extrapolation.CLAMP);
+    const opacity = interpolate(animatedIndex.value, [2.5, SERVICE_SNAP_COUNT - 1], [0, 1], Extrapolation.CLAMP);
 
     return {
       opacity,
@@ -800,7 +871,6 @@ export function ServiceBottomSheet({
       }
 
       // Only show footer for service selection stage when NOT in car/shop preview mode
-      // This ensures the footer disappears when user is viewing car selection or shop carousel
       if (isServiceStage && !showCarPreview && !showShopPreview) {
         return (
           <ServiceSelectionFooter

@@ -45,8 +45,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
-import { useOnboardingPersistence } from '@/hooks/useOnboardingPersistence';
-import { useOnboardingQuestion } from '@/hooks/useOnboardingQuestion';
+import { useMutation } from 'convex/react';
+import { api } from '@/convex/_generated/api';
 import {
     BookOpen,
     Search,
@@ -129,8 +129,7 @@ export function UserIntentStep({ onNext, onBack, progress }: UserIntentStepProps
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
-    const { persistProfileField } = useOnboardingPersistence();
-    const { answers: questionAnswers, saveAnswer } = useOnboardingQuestion('userIntent');
+    const saveUserIntentions = useMutation(api.onboarding_questions_answers.saveUserIntentions);
     
     const [selectedIntents, setSelectedIntents] = useState<string[]>(
         data.userIntentions || []
@@ -159,17 +158,14 @@ export function UserIntentStep({ onNext, onBack, progress }: UserIntentStepProps
         updateData({
             userIntentions: selectedIntents,
         });
-        await persistProfileField({
-            user_intentions: selectedIntents,
-        });
-        // Also save to user_question_answers table
-        const selectedAnswerIds = questionAnswers
-            .filter((a: any) => selectedIntents.includes(a.answer_value))
-            .map((a: any) => a._id);
-        if (selectedAnswerIds.length > 0) {
-            await saveAnswer({ answerIds: selectedAnswerIds });
+        if (selectedIntents.length > 0) {
+            saveUserIntentions({
+                question: 'What do you want to use Otopair for?',
+                intentions: selectedIntents,
+            }).catch((err) =>
+                console.error('Failed to save user intentions:', err)
+            );
         }
-        // onNext will check permissions and navigate accordingly
         onNext();
     };
 
