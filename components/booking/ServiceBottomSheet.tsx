@@ -431,22 +431,12 @@ export function ServiceBottomSheet({
     const stageChanged = previousStage !== currentStage;
 
     // General expand when leaving discovery
-    if (
-      stageChanged &&
-      currentStage !== "discovery" &&
-      !showShopPreview &&
-      !showCarPreview
-    ) {
+    if (stageChanged && currentStage !== "discovery" && !showShopPreview && !showCarPreview) {
       snapToIndexSafe(snapPointsLength - 1);
     }
 
     // Mechanic selection: double snap to guard against remount timing
-    if (
-      stageChanged &&
-      currentStage === "mechanic_selection" &&
-      !showShopPreview &&
-      !showCarPreview
-    ) {
+    if (stageChanged && currentStage === "mechanic_selection" && !showShopPreview && !showCarPreview) {
       previousStageRef.current = currentStage;
       const timer1 = setTimeout(() => snapToIndexSafe(snapPointsLength - 1), 100);
       const timer2 = setTimeout(() => snapToIndexSafe(snapPointsLength - 1), 300);
@@ -588,8 +578,9 @@ export function ServiceBottomSheet({
     [snapPointsLength],
   );
 
-  const bottomSheetIndexUnclamped =
-    showCarPreview ? CAR_SELECTION_SNAP_INDEX : pendingCarCloseSnapIndex ?? clampSnapIndex(previousCarSnapIndexRef.current);
+  const bottomSheetIndexUnclamped = showCarPreview
+    ? CAR_SELECTION_SNAP_INDEX
+    : (pendingCarCloseSnapIndex ?? clampSnapIndex(previousCarSnapIndexRef.current));
   const bottomSheetIndex = (() => {
     const maxIndex = Math.max(0, snapPointsLength - 1);
     return Math.min(maxIndex, Math.max(-1, bottomSheetIndexUnclamped));
