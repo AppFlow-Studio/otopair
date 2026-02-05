@@ -14,11 +14,12 @@
  */
 import { BookingCard, type Booking } from "@/components/bookings/BookingCard";
 import { LiveTrackerCard } from "@/components/bookings/LiveTrackerCard";
-import { Text } from "@/components/shared-ui";
+import { ScrollDrivenGradientBackground, Text } from "@/components/shared-ui";
 import { useMyBookingsWithDetails } from "@/hooks/useMyBookingsWithDetails";
 import { Calendar, Search, SlidersHorizontal } from "lucide-react-native";
 import React, { useCallback, useState } from "react";
-import { Linking, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { Linking, Pressable, RefreshControl, StyleSheet, TextInput, View } from "react-native";
+import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // ============================================================================
