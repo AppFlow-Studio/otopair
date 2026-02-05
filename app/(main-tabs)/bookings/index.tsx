@@ -18,15 +18,7 @@ import { Text } from "@/components/shared-ui";
 import { useMyBookingsWithDetails } from "@/hooks/useMyBookingsWithDetails";
 import { Calendar, Search, SlidersHorizontal } from "lucide-react-native";
 import React, { useCallback, useState } from "react";
-import {
-  Linking,
-  Pressable,
-  RefreshControl,
-  ScrollView,
-  StyleSheet,
-  TextInput,
-  View,
-} from "react-native";
+import { Linking, Pressable, RefreshControl, ScrollView, StyleSheet, TextInput, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // ============================================================================
@@ -41,12 +33,7 @@ type TabType = "liveTracker" | "upcoming" | "history";
 
 export default function BookingsScreen() {
   const insets = useSafeAreaInsets();
-  const {
-    liveTracking,
-    upcomingBookings,
-    historyBookings,
-    isLoading,
-  } = useMyBookingsWithDetails();
+  const { liveTracking, upcomingBookings, historyBookings, isLoading } = useMyBookingsWithDetails();
 
   const hasActiveService = !!liveTracking;
   const [activeTab, setActiveTab] = useState<TabType>(hasActiveService ? "liveTracker" : "upcoming");
@@ -60,7 +47,7 @@ export default function BookingsScreen() {
     (booking) =>
       booking.services.some((s) => s.toLowerCase().includes(searchQuery.toLowerCase())) ||
       booking.mechanicName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      booking.shopName.toLowerCase().includes(searchQuery.toLowerCase())
+      booking.shopName.toLowerCase().includes(searchQuery.toLowerCase()),
   );
 
   const onRefresh = useCallback(() => {

@@ -1,25 +1,25 @@
 /**
  * makes.ts - Vehicle Manufacturer Management
- * 
+ *
  * DESCRIPTION:
  * Manages vehicle manufacturers (makes/brands).
  * Top level in vehicle hierarchy: Makes → Models → Trims → Engines
  * Examples: Toyota, Honda, Ford, BMW
- * 
+ *
  * TABLE: makes
  *   - Stores manufacturer names and logos
  *   - Referenced by models (one-to-many)
  *   - Used for vehicle filtering and categorization
- * 
+ *
  * KEY RELATIONSHIPS:
  *   - Has-many: models (via make_id)
  *   - Has-many: vehicles (indirectly through models→trims→engines)
- * 
+ *
  * USE CASES:
  *   1. Display list of manufacturers
  *   2. Filter vehicles by make
  *   3. Show make-specific information (logo, branding)
- * 
+ *
  * OWNER: Vehicle Catalog Team
  */
 
@@ -41,10 +41,10 @@ export const list = query({
 /**
  * QUERY: getById
  * Fetch a specific manufacturer by ID.
- * 
+ *
  * ARGS:
  *   - id: Make ID
- * 
+ *
  * RETURNS:
  *   {
  *     _id: make id,

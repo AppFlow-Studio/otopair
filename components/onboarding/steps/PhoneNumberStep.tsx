@@ -287,6 +287,8 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
 
   const { user } = useUser();
   const { signUp } = useSignUp();
+  const [prepError, setPrepError] = useState<string | null>(null);
+  const [prepLoading, setPrepLoading] = useState(false);
 
   const handleConfirmPhoneNumber = async () => {
     const fullPhoneNumber = `+${getCallingCode()}${phoneNumber.replace(
@@ -298,9 +300,13 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
       phoneCountryCode: countryCode,
     });
     setShowConfirmationModal(false);
+    setPrepError(null);
+    setPrepLoading(true);
 
     // Two paths: if user exists (OAuth flow), use user.createPhoneNumber.
     // If no user yet (email signup with missing_requirements), use signUp flow.
+    let prepared = false;
+
     if (user) {
       try {
         const phoneNumberResource = await user.createPhoneNumber({
@@ -309,22 +315,30 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
         await phoneNumberResource.prepareVerification();
         updateData({ phoneNumberId: phoneNumberResource.id });
         console.log("Phone verification prepared via user for:", fullPhoneNumber);
+        prepared = true;
       } catch (err) {
         console.error("Failed to prepare phone verification via user:", err);
+        setPrepError(err instanceof Error ? err.message : "Couldn't send verification code. Please try again.");
       }
     } else if (signUp) {
       try {
         await signUp.update({ phoneNumber: fullPhoneNumber });
         await signUp.preparePhoneNumberVerification({ strategy: "phone_code" });
-        // Store a marker so ConfirmPhoneNumberStep knows to use signUp flow
         updateData({ phoneNumberId: "signup_flow" });
         console.log("Phone verification prepared via signUp for:", fullPhoneNumber);
+        prepared = true;
       } catch (err) {
         console.error("Failed to prepare phone verification via signUp:", err);
+        setPrepError(err instanceof Error ? err.message : "Couldn't send verification code. Please try again.");
       }
+    } else {
+      setPrepError("Sign-in session not ready. Please go back and try signing in again.");
     }
 
-    onNext();
+    setPrepLoading(false);
+    if (prepared) {
+      onNext();
+    }
   };
 
   const handleGoBack = () => {
@@ -578,10 +592,15 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
         </Modal>
 
         <View style={[styles.bottomContainer, dynamicStyles.bottomContainer]}>
+          {prepError ? (
+            <Text style={styles.prepError} accessibilityRole="alert">
+              {prepError}
+            </Text>
+          ) : null}
           <FooterButton
             label="Continue"
             onPress={handleCreateAccount}
-            disabled={!canCreateAccount}
+            disabled={!canCreateAccount || prepLoading}
             size={buttonSize}
             paddingVertical={buttonPaddingVertical}
             variant={canCreateAccount ? "primary" : undefined}
@@ -670,6 +689,14 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.regular,
     color: BrandColors.white,
     paddingVertical: 0,
+  },
+  prepError: {
+    fontSize: FontSize.sm,
+    fontFamily: FontFamily.regular,
+    color: "#FCA5A5",
+    marginBottom: Spacing.sm,
+    paddingHorizontal: Spacing["2xl"],
+    textAlign: "center",
   },
   bottomContainer: {
     paddingTop: Spacing.sm,

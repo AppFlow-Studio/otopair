@@ -13,7 +13,7 @@
  * TICKET: OTO-XXX
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     StyleSheet,
     View,
@@ -45,7 +45,7 @@ interface LoginMethodsStepProps {
 export function LoginMethodsStep({ onNext, onBack }: LoginMethodsStepProps) {
     const insets = useSafeAreaInsets();
     const { updateData } = useOnboardingStore();
-    const { setIsNewUser } = useAuthStore();
+    const { setIsNewUser, setIsAuthenticated } = useAuthStore();
     const { isSignedIn } = useAuth();
     const { signIn, setActive, isLoaded } = useSignIn();
     const [loginLoading, setLoginLoading] = useState(false);
@@ -54,11 +54,20 @@ export function LoginMethodsStep({ onNext, onBack }: LoginMethodsStepProps) {
     const guestPassword = process.env.EXPO_PUBLIC_GUEST_PASSWORD;
 
     const handleSuccessfulLogin = () => {
-        // As requested: router.replace('/(main-tabs)/home') then onBack()
         setIsNewUser(false);
+        setIsAuthenticated(true);
         router.replace('/(main-tabs)/home');
         onBack();
     };
+
+    // Already signed in → go to index so it can gate on Convex user
+    useEffect(() => {
+        if (isLoaded && isSignedIn) {
+            setIsNewUser(false);
+            setIsAuthenticated(true);
+            router.replace('/(main-tabs)/home');
+        }
+    }, [isLoaded, isSignedIn, setIsAuthenticated, setIsNewUser]);
 
     const handleEmailLogin = () => {
         updateData({ signUpMethod: 'email' }); // Re-using this to track choice
@@ -118,6 +127,11 @@ export function LoginMethodsStep({ onNext, onBack }: LoginMethodsStepProps) {
         } catch (error) {
             const message =
                 error instanceof Error ? error.message : 'Unable to sign in.';
+            // Clerk can throw "already signed in" when user is authenticated; treat as success and go home
+            if (message.toLowerCase().includes('already signed in')) {
+                handleSuccessfulLogin();
+                return;
+            }
             setLoginError(message);
         } finally {
             setLoginLoading(false);

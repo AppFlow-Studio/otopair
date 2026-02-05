@@ -1551,7 +1551,7 @@ export const seedPastBookingsForJohnDoe = mutation({
       .unique();
     if (!user) {
       throw new Error(
-        `User with clerkUserId ${JOHN_DOE_CLERK_USER_ID} (John Doe) not found. Ensure the account exists.`
+        `User with clerkUserId ${JOHN_DOE_CLERK_USER_ID} (John Doe) not found. Ensure the account exists.`,
       );
     }
 
@@ -1713,7 +1713,7 @@ export const seedLiveBookingForJohnDoe = mutation({
       .unique();
     if (!user) {
       throw new Error(
-        `User with clerkUserId ${JOHN_DOE_CLERK_USER_ID} (John Doe) not found. Ensure the account exists.`
+        `User with clerkUserId ${JOHN_DOE_CLERK_USER_ID} (John Doe) not found. Ensure the account exists.`,
       );
     }
 

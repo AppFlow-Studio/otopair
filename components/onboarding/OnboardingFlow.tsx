@@ -314,6 +314,11 @@ export function OnboardingFlow({
 
         // Normal mode navigation
         switch (currentStep) {
+            case 'welcome': {
+                const mode = latestData.authMode ?? 'signUp';
+                goToStep(mode === 'login' ? 'login' : 'signup');
+                break;
+            }
             case 'signup':
                 // OAuth success goes directly to phone
                 goToStep('phone');
@@ -366,21 +371,20 @@ export function OnboardingFlow({
 
     // Navigate to home screen when onboarding is complete
     useEffect(() => {
-        if (currentStep === 'complete') {
-            // Mark onboarding complete in Convex if signed in
-            if (isSignedIn) {
-                completeOnboarding()
-                    .then(() => console.log('Onboarding marked complete'))
-                    .catch((err) => console.error('Failed to mark onboarding complete:', err));
-            }
+        if (currentStep !== 'complete') return;
+        // Wait until Clerk reflects a signed-in session to avoid bouncing back to signup/login.
+        if (!isSignedIn) return;
 
-            if (isResumeMode) {
-                router.back();
-            } else {
-                router.replace('/(main-tabs)/home');
-            }
+        completeOnboarding()
+            .then(() => console.log('Onboarding marked complete'))
+            .catch((err) => console.error('Failed to mark onboarding complete:', err));
+
+        if (isResumeMode) {
+            router.back();
+        } else {
+            router.replace('/(main-tabs)/home');
         }
-    }, [currentStep, isResumeMode]);
+    }, [currentStep, isResumeMode, isSignedIn]);
 
     // Render the current step component
     const renderStep = () => {

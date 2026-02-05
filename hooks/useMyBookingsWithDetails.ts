@@ -39,10 +39,7 @@ function isHistory(row: ConvexBookingWithDetails): boolean {
 
 export function useMyBookingsWithDetails() {
   const { userId } = useUserFromConvex();
-  const rows = useQuery(
-    api.bookings.getByUserIdWithDetails,
-    userId ? { userId } : "skip"
-  );
+  const rows = useQuery(api.bookings.getByUserIdWithDetails, userId ? { userId } : "skip");
 
   return useMemo(() => {
     const list = rows ?? [];
@@ -51,24 +48,14 @@ export function useMyBookingsWithDetails() {
     const historyRows = list.filter(isHistory);
 
     const liveTracking: LiveTracking | null =
-      liveRows.length > 0
-        ? adaptConvexBookingWithDetailsToLiveTracking(liveRows[0])
-        : null;
+      liveRows.length > 0 ? adaptConvexBookingWithDetailsToLiveTracking(liveRows[0]) : null;
 
     const upcomingBookings: BookingCardBooking[] = upcomingRows
-      .sort(
-        (a, b) =>
-          new Date(a.scheduled_date).getTime() -
-          new Date(b.scheduled_date).getTime()
-      )
+      .sort((a, b) => new Date(a.scheduled_date).getTime() - new Date(b.scheduled_date).getTime())
       .map(adaptConvexBookingWithDetailsToCard);
 
     const historyBookings: BookingCardBooking[] = historyRows
-      .sort(
-        (a, b) =>
-          new Date(b.scheduled_date).getTime() -
-          new Date(a.scheduled_date).getTime()
-      )
+      .sort((a, b) => new Date(b.scheduled_date).getTime() - new Date(a.scheduled_date).getTime())
       .map(adaptConvexBookingWithDetailsToCard);
 
     return {

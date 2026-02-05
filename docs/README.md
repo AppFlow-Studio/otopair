@@ -8,4 +8,8 @@
 
 **Diagrams:** [diagrams.md](./diagrams.md) — high-level and per-part database diagrams (Mermaid).
 
+**Merge strategy (daniel-dev):** [MERGE_DANIEL_DEV.md](./MERGE_DANIEL_DEV.md) — how to merge `daniel-dev` into `waleedcodespace` while keeping our Convex backend; file rules, step-by-step, schema adaptation for additive onboarding Convex files, and copy-paste commands.
+
+**Auth & session:** [AUTH_SESSION.md](./AUTH_SESSION.md) — Clerk + Convex auth, session persistence (expo-secure-store), redirect-to-home when already signed in, and troubleshooting the transient “Not authenticated” Convex error.
+
 **Plans:** [.cursor/plans](../.cursor/plans) — plan documents (e.g. MVP booking wiring, DB fact-check).

@@ -104,6 +104,17 @@ interface ServiceBottomSheetProps {
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 
+// Car selection: sheet grows with vehicle count, capped at 5 visible rows then scrolls
+// Heights tuned so 3–5 cards + header + "Add a vehicle" row + Confirm footer fit without clipping
+const CAR_SELECTION_MAX_VISIBLE = 5;
+const CAR_SELECTION_HANDLE_HEIGHT = 44; // handle bar area at top of sheet
+const CAR_SELECTION_HEADER_HEIGHT = 110;
+const CAR_SELECTION_ROW_HEIGHT = 92; // card padding + content (title, subtitle, vin) + margin
+const CAR_SELECTION_ADD_ROW_HEIGHT = 72; // "Add a vehicle" row (paddingVertical, marginTop, content)
+const CAR_SELECTION_FOOTER_HEIGHT = 80;
+const CAR_SELECTION_PADDING = 28; // space below list/add row before footer
+const CAR_SELECTION_EMPTY_HEIGHT = 280; // when no vehicles
+
 // Snap points: collapsed (23%), preview (38%), mid (55%), expanded (98%)
 // Collapsed: only title + search bar visible
 // Preview: title, search, categories, 1-2 services
@@ -206,6 +217,7 @@ export function ServiceBottomSheet({
 
   // Car-specific (engine-specific) labor/parts for footer price
   const selectedVehicle = useVehicleStore((state) => state.getSelectedVehicle());
+  const vehicleCount = useVehicleStore((state) => state.vehicleIds.length);
   const engineSpecs = useServiceVehicleSpecsForEngine(
     selectedVehicle?.engineId,
     selectedServiceIds,
@@ -331,6 +343,22 @@ export function ServiceBottomSheet({
     showShopPreviewRef.current = showShopPreview;
   }, [showShopPreview]);
 
+  // When car selection opens, snap to the single dynamic point (index 0)
+  useEffect(() => {
+    if (showCarPreview) {
+      const id = setTimeout(() => bottomSheetRef.current?.snapToIndex(0), 50);
+      return () => clearTimeout(id);
+    }
+  }, [showCarPreview]);
+
+  // When in car selection and vehicle count changes, re-snap so sheet height updates
+  useEffect(() => {
+    if (showCarPreview) {
+      const id = setTimeout(() => bottomSheetRef.current?.snapToIndex(0), 50);
+      return () => clearTimeout(id);
+    }
+  }, [showCarPreview, vehicleCount]);
+
   // Expand sheet when stage changes (except discovery)
   useEffect(() => {
     if (currentStage !== "discovery" && bottomSheetRef.current && !showShopPreview && !showCarPreview) {
@@ -430,20 +458,44 @@ export function ServiceBottomSheet({
       ? SNAP_POINTS_CONFIG[currentStage]
       : SNAP_POINTS_CONFIG.discovery;
 
-  // Four snap points: collapsed, preview, mid, expanded
+  // Car selection: single dynamic snap point that grows with vehicle count (capped at 5 cars)
+  const carSelectionHeightPx = useMemo(() => {
+    if (vehicleCount === 0) return CAR_SELECTION_EMPTY_HEIGHT;
+    const visibleRows = Math.min(vehicleCount, CAR_SELECTION_MAX_VISIBLE);
+    return (
+      CAR_SELECTION_HANDLE_HEIGHT +
+      CAR_SELECTION_HEADER_HEIGHT +
+      visibleRows * CAR_SELECTION_ROW_HEIGHT +
+      CAR_SELECTION_ADD_ROW_HEIGHT +
+      CAR_SELECTION_FOOTER_HEIGHT +
+      CAR_SELECTION_PADDING
+    );
+  }, [vehicleCount]);
+
+  const carSelectionSnapPercent = useMemo(() => {
+    const percent = (carSelectionHeightPx / SCREEN_HEIGHT) * 100;
+    return Math.min(92, Math.max(35, percent));
+  }, [carSelectionHeightPx]);
+
+  // Four snap points: collapsed, preview, mid, expanded (or single point when car selection)
   // Shop preview mode uses the same snap points (no locking - just let user drag)
   const snapPoints = useMemo(
-    () => [
-      `${stageConfig.collapsed - offsetPercent}%`,
-      `${stageConfig.preview - offsetPercent}%`,
-      `${stageConfig.mid - offsetPercent}%`,
-      `${stageConfig.expanded - offsetPercent}%`,
-    ],
-    [stageConfig, offsetPercent],
+    () => {
+      if (showCarPreview) {
+        return [`${carSelectionSnapPercent}%`];
+      }
+      return [
+        `${stageConfig.collapsed - offsetPercent}%`,
+        `${stageConfig.preview - offsetPercent}%`,
+        `${stageConfig.mid - offsetPercent}%`,
+        `${stageConfig.expanded - offsetPercent}%`,
+      ];
+    },
+    [showCarPreview, carSelectionSnapPercent, stageConfig, offsetPercent],
   );
 
-  // Initial index: start at expanded (index 3)
-  const initialIndex = 3;
+  // Initial index: start at expanded (index 3). When car selection is open we have 1 snap point so index must be 0.
+  const bottomSheetIndex = showCarPreview ? 0 : 3;
 
   // ═══════════════ SEARCH MODE HANDLERS ═══════════════
   // Enter search mode
@@ -567,9 +619,11 @@ export function ServiceBottomSheet({
       }
       // Save current snap index before switching to car preview
       previousCarSnapIndexRef.current = Math.round(animatedIndex.value);
-      // Open car selection - snap to mid position (index 2 = 55%) for better visibility
+      // Open car selection - snap points will be a single dynamic height; snap after state update
       setShowCarPreview(true);
-      bottomSheetRef.current?.snapToIndex(2);
+      requestAnimationFrame(() => {
+        bottomSheetRef.current?.snapToIndex(0);
+      });
     }
   }, [showCarPreview, isSearchMode, animatedIndex]);
 
@@ -1102,7 +1156,7 @@ export function ServiceBottomSheet({
     <BottomSheet
       ref={bottomSheetRef}
       snapPoints={snapPoints}
-      index={initialIndex}
+      index={bottomSheetIndex}
       animatedIndex={animatedIndex}
       enableDynamicSizing={false}
       enablePanDownToClose={false}

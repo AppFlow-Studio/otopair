@@ -16,7 +16,7 @@
  * TICKET: OTO-XXX
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useAuth, useSignIn } from '@clerk/clerk-expo';
 import {
     BrandColors,
@@ -40,8 +40,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuthStore } from '@/stores/useAuthStore';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
-import { useMutation } from 'convex/react';
-import { api } from '@/convex/_generated/api';
+import { useEnsureConvexUser } from '@/hooks/useEnsureConvexUser';
 
 interface WelcomeStepProps {
     onNext: () => void;
@@ -51,11 +50,11 @@ interface WelcomeStepProps {
 export function WelcomeStep({ onNext, onBack }: WelcomeStepProps) {
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
-    const { setIsNewUser } = useAuthStore();
+    const { setIsNewUser, setIsAuthenticated } = useAuthStore();
     const { updateData: updateOnboardingData } = useOnboardingStore();
     const { isSignedIn } = useAuth();
     const { signIn, setActive, isLoaded } = useSignIn();
-    const ensureConvexUser = useMutation(api.users.getOrCreateMe);
+    const ensureConvexUser = useEnsureConvexUser();
     const [loginLoading, setLoginLoading] = useState(false);
     const [loginError, setLoginError] = useState<string | null>(null);
     const guestEmail = process.env.EXPO_PUBLIC_GUEST_EMAIL;
@@ -71,6 +70,16 @@ export function WelcomeStep({ onNext, onBack }: WelcomeStepProps) {
     const buttonSize: 'md' | 'lg' = isCompact ? 'md' : 'lg';
     const buttonPaddingVertical = isCompact ? Spacing.sm : Spacing.lg;
 
+    // Already signed in → go to index so it can gate on Convex user
+    useEffect(() => {
+        if (isLoaded && isSignedIn) {
+            setIsNewUser(false);
+            setIsAuthenticated(true);
+            updateOnboardingData({ authMode: 'login' });
+            router.replace('/(main-tabs)/home');
+        }
+    }, [isLoaded, isSignedIn, setIsAuthenticated, setIsNewUser, updateOnboardingData]);
+
     const handleGetStarted = () => {
         console.log('Finished WelcomeStep - Create Account');
         setIsNewUser(true); // User is creating a new account
@@ -81,68 +90,25 @@ export function WelcomeStep({ onNext, onBack }: WelcomeStepProps) {
     const handleLogIn = async () => {
         if (loginLoading) return;
 
+        // If already signed in, ensure Convex user and continue
         if (isSignedIn) {
-            console.log('Guest already signed in, routing to home');
             try {
                 await ensureConvexUser();
-                console.log('Ensured Convex user via WelcomeStep (already signed in)');
             } catch (error) {
                 console.error('Failed to ensure Convex user record', error);
             }
             setIsNewUser(false);
+            setIsAuthenticated(true);
             updateOnboardingData({ authMode: 'login' });
             router.replace('/(main-tabs)/home');
             onBack();
             return;
         }
 
-        if (!isLoaded || !signIn) {
-            setLoginError('Sign in is not ready. Please try again.');
-            return;
-        }
-
-        if (!guestEmail || !guestPassword) {
-            setLoginError('Guest credentials are not configured.');
-            return;
-        }
-
-        setLoginLoading(true);
-        setLoginError(null);
-
-        try {
-            await signIn.create({
-                identifier: guestEmail,
-            });
-
-            const attempt = await signIn.attemptFirstFactor({
-                strategy: 'password',
-                password: guestPassword,
-            });
-
-            if (attempt.status !== 'complete' || !attempt.createdSessionId) {
-                console.log('Guest login response', JSON.stringify(attempt, null, 2));
-                throw new Error('Unable to create a session.');
-            }
-
-            await setActive?.({ session: attempt.createdSessionId });
-            console.log('Guest login successful for', guestEmail);
-            try {
-                await ensureConvexUser();
-                console.log('Ensured Convex user via WelcomeStep after login');
-            } catch (error) {
-                console.error('Failed to ensure Convex user record', error);
-            }
-            setIsNewUser(false);
-            updateOnboardingData({ authMode: 'login' });
-            router.replace('/(main-tabs)/home');
-            onBack();
-        } catch (error) {
-            const message =
-                error instanceof Error ? error.message : 'Unable to sign in.';
-            setLoginError(message);
-        } finally {
-            setLoginLoading(false);
-        }
+        // Not signed in: take user to the login step (email/SSO) instead of looping back here.
+        setIsNewUser(false);
+        updateOnboardingData({ authMode: 'login' });
+        onNext();
     };
 
     return (

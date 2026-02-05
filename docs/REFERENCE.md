@@ -4,7 +4,7 @@
 **Source:** [convex/schema.ts](../convex/schema.ts) and `convex/*.ts`  
 **Last verified:** February 2026
 
-For high-level and per-part diagrams, see [docs/diagrams.md](diagrams.md). For plan details, see [.cursor/plans](../.cursor/plans).
+For high-level and per-part diagrams, see [docs/diagrams.md](diagrams.md). For plan details, see [.cursor/plans](../.cursor/plans). For merging `daniel-dev` while keeping our Convex (file rules, schema adaptation), see [docs/MERGE_DANIEL_DEV.md](MERGE_DANIEL_DEV.md).
 
 ---
 

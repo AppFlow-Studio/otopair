@@ -36,11 +36,7 @@ import { v } from "convex/values";
 import { internal } from "./_generated/api";
 
 /** Live Tracker stage slugs stored on bookings when status is in_progress */
-export const LIVE_STAGE_SLUGS = [
-  "booking_confirmed",
-  "service_in_progress",
-  "vehicle_ready",
-] as const;
+export const LIVE_STAGE_SLUGS = ["booking_confirmed", "service_in_progress", "vehicle_ready"] as const;
 export type LiveStageSlug = (typeof LIVE_STAGE_SLUGS)[number];
 
 /** Display title for each live stage (for currentStage in UI) */
@@ -126,14 +122,10 @@ export const getByUserIdWithDetails = query({
     const results = await Promise.all(
       bookings.map(async (booking) => {
         const shop = await ctx.db.get(booking.shop_id);
-        const mechanic = booking.mechanic_id
-          ? await ctx.db.get(booking.mechanic_id)
-          : null;
+        const mechanic = booking.mechanic_id ? await ctx.db.get(booking.mechanic_id) : null;
         const shopName = shop?.name ?? "Unknown Shop";
         const shopPhone = shop?.phone ?? "";
-        const mechanicName = mechanic
-          ? `${mechanic.first_name} ${mechanic.last_name}`
-          : shopName;
+        const mechanicName = mechanic ? `${mechanic.first_name} ${mechanic.last_name}` : shopName;
         let mechanicImageUrl: string | undefined;
         if (mechanic?.photo) {
           const photoAsset = await ctx.db.get(mechanic.photo);
@@ -145,7 +137,7 @@ export const getByUserIdWithDetails = query({
           serviceIds.map(async (id) => {
             const svc = await ctx.db.get(id);
             return svc?.name ?? "";
-          })
+          }),
         ).then((a) => a.filter(Boolean));
 
         const vehicle = await ctx.db
@@ -201,20 +193,12 @@ export const getByUserIdWithDetails = query({
           if (jobActual) {
             const elapsedMs = Date.now() - jobActual.started_at * 1000;
             const totalMs = estimatedMinutes * 60 * 1000;
-            progressPercent = Math.min(
-              100,
-              Math.round((elapsedMs / totalMs) * 100)
-            );
-            const scheduledStartMs =
-              new Date(
-                `${booking.scheduled_date}T${booking.scheduled_time}`
-              ).getTime();
+            progressPercent = Math.min(100, Math.round((elapsedMs / totalMs) * 100));
+            const scheduledStartMs = new Date(`${booking.scheduled_date}T${booking.scheduled_time}`).getTime();
             const lateMs = Date.now() - scheduledStartMs;
-            if (lateMs > 0)
-              delayMinutes = Math.round(lateMs / 60000);
+            if (lateMs > 0) delayMinutes = Math.round(lateMs / 60000);
           } else {
-            progressPercent =
-              (liveStage && LIVE_STAGE_PROGRESS[liveStage]) ?? 25;
+            progressPercent = (liveStage && LIVE_STAGE_PROGRESS[liveStage]) ?? 25;
           }
         }
 
@@ -240,7 +224,7 @@ export const getByUserIdWithDetails = query({
           delayMinutes,
           liveStage: liveStage ?? undefined,
         };
-      })
+      }),
     );
 
     return results;
@@ -545,10 +529,7 @@ export const createBatch = mutation({
     const taxes_and_fees = args.taxes_and_fees ?? 0;
     const platform_fee = args.platform_fee ?? 0;
     const total_cost = labor_cost + parts_cost + taxes_and_fees + platform_fee;
-    const estimated_labor_minutes = args.services.reduce(
-      (sum, s) => sum + (s.labor_hours ?? 0) * 60,
-      0,
-    );
+    const estimated_labor_minutes = args.services.reduce((sum, s) => sum + (s.labor_hours ?? 0) * 60, 0);
 
     const now = Date.now();
     const firstServiceId = args.services[0].service_id;
@@ -703,11 +684,7 @@ export const updateStatus = mutation({
 export const updateLiveStage = mutation({
   args: {
     bookingId: v.id("bookings"),
-    liveStage: v.union(
-      v.literal("booking_confirmed"),
-      v.literal("service_in_progress"),
-      v.literal("vehicle_ready")
-    ),
+    liveStage: v.union(v.literal("booking_confirmed"), v.literal("service_in_progress"), v.literal("vehicle_ready")),
   },
   handler: async (ctx, args) => {
     const booking = await ctx.db.get(args.bookingId);

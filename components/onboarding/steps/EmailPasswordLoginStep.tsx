@@ -1,8 +1,7 @@
 /**
  * EmailPasswordLoginStep
  *
- * PURPOSE: Collects user's email and password for login.
- *          Includes a hardcoded validation for demonstration purposes.
+ * PURPOSE: Collects user's email and password and signs in with Clerk (the account they enter).
  *
  * USED IN: components/onboarding/OnboardingFlow.tsx
  *
@@ -15,7 +14,7 @@
  * TICKET: OTO-XXX
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
     StyleSheet,
     View,
@@ -50,80 +49,74 @@ interface EmailPasswordLoginStepProps {
 export function EmailPasswordLoginStep({ onNext, onBack }: EmailPasswordLoginStepProps) {
     const insets = useSafeAreaInsets();
     const { updateData, data } = useOnboardingStore();
-    const { setIsNewUser } = useAuthStore();
+    const { setIsNewUser, setIsAuthenticated } = useAuthStore();
     const { isSignedIn } = useAuth();
     const { signIn, setActive, isLoaded } = useSignIn();
-    
+
     const [email, setEmail] = useState(data.email || "");
     const [password, setPassword] = useState("");
     const [isPasswordVisible, setIsPasswordVisible] = useState(false);
     const [loginLoading, setLoginLoading] = useState(false);
     const [loginError, setLoginError] = useState<string | null>(null);
 
-    const guestEmail = process.env.EXPO_PUBLIC_GUEST_EMAIL;
-    const guestPassword = process.env.EXPO_PUBLIC_GUEST_PASSWORD;
+    // Already signed in → go straight to home
+    useEffect(() => {
+        if (isLoaded && isSignedIn) {
+            setIsNewUser(false);
+            setIsAuthenticated(true);
+            router.replace('/(main-tabs)/home');
+        }
+    }, [isLoaded, isSignedIn, setIsAuthenticated, setIsNewUser]);
 
     const handleLogIn = async () => {
         if (loginLoading) return;
         setLoginError(null);
-        
+
         const trimmedEmail = email.trim();
         if (!trimmedEmail || !password) {
             setLoginError("Please enter both email and password.");
             return;
         }
 
-        // Hardcoded validation as requested for the guest account
-        if (password === "676767") {
-            if (isSignedIn) {
-                console.log('Guest already signed in, routing to home');
+        if (!isLoaded || !signIn) {
+            setLoginError('Sign in is not ready. Please try again.');
+            return;
+        }
+
+        setLoginLoading(true);
+        try {
+            await signIn.create({
+                identifier: trimmedEmail,
+            });
+
+            const attempt = await signIn.attemptFirstFactor({
+                strategy: 'password',
+                password,
+            });
+
+            if (attempt.status !== 'complete' || !attempt.createdSessionId) {
+                console.log('Login response', JSON.stringify(attempt, null, 2));
+                throw new Error('Unable to create a session.');
+            }
+
+            await setActive?.({ session: attempt.createdSessionId });
+            updateData({ email: trimmedEmail });
+            setIsNewUser(false);
+            setIsAuthenticated(true);
+            router.replace('/(main-tabs)/home');
+            onNext();
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Unable to sign in.';
+            if (message.toLowerCase().includes('already signed in')) {
                 setIsNewUser(false);
+                setIsAuthenticated(true);
                 router.replace('/(main-tabs)/home');
                 onNext();
                 return;
             }
-
-            if (!isLoaded || !signIn) {
-                setLoginError('Sign in is not ready. Please try again.');
-                return;
-            }
-
-            if (!guestEmail || !guestPassword) {
-                setLoginError('Guest credentials are not configured.');
-                return;
-            }
-
-            setLoginLoading(true);
-            try {
-                await signIn.create({
-                    identifier: guestEmail,
-                });
-
-                const attempt = await signIn.attemptFirstFactor({
-                    strategy: 'password',
-                    password: guestPassword,
-                });
-
-                if (attempt.status !== 'complete' || !attempt.createdSessionId) {
-                    console.log('Guest login response', JSON.stringify(attempt, null, 2));
-                    throw new Error('Unable to create a session.');
-                }
-
-                await setActive?.({ session: attempt.createdSessionId });
-                console.log('Guest login successful for', guestEmail);
-                
-                updateData({ email: trimmedEmail });
-                setIsNewUser(false);
-                router.replace('/(main-tabs)/home');
-                onNext();
-            } catch (err) {
-                const message = err instanceof Error ? err.message : 'Unable to sign in.';
-                setLoginError(message);
-            } finally {
-                setLoginLoading(false);
-            }
-        } else {
-            setLoginError("Incorrect password. Please try again.");
+            setLoginError(message);
+        } finally {
+            setLoginLoading(false);
         }
     };
 

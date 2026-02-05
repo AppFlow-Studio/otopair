@@ -79,11 +79,7 @@ function CarSelectionCardComponent({
 
   if (isRow) {
     return (
-      <TouchableOpacity
-        style={[styles.row, isSelected && styles.rowSelected]}
-        onPress={onSelect}
-        activeOpacity={0.7}
-      >
+      <TouchableOpacity style={[styles.row, isSelected && styles.rowSelected]} onPress={onSelect} activeOpacity={0.7}>
         {isSelected && (
           <View style={styles.rowCheckmark}>
             <Check size={16} color={BrandColors.secondary} strokeWidth={2.5} />
@@ -92,13 +88,7 @@ function CarSelectionCardComponent({
         <View style={styles.rowContent}>
           <View style={styles.rowDetails}>
             <View style={styles.titleRow}>
-              <Text
-                weight="bold"
-                size="md"
-                color={BrandColors.primary}
-                numberOfLines={1}
-                style={styles.rowTitle}
-              >
+              <Text weight="bold" size="md" color={BrandColors.primary} numberOfLines={1} style={styles.rowTitle}>
                 {vehicle.make} {vehicle.model}
               </Text>
               {vehicle.isDefault && (
@@ -128,11 +118,7 @@ function CarSelectionCardComponent({
           </View>
           <View style={styles.rowIcon}>
             {vehicle.imageSource ? (
-              <Image
-                source={vehicle.imageSource}
-                style={styles.rowImage}
-                resizeMode="cover"
-              />
+              <Image source={vehicle.imageSource} style={styles.rowImage} resizeMode="cover" />
             ) : (
               <Car size={28} color="#9CA3AF" />
             )}
@@ -149,11 +135,7 @@ function CarSelectionCardComponent({
         {/* Vehicle Image Thumbnail */}
         <View style={styles.imageContainer}>
           {vehicle.imageSource ? (
-            <Image
-              source={vehicle.imageSource}
-              style={styles.image}
-              resizeMode="cover"
-            />
+            <Image source={vehicle.imageSource} style={styles.image} resizeMode="cover" />
           ) : (
             <View style={styles.imagePlaceholder}>
               <Car size={32} color="#9CA3AF" />
@@ -165,13 +147,7 @@ function CarSelectionCardComponent({
         <View style={styles.detailsContainer}>
           {/* Title row: Make Model + Default badge */}
           <View style={styles.titleRow}>
-            <Text
-              weight="bold"
-              size="lg"
-              color={BrandColors.primary}
-              numberOfLines={1}
-              style={styles.title}
-            >
+            <Text weight="bold" size="lg" color={BrandColors.primary} numberOfLines={1} style={styles.title}>
               {vehicle.make} {vehicle.model}
             </Text>
             {vehicle.isDefault && (

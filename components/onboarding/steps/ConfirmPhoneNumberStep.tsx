@@ -49,8 +49,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import { useUser, useSignUp } from "@clerk/clerk-expo";
 import { useOnboardingPersistence } from "@/hooks/useOnboardingPersistence";
-import { useMutation } from "convex/react";
-import { api } from "@/convex/_generated/api";
+import { useEnsureConvexUser } from "@/hooks/useEnsureConvexUser";
 import { X } from "lucide-react-native";
 
 interface ConfirmPhoneNumberStepProps {
@@ -70,17 +69,25 @@ export function ConfirmPhoneNumberStep({
   const { user } = useUser();
   const { signUp, setActive } = useSignUp();
   const { persistProfileField } = useOnboardingPersistence();
-  const ensureConvexUser = useMutation(api.users.getOrCreateMe);
+  const ensureConvexUser = useEnsureConvexUser();
   const isSignUpFlow = data.phoneNumberId === "signup_flow";
 
   const [code, setCode] = useState(["", "", "", "", "", ""]);
   const [focusedIndex, setFocusedIndex] = useState(0);
   const [timeRemaining, setTimeRemaining] = useState(60);
   const [showErrorModal, setShowErrorModal] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
   const inputRefs = useRef<(TextInput | null)[]>([]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const slideAnim = useRef(new Animated.Value(height)).current;
+
+  const isVerificationNotStartedError = (msg: string | null) =>
+    msg != null && (
+      msg.includes("Verification wasn't started") ||
+      msg.includes("No phone number found") ||
+      msg.includes("No user or signUp session")
+    );
 
   const formatPhoneNumberForDisplay = () => {
     const phone = data.phoneNumber || "";
@@ -114,8 +121,26 @@ export function ConfirmPhoneNumberStep({
 
   const verifyPhoneCode = async (fullCode: string) => {
     setVerifying(true);
+    setErrorMessage(null);
 
     try {
+      // No valid path: verification was never prepared (e.g. user landed here without sending a code)
+      if (isSignUpFlow && !signUp) {
+        setErrorMessage("Verification wasn't started. Go back and confirm your number to receive a code.");
+        setShowErrorModal(true);
+        return;
+      }
+      if (!isSignUpFlow && !user) {
+        setErrorMessage("Verification wasn't started. Go back and confirm your number to receive a code.");
+        setShowErrorModal(true);
+        return;
+      }
+      if (!isSignUpFlow && user && !data.phoneNumberId && (!user.phoneNumbers || user.phoneNumbers.length === 0)) {
+        setErrorMessage("Verification wasn't started. Go back and confirm your number to receive a code.");
+        setShowErrorModal(true);
+        return;
+      }
+
       if (isSignUpFlow && signUp) {
         // Email signup flow: verify via signUp object
         const result = await signUp.attemptPhoneNumberVerification({ code: fullCode });
@@ -123,19 +148,10 @@ export function ConfirmPhoneNumberStep({
 
         if (result.status === "complete" && result.createdSessionId) {
           await setActive?.({ session: result.createdSessionId });
-          // Retry with backoff — Clerk JWT needs time to propagate to Convex
-          const retryWithBackoff = async (fn: () => Promise<any>, retries = 3, delay = 1000) => {
-            for (let i = 0; i <= retries; i++) {
-              try { return await fn(); } catch (e) {
-                if (i === retries) throw e;
-                await new Promise(r => setTimeout(r, delay * Math.pow(2, i)));
-              }
-            }
-          };
           try {
-            await retryWithBackoff(() => ensureConvexUser());
+            await ensureConvexUser();
           } catch (e) {
-            console.error("Failed to ensure Convex user after retries:", e);
+            console.error("Failed to ensure Convex user after phone verification:", e);
           }
         }
 
@@ -157,12 +173,14 @@ export function ConfirmPhoneNumberStep({
           console.log("Phone verified successfully");
         } else {
           // Fallback: try the most recent phone number
-          const latestPhone = user.phoneNumbers[user.phoneNumbers.length - 1];
+          const latestPhone = user.phoneNumbers?.[user.phoneNumbers.length - 1];
           if (latestPhone) {
             await latestPhone.attemptVerification({ code: fullCode });
             console.log("Phone verified successfully (fallback)");
           } else {
-            throw new Error("No phone number found to verify");
+            setErrorMessage("Verification wasn't started. Go back and confirm your number to receive a code.");
+            setShowErrorModal(true);
+            return;
           }
         }
 
@@ -173,10 +191,13 @@ export function ConfirmPhoneNumberStep({
         });
         onNext();
       } else {
-        throw new Error("No user or signUp session available");
+        setErrorMessage("Verification wasn't started. Go back and confirm your number to receive a code.");
+        setShowErrorModal(true);
+        return;
       }
     } catch (err) {
       console.error("Phone verification failed:", err);
+      setErrorMessage(err instanceof Error ? err.message : "Verification failed. Please try again.");
       setShowErrorModal(true);
       setCode(["", "", "", "", "", ""]);
       setFocusedIndex(0);
@@ -264,6 +285,13 @@ export function ConfirmPhoneNumberStep({
 
   const handleCloseErrorModal = () => {
     setShowErrorModal(false);
+    setErrorMessage(null);
+  };
+
+  const handleGoBackFromError = () => {
+    setShowErrorModal(false);
+    setErrorMessage(null);
+    onBack();
   };
 
   const formatTimer = (seconds: number) => {
@@ -372,16 +400,29 @@ export function ConfirmPhoneNumberStep({
             <View style={styles.errorIconContainer}>
               <X size={48} color="#EF4444" strokeWidth={3} />
             </View>
-            <Text style={styles.errorTitle}>Incorrect code entered</Text>
-            <Text style={styles.errorMessage}>
-              Please check the code and try again
+            <Text style={styles.errorTitle}>
+              {errorMessage && isVerificationNotStartedError(errorMessage)
+                ? "Verification not started"
+                : "Incorrect code entered"}
             </Text>
-            <TouchableOpacity
-              style={styles.errorButton}
-              onPress={handleCloseErrorModal}
-            >
-              <Text style={styles.errorButtonText}>Got it</Text>
-            </TouchableOpacity>
+            <Text style={styles.errorMessage}>
+              {errorMessage || "Please check the code and try again"}
+            </Text>
+            {errorMessage && isVerificationNotStartedError(errorMessage) ? (
+              <TouchableOpacity
+                style={styles.errorButton}
+                onPress={handleGoBackFromError}
+              >
+                <Text style={styles.errorButtonText}>Go back</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={styles.errorButton}
+                onPress={handleCloseErrorModal}
+              >
+                <Text style={styles.errorButtonText}>Got it</Text>
+              </TouchableOpacity>
+            )}
           </Animated.View>
         </Pressable>
       </Modal>

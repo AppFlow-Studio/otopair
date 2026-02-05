@@ -103,11 +103,12 @@ export function CarSelectionContent({ onClose, onAddVehicle }: CarSelectionConte
         </Text>
       </View>
 
-      {/* Scrollable list - minHeight: 0 so it doesn't push Confirm button off screen */}
+      {/* List: scrollable only when more than 5 cars (sheet height is capped at 5 visible) */}
       <ScrollView
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
-        showsVerticalScrollIndicator={false}
+        showsVerticalScrollIndicator={vehiclesList.length > 5}
+        scrollEnabled={vehiclesList.length > 5}
       >
         {vehiclesList.map((vehicle) => (
           <CarSelectionCard

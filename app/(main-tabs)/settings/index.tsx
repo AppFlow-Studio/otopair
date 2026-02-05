@@ -70,7 +70,14 @@ import * as LocalAuthentication from 'expo-local-authentication';
 import * as StoreReview from 'expo-store-review';
 
 import { BrandColors, Button, FeedbackModal, Text, ScrollDrivenGradientBackground } from '@/components/shared-ui';
+import { useAuth } from '@clerk/clerk-expo';
+import { useMutation, useQuery } from 'convex/react';
+import { api } from '@/convex/_generated/api';
+import { useAuthStore } from '@/stores/useAuthStore';
+import { useBookingStore } from '@/stores/useBookingStore';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
+import { usePaymentStore } from '@/stores/usePaymentStore';
+import { useVehicleStore } from '@/stores/useVehicleStore';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const MENU_WIDTH = 190;
@@ -113,6 +120,22 @@ export default function SettingsHomeScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const scrollY = useSharedValue(0);
+  const { signOut } = useAuth();
+  const resetAuth = useAuthStore((s) => s.reset);
+
+  // Convex: current user and user-scoped data
+  const me = useQuery(api.users.getMe);
+  const convexBookings = useQuery(
+    api.bookings.getByUserId,
+    me?._id != null ? { userId: me._id } : 'skip'
+  );
+  const updateConvexProfile = useMutation(api.users.updateProfile);
+
+  // Local stores (fallbacks and payment/vehicle counts)
+  const bookingIds = useBookingStore((s) => s.bookingIds);
+  const vehicleIds = useVehicleStore((s) => s.vehicleIds);
+  const paymentMethods = usePaymentStore((s) => s.paymentMethods);
+  const transactions = usePaymentStore((s) => s.transactions);
 
   const [nameWidth, setNameWidth] = useState(0);
   const [biometricLabel, setBiometricLabel] = useState('Biometric Login');
@@ -175,27 +198,44 @@ export default function SettingsHomeScreen() {
   );
 
   // ─────────────────────────────────────────────────────────────
-  // Computed Data
+  // Computed Data (Convex user first, then onboarding/store fallbacks)
   // ─────────────────────────────────────────────────────────────
   const fullName = useMemo(() => {
-    const name = `${data.firstName ?? ''} ${data.lastName ?? ''}`.trim();
-    return name.length > 0 ? name : 'John Doe';
-  }, [data.firstName, data.lastName]);
+    const fromConvex =
+      me != null && (me.first_name ?? me.last_name)
+        ? `${me.first_name ?? ''} ${me.last_name ?? ''}`.trim()
+        : '';
+    if (fromConvex.length > 0) return fromConvex;
+    const fromOnboarding = `${data.firstName ?? ''} ${data.lastName ?? ''}`.trim();
+    return fromOnboarding.length > 0 ? fromOnboarding : 'John Doe';
+  }, [me, data.firstName, data.lastName]);
 
   const initials = useMemo(() => {
-    const first = (data.firstName ?? '').trim();
-    const last = (data.lastName ?? '').trim();
+    const first =
+      (me != null ? (me.first_name ?? '') : (data.firstName ?? '')).trim();
+    const last =
+      (me != null ? (me.last_name ?? '') : (data.lastName ?? '')).trim();
     const a = first.length > 0 ? first[0] : '';
     const b = last.length > 0 ? last[0] : '';
     const value = `${a}${b}`.toUpperCase();
     return value.length > 0 ? value : 'AJ';
-  }, [data.firstName, data.lastName]);
+  }, [me, data.firstName, data.lastName]);
+
+  const profilePhotoUri = useMemo(() => {
+    if (me?.profile_photo_url) return me.profile_photo_url;
+    return data.profilePhotoUri ?? null;
+  }, [me?.profile_photo_url, data.profilePhotoUri]);
 
   const totalBookingsText = useMemo(() => {
+    if (typeof convexBookings === 'object' && Array.isArray(convexBookings)) {
+      return String(convexBookings.length);
+    }
+    const fromStore = Array.isArray(bookingIds) ? bookingIds.length : 0;
+    if (fromStore > 0) return String(fromStore);
     if (isCreateAccountComplete) return '12';
     const n = Number.isFinite(data.totalBookings) ? data.totalBookings : 0;
     return String(n);
-  }, [data.totalBookings, isCreateAccountComplete]);
+  }, [convexBookings, bookingIds, data.totalBookings, isCreateAccountComplete]);
 
   const pointsText = useMemo(() => {
     if (isCreateAccountComplete) return '1,240';
@@ -209,8 +249,13 @@ export default function SettingsHomeScreen() {
 
   const membershipTier = useMemo(() => {
     if (isCreateAccountComplete) return 'Gold';
-    return data.membershipTier ?? 'No';
+    const tier = data.membershipTier ?? 'No';
+    return tier === 'No' ? 'No Member' : tier;
   }, [data.membershipTier, isCreateAccountComplete]);
+
+  const vehicleCount = vehicleIds?.length ?? 0;
+  const paymentMethodCount = paymentMethods?.length ?? 0;
+  const transactionCount = transactions?.length ?? 0;
 
   // ─────────────────────────────────────────────────────────────
   // Animated Styles
@@ -348,14 +393,21 @@ export default function SettingsHomeScreen() {
     (ImagePicker as any).MediaType?.Images ?? ImagePicker.MediaTypeOptions.Images;
 
   const openEditProfile = useCallback(() => {
-    const name = `${data.firstName ?? ''} ${data.lastName ?? ''}`.trim();
+    const fromConvex =
+      me != null && (me.first_name ?? me.last_name)
+        ? `${me.first_name ?? ''} ${me.last_name ?? ''}`.trim()
+        : '';
+    const fromOnboarding = `${data.firstName ?? ''} ${data.lastName ?? ''}`.trim();
+    const name = fromConvex.length > 0 ? fromConvex : fromOnboarding;
+    const email = (me?.email ?? data.email ?? '').toString().toLowerCase();
+    const phone = (me?.phone ?? data.phoneNumber ?? '').toString();
     setEditName(name);
-    setEditEmail((data.email ?? '').toLowerCase());
-    setEditPhone(data.phoneNumber ?? '');
+    setEditEmail(email);
+    setEditPhone(phone);
     setIsEditVisible(true);
-  }, [data.email, data.firstName, data.lastName, data.phoneNumber]);
+  }, [me, data.email, data.firstName, data.lastName, data.phoneNumber]);
 
-  const handleSaveProfile = useCallback(() => {
+  const handleSaveProfile = useCallback(async () => {
     const normalizedName = editName.trim().replace(/\s+/g, ' ');
     const nameParts = normalizedName.length > 0 ? normalizedName.split(' ') : [];
     const firstName = nameParts.length > 0 ? nameParts[0] : null;
@@ -368,8 +420,20 @@ export default function SettingsHomeScreen() {
     const phoneNumber = normalizedPhone.length > 0 ? normalizedPhone : null;
 
     updateData({ firstName, lastName, email, phoneNumber });
+    if (me?._id != null) {
+      try {
+        await updateConvexProfile({
+          first_name: firstName ?? undefined,
+          last_name: lastName ?? undefined,
+          email: email ?? undefined,
+          phone: phoneNumber ?? undefined,
+        });
+      } catch (e) {
+        console.warn('Convex profile update failed:', e);
+      }
+    }
     setIsEditVisible(false);
-  }, [editEmail, editName, editPhone, updateData]);
+  }, [editEmail, editName, editPhone, me, updateData, updateConvexProfile]);
 
   const requestLibraryPermission = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -426,11 +490,17 @@ export default function SettingsHomeScreen() {
   const [isLogoutVisible, setIsLogoutVisible] = useState(false);
   const [isFeedbackVisible, setIsFeedbackVisible] = useState(false);
 
-  const handleConfirmLogout = useCallback(() => {
+  const handleConfirmLogout = useCallback(async () => {
     setIsLogoutVisible(false);
+    try {
+      await signOut();
+    } catch (e) {
+      console.error('Sign out error', e);
+    }
+    resetAuth();
     reset();
     router.replace('/(onboarding)');
-  }, [reset, router]);
+  }, [signOut, resetAuth, reset, router]);
 
   const handleRateUs = useCallback(async () => {
     try {
@@ -461,8 +531,8 @@ export default function SettingsHomeScreen() {
 
               {/* Transforming Avatar */}
               <Animated.View style={[styles.avatarWrapper, { top: insets.top + 20 }, avatarStyle]}>
-                {data.profilePhotoUri ? (
-                  <Image source={{ uri: data.profilePhotoUri }} style={styles.avatarImage} />
+                {profilePhotoUri ? (
+                  <Image source={{ uri: profilePhotoUri }} style={styles.avatarImage} />
                 ) : (
                   <View style={styles.avatarPlaceholder}>
                     <Text weight="semiBold" size="xl" color={BrandColors.secondary}>
@@ -526,7 +596,7 @@ export default function SettingsHomeScreen() {
                 </View>
 
                 <View style={styles.headerActions}>
-                  <Pressable onPress={() => console.log('View Loyalty')} style={styles.headerButtonPill}>
+                  <Pressable onPress={() => router.push('/membership')} style={styles.headerButtonPill}>
                     <Award size={20} color="#374151" />
                     <Text weight="medium" size="md" color="#374151">
                       View Loyalty
@@ -549,13 +619,13 @@ export default function SettingsHomeScreen() {
                   <View style={styles.sectionCard}>
                     <SettingsListItem
                       icon={<Car size={20} color="#1F2937" />}
-                      label="My Vehicles"
+                      label={vehicleCount > 0 ? `My Vehicles (${vehicleCount})` : 'My Vehicles'}
                       onPress={() => router.push('/cars')}
                     />
                     <SettingsListItem
                       icon={<Award size={20} color="#1F2937" />}
                       label="Loyalty & Rewards"
-                      onPress={() => console.log('Loyalty')}
+                      onPress={() => router.push('/membership')}
                     />
                     <SettingsListItem
                       icon={<UserPlus size={20} color="#1F2937" />}
@@ -564,12 +634,12 @@ export default function SettingsHomeScreen() {
                     />
                     <SettingsListItem
                       icon={<CreditCard size={20} color="#1F2937" />}
-                      label="Payment Methods"
+                      label={paymentMethodCount > 0 ? `Payment Methods (${paymentMethodCount})` : 'Payment Methods'}
                       onPress={() => router.push('/payments')}
                     />
                     <SettingsListItem
                       icon={<Receipt size={20} color="#1F2937" />}
-                      label="Transactions & Receipts"
+                      label={transactionCount > 0 ? `Transactions & Receipts (${transactionCount})` : 'Transactions & Receipts'}
                       onPress={() => router.push('/settings/transactions')}
                       isLast
                     />
@@ -698,7 +768,7 @@ export default function SettingsHomeScreen() {
                 <Text weight="semiBold" size="xl" color="#111827" style={styles.editModalTitle}>Edit Profile</Text>
                 <View style={styles.editAvatarRow}>
                   <Pressable style={styles.editAvatarWrapper} onPress={() => setIsPhotoModalVisible(true)}>
-                    {data.profilePhotoUri ? <Image source={{ uri: data.profilePhotoUri }} style={styles.editAvatarImage} /> : <View style={styles.editAvatarPlaceholder}><Text weight="semiBold" size="xl" color={BrandColors.secondary}>{initials}</Text></View>}
+                    {profilePhotoUri ? <Image source={{ uri: profilePhotoUri }} style={styles.editAvatarImage} /> : <View style={styles.editAvatarPlaceholder}><Text weight="semiBold" size="xl" color={BrandColors.secondary}>{initials}</Text></View>}
                     <View style={styles.cameraBadge}><Text weight="semiBold" size="sm" color="#FFF">+</Text></View>
                   </Pressable>
                 </View>
@@ -743,7 +813,7 @@ export default function SettingsHomeScreen() {
                   <Pressable style={styles.photoModalSecondaryButton} onPress={handleTakePhoto}>
                     <Text weight="semiBold" size="md" color="#111827">Take a photo</Text>
                   </Pressable>
-                  {data.profilePhotoUri ? (
+                  {profilePhotoUri ? (
                     <Pressable style={styles.photoModalRemoveButton} onPress={handleRemovePhoto}>
                       <Text weight="semiBold" size="md" color="#EF4444">Remove photo</Text>
                     </Pressable>
