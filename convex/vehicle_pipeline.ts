@@ -31,9 +31,7 @@ export const processVin = internalAction({
   handler: async (ctx, args) => {
     try {
       // ── Call NHTSA API ──
-      const response = await fetch(
-        `${NHTSA_API}/${args.vin}?format=json`
-      );
+      const response = await fetch(`${NHTSA_API}/${args.vin}?format=json`);
       const data = await response.json();
 
       // Check for errors — ErrorCode "0" means clean decode.
@@ -67,35 +65,23 @@ export const processVin = internalAction({
       }
 
       // ── Upsert database records: makes → models → trims → engines ──
-      const makeId = await ctx.runMutation(
-        internal.vehicle_mutations.upsertMake,
-        { name: extracted.make }
-      );
+      const makeId = await ctx.runMutation(internal.vehicle_mutations.upsertMake, { name: extracted.make });
 
-      const modelId = await ctx.runMutation(
-        internal.vehicle_mutations.upsertModel,
-        { makeId, name: extracted.model }
-      );
+      const modelId = await ctx.runMutation(internal.vehicle_mutations.upsertModel, { makeId, name: extracted.model });
 
-      const trimId = await ctx.runMutation(
-        internal.vehicle_mutations.upsertTrim,
-        {
-          modelId,
-          name: extracted.trim,
-          year: extracted.year,
-        }
-      );
+      const trimId = await ctx.runMutation(internal.vehicle_mutations.upsertTrim, {
+        modelId,
+        name: extracted.trim,
+        year: extracted.year,
+      });
 
-      const engineId = await ctx.runMutation(
-        internal.vehicle_mutations.upsertEngine,
-        {
-          trimId,
-          engineCode: extracted.engineCode,
-          cylinders: extracted.cylinders,
-          displacement: extracted.displacement,
-          fuelType: extracted.fuelType,
-        }
-      );
+      const engineId = await ctx.runMutation(internal.vehicle_mutations.upsertEngine, {
+        trimId,
+        engineCode: extracted.engineCode,
+        cylinders: extracted.cylinders,
+        displacement: extracted.displacement,
+        fuelType: extracted.fuelType,
+      });
 
       return {
         makeId,
@@ -152,14 +138,10 @@ export const enrichVehicleSpecs = internalAction({
     }
 
     // ── Re-enrichment guard ──
-    const existingSpecs = await ctx.runQuery(
-      internal.vehicle_mutations.getEngineSpecs,
-      { engineId: args.engineId }
-    );
-    const existingSvcSpecsCount = await ctx.runQuery(
-      internal.vehicle_mutations.getServiceVehicleSpecsCount,
-      { engineId: args.engineId }
-    );
+    const existingSpecs = await ctx.runQuery(internal.vehicle_mutations.getEngineSpecs, { engineId: args.engineId });
+    const existingSvcSpecsCount = await ctx.runQuery(internal.vehicle_mutations.getServiceVehicleSpecsCount, {
+      engineId: args.engineId,
+    });
 
     const needsBaseSpecs = !existingSpecs;
     const needsPricing = existingSvcSpecsCount === 0;
@@ -180,56 +162,66 @@ export const enrichVehicleSpecs = internalAction({
     // CLAUDE CALL #1 — Base specs (engine, vehicle, trim)
     // ============================================================
     if (needsBaseSpecs) {
-      const prompt = `You are an automotive parts specialist. I need accurate OEM specifications for a ${vehicleDesc}.
+      const specsPrompt = `You are an automotive OEM specifications extractor.
 
-Return ONLY a JSON object with no additional text. Every field must be filled — use "N/A" if truly unknown.
-
-{
-  "engine_specs": {
-    "oil_viscosity": "e.g. 0W-20",
-    "oil_capacity_qts": 5.0,
-    "oil_change_interval": "e.g. 5000 miles or 6 months",
-    "coolant_type": "e.g. Toyota Super Long Life Coolant",
-    "coolant_capacity_qts": 6.0,
-    "brake_fluid_type": "e.g. DOT 3",
-    "tire_rotation_interval": "e.g. 5000 miles",
-    "spark_plug_interval": "e.g. 60000 miles",
-    "serpentine_belt_interval": "e.g. 60000 miles",
-    "transmission_fluid_interval": "e.g. 60000 miles",
-    "engine_air_filter_interval": "e.g. 30000 miles",
-    "cabin_air_filter_interval": "e.g. 15000 miles"
-  },
-  "vehicle_specs": {
-    "oil_filter_oem": "e.g. 04152-YZZA1",
-    "oil_drain_plug_gasket_oem": "e.g. 90430-12031",
-    "engine_air_filter_oem": "e.g. 17801-YZZ05",
-    "cabin_air_filter_oem": "e.g. 87139-YZZ10",
-    "front_brake_pad_oem": "e.g. 04465-33471",
-    "rear_brake_pad_oem": "e.g. 04466-33210",
-    "front_brake_rotor_oem": "e.g. 43512-33130",
-    "rear_brake_rotor_oem": "e.g. 42431-33130",
-    "spark_plug_oem": "e.g. 90919-01253",
-    "spark_plug_quantity": 4,
-    "spark_plug_gap_mm": 1.1,
-    "serpentine_belt_oem": "e.g. 90916-02705",
-    "battery_group": "e.g. 35",
-    "battery_cca": 550,
-    "oil_viscosity": "e.g. 0W-20",
-    "oil_capacity_qts": "5.0",
-    "parking_brake_type": "e.g. drum-in-disc"
-  },
-  "trim_specs": {
-    "tire_size_front": "e.g. 215/55R17",
-    "tire_size_rear": "e.g. 215/55R17",
-    "recommended_tire_pressure_front_psi": 35,
-    "recommended_tire_pressure_rear_psi": 35,
-    "lug_nut_torque_ft_lbs": 76,
-    "wiper_blade_driver_size_in": 26,
-    "wiper_blade_passenger_size_in": 16,
-    "parking_brake_type": "e.g. drum-in-disc"
-  },
-  "confidence_score": 0.85
-}`;
+      Vehicle: ${vehicleDesc}
+      
+      Goal: Fill the JSON template EXACTLY. Output ONLY valid JSON (no markdown, no comments).
+      Rules:
+      - Every field MUST be present.
+      - Use "N/A" only if truly unknown after best effort.
+      - Do NOT invent OEM part numbers. If unsure, put "N/A" and lower confidence_score.
+      - Prefer values that are specific to: exact year/trim/engine code > same engine code > same model/gen > generic.
+      - confidence_score: 0.90+ verified exact match, 0.70-0.89 strong match (same engine code/platform), 0.50-0.69 partial/estimated, <0.50 mostly unknown.
+      
+      Return this JSON shape:
+      
+      {
+        "engine_specs": {
+          "oil_viscosity": "",
+          "oil_capacity_qts": 0,
+          "oil_change_interval": "",
+          "coolant_type": "",
+          "coolant_capacity_qts": 0,
+          "brake_fluid_type": "",
+          "tire_rotation_interval": "",
+          "spark_plug_interval": "",
+          "serpentine_belt_interval": "",
+          "transmission_fluid_interval": "",
+          "engine_air_filter_interval": "",
+          "cabin_air_filter_interval": ""
+        },
+        "vehicle_specs": {
+          "oil_filter_oem": "",
+          "oil_drain_plug_gasket_oem": "",
+          "engine_air_filter_oem": "",
+          "cabin_air_filter_oem": "",
+          "front_brake_pad_oem": "",
+          "rear_brake_pad_oem": "",
+          "front_brake_rotor_oem": "",
+          "rear_brake_rotor_oem": "",
+          "spark_plug_oem": "",
+          "spark_plug_quantity": 0,
+          "spark_plug_gap_mm": 0,
+          "serpentine_belt_oem": "",
+          "battery_group": "",
+          "battery_cca": 0,
+          "oil_viscosity": "",
+          "oil_capacity_qts": 0,
+          "parking_brake_type": ""
+        },
+        "trim_specs": {
+          "tire_size_front": "",
+          "tire_size_rear": "",
+          "recommended_tire_pressure_front_psi": 0,
+          "recommended_tire_pressure_rear_psi": 0,
+          "lug_nut_torque_ft_lbs": 0,
+          "wiper_blade_driver_size_in": 0,
+          "wiper_blade_passenger_size_in": 0,
+          "parking_brake_type": ""
+        },
+        "confidence_score": 0
+      }`;
 
       try {
         const response = await fetch("https://api.anthropic.com/v1/messages", {
@@ -240,14 +232,17 @@ Return ONLY a JSON object with no additional text. Every field must be filled �
             "anthropic-version": "2023-06-01",
           },
           body: JSON.stringify({
-            model: "claude-sonnet-4-5",
-            messages: [{ role: "user", content: prompt }],
+            model: "claude-sonnet-4-5-20250929",
+            messages: [{ role: "user", content: specsPrompt }],
             max_tokens: 50000,
-            tools: [{
-              type: "web_search_20250305",
-              name: "web_search",
-              max_uses: 5,
-            }],
+            temperature: 0.1,
+            tools: [
+              {
+                type: "web_search_20250305",
+                name: "web_search",
+                max_uses: 5,
+              },
+            ],
           }),
         });
 
@@ -283,10 +278,7 @@ Return ONLY a JSON object with no additional text. Every field must be filled �
 
         // ── Store trim_specs ──
         if (specs.trim_specs) {
-          const engine = await ctx.runQuery(
-            internal.vehicle_mutations.getEngine,
-            { engineId: args.engineId }
-          );
+          const engine = await ctx.runQuery(internal.vehicle_mutations.getEngine, { engineId: args.engineId });
           if (engine) {
             await ctx.runMutation(internal.vehicle_mutations.storeTrimSpecs, {
               trimId: engine.trim_id,
@@ -303,9 +295,7 @@ Return ONLY a JSON object with no additional text. Every field must be filled �
           source: "claude-sonnet",
         });
 
-        console.log(
-          `Enriched specs for ${vehicleDesc} (confidence: ${confidenceScore})`
-        );
+        console.log(`Enriched specs for ${vehicleDesc} (confidence: ${confidenceScore})`);
       } catch (error) {
         console.error("AI enrichment error (base specs):", error);
         await ctx.runMutation(internal.vehicle_mutations.logEnrichment, {
@@ -329,10 +319,7 @@ Return ONLY a JSON object with no additional text. Every field must be filled �
     if (needsPricing) {
       try {
         // Fetch all services
-        const services = await ctx.runQuery(
-          internal.vehicle_mutations.listAllServices,
-          {}
-        );
+        const services = await ctx.runQuery(internal.vehicle_mutations.listAllServices, {});
 
         if (!services || services.length === 0) {
           console.log("No services found — skipping pricing enrichment");
@@ -343,72 +330,119 @@ Return ONLY a JSON object with no additional text. Every field must be filled �
         const serviceList = services
           .map(
             (s: any) =>
-              `- "${s.name}" (slug: ${s.slug}, default_labor: ${s.default_labor_hours}h, labor_only: ${s.is_labor_only})`
+              `- "${s.name}" (slug: ${s.slug}, default_labor: ${s.default_labor_hours}h, labor_only: ${s.is_labor_only})`,
           )
           .join("\n");
 
-        const pricingPrompt = `You are an automotive service pricing specialist. I need accurate labor hours and parts cost estimates for servicing a ${vehicleDesc}.
+        const pricingPrompt = `You are an automotive service pricing specialist.
 
-Vehicle specs already known:
-- Oil: ${oilViscosity}, ${oilCapacityQts} qts
-- Engine: ${args.displacement}L ${args.cylinders}-cyl ${args.fuelType}
+          Vehicle: ${vehicleDesc}
+          
+          Known specs (use these):
+          - Oil viscosity: ${oilViscosity}
+          - Oil capacity (qts): ${oilCapacityQts}
+          - Engine: ${args.displacement}L ${args.cylinders}-cyl ${args.fuelType}
+          - Engine code: ${args.engineCode}
+          
+          Services to price (include ALL of them):
+          ${serviceList}
+          
+          GOAL
+          For EACH service slug, return labor_hours and parts_cost_low/high for THIS vehicle.
+          Use web research. Prefer primary/commercial sources over opinions.
+          
+          ALLOWED SOURCE TYPES
+          - Dealer parts sites / OEM parts catalogs (pricing references)
+          - Major parts retailers (pricing references)
+          - Reputable shop menus/quotes/estimates (labor references)
+          - Publicly visible labor-time references (if available)
+          
+          NOT ALLOWED
+          - RepairPal
+          - Forums as a primary source (forums may only sanity-check; never “verify”)
+          
+          CRITICAL RULES
+          1) LABOR-ONLY services: parts_cost_low=0, parts_cost_high=0, parts_list=[]
+          2) Do NOT invent OEM part numbers. If unconfirmed, omit part numbers.
+          3) If exact trim data is missing, use the fallback ladder and widen ranges.
+          
+          FALLBACK LADDER
+          1) Exact vehicle/trim
+          2) Same generation/platform
+          3) Same engine code (M176) in closest Mercedes model
+          4) Generic luxury performance car estimate
+          When using fallback, widen ranges and state fallback in tech_notes.
+          
+          PER-SERVICE LIMITS (must follow)
+          - tech_notes: max 120 characters
+          - sources: max 2 items
+          - parts_list: max 4 items
+          
+          CONFIDENCE SCORING (evidence-based)
+          - 0.90+ = labor AND parts both supported by sources (2 sources total is fine)
+          - 0.70–0.89 = one of labor/parts supported, other inferred via fallback ladder
+          - <=0.69 = mostly inferred/estimated (must say why in tech_notes)
+          
+          EXAMPLE FORMAT (placeholders only; do not reuse values)
+          [
+            {
+              "slug": "oil-change",
+              "labor_hours": 0,
+              "parts_cost_low": 0,
+              "parts_cost_high": 0,
+              "confidence_score": 0,
+              "parts_list": [
+                { "item": "engine oil", "qty": 0, "price_low": 0, "price_high": 0 },
+                { "item": "oil filter", "qty": 0, "price_low": 0, "price_high": 0 }
+              ],
+              "tech_notes": "",
+              "sources": []
+            }
+          ]
+          
+          RETURN ONLY valid JSON array (no extra text). Each element MUST include EXACT fields:
+          [
+            {
+              "slug": string,
+              "labor_hours": number,
+              "parts_cost_low": number,
+              "parts_cost_high": number,
+              "confidence_score": number,
+              "parts_list": Array<{ "item": string, "qty": number, "price_low": number, "price_high": number }>,
+              "tech_notes": string,
+              "sources": string[]
+            }
+          ]`;
 
-Services to price:
-${serviceList}
-
-Use web search to find real-world parts pricing and labor times for this SPECIFIC vehicle. Check auto parts retailers for parts pricing and RepairPal/mechanic forums for labor times.
-
-Return ONLY a JSON array:
-[
-  {
-    "slug": "oil-change",
-    "labor_hours": 0.5,
-    "parts_cost_low": 35.00,
-    "parts_cost_high": 55.00,
-    "confidence_score": 0.9,
-    "tech_notes": "Uses 0W-20 synthetic. OEM filter ..."
-  }
-]
-
-Rules:
-- Include ALL services listed above. For labor_only services: parts_cost_low and parts_cost_high must be 0.
-- Reflect THIS vehicle's real-world pricing, not generic defaults.
-- confidence_score: 0.6 if estimating, 0.9+ if verified via web search.`;
-
-        const pricingResponse = await fetch(
-          "https://api.anthropic.com/v1/messages",
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "x-api-key": anthropicKey,
-              "anthropic-version": "2023-06-01",
-            },
-            body: JSON.stringify({
-              model: "claude-sonnet-4-20250514",
-              max_tokens: 3000,
-              messages: [{ role: "user", content: pricingPrompt }],
-              tools: [{
+        const pricingResponse = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": anthropicKey,
+            "anthropic-version": "2023-06-01",
+          },
+          body: JSON.stringify({
+            model: "claude-sonnet-4-5-20250929",
+            max_tokens: 16000,
+            temperature: 0.1,
+            messages: [{ role: "user", content: pricingPrompt }],
+            tools: [
+              {
                 type: "web_search_20250305",
                 name: "web_search",
                 max_uses: 5,
-              }],
-            }),
-          }
-        );
+              },
+            ],
+          }),
+        });
 
         if (!pricingResponse.ok) {
-          console.error(
-            "Claude API error (pricing):",
-            await pricingResponse.text()
-          );
+          console.error("Claude API error (pricing):", await pricingResponse.text());
           return;
         }
 
         const pricingResult = await pricingResponse.json();
-        const pricingData: any[] = extractJsonFromContentBlocks(
-          pricingResult.content || []
-        );
+        const pricingData: any[] = extractJsonFromContentBlocks(pricingResult.content || []);
 
         // Build slug → service ID map
         const slugToService = new Map<string, any>();
@@ -430,39 +464,31 @@ Rules:
           const itemConfidence = parseFloat(item.confidence_score) || 0.6;
           const techNotes = item.tech_notes || "";
 
-          await ctx.runMutation(
-            internal.vehicle_mutations.upsertServiceVehicleSpec,
-            {
-              engineId: args.engineId,
-              serviceId: svc._id,
-              laborHours,
-              partsCostLow,
-              partsCostHigh,
-              confidenceScore: itemConfidence,
-              techNotes,
-            }
-          );
+          await ctx.runMutation(internal.vehicle_mutations.upsertServiceVehicleSpec, {
+            engineId: args.engineId,
+            serviceId: svc._id,
+            laborHours,
+            partsCostLow,
+            partsCostHigh,
+            confidenceScore: itemConfidence,
+            techNotes,
+          });
 
-          await ctx.runMutation(
-            internal.vehicle_mutations.logServiceEnrichment,
-            {
-              engineId: args.engineId,
-              serviceId: svc._id,
-              source: "claude-sonnet-pricing",
-              confidenceScore: itemConfidence,
-              enrichedData: {
-                labor_hours: laborHours,
-                parts_cost_low: partsCostLow,
-                parts_cost_high: partsCostHigh,
-                tech_notes: techNotes,
-              },
-            }
-          );
+          await ctx.runMutation(internal.vehicle_mutations.logServiceEnrichment, {
+            engineId: args.engineId,
+            serviceId: svc._id,
+            source: "claude-sonnet-pricing",
+            confidenceScore: itemConfidence,
+            enrichedData: {
+              labor_hours: laborHours,
+              parts_cost_low: partsCostLow,
+              parts_cost_high: partsCostHigh,
+              tech_notes: techNotes,
+            },
+          });
         }
 
-        console.log(
-          `Enriched service pricing for ${vehicleDesc} (${pricingData.length} services)`
-        );
+        console.log(`Enriched service pricing for ${vehicleDesc} (${pricingData.length} services)`);
       } catch (error) {
         console.error("AI enrichment error (pricing):", error);
         // Pricing failure does not lose base specs — they were already stored
