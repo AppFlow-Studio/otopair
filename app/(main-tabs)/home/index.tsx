@@ -132,21 +132,21 @@ export default function HomeScreen() {
   };
 
   // Welcome screen - shows on app open
-  if (showWelcome) {
-    return (
-      <View style={styles.welcomeContainer}>
-        <View style={styles.welcomeContent}>
-          <OtoPairIcon />
-          <Text weight="semiBold" size="2xl" style={styles.welcomeTitle}>
-            Otopair
-          </Text>
-          <Button variant="secondary" onPress={() => setShowWelcome(false)}>
-            Let's Check Your Car Now <MoveRight size={16} color="#fff" />
-          </Button>
-        </View>
-      </View>
-    );
-  }
+  // if (showWelcome) {
+  //   return (
+  //     <View style={styles.welcomeContainer}>
+  //       <View style={styles.welcomeContent}>
+  //         <OtoPairIcon />
+  //         <Text weight="semiBold" size="2xl" style={styles.welcomeTitle}>
+  //           Otopair
+  //         </Text>
+  //         <Button variant="secondary" onPress={() => setShowWelcome(false)}>
+  //           Let's Check Your Car Now <MoveRight size={16} color="#fff" />
+  //         </Button>
+  //       </View>
+  //     </View>
+  //   );
+  // }
 
   return (
     <ScrollDrivenGradientBackground colors={['#5BA3D9', '#8FC4E8', '#d9e8f5']}>

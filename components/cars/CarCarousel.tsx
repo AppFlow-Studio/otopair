@@ -49,6 +49,7 @@ import { Text } from '@/components/shared-ui';
 
 // 4. Constants
 import { BrandColors, Colors, Spacing } from '@/constants/theme';
+import { router } from 'expo-router';
 
 // ============================================================================
 // TYPES
@@ -1717,7 +1718,9 @@ export function CarCarousel({
             );
           })}
           
-          <Pressable style={styles.addCarButton}>
+          <Pressable style={styles.addCarButton}
+          onPress={() => router.push('/add-vehicle')}
+          >
             <Plus size={18} color="#000000" />
           </Pressable>
         </View>

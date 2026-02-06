@@ -921,6 +921,8 @@ export default defineSchema({
     phoneVerified: v.optional(v.boolean()),
     profile_photo_url: v.optional(v.string()),
     tellUsAboutCompleted: v.optional(v.boolean()),
+    user_intentions: v.optional(v.array(v.string())),
+    username: v.optional(v.string()),
   }).index("by_clerkUserId", ["clerkUserId"]),
 
   // ============================================================================
