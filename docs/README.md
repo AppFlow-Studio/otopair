@@ -2,6 +2,8 @@
 
 **Reference:** [REFERENCE.md](./REFERENCE.md) — database schema (46 tables), access layers, API surface, implementation status, and code examples. Includes **Live Tracker** (bookings.live_stage, getByUserIdWithDetails, updateLiveStage), **mechanics.photo** → cdn_assets, and **seed** (seedPastBookingsForJohnDoe, seedLiveBookingForJohnDoe).
 
+**Add Vehicle Pipeline:** [ADD_VEHICLE_PIPELINE.md](./ADD_VEHICLE_PIPELINE.md) — NHTSA VIN decode, Smartcar OAuth, and Anthropic Claude AI enrichment. Documents how adding a car populates makes/models/trims/engines, engine_specs, vehicle_specs, trim_specs, and service_vehicle_specs.
+
 **Checklist:** [CHECKLIST.md](./CHECKLIST.md) — what's done, half-implemented, and not implemented (backend, add vehicle, booking flow).
 
 **Booking Integration:** [BOOKING_INTEGRATION.md](./BOOKING_INTEGRATION.md) — Convex + store integration for booking flow, search, shop details, time slots. **§4 My Bookings & Live Tracker** — useMyBookingsWithDetails, live_stage, updateLiveStage, adapter stagesFromLiveStage, seed for John Doe.
@@ -9,6 +11,8 @@
 **Diagrams:** [diagrams.md](./diagrams.md) — high-level and per-part database diagrams (Mermaid).
 
 **Merge strategy (daniel-dev):** [MERGE_DANIEL_DEV.md](./MERGE_DANIEL_DEV.md) — how to merge `daniel-dev` into `waleedcodespace` while keeping our Convex backend; file rules, step-by-step, schema adaptation for additive onboarding Convex files, and copy-paste commands.
+
+**Onboarding Q&A:** [ONBOARDING_QA.md](./ONBOARDING_QA.md) — unified onboarding Q&A table (`onboarding_questions_answers`), questions-and-answers JSON, `last_updated`, and Convex/frontend usage. **Finish setup card:** REFERENCE.md § Finish setup card (home) — step completion (Create Account, About You, Add Car, Payments) from Convex (`users.onboardingCompleted`, `users.tellUsAboutCompleted`, `vehicle_owners.getActiveByUser`).
 
 **Auth & session:** [AUTH_SESSION.md](./AUTH_SESSION.md) — Clerk + Convex auth, session persistence (expo-secure-store), redirect-to-home when already signed in, and troubleshooting the transient “Not authenticated” Convex error.
 

@@ -3,6 +3,11 @@ import { api } from "@/convex/_generated/api";
 import { useAuth } from "@clerk/clerk-expo";
 import { useCallback } from "react";
 
+export type PersistProfileOptions = {
+  /** When true, attempt Convex persistence even if Clerk isSignedIn is still false (e.g. right after setActive). Use after phone/email verification. */
+  skipSignedInCheck?: boolean;
+};
+
 /**
  * Bridge between Zustand and Convex for persisting onboarding profile data.
  * Retries with exponential backoff to handle JWT propagation delays.
@@ -12,8 +17,9 @@ export function useOnboardingPersistence() {
   const updateProfile = useMutation(api.users.updateProfile);
 
   const persistProfileField = useCallback(
-    async (fields: Record<string, any>) => {
-      if (!isSignedIn) {
+    async (fields: Record<string, any>, options?: PersistProfileOptions) => {
+      const skipCheck = options?.skipSignedInCheck === true;
+      if (!skipCheck && !isSignedIn) {
         console.log("Not signed in, skipping persistence");
         return;
       }

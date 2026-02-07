@@ -65,7 +65,7 @@ export function MaintenanceApproachStepLevel3({ onNext, onBack, progress }: Main
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
-    const { answers, saveAnswer } = useOnboardingQuestion('maintenanceApproachLevel3');
+    const { saveQuestionAnswer } = useOnboardingQuestion('maintenanceApproachLevel3');
 
     const [selectedApproach, setSelectedApproach] = useState<string | null>(
         data.maintenanceApproachLevel3 ?? null
@@ -88,8 +88,9 @@ export function MaintenanceApproachStepLevel3({ onNext, onBack, progress }: Main
 
     const handleContinue = () => {
         if (selectedApproach) {
-            const selectedAnswer = answers.find(a => selectedApproach === `${a.emoji} ${a.answer_text}`);
-            saveAnswer({ answerId: selectedAnswer?._id });
+            const label = APPROACH_OPTIONS.find(o => `${o.emoji} ${o.label}` === selectedApproach)?.label ?? selectedApproach;
+            const questionText = 'How do you approach car maintenance?';
+            saveQuestionAnswer(questionText, label);
             onNext();
         }
     };

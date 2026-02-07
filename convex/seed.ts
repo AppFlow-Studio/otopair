@@ -13,6 +13,7 @@ const TABLES_TO_CLEAR = [
   "payment_status_history",
   "job_actuals",
   "reviews",
+  "transactions",
   "payments",
   "follow_ups",
   "bookings",
@@ -52,9 +53,7 @@ const TABLES_TO_CLEAR = [
   "makes",
   "vehicle_owners",
   "vehicles",
-  "user_question_answers",
-  "onboarding_question_answers",
-  "onboarding_questions",
+  "onboarding_questions_answers",
   "users",
 ];
 
@@ -88,11 +87,11 @@ export const seedUserAndVehicle = mutation({
       clerkUserId: SEED_DEMO_CLERK_USER_ID,
       onboardingCompleted: true,
       createdAt: Date.now(),
+      lastUpdated: Date.now(),
       email: "demo@otopair.com",
       phone: "(512) 555-9999",
       first_name: "Alex",
       last_name: "Rivera",
-      created_at: new Date().toISOString(),
     });
 
     // 2018 Toyota Camry LE
@@ -160,7 +159,7 @@ export const claimSeedDataForCurrentUser = mutation({
         | "bookings"
         | "payments"
         | "reviews"
-        | "user_question_answers"
+        | "onboarding_questions_answers"
         | "follow_ups"
         | "ai_conversations"
         | "conversion_funnels"
@@ -175,7 +174,7 @@ export const claimSeedDataForCurrentUser = mutation({
     await reassign("bookings");
     await reassign("payments");
     await reassign("reviews");
-    await reassign("user_question_answers");
+    await reassign("onboarding_questions_answers");
     await reassign("follow_ups");
     await reassign("ai_conversations");
     await reassign("conversion_funnels");
@@ -752,22 +751,22 @@ export const seed = mutation({
       clerkUserId: SEED_DEMO_CLERK_USER_ID,
       onboardingCompleted: true,
       createdAt: Date.now(),
+      lastUpdated: Date.now(),
       email: "demo@otopair.com",
       phone: "(512) 555-9999",
       first_name: "Alex",
       last_name: "Demo",
-      created_at: new Date().toISOString(),
     });
 
     const user2Id = await ctx.db.insert("users", {
       clerkUserId: "seed-demo-user-3",
       onboardingCompleted: true,
       createdAt: Date.now(),
+      lastUpdated: Date.now(),
       email: "jordan@otopair.com",
       phone: "(512) 555-1111",
       first_name: "Jordan",
       last_name: "Lee",
-      created_at: new Date().toISOString(),
     });
 
     // --- Vehicles (canonical VINs) ---
@@ -825,29 +824,13 @@ export const seed = mutation({
       added_at: now,
     });
 
-    // --- Onboarding Questions + Answers ---
-    const q1Id = await ctx.db.insert("onboarding_questions", {
-      question_text: "How often do you service your car?",
-      question_type: "single_select",
-      display_order: 1,
-      rank: 1,
-      step_name: "maintenance",
-      is_active: true,
-    });
-
-    const a1Id = await ctx.db.insert("onboarding_question_answers", {
-      question_id: q1Id,
-      answer_text: "Every 3 months",
-      answer_value: "quarterly",
-      display_order: 1,
-      emoji: "🛠️",
-    });
-
-    await ctx.db.insert("user_question_answers", {
+    // --- Onboarding Q&A (unified table) ---
+    await ctx.db.insert("onboarding_questions_answers", {
       user_id: userId,
-      question_id: q1Id,
-      answer_id: a1Id,
-      answered_at: now,
+      questions_and_answers: [
+        { question: "How often do you service your car?", answer: "Every 3 months" },
+      ],
+      last_updated: now,
     });
 
     // --- Booking + Payment + Status History ---
@@ -1667,6 +1650,21 @@ export const seedPastBookingsForJohnDoe = mutation({
         changed_at: createdAt,
       });
 
+      await ctx.db.insert("transactions", {
+        user_id: user._id,
+        created_at: createdAt,
+        description: shop.name,
+        sub_description: `${service.name}`,
+        amount: -totalCost,
+        currency: "USD",
+        status: "completed",
+        transaction_type: "charge",
+        shop_id: shop._id,
+        booking_id: bookingId,
+        payment_id: paymentId,
+        icon_type: "wrench",
+      });
+
       const completedAt = createdAt + 45 * 60 * 1000;
       await ctx.db.insert("job_actuals", {
         booking_id: bookingId,
@@ -1809,7 +1807,7 @@ export const seedLiveBookingForJohnDoe = mutation({
       technician_notes: "Service in progress.",
     });
 
-    await ctx.db.insert("payments", {
+    const paymentId = await ctx.db.insert("payments", {
       booking_id: bookingId,
       user_id: user._id,
       shop_id: shop._id,
@@ -1823,6 +1821,83 @@ export const seedLiveBookingForJohnDoe = mutation({
       updated_at: now,
     });
 
+    await ctx.db.insert("transactions", {
+      user_id: user._id,
+      created_at: now,
+      description: shop.name,
+      sub_description: oilChange.name,
+      amount: -totalCost,
+      currency: "USD",
+      status: "completed",
+      transaction_type: "charge",
+      shop_id: shop._id,
+      booking_id: bookingId,
+      payment_id: paymentId,
+      icon_type: "wrench",
+    });
+
     return { success: true, bookingId };
+  },
+});
+
+/**
+ * Seeds extra transactions for John Doe (credits, subscription, fuel) so the
+ * Transactions screen shows variety. Run after seedPastBookingsForJohnDoe.
+ * npx convex run seed:seedTransactionsForJohnDoe
+ */
+export const seedTransactionsForJohnDoe = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", JOHN_DOE_CLERK_USER_ID))
+      .unique();
+    if (!user) {
+      throw new Error(
+        `User with clerkUserId ${JOHN_DOE_CLERK_USER_ID} (John Doe) not found. Ensure the account exists.`,
+      );
+    }
+
+    const now = Date.now();
+    const yesterday = now - 24 * 60 * 60 * 1000;
+    const twoDaysAgo = now - 2 * 24 * 60 * 60 * 1000;
+
+    await ctx.db.insert("transactions", {
+      user_id: user._id,
+      created_at: yesterday,
+      description: "Ownership credits",
+      sub_description: "Referral reward",
+      amount: 100,
+      currency: "USD",
+      status: "completed",
+      transaction_type: "credit",
+      icon_type: "leaf",
+    });
+
+    await ctx.db.insert("transactions", {
+      user_id: user._id,
+      created_at: twoDaysAgo,
+      description: "Shell Station",
+      sub_description: "Fuel",
+      amount: -45,
+      currency: "USD",
+      status: "completed",
+      transaction_type: "charge",
+      icon_type: "fuel",
+    });
+
+    await ctx.db.insert("transactions", {
+      user_id: user._id,
+      created_at: twoDaysAgo - 60 * 60 * 1000,
+      description: "Otopair Premium",
+      sub_description: "Monthly Subscription",
+      amount: -12.99,
+      currency: "USD",
+      status: "completed",
+      transaction_type: "charge",
+      icon_type: "card",
+    });
+
+    return { success: true, transactionsCreated: 3 };
   },
 });

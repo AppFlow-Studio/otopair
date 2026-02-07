@@ -41,40 +41,6 @@ export interface Vehicle {
 }
 
 // ─────────────────────────────────────────────────────────────
-// MOCK DATA
-// ─────────────────────────────────────────────────────────────
-
-const MOCK_VEHICLES: Vehicle[] = [
-  {
-    id: "vehicle-1",
-    year: 2022,
-    make: "Toyota",
-    model: "Camry",
-    vin: "1HGBH41JXMN109186",
-    mileage: 24500,
-    isDefault: true,
-  },
-  {
-    id: "vehicle-2",
-    year: 2021,
-    make: "BMW",
-    model: "3 Series",
-    vin: "WBA8E9C50GK123456",
-    mileage: 18200,
-    isDefault: false,
-  },
-  {
-    id: "vehicle-3",
-    year: 2020,
-    make: "Honda",
-    model: "Civic",
-    vin: "2HGFC2F59LH567890",
-    mileage: 35800,
-    isDefault: false,
-  },
-];
-
-// ─────────────────────────────────────────────────────────────
 // STORE STATE INTERFACE
 // ─────────────────────────────────────────────────────────────
 
@@ -98,7 +64,7 @@ interface VehicleState {
   getAllVehicles: () => Vehicle[];
   /** Set a vehicle as default */
   setDefaultVehicle: (vehicleId: string) => void;
-  /** Hydrate store from Convex vehicle ownership data (replaces mock when present) */
+  /** Hydrate store from Convex vehicle ownership data (user's registered vehicles) */
   setVehiclesFromConvex: (data: ConvexVehicleOwnership[]) => void;
 }
 
@@ -112,21 +78,14 @@ interface ConvexVehicleOwnership {
 // ─────────────────────────────────────────────────────────────
 // STORE IMPLEMENTATION
 // ─────────────────────────────────────────────────────────────
-
-// Initialize vehicles record from mock data
-const initialVehicles: Record<string, Vehicle> = {};
-MOCK_VEHICLES.forEach((vehicle) => {
-  initialVehicles[vehicle.id] = vehicle;
-});
-
-// Find default vehicle
-const defaultVehicle = MOCK_VEHICLES.find((v) => v.isDefault);
+// Initial state is empty; vehicles come from Convex via setVehiclesFromConvex
+// (useVehicleOwnershipFromConvex in main tabs layout).
 
 export const useVehicleStore = create<VehicleState>()((set, get) => ({
   // ═══════════════ INITIAL STATE ═══════════════
-  vehicles: initialVehicles,
-  vehicleIds: MOCK_VEHICLES.map((v) => v.id),
-  selectedVehicleId: defaultVehicle?.id ?? MOCK_VEHICLES[0]?.id ?? null,
+  vehicles: {},
+  vehicleIds: [],
+  selectedVehicleId: null,
 
   // ═══════════════ ACTIONS ═══════════════
   selectVehicle: (vehicleId) => {

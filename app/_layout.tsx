@@ -145,6 +145,7 @@ export default function RootLayout() {
                 <Stack.Screen name="add-car-info" options={{ headerShown: false }} />
                 <Stack.Screen name="vehicle-added" options={{ headerShown: false }} />
                 <Stack.Screen name="vin-scanner" options={{ headerShown: false }} />
+                <Stack.Screen name="add-vehicle-review" options={{ headerShown: false }} />
                 <Stack.Screen name="payments" options={{ headerShown: false }} />
                 <Stack.Screen name="add-payment" options={{ headerShown: false }} />
                 {/* <Stack.Screen name="payment-methods" options={{ headerShown: false }} /> */}

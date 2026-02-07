@@ -18,7 +18,7 @@
  *   - Has-many: vehicle_owners (via user_id)
  *   - Has-many: reviews (via user_id)
  *   - Has-many: ai_conversations (via user_id)
- *   - Has-many: user_question_answers (via user_id)
+ *   - Has-many: onboarding_questions_answers (via user_id)
  *   - Has-many: analytics_events (via user_id)
  *
  * USE CASES:
@@ -80,12 +80,9 @@ export const getMe = query({
  *     phone: string,
  *     first_name: string,
  *     last_name: string,
- *     username: string,
  *     profile_photo_url: string,
- *     car_knowledge_level: number (1-5),
  *     onboardingCompleted: boolean,
  *     tellUsAboutCompleted: boolean,
- *     user_intentions: string[],
  *     ... other fields
  *   }
  */
@@ -99,20 +96,14 @@ export const getById = query({
 /**
  * MUTATION: getOrCreateMe
  * Get current authenticated user or create if doesn't exist.
- * Called on app startup to initialize user account.
+ * Called on app startup and after login to initialize/sync user account.
+ *
+ * Pulls profile data from the Clerk identity token so the Convex
+ * record stays in sync with Clerk (email, name, picture, verification).
  *
  * VALIDATION:
  *   - Must be authenticated via Clerk
  *   - Uses identity.subject (clerkUserId) for lookup
- *
- * RETURNS:
- *   {
- *     _id: user id,
- *     clerkUserId: string,
- *     onboardingCompleted: false,
- *     createdAt: timestamp,
- *     ... other fields
- *   }
  *
  * THROWS:
  *   - "Not authenticated": If no auth identity found
@@ -126,18 +117,46 @@ export const getOrCreateMe = mutation({
     }
 
     const clerkUserId = identity.subject;
-
+    console.log("clerkUserId", clerkUserId);
     const existing = await ctx.db
       .query("users")
       .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", clerkUserId))
       .unique();
 
     if (existing) {
+      // Sync key fields from Clerk on every login so Convex stays current
+      const updates: Record<string, any> = {};
+      if (identity.email && existing.email !== identity.email) {
+        updates.email = identity.email;
+      }
+      if (identity.emailVerified !== undefined && existing.emailConfirmed !== identity.emailVerified) {
+        updates.emailConfirmed = identity.emailVerified;
+      }
+      if (identity.givenName && !existing.first_name) {
+        updates.first_name = identity.givenName;
+      }
+      if (identity.familyName && !existing.last_name) {
+        updates.last_name = identity.familyName;
+      }
+      if (identity.pictureUrl && !existing.profile_photo_url) {
+        updates.profile_photo_url = identity.pictureUrl;
+      }
+
+      if (Object.keys(updates).length > 0) {
+        await ctx.db.patch(existing._id, updates);
+        return await ctx.db.get(existing._id);
+      }
       return existing;
     }
 
+    // New user — seed with everything Clerk provides
     const userId = await ctx.db.insert("users", {
       clerkUserId,
+      email: identity.email || undefined,
+      emailConfirmed: identity.emailVerified || undefined,
+      first_name: identity.givenName || undefined,
+      last_name: identity.familyName || undefined,
+      profile_photo_url: identity.pictureUrl || undefined,
       onboardingCompleted: false,
       createdAt: Date.now(),
     });
@@ -157,6 +176,7 @@ export const getOrCreateMe = mutation({
  */
 export const updateProfile = mutation({
   args: {
+    auth_provider: v.optional(v.string()),
     phone: v.optional(v.string()),
     phoneVerified: v.optional(v.boolean()),
     email: v.optional(v.string()),
@@ -164,7 +184,6 @@ export const updateProfile = mutation({
     first_name: v.optional(v.string()),
     last_name: v.optional(v.string()),
     profile_photo_url: v.optional(v.string()),
-    user_intentions: v.optional(v.array(v.string())),
     tellUsAboutCompleted: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
@@ -184,6 +203,7 @@ export const updateProfile = mutation({
     }
 
     const updates: Record<string, unknown> = {};
+    if (args.auth_provider !== undefined) updates.auth_provider = args.auth_provider;
     if (args.phone !== undefined) updates.phone = args.phone;
     if (args.phoneVerified !== undefined) updates.phoneVerified = args.phoneVerified;
     if (args.email !== undefined) updates.email = args.email;
@@ -191,13 +211,13 @@ export const updateProfile = mutation({
     if (args.first_name !== undefined) updates.first_name = args.first_name;
     if (args.last_name !== undefined) updates.last_name = args.last_name;
     if (args.profile_photo_url !== undefined) updates.profile_photo_url = args.profile_photo_url;
-    if (args.user_intentions !== undefined) updates.user_intentions = args.user_intentions;
     if (args.tellUsAboutCompleted !== undefined) updates.tellUsAboutCompleted = args.tellUsAboutCompleted;
 
     if (Object.keys(updates).length === 0) {
       return user;
     }
 
+    updates.lastUpdated = Date.now();
     await ctx.db.patch(user._id, updates);
     return await ctx.db.get(user._id);
   },
@@ -230,7 +250,7 @@ export const completeOnboarding = mutation({
       throw new Error("User not found");
     }
 
-    await ctx.db.patch(user._id, { onboardingCompleted: true });
+    await ctx.db.patch(user._id, { onboardingCompleted: true, lastUpdated: Date.now() });
     return await ctx.db.get(user._id);
   },
 });

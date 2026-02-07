@@ -10,7 +10,7 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.ahmadh24.otopair"
+      "bundleIdentifier": "com.otopair.app"
     },
     "android": {
       "adaptiveIcon": {
@@ -22,7 +22,23 @@
       "softwareKeyboardLayoutMode": "pan",
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.ahmadh24.otopair"
+      "package": "com.otopair.app",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "data": [
+            {
+              "scheme": "otopair",
+              "host": "smartcar",
+              "pathPrefix": "/callback"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ]
     },
     "web": {
       "output": "static",
@@ -50,6 +66,7 @@
         }
       ],
       "expo-secure-store",
+      "expo-web-browser",
       [
         "expo-calendar",
         {

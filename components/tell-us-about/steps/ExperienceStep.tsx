@@ -44,9 +44,13 @@ import {
     useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useMutation } from 'convex/react';
+import { api } from '@/convex/_generated/api';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import { useOnboardingQuestion } from '@/hooks/useOnboardingQuestion';
 import { Car, Wrench, Gauge, FlaskConical } from 'lucide-react-native';
+
+const EXPERIENCE_QUESTION = 'How would you explain your experience with cars in general?';
 
 interface ExperienceStepProps {
     onNext: () => void;
@@ -86,7 +90,8 @@ export function ExperienceStep({ onNext, onBack, progress }: ExperienceStepProps
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
-    const { answers, saveAnswer } = useOnboardingQuestion('experience');
+    const { saveQuestionAnswer } = useOnboardingQuestion('experience');
+    const saveCarKnowledgeLevel = useMutation(api.onboarding_questions_answers.saveCarKnowledgeLevel);
 
     const [selectedLevel, setSelectedLevel] = useState<1 | 2 | 3 | null>(
         data.carKnowledgeLevel ?? null
@@ -108,8 +113,12 @@ export function ExperienceStep({ onNext, onBack, progress }: ExperienceStepProps
 
     const handleContinue = () => {
         if (selectedLevel) {
-            const selectedAnswer = answers.find(a => a.answer_value === String(selectedLevel));
-            saveAnswer({ answerId: selectedAnswer?._id });
+            const selectedOption = EXPERIENCE_OPTIONS.find(o => o.id === selectedLevel);
+            const answerLabel = selectedOption?.label ?? '';
+            saveQuestionAnswer(EXPERIENCE_QUESTION, answerLabel);
+            saveCarKnowledgeLevel({ level: selectedLevel }).catch((err) =>
+                console.error('Failed to save car knowledge level:', err)
+            );
             onNext();
         }
     };

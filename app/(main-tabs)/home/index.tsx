@@ -10,6 +10,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import { Bell, MoveRight, Star, Trophy } from 'lucide-react-native';
+import { useQuery } from 'convex/react';
+import { api } from '@/convex/_generated/api';
 
 // 3. Shared UI
 import { Button, ScrollDrivenGradientBackground, Text } from '@/components/shared-ui';
@@ -30,12 +32,12 @@ import { VehicleMaintenanceCard } from '@/components/home/VehicleMaintenanceCard
 import { HomeLogo } from '@/components/icons/home-logo';
 import { OtoPairIcon } from '@/components/icons/oto-pair';
 
-// 5. Stores (unused imports removed)
-
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { isNewUser } = useAuthStore();
+  const myVehicles = useQuery(api.vehicles.getMyVehicles);
+  const hasVehicles = myVehicles != null && myVehicles.length > 0;
   const [showWelcome, setShowWelcome] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [locationName, setLocationName] = useState('Loading...');
@@ -47,8 +49,8 @@ export default function HomeScreen() {
 
   useEffect(() => {
     (async () => {
-      // Check existing location permission (without requesting)
-      const { status } = await Location.getForegroundPermissionsAsync();
+      // Request location permission
+      const { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
         setLocationName('Location unavailable');
         return;
@@ -88,23 +90,7 @@ export default function HomeScreen() {
     // TODO: Navigate to appointment details
   };
 
-  // Search bar focus - navigate directly to map with search active
-  // const handleSearchFocus = useCallback(() => {
-  //   router.push('/home/map?search=true');
-  // }, [router]);
-
-  // // Custom margins for content below carousel based on active card
-  // const getCardMargin = (cardIndex: number): number => {
-  //   switch (cardIndex) {
-  //     case 0: // Finish Account Setup
-  //       return -70;
-  //     case 1: // Upcoming Appointment - NavigationETABar shows, so no extra margin needed
-  //       return 10;
-  //     case 2: // Resume Booking
-  //       return -100;
-  //     case 3: // Finish Car Setup
   // Helper function to get the card type at a given index based on user status
-  
   const getCardTypeAtIndex = (index: number): 'appointment' | 'resume' | 'account' | 'car' | null => {
     if (isNewUser && showAccountSetup) {
       // New user order: account, appointment, resume, car
@@ -146,28 +132,28 @@ export default function HomeScreen() {
   };
 
   // Welcome screen - shows on app open
-  // if (showWelcome) {
-  //   return (
-  //     <View style={styles.welcomeContainer}>
-  //       <View style={styles.welcomeContent}>
-  //         <OtoPairIcon />
-  //         <Text weight="semiBold" size="2xl" style={styles.welcomeTitle}>
-  //           Otopair
-  //         </Text>
-  //         <Button variant="secondary" onPress={() => setShowWelcome(false)}>
-  //           Let's Check Your Car Now <MoveRight size={16} color="#fff" />
-  //         </Button>
-  //       </View>
-  //     </View>
-  //   );
-  // }
+  if (showWelcome) {
+    return (
+      <View style={styles.welcomeContainer}>
+        <View style={styles.welcomeContent}>
+          <OtoPairIcon />
+          <Text weight="semiBold" size="2xl" style={styles.welcomeTitle}>
+            Otopair
+          </Text>
+          <Button variant="secondary" onPress={() => setShowWelcome(false)}>
+            Let's Check Your Car Now <MoveRight size={16} color="#fff" />
+          </Button>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <ScrollDrivenGradientBackground colors={['#5BA3D9', '#8FC4E8', '#d9e8f5']}>
       {(scrollHandler) => (
     <View style={styles.container}>
       {/* Full Page Scroll */}
-      <Animated.ScrollView
+          <Animated.ScrollView
         style={styles.scrollView}
         contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 12 }]}
         showsVerticalScrollIndicator={false}
@@ -233,27 +219,19 @@ export default function HomeScreen() {
                 </BlurView>
               </View>
             </Pressable>
-
-                {/* Notification Bell */}
-                {/* <Pressable
-                  style={({ pressed }) => [styles.bellButton, pressed && styles.bellButtonPressed]}
-                >
-                  <View style={styles.bellIconContainer}>
-                    <Bell size={22} color="#141C24" />
-                    <View style={styles.bellDot} />
-                  </View>
-                </Pressable> */}
-            </View>
           </View>
-                {/* Search Bar */}
+        </View>
+
+        {/* Search Bar */}
         <View style={styles.searchContainer}>
           <MechanicSearchBar
             value={searchQuery}
             onChangeText={setSearchQuery}
             onSubmit={handleSearch}
             onMapPress={handleMapPress}
-            />
-          </View>
+          />
+        </View>
+
         {/* Content Area */}
         <View style={styles.content}>
           {/* Action Cards Carousel */}
@@ -297,81 +275,33 @@ export default function HomeScreen() {
             </View>
           )}
 
-            {/* Content Area */}
-            <View style={styles.content}>
-              {/* Action Cards Carousel */}
-              {/* <ActionCardsCarousel
-                // Upcoming Appointment
-                appointmentBusinessName={'Premium\nAuto Care'}
-                appointmentMechanicName="John Rodriguez"
-                appointmentRating={4.8}
-                appointmentIsVerified={true}
-                appointmentDate="August 12, 2025"
-                appointmentTimeSlot="12:30 PM - 1:00 PM"
-                appointmentLateMinutes={30}
-                onAppointmentPress={handleAppointmentPress}
-                // Resume Booking
-                showResumeBooking={true}
-                resumeMechanicsAvailable={3}
-                resumeServicesPreview="Oil Change, Fluid Ch..."
-                // Account Setup
-                showAccountSetup={showAccountSetup}
-                onAccountSetupDismiss={() => setShowAccountSetup(false)}
-                // Car Setup
-                showCarSetup={showCarSetup}
-                onCarSetupDismiss={() => setShowCarSetup(false)}
-                // Carousel callback
-                onCardChange={(index) => setActiveCardIndex(index)}
-              /> */}
-
-              {/* Navigation ETA Bar - Only show when on Upcoming Appointment card */}
-              {activeCardIndex === 1 && (
-                <View style={styles.etaBarContainer}>
-                  <NavigationETABar
-                    etaMinutes={20}
-                    destinationLatitude={37.7749}
-                    destinationLongitude={-122.4194}
-                    destinationName="Premium Auto Care"
-                  />
-                </View>
-              )}
           {/* Vehicle Maintenance - with dynamic margin based on active card */}
           <View style={{ marginTop: getCardMargin(activeCardIndex) }}>
-            {isNewUser ? (
-              <AddFirstVehicleCard showAccountSetup={showAccountSetup} />
+            {hasVehicles ? (
+              <VehicleMaintenanceCard
+                onBookNow={(vehicleId, serviceId) => {
+                  console.log(`Booking service ${serviceId} for vehicle ${vehicleId}`);
+                  // TODO: Navigate to booking flow
+                }}
+                onSwipeStart={() => setIsCardSwiping(true)}
+                onSwipeEnd={() => setIsCardSwiping(false)}
+              />
             ) : (
-            <VehicleMaintenanceCard
-              onBookNow={(vehicleId, serviceId) => {
-                console.log(`Booking service ${serviceId} for vehicle ${vehicleId}`);
-                // TODO: Navigate to booking flow
-              }}
-              onSwipeStart={() => setIsCardSwiping(true)}
-              onSwipeEnd={() => setIsCardSwiping(false)}
-            />
+              <AddFirstVehicleCard showAccountSetup={showAccountSetup} />
             )}
           </View>
 
           {/* More Services Section */}
           <MoreServicesSection />
 
-              {/* Vehicle Maintenance - with dynamic margin based on active card
-              <View style={{ marginTop: getCardMargin(activeCardIndex) }}>
-                <VehicleMaintenanceCard
-                  onBookNow={(vehicleId, serviceId) => {
-                    console.log(`Booking service ${serviceId} for vehicle ${vehicleId}`);
-                    // TODO: Navigate to booking flow
-                  }}
-                  onSwipeStart={() => setIsCardSwiping(true)}
-                  onSwipeEnd={() => setIsCardSwiping(false)}
-                />
-              </View> */}
+          {/* Service Bundles Section */}
+          <ServiceBundlesSection />
 
           {/* Suggestions Section */}
-          {/* <SuggestionsSection /> */}
+          <SuggestionsSection />
 
-            </View>
         </View>
-      </Animated.ScrollView>
+          </Animated.ScrollView>
 
       {/* Loyalty Card Overlay */}
       {showLoyaltyCard && (
@@ -389,9 +319,8 @@ export default function HomeScreen() {
           }}
         />
       )}
-
     </View>
-    )}
+      )}
     </ScrollDrivenGradientBackground>
   );
 }
@@ -403,13 +332,10 @@ const styles = StyleSheet.create({
     backgroundColor: '#E8ECF0',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 24,
   },
   welcomeContent: {
     alignItems: 'center',
     gap: 16,
-    width: '100%',
-    maxWidth: 320,
   },
   welcomeTitle: {
     color: '#141C24',

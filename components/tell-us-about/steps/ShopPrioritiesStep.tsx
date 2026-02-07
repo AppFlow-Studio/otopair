@@ -67,7 +67,7 @@ export function ShopPrioritiesStep({ onNext, onBack, progress }: ShopPrioritiesS
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
-    const { answers, saveAnswer } = useOnboardingQuestion('shopPriorities');
+    const { saveQuestionAnswer } = useOnboardingQuestion('shopPriorities');
 
     const [selectedPriorities, setSelectedPriorities] = useState<string[]>(
         data.shopPriorities ?? []
@@ -99,10 +99,11 @@ export function ShopPrioritiesStep({ onNext, onBack, progress }: ShopPrioritiesS
 
     const handleContinue = () => {
         if (selectedPriorities.length === 3) {
-            const selectedAnswerIds = answers
-                .filter(a => selectedPriorities.includes(a.answer_value))
-                .map(a => a._id);
-            saveAnswer({ answerIds: selectedAnswerIds });
+            const labels = selectedPriorities
+                .map(id => SHOP_PRIORITY_OPTIONS.find(o => o.id === id)?.label)
+                .filter(Boolean) as string[];
+            const questionText = 'What are your top 3 priorities for a car shop?';
+            saveQuestionAnswer(questionText, labels.join(', '));
             onNext();
         }
     };

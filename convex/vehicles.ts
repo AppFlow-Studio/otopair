@@ -98,6 +98,48 @@ export const getVehicleOwner = query({
 });
 
 /**
+ * List all active vehicles for the currently authenticated user.
+ * Returns null if not authenticated, empty array if no vehicles.
+ */
+export const getMyVehicles = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return null;
+
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", identity.subject))
+      .unique();
+    if (!user) return [];
+
+    const ownerships = await ctx.db
+      .query("vehicle_owners")
+      .withIndex("by_user_status", (q) =>
+        q.eq("user_id", user._id).eq("status", "active")
+      )
+      .collect();
+
+    const results = await Promise.all(
+      ownerships.map(async (ownership) => {
+        const vehicle = await ctx.db
+          .query("vehicles")
+          .withIndex("by_vin", (q) => q.eq("vin", ownership.vin))
+          .unique();
+
+        return {
+          vin: ownership.vin,
+          vehicle,
+          ownership,
+        };
+      })
+    );
+
+    return results;
+  },
+});
+
+/**
  * List all active vehicles owned by a user
  */
 export const listVehiclesByUser = query({
