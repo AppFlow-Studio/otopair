@@ -12,7 +12,7 @@ import { useRouter } from 'expo-router';
 import { Bell, MoveRight, Star, Trophy } from 'lucide-react-native';
 
 // 3. Shared UI
-import { Button, ScrollDrivenGradientBackground, Text } from '@/components/shared-ui';
+import { Button, ScrollDrivenGradientBackground, ScrollFadeIn, Text } from '@/components/shared-ui';
 
 // 4. Stores
 import { useAuthStore } from '@/stores/useAuthStore';
@@ -82,8 +82,8 @@ export default function HomeScreen() {
   };
 
   const handleAppointmentPress = () => {
-    console.log('Appointment pressed');
-    // TODO: Navigate to appointment details
+    // Navigate to bookings tab to see appointment details
+    router.push('/bookings');
   };
 
   // Helper function to get the card type at a given index based on user status
@@ -146,7 +146,7 @@ export default function HomeScreen() {
 
   return (
     <ScrollDrivenGradientBackground colors={['#5BA3D9', '#8FC4E8', '#d9e8f5']}>
-      {(scrollHandler) => (
+      {(scrollHandler, scrollY) => (
     <View style={styles.container}>
       {/* Full Page Scroll */}
           <Animated.ScrollView
@@ -272,29 +272,31 @@ export default function HomeScreen() {
           )}
 
           {/* Vehicle Maintenance - with dynamic margin based on active card */}
-          <View style={{ marginTop: getCardMargin(activeCardIndex) }}>
+          <ScrollFadeIn scrollY={scrollY} style={{ marginTop: getCardMargin(activeCardIndex) }}>
             {isNewUser ? (
               <AddFirstVehicleCard showAccountSetup={showAccountSetup} />
             ) : (
             <VehicleMaintenanceCard
-              onBookNow={(vehicleId, serviceId) => {
-                console.log(`Booking service ${serviceId} for vehicle ${vehicleId}`);
-                // TODO: Navigate to booking flow
-              }}
               onSwipeStart={() => setIsCardSwiping(true)}
               onSwipeEnd={() => setIsCardSwiping(false)}
             />
             )}
-          </View>
+          </ScrollFadeIn>
 
           {/* More Services Section */}
-          <MoreServicesSection />
+          <ScrollFadeIn scrollY={scrollY}>
+            <MoreServicesSection />
+          </ScrollFadeIn>
 
           {/* Service Bundles Section */}
-          <ServiceBundlesSection />
+          <ScrollFadeIn scrollY={scrollY}>
+            <ServiceBundlesSection />
+          </ScrollFadeIn>
 
           {/* Suggestions Section */}
-          <SuggestionsSection />
+          <ScrollFadeIn scrollY={scrollY}>
+            <SuggestionsSection />
+          </ScrollFadeIn>
 
         </View>
           </Animated.ScrollView>

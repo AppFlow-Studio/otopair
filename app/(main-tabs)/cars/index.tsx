@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 // 2. Expo & Third-party
 import { useIsFocused } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
 
 // 3. Shared UI
 import { Text } from '@/components/shared-ui';
@@ -56,6 +57,7 @@ const serviceHistoryByVehicle: Record<string, ServiceRecord[]> = {
 export default function CarsHomeScreen() {
   const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
+  const router = useRouter();
   const [refreshing, setRefreshing] = useState(false);
   const [activeVehicleIndex, setActiveVehicleIndex] = useState(0);
 
@@ -207,12 +209,12 @@ export default function CarsHomeScreen() {
           items={maintenanceItems}
           vehicleCondition={activeVehicle?.condition}
           onBookNow={(id) => {
-            // TODO: Navigate to booking flow with selected service
-            console.log('Book Now for service', id);
+            // Navigate to booking flow with selected service
+            router.push('/home/map?openServices=true');
           }}
           onAddInfo={(id) => {
-            // TODO: Navigate to maintenance history form
-            console.log('Add Info for service', id);
+            // Navigate to coming soon for maintenance history form
+            router.push({ pathname: '/coming-soon', params: { serviceName: 'Add Service Info' } });
           }}
         />
 
@@ -238,8 +240,8 @@ export default function CarsHomeScreen() {
           nextTier="Platinum"
           maxPoints={500}
           onViewFullPage={() => {
-            // TODO: Navigate to full loyalty page
-            console.log('View Full Loyalty Page');
+            // Navigate to full membership/loyalty page
+            router.push('/membership');
           }}
         />
         </View>

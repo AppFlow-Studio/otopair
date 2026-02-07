@@ -1,17 +1,29 @@
 import { BookingCard, type Booking } from '@/components/bookings/BookingCard';
 import { LiveTrackerCard, type LiveTracking } from '@/components/bookings/LiveTrackerCard';
 import { ScrollDrivenGradientBackground, Text } from '@/components/shared-ui';
+import { useRouter } from 'expo-router';
 import { Calendar, Search, SlidersHorizontal } from 'lucide-react-native';
 import React, { useCallback, useState } from 'react';
 import {
+    Alert,
     Pressable,
     RefreshControl,
     StyleSheet,
     TextInput,
     View,
 } from 'react-native';
-import Animated from 'react-native-reanimated';
+import Animated, { 
+    FadeInDown,
+    FadeIn,
+} from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
+// ============================================================================
+// ANIMATION CONFIG
+// ============================================================================
+
+const STAGGER_DELAY = 80;      // ms between each card fade-in
+const FADE_DURATION = 350;     // ms for each card's fade animation
 
 // ============================================================================
 // SAMPLE DATA
@@ -142,11 +154,22 @@ type TabType = 'liveTracker' | 'upcoming' | 'history';
 
 export default function BookingsScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   // Default to liveTracker when there's an active service
   const hasActiveService = true; // This would come from your state/API
   const [activeTab, setActiveTab] = useState<TabType>(hasActiveService ? 'liveTracker' : 'upcoming');
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  
+  // Key to trigger re-animation when tab changes
+  const [animationKey, setAnimationKey] = useState(0);
+
+  // Handle tab change with animation reset
+  const handleTabChange = useCallback((newTab: TabType) => {
+    if (newTab === activeTab) return;
+    setActiveTab(newTab);
+    setAnimationKey(prev => prev + 1); // Trigger re-animation
+  }, [activeTab]);
 
   const bookings = activeTab === 'upcoming' ? SAMPLE_UPCOMING_BOOKINGS : SAMPLE_HISTORY_BOOKINGS;
 
@@ -166,27 +189,42 @@ export default function BookingsScreen() {
   }, []);
 
   const handleViewDetails = (bookingId: string) => {
-    console.log('View details for booking:', bookingId);
+    // Navigate to coming soon - booking details page not yet implemented
+    router.push({ pathname: '/coming-soon', params: { serviceName: 'Booking Details' } });
   };
 
   const handleCancelBooking = (bookingId: string) => {
-    console.log('Cancel booking:', bookingId);
+    Alert.alert(
+      'Cancel Booking',
+      'Are you sure you want to cancel this booking?',
+      [
+        { text: 'No', style: 'cancel' },
+        { text: 'Yes, Cancel', style: 'destructive', onPress: () => {
+          // TODO: Implement actual cancellation API call
+          Alert.alert('Booking Cancelled', 'Your booking has been cancelled.');
+        }},
+      ]
+    );
   };
 
   const handleReschedule = (bookingId?: string) => {
-    console.log('Reschedule booking:', bookingId || 'live');
+    // Navigate to map to reschedule
+    router.push('/home/map?openServices=true');
   };
 
   const handleDownloadPdf = (bookingId: string) => {
-    console.log('Download PDF for booking:', bookingId);
+    // Show alert for PDF download - feature not yet implemented
+    Alert.alert('Download Receipt', 'Receipt download will be available soon.');
   };
 
   const handleToggleFavorite = (bookingId: string) => {
-    console.log('Toggle favorite for booking:', bookingId);
+    // Show feedback for favorite toggle
+    Alert.alert('Saved', 'This booking has been saved to your favorites.');
   };
 
   const handleContactShop = () => {
-    console.log('Contact shop');
+    // Navigate to coming soon for contact feature
+    router.push({ pathname: '/coming-soon', params: { serviceName: 'Contact Shop' } });
   };
 
   return (
@@ -218,7 +256,7 @@ export default function BookingsScreen() {
         {/* Tab Switcher */}
         <View style={styles.tabContainer}>
           <Pressable
-            onPress={() => setActiveTab('liveTracker')}
+            onPress={() => handleTabChange('liveTracker')}
             style={[
               styles.tab,
               activeTab === 'liveTracker' && styles.activeTab,
@@ -233,7 +271,7 @@ export default function BookingsScreen() {
             </Text>
           </Pressable>
           <Pressable
-            onPress={() => setActiveTab('upcoming')}
+            onPress={() => handleTabChange('upcoming')}
             style={[
               styles.tab,
               activeTab === 'upcoming' && styles.activeTab,
@@ -248,7 +286,7 @@ export default function BookingsScreen() {
             </Text>
           </Pressable>
           <Pressable
-            onPress={() => setActiveTab('history')}
+            onPress={() => handleTabChange('history')}
             style={[
               styles.tab,
               activeTab === 'history' && styles.activeTab,
@@ -287,56 +325,66 @@ export default function BookingsScreen() {
         )}
 
         {/* Booking Content */}
-        <View style={styles.content}>
+        <View style={styles.content} key={animationKey}>
           {activeTab === 'liveTracker' ? (
-            // Live Tracker Content
+            // Live Tracker Content - single card with fade in
             hasActiveService ? (
-              <LiveTrackerCard
-                tracking={SAMPLE_LIVE_TRACKING}
-                onReschedule={() => handleReschedule()}
-                onContactShop={handleContactShop}
-              />
+              <Animated.View entering={FadeInDown.duration(FADE_DURATION)}>
+                <LiveTrackerCard
+                  tracking={SAMPLE_LIVE_TRACKING}
+                  onReschedule={() => handleReschedule()}
+                  onContactShop={handleContactShop}
+                />
+              </Animated.View>
             ) : (
+              <Animated.View entering={FadeIn.duration(FADE_DURATION)}>
+                <View style={styles.emptyState}>
+                  <View style={styles.emptyIconContainer}>
+                    <Calendar size={48} color="#9CA3AF" strokeWidth={1.5} />
+                  </View>
+                  <Text weight="semiBold" size="lg" color="#374151" center>
+                    No Active Service
+                  </Text>
+                  <Text weight="regular" size="sm" color="#6B7280" center style={styles.emptyText}>
+                    You don't have any service in progress. Book a service to get started!
+                  </Text>
+                </View>
+              </Animated.View>
+            )
+          ) : filteredBookings.length > 0 ? (
+            // Upcoming or History Content - staggered fade in for each card
+            filteredBookings.map((booking, index) => (
+              <Animated.View 
+                key={booking.id}
+                entering={FadeInDown.duration(FADE_DURATION).delay(index * STAGGER_DELAY)}
+              >
+                <BookingCard
+                  booking={booking}
+                  variant={activeTab}
+                  onViewDetails={handleViewDetails}
+                  onCancelBooking={handleCancelBooking}
+                  onReschedule={handleReschedule}
+                  onDownloadPdf={handleDownloadPdf}
+                  onToggleFavorite={handleToggleFavorite}
+                />
+              </Animated.View>
+            ))
+          ) : (
+            <Animated.View entering={FadeIn.duration(FADE_DURATION)}>
               <View style={styles.emptyState}>
                 <View style={styles.emptyIconContainer}>
                   <Calendar size={48} color="#9CA3AF" strokeWidth={1.5} />
                 </View>
                 <Text weight="semiBold" size="lg" color="#374151" center>
-                  No Active Service
+                  No {activeTab === 'upcoming' ? 'Upcoming' : 'Past'} Bookings
                 </Text>
                 <Text weight="regular" size="sm" color="#6B7280" center style={styles.emptyText}>
-                  You don't have any service in progress. Book a service to get started!
+                  {activeTab === 'upcoming'
+                    ? "You don't have any upcoming appointments. Book a service to get started!"
+                    : "You haven't completed any bookings yet."}
                 </Text>
               </View>
-            )
-          ) : filteredBookings.length > 0 ? (
-            // Upcoming or History Content
-            filteredBookings.map((booking) => (
-              <BookingCard
-                key={booking.id}
-                booking={booking}
-                variant={activeTab}
-                onViewDetails={handleViewDetails}
-                onCancelBooking={handleCancelBooking}
-                onReschedule={handleReschedule}
-                onDownloadPdf={handleDownloadPdf}
-                onToggleFavorite={handleToggleFavorite}
-              />
-            ))
-          ) : (
-            <View style={styles.emptyState}>
-              <View style={styles.emptyIconContainer}>
-                <Calendar size={48} color="#9CA3AF" strokeWidth={1.5} />
-              </View>
-              <Text weight="semiBold" size="lg" color="#374151" center>
-                No {activeTab === 'upcoming' ? 'Upcoming' : 'Past'} Bookings
-              </Text>
-              <Text weight="regular" size="sm" color="#6B7280" center style={styles.emptyText}>
-                {activeTab === 'upcoming'
-                  ? "You don't have any upcoming appointments. Book a service to get started!"
-                  : "You haven't completed any bookings yet."}
-              </Text>
-            </View>
+            </Animated.View>
           )}
         </View>
       </Animated.ScrollView>

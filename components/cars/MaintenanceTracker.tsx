@@ -24,7 +24,7 @@
 
 // 1. React & React Native
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, View } from 'react-native';
+import { Alert, StyleSheet, View } from 'react-native';
 
 // 2. Expo & Third-party
 import { BlurView } from 'expo-blur';
@@ -254,6 +254,8 @@ export function MaintenanceTracker({ items, vehicleCondition, onBookNow, onAddIn
           const handlePrimaryPress = () => {
             if (isUnknown) {
               onAddInfo?.(item.id);
+            } else if (item.status === 'on_time') {
+              Alert.alert('Reminder Set!');
             } else {
               onBookNow?.(item.id);
             }

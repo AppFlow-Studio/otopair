@@ -13,7 +13,7 @@
  */
 
 // 1. React & React Native
-import React, { useCallback, useEffect, useMemo, useRef } from "react";
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef } from "react";
 import { Dimensions, StyleSheet, View } from "react-native";
 
 // 2. Expo & Third-party
@@ -48,6 +48,11 @@ import { useBookingStore } from "@/stores/useBookingStore";
 // TYPES
 // ============================================================================
 
+export interface ServiceBottomSheetRef {
+  /** Expand the bottom sheet to show services */
+  expand: () => void;
+}
+
 interface ServiceBottomSheetProps {
   /** Vertical offset to shift bottom sheet down (pixels) */
   offsetY?: number;
@@ -55,6 +60,8 @@ interface ServiceBottomSheetProps {
   onAnimatedIndexChange?: (animatedIndex: SharedValue<number>) => void;
   /** Currently selected mechanic filter from TopBar */
   mechanicFilter?: MechanicFilterOption;
+  /** Whether to expand the sheet on mount */
+  initiallyExpanded?: boolean;
 }
 
 // ============================================================================
@@ -82,16 +89,28 @@ const SNAP_POINTS_CONFIG = {
 // COMPONENT
 // ============================================================================
 
-export function ServiceBottomSheet({
-  offsetY = 0,
-  onAnimatedIndexChange,
-  mechanicFilter = "available_now",
-}: ServiceBottomSheetProps) {
+export const ServiceBottomSheet = forwardRef<ServiceBottomSheetRef, ServiceBottomSheetProps>(
+  function ServiceBottomSheet(
+    {
+      offsetY = 0,
+      onAnimatedIndexChange,
+      mechanicFilter = "available_now",
+      initiallyExpanded = false,
+    },
+    ref
+  ) {
   // ═══════════════ REFS ═══════════════
   const bottomSheetRef = useRef<BottomSheet>(null);
   const addMoreSheetRef = useRef<AddMoreServicesSheetRef>(null);
   const confirmationModalRef = useRef<ConfirmationModalRef>(null);
   const animatedIndex = useSharedValue(0);
+
+  // ═══════════════ IMPERATIVE HANDLE ═══════════════
+  useImperativeHandle(ref, () => ({
+    expand: () => {
+      bottomSheetRef.current?.snapToIndex(1);
+    },
+  }), []);
 
   // ═══════════════ HOOKS ═══════════════
   const insets = useSafeAreaInsets();
@@ -123,6 +142,17 @@ export function ServiceBottomSheet({
       bottomSheetRef.current.snapToIndex(1);
     }
   }, [currentStage]);
+
+  // Expand sheet on mount if initiallyExpanded is true
+  useEffect(() => {
+    if (initiallyExpanded && bottomSheetRef.current) {
+      // Small delay to ensure the sheet is mounted
+      const timer = setTimeout(() => {
+        bottomSheetRef.current?.snapToIndex(1);
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [initiallyExpanded]);
 
   // Open/close confirmation modal based on stage
   useEffect(() => {
@@ -350,7 +380,7 @@ export function ServiceBottomSheet({
       />
     </>
   );
-}
+});
 
 // ============================================================================
 // STYLES

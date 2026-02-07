@@ -2,9 +2,17 @@ import { Stack } from "expo-router";
 
 export default function TellUsAboutLayout() {
     return (
-        <Stack>
-            <Stack.Screen name="flow" options={{ headerShown: false, title: 'Tell Us About Yourself' }} />
+        <Stack
+            screenOptions={{
+                headerShown: false,
+                animation: "slide_from_right",
+                animationDuration: 250,
+                gestureEnabled: true,
+                gestureDirection: "horizontal",
+            }}
+        >
+            <Stack.Screen name="flow" />
         </Stack>
-    )
+    );
 }
 

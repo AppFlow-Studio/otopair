@@ -10,7 +10,7 @@
 
 // 1. React & React Native
 import React, { useRef, useState } from 'react';
-import { Animated, Dimensions, Easing, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Animated, Dimensions, Easing, Modal, Pressable, ScrollView, Share, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ReAnimated from 'react-native-reanimated';
 
@@ -21,7 +21,7 @@ import { useRouter } from 'expo-router';
 import { ArrowLeft, BadgeCheck, Bell, Building2, Calendar, Check, ChevronRight, CircleDot, CreditCard, FileText, Gift, Headphones, History, Info, PenSquare, Plus, Settings, Star, UserPlus, Wallet, Wrench, Zap } from 'lucide-react-native';
 
 // 3. Shared UI
-import { ScrollDrivenGradientBackground, Text } from '@/components/shared-ui';
+import { FadeInStagger, ScrollDrivenGradientBackground, Text } from '@/components/shared-ui';
 
 // 4. Constants
 import { Spacing } from '@/constants/theme';
@@ -124,6 +124,27 @@ export default function MembershipPage() {
     router.back();
   };
 
+  // Share functions
+  const handleUploadShare = async () => {
+    try {
+      await Share.share({
+        message: 'Check out my service records on Otopair!',
+      });
+    } catch (error) {
+      console.log('Error sharing:', error);
+    }
+  };
+
+  const handleReferFriend = async () => {
+    try {
+      await Share.share({
+        message: 'Join me on Otopair and get $25 credit! Download the app here: https://otopair.com',
+      });
+    } catch (error) {
+      console.log('Error sharing:', error);
+    }
+  };
+
   // Redeem sheet functions
   const openRedeemSheet = () => {
     setShowRedeemSheet(true);
@@ -216,6 +237,8 @@ export default function MembershipPage() {
             onScroll={scrollHandler}
             scrollEventThrottle={16}
           >
+            {/* Staggered fade-in for page sections */}
+            <FadeInStagger staggerDelay={100} duration={800}>
             {/* Back Button */}
             <Pressable
               onPress={handleBack}
@@ -319,6 +342,7 @@ export default function MembershipPage() {
               {/* Add Car - Primary */}
               <View style={styles.actionButtonWrapper}>
                 <Pressable
+                  onPress={() => router.push('/add-vehicle')}
                   style={({ pressed }) => [
                     styles.actionButton,
                     styles.actionButtonPrimary,
@@ -505,6 +529,7 @@ export default function MembershipPage() {
                 {EARN_REWARDS.map((reward, index) => (
                   <View key={reward.id}>
                     <Pressable
+                      onPress={reward.icon === 'refer' ? handleReferFriend : undefined}
                       style={({ pressed }) => [
                         styles.rewardRow,
                         index === 0 && styles.rewardRowFirst,
@@ -538,6 +563,7 @@ export default function MembershipPage() {
                     {/* Right Side: Button or Chevron */}
                     {reward.hasButton ? (
                       <Pressable
+                        onPress={handleUploadShare}
                         style={({ pressed }) => [
                           styles.uploadButton,
                           pressed && styles.uploadButtonPressed,
@@ -561,6 +587,7 @@ export default function MembershipPage() {
                 ))}
               </View>
             </View>
+            </FadeInStagger>
           </ReAnimated.ScrollView>
 
           {/* Redeem Bottom Sheet Modal */}

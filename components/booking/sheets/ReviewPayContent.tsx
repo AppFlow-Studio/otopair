@@ -17,6 +17,7 @@ import { Image, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
+import { useRouter } from "expo-router";
 import { BadgeCheck, Calendar, Clock, Star, User } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -51,6 +52,7 @@ export function ReviewPayContent({ onChangeDatePress }: ReviewPayContentProps) {
   const allAvailabilityRef = useRef<AllAvailabilitySheetRef>(null);
 
   // ═══════════════ HOOKS ═══════════════
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const contentPadding = getSheetContentPadding(true, insets.bottom);
 
@@ -93,14 +95,12 @@ export function ReviewPayContent({ onChangeDatePress }: ReviewPayContentProps) {
 
   // ═══════════════ HANDLERS ═══════════════
   const handleChangePayment = useCallback(() => {
-    // TODO: Navigate to payment method selection
-    console.log("Change payment method");
-  }, []);
+    router.push("/payment-methods");
+  }, [router]);
 
   const handleAddPayment = useCallback(() => {
-    // TODO: Navigate to add payment method
-    console.log("Add payment method");
-  }, []);
+    router.push("/payment-methods");
+  }, [router]);
 
   const handleApplePay = useCallback(() => {
     // TODO: Initiate Apple Pay

@@ -11,17 +11,18 @@
  */
 
 // 1. React & React Native
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StyleSheet, View } from "react-native";
 
 // 2. Third-party libraries
+import { useFocusEffect, useLocalSearchParams } from "expo-router";
 import { SharedValue } from "react-native-reanimated";
 
 // 3. Shared UI (design system)
 import { ScreenContainer } from "@/components/shared-ui";
 
 // 4. Flow-specific components
-import { BookingMap, MechanicFilterOption, ServiceBottomSheet, Shop, ShopCarousel, TopBar } from "@/components/booking";
+import { BookingMap, MechanicFilterOption, ServiceBottomSheet, ServiceBottomSheetRef, Shop, ShopCarousel, TopBar } from "@/components/booking";
 
 // 5. Constants, hooks, types, stores
 import { AVAILABLE_NOW_FILTER, TOP_RATED_FILTER } from "@/constants/filters";
@@ -47,6 +48,12 @@ const MAX_CAROUSEL_SHOPS = 5;
 // ============================================================================
 
 export default function MapScreen() {
+  // ═══════════════ URL PARAMS ═══════════════
+  const { openServices } = useLocalSearchParams<{ openServices?: string }>();
+
+  // ═══════════════ REFS ═══════════════
+  const serviceBottomSheetRef = useRef<ServiceBottomSheetRef>(null);
+
   // ═══════════════ BOOKING STORE ═══════════════
   const userLocation = useBookingStore((state) => state.userLocation);
   const selectedServiceCategory = useBookingStore((state) => state.selectedServiceCategory);
@@ -81,6 +88,20 @@ export default function MapScreen() {
     userLocation,
     maxResults: MAX_CAROUSEL_SHOPS,
   });
+
+  // ═══════════════ EFFECTS ═══════════════
+  // Expand service sheet when navigating to this screen with openServices=true
+  useFocusEffect(
+    useCallback(() => {
+      if (openServices === 'true') {
+        // Small delay to ensure the sheet is mounted
+        const timer = setTimeout(() => {
+          serviceBottomSheetRef.current?.expand();
+        }, 100);
+        return () => clearTimeout(timer);
+      }
+    }, [openServices])
+  );
 
   // ═══════════════ HANDLERS ═══════════════
   const handleFilterSelect = useCallback(
@@ -172,9 +193,11 @@ export default function MapScreen() {
 
       {/* Bottom Sheet - Uses transition hook internally */}
       <ServiceBottomSheet
+        ref={serviceBottomSheetRef}
         offsetY={VERTICAL_OFFSET}
         onAnimatedIndexChange={handleAnimatedIndexChange}
         mechanicFilter={mechanicFilter}
+        initiallyExpanded={openServices === 'true'}
       />
     </ScreenContainer>
   );

@@ -35,6 +35,7 @@ import Swiper from 'react-native-deck-swiper';
 // 2. Expo & Third-party
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
 
 // 3. Shared UI
 import { Text } from '@/components/shared-ui';
@@ -126,14 +127,18 @@ export function VehicleMaintenanceCard({
   onSwipeStart,
   onSwipeEnd,
 }: VehicleMaintenanceCardProps) {
+  const router = useRouter();
   const swiperRef = useRef<Swiper<Vehicle>>(null);
   const [cardIndex, setCardIndex] = useState(0);
 
   const handleBookNow = (vehicleId: string, serviceId: string) => {
     if (onBookNow) {
+      // Let parent handle navigation
       onBookNow(vehicleId, serviceId);
+    } else {
+      // Default: navigate to map with services open
+      router.push('/home/map?openServices=true');
     }
-    console.log(`Booking ${serviceId} for vehicle ${vehicleId}`);
   };
 
   const renderCard = (vehicle: Vehicle) => {

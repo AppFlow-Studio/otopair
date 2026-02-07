@@ -19,6 +19,7 @@ import {
     TouchableOpacity,
     View,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { ArrowLeft, CreditCard, Plus, ChevronRight } from 'lucide-react-native';
 import { Text, Button, BrandColors, Spacing, FontSize, FontFamily, Colors } from '@/components/shared-ui';
@@ -54,6 +55,7 @@ const brandLabel = (brand: PaymentMethod['brand']) => {
 };
 
 export function PaymentMethodsMock() {
+    const router = useRouter();
     const insets = useSafeAreaInsets();
     const [methods, setMethods] = useState<PaymentMethod[]>(MOCK_METHODS);
     const [selected, setSelected] = useState<string | null>(MOCK_METHODS[0]?.id ?? null);
@@ -86,7 +88,9 @@ export function PaymentMethodsMock() {
     return (
         <View style={[styles.container, { paddingTop: insets.top + Spacing.lg, paddingBottom: insets.bottom + Spacing.lg }]}>
             <View style={styles.headerRow}>
-                <ArrowLeft size={FontSize.lg} color={BrandColors.primary} />
+                <TouchableOpacity onPress={() => router.back()} hitSlop={12}>
+                    <ArrowLeft size={FontSize.lg} color={BrandColors.primary} />
+                </TouchableOpacity>
                 <Text style={styles.title}>Payment Methods</Text>
                 <View style={{ width: FontSize.lg }} />
             </View>

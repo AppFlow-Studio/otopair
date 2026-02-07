@@ -7,7 +7,7 @@
 
 // Main booking components
 export { BookingMap } from "./map";
-export { ServiceBottomSheet } from "./ServiceBottomSheet";
+export { ServiceBottomSheet, type ServiceBottomSheetRef } from "./ServiceBottomSheet";
 export { ShopCarousel } from "./ShopCarousel";
 export { ShopMarker } from "./ShopMarker";
 export { TopBar, type MechanicFilterOption, type TopBarProps } from "./TopBar";

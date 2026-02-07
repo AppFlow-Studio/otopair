@@ -54,7 +54,10 @@ export interface ScrollDrivenGradientBackgroundProps {
   colors?: string[];
   gradientScrollIndices?: number[];
   scrollPerTransition?: number;
-  children: (scrollHandler: ScrollHandlerProcessed<Record<string, unknown>>) => React.ReactNode;
+  children: (
+    scrollHandler: ScrollHandlerProcessed<Record<string, unknown>>,
+    scrollY: Animated.SharedValue<number>
+  ) => React.ReactNode;
 }
 
 export function ScrollDrivenGradientBackground({
@@ -126,7 +129,7 @@ export function ScrollDrivenGradientBackground({
           colors={colors}
         />
       </View>
-      {children(scrollHandler)}
+      {children(scrollHandler, scrollY)}
     </>
   );
 }

@@ -30,6 +30,7 @@ import {
 // 2. Expo & Third-party
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
 import { Calendar, Check, ChevronLeft, ChevronRight, Info, Plus, X, XCircle } from 'lucide-react-native';
 import Svg, { Circle, Defs, LinearGradient as SvgLinearGradient, Stop } from 'react-native-svg';
 import { Easing } from 'react-native';
@@ -1452,6 +1453,8 @@ export function CarCarousel({
   onActiveIndexChange,
   isFocused,
 }: CarCarouselProps) {
+  const router = useRouter();
+  
   // Sort vehicles so default car is first - memoized to prevent re-renders
   const sortedVehicles = useMemo(() => 
     [...vehicles].sort((a, b) => {
@@ -1717,7 +1720,10 @@ export function CarCarousel({
             );
           })}
           
-          <Pressable style={styles.addCarButton}>
+          <Pressable 
+            style={styles.addCarButton}
+            onPress={() => router.push('/add-vehicle')}
+          >
             <Plus size={18} color="#000000" />
           </Pressable>
         </View>

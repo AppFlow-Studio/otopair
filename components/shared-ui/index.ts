@@ -74,6 +74,19 @@ export {
     type InputProps
 } from './Input';
 
+// Fade In Stagger Animation Component
+export {
+    FadeInStagger,
+    FadeInItem,
+    FADE_IN_STAGGER_CONFIG
+} from './FadeInStagger';
+
+// Scroll Fade In Animation Component
+export {
+    ScrollFadeIn,
+    SCROLL_FADE_IN_CONFIG
+} from './ScrollFadeIn';
+
 // Re-export theme constants for convenience
 export {
     BorderRadius, BrandColors, ButtonStyles, Colors, FontFamily,

@@ -12,8 +12,16 @@ import { Stack } from "expo-router";
 
 export default function BookingsLayout() {
   return (
-    <Stack>
-      <Stack.Screen name="index" options={{ headerShown: false }} />
+    <Stack
+      screenOptions={{
+        headerShown: false,
+        animation: "slide_from_right",
+        animationDuration: 250,
+        gestureEnabled: true,
+        gestureDirection: "horizontal",
+      }}
+    >
+      <Stack.Screen name="index" />
     </Stack>
   );
 }

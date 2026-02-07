@@ -276,7 +276,8 @@ export function PhoneNumberStep({ onNext, onBack }: PhoneNumberStepProps) {
   };
 
   const handleLogIn = () => {
-    console.log("Navigate to login");
+    // Navigate back to WelcomeStep where user can use Log In button
+    onBack();
   };
 
   const handleCountrySelect = (selectedCountry: Country) => {

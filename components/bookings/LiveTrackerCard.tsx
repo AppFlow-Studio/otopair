@@ -25,7 +25,14 @@ import React, { useState } from 'react';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
 
 // 2. Expo & Third-party
-import { Check, ChevronDown, ChevronUp, Clock, Phone } from 'lucide-react-native';
+import { Check, ChevronDown, Clock, Phone } from 'lucide-react-native';
+import Animated, { 
+  useAnimatedStyle, 
+  useSharedValue, 
+  withTiming, 
+  Easing,
+  interpolate,
+} from 'react-native-reanimated';
 
 // 3. Shared UI
 import { Text } from '@/components/shared-ui';
@@ -76,10 +83,34 @@ export function LiveTrackerCard({
   onContactShop,
 }: LiveTrackerCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
+  const animationProgress = useSharedValue(0);
 
   const toggleExpanded = () => {
-    setIsExpanded(!isExpanded);
+    const newValue = !isExpanded;
+    setIsExpanded(newValue);
+    animationProgress.value = withTiming(newValue ? 1 : 0, {
+      duration: 450,
+      easing: Easing.bezier(0.4, 0, 0.2, 1),
+    });
   };
+
+  // Animated style for the chevron rotation
+  const chevronAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      transform: [
+        { rotate: `${interpolate(animationProgress.value, [0, 1], [0, 180])}deg` },
+      ],
+    };
+  });
+
+  // Animated style for the content container
+  const contentAnimatedStyle = useAnimatedStyle(() => {
+    return {
+      opacity: animationProgress.value,
+      maxHeight: interpolate(animationProgress.value, [0, 1], [0, 500]),
+      marginTop: interpolate(animationProgress.value, [0, 1], [0, 20]),
+    };
+  });
 
   const renderStageIcon = (status: ServiceStage['status']) => {
     switch (status) {
@@ -173,46 +204,42 @@ export function LiveTrackerCard({
               Service Status
             </Text>
           </View>
-          {isExpanded ? (
-            <ChevronUp size={24} color="#6B7280" />
-          ) : (
+          <Animated.View style={chevronAnimatedStyle}>
             <ChevronDown size={24} color="#6B7280" />
-          )}
+          </Animated.View>
         </Pressable>
 
-        {isExpanded && (
-          <View style={styles.stagesContainer}>
-            {tracking.stages.map((stage, index) => (
-              <View key={stage.id} style={styles.stageRow}>
-                <View style={styles.stageIconColumn}>
-                  {renderStageIcon(stage.status)}
-                  {index < tracking.stages.length - 1 && (
-                    <View style={[
-                      styles.stageLine,
-                      stage.status === 'completed' && styles.stageLineCompleted,
-                    ]} />
-                  )}
-                </View>
-                <View style={styles.stageContent}>
-                  <Text 
-                    weight="bold" 
-                    size="sm" 
-                    color={stage.status === 'pending' ? '#9CA3AF' : '#1F2937'}
-                  >
-                    {stage.title}
-                  </Text>
-                  <Text 
-                    weight="regular" 
-                    size="xs" 
-                    color={stage.status === 'pending' ? '#D1D5DB' : '#6B7280'}
-                  >
-                    {stage.description}
-                  </Text>
-                </View>
+        <Animated.View style={[styles.stagesContainer, contentAnimatedStyle]}>
+          {tracking.stages.map((stage, index) => (
+            <View key={stage.id} style={styles.stageRow}>
+              <View style={styles.stageIconColumn}>
+                {renderStageIcon(stage.status)}
+                {index < tracking.stages.length - 1 && (
+                  <View style={[
+                    styles.stageLine,
+                    stage.status === 'completed' && styles.stageLineCompleted,
+                  ]} />
+                )}
               </View>
-            ))}
-          </View>
-        )}
+              <View style={styles.stageContent}>
+                <Text 
+                  weight="bold" 
+                  size="sm" 
+                  color={stage.status === 'pending' ? '#9CA3AF' : '#1F2937'}
+                >
+                  {stage.title}
+                </Text>
+                <Text 
+                  weight="regular" 
+                  size="xs" 
+                  color={stage.status === 'pending' ? '#D1D5DB' : '#6B7280'}
+                >
+                  {stage.description}
+                </Text>
+              </View>
+            </View>
+          ))}
+        </Animated.View>
       </View>
 
       {/* Delay Notification */}
@@ -351,7 +378,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#22C55E',
   },
   stagesContainer: {
-    marginTop: 20,
+    overflow: 'hidden',
   },
   stageRow: {
     flexDirection: 'row',

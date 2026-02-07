@@ -135,7 +135,8 @@ export function BookingCard({
     if (onViewDetails) {
       onViewDetails(booking.id);
     } else {
-      router.push(`/booking/${booking.id}` as any);
+      // Default fallback - booking details page not yet implemented
+      router.push({ pathname: '/coming-soon', params: { serviceName: 'Booking Details' } });
     }
   };
 

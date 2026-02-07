@@ -37,20 +37,52 @@ export default function RootLayout() {
     <GestureHandlerRootView style={{ flex: 1 }}>
       <BottomSheetModalProvider>
         <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
-          <Stack>
-            <Stack.Screen name="index" options={{ headerShown: false }} />
-            <Stack.Screen name="(onboarding)" options={{ headerShown: false }} />
-            <Stack.Screen name="(main-tabs)" options={{ headerShown: false }} />
-            <Stack.Screen name="(tell-us-about)" options={{ headerShown: false }} />
-            <Stack.Screen name="coming-soon" options={{ headerShown: false }} />
-            <Stack.Screen name="add-vehicle" options={{ headerShown: false }} />
-            <Stack.Screen name="add-car-info" options={{ headerShown: false }} />
-            <Stack.Screen name="vehicle-added" options={{ headerShown: false }} />
-            <Stack.Screen name="vin-scanner" options={{ headerShown: false }} />
-            <Stack.Screen name="payment-methods" options={{ headerShown: false }} />
-            <Stack.Screen name="membership" options={{ headerShown: false }} />
-            <Stack.Screen name="suggested-deals" options={{ headerShown: false }} />
-            <Stack.Screen name="modal" options={{ presentation: "modal", title: "Modal" }} />
+          <Stack
+            screenOptions={{
+              headerShown: false,
+              animation: "ios_from_right",
+              animationDuration: 350,
+              gestureEnabled: true,
+              gestureDirection: "horizontal",
+            }}
+          >
+            <Stack.Screen name="index" />
+            <Stack.Screen name="(onboarding)" />
+            <Stack.Screen name="(main-tabs)" />
+            <Stack.Screen name="(tell-us-about)" />
+            <Stack.Screen 
+              name="coming-soon" 
+              options={{ 
+                animation: "fade_from_bottom",
+                animationDuration: 200,
+              }} 
+            />
+            <Stack.Screen name="add-vehicle" />
+            <Stack.Screen name="add-car-info" />
+            <Stack.Screen 
+              name="vehicle-added" 
+              options={{ 
+                animation: "fade",
+                animationDuration: 300,
+              }} 
+            />
+            <Stack.Screen name="vin-scanner" />
+            <Stack.Screen 
+              name="payment-methods" 
+              options={{ 
+                animation: "slide_from_bottom",
+                gestureDirection: "vertical",
+              }} 
+            />
+            <Stack.Screen name="membership" />
+            <Stack.Screen name="suggested-deals" />
+            <Stack.Screen 
+              name="modal" 
+              options={{ 
+                presentation: "modal",
+                animation: "slide_from_bottom",
+              }} 
+            />
           </Stack>
           <StatusBar style="auto" />
         </ThemeProvider>
