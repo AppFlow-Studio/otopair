@@ -8,9 +8,14 @@
  * PROPS:
  *   - onNext (() => void): Callback to navigate to the next step
  *   - onBack (() => void): Callback to navigate to the previous step
+ *   - progress ({ total: number; filled: number }): Progress indicator data
  *
  * EXAMPLE:
- *   <LocationServicesStep onNext={handleNext} onBack={handleBack} />
+ *   <LocationServicesStep 
+ *     onNext={handleNext} 
+ *     onBack={handleBack} 
+ *     progress={{ total: 8, filled: 7 }} 
+ *   />
  *
  * OWNER: Daniel Chelala
  * TICKET: OTO-XXX
@@ -42,9 +47,10 @@ import { MapPin } from 'lucide-react-native';
 interface LocationServicesStepProps {
     onNext: () => void;
     onBack: () => void;
+    progress: { total: number; filled: number };
 }
 
-export function LocationServicesStep({ onNext, onBack }: LocationServicesStepProps) {
+export function LocationServicesStep({ onNext, onBack, progress }: LocationServicesStepProps) {
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData } = useOnboardingStore();
@@ -156,8 +162,8 @@ export function LocationServicesStep({ onNext, onBack }: LocationServicesStepPro
         >
             <View style={[styles.container, dynamicStyles.container]}>
                 <ProgressBar
-                    total={6}
-                    filled={5}
+                    total={progress.total}
+                    filled={progress.filled}
                     leftElement={<BackButton onBack={onBack} alwaysShow />}
                 />
 

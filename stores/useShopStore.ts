@@ -14,6 +14,7 @@
 
 import { create } from "zustand";
 import { MOCK_SHOPS } from "./data/mockShops";
+import { MOCK_MECHANICS } from "./data/mockMechanics";
 import type { Shop, ShopFilters } from "./types/store.types";
 
 // ─────────────────────────────────────────────────────────────
@@ -22,14 +23,14 @@ import type { Shop, ShopFilters } from "./types/store.types";
 
 interface ShopState {
   // ═══════════════ DATA ═══════════════
-  /** All shops indexed by ID */
-  shops: Record<number, Shop>;
+  /** All shops indexed by ID (Convex _id as string) */
+  shops: Record<string, Shop>;
   /** Ordered list of shop IDs */
-  shopIds: number[];
+  shopIds: string[];
 
   // ═══════════════ SELECTION ═══════════════
   /** Currently selected shop ID */
-  selectedShopId: number | null;
+  selectedShopId: string | null;
 
   // ═══════════════ FILTERS ═══════════════
   /** Current filter settings */
@@ -43,17 +44,19 @@ interface ShopState {
 
   // ═══════════════ GETTERS ═══════════════
   /** Get shop by ID */
-  getShopById: (id: number) => Shop | undefined;
+  getShopById: (id: string) => Shop | undefined;
   /** Get filtered shops based on current filters */
   getFilteredShops: () => Shop[];
   /** Get currently selected shop */
   getSelectedShop: () => Shop | undefined;
+  /** Get mechanic count for a specific shop */
+  getMechanicCountByShopId: (shopId: string) => number;
 
   // ═══════════════ ACTIONS ═══════════════
   /** Set shops data (from API) */
   setShops: (shops: Shop[]) => void;
   /** Select a shop by ID */
-  selectShop: (shopId: number | null) => void;
+  selectShop: (shopId: string | null) => void;
   /** Update filter settings */
   setFilters: (filters: Partial<ShopFilters>) => void;
   /** Clear all filters to defaults */
@@ -76,12 +79,13 @@ const DEFAULT_FILTERS: ShopFilters = {
 // ─────────────────────────────────────────────────────────────
 
 export const useShopStore = create<ShopState>()((set, get) => {
-  // Initialize with mock data
-  const initialShops: Record<number, Shop> = {};
-  const initialShopIds: number[] = [];
+  // Initialize with mock data (ids as string for Convex compatibility)
+  const initialShops: Record<string, Shop> = {};
+  const initialShopIds: string[] = [];
   MOCK_SHOPS.forEach((shop) => {
-    initialShops[shop.id] = shop;
-    initialShopIds.push(shop.id);
+    const id = String(shop.id);
+    initialShops[id] = { ...shop, id };
+    initialShopIds.push(id);
   });
 
   return {
@@ -104,6 +108,10 @@ export const useShopStore = create<ShopState>()((set, get) => {
       return selectedShopId ? shops[selectedShopId] : undefined;
     },
 
+    getMechanicCountByShopId: (shopId) => {
+      return MOCK_MECHANICS.filter((m) => String(m.shopId) === shopId).length;
+    },
+
     getFilteredShops: () => {
       const { shops, shopIds, filters } = get();
       let filtered = shopIds.map((id) => shops[id]).filter(Boolean);
@@ -121,15 +129,13 @@ export const useShopStore = create<ShopState>()((set, get) => {
       // Filter by service IDs
       if (filters.serviceIds.length > 0) {
         filtered = filtered.filter((shop) =>
-          filters.serviceIds.some((serviceId) => shop.serviceIds.includes(serviceId))
+          filters.serviceIds.some((serviceId) => shop.serviceIds.includes(serviceId)),
         );
       }
 
       // Filter by max distance (if distanceKm is set)
       if (filters.maxDistance < 50) {
-        filtered = filtered.filter(
-          (shop) => shop.distanceKm === null || shop.distanceKm <= filters.maxDistance
-        );
+        filtered = filtered.filter((shop) => shop.distanceKm === null || shop.distanceKm <= filters.maxDistance);
       }
 
       return filtered;
@@ -138,11 +144,12 @@ export const useShopStore = create<ShopState>()((set, get) => {
     // ═══════════════ ACTIONS ═══════════════
     setShops: (shops) =>
       set(() => {
-        const shopsRecord: Record<number, Shop> = {};
-        const shopIds: number[] = [];
+        const shopsRecord: Record<string, Shop> = {};
+        const shopIds: string[] = [];
         shops.forEach((shop) => {
-          shopsRecord[shop.id] = shop;
-          shopIds.push(shop.id);
+          const id = typeof shop.id === "string" ? shop.id : String(shop.id);
+          shopsRecord[id] = { ...shop, id };
+          shopIds.push(id);
         });
         return {
           shops: shopsRecord,
@@ -171,4 +178,3 @@ export const useShopStore = create<ShopState>()((set, get) => {
       }),
   };
 });
-

@@ -16,11 +16,14 @@
 
 import type { Shop } from "../types/store.types";
 
-export const MOCK_SHOPS: Shop[] = [
+/** Mock shop type with numeric id for seed data; store coerces to string. */
+export type MockShop = Omit<Shop, "id"> & { id: number };
+
+export const MOCK_SHOPS: MockShop[] = [
   // ═══════════════ MANHATTAN (10 shops) ═══════════════
   {
     id: 1,
-    name: "Manhattan Auto Repair Service",
+    name: "Premium Auto Care",
     address: "Harlem, Manhattan",
     latitude: 40.8025,
     longitude: -73.9312,

@@ -13,6 +13,9 @@
 import React from "react";
 import { StyleSheet, TouchableOpacity } from "react-native";
 
+// 2. Icons
+import { FontAwesome5 } from "@expo/vector-icons";
+
 // 3. Shared UI (design system)
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
@@ -37,9 +40,7 @@ export interface PayOptionButtonProps {
 export function PayOptionButton({ type, onPress }: PayOptionButtonProps) {
   return (
     <TouchableOpacity style={styles.container} onPress={onPress} activeOpacity={0.7}>
-      <Text size="md" weight="semiBold" color={BrandColors.primary}>
-        {type === "apple" ? "" : "G"} Pay
-      </Text>
+      <FontAwesome5 name={type === "apple" ? "apple-pay" : "google-pay"} size={32} color={BrandColors.primary} />
     </TouchableOpacity>
   );
 }
@@ -60,4 +61,3 @@ const styles = StyleSheet.create({
     backgroundColor: BrandColors.white,
   },
 });
-

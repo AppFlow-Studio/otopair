@@ -3,17 +3,40 @@
  *
  * PURPOSE: Main top bar container with BlurView background. Renders different content
  *          based on the booking stage using the centralized transition hook.
- *          Uses custom Oto transitions for smooth stage changes.
  *
  * FLOW: discovery → service → mechanic → booking → confirmation
  *
  * USED IN: app/(main-tabs)/bookings/index.tsx
  *
+ * PROPS:
+ *   - location (string): User's current location label
+ *   - mechanicsCount (number): Number of mechanics available [optional]
+ *   - selectedServicesText (string): Text showing selected services (truncated) [optional]
+ *   - shopName (string): Shop/business name for booking details [optional]
+ *   - onFilterSelect ((filter: FilterOption) => void): Called when filter selected [optional]
+ *   - searchQuery (string): Current search query value [optional]
+ *   - onSearchChange ((text: string) => void): Called when search query changes [optional]
+ *   - onSearchSubmit (() => void): Called when search is submitted [optional]
+ *   - activeFilters (string[]): Active filters from search bar (displayed as removable chips) [optional]
+ *   - onRemoveFilter ((filter: string) => void): Called when a filter chip is removed [optional]
+ *   - onMechanicFilterSelect ((filter: MechanicFilterOption) => void): Called when mechanic filter selected [optional]
+ *   - selectedMechanicFilter (MechanicFilterOption): Currently selected mechanic filter [optional]
+ *   - sheetAnimatedIndex (SharedValue<number>): Animated index from bottom sheet [optional]
+ *
+ * EXAMPLE:
+ *   <TopBar
+ *     location="New York, NY"
+ *     searchQuery=""
+ *     onSearchChange={(text) => setSearchQuery(text)}
+ *     activeFilters={["Oil Change"]}
+ *     onRemoveFilter={(filter) => console.log("Removed:", filter)}
+ *   />
+ *
  * OWNER: Waleed Mansour
  */
 
 // 1. React & React Native
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useMemo, useState } from "react";
 import { StyleSheet, View } from "react-native";
 
 // 2. Expo & Third-party
@@ -28,7 +51,7 @@ import { BrandColors, GhostButton, Spacing, Text } from "@/components/shared-ui"
 
 // 4. Flow-specific components
 import { FilterDropdown } from "./shared";
-import { DiscoveryTabs, MechanicTabs, type MechanicFilterOption } from "./topbars";
+import { DynamicFilterChips, MechanicTabs, SearchBar, type MechanicFilterOption } from "./topbars";
 
 // 5. Constants, hooks, types, stores
 import { AnimationDuration } from "@/constants/animations";
@@ -36,6 +59,7 @@ import { SHOP_FILTER_OPTIONS } from "@/constants/filters";
 import { BorderRadius } from "@/constants/theme";
 import { useBookingTransition } from "@/hooks/useBookingTransition";
 import type { FilterOption, ServiceCategory } from "@/stores/types/store.types";
+import { useBookingStore } from "@/stores/useBookingStore";
 
 // Re-export types for convenience
 export type { FilterOption, ServiceCategory } from "@/stores/types/store.types";
@@ -56,16 +80,24 @@ export interface TopBarProps {
   shopName?: string;
   /** Called when a filter option is selected */
   onFilterSelect?: (filter: FilterOption) => void;
-  /** Called when a service category tab is selected */
-  onServiceSelect?: (service: ServiceCategory) => void;
-  /** Currently selected service category */
-  selectedService?: ServiceCategory | null;
+  /** Current search query value */
+  searchQuery?: string;
+  /** Called when the search query changes */
+  onSearchChange?: (text: string) => void;
+  /** Called when search is submitted */
+  onSearchSubmit?: () => void;
+  /** Active filters from search bar (displayed as removable chips) */
+  activeFilters?: string[];
+  /** Called when a filter chip is removed */
+  onRemoveFilter?: (filter: string) => void;
   /** Called when a mechanic filter tab is selected */
   onMechanicFilterSelect?: (filter: MechanicFilterOption) => void;
   /** Currently selected mechanic filter */
   selectedMechanicFilter?: MechanicFilterOption;
   /** Animated index from bottom sheet */
   sheetAnimatedIndex?: SharedValue<number>;
+  /** Auto-focus the search bar on mount */
+  autoFocusSearch?: boolean;
 }
 
 // ============================================================================
@@ -78,14 +110,23 @@ export function TopBar({
   selectedServicesText = "",
   shopName = "",
   onFilterSelect,
-  onServiceSelect,
-  selectedService,
+  searchQuery = "",
+  onSearchChange,
+  onSearchSubmit,
+  activeFilters = [],
+  onRemoveFilter,
   onMechanicFilterSelect,
   selectedMechanicFilter,
   sheetAnimatedIndex,
+  autoFocusSearch = false,
 }: TopBarProps) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+
+  // ═══════════════ BOOKING STORE ═══════════════
+  const selectedServiceCategory = useBookingStore((state) => state.selectedServiceCategory);
+  const setSelectedServiceCategory = useBookingStore((state) => state.setSelectedServiceCategory);
+  const getServiceCategories = useBookingStore((state) => state.getServiceCategories);
 
   // ═══════════════ TRANSITION HOOK ═══════════════
   const { currentStage, topBarEntering, topBarExiting, crossfadeEntering, crossfadeExiting, goBack } =
@@ -121,6 +162,29 @@ export function TopBar({
   const fadeIn = FadeIn.duration(AnimationDuration.standard);
   const fadeOut = FadeOut.duration(AnimationDuration.standard);
 
+  // ═══════════════ CATEGORY FILTER CHIP ═══════════════
+  // Get category label if a category is selected
+  const categoryChipLabel = selectedServiceCategory
+    ? getServiceCategories().find((cat) => cat.key === selectedServiceCategory)?.label
+    : null;
+
+  // Combine active filters with category chip
+  const allFilters = categoryChipLabel ? [categoryChipLabel, ...activeFilters] : activeFilters;
+
+  // Handle removing filters (including category)
+  const handleRemoveFilterInternal = useCallback(
+    (filter: string) => {
+      if (filter === categoryChipLabel) {
+        // Clear the category filter
+        setSelectedServiceCategory(null);
+      } else {
+        // Pass to parent handler for other filters
+        onRemoveFilter?.(filter);
+      }
+    },
+    [categoryChipLabel, setSelectedServiceCategory, onRemoveFilter],
+  );
+
   // Filter handlers
   const handleFilterPress = () => setIsFilterOpen(true);
   const handleFilterDismiss = () => setIsFilterOpen(false);
@@ -154,7 +218,7 @@ export function TopBar({
       <View style={styles.frostedOverlay} />
 
       {/* Top Row: Back, Center, Right */}
-      <View style={[styles.topRow, { paddingTop: insets.top + Spacing.sm }]}>
+      <View style={[styles.topRow, { paddingTop: insets.top + Spacing.xs }]}>
         {/* Back Button - Screen Navigation */}
         <GhostButton
           onPress={handleBackPress}
@@ -199,12 +263,27 @@ export function TopBar({
         )}
       </View>
 
-      {/* Bottom Tabs - Stage-specific with crossfade transitions */}
+      {/* Search Bar - Discovery mode */}
       {isDiscoveryMode && (
+        <View style={styles.searchWrapper}>
+          <Animated.View entering={crossfadeEntering} exiting={crossfadeExiting}>
+            <SearchBar
+              value={searchQuery}
+              onChangeText={onSearchChange ?? (() => {})}
+              onSubmit={onSearchSubmit}
+              sheetAnimatedIndex={sheetAnimatedIndex}
+              autoFocus={autoFocusSearch}
+            />
+          </Animated.View>
+        </View>
+      )}
+
+      {/* Active Filter Chips - Discovery mode when filters are active (includes category chip) */}
+      {isDiscoveryMode && allFilters.length > 0 && (
         <Animated.View entering={crossfadeEntering} exiting={crossfadeExiting}>
-          <DiscoveryTabs
-            onServiceSelect={onServiceSelect}
-            selectedService={selectedService}
+          <DynamicFilterChips
+            filters={allFilters}
+            onRemoveFilter={handleRemoveFilterInternal}
             sheetAnimatedIndex={sheetAnimatedIndex}
           />
         </Animated.View>
@@ -237,7 +316,8 @@ export function TopBar({
 
 const styles = StyleSheet.create({
   container: {
-    overflow: "hidden",
+    // Note: overflow visible to allow SearchSuggestions dropdown to show
+    overflow: "visible",
   },
   frostedOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -267,5 +347,9 @@ const styles = StyleSheet.create({
   },
   spacer: {
     width: 40,
+  },
+  searchWrapper: {
+    position: "relative",
+    zIndex: 100,
   },
 });

@@ -21,21 +21,14 @@
  */
 
 // 1. React & React Native
-import React, { useState } from 'react';
-import { Image, Pressable, StyleSheet, View } from 'react-native';
+import React, { useState } from "react";
+import { Image, Pressable, StyleSheet, View } from "react-native";
 
 // 2. Expo & Third-party
-import { Check, ChevronDown, Clock, Phone } from 'lucide-react-native';
-import Animated, { 
-  useAnimatedStyle, 
-  useSharedValue, 
-  withTiming, 
-  Easing,
-  interpolate,
-} from 'react-native-reanimated';
+import { Car, Check, ChevronDown, ChevronUp, Clock, Phone, User } from "lucide-react-native";
 
 // 3. Shared UI
-import { Text } from '@/components/shared-ui';
+import { Text } from "@/components/shared-ui";
 
 // ============================================================================
 // TYPES
@@ -45,7 +38,7 @@ export interface ServiceStage {
   id: string;
   title: string;
   description: string;
-  status: 'completed' | 'current' | 'pending';
+  status: "completed" | "current" | "pending";
 }
 
 export interface LiveTracking {
@@ -54,6 +47,8 @@ export interface LiveTracking {
   carModel: string;
   carYear: string;
   licensePlate: string;
+  /** Make logo URL from cdn_assets (content); used as car thumbnail when no vehicle image */
+  makeLogoUrl?: string;
   // Mechanic info
   mechanicName: string;
   shopName: string;
@@ -77,56 +72,30 @@ interface LiveTrackerCardProps {
 // COMPONENT
 // ============================================================================
 
-export function LiveTrackerCard({ 
-  tracking, 
-  onReschedule,
-  onContactShop,
-}: LiveTrackerCardProps) {
+export function LiveTrackerCard({ tracking, onReschedule, onContactShop }: LiveTrackerCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
-  const animationProgress = useSharedValue(0);
+  const [carImageError, setCarImageError] = useState(false);
+  const showCarPlaceholder = !tracking.makeLogoUrl?.trim() || carImageError;
 
   const toggleExpanded = () => {
-    const newValue = !isExpanded;
-    setIsExpanded(newValue);
-    animationProgress.value = withTiming(newValue ? 1 : 0, {
-      duration: 450,
-      easing: Easing.bezier(0.4, 0, 0.2, 1),
-    });
+    setIsExpanded(!isExpanded);
   };
 
-  // Animated style for the chevron rotation
-  const chevronAnimatedStyle = useAnimatedStyle(() => {
-    return {
-      transform: [
-        { rotate: `${interpolate(animationProgress.value, [0, 1], [0, 180])}deg` },
-      ],
-    };
-  });
-
-  // Animated style for the content container
-  const contentAnimatedStyle = useAnimatedStyle(() => {
-    return {
-      opacity: animationProgress.value,
-      maxHeight: interpolate(animationProgress.value, [0, 1], [0, 500]),
-      marginTop: interpolate(animationProgress.value, [0, 1], [0, 20]),
-    };
-  });
-
-  const renderStageIcon = (status: ServiceStage['status']) => {
+  const renderStageIcon = (status: ServiceStage["status"]) => {
     switch (status) {
-      case 'completed':
+      case "completed":
         return (
           <View style={styles.stageIconCompleted}>
             <Check size={14} color="#FFFFFF" strokeWidth={3} />
           </View>
         );
-      case 'current':
+      case "current":
         return (
           <View style={styles.stageIconCurrent}>
             <Clock size={12} color="#FFFFFF" strokeWidth={2} />
           </View>
         );
-      case 'pending':
+      case "pending":
         return (
           <View style={styles.stageIconPending}>
             <Check size={14} color="#D1D5DB" strokeWidth={2} />
@@ -148,11 +117,18 @@ export function LiveTrackerCard({
       <View style={styles.infoRow}>
         {/* Car Info */}
         <View style={styles.carInfo}>
-          <Image 
-            source={require('@/assets/images/bmwm5.png')} 
-            style={styles.carImage}
-            resizeMode="contain"
-          />
+          {showCarPlaceholder ? (
+            <View style={styles.carPlaceholder}>
+              <Car size={20} color="#9CA3AF" strokeWidth={1.5} />
+            </View>
+          ) : (
+            <Image
+              source={{ uri: tracking.makeLogoUrl! }}
+              style={styles.carImage}
+              resizeMode="contain"
+              onError={() => setCarImageError(true)}
+            />
+          )}
           <View style={styles.carDetails}>
             <Text weight="bold" size="sm" color="#1F2937">
               {tracking.carModel} {tracking.carYear}
@@ -165,10 +141,13 @@ export function LiveTrackerCard({
 
         {/* Mechanic Info */}
         <View style={styles.mechanicInfo}>
-          <Image 
-            source={{ uri: tracking.mechanicImage || 'https://randomuser.me/api/portraits/men/32.jpg' }} 
-            style={styles.mechanicImage}
-          />
+          {tracking.mechanicImage ? (
+            <Image source={{ uri: tracking.mechanicImage }} style={styles.mechanicImage} />
+          ) : (
+            <View style={styles.mechanicPlaceholder}>
+              <User size={18} color="#9CA3AF" strokeWidth={1.5} />
+            </View>
+          )}
           <View style={styles.mechanicDetails}>
             <Text weight="bold" size="sm" color="#1F2937">
               {tracking.mechanicName}
@@ -204,48 +183,37 @@ export function LiveTrackerCard({
               Service Status
             </Text>
           </View>
-          <Animated.View style={chevronAnimatedStyle}>
-            <ChevronDown size={24} color="#6B7280" />
-          </Animated.View>
+          {isExpanded ? <ChevronUp size={24} color="#6B7280" /> : <ChevronDown size={24} color="#6B7280" />}
         </Pressable>
 
-        <Animated.View style={[styles.stagesContainer, contentAnimatedStyle]}>
-          {tracking.stages.map((stage, index) => (
-            <View key={stage.id} style={styles.stageRow}>
-              <View style={styles.stageIconColumn}>
-                {renderStageIcon(stage.status)}
-                {index < tracking.stages.length - 1 && (
-                  <View style={[
-                    styles.stageLine,
-                    stage.status === 'completed' && styles.stageLineCompleted,
-                  ]} />
-                )}
+        {isExpanded && (
+          <View style={styles.stagesContainer}>
+            {tracking.stages.map((stage, index) => (
+              <View key={stage.id} style={styles.stageRow}>
+                <View style={styles.stageIconColumn}>
+                  {renderStageIcon(stage.status)}
+                  {index < tracking.stages.length - 1 && (
+                    <View style={[styles.stageLine, stage.status === "completed" && styles.stageLineCompleted]} />
+                  )}
+                </View>
+                <View style={styles.stageContent}>
+                  <Text weight="bold" size="sm" color={stage.status === "pending" ? "#9CA3AF" : "#1F2937"}>
+                    {stage.title}
+                  </Text>
+                  <Text weight="regular" size="xs" color={stage.status === "pending" ? "#D1D5DB" : "#6B7280"}>
+                    {stage.description}
+                  </Text>
+                </View>
               </View>
-              <View style={styles.stageContent}>
-                <Text 
-                  weight="bold" 
-                  size="sm" 
-                  color={stage.status === 'pending' ? '#9CA3AF' : '#1F2937'}
-                >
-                  {stage.title}
-                </Text>
-                <Text 
-                  weight="regular" 
-                  size="xs" 
-                  color={stage.status === 'pending' ? '#D1D5DB' : '#6B7280'}
-                >
-                  {stage.description}
-                </Text>
-              </View>
-            </View>
-          ))}
-        </Animated.View>
+            ))}
+          </View>
+        )}
       </View>
 
       {/* Delay Notification */}
       {tracking.delayMinutes && tracking.delayMinutes > 0 && (
         <Text weight="regular" size="sm" color="#1F2937" style={styles.delayText}>
-          Your service is running{' '}
+          Your service is running{" "}
           <Text weight="semiBold" size="sm" color="#EF4444">
             {tracking.delayMinutes} min late
           </Text>
@@ -255,10 +223,7 @@ export function LiveTrackerCard({
       {/* Reschedule Button */}
       <Pressable
         onPress={onReschedule}
-        style={({ pressed }) => [
-          styles.rescheduleButton,
-          pressed && styles.buttonPressed,
-        ]}
+        style={({ pressed }) => [styles.rescheduleButton, pressed && styles.buttonPressed]}
       >
         <Text weight="semiBold" size="sm" color="#1F2937">
           Reschedule
@@ -271,10 +236,7 @@ export function LiveTrackerCard({
       </Text>
       <Pressable
         onPress={onContactShop}
-        style={({ pressed }) => [
-          styles.contactButton,
-          pressed && styles.buttonPressed,
-        ]}
+        style={({ pressed }) => [styles.contactButton, pressed && styles.buttonPressed]}
       >
         <Phone size={20} color="#FFFFFF" strokeWidth={2} />
       </Pressable>
@@ -288,29 +250,29 @@ export function LiveTrackerCard({
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     borderRadius: 16,
     padding: 16,
     marginBottom: 12,
     borderWidth: 2,
-    borderColor: '#5299FE',
+    borderColor: "#5299FE",
   },
   progressBadge: {
-    alignSelf: 'flex-start',
-    backgroundColor: '#DBEAFE',
+    alignSelf: "flex-start",
+    backgroundColor: "#DBEAFE",
     paddingVertical: 6,
     paddingHorizontal: 14,
     borderRadius: 20,
     marginBottom: 16,
   },
   infoRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    justifyContent: "space-between",
     marginBottom: 16,
   },
   carInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     flex: 1,
   },
   carImage: {
@@ -318,12 +280,21 @@ const styles = StyleSheet.create({
     height: 32,
     marginRight: 8,
   },
+  carPlaceholder: {
+    width: 36,
+    height: 36,
+    marginRight: 8,
+    borderRadius: 18,
+    backgroundColor: "#E5E7EB",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   carDetails: {
     gap: 2,
   },
   mechanicInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     flex: 1,
   },
   mechanicImage: {
@@ -332,6 +303,15 @@ const styles = StyleSheet.create({
     borderRadius: 18,
     marginRight: 8,
   },
+  mechanicPlaceholder: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    marginRight: 8,
+    backgroundColor: "#E5E7EB",
+    alignItems: "center",
+    justifyContent: "center",
+  },
   mechanicDetails: {
     gap: 2,
   },
@@ -339,89 +319,89 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   progressHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginBottom: 8,
   },
   progressBarContainer: {
     height: 6,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: "#E5E7EB",
     borderRadius: 3,
-    overflow: 'hidden',
+    overflow: "hidden",
   },
   progressBar: {
-    height: '100%',
-    backgroundColor: '#5299FE',
+    height: "100%",
+    backgroundColor: "#5299FE",
     borderRadius: 3,
   },
   serviceStatusContainer: {
-    backgroundColor: '#F9FAFB',
+    backgroundColor: "#F9FAFB",
     borderRadius: 12,
     padding: 16,
     marginBottom: 16,
   },
   serviceStatusHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
   serviceStatusTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 10,
   },
   greenDot: {
     width: 10,
     height: 10,
     borderRadius: 5,
-    backgroundColor: '#22C55E',
+    backgroundColor: "#22C55E",
   },
   stagesContainer: {
-    overflow: 'hidden',
+    marginTop: 20,
   },
   stageRow: {
-    flexDirection: 'row',
+    flexDirection: "row",
     minHeight: 60,
   },
   stageIconColumn: {
     width: 30,
-    alignItems: 'center',
+    alignItems: "center",
   },
   stageIconCompleted: {
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: '#5299FE',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#5299FE",
+    justifyContent: "center",
+    alignItems: "center",
   },
   stageIconCurrent: {
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: '#5299FE',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#5299FE",
+    justifyContent: "center",
+    alignItems: "center",
   },
   stageIconPending: {
     width: 24,
     height: 24,
     borderRadius: 12,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     borderWidth: 2,
-    borderColor: '#E5E7EB',
-    justifyContent: 'center',
-    alignItems: 'center',
+    borderColor: "#E5E7EB",
+    justifyContent: "center",
+    alignItems: "center",
   },
   stageLine: {
     width: 2,
     flex: 1,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: "#E5E7EB",
     marginVertical: 4,
   },
   stageLineCompleted: {
-    backgroundColor: '#5299FE',
+    backgroundColor: "#5299FE",
   },
   stageContent: {
     flex: 1,
@@ -435,9 +415,9 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
+    borderColor: "#E5E7EB",
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
     marginBottom: 16,
   },
   contactLabel: {
@@ -446,8 +426,8 @@ const styles = StyleSheet.create({
   contactButton: {
     paddingVertical: 14,
     borderRadius: 8,
-    backgroundColor: '#1F2937',
-    alignItems: 'center',
+    backgroundColor: "#1F2937",
+    alignItems: "center",
   },
   buttonPressed: {
     opacity: 0.7,
@@ -455,4 +435,3 @@ const styles = StyleSheet.create({
 });
 
 export default LiveTrackerCard;
-

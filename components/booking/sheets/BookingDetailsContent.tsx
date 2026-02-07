@@ -20,7 +20,7 @@
 
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { StyleSheet, TouchableOpacity, View } from "react-native";
+import { ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
@@ -31,18 +31,17 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Local components
-import { AvailabilitySlots, MechanicInfoCard, RatingSummaryCard, ReviewCard, ServiceRow } from "../shared";
+import { AvailabilitySlots, MechanicInfoCard, ServiceRow } from "../shared";
 import { AllAvailabilitySheet, AllAvailabilitySheetRef } from "./AllAvailabilitySheet";
-import { AllReviewsSheet, AllReviewsSheetRef } from "./AllReviewsSheet";
 import { DiscardServiceModal } from "./DiscardServiceModal";
 
 // 5. Constants, hooks, types
 import { BorderRadius, getSheetContentPadding } from "@/constants/theme";
-import { mockReviews, ratingDistribution } from "@/stores/data/mockReviews";
 import type { ScheduledAppointment } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useScheduleStore } from "@/stores/useScheduleStore";
+import { useShopStore } from "@/stores/useShopStore";
 
 // ============================================================================
 // TYPES
@@ -51,16 +50,17 @@ import { useScheduleStore } from "@/stores/useScheduleStore";
 interface BookingDetailsContentProps {
   /** Called when user wants to add more services */
   onAddMore?: () => void;
+  /** Whether this is rendered in full-screen mode (outside bottom sheet) */
+  isFullScreen?: boolean;
 }
 
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
 
-export function BookingDetailsContent({ onAddMore }: BookingDetailsContentProps) {
+export function BookingDetailsContent({ onAddMore, isFullScreen = false }: BookingDetailsContentProps) {
   // ═══════════════ REFS ═══════════════
   const allAvailabilityRef = useRef<AllAvailabilitySheetRef>(null);
-  const allReviewsRef = useRef<AllReviewsSheetRef>(null);
 
   // ═══════════════ HOOKS ═══════════════
   const insets = useSafeAreaInsets();
@@ -72,12 +72,17 @@ export function BookingDetailsContent({ onAddMore }: BookingDetailsContentProps)
   const selectedMechanicId = useBookingStore((state) => state.selectedMechanicId);
   const toggleServiceSelection = useBookingStore((state) => state.toggleServiceSelection);
   const setScheduledAppointment = useBookingStore((state) => state.setScheduledAppointment);
+  const skipServiceRemovalConfirm = useBookingStore((state) => state.skipServiceRemovalConfirm);
+  const setSkipServiceRemovalConfirm = useBookingStore((state) => state.setSkipServiceRemovalConfirm);
 
   // ═══════════════ SCHEDULE STORE ═══════════════
   const confirmedSelections = useScheduleStore((state) => state.confirmedSelections);
 
   // ═══════════════ MECHANIC STORE ═══════════════
   const getMechanicById = useMechanicStore((state) => state.getMechanicById);
+
+  // ═══════════════ SHOP STORE (for shop-specific pricing) ═══════════════
+  const getShopById = useShopStore((state) => state.getShopById);
 
   // ═══════════════ LOCAL STATE ═══════════════
   const [showDiscardModal, setShowDiscardModal] = useState(false);
@@ -93,17 +98,29 @@ export function BookingDetailsContent({ onAddMore }: BookingDetailsContentProps)
   // Get selected services
   const selectedServices = useMemo(
     () => availableServices.filter((service) => selectedServiceIds.includes(service.id)),
-    [availableServices, selectedServiceIds]
+    [availableServices, selectedServiceIds],
   );
 
-  // Compute total from selected services (reactive)
+  // Shop-specific pricing: labor_rate × default_labor_hours + default_parts_estimate (shop rate only)
+  const shop = useMemo(() => (mechanic?.shopId ? getShopById(mechanic.shopId) : null), [mechanic?.shopId, getShopById]);
+  const laborRate = shop?.labor_rate;
   const totalPrice = useMemo(
-    () => selectedServices.reduce((total, service) => total + service.price, 0),
-    [selectedServices]
+    () =>
+      selectedServices.reduce(
+        (total, service) =>
+          total + (laborRate ?? 0) * (service.default_labor_hours ?? 0) + (service.default_parts_estimate ?? 0),
+        0,
+      ),
+    [selectedServices, laborRate],
+  );
+  const getServicePrice = useCallback(
+    (service: (typeof selectedServices)[0]) =>
+      (laborRate ?? 0) * (service.default_labor_hours ?? 0) + (service.default_parts_estimate ?? 0),
+    [laborRate],
   );
 
-  // Mock rating count based on mechanic rating
-  const ratingCount = mechanic ? Math.floor(mechanic.rating * 25 + 27) : 0;
+  // Rating and review count from Convex (mechanic.rating / mechanic.reviewCount)
+  const ratingCount = mechanic?.reviewCount ?? 0;
 
   // ═══════════════ HELPER FUNCTIONS ═══════════════
   /** Create a ScheduledAppointment from a slot */
@@ -139,7 +156,7 @@ export function BookingDetailsContent({ onAddMore }: BookingDetailsContentProps)
         displayDate,
       };
     },
-    [mechanic?.nextAvailability]
+    [mechanic?.nextAvailability],
   );
 
   // ═══════════════ EFFECTS ═══════════════
@@ -173,10 +190,17 @@ export function BookingDetailsContent({ onAddMore }: BookingDetailsContentProps)
     onAddMore?.();
   }, [onAddMore]);
 
-  const handleRemoveService = useCallback((serviceId: string) => {
-    setPendingRemoveServiceId(serviceId);
-    setShowDiscardModal(true);
-  }, []);
+  const handleRemoveService = useCallback(
+    (serviceId: string) => {
+      if (skipServiceRemovalConfirm) {
+        toggleServiceSelection(serviceId);
+        return;
+      }
+      setPendingRemoveServiceId(serviceId);
+      setShowDiscardModal(true);
+    },
+    [skipServiceRemovalConfirm, toggleServiceSelection],
+  );
 
   const handleConfirmRemove = useCallback(() => {
     if (pendingRemoveServiceId) {
@@ -191,6 +215,11 @@ export function BookingDetailsContent({ onAddMore }: BookingDetailsContentProps)
     setPendingRemoveServiceId(null);
   }, []);
 
+  const handleDontAskAgain = useCallback(() => {
+    setSkipServiceRemovalConfirm(true);
+    handleConfirmRemove();
+  }, [setSkipServiceRemovalConfirm, handleConfirmRemove]);
+
   const handleViewAllAvailability = useCallback(() => {
     if (mechanic?.id) {
       allAvailabilityRef.current?.open(mechanic.id);
@@ -202,7 +231,7 @@ export function BookingDetailsContent({ onAddMore }: BookingDetailsContentProps)
       // Find the slot index that matches the selected date/time
       const dayOfMonth = date.getDate();
       const matchingIndex = mechanic?.nextAvailability?.findIndex(
-        (slot) => parseInt(slot.day, 10) === dayOfMonth && slot.time === time
+        (slot) => parseInt(slot.day, 10) === dayOfMonth && slot.time === time,
       );
       if (matchingIndex !== undefined && matchingIndex >= 0) {
         setSelectedSlotIndex(matchingIndex);
@@ -218,14 +247,8 @@ export function BookingDetailsContent({ onAddMore }: BookingDetailsContentProps)
         });
       }
     },
-    [mechanic?.nextAvailability, setScheduledAppointment]
+    [mechanic?.nextAvailability, setScheduledAppointment],
   );
-
-  const handleViewAllReviews = useCallback(() => {
-    if (mechanic?.id) {
-      allReviewsRef.current?.open(mechanic.id);
-    }
-  }, [mechanic?.id]);
 
   // ═══════════════ RENDER ═══════════════
   if (!mechanic) {
@@ -238,10 +261,13 @@ export function BookingDetailsContent({ onAddMore }: BookingDetailsContentProps)
     );
   }
 
+  // Choose the appropriate ScrollView component based on mode
+  const ScrollComponent = isFullScreen ? ScrollView : BottomSheetScrollView;
+
   return (
     <View style={styles.container}>
       {/* Scrollable Content */}
-      <BottomSheetScrollView
+      <ScrollComponent
         contentContainerStyle={[styles.scrollContent, { paddingBottom: contentPadding }]}
         showsVerticalScrollIndicator={false}
       >
@@ -257,14 +283,19 @@ export function BookingDetailsContent({ onAddMore }: BookingDetailsContentProps)
 
         <View style={styles.servicesContainer}>
           {selectedServices.map((service) => (
-            <ServiceRow key={service.id} service={service} onRemove={() => handleRemoveService(service.id)} />
+            <ServiceRow
+              key={service.id}
+              service={service}
+              onRemove={() => handleRemoveService(service.id)}
+              priceOverride={getServicePrice(service)}
+            />
           ))}
 
           {/* Total and Add More Row */}
           <View style={styles.servicesFooter}>
             <View style={styles.totalBadge}>
               <Text size="md" weight="bold" color="#6B7280">
-                In total ${totalPrice}
+                In total ${totalPrice.toFixed(2)}
               </Text>
             </View>
             <TouchableOpacity style={styles.addMoreRowButton} onPress={handleAddMore} activeOpacity={0.7}>
@@ -292,45 +323,18 @@ export function BookingDetailsContent({ onAddMore }: BookingDetailsContentProps)
             />
           </>
         )}
-
-        {/* What Our Customers Are Saying Section */}
-        <View style={styles.sectionHeader}>
-          <Text size="md" weight="bold" color="#9CA3AF">
-            What Our Customers Are Saying
-          </Text>
-        </View>
-
-        <View style={styles.reviewsSection}>
-          {/* Rating Summary Card */}
-          <RatingSummaryCard rating={mechanic.rating} ratingCount={ratingCount} distribution={ratingDistribution} />
-
-          {/* Review Cards */}
-          {mockReviews.map((review) => (
-            <ReviewCard key={review.id} review={review} />
-          ))}
-
-          {/* View All Reviews Button */}
-          <TouchableOpacity style={styles.viewAllReviewsButton} activeOpacity={0.7} onPress={handleViewAllReviews}>
-            <Text size="sm" weight="semiBold" color={BrandColors.primary}>
-              View All Reviews
-            </Text>
-            <ChevronRight size={18} color={BrandColors.primary} />
-          </TouchableOpacity>
-        </View>
-      </BottomSheetScrollView>
+      </ScrollComponent>
 
       {/* Discard Service Confirmation Modal */}
       <DiscardServiceModal
         visible={showDiscardModal}
         onClose={handleCloseDiscardModal}
         onConfirm={handleConfirmRemove}
+        onDontAskAgain={handleDontAskAgain}
       />
 
       {/* All Availability Sheet */}
       <AllAvailabilitySheet ref={allAvailabilityRef} onConfirm={handleAvailabilityConfirm} />
-
-      {/* All Reviews Sheet */}
-      <AllReviewsSheet ref={allReviewsRef} />
     </View>
   );
 }
@@ -389,15 +393,4 @@ const styles = StyleSheet.create({
   },
 
   // Customer Reviews Section
-  reviewsSection: {
-    marginBottom: Spacing.xl,
-  },
-  viewAllReviewsButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: Spacing.md,
-    marginTop: Spacing.sm,
-    gap: 4,
-  },
 });

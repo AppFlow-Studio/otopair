@@ -1,16 +1,21 @@
 /**
  * NameStep
  *
- * PURPOSE: Collects the user's first name, last name, and optional alias.
+ * PURPOSE: Collects the user's first name and last name.
  *
  * USED IN: components/onboarding/OnboardingFlow.tsx
  *
  * PROPS:
  *   - onNext (() => void): Callback to navigate to the next step
  *   - onBack (() => void): Callback to navigate to the previous step
+ *   - progress ({ total: number; filled: number }): Progress indicator data
  *
  * EXAMPLE:
- *   <NameStep onNext={handleNext} onBack={handleBack} />
+ *   <NameStep 
+ *     onNext={handleNext} 
+ *     onBack={handleBack} 
+ *     progress={{ total: 8, filled: 2 }} 
+ *   />
  *
  * OWNER: Daniel Chelala
  * TICKET: OTO-XXX
@@ -38,20 +43,22 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
+import { useOnboardingPersistence } from "@/hooks/useOnboardingPersistence";
 
 interface NameStepProps {
   onNext: () => void;
   onBack: () => void;
+  progress: { total: number; filled: number };
 }
 
-export function NameStep({ onNext, onBack }: NameStepProps) {
+export function NameStep({ onNext, onBack, progress }: NameStepProps) {
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
-  const { updateData } = useOnboardingStore();
+  const { data, updateData } = useOnboardingStore();
+  const { persistProfileField } = useOnboardingPersistence();
 
-  const [firstName, setFirstName] = useState("");
-  const [lastName, setLastName] = useState("");
-  const [alias, setAlias] = useState("");
+  const [firstName, setFirstName] = useState(data.firstName || "");
+  const [lastName, setLastName] = useState(data.lastName || "");
 
   const dynamicStyles = {
     container: { paddingTop: insets.top + Spacing.lg },
@@ -62,14 +69,18 @@ export function NameStep({ onNext, onBack }: NameStepProps) {
   const buttonSize: "md" | "lg" = isCompact ? "md" : "lg";
   const buttonPaddingVertical = isCompact ? Spacing.sm : Spacing.lg;
 
-  const handleContinue = () => {
+  const handleContinue = async () => {
     updateData({
       firstName: firstName.trim(),
       lastName: lastName.trim(),
-      alias: alias.trim(),
     });
 
-    console.log("Name saved:", { firstName, lastName, alias });
+    await persistProfileField({
+      first_name: firstName.trim(),
+      last_name: lastName.trim(),
+      ...(data.authProvider && { auth_provider: data.authProvider }),
+    });
+
     onNext();
   };
 
@@ -83,8 +94,8 @@ export function NameStep({ onNext, onBack }: NameStepProps) {
     >
       <View style={[styles.container, dynamicStyles.container]}>
         <ProgressBar
-          total={6}
-          filled={2}
+          total={progress.total}
+          filled={progress.filled}
           leftElement={<BackButton onBack={onBack} alwaysShow />}
         />
 
@@ -127,18 +138,6 @@ export function NameStep({ onNext, onBack }: NameStepProps) {
                 autoComplete="family-name"
                 textContentType="familyName"
               />
-            </View>
-
-            <View style={styles.inputWrapper}>
-              <TextInput
-                style={styles.input}
-                placeholder="Alias"
-                placeholderTextColor="#9CA3AF"
-                value={alias}
-                onChangeText={setAlias}
-                autoCapitalize="words"
-              />
-              <Text style={styles.helperText}>Optional</Text>
             </View>
           </View>
         </ScrollView>

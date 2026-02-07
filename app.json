@@ -10,7 +10,7 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.ahmadh24.otopair"
+      "bundleIdentifier": "com.otopair.app"
     },
     "android": {
       "adaptiveIcon": {
@@ -19,9 +19,26 @@
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
+      "softwareKeyboardLayoutMode": "pan",
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.ahmadh24.otopair"
+      "package": "com.otopair.app",
+      "intentFilters": [
+        {
+          "action": "VIEW",
+          "data": [
+            {
+              "scheme": "otopair",
+              "host": "smartcar",
+              "pathPrefix": "/callback"
+            }
+          ],
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
+        }
+      ]
     },
     "web": {
       "output": "static",
@@ -39,6 +56,21 @@
           "dark": {
             "backgroundColor": "#000000"
           }
+        }
+      ],
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Allow Otopair to use the microphone for voice input.",
+          "speechRecognitionPermission": "Allow Otopair to use speech recognition to transcribe your voice."
+        }
+      ],
+      "expo-secure-store",
+      "expo-web-browser",
+      [
+        "expo-calendar",
+        {
+          "calendarPermission": "Allow Otopair to add your service appointments to your calendar."
         }
       ]
     ],

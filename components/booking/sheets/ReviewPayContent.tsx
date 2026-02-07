@@ -2,7 +2,8 @@
  * ReviewPayContent
  *
  * PURPOSE: Displays the Review & Pay screen after "Book Now" or "Schedule For Later"
- *          Shows shop info, selected services, payment method, and appointment time
+ *          Shows mechanic info, appointment details, detailed services breakdown,
+ *          and inline payment options (Apple Pay, Google Pay, saved cards).
  *          Appears before the confirmation screen
  *
  * USED IN: components/booking/ServiceBottomSheet.tsx
@@ -12,27 +13,27 @@
  */
 
 // 1. React & React Native
-import React, { useCallback, useMemo, useRef } from "react";
-import { Image, StyleSheet, TouchableOpacity, View } from "react-native";
+import React, { useCallback, useMemo } from "react";
+import { Image, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
-import { useRouter } from "expo-router";
-import { BadgeCheck, Calendar, Clock, Star, User } from "lucide-react-native";
+import { FontAwesome } from "@expo/vector-icons";
+import { Calendar, Car, ChevronRight, FileText, Info, Lock, Star } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
 
 // 3. Shared UI (design system)
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
-// 4. Local components
-import { NoPaymentMethod, PaymentMethodCard, PayOptionButton } from "../shared";
-import { AllAvailabilitySheet, AllAvailabilitySheetRef } from "./AllAvailabilitySheet";
-
-// 5. Constants, hooks, types
-import { BorderRadius, getSheetContentPadding } from "@/constants/theme";
+// 4. Constants, hooks, types
+import { getPartsBreakdown } from "@/constants/services";
+import { BorderRadius, Shadows, getSheetContentPadding } from "@/constants/theme";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { usePaymentStore } from "@/stores/usePaymentStore";
+import { useShopStore } from "@/stores/useShopStore";
+import { useVehicleStore } from "@/stores/useVehicleStore";
 
 // ============================================================================
 // TYPES
@@ -41,39 +42,51 @@ import { usePaymentStore } from "@/stores/usePaymentStore";
 interface ReviewPayContentProps {
   /** Called when user wants to change date/time */
   onChangeDatePress?: () => void;
+  /** Whether this is rendered in full-screen mode (outside bottom sheet) */
+  isFullScreen?: boolean;
 }
+
+// ============================================================================
+// CONSTANTS
+// ============================================================================
+
+const PLATFORM_FEE = 4.79;
+const TAXES_AND_FEES = 5.0;
 
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
 
-export function ReviewPayContent({ onChangeDatePress }: ReviewPayContentProps) {
-  // ═══════════════ REFS ═══════════════
-  const allAvailabilityRef = useRef<AllAvailabilitySheetRef>(null);
-
+export function ReviewPayContent({ onChangeDatePress, isFullScreen = false }: ReviewPayContentProps) {
   // ═══════════════ HOOKS ═══════════════
-  const router = useRouter();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const contentPadding = getSheetContentPadding(true, insets.bottom);
 
   // ═══════════════ BOOKING STORE ═══════════════
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
   const availableServices = useBookingStore((state) => state.availableServices);
   const selectedMechanicId = useBookingStore((state) => state.selectedMechanicId);
-  const setScheduledAppointment = useBookingStore((state) => state.setScheduledAppointment);
   const getFormattedAppointmentDate = useBookingStore((state) => state.getFormattedAppointmentDate);
   const getFormattedAppointmentTime = useBookingStore((state) => state.getFormattedAppointmentTime);
 
   // ═══════════════ MECHANIC STORE ═══════════════
   const getMechanicById = useMechanicStore((state) => state.getMechanicById);
 
+  // ═══════════════ SHOP STORE ═══════════════
+  const getShopById = useShopStore((state) => state.getShopById);
+
+  // ═══════════════ VEHICLE STORE ═══════════════
+  const getSelectedVehicle = useVehicleStore((state) => state.getSelectedVehicle);
+
   // ═══════════════ PAYMENT STORE ═══════════════
-  const selectedPaymentMethod = usePaymentStore((state) => state.getSelectedPaymentMethod());
-  const hasPaymentMethods = usePaymentStore((state) => state.hasPaymentMethods());
+  const getSelectedPaymentMethod = usePaymentStore((state) => state.getSelectedPaymentMethod);
+  const hasPaymentMethods = usePaymentStore((state) => state.hasPaymentMethods);
 
   // ═══════════════ COMPUTED ═══════════════
   const appointmentDate = getFormattedAppointmentDate();
   const appointmentTime = getFormattedAppointmentTime();
+  const selectedVehicle = getSelectedVehicle();
 
   // Get selected mechanic
   const mechanic = useMemo(() => {
@@ -81,61 +94,78 @@ export function ReviewPayContent({ onChangeDatePress }: ReviewPayContentProps) {
     return getMechanicById(selectedMechanicId);
   }, [selectedMechanicId, getMechanicById]);
 
+  // Shop for pricing (shop labor rate only)
+  const shop = useMemo(() => (mechanic?.shopId ? getShopById(mechanic.shopId) : null), [mechanic?.shopId, getShopById]);
+  const laborRate = shop?.labor_rate;
+
   // Get selected services
   const selectedServices = useMemo(
     () => availableServices.filter((service) => selectedServiceIds.includes(service.id)),
-    [availableServices, selectedServiceIds]
+    [availableServices, selectedServiceIds],
   );
 
-  // Compute total from selected services
-  const totalPrice = useMemo(
-    () => selectedServices.reduce((total, service) => total + service.price, 0),
-    [selectedServices]
+  // Calculate detailed breakdown (shop labor rate only; DB values only, no fallbacks)
+  const breakdown = useMemo(() => {
+    const rate = laborRate ?? 0;
+    const servicesTotal = selectedServices.reduce(
+      (total, service) => total + rate * (service.default_labor_hours ?? 0) + (service.default_parts_estimate ?? 0),
+      0,
+    );
+    const laborHours = selectedServices.reduce((sum, s) => sum + (s.default_labor_hours ?? 0), 0);
+    const laborCost = laborHours * rate;
+    const partsCost = Math.max(0, servicesTotal - laborCost);
+
+    return {
+      laborHours,
+      laborCost: Math.max(0, laborCost),
+      partsCost,
+      taxesAndFees: TAXES_AND_FEES,
+      platformFee: PLATFORM_FEE,
+      subtotal: servicesTotal,
+      total: servicesTotal + TAXES_AND_FEES + PLATFORM_FEE,
+    };
+  }, [selectedServices, laborRate]);
+
+  // Per-service line total (labor + parts) so breakdown lines sum to subtotal
+  const getServiceLineTotal = useCallback(
+    (service: (typeof selectedServices)[0]) =>
+      (laborRate ?? 0) * (service.default_labor_hours ?? 0) + (service.default_parts_estimate ?? 0),
+    [laborRate],
   );
+
+  // Parts breakdown: each part listed and labelled as (Part)
+  const partsBreakdown = useMemo(
+    () =>
+      getPartsBreakdown(
+        selectedServices.map((s) => s.name),
+        breakdown.partsCost,
+      ),
+    [selectedServices, breakdown.partsCost],
+  );
+
+  // Format vehicle display
+  const vehicleDisplay = selectedVehicle
+    ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}`
+    : "No vehicle selected";
+
+  // Format appointment display
+  const appointmentDisplay =
+    appointmentDate && appointmentTime ? `${appointmentDate} · ${appointmentTime}` : "Not scheduled";
+
+  // Payment method
+  const selectedPaymentMethod = getSelectedPaymentMethod();
+  const hasPayment = hasPaymentMethods();
 
   // ═══════════════ HANDLERS ═══════════════
-  const handleChangePayment = useCallback(() => {
-    router.push("/payment-methods");
-  }, [router]);
-
-  const handleAddPayment = useCallback(() => {
-    router.push("/payment-methods");
-  }, [router]);
-
   const handleApplePay = useCallback(() => {
-    // TODO: Initiate Apple Pay
-    console.log("Apple Pay");
+    // Apple Pay integration would go here
+    console.log("Apple Pay selected");
   }, []);
 
   const handleGooglePay = useCallback(() => {
-    // TODO: Initiate Google Pay
-    console.log("Google Pay");
+    // Google Pay integration would go here
+    console.log("Google Pay selected");
   }, []);
-
-  const handleChangeDateTimePress = useCallback(() => {
-    if (mechanic?.id) {
-      allAvailabilityRef.current?.open(mechanic.id);
-    }
-    onChangeDatePress?.();
-  }, [mechanic?.id, onChangeDatePress]);
-
-  const handleAvailabilityConfirm = useCallback(
-    (date: Date, time: string) => {
-      // Format date as "DD Mon. YYYY"
-      const months = ["Jan.", "Feb.", "Mar.", "Apr.", "May", "Jun.", "Jul.", "Aug.", "Sep.", "Oct.", "Nov.", "Dec."];
-      const displayDate = `${date.getDate()} ${months[date.getMonth()]} ${date.getFullYear()}`;
-
-      // Format date as ISO string YYYY-MM-DD
-      const isoDate = date.toISOString().split("T")[0];
-
-      setScheduledAppointment({
-        date: isoDate,
-        time,
-        displayDate,
-      });
-    },
-    [setScheduledAppointment]
-  );
 
   // ═══════════════ RENDER ═══════════════
   if (!mechanic) {
@@ -148,152 +178,257 @@ export function ReviewPayContent({ onChangeDatePress }: ReviewPayContentProps) {
     );
   }
 
+  // Choose the appropriate ScrollView component based on mode
+  const ScrollComponent = isFullScreen ? ScrollView : BottomSheetScrollView;
+
   return (
     <View style={styles.container}>
       {/* Scrollable Content */}
-      <BottomSheetScrollView
+      <ScrollComponent
         contentContainerStyle={[styles.scrollContent, { paddingBottom: contentPadding }]}
         showsVerticalScrollIndicator={false}
       >
-        {/* Header */}
-        <View style={styles.header}>
-          <Text size="xl" weight="bold" color={BrandColors.primary}>
-            Review & Pay
-          </Text>
-        </View>
+        {/* Header - Only show in bottom sheet mode, full-screen has its own header */}
+        {!isFullScreen && (
+          <View style={styles.header}>
+            <Text size="xl" weight="bold" color={BrandColors.primary}>
+              Review & Pay
+            </Text>
+          </View>
+        )}
 
-        {/* Shop/Mechanic Info */}
-        <View style={styles.shopInfoCard}>
-          {/* Avatar and Info Row */}
-          <View style={styles.shopInfoRow}>
-            <View style={styles.avatarContainer}>
+        {/* Mechanic Card with Appointment Details */}
+        <View style={styles.mechanicCard}>
+          {/* Mechanic Info Row */}
+          <View style={styles.mechanicRow}>
+            <View style={styles.avatarWrapper}>
               {mechanic.photoUrl ? (
                 <Image source={{ uri: mechanic.photoUrl }} style={styles.avatar} />
               ) : (
                 <View style={styles.avatarPlaceholder}>
-                  <User size={28} color="#9CA3AF" strokeWidth={1.5} />
-                </View>
-              )}
-            </View>
-
-            <View style={styles.shopDetails}>
-              <Text size="lg" weight="bold" color={BrandColors.primary}>
-                {mechanic.shopName}
-              </Text>
-              <Text size="sm" weight="medium" color="#6B7280">
-                {mechanic.name}
-              </Text>
-              <Text size="xs" weight="regular" color="#9CA3AF">
-                {mechanic.distanceMi} mi
-              </Text>
-            </View>
-
-            {/* Rating & Verified Badges */}
-            <View style={styles.badgesContainer}>
-              <View style={styles.ratingBadge}>
-                <Star size={14} color={BrandColors.secondary} fill={BrandColors.secondary} />
-                <Text size="sm" weight="bold" color={BrandColors.primary}>
-                  {mechanic.rating.toFixed(1)}
-                </Text>
-              </View>
-              {mechanic.isVerified && (
-                <View style={styles.verifiedBadge}>
-                  <BadgeCheck size={16} color="#10B981" />
-                  <Text size="xs" weight="bold" color="#10B981">
-                    Verified
+                  <Text size="xl" weight="bold" color="#9CA3AF">
+                    {mechanic.name.charAt(0)}
                   </Text>
                 </View>
               )}
+              {/* Rating Badge */}
+              <View style={styles.ratingBadge}>
+                <Star size={10} color="#FCD34D" fill="#FCD34D" />
+                <Text size="xs" weight="bold" color={BrandColors.white}>
+                  {mechanic.rating.toFixed(1)}
+                </Text>
+              </View>
+            </View>
+
+            <View style={styles.mechanicInfo}>
+              <Text size="lg" weight="bold" color={BrandColors.primary}>
+                {mechanic.name}
+              </Text>
+              <Text size="sm" weight="medium" color="#6B7280">
+                {mechanic.title ?? mechanic.shopName}
+              </Text>
+            </View>
+          </View>
+
+          {/* Divider */}
+          <View style={styles.cardDivider} />
+
+          {/* Appointment Details */}
+          <View style={styles.appointmentDetails}>
+            <TouchableOpacity style={styles.detailRow} onPress={onChangeDatePress} activeOpacity={0.7}>
+              <Text size="xs" weight="bold" color={BrandColors.secondary} style={styles.detailLabel}>
+                APPOINTMENT
+              </Text>
+              <View style={styles.detailContent}>
+                <Calendar size={16} color="#6B7280" />
+                <Text size="sm" weight="medium" color={BrandColors.primary}>
+                  {appointmentDisplay}
+                </Text>
+              </View>
+            </TouchableOpacity>
+
+            <View style={styles.detailRow}>
+              <Text size="xs" weight="bold" color={BrandColors.secondary} style={styles.detailLabel}>
+                VEHICLE
+              </Text>
+              <View style={styles.detailContent}>
+                <Car size={16} color="#6B7280" />
+                <Text size="sm" weight="medium" color={BrandColors.primary}>
+                  {vehicleDisplay}
+                </Text>
+              </View>
             </View>
           </View>
         </View>
 
-        {/* Services List */}
-        <View style={styles.servicesSection}>
-          {selectedServices.map((service, index) => (
-            <View key={service.id}>
-              <View style={styles.serviceRow}>
-                <Text size="md" weight="regular" color={BrandColors.primary}>
-                  {service.name}
-                </Text>
-                <Text size="md" weight="regular" color="#6B7280">
-                  ${service.price}
-                </Text>
-              </View>
-              {index < selectedServices.length - 1 && <View style={styles.serviceDivider} />}
+        {/* Service Breakdown Card */}
+        <View style={styles.serviceCard}>
+          <View style={styles.serviceHeader}>
+            <Text size="md" weight="bold" color={BrandColors.primary}>
+              Service Breakdown
+            </Text>
+            <FileText size={20} color="#9CA3AF" />
+          </View>
+
+          {/* Service names with line total (labor + parts) so lines sum to subtotal */}
+          {selectedServices.map((service) => (
+            <View key={service.id} style={styles.serviceRow}>
+              <Text size="sm" weight="medium" color={BrandColors.primary}>
+                {service.name}
+              </Text>
+              <Text size="sm" weight="semiBold" color={BrandColors.primary}>
+                ${getServiceLineTotal(service).toFixed(2)}
+              </Text>
             </View>
           ))}
 
+          {/* Detailed Breakdown */}
+          <View style={styles.breakdownSection}>
+            {/* Labor */}
+            <View style={styles.breakdownRow}>
+              <Text size="sm" weight="regular" color="#6B7280">
+                Labor ({breakdown.laborHours} hrs)
+              </Text>
+              <Text size="sm" weight="medium" color="#6B7280">
+                ${breakdown.laborCost.toFixed(2)}
+              </Text>
+            </View>
+
+            {/* Parts: each part listed and labelled as (Part) */}
+            {partsBreakdown.map((part, index) => (
+              <View key={`${part.name}-${index}`} style={styles.breakdownRow}>
+                <Text size="sm" weight="regular" color="#6B7280">
+                  {part.name} (Part)
+                </Text>
+                <Text size="sm" weight="medium" color="#6B7280">
+                  ${part.cost.toFixed(2)}
+                </Text>
+              </View>
+            ))}
+
+            {/* Taxes & Fees */}
+            <View style={styles.breakdownRow}>
+              <Text size="sm" weight="regular" color="#6B7280">
+                Taxes & Fees
+              </Text>
+              <Text size="sm" weight="medium" color="#6B7280">
+                ${breakdown.taxesAndFees.toFixed(2)}
+              </Text>
+            </View>
+          </View>
+
+          {/* Platform Fee */}
+          <View style={styles.serviceRow}>
+            <View style={styles.feeRow}>
+              <Text size="sm" weight="regular" color="#6B7280">
+                Platform Fee
+              </Text>
+              <TouchableOpacity style={styles.infoButton} activeOpacity={0.7}>
+                <Info size={14} color="#9CA3AF" />
+              </TouchableOpacity>
+            </View>
+            <Text size="sm" weight="medium" color="#6B7280">
+              ${breakdown.platformFee.toFixed(2)}
+            </Text>
+          </View>
+
+          {/* Divider */}
+          <View style={styles.serviceDivider} />
+
           {/* Total */}
-          <View style={styles.totalRow}>
-            <Text size="sm" weight="regular" color={BrandColors.secondary}>
-              In Total
-            </Text>
-            <Text size="sm" weight="semiBold" color={BrandColors.secondary}>
-              ${totalPrice}
+          <View style={styles.totalSection}>
+            <View style={styles.totalLeft}>
+              <Text size="md" weight="bold" color={BrandColors.primary}>
+                Total
+              </Text>
+              <View style={styles.savingsBadge}>
+                <Text size="xs" weight="semiBold" color={BrandColors.secondary}>
+                  → Saved $25 vs Dealership
+                </Text>
+              </View>
+            </View>
+            <Text size="2xl" weight="bold" color={BrandColors.secondary}>
+              ${breakdown.total.toFixed(2)}
             </Text>
           </View>
         </View>
 
-        {/* Pay With Section */}
-        <View style={styles.sectionHeader}>
-          <Text size="md" weight="medium" color="#6B7280">
-            Pay With
-          </Text>
-        </View>
-
+        {/* Payment Options Section */}
         <View style={styles.paymentSection}>
-          {selectedPaymentMethod ? (
-            <PaymentMethodCard paymentMethod={selectedPaymentMethod} onChangePress={handleChangePayment} />
-          ) : (
-            <NoPaymentMethod onAddPress={handleAddPayment} />
-          )}
-
-          {/* Apple Pay / Google Pay Options */}
-          <View style={styles.payOptionsRow}>
-            <PayOptionButton type="apple" onPress={handleApplePay} />
-            <PayOptionButton type="google" onPress={handleGooglePay} />
-          </View>
-        </View>
-
-        {/* Date & Time Section */}
-        <View style={styles.sectionHeader}>
-          <Text size="md" weight="medium" color="#6B7280">
-            Date & Time
-          </Text>
-        </View>
-
-        <View style={styles.dateTimeSection}>
-          {/* Combined Date & Time Box */}
-          <View style={styles.dateTimeBox}>
-            <View style={styles.dateTimeItem}>
-              <Calendar size={18} color={BrandColors.primary} />
-              <Text size="md" weight="medium" color={BrandColors.primary}>
-                {appointmentDate}
+          {/* Apple Pay Button */}
+          <TouchableOpacity style={styles.applePayButton} onPress={handleApplePay} activeOpacity={0.8}>
+            <View style={styles.payButtonContent}>
+              <FontAwesome name="apple" size={20} color="#FFFFFF" />
+              <Text size="md" weight="semiBold" color={BrandColors.white}>
+                Pay
               </Text>
             </View>
-            <View style={styles.dateTimeItem}>
-              <Clock size={18} color={BrandColors.primary} />
-              <Text size="md" weight="medium" color={BrandColors.primary}>
-                {appointmentTime}
-              </Text>
-            </View>
-          </View>
-
-          <TouchableOpacity style={styles.changeDateButton} onPress={handleChangeDateTimePress} activeOpacity={0.7}>
-            <Text size="sm" weight="semiBold" color={BrandColors.primary}>
-              Change Date & Time
-            </Text>
           </TouchableOpacity>
 
-          <Text size="xs" weight="regular" color="#EF4444" style={styles.warningText}>
-            Changes can't be made within 10 hours of your appointment.
-          </Text>
-        </View>
-      </BottomSheetScrollView>
+          {/* Google Pay Button */}
+          <TouchableOpacity style={styles.googlePayButton} onPress={handleGooglePay} activeOpacity={0.8}>
+            <View style={styles.payButtonContent}>
+              <FontAwesome name="google" size={18} color={BrandColors.primary} />
+              <Text size="md" weight="semiBold" color={BrandColors.primary}>
+                Pay
+              </Text>
+            </View>
+          </TouchableOpacity>
 
-      {/* All Availability Sheet */}
-      <AllAvailabilitySheet ref={allAvailabilityRef} onConfirm={handleAvailabilityConfirm} />
+          {/* Divider */}
+          <View style={styles.paymentDivider}>
+            <View style={styles.paymentDividerLine} />
+            <Text size="xs" weight="medium" color="#9CA3AF" style={styles.paymentDividerText}>
+              OR PAY WITH
+            </Text>
+            <View style={styles.paymentDividerLine} />
+          </View>
+
+          {/* Saved Card */}
+          {hasPayment && selectedPaymentMethod ? (
+            <View style={styles.savedCardRow}>
+              <View style={styles.cardBrandIcon}>
+                <Text size="xs" weight="bold" color={BrandColors.secondary}>
+                  {selectedPaymentMethod.brand.toUpperCase().slice(0, 4)}
+                </Text>
+              </View>
+              <View style={styles.cardDetails}>
+                <Text size="md" weight="medium" color={BrandColors.primary}>
+                  {selectedPaymentMethod.brand.charAt(0).toUpperCase() + selectedPaymentMethod.brand.slice(1)} ••••{" "}
+                  {selectedPaymentMethod.last4}
+                </Text>
+                <Text size="sm" weight="regular" color="#6B7280">
+                  Expires {String(selectedPaymentMethod.expMonth).padStart(2, "0")}/
+                  {String(selectedPaymentMethod.expYear).slice(-2)}
+                </Text>
+              </View>
+              <ChevronRight size={20} color="#9CA3AF" />
+            </View>
+          ) : (
+            <View style={styles.savedCardRow}>
+              <View style={styles.cardBrandIcon}>
+                <Text size="xs" weight="bold" color="#9CA3AF">
+                  CARD
+                </Text>
+              </View>
+              <View style={styles.cardDetails}>
+                <Text size="md" weight="semiBold" color={BrandColors.secondary}>
+                  Add payment method
+                </Text>
+              </View>
+              <ChevronRight size={20} color="#9CA3AF" />
+            </View>
+          )}
+
+          {/* Security Note */}
+          <View style={styles.securityNote}>
+            <Lock size={14} color="#9CA3AF" />
+            <Text size="xs" weight="medium" color="#9CA3AF">
+              Secured & encrypted by Stripe
+            </Text>
+          </View>
+        </View>
+      </ScrollComponent>
     </View>
   );
 }
@@ -305,135 +440,215 @@ export function ReviewPayContent({ onChangeDatePress }: ReviewPayContentProps) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: BrandColors.white,
+    backgroundColor: "#F9FAFB",
   },
   scrollContent: {
     paddingHorizontal: Spacing.lg,
+    gap: Spacing.lg,
   },
   header: {
     alignItems: "center",
     paddingTop: Spacing.sm,
-    paddingBottom: Spacing.lg,
+    paddingBottom: Spacing.md,
+    backgroundColor: BrandColors.white,
+    marginHorizontal: -Spacing.lg,
+    paddingHorizontal: Spacing.lg,
+    marginBottom: Spacing.sm,
   },
 
-  // Shop Info Card
-  shopInfoCard: {
-    marginBottom: Spacing.lg,
+  // Mechanic Card
+  mechanicCard: {
+    backgroundColor: BrandColors.white,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    ...Shadows.sm,
   },
-  shopInfoRow: {
+  mechanicRow: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
+    gap: Spacing.md,
   },
-  avatarContainer: {
-    marginRight: Spacing.md,
+  avatarWrapper: {
+    position: "relative",
   },
   avatar: {
-    width: 56,
-    height: 56,
+    width: 64,
+    height: 64,
     borderRadius: BorderRadius.full,
   },
   avatarPlaceholder: {
-    width: 56,
-    height: 56,
+    width: 64,
+    height: 64,
     borderRadius: BorderRadius.full,
-    borderWidth: 1.5,
-    borderColor: "#F3F4F6",
+    backgroundColor: "#E5E7EB",
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#FAFAFA",
   },
-  shopDetails: {
+  ratingBadge: {
+    position: "absolute",
+    bottom: -4,
+    left: -4,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+    backgroundColor: BrandColors.primary,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.full,
+    borderWidth: 2,
+    borderColor: BrandColors.white,
+  },
+  mechanicInfo: {
     flex: 1,
     gap: 2,
   },
-  badgesContainer: {
-    alignItems: "flex-end",
+  cardDivider: {
+    height: 1,
+    backgroundColor: "#E5E7EB",
+    marginVertical: Spacing.lg,
+  },
+  appointmentDetails: {
+    gap: Spacing.md,
+  },
+  detailRow: {
     gap: Spacing.xs,
   },
-  ratingBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
+  detailLabel: {
+    letterSpacing: 0.5,
   },
-  verifiedBadge: {
+  detailContent: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
+    gap: Spacing.sm,
   },
 
-  // Services Section
-  servicesSection: {
-    marginBottom: Spacing.xl,
+  // Service Card
+  serviceCard: {
+    backgroundColor: BrandColors.white,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    ...Shadows.sm,
+  },
+  serviceHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: Spacing.lg,
   },
   serviceRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingVertical: Spacing.md,
+    paddingVertical: Spacing.sm,
+  },
+  breakdownSection: {
+    marginTop: Spacing.sm,
+    paddingTop: Spacing.sm,
+    borderTopWidth: 1,
+    borderTopColor: "#F3F4F6",
+  },
+  breakdownRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: Spacing.xs,
+  },
+  feeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+  },
+  infoButton: {
+    padding: 2,
   },
   serviceDivider: {
     height: 1,
     backgroundColor: "#E5E7EB",
+    marginVertical: Spacing.md,
   },
-  totalRow: {
+  totalSection: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingTop: Spacing.sm,
-    borderTopWidth: 1,
-    borderTopColor: "#E5E7EB",
-    marginTop: Spacing.xs,
   },
-
-  // Section Header
-  sectionHeader: {
-    marginBottom: Spacing.md,
+  totalLeft: {
+    gap: Spacing.xs,
+  },
+  savingsBadge: {
+    backgroundColor: "#EFF6FF",
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.md,
   },
 
   // Payment Section
   paymentSection: {
-    marginBottom: Spacing.xl,
-  },
-  payOptionsRow: {
-    flexDirection: "row",
     gap: Spacing.md,
   },
-
-  // Date & Time Section
-  dateTimeSection: {
-    backgroundColor: "#F9FAFB",
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.lg,
-    marginBottom: Spacing.xl,
-  },
-  dateTimeBox: {
-    flexDirection: "row",
+  applePayButton: {
+    backgroundColor: BrandColors.primary,
+    paddingVertical: Spacing.lg,
+    borderRadius: BorderRadius.xl,
     alignItems: "center",
-    justifyContent: "space-between",
-    backgroundColor: BrandColors.white,
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.lg,
-    marginBottom: Spacing.md,
+    justifyContent: "center",
   },
-  dateTimeItem: {
+  googlePayButton: {
+    backgroundColor: BrandColors.white,
+    paddingVertical: Spacing.lg,
+    borderRadius: BorderRadius.xl,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1.5,
+    borderColor: "#E5E7EB",
+  },
+  payButtonContent: {
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.sm,
   },
-  changeDateButton: {
+  paymentDivider: {
+    flexDirection: "row",
     alignItems: "center",
-    paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.md,
+    gap: Spacing.md,
+    marginVertical: Spacing.sm,
+  },
+  paymentDividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: "#E5E7EB",
+  },
+  paymentDividerText: {
+    letterSpacing: 0.5,
+  },
+  savedCardRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: BrandColors.white,
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.lg,
+    gap: Spacing.md,
     borderWidth: 1,
     borderColor: "#E5E7EB",
-    backgroundColor: BrandColors.white,
-    marginBottom: Spacing.md,
   },
-  warningText: {
-    textAlign: "center",
-    fontStyle: "italic",
+  cardBrandIcon: {
+    width: 48,
+    height: 32,
+    borderRadius: BorderRadius.sm,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    backgroundColor: "#F9FAFB",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cardDetails: {
+    flex: 1,
+    gap: 2,
+  },
+  securityNote: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: Spacing.xs,
+    paddingTop: Spacing.sm,
   },
 });

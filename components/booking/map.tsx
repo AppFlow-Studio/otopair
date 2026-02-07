@@ -1,13 +1,15 @@
 /**
  * BookingMap
  *
- * PURPOSE: Displays an interactive map with shop markers for the booking flow
+ * PURPOSE: Displays an interactive map with shop markers for the booking flow.
+ *          Dynamically loads pins based on the current visible map region.
  *
  * USED IN: app/(main-tabs)/bookings/index.tsx
  *
  * PROPS:
  *   - onShopSelect ((shop: Shop) => void): Called when a shop marker is tapped [optional]
  *   - sheetAnimatedIndex (SharedValue<number>): Animated index from bottom sheet for recenter button visibility [optional]
+ *   - focusedShop (Shop | null): Shop to center the map on [optional]
  *
  * EXAMPLE:
  *   <BookingMap
@@ -19,46 +21,75 @@
  */
 
 // 1. React & React Native
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { StyleSheet, TouchableOpacity, View } from "react-native";
+import React, { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { StyleSheet, View } from "react-native";
 
 // 2. Expo & Third-party
 import * as Location from "expo-location";
-import { Navigation2 } from "lucide-react-native";
 import MapView, { PROVIDER_DEFAULT, Region } from "react-native-maps";
-import Animated, { SharedValue, useAnimatedStyle, withTiming } from "react-native-reanimated";
-
-// 3. Shared UI (design system)
-import { BrandColors } from "@/components/shared-ui";
+import { SharedValue } from "react-native-reanimated";
 
 // 4. Flow-specific components
 import { ShopMarker } from "./ShopMarker";
 
 // 5. Constants, hooks, types, stores
-import { Spacing } from "@/constants/theme";
 import type { Shop } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useShopStore } from "@/stores/useShopStore";
+import { calculateDistanceKm } from "@/utils/geo";
 import { filterShops } from "@/utils/shopFilters";
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
+/** Maximum number of markers to display on the map */
+const MAX_MARKERS = 10;
+/** Default region to fall back to when location data is missing */
+const DEFAULT_REGION: Region = {
+  latitude: 40.758,
+  longitude: -73.9855,
+  latitudeDelta: 0.08,
+  longitudeDelta: 0.08,
+};
+/** Throttle in ms for region updates flowing into the store */
+const REGION_UPDATE_THROTTLE_MS = 120;
+
 interface BookingMapProps {
   /** Called when a shop marker is tapped */
   onShopSelect?: (shop: Shop) => void;
   /** Animated index from bottom sheet (0 = collapsed, 1 = expanded) */
   sheetAnimatedIndex?: SharedValue<number>;
+  /** Shop to center the map on (animates to this location when changed) */
+  focusedShop?: Shop | null;
 }
 
 // ============================================================================
 // COMPONENT
 // ============================================================================
 
-export function BookingMap({ onShopSelect, sheetAnimatedIndex }: BookingMapProps) {
+/** Zoom threshold - below this latitudeDelta = zoomed in (show labels) */
+const ZOOM_THRESHOLD = 0.03;
+
+export const BookingMap = forwardRef<MapView, BookingMapProps>(function BookingMap(
+  { onShopSelect, sheetAnimatedIndex, focusedShop },
+  forwardedRef
+) {
   // ═══════════════ STATE-EFFECT: Refs ═══════════════
-  const mapRef = useRef<MapView>(null);
+  const internalMapRef = useRef<MapView>(null);
+  
+  // Callback ref to set both internal and forwarded refs
+  const setMapRef = useCallback((node: MapView | null) => {
+    internalMapRef.current = node;
+    if (typeof forwardedRef === "function") {
+      forwardedRef(node);
+    } else if (forwardedRef) {
+      forwardedRef.current = node;
+    }
+  }, [forwardedRef]);
+
+  // Track zoom level for marker display mode
+  const [isZoomedIn, setIsZoomedIn] = useState(true);
 
   // ═══════════════ STATE-EFFECT: Store Subscriptions ═══════════════
   const userLocation = useBookingStore((state) => state.userLocation);
@@ -66,21 +97,98 @@ export function BookingMap({ onShopSelect, sheetAnimatedIndex }: BookingMapProps
   const mapRegion = useBookingStore((state) => state.mapRegion);
   const setMapRegion = useBookingStore((state) => state.setMapRegion);
 
+  // Track current visible region for dynamic pin loading
+  const [visibleRegion, setVisibleRegion] = useState<Region | null>(null);
+  const initialRegionRef = useRef<Region>(mapRegion || {
+    latitude: userLocation?.latitude ?? DEFAULT_REGION.latitude,
+    longitude: userLocation?.longitude ?? DEFAULT_REGION.longitude,
+    latitudeDelta: userLocation ? 0.05 : DEFAULT_REGION.latitudeDelta,
+    longitudeDelta: userLocation ? 0.05 : DEFAULT_REGION.longitudeDelta,
+  });
+  const pendingRegionRef = useRef<Region | null>(null);
+  const regionThrottleRef = useRef<NodeJS.Timeout | null>(null);
+  const hasInitializedRef = useRef(false);
+
   // Shop store subscriptions
   const shopsRecord = useShopStore((state) => state.shops);
   const shopIds = useShopStore((state) => state.shopIds);
   const filters = useShopStore((state) => state.filters);
 
   // Compute filtered shops using the extracted utility
-  const filteredShops = useMemo(
-    () => filterShops({ shopsRecord, shopIds, filters }),
-    [shopsRecord, shopIds, filters]
+  const filteredShops = useMemo(() => filterShops({ shopsRecord, shopIds, filters }), [shopsRecord, shopIds, filters]);
+
+  // Get the reference point for distance calculation (center of visible region or user location)
+  const referencePoint = useMemo(() => {
+    // If we have a visible region, use its center
+    if (visibleRegion) {
+      return {
+        latitude: visibleRegion.latitude,
+        longitude: visibleRegion.longitude,
+      };
+    }
+    // Otherwise use user location
+    if (userLocation) {
+      return {
+        latitude: userLocation.latitude,
+        longitude: userLocation.longitude,
+      };
+    }
+    // Fallback to NYC Midtown
+    return { latitude: 40.758, longitude: -73.9855 };
+  }, [visibleRegion, userLocation]);
+
+  // Helper function to get closest N shops to a point
+  const getClosestShops = useCallback(
+    (lat: number, lon: number, limit?: number) => {
+      const withDistance = filteredShops.map((shop) => ({
+        ...shop,
+        calculatedDistance: calculateDistanceKm(lat, lon, shop.latitude, shop.longitude),
+      }));
+      withDistance.sort((a, b) => a.calculatedDistance - b.calculatedDistance);
+      const sliced = limit ? withDistance.slice(0, limit) : withDistance;
+      return sliced.map(({ calculatedDistance, ...shop }) => shop);
+    },
+    [filteredShops]
   );
 
+  // Calculate shops to display based on current visible region (dynamic loading)
+  const closestShops = useMemo(() => {
+    // If we have a visible region, show shops within the visible bounds
+    if (visibleRegion) {
+      // Add 30% padding to bounds to include shops slightly outside visible area
+      const latPadding = visibleRegion.latitudeDelta * 0.3;
+      const lonPadding = visibleRegion.longitudeDelta * 0.3;
+      const minLat = visibleRegion.latitude - visibleRegion.latitudeDelta / 2 - latPadding;
+      const maxLat = visibleRegion.latitude + visibleRegion.latitudeDelta / 2 + latPadding;
+      const minLon = visibleRegion.longitude - visibleRegion.longitudeDelta / 2 - lonPadding;
+      const maxLon = visibleRegion.longitude + visibleRegion.longitudeDelta / 2 + lonPadding;
+
+      const shopsInArea = filteredShops.filter(
+        (shop) =>
+          shop.latitude >= minLat && shop.latitude <= maxLat && shop.longitude >= minLon && shop.longitude <= maxLon
+      );
+
+      // If no shops in visible area, fall back to closest shops to the center
+      if (shopsInArea.length === 0) {
+        return getClosestShops(visibleRegion.latitude, visibleRegion.longitude, MAX_MARKERS);
+      }
+
+      // Limit to MAX_MARKERS if too many shops in view
+      if (shopsInArea.length > MAX_MARKERS) {
+        return getClosestShops(visibleRegion.latitude, visibleRegion.longitude, MAX_MARKERS);
+      }
+
+      return shopsInArea;
+    }
+
+    // Initial state: show only the closest shops to user location
+    return getClosestShops(referencePoint.latitude, referencePoint.longitude, MAX_MARKERS);
+  }, [filteredShops, referencePoint, visibleRegion, getClosestShops]);
+
   // Debounce the shops to prevent rapid map updates that crash the app
-  const [shops, setShops] = useState<Shop[]>(filteredShops);
+  const [shops, setShops] = useState<Shop[]>(closestShops);
   const debounceRef = useRef<NodeJS.Timeout | null>(null);
-  const prevFilteredShopsLengthRef = useRef(filteredShops.length);
+  const prevShopsLengthRef = useRef(closestShops.length);
 
   useEffect(() => {
     // Clear any pending debounce
@@ -90,16 +198,16 @@ export function BookingMap({ onShopSelect, sheetAnimatedIndex }: BookingMapProps
 
     // If showing MORE shops (clearing filters), update immediately
     // If showing FEWER shops (adding filters), debounce to prevent crashes
-    const isShowingMore = filteredShops.length > prevFilteredShopsLengthRef.current;
-    prevFilteredShopsLengthRef.current = filteredShops.length;
+    const isShowingMore = closestShops.length > prevShopsLengthRef.current;
+    prevShopsLengthRef.current = closestShops.length;
 
-    if (isShowingMore || filteredShops.length === 0) {
+    if (isShowingMore || closestShops.length === 0) {
       // Immediate update when clearing filters or showing more
-      setShops(filteredShops);
+      setShops(closestShops);
     } else {
       // Debounce when filtering down
       debounceRef.current = setTimeout(() => {
-        setShops(filteredShops);
+        setShops(closestShops);
       }, 50);
     }
 
@@ -108,18 +216,42 @@ export function BookingMap({ onShopSelect, sheetAnimatedIndex }: BookingMapProps
         clearTimeout(debounceRef.current);
       }
     };
-  }, [filteredShops]);
+  }, [closestShops]);
 
   // ═══════════════ STATE-EFFECT: Computed Values ═══════════════
   // Default to NYC (Midtown Manhattan) if no user location
-  const region: Region = mapRegion || {
-    latitude: userLocation?.latitude || 40.758,
-    longitude: userLocation?.longitude || -73.9855,
-    latitudeDelta: 0.08,
-    longitudeDelta: 0.08,
-  };
+  const updateVisibleRegion = useCallback((regionToSet: Region) => {
+    setVisibleRegion(regionToSet);
+    setIsZoomedIn(regionToSet.latitudeDelta < ZOOM_THRESHOLD);
+  }, []);
+
+  const region: Region = mapRegion || initialRegionRef.current;
 
   // ═══════════════ STATE-EFFECT: Effects ═══════════════
+  // [STATE-EFFECT] Request location permission and get current location on mount
+  useEffect(() => {
+    if (hasInitializedRef.current) {
+      return;
+    }
+    hasInitializedRef.current = true;
+    const seedRegion = mapRegion
+      ? mapRegion
+      : userLocation
+      ? {
+          latitude: userLocation.latitude,
+          longitude: userLocation.longitude,
+          latitudeDelta: 0.05,
+          longitudeDelta: 0.05,
+        }
+      : DEFAULT_REGION;
+
+    initialRegionRef.current = seedRegion;
+    updateVisibleRegion(seedRegion);
+    if (!mapRegion) {
+      setMapRegion(seedRegion);
+    }
+  }, [mapRegion, setMapRegion, updateVisibleRegion, userLocation]);
+
   // [STATE-EFFECT] Request location permission and get current location on mount
   useEffect(() => {
     (async () => {
@@ -137,6 +269,8 @@ export function BookingMap({ onShopSelect, sheetAnimatedIndex }: BookingMapProps
         longitudeDelta: 0.05,
       };
       setMapRegion(newRegion);
+      updateVisibleRegion(newRegion);
+      internalMapRef.current?.animateToRegion(newRegion, 350);
 
       // Reverse geocode to get location name
       try {
@@ -157,7 +291,22 @@ export function BookingMap({ onShopSelect, sheetAnimatedIndex }: BookingMapProps
         console.log("Reverse geocoding error:", error);
       }
     })();
-  }, [setMapRegion, setUserLocation]);
+  }, [setMapRegion, setUserLocation, updateVisibleRegion]);
+
+  // [STATE-EFFECT] Center map on focused shop when it changes
+  useEffect(() => {
+    if (focusedShop && internalMapRef.current) {
+      const nextRegion = {
+        latitude: focusedShop.latitude,
+        longitude: focusedShop.longitude,
+        latitudeDelta: 0.02,
+        longitudeDelta: 0.02,
+      };
+      internalMapRef.current.animateToRegion(nextRegion, 400);
+      updateVisibleRegion(nextRegion);
+      setMapRegion(nextRegion);
+    }
+  }, [focusedShop, setMapRegion, updateVisibleRegion]);
 
   // ═══════════════ STATE-EFFECT: Handlers ═══════════════
   const handleMarkerPress = useCallback(
@@ -167,56 +316,65 @@ export function BookingMap({ onShopSelect, sheetAnimatedIndex }: BookingMapProps
     [onShopSelect]
   );
 
-  const handleRecenter = useCallback(() => {
-    if (userLocation && mapRef.current) {
-      mapRef.current.animateToRegion(
-        {
-          latitude: userLocation.latitude,
-          longitude: userLocation.longitude,
-          latitudeDelta: 0.05,
-          longitudeDelta: 0.05,
-        },
-        300
-      );
+  // Track when map region changes - dynamically load pins for visible area
+  const flushPendingRegion = useCallback(() => {
+    if (!pendingRegionRef.current) {
+      return;
     }
-  }, [userLocation]);
+    const latestRegion = pendingRegionRef.current;
+    pendingRegionRef.current = null;
+    updateVisibleRegion(latestRegion);
+    setMapRegion(latestRegion);
+  }, [setMapRegion, updateVisibleRegion]);
 
-  // ═══════════════ STATE-EFFECT: Animated Styles ═══════════════
-  // Show recenter button when sheet is collapsed (index < 0.5)
-  const recenterButtonStyle = useAnimatedStyle(() => {
-    const isVisible = sheetAnimatedIndex ? sheetAnimatedIndex.value < 0.3 : true;
-    return {
-      opacity: withTiming(isVisible ? 1 : 0, { duration: 200 }),
-      transform: [{ scale: withTiming(isVisible ? 1 : 0.8, { duration: 200 }) }],
-      pointerEvents: isVisible ? "auto" : "none",
+  const handleRegionChangeComplete = useCallback(
+    (newRegion: Region) => {
+      pendingRegionRef.current = newRegion;
+      if (regionThrottleRef.current) {
+        return;
+      }
+      regionThrottleRef.current = setTimeout(() => {
+        regionThrottleRef.current = null;
+        flushPendingRegion();
+      }, REGION_UPDATE_THROTTLE_MS);
+    },
+    [flushPendingRegion]
+  );
+
+  useEffect(() => {
+    return () => {
+      if (regionThrottleRef.current) {
+        clearTimeout(regionThrottleRef.current);
+      }
     };
-  });
+  }, []);
 
   // ═══════════════ RENDER ═══════════════
   return (
     <View style={styles.container}>
       <MapView
-        ref={mapRef}
+        ref={setMapRef}
         style={styles.map}
         provider={PROVIDER_DEFAULT}
-        region={region}
+        initialRegion={region}
         showsUserLocation
         showsMyLocationButton={false}
+        onRegionChangeComplete={handleRegionChangeComplete}
       >
         {shops.map((shop) =>
-          shop ? <ShopMarker key={`marker-${shop.id}`} shop={shop} onPress={() => handleMarkerPress(shop)} /> : null
+          shop ? (
+            <ShopMarker
+              key={`marker-${shop.id}`}
+              shop={shop}
+              onPress={() => handleMarkerPress(shop)}
+              showLabel={isZoomedIn}
+            />
+          ) : null
         )}
       </MapView>
-
-      {/* Recenter Button - shows when sheet is collapsed */}
-      <Animated.View style={[styles.recenterButtonContainer, recenterButtonStyle]}>
-        <TouchableOpacity onPress={handleRecenter} activeOpacity={0.6} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-          <Navigation2 size={24} color={BrandColors.secondary} fill={BrandColors.secondary} />
-        </TouchableOpacity>
-      </Animated.View>
     </View>
   );
-}
+});
 
 // ============================================================================
 // STYLES
@@ -228,10 +386,5 @@ const styles = StyleSheet.create({
   },
   map: {
     flex: 1,
-  },
-  recenterButtonContainer: {
-    position: "absolute",
-    top: 160,
-    right: Spacing.lg,
   },
 });

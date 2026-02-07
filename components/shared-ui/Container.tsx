@@ -119,6 +119,11 @@ export function ScreenContainer(props: Omit<ContainerProps, 'safe' | 'flex'>) {
     return <Container safe flex={1} {...props} />;
 }
 
+/** Screen container with no safe area and full flex */
+export function FullScreenContainer(props: Omit<ContainerProps, 'safe' | 'flex'>) {
+    return <Container  flex={1} {...props} />;
+}
+
 /** Card container with padding and rounded corners */
 export function Card({
     style,

@@ -8,11 +8,12 @@
  * RELATIONSHIPS:
  *   - PaymentMethod belongs to User
  *
- * OWNER: Waleed Mansour
+ * OWNER: Waleed Mansour, Daniel Chelala
  */
 
 import { create } from "zustand";
-import type { PaymentMethod } from "./types/store.types";
+import type { PaymentMethod, Transaction } from "./types/store.types";
+import { MOCK_TRANSACTIONS } from "./data/mockTransactions";
 
 // ─────────────────────────────────────────────────────────────
 // STORE STATE INTERFACE
@@ -22,6 +23,8 @@ interface PaymentState {
   // ═══════════════ STATE ═══════════════
   /** All saved payment methods */
   paymentMethods: PaymentMethod[];
+  /** All transactions / recent activity */
+  transactions: Transaction[];
   /** Currently selected payment method ID for checkout */
   selectedPaymentMethodId: string | null;
   /** Loading state for payment operations */
@@ -32,6 +35,8 @@ interface PaymentState {
   // ═══════════════ ACTIONS ═══════════════
   /** Add a new payment method */
   addPaymentMethod: (paymentMethod: PaymentMethod) => void;
+  /** Update an existing payment method */
+  updatePaymentMethod: (paymentMethodId: string, updates: Partial<PaymentMethod>) => void;
   /** Remove a payment method by ID */
   removePaymentMethod: (paymentMethodId: string) => void;
   /** Set a payment method as default */
@@ -58,10 +63,27 @@ interface PaymentState {
 // STORE IMPLEMENTATION
 // ─────────────────────────────────────────────────────────────
 
+// ─────────────────────────────────────────────────────────────
+// MOCK DATA
+// ─────────────────────────────────────────────────────────────
+
+const MOCK_PAYMENT_METHODS: PaymentMethod[] = [
+  {
+    id: "pm_visa_4242",
+    brand: "visa",
+    last4: "4242",
+    expMonth: 12,
+    expYear: 2026,
+    isDefault: true,
+    createdAt: new Date().toISOString(),
+  },
+];
+
 export const usePaymentStore = create<PaymentState>()((set, get) => ({
   // ═══════════════ INITIAL STATE ═══════════════
-  paymentMethods: [],
-  selectedPaymentMethodId: null,
+  paymentMethods: MOCK_PAYMENT_METHODS,
+  transactions: MOCK_TRANSACTIONS,
+  selectedPaymentMethodId: MOCK_PAYMENT_METHODS[0]?.id ?? null,
   isLoading: false,
   error: null,
 
@@ -86,6 +108,13 @@ export const usePaymentStore = create<PaymentState>()((set, get) => ({
         selectedPaymentMethodId: isFirstMethod ? paymentMethod.id : state.selectedPaymentMethodId,
       };
     }),
+
+  updatePaymentMethod: (paymentMethodId, updates) =>
+    set((state) => ({
+      paymentMethods: state.paymentMethods.map((pm) =>
+        pm.id === paymentMethodId ? { ...pm, ...updates } : pm
+      ),
+    })),
 
   removePaymentMethod: (paymentMethodId) =>
     set((state) => {
@@ -157,5 +186,8 @@ export const usePaymentStore = create<PaymentState>()((set, get) => ({
     return paymentMethods.length > 0;
   },
 }));
+
+
+
 
 

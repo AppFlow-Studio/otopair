@@ -54,6 +54,8 @@ interface MechanicSearchBarProps {
     onSubmit?: (text: string) => void;
     /** Called when Map button is pressed */
     onMapPress?: () => void;
+    /** Called when search input is focused */
+    onFocus?: () => void;
     /** Container style */
     style?: ViewStyle;
     /** Placeholder text */
@@ -69,6 +71,7 @@ export function MechanicSearchBar({
     onChangeText,
     onSubmit,
     onMapPress,
+    onFocus,
     style,
     placeholder = 'Search for mechanics...',
 }: MechanicSearchBarProps) {
@@ -115,7 +118,10 @@ export function MechanicSearchBar({
                     placeholderTextColor="#9CA3AF"
                     value={searchValue}
                     onChangeText={handleChangeText}
-                    onFocus={() => setIsFocused(true)}
+                    onFocus={() => {
+                        setIsFocused(true);
+                        onFocus?.();
+                    }}
                     onBlur={() => setIsFocused(false)}
                     onSubmitEditing={handleSubmit}
                     returnKeyType="search"

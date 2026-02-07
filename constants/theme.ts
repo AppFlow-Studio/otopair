@@ -37,6 +37,7 @@ export const BrandColors = {
   secondary: "#5299FE",
   white: "#FFFFFF",
   black: "#000000",
+  background: "#f5f5f7",
 } as const;
 
 // ============================================================================

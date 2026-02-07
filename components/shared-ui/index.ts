@@ -16,15 +16,29 @@
  * ```
  */
 
-// Progress Bar Component
+// Progress Bar Components
 export {
     ProgressBar
 } from './ProgressBar';
+
+export {
+    SolidProgressBar
+} from './SolidProgressBar';
 
 // Footer Button Component
 export {
     FooterButton
 } from './FooterButton';
+
+// Fade Footer Container Component
+export {
+    FadeFooterContainer
+} from './FadeFooterContainer';
+
+// Fade Header Container Component
+export {
+    FadeHeaderContainer
+} from './FadeHeaderContainer';
 
 // Back Button Component
 export {
@@ -36,6 +50,7 @@ export {
     AnimatedGradientBackground
 } from './AnimatedGradientBackground';
 
+// Scroll-driven Gradient Background Wrapper
 // Scroll Driven Gradient Background Component
 export {
     ScrollDrivenGradientBackground,
@@ -51,6 +66,21 @@ export {
     SecondaryButton,
     type ButtonProps
 } from './Button';
+
+export {
+    GlassCircleButton
+} from './GlassCircleButton';
+
+// Bottom Sheet Modal
+export {
+    AppBottomSheetModal
+} from './AppBottomSheetModal';
+
+// Blur Header Overlay
+export {
+    BlurHeaderOverlay,
+    type BlurHeaderOverlayProps
+} from './BlurHeaderOverlay';
 
 // Text Components
 export {
@@ -87,9 +117,22 @@ export {
     SCROLL_FADE_IN_CONFIG
 } from './ScrollFadeIn';
 
+// Feedback Modal
+export {
+    FeedbackModal,
+    type FeedbackModalProps
+} from './FeedbackModal';
+
+// Referral helpers
+export {
+    buildReferralCode,
+    buildReferralShareMessage,
+    useReferralCode,
+    type ReferralProfile
+} from './ReferralUtils';
+
 // Re-export theme constants for convenience
 export {
     BorderRadius, BrandColors, ButtonStyles, Colors, FontFamily,
     FontSize, Shadows, Spacing
 } from '@/constants/theme';
-

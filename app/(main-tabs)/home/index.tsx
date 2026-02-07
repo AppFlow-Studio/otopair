@@ -10,6 +10,8 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import { Bell, MoveRight, Star, Trophy } from 'lucide-react-native';
+import { useQuery } from 'convex/react';
+import { api } from '@/convex/_generated/api';
 
 // 3. Shared UI
 import { Button, ScrollDrivenGradientBackground, ScrollFadeIn, Text } from '@/components/shared-ui';
@@ -34,6 +36,8 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { isNewUser } = useAuthStore();
+  const myVehicles = useQuery(api.vehicles.getMyVehicles);
+  const hasVehicles = myVehicles != null && myVehicles.length > 0;
   const [showWelcome, setShowWelcome] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [locationName, setLocationName] = useState('Loading...');
@@ -128,21 +132,21 @@ export default function HomeScreen() {
   };
 
   // Welcome screen - shows on app open
-  if (showWelcome) {
-    return (
-      <View style={styles.welcomeContainer}>
-        <View style={styles.welcomeContent}>
-          <OtoPairIcon />
-          <Text weight="semiBold" size="2xl" style={styles.welcomeTitle}>
-            Otopair
-          </Text>
-          <Button variant="secondary" onPress={() => setShowWelcome(false)}>
-            Let's Check Your Car Now <MoveRight size={16} color="#fff" />
-          </Button>
-        </View>
-      </View>
-    );
-  }
+  // if (showWelcome) {
+  //   return (
+  //     <View style={styles.welcomeContainer}>
+  //       <View style={styles.welcomeContent}>
+  //         <OtoPairIcon />
+  //         <Text weight="semiBold" size="2xl" style={styles.welcomeTitle}>
+  //           Otopair
+  //         </Text>
+  //         <Button variant="secondary" onPress={() => setShowWelcome(false)}>
+  //           Let's Check Your Car Now <MoveRight size={16} color="#fff" />
+  //         </Button>
+  //       </View>
+  //     </View>
+  //   );
+  // }
 
   return (
     <ScrollDrivenGradientBackground colors={['#5BA3D9', '#8FC4E8', '#d9e8f5']}>
@@ -273,13 +277,17 @@ export default function HomeScreen() {
 
           {/* Vehicle Maintenance - with dynamic margin based on active card */}
           <ScrollFadeIn scrollY={scrollY} style={{ marginTop: getCardMargin(activeCardIndex) }}>
-            {isNewUser ? (
-              <AddFirstVehicleCard showAccountSetup={showAccountSetup} />
+            {hasVehicles ? (
+              <VehicleMaintenanceCard
+                onBookNow={(vehicleId, serviceId) => {
+                  console.log(`Booking service ${serviceId} for vehicle ${vehicleId}`);
+                  // TODO: Navigate to booking flow
+                }}
+                onSwipeStart={() => setIsCardSwiping(true)}
+                onSwipeEnd={() => setIsCardSwiping(false)}
+              />
             ) : (
-            <VehicleMaintenanceCard
-              onSwipeStart={() => setIsCardSwiping(true)}
-              onSwipeEnd={() => setIsCardSwiping(false)}
-            />
+              <AddFirstVehicleCard showAccountSetup={showAccountSetup} />
             )}
           </ScrollFadeIn>
 

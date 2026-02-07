@@ -45,3 +45,17 @@ app-example
 # Otopair Developer Guide (Notion)
 Otopair Developer Guide.html
 Otopair Developer Guide_files/
+
+#Cursor
+.cursor
+.cursor/
+
+#Package Lock
+package-lock.json
+
+#Convex
+_generated/api.d.ts
+_generated/api.js
+_generated/dataModel.d.ts
+_generated/server.d.ts
+_generated/server.js

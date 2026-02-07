@@ -1,8 +1,10 @@
 /**
  * AllAvailabilitySheet
  *
- * PURPOSE: Full calendar view for selecting availability slots
- *          Shows month navigation, day grid with availability states, and time slots
+ * PURPOSE: Full calendar view for selecting availability slots.
+ *          Shows month navigation, day grid with availability states, and time slots.
+ *
+ * FLOW: Booking
  *
  * USED IN: components/booking/sheets/BookingDetailsContent.tsx
  *
@@ -30,7 +32,7 @@ import { useScheduleStore } from "@/stores/useScheduleStore";
 // ============================================================================
 
 export interface AllAvailabilitySheetRef {
-  open: (mechanicId: number) => void;
+  open: (mechanicId: string) => void;
   close: () => void;
 }
 
@@ -193,9 +195,11 @@ export const AllAvailabilitySheet = forwardRef<AllAvailabilitySheetRef, AllAvail
       return weeks;
     }, [calendarDays]);
 
+    const canConfirmSelection = Boolean(selectedDate && selectedTime);
+
     // ═══════════════ IMPERATIVE HANDLE ═══════════════
     useImperativeHandle(ref, () => ({
-      open: (mechanicId: number) => {
+      open: (mechanicId: string) => {
         // loadMechanicSchedule will restore any previous selection for this mechanic
         loadMechanicSchedule(mechanicId);
         bottomSheetModalRef.current?.present();
@@ -212,7 +216,7 @@ export const AllAvailabilitySheet = forwardRef<AllAvailabilitySheetRef, AllAvail
           onClose?.();
         }
       },
-      [onClose]
+      [onClose],
     );
 
     const handlePrevMonth = useCallback(() => {
@@ -229,14 +233,14 @@ export const AllAvailabilitySheet = forwardRef<AllAvailabilitySheetRef, AllAvail
         const newDate = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day.date);
         selectDate(newDate);
       },
-      [currentMonth, selectDate]
+      [currentMonth, selectDate],
     );
 
     const handleTimePress = useCallback(
       (time: string) => {
         selectTime(time);
       },
-      [selectTime]
+      [selectTime],
     );
 
     const handleCancel = useCallback(() => {
@@ -254,7 +258,7 @@ export const AllAvailabilitySheet = forwardRef<AllAvailabilitySheetRef, AllAvail
     // ═══════════════ RENDER HELPERS ═══════════════
     const renderBackdrop = useCallback(
       (props: any) => <BottomSheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} opacity={0.5} />,
-      []
+      [],
     );
 
     const renderDayCell = useCallback(
@@ -300,7 +304,7 @@ export const AllAvailabilitySheet = forwardRef<AllAvailabilitySheetRef, AllAvail
           </TouchableOpacity>
         );
       },
-      [handleDayPress]
+      [handleDayPress],
     );
 
     // ═══════════════ RENDER ═══════════════
@@ -421,28 +425,34 @@ export const AllAvailabilitySheet = forwardRef<AllAvailabilitySheetRef, AllAvail
             </ScrollView>
           </View>
 
-          {/* Footer Buttons */}
+          {/* Footer */}
           <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.lg }]}>
-            <TouchableOpacity style={styles.cancelButton} onPress={handleCancel} activeOpacity={0.7}>
-              <Text size="md" weight="semiBold" color={BrandColors.primary}>
-                Cancel
-              </Text>
-            </TouchableOpacity>
+            <View style={styles.buttonRow}>
+              <TouchableOpacity style={styles.cancelButton} onPress={handleCancel} activeOpacity={0.7}>
+                <Text size="md" weight="semiBold" color={BrandColors.primary}>
+                  Cancel
+                </Text>
+              </TouchableOpacity>
 
-            <PrimaryButton
-              style={[styles.confirmButton, (!selectedDate || !selectedTime) && styles.confirmButtonDisabled]}
-              onPress={handleConfirm}
-              disabled={!selectedDate || !selectedTime}
-            >
-              <Text size="md" weight="bold" color={BrandColors.white}>
-                Confirm Date & Time
-              </Text>
-            </PrimaryButton>
+              <PrimaryButton
+                style={[
+                  styles.confirmButton,
+                  !canConfirmSelection && styles.confirmButtonDisabled,
+                  canConfirmSelection && styles.confirmButtonActive,
+                ]}
+                disabled={!canConfirmSelection}
+                onPress={handleConfirm}
+              >
+                <Text size="md" weight="bold" color={BrandColors.white}>
+                  Select Date & Time
+                </Text>
+              </PrimaryButton>
+            </View>
           </View>
         </BottomSheetScrollView>
       </BottomSheetModal>
     );
-  }
+  },
 );
 
 // ============================================================================
@@ -597,10 +607,12 @@ const styles = StyleSheet.create({
 
   // Footer
   footer: {
-    flexDirection: "row",
     paddingTop: Spacing.xl,
-    gap: Spacing.md,
     marginTop: Spacing.lg,
+  },
+  buttonRow: {
+    flexDirection: "row",
+    gap: Spacing.md,
   },
   cancelButton: {
     flex: 1,
@@ -619,5 +631,12 @@ const styles = StyleSheet.create({
   },
   confirmButtonDisabled: {
     opacity: 0.5,
+  },
+  confirmButtonActive: {
+    shadowColor: BrandColors.secondary,
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 6,
   },
 });

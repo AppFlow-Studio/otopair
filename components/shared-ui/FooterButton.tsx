@@ -15,6 +15,8 @@
  *   - variant ('primary' | 'secondary' | 'ghost'): Button variant [optional, default: 'primary']
  *   - backgroundColor (string): Custom background color [optional]
  *   - textColor (string): Custom text color [optional]
+ *   - fullWidth (boolean): Whether the button should take full width [optional, default: true]
+ *   - style (ViewStyle): Custom style for the button container [optional]
  *
  * EXAMPLE:
  *   <FooterButton
@@ -37,37 +39,45 @@ interface FooterButtonProps {
     label: string;
     onPress: () => void;
     disabled?: boolean;
+    leftIcon?: ReactNode;
     rightIcon?: ReactNode;
     size?: 'sm' | 'md' | 'lg';
     paddingVertical?: number;
     variant?: 'primary' | 'secondary'| 'ghost';
     backgroundColor?: string;
     textColor?: string;
+    fullWidth?: boolean;
+    style?: any;
 }
 
 export function FooterButton({
     label,
     onPress,
     disabled = false,
+    leftIcon,
     rightIcon,
     size = 'lg',
     paddingVertical,
     variant = 'primary',
     backgroundColor,
     textColor,
+    fullWidth = true,
+    style,
 }: FooterButtonProps) {
     return (
         <Button
-            fullWidth
+            fullWidth={fullWidth}
             size={size}
             borderRadius={BorderRadius.full}
             paddingVertical={paddingVertical ?? Spacing.lg}
             onPress={onPress}
             disabled={disabled}
+            leftIcon={leftIcon}
             rightIcon={rightIcon}
             variant={variant}
             backgroundColor={backgroundColor}
             textColor={textColor}
+            style={style}
         >
             {label}
         </Button>

@@ -14,6 +14,7 @@ import { StyleSheet, View } from "react-native";
 
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 import { BorderRadius } from "@/constants/theme";
+import { formatDistanceMiles } from "@/utils/geo";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 
@@ -93,7 +94,7 @@ export function ConfirmationContent() {
                 {mechanic.shopName}
               </Text>
               <Text size="xs" weight="regular" color="#6B7280">
-                {mechanic.distanceMi} miles away
+                {formatDistanceMiles(mechanic.distanceMi).replace(" mi", "")} miles away
               </Text>
             </View>
           </View>

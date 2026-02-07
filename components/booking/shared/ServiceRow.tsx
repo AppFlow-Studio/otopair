@@ -34,13 +34,16 @@ export interface ServiceRowProps {
   service: Service;
   /** Called when remove button is pressed */
   onRemove: () => void;
+  /** Override price for display (e.g. shop-specific labor + parts); formatted to 2 decimals */
+  priceOverride?: number;
 }
 
 // ============================================================================
 // COMPONENT
 // ============================================================================
 
-export function ServiceRow({ service, onRemove }: ServiceRowProps) {
+export function ServiceRow({ service, onRemove, priceOverride }: ServiceRowProps) {
+  const price = priceOverride !== undefined ? priceOverride : service.price;
   return (
     <View style={styles.container}>
       <View style={styles.left}>
@@ -48,7 +51,7 @@ export function ServiceRow({ service, onRemove }: ServiceRowProps) {
           {service.name}
         </Text>
         <Text size="sm" weight="regular" color="#9CA3AF">
-          ${service.price}
+          ${Number(price).toFixed(2)}
         </Text>
       </View>
       <TouchableOpacity style={styles.removeButton} onPress={onRemove} activeOpacity={0.7}>
@@ -83,4 +86,3 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 });
-

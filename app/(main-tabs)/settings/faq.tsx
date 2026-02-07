@@ -1,0 +1,390 @@
+/**
+ * FAQRootScreen
+ *
+ * PURPOSE: Root FAQ screen with search, popular items, and category navigation.
+ *
+ * USED IN: app/(main-tabs)/settings/index.tsx
+ *
+ * PROPS: None (accessed via router)
+ *
+ * EXAMPLE:
+ *   <FAQRootScreen />
+ *
+ * OWNER: Daniel Chelala
+ * TICKET: OTO-XXX
+ */
+
+import React, { useMemo, useState } from 'react';
+import { Pressable, StyleSheet, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
+import {
+  Award,
+  BadgeCheck,
+  CalendarDays,
+  Car,
+  ChevronRight,
+  CreditCard,
+  Headset,
+  Rocket,
+  Search,
+} from 'lucide-react-native';
+import Animated from 'react-native-reanimated';
+
+import { BlurHeaderOverlay, BrandColors, Spacing, Text } from '@/components/shared-ui';
+import { getSheetContentPadding } from '@/constants/theme';
+import { CATEGORY_CONTENT, CategoryKey } from '@/constants/faq';
+
+const HEADER_FADE_COLORS: [string, string, string, string] = [
+  'rgba(82, 153, 254, 0)',    // Opaque blue (BrandColors.secondary)
+  'rgba(82, 153, 254, 0)',
+  'rgba(82, 153, 254, 0)',
+  'rgba(82, 153, 254, 0)',    // Transparent
+];
+
+const POPULAR_ITEMS = [
+  {
+    id: 'popular-1',
+    title: 'How do I earn Points?',
+    subtitle: 'Loyalty & rewards',
+    category: 'loyalty',
+  },
+  {
+    id: 'popular-2',
+    title: 'How to book a mobile service?',
+    subtitle: 'Bookings & services',
+    category: 'bookings',
+  },
+  {
+    id: 'popular-3',
+    title: 'Where is Otopair available?',
+    subtitle: 'General',
+    category: 'general',
+  },
+];
+
+const CATEGORIES = [
+  { id: 'getting-started', label: 'Getting started', icon: Rocket },
+  { id: 'bookings', label: 'Bookings & services', icon: CalendarDays },
+  { id: 'vehicles', label: 'Vehicles', icon: Car },
+  { id: 'payments', label: 'Payments & billing', icon: CreditCard },
+  { id: 'loyalty', label: 'Loyalty & rewards', icon: Award },
+  { id: 'pass', label: 'Otopair Pass', icon: BadgeCheck },
+];
+
+export default function FAQRootScreen() {
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const [searchQuery, setSearchQuery] = useState('');
+
+  const handleOpenCategory = (category: string) => {
+    router.push({ pathname: '/settings/faq-category', params: { category } });
+  };
+
+  // Search through all FAQ items
+  const searchResults = useMemo(() => {
+    if (!searchQuery.trim()) return [];
+
+    const query = searchQuery.toLowerCase().trim();
+    const results: Array<{
+      category: CategoryKey;
+      categoryTitle: string;
+      item: { id: string; question: string; answer: string; actionLabel?: string };
+    }> = [];
+
+    (Object.keys(CATEGORY_CONTENT) as CategoryKey[]).forEach((categoryKey) => {
+      const category = CATEGORY_CONTENT[categoryKey];
+      
+      // Search in category title
+      if (category.title.toLowerCase().includes(query)) {
+        category.items.forEach((item) => {
+          results.push({ category: categoryKey, categoryTitle: category.title, item });
+        });
+        return;
+      }
+
+      // Search in questions and answers
+      category.items.forEach((item) => {
+        const questionMatch = item.question.toLowerCase().includes(query);
+        const answerMatch = item.answer.toLowerCase().includes(query);
+        
+        if (questionMatch || answerMatch) {
+          results.push({ category: categoryKey, categoryTitle: category.title, item });
+        }
+      });
+    });
+
+    return results;
+  }, [searchQuery]);
+
+  const isSearching = searchQuery.trim().length > 0;
+
+  return (
+    <View style={styles.screen}>
+      <Animated.ScrollView
+        scrollEventThrottle={16}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={[styles.container, { paddingTop: insets.top + 80, paddingBottom: getSheetContentPadding(true, insets.bottom) }]}
+      >
+        <View style={styles.searchWrapper}>
+          <Search size={18} color="#86868B" style={styles.searchIcon} />
+          <TextInput
+            placeholder="Search FAQs"
+            placeholderTextColor="#86868B"
+            style={styles.searchInput}
+            value={searchQuery}
+            onChangeText={setSearchQuery}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+        </View>
+
+        {isSearching ? (
+          <View style={styles.section}>
+            <Text weight="semiBold" size="xs" style={styles.sectionLabel}>
+              SEARCH RESULTS ({searchResults.length})
+            </Text>
+            {searchResults.length > 0 ? (
+              <View style={[styles.card, styles.listCard]}>
+                {searchResults.map((result, index) => (
+                  <Pressable
+                    key={`${result.category}-${result.item.id}`}
+                    onPress={() => handleOpenCategory(result.category)}
+                    style={({ pressed }) => [
+                      styles.listRow,
+                      index !== 0 && styles.listRowDivider,
+                      pressed && styles.rowPressed,
+                    ]}
+                  >
+                    <View style={styles.listRowText}>
+                      <Text weight="bold" size="md" color="#111827">
+                        {result.item.question}
+                      </Text>
+                      <Text weight="medium" size="sm" color="#6B7280">
+                        {result.categoryTitle}
+                      </Text>
+                    </View>
+                    <ChevronRight size={18} color="#9CA3AF" />
+                  </Pressable>
+                ))}
+              </View>
+            ) : (
+              <View style={styles.emptyState}>
+                <Text size="md" color="#6B7280" style={styles.emptyStateText}>
+                  No results found for "{searchQuery}"
+                </Text>
+                <Text size="sm" color="#9CA3AF" style={styles.emptyStateHint}>
+                  Try different keywords or browse by category below
+                </Text>
+              </View>
+            )}
+          </View>
+        ) : null}
+
+        {/* Show Popular section only when not searching */}
+        {!isSearching && (
+          <View style={styles.section}>
+            <Text weight="semiBold" size="xs" style={styles.sectionLabel}>
+              POPULAR
+            </Text>
+              <View style={[styles.card, styles.listCard]}>
+                {POPULAR_ITEMS.map((item, index) => (
+                  <Pressable
+                    key={item.id}
+                    onPress={() => handleOpenCategory(item.category)}
+                    style={({ pressed }) => [
+                      styles.listRow,
+                      index !== 0 && styles.listRowDivider,
+                      pressed && styles.rowPressed,
+                    ]}
+                  >
+                    <View style={styles.listRowText}>
+                      <Text weight="bold" size="md" color="#111827">
+                        {item.title}
+                      </Text>
+                      <Text weight="medium" size="sm" color="#6B7280">
+                        {item.subtitle}
+                      </Text>
+                    </View>
+                    <ChevronRight size={18} color="#9CA3AF" />
+                  </Pressable>
+                ))}
+              </View>
+          </View>
+        )}
+
+        {/* Show Categories when not searching, or when searching with no results */}
+        {(!isSearching || (isSearching && searchResults.length === 0)) && (
+          <View style={styles.section}>
+            <Text weight="semiBold" size="xs" style={styles.sectionLabel}>
+              BROWSE BY CATEGORY
+            </Text>
+              <View style={[styles.card, styles.listCard]}>
+                {CATEGORIES.map((item, index) => {
+                  const Icon = item.icon;
+                  return (
+                    <Pressable
+                      key={item.id}
+                      onPress={() => handleOpenCategory(item.id)}
+                      style={({ pressed }) => [
+                        styles.categoryRow,
+                        index !== 0 && styles.listRowDivider,
+                        pressed && styles.rowPressed,
+                      ]}
+                    >
+                      <View style={styles.categoryLeft}>
+                        <Icon size={18} color={BrandColors.secondary} />
+                        <Text weight="bold" size="md" color="#111827">
+                          {item.label}
+                        </Text>
+                      </View>
+                      <ChevronRight size={18} color="#9CA3AF" />
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+        )}
+
+        <View style={styles.supportSection}>
+          <View style={styles.card}>
+            <View style={styles.supportIcon}>
+              <Headset size={22} color={BrandColors.secondary} />
+            </View>
+            <Text weight="bold" size="lg" color="#111827">
+              Still need help?
+            </Text>
+            <Text size="sm" color="#6B7280" style={styles.supportBody}>
+              Submit a support ticket and we’ll get back to you.
+            </Text>
+            <Pressable style={styles.supportButton} onPress={() => console.log('Submit ticket')}>
+              <Text weight="bold" size="md" color={BrandColors.white}>
+                Submit a ticket
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      </Animated.ScrollView>
+
+      <BlurHeaderOverlay title="FAQ" onBack={() => router.back()} />
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: BrandColors.background,
+  },
+  container: {
+    paddingHorizontal: 20,
+  },
+  searchWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#E5E7EB',
+    borderRadius: 10,
+    paddingHorizontal: 16,
+    height: 48,
+    marginTop: 6,
+    marginBottom: 18,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  searchIcon: {
+    marginRight: 8,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 16,
+    color: '#111827',
+    padding: 0,
+    fontWeight: '700',
+  },
+  section: {
+    marginBottom: 24,
+  },
+  sectionLabel: {
+    letterSpacing: 1,
+    marginBottom: 10,
+    marginLeft: 4,
+    color: '#000',
+  },
+  card: {
+    backgroundColor: '#E5E7EB',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  listCard: {
+    overflow: 'hidden',
+    alignItems: 'stretch',
+    paddingVertical: 0,
+  },
+  listRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  categoryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  listRowText: {
+    gap: 2,
+  },
+  categoryLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  listRowDivider: {
+    borderTopWidth: 1,
+    borderTopColor: '#D1D5DB',
+  },
+  rowPressed: {
+    backgroundColor: '#D1D5DB',
+  },
+  supportSection: {
+    paddingBottom: Spacing['2xl'],
+  },
+  supportIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: 'rgba(36, 99, 235, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  supportBody: {
+    textAlign: 'center',
+    marginTop: 4,
+  },
+  supportButton: {
+    marginTop: 16,
+    backgroundColor: BrandColors.secondary,
+    borderRadius: 12,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  emptyState: {
+    paddingVertical: 32,
+    paddingHorizontal: 16,
+    alignItems: 'center',
+  },
+  emptyStateText: {
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  emptyStateHint: {
+    textAlign: 'center',
+  },
+});

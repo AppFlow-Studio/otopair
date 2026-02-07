@@ -31,6 +31,7 @@ import {
     ProgressBar,
     FooterButton,
     BackButton,
+    FadeFooterContainer,
 } from '@/components/shared-ui';
 import { useState } from 'react';
 import {
@@ -44,6 +45,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
+import { useOnboardingQuestion } from '@/hooks/useOnboardingQuestion';
 
 interface ShopTypeStepProps {
     onNext: () => void;
@@ -52,17 +54,19 @@ interface ShopTypeStepProps {
 }
 
 const SHOP_TYPE_OPTIONS = [
-    { emoji: '🏢', label: 'Dealership service center' },
-    { emoji: '🏬', label: 'Chain shops (Jiffy Lube, Pep Boys, etc.)' },
-    { emoji: '🛠️', label: 'Independent local mechanic' },
-    { emoji: '🤷', label: "I don't have a regular place" },
+    { emoji: '🏢', label: 'Dealership' },
+    { emoji: '🛠️', label: 'Same independent shop' },
+    { emoji: '🔄', label: 'Different shops each time' },
+    { emoji: '🧰', label: 'I do it myself' },
+    { emoji: '🔍', label: "Haven't found a reliable place" },
 ] as const;
 
 export function ShopTypeStep({ onNext, onBack, progress }: ShopTypeStepProps) {
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
-    
+    const { saveQuestionAnswer } = useOnboardingQuestion('shopType');
+
     const [selectedShopType, setSelectedShopType] = useState<string | null>(
         data.shopType ?? null
     );
@@ -84,6 +88,9 @@ export function ShopTypeStep({ onNext, onBack, progress }: ShopTypeStepProps) {
 
     const handleContinue = () => {
         if (selectedShopType) {
+            const label = SHOP_TYPE_OPTIONS.find(o => `${o.emoji} ${o.label}` === selectedShopType)?.label ?? selectedShopType;
+            const questionText = 'Where do you typically take your car?';
+            saveQuestionAnswer(questionText, label);
             onNext();
         }
     };
@@ -111,10 +118,10 @@ export function ShopTypeStep({ onNext, onBack, progress }: ShopTypeStepProps) {
                 >
                     <View style={styles.headerContent}>
                         <Text style={styles.title}>
-                            What type of shops do you usually go to?
+                            Where do you usually get your car serviced?
                         </Text>
                         <Text style={styles.subtitle}>
-                            We'll help you find similar options nearby
+                            Select the option that best describes your routine
                         </Text>
                     </View>
 
@@ -148,7 +155,7 @@ export function ShopTypeStep({ onNext, onBack, progress }: ShopTypeStepProps) {
                     </View>
                 </ScrollView>
 
-                <View style={[styles.bottomContainer, dynamicStyles.bottomContainer]}>
+                <FadeFooterContainer paddingBottom={insets.bottom + Spacing.lg} fadeVariant={0}>
                     <FooterButton
                         label="Continue"
                         onPress={handleContinue}
@@ -159,7 +166,7 @@ export function ShopTypeStep({ onNext, onBack, progress }: ShopTypeStepProps) {
                         backgroundColor={canContinue ? undefined : '#6B7280'}
                         textColor={canContinue ? undefined : BrandColors.white}
                     />
-                </View>
+                </FadeFooterContainer>
             </View>
         </KeyboardAvoidingView>
     );

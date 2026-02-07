@@ -8,9 +8,14 @@
  * PROPS:
  *   - onNext (() => void): Callback to navigate to the next step
  *   - onBack (() => void): Callback to navigate to the previous step
+ *   - progress ({ total: number; filled: number }): Progress indicator data
  *
  * EXAMPLE:
- *   <PushNotificationsStep onNext={handleNext} onBack={handleBack} />
+ *   <PushNotificationsStep 
+ *     onNext={handleNext} 
+ *     onBack={handleBack} 
+ *     progress={{ total: 8, filled: 6 }} 
+ *   />
  *
  * OWNER: Daniel Chelala
  * TICKET: OTO-XXX
@@ -44,9 +49,10 @@ import { Bell } from 'lucide-react-native';
 interface PushNotificationsStepProps {
     onNext: () => void;
     onBack: () => void;
+    progress: { total: number; filled: number };
 }
 
-export function PushNotificationsStep({ onNext, onBack }: PushNotificationsStepProps) {
+export function PushNotificationsStep({ onNext, onBack, progress }: PushNotificationsStepProps) {
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData } = useOnboardingStore();
@@ -165,8 +171,8 @@ export function PushNotificationsStep({ onNext, onBack }: PushNotificationsStepP
         >
             <View style={[styles.container, dynamicStyles.container]}>
                 <ProgressBar
-                    total={6}
-                    filled={4}
+                    total={progress.total}
+                    filled={progress.filled}
                     leftElement={<BackButton onBack={onBack} alwaysShow />}
                 />
 

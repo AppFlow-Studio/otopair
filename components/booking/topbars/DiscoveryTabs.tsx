@@ -20,14 +20,15 @@ import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Constants, hooks, types, stores
 import { SheetDrivenAnimation } from "@/constants/animations";
-import { SERVICE_CATEGORIES } from "@/constants/services";
+import { BorderRadius } from "@/constants/theme";
 import type { ServiceCategory } from "@/stores/types/store.types";
+import { useBookingStore } from "@/stores/useBookingStore";
 
 // ============================================================================
 // CONSTANTS
 // ============================================================================
 
-const SERVICE_TABS_HEIGHT = 60;
+const SERVICE_TABS_HEIGHT = 70;
 
 // ============================================================================
 // TYPES
@@ -47,6 +48,9 @@ export interface DiscoveryTabsProps {
 // ============================================================================
 
 export function DiscoveryTabs({ onServiceSelect, selectedService, sheetAnimatedIndex }: DiscoveryTabsProps) {
+  const getServiceCategories = useBookingStore((state) => state.getServiceCategories);
+  const serviceCategories = getServiceCategories();
+
   // Animation for service tabs (sheet-driven: fade out when expanded)
   const serviceTabsAnimatedStyle = useAnimatedStyle(() => {
     if (!sheetAnimatedIndex) {
@@ -62,19 +66,19 @@ export function DiscoveryTabs({ onServiceSelect, selectedService, sheetAnimatedI
   return (
     <Animated.View style={serviceTabsAnimatedStyle}>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.serviceTabs}>
-        {SERVICE_CATEGORIES.map((service) => {
+        {serviceCategories.map((service) => {
           const isSelected = selectedService === service.key;
           return (
             <TouchableOpacity
               key={service.key}
-              style={styles.serviceTab}
+              style={[styles.serviceTab, isSelected && styles.serviceTabSelected]}
               onPress={() => onServiceSelect?.(service.key)}
               activeOpacity={0.7}
             >
               <Text
                 size="xs"
                 weight={isSelected ? "semiBold" : "regular"}
-                color={isSelected ? BrandColors.secondary : BrandColors.primary}
+                color={isSelected ? BrandColors.white : BrandColors.primary}
                 center
               >
                 {service.label}
@@ -97,10 +101,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.sm,
     paddingBottom: Spacing.md,
-    gap: Spacing.xl,
+    gap: Spacing.sm,
   },
   serviceTab: {
     alignItems: "center",
-    minWidth: 70,
+    justifyContent: "center",
+    paddingVertical: Spacing.xs,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.lg,
+    backgroundColor: "transparent",
+  },
+  serviceTabSelected: {
+    backgroundColor: BrandColors.primary,
   },
 });

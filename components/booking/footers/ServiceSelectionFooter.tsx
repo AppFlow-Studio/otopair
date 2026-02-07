@@ -2,7 +2,7 @@
  * ServiceSelectionFooter
  *
  * PURPOSE: Footer button for service selection stage
- *          Shows "Add X to Cart · $Y" when services selected, or "Select Service(s)" when empty
+ *          Shows "Add X to Cart" when services selected, or "Select Service(s)" when empty
  *
  * USED IN: components/booking/ServiceBottomSheet.tsx
  *
@@ -22,6 +22,7 @@ import { BrandColors, PrimaryButton, Spacing, Text } from "@/components/shared-u
 
 // 4. Constants
 import { BorderRadius } from "@/constants/theme";
+import { BlurView } from "expo-blur";
 
 // ============================================================================
 // TYPES
@@ -58,14 +59,14 @@ export function ServiceSelectionFooter({
   return (
     <BottomSheetFooter {...footerProps} bottomInset={bottomInset}>
       <Animated.View style={animatedStyle}>
-        <View style={styles.container}>
+        <View  style={styles.container} >
           <PrimaryButton
             onPress={onConfirm}
             style={[styles.button, !hasSelection && styles.buttonDisabled]}
             disabled={!hasSelection}
           >
             <Text size="md" weight="semiBold" color={BrandColors.white}>
-              {hasSelection ? `Add ${selectedCount} to Cart · $${selectedTotal}` : "Select Service(s)"}
+              {hasSelection ? `Add ${selectedCount} to Cart` : "Select Service(s)"}
             </Text>
           </PrimaryButton>
         </View>
@@ -81,7 +82,7 @@ export function ServiceSelectionFooter({
 const styles = StyleSheet.create({
   container: {
     paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
+    paddingVertical: 0,
     backgroundColor: BrandColors.white,
     borderTopWidth: 1,
     borderTopColor: "#F3F4F6",
@@ -94,4 +95,7 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
 });
+
+
+
 

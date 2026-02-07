@@ -8,9 +8,14 @@
  * PROPS:
  *   - onNext (() => void): Callback to navigate to the next step
  *   - onBack (() => void): Callback to navigate to the previous step
+ *   - progress ({ total: number; filled: number }): Progress indicator data
  *
  * EXAMPLE:
- *   <UserIntentStep onNext={handleNext} onBack={handleBack} />
+ *   <UserIntentStep 
+ *     onNext={handleNext} 
+ *     onBack={handleBack} 
+ *     progress={{ total: 8, filled: 5 }} 
+ *   />
  *
  * OWNER: Daniel Chelala
  * TICKET: OTO-XXX
@@ -23,10 +28,11 @@ import {
     Spacing,
     Text,
     BorderRadius,
+    ProgressBar,
+    FooterButton,
+    BackButton,
+    FadeFooterContainer,
 } from '@/components/shared-ui';
-import { ProgressBar } from '@/components/shared-ui/ProgressBar';
-import { FooterButton } from '@/components/shared-ui/FooterButton';
-import { BackButton } from '@/components/shared-ui/BackButton';
 import { useState, useEffect } from 'react';
 import {
     KeyboardAvoidingView,
@@ -39,6 +45,8 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
+import { useMutation } from 'convex/react';
+import { api } from '@/convex/_generated/api';
 import {
     BookOpen,
     Search,
@@ -55,6 +63,7 @@ import {
 interface UserIntentStepProps {
     onNext: () => void;
     onBack: () => void;
+    progress: { total: number; filled: number };
 }
 
 interface IntentOption {
@@ -116,10 +125,11 @@ const INTENT_OPTIONS: IntentOption[] = [
     },
 ];
 
-export function UserIntentStep({ onNext, onBack }: UserIntentStepProps) {
+export function UserIntentStep({ onNext, onBack, progress }: UserIntentStepProps) {
     const insets = useSafeAreaInsets();
     const { height } = useWindowDimensions();
     const { updateData, data } = useOnboardingStore();
+    const saveUserIntentions = useMutation(api.onboarding_questions_answers.saveUserIntentions);
     
     const [selectedIntents, setSelectedIntents] = useState<string[]>(
         data.userIntentions || []
@@ -148,7 +158,14 @@ export function UserIntentStep({ onNext, onBack }: UserIntentStepProps) {
         updateData({
             userIntentions: selectedIntents,
         });
-        // onNext will check permissions and navigate accordingly
+        if (selectedIntents.length > 0) {
+            saveUserIntentions({
+                question: 'What do you want to use Otopair for?',
+                intentions: selectedIntents,
+            }).catch((err) =>
+                console.error('Failed to save user intentions:', err)
+            );
+        }
         onNext();
     };
 
@@ -160,8 +177,8 @@ export function UserIntentStep({ onNext, onBack }: UserIntentStepProps) {
         >
             <View style={[styles.container, dynamicStyles.container]}>
                 <ProgressBar
-                    total={6}
-                    filled={3}
+                    total={progress.total}
+                    filled={progress.filled}
                     leftElement={<BackButton onBack={onBack} alwaysShow />}
                 />
 
@@ -213,7 +230,7 @@ export function UserIntentStep({ onNext, onBack }: UserIntentStepProps) {
                     </View>
                 </ScrollView>
 
-                <View style={[styles.bottomContainer, dynamicStyles.bottomContainer]}>
+                <FadeFooterContainer paddingBottom={insets.bottom + Spacing.lg}>
                     <FooterButton
                         label="Continue"
                         onPress={handleContinue}
@@ -221,7 +238,7 @@ export function UserIntentStep({ onNext, onBack }: UserIntentStepProps) {
                         paddingVertical={buttonPaddingVertical}
                         variant="primary"
                     />
-                </View>
+                </FadeFooterContainer>
             </View>
         </KeyboardAvoidingView>
     );

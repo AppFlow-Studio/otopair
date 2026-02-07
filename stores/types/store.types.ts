@@ -25,10 +25,14 @@ export interface Service {
   name: string;
   /** Brief description of the service */
   description: string;
-  /** Price in dollars */
+  /** Price in dollars (fallback when labor_rate not available) */
   price: number;
   /** Category this service belongs to */
   category: ServiceCategory;
+  /** Default labor hours (for price = labor_rate × time + parts) */
+  default_labor_hours?: number;
+  /** Default parts estimate in dollars (for price formula) */
+  default_parts_estimate?: number;
 }
 
 /** User's current location for map and shop discovery */
@@ -62,18 +66,22 @@ export type BookingType = "book_now" | "schedule_later";
 
 /** A mechanic who works at a shop */
 export interface Mechanic {
-  /** Unique identifier */
-  id: number;
+  /** Unique identifier (Convex _id as string) */
+  id: string;
   /** Shop this mechanic works at */
-  shopId: number;
+  shopId: string;
   /** Mechanic's display name */
   name: string;
+  /** Optional job title (e.g. "Master Mechanic"); when empty, UI shows shopName under name */
+  title?: string;
   /** Shop/business name */
   shopName: string;
   /** Profile photo URL */
   photoUrl: string | null;
-  /** Average rating (0-5) */
+  /** Average rating (0-5) from Convex reviews */
   rating: number;
+  /** Number of reviews (from Convex) for display */
+  reviewCount?: number;
   /** Whether the mechanic is verified */
   isVerified: boolean;
   /** Distance in miles from user */
@@ -131,14 +139,16 @@ export interface Booking {
 
 /** A shop/mechanic business entity */
 export interface Shop {
-  /** Unique identifier (auto-incrementing) */
-  id: number;
+  /** Unique identifier (Convex _id as string) */
+  id: string;
   /** Shop display name */
   name: string;
 
   // ─── Location ───
-  /** Street address */
+  /** Street address (or full address line) */
   address: string;
+  /** Shop phone for Contact / tel: link */
+  phone?: string;
   /** Latitude coordinate */
   latitude: number;
   /** Longitude coordinate */
@@ -147,8 +157,10 @@ export interface Shop {
   distanceKm: number | null;
 
   // ─── Details ───
-  /** Average rating (0-5) */
+  /** Average rating (0-5) from Convex reviews */
   rating: number | null;
+  /** Number of reviews (from Convex) for display */
+  reviewCount?: number;
   /** Shop image URL */
   imageUrl: string | null;
 
@@ -163,6 +175,10 @@ export interface Shop {
   // ─── Services ───
   /** Service IDs offered by this shop */
   serviceIds: string[];
+
+  // ─── Pricing ───
+  /** Hourly labor rate in dollars (for price calculation) */
+  labor_rate?: number;
 }
 
 /** Shop filter options */
@@ -227,10 +243,13 @@ export interface MechanicSchedule {
 // ─────────────────────────────────────────────────────────────
 
 /** Supported payment card brands */
-export type PaymentCardBrand = "mastercard" | "visa" | "amex" | "discover";
+export type PaymentCardBrand = "mastercard" | "visa" | "amex" | "discover" | "generic";
 
 /** Supported digital wallet types */
 export type DigitalWalletType = "apple_pay" | "google_pay";
+
+/** Supported local card art variants for UI */
+export type PaymentCardImageKey = "mono_1" | "mono_2";
 
 /** A saved payment method (credit/debit card) */
 export interface PaymentMethod {
@@ -248,8 +267,32 @@ export interface PaymentMethod {
   isDefault: boolean;
   /** Cardholder name (optional) */
   cardholderName?: string;
+  /** Billing zip code (optional) */
+  zipCode?: string;
+  /** Card art to use for this card in the UI */
+  imageKey?: PaymentCardImageKey;
   /** Date when payment method was added */
   createdAt: string;
+}
+
+/** A transaction/recent activity item */
+export interface Transaction {
+  /** Unique identifier */
+  id: string;
+  /** Card ID this transaction belongs to */
+  paymentMethodId: string;
+  /** Transaction title (e.g., "Oil Change") */
+  title: string;
+  /** Shop/Business name */
+  shopName: string;
+  /** Amount spent (formatted string, e.g., "$129.00") */
+  amount: string;
+  /** Date of transaction (e.g., "April 24") */
+  date: string;
+  /** Icon name from Lucide (e.g., "droplet") */
+  iconName: string;
+  /** Icon color (e.g., "#FACC15") */
+  iconColor: string;
 }
 
 /** Scheduled appointment date/time for a booking */

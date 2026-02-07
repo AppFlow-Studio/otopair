@@ -1,9 +1,13 @@
 /**
  * MechanicCard
  *
+ * @deprecated This component has been replaced by ShopCard which uses a shop-centric design
+ *             with mechanic avatars. Use ShopCard from ./ShopCard instead.
+ *
  * PURPOSE: Displays a detailed mechanic/shop card with availability, services, and booking options
  *
- * USED IN: components/booking/sheets/MechanicSelectionContent.tsx
+ * USED IN: DEPRECATED - Was used in components/booking/sheets/MechanicSelectionContent.tsx
+ *          Now replaced by ShopCard in the same file.
  *
  * PROPS:
  *   - mechanic (Mechanic): The mechanic/shop data to display
@@ -33,6 +37,7 @@ import { BrandColors, PrimaryButton, Spacing, Text } from "@/components/shared-u
 
 // 4. Constants, hooks, types
 import { BorderRadius } from "@/constants/theme";
+import { formatDistanceMiles } from "@/utils/geo";
 import type { Mechanic } from "@/stores/types/store.types";
 
 // ============================================================================
@@ -42,10 +47,10 @@ import type { Mechanic } from "@/stores/types/store.types";
 interface MechanicCardProps {
   /** The mechanic data to display */
   mechanic: Mechanic;
-  /** Called when "Book Now" is pressed */
-  onBookNow?: (mechanicId: number) => void;
-  /** Called when "Schedule For Later" is pressed */
-  onScheduleLater?: (mechanicId: number) => void;
+  /** Called when "Book Now" is pressed with a selected slot */
+  onBookNow?: (mechanicId: string, slot: { day: string; dayOfWeek: string; time: string }) => void;
+  /** Called when "Schedule For Later" is pressed (navigates to mechanic detail page) */
+  onScheduleLater?: (mechanicId: string) => void;
 }
 
 // ============================================================================
@@ -56,10 +61,16 @@ export const MechanicCard = memo(function MechanicCard({ mechanic, onBookNow, on
   // Track which availability slot is selected (null = none selected)
   const [selectedSlotIndex, setSelectedSlotIndex] = useState<number | null>(null);
 
+  // Check if a slot is selected
+  const hasSelectedSlot = selectedSlotIndex !== null;
+  const selectedSlot = hasSelectedSlot ? mechanic.nextAvailability[selectedSlotIndex] : null;
+
   // Memoize handlers to prevent re-renders
   const handleBookNow = useCallback(() => {
-    onBookNow?.(mechanic.id);
-  }, [onBookNow, mechanic.id]);
+    if (selectedSlot) {
+      onBookNow?.(mechanic.id, selectedSlot);
+    }
+  }, [onBookNow, mechanic.id, selectedSlot]);
 
   const handleScheduleLater = useCallback(() => {
     onScheduleLater?.(mechanic.id);
@@ -84,7 +95,7 @@ export const MechanicCard = memo(function MechanicCard({ mechanic, onBookNow, on
         <View style={styles.infoContainer}>
           <View style={styles.nameRow}>
             <Text size="lg" weight="bold" color={BrandColors.primary}>
-              {mechanic.shopName}
+              {mechanic.name}
             </Text>
             <View style={styles.ratingBadge}>
               <Star size={16} color={BrandColors.secondary} fill={BrandColors.secondary} />
@@ -95,12 +106,12 @@ export const MechanicCard = memo(function MechanicCard({ mechanic, onBookNow, on
           </View>
 
           <Text size="sm" weight="medium" color="#6B7280" style={{ marginBottom: 2 }}>
-            {mechanic.name}
+            {mechanic.title ?? mechanic.shopName}
           </Text>
 
           <View style={styles.detailsRow}>
             <Text size="xs" weight="regular" color="#9CA3AF">
-              {mechanic.distanceMi} mi
+              {formatDistanceMiles(mechanic.distanceMi)}
             </Text>
             {mechanic.isVerified && (
               <View style={styles.verifiedBadge}>
@@ -186,8 +197,12 @@ export const MechanicCard = memo(function MechanicCard({ mechanic, onBookNow, on
             Schedule For Later
           </Text>
         </TouchableOpacity>
-        <PrimaryButton style={styles.bookButton} onPress={handleBookNow}>
-          <Text size="sm" weight="semiBold" color={BrandColors.white}>
+        <PrimaryButton
+          style={[styles.bookButton, !hasSelectedSlot && styles.bookButtonDisabled]}
+          onPress={handleBookNow}
+          disabled={!hasSelectedSlot}
+        >
+          <Text size="sm" weight="semiBold" color={hasSelectedSlot ? BrandColors.white : "#9CA3AF"}>
             Book Now
           </Text>
         </PrimaryButton>
@@ -326,5 +341,8 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: BorderRadius.lg,
     paddingVertical: Spacing.md,
+  },
+  bookButtonDisabled: {
+    backgroundColor: "#E5E7EB",
   },
 });

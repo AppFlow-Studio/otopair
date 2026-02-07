@@ -10,7 +10,7 @@
 
 // 1. React & React Native
 import React, { useState, useEffect } from 'react';
-import { Dimensions, Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Dimensions, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // 2. Expo & Third-party
@@ -18,12 +18,12 @@ import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-ca
 import { StatusBar } from 'expo-status-bar';
 import { useRouter } from 'expo-router';
 import { X, Flashlight } from 'lucide-react-native';
+import { useAction } from 'convex/react';
 
-// 3. Shared UI
+// 3. App imports
 import { Text } from '@/components/shared-ui';
-
-// 4. Constants
 import { Spacing } from '@/constants/theme';
+import { api } from '@/convex/_generated/api';
 
 // ============================================================================
 // COMPONENT
@@ -37,6 +37,10 @@ export default function VinScannerScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
   const [torch, setTorch] = useState(false);
+  const [isDecoding, setIsDecoding] = useState(false);
+  const [decodeError, setDecodeError] = useState<string | null>(null);
+
+  const decodeVin = useAction(api.vehicle_pipeline.decodeVin);
 
   useEffect(() => {
     if (!permission?.granted) {
@@ -48,19 +52,47 @@ export default function VinScannerScreen() {
     router.back();
   };
 
-  const handleBarCodeScanned = (result: BarcodeScanningResult) => {
-    if (scanned) return;
-    
+  const handleBarCodeScanned = async (result: BarcodeScanningResult) => {
+    if (scanned || isDecoding) return;
+
     const { data } = result;
-    
+
     // VINs are 17 characters
     if (data && data.length === 17) {
       setScanned(true);
-      // Navigate to add-car-info with the scanned VIN
-      router.replace({
-        pathname: '/add-car-info',
-        params: { vin: data.toUpperCase() },
-      });
+      setIsDecoding(true);
+      setDecodeError(null);
+
+      try {
+        const decoded = await decodeVin({ vin: data.toUpperCase() });
+
+        if (decoded.success) {
+          router.replace({
+            pathname: '/add-vehicle-review',
+            params: {
+              vin: decoded.vin,
+              make: decoded.make,
+              model: decoded.model,
+              year: String(decoded.year),
+              trim: decoded.trim,
+              trimId: decoded.trimId,
+              engineId: decoded.engineId,
+              engineCode: decoded.engineCode,
+              displacement: decoded.displacement,
+              cylinders: String(decoded.cylinders),
+              fuelType: decoded.fuelType,
+            },
+          });
+        } else {
+          setDecodeError(decoded.error || 'Could not decode VIN');
+          setScanned(false);
+        }
+      } catch (err) {
+        setDecodeError(err instanceof Error ? err.message : 'Failed to decode VIN');
+        setScanned(false);
+      } finally {
+        setIsDecoding(false);
+      }
     }
   };
 
@@ -164,13 +196,36 @@ export default function VinScannerScreen() {
 
         {/* Bottom Section */}
         <View style={[styles.overlaySection, styles.overlayBottom, { paddingBottom: insets.bottom + 40 }]}>
-          <Text weight="bold" size="lg" color="#FFFFFF" style={styles.instructionTitle}>
-            Scan VIN Barcode
-          </Text>
-          <Text size="sm" color="#CCCCCC" style={styles.instructionText}>
-            Position the VIN barcode within the frame.{'\n'}
-            Usually found on the driver's door or dashboard.
-          </Text>
+          {isDecoding ? (
+            <>
+              <ActivityIndicator size="large" color="#5B7FFF" style={{ marginBottom: Spacing.md }} />
+              <Text weight="bold" size="lg" color="#FFFFFF" style={styles.instructionTitle}>
+                Decoding VIN...
+              </Text>
+              <Text size="sm" color="#CCCCCC" style={styles.instructionText}>
+                Looking up your vehicle information
+              </Text>
+            </>
+          ) : decodeError ? (
+            <>
+              <Text weight="bold" size="lg" color="#FF6B6B" style={styles.instructionTitle}>
+                {decodeError}
+              </Text>
+              <Text size="sm" color="#CCCCCC" style={styles.instructionText}>
+                Try scanning again or enter VIN manually
+              </Text>
+            </>
+          ) : (
+            <>
+              <Text weight="bold" size="lg" color="#FFFFFF" style={styles.instructionTitle}>
+                Scan VIN Barcode
+              </Text>
+              <Text size="sm" color="#CCCCCC" style={styles.instructionText}>
+                Position the VIN barcode within the frame.{'\n'}
+                Usually found on the driver's door or dashboard.
+              </Text>
+            </>
+          )}
         </View>
       </View>
     </View>

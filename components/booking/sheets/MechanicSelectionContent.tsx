@@ -1,7 +1,8 @@
 /**
  * MechanicSelectionContent
  *
- * PURPOSE: Displays the mechanic selection UI with search, service chips, and mechanic cards
+ * PURPOSE: Displays the mechanic selection UI with search, service chips, and shop cards
+ *          Now grouped by shop with mechanic avatars within each card
  *
  * USED IN: components/booking/ServiceBottomSheet.tsx
  *
@@ -10,32 +11,45 @@
 
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo } from "react";
-import { ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 
 // 2. Third-party libraries
 import { BottomSheetFlatList } from "@gorhom/bottom-sheet";
-import { Search } from "lucide-react-native";
+import { Car, ChevronLeft, Search } from "lucide-react-native";
+import { useRouter } from "expo-router";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 3. Shared UI (design system)
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Flow-specific components
-import { DiscardServiceModal } from "./DiscardServiceModal";
-import { MechanicCard } from "./MechanicCard";
-import { ServiceChip } from "./ServiceChip";
+import { AvailabilityModal } from "@/components/booking/modals";
+// BookingFooter is now rendered by ServiceBottomSheet's footerComponent
+import {
+  ShopCard,
+  type ShopWithMechanics,
+  type SelectedSlotInfo,
+  type SelectedServiceInfo,
+  type SlotWithBookingMeta,
+} from "./ShopCard";
 
 // 5. Constants, hooks, types, stores
-import type { MechanicFilterOption } from "@/constants/filters";
-import { BorderRadius, FontFamily, getSheetContentPadding } from "@/constants/theme";
-import { useBookingStore } from "@/stores/useBookingStore";
+import { MECHANIC_FILTER_OPTIONS, type MechanicFilterOption } from "@/constants/filters";
+import { BorderRadius, FontFamily } from "@/constants/theme";
+import { calculateDistanceMiles } from "@/utils/geo";
+import { hhmmToDisplayTime } from "@/utils/timeSlotUtils";
+import { useServiceVehicleSpecsForEngine } from "@/hooks/useServiceVehicleSpecsForEngine";
+import { useBookingStore, type SelectedMechanicSlot } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
+import { useShopStore } from "@/stores/useShopStore";
+import { useVehicleStore } from "@/stores/useVehicleStore";
+import type { Mechanic } from "@/stores/types/store.types";
 
 // ============================================================================
 // CONSTANTS
 // ============================================================================
 
-// No local constants needed - using centralized Layout from theme
+const DEFAULT_FOOTER_INSET = 100; // Fallback padding when footer height isn't measured yet
 
 // ============================================================================
 // TYPES
@@ -47,8 +61,55 @@ export type { MechanicFilterOption } from "@/constants/filters";
 interface MechanicSelectionContentProps {
   /** Called when user confirms mechanic selection */
   onSelectMechanic?: () => void;
-  /** Currently selected filter from TopBar */
-  mechanicFilter?: MechanicFilterOption;
+  /** Called when user taps the car icon to open car selection */
+  onCarSelect?: () => void;
+  /** Height of the sticky footer so the list can pad accordingly */
+  footerInset?: number;
+  /** Called when the mechanic search input gains focus */
+  onSearchFocus?: () => void;
+}
+
+// ============================================================================
+// HELPER FUNCTIONS
+// ============================================================================
+
+/**
+ * Groups mechanics by their shopId and returns shop-centric data.
+ * Merges laborRate from shops map when available.
+ */
+function groupMechanicsByShop(mechanics: Mechanic[], shopIdToLaborRate?: Map<string, number>): ShopWithMechanics[] {
+  const shopMap = new Map<string, ShopWithMechanics>();
+
+  mechanics.forEach((mechanic) => {
+    const existing = shopMap.get(mechanic.shopId);
+    if (existing) {
+      existing.mechanics.push(mechanic);
+      // Update rating to highest
+      if (mechanic.rating > existing.rating) {
+        existing.rating = mechanic.rating;
+      }
+      // Update verified if any mechanic is verified
+      if (mechanic.isVerified) {
+        existing.isVerified = true;
+      }
+      // Update distance to closest
+      if (mechanic.distanceMi < existing.distanceMi) {
+        existing.distanceMi = mechanic.distanceMi;
+      }
+    } else {
+      shopMap.set(mechanic.shopId, {
+        shopId: mechanic.shopId,
+        shopName: mechanic.shopName,
+        rating: mechanic.rating,
+        isVerified: mechanic.isVerified,
+        distanceMi: mechanic.distanceMi,
+        mechanics: [mechanic],
+        laborRate: shopIdToLaborRate?.get(mechanic.shopId),
+      });
+    }
+  });
+
+  return Array.from(shopMap.values());
 }
 
 // ============================================================================
@@ -57,28 +118,48 @@ interface MechanicSelectionContentProps {
 
 export function MechanicSelectionContent({
   onSelectMechanic,
-  mechanicFilter = "available_now",
+  onCarSelect,
+  footerInset = 0,
+  onSearchFocus,
 }: MechanicSelectionContentProps) {
   // ═══════════════ HOOKS ═══════════════
+  const router = useRouter();
   const insets = useSafeAreaInsets();
-  const contentPadding = getSheetContentPadding(false, insets.bottom);
+  const bottomSpacerHeight = useMemo(
+    () => Math.max(footerInset, DEFAULT_FOOTER_INSET) + insets.bottom + Spacing.lg,
+    [footerInset, insets.bottom],
+  );
 
   // ═══════════════ STATE ═══════════════
-  const [serviceToRemove, setServiceToRemove] = React.useState<string | null>(null);
-  const [dontAskAgain, setDontAskAgain] = React.useState(false);
+  const [showAvailabilityModal, setShowAvailabilityModal] = React.useState(false);
+  const [availabilityMechanicId, setAvailabilityMechanicId] = React.useState<string | null>(null);
+  const [availabilityShopId, setAvailabilityShopId] = React.useState<string | null>(null);
 
   // ═══════════════ BOOKING STORE ═══════════════
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
-  const toggleServiceSelection = useBookingStore((state) => state.toggleServiceSelection);
   const availableServices = useBookingStore((state) => state.availableServices);
-  const setBookingTypeAndProceed = useBookingStore((state) => state.setBookingTypeAndProceed);
   const prevBookingStage = useBookingStore((state) => state.prevBookingStage);
+  const setBookingTypeAndProceed = useBookingStore((state) => state.setBookingTypeAndProceed);
+  const setScheduledAppointment = useBookingStore((state) => state.setScheduledAppointment);
+  const setBookingStage = useBookingStore((state) => state.setBookingStage);
+  const setSkippedBookingDetails = useBookingStore((state) => state.setSkippedBookingDetails);
+  const selectedMechanicSlot = useBookingStore((state) => state.selectedMechanicSlot);
+  const setSelectedMechanicSlot = useBookingStore((state) => state.setSelectedMechanicSlot);
+  const getSelectedServicesTotal = useBookingStore((state) => state.getSelectedServicesTotal);
+  const userLocation = useBookingStore((state) => state.userLocation);
 
   // Memoize selected services to prevent re-renders
   const selectedServices = useMemo(
     () => availableServices.filter((service) => selectedServiceIds.includes(service.id)),
-    [availableServices, selectedServiceIds]
+    [availableServices, selectedServiceIds],
   );
+
+  // Get service name for footer
+  const serviceName = useMemo(() => {
+    if (selectedServices.length === 0) return "";
+    if (selectedServices.length === 1) return selectedServices[0].name;
+    return `${selectedServices.length} Services`;
+  }, [selectedServices]);
 
   // ═══════════════ MECHANIC STORE ═══════════════
   const searchQuery = useMechanicStore((state) => state.filters.searchQuery);
@@ -87,20 +168,55 @@ export function MechanicSelectionContent({
   const setSearchQuery = useMechanicStore((state) => state.setSearchQuery);
   const mechanics = useMechanicStore((state) => state.mechanics);
   const mechanicIds = useMechanicStore((state) => state.mechanicIds);
+  const getMechanicById = useMechanicStore((state) => state.getMechanicById);
 
-  // Memoize filtered mechanics to prevent re-renders on sheet collapse/expand
+  // Selected vehicle for car-specific (engine-specific) labor/parts
+  const selectedVehicle = useVehicleStore((state) => state.getSelectedVehicle());
+  const engineId = selectedVehicle?.engineId;
+  const engineSpecs = useServiceVehicleSpecsForEngine(engineId, selectedServiceIds);
+
+  // Shop labor rates and coordinates for price and distance (Convex data)
+  const shops = useShopStore((state) => state.shops);
+  const getShopById = useShopStore((state) => state.getShopById);
+  const shopIdToLaborRate = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const id of Object.keys(shops)) {
+      const laborRate = shops[id]?.labor_rate;
+      if (laborRate != null) m.set(id, laborRate);
+    }
+    return m;
+  }, [shops]);
+
+  // Memoize filtered mechanics with distance from user to shop (Convex shop lat/lng + booking userLocation)
   const filteredMechanics = useMemo(() => {
     let filtered = mechanicIds.map((id) => mechanics[id]).filter(Boolean);
+
+    // Enrich with distance from user to shop (mechanics don't have coords; use shop lat/lng from Convex)
+    if (userLocation?.latitude != null && userLocation?.longitude != null) {
+      filtered = filtered.map((m) => {
+        const shop = getShopById(m.shopId);
+        if (shop?.latitude != null && shop?.longitude != null) {
+          const distanceMi = calculateDistanceMiles(
+            userLocation.latitude,
+            userLocation.longitude,
+            shop.latitude,
+            shop.longitude,
+          );
+          return { ...m, distanceMi };
+        }
+        return m;
+      });
+    }
 
     // Filter by search query
     if (searchQuery.trim()) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(
-        (mechanic) => mechanic.name.toLowerCase().includes(query) || mechanic.shopName.toLowerCase().includes(query)
+        (mechanic) => mechanic.name.toLowerCase().includes(query) || mechanic.shopName.toLowerCase().includes(query),
       );
     }
 
-    // Apply filter type and sort
+    // Apply filter type and sort (rating/distance from Convex and computed distance)
     switch (filterType) {
       case "available_now":
         filtered = filtered
@@ -119,7 +235,49 @@ export function MechanicSelectionContent({
     }
 
     return filtered;
-  }, [mechanics, mechanicIds, searchQuery, filterType]);
+  }, [mechanics, mechanicIds, searchQuery, filterType, userLocation, getShopById]);
+
+  // Group mechanics by shop (with labor rates for price calculation)
+  const shopList = useMemo(() => {
+    const list = groupMechanicsByShop(filteredMechanics, shopIdToLaborRate);
+
+    // Sort shops based on filter type
+    switch (filterType) {
+      case "distance":
+        return list.sort((a, b) => a.distanceMi - b.distanceMi);
+      case "rating":
+        return list.sort((a, b) => b.rating - a.rating);
+      case "available_now":
+      default:
+        return list;
+    }
+  }, [filteredMechanics, filterType, shopIdToLaborRate]);
+
+  // Convert selectedMechanicSlot to SelectedSlotInfo for ShopCard
+  const selectedSlotInfo: SelectedSlotInfo | null = useMemo(() => {
+    if (!selectedMechanicSlot) return null;
+    return {
+      shopId: selectedMechanicSlot.shopId,
+      mechanicId: selectedMechanicSlot.mechanicId,
+      slot: selectedMechanicSlot.slot,
+    };
+  }, [selectedMechanicSlot]);
+
+  // Create SelectedServiceInfo array for ShopCard (engine-specific labor/parts when available)
+  const selectedServicesForCard: SelectedServiceInfo[] = useMemo(() => {
+    return selectedServices.map((service) => {
+      const spec = engineSpecs[service.id];
+      const laborHours = spec?.labor_hours ?? service.default_labor_hours;
+      const partsEstimate = spec?.parts_cost_avg ?? service.default_parts_estimate;
+      return {
+        id: service.id,
+        name: service.name,
+        price: service.price,
+        default_labor_hours: laborHours,
+        default_parts_estimate: partsEstimate,
+      };
+    });
+  }, [selectedServices, engineSpecs]);
 
   // ═══════════════ EFFECTS ═══════════════
   // Go back to service selection if all services are removed
@@ -129,80 +287,165 @@ export function MechanicSelectionContent({
     }
   }, [selectedServiceIds.length, prevBookingStage]);
 
+  // Note: We intentionally do NOT clear selectedMechanicSlot on unmount
+  // because the component unmounts when navigating to payment, and we need
+  // to preserve the selection for when the user comes back from payment.
+  // The slot is cleared by resetBookingFlow when the booking is completed or cancelled.
+
   // ═══════════════ HANDLERS ═══════════════
-  const handleRemoveService = useCallback(
-    (serviceId: string) => {
-      if (dontAskAgain) {
-        // Remove directly without confirmation
-        toggleServiceSelection(serviceId);
-      } else {
-        // Show confirmation modal
-        setServiceToRemove(serviceId);
-      }
+  // Handle slot selection from ShopCard (slot may include Convex timeSlotId/scheduledDate/scheduledTime)
+  const handleSelectSlot = useCallback(
+    (shopId: string, mechanicId: string | null, slot: SlotWithBookingMeta) => {
+      const shop = shopList.find((s) => s.shopId === shopId);
+      if (!shop) return;
+
+      const mechanic = mechanicId ? getMechanicById(mechanicId) : null;
+
+      setSelectedMechanicSlot({
+        shopId,
+        shopName: shop.shopName,
+        mechanicId,
+        mechanicName: mechanic?.name || null,
+        slot: { dayOfWeek: slot.dayOfWeek, day: slot.day, time: slot.time },
+        timeSlotId: slot.timeSlotId,
+        scheduledDate: slot.scheduledDate,
+        scheduledTime: slot.scheduledTime,
+      });
     },
-    [dontAskAgain, toggleServiceSelection]
+    [shopList, getMechanicById, setSelectedMechanicSlot],
   );
 
-  const handleConfirmRemove = useCallback(() => {
-    if (serviceToRemove) {
-      toggleServiceSelection(serviceToRemove);
-      setServiceToRemove(null);
-    }
-  }, [serviceToRemove, toggleServiceSelection]);
+  // Handle shop details button
+  const handleShopDetails = useCallback(
+    (shopId: string) => {
+      router.push(`/home/shop/${shopId}`);
+    },
+    [router],
+  );
 
-  const handleCloseModal = useCallback(() => {
-    setServiceToRemove(null);
+  // Handle "More" availability button - opens the calendar modal
+  const handleMoreAvailability = useCallback((shopId: string, mechanicId: string | null) => {
+    // Pass both shopId and mechanicId to the modal
+    // The modal will show all mechanics for the shop and allow switching
+    setAvailabilityShopId(shopId);
+    setAvailabilityMechanicId(mechanicId);
+    setShowAvailabilityModal(true);
   }, []);
 
-  const handleDontAskAgain = useCallback(() => {
-    setDontAskAgain(true);
-    // Also confirm the current removal
-    if (serviceToRemove) {
-      toggleServiceSelection(serviceToRemove);
-      setServiceToRemove(null);
+  // Handle closing the availability modal
+  const handleCloseAvailabilityModal = useCallback(() => {
+    setShowAvailabilityModal(false);
+    setAvailabilityMechanicId(null);
+    setAvailabilityShopId(null);
+  }, []);
+
+  // Handle availability modal confirmation - updates the selected slot
+  const handleAvailabilityConfirm = useCallback((date: Date, time: string, confirmedMechanicId: number) => {
+    // The AvailabilityModal already updates the selectedMechanicSlot in the store
+    // This callback can be used for any additional actions if needed
+  }, []);
+
+  // Handle book button from footer
+  const handleBook = useCallback(() => {
+    if (!selectedMechanicSlot) return;
+
+    const { mechanicId, slot, scheduledDate, scheduledTime } = selectedMechanicSlot;
+
+    // Use Convex slot date/time when present (from "Next Availability" integration)
+    let isoDate: string;
+    let displayDate: string;
+    if (scheduledDate) {
+      isoDate = scheduledDate;
+      const [y, m, d] = scheduledDate.split("-").map(Number);
+      const months = ["Jan.", "Feb.", "Mar.", "Apr.", "May", "Jun.", "Jul.", "Aug.", "Sep.", "Oct.", "Nov.", "Dec."];
+      displayDate = `${d} ${months[m - 1]} ${y}`;
+    } else {
+      const now = new Date();
+      const currentMonth = now.getMonth();
+      const currentYear = now.getFullYear();
+      const dayNum = parseInt(slot.day, 10);
+      let targetDate = new Date(currentYear, currentMonth, dayNum);
+      if (targetDate < now) {
+        targetDate = new Date(currentYear, currentMonth + 1, dayNum);
+      }
+      const months = ["Jan.", "Feb.", "Mar.", "Apr.", "May", "Jun.", "Jul.", "Aug.", "Sep.", "Oct.", "Nov.", "Dec."];
+      displayDate = `${targetDate.getDate()} ${months[targetDate.getMonth()]} ${targetDate.getFullYear()}`;
+      isoDate = targetDate.toISOString().split("T")[0];
     }
-  }, [serviceToRemove, toggleServiceSelection]);
 
-  const handleBookNow = useCallback(
-    (mechanicId: number) => {
-      // Set booking type to "book_now" and proceed to booking details
-      setBookingTypeAndProceed("book_now", mechanicId);
-      onSelectMechanic?.();
-    },
-    [setBookingTypeAndProceed, onSelectMechanic]
-  );
+    const timeDisplay = scheduledTime ? hhmmToDisplayTime(scheduledTime) : slot.time;
 
-  const handleScheduleLater = useCallback(
-    (mechanicId: number) => {
-      // Set booking type to "schedule_later" and proceed to booking details
-      setBookingTypeAndProceed("schedule_later", mechanicId);
-      onSelectMechanic?.();
-    },
-    [setBookingTypeAndProceed, onSelectMechanic]
-  );
+    // Use the first mechanic from the shop if "Any" was selected
+    const effectiveMechanicId =
+      mechanicId || shopList.find((s) => s.shopId === selectedMechanicSlot.shopId)?.mechanics[0]?.id;
+
+    if (!effectiveMechanicId) return;
+
+    setBookingTypeAndProceed("schedule_later", effectiveMechanicId);
+    setScheduledAppointment({
+      date: isoDate,
+      time: timeDisplay,
+      displayDate,
+    });
+
+    // Go directly to payment screen (skip booking details)
+    setSkippedBookingDetails(true);
+    setBookingStage("payment", "forward");
+
+    onSelectMechanic?.();
+
+    // Navigate to payment page
+    router.push(`/home/mechanic/${effectiveMechanicId}/payment`);
+  }, [
+    selectedMechanicSlot,
+    shopList,
+    setBookingTypeAndProceed,
+    setScheduledAppointment,
+    setSkippedBookingDetails,
+    setBookingStage,
+    onSelectMechanic,
+    router,
+  ]);
 
   // ═══════════════ FLATLIST HELPERS ═══════════════
-  const keyExtractor = useCallback((item: (typeof filteredMechanics)[0]) => String(item.id), []);
+  const keyExtractor = useCallback((item: ShopWithMechanics) => String(item.shopId), []);
 
-  const renderMechanicCard = useCallback(
-    ({ item }: { item: (typeof filteredMechanics)[0] }) => (
-      <MechanicCard mechanic={item} onBookNow={handleBookNow} onScheduleLater={handleScheduleLater} />
+  const renderShopCard = useCallback(
+    ({ item }: { item: ShopWithMechanics }) => (
+      <ShopCard
+        shop={item}
+        onSelectSlot={handleSelectSlot}
+        onShopDetails={handleShopDetails}
+        onMoreAvailability={handleMoreAvailability}
+        selectedSlot={selectedSlotInfo}
+        selectedServices={selectedServicesForCard}
+      />
     ),
-    [handleBookNow, handleScheduleLater]
+    [handleSelectSlot, handleShopDetails, handleMoreAvailability, selectedSlotInfo, selectedServicesForCard],
   );
 
-  // ═══════════════ SYNC FILTER FROM PROPS ═══════════════
-  useEffect(() => {
-    setFilters({ filterType: mechanicFilter });
-  }, [mechanicFilter, setFilters]);
+  // ═══════════════ FILTER HANDLER ═══════════════
+  const handleFilterSelect = useCallback(
+    (filter: MechanicFilterOption) => {
+      setFilters({ filterType: filter });
+    },
+    [setFilters],
+  );
 
   return (
     <View style={styles.container}>
       {/* Header - Fixed at top */}
       <View style={styles.header}>
+        <Pressable style={styles.backButton} onPress={prevBookingStage} hitSlop={8}>
+          <ChevronLeft size={24} color={BrandColors.primary} />
+        </Pressable>
         <Text size="xl" weight="bold" color={BrandColors.primary}>
           Choose Mechanic
         </Text>
+        {/* Car selection button */}
+        <Pressable style={styles.carButton} onPress={onCarSelect} hitSlop={8}>
+          <Car size={20} color={BrandColors.primary} />
+        </Pressable>
       </View>
 
       {/* Search Input - Fixed outside scroll view */}
@@ -214,14 +457,15 @@ export function MechanicSelectionContent({
           placeholderTextColor="#9CA3AF"
           value={searchQuery}
           onChangeText={setSearchQuery}
+          onFocus={onSearchFocus}
         />
       </View>
 
       {/* Scrollable Content - Using FlatList for virtualization */}
       <BottomSheetFlatList
-        data={filteredMechanics}
+        data={shopList}
         keyExtractor={keyExtractor}
-        renderItem={renderMechanicCard}
+        renderItem={renderShopCard}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
@@ -229,29 +473,48 @@ export function MechanicSelectionContent({
         maxToRenderPerBatch={5}
         windowSize={5}
         initialNumToRender={3}
+        ListFooterComponent={<View style={{ height: bottomSpacerHeight }} />}
         ListHeaderComponent={
-          selectedServices.length > 0 ? (
+          <View>
+            {/* Filter Chips */}
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
-              style={styles.chipsContainer}
-              contentContainerStyle={styles.chipsContent}
+              style={styles.filtersContainer}
+              contentContainerStyle={styles.filtersContent}
             >
-              {selectedServices.map((service) => (
-                <ServiceChip key={service.id} service={service} onRemove={handleRemoveService} />
-              ))}
+              {MECHANIC_FILTER_OPTIONS.map((option) => {
+                const isSelected = filterType === option.id;
+                return (
+                  <Pressable
+                    key={option.id}
+                    style={[styles.filterChip, isSelected && styles.filterChipSelected]}
+                    onPress={() => handleFilterSelect(option.id)}
+                  >
+                    <Text
+                      size="sm"
+                      weight={isSelected ? "bold" : "medium"}
+                      color={isSelected ? BrandColors.white : "#6B7280"}
+                    >
+                      {option.label}
+                    </Text>
+                  </Pressable>
+                );
+              })}
             </ScrollView>
-          ) : null
+          </View>
         }
-        ListFooterComponent={<View style={{ height: contentPadding }} />}
       />
 
-      {/* Discard Service Modal */}
-      <DiscardServiceModal
-        visible={serviceToRemove !== null}
-        onClose={handleCloseModal}
-        onConfirm={handleConfirmRemove}
-        onDontAskAgain={handleDontAskAgain}
+      {/* Footer is now handled by ServiceBottomSheet's footerComponent */}
+
+      {/* Availability Calendar Modal */}
+      <AvailabilityModal
+        visible={showAvailabilityModal}
+        mechanicId={availabilityMechanicId}
+        shopId={availabilityShopId}
+        onClose={handleCloseAvailabilityModal}
+        onConfirm={handleAvailabilityConfirm}
       />
     </View>
   );
@@ -269,10 +532,29 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.lg,
   },
   header: {
+    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.sm,
     paddingBottom: Spacing.md,
+  },
+  backButton: {
+    width: 32,
+    height: 32,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  headerSpacer: {
+    width: 32,
+  },
+  carButton: {
+    width: 36,
+    height: 36,
+    borderRadius: BorderRadius.lg,
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
   },
   searchContainer: {
     flexDirection: "row",
@@ -293,13 +575,21 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: BrandColors.primary,
   },
-  chipsContainer: {
-    marginTop: Spacing.md,
+  filtersContainer: {
+    marginTop: Spacing.sm,
     marginBottom: Spacing.md,
-    maxHeight: 72,
+    maxHeight: 40,
   },
-  chipsContent: {
+  filtersContent: {
+    gap: Spacing.sm,
+  },
+  filterChip: {
     paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.xs,
+    paddingVertical: Spacing.sm,
+    backgroundColor: "#F3F4F6",
+    borderRadius: BorderRadius.full,
+  },
+  filterChipSelected: {
+    backgroundColor: BrandColors.primary,
   },
 });

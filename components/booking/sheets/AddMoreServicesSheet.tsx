@@ -21,7 +21,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BrandColors, PrimaryButton, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Constants, hooks, types, stores
-import { SERVICE_CATEGORIES } from "@/constants/services";
 import { BorderRadius, getSheetContentPadding, Shadows } from "@/constants/theme";
 import type { Service, ServiceCategory } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
@@ -63,6 +62,7 @@ export const AddMoreServicesSheet = forwardRef<AddMoreServicesSheetRef, AddMoreS
     const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
     const toggleServiceSelection = useBookingStore((state) => state.toggleServiceSelection);
     const availableServices = useBookingStore((state) => state.availableServices);
+    const getServiceCategories = useBookingStore((state) => state.getServiceCategories);
 
     // ═══════════════ SNAP POINTS ═══════════════
     const snapPoints = useMemo(() => ["85%"], []);
@@ -72,16 +72,10 @@ export const AddMoreServicesSheet = forwardRef<AddMoreServicesSheetRef, AddMoreS
       return availableServices.filter((service) => service.category === selectedCategory);
     }, [availableServices, selectedCategory]);
 
-    // Calculate newly added services count and total
+    // Calculate newly added services count
     const newlyAddedServices = useMemo(() => {
       return selectedServiceIds.filter((id) => !initialSelectedIds.includes(id));
     }, [selectedServiceIds, initialSelectedIds]);
-
-    const newlyAddedTotal = useMemo(() => {
-      return availableServices
-        .filter((service) => newlyAddedServices.includes(service.id))
-        .reduce((total, service) => total + service.price, 0);
-    }, [availableServices, newlyAddedServices]);
 
     // ═══════════════ IMPERATIVE HANDLE ═══════════════
     useImperativeHandle(ref, () => ({
@@ -103,7 +97,7 @@ export const AddMoreServicesSheet = forwardRef<AddMoreServicesSheetRef, AddMoreS
           onClose?.();
         }
       },
-      [onClose]
+      [onClose],
     );
 
     const handleCancel = useCallback(() => {
@@ -122,7 +116,7 @@ export const AddMoreServicesSheet = forwardRef<AddMoreServicesSheetRef, AddMoreS
       (serviceId: string) => {
         toggleServiceSelection(serviceId);
       },
-      [toggleServiceSelection]
+      [toggleServiceSelection],
     );
 
     const handleCategorySelect = useCallback((category: ServiceCategory) => {
@@ -132,7 +126,7 @@ export const AddMoreServicesSheet = forwardRef<AddMoreServicesSheetRef, AddMoreS
     // ═══════════════ RENDER HELPERS ═══════════════
     const renderBackdrop = useCallback(
       (props: any) => <BottomSheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} opacity={0.5} />,
-      []
+      [],
     );
 
     const renderCategoryTab = useCallback(
@@ -157,7 +151,7 @@ export const AddMoreServicesSheet = forwardRef<AddMoreServicesSheetRef, AddMoreS
           </TouchableOpacity>
         );
       },
-      [selectedCategory, handleCategorySelect]
+      [selectedCategory, handleCategorySelect],
     );
 
     const renderServiceItem = useCallback(
@@ -179,15 +173,10 @@ export const AddMoreServicesSheet = forwardRef<AddMoreServicesSheetRef, AddMoreS
                 {service.description}
               </Text>
             </View>
-            <View style={styles.servicePriceContainer}>
-              <Text size="md" weight="semiBold" color={BrandColors.secondary}>
-                ${service.price.toFixed(2)}
-              </Text>
-            </View>
           </TouchableOpacity>
         );
       },
-      [selectedServiceIds, handleServicePress]
+      [selectedServiceIds, handleServicePress],
     );
 
     // ═══════════════ RENDER ═══════════════
@@ -218,7 +207,7 @@ export const AddMoreServicesSheet = forwardRef<AddMoreServicesSheetRef, AddMoreS
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.categoryTabsContent}
             >
-              {SERVICE_CATEGORIES.map(renderCategoryTab)}
+              {getServiceCategories().map(renderCategoryTab)}
             </ScrollView>
           </View>
 
@@ -254,7 +243,7 @@ export const AddMoreServicesSheet = forwardRef<AddMoreServicesSheetRef, AddMoreS
             >
               <Text size="md" weight="semiBold" color={BrandColors.white}>
                 {newlyAddedServices.length > 0
-                  ? `Add ${newlyAddedServices.length} More • $${newlyAddedTotal}`
+                  ? `Add ${newlyAddedServices.length} Service${newlyAddedServices.length > 1 ? "s" : ""}`
                   : "Select Services"}
               </Text>
             </PrimaryButton>
@@ -262,7 +251,7 @@ export const AddMoreServicesSheet = forwardRef<AddMoreServicesSheetRef, AddMoreS
         </View>
       </BottomSheetModal>
     );
-  }
+  },
 );
 
 // ============================================================================
@@ -336,11 +325,6 @@ const styles = StyleSheet.create({
   },
   serviceInfo: {
     flex: 1,
-    marginRight: Spacing.md,
-  },
-  servicePriceContainer: {
-    flexDirection: "row",
-    alignItems: "center",
   },
   emptyState: {
     paddingVertical: Spacing["3xl"],
