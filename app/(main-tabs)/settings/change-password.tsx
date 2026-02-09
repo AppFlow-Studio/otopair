@@ -95,7 +95,8 @@ export default function ChangePasswordScreen() {
 
   const passwordsMatch = newPassword === confirmPassword;
   const isPasswordLongEnough = newPassword.length >= 8;
-  const canSubmit = currentPassword && newPassword && confirmPassword && passwordsMatch && isPasswordLongEnough && !isSubmitting && isLoaded;
+  const isSameAsCurrent = newPassword === currentPassword && currentPassword !== '';
+  const canSubmit = currentPassword && newPassword && confirmPassword && passwordsMatch && isPasswordLongEnough && !isSameAsCurrent && !isSubmitting && isLoaded;
 
   const handleUpdatePassword = async () => {
     if (!canSubmit || !user) return;
@@ -125,15 +126,16 @@ export default function ChangePasswordScreen() {
       const message = err?.errors?.[0]?.longMessage 
         || err?.errors?.[0]?.message 
         || err?.message 
-        || 'Unable to update password. Please check your credentials.';
+        || 'Unable to update password. Please try again.';
       setErrorMessage(message);
+    } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
     <View style={[styles.screen, { backgroundColor: BrandColors.background }]}>
-      <BlurHeaderOverlay title="Settings" />
+      <BlurHeaderOverlay title="Change Password" />
 
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -151,8 +153,8 @@ export default function ChangePasswordScreen() {
           keyboardShouldPersistTaps="handled"
         >
           <View style={styles.heroArea}>
-            <Text weight="bold" style={styles.heroTitle}>Change password</Text>
-            <Text size="md" color="#86868b">Update your account security.</Text>
+            <Text weight="bold" style={styles.heroTitle}>New Password</Text>
+            <Text size="md" color="#86868b">Choose a strong password to protect your account.</Text>
           </View>
 
           {/* Feedback Messages */}
@@ -184,9 +186,16 @@ export default function ChangePasswordScreen() {
                     placeholder="Enter current password"
                     placeholderTextColor="#aeaeb2"
                     secureTextEntry={!showCurrent}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    textContentType="password"
+                    // @ts-ignore
+                    autoComplete="password"
+                    // @ts-ignore
+                    importantForAutofill="yes"
                   />
                   <Pressable onPress={() => setShowCurrent(!showCurrent)} style={styles.eyeIcon}>
-                    {showCurrent ? <Eye size={20} color="#86868b" /> : <EyeOff size={20} color="#86868b" />}
+                    {showCurrent ? <EyeOff size={20} color="#86868b" /> : <Eye size={20} color="#86868b" />}
                   </Pressable>
                 </View>
               </View>
@@ -208,9 +217,16 @@ export default function ChangePasswordScreen() {
                     placeholder="Enter new password"
                     placeholderTextColor="#aeaeb2"
                     secureTextEntry={!showNew}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    textContentType="newPassword"
+                    // @ts-ignore
+                    autoComplete="new-password"
+                    // @ts-ignore
+                    importantForAutofill="yes"
                   />
                   <Pressable onPress={() => setShowNew(!showNew)} style={styles.eyeIcon}>
-                    {showNew ? <Eye size={20} color="#86868b" /> : <EyeOff size={20} color="#86868b" />}
+                    {showNew ? <EyeOff size={20} color="#86868b" /> : <Eye size={20} color="#86868b" />}
                   </Pressable>
                 </View>
               </View>
@@ -232,9 +248,16 @@ export default function ChangePasswordScreen() {
                     placeholder="Re-enter new password"
                     placeholderTextColor="#aeaeb2"
                     secureTextEntry={!showConfirm}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    textContentType="newPassword"
+                    // @ts-ignore
+                    autoComplete="new-password"
+                    // @ts-ignore
+                    importantForAutofill="yes"
                   />
                   <Pressable onPress={() => setShowConfirm(!showConfirm)} style={styles.eyeIcon}>
-                    {showConfirm ? <Eye size={20} color="#86868b" /> : <EyeOff size={20} color="#86868b" />}
+                    {showConfirm ? <EyeOff size={20} color="#86868b" /> : <Eye size={20} color="#86868b" />}
                   </Pressable>
                 </View>
               </View>
@@ -262,15 +285,21 @@ export default function ChangePasswordScreen() {
               <Text size="xs" color={newPassword.length > 0 && !isPasswordLongEnough ? "#f87171" : "#86868b"} style={styles.strengthHint}>
                 {newPassword.length > 0 && !isPasswordLongEnough ? "• Password must be at least 8 characters" : "• 8+ characters"}
               </Text>
+              <Text size="xs" color="#86868b" style={styles.strengthHint}>
+              • Use a longer phrase for better security (e.g. 12–16+ characters)
+              </Text>
               {confirmPassword.length > 0 && !passwordsMatch && (
                 <Text size="xs" color="#f87171" style={styles.strengthHint}>
                   • Passwords do not match
                 </Text>
               )}
+              {isSameAsCurrent && (
+                <Text size="xs" color="#f87171" style={styles.strengthHint}>
+                  • New password must be different from current password
+                </Text>
+              )}
             </View>
-            <Text size="xs" color="#86868b" style={styles.strengthHint}>
-              Use a longer phrase for better security (e.g. 12–16+ characters)
-            </Text>
+            
           </View>
 
           <View style={{ flex: 1 }} />
@@ -289,11 +318,6 @@ export default function ChangePasswordScreen() {
                   {successMessage ? 'Updated!' : 'Update password'}
                 </Text>
               )}
-            </Pressable>
-            <Pressable style={styles.forgotButton}>
-              <Text weight="medium" size="md" color={BrandColors.secondary}>
-                Forgot password?
-              </Text>
             </Pressable>
           </View>
         </ScrollView>
@@ -418,10 +442,5 @@ const styles = StyleSheet.create({
   },
   submitButtonDisabled: {
     opacity: 0.5,
-  },
-  forgotButton: {
-    marginTop: 16,
-    alignItems: 'center',
-    paddingVertical: 8,
   },
 });

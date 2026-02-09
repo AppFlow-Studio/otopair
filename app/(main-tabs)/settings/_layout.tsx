@@ -18,6 +18,8 @@ export default function SettingsLayout() {
             <Stack.Screen name="terms-of-service" options={{ headerShown: false }} />
             <Stack.Screen name="about" options={{ headerShown: false }} />
             <Stack.Screen name="change-password" options={{ headerShown: false }} />
+            <Stack.Screen name="privacy-data" options={{ headerShown: false }} />
+
         </Stack>
     )
 }   

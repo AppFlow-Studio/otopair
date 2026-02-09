@@ -690,6 +690,11 @@ export default function SettingsHomeScreen() {
                       onPress={() => router.push("/settings/two-factor-method")}
                     />
                     <SettingsListItem
+                      icon={<Shield size={20} color="#1F2937" />}
+                      label="Privacy & Data"
+                      onPress={() => router.push("/settings/privacy-data")}
+                    />
+                    <SettingsListItem
                       icon={
                         biometricLabel === "Face ID" ? (
                           <ScanFace size={20} color="#1F2937" />
