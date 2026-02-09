@@ -5,6 +5,14 @@
  *          Features a glass-morphism card, password strength meter, and validation.
  *
  * USED IN: app/(main-tabs)/settings/index.tsx (via navigation)
+ *
+ * PROPS: None (accessed via router)
+ *
+ * EXAMPLE:
+ *   <ChangePasswordScreen />
+ *
+ * OWNER: Daniel Chelala
+ * TICKET: OTO-XXX
  */
 
 import React, { useState, useMemo } from 'react';
@@ -16,12 +24,14 @@ import {
   StyleSheet,
   TextInput,
   View,
+  ActivityIndicator,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import { Eye, EyeOff } from 'lucide-react-native';
 import { zxcvbn, zxcvbnOptions } from '@zxcvbn-ts/core';
 import * as zxcvbnCommonPackage from '@zxcvbn-ts/language-common';
+import { useUser } from '@clerk/clerk-expo';
 
 import { BrandColors, Spacing, Text, BlurHeaderOverlay } from '@/components/shared-ui';
 import { getSheetContentPadding } from '@/constants/theme';
@@ -37,6 +47,7 @@ zxcvbnOptions.setOptions({
 export default function ChangePasswordScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { user, isLoaded } = useUser();
 
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -47,6 +58,8 @@ export default function ChangePasswordScreen() {
   const [showConfirm, setShowConfirm] = useState(false);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
   // Password strength logic using zxcvbn-ts
   const strength = useMemo(() => {
@@ -80,15 +93,42 @@ export default function ChangePasswordScreen() {
     }
   }, [newPassword, strength]);
 
-  const canSubmit = currentPassword && newPassword && confirmPassword && newPassword === confirmPassword && !isSubmitting;
+  const passwordsMatch = newPassword === confirmPassword;
+  const isPasswordLongEnough = newPassword.length >= 8;
+  const canSubmit = currentPassword && newPassword && confirmPassword && passwordsMatch && isPasswordLongEnough && !isSubmitting && isLoaded;
 
   const handleUpdatePassword = async () => {
-    if (!canSubmit) return;
+    if (!canSubmit || !user) return;
+    
     setIsSubmitting(true);
-    // Simulate API call
-    await new Promise(resolve => setTimeout(resolve, 1500));
-    setIsSubmitting(false);
-    router.back();
+    setErrorMessage(null);
+    setSuccessMessage(null);
+
+    try {
+      await user.updatePassword({
+        currentPassword,
+        newPassword,
+      });
+      
+      setSuccessMessage('Password updated successfully.');
+      
+      // Clear fields
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      
+      // Navigate back after a short delay to show success
+      setTimeout(() => {
+        router.back();
+      }, 1500);
+    } catch (err: any) {
+      const message = err?.errors?.[0]?.longMessage 
+        || err?.errors?.[0]?.message 
+        || err?.message 
+        || 'Unable to update password. Please check your credentials.';
+      setErrorMessage(message);
+      setIsSubmitting(false);
+    }
   };
 
   return (
@@ -114,6 +154,19 @@ export default function ChangePasswordScreen() {
             <Text weight="bold" style={styles.heroTitle}>Change password</Text>
             <Text size="md" color="#86868b">Update your account security.</Text>
           </View>
+
+          {/* Feedback Messages */}
+          {errorMessage && (
+            <View style={styles.errorContainer}>
+              <Text size="sm" color="#f87171" weight="medium">{errorMessage}</Text>
+            </View>
+          )}
+
+          {successMessage && (
+            <View style={styles.successContainer}>
+              <Text size="sm" color="#4ade80" weight="medium">{successMessage}</Text>
+            </View>
+          )}
 
           {/* Form Card */}
           <View style={styles.glassCard}>
@@ -205,8 +258,18 @@ export default function ChangePasswordScreen() {
                 />
               ))}
             </View>
+            <View style={styles.validationRow}>
+              <Text size="xs" color={newPassword.length > 0 && !isPasswordLongEnough ? "#f87171" : "#86868b"} style={styles.strengthHint}>
+                {newPassword.length > 0 && !isPasswordLongEnough ? "• Password must be at least 8 characters" : "• 8+ characters"}
+              </Text>
+              {confirmPassword.length > 0 && !passwordsMatch && (
+                <Text size="xs" color="#f87171" style={styles.strengthHint}>
+                  • Passwords do not match
+                </Text>
+              )}
+            </View>
             <Text size="xs" color="#86868b" style={styles.strengthHint}>
-              8+ characters{"\n\n"}Use a longer phrase for better security (e.g. 12–16+ characters)
+              Use a longer phrase for better security (e.g. 12–16+ characters)
             </Text>
           </View>
 
@@ -219,9 +282,13 @@ export default function ChangePasswordScreen() {
               onPress={handleUpdatePassword}
               disabled={!canSubmit}
             >
-              <Text weight="semiBold" size="md" color="#FFF">
-                {isSubmitting ? 'Updating...' : 'Update password'}
-              </Text>
+              {isSubmitting && !successMessage ? (
+                <ActivityIndicator color="#FFF" />
+              ) : (
+                <Text weight="semiBold" size="md" color="#FFF">
+                  {successMessage ? 'Updated!' : 'Update password'}
+                </Text>
+              )}
             </Pressable>
             <Pressable style={styles.forgotButton}>
               <Text weight="medium" size="md" color={BrandColors.secondary}>
@@ -245,6 +312,22 @@ const styles = StyleSheet.create({
   },
   heroArea: {
     marginBottom: 32,
+  },
+  errorContainer: {
+    backgroundColor: 'rgba(248, 113, 113, 0.1)',
+    padding: 12,
+    borderRadius: 12,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(248, 113, 113, 0.2)',
+  },
+  successContainer: {
+    backgroundColor: 'rgba(74, 222, 128, 0.1)',
+    padding: 12,
+    borderRadius: 12,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(74, 222, 128, 0.2)',
   },
   heroTitle: {
     fontSize: 34,
@@ -309,8 +392,12 @@ const styles = StyleSheet.create({
     flex: 1,
     borderRadius: 3,
   },
-  strengthHint: {
+  validationRow: {
     marginTop: 8,
+    gap: 4,
+  },
+  strengthHint: {
+    marginTop: 4,
     lineHeight: 16,
   },
   submitArea: {
