@@ -80,6 +80,7 @@ import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import { usePaymentStore } from "@/stores/usePaymentStore";
 import { useTransactionsFromConvex } from "@/hooks/useTransactionsFromConvex";
 import { useVehicleStore } from "@/stores/useVehicleStore";
+import { useOnboardingPersistence } from "@/hooks/useOnboardingPersistence";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const MENU_WIDTH = 190;
@@ -122,11 +123,11 @@ export default function SettingsHomeScreen() {
   const { signOut } = useAuth();
   const { user: clerkUser } = useUser();
   const resetAuth = useAuthStore((s) => s.reset);
+  const { persistProfileField } = useOnboardingPersistence();
 
   // Convex: current user and user-scoped data
   const me = useQuery(api.users.getMe);
   const convexBookings = useQuery(api.bookings.getByUserId, me?._id != null ? { userId: me._id } : "skip");
-  const updateConvexProfile = useMutation(api.users.updateProfile);
 
   // Local stores (fallbacks and payment/vehicle counts)
   const bookingIds = useBookingStore((s) => s.bookingIds);
@@ -401,20 +402,20 @@ export default function SettingsHomeScreen() {
     const phoneNumber = normalizedPhone.length > 0 ? normalizedPhone : null;
 
     updateData({ firstName, lastName, email, phoneNumber });
-    if (me?._id != null) {
-      try {
-        await updateConvexProfile({
-          first_name: firstName ?? undefined,
-          last_name: lastName ?? undefined,
-          email: email ?? undefined,
-          phone: phoneNumber ?? undefined,
-        });
-      } catch (e) {
-        console.warn("Convex profile update failed:", e);
-      }
+    
+    try {
+      await persistProfileField({
+        first_name: firstName ?? undefined,
+        last_name: lastName ?? undefined,
+        email: email ?? undefined,
+        phone: phoneNumber ?? undefined,
+      });
+    } catch (e) {
+      console.warn("Convex profile update failed:", e);
     }
+    
     setIsEditVisible(false);
-  }, [editEmail, editName, editPhone, me, updateData, updateConvexProfile]);
+  }, [editEmail, editName, editPhone, updateData, persistProfileField]);
 
   const requestLibraryPermission = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -426,8 +427,9 @@ export default function SettingsHomeScreen() {
     return status === "granted";
   };
 
-  const persistProfilePhoto = (uri: string | null) => {
+  const persistProfilePhoto = async (uri: string | null) => {
     updateData({ profilePhotoUri: uri });
+    await persistProfileField({ profile_photo_url: uri });
   };
 
   const handleChooseFromLibrary = useCallback(async () => {
@@ -679,11 +681,13 @@ export default function SettingsHomeScreen() {
                     SECURITY & PRIVACY
                   </Text>
                   <View style={styles.sectionCard}>
-                    <SettingsListItem
-                      icon={<Lock size={20} color="#1F2937" />}
-                      label="Change Password"
-                      onPress={() => router.push("/settings/change-password")}
-                    />
+                    {clerkUser?.passwordEnabled && (
+                      <SettingsListItem
+                        icon={<Lock size={20} color="#1F2937" />}
+                        label="Change Password"
+                        onPress={() => router.push("/settings/change-password")}
+                      />
+                    )}
                     <SettingsListItem
                       icon={<ShieldCheck size={20} color="#1F2937" />}
                       label="Two-Factor Authentication (2FA)"
@@ -691,8 +695,8 @@ export default function SettingsHomeScreen() {
                     />
                     <SettingsListItem
                       icon={<Shield size={20} color="#1F2937" />}
-                      label="Privacy & Data"
-                      onPress={() => router.push("/settings/privacy-data")}
+                      label="Permissions"
+                      onPress={() => router.push("/settings/permissions")}
                     />
                     <SettingsListItem
                       icon={

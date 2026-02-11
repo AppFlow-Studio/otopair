@@ -68,6 +68,32 @@
       "expo-secure-store",
       "expo-web-browser",
       [
+        "expo-location",
+        {
+          "locationAlwaysPermission": "Allow Otopair to use your location to find nearby mechanics and provide accurate service availability.",
+          "locationWhenInUsePermission": "Allow Otopair to use your location to find nearby mechanics and provide accurate service availability."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Otopair to use your camera to let you take photos of your vehicle and profile picture."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow Otopair to access your photos to let you upload vehicle images and profile pictures."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/images/repairconnectglasslogo.png",
+          "color": "#ffffff"
+        }
+      ],
+      [
         "expo-calendar",
         {
           "calendarPermission": "Allow Otopair to add your service appointments to your calendar."
