@@ -821,6 +821,7 @@ export default defineSchema({
     chassis_id: v.optional(v.id("chassis_variants")),
     year: v.optional(v.float64()),
     metadata: v.optional(v.any()),
+    image_url: v.optional(v.string()), // IMAGIN.studio signed CDN URL (watermark-free)
     created_at: v.float64(),
     updated_at: v.float64(),
   })
@@ -846,12 +847,16 @@ export default defineSchema({
    *   - mileage: (optional) Current vehicle mileage
    *   - added_at: Unix timestamp when vehicle was added
    *   - removed_at: (optional) Unix timestamp when removed
+   *   - smartcarVehicleId: (optional) Smartcar's unique vehicle ID for webhook lookups
+   *   - connectionStatus: (optional) "unconnected" | "connected" | "error"
+   *   - connectedAt: (optional) Unix timestamp when Smartcar was connected
    *
    * INDEXES:
    *   - by_vin: Get all owners of a vehicle
    *   - by_user_id: Get all vehicles owned by user
    *   - by_vin_user: Combined lookup for specific ownership
    *   - by_user_status: Get user's active/removed vehicles
+   *   - by_smartcar_vehicle_id: Lookup by Smartcar vehicle ID (webhook path)
    *
    * RELATIONSHIPS:
    *   FK → vehicles(vin)
@@ -866,11 +871,15 @@ export default defineSchema({
     mileage: v.optional(v.float64()),
     added_at: v.float64(),
     removed_at: v.optional(v.float64()),
+    smartcarVehicleId: v.optional(v.string()),
+    connectionStatus: v.optional(v.string()), // "unconnected" | "connected" | "error"
+    connectedAt: v.optional(v.float64()),
   })
     .index("by_vin", ["vin"])
     .index("by_user_id", ["user_id"])
     .index("by_vin_user", ["vin", "user_id"])
-    .index("by_user_status", ["user_id", "status"]),
+    .index("by_user_status", ["user_id", "status"])
+    .index("by_smartcar_vehicle_id", ["smartcarVehicleId"]),
 
   /**
    * TABLE: users

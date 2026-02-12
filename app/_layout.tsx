@@ -13,9 +13,13 @@ import "react-native-reanimated";
 import { ConvexReactClient } from "convex/react";
 import { ConvexProviderWithClerk } from "convex/react-clerk";
 
+import { useAction } from "convex/react";
+import { api } from "@/convex/_generated/api";
+
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useAppFonts } from "@/hooks/use-fonts";
 import { useEnsureConvexUser } from "@/hooks/useEnsureConvexUser";
+import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromConvex";
 import { useAuthStore } from "@/stores/useAuthStore";
 
 // Prevent the splash screen from auto-hiding before asset loading is complete.
@@ -112,6 +116,38 @@ function SyncAuthStoreWithClerk() {
   return null;
 }
 
+/**
+ * Refresh Smartcar data once on cold start for all connected vehicles.
+ * Runs silently in the background — no loading UI.
+ */
+function SmartcarColdStartRefresh() {
+  const { vehicles } = useVehicleOwnershipFromConvex();
+  const fetchVehicleData = useAction(api.smartcar.fetchVehicleData);
+  const hasRefreshedRef = useRef(false);
+
+  useEffect(() => {
+    if (hasRefreshedRef.current) return;
+    if (!vehicles || vehicles.length === 0) return;
+
+    // Find connected vehicles
+    const connected = vehicles.filter(
+      (v: any) => v.connectionStatus === "connected" && v.ownership?._id
+    );
+    if (connected.length === 0) return;
+
+    hasRefreshedRef.current = true;
+
+    // Refresh each connected vehicle (fire-and-forget)
+    for (const v of connected) {
+      fetchVehicleData({ vehicleOwnerId: (v as any).ownership._id }).catch(
+        (err: any) => console.warn("Cold-start Smartcar refresh failed:", err)
+      );
+    }
+  }, [vehicles, fetchVehicleData]);
+
+  return null;
+}
+
 export default function RootLayout() {
   const colorScheme = useColorScheme();
   const [fontsLoaded, fontError] = useAppFonts();
@@ -132,6 +168,7 @@ export default function RootLayout() {
       <ConvexClerkProvider>
         <EnsureConvexUserRecord />
         <SyncAuthStoreWithClerk />
+        <SmartcarColdStartRefresh />
         <GestureHandlerRootView style={{ flex: 1 }}>
           <BottomSheetModalProvider>
             <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>

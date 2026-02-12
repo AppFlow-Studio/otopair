@@ -165,6 +165,8 @@ export const listVehiclesByUser = query({
           vin: ownership.vin,
           vehicle,
           ownership,
+          connectionStatus: ownership.connectionStatus || "unconnected",
+          smartcarVehicleId: ownership.smartcarVehicleId || null,
         };
       })
     );
@@ -303,6 +305,7 @@ export const addOwner = mutation({
           status: "active",
           removed_at: null,
           added_at: now,
+          connectionStatus: existing.connectionStatus || "unconnected",
         };
         if (args.nickname !== undefined) updates.nickname = args.nickname;
         if (args.is_primary !== undefined) updates.is_primary = args.is_primary;
@@ -316,6 +319,8 @@ export const addOwner = mutation({
         if (args.nickname !== undefined) updates.nickname = args.nickname;
         if (args.is_primary !== undefined) updates.is_primary = args.is_primary;
         if (args.mileage !== undefined) updates.mileage = args.mileage;
+        // Ensure connectionStatus is set if missing
+        if (!existing.connectionStatus) updates.connectionStatus = "unconnected";
         
         if (Object.keys(updates).length > 0) {
           await ctx.db.patch(existing._id, updates);
@@ -332,6 +337,7 @@ export const addOwner = mutation({
         is_primary: args.is_primary ?? false,
         mileage: args.mileage,
         added_at: now,
+        connectionStatus: "unconnected",
       });
       
       return ownershipId;

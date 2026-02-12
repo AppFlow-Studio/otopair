@@ -69,6 +69,7 @@ export interface Vehicle {
   condition?: number;
   nextUnlock?: string;
   gradientColors?: string[];
+  connectionStatus?: string; // "unconnected" | "connected" | "error"
 }
 
 interface CarCarouselProps {
@@ -84,12 +85,12 @@ interface CarCarouselProps {
 // ============================================================================
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-const CAR_CARD_WIDTH = 280;
-const CAR_CARD_HEIGHT = 200;
+const CAR_CARD_WIDTH = 320;
+const CAR_CARD_HEIGHT = 240;
 const RADIUS = SCREEN_WIDTH * 0.5;
 
-const DEFAULT_VEHICLE_IMAGE = require('@/assets/images/lexus.png');
-const BLUE_LAMBO_IMAGE = require('@/assets/images/bluelambo.png');
+// Fallback image used only when no dynamic imageSource is available
+const FALLBACK_VEHICLE_IMAGE = require('@/assets/images/lexus.png');
 
 // ============================================================================
 // RING CONFIGURATION & TYPES
@@ -1361,7 +1362,7 @@ interface CarouselItemProps {
 }
 
 const CircularCarouselItem = memo(({ item, index, rotation, totalItems }: CarouselItemProps) => {
-  const imageSource = item.imageSource || (item.make === 'Lamborghini' ? BLUE_LAMBO_IMAGE : DEFAULT_VEHICLE_IMAGE);
+  const imageSource = item.imageSource || FALLBACK_VEHICLE_IMAGE;
 
   const animatedStyle = useAnimatedStyle(() => {
     const anglePerItem = (2 * Math.PI) / totalItems;
@@ -1630,7 +1631,7 @@ export function CarCarousel({
 
   const detailItems = [
     { label: 'Model Year', value: String(activeVehicle?.year || ''), mode: 'modelYear' as const },
-    { label: 'Mileage', value: `${(activeVehicle?.mileage || 0).toLocaleString()} mi`, mode: 'mileage' as const },
+    { label: 'Mileage', value: `${Math.ceil(activeVehicle?.mileage || 0).toLocaleString()} mi`, mode: 'mileage' as const },
     { label: 'Next Service', value: activeVehicle?.nextServiceDate || 'Not Set', mode: 'nextService' as const },
   ];
 
@@ -1688,8 +1689,14 @@ export function CarCarousel({
           styles.heroCarMeta,
           activeVehicle?.make === 'Lamborghini' && styles.heroCarMetaLight
         ]}>
-          {activeVehicle?.mileage.toLocaleString()} mi  |  {activeVehicle?.year}
+          {Math.ceil(activeVehicle?.mileage || 0).toLocaleString()} mi  |  {activeVehicle?.year}
         </Text>
+        {activeVehicle?.connectionStatus === 'connected' && (
+          <View style={styles.connectedBadge}>
+            <Check size={12} color="#FFFFFF" strokeWidth={3} />
+            <Text style={styles.connectedBadgeText}>Connected</Text>
+          </View>
+        )}
       </View>
 
 
@@ -1697,7 +1704,7 @@ export function CarCarousel({
       <View style={styles.thumbnailRow}>
         <View style={styles.thumbnailSelector}>
           {sortedVehicles.map((vehicle, index) => {
-            const imageSource = vehicle.imageSource || (vehicle.make === 'Lamborghini' ? BLUE_LAMBO_IMAGE : DEFAULT_VEHICLE_IMAGE);
+            const imageSource = vehicle.imageSource || FALLBACK_VEHICLE_IMAGE;
             const isActive = index === activeIndex;
             
             return (
@@ -1981,35 +1988,30 @@ const styles = StyleSheet.create({
     height: 240,
   },
   carouselCarImage: {
-    width: '115%',
-    height: 210,
+    width: '130%',
+    height: 260,
     zIndex: 1,
-    marginTop: 30,
+    marginTop: 10,
   },
   carouselCarImageLexus: {
-    width: '100%',
-    height: 170,
-    marginTop: 30,
+    // No longer needed — dynamic images have consistent sizing
   },
   carouselCarImageLambo: {
-    marginTop: 110,
+    // No longer needed — dynamic images have consistent sizing
   },
   carouselReflection: {
-    width: '120%',
-    height: 220,
+    width: '130%',
+    height: 260,
     transform: [{ scaleY: -1 }],
     opacity: 0.03,
-    marginTop: -20,
+    marginTop: -40,
   },
   carouselReflectionLexus: {
-    width: '105%',
-    height: 170,
-    opacity: 0.03,
-    marginTop: -60,
+    // No longer needed
   },
   carouselReflectionLambo: {
-    width: '115%',
-    height: 210,
+    width: '130%',
+    height: 260,
     opacity: 0.04,
     marginTop: -50,
     transform: [{ scaleY: -1 }, { translateY: 40 }],
@@ -2036,6 +2038,23 @@ const styles = StyleSheet.create({
   },
   heroCarMetaLight: {
     color: 'rgba(255, 255, 255, 0.8)',
+  },
+  connectedBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginTop: 6,
+    backgroundColor: '#34C759',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    alignSelf: 'center',
+  },
+  connectedBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.3,
   },
   
   // Thumbnail Row

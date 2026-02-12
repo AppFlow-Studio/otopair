@@ -76,8 +76,8 @@ interface VehicleCardProps {
   onToggleDefault?: (vehicleId: string, isDefault: boolean) => void;
 }
 
-// Default Lexus RX 350 image (design reference)
-const DEFAULT_VEHICLE_IMAGE = require('@/assets/images/lexus.png');
+// Fallback image used only when no dynamic imageSource is available
+const FALLBACK_VEHICLE_IMAGE = require('@/assets/images/lexus.png');
 
 // ============================================================================
 // COMPONENT
@@ -222,8 +222,8 @@ export function VehicleCard({
   };
 
   const resolvedImageSource = hasImageError
-    ? DEFAULT_VEHICLE_IMAGE
-    : imageSource || DEFAULT_VEHICLE_IMAGE;
+    ? FALLBACK_VEHICLE_IMAGE
+    : imageSource || FALLBACK_VEHICLE_IMAGE;
 
   const handleEditMileage = () => {
     onEditMileage?.(id);

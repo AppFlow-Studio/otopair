@@ -33,12 +33,13 @@ import { BottomSheetModal, BottomSheetBackdrop, BottomSheetFlatList } from "@gor
 import LottieView from "lottie-react-native";
 
 // 3. Convex & hooks
-import { useMutation } from "convex/react";
+import { useAction, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 
 // 4. Shared UI
 import { Text } from "@/components/shared-ui";
+import { getVehicleImageUrl } from "@/utils/vehicleImage";
 
 // 5. Constants
 import { Spacing, BorderRadius, FontFamily } from "@/constants/theme";
@@ -253,6 +254,7 @@ export default function ReviewVehicleDetailsScreen() {
   const { userId } = useUserFromConvex();
   const addOwner = useMutation(api.vehicles.addOwner);
   const upsertVehicle = useMutation(api.vehicles.upsertVehicle);
+  const generateVehicleImage = useAction(api.imagin.generateVehicleImage);
 
   // Check if this is manual entry mode (no VIN provided)
   const isManualEntry = manual === "true";
@@ -385,6 +387,16 @@ export default function ReviewVehicleDetailsScreen() {
         nickname: brand && model && year ? `${year} ${brand} ${model}` : undefined,
         mileage: mileage ? Number(mileage) : undefined,
       });
+
+      // Generate watermark-free vehicle image (fire-and-forget, don't block navigation)
+      if (brand && model) {
+        generateVehicleImage({
+          vin: normalizedVin,
+          make: brand,
+          model: model,
+          year: year ? parseFloat(year) : undefined,
+        }).catch((e: any) => console.warn("Vehicle image generation failed", e));
+      }
     } catch (e) {
       console.warn("Convex add vehicle failed", e);
     }
@@ -638,7 +650,15 @@ export default function ReviewVehicleDetailsScreen() {
           <View style={styles.imageContainer}>
             {/* Show car image for VIN mode OR after animation completes in manual mode */}
             {(!isManualEntry || showCarImageAfterAnimation) && (
-              <Image source={require("@/assets/images/lexus.png")} style={styles.carImage} resizeMode="contain" />
+              <Image
+                source={
+                  brand && model
+                    ? { uri: getVehicleImageUrl(brand, model, year ? parseInt(year, 10) : undefined) }
+                    : require("@/assets/images/lexus.png")
+                }
+                style={styles.carImage}
+                resizeMode="contain"
+              />
             )}
             {!isManualEntry && (
               <View style={styles.extractedBadge}>

@@ -9,21 +9,25 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 
 // 3. Convex & hooks
-import { useMutation } from "convex/react";
+import { useAction, useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromConvex";
+import { useSmartcarData } from "@/hooks/useSmartcarData";
+import type { Id } from "@/convex/_generated/dataModel";
 
 // 4. Shared UI
 import { Text } from "@/components/shared-ui";
+import { getVehicleImageUrl } from "@/utils/vehicleImage";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 
 // 5. Flow-specific components
 import CarCarousel, { Vehicle } from "@/components/cars/CarCarousel";
 import LoyaltyPoints from "@/components/cars/LoyaltyPoints";
-import MaintenanceTracker, { MaintenanceItem } from "@/components/cars/MaintenanceTracker";
+import MaintenanceTracker from "@/components/cars/MaintenanceTracker";
 import ServiceHistory, { ServiceRecord } from "@/components/cars/ServiceHistory";
+import VehicleStatsCard from "@/components/cars/VehicleStatsCard";
 
 // ============================================================================
 // VEHICLE-SPECIFIC DATA
@@ -34,9 +38,6 @@ const DEFAULT_GRADIENTS = [
   ["#9a9cc0", "#e7e3fd", "#e0dcf4", "#f1ecfe"],
   ["#5090d8", "#c0daf8", "#b8d4f8", "#d8ecff"],
 ];
-
-// Maintenance data per vehicle (keyed by VIN; mock until Convex maintenance)
-const maintenanceByVehicle: Record<string, MaintenanceItem[]> = {};
 
 // Service history per vehicle (keyed by VIN; mock until Convex)
 const serviceHistoryByVehicle: Record<string, ServiceRecord[]> = {};
@@ -52,34 +53,58 @@ export default function CarsHomeScreen() {
   const { userId } = useUserFromConvex();
   const { vehicles: listVehicles, isLoading } = useVehicleOwnershipFromConvex();
   const updateOwnershipPrimary = useMutation(api.vehicles.updateOwnershipPrimary);
+  const fetchVehicleData = useAction(api.smartcar.fetchVehicleData);
+  const [isRefreshingSmartcar, setIsRefreshingSmartcar] = useState(false);
 
-  // Map Convex list to Vehicle[] for CarCarousel
-  const vehicles: Vehicle[] = useMemo(() => {
-    if (!listVehicles?.length) return [];
-    return listVehicles.map((r, i) => {
+  // Map Convex list to Vehicle[] for CarCarousel (also track ownership IDs)
+  const { vehicles, ownershipIds } = useMemo(() => {
+    if (!listVehicles?.length) return { vehicles: [] as Vehicle[], ownershipIds: [] as (Id<"vehicle_owners"> | undefined)[] };
+
+    // Build paired list of vehicles + ownership IDs
+    const paired: { vehicle: Vehicle; ownershipId: Id<"vehicle_owners"> | undefined }[] = [];
+    listVehicles.forEach((r: any, i: number) => {
       const v = r.vehicle;
       const o = r.ownership;
       const meta = v ? (v as { metadata?: { make?: string; model?: string } }).metadata : undefined;
       const gradient = DEFAULT_GRADIENTS[i % DEFAULT_GRADIENTS.length];
-      // Use vehicle metadata when present; fallback to ownership.nickname (e.g. "2023 Honda Civic")
       const displayMake = meta?.make ?? o?.nickname?.split(" ")[1] ?? "Vehicle";
       const displayModel = meta?.model ?? o?.nickname?.split(" ").slice(2).join(" ") ?? r.vin.slice(-6);
-      return {
-        id: r.vin,
-        year: v?.year ?? 0,
-        make: displayMake,
-        model: displayModel,
-        vin: r.vin,
-        mileage: o?.mileage ?? 0,
-        nextServiceDate: undefined,
-        isDefault: o?.is_primary ?? false,
-        imageSource: undefined,
-        logoSource: undefined,
-        condition: undefined,
-        nextUnlock: undefined,
-        gradientColors: gradient,
-      };
+      paired.push({
+        vehicle: {
+          id: r.vin,
+          year: v?.year ?? 0,
+          make: displayMake,
+          model: displayModel,
+          vin: r.vin,
+          mileage: o?.mileage ?? 0,
+          nextServiceDate: undefined,
+          isDefault: o?.is_primary ?? false,
+          imageSource: v?.image_url
+            ? { uri: v.image_url }
+            : displayMake && displayModel
+              ? { uri: getVehicleImageUrl(displayMake, displayModel, v?.year) }
+              : undefined,
+          logoSource: undefined,
+          condition: undefined,
+          nextUnlock: undefined,
+          gradientColors: gradient,
+          connectionStatus: r.connectionStatus || "unconnected",
+        },
+        ownershipId: o?._id,
+      });
     });
+
+    // Sort to match CarCarousel's internal sort (default car first)
+    paired.sort((a, b) => {
+      if (a.vehicle.isDefault && !b.vehicle.isDefault) return -1;
+      if (!a.vehicle.isDefault && b.vehicle.isDefault) return 1;
+      return 0;
+    });
+
+    return {
+      vehicles: paired.map((p) => p.vehicle),
+      ownershipIds: paired.map((p) => p.ownershipId),
+    };
   }, [listVehicles]);
 
   // Clamp active index when list changes
@@ -91,8 +116,30 @@ export default function CarsHomeScreen() {
 
   // Memoize current vehicle and its data
   const activeVehicle = useMemo(() => vehicles[activeVehicleIndex], [vehicles, activeVehicleIndex]);
-  const maintenanceItems = useMemo(() => maintenanceByVehicle[activeVehicle?.id ?? ""] || [], [activeVehicle?.id]);
+  const activeOwnershipId = useMemo(() => ownershipIds[activeVehicleIndex], [ownershipIds, activeVehicleIndex]);
   const serviceRecords = useMemo(() => serviceHistoryByVehicle[activeVehicle?.id ?? ""] || [], [activeVehicle?.id]);
+
+  // Smartcar data for the active vehicle
+  const {
+    stats: smartcarStats,
+    maintenanceItems: smartcarMaintenanceItems,
+    healthScore,
+    isConnected: isActiveVehicleConnected,
+  } = useSmartcarData(activeOwnershipId);
+
+  // Refresh Smartcar data
+  const handleSmartcarRefresh = useCallback(async () => {
+    if (!activeOwnershipId) return;
+    setIsRefreshingSmartcar(true);
+    try {
+      await fetchVehicleData({ vehicleOwnerId: activeOwnershipId });
+    } catch (err) {
+      console.warn("Smartcar refresh failed:", err);
+    } finally {
+      setIsRefreshingSmartcar(false);
+    }
+  }, [activeOwnershipId, fetchVehicleData]);
+
 
   // Pre-render gradients - animate opacity by active index
   const lamboOpacity = useRef(new Animated.Value(0)).current;
@@ -117,10 +164,18 @@ export default function CarsHomeScreen() {
     [userId, updateOwnershipPrimary],
   );
 
-  const handleRefresh = useCallback(() => {
+  const handleRefresh = useCallback(async () => {
     setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 800);
-  }, []);
+    // Also trigger Smartcar refresh if connected
+    if (activeOwnershipId && activeVehicle?.connectionStatus === "connected") {
+      try {
+        await fetchVehicleData({ vehicleOwnerId: activeOwnershipId });
+      } catch (err) {
+        console.warn("Pull-to-refresh Smartcar failed:", err);
+      }
+    }
+    setRefreshing(false);
+  }, [activeOwnershipId, activeVehicle?.connectionStatus, fetchVehicleData]);
 
   // Empty state: no vehicles from Convex
   if (!isLoading && vehicles.length === 0) {
@@ -154,7 +209,7 @@ export default function CarsHomeScreen() {
         style={styles.scrollView}
         contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 12 }]}
         showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#FFFFFF" />}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#6B7280" />}
       >
         {/* Scrolling Gradient - PRE-RENDERED for both cars, only opacity animates */}
         <View style={styles.scrollingGradientContainer} pointerEvents="none">
@@ -216,13 +271,24 @@ export default function CarsHomeScreen() {
         </View>
 
         {/* ═══════════════════════════════════════════════════════════════════
+            SMARTCAR STATS (only for connected vehicles)
+        ═══════════════════════════════════════════════════════════════════ */}
+        {isActiveVehicleConnected && activeVehicle?.connectionStatus === 'connected' && smartcarStats && (
+          <VehicleStatsCard
+            stats={smartcarStats}
+            onRefresh={handleSmartcarRefresh}
+            isRefreshing={isRefreshingSmartcar}
+          />
+        )}
+
+        {/* ═══════════════════════════════════════════════════════════════════
             BOTTOM SECTION: Maintenance, Service History, Loyalty
         ═══════════════════════════════════════════════════════════════════ */}
         <View style={styles.bottomSection}>
           {/* Maintenance Tracker Section */}
           <MaintenanceTracker
-            items={maintenanceItems}
-            vehicleCondition={activeVehicle?.condition}
+            items={isActiveVehicleConnected && activeVehicle?.connectionStatus === 'connected' ? smartcarMaintenanceItems : []}
+            vehicleCondition={isActiveVehicleConnected && activeVehicle?.connectionStatus === 'connected' ? healthScore : activeVehicle?.condition}
             onBookNow={(id) => {
               // Navigate to booking flow with selected service
               router.push('/home/map');
