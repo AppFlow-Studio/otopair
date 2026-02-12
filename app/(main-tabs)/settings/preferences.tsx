@@ -15,7 +15,7 @@
  * TICKET: OTO-XXX
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import {
   ScrollView,
   StyleSheet,
@@ -25,6 +25,7 @@ import {
   Modal,
   TouchableWithoutFeedback,
   Platform,
+  Animated,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -63,6 +64,55 @@ export default function PreferencesScreen() {
   const [units, setUnits] = useState(data.units || 'mi');
   const [isSaving, setIsSaving] = useState(false);
   const [visibleSheet, setVisibleSheet] = useState<'language' | 'units' | null>(null);
+  const [tempValue, setTempValue] = useState<string>('');
+
+  // Animation values
+  const sheetAnim = useRef(new Animated.Value(0)).current; // 0 = closed, 1 = open
+  const backdropAnim = useRef(new Animated.Value(0)).current; // 0 = transparent, 1 = semi-opaque
+
+  // Trigger slide and fade animations when sheet visibility changes
+  useEffect(() => {
+    if (visibleSheet) {
+      // Open animation
+      Animated.parallel([
+        Animated.timing(sheetAnim, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+        Animated.timing(backdropAnim, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  }, [visibleSheet, sheetAnim, backdropAnim]);
+
+  const closeSheet = () => {
+    // Close animation
+    Animated.parallel([
+      Animated.timing(sheetAnim, {
+        toValue: 0,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+      Animated.timing(backdropAnim, {
+        toValue: 0,
+        duration: 180,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setVisibleSheet(null);
+      setTempValue('');
+    });
+  };
+
+  const handleDone = () => {
+    if (visibleSheet === 'language') setLanguage(tempValue);
+    else if (visibleSheet === 'units') setUnits(tempValue);
+    closeSheet();
+  };
 
   // Sync local state if Convex data arrives and store is empty
   useEffect(() => {
@@ -104,19 +154,38 @@ export default function PreferencesScreen() {
     const isLanguage = visibleSheet === 'language';
     const title = isLanguage ? 'Select Language' : 'Select Units';
     const options = isLanguage ? LANGUAGES : UNITS;
-    const currentValue = isLanguage ? language : units;
 
     return (
       <Modal
         transparent
         visible={!!visibleSheet}
-        animationType="fade"
-        onRequestClose={() => setVisibleSheet(null)}
+        animationType="none"
+        onRequestClose={closeSheet}
       >
-        <TouchableWithoutFeedback onPress={() => setVisibleSheet(null)}>
-          <View style={styles.sheetOverlay}>
+        <TouchableWithoutFeedback onPress={closeSheet}>
+          <Animated.View 
+            style={[
+              styles.sheetOverlay,
+              {
+                opacity: backdropAnim
+              }
+            ]}
+          >
             <TouchableWithoutFeedback>
-              <View style={[styles.sheetContainer, { paddingBottom: insets.bottom + 20 }]}>
+              <Animated.View 
+                style={[
+                  styles.sheetContainer, 
+                  { 
+                    paddingBottom: insets.bottom + 20,
+                    transform: [{
+                      translateY: sheetAnim.interpolate({
+                        inputRange: [0, 1],
+                        outputRange: [400, 0], // Optimized slide distance
+                      })
+                    }]
+                  }
+                ]}
+              >
                 <BlurView intensity={80} tint="light" style={StyleSheet.absoluteFill} />
                 <View style={styles.sheetHandle} />
                 <Text weight="semiBold" size="lg" color="#1d1d1f" style={styles.sheetTitle}>
@@ -128,7 +197,7 @@ export default function PreferencesScreen() {
                   {options.map((option, index) => {
                     const label = typeof option === 'string' ? option : option.label;
                     const value = typeof option === 'string' ? option : option.value;
-                    const isSelected = value === currentValue;
+                    const isSelected = value === tempValue;
                     const isLast = index === options.length - 1;
 
                     return (
@@ -139,10 +208,7 @@ export default function PreferencesScreen() {
                           pressed && styles.optionItemPressed,
                           !isLast && styles.optionBorder
                         ]}
-                        onPress={() => {
-                          if (isLanguage) setLanguage(value);
-                          else setUnits(value);
-                        }}
+                        onPress={() => setTempValue(value)}
                       >
                         <Text 
                           size="md" 
@@ -159,15 +225,15 @@ export default function PreferencesScreen() {
 
                 <Pressable
                   style={styles.doneButton}
-                  onPress={() => setVisibleSheet(null)}
+                  onPress={handleDone}
                 >
                   <Text weight="semiBold" size="md" color="#FFF">
                     Done
                   </Text>
                 </Pressable>
-              </View>
+              </Animated.View>
             </TouchableWithoutFeedback>
-          </View>
+          </Animated.View>
         </TouchableWithoutFeedback>
       </Modal>
     );
@@ -197,7 +263,10 @@ export default function PreferencesScreen() {
           {/* Language Selection */}
           <Pressable 
             style={({ pressed }) => [styles.formRow, pressed && styles.rowPressed]}
-            onPress={() => setVisibleSheet('language')}
+            onPress={() => {
+              setTempValue(language);
+              setVisibleSheet('language');
+            }}
           >
             <View style={styles.rowContent}>
               <Text weight="medium" size="xs" color="#86868b" style={styles.rowLabel}>
@@ -215,7 +284,10 @@ export default function PreferencesScreen() {
           {/* Units Selection */}
           <Pressable 
             style={({ pressed }) => [styles.formRow, pressed && styles.rowPressed]}
-            onPress={() => setVisibleSheet('units')}
+            onPress={() => {
+              setTempValue(units);
+              setVisibleSheet('units');
+            }}
           >
             <View style={styles.rowContent}>
               <Text weight="medium" size="xs" color="#86868b" style={styles.rowLabel}>
