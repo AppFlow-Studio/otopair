@@ -15,12 +15,13 @@ export default function SettingsLayout() {
             <Stack.Screen name="contact-us" options={{ headerShown: false }} />
             <Stack.Screen name="transactions" options={{ headerShown: false }} />
             <Stack.Screen name="privacy-policy" options={{ headerShown: false }} />
-            <Stack.Screen name="terms-of-service" options={{ headerShown: false }} />
+            <Stack.Screen name="terms-and-conditions" options={{ headerShown: false }} />
             <Stack.Screen name="about" options={{ headerShown: false }} />
             <Stack.Screen name="change-password" options={{ headerShown: false }} />
             <Stack.Screen name="permissions" options={{ headerShown: false }} />
             <Stack.Screen name="preferences" options={{ headerShown: false }} />
             <Stack.Screen name="pricing-transparency" options={{ headerShown: false }} />
+            <Stack.Screen name="my-mechanics" options={{ headerShown: false }} />
 
         </Stack>
     )

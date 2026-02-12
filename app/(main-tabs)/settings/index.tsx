@@ -55,6 +55,7 @@ import {
   ChevronRight,
   Sliders,
   CircleDollarSign,
+  Users,
 } from "lucide-react-native";
 import { CarIcon } from "phosphor-react-native";
 import Animated, {
@@ -631,6 +632,11 @@ export default function SettingsHomeScreen() {
                       onPress={() => router.push("/cars")}
                     />
                     <SettingsListItem
+                      icon={<Users size={20} color="#1F2937" />}
+                      label="My Mechanics"
+                      onPress={() => router.push("/settings/my-mechanics")}
+                    />
+                    <SettingsListItem
                       icon={<Award size={20} color="#1F2937" />}
                       label="Loyalty & Rewards"
                       onPress={() => router.push("/membership")}
@@ -754,8 +760,8 @@ export default function SettingsHomeScreen() {
                     />
                     <SettingsListItem
                       icon={<FileText size={20} color="#1F2937" />}
-                      label="Terms of service"
-                      onPress={() => router.push("/settings/terms-of-service")}
+                      label="Terms and Conditions"
+                      onPress={() => router.push("/settings/terms-and-conditions")}
                       isLast
                     />
                   </View>
