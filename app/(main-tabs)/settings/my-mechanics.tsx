@@ -7,7 +7,7 @@
  * USED IN: app/(main-tabs)/settings/index.tsx
  */
 
-import React, { useState, useCallback, useRef } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from 'react';
 import {
   Image,
   Pressable,
@@ -18,6 +18,7 @@ import {
   Modal,
   TouchableWithoutFeedback,
   Dimensions,
+  Animated as RNAnimated,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -38,7 +39,7 @@ import {
   Trash2,
   UserMinus,
 } from 'lucide-react-native';
-import Animated, { FadeInUp } from 'react-native-reanimated';
+import Animated, { FadeInUp, FadeOut, LinearTransition, ZoomOut } from 'react-native-reanimated';
 
 import {
   BlurHeaderOverlay,
@@ -105,51 +106,21 @@ const RECENTLY_BOOKED: Mechanic[] = [
 
 const FILTERS = ['Favorites', 'All Mechanics', 'Blocked'];
 
-export default function MyMechanicsScreen() {
-  const insets = useSafeAreaInsets();
-  const router = useRouter();
-  const [query, setQuery] = useState('');
-  const [activeFilter, setActiveFilter] = useState('Favorites');
+interface MechanicListItemProps {
+  mechanic: Mechanic;
+  fromFavorites?: boolean;
+  onOpenMenu: (mechanic: Mechanic, fromFavorites: boolean, anchorRef: React.RefObject<View | null>) => void;
+}
 
-  // Menu state
-  const [isMenuVisible, setIsMenuVisible] = useState(false);
-  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
-  const [selectedMechanic, setSelectedMechanic] = useState<Mechanic | null>(null);
-  const [isFromFavorites, setIsFromFavorites] = useState(false);
-
-  const openMenu = useCallback((mechanic: Mechanic, fromFavorites: boolean, anchorRef: React.RefObject<View | null>) => {
-    anchorRef.current?.measureInWindow?.((x, y, w, h) => {
-      const left = Math.min(Math.max(12, x + w - MENU_WIDTH), SCREEN_WIDTH - MENU_WIDTH - 12);
-      
-      // Calculate available space
-      const spaceBelow = SCREEN_HEIGHT - (y + h + 150); // Increased buffer to 150px to flip to top position much sooner
-      const spaceAbove = y - 100; // 100px buffer for header/safe area
-      
-      let top;
-      // If it fits below, put it below (default preference)
-      if (spaceBelow >= MENU_HEIGHT) {
-        top = y + h + 8;
-      } 
-      // If it doesn't fit below but fits above, flip it
-      else if (spaceAbove >= MENU_HEIGHT) {
-        top = y - MENU_HEIGHT - 8;
-      } 
-      // If it fits neither perfectly, pick the side with more space
-      else {
-        top = spaceBelow > spaceAbove ? y + h + 8 : y - MENU_HEIGHT - 8;
-      }
-
-      setMenuPosition({ top, left });
-      setSelectedMechanic(mechanic);
-      setIsFromFavorites(fromFavorites);
-      setIsMenuVisible(true);
-    });
-  }, []);
-
-  const renderMechanicItem = (mechanic: Mechanic, fromFavorites = false) => {
-    const anchorRef = useRef<View>(null);
-    
-    return (
+const MechanicListItem = ({ mechanic, fromFavorites = false, onOpenMenu }: MechanicListItemProps) => {
+  const anchorRef = useRef<View>(null);
+  
+  return (
+    <Animated.View 
+      layout={LinearTransition.duration(400)}
+      entering={FadeInUp.duration(300)}
+      exiting={ZoomOut.duration(200)}
+    >
       <Pressable
         key={mechanic.id}
         style={({ pressed }) => [
@@ -195,14 +166,129 @@ export default function MyMechanicsScreen() {
         <View ref={anchorRef} collapsable={false}>
           <Pressable 
             style={styles.moreButton}
-            onPress={() => openMenu(mechanic, fromFavorites, anchorRef)}
+            onPress={() => onOpenMenu(mechanic, fromFavorites, anchorRef)}
           >
             <MoreHorizontal size={20} color="#9CA3AF" />
           </Pressable>
         </View>
       </Pressable>
-    );
-  };
+    </Animated.View>
+  );
+};
+
+export default function MyMechanicsScreen() {
+  const insets = useSafeAreaInsets();
+  const router = useRouter();
+  const [query, setQuery] = useState('');
+  const [activeFilter, setActiveFilter] = useState('Favorites');
+
+  // Real state for mechanics
+  const [favorites, setFavorites] = useState<Mechanic[]>(FAVORITES);
+  const [recentlyBooked, setRecentlyBooked] = useState<Mechanic[]>(RECENTLY_BOOKED);
+  const [blockedIds, setBlockedIds] = useState<string[]>([]);
+
+  // Menu state
+  const [isMenuVisible, setIsMenuVisible] = useState(false);
+  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
+  const [selectedMechanic, setSelectedMechanic] = useState<Mechanic | null>(null);
+  const [isFromFavorites, setIsFromFavorites] = useState(false);
+
+  // Action Menu Animation Values
+  const backdropAnim = useRef(new RNAnimated.Value(0)).current;
+  const menuAnim = useRef(new RNAnimated.Value(0)).current;
+
+  const closeMenu = useCallback(() => {
+    RNAnimated.parallel([
+      RNAnimated.timing(backdropAnim, {
+        toValue: 0,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+      RNAnimated.timing(menuAnim, {
+        toValue: 0,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setIsMenuVisible(false);
+    });
+  }, [backdropAnim, menuAnim]);
+
+  // Handle menu animations
+  useEffect(() => {
+    if (isMenuVisible) {
+      RNAnimated.parallel([
+        RNAnimated.timing(backdropAnim, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+        RNAnimated.timing(menuAnim, {
+          toValue: 1,
+          duration: 200,
+          useNativeDriver: true,
+        }),
+      ]).start();
+    }
+  }, [isMenuVisible, backdropAnim, menuAnim]);
+
+  const openMenu = useCallback((mechanic: Mechanic, fromFavorites: boolean, anchorRef: React.RefObject<View | null>) => {
+    anchorRef.current?.measureInWindow?.((x, y, w, h) => {
+      const left = Math.min(Math.max(12, x + w - MENU_WIDTH), SCREEN_WIDTH - MENU_WIDTH - 12);
+      
+      // Calculate available space
+      const spaceBelow = SCREEN_HEIGHT - (y + h + 150); // Increased buffer to 150px to flip to top position much sooner
+      const spaceAbove = y - 100; // 100px buffer for header/safe area
+      
+      let top;
+      // If it fits below, put it below (default preference)
+      if (spaceBelow >= MENU_HEIGHT) {
+        top = y + h + 8;
+      } 
+      // If it doesn't fit below but fits above, flip it
+      else if (spaceAbove >= MENU_HEIGHT) {
+        top = y - MENU_HEIGHT - 8;
+      } 
+      // If it fits neither perfectly, pick the side with more space
+      else {
+        top = spaceBelow > spaceAbove ? y + h + 8 : y - MENU_HEIGHT - 8;
+      }
+
+      setMenuPosition({ top, left });
+      setSelectedMechanic(mechanic);
+      setIsFromFavorites(fromFavorites);
+      backdropAnim.setValue(0);
+      menuAnim.setValue(0);
+      setIsMenuVisible(true);
+    });
+  }, [backdropAnim, menuAnim]);
+
+  const handleToggleFavorite = useCallback(() => {
+    if (!selectedMechanic) return;
+
+    if (isFromFavorites) {
+      // Remove from favorites
+      setFavorites(prev => prev.filter(m => m.id !== selectedMechanic.id));
+      // Optionally add back to recently booked if it's not there
+      if (!recentlyBooked.some(m => m.id === selectedMechanic.id)) {
+        setRecentlyBooked(prev => [selectedMechanic, ...prev]);
+      }
+    } else {
+      // Add to favorites
+      setFavorites(prev => [...prev, { ...selectedMechanic, isPreferred: true }]);
+      setRecentlyBooked(prev => prev.filter(m => m.id !== selectedMechanic.id));
+    }
+    closeMenu();
+  }, [selectedMechanic, isFromFavorites, recentlyBooked, closeMenu]);
+
+  const handleBlockMechanic = useCallback(() => {
+    if (!selectedMechanic) return;
+
+    setBlockedIds(prev => [...prev, selectedMechanic.id]);
+    setFavorites(prev => prev.filter(m => m.id !== selectedMechanic.id));
+    setRecentlyBooked(prev => prev.filter(m => m.id !== selectedMechanic.id));
+    closeMenu();
+  }, [selectedMechanic, closeMenu]);
 
   return (
     <View style={[styles.screen, { backgroundColor: BrandColors.background }]}>
@@ -259,93 +345,183 @@ export default function MyMechanicsScreen() {
           </ScrollView>
 
           {/* Your Favorites Section */}
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Text weight="semiBold" size="lg" color="#111318">
-                Your Favorites
-              </Text>
-              <Pressable>
-                <Text weight="medium" size="xs" color={BrandColors.primary}>
-                  Manage
+          {(activeFilter === 'Favorites' || activeFilter === 'All Mechanics') && favorites.length > 0 && (
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Text weight="semiBold" size="lg" color="#111318">
+                  Your Favorites
                 </Text>
-              </Pressable>
+                <Pressable>
+                  <Text weight="medium" size="xs" color={BrandColors.primary}>
+                    Manage
+                  </Text>
+                </Pressable>
+              </View>
+              <Animated.View layout={LinearTransition.duration(400)} style={styles.glassCard}>
+                {favorites
+                  .filter(m => !blockedIds.includes(m.id))
+                  .filter(m => m.name.toLowerCase().includes(query.toLowerCase()) || m.specialty.toLowerCase().includes(query.toLowerCase()))
+                  .map((m) => (
+                    <MechanicListItem 
+                      key={m.id}
+                      mechanic={m} 
+                      fromFavorites={true} 
+                      onOpenMenu={openMenu} 
+                    />
+                  ))}
+              </Animated.View>
             </View>
-            <View style={styles.glassCard}>
-              {FAVORITES.map((m) => renderMechanicItem(m, true))}
-            </View>
-          </View>
+          )}
 
           {/* Recently Booked Section */}
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Text weight="semiBold" size="lg" color="#111318">
-                Recently Booked
-              </Text>
+          {(activeFilter === 'All Mechanics' || activeFilter === 'Favorites') && recentlyBooked.length > 0 && (
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Text weight="semiBold" size="lg" color="#111318">
+                  Recently Booked
+                </Text>
+              </View>
+              <Animated.View layout={LinearTransition.duration(400)} style={styles.glassCard}>
+                {recentlyBooked
+                  .filter(m => !blockedIds.includes(m.id))
+                  .filter(m => m.name.toLowerCase().includes(query.toLowerCase()) || m.specialty.toLowerCase().includes(query.toLowerCase()))
+                  .map((m) => (
+                    <MechanicListItem 
+                      key={m.id}
+                      mechanic={m} 
+                      fromFavorites={false} 
+                      onOpenMenu={openMenu} 
+                    />
+                  ))}
+              </Animated.View>
             </View>
-            <View style={styles.glassCard}>
-              {RECENTLY_BOOKED.map((m) => renderMechanicItem(m, false))}
+          )}
+
+          {/* Blocked Section */}
+          {activeFilter === 'Blocked' && (
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Text weight="semiBold" size="lg" color="#111318">
+                  Blocked Mechanics
+                </Text>
+              </View>
+              <Animated.View layout={LinearTransition.duration(400)} style={styles.glassCard}>
+                {blockedIds.length > 0 ? (
+                  [...FAVORITES, ...RECENTLY_BOOKED]
+                    .filter(m => blockedIds.includes(m.id))
+                    .map(m => (
+                      <Animated.View 
+                        key={m.id} 
+                        layout={LinearTransition.duration(400)}
+                        entering={FadeInUp.duration(300)}
+                        exiting={ZoomOut.duration(200)}
+                        style={styles.mechanicRow}
+                      >
+                        <View style={styles.mechanicLeft}>
+                          <View style={styles.avatarContainer}>
+                            <View style={[styles.avatarPlaceholder, { backgroundColor: '#F3F4F6' }]}>
+                              <Text weight="bold" size="lg" color="#6B7280">
+                                {m.initials || m.name[0]}
+                              </Text>
+                            </View>
+                          </View>
+                          <View style={styles.mechanicInfo}>
+                            <Text weight="bold" size="md" color="#111318">{m.name}</Text>
+                            <Text size="sm" color="#86868B">Blocked</Text>
+                          </View>
+                        </View>
+                        <Pressable 
+                          onPress={() => {
+                            setBlockedIds(prev => prev.filter(id => id !== m.id));
+                            if (!recentlyBooked.some(rb => rb.id === m.id)) {
+                              setRecentlyBooked(prev => [m, ...prev]);
+                            }
+                          }}
+                          style={styles.unblockButton}
+                        >
+                          <Text weight="bold" size="xs" color={BrandColors.primary}>UNBLOCK</Text>
+                        </Pressable>
+                      </Animated.View>
+                    ))
+                ) : (
+                  <View style={styles.emptyState}>
+                    <Text size="sm" color="#86868B">No blocked mechanics</Text>
+                  </View>
+                )}
+              </Animated.View>
             </View>
-          </View>
+          )}
         </Animated.View>
       </ScrollView>
 
       {/* Action Menu */}
-      <Modal transparent visible={isMenuVisible} animationType="fade">
-        <TouchableWithoutFeedback onPress={() => setIsMenuVisible(false)}>
-          <View style={styles.menuOverlay}>
-            <View
-              style={[
-                styles.menuContainer,
-                {
-                  top: menuPosition?.top ?? 0,
-                  left: menuPosition?.left ?? 0,
-                },
-              ]}
-            >
-              <View style={styles.menuContent}>
-                <Pressable
-                  style={styles.menuItem}
-                  onPress={() => {
-                    setIsMenuVisible(false);
-                    // Add/Remove favorite logic here
-                  }}
-                >
-                  <View style={styles.menuIconBox}>
-                    {isFromFavorites ? (
-                      <UserMinus size={18} color="#EF4444" />
-                    ) : (
-                      <Heart size={18} color={BrandColors.primary} />
-                    )}
-                  </View>
-                  <Text 
-                    weight="medium" 
-                    size="md" 
-                    color={isFromFavorites ? "#EF4444" : "#1F2937"}
-                    style={styles.menuItemText}
+      <Modal transparent visible={isMenuVisible} animationType="none">
+        <TouchableWithoutFeedback onPress={closeMenu}>
+          <RNAnimated.View 
+            style={[
+              styles.menuOverlay,
+              {
+                opacity: backdropAnim
+              }
+            ]}
+          >
+            <TouchableWithoutFeedback>
+              <RNAnimated.View
+                style={[
+                  styles.menuContainer,
+                  {
+                    top: menuPosition?.top ?? 0,
+                    left: menuPosition?.left ?? 0,
+                    opacity: menuAnim,
+                    transform: [
+                      { scale: menuAnim.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [0.95, 1]
+                        }) 
+                      }
+                    ]
+                  },
+                ]}
+              >
+                <View style={styles.menuContent}>
+                  <Pressable
+                    style={styles.menuItem}
+                    onPress={handleToggleFavorite}
                   >
-                    {isFromFavorites ? "Remove from Favorites" : "Add to Favorites"}
-                  </Text>
-                </Pressable>
-                
-                <View style={styles.menuSeparator} />
-                
-                <Pressable
-                  style={styles.menuItem}
-                  onPress={() => {
-                    setIsMenuVisible(false);
-                    // Block mechanic logic here
-                  }}
-                >
-                  <View style={styles.menuIconBox}>
-                    <ShieldAlert size={18} color="#EF4444" />
-                  </View>
-                  <Text weight="medium" size="md" color="#EF4444" style={styles.menuItemText}>
-                    Block mechanic
-                  </Text>
-                </Pressable>
-              </View>
-            </View>
-          </View>
+                    <View style={styles.menuIconBox}>
+                      {isFromFavorites ? (
+                        <UserMinus size={18} color="#EF4444" />
+                      ) : (
+                        <Heart size={18} color={BrandColors.primary} />
+                      )}
+                    </View>
+                    <Text 
+                      weight="medium" 
+                      size="md" 
+                      color={isFromFavorites ? "#EF4444" : "#1F2937"}
+                      style={styles.menuItemText}
+                    >
+                      {isFromFavorites ? "Remove from Favorites" : "Add to Favorites"}
+                    </Text>
+                  </Pressable>
+                  
+                  <View style={styles.menuSeparator} />
+                  
+                  <Pressable
+                    style={styles.menuItem}
+                    onPress={handleBlockMechanic}
+                  >
+                    <View style={styles.menuIconBox}>
+                      <ShieldAlert size={18} color="#EF4444" />
+                    </View>
+                    <Text weight="medium" size="md" color="#EF4444" style={styles.menuItemText}>
+                      Block mechanic
+                    </Text>
+                  </Pressable>
+                </View>
+              </RNAnimated.View>
+            </TouchableWithoutFeedback>
+          </RNAnimated.View>
         </TouchableWithoutFeedback>
       </Modal>
     </View>
@@ -529,5 +705,16 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: "rgba(0,0,0,0.05)",
     marginHorizontal: 8,
+  },
+  unblockButton: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+    backgroundColor: 'rgba(81, 146, 251, 0.1)',
+  },
+  emptyState: {
+    padding: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
 });
