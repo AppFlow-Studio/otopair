@@ -20,6 +20,7 @@ export default function SettingsLayout() {
             <Stack.Screen name="change-password" options={{ headerShown: false }} />
             <Stack.Screen name="permissions" options={{ headerShown: false }} />
             <Stack.Screen name="preferences" options={{ headerShown: false }} />
+            <Stack.Screen name="pricing-transparency" options={{ headerShown: false }} />
 
         </Stack>
     )

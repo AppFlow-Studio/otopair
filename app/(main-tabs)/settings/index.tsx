@@ -54,6 +54,7 @@ import {
   RotateCcw,
   ChevronRight,
   Sliders,
+  CircleDollarSign,
 } from "lucide-react-native";
 import { CarIcon } from "phosphor-react-native";
 import Animated, {
@@ -741,6 +742,11 @@ export default function SettingsHomeScreen() {
                     LEGAL
                   </Text>
                   <View style={styles.sectionCard}>
+                    <SettingsListItem
+                      icon={<CircleDollarSign size={20} color="#1F2937" />}
+                      label="Pricing Transparency"
+                      onPress={() => router.push("/settings/pricing-transparency")}
+                    />
                     <SettingsListItem
                       icon={<Shield size={20} color="#1F2937" />}
                       label="Privacy Policy"
