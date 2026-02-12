@@ -367,16 +367,12 @@ export default function SettingsHomeScreen() {
   // Edit Profile modal
   // ─────────────────────────────────────────────────────────────
   const [isEditVisible, setIsEditVisible] = useState(false);
+  const [showPhotoOptions, setShowPhotoOptions] = useState(false);
   const [editName, setEditName] = useState("");
   const [editEmail, setEditEmail] = useState("");
   const [editPhone, setEditPhone] = useState("");
-  const [isPhotoModalVisible, setIsPhotoModalVisible] = useState(false);
-  // Prefer new MediaType enum when available to avoid deprecation warnings; fall back for older SDKs.
-  const mediaTypeImages =
-    // @ts-ignore - MediaType may not exist on older versions
-    (ImagePicker as any).MediaType?.Images ?? ImagePicker.MediaTypeOptions.Images;
 
-  const openEditProfile = useCallback(() => {
+  const openEditProfile = useCallback((showPhotos = false) => {
     const fromConvex =
       me != null && (me.first_name ?? me.last_name) ? `${me.first_name ?? ""} ${me.last_name ?? ""}`.trim() : "";
     const fromOnboarding = `${data.firstName ?? ""} ${data.lastName ?? ""}`.trim();
@@ -386,6 +382,7 @@ export default function SettingsHomeScreen() {
     setEditName(name);
     setEditEmail(email);
     setEditPhone(phone);
+    setShowPhotoOptions(showPhotos);
     setIsEditVisible(true);
   }, [me, data.email, data.firstName, data.lastName, data.phoneNumber]);
 
@@ -433,37 +430,45 @@ export default function SettingsHomeScreen() {
   };
 
   const handleChooseFromLibrary = useCallback(async () => {
-    setIsPhotoModalVisible(false);
     const hasPermission = await requestLibraryPermission();
-    if (!hasPermission) return;
+    if (!hasPermission) {
+      setShowPhotoOptions(false);
+      return;
+    }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: mediaTypeImages,
+      mediaTypes: ["images"],
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.9,
     });
+    
+    setShowPhotoOptions(false);
     if (!result.canceled && result.assets?.length) {
       persistProfilePhoto(result.assets[0].uri);
     }
-  }, [mediaTypeImages]);
+  }, []);
 
   const handleTakePhoto = useCallback(async () => {
-    setIsPhotoModalVisible(false);
     const hasPermission = await requestCameraPermission();
-    if (!hasPermission) return;
+    if (!hasPermission) {
+      setShowPhotoOptions(false);
+      return;
+    }
     const result = await ImagePicker.launchCameraAsync({
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.9,
-      mediaTypes: mediaTypeImages,
+      mediaTypes: ["images"],
     });
+
+    setShowPhotoOptions(false);
     if (!result.canceled && result.assets?.length) {
       persistProfilePhoto(result.assets[0].uri);
     }
-  }, [mediaTypeImages]);
+  }, []);
 
   const handleRemovePhoto = useCallback(() => {
-    setIsPhotoModalVisible(false);
+    setShowPhotoOptions(false);
     persistProfilePhoto(null);
   }, []);
 
@@ -508,25 +513,36 @@ export default function SettingsHomeScreen() {
             {/* ═══════════════════════════════════════════════════════════════
                 LAYER 10: Sticky Header Elements (Always on top)
                 ═══════════════════════════════════════════════════════════════ */}
-            <View style={[styles.stickyContainer, { height: HEADER_MIN_HEIGHT + insets.top }]}>
+            <View 
+              style={[styles.stickyContainer, { height: HEADER_MIN_HEIGHT + insets.top }]}
+              pointerEvents="box-none"
+            >
               {/* Sticky Background Bar (fades in) */}
-              <Animated.View style={[StyleSheet.absoluteFill, styles.stickyBarBackground, stickyBarBackgroundStyle]} />
+              <Animated.View 
+                style={[StyleSheet.absoluteFill, styles.stickyBarBackground, stickyBarBackgroundStyle]} 
+                pointerEvents="none"
+              />
 
               {/* Transforming Avatar */}
               <Animated.View style={[styles.avatarWrapper, { top: insets.top + 20 }, avatarStyle]}>
-                {profilePhotoUri ? (
-                  <Image source={{ uri: profilePhotoUri }} style={styles.avatarImage} />
-                ) : (
-                  <View style={styles.avatarPlaceholder}>
-                    <Text weight="semiBold" size="xl" color={BrandColors.secondary}>
-                      {initials}
-                    </Text>
-                  </View>
-                )}
+                <Pressable onPress={() => openEditProfile(true)} style={StyleSheet.absoluteFill}>
+                  {profilePhotoUri ? (
+                    <Image source={{ uri: profilePhotoUri }} style={styles.avatarImage} />
+                  ) : (
+                    <View style={styles.avatarPlaceholder}>
+                      <Text weight="semiBold" size="xl" color={BrandColors.secondary}>
+                        {initials}
+                      </Text>
+                    </View>
+                  )}
+                </Pressable>
               </Animated.View>
 
               {/* Single Name that moves beside the avatar */}
-              <Animated.View style={[styles.movingNameContainer, { top: insets.top + 20 }, nameTransformStyle]}>
+              <Animated.View 
+                style={[styles.movingNameContainer, { top: insets.top + 20 }, nameTransformStyle]}
+                pointerEvents="box-none"
+              >
                 <AnimatedText
                   weight="bold"
                   size="lg"
@@ -809,122 +825,127 @@ export default function SettingsHomeScreen() {
       </Modal>
 
       <Modal transparent visible={isEditVisible} animationType="fade">
-        <TouchableWithoutFeedback onPress={() => setIsEditVisible(false)}>
-          <View style={styles.modalOverlay}>
-            <TouchableWithoutFeedback>
-              <View style={styles.editModalCard}>
-                <Text weight="semiBold" size="xl" color="#111827" style={styles.editModalTitle}>
-                  Edit Profile
-                </Text>
-                <View style={styles.editAvatarRow}>
-                  <Pressable style={styles.editAvatarWrapper} onPress={() => setIsPhotoModalVisible(true)}>
-                    {profilePhotoUri ? (
-                      <Image source={{ uri: profilePhotoUri }} style={styles.editAvatarImage} />
-                    ) : (
-                      <View style={styles.editAvatarPlaceholder}>
-                        <Text weight="semiBold" size="xl" color={BrandColors.secondary}>
-                          {initials}
-                        </Text>
-                      </View>
-                    )}
-                    <View style={styles.cameraBadge}>
-                      <Text weight="semiBold" size="sm" color="#FFF">
-                        +
-                      </Text>
-                    </View>
-                  </Pressable>
-                </View>
-                <View style={styles.field}>
-                  <Text weight="medium" size="sm" color="#374151">
-                    Name
+        <View style={styles.modalOverlay}>
+          <TouchableWithoutFeedback>
+            <View style={styles.editModalCard}>
+              {showPhotoOptions ? (
+                <>
+                  <Text weight="semiBold" size="xl" color="#111827" style={styles.editModalTitle}>
+                    Profile Photo
                   </Text>
-                  <TextInput
-                    value={editName}
-                    onChangeText={setEditName}
-                    placeholder="Your name"
-                    style={styles.input}
-                    autoCapitalize="words"
-                  />
-                </View>
-                <View style={styles.field}>
-                  <Text weight="medium" size="sm" color="#374151">
-                    Email
+                  <Text size="sm" color="#6B7280" style={styles.photoModalSubtitle}>
+                    Select an option to update your profile picture
                   </Text>
-                  <TextInput
-                    value={editEmail}
-                    onChangeText={(value) => setEditEmail(value.toLowerCase())}
-                    placeholder="you@example.com"
-                    style={styles.input}
-                    keyboardType="email-address"
-                    autoCapitalize="none"
-                  />
-                </View>
-                <View style={styles.field}>
-                  <Text weight="medium" size="sm" color="#374151">
-                    Phone Number
-                  </Text>
-                  <TextInput
-                    value={editPhone}
-                    onChangeText={setEditPhone}
-                    placeholder="+1 (555) 123-4567"
-                    style={styles.input}
-                    keyboardType="phone-pad"
-                    autoCapitalize="none"
-                  />
-                </View>
-                <View style={styles.editActionsRow}>
-                  <Button
-                    variant="ghost"
-                    fullWidth
-                    style={styles.modalActionButton}
-                    onPress={() => setIsEditVisible(false)}
-                  >
-                    Cancel
-                  </Button>
-                  <Button variant="secondary" fullWidth style={styles.modalActionButton} onPress={handleSaveProfile}>
-                    Save
-                  </Button>
-                </View>
-              </View>
-            </TouchableWithoutFeedback>
-          </View>
-        </TouchableWithoutFeedback>
-      </Modal>
-
-      <Modal transparent visible={isPhotoModalVisible} animationType="fade">
-        <TouchableWithoutFeedback onPress={() => setIsPhotoModalVisible(false)}>
-          <View style={styles.photoModalOverlay}>
-            <TouchableWithoutFeedback>
-              <View style={styles.photoModalCard}>
-                <Text weight="semiBold" size="lg" color="#111827" style={styles.photoModalTitle}>
-                  Profile photo
-                </Text>
-                <Text size="sm" color="#6B7280" style={styles.photoModalSubtitle}>
-                  Select an option
-                </Text>
-                <View style={styles.photoModalButtons}>
-                  <Pressable style={styles.photoModalPrimaryButton} onPress={handleChooseFromLibrary}>
-                    <Text weight="semiBold" size="md" color={BrandColors.white}>
-                      Choose from library
-                    </Text>
-                  </Pressable>
-                  <Pressable style={styles.photoModalSecondaryButton} onPress={handleTakePhoto}>
-                    <Text weight="semiBold" size="md" color="#111827">
-                      Take a photo
-                    </Text>
-                  </Pressable>
-                  {profilePhotoUri ? (
-                    <Pressable style={styles.photoModalRemoveButton} onPress={handleRemovePhoto}>
-                      <Text weight="semiBold" size="md" color="#EF4444">
-                        Remove photo
+                  <View style={styles.photoModalButtons}>
+                    <Pressable style={styles.photoModalPrimaryButton} onPress={handleChooseFromLibrary}>
+                      <Text weight="semiBold" size="md" color={BrandColors.white}>
+                        Choose from library
                       </Text>
                     </Pressable>
-                  ) : null}
-                </View>
-              </View>
-            </TouchableWithoutFeedback>
-          </View>
-        </TouchableWithoutFeedback>
+                    <Pressable style={styles.photoModalSecondaryButton} onPress={handleTakePhoto}>
+                      <Text weight="semiBold" size="md" color="#111827">
+                        Take a photo
+                      </Text>
+                    </Pressable>
+                    {profilePhotoUri ? (
+                      <Pressable style={styles.photoModalRemoveButton} onPress={handleRemovePhoto}>
+                        <Text weight="semiBold" size="md" color="#EF4444">
+                          Remove photo
+                        </Text>
+                      </Pressable>
+                    ) : null}
+                    <Button
+                      variant="ghost"
+                      fullWidth
+                      style={styles.modalActionButton}
+                      onPress={() => setShowPhotoOptions(false)}
+                    >
+                      Cancel
+                    </Button>
+                  </View>
+                </>
+              ) : (
+                <>
+                  <Text weight="semiBold" size="xl" color="#111827" style={styles.editModalTitle}>
+                    Edit Profile
+                  </Text>
+                  <View style={styles.editAvatarRow}>
+                    <Pressable
+                      style={styles.editAvatarWrapper}
+                      onPress={() => setShowPhotoOptions(true)}
+                    >
+                      {profilePhotoUri ? (
+                        <Image source={{ uri: profilePhotoUri }} style={styles.editAvatarImage} />
+                      ) : (
+                        <View style={styles.editAvatarPlaceholder}>
+                          <Text weight="semiBold" size="xl" color={BrandColors.secondary}>
+                            {initials}
+                          </Text>
+                        </View>
+                      )}
+                      <View style={styles.cameraBadge}>
+                        <Text weight="semiBold" size="sm" color="#FFF">
+                          +
+                        </Text>
+                      </View>
+                    </Pressable>
+                  </View>
+                  <View style={styles.field}>
+                    <Text weight="medium" size="sm" color="#374151">
+                      Name
+                    </Text>
+                    <TextInput
+                      value={editName}
+                      onChangeText={setEditName}
+                      placeholder="Your name"
+                      style={styles.input}
+                      autoCapitalize="words"
+                    />
+                  </View>
+                  <View style={styles.field}>
+                    <Text weight="medium" size="sm" color="#374151">
+                      Email
+                    </Text>
+                    <TextInput
+                      value={editEmail}
+                      onChangeText={(value) => setEditEmail(value.toLowerCase())}
+                      placeholder="you@example.com"
+                      style={styles.input}
+                      keyboardType="email-address"
+                      autoCapitalize="none"
+                    />
+                  </View>
+                  <View style={styles.field}>
+                    <Text weight="medium" size="sm" color="#374151">
+                      Phone Number
+                    </Text>
+                    <TextInput
+                      value={editPhone}
+                      onChangeText={setEditPhone}
+                      placeholder="+1 (555) 123-4567"
+                      style={styles.input}
+                      keyboardType="phone-pad"
+                      autoCapitalize="none"
+                    />
+                  </View>
+                  <View style={styles.editActionsRow}>
+                    <Button
+                      variant="ghost"
+                      fullWidth
+                      style={styles.modalActionButton}
+                      onPress={() => setIsEditVisible(false)}
+                    >
+                      Cancel
+                    </Button>
+                    <Button variant="secondary" fullWidth style={styles.modalActionButton} onPress={handleSaveProfile}>
+                      Save
+                    </Button>
+                  </View>
+                </>
+              )}
+            </View>
+          </TouchableWithoutFeedback>
+        </View>
       </Modal>
 
       <Modal transparent visible={isLogoutVisible} animationType="fade">

@@ -34,7 +34,7 @@ import {
 import { BlurHeaderOverlay, BrandColors, Spacing, Text } from '@/components/shared-ui';
 import { getSheetContentPadding } from '@/constants/theme';
 
-type PermissionStatus = 'granted' | 'denied' | 'undetermined';
+type PermissionStatus = 'granted' | 'denied' | 'undetermined' | 'limited';
 
 interface PermissionRowProps {
   icon: React.ReactNode;
@@ -50,6 +50,8 @@ const PermissionRow = ({ icon, label, description, status, onPress, isLast }: Pe
     switch (status) {
       case 'granted':
         return 'Allowed';
+      case 'limited':
+        return 'Limited';
       case 'denied':
         return 'Not allowed';
       case 'undetermined':
@@ -62,6 +64,8 @@ const PermissionRow = ({ icon, label, description, status, onPress, isLast }: Pe
     switch (status) {
       case 'granted':
         return '#10B981'; // Green
+      case 'limited':
+        return '#F59E0B'; // Orange/Amber
       case 'denied':
         return '#EF4444'; // Red
       default:
@@ -119,17 +123,31 @@ export default function PermissionsHubScreen() {
 
   const fetchStatuses = async () => {
     try {
-      const [location, camera, photos, notifications] = await Promise.all([
+      const promises: [Promise<any>, Promise<any>, Promise<any>, Promise<any>] = [
         Location.getForegroundPermissionsAsync(),
         Camera.getCameraPermissionsAsync(),
-        ImagePicker.getMediaLibraryPermissionsAsync(),
+        Platform.OS === 'ios' ? ImagePicker.getMediaLibraryPermissionsAsync() : Promise.resolve({ status: 'granted' }),
         Notifications.getPermissionsAsync(),
-      ]);
+      ];
+
+      const [location, camera, photos, notifications] = await Promise.all(promises);
+
+      const getPhotosStatus = (): PermissionStatus => {
+        if (Platform.OS !== 'ios') return 'granted'; // Android uses system picker
+        
+        if (photos.status === 'granted') {
+          if (photos.accessPrivileges === 'limited') {
+            return 'limited';
+          }
+          return 'granted';
+        }
+        return photos.status as PermissionStatus;
+      };
 
       setStatuses({
         location: location.status as PermissionStatus,
         camera: camera.status as PermissionStatus,
-        photos: photos.status as PermissionStatus,
+        photos: getPhotosStatus(),
         notifications: notifications.status as PermissionStatus,
       });
     } catch (error) {
@@ -170,11 +188,14 @@ export default function PermissionsHubScreen() {
   const handlePermissionAction = async (type: keyof typeof statuses) => {
     const currentStatus = statuses[type];
 
-    if (currentStatus === 'granted') {
-      // Allow opening settings even if already allowed
+    if (currentStatus === 'granted' || currentStatus === 'limited') {
+      // Allow opening settings even if already allowed or limited
+      const isLimited = currentStatus === 'limited';
       Alert.alert(
-        'Permission Allowed',
-        `You have already granted ${type} permission. Would you like to manage it in device settings?`,
+        isLimited ? 'Limited Access' : 'Permission Allowed',
+        isLimited 
+          ? `You have granted limited ${type} access. Would you like to manage selected photos in device settings?`
+          : `You have already granted ${type} permission. Would you like to manage it in device settings?`,
         [
           { text: 'Cancel', style: 'cancel' },
           { text: 'Open Settings', onPress: () => handleOpenSettings(type) },
@@ -214,7 +235,11 @@ export default function PermissionsHubScreen() {
       }
       
       if (result) {
-        setStatuses(prev => ({ ...prev, [type]: result.status as PermissionStatus }));
+        let newStatus = result.status as PermissionStatus;
+        if (type === 'photos' && result.status === 'granted' && Platform.OS === 'ios' && (result as any).accessPrivileges === 'limited') {
+          newStatus = 'limited';
+        }
+        setStatuses(prev => ({ ...prev, [type]: newStatus }));
       }
     } catch (error) {
       console.error(`Error requesting ${type} permission:`, error);
@@ -255,13 +280,15 @@ export default function PermissionsHubScreen() {
             status={statuses.camera}
             onPress={() => handlePermissionAction('camera')}
           />
-          <PermissionRow
-            icon={<ImageIcon size={20} color={BrandColors.secondary} />}
-            label="Photos"
-            description="Upload vehicle and profile images"
-            status={statuses.photos}
-            onPress={() => handlePermissionAction('photos')}
-          />
+          {Platform.OS === 'ios' && (
+            <PermissionRow
+              icon={<ImageIcon size={20} color={BrandColors.secondary} />}
+              label="Photos"
+              description="Upload vehicle and profile images"
+              status={statuses.photos}
+              onPress={() => handlePermissionAction('photos')}
+            />
+          )}
           <PermissionRow
             icon={<Bell size={20} color={BrandColors.secondary} />}
             label="Notifications"

@@ -67,10 +67,6 @@ export function ProfilePhotoStep({ onNext, onBack, progress }: ProfilePhotoStepP
     data.profilePhotoUri ?? null
   );
   const [showPhotoModal, setShowPhotoModal] = useState(false);
-  // Prefer new MediaType enum when available to avoid deprecation warnings; fall back for older SDKs.
-  const mediaTypeImages =
-    // @ts-ignore - MediaType may not exist on older versions
-    (ImagePicker as any).MediaType?.Images ?? ImagePicker.MediaTypeOptions.Images;
 
   const dynamicStyles = {
     container: { paddingTop: insets.top + Spacing.lg },
@@ -97,34 +93,38 @@ export function ProfilePhotoStep({ onNext, onBack, progress }: ProfilePhotoStepP
   };
 
   const pickFromLibrary = async () => {
-    setShowPhotoModal(false);
     const hasPermission = await requestLibraryPermission();
     if (!hasPermission) {
+      setShowPhotoModal(false);
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: mediaTypeImages,
+      mediaTypes: ['images'],
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.9,
     });
+    
+    setShowPhotoModal(false);
     if (!result.canceled && result.assets?.length) {
       persistImage(result.assets[0].uri);
     }
   };
 
   const takePhoto = async () => {
-    setShowPhotoModal(false);
     const hasPermission = await requestCameraPermission();
     if (!hasPermission) {
+      setShowPhotoModal(false);
       return;
     }
     const result = await ImagePicker.launchCameraAsync({
       allowsEditing: true,
       aspect: [1, 1],
       quality: 0.9,
-      mediaTypes: mediaTypeImages,
+      mediaTypes: ['images'],
     });
+
+    setShowPhotoModal(false);
     if (!result.canceled && result.assets?.length) {
       persistImage(result.assets[0].uri);
     }
