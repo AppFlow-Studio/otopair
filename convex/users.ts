@@ -185,6 +185,8 @@ export const updateProfile = mutation({
     last_name: v.optional(v.string()),
     profile_photo_url: v.optional(v.string()),
     tellUsAboutCompleted: v.optional(v.boolean()),
+    language: v.optional(v.string()),
+    units: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
@@ -212,6 +214,8 @@ export const updateProfile = mutation({
     if (args.last_name !== undefined) updates.last_name = args.last_name;
     if (args.profile_photo_url !== undefined) updates.profile_photo_url = args.profile_photo_url;
     if (args.tellUsAboutCompleted !== undefined) updates.tellUsAboutCompleted = args.tellUsAboutCompleted;
+    if (args.language !== undefined) updates.language = args.language;
+    if (args.units !== undefined) updates.units = args.units;
 
     if (Object.keys(updates).length === 0) {
       return user;

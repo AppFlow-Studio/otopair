@@ -53,6 +53,7 @@ import {
   MessageSquare,
   RotateCcw,
   ChevronRight,
+  Sliders,
 } from "lucide-react-native";
 import { CarIcon } from "phosphor-react-native";
 import Animated, {
@@ -666,6 +667,11 @@ export default function SettingsHomeScreen() {
                       icon={<Bell size={20} color="#1F2937" />}
                       label="Notification Preferences"
                       onPress={() => router.push("/settings/notification-preferences")}
+                    />
+                    <SettingsListItem
+                      icon={<Sliders size={20} color="#1F2937" />}
+                      label="Preferences"
+                      onPress={() => router.push("/settings/preferences")}
                     />
                     <SettingsListItem
                       icon={<Headset size={20} color="#1F2937" />}

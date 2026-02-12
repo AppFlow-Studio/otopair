@@ -122,6 +122,10 @@ interface OnboardingData {
   communicationPreference: string | null;
   additionalPreferences: string | null;
 
+  // App Preferences
+  language: string | null;
+  units: string | null;
+
   // Beginner Oil Change Step
   lastOilChange:
     | "last_3_months"
@@ -285,6 +289,8 @@ const INITIAL_DATA: OnboardingData = {
   shopPriorities: null,
   communicationPreference: null,
   additionalPreferences: null,
+  language: "English",
+  units: "mi",
 
   authProvider: null,
   emailConfirmed: false,
