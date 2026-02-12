@@ -6,7 +6,7 @@
  * USED IN: app/(main-tabs)/settings/index.tsx
  */
 
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import {
   ScrollView,
   StyleSheet,
@@ -15,6 +15,7 @@ import {
   Platform,
   Linking,
   Alert,
+  AppState,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -41,11 +42,10 @@ interface PermissionRowProps {
   label: string;
   description: string;
   status: PermissionStatus;
-  onPress: () => void;
   isLast?: boolean;
 }
 
-const PermissionRow = ({ icon, label, description, status, onPress, isLast }: PermissionRowProps) => {
+const PermissionRow = ({ icon, label, description, status, isLast }: PermissionRowProps) => {
   const getStatusText = () => {
     switch (status) {
       case 'granted':
@@ -75,13 +75,7 @@ const PermissionRow = ({ icon, label, description, status, onPress, isLast }: Pe
 
   return (
     <React.Fragment>
-      <Pressable
-        onPress={onPress}
-        style={({ pressed }) => [
-          styles.formRow,
-          pressed && styles.rowPressed,
-        ]}
-      >
+      <View style={styles.formRow}>
         <View style={styles.rowIconWrapper}>
           {icon}
         </View>
@@ -97,9 +91,8 @@ const PermissionRow = ({ icon, label, description, status, onPress, isLast }: Pe
           <Text weight="medium" size="sm" style={{ color: getStatusColor() }}>
             {getStatusText()}
           </Text>
-          <ChevronRight size={18} color="#C7C7CC" style={styles.chevron} />
         </View>
-      </Pressable>
+      </View>
       {!isLast && <View style={styles.separator} />}
     </React.Fragment>
   );
@@ -161,89 +154,20 @@ export default function PermissionsHubScreen() {
     }, [])
   );
 
-  const handleOpenSettings = async (type?: keyof typeof statuses) => {
-    if (Platform.OS === 'ios') {
-      await Linking.openSettings();
-    } else {
-      // Android specific logic
-      if (type === 'notifications') {
-        try {
-          // Land directly on the Notifications toggle page for this app
-          await Linking.sendIntent('android.settings.APP_NOTIFICATION_SETTINGS', [
-            { key: 'android.provider.extra.APP_PACKAGE', value: 'com.otopair.app' },
-          ]);
-          return;
-        } catch (e) {
-          // Fallback to general app settings if specific intent fails
-          await Linking.openSettings();
-        }
-      } else {
-        // For Location, Camera, and Photos, landing on the "App Info" screen (the one in your screenshot)
-        // is the standard Android behavior. From there, the user clicks "Permissions".
-        await Linking.openSettings();
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', nextAppState => {
+      if (nextAppState === 'active') {
+        fetchStatuses();
       }
-    }
-  };
+    });
 
-  const handlePermissionAction = async (type: keyof typeof statuses) => {
-    const currentStatus = statuses[type];
+    return () => {
+      subscription.remove();
+    };
+  }, []);
 
-    if (currentStatus === 'granted' || currentStatus === 'limited') {
-      // Allow opening settings even if already allowed or limited
-      const isLimited = currentStatus === 'limited';
-      Alert.alert(
-        isLimited ? 'Limited Access' : 'Permission Allowed',
-        isLimited 
-          ? `You have granted limited ${type} access. Would you like to manage selected photos in device settings?`
-          : `You have already granted ${type} permission. Would you like to manage it in device settings?`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Open Settings', onPress: () => handleOpenSettings(type) },
-        ]
-      );
-      return;
-    }
-
-    if (currentStatus === 'denied') {
-      Alert.alert(
-        'Permission Required',
-        `To enable ${type}, please go to your device settings.`,
-        [
-          { text: 'Cancel', style: 'cancel' },
-          { text: 'Open Settings', onPress: () => handleOpenSettings(type) },
-        ]
-      );
-      return;
-    }
-
-    // Not set, request in-app
-    try {
-      let result;
-      switch (type) {
-        case 'location':
-          result = await Location.requestForegroundPermissionsAsync();
-          break;
-        case 'camera':
-          result = await Camera.requestCameraPermissionsAsync();
-          break;
-        case 'photos':
-          result = await ImagePicker.requestMediaLibraryPermissionsAsync();
-          break;
-        case 'notifications':
-          result = await Notifications.requestPermissionsAsync();
-          break;
-      }
-      
-      if (result) {
-        let newStatus = result.status as PermissionStatus;
-        if (type === 'photos' && result.status === 'granted' && Platform.OS === 'ios' && (result as any).accessPrivileges === 'limited') {
-          newStatus = 'limited';
-        }
-        setStatuses(prev => ({ ...prev, [type]: newStatus }));
-      }
-    } catch (error) {
-      console.error(`Error requesting ${type} permission:`, error);
-    }
+  const handleOpenSettings = async () => {
+    await Linking.openSettings();
   };
 
   return (
@@ -271,14 +195,12 @@ export default function PermissionsHubScreen() {
             label="Location"
             description="Find nearby mechanics and availability"
             status={statuses.location}
-            onPress={() => handlePermissionAction('location')}
           />
           <PermissionRow
             icon={<CameraIcon size={20} color={BrandColors.secondary} />}
             label="Camera"
             description="Take photos of your vehicle"
             status={statuses.camera}
-            onPress={() => handlePermissionAction('camera')}
           />
           {Platform.OS === 'ios' && (
             <PermissionRow
@@ -286,7 +208,6 @@ export default function PermissionsHubScreen() {
               label="Photos"
               description="Upload vehicle and profile images"
               status={statuses.photos}
-              onPress={() => handlePermissionAction('photos')}
             />
           )}
           <PermissionRow
@@ -294,14 +215,21 @@ export default function PermissionsHubScreen() {
             label="Notifications"
             description="Service updates and offers"
             status={statuses.notifications}
-            onPress={() => handlePermissionAction('notifications')}
             isLast
           />
         </View>
 
-        <Text size="xs" color="#8E8E93" center style={styles.footnote}>
-          Some permissions must be enabled in your device Settings.
-        </Text>
+        <View style={styles.submitArea}>
+          <Pressable 
+            style={styles.submitButton} 
+            onPress={handleOpenSettings}
+          >
+            <Text weight="semiBold" size="md" color="#FFF">Open System Settings</Text>
+          </Pressable>
+          <Text size="xs" color="#8E8E93" center style={styles.footnote}>
+            You can manage all app permissions in your device settings.
+          </Text>
+        </View>
       </ScrollView>
     </View>
   );
@@ -370,8 +298,24 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(60, 60, 67, 0.12)',
     marginLeft: 64,
   },
+  submitArea: {
+    marginTop: 'auto',
+    paddingBottom: 20,
+  },
+  submitButton: {
+    backgroundColor: BrandColors.secondary,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: BrandColors.secondary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+  },
   footnote: {
-    marginTop: 8,
+    marginTop: 16,
     paddingHorizontal: 20,
   },
 });
