@@ -118,7 +118,7 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   }
   
   return (
-    <View style={[styles.container, { bottom: insets.bottom + 16 }]}>
+    <View style={[styles.container, { bottom: insets.bottom + 8 }]}>
       <GestureDetector gesture={panGesture}>
         <View style={styles.blurContainer}>
           {showBlur ? (
