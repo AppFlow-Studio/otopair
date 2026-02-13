@@ -306,7 +306,10 @@ export default function PreferencesScreen() {
         {/* Submit Area */}
         <View style={styles.submitArea}>
           <Pressable
-            style={[styles.submitButton, isSaving && { opacity: 0.7 }]}
+            style={({ pressed }) => [
+              styles.submitButton,
+              (pressed || isSaving) && { opacity: 0.7 }
+            ]}
             onPress={handleSave}
             disabled={isSaving}
           >

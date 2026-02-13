@@ -15,13 +15,16 @@
  */
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import Animated, { interpolateColor, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
+import { Tag, Gift, CreditCard, Bell, Calendar } from 'lucide-react-native';
+import { useQuery, useMutation } from 'convex/react';
 
-import { BrandColors, Button, Spacing, Text, BlurHeaderOverlay } from '@/components/shared-ui';
+import { BrandColors, Spacing, Text, BlurHeaderOverlay } from '@/components/shared-ui';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
+import { api } from '@/convex/_generated/api';
 
 type NotificationKey = 'offers' | 'rewards' | 'pass' | 'other' | 'bookings';
 
@@ -30,13 +33,18 @@ const ToggleRow = ({
   description,
   value,
   onValueChange,
+  icon: Icon,
 }: {
   title: string;
   description: string;
   value: boolean;
   onValueChange: (next: boolean) => void;
+  icon: any;
 }) => (
   <Pressable onPress={() => onValueChange(!value)} style={styles.toggleRow}>
+    <View style={styles.iconContainer}>
+      <Icon size={22} color="#4B5563" />
+    </View>
     <View style={styles.toggleText}>
       <Text weight="semiBold" size="md" color="#111827">
         {title}
@@ -88,6 +96,10 @@ export default function NotificationPreferencesScreen() {
   const router = useRouter();
   const { data, updateData } = useOnboardingStore();
 
+  // Convex integration
+  const preferences = useQuery(api.preferences.getMyPreferences);
+  const updateConvexNotifications = useMutation(api.preferences.updateNotificationPreferences);
+
   const [values, setValues] = useState({
     offers: data.notificationOffersEnabled,
     rewards: data.notificationRewardsEnabled,
@@ -95,36 +107,40 @@ export default function NotificationPreferencesScreen() {
     other: data.notificationOtherEnabled,
     bookings: data.notificationBookingsEnabled,
   });
+
+  // Sync with Convex data when it loads
+  useEffect(() => {
+    if (preferences?.notification_preferences) {
+      const { offers, rewards, pass, other, bookings } = preferences.notification_preferences;
+      setValues({ offers, rewards, pass, other, bookings });
+      
+      // Also sync Zustand for consistency
+      updateData({
+        notificationOffersEnabled: offers,
+        notificationRewardsEnabled: rewards,
+        notificationPassEnabled: pass,
+        notificationOtherEnabled: other,
+        notificationBookingsEnabled: bookings,
+      });
+    }
+  }, [preferences, updateData]);
+
   const [isSaving, setIsSaving] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-
-  useEffect(() => {
-    setValues({
-      offers: data.notificationOffersEnabled,
-      rewards: data.notificationRewardsEnabled,
-      pass: data.notificationPassEnabled,
-      other: data.notificationOtherEnabled,
-      bookings: data.notificationBookingsEnabled,
-    });
-  }, [
-    data.notificationOffersEnabled,
-    data.notificationRewardsEnabled,
-    data.notificationPassEnabled,
-    data.notificationOtherEnabled,
-    data.notificationBookingsEnabled,
-  ]);
 
   const handleToggle = useCallback((key: NotificationKey, next: boolean) => {
     setValues((prev) => ({ ...prev, [key]: next }));
   }, []);
 
   const handleSave = useCallback(async () => {
+    console.log('Saving notification preferences...', values);
     setIsSaving(true);
     setSuccessMessage(null);
     setErrorMessage(null);
 
     try {
+      // 1. Update Zustand store for immediate UI update
       updateData({
         notificationOffersEnabled: values.offers,
         notificationRewardsEnabled: values.rewards,
@@ -132,14 +148,30 @@ export default function NotificationPreferencesScreen() {
         notificationOtherEnabled: values.other,
         notificationBookingsEnabled: values.bookings,
       });
+      console.log('Successfully updated Zustand store');
+
+      // 2. Persist to Convex database
+      await updateConvexNotifications({
+        offers: values.offers,
+        rewards: values.rewards,
+        pass: values.pass,
+        other: values.other,
+        bookings: values.bookings,
+      });
+      console.log('Successfully updated Convex database');
+      
       setSuccessMessage('Preferences updated.');
-      setTimeout(() => setSuccessMessage(null), 1500);
+      
+      // Give a small delay to show the success state/loading before navigating back
+      setTimeout(() => {
+        router.back();
+      }, 500);
     } catch (error) {
+      console.error('Error saving notification preferences:', error);
       setErrorMessage('Unable to save changes. Please try again.');
-    } finally {
       setIsSaving(false);
     }
-  }, [updateData, values.other, values.offers, values.pass, values.rewards, values.bookings]);
+  }, [updateData, values, router, updateConvexNotifications]);
 
   const toggleRows = useMemo(
     () => [
@@ -147,26 +179,31 @@ export default function NotificationPreferencesScreen() {
         key: 'offers' as const,
         title: 'Offers',
         description: 'Discounts and promotions for inviting friends',
+        icon: Tag,
       },
       {
         key: 'rewards' as const,
         title: 'Otopair Rewards',
         description: 'Our loyalty program to increase your status as you book',
+        icon: Gift,
       },
       {
         key: 'pass' as const,
         title: 'Otopair Pass',
         description: 'Updates and benefits for our monthly pass to exclusive deals',
+        icon: CreditCard,
       },
       {
         key: 'other' as const,
         title: 'Other',
         description: 'Events, recommendations, and other service messages',
+        icon: Bell,
       },
       {
         key: 'bookings' as const,
         title: 'Bookings',
         description: 'Updates and reminders about your service appointments',
+        icon: Calendar,
       },
     ],
     []
@@ -175,7 +212,7 @@ export default function NotificationPreferencesScreen() {
   return (
     <View style={styles.screen}>
       <BlurHeaderOverlay
-        title="Notification Settings"
+        title="Notification Preferences"
         titleColor="#111827"
         onBack={() => router.back()}
       />
@@ -191,6 +228,7 @@ export default function NotificationPreferencesScreen() {
             description={row.description}
             value={values[row.key]}
             onValueChange={(next) => handleToggle(row.key, next)}
+            icon={row.icon}
           />
         ))}
 
@@ -212,16 +250,22 @@ export default function NotificationPreferencesScreen() {
       </ScrollView>
 
       <View style={[styles.footer, { paddingBottom: insets.bottom + 100 }]}>
-        <Button
-          variant="primary"
-          fullWidth
-          disabled={isSaving}
-          loading={isSaving}
-          style={styles.saveButton}
+        <Pressable
+          style={({ pressed }) => [
+            styles.saveButton,
+            (pressed || isSaving) && { opacity: 0.7 }
+          ]}
           onPress={handleSave}
+          disabled={isSaving}
         >
-          Update Settings
-        </Button>
+          {isSaving ? (
+            <ActivityIndicator color="#FFF" />
+          ) : (
+            <Text weight="semiBold" size="md" color="#FFF">
+              Update Preferences
+            </Text>
+          )}
+        </Pressable>
       </View>
     </View>
   );
@@ -245,6 +289,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: Spacing.md,
     gap: Spacing.md,
+  },
+  iconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   toggleText: {
     flex: 1,
@@ -279,8 +331,16 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.lg,
   },
   saveButton: {
-    borderRadius: 14,
-    paddingVertical: 14,
+    backgroundColor: BrandColors.secondary,
+    height: 56,
+    borderRadius: 28,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: BrandColors.secondary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
   },
   messageBox: {
     marginTop: Spacing.lg,

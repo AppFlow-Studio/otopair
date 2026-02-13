@@ -1927,6 +1927,33 @@ export default defineSchema({
     .index("by_status", ["status"]),
 
   /**
+   * TABLE: user_settings_preferences
+   *
+   * DESCRIPTION:
+   * Stores user-specific app preferences and settings.
+   * Separated from the users table for scalability and organization.
+   *
+   * FIELDS:
+   *   - user_id: References the user
+   *   - notification_preferences: Nested object for various notification toggles
+   *   - last_updated: Unix timestamp of last update
+   *
+   * RELATIONSHIPS:
+   *   FK → users(user_id)
+   */
+  user_settings_preferences: defineTable({
+    user_id: v.id("users"),
+    notification_preferences: v.object({
+      offers: v.boolean(),
+      rewards: v.boolean(),
+      pass: v.boolean(),
+      bookings: v.boolean(),
+      other: v.boolean(),
+    }),
+    last_updated: v.float64(),
+  }).index("by_user_id", ["user_id"]),
+
+  /**
    * TABLE: vehicle_health_snapshots
    * Stores historical data points from Smartcar webhooks (odometer, tire pressure, oil life, fuel).
    * FK → vehicle_owners(vehicleOwnerId)

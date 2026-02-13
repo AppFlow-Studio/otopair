@@ -31,6 +31,7 @@ import type * as oemParts from "../oemParts.js";
 import type * as onboarding_questions_answers from "../onboarding_questions_answers.js";
 import type * as payment_status_history from "../payment_status_history.js";
 import type * as payments from "../payments.js";
+import type * as preferences from "../preferences.js";
 import type * as reviews from "../reviews.js";
 import type * as seed from "../seed.js";
 import type * as seed_services_catalog from "../seed_services_catalog.js";
@@ -88,6 +89,7 @@ declare const fullApi: ApiFromModules<{
   onboarding_questions_answers: typeof onboarding_questions_answers;
   payment_status_history: typeof payment_status_history;
   payments: typeof payments;
+  preferences: typeof preferences;
   reviews: typeof reviews;
   seed: typeof seed;
   seed_services_catalog: typeof seed_services_catalog;
