@@ -206,10 +206,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   activeCapsule: {
-    width: 64,
-    height: 56,
+    width: '105%',
+    height: '110%',
     backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    borderRadius: 28,
+    borderRadius: 40,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,

@@ -6,13 +6,14 @@ import Animated, {
   withSpring,
   withTiming,
 } from "react-native-reanimated";
-import { Home, Calendar, Car, MessageSquare, LucideIcon, Settings } from "lucide-react-native";
+import { Home, Calendar, MessageSquare, LucideIcon, Settings } from "lucide-react-native";
+import { CarIcon } from "phosphor-react-native";
 import { OtoPairIcon } from "@/components/icons/oto-pair";
 
 const icon: Record<string, any> = {
   home: OtoPairIcon,
   bookings: Calendar,
-  cars: Car,
+  cars: CarIcon,
   settings: Settings,
   "ai-chat": MessageSquare,
 };

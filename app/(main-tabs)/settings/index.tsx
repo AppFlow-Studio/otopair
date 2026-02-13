@@ -31,7 +31,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { useFocusEffect } from "@react-navigation/native";
 import {
-  Ellipsis,
   LogOut,
   Pencil,
   Car,
@@ -137,6 +136,8 @@ export default function SettingsHomeScreen() {
   const vehicleIds = useVehicleStore((s) => s.vehicleIds);
   const paymentMethods = usePaymentStore((s) => s.paymentMethods);
   const { transactions: convexTransactions } = useTransactionsFromConvex(me?._id ?? undefined);
+  const myVehicles = useQuery(api.vehicles.getMyVehicles);
+  const convexVehicleCount = myVehicles?.length ?? 0;
 
   const [nameWidth, setNameWidth] = useState(0);
   const [biometricLabel, setBiometricLabel] = useState("Biometric Login");
@@ -351,22 +352,6 @@ export default function SettingsHomeScreen() {
   });
 
   // ─────────────────────────────────────────────────────────────
-  // Menu (three dots)
-  // ─────────────────────────────────────────────────────────────
-  const menuAnchorRef = useRef<View>(null);
-  const [isMenuVisible, setIsMenuVisible] = useState(false);
-  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
-
-  const openMenu = useCallback(() => {
-    menuAnchorRef.current?.measureInWindow?.((x, y, w, h) => {
-      const left = Math.min(Math.max(12, x + w - MENU_WIDTH), SCREEN_WIDTH - MENU_WIDTH - 12);
-      const top = y + h + 8;
-      setMenuPosition({ top, left });
-      setIsMenuVisible(true);
-    });
-  }, []);
-
-  // ─────────────────────────────────────────────────────────────
   // Edit Profile modal
   // ─────────────────────────────────────────────────────────────
   const [isEditVisible, setIsEditVisible] = useState(false);
@@ -557,10 +542,10 @@ export default function SettingsHomeScreen() {
                 </AnimatedText>
               </Animated.View>
 
-              {/* Ellipsis Menu */}
-              <View ref={menuAnchorRef} collapsable={false} style={[styles.menuAnchor, { top: insets.top + 30 }]}>
-                <Pressable onPress={openMenu} hitSlop={10}>
-                  <Ellipsis size={24} color={BrandColors.white} />
+              {/* Edit Profile Button */}
+              <View collapsable={false} style={[styles.menuAnchor, { top: insets.top + 30 }]}>
+                <Pressable onPress={() => openEditProfile(false)} hitSlop={10}>
+                  <Pencil size={24} color={BrandColors.white} />
                 </Pressable>
               </View>
             </View>
@@ -609,10 +594,17 @@ export default function SettingsHomeScreen() {
                       View Loyalty
                     </Text>
                   </Pressable>
-                  <Pressable onPress={() => router.push("/cars")} style={styles.headerButtonPill}>
+                  <Pressable
+                    onPress={() => router.push(convexVehicleCount > 0 ? "/cars" : "/add-vehicle")}
+                    style={styles.headerButtonPill}
+                  >
                     <CarIcon size={20} color="#374151" weight="bold" />
                     <Text weight="medium" size="md" color="#374151">
-                      View Vehicle
+                      {convexVehicleCount === 0
+                        ? "Add Vehicle"
+                        : convexVehicleCount === 1
+                        ? "View Vehicle"
+                        : "View Vehicles"}
                     </Text>
                   </Pressable>
                 </View>
@@ -794,40 +786,22 @@ export default function SettingsHomeScreen() {
       </ScrollDrivenGradientBackground>
 
       {/* Modals remain same */}
-      <Modal transparent visible={isMenuVisible} animationType="fade">
-        <TouchableWithoutFeedback onPress={() => setIsMenuVisible(false)}>
+      <Modal transparent visible={isLogoutVisible} animationType="fade">
+        <TouchableWithoutFeedback onPress={() => setIsLogoutVisible(false)}>
           <View style={styles.menuOverlay}>
             <View
               style={[
                 styles.menuContainer,
                 {
-                  top: menuPosition?.top ?? insets.top + 80,
-                  left: menuPosition?.left ?? SCREEN_WIDTH - MENU_WIDTH - 12,
+                  top: insets.top + 80,
+                  left: SCREEN_WIDTH - MENU_WIDTH - 12,
                 },
               ]}
             >
               <View style={styles.menuContent}>
                 <Pressable
                   style={styles.menuItem}
-                  onPress={() => {
-                    setIsMenuVisible(false);
-                    openEditProfile();
-                  }}
-                >
-                  <View style={styles.menuIconBox}>
-                    <Pencil size={18} color="#1F2937" />
-                  </View>
-                  <Text weight="medium" size="md" color="#1F2937">
-                    Edit Profile
-                  </Text>
-                </Pressable>
-                <View style={styles.menuSeparator} />
-                <Pressable
-                  style={styles.menuItem}
-                  onPress={() => {
-                    setIsMenuVisible(false);
-                    setIsLogoutVisible(true);
-                  }}
+                  onPress={handleConfirmLogout}
                 >
                   <View style={styles.menuIconBox}>
                     <LogOut size={18} color="#1F2937" />
