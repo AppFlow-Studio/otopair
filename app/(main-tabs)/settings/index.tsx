@@ -612,7 +612,7 @@ export default function SettingsHomeScreen() {
                   <Pressable onPress={() => router.push("/cars")} style={styles.headerButtonPill}>
                     <CarIcon size={20} color="#374151" weight="bold" />
                     <Text weight="medium" size="md" color="#374151">
-                      Add Vehicle
+                      View Vehicle
                     </Text>
                   </Pressable>
                 </View>

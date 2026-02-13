@@ -15,7 +15,7 @@
  * TICKET: OTO-XXX
  */
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
   ScrollView,
   StyleSheet,
@@ -37,13 +37,13 @@ import { BrandColors, Spacing, Text, BlurHeaderOverlay } from '@/components/shar
 import { getSheetContentPadding, FontFamily } from '@/constants/theme';
 import { api } from "@/convex/_generated/api";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
-import { useOnboardingPersistence } from "@/hooks/useOnboardingPersistence";
+import { usePreferencesPersistence } from "@/hooks/usePreferencesPersistence";
 
 const LANGUAGES = [
-  { label: 'English', value: 'English' },
-  { label: 'Español', value: 'Spanish' },
-  { label: 'Français', value: 'French' },
-  { label: 'Italiano', value: 'Italian' }
+  { label: '🇺🇸 English', value: 'English' },
+  { label: '🇪🇸 Español', value: 'Spanish' },
+  { label: '🇷🇺 Русский', value: 'Russian' },
+  { label: '🇨🇳 中文', value: 'Chinese' }
 ];
 const UNITS = [
   { label: 'Miles (mi)', value: 'mi' },
@@ -55,14 +55,31 @@ export default function PreferencesScreen() {
   const router = useRouter();
 
   // Convex & Zustand
-  const me = useQuery(api.users.getMe);
+  const preferences = useQuery(api.preferences.getMyPreferences);
+  const { persistGeneralPreferences } = usePreferencesPersistence();
   const { data, updateData } = useOnboardingStore();
-  const { persistProfileField } = useOnboardingPersistence();
 
   // Local state for the form
   const [language, setLanguage] = useState(data.language || 'English');
   const [units, setUnits] = useState(data.units || 'mi');
+
+  // Sync local state if Convex data arrives
+  useEffect(() => {
+    if (preferences) {
+      if (preferences.language) {
+        setLanguage(preferences.language);
+        updateData({ language: preferences.language });
+      }
+      if (preferences.units) {
+        setUnits(preferences.units);
+        updateData({ units: preferences.units });
+      }
+    }
+  }, [preferences, updateData]);
+
   const [isSaving, setIsSaving] = useState(false);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [visibleSheet, setVisibleSheet] = useState<'language' | 'units' | null>(null);
   const [tempValue, setTempValue] = useState<string>('');
 
@@ -114,39 +131,35 @@ export default function PreferencesScreen() {
     closeSheet();
   };
 
-  // Sync local state if Convex data arrives and store is empty
-  useEffect(() => {
-    if (me) {
-      if (me.language && !data.language) {
-        setLanguage(me.language);
-        updateData({ language: me.language });
-      }
-      if (me.units && !data.units) {
-        setUnits(me.units);
-        updateData({ units: me.units });
-      }
-    }
-  }, [me, data.language, data.units, updateData]);
-
-  const handleSave = async () => {
+  const handleSave = useCallback(async () => {
+    console.log('Saving preferences...', { language, units });
     setIsSaving(true);
+    setSuccessMessage(null);
+    setErrorMessage(null);
 
     // 1. Update Zustand store for immediate UI update
     updateData({ language, units });
+    console.log('Successfully updated Zustand store');
 
     // 2. Persist to Convex database
     try {
-      await persistProfileField({ 
+      await persistGeneralPreferences({ 
         language, 
         units 
       });
-      router.back();
+      console.log('Successfully updated Convex database (user_settings_preferences)');
+      setSuccessMessage('Preferences updated.');
+      
+      // Give a small delay to show the success state/loading before navigating back
+      setTimeout(() => {
+        router.back();
+      }, 500);
     } catch (error) {
       console.error("Error saving preferences:", error);
-    } finally {
+      setErrorMessage('Unable to save changes. Please try again.');
       setIsSaving(false);
     }
-  };
+  }, [language, units, updateData, persistGeneralPreferences, router]);
 
   const renderSheet = () => {
     if (!visibleSheet) return null;
@@ -224,7 +237,10 @@ export default function PreferencesScreen() {
                 </View>
 
                 <Pressable
-                  style={styles.doneButton}
+                  style={({ pressed }) => [
+                    styles.doneButton,
+                    pressed && { opacity: 0.7 }
+                  ]}
                   onPress={handleDone}
                 >
                   <Text weight="semiBold" size="md" color="#FFF">
@@ -301,28 +317,42 @@ export default function PreferencesScreen() {
           </Pressable>
         </View>
 
-        <View style={{ flex: 1 }} />
+        {errorMessage ? (
+          <View style={styles.messageBox}>
+            <Text size="sm" color="#EF4444" style={styles.messageText}>
+              {errorMessage}
+            </Text>
+          </View>
+        ) : null}
 
-        {/* Submit Area */}
-        <View style={styles.submitArea}>
-          <Pressable
-            style={({ pressed }) => [
-              styles.submitButton,
-              (pressed || isSaving) && { opacity: 0.7 }
-            ]}
-            onPress={handleSave}
-            disabled={isSaving}
-          >
-            {isSaving ? (
-              <ActivityIndicator color="#FFF" />
-            ) : (
-              <Text weight="semiBold" size="md" color="#FFF">
-                Save preferences
-              </Text>
-            )}
-          </Pressable>
-        </View>
+        {successMessage ? (
+          <View style={[styles.messageBox, styles.successBox]}>
+            <Text size="sm" color="#10B981" style={styles.messageText}>
+              {successMessage}
+            </Text>
+          </View>
+        ) : null}
       </ScrollView>
+
+      {/* Submit Area */}
+      <View style={[styles.footer, { paddingBottom: insets.bottom + 100 }]}>
+        <Pressable
+          style={({ pressed }) => [
+            styles.submitButton,
+            (pressed || isSaving) && { opacity: 0.7 }
+          ]}
+          onPress={handleSave}
+          disabled={isSaving}
+        >
+          {isSaving ? (
+            <ActivityIndicator color="#FFF" />
+          ) : (
+            <Text weight="semiBold" size="md" color="#FFF">
+              Update Preferences
+            </Text>
+          )}
+        </Pressable>
+      </View>
 
       {renderSheet()}
     </View>
@@ -378,9 +408,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(60, 60, 67, 0.12)',
     marginLeft: 16,
   },
-  submitArea: {
-    marginTop: 'auto',
-    paddingBottom: 20,
+  footer: {
+    paddingHorizontal: 20,
+    paddingTop: Spacing.lg,
   },
   submitButton: {
     backgroundColor: BrandColors.secondary,
@@ -445,10 +475,27 @@ const styles = StyleSheet.create({
     borderBottomColor: 'rgba(60, 60, 67, 0.1)',
   },
   doneButton: {
-    backgroundColor: BrandColors.primary,
-    height: 54,
-    borderRadius: 27,
+    backgroundColor: BrandColors.secondary,
+    height: 56,
+    borderRadius: 28,
     alignItems: 'center',
     justifyContent: 'center',
+    shadowColor: BrandColors.secondary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  messageBox: {
+    marginTop: Spacing.lg,
+    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+    borderRadius: 12,
+    padding: Spacing.md,
+  },
+  successBox: {
+    backgroundColor: 'rgba(16, 185, 129, 0.12)',
+  },
+  messageText: {
+    textAlign: 'center',
   },
 });

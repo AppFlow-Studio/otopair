@@ -20,11 +20,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 import Animated, { interpolateColor, useAnimatedStyle, useSharedValue, withTiming } from 'react-native-reanimated';
 import { Tag, Gift, CreditCard, Bell, Calendar } from 'lucide-react-native';
-import { useQuery, useMutation } from 'convex/react';
+import { useQuery } from 'convex/react';
 
 import { BrandColors, Spacing, Text, BlurHeaderOverlay } from '@/components/shared-ui';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import { api } from '@/convex/_generated/api';
+import { usePreferencesPersistence } from '@/hooks/usePreferencesPersistence';
 
 type NotificationKey = 'offers' | 'rewards' | 'pass' | 'other' | 'bookings';
 
@@ -98,7 +99,7 @@ export default function NotificationPreferencesScreen() {
 
   // Convex integration
   const preferences = useQuery(api.preferences.getMyPreferences);
-  const updateConvexNotifications = useMutation(api.preferences.updateNotificationPreferences);
+  const { persistNotificationPreferences } = usePreferencesPersistence();
 
   const [values, setValues] = useState({
     offers: data.notificationOffersEnabled,
@@ -151,7 +152,7 @@ export default function NotificationPreferencesScreen() {
       console.log('Successfully updated Zustand store');
 
       // 2. Persist to Convex database
-      await updateConvexNotifications({
+      await persistNotificationPreferences({
         offers: values.offers,
         rewards: values.rewards,
         pass: values.pass,
@@ -171,7 +172,7 @@ export default function NotificationPreferencesScreen() {
       setErrorMessage('Unable to save changes. Please try again.');
       setIsSaving(false);
     }
-  }, [updateData, values, router, updateConvexNotifications]);
+  }, [updateData, values, router, persistNotificationPreferences]);
 
   const toggleRows = useMemo(
     () => [
@@ -274,7 +275,7 @@ export default function NotificationPreferencesScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#E8ECF0',
+    backgroundColor: BrandColors.background,
     paddingHorizontal: 20,
   },
   content: {

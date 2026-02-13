@@ -1950,6 +1950,8 @@ export default defineSchema({
       bookings: v.boolean(),
       other: v.boolean(),
     }),
+    language: v.optional(v.string()),
+    units: v.optional(v.string()),
     last_updated: v.float64(),
   }).index("by_user_id", ["user_id"]),
 

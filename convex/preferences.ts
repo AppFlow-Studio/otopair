@@ -103,3 +103,61 @@ export const updateNotificationPreferences = mutation({
     }
   },
 });
+
+/**
+ * MUTATION: updateGeneralPreferences
+ * Upsert general preferences (language, units) for the current user.
+ */
+export const updateGeneralPreferences = mutation({
+  args: {
+    language: v.optional(v.string()),
+    units: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) {
+      throw new Error("Not authenticated");
+    }
+
+    const clerkUserId = identity.subject;
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", clerkUserId))
+      .unique();
+
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    const existing = await ctx.db
+      .query("user_settings_preferences")
+      .withIndex("by_user_id", (q) => q.eq("user_id", user._id))
+      .unique();
+
+    const updates: Record<string, any> = {
+      last_updated: Date.now(),
+    };
+    if (args.language !== undefined) updates.language = args.language;
+    if (args.units !== undefined) updates.units = args.units;
+
+    if (existing) {
+      await ctx.db.patch(existing._id, updates);
+      return await ctx.db.get(existing._id);
+    } else {
+      // Create with default notification preferences if they don't exist
+      const prefsId = await ctx.db.insert("user_settings_preferences", {
+        user_id: user._id,
+        notification_preferences: {
+          offers: true,
+          rewards: true,
+          pass: true,
+          bookings: true,
+          other: true,
+        },
+        last_updated: Date.now(),
+        ...updates,
+      });
+      return await ctx.db.get(prefsId);
+    }
+  },
+});

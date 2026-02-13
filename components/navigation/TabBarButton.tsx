@@ -7,9 +7,10 @@ import Animated, {
   withTiming,
 } from "react-native-reanimated";
 import { Home, Calendar, Car, MessageSquare, LucideIcon, Settings } from "lucide-react-native";
+import { OtoPairIcon } from "@/components/icons/oto-pair";
 
-const icon: Record<string, LucideIcon> = {
-  home: Home,
+const icon: Record<string, any> = {
+  home: OtoPairIcon,
   bookings: Calendar,
   cars: Car,
   settings: Settings,
@@ -35,6 +36,8 @@ const TabBarButton = ({
   const activeColor = "#2563EB";
   const inactiveColor = "#86868B";
 
+  const isOtoPair = routeName === 'home';
+
   return (
     <Pressable
       onPress={onPress}
@@ -43,11 +46,15 @@ const TabBarButton = ({
     >
       <View style={styles.buttonWrapper}>
         <View style={styles.content}>
-          <IconComponent
-            size={24}
-            color={isFocused ? activeColor : inactiveColor}
-            strokeWidth={isFocused ? 2.5 : 2}
-          />
+          {isOtoPair ? (
+            <IconComponent size={24} />
+          ) : (
+            <IconComponent
+              size={24}
+              color={isFocused ? activeColor : inactiveColor}
+              strokeWidth={isFocused ? 2.5 : 2}
+            />
+          )}
           <Animated.Text
             style={[
               styles.label,
