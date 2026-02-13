@@ -1,120 +1,168 @@
 import { View, StyleSheet, LayoutChangeEvent, Platform } from "react-native";
 import { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import TabBarButton from "./TabBarButton";
-import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 import { useState, useEffect } from "react";
-import { BrandColors } from "@/constants/theme";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { BlurView } from 'expo-blur';
+import Animated, { useAnimatedStyle, useSharedValue, withTiming } from "react-native-reanimated";
 
 export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
-  const [dimensions, setDimensions] = useState({ height: 20, width: 100 });
+  const [dimensions, setDimensions] = useState({ height: 0, width: 0 });
 
   const visibleRoutes = state.routes.filter(route => !['_sitemap', '+not-found', 'index'].includes(route.name));
-  const buttonWidth = dimensions.width / visibleRoutes.length;
-
+  
   const onTabbarLayout = (e: LayoutChangeEvent) => {
     setDimensions({
       height: e.nativeEvent.layout.height,
       width: e.nativeEvent.layout.width,
     });
   };
-  
-  const tabPositionX = useSharedValue(0);
 
-  const animatedStyle = useAnimatedStyle(() => {
+  // Calculate tab width based on content area (width - horizontal padding)
+  const tabWidth = (dimensions.width - 12) / visibleRoutes.length;
+  const translateX = useSharedValue(0);
+
+  useEffect(() => {
+    const activeIndex = visibleRoutes.findIndex(r => r.name === state.routes[state.index].name);
+    if (activeIndex !== -1 && tabWidth > 0) {
+      translateX.value = withTiming(activeIndex * tabWidth, {
+        duration: 250,
+      });
+    }
+  }, [state.index, tabWidth, visibleRoutes]);
+
+  const animatedCapsuleStyle = useAnimatedStyle(() => {
     return {
-      transform: [{ translateX: tabPositionX.value }],
+      transform: [{ translateX: translateX.value }],
+      width: tabWidth,
     };
   });
-
-  // Calculate the bar position based on focused index among visible routes
-  useEffect(() => {
-    const visibleIndex = visibleRoutes.findIndex(r => r.name === state.routes[state.index].name);
-    if (visibleIndex !== -1) {
-        tabPositionX.value = withTiming(buttonWidth * visibleIndex, {
-            duration: 300,
-        });
-    }
-  }, [state.index, buttonWidth, visibleRoutes]);
-
+  
   // Get options for the currently focused route
   const focusedOptions = descriptors[state.routes[state.index].key].options;
 
   // Check if tab bar should be hidden based on options
-  // We use a safe check because tabBarStyle can be an array or a single style object
   const tabBarStyle = StyleSheet.flatten(focusedOptions.tabBarStyle) as any;
   if (tabBarStyle?.display === 'none') {
     return null;
   }
   
   return (
-    <View onLayout={onTabbarLayout} style={[styles.tabbar, { paddingBottom: insets.bottom + 12 }]}>
-      <Animated.View style={[animatedStyle, {
-        position: 'absolute',
-        backgroundColor: BrandColors.secondary,
-        top: 0,
-        left: 20, // Adjust offset to center under the button icon
-        height: 3,
-        borderRadius: 2,
-        width: buttonWidth - 40, // Adjust width of the indicator
-      }]} />
-      {visibleRoutes.map((route, index) => {
-        const { options } = descriptors[route.key];
-        const label =
-          options.tabBarLabel !== undefined
-            ? options.tabBarLabel
-            : options.title !== undefined
-            ? options.title
-            : route.name;
+    <View style={[styles.container, { bottom: insets.bottom + 16 }]}>
+      <BlurView 
+        intensity={80} 
+        tint="light" 
+        style={styles.blurContainer}
+      >
+        <View onLayout={onTabbarLayout} style={styles.tabbar}>
+          {/* Sliding Capsule */}
+          {dimensions.width > 0 && (
+            <Animated.View style={[styles.activeCapsuleWrapper, animatedCapsuleStyle]}>
+              <View style={styles.activeCapsule} />
+            </Animated.View>
+          )}
 
-        const isFocused = state.routes[state.index].name === route.name;
+          {visibleRoutes.map((route, index) => {
+            const { options } = descriptors[route.key];
+            const label =
+              options.tabBarLabel !== undefined
+                ? options.tabBarLabel
+                : options.title !== undefined
+                ? options.title
+                : route.name;
 
-        const onPress = () => {
-          const event = navigation.emit({
-            type: "tabPress",
-            target: route.key,
-            canPreventDefault: true,
-          });
+            const isFocused = state.routes[state.index].name === route.name;
 
-          if (!isFocused && !event.defaultPrevented) {
-            navigation.navigate(route.name, route.params);
-          }
-        };
+            const onPress = () => {
+              const event = navigation.emit({
+                type: "tabPress",
+                target: route.key,
+                canPreventDefault: true,
+              });
 
-        const onLongPress = () => {
-          navigation.emit({
-            type: "tabLongPress",
-            target: route.key,
-          });
-        };
+              if (!isFocused && !event.defaultPrevented) {
+                navigation.navigate(route.name, route.params);
+              }
+            };
 
-        return (
-          <TabBarButton
-            key={route.name}
-            onPress={onPress}
-            onLongPress={onLongPress}
-            isFocused={isFocused}
-            routeName={route.name}
-            label={label.toString()}
-          />
-        );
-      })}
+            const onLongPress = () => {
+              navigation.emit({
+                type: "tabLongPress",
+                target: route.key,
+              });
+            };
+
+            return (
+              <TabBarButton
+                key={route.name}
+                onPress={onPress}
+                onLongPress={onLongPress}
+                isFocused={isFocused}
+                routeName={route.name}
+                label={label.toString()}
+              />
+            );
+          })}
+        </View>
+      </BlurView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  container: {
+    position: 'absolute',
+    left: 20,
+    right: 20,
+    zIndex: 100,
+    alignItems: 'center',
+  },
+  blurContainer: {
+    width: '100%',
+    maxWidth: 400,
+    borderRadius: 35,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.4)',
+    ...Platform.select({
+      ios: {
+        shadowColor: '#000',
+        shadowOffset: { width: 0, height: 8 },
+        shadowOpacity: 0.12,
+        shadowRadius: 24,
+      },
+      android: {
+        elevation: 8,
+      },
+    }),
+  },
   tabbar: {
     flexDirection: 'row',
-    paddingTop: 12,
-    backgroundColor: BrandColors.white,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(0,0,0,0.05)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: -2 },
-    shadowOpacity: 0.05,
+    padding: 6,
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: 'rgba(255, 255, 255, 0.65)',
+  },
+  activeCapsuleWrapper: {
+    position: 'absolute',
+    height: '100%',
+    top: 6,
+    left: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  activeCapsule: {
+    width: 64,
+    height: 56,
+    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+    borderRadius: 28,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
     shadowRadius: 10,
-    elevation: 10,
+    elevation: 2,
+    borderWidth: 0.5,
+    borderColor: "rgba(255, 255, 255, 1)",
   }
 })

@@ -1,13 +1,12 @@
-import { Pressable, StyleSheet } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import React, { useEffect } from "react";
 import Animated, {
-  interpolate,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
+  withTiming,
 } from "react-native-reanimated";
-import { BrandColors, Colors } from "@/constants/theme";
-import { Home, Calendar, Car, Gamepad, MessageSquare, LucideIcon, Settings } from "lucide-react-native";
+import { Home, Calendar, Car, MessageSquare, LucideIcon, Settings } from "lucide-react-native";
 
 const icon: Record<string, LucideIcon> = {
   home: Home,
@@ -32,58 +31,36 @@ const TabBarButton = ({
   routeName,
   label,
 }: TabBarButtonProps) => {
-  const scale = useSharedValue(0);
-
-  useEffect(() => {
-    scale.value = withSpring(
-      isFocused ? 1 : 0,
-      { duration: 350 }
-    );
-  }, [scale, isFocused]);
-
-  const animatedTextStyle = useAnimatedStyle(() => {
-    const opacityValue = interpolate(scale.value, [0, 1], [1, 0]);
-
-    return {
-      opacity: opacityValue,
-    };
-  });
-
-  const animatedIconStyle = useAnimatedStyle(() => {
-    const scaleValue = interpolate(scale.value, [0, 1], [1, 1.2]);
-    const top = interpolate(scale.value, [0, 1], [0, 9]);
-
-    return {
-      transform: [{ scale: scaleValue }],
-      top,
-    };
-  });
-
-  const IconComponent = icon[routeName] || Gamepad;
+  const IconComponent = icon[routeName] || Home;
+  const activeColor = "#2563EB";
+  const inactiveColor = "#86868B";
 
   return (
     <Pressable
       onPress={onPress}
       onLongPress={onLongPress}
-      style={styles.tabbarBtn}
+      style={styles.container}
     >
-      <Animated.View style={animatedIconStyle}>
-        <IconComponent
-          size={24}
-          color={isFocused ? BrandColors.secondary : Colors.light.tabIconDefault}
-        />
-      </Animated.View>
-      <Animated.Text
-        style={[
-          {
-            color: isFocused ? BrandColors.secondary : Colors.light.tabIconDefault,
-            fontSize: 11,
-          },
-          animatedTextStyle,
-        ]}
-      >
-        {label}
-      </Animated.Text>
+      <View style={styles.buttonWrapper}>
+        <View style={styles.content}>
+          <IconComponent
+            size={24}
+            color={isFocused ? activeColor : inactiveColor}
+            strokeWidth={isFocused ? 2.5 : 2}
+          />
+          <Animated.Text
+            style={[
+              styles.label,
+              {
+                color: isFocused ? activeColor : inactiveColor,
+                fontWeight: isFocused ? "700" : "500",
+              },
+            ]}
+          >
+            {label}
+          </Animated.Text>
+        </View>
+      </View>
     </Pressable>
   );
 };
@@ -91,10 +68,34 @@ const TabBarButton = ({
 export default TabBarButton;
 
 const styles = StyleSheet.create({
-  tabbarBtn: {
+  container: {
     flex: 1,
-    justifyContent: "center",
     alignItems: "center",
-    gap: 5,
+    justifyContent: "center",
+  },
+  buttonWrapper: {
+    width: 64,
+    height: 56,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  activeCapsule: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 28,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
+    elevation: 2,
+    borderWidth: 0.5,
+    borderColor: "rgba(255, 255, 255, 1)",
+  },
+  content: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 2,
+  },
+  label: {
+    fontSize: 10,
   },
 });
