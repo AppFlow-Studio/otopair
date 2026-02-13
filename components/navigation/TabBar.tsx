@@ -1,4 +1,4 @@
-import { View, StyleSheet, LayoutChangeEvent, Platform } from "react-native";
+import { View, StyleSheet, LayoutChangeEvent, Platform, InteractionManager } from "react-native";
 import { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import TabBarButton from "./TabBarButton";
 import { useState, useEffect, useCallback } from "react";
@@ -16,6 +16,25 @@ import * as Haptics from 'expo-haptics';
 export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
   const [dimensions, setDimensions] = useState({ height: 0, width: 0 });
+  const [showBlur, setShowBlur] = useState(false);
+
+  useEffect(() => {
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    let cancelled = false;
+
+    const task = InteractionManager.runAfterInteractions(() => {
+      const delay = Platform.OS === 'android' ? 250 : 0;
+      timeout = setTimeout(() => {
+        if (!cancelled) setShowBlur(true);
+      }, delay);
+    });
+
+    return () => {
+      cancelled = true;
+      task.cancel();
+      if (timeout) clearTimeout(timeout);
+    };
+  }, []);
 
   const visibleRoutes = state.routes.filter(route => !['_sitemap', '+not-found', 'index'].includes(route.name));
   
@@ -101,11 +120,18 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   return (
     <View style={[styles.container, { bottom: insets.bottom + 16 }]}>
       <GestureDetector gesture={panGesture}>
-        <BlurView 
-          intensity={80} 
-          tint="light" 
-          style={styles.blurContainer}
-        >
+        <View style={styles.blurContainer}>
+          {showBlur ? (
+            <BlurView 
+              experimentalBlurMethod={Platform.OS === 'android' ? 'dimezisBlurView' : undefined}
+              intensity={10} 
+              tint="light" 
+              blurReductionFactor={7}
+              style={StyleSheet.absoluteFill}
+            />
+          ) : (
+            <View style={styles.fallback} />
+          )}
           <View onLayout={onTabbarLayout} style={styles.tabbar}>
             {/* Sliding Capsule */}
             {dimensions.width > 0 && (
@@ -157,7 +183,7 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
               );
             })}
           </View>
-        </BlurView>
+        </View>
       </GestureDetector>
     </View>
   );
@@ -195,7 +221,10 @@ const styles = StyleSheet.create({
     padding: 6,
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: 'rgba(255, 255, 255, 0.65)',
+  },
+  fallback: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(255, 255, 255, 0.85)',
   },
   activeCapsuleWrapper: {
     position: 'absolute',
