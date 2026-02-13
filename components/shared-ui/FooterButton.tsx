@@ -35,10 +35,11 @@ import { ReactNode } from 'react';
 import { Button } from './Button';
 import { BorderRadius, Spacing } from '@/constants/theme';
 
-interface FooterButtonProps {
+export interface FooterButtonProps {
     label: string;
     onPress: () => void;
     disabled?: boolean;
+    loading?: boolean;
     leftIcon?: ReactNode;
     rightIcon?: ReactNode;
     size?: 'sm' | 'md' | 'lg';
@@ -54,6 +55,7 @@ export function FooterButton({
     label,
     onPress,
     disabled = false,
+    loading = false,
     leftIcon,
     rightIcon,
     size = 'lg',
@@ -72,6 +74,7 @@ export function FooterButton({
             paddingVertical={paddingVertical ?? Spacing.lg}
             onPress={onPress}
             disabled={disabled}
+            loading={loading}
             leftIcon={leftIcon}
             rightIcon={rightIcon}
             variant={variant}

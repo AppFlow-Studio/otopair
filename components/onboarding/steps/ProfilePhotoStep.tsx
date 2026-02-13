@@ -62,11 +62,12 @@ export function ProfilePhotoStep({ onNext, onBack, progress }: ProfilePhotoStepP
   const { height } = useWindowDimensions();
   const data = useOnboardingStore((state) => state.data);
   const updateData = useOnboardingStore((state) => state.updateData);
-  const { persistProfileField } = useOnboardingPersistence();
+  const { persistProfilePhoto } = useOnboardingPersistence();
   const [imageUri, setImageUri] = useState<string | null>(
     data.profilePhotoUri ?? null
   );
   const [showPhotoModal, setShowPhotoModal] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
 
   const dynamicStyles = {
     container: { paddingTop: insets.top + Spacing.lg },
@@ -87,11 +88,6 @@ export function ProfilePhotoStep({ onNext, onBack, progress }: ProfilePhotoStepP
     return status === "granted";
   };
 
-  const persistImage = (uri: string) => {
-    setImageUri(uri);
-    updateData({ profilePhotoUri: uri });
-  };
-
   const pickFromLibrary = async () => {
     const hasPermission = await requestLibraryPermission();
     if (!hasPermission) {
@@ -107,7 +103,9 @@ export function ProfilePhotoStep({ onNext, onBack, progress }: ProfilePhotoStepP
     
     setShowPhotoModal(false);
     if (!result.canceled && result.assets?.length) {
-      persistImage(result.assets[0].uri);
+      const uri = result.assets[0].uri;
+      setImageUri(uri);
+      updateData({ profilePhotoUri: uri });
     }
   };
 
@@ -126,7 +124,9 @@ export function ProfilePhotoStep({ onNext, onBack, progress }: ProfilePhotoStepP
 
     setShowPhotoModal(false);
     if (!result.canceled && result.assets?.length) {
-      persistImage(result.assets[0].uri);
+      const uri = result.assets[0].uri;
+      setImageUri(uri);
+      updateData({ profilePhotoUri: uri });
     }
   };
 
@@ -140,7 +140,15 @@ export function ProfilePhotoStep({ onNext, onBack, progress }: ProfilePhotoStepP
 
   const handleContinue = async () => {
     if (imageUri) {
-      await persistProfileField({ profile_photo_url: imageUri });
+      setIsUploading(true);
+      try {
+        await persistProfilePhoto(imageUri);
+      } catch (error) {
+        console.error("Profile photo upload failed during onboarding:", error);
+        // We still continue even if upload fails, as the local URI is saved in Zustand
+      } finally {
+        setIsUploading(false);
+      }
     }
     onNext();
   };
@@ -186,10 +194,10 @@ export function ProfilePhotoStep({ onNext, onBack, progress }: ProfilePhotoStepP
         <FooterButton
           label="Continue"
           onPress={handleContinue}
-          disabled={!canContinue}
+          disabled={!canContinue || isUploading}
+          loading={isUploading}
           size={buttonSize}
           paddingVertical={buttonPaddingVertical}
-          variant={canContinue ? "primary" : undefined}
           backgroundColor={canContinue ? undefined : "#6B7280"}
           textColor={canContinue ? undefined : BrandColors.white}
         />

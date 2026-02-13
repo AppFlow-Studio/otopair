@@ -58,10 +58,24 @@ export const getMe = query({
     if (!identity) return null;
 
     const clerkUserId = identity.subject;
-    return await ctx.db
+    const user = await ctx.db
       .query("users")
       .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", clerkUserId))
       .unique();
+
+    if (!user) return null;
+
+    // If the user has a storage ID, generate a temporary URL for it
+    let profile_photo_url = user.profile_photo_url;
+    if (user.profile_photo_storage_id) {
+      const url = await ctx.storage.getUrl(user.profile_photo_storage_id);
+      if (url) profile_photo_url = url;
+    }
+
+    return {
+      ...user,
+      profile_photo_url,
+    };
   },
 });
 
@@ -138,7 +152,7 @@ export const getOrCreateMe = mutation({
       if (identity.familyName && !existing.last_name) {
         updates.last_name = identity.familyName;
       }
-      if (identity.pictureUrl && !existing.profile_photo_url) {
+      if (identity.pictureUrl && !existing.profile_photo_url && !existing.profile_photo_storage_id) {
         updates.profile_photo_url = identity.pictureUrl;
       }
 
@@ -183,7 +197,8 @@ export const updateProfile = mutation({
     emailConfirmed: v.optional(v.boolean()),
     first_name: v.optional(v.string()),
     last_name: v.optional(v.string()),
-    profile_photo_url: v.optional(v.string()),
+    profile_photo_url: v.optional(v.union(v.string(), v.null())),
+    profile_photo_storage_id: v.optional(v.union(v.string(), v.null())),
     tellUsAboutCompleted: v.optional(v.boolean()),
     language: v.optional(v.string()),
     units: v.optional(v.string()),
@@ -213,6 +228,7 @@ export const updateProfile = mutation({
     if (args.first_name !== undefined) updates.first_name = args.first_name;
     if (args.last_name !== undefined) updates.last_name = args.last_name;
     if (args.profile_photo_url !== undefined) updates.profile_photo_url = args.profile_photo_url;
+    if (args.profile_photo_storage_id !== undefined) updates.profile_photo_storage_id = args.profile_photo_storage_id;
     if (args.tellUsAboutCompleted !== undefined) updates.tellUsAboutCompleted = args.tellUsAboutCompleted;
     if (args.language !== undefined) updates.language = args.language;
     if (args.units !== undefined) updates.units = args.units;
@@ -222,9 +238,16 @@ export const updateProfile = mutation({
     }
 
     updates.lastUpdated = Date.now();
-    await ctx.db.patch(user._id, updates);
-    return await ctx.db.get(user._id);
+    return await ctx.db.patch(user._id, updates);
   },
+});
+
+/**
+ * MUTATION: generateUploadUrl
+ * Generates a short-lived URL for uploading files to Convex storage.
+ */
+export const generateUploadUrl = mutation(async (ctx) => {
+  return await ctx.storage.generateUploadUrl();
 });
 
 /**

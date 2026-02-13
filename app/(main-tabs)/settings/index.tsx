@@ -125,7 +125,7 @@ export default function SettingsHomeScreen() {
   const { signOut } = useAuth();
   const { user: clerkUser } = useUser();
   const resetAuth = useAuthStore((s) => s.reset);
-  const { persistProfileField } = useOnboardingPersistence();
+  const { persistProfileField, persistProfilePhoto } = useOnboardingPersistence();
 
   // Convex: current user and user-scoped data
   const me = useQuery(api.users.getMe);
@@ -359,6 +359,7 @@ export default function SettingsHomeScreen() {
   const [editName, setEditName] = useState("");
   const [editEmail, setEditEmail] = useState("");
   const [editPhone, setEditPhone] = useState("");
+  const [editPhotoUri, setEditPhotoUri] = useState<string | null>(null);
 
   const openEditProfile = useCallback((showPhotos = false) => {
     const fromConvex =
@@ -367,12 +368,14 @@ export default function SettingsHomeScreen() {
     const name = fromConvex.length > 0 ? fromConvex : fromOnboarding;
     const email = (me?.email ?? data.email ?? "").toString().toLowerCase();
     const phone = (me?.phone ?? data.phoneNumber ?? "").toString();
+    
     setEditName(name);
     setEditEmail(email);
     setEditPhone(phone);
+    setEditPhotoUri(profilePhotoUri);
     setShowPhotoOptions(showPhotos);
     setIsEditVisible(true);
-  }, [me, data.email, data.firstName, data.lastName, data.phoneNumber]);
+  }, [me, data.email, data.firstName, data.lastName, data.phoneNumber, profilePhotoUri]);
 
   const handleSaveProfile = useCallback(async () => {
     const normalizedName = editName.trim().replace(/\s+/g, " ");
@@ -386,6 +389,17 @@ export default function SettingsHomeScreen() {
     const normalizedPhone = editPhone.trim();
     const phoneNumber = normalizedPhone.length > 0 ? normalizedPhone : null;
 
+    // 1. Update Profile Photo if changed
+    if (editPhotoUri !== profilePhotoUri) {
+      updateData({ profilePhotoUri: editPhotoUri });
+      try {
+        await persistProfilePhoto(editPhotoUri);
+      } catch (e) {
+        console.warn("Convex photo update failed:", e);
+      }
+    }
+
+    // 2. Update other fields
     updateData({ firstName, lastName, email, phoneNumber });
     
     try {
@@ -400,7 +414,7 @@ export default function SettingsHomeScreen() {
     }
     
     setIsEditVisible(false);
-  }, [editEmail, editName, editPhone, updateData, persistProfileField]);
+  }, [editEmail, editName, editPhone, editPhotoUri, profilePhotoUri, updateData, persistProfileField, persistProfilePhoto]);
 
   const requestLibraryPermission = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -410,11 +424,6 @@ export default function SettingsHomeScreen() {
   const requestCameraPermission = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     return status === "granted";
-  };
-
-  const persistProfilePhoto = async (uri: string | null) => {
-    updateData({ profilePhotoUri: uri });
-    await persistProfileField({ profile_photo_url: uri });
   };
 
   const handleChooseFromLibrary = useCallback(async () => {
@@ -432,7 +441,7 @@ export default function SettingsHomeScreen() {
     
     setShowPhotoOptions(false);
     if (!result.canceled && result.assets?.length) {
-      persistProfilePhoto(result.assets[0].uri);
+      setEditPhotoUri(result.assets[0].uri);
     }
   }, []);
 
@@ -451,13 +460,13 @@ export default function SettingsHomeScreen() {
 
     setShowPhotoOptions(false);
     if (!result.canceled && result.assets?.length) {
-      persistProfilePhoto(result.assets[0].uri);
+      setEditPhotoUri(result.assets[0].uri);
     }
   }, []);
 
   const handleRemovePhoto = useCallback(() => {
     setShowPhotoOptions(false);
-    persistProfilePhoto(null);
+    setEditPhotoUri(null);
   }, []);
 
   // ─────────────────────────────────────────────────────────────
@@ -839,7 +848,7 @@ export default function SettingsHomeScreen() {
                         Take a photo
                       </Text>
                     </Pressable>
-                    {profilePhotoUri ? (
+                    {editPhotoUri ? (
                       <Pressable style={styles.photoModalRemoveButton} onPress={handleRemovePhoto}>
                         <Text weight="semiBold" size="md" color="#EF4444">
                           Remove photo
@@ -866,8 +875,8 @@ export default function SettingsHomeScreen() {
                       style={styles.editAvatarWrapper}
                       onPress={() => setShowPhotoOptions(true)}
                     >
-                      {profilePhotoUri ? (
-                        <Image source={{ uri: profilePhotoUri }} style={styles.editAvatarImage} />
+                      {editPhotoUri ? (
+                        <Image source={{ uri: editPhotoUri }} style={styles.editAvatarImage} />
                       ) : (
                         <View style={styles.editAvatarPlaceholder}>
                           <Text weight="semiBold" size="xl" color={BrandColors.secondary}>
