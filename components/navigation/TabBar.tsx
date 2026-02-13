@@ -208,14 +208,7 @@ const styles = StyleSheet.create({
   activeCapsule: {
     width: '105%',
     height: '110%',
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-    borderRadius: 40,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 10,
-    elevation: 2,
-    borderWidth: 0.5,
-    borderColor: "rgba(255, 255, 255, 1)",
+    backgroundColor: 'rgba(37, 99, 235, 0.1)',
+    borderRadius: 28,
   }
 })
