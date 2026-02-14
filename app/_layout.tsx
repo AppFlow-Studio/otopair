@@ -15,6 +15,7 @@ import { ConvexProviderWithClerk } from "convex/react-clerk";
 
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useAppFonts } from "@/hooks/use-fonts";
+import { useConsoleToConvex } from "@/hooks/useConsoleToConvex";
 import { useEnsureConvexUser } from "@/hooks/useEnsureConvexUser";
 import { useAuthStore } from "@/stores/useAuthStore";
 
@@ -30,11 +31,17 @@ const convex = new ConvexReactClient(process.env.EXPO_PUBLIC_CONVEX_URL!, {
   unsavedChangesWarning: false,
 });
 
+function ConsoleToConvexLogger() {
+  useConsoleToConvex();
+  return null;
+}
+
 function ConvexClerkProvider({ children }: { children: ReactNode }) {
   // Convex expects the Clerk useAuth hook that matches the provider
   const auth = useAuth();
   return (
     <ConvexProviderWithClerk client={convex} useAuth={() => auth}>
+      <ConsoleToConvexLogger />
       {children}
     </ConvexProviderWithClerk>
   );

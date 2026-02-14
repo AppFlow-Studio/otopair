@@ -218,7 +218,7 @@ export default defineSchema({
         cost: v.float64(),
         oem_number: v.string(),
         part_name: v.string(),
-      }),
+      })
     ),
     technician_notes: v.string(),
   })
@@ -766,13 +766,13 @@ export default defineSchema({
       v.object({
         question: v.string(),
         answer: v.string(),
-      }),
+      })
     ),
     user_intentions: v.optional(
       v.object({
         question: v.string(),
         intentions: v.array(v.string()),
-      }),
+      })
     ),
     car_knowledge_level: v.optional(v.float64()),
     last_updated: v.float64(),
@@ -1523,7 +1523,7 @@ export default defineSchema({
         service_suggestions: v.optional(v.array(v.id("services"))),
         shop_suggestions: v.optional(v.array(v.id("shops"))),
         intent_detected: v.optional(v.string()),
-      }),
+      })
     ),
   })
     .index("by_conversation_id", ["conversation_id"])
@@ -1570,7 +1570,7 @@ export default defineSchema({
         service_id: v.optional(v.id("services")),
         screen_name: v.optional(v.string()),
         custom_properties: v.optional(v.any()),
-      }),
+      })
     ),
     timestamp: v.float64(),
     session_id: v.optional(v.string()),
@@ -1939,4 +1939,22 @@ export default defineSchema({
   })
     .index("by_vehicle_owner", ["vehicleOwnerId"])
     .index("by_vehicle_and_type", ["vehicleOwnerId", "snapshotType"]),
+
+  /**
+   * TABLE: client_logs
+   * Stores client-side logs forwarded from console (error, warn, log, info, debug).
+   * Enables centralized monitoring in Convex dashboard.
+   */
+  client_logs: defineTable({
+    level: v.string(), // "error" | "warn" | "log" | "info" | "debug"
+    message: v.string(),
+    stack: v.optional(v.string()),
+    metadata: v.optional(v.any()), // extra args (objects, etc.)
+    timestamp: v.float64(),
+    user_id: v.optional(v.id("users")),
+    session_id: v.optional(v.string()),
+  })
+    .index("by_level", ["level"])
+    .index("by_timestamp", ["timestamp"])
+    .index("by_user_id", ["user_id"]),
 });

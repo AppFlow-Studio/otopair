@@ -16,6 +16,7 @@ import type * as booking_status_history from "../booking_status_history.js";
 import type * as bookings from "../bookings.js";
 import type * as cdn_assets from "../cdn_assets.js";
 import type * as chassis_variants from "../chassis_variants.js";
+import type * as client_logs from "../client_logs.js";
 import type * as conversion_funnels from "../conversion_funnels.js";
 import type * as engines from "../engines.js";
 import type * as fitments from "../fitments.js";
@@ -73,6 +74,7 @@ declare const fullApi: ApiFromModules<{
   bookings: typeof bookings;
   cdn_assets: typeof cdn_assets;
   chassis_variants: typeof chassis_variants;
+  client_logs: typeof client_logs;
   conversion_funnels: typeof conversion_funnels;
   engines: typeof engines;
   fitments: typeof fitments;
