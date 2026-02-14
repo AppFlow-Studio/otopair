@@ -180,6 +180,61 @@ export const getOrCreateMe = mutation({
 });
 
 /**
+ * MUTATION: requestAccountDeletion
+ * Marks a user account as pending deletion.
+ * Sets deletionRequestedAt to current time and isPendingDeletion to true.
+ */
+export const requestAccountDeletion = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
+
+    const clerkUserId = identity.subject;
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", clerkUserId))
+      .unique();
+
+    if (!user) throw new Error("User not found");
+
+    await ctx.db.patch(user._id, {
+      isPendingDeletion: true,
+      deletionRequestedAt: Date.now(),
+    });
+
+    return user._id;
+  },
+});
+
+/**
+ * MUTATION: reactivateAccount
+ * Cancels a pending account deletion.
+ */
+export const reactivateAccount = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) throw new Error("Not authenticated");
+
+    const clerkUserId = identity.subject;
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", clerkUserId))
+      .unique();
+
+    if (!user) throw new Error("User not found");
+
+    await ctx.db.patch(user._id, {
+      isPendingDeletion: false,
+      deletionRequestedAt: undefined,
+    });
+
+    return user._id;
+  },
+});
+
+/**
  * MUTATION: updateProfile
  * Update the current user's profile (used by onboarding persistence).
  * Only updates fields that are provided; must be authenticated.

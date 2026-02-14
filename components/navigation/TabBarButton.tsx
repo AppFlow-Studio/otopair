@@ -9,6 +9,7 @@ import Animated, {
 import { Home, Calendar, MessageSquare, LucideIcon, Settings } from "lucide-react-native";
 import { CarIcon } from "phosphor-react-native";
 import { OtoPairIcon } from "@/components/icons/oto-pair";
+import { BrandColors } from "../shared-ui";
 
 const icon: Record<string, any> = {
   home: OtoPairIcon,
@@ -34,10 +35,11 @@ const TabBarButton = ({
   label,
 }: TabBarButtonProps) => {
   const IconComponent = icon[routeName] || Home;
-  const activeColor = "#2563EB";
+  const activeColor = BrandColors.secondary;
   const inactiveColor = "#86868B";
 
   const isOtoPair = routeName === 'home';
+  const isPhosphor = routeName === 'cars';
 
   return (
     <Pressable
@@ -53,7 +55,8 @@ const TabBarButton = ({
             <IconComponent
               size={24}
               color={isFocused ? activeColor : inactiveColor}
-              strokeWidth={isFocused ? 2.5 : 2}
+              strokeWidth={1.5}
+              weight="regular"
             />
           )}
           <Animated.Text

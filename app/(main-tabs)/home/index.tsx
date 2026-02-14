@@ -1,6 +1,6 @@
 // 1. React & React Native
 import React, { useEffect, useState } from 'react';
-import { Image, Pressable, StyleSheet, View } from 'react-native';
+import { Image, Pressable, StyleSheet, View, Alert } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated from 'react-native-reanimated';
 
@@ -10,7 +10,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
 import { useRouter } from 'expo-router';
 import { Bell, MoveRight, Star, Trophy } from 'lucide-react-native';
-import { useQuery } from 'convex/react';
+import { useQuery, useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 
 // 3. Shared UI
@@ -19,7 +19,10 @@ import { Button, ScrollDrivenGradientBackground, Text } from '@/components/share
 // 4. Stores
 import { useAuthStore } from '@/stores/useAuthStore';
 
-// 5. Flow-specific components
+// 5. Hooks
+import { useAccountDeletion } from '@/hooks/useAccountDeletion';
+
+// 6. Flow-specific components
 import { ActionCardsCarousel } from '@/components/home/ActionCardsCarousel';
 import { AddFirstVehicleCard } from '@/components/home/AddFirstVehicleCard';
 import { LoyaltyCard } from '@/components/home/LoyaltyCard';
@@ -37,6 +40,7 @@ export default function HomeScreen() {
   const router = useRouter();
   const { isNewUser } = useAuthStore();
   const myVehicles = useQuery(api.vehicles.getMyVehicles);
+  const { isPendingDeletion, reactivateAccount } = useAccountDeletion();
   const hasVehicles = myVehicles != null && myVehicles.length > 0;
   const [showWelcome, setShowWelcome] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -46,6 +50,26 @@ export default function HomeScreen() {
   const [activeCardIndex, setActiveCardIndex] = useState(0);
   const [showAccountSetup, setShowAccountSetup] = useState(true);
   const [showCarSetup, setShowCarSetup] = useState(true);
+  const [showReactivationAlert, setShowReactivationAlert] = useState(false);
+
+  useEffect(() => {
+    if (isPendingDeletion && !showReactivationAlert) {
+      setShowReactivationAlert(true);
+      // Automatically reactivate the account
+      (async () => {
+        try {
+          await reactivateAccount(true); // Call silently since we show our own alert
+          Alert.alert(
+            "Welcome Back!",
+            "Your account was scheduled for deletion, but has now been automatically reactivated since you logged back in. Your data is safe!",
+            [{ text: "Great!" }]
+          );
+        } catch (error) {
+          console.error("Failed to automatically reactivate account:", error);
+        }
+      })();
+    }
+  }, [isPendingDeletion]);
 
   useEffect(() => {
     (async () => {

@@ -924,7 +924,10 @@ export default defineSchema({
     tellUsAboutCompleted: v.optional(v.boolean()),
     language: v.optional(v.string()),
     units: v.optional(v.string()),
-  }).index("by_clerkUserId", ["clerkUserId"]),
+    deletionRequestedAt: v.optional(v.float64()),
+    isPendingDeletion: v.optional(v.boolean()),
+  }).index("by_clerkUserId", ["clerkUserId"])
+    .index("by_isPendingDeletion", ["isPendingDeletion"]),
 
   // ============================================================================
   // OEM PARTS & NORMALIZATION

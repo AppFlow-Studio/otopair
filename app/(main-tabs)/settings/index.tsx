@@ -55,6 +55,7 @@ import {
   Sliders,
   CircleDollarSign,
   Users,
+  Trash2,
 } from "lucide-react-native";
 import { CarIcon } from "phosphor-react-native";
 import Animated, {
@@ -103,14 +104,15 @@ const SHEET_TOP_RADIUS = 32;
 interface SettingsListItemProps {
   icon: React.ReactNode;
   label: string;
+  labelColor?: string;
   onPress: () => void;
   isLast?: boolean;
 }
 
-const SettingsListItem = ({ icon, label, onPress, isLast }: SettingsListItemProps) => (
+const SettingsListItem = ({ icon, label, labelColor = "#1F2937", onPress, isLast }: SettingsListItemProps) => (
   <Pressable onPress={onPress} style={({ pressed }) => [styles.listItem, pressed && styles.listItemPressed]}>
     <View style={styles.listItemIcon}>{icon}</View>
-    <Text weight="medium" size="md" color="#1F2937" style={styles.listItemLabel}>
+    <Text weight="medium" size="md" color={labelColor} style={styles.listItemLabel}>
       {label}
     </Text>
     <ChevronRight size={20} color="#9CA3AF" />
@@ -783,6 +785,13 @@ export default function SettingsHomeScreen() {
                       icon={<LogOut size={20} color="#1F2937" />}
                       label="Logout"
                       onPress={() => setIsLogoutVisible(true)}
+                    />
+                    <SettingsListItem
+                      icon={<Trash2 size={20} color="#EF4444" />}
+                      label="Delete Account"
+                      labelColor="#EF4444"
+                      onPress={() => router.push("/settings/delete-account")}
+                      isLast
                     />
                   </View>
                 </View>
