@@ -1,13 +1,13 @@
 /**
  * Shared UI Components Library
- * 
+ *
  * A foundational component library for consistent UI across the app.
  * All components use Urbanist font by default.
- * 
+ *
  * @example
  * ```tsx
  * import { Button, Text, Container, Input } from '@/components/shared-ui';
- * 
+ *
  * <Container padding="lg">
  *   <Text weight="bold" size="xl">Welcome</Text>
  *   <Input label="Email" placeholder="Enter your email" />
@@ -17,110 +17,69 @@
  */
 
 // Progress Bar Components
-export {
-    ProgressBar
-} from './ProgressBar';
+export { ProgressBar } from "./ProgressBar";
 
-export {
-    SolidProgressBar
-} from './SolidProgressBar';
+export { SolidProgressBar } from "./SolidProgressBar";
 
 // Footer Button Component
-export {
-    FooterButton
-} from './FooterButton';
+export { FooterButton } from "./FooterButton";
 
 // Fade Footer Container Component
-export {
-    FadeFooterContainer
-} from './FadeFooterContainer';
+export { FadeFooterContainer } from "./FadeFooterContainer";
 
 // Fade Header Container Component
-export {
-    FadeHeaderContainer
-} from './FadeHeaderContainer';
+export { FadeHeaderContainer } from "./FadeHeaderContainer";
 
 // Back Button Component
-export {
-    BackButton
-} from './BackButton';
+export { BackButton } from "./BackButton";
 
 // Animated Gradient Background Component
-export {
-    AnimatedGradientBackground
-} from './AnimatedGradientBackground';
+export { AnimatedGradientBackground } from "./AnimatedGradientBackground";
 
 // Scroll-driven Gradient Background Wrapper
 // Scroll Driven Gradient Background Component
 export {
-    ScrollDrivenGradientBackground,
-    type ScrollDrivenGradientBackgroundProps
-} from './ScrollDrivenGradientBackground';
+  ScrollDrivenGradientBackground,
+  type ScrollDrivenGradientBackgroundProps,
+} from "./ScrollDrivenGradientBackground";
 
 // Button Components
-export {
-    Button,
-    GhostButton,
-    IconButton,
-    PrimaryButton,
-    SecondaryButton,
-    type ButtonProps
-} from './Button';
+export { Button, GhostButton, IconButton, PrimaryButton, SecondaryButton, type ButtonProps } from "./Button";
 
-export {
-    GlassCircleButton
-} from './GlassCircleButton';
+export { GlassCircleButton } from "./GlassCircleButton";
 
 // Bottom Sheet Modal
-export {
-    AppBottomSheetModal
-} from './AppBottomSheetModal';
+export { AppBottomSheetModal } from "./AppBottomSheetModal";
 
 // Blur Header Overlay
-export {
-    BlurHeaderOverlay,
-    type BlurHeaderOverlayProps
-} from './BlurHeaderOverlay';
+export { BlurHeaderOverlay, type BlurHeaderOverlayProps } from "./BlurHeaderOverlay";
 
 // Text Components
-export {
-    Body, H1,
-    H2,
-    H3,
-    H4, Label,
-    LinkText, Small, Text, XSmall, type TextProps
-} from './Text';
+export { Body, H1, H2, H3, H4, Label, LinkText, Small, Text, XSmall, type TextProps } from "./Text";
 
 // Container Components
-export {
-    Card, Container, Divider, HSpacer, Row, ScreenContainer, Spacer, type ContainerProps
-} from './Container';
+export { Card, Container, Divider, HSpacer, Row, ScreenContainer, Spacer, type ContainerProps } from "./Container";
 
 // Input Components
-export {
-    Input,
-    PasswordInput,
-    SearchInput,
-    type InputProps
-} from './Input';
+export { Input, PasswordInput, SearchInput, type InputProps } from "./Input";
+
+// Error Modal
+export { ErrorOccurredModal } from "./ErrorOccurredModal";
 
 // Feedback Modal
-export {
-    FeedbackModal,
-    type FeedbackModalProps
-} from './FeedbackModal';
+export { FeedbackModal, type FeedbackModalProps } from "./FeedbackModal";
 
 // Referral helpers
-export {
-    buildReferralCode,
-    buildReferralShareMessage,
-    useReferralCode,
-    type ReferralProfile
-} from './ReferralUtils';
+export { buildReferralCode, buildReferralShareMessage, useReferralCode, type ReferralProfile } from "./ReferralUtils";
 
 // Re-export theme constants for convenience
 export {
-    BorderRadius, BrandColors, ButtonStyles, Colors, FontFamily,
-    FontSize, Shadows, Spacing
-} from '@/constants/theme';
-
+  BorderRadius,
+  BrandColors,
+  ButtonStyles,
+  Colors,
+  FontFamily,
+  FontSize,
+  Shadows,
+  Spacing,
+} from "@/constants/theme";

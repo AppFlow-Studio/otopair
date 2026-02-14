@@ -1,6 +1,5 @@
 /**
- * Intercepts console.error, console.warn, console.log, console.info, and console.debug
- * and forwards them to Convex. Original console behavior is preserved.
+ * Intercepts console.error, console.warn, console.log, etc. and forwards to Convex.
  */
 
 type LogLevel = "error" | "warn" | "log" | "info" | "debug";
