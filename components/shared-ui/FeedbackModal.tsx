@@ -44,6 +44,32 @@ export function FeedbackModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [didSucceed, setDidSucceed] = useState(false);
 
+  // Force KAV remount on Android when keyboard hides to fix height not resetting.
+  // We debounce to avoid reacting to the hide event caused by the remount itself.
+  const [kavKey, setKavKey] = useState(0);
+  const remountTimer = useRef<any>(null);
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !visible) return;
+    const sub = Keyboard.addListener('keyboardDidHide', () => {
+      if (remountTimer.current) clearTimeout(remountTimer.current);
+      remountTimer.current = setTimeout(() => {
+        setKavKey((k) => k + 1);
+      }, 100);
+    });
+    const showSub = Keyboard.addListener('keyboardDidShow', () => {
+      // Cancel any pending remount if the keyboard comes back up
+      if (remountTimer.current) {
+        clearTimeout(remountTimer.current);
+        remountTimer.current = null;
+      }
+    });
+    return () => {
+      sub.remove();
+      showSub.remove();
+      if (remountTimer.current) clearTimeout(remountTimer.current);
+    };
+  }, [visible]);
+
   const canSubmit = useMemo(() => feedback.trim().length > 0 && !isSubmitting && !didSucceed, [
     feedback,
     isSubmitting,
@@ -55,6 +81,7 @@ export function FeedbackModal({
       setFeedback('');
       setIsSubmitting(false);
       setDidSucceed(false);
+      setKavKey(0);
     }
   }, [visible]);
 
@@ -97,11 +124,15 @@ export function FeedbackModal({
         }, 150);
       }}
     >
+      {/* Full-screen background layer (independent of KeyboardAvoidingView) */}
+      <View style={styles.fullScreenBackdrop} pointerEvents="none" />
+
       <KeyboardAvoidingView
+        key={kavKey}
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         style={styles.keyboardView}
       >
-        {/* Backdrop - tap to close */}
+        {/* Backdrop touch target - tap to close */}
         <TouchableWithoutFeedback onPress={onClose}>
           <View style={styles.backdrop} />
         </TouchableWithoutFeedback>
@@ -138,7 +169,7 @@ export function FeedbackModal({
               placeholderTextColor="#9CA3AF"
               style={styles.input}
               multiline
-              autoFocus
+              autoFocus={kavKey === 0}
               textAlignVertical="top"
             />
 
@@ -188,9 +219,12 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'flex-end',
   },
-  backdrop: {
+  fullScreenBackdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(0, 0, 0, 0.4)',
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
   },
   card: {
     marginHorizontal: 10,
