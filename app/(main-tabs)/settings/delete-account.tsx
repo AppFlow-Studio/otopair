@@ -9,7 +9,7 @@
  * OWNER: Daniel Chelala
  */
 
-import React, { useState, useMemo, useRef, useEffect } from 'react';
+import React, { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import {
   StyleSheet,
   View,
@@ -17,16 +17,17 @@ import {
   Pressable,
   TextInput,
   Image,
-  Alert,
   ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   useWindowDimensions,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
-import { User } from 'lucide-react-native';
-import { useQuery, useMutation } from 'convex/react';
+  Linking,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useRouter } from "expo-router";
+import { User } from "lucide-react-native";
+import { BottomSheetBackdrop, BottomSheetModal, BottomSheetScrollView, type BottomSheetBackdropProps } from "@gorhom/bottom-sheet";
+import { useQuery } from "convex/react";
 
 import {
   BrandColors,
@@ -35,35 +36,47 @@ import {
   BlurHeaderOverlay,
   FontSize,
   FontFamily,
-} from '@/components/shared-ui';
-import { api } from '@/convex/_generated/api';
-import { useOnboardingStore } from '@/stores/useOnboardingStore';
-import { useAuth, useUser } from '@clerk/clerk-expo';
-import { useAccountDeletion } from '@/hooks/useAccountDeletion';
+} from "@/components/shared-ui";
+import { api } from "@/convex/_generated/api";
+import { useOnboardingStore } from "@/stores/useOnboardingStore";
+import { useAccountDeletion } from "@/hooks/useAccountDeletion";
 
 export default function DeleteAccountScreen() {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const router = useRouter();
-  const { isLoaded: isAuthLoaded } = useAuth();
-  const { user, isLoaded: isUserLoaded } = useUser();
-  
+
   // Hook for account deletion logic
-  const { sendVerificationCode, confirmDeletion } = useAccountDeletion();
-  
+  const { sendVerificationCode, verifyDeletionCode, markAccountForDeletion } = useAccountDeletion();
+
   // Convex data
   const me = useQuery(api.users.getMe);
   const data = useOnboardingStore((state) => state.data);
 
   // Local state
-  const [code, setCode] = useState(['', '', '', '', '', '']);
+  const [code, setCode] = useState(["", "", "", "", "", ""]);
   const [focusedIndex, setFocusedIndex] = useState(0);
   const [isDeleting, setIsDeleting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [codeSent, setCodeSent] = useState(false);
   const [timer, setTimer] = useState(0);
-  
+
   const inputRefs = useRef<(TextInput | null)[]>([]);
+  const sheetRef = useRef<BottomSheetModal>(null);
+  const snapPoints = useMemo(() => ["72%"], []);
+  const isCodeComplete = useMemo(() => code.join("").length === 6, [code]);
+
+  const renderBackdrop = useCallback(
+    (props: BottomSheetBackdropProps) => (
+      <BottomSheetBackdrop
+        {...props}
+        disappearsOnIndex={-1}
+        appearsOnIndex={0}
+        opacity={0.5}
+      />
+    ),
+    [],
+  );
 
   useEffect(() => {
     let interval: any;
@@ -76,11 +89,13 @@ export default function DeleteAccountScreen() {
   }, [timer]);
 
   const fullName = useMemo(() => {
-    const fromConvex = me != null && (me.first_name ?? me.last_name) 
-      ? `${me.first_name ?? ""} ${me.last_name ?? ""}`.trim() 
-      : "";
+    const fromConvex =
+      me != null && (me.first_name ?? me.last_name)
+        ? `${me.first_name ?? ""} ${me.last_name ?? ""}`.trim()
+        : "";
     if (fromConvex.length > 0) return fromConvex;
-    const fromOnboarding = `${data.firstName ?? ""} ${data.lastName ?? ""}`.trim();
+    const fromOnboarding =
+      `${data.firstName ?? ""} ${data.lastName ?? ""}`.trim();
     return fromOnboarding.length > 0 ? fromOnboarding : "User";
   }, [me, data.firstName, data.lastName]);
 
@@ -93,12 +108,13 @@ export default function DeleteAccountScreen() {
   }, [me?.profile_photo_url, data.profilePhotoUri]);
 
   const handleCodeChange = (value: string, index: number) => {
-    const digit = value.replace(/\D/g, '');
+    const digit = value.replace(/\D/g, "");
     if (digit.length > 1) return;
 
     const newCode = [...code];
     newCode[index] = digit;
     setCode(newCode);
+    setErrorMessage(null);
 
     if (digit && index < 5) {
       setFocusedIndex(index + 1);
@@ -107,13 +123,13 @@ export default function DeleteAccountScreen() {
   };
 
   const handleKeyPress = (e: any, index: number) => {
-    if (e.nativeEvent.key === 'Backspace') {
+    if (e.nativeEvent.key === "Backspace") {
       const newCode = [...code];
       if (newCode[index]) {
-        newCode[index] = '';
+        newCode[index] = "";
         setCode(newCode);
       } else if (index > 0) {
-        newCode[index - 1] = '';
+        newCode[index - 1] = "";
         setCode(newCode);
         setFocusedIndex(index - 1);
         inputRefs.current[index - 1]?.focus();
@@ -139,78 +155,106 @@ export default function DeleteAccountScreen() {
       return;
     }
 
-    const fullCode = code.join('');
+    const fullCode = code.join("");
     if (fullCode.length < 6) {
-      setErrorMessage("Please enter the 6-digit verification code sent to your email.");
+      setErrorMessage(
+        "Please enter the 6-digit verification code sent to your email.",
+      );
       return;
     }
 
-    if (!user || !isUserLoaded) {
-      setErrorMessage("User data not loaded. Please try again.");
-      return;
-    }
+    setIsDeleting(true);
+    setErrorMessage(null);
+    try {
+      await verifyDeletionCode(fullCode);
+      sheetRef.current?.present();
+    } catch (error: any) {
+      const msg =
+        error?.errors?.[0]?.longMessage ||
+        error?.errors?.[0]?.message ||
+        error?.message ||
+        "";
+      const lowerMsg = msg.toLowerCase();
 
-    Alert.alert(
-      "Delete Account",
-      "Are you absolutely sure? Your account will be deactivated for 30 days before permanent deletion. You can log back in anytime during this period to reactivate it.",
-      [
-        { text: "Cancel", style: "cancel" },
-        { 
-          text: "Delete", 
-          style: "destructive",
-          onPress: async () => {
-            setIsDeleting(true);
-            setErrorMessage(null);
-            try {
-              // Use the hook to confirm deletion
-              await confirmDeletion(fullCode);
-              
-              // Redirect (signOut is handled by the hook)
-              router.replace('/(onboarding)');
-            } catch (error: any) {
-              console.error("Delete account error:", error);
-              setErrorMessage(error.message || "Failed to delete account. Please check the code and try again.");
-            } finally {
-              setIsDeleting(false);
-            }
-          }
-        }
-      ]
-    );
+      if (
+        lowerMsg.includes("incorrect") ||
+        lowerMsg.includes("invalid") ||
+        lowerMsg.includes("expired")
+      ) {
+        setErrorMessage("The verification code you entered is incorrect or has expired.");
+      } else if (lowerMsg.includes("already been verified")) {
+        setErrorMessage("This verification code has already been used. Please request a new one.");
+      } else {
+        setErrorMessage(msg || "Failed to verify code. Please try again.");
+      }
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
-  const handleResendCode = () => {
+  const handleFinalDelete = async () => {
+    setIsDeleting(true);
+    setErrorMessage(null);
+    try {
+      await markAccountForDeletion();
+      sheetRef.current?.dismiss();
+      router.replace("/(onboarding)");
+    } catch (error: any) {
+      console.error("Final delete error:", error);
+      sheetRef.current?.dismiss();
+      setErrorMessage(error?.message || "Failed to finalize account deletion.");
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
+  const handleResendCode = async () => {
     if (timer > 0) return;
-    setCode(['', '', '', '', '', '']);
+    setCode(["", "", "", "", "", ""]);
     setFocusedIndex(0);
+    setErrorMessage(null);
     inputRefs.current[0]?.focus();
-    // Re-trigger code
-    handleDeleteAccount();
+    setIsDeleting(true);
+    try {
+      await sendVerificationCode();
+      setTimer(60);
+    } catch (error) {
+      setErrorMessage("Failed to resend code. Please try again.");
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
-  const containerPadding = Spacing['2xl'] * 2;
+  const handleOpenPrivacyPolicy = useCallback(async () => {
+    const url = "https://www.otopair.com/privacy-policy";
+    try {
+      const supported = await Linking.canOpenURL(url);
+      if (supported) {
+        await Linking.openURL(url);
+      }
+    } catch (error) {
+      console.error("Failed to open privacy policy:", error);
+    }
+  }, []);
+
+  const containerPadding = Spacing["2xl"] * 2;
   const boxMargin = Spacing.sm * 2;
   const totalMarginSpace = 6 * boxMargin;
   const availableWidth = width - containerPadding;
-  const calculatedBoxWidth = Math.max(40, Math.floor((availableWidth - totalMarginSpace) / 6));
+  const calculatedBoxWidth = Math.max(
+    40,
+    Math.floor((availableWidth - totalMarginSpace) / 6),
+  );
 
   return (
-    <KeyboardAvoidingView 
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+    <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
       style={styles.screen}
     >
       <BlurHeaderOverlay
         title="Delete Account"
         titleColor={BrandColors.primary}
-        onBack={() => {
-          if (codeSent) {
-            setCodeSent(false);
-            setCode(['', '', '', '', '', '']);
-            setFocusedIndex(0);
-          } else {
-            router.back();
-          }
-        }}
+        onBack={() => router.back()}
       />
 
       <ScrollView
@@ -218,32 +262,42 @@ export default function DeleteAccountScreen() {
         style={{ flex: 1 }}
         contentContainerStyle={[
           styles.container,
-          { 
-            paddingTop: insets.top + 80, 
-            paddingBottom: insets.bottom + (Platform.OS === 'ios' && parseInt(Platform.Version as string, 10) >= 26 ? 80 : 100) 
-          }
+          {
+            paddingTop: insets.top + 80,
+            paddingBottom:
+              insets.bottom +
+              (Platform.OS === "ios" &&
+              parseInt(Platform.Version as string, 10) >= 26
+                ? 80
+                : 100),
+          },
         ]}
       >
         {!codeSent ? (
           <>
             <View style={styles.header}>
-              <Text weight="bold" style={styles.title}>Delete account</Text>
               <Text style={styles.subtitle}>
-                Permanently delete your account from Otopair. This cannot be undone. Your data can never be retrieved once deleted.
+                Permanently delete your account from Otopair. This cannot be
+                undone. Your data can never be retrieved once deleted.
               </Text>
             </View>
 
             {/* Error Message */}
             {errorMessage && (
               <View style={styles.errorContainer}>
-                <Text size="sm" color="#f87171" weight="medium">{errorMessage}</Text>
+                <Text size="sm" color="#f87171" weight="medium">
+                  {errorMessage}
+                </Text>
               </View>
             )}
 
             <View style={styles.profileCard}>
               <View style={styles.avatarContainer}>
                 {profilePhotoUri ? (
-                  <Image source={{ uri: profilePhotoUri }} style={styles.avatar} />
+                  <Image
+                    source={{ uri: profilePhotoUri }}
+                    style={styles.avatar}
+                  />
                 ) : (
                   <View style={styles.avatarPlaceholder}>
                     <User size={30} color="#9CA3AF" />
@@ -251,7 +305,12 @@ export default function DeleteAccountScreen() {
                 )}
               </View>
               <View style={styles.profileInfo}>
-                <Text weight="semiBold" size="md" color="#1d1d1f" numberOfLines={1}>
+                <Text
+                  weight="semiBold"
+                  size="md"
+                  color="#1d1d1f"
+                  numberOfLines={1}
+                >
                   {fullName}
                 </Text>
                 <Text size="sm" color="#86868b" numberOfLines={1}>
@@ -261,13 +320,19 @@ export default function DeleteAccountScreen() {
             </View>
 
             <View style={styles.inputSection}>
-              <Text weight="semiBold" size="sm" color="#1d1d1f" style={styles.inputLabel}>
+              <Text
+                weight="semiBold"
+                size="sm"
+                color="#1d1d1f"
+                style={styles.inputLabel}
+              >
                 Security Confirmation
               </Text>
               <View style={styles.inputCard}>
                 <View style={styles.inputWrapper}>
                   <Text size="sm" color="#86868b" style={styles.infoText}>
-                    For security purposes, we will send a verification code to your email address to confirm this action.
+                    For security purposes, we will send a verification code to
+                    your email address to confirm this action.
                   </Text>
                 </View>
               </View>
@@ -277,8 +342,14 @@ export default function DeleteAccountScreen() {
               <Pressable
                 style={({ pressed }) => [
                   styles.deleteButton,
-                  { backgroundColor: codeSent ? '#F87171' : BrandColors.primary, shadowColor: codeSent ? '#F87171' : BrandColors.primary },
-                  (pressed || isDeleting) && { opacity: 0.8, transform: [{ scale: 0.98 }] }
+                  {
+                    backgroundColor: codeSent ? "#F87171" : BrandColors.primary,
+                    shadowColor: codeSent ? "#F87171" : BrandColors.primary,
+                  },
+                  (pressed || isDeleting) && {
+                    opacity: 0.8,
+                    transform: [{ scale: 0.98 }],
+                  },
                 ]}
                 onPress={handleDeleteAccount}
                 disabled={isDeleting}
@@ -286,18 +357,26 @@ export default function DeleteAccountScreen() {
                 {isDeleting ? (
                   <ActivityIndicator color="#FFF" />
                 ) : (
-                  <Text weight="semiBold" color="#FFF" style={styles.deleteButtonText}>
+                  <Text
+                    weight="semiBold"
+                    color="#FFF"
+                    style={styles.deleteButtonText}
+                  >
                     Send Verification Code
                   </Text>
                 )}
               </Pressable>
 
-              <Pressable 
+              <Pressable
                 style={styles.cancelButton}
                 onPress={() => router.back()}
                 disabled={isDeleting}
               >
-                <Text weight="medium" color="#1d1d1f" style={styles.cancelButtonText}>
+                <Text
+                  weight="medium"
+                  color="#1d1d1f"
+                  style={styles.cancelButtonText}
+                >
                   Cancel
                 </Text>
               </Pressable>
@@ -306,7 +385,9 @@ export default function DeleteAccountScreen() {
         ) : (
           <View style={styles.verificationContainer}>
             <View style={styles.header}>
-              <Text weight="bold" style={styles.title}>Verify it's you</Text>
+              <Text weight="bold" style={styles.title}>
+                Verify it's you
+              </Text>
               <Text style={styles.subtitle}>
                 Enter the 6-digit code sent to {email}
               </Text>
@@ -315,7 +396,9 @@ export default function DeleteAccountScreen() {
             {/* Error Message */}
             {errorMessage && (
               <View style={styles.errorContainer}>
-                <Text size="sm" color="#f87171" weight="medium">{errorMessage}</Text>
+                <Text size="sm" color="#f87171" weight="medium">
+                  {errorMessage}
+                </Text>
               </View>
             )}
 
@@ -324,7 +407,9 @@ export default function DeleteAccountScreen() {
                 <View key={index} style={styles.codeInputWrapper}>
                   {index === 3 && <Text style={styles.codeSeparator}>-</Text>}
                   <TextInput
-                    ref={(ref) => { inputRefs.current[index] = ref; }}
+                    ref={(ref) => {
+                      inputRefs.current[index] = ref;
+                    }}
                     style={[
                       styles.codeInput,
                       { width: calculatedBoxWidth },
@@ -343,12 +428,14 @@ export default function DeleteAccountScreen() {
               ))}
             </View>
 
-            <Pressable 
+            <Pressable
               onPress={handleResendCode}
               style={styles.resendContainer}
               disabled={timer > 0}
             >
-              <Text style={[styles.resendText, timer > 0 && styles.resendDisabled]}>
+              <Text
+                style={[styles.resendText, timer > 0 && styles.resendDisabled]}
+              >
                 {timer > 0 ? `Resend code in ${timer}s` : "Resend code"}
               </Text>
             </Pressable>
@@ -357,27 +444,41 @@ export default function DeleteAccountScreen() {
               <Pressable
                 style={({ pressed }) => [
                   styles.deleteButton,
-                  { backgroundColor: codeSent ? '#F87171' : BrandColors.primary, shadowColor: codeSent ? '#F87171' : BrandColors.primary },
-                  (pressed || isDeleting) && { opacity: 0.8, transform: [{ scale: 0.98 }] }
+                  {
+                    backgroundColor: codeSent ? "#F87171" : BrandColors.primary,
+                    shadowColor: codeSent ? "#F87171" : BrandColors.primary,
+                  },
+                  (pressed || isDeleting || !isCodeComplete) && {
+                    opacity: 0.8,
+                    transform: [{ scale: 0.98 }],
+                  },
                 ]}
                 onPress={handleDeleteAccount}
-                disabled={isDeleting}
+                disabled={isDeleting || !isCodeComplete}
               >
                 {isDeleting ? (
                   <ActivityIndicator color="#FFF" />
                 ) : (
-                  <Text weight="semiBold" color="#FFF" style={styles.deleteButtonText}>
+                  <Text
+                    weight="semiBold"
+                    color="#FFF"
+                    style={styles.deleteButtonText}
+                  >
                     Delete account
                   </Text>
                 )}
               </Pressable>
 
-              <Pressable 
+              <Pressable
                 style={styles.cancelButton}
                 onPress={() => setCodeSent(false)}
                 disabled={isDeleting}
               >
-                <Text weight="medium" color="#1d1d1f" style={styles.cancelButtonText}>
+                <Text
+                  weight="medium"
+                  color="#1d1d1f"
+                  style={styles.cancelButtonText}
+                >
                   Back
                 </Text>
               </Pressable>
@@ -385,6 +486,92 @@ export default function DeleteAccountScreen() {
           </View>
         )}
       </ScrollView>
+
+      <BottomSheetModal
+        ref={sheetRef}
+        snapPoints={snapPoints}
+        backdropComponent={renderBackdrop}
+        enableDynamicSizing={false}
+        enableContentPanningGesture={false}
+        handleIndicatorStyle={styles.sheetHandle}
+        backgroundStyle={styles.sheetBackground}
+      >
+        <BottomSheetScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={[
+            styles.sheetContentContainer,
+            { paddingBottom: insets.bottom + 24 },
+          ]}
+        >
+          <View style={styles.sheetTitleWrap}>
+            <Text style={styles.sheetTitle}>Are you sure?</Text>
+          </View>
+
+          <View style={styles.sheetBody}>
+            <Text style={styles.sheetSectionTitle}>What's going to happen:</Text>
+
+            <View style={styles.sheetBulletRow}>
+              <View style={styles.sheetBulletDot} />
+              <Text style={styles.sheetBulletText}>
+                Your account will be <Text style={styles.sheetBulletStrong}>deactivated immediately</Text>.
+              </Text>
+            </View>
+
+            <View style={styles.sheetBulletRow}>
+              <View style={styles.sheetBulletDot} />
+              <Text style={styles.sheetBulletText}>
+                It will be reactivated if you relogin <Text style={styles.sheetBulletStrong}>within 30 days</Text>.
+              </Text>
+            </View>
+
+            <View style={styles.sheetBulletRow}>
+              <View style={styles.sheetBulletDot} />
+              <Text style={styles.sheetBulletText}>
+                Afterwards, your data will be <Text style={styles.sheetBulletStrong}>permanently deleted</Text>.
+              </Text>
+            </View>
+
+            <Text style={styles.sheetInfoText}>
+              For more information about account deletion, read our{" "}
+              <Text style={styles.sheetLinkText} onPress={handleOpenPrivacyPolicy}>
+                Privacy Policy
+              </Text>.
+            </Text>
+          </View>
+
+          <View style={styles.sheetActions}>
+            <Pressable
+              style={({ pressed }) => [
+                styles.sheetDeleteButton,
+                (pressed || isDeleting) && styles.sheetPressed,
+              ]}
+              onPress={handleFinalDelete}
+              disabled={isDeleting}
+            >
+              {isDeleting ? (
+                <ActivityIndicator color="#FFF" />
+              ) : (
+                <Text weight="semiBold" color="#FFF" style={styles.sheetDeleteButtonText}>
+                  I'm sure
+                </Text>
+              )}
+            </Pressable>
+
+            <Pressable
+              style={({ pressed }) => [
+                styles.sheetCancelButton,
+                pressed && styles.sheetPressed,
+              ]}
+              onPress={() => sheetRef.current?.dismiss()}
+              disabled={isDeleting}
+            >
+              <Text weight="semiBold" style={styles.sheetCancelButtonText}>
+                I changed my mind
+              </Text>
+            </Pressable>
+          </View>
+        </BottomSheetScrollView>
+      </BottomSheetModal>
     </KeyboardAvoidingView>
   );
 }
@@ -392,19 +579,19 @@ export default function DeleteAccountScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: '#F5F5F7',
+    backgroundColor: "#F5F5F7",
   },
   container: {
     flexGrow: 1,
     paddingHorizontal: 20,
   },
   errorContainer: {
-    backgroundColor: 'rgba(248, 113, 113, 0.1)',
+    backgroundColor: "rgba(248, 113, 113, 0.1)",
     padding: 12,
     borderRadius: 12,
     marginBottom: 20,
     borderWidth: 1,
-    borderColor: 'rgba(248, 113, 113, 0.2)',
+    borderColor: "rgba(248, 113, 113, 0.2)",
   },
   header: {
     paddingVertical: Spacing.lg,
@@ -412,27 +599,27 @@ const styles = StyleSheet.create({
   title: {
     fontSize: 34,
     lineHeight: 40,
-    color: '#1d1d1f',
+    color: "#1d1d1f",
     letterSpacing: -0.5,
     fontFamily: FontFamily.bold,
   },
   subtitle: {
     fontSize: 17,
     lineHeight: 24,
-    color: '#86868b',
+    color: "#86868b",
     marginTop: 8,
     fontFamily: FontFamily.regular,
   },
   profileCard: {
-    backgroundColor: 'rgba(255, 255, 255, 1)',
+    backgroundColor: "rgba(255, 255, 255, 1)",
     borderRadius: 16,
     padding: 16,
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.5)',
-    shadowColor: '#000',
+    borderColor: "rgba(255, 255, 255, 0.5)",
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.05,
     shadowRadius: 40,
@@ -443,26 +630,26 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: '#F3F4F6',
-    overflow: 'hidden',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: "#F3F4F6",
+    overflow: "hidden",
+    alignItems: "center",
+    justifyContent: "center",
   },
   avatar: {
-    width: '100%',
-    height: '100%',
-    resizeMode: 'cover',
+    width: "100%",
+    height: "100%",
+    resizeMode: "cover",
   },
   avatarPlaceholder: {
-    width: '100%',
-    height: '100%',
-    backgroundColor: '#F3F4F6',
-    alignItems: 'center',
-    justifyContent: 'center',
+    width: "100%",
+    height: "100%",
+    backgroundColor: "#F3F4F6",
+    alignItems: "center",
+    justifyContent: "center",
   },
   profileInfo: {
     flex: 1,
-    overflow: 'hidden',
+    overflow: "hidden",
   },
   inputSection: {
     gap: 12,
@@ -472,15 +659,15 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.semiBold,
   },
   inputCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.72)',
+    backgroundColor: "rgba(255, 255, 255, 0.72)",
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-    overflow: 'hidden',
+    borderColor: "rgba(255, 255, 255, 0.2)",
+    overflow: "hidden",
   },
   inputWrapper: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     paddingHorizontal: 16,
     paddingVertical: 12,
   },
@@ -493,46 +680,46 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   codeContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: Spacing['2xl'],
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: Spacing["2xl"],
     marginBottom: Spacing.xl,
     marginTop: 8,
   },
-  codeInputWrapper: { 
-    position: 'relative', 
-    marginHorizontal: Spacing.sm 
+  codeInputWrapper: {
+    position: "relative",
+    marginHorizontal: Spacing.sm,
   },
   codeSeparator: {
-    position: 'absolute',
+    position: "absolute",
     left: -Spacing.lg + 2.5,
-    top: '50%',
+    top: "50%",
     marginTop: -12,
-    fontSize: FontSize['2xl'],
+    fontSize: FontSize["2xl"],
     fontFamily: FontFamily.bold,
-    color: '#1d1d1f',
+    color: "#1d1d1f",
     opacity: 0.3,
   },
   codeInput: {
     height: 60,
-    backgroundColor: 'rgba(0, 0, 0, 0.05)',
+    backgroundColor: "rgba(0, 0, 0, 0.05)",
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.1)',
-    fontSize: FontSize['2xl'],
+    borderColor: "rgba(0, 0, 0, 0.1)",
+    fontSize: FontSize["2xl"],
     fontFamily: FontFamily.bold,
-    color: '#1d1d1f',
-    textAlign: 'center',
+    color: "#1d1d1f",
+    textAlign: "center",
     padding: 0,
   },
   codeInputFocused: {
     borderColor: BrandColors.primary,
     borderWidth: 2,
-    backgroundColor: 'rgba(255, 255, 255, 1)',
+    backgroundColor: "rgba(255, 255, 255, 1)",
   },
   resendContainer: {
-    alignItems: 'center',
+    alignItems: "center",
     marginTop: 24,
   },
   resendText: {
@@ -541,11 +728,11 @@ const styles = StyleSheet.create({
     color: BrandColors.primary,
   },
   resendDisabled: {
-    color: '#86868b',
+    color: "#86868b",
     opacity: 0.7,
   },
   footer: {
-    marginTop: 'auto',
+    marginTop: "auto",
     paddingTop: 40,
     gap: 16,
   },
@@ -553,8 +740,8 @@ const styles = StyleSheet.create({
     backgroundColor: BrandColors.primary,
     height: 56,
     borderRadius: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     shadowColor: BrandColors.primary,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
@@ -567,11 +754,115 @@ const styles = StyleSheet.create({
   },
   cancelButton: {
     height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   cancelButtonText: {
     fontSize: 17,
     fontFamily: FontFamily.medium,
+  },
+  sheetBackground: {
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+  },
+  sheetHandle: {
+    backgroundColor: "#E5E5EA",
+    width: 44,
+  },
+  sheetContentContainer: {
+    paddingHorizontal: 24,
+    paddingTop: 8,
+  },
+  sheetTitleWrap: {
+    marginTop: 12,
+    marginBottom: 20,
+    alignItems: "center",
+  },
+  sheetTitle: {
+    fontSize: 24,
+    lineHeight: 30,
+    color: "#1d1d1f",
+    fontFamily: FontFamily.bold,
+  },
+  sheetBody: {
+    gap: 16,
+  },
+  sheetSectionTitle: {
+    fontSize: 17,
+    lineHeight: 22,
+    color: "#1d1d1f",
+    fontFamily: FontFamily.medium,
+  },
+  sheetBulletRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+  },
+  sheetBulletDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: "#1d1d1f",
+    marginTop: 10,
+  },
+  sheetBulletText: {
+    flex: 1,
+    fontSize: 17,
+    lineHeight: 26,
+    color: "#1d1d1f",
+    fontFamily: FontFamily.regular,
+  },
+  sheetBulletStrong: {
+    fontFamily: FontFamily.bold,
+  },
+  sheetInfoText: {
+    marginTop: 4,
+    fontSize: 15,
+    lineHeight: 22,
+    color: "#86868b",
+    fontFamily: FontFamily.regular,
+  },
+  sheetLinkText: {
+    color: "#2563EB",
+    fontFamily: FontFamily.semiBold,
+  },
+  sheetActions: {
+    marginTop: 28,
+    gap: 12,
+  },
+  sheetDeleteButton: {
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "#F87171",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#F87171",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  sheetDeleteButtonText: {
+    fontSize: 17,
+    fontFamily: FontFamily.semiBold,
+  },
+  sheetCancelButton: {
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "rgba(255, 255, 255, 0.72)",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.5)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  sheetCancelButtonText: {
+    fontSize: 17,
+    color: "#1d1d1f",
+    fontFamily: FontFamily.semiBold,
+  },
+  sheetPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.99 }],
   },
 });
