@@ -29,8 +29,13 @@ import {
   Camera as CameraIcon,
   Image as ImageIcon,
   Bell,
-  ChevronRight,
 } from 'lucide-react-native';
+import Animated, {
+  interpolateColor,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from 'react-native-reanimated';
 
 import { BlurHeaderOverlay, BrandColors, Spacing, Text } from '@/components/shared-ui';
 import { getSheetContentPadding } from '@/constants/theme';
@@ -45,33 +50,36 @@ interface PermissionRowProps {
   isLast?: boolean;
 }
 
-const PermissionRow = ({ icon, label, description, status, isLast }: PermissionRowProps) => {
-  const getStatusText = () => {
-    switch (status) {
-      case 'granted':
-        return 'Allowed';
-      case 'limited':
-        return 'Limited';
-      case 'denied':
-        return 'Not allowed';
-      case 'undetermined':
-      default:
-        return 'Not set';
-    }
-  };
+const PermissionDisplaySwitch = ({ value }: { value: boolean }) => {
+  const progress = useSharedValue(value ? 1 : 0);
 
-  const getStatusColor = () => {
-    switch (status) {
-      case 'granted':
-        return '#10B981'; // Green
-      case 'limited':
-        return '#F59E0B'; // Orange/Amber
-      case 'denied':
-        return '#EF4444'; // Red
-      default:
-        return '#6B7280'; // Gray
-    }
-  };
+  useEffect(() => {
+    progress.value = withTiming(value ? 1 : 0, { duration: 180 });
+  }, [progress, value]);
+
+  const trackStyle = useAnimatedStyle(() => ({
+    backgroundColor: interpolateColor(
+      progress.value,
+      [0, 1],
+      ['#D1D5DB', BrandColors.secondary]
+    ),
+  }));
+
+  const thumbStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: progress.value * 20 }],
+  }));
+
+  return (
+    <View style={styles.switchHit} pointerEvents="none" accessibilityState={{ disabled: true }}>
+      <Animated.View style={[styles.switchTrack, trackStyle]}>
+        <Animated.View style={[styles.switchThumb, thumbStyle]} />
+      </Animated.View>
+    </View>
+  );
+};
+
+const PermissionRow = ({ icon, label, description, status, isLast }: PermissionRowProps) => {
+  const isEnabled = status === 'granted' || status === 'limited';
 
   return (
     <React.Fragment>
@@ -88,9 +96,7 @@ const PermissionRow = ({ icon, label, description, status, isLast }: PermissionR
           </Text>
         </View>
         <View style={styles.rowRight}>
-          <Text weight="medium" size="sm" style={{ color: getStatusColor() }}>
-            {getStatusText()}
-          </Text>
+          <PermissionDisplaySwitch value={isEnabled} />
         </View>
       </View>
       {!isLast && <View style={styles.separator} />}
@@ -290,8 +296,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'flex-end',
   },
-  chevron: {
-    marginLeft: 8,
+  switchHit: {
+    paddingLeft: Spacing.sm,
+    paddingVertical: Spacing.xs,
+  },
+  switchTrack: {
+    width: 44,
+    height: 24,
+    borderRadius: 12,
+    padding: 2,
+    justifyContent: 'center',
+  },
+  switchThumb: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#FFFFFF',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.12,
+    shadowRadius: 2,
+    elevation: 2,
   },
   separator: {
     height: 1,

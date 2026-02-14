@@ -14,9 +14,10 @@
  * TICKET: OTO-XXX
  */
 
-import React, { useCallback, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Dimensions,
+  FlatList,
   Image,
   LayoutChangeEvent,
   Modal,
@@ -24,6 +25,7 @@ import {
   Pressable,
   StyleSheet,
   TextInput,
+  TouchableOpacity,
   TouchableWithoutFeedback,
   View,
 } from "react-native";
@@ -84,6 +86,16 @@ import { usePaymentStore } from "@/stores/usePaymentStore";
 import { useTransactionsFromConvex } from "@/hooks/useTransactionsFromConvex";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { useOnboardingPersistence } from "@/hooks/useOnboardingPersistence";
+import { Country } from "react-native-country-picker-modal";
+
+// Try to import getAllCountries from the country picker module.
+let getAllCountries: ((locale?: string) => Promise<Country[]>) | undefined;
+try {
+  const countryPickerModule = require("react-native-country-picker-modal");
+  getAllCountries = countryPickerModule.getAllCountries;
+} catch {
+  console.log("getAllCountries not available in library");
+}
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const MENU_WIDTH = 190;
@@ -358,10 +370,96 @@ export default function SettingsHomeScreen() {
   // ─────────────────────────────────────────────────────────────
   const [isEditVisible, setIsEditVisible] = useState(false);
   const [showPhotoOptions, setShowPhotoOptions] = useState(false);
+  const [showCountryPicker, setShowCountryPicker] = useState(false);
   const [editName, setEditName] = useState("");
   const [editEmail, setEditEmail] = useState("");
   const [editPhone, setEditPhone] = useState("");
+  const [editPhoneCountryCode, setEditPhoneCountryCode] = useState("US");
+  const [editPhoneCountry, setEditPhoneCountry] = useState<Country | null>(null);
+  const [countrySearchQuery, setCountrySearchQuery] = useState("");
+  const [allCountries, setAllCountries] = useState<Country[]>([]);
   const [editPhotoUri, setEditPhotoUri] = useState<string | null>(null);
+
+  useEffect(() => {
+    const loadCountries = async () => {
+      try {
+        if (getAllCountries) {
+          const countries = await getAllCountries("en");
+          if (countries && Array.isArray(countries) && countries.length > 0) {
+            const validCountries = countries.filter(
+              (c: Country) =>
+                c.callingCode &&
+                Array.isArray(c.callingCode) &&
+                c.callingCode.length > 0 &&
+                c.callingCode[0] &&
+                c.callingCode[0].trim() !== "",
+            );
+            setAllCountries(validCountries);
+            const usCountry = validCountries.find((c) => c.cca2 === "US");
+            if (usCountry) {
+              setEditPhoneCountry(usCountry);
+              setEditPhoneCountryCode("US");
+            }
+            return;
+          }
+        }
+
+        const commonCountries: Country[] = [
+          { cca2: "US", callingCode: ["1"], name: { common: "United States" } } as any,
+          { cca2: "CA", callingCode: ["1"], name: { common: "Canada" } } as any,
+          { cca2: "GB", callingCode: ["44"], name: { common: "United Kingdom" } } as any,
+          { cca2: "AU", callingCode: ["61"], name: { common: "Australia" } } as any,
+          { cca2: "DE", callingCode: ["49"], name: { common: "Germany" } } as any,
+        ];
+        setAllCountries(commonCountries);
+        setEditPhoneCountry(commonCountries[0]);
+        setEditPhoneCountryCode("US");
+      } catch (error) {
+        console.error("Error loading countries:", error);
+      }
+    };
+    loadCountries();
+  }, []);
+
+  const getFlagEmoji = useCallback((code: string) => {
+    if (code && code.length === 2) {
+      try {
+        const codePoints = code
+          .toUpperCase()
+          .split("")
+          .map((char) => 0x1f1e6 + (char.charCodeAt(0) - 65));
+        return String.fromCodePoint(...codePoints);
+      } catch {
+        return "🇺🇸";
+      }
+    }
+    return "🇺🇸";
+  }, []);
+
+  const getCallingCode = useCallback(() => {
+    if (editPhoneCountry?.callingCode && editPhoneCountry.callingCode.length > 0) {
+      return editPhoneCountry.callingCode[0];
+    }
+    return "1";
+  }, [editPhoneCountry]);
+
+  const filteredCountries = useMemo(() => {
+    if (!countrySearchQuery.trim()) {
+      const usCountry = allCountries.find((c) => c.cca2 === "US");
+      const others = allCountries.filter((c) => c.cca2 !== "US");
+      return usCountry ? [usCountry, ...others] : allCountries;
+    }
+    const query = countrySearchQuery.toLowerCase();
+    return allCountries.filter((c) => {
+      const name = typeof c.name === "string" ? c.name : c.name?.common || "";
+      const nameStr = typeof name === "string" ? name : "";
+      return (
+        nameStr.toLowerCase().includes(query) ||
+        c.callingCode[0]?.includes(query) ||
+        c.cca2.toLowerCase().includes(query)
+      );
+    });
+  }, [allCountries, countrySearchQuery]);
 
   const openEditProfile = useCallback((showPhotos = false) => {
     const fromConvex =
@@ -369,15 +467,37 @@ export default function SettingsHomeScreen() {
     const fromOnboarding = `${data.firstName ?? ""} ${data.lastName ?? ""}`.trim();
     const name = fromConvex.length > 0 ? fromConvex : fromOnboarding;
     const email = (me?.email ?? data.email ?? "").toString().toLowerCase();
-    const phone = (me?.phone ?? data.phoneNumber ?? "").toString();
+    const rawPhone = (me?.phone ?? data.phoneNumber ?? "").toString();
+    const digitsOnlyPhone = rawPhone.replace(/\D/g, "");
+    let nationalPhone = digitsOnlyPhone;
+    let selectedCountryCode = "US";
+    let selectedCountry: Country | null = allCountries.find((c) => c.cca2 === "US") ?? null;
+
+    if (rawPhone.trim().startsWith("+") && allCountries.length > 0) {
+      const matches = allCountries
+        .filter((c) => c.callingCode?.[0] && rawPhone.startsWith(`+${c.callingCode[0]}`))
+        .sort((a, b) => (b.callingCode?.[0]?.length ?? 0) - (a.callingCode?.[0]?.length ?? 0));
+
+      if (matches.length > 0) {
+        // If multiple countries share +1, default to US for this settings flow.
+        const usPlusOneMatch = matches.find((c) => c.cca2 === "US" && c.callingCode?.[0] === "1");
+        const bestMatch = usPlusOneMatch ?? matches[0];
+        const callingPrefix = bestMatch.callingCode?.[0] ?? "";
+        selectedCountryCode = bestMatch.cca2;
+        selectedCountry = bestMatch;
+        nationalPhone = rawPhone.replace(`+${callingPrefix}`, "").replace(/\D/g, "");
+      }
+    }
     
     setEditName(name);
     setEditEmail(email);
-    setEditPhone(phone);
+    setEditPhone(nationalPhone);
+    setEditPhoneCountryCode(selectedCountryCode);
+    setEditPhoneCountry(selectedCountry);
     setEditPhotoUri(profilePhotoUri);
     setShowPhotoOptions(showPhotos);
     setIsEditVisible(true);
-  }, [me, data.email, data.firstName, data.lastName, data.phoneNumber, profilePhotoUri]);
+  }, [me, data.email, data.firstName, data.lastName, data.phoneNumber, profilePhotoUri, allCountries]);
 
   const handleSaveProfile = useCallback(async () => {
     const normalizedName = editName.trim().replace(/\s+/g, " ");
@@ -388,8 +508,9 @@ export default function SettingsHomeScreen() {
     const normalizedEmail = editEmail.trim().toLowerCase();
     const email = normalizedEmail.length > 0 ? normalizedEmail : null;
 
-    const normalizedPhone = editPhone.trim();
-    const phoneNumber = normalizedPhone.length > 0 ? normalizedPhone : null;
+    const normalizedPhoneDigits = editPhone.replace(/\D/g, "");
+    const phoneNumber =
+      normalizedPhoneDigits.length > 0 ? `+${getCallingCode()}${normalizedPhoneDigits}` : null;
 
     // 1. Update Profile Photo if changed
     if (editPhotoUri !== profilePhotoUri) {
@@ -416,7 +537,17 @@ export default function SettingsHomeScreen() {
     }
     
     setIsEditVisible(false);
-  }, [editEmail, editName, editPhone, editPhotoUri, profilePhotoUri, updateData, persistProfileField, persistProfilePhoto]);
+  }, [
+    editEmail,
+    editName,
+    editPhone,
+    editPhotoUri,
+    profilePhotoUri,
+    updateData,
+    persistProfileField,
+    persistProfilePhoto,
+    getCallingCode,
+  ]);
 
   const requestLibraryPermission = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -470,6 +601,40 @@ export default function SettingsHomeScreen() {
     setShowPhotoOptions(false);
     setEditPhotoUri(null);
   }, []);
+
+  const handleCountrySelect = useCallback((selectedCountry: Country) => {
+    setEditPhoneCountryCode(selectedCountry.cca2);
+    setEditPhoneCountry(selectedCountry);
+    setShowCountryPicker(false);
+    setCountrySearchQuery("");
+  }, []);
+
+  const handleCloseCountryPicker = useCallback(() => {
+    setShowCountryPicker(false);
+    setCountrySearchQuery("");
+  }, []);
+
+  const renderCountryItem = useCallback(
+    ({ item }: { item: Country }) => {
+      const isSelected = item.cca2 === editPhoneCountryCode;
+      const countryName = typeof item.name === "string" ? item.name : item.name?.common || item.cca2;
+      return (
+        <TouchableOpacity
+          style={[styles.countryItem, isSelected && styles.countryItemSelected]}
+          onPress={() => handleCountrySelect(item)}
+        >
+          <View style={styles.countryItemFlag}>
+            <Text style={styles.countryItemFlagText}>{getFlagEmoji(item.cca2)}</Text>
+          </View>
+          <Text style={styles.countryItemCode}>+{item.callingCode?.[0] ?? ""}</Text>
+          <Text style={styles.countryItemName} numberOfLines={1}>
+            {countryName}
+          </Text>
+        </TouchableOpacity>
+      );
+    },
+    [editPhoneCountryCode, getFlagEmoji, handleCountrySelect],
+  );
 
   // ─────────────────────────────────────────────────────────────
   // Logout confirmation
@@ -929,14 +1094,22 @@ export default function SettingsHomeScreen() {
                     <Text weight="medium" size="sm" color="#374151">
                       Phone Number
                     </Text>
-                    <TextInput
-                      value={editPhone}
-                      onChangeText={setEditPhone}
-                      placeholder="+1 (555) 123-4567"
-                      style={styles.input}
-                      keyboardType="phone-pad"
-                      autoCapitalize="none"
-                    />
+                    <View style={styles.phoneInputContainer}>
+                      <Pressable onPress={() => setShowCountryPicker(true)} style={styles.countryCodeContainer}>
+                        <View style={styles.flagContainer}>
+                          <Text style={styles.countryCodeText}>{getFlagEmoji(editPhoneCountryCode)}</Text>
+                        </View>
+                        <Text style={styles.countryCodeNumber}>+{getCallingCode()}</Text>
+                      </Pressable>
+                      <TextInput
+                        value={editPhone}
+                        onChangeText={setEditPhone}
+                        placeholder="(555) 123-4567"
+                        style={styles.phoneInput}
+                        keyboardType="phone-pad"
+                        autoCapitalize="none"
+                      />
+                    </View>
                   </View>
                   <View style={styles.editActionsRow}>
                     <Button
@@ -956,6 +1129,48 @@ export default function SettingsHomeScreen() {
             </View>
           </TouchableWithoutFeedback>
         </View>
+      </Modal>
+
+      <Modal visible={showCountryPicker} transparent animationType="slide" onRequestClose={handleCloseCountryPicker}>
+        <Pressable style={styles.countryPickerBackdrop} onPress={handleCloseCountryPicker}>
+          <Pressable style={[styles.countryPickerSheet, { paddingBottom: insets.bottom }]} onPress={(e) => e.stopPropagation()}>
+            <View style={styles.countryPickerHandle} />
+            <View style={styles.countryPickerHeader}>
+              <Text weight="semiBold" size="lg" color="#111827">
+                Select Country
+              </Text>
+              <Pressable onPress={handleCloseCountryPicker}>
+                <Text weight="medium" size="md" color={BrandColors.secondary}>
+                  Close
+                </Text>
+              </Pressable>
+            </View>
+            <View style={styles.countrySearchContainer}>
+              <TextInput
+                style={styles.countrySearchInput}
+                placeholder="Search country / region"
+                placeholderTextColor="#9CA3AF"
+                value={countrySearchQuery}
+                onChangeText={setCountrySearchQuery}
+              />
+            </View>
+            <FlatList
+              data={filteredCountries}
+              renderItem={renderCountryItem}
+              keyExtractor={(item) => item.cca2}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={styles.countryListContent}
+              style={styles.countryList}
+              ListEmptyComponent={
+                <View style={styles.emptyCountryList}>
+                  <Text size="sm" color="#6B7280">
+                    No countries found.
+                  </Text>
+                </View>
+              }
+            />
+          </Pressable>
+        </Pressable>
       </Modal>
 
       <Modal transparent visible={isLogoutVisible} animationType="fade">
@@ -1280,6 +1495,124 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 12,
     fontSize: 16,
+  },
+  phoneInputContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#F9FAFB",
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "rgba(0,0,0,0.06)",
+    paddingHorizontal: 12,
+    paddingVertical: 12,
+  },
+  countryCodeContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginRight: 12,
+    paddingRight: 12,
+    borderRightWidth: 1,
+    borderRightColor: "rgba(0,0,0,0.12)",
+  },
+  flagContainer: {
+    width: 24,
+    height: 20,
+    justifyContent: "center",
+    alignItems: "center",
+    marginRight: 6,
+  },
+  countryCodeText: {
+    fontSize: 18,
+  },
+  countryCodeNumber: {
+    fontSize: 16,
+    color: "#111827",
+    fontWeight: "500",
+  },
+  phoneInput: {
+    flex: 1,
+    fontSize: 16,
+    color: "#111827",
+    paddingVertical: 0,
+  },
+  countryPickerBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.45)",
+    justifyContent: "flex-end",
+  },
+  countryPickerSheet: {
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: "80%",
+    paddingHorizontal: 16,
+    paddingTop: 10,
+  },
+  countryPickerHandle: {
+    alignSelf: "center",
+    width: 42,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: "#D1D5DB",
+    marginBottom: 10,
+  },
+  countryPickerHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  countrySearchContainer: {
+    marginBottom: 10,
+  },
+  countrySearchInput: {
+    backgroundColor: "#F3F4F6",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    fontSize: 15,
+    color: "#111827",
+  },
+  countryList: {
+    flexGrow: 0,
+  },
+  countryListContent: {
+    paddingBottom: 12,
+  },
+  countryItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 8,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: "#F3F4F6",
+  },
+  countryItemSelected: {
+    backgroundColor: "#EEF2FF",
+    borderRadius: 10,
+  },
+  countryItemFlag: {
+    width: 30,
+    alignItems: "center",
+    marginRight: 10,
+  },
+  countryItemFlagText: {
+    fontSize: 22,
+  },
+  countryItemCode: {
+    width: 56,
+    fontSize: 15,
+    color: "#111827",
+    fontWeight: "500",
+  },
+  countryItemName: {
+    flex: 1,
+    fontSize: 15,
+    color: "#111827",
+  },
+  emptyCountryList: {
+    paddingVertical: 18,
+    alignItems: "center",
   },
   editActionsRow: {
     flexDirection: "row",
