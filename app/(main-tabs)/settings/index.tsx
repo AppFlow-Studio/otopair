@@ -429,10 +429,9 @@ export default function SettingsHomeScreen() {
       [1, 0.9],
       Extrapolation.CLAMP,
     );
-    // const scale = interpolate(scrollY.value, [0, scrollDistance], [1, 0.9], Extrapolation.CLAMP);
-    // return {
-    //   transform: [{ translateY }, { translateX }, { scale }],
-    // };
+    return {
+      transform: [{ translateY }, { translateX }, { scale }],
+    };
   });
 
   // Animated color for the name (transitions from black to white as header collapses)
@@ -1031,9 +1030,6 @@ export default function SettingsHomeScreen() {
                     <SettingsListItem
                       icon={<Car size={20} color="#1F2937" />}
                       label={vehicleCount > 0 ? `My Vehicles (${vehicleCount})` : "My Vehicles"}
-                      onPress={() => router.push("/cars")}
-                    />
-                    <SettingsListItem
                       onPress={() => router.push("/cars")}
                     />
                     <SettingsListItem
