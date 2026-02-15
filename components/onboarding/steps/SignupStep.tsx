@@ -74,11 +74,17 @@ export function SignupStep({ onNext, onBack, onEmailSignup, onLogin }: SignupSte
       const startSSO = strategy === "google" ? startGoogleSSO : startAppleSSO;
       const ssoStrategy = strategy === "google" ? "oauth_google" : "oauth_apple";
 
-      const { createdSessionId, setActive, signIn, signUp } = await startSSO({
+      const { createdSessionId, setActive, signIn, signUp, authSessionResult } = await startSSO({
         strategy: ssoStrategy,
         redirectUrl: "otopair://oauth-callback",
         redirectUrlComplete: "otopair://oauth-callback",
       });
+
+      // User cancelled OAuth (dismissed browser) - do not proceed
+      const cancelled = authSessionResult && "type" in authSessionResult && authSessionResult.type !== "success";
+      if (cancelled) {
+        return;
+      }
 
       // Prefill data from OAuth (signUp has user profile; signIn = existing user)
       const firstName = signUp?.firstName ?? undefined;
@@ -105,10 +111,11 @@ export function SignupStep({ onNext, onBack, onEmailSignup, onLogin }: SignupSte
         } else {
           onNext();
         }
-      } else if (signUp && (signUp.status === "missing_requirements" || !createdSessionId)) {
-        // Clerk requires phone before completing sign-up (e.g. instance config)
+      } else if (signUp && signUp.status === "missing_requirements") {
+        // OAuth succeeded but Clerk requires phone before completing sign-up (e.g. instance config)
         // signUp is in memory; PhoneNumberStep will use signUp.update + preparePhoneNumberVerification
         // ConfirmPhoneNumberStep will complete verification and set session - no re-auth needed
+        // Do NOT use || !createdSessionId - that would incorrectly proceed when user cancels OAuth
         onNext();
       }
     } catch (err) {
