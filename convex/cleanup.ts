@@ -1,4 +1,5 @@
 import { internalMutation, internalAction } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
 
 /**
@@ -39,7 +40,7 @@ export const deleteUserRecord = internalMutation({
 export const cleanupExpiredAccounts = internalAction({
   args: {},
   handler: async (ctx) => {
-    const expiredUsers = await ctx.runMutation(api.cleanup.getExpiredDeletions);
+    const expiredUsers = await ctx.runMutation(internal.cleanup.getExpiredDeletions);
     
     for (const user of expiredUsers) {
       try {
@@ -67,7 +68,7 @@ export const cleanupExpiredAccounts = internalAction({
         }
 
         // 2. Delete from Convex
-        await ctx.runMutation(api.cleanup.deleteUserRecord, { id: user.id });
+        await ctx.runMutation(internal.cleanup.deleteUserRecord, { id: user.id });
         
       } catch (error) {
         console.error(`Error cleaning up user ${user.id}:`, error);
