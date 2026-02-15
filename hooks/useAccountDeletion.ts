@@ -14,6 +14,11 @@ import { Alert } from 'react-native';
  * 3. Reactivating accounts that are pending deletion.
  */
 export function useAccountDeletion() {
+  type DeletionSurveyPayload = {
+    response?: string;
+    skipped?: boolean;
+  };
+
   const { session, isLoaded: isSessionLoaded } = useSession();
   const { signOut, isLoaded: isAuthLoaded } = useAuth();
   const me = useQuery(api.users.getMe);
@@ -65,10 +70,13 @@ export function useAccountDeletion() {
   /**
    * Marks account as pending deletion in Convex and signs out.
    */
-  const markAccountForDeletion = useCallback(async () => {
+  const markAccountForDeletion = useCallback(async (survey?: DeletionSurveyPayload) => {
     for (let attempt = 0; attempt <= 3; attempt++) {
       try {
-        await requestDeletionMutation();
+        await requestDeletionMutation({
+          response: survey?.response,
+          skipped: survey?.skipped,
+        });
         break; // Success
       } catch (error: any) {
         const isRetryable =

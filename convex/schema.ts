@@ -926,6 +926,8 @@ export default defineSchema({
     units: v.optional(v.string()),
     deletionRequestedAt: v.optional(v.float64()),
     isPendingDeletion: v.optional(v.boolean()),
+    deletionSurveyResponse: v.optional(v.string()),
+    deletionSurveySkipped: v.optional(v.boolean()),
   }).index("by_clerkUserId", ["clerkUserId"])
     .index("by_isPendingDeletion", ["isPendingDeletion"]),
 

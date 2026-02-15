@@ -185,8 +185,11 @@ export const getOrCreateMe = mutation({
  * Sets deletionRequestedAt to current time and isPendingDeletion to true.
  */
 export const requestAccountDeletion = mutation({
-  args: {},
-  handler: async (ctx) => {
+  args: {
+    response: v.optional(v.string()),
+    skipped: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("Not authenticated");
 
@@ -201,6 +204,8 @@ export const requestAccountDeletion = mutation({
     await ctx.db.patch(user._id, {
       isPendingDeletion: true,
       deletionRequestedAt: Date.now(),
+      deletionSurveyResponse: args.response,
+      deletionSurveySkipped: args.skipped,
     });
 
     return user._id;

@@ -9,7 +9,13 @@
  * OWNER: Daniel Chelala
  */
 
-import React, { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import React, {
+  useState,
+  useMemo,
+  useRef,
+  useEffect,
+  useCallback,
+} from "react";
 import {
   StyleSheet,
   View,
@@ -26,7 +32,12 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { User } from "lucide-react-native";
-import { BottomSheetBackdrop, BottomSheetModal, BottomSheetScrollView, type BottomSheetBackdropProps } from "@gorhom/bottom-sheet";
+import {
+  BottomSheetBackdrop,
+  BottomSheetModal,
+  BottomSheetScrollView,
+  type BottomSheetBackdropProps,
+} from "@gorhom/bottom-sheet";
 import { useQuery } from "convex/react";
 
 import {
@@ -47,7 +58,8 @@ export default function DeleteAccountScreen() {
   const router = useRouter();
 
   // Hook for account deletion logic
-  const { sendVerificationCode, verifyDeletionCode, markAccountForDeletion } = useAccountDeletion();
+  const { sendVerificationCode, verifyDeletionCode, markAccountForDeletion } =
+    useAccountDeletion();
 
   // Convex data
   const me = useQuery(api.users.getMe);
@@ -60,10 +72,13 @@ export default function DeleteAccountScreen() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [codeSent, setCodeSent] = useState(false);
   const [timer, setTimer] = useState(0);
+  const [isSurveyStep, setIsSurveyStep] = useState(false);
+  const [selectedReason, setSelectedReason] = useState<string | null>(null);
+  const [surveyDetails, setSurveyDetails] = useState("");
 
   const inputRefs = useRef<(TextInput | null)[]>([]);
   const sheetRef = useRef<BottomSheetModal>(null);
-  const snapPoints = useMemo(() => ["72%"], []);
+  const snapPoints = useMemo(() => ["88%"], []);
   const isCodeComplete = useMemo(() => code.join("").length === 6, [code]);
 
   const renderBackdrop = useCallback(
@@ -167,6 +182,9 @@ export default function DeleteAccountScreen() {
     setErrorMessage(null);
     try {
       await verifyDeletionCode(fullCode);
+      setIsSurveyStep(false);
+      setSelectedReason(null);
+      setSurveyDetails("");
       sheetRef.current?.present();
     } catch (error: any) {
       const msg =
@@ -181,9 +199,13 @@ export default function DeleteAccountScreen() {
         lowerMsg.includes("invalid") ||
         lowerMsg.includes("expired")
       ) {
-        setErrorMessage("The verification code you entered is incorrect or has expired.");
+        setErrorMessage(
+          "The verification code you entered is incorrect or has expired.",
+        );
       } else if (lowerMsg.includes("already been verified")) {
-        setErrorMessage("This verification code has already been used. Please request a new one.");
+        setErrorMessage(
+          "This verification code has already been used. Please request a new one.",
+        );
       } else {
         setErrorMessage(msg || "Failed to verify code. Please try again.");
       }
@@ -192,11 +214,21 @@ export default function DeleteAccountScreen() {
     }
   };
 
-  const handleFinalDelete = async () => {
+  const handleProceedToSurvey = () => {
+    setIsSurveyStep(true);
+  };
+
+  const handleSheetDismiss = () => {
+    setIsSurveyStep(false);
+    setSelectedReason(null);
+    setSurveyDetails("");
+  };
+
+  const handleFinalizeDeletion = async (survey: { response?: string; skipped?: boolean }) => {
     setIsDeleting(true);
     setErrorMessage(null);
     try {
-      await markAccountForDeletion();
+      await markAccountForDeletion(survey);
       sheetRef.current?.dismiss();
       router.replace("/(onboarding)");
     } catch (error: any) {
@@ -206,6 +238,25 @@ export default function DeleteAccountScreen() {
     } finally {
       setIsDeleting(false);
     }
+  };
+
+  const handleSubmitSurvey = async () => {
+    const trimmedDetails = surveyDetails.trim();
+    const response =
+      selectedReason && trimmedDetails
+        ? `Reason: ${selectedReason} | Details: ${trimmedDetails}`
+        : selectedReason ?? (trimmedDetails.length > 0 ? trimmedDetails : undefined);
+
+    await handleFinalizeDeletion({
+      response,
+      skipped: false,
+    });
+  };
+
+  const handleSkipSurvey = async () => {
+    await handleFinalizeDeletion({
+      skipped: true,
+    });
   };
 
   const handleResendCode = async () => {
@@ -241,6 +292,15 @@ export default function DeleteAccountScreen() {
   const boxMargin = Spacing.sm * 2;
   const totalMarginSpace = 6 * boxMargin;
   const availableWidth = width - containerPadding;
+  const surveyOptions = [
+    "Duplicate account",
+    "No longer need the service",
+    "Difficult to use",
+    "Moving out of NYC",
+    "Privacy concerns",
+    "Not satisfied with the app",
+    "Other",
+  ];
   const calculatedBoxWidth = Math.max(
     40,
     Math.floor((availableWidth - totalMarginSpace) / 6),
@@ -490,9 +550,10 @@ export default function DeleteAccountScreen() {
       <BottomSheetModal
         ref={sheetRef}
         snapPoints={snapPoints}
-        backdropComponent={renderBackdrop}
+        backdropComponent={undefined}
         enableDynamicSizing={false}
         enableContentPanningGesture={false}
+        onDismiss={handleSheetDismiss}
         handleIndicatorStyle={styles.sheetHandle}
         backgroundStyle={styles.sheetBackground}
       >
@@ -503,73 +564,168 @@ export default function DeleteAccountScreen() {
             { paddingBottom: insets.bottom + 24 },
           ]}
         >
-          <View style={styles.sheetTitleWrap}>
-            <Text style={styles.sheetTitle}>Are you sure?</Text>
-          </View>
+          {!isSurveyStep ? (
+            <>
+              <View style={styles.sheetTitleWrap}>
+                <Text style={styles.sheetTitle}>Are you sure?</Text>
+              </View>
 
-          <View style={styles.sheetBody}>
-            <Text style={styles.sheetSectionTitle}>What's going to happen:</Text>
-
-            <View style={styles.sheetBulletRow}>
-              <View style={styles.sheetBulletDot} />
-              <Text style={styles.sheetBulletText}>
-                Your account will be <Text style={styles.sheetBulletStrong}>deactivated immediately</Text>.
-              </Text>
-            </View>
-
-            <View style={styles.sheetBulletRow}>
-              <View style={styles.sheetBulletDot} />
-              <Text style={styles.sheetBulletText}>
-                It will be reactivated if you relogin <Text style={styles.sheetBulletStrong}>within 30 days</Text>.
-              </Text>
-            </View>
-
-            <View style={styles.sheetBulletRow}>
-              <View style={styles.sheetBulletDot} />
-              <Text style={styles.sheetBulletText}>
-                Afterwards, your data will be <Text style={styles.sheetBulletStrong}>permanently deleted</Text>.
-              </Text>
-            </View>
-
-            <Text style={styles.sheetInfoText}>
-              For more information about account deletion, read our{" "}
-              <Text style={styles.sheetLinkText} onPress={handleOpenPrivacyPolicy}>
-                Privacy Policy
-              </Text>.
-            </Text>
-          </View>
-
-          <View style={styles.sheetActions}>
-            <Pressable
-              style={({ pressed }) => [
-                styles.sheetDeleteButton,
-                (pressed || isDeleting) && styles.sheetPressed,
-              ]}
-              onPress={handleFinalDelete}
-              disabled={isDeleting}
-            >
-              {isDeleting ? (
-                <ActivityIndicator color="#FFF" />
-              ) : (
-                <Text weight="semiBold" color="#FFF" style={styles.sheetDeleteButtonText}>
-                  I'm sure
+              <View style={styles.sheetBody}>
+                <Text style={styles.sheetSectionTitle}>
+                  What's going to happen:
                 </Text>
-              )}
-            </Pressable>
 
-            <Pressable
-              style={({ pressed }) => [
-                styles.sheetCancelButton,
-                pressed && styles.sheetPressed,
-              ]}
-              onPress={() => sheetRef.current?.dismiss()}
-              disabled={isDeleting}
-            >
-              <Text weight="semiBold" style={styles.sheetCancelButtonText}>
-                I changed my mind
-              </Text>
-            </Pressable>
-          </View>
+                <View style={styles.sheetBulletRow}>
+                  <View style={styles.sheetBulletDot} />
+                  <Text style={styles.sheetBulletText}>
+                    Your account will be{" "}
+                    <Text style={styles.sheetBulletStrong}>
+                      deactivated immediately
+                    </Text>
+                    .
+                  </Text>
+                </View>
+
+                <View style={styles.sheetBulletRow}>
+                  <View style={styles.sheetBulletDot} />
+                  <Text style={styles.sheetBulletText}>
+                    It will be reactivated if you relogin{" "}
+                    <Text style={styles.sheetBulletStrong}>within 30 days</Text>
+                    .
+                  </Text>
+                </View>
+
+                <View style={styles.sheetBulletRow}>
+                  <View style={styles.sheetBulletDot} />
+                  <Text style={styles.sheetBulletText}>
+                    Afterwards, your data will be{" "}
+                    <Text style={styles.sheetBulletStrong}>
+                      permanently deleted
+                    </Text>
+                    .
+                  </Text>
+                </View>
+
+                <Text style={styles.sheetInfoText}>
+                  For more information about account deletion, read our{" "}
+                  <Text
+                    style={styles.sheetLinkText}
+                    onPress={handleOpenPrivacyPolicy}
+                  >
+                    Privacy Policy
+                  </Text>
+                  .
+                </Text>
+              </View>
+
+              <View style={styles.sheetActions}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.sheetDeleteButton,
+                    (pressed || isDeleting) && styles.sheetPressed,
+                  ]}
+                  onPress={handleProceedToSurvey}
+                  disabled={isDeleting}
+                >
+                  <Text
+                    weight="semiBold"
+                    color="#FFF"
+                    style={styles.sheetDeleteButtonText}
+                  >
+                    I'm sure
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.sheetCancelButton,
+                    pressed && styles.sheetPressed,
+                  ]}
+                  onPress={() => sheetRef.current?.dismiss()}
+                  disabled={isDeleting}
+                >
+                  <Text weight="semiBold" style={styles.sheetCancelButtonText}>
+                    I changed my mind
+                  </Text>
+                </Pressable>
+              </View>
+            </>
+          ) : (
+            <>
+              <View style={styles.surveyHeader}>
+                <Text style={styles.surveyTitle}>Account Deletion</Text>
+                <Text style={styles.surveySubtitle}>
+                  Why are you interested in deleting your account?
+                </Text>
+              </View>
+
+              <View style={styles.surveyOptionsList}>
+                {surveyOptions.map((option) => {
+                  const selected = selectedReason === option;
+                  return (
+                    <Pressable
+                      key={option}
+                      style={styles.surveyOptionRow}
+                      onPress={() => setSelectedReason(option)}
+                    >
+                      <View
+                        style={[
+                          styles.surveyRadio,
+                          selected && styles.surveyRadioSelected,
+                        ]}
+                      />
+                      <Text style={styles.surveyOptionText}>{option}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              <TextInput
+                value={surveyDetails}
+                onChangeText={setSurveyDetails}
+                placeholder="(Optional) Enter more details"
+                placeholderTextColor="#9CA3AF"
+                style={styles.surveyDetailsInput}
+                multiline
+              />
+
+              <View style={styles.sheetActions}>
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.sheetSubmitButton,
+                    (pressed || isDeleting) && styles.sheetPressed,
+                  ]}
+                  onPress={handleSubmitSurvey}
+                  disabled={isDeleting}
+                >
+                  {isDeleting ? (
+                    <ActivityIndicator color="#FFF" />
+                  ) : (
+                    <Text
+                      weight="semiBold"
+                      color="#FFF"
+                      style={styles.sheetDeleteButtonText}
+                    >
+                      Submit
+                    </Text>
+                  )}
+                </Pressable>
+
+                <Pressable
+                  style={({ pressed }) => [
+                    styles.surveySkipButton,
+                    pressed && styles.sheetPressed,
+                  ]}
+                  onPress={handleSkipSurvey}
+                  disabled={isDeleting}
+                >
+                  <Text weight="semiBold" style={styles.surveySkipButtonText}>
+                    Skip
+                  </Text>
+                </Pressable>
+              </View>
+            </>
+          )}
         </BottomSheetScrollView>
       </BottomSheetModal>
     </KeyboardAvoidingView>
@@ -847,6 +1003,18 @@ const styles = StyleSheet.create({
     fontSize: 17,
     fontFamily: FontFamily.semiBold,
   },
+  sheetSubmitButton: {
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: BrandColors.secondary,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: BrandColors.secondary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 4,
+  },
   sheetCancelButton: {
     height: 56,
     borderRadius: 28,
@@ -859,6 +1027,75 @@ const styles = StyleSheet.create({
   sheetCancelButtonText: {
     fontSize: 17,
     color: "#1d1d1f",
+    fontFamily: FontFamily.semiBold,
+  },
+  surveyHeader: {
+    alignItems: "center",
+    marginTop: 8,
+    marginBottom: 12,
+  },
+  surveyTitle: {
+    fontSize: 36,
+    lineHeight: 42,
+    color: "#1d1d1f",
+    fontFamily: FontFamily.bold,
+    marginBottom: 6,
+  },
+  surveySubtitle: {
+    fontSize: 17,
+    lineHeight: 26,
+    color: "#86868b",
+    fontFamily: FontFamily.regular,
+    textAlign: "center",
+    paddingHorizontal: 12,
+  },
+  surveyOptionsList: {
+    marginTop: 8,
+    gap: 6,
+  },
+  surveyOptionRow: {
+    minHeight: 36,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  surveyRadio: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    borderColor: "#D1D5DB",
+    backgroundColor: "#FFF",
+  },
+  surveyRadioSelected: {
+    borderColor: BrandColors.secondary,
+    backgroundColor: "rgba(82, 153, 254, 0.2)",
+  },
+  surveyOptionText: {
+    fontSize: 18,
+    lineHeight: 24,
+    color: "#1d1d1f",
+    fontFamily: FontFamily.medium,
+  },
+  surveyDetailsInput: {
+    marginTop: 14,
+    minHeight: 52,
+    borderRadius: 26,
+    backgroundColor: "#F8F8F8",
+    paddingHorizontal: 18,
+    paddingVertical: 14,
+    fontSize: 17,
+    color: "#1d1d1f",
+    fontFamily: FontFamily.regular,
+  },
+  surveySkipButton: {
+    height: 42,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  surveySkipButtonText: {
+    fontSize: 17,
+    color: "#8B8B90",
     fontFamily: FontFamily.semiBold,
   },
   sheetPressed: {
