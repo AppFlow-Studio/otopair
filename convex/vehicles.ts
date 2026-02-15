@@ -457,3 +457,171 @@ export const updateMileage = mutation({
     await ctx.db.patch(ownership._id, { mileage: args.mileage });
   },
 });
+
+// ============================================================================
+// VEHICLE ONBOARDING (Non-Smartcar)
+// ============================================================================
+
+/**
+ * Reset onboarding — clears profile fields on vehicle_owners and
+ * deletes all maintenance_records for this vehicle, taking the user
+ * back to the onboarding prompt.
+ */
+export const resetVehicleOnboarding = mutation({
+  args: {
+    vehicleOwnerId: v.id("vehicle_owners"),
+  },
+  handler: async (ctx, args) => {
+    // Clear profile fields
+    await ctx.db.patch(args.vehicleOwnerId, {
+      mileage: undefined,
+      avgMonthlyDriving: undefined,
+      drivingConditions: undefined,
+      knownIssues: undefined,
+      onboardingComplete: undefined,
+    });
+
+    // Delete all maintenance_records for this vehicle
+    const records = await ctx.db
+      .query("maintenance_records")
+      .withIndex("by_vehicle_owner", (q) =>
+        q.eq("vehicleOwnerId", args.vehicleOwnerId)
+      )
+      .collect();
+
+    for (const rec of records) {
+      await ctx.db.delete(rec._id);
+    }
+
+    return { success: true };
+  },
+});
+
+/**
+ * Save a single onboarding field.
+ *
+ * Persists one field at a time:
+ *   - "mileage" / "avgMonthlyDriving" / "drivingConditions" → patches vehicle_owners
+ *   - "oil" / "tires" / "brakes" / "battery" / "inspection" → upserts maintenance_records
+ *
+ * After saving, checks whether all 6 required fields are complete.
+ * If so, sets onboardingComplete = true on vehicle_owners.
+ */
+export const saveOnboardingField = mutation({
+  args: {
+    vehicleOwnerId: v.id("vehicle_owners"),
+    field: v.string(),   // "mileage" | "avgMonthlyDriving" | "oil" | "tires" | "brakes" | "battery" | "inspection" | "drivingConditions"
+    value: v.any(),      // shape depends on field (see handler)
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const { vehicleOwnerId, field, value } = args;
+
+    // ── Helper: upsert maintenance_record ──────────────────────────────
+    async function upsertRecord(
+      type: string,
+      lastServiceDate?: number,
+      lastServiceMileage?: number,
+      customInputs?: Record<string, unknown>
+    ) {
+      const existing = await ctx.db
+        .query("maintenance_records")
+        .withIndex("by_vehicle_and_type", (q) =>
+          q.eq("vehicleOwnerId", vehicleOwnerId).eq("type", type)
+        )
+        .unique();
+
+      const data = { lastServiceDate, lastServiceMileage, customInputs, updatedAt: now };
+
+      if (existing) {
+        await ctx.db.patch(existing._id, data);
+      } else {
+        await ctx.db.insert("maintenance_records", {
+          vehicleOwnerId,
+          type,
+          ...data,
+          createdAt: now,
+        });
+      }
+    }
+
+    // ── Dispatch by field ──────────────────────────────────────────────
+    switch (field) {
+      case "mileage": {
+        await ctx.db.patch(vehicleOwnerId, { mileage: value as number });
+        break;
+      }
+      case "avgMonthlyDriving": {
+        await ctx.db.patch(vehicleOwnerId, { avgMonthlyDriving: value as string });
+        break;
+      }
+      case "drivingConditions": {
+        await ctx.db.patch(vehicleOwnerId, { drivingConditions: value as string });
+        break;
+      }
+      case "oil": {
+        // value: { date?: number, mileage?: number }
+        const v = value as { date?: number; mileage?: number };
+        await upsertRecord("oil", v.date, v.mileage);
+        break;
+      }
+      case "tires": {
+        // value: { type: string, date?: number }
+        const v = value as { type: string; date?: number };
+        await upsertRecord("tires", v.date, undefined, { tireServiceType: v.type });
+        break;
+      }
+      case "brakes": {
+        // value: { date?: number }
+        const v = value as { date?: number };
+        await upsertRecord("brakes", v.date);
+        break;
+      }
+      case "battery": {
+        // value: { date?: number, isOriginal?: boolean, modelYear?: number }
+        const v = value as { date?: number; isOriginal?: boolean; modelYear?: number };
+        let installDate = v.date;
+        if (v.isOriginal && !installDate && v.modelYear) {
+          installDate = new Date(v.modelYear, 0, 1).getTime();
+        }
+        await upsertRecord("battery", installDate);
+        break;
+      }
+      case "inspection": {
+        // value: { date: number }
+        const v = value as { date: number };
+        const expirationDate = v.date + 12 * 30.44 * 24 * 60 * 60 * 1000;
+        await upsertRecord("inspection", v.date, undefined, { expirationDate });
+        break;
+      }
+      default:
+        throw new Error(`Unknown onboarding field: ${field}`);
+    }
+
+    // ── Auto-compute onboardingComplete ────────────────────────────────
+    // Required: mileage, avgMonthlyDriving, oil, tires, brakes, battery
+    const owner = await ctx.db.get(vehicleOwnerId);
+    if (!owner) return { success: true };
+
+    const hasMileage = owner.mileage != null && owner.mileage > 0;
+    const hasUsage = !!owner.avgMonthlyDriving;
+
+    // Check maintenance_records for oil, tires, brakes, battery
+    const requiredTypes = ["oil", "tires", "brakes", "battery"];
+    const records = await ctx.db
+      .query("maintenance_records")
+      .withIndex("by_vehicle_owner", (q) => q.eq("vehicleOwnerId", vehicleOwnerId))
+      .collect();
+
+    const recordTypes = new Set(records.map((r) => r.type));
+    const hasAllRecords = requiredTypes.every((t) => recordTypes.has(t));
+
+    const isComplete = hasMileage && hasUsage && hasAllRecords;
+
+    if (isComplete && !owner.onboardingComplete) {
+      await ctx.db.patch(vehicleOwnerId, { onboardingComplete: true });
+    }
+
+    return { success: true, onboardingComplete: isComplete };
+  },
+});

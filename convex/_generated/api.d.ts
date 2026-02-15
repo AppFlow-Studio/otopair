@@ -23,6 +23,7 @@ import type * as follow_ups from "../follow_ups.js";
 import type * as http from "../http.js";
 import type * as imagin from "../imagin.js";
 import type * as job_actuals from "../job_actuals.js";
+import type * as maintenance from "../maintenance.js";
 import type * as makes from "../makes.js";
 import type * as manual_review_queue from "../manual_review_queue.js";
 import type * as mechanics from "../mechanics.js";
@@ -80,6 +81,7 @@ declare const fullApi: ApiFromModules<{
   http: typeof http;
   imagin: typeof imagin;
   job_actuals: typeof job_actuals;
+  maintenance: typeof maintenance;
   makes: typeof makes;
   manual_review_queue: typeof manual_review_queue;
   mechanics: typeof mechanics;

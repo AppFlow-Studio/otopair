@@ -78,6 +78,10 @@ interface CarCarouselProps {
   onToggleDefault?: (vehicleId: string, isDefault: boolean) => void;
   onActiveIndexChange?: (index: number) => void;
   isFocused?: boolean;
+  /** Real maintenance items for computing health score */
+  maintenanceItems?: import("@/components/cars/MaintenanceTracker").MaintenanceItem[];
+  /** Current odometer reading in miles */
+  currentMileage?: number | null;
 }
 
 // ============================================================================
@@ -139,6 +143,8 @@ interface VehicleHealthModalProps {
   healthPercentage: number;
   maintenancePercentage: number;
   servicePercentage: number;
+  maintenanceItems?: import("@/components/cars/MaintenanceTracker").MaintenanceItem[];
+  currentMileage?: number;
 }
 
 const VehicleHealthModal = ({
@@ -148,6 +154,8 @@ const VehicleHealthModal = ({
   healthPercentage,
   maintenancePercentage,
   servicePercentage,
+  maintenanceItems: realItems,
+  currentMileage: realMileage,
 }: VehicleHealthModalProps) => {
   const slideAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -184,44 +192,35 @@ const VehicleHealthModal = ({
   // Calculate overall score (average of all three)
   const overallScore = Math.round((healthPercentage + maintenancePercentage + servicePercentage) / 3);
 
-  // Service items that need attention with score impacts
-  // Impacts are calculated based on how they affect the overall condition:
-  // - Maintenance items affect the 70% weight portion
-  // - Service records items affect the 30% weight portion
-  // Example: +7% to Maintenance × 0.7 weight = +5 pts to Overall Condition
-  const serviceItems: ServiceItem[] = [
-    { 
-      name: 'Oil Change', 
-      dueInfo: 'Overdue by 500 miles', 
-      status: 'overdue',
-      scoreImpact: 5, // +7% to Maintenance × 0.7 = +5%
-      actionDescription: '+5% to Overall Condition'
-    },
-    { 
-      name: 'Tire Rotation', 
-      dueInfo: 'Due in 12 days', 
-      status: 'due_soon',
-      scoreImpact: 3, // +4% to Maintenance × 0.7 = +3%
-      actionDescription: '+3% to Overall Condition'
-    },
-    { 
-      name: 'Update Mileage', 
-      dueInfo: 'Last updated 30 days ago', 
-      status: 'due_soon',
-      scoreImpact: 3, // +10% to Usage × 0.3 = +3%
-      actionDescription: '+3% to Overall Condition'
-    },
-  ];
+  // Build service items from real maintenance data
+  const serviceItems: ServiceItem[] = useMemo(() => {
+    if (!realItems) return [];
+    const items: ServiceItem[] = [];
+    for (const item of realItems) {
+      if (item.status === "overdue" || item.status === "due_soon" || item.status === "needs_attention") {
+        const statusLabel = item.status === "overdue" ? "Overdue" : item.status === "due_soon" ? "Due soon" : "Needs attention";
+        const impact = item.status === "overdue" ? 5 : 3;
+        items.push({
+          name: item.serviceName,
+          dueInfo: item.description || statusLabel,
+          status: item.status === "needs_attention" ? "due_soon" : item.status,
+          scoreImpact: impact,
+          actionDescription: `+${impact}% to Overall Condition`,
+        });
+      }
+    }
+    return items;
+  }, [realItems]);
 
-  // Maintenance: X out of Y services completed
-  // 7/10 because 3 items need attention (1 overdue + 2 due soon)
-  const maintenanceCompleted = 7;
-  const maintenanceTotal = 10;
-  const maintenanceScore = Math.round((maintenanceCompleted / maintenanceTotal) * 100);
+  // Maintenance score from real data (passed from parent)
+  const knownItems = (realItems ?? []).filter((i) => i.status !== "unknown");
+  const onTimeItems = knownItems.filter((i) => i.status === "on_time");
+  const maintenanceCompleted = onTimeItems.length;
+  const maintenanceTotal = Math.max(knownItems.length, 1);
+  const maintenanceScore = maintenancePercentage;
 
-  // Usage & Wear: Based on mileage (lower = better)
-  // Score calculation: 100k+ miles starts reducing score significantly
-  const vehicleMileage = 45000; // Sample mileage
+  // Usage & Wear from real mileage
+  const vehicleMileage = realMileage ?? 0;
   const getMileageScore = (miles: number) => {
     if (miles <= 30000) return 100;
     if (miles <= 60000) return 90;
@@ -231,9 +230,7 @@ const VehicleHealthModal = ({
   };
   const usageScore = getMileageScore(vehicleMileage);
 
-  // Calculate Vehicle Condition based on the other metrics
-  // Maintenance has higher weight (70%) since keeping up with services matters more
-  // Usage & Wear has lower weight (30%) since mileage is less controllable
+  // Overall = (Maintenance × 70%) + (Usage × 30%)
   const calculatedCondition = Math.round(
     (maintenanceScore * 0.7) + (usageScore * 0.3)
   );
@@ -1424,7 +1421,8 @@ const CircularCarouselItem = memo(({ item, index, rotation, totalItems }: Carous
         style={[
           styles.carouselCarImage,
           item.make === 'Lexus' && styles.carouselCarImageLexus,
-          item.make === 'Lamborghini' && styles.carouselCarImageLambo
+          item.make === 'Lamborghini' && styles.carouselCarImageLambo,
+          { transform: [{ translateY: 142 }] },
         ]}
         resizeMode="contain"
       />
@@ -1453,6 +1451,8 @@ export function CarCarousel({
   onToggleDefault,
   onActiveIndexChange,
   isFocused,
+  maintenanceItems,
+  currentMileage,
 }: CarCarouselProps) {
   // Sort vehicles so default car is first - memoized to prevent re-renders
   const sortedVehicles = useMemo(() => 
@@ -1490,11 +1490,7 @@ export function CarCarousel({
 
   const activeVehicle = sortedVehicles[activeIndex];
 
-  // Calculate overall vehicle condition (same as in modal)
-  // This should match the calculation inside VehicleHealthModal
-  const maintenanceCompleted = 7;
-  const maintenanceTotal = 10;
-  const vehicleMileage = 45000;
+  // Calculate overall vehicle condition from real data
   const getMileageScoreForRing = (miles: number) => {
     if (miles <= 30000) return 100;
     if (miles <= 60000) return 90;
@@ -1502,8 +1498,18 @@ export function CarCarousel({
     if (miles <= 150000) return 55;
     return 35;
   };
+
+  // Maintenance score: count on_time items out of total known items (exclude unknown)
+  const knownItems = (maintenanceItems ?? []).filter((i) => i.status !== "unknown");
+  const onTimeItems = knownItems.filter((i) => i.status === "on_time");
+  const maintenanceTotal = Math.max(knownItems.length, 1);
+  const maintenanceCompleted = onTimeItems.length;
   const maintenanceScoreForRing = Math.round((maintenanceCompleted / maintenanceTotal) * 100);
+
+  // Usage score from real mileage
+  const vehicleMileage = currentMileage ?? activeVehicle?.mileage ?? 0;
   const usageScoreForRing = getMileageScoreForRing(vehicleMileage);
+
   const overallCondition = Math.round((maintenanceScoreForRing * 0.7) + (usageScoreForRing * 0.3));
 
   // Deferred state update - waits for ALL animations to complete before updating
@@ -1735,8 +1741,8 @@ export function CarCarousel({
         {/* Activity Rings - Vehicle Condition */}
         <ActivityRings 
           healthPercentage={overallCondition}
-          maintenancePercentage={78}
-          servicePercentage={92}
+          maintenancePercentage={maintenanceScoreForRing}
+          servicePercentage={usageScoreForRing}
           size={72}
           onPress={() => setShowHealthModal(true)}
         />
@@ -1930,9 +1936,11 @@ export function CarCarousel({
         visible={showHealthModal}
         onClose={() => setShowHealthModal(false)}
         vehicleName={activeVehicle ? `${activeVehicle.make} ${activeVehicle.model}` : 'Vehicle'}
-        healthPercentage={activeVehicle?.condition || 85}
-        maintenancePercentage={78}
-        servicePercentage={92}
+        healthPercentage={overallCondition}
+        maintenancePercentage={maintenanceScoreForRing}
+        servicePercentage={usageScoreForRing}
+        maintenanceItems={maintenanceItems}
+        currentMileage={vehicleMileage}
       />
     </View>
   );
@@ -1949,11 +1957,11 @@ const styles = StyleSheet.create({
   
   // 3D Carousel Styles
   carouselContainer: {
-    height: SCREEN_HEIGHT * 0.38,
+    height: SCREEN_HEIGHT * 0.28,
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-end',
     position: 'relative',
-    marginTop: 60,
+    marginTop: 0,
   },
   carouselCard: {
     width: CAR_CARD_WIDTH,
@@ -1961,6 +1969,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     position: 'absolute',
+    bottom: 0,
   },
   logoContainer: {
     position: 'absolute',
@@ -1988,10 +1997,9 @@ const styles = StyleSheet.create({
     height: 240,
   },
   carouselCarImage: {
-    width: '130%',
-    height: 260,
+    width: '140%',
+    height: 240,
     zIndex: 1,
-    marginTop: 10,
   },
   carouselCarImageLexus: {
     // No longer needed — dynamic images have consistent sizing
@@ -2000,8 +2008,8 @@ const styles = StyleSheet.create({
     // No longer needed — dynamic images have consistent sizing
   },
   carouselReflection: {
-    width: '130%',
-    height: 260,
+    width: '140%',
+    height: 240,
     transform: [{ scaleY: -1 }],
     opacity: 0.03,
     marginTop: -40,
@@ -2020,7 +2028,7 @@ const styles = StyleSheet.create({
   // Active Car Info
   activeCarInfo: {
     alignItems: 'center',
-    marginTop: -100,
+    marginTop: 20,
   },
   heroCarName: {
     color: '#000000',

@@ -850,6 +850,10 @@ export default defineSchema({
    *   - smartcarVehicleId: (optional) Smartcar's unique vehicle ID for webhook lookups
    *   - connectionStatus: (optional) "unconnected" | "connected" | "error"
    *   - connectedAt: (optional) Unix timestamp when Smartcar was connected
+   *   - avgMonthlyDriving: (optional) "light" | "average" | "heavy" — for service predictions
+   *   - drivingConditions: (optional) "city" | "highway" | "mixed" — adjusts intervals
+   *   - knownIssues: (optional) string[] of current concerns (e.g. "check_engine")
+   *   - onboardingComplete: (optional) true once Phase 1 data collection is done
    *
    * INDEXES:
    *   - by_vin: Get all owners of a vehicle
@@ -874,6 +878,11 @@ export default defineSchema({
     smartcarVehicleId: v.optional(v.string()),
     connectionStatus: v.optional(v.string()), // "unconnected" | "connected" | "error"
     connectedAt: v.optional(v.float64()),
+    // Vehicle onboarding profile fields (non-Smartcar)
+    avgMonthlyDriving: v.optional(v.string()),   // "light" | "average" | "heavy"
+    drivingConditions: v.optional(v.string()),    // "city" | "highway" | "mixed"
+    knownIssues: v.optional(v.any()),             // string[] e.g. ["check_engine", "weird_noise"]
+    onboardingComplete: v.optional(v.boolean()),  // Phase 1 → Phase 2 gate
   })
     .index("by_vin", ["vin"])
     .index("by_user_id", ["user_id"])
@@ -1950,4 +1959,61 @@ export default defineSchema({
   })
     .index("by_vehicle_owner", ["vehicleOwnerId"])
     .index("by_vehicle_and_type", ["vehicleOwnerId", "snapshotType"]),
+
+  /**
+   * TABLE: odometer_history
+   *
+   * DESCRIPTION:
+   * Logs odometer readings over time for trip stats (daily/weekly miles driven).
+   * Each row is one reading. Deduplicated: only insert if distance changed.
+   *
+   * FIELDS:
+   *   - vehicleOwnerId: FK to vehicle_owners
+   *   - distance: Odometer value in miles
+   *   - unit: "mi" | "km"
+   *   - recordedAt: Unix timestamp of the reading
+   *
+   * INDEXES:
+   *   - by_vehicle_and_date: For querying history range per vehicle
+   */
+  odometer_history: defineTable({
+    vehicleOwnerId: v.id("vehicle_owners"),
+    distance: v.float64(),
+    unit: v.string(),
+    recordedAt: v.float64(),
+  })
+    .index("by_vehicle_and_date", ["vehicleOwnerId", "recordedAt"]),
+
+  /**
+   * TABLE: maintenance_records
+   *
+   * DESCRIPTION:
+   * User-provided maintenance data for items Smartcar doesn't cover
+   * (brakes, inspection, transmission, battery, etc.).
+   * One record per vehicle + type. Upserted when user submits info.
+   *
+   * FIELDS:
+   *   - vehicleOwnerId: FK to vehicle_owners
+   *   - type: "oil" | "brakes" | "tires" | "inspection" | "battery"
+   *   - lastServiceDate: Unix timestamp of last service (optional)
+   *   - lastServiceMileage: Miles at last service (optional)
+   *   - customInputs: Flexible object for type-specific data (optional)
+   *   - createdAt: Creation timestamp
+   *   - updatedAt: Last update timestamp
+   *
+   * INDEXES:
+   *   - by_vehicle_owner: All records for a vehicle
+   *   - by_vehicle_and_type: Lookup a specific maintenance type per vehicle
+   */
+  maintenance_records: defineTable({
+    vehicleOwnerId: v.id("vehicle_owners"),
+    type: v.string(),
+    lastServiceDate: v.optional(v.float64()),
+    lastServiceMileage: v.optional(v.float64()),
+    customInputs: v.optional(v.any()),
+    createdAt: v.float64(),
+    updatedAt: v.float64(),
+  })
+    .index("by_vehicle_owner", ["vehicleOwnerId"])
+    .index("by_vehicle_and_type", ["vehicleOwnerId", "type"]),
 });

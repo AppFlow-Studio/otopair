@@ -60,6 +60,20 @@ export interface ServiceRecord {
   serviceCost: { totalCost: number | null; currency: string | null } | null;
 }
 
+export interface NextServicePrediction {
+  milesRemaining: number;
+  estimatedDate: string | null; // ISO date string
+  status: "good" | "soon" | "urgent"; // green / yellow / red
+}
+
+export interface TripStats {
+  todayMiles: number;
+  weekMiles: number;
+  /** Daily deltas for the last 7 days (index 0 = oldest, 6 = today) */
+  sparklineData: number[];
+  avgDailyMiles: number;
+}
+
 export interface SmartcarStats {
   oilLife: number | null; // 0.0–1.0
   fuel: {
@@ -199,6 +213,98 @@ function computeHealthScore(stats: SmartcarStats): number {
 }
 
 // ============================================================================
+// TRIP STATS HELPERS
+// ============================================================================
+
+const OIL_CHANGE_INTERVAL_MILES = 7500;
+const DEFAULT_DAILY_MILES = 30;
+
+function computeTripStats(
+  odometerHistory: { distance: number; recordedAt: number }[] | undefined
+): TripStats {
+  const empty: TripStats = { todayMiles: 0, weekMiles: 0, sparklineData: [0, 0, 0, 0, 0, 0, 0], avgDailyMiles: DEFAULT_DAILY_MILES };
+  if (!odometerHistory || odometerHistory.length < 2) return empty;
+
+  const now = Date.now();
+  const MS_DAY = 24 * 60 * 60 * 1000;
+
+  // Group readings by day (day index 0 = 6 days ago, 6 = today)
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const todayMs = todayStart.getTime();
+
+  // Build array of daily min/max readings for last 7 days
+  const dailyBuckets: { min: number; max: number }[] = [];
+  for (let d = 0; d < 7; d++) {
+    const dayStart = todayMs - (6 - d) * MS_DAY;
+    const dayEnd = dayStart + MS_DAY;
+    const dayReadings = odometerHistory.filter(
+      (r) => r.recordedAt >= dayStart && r.recordedAt < dayEnd
+    );
+    if (dayReadings.length > 0) {
+      const dists = dayReadings.map((r) => r.distance);
+      dailyBuckets.push({ min: Math.min(...dists), max: Math.max(...dists) });
+    } else {
+      dailyBuckets.push({ min: -1, max: -1 });
+    }
+  }
+
+  // Compute daily deltas using inter-day differences
+  const sparklineData: number[] = [];
+  let prevMax = -1;
+
+  // Find the earliest known reading to use as prev baseline
+  for (let d = 0; d < 7; d++) {
+    if (dailyBuckets[d].min >= 0) {
+      if (prevMax < 0) {
+        prevMax = dailyBuckets[d].min;
+        sparklineData.push(dailyBuckets[d].max - dailyBuckets[d].min);
+      } else {
+        const delta = dailyBuckets[d].max - prevMax;
+        sparklineData.push(Math.max(0, Math.round(delta)));
+        prevMax = dailyBuckets[d].max;
+      }
+    } else {
+      sparklineData.push(0);
+    }
+  }
+
+  // Pad to 7 if shorter
+  while (sparklineData.length < 7) sparklineData.unshift(0);
+
+  const roundedSparkline = sparklineData.map((v) => Math.round(v));
+  const todayMiles = Math.round(sparklineData[6] || 0);
+  const weekMiles = Math.round(sparklineData.reduce((s, v) => s + v, 0));
+  const nonZeroDays = roundedSparkline.filter((v) => v > 0).length;
+  const avgDailyMiles = nonZeroDays > 0 ? Math.round(weekMiles / nonZeroDays) : DEFAULT_DAILY_MILES;
+
+  return { todayMiles, weekMiles, sparklineData: roundedSparkline, avgDailyMiles };
+}
+
+function computeNextService(
+  oilLife: number | null,
+  odometer: { distance: number } | null,
+  avgDailyMiles: number
+): NextServicePrediction | null {
+  if (oilLife === null) return null;
+
+  const milesRemaining = Math.round(oilLife * OIL_CHANGE_INTERVAL_MILES);
+  const daysUntil = avgDailyMiles > 0 ? Math.round(milesRemaining / avgDailyMiles) : null;
+  let estimatedDate: string | null = null;
+  if (daysUntil !== null) {
+    const d = new Date();
+    d.setDate(d.getDate() + daysUntil);
+    estimatedDate = d.toISOString().split("T")[0];
+  }
+
+  let status: NextServicePrediction["status"] = "good";
+  if (milesRemaining < 500) status = "urgent";
+  else if (milesRemaining < 2000) status = "soon";
+
+  return { milesRemaining, estimatedDate, status };
+}
+
+// ============================================================================
 // HOOK
 // ============================================================================
 
@@ -206,6 +312,11 @@ export function useSmartcarData(vehicleOwnerId: Id<"vehicle_owners"> | undefined
   const snapshots = useQuery(
     api.smartcar.getLatestSnapshots,
     vehicleOwnerId ? { vehicleOwnerId } : "skip"
+  );
+
+  const odometerHistory = useQuery(
+    api.smartcar.getOdometerHistory,
+    vehicleOwnerId ? { vehicleOwnerId, daysBack: 30 } : "skip"
   );
 
   const stats: SmartcarStats | null = useMemo(() => {
@@ -250,10 +361,19 @@ export function useSmartcarData(vehicleOwnerId: Id<"vehicle_owners"> | undefined
     return computeHealthScore(stats);
   }, [stats]);
 
+  const tripStats = useMemo(() => computeTripStats(odometerHistory ?? undefined), [odometerHistory]);
+
+  const nextServicePrediction = useMemo(
+    () => computeNextService(stats?.oilLife ?? null, stats?.odometer ?? null, tripStats.avgDailyMiles),
+    [stats?.oilLife, stats?.odometer, tripStats.avgDailyMiles]
+  );
+
   return {
     stats,
     maintenanceItems,
     healthScore,
+    tripStats,
+    nextServicePrediction,
     lastSyncedAt: snapshots?.lastSyncedAt ?? null,
     isConnected: snapshots?.isConnected ?? false,
     isLoading: snapshots === undefined,

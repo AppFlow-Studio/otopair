@@ -133,14 +133,21 @@ function SmartcarColdStartRefresh() {
     const connected = vehicles.filter(
       (v: any) => v.connectionStatus === "connected" && v.ownership?._id
     );
+
+    console.log(
+      `[ColdStart] vehicles=${vehicles.length}, connected=${connected.length}, statuses=${vehicles.map((v: any) => v.connectionStatus).join(",")}`
+    );
+
     if (connected.length === 0) return;
 
     hasRefreshedRef.current = true;
 
     // Refresh each connected vehicle (fire-and-forget)
     for (const v of connected) {
-      fetchVehicleData({ vehicleOwnerId: (v as any).ownership._id }).catch(
-        (err: any) => console.warn("Cold-start Smartcar refresh failed:", err)
+      const ownerId = (v as any).ownership._id;
+      console.log(`[ColdStart] Refreshing vehicle owner=${ownerId}`);
+      fetchVehicleData({ vehicleOwnerId: ownerId }).catch(
+        (err: any) => console.warn("[ColdStart] Smartcar refresh failed:", err)
       );
     }
   }, [vehicles, fetchVehicleData]);

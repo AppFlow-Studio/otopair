@@ -34,7 +34,7 @@ export function getVehicleImageUrl(
     customer: IMAGIN_CUSTOMER,
     make: sanitize(make),
     modelFamily: sanitize(model),
-    zoomType: "fullscreen",
+    zoomType: "relative",
     width: "1600",
     angle: "01",
     _v: String(weekNum),

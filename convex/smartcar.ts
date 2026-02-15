@@ -391,14 +391,19 @@ export const exchangeCodeAndConnect = action({
 export const fetchVehicleData = action({
   args: { vehicleOwnerId: v.id("vehicle_owners") },
   handler: async (ctx, args) => {
+    console.log(`[fetchVehicleData] Starting for vehicleOwnerId=${args.vehicleOwnerId}`);
+
     // Get connection
     const connection = await ctx.runQuery(internal.smartcar.getConnectionByOwner, {
       vehicleOwnerId: args.vehicleOwnerId,
     });
 
     if (!connection || connection.status !== "active") {
+      console.log(`[fetchVehicleData] No active connection found (status=${connection?.status ?? "null"})`);
       return { error: "Vehicle not connected" };
     }
+
+    console.log(`[fetchVehicleData] Connection found, smartcarVehicleId=${connection.smartcarVehicleId}, tokenExpiresAt=${connection.tokenExpiresAt}, now=${Date.now()}, expired=${connection.tokenExpiresAt < Date.now()}`);
 
     // Refresh token if needed
     let accessToken = connection.accessToken;
@@ -406,9 +411,11 @@ export const fetchVehicleData = action({
     const fiveMin = 5 * 60 * 1000;
 
     if (connection.tokenExpiresAt < now + fiveMin) {
+      console.log(`[fetchVehicleData] Token expired/expiring, refreshing...`);
       const newTokens = await refreshToken(connection.refreshToken);
 
       if (!newTokens) {
+        console.log(`[fetchVehicleData] Token refresh FAILED, marking expired`);
         await ctx.runMutation(internal.smartcar.markConnectionExpired, {
           connectionId: connection._id,
         });
@@ -426,7 +433,10 @@ export const fetchVehicleData = action({
     }
 
     // Fetch data via batch endpoint
+    console.log(`[fetchVehicleData] Calling fetchBatchData...`);
     const data = await fetchBatchData(accessToken, connection.smartcarVehicleId);
+    console.log(`[fetchVehicleData] fetchBatchData returned, keys=${Object.keys(data).join(",")}`);
+    console.log(`[fetchVehicleData] odometer=${JSON.stringify(data.odometer)}, fuel=${JSON.stringify(data.fuel)}, oilLife=${JSON.stringify(data.oilLife)}`);
 
     // Store all health snapshots
     if (data.odometer) {
@@ -439,6 +449,12 @@ export const fetchVehicleData = action({
         snapshotType: "odometer",
         data: data.odometer,
         source: "smartcar",
+      });
+      // Log to odometer_history for trip stats
+      await ctx.runMutation(internal.smartcar.logOdometerReading, {
+        vehicleOwnerId: args.vehicleOwnerId,
+        distance: data.odometer.distance,
+        unit: data.odometer.unit || "mi",
       });
     }
     if (data.tirePressure) {
@@ -780,6 +796,12 @@ export const syncVehicleFromWebhook = internalAction({
         snapshotType: "odometer",
         data: data.odometer,
         source: "smartcar",
+      });
+      // Log to odometer_history for trip stats
+      await ctx.runMutation(internal.smartcar.logOdometerReading, {
+        vehicleOwnerId: connection.vehicleOwnerId,
+        distance: data.odometer.distance,
+        unit: data.odometer.unit || "mi",
       });
     }
 
@@ -1126,6 +1148,69 @@ export const storeHealthSnapshot = internalMutation({
       recordedAt: now,
       createdAt: now,
     });
+  },
+});
+
+/**
+ * Log an odometer reading to odometer_history (deduplicated).
+ * Only inserts if the distance changed from the last entry.
+ */
+export const logOdometerReading = internalMutation({
+  args: {
+    vehicleOwnerId: v.id("vehicle_owners"),
+    distance: v.float64(),
+    unit: v.string(),
+  },
+  handler: async (ctx, args) => {
+    // Get the last entry
+    const lastEntry = await ctx.db
+      .query("odometer_history")
+      .withIndex("by_vehicle_and_date", (q) =>
+        q.eq("vehicleOwnerId", args.vehicleOwnerId)
+      )
+      .order("desc")
+      .first();
+
+    // Skip if same value (deduplicate)
+    if (lastEntry && Math.abs(lastEntry.distance - args.distance) < 0.5) {
+      return;
+    }
+
+    await ctx.db.insert("odometer_history", {
+      vehicleOwnerId: args.vehicleOwnerId,
+      distance: args.distance,
+      unit: args.unit,
+      recordedAt: Date.now(),
+    });
+  },
+});
+
+/**
+ * Get odometer history for the last N days (default 30).
+ * Returns array of { distance, recordedAt } sorted ascending by date.
+ */
+export const getOdometerHistory = query({
+  args: {
+    vehicleOwnerId: v.id("vehicle_owners"),
+    daysBack: v.optional(v.float64()),
+  },
+  handler: async (ctx, args) => {
+    const days = args.daysBack ?? 30;
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+
+    const entries = await ctx.db
+      .query("odometer_history")
+      .withIndex("by_vehicle_and_date", (q) =>
+        q.eq("vehicleOwnerId", args.vehicleOwnerId).gte("recordedAt", cutoff)
+      )
+      .order("asc")
+      .collect();
+
+    return entries.map((e) => ({
+      distance: e.distance,
+      unit: e.unit,
+      recordedAt: e.recordedAt,
+    }));
   },
 });
 

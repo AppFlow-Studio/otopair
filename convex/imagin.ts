@@ -63,7 +63,7 @@ async function fetchVehicleImageBlob(
     customer: key || "us-appflowstudio",
     make: sanitize(make),
     modelFamily: sanitize(model),
-    zoomType: "fullscreen",
+    zoomType: "relative",
     width: "1600",
     angle: "01",
   });
