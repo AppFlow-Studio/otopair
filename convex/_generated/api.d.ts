@@ -16,6 +16,7 @@ import type * as booking_status_history from "../booking_status_history.js";
 import type * as bookings from "../bookings.js";
 import type * as cdn_assets from "../cdn_assets.js";
 import type * as chassis_variants from "../chassis_variants.js";
+import type * as client_logs from "../client_logs.js";
 import type * as conversion_funnels from "../conversion_funnels.js";
 import type * as engines from "../engines.js";
 import type * as fitments from "../fitments.js";
@@ -32,7 +33,9 @@ import type * as onboarding_questions_answers from "../onboarding_questions_answ
 import type * as payment_status_history from "../payment_status_history.js";
 import type * as payments from "../payments.js";
 import type * as reviews from "../reviews.js";
+import type * as rewards from "../rewards.js";
 import type * as seed from "../seed.js";
+import type * as seed_services_catalog from "../seed_services_catalog.js";
 import type * as service_categories from "../service_categories.js";
 import type * as service_insights from "../service_insights.js";
 import type * as service_options from "../service_options.js";
@@ -72,6 +75,7 @@ declare const fullApi: ApiFromModules<{
   bookings: typeof bookings;
   cdn_assets: typeof cdn_assets;
   chassis_variants: typeof chassis_variants;
+  client_logs: typeof client_logs;
   conversion_funnels: typeof conversion_funnels;
   engines: typeof engines;
   fitments: typeof fitments;
@@ -88,7 +92,9 @@ declare const fullApi: ApiFromModules<{
   payment_status_history: typeof payment_status_history;
   payments: typeof payments;
   reviews: typeof reviews;
+  rewards: typeof rewards;
   seed: typeof seed;
+  seed_services_catalog: typeof seed_services_catalog;
   service_categories: typeof service_categories;
   service_insights: typeof service_insights;
   service_options: typeof service_options;

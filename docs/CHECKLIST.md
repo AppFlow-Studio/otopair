@@ -9,7 +9,7 @@
 
 ### Done
 
-- [x] Schema: 46 tables; VIN-based vehicles + vehicle_owners; normalized vehicle intelligence; cdn_assets + shop_portfolio
+- [x] Schema: 51 tables; VIN-based vehicles + vehicle_owners; normalized vehicle intelligence; cdn_assets + shop_portfolio; **OTOPAIR Rewards** (user_reward_wallets, ownership_credit_transactions, reward_deals, user_contribution_claims, vehicle_tiers)
 - [x] Core: vehicles.ts, vehicle_owners.ts, bookings.ts, payments.ts, job_actuals.ts, reviews.ts, follow_ups.ts
 - [x] Status history: booking_status_history.ts, payment_status_history.ts (FSM + audit log)
 - [x] Vehicle intelligence: oemParts.ts, specs.ts (getFullVehicleSpecPack), fitments.ts, transmissions.ts, chassis_variants.ts
@@ -17,6 +17,7 @@
 - [x] Spec pipeline: ai_enrichment_logs.ts, manual_review_queue.ts, spec_variances.ts, spec_confirmations.ts
 - [x] Services/shops: services.ts, service_categories.ts, service_options.ts, shop_services.ts, shops.ts, mechanics.ts, shops_hours.ts, time_slots.ts, service_vehicle_specs.ts, service_insights.ts, cdn_assets.ts, shop_portfolio.ts
 - [x] User/infra: users.ts (getOrCreateMe), onboarding_questions_answers only (Q&A in app; see [ONBOARDING_QA.md](./ONBOARDING_QA.md))
+- [x] **Rewards:** rewards.ts — wallet, deals, credit history, membership stats, tier; addCreditForCompletedBooking (on booking completion); spend thresholds ($750 Preferred, $1,500 Elite); claimContributionReward (review $5, upload $10, referral $25 cap 5). transactions.ts for History screen.
 - [x] Catalog: makes.ts, models.ts, trims.ts, engines.ts (list/getById/getBy\*)
 
 ### Half-implemented
@@ -29,7 +30,32 @@
 
 ---
 
-## 2. Home – Finish setup card
+## 2. OTOPAIR Rewards
+
+**Scope:** Ownership Credit, tier status, membership UI. See [REWARDS.md](./REWARDS.md) for full program spec.
+
+### Done
+
+- [x] **Booking → credit** – When booking completes (updateStatus or submitJobActuals), scheduler runs addCreditForCompletedBooking; credits user wallet by tier rate (1.5% / 3% / 5%)
+- [x] **Spend thresholds** – Per-vehicle tier auto-upgrade: $750 → Preferred, $1,500 → Elite (12-month rolling spend)
+- [x] **Membership UI** – app/membership.tsx: balance, tier modal (Driver/Preferred/Elite), suggested deals, History, Refer a Friend, Add Car
+- [x] **Wallet & tier** – getWallet, getPrimaryVehicleTier, getMembershipStats, getCreditHistory, transactions.listForUser
+- [x] **Contribution mutation** – claimContributionReward (review $5, upload $10, referral $25; referral cap 5)
+- [x] **Suggested deals** – app/suggested-deals.tsx with getAllDeals
+
+### Half-implemented
+
+- [ ] **Contribution hooks** – claimContributionReward exists but not called from: reviews.submit (review $5), upload flow (upload $10), referral completion (referral $25 both parties)
+
+### Not implemented
+
+- [ ] Subscription path (Preferred $9.99/mo, Elite $24.99/mo)
+- [ ] Tier benefits (diagnostics coverage, booking priority, price lock, concierge)
+- [ ] Context switcher updating tier when user switches vehicles in membership view
+
+---
+
+## 3. Home – Finish setup card
 
 ### Done
 
@@ -37,7 +63,7 @@
 
 ---
 
-## 3. Frontend – Add vehicle flow
+## 4. Frontend – Add vehicle flow
 
 ### Done
 
@@ -98,15 +124,16 @@
 
 ---
 
-## 5. Summary table
+## 6. Summary table
 
-| Area                     | Done                                                                             | Half-implemented                  | Not implemented               |
-| ------------------------ | -------------------------------------------------------------------------------- | --------------------------------- | ----------------------------- |
-| **Convex schema & APIs** | Full (46 tables, vehicle intelligence, core, funnel, cdn_assets, shop_portfolio) | Seed data                         | Tests                         |
-| **Add vehicle**          | VIN + Smartcar paths wired to Convex (NHTSA + AI pipeline)                       | add-car-info manual flow          | Spec pack in UI               |
-| **Booking flow UI**      | Full (discovery → confirmation)                                                  | —                                 | —                             |
-| **Booking → Convex**     | createBatch, services, shops, mechanics, time_slots, user, vehicle               | payments.create; funnel/analytics | —                             |
-| **Confirmation**         | Success UI; Directions, Contact, Add to Calendar (shop from DB)                  | —                                 | Server booking id, follow_ups |
+| Area                     | Done                                                                                      | Half-implemented                            | Not implemented               |
+| ------------------------ | ----------------------------------------------------------------------------------------- | ------------------------------------------- | ----------------------------- |
+| **Convex schema & APIs** | Full (51 tables, vehicle intelligence, core, rewards, funnel, cdn_assets, shop_portfolio) | Seed data                                   | Tests                         |
+| **OTOPAIR Rewards**      | Booking→credit, spend thresholds, tier, membership UI, contribution mutation              | Contribution hooks (review/upload/referral) | Subscription, tier benefits   |
+| **Add vehicle**          | VIN + Smartcar paths wired to Convex (NHTSA + AI pipeline)                                | add-car-info manual flow                    | Spec pack in UI               |
+| **Booking flow UI**      | Full (discovery → confirmation)                                                           | —                                           | —                             |
+| **Booking → Convex**     | createBatch, services, shops, mechanics, time_slots, user, vehicle                        | payments.create; funnel/analytics           | —                             |
+| **Confirmation**         | Success UI; Directions, Contact, Add to Calendar (shop from DB)                           | —                                           | Server booking id, follow_ups |
 
 ---
 

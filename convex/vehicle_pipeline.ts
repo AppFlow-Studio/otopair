@@ -1,8 +1,8 @@
 /**
  * Vehicle Data Pipeline — Convex Actions
  *
- * Stage 2: NHTSA VIN Decode (FREE)
- *   VIN → makes, models, trims, engines
+ * Stage 2: NHTSA VIN Decode + AI Normalization
+ *   VIN → NHTSA raw → (optional) Claude normalizes model/trim/drivetrain/engine_code → makes, models, trims, engines, chassis_variants
  *
  * Stage 3: AI Enrichment (Claude ~$0.02/vehicle)
  *   engine → engine_specs, vehicle_specs, trim_specs, oem_parts
@@ -31,9 +31,7 @@ export const processVin = internalAction({
   handler: async (ctx, args) => {
     try {
       // ── Call NHTSA API ──
-      const response = await fetch(
-        `${NHTSA_API}/${args.vin}?format=json`
-      );
+      const response = await fetch(`${NHTSA_API}/${args.vin}?format=json`);
       const data = await response.json();
 
       // Check for errors — ErrorCode "0" means clean decode.
@@ -46,7 +44,7 @@ export const processVin = internalAction({
         return null;
       }
 
-      // Extract fields
+      // Extract fields from NHTSA
       const extracted = {
         make: getValue(data, "Make") || "",
         model: getValue(data, "Model") || "",
@@ -59,6 +57,10 @@ export const processVin = internalAction({
         turbo: getValue(data, "Turbo") === "Yes",
         bodyStyle: getValue(data, "BodyClass") || "",
         transmission: getValue(data, "TransmissionStyle") || "",
+        driveType: getValue(data, "DriveType") || "",
+        trim2: getValue(data, "Trim2") || "",
+        series: getValue(data, "Series") || "",
+        series2: getValue(data, "Series2") || "",
       };
 
       if (!extracted.make || !extracted.model || !extracted.year) {
@@ -66,36 +68,62 @@ export const processVin = internalAction({
         return null;
       }
 
-      // ── Upsert database records: makes → models → trims → engines ──
-      const makeId = await ctx.runMutation(
-        internal.vehicle_mutations.upsertMake,
-        { name: extracted.make }
-      );
+      // ── Optional: AI normalization (correct model/trim/drivetrain/engine_code when NHTSA is wrong) ──
+      let finalModel = extracted.model;
+      let finalTrim = extracted.trim;
+      let finalEngineCode = extracted.engineCode;
+      let drivetrainType: string | undefined;
 
-      const modelId = await ctx.runMutation(
-        internal.vehicle_mutations.upsertModel,
-        { makeId, name: extracted.model }
-      );
-
-      const trimId = await ctx.runMutation(
-        internal.vehicle_mutations.upsertTrim,
-        {
-          modelId,
-          name: extracted.trim,
+      const anthropicKey = process.env.ANTHROPIC_API_KEY;
+      if (anthropicKey) {
+        const normalized = await normalizeNhtsaWithClaude(anthropicKey, {
+          make: extracted.make,
           year: extracted.year,
+          nhtsaModel: extracted.model,
+          nhtsaTrim: extracted.trim,
+          nhtsaTrim2: extracted.trim2,
+          nhtsaSeries: extracted.series,
+          nhtsaSeries2: extracted.series2,
+          bodyClass: extracted.bodyStyle,
+          driveType: extracted.driveType,
+          engineModel: extracted.engineCode,
+        });
+        if (normalized) {
+          if (normalized.model) finalModel = normalized.model;
+          if (normalized.trim) finalTrim = normalized.trim;
+          if (normalized.engine_code) finalEngineCode = normalized.engine_code;
+          if (normalized.drivetrain_type) drivetrainType = normalized.drivetrain_type;
         }
-      );
+      }
 
-      const engineId = await ctx.runMutation(
-        internal.vehicle_mutations.upsertEngine,
-        {
-          trimId,
-          engineCode: extracted.engineCode,
-          cylinders: extracted.cylinders,
-          displacement: extracted.displacement,
-          fuelType: extracted.fuelType,
-        }
-      );
+      // ── Upsert database records: makes → models → trims → engines ──
+      const makeId = await ctx.runMutation(internal.vehicle_mutations.upsertMake, { name: extracted.make });
+
+      const modelId = await ctx.runMutation(internal.vehicle_mutations.upsertModel, { makeId, name: finalModel });
+
+      const trimId = await ctx.runMutation(internal.vehicle_mutations.upsertTrim, {
+        modelId,
+        name: finalTrim,
+        year: extracted.year,
+      });
+
+      // ── Drivetrain variant (e.g. xDrive → awd) when AI provided it ──
+      const canonicalDrivetrain = drivetrainType ? toCanonicalDrivetrain(drivetrainType) : undefined;
+      if (canonicalDrivetrain) {
+        await ctx.runMutation(api.chassis_variants.upsertChassisVariant, {
+          trim_id: trimId,
+          drivetrain_type: canonicalDrivetrain,
+          confidence_score: 0.85,
+        });
+      }
+
+      const engineId = await ctx.runMutation(internal.vehicle_mutations.upsertEngine, {
+        trimId,
+        engineCode: finalEngineCode,
+        cylinders: extracted.cylinders,
+        displacement: extracted.displacement,
+        fuelType: extracted.fuelType,
+      });
 
       return {
         makeId,
@@ -103,10 +131,10 @@ export const processVin = internalAction({
         trimId,
         engineId,
         make: extracted.make,
-        model: extracted.model,
+        model: finalModel,
         year: extracted.year,
-        trim: extracted.trim,
-        engineCode: extracted.engineCode,
+        trim: finalTrim,
+        engineCode: finalEngineCode,
         cylinders: extracted.cylinders,
         displacement: extracted.displacement,
         fuelType: extracted.fuelType,
@@ -152,14 +180,10 @@ export const enrichVehicleSpecs = internalAction({
     }
 
     // ── Re-enrichment guard ──
-    const existingSpecs = await ctx.runQuery(
-      internal.vehicle_mutations.getEngineSpecs,
-      { engineId: args.engineId }
-    );
-    const existingSvcSpecsCount = await ctx.runQuery(
-      internal.vehicle_mutations.getServiceVehicleSpecsCount,
-      { engineId: args.engineId }
-    );
+    const existingSpecs = await ctx.runQuery(internal.vehicle_mutations.getEngineSpecs, { engineId: args.engineId });
+    const existingSvcSpecsCount = await ctx.runQuery(internal.vehicle_mutations.getServiceVehicleSpecsCount, {
+      engineId: args.engineId,
+    });
 
     const needsBaseSpecs = !existingSpecs;
     const needsPricing = existingSvcSpecsCount === 0;
@@ -169,7 +193,29 @@ export const enrichVehicleSpecs = internalAction({
       return;
     }
 
-    const vehicleDesc = `${args.year} ${args.make} ${args.model} ${args.trim} (${args.displacement}L ${args.cylinders}-cylinder ${args.fuelType}, engine code: ${args.engineCode})`;
+    // ── Infer engine code from model + trim + year when NHTSA didn't provide it ──
+    let effectiveEngineCode = args.engineCode?.trim() ?? "";
+    if (!effectiveEngineCode) {
+      const inferred = await inferEngineCodeFromVehicle(anthropicKey, {
+        make: args.make,
+        model: args.model,
+        trim: args.trim,
+        year: args.year,
+        displacement: args.displacement,
+        cylinders: args.cylinders,
+        fuelType: args.fuelType,
+      });
+      if (inferred) {
+        await ctx.runMutation(internal.vehicle_mutations.updateEngineCode, {
+          engineId: args.engineId,
+          engineCode: inferred,
+        });
+        effectiveEngineCode = inferred;
+        await delay(5_000); // Spread rate limit: inference then base specs
+      }
+    }
+
+    const vehicleDesc = `${args.year} ${args.make} ${args.model} ${args.trim} (${args.displacement}L ${args.cylinders}-cylinder ${args.fuelType}, engine code: ${effectiveEngineCode})`;
 
     // ── Variables populated by base-specs call, used by pricing call ──
     let oilViscosity = "N/A";
@@ -180,75 +226,92 @@ export const enrichVehicleSpecs = internalAction({
     // CLAUDE CALL #1 — Base specs (engine, vehicle, trim)
     // ============================================================
     if (needsBaseSpecs) {
-      const prompt = `You are an automotive parts specialist. I need accurate OEM specifications for a ${vehicleDesc}.
+      const specsPrompt = `You are an automotive OEM specifications extractor.
 
-Return ONLY a JSON object with no additional text. Every field must be filled — use "N/A" if truly unknown.
-
-{
-  "engine_specs": {
-    "oil_viscosity": "e.g. 0W-20",
-    "oil_capacity_qts": 5.0,
-    "oil_change_interval": "e.g. 5000 miles or 6 months",
-    "coolant_type": "e.g. Toyota Super Long Life Coolant",
-    "coolant_capacity_qts": 6.0,
-    "brake_fluid_type": "e.g. DOT 3",
-    "tire_rotation_interval": "e.g. 5000 miles",
-    "spark_plug_interval": "e.g. 60000 miles",
-    "serpentine_belt_interval": "e.g. 60000 miles",
-    "transmission_fluid_interval": "e.g. 60000 miles",
-    "engine_air_filter_interval": "e.g. 30000 miles",
-    "cabin_air_filter_interval": "e.g. 15000 miles"
-  },
-  "vehicle_specs": {
-    "oil_filter_oem": "e.g. 04152-YZZA1",
-    "oil_drain_plug_gasket_oem": "e.g. 90430-12031",
-    "engine_air_filter_oem": "e.g. 17801-YZZ05",
-    "cabin_air_filter_oem": "e.g. 87139-YZZ10",
-    "front_brake_pad_oem": "e.g. 04465-33471",
-    "rear_brake_pad_oem": "e.g. 04466-33210",
-    "front_brake_rotor_oem": "e.g. 43512-33130",
-    "rear_brake_rotor_oem": "e.g. 42431-33130",
-    "spark_plug_oem": "e.g. 90919-01253",
-    "spark_plug_quantity": 4,
-    "spark_plug_gap_mm": 1.1,
-    "serpentine_belt_oem": "e.g. 90916-02705",
-    "battery_group": "e.g. 35",
-    "battery_cca": 550,
-    "oil_viscosity": "e.g. 0W-20",
-    "oil_capacity_qts": "5.0",
-    "parking_brake_type": "e.g. drum-in-disc"
-  },
-  "trim_specs": {
-    "tire_size_front": "e.g. 215/55R17",
-    "tire_size_rear": "e.g. 215/55R17",
-    "recommended_tire_pressure_front_psi": 35,
-    "recommended_tire_pressure_rear_psi": 35,
-    "lug_nut_torque_ft_lbs": 76,
-    "wiper_blade_driver_size_in": 26,
-    "wiper_blade_passenger_size_in": 16,
-    "parking_brake_type": "e.g. drum-in-disc"
-  },
-  "confidence_score": 0.85
-}`;
+      Vehicle: ${vehicleDesc}
+      
+      Goal: Fill the JSON template EXACTLY. Output ONLY valid JSON (no markdown, no comments).
+      
+      SEARCH STRATEGY (use web_search)
+      - Search by make + model + trim + year (e.g. "BMW 5 Series M550i 2020") and by engine code when present.
+      - If exact match yields few results, also search by make + trim (e.g. "BMW M550i") or model line + trim; many OEM parts are shared across years and engine variants.
+      - Prefer filling every OEM part number when you find a reliable source (OEM catalog, dealer, parts site). Only use "N/A" when no reasonable source is found after trying the fallback ladder below.
+      
+      FALLBACK LADDER (try in order; use first tier that returns part numbers)
+      1) Exact vehicle (year + make + model + trim + engine code)
+      2) Same trim, different year (e.g. 2019–2021 M550i)
+      3) Same engine code in same make/model family
+      4) Same model line + trim without engine code (e.g. "BMW 5 Series M550i parts")
+      
+      Rules:
+      - Every field MUST be present.
+      - Use "N/A" only when no reliable part number is found after the fallback ladder. Do NOT default to N/A when a plausible match exists.
+      - Do NOT invent OEM part numbers. When a part number appears in OEM/dealer/parts catalog sources, include it.
+      - Prefer values that are specific to: exact year/trim/engine code > same engine code > same model/gen > generic.
+      - confidence_score: 0.90+ verified exact match, 0.70-0.89 strong match (same engine code/platform), 0.50-0.69 partial/estimated, <0.50 mostly unknown.
+      
+      Return this JSON shape:
+      
+      {
+        "engine_specs": {
+          "oil_viscosity": "",
+          "oil_capacity_qts": 0,
+          "oil_change_interval": "",
+          "coolant_type": "",
+          "coolant_capacity_qts": 0,
+          "brake_fluid_type": "",
+          "tire_rotation_interval": "",
+          "spark_plug_interval": "",
+          "serpentine_belt_interval": "",
+          "transmission_fluid_interval": "",
+          "engine_air_filter_interval": "",
+          "cabin_air_filter_interval": ""
+        },
+        "vehicle_specs": {
+          "oil_filter_oem": "",
+          "oil_drain_plug_gasket_oem": "",
+          "engine_air_filter_oem": "",
+          "cabin_air_filter_oem": "",
+          "front_brake_pad_oem": "",
+          "rear_brake_pad_oem": "",
+          "front_brake_rotor_oem": "",
+          "rear_brake_rotor_oem": "",
+          "spark_plug_oem": "",
+          "spark_plug_quantity": 0,
+          "spark_plug_gap_mm": 0,
+          "serpentine_belt_oem": "",
+          "battery_group": "",
+          "battery_cca": 0,
+          "oil_viscosity": "",
+          "oil_capacity_qts": 0,
+          "parking_brake_type": ""
+        },
+        "trim_specs": {
+          "tire_size_front": "",
+          "tire_size_rear": "",
+          "recommended_tire_pressure_front_psi": 0,
+          "recommended_tire_pressure_rear_psi": 0,
+          "lug_nut_torque_ft_lbs": 0,
+          "wiper_blade_driver_size_in": 0,
+          "wiper_blade_passenger_size_in": 0,
+          "parking_brake_type": ""
+        },
+        "confidence_score": 0
+      }`;
 
       try {
-        const response = await fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-api-key": anthropicKey,
-            "anthropic-version": "2023-06-01",
-          },
-          body: JSON.stringify({
-            model: "claude-sonnet-4-5",
-            messages: [{ role: "user", content: prompt }],
-            max_tokens: 50000,
-            tools: [{
+        const response = await fetchAnthropicWithRetry(anthropicKey, {
+          model: "claude-sonnet-4-5-20250929",
+          messages: [{ role: "user", content: specsPrompt }],
+          max_tokens: 50000,
+          temperature: 0.1,
+          tools: [
+            {
               type: "web_search_20250305",
               name: "web_search",
-              max_uses: 5,
-            }],
-          }),
+              max_uses: 10,
+            },
+          ],
         });
 
         if (!response.ok) {
@@ -283,10 +346,7 @@ Return ONLY a JSON object with no additional text. Every field must be filled �
 
         // ── Store trim_specs ──
         if (specs.trim_specs) {
-          const engine = await ctx.runQuery(
-            internal.vehicle_mutations.getEngine,
-            { engineId: args.engineId }
-          );
+          const engine = await ctx.runQuery(internal.vehicle_mutations.getEngine, { engineId: args.engineId });
           if (engine) {
             await ctx.runMutation(internal.vehicle_mutations.storeTrimSpecs, {
               trimId: engine.trim_id,
@@ -303,9 +363,7 @@ Return ONLY a JSON object with no additional text. Every field must be filled �
           source: "claude-sonnet",
         });
 
-        console.log(
-          `Enriched specs for ${vehicleDesc} (confidence: ${confidenceScore})`
-        );
+        console.log(`Enriched specs for ${vehicleDesc} (confidence: ${confidenceScore})`);
       } catch (error) {
         console.error("AI enrichment error (base specs):", error);
         await ctx.runMutation(internal.vehicle_mutations.logEnrichment, {
@@ -329,10 +387,7 @@ Return ONLY a JSON object with no additional text. Every field must be filled �
     if (needsPricing) {
       try {
         // Fetch all services
-        const services = await ctx.runQuery(
-          internal.vehicle_mutations.listAllServices,
-          {}
-        );
+        const services = await ctx.runQuery(internal.vehicle_mutations.listAllServices, {});
 
         if (!services || services.length === 0) {
           console.log("No services found — skipping pricing enrichment");
@@ -343,72 +398,114 @@ Return ONLY a JSON object with no additional text. Every field must be filled �
         const serviceList = services
           .map(
             (s: any) =>
-              `- "${s.name}" (slug: ${s.slug}, default_labor: ${s.default_labor_hours}h, labor_only: ${s.is_labor_only})`
+              `- "${s.name}" (slug: ${s.slug}, default_labor: ${s.default_labor_hours}h, labor_only: ${s.is_labor_only})`,
           )
           .join("\n");
 
-        const pricingPrompt = `You are an automotive service pricing specialist. I need accurate labor hours and parts cost estimates for servicing a ${vehicleDesc}.
+        const pricingPrompt = `You are an automotive service pricing specialist.
 
-Vehicle specs already known:
-- Oil: ${oilViscosity}, ${oilCapacityQts} qts
-- Engine: ${args.displacement}L ${args.cylinders}-cyl ${args.fuelType}
+          Vehicle: ${vehicleDesc}
+          
+          Known specs (use these):
+          - Oil viscosity: ${oilViscosity}
+          - Oil capacity (qts): ${oilCapacityQts}
+          - Engine: ${args.displacement}L ${args.cylinders}-cyl ${args.fuelType}
+          - Engine code: ${effectiveEngineCode}
+          
+          Services to price (include ALL of them):
+          ${serviceList}
+          
+          GOAL
+          For EACH service slug, return labor_hours and parts_cost_low/high for THIS vehicle.
+          Use web research. Prefer primary/commercial sources over opinions.
+          
+          ALLOWED SOURCE TYPES
+          - Dealer parts sites / OEM parts catalogs (pricing references)
+          - Major parts retailers (pricing references)
+          - Reputable shop menus/quotes/estimates (labor references)
+          - Publicly visible labor-time references (if available)
+          
+          NOT ALLOWED
+          - RepairPal
+          - Forums as a primary source (forums may only sanity-check; never “verify”)
+          
+          CRITICAL RULES
+          1) LABOR-ONLY services: parts_cost_low=0, parts_cost_high=0, parts_list=[]
+          2) Do NOT invent OEM part numbers. If unconfirmed, omit part numbers.
+          3) If exact trim data is missing, use the fallback ladder and widen ranges.
+          
+          FALLBACK LADDER
+          1) Exact vehicle/trim
+          2) Same generation/platform
+          3) Same engine code (M176) in closest Mercedes model
+          4) Generic luxury performance car estimate
+          When using fallback, widen ranges and state fallback in tech_notes.
+          
+          PER-SERVICE LIMITS (must follow)
+          - tech_notes: max 120 characters
+          - sources: max 2 items
+          - parts_list: max 4 items
+          
+          CONFIDENCE SCORING (evidence-based)
+          - 0.90+ = labor AND parts both supported by sources (2 sources total is fine)
+          - 0.70–0.89 = one of labor/parts supported, other inferred via fallback ladder
+          - <=0.69 = mostly inferred/estimated (must say why in tech_notes)
+          
+          EXAMPLE FORMAT (placeholders only; do not reuse values)
+          [
+            {
+              "slug": "oil-change",
+              "labor_hours": 0,
+              "parts_cost_low": 0,
+              "parts_cost_high": 0,
+              "confidence_score": 0,
+              "parts_list": [
+                { "item": "engine oil", "qty": 0, "price_low": 0, "price_high": 0 },
+                { "item": "oil filter", "qty": 0, "price_low": 0, "price_high": 0 }
+              ],
+              "tech_notes": "",
+              "sources": []
+            }
+          ]
+          
+          RETURN ONLY valid JSON array (no extra text). Each element MUST include EXACT fields:
+          [
+            {
+              "slug": string,
+              "labor_hours": number,
+              "parts_cost_low": number,
+              "parts_cost_high": number,
+              "confidence_score": number,
+              "parts_list": Array<{ "item": string, "qty": number, "price_low": number, "price_high": number }>,
+              "tech_notes": string,
+              "sources": string[]
+            }
+          ]`;
 
-Services to price:
-${serviceList}
+        // Spread tokens across rate-limit window: wait before pricing so we don't burst with base specs.
+        await delay(15_000);
 
-Use web search to find real-world parts pricing and labor times for this SPECIFIC vehicle. Check auto parts retailers for parts pricing and RepairPal/mechanic forums for labor times.
-
-Return ONLY a JSON array:
-[
-  {
-    "slug": "oil-change",
-    "labor_hours": 0.5,
-    "parts_cost_low": 35.00,
-    "parts_cost_high": 55.00,
-    "confidence_score": 0.9,
-    "tech_notes": "Uses 0W-20 synthetic. OEM filter ..."
-  }
-]
-
-Rules:
-- Include ALL services listed above. For labor_only services: parts_cost_low and parts_cost_high must be 0.
-- Reflect THIS vehicle's real-world pricing, not generic defaults.
-- confidence_score: 0.6 if estimating, 0.9+ if verified via web search.`;
-
-        const pricingResponse = await fetch(
-          "https://api.anthropic.com/v1/messages",
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "x-api-key": anthropicKey,
-              "anthropic-version": "2023-06-01",
+        const pricingResponse = await fetchAnthropicWithRetry(anthropicKey, {
+          model: "claude-sonnet-4-5-20250929",
+          max_tokens: 16000,
+          temperature: 0.1,
+          messages: [{ role: "user", content: pricingPrompt }],
+          tools: [
+            {
+              type: "web_search_20250305",
+              name: "web_search",
+              max_uses: 5,
             },
-            body: JSON.stringify({
-              model: "claude-sonnet-4-20250514",
-              max_tokens: 3000,
-              messages: [{ role: "user", content: pricingPrompt }],
-              tools: [{
-                type: "web_search_20250305",
-                name: "web_search",
-                max_uses: 5,
-              }],
-            }),
-          }
-        );
+          ],
+        });
 
         if (!pricingResponse.ok) {
-          console.error(
-            "Claude API error (pricing):",
-            await pricingResponse.text()
-          );
+          console.error("Claude API error (pricing):", await pricingResponse.text());
           return;
         }
 
         const pricingResult = await pricingResponse.json();
-        const pricingData: any[] = extractJsonFromContentBlocks(
-          pricingResult.content || []
-        );
+        const pricingData: any[] = extractJsonFromContentBlocks(pricingResult.content || []);
 
         // Build slug → service ID map
         const slugToService = new Map<string, any>();
@@ -430,39 +527,31 @@ Rules:
           const itemConfidence = parseFloat(item.confidence_score) || 0.6;
           const techNotes = item.tech_notes || "";
 
-          await ctx.runMutation(
-            internal.vehicle_mutations.upsertServiceVehicleSpec,
-            {
-              engineId: args.engineId,
-              serviceId: svc._id,
-              laborHours,
-              partsCostLow,
-              partsCostHigh,
-              confidenceScore: itemConfidence,
-              techNotes,
-            }
-          );
+          await ctx.runMutation(internal.vehicle_mutations.upsertServiceVehicleSpec, {
+            engineId: args.engineId,
+            serviceId: svc._id,
+            laborHours,
+            partsCostLow,
+            partsCostHigh,
+            confidenceScore: itemConfidence,
+            techNotes,
+          });
 
-          await ctx.runMutation(
-            internal.vehicle_mutations.logServiceEnrichment,
-            {
-              engineId: args.engineId,
-              serviceId: svc._id,
-              source: "claude-sonnet-pricing",
-              confidenceScore: itemConfidence,
-              enrichedData: {
-                labor_hours: laborHours,
-                parts_cost_low: partsCostLow,
-                parts_cost_high: partsCostHigh,
-                tech_notes: techNotes,
-              },
-            }
-          );
+          await ctx.runMutation(internal.vehicle_mutations.logServiceEnrichment, {
+            engineId: args.engineId,
+            serviceId: svc._id,
+            source: "claude-sonnet-pricing",
+            confidenceScore: itemConfidence,
+            enrichedData: {
+              labor_hours: laborHours,
+              parts_cost_low: partsCostLow,
+              parts_cost_high: partsCostHigh,
+              tech_notes: techNotes,
+            },
+          });
         }
 
-        console.log(
-          `Enriched service pricing for ${vehicleDesc} (${pricingData.length} services)`
-        );
+        console.log(`Enriched service pricing for ${vehicleDesc} (${pricingData.length} services)`);
       } catch (error) {
         console.error("AI enrichment error (pricing):", error);
         // Pricing failure does not lose base specs — they were already stored
@@ -583,6 +672,187 @@ export const confirmVehicleForUser = action({
 // ============================================
 // HELPERS
 // ============================================
+
+/** Delay for ms milliseconds (used to spread Claude calls and respect rate limits). */
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * Call Anthropic Messages API with retry on 429 (rate limit).
+ * Waits 60s and retries up to maxRetries times to stay within 30k input tokens/min.
+ */
+async function fetchAnthropicWithRetry(
+  anthropicKey: string,
+  body: Record<string, unknown>,
+  maxRetries = 2,
+): Promise<Response> {
+  const url = "https://api.anthropic.com/v1/messages";
+  let lastResponse: Response | null = null;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const response = await fetch(url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": anthropicKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify(body),
+    });
+    lastResponse = response;
+    if (response.status === 429) {
+      const text = await response.text();
+      const waitMs = 60_000; // 1 minute to align with org limit window
+      if (attempt < maxRetries) {
+        console.warn(`Claude rate limit (429), waiting ${waitMs / 1000}s before retry (${attempt + 1}/${maxRetries})`);
+        await delay(waitMs);
+        continue;
+      }
+      console.error("Claude API rate limit after retries:", text);
+      return response;
+    }
+    return response;
+  }
+  return lastResponse!;
+}
+
+/** Normalize AI drivetrain label to schema value: fwd | rwd | awd | 4wd */
+function toCanonicalDrivetrain(value: string): "fwd" | "rwd" | "awd" | "4wd" | undefined {
+  const v = value.toLowerCase().trim();
+  if (v === "fwd" || v === "rwd" || v === "awd" || v === "4wd") return v as "fwd" | "rwd" | "awd" | "4wd";
+  if (v === "xdrive" || v === "4matic" || v === "quattro" || v === "4motion") return "awd";
+  if (v === "sdrive") return "rwd";
+  return undefined;
+}
+
+/**
+ * Call Claude to normalize NHTSA model/trim/drivetrain/engine_code into canonical OEM naming.
+ * Returns null on failure or missing key; otherwise { model?, trim?, drivetrain_type?, engine_code? }.
+ */
+async function normalizeNhtsaWithClaude(
+  anthropicKey: string,
+  nhtsa: {
+    make: string;
+    year: number;
+    nhtsaModel: string;
+    nhtsaTrim: string;
+    nhtsaTrim2: string;
+    nhtsaSeries: string;
+    nhtsaSeries2: string;
+    bodyClass: string;
+    driveType: string;
+    engineModel: string;
+  },
+): Promise<{ model?: string; trim?: string; drivetrain_type?: string; engine_code?: string } | null> {
+  const prompt = `You are an automotive data normalizer. NHTSA VIN decode often mislabels model vs trim vs drivetrain (e.g. BMW M550i xDrive: Model="M550i", Trim="xdrive" — but model should be "5 Series", trim "M550i", drivetrain "awd").
+
+Input from NHTSA:
+- Make: ${nhtsa.make}
+- Year: ${nhtsa.year}
+- NHTSA Model: ${nhtsa.nhtsaModel}
+- NHTSA Trim: ${nhtsa.nhtsaTrim}
+- NHTSA Trim2: ${nhtsa.nhtsaTrim2}
+- NHTSA Series: ${nhtsa.nhtsaSeries}
+- NHTSA Series2: ${nhtsa.nhtsaSeries2}
+- BodyClass: ${nhtsa.bodyClass}
+- DriveType: ${nhtsa.driveType}
+- EngineModel: ${nhtsa.engineModel}
+
+Output ONLY valid JSON (no markdown, no comments) with this exact shape:
+{
+  "model": "<canonical model line, e.g. 5 Series, 3 Series, Civic>",
+  "trim": "<canonical trim/submodel, e.g. M550i, 330i, EX-L>",
+  "drivetrain_type": "<one of: fwd, rwd, awd, 4wd — or empty string if unknown>",
+  "engine_code": "<OEM engine code if known, e.g. N63B44O2, or empty string to keep NHTSA>"
+}
+
+Rules:
+- model = the model line (e.g. "5 Series"), not the trim (e.g. "M550i").
+- trim = the trim/submodel name; if NHTSA put drivetrain in Trim (e.g. "xdrive"), use the actual trim from NHTSA Model or infer (e.g. "M550i").
+- drivetrain_type: infer from Trim/DriveType (xDrive, sDrive, 4matic, quattro → awd/rwd). Use only fwd, rwd, awd, 4wd or "".
+- engine_code: fill if you know the OEM code and NHTSA is empty/wrong; otherwise "".
+- If a field is truly unknown, use "".
+- Output ONLY the JSON object.`;
+
+  try {
+    const response = await fetchAnthropicWithRetry(anthropicKey, {
+      model: "claude-sonnet-4-5-20250929",
+      messages: [{ role: "user", content: prompt }],
+      max_tokens: 4096,
+      temperature: 0.1,
+    });
+
+    if (!response.ok) {
+      console.error("Claude normalization API error:", await response.text());
+      return null;
+    }
+
+    const result = await response.json();
+    const content = result.content ?? [];
+    const parsed = extractJsonFromContentBlocks(Array.isArray(content) ? content : [content]);
+    if (!parsed || typeof parsed !== "object") return null;
+
+    return {
+      model: typeof parsed.model === "string" ? parsed.model.trim() || undefined : undefined,
+      trim: typeof parsed.trim === "string" ? parsed.trim.trim() || undefined : undefined,
+      drivetrain_type:
+        typeof parsed.drivetrain_type === "string" ? parsed.drivetrain_type.trim() || undefined : undefined,
+      engine_code: typeof parsed.engine_code === "string" ? parsed.engine_code.trim() || undefined : undefined,
+    };
+  } catch (e) {
+    console.error("Claude normalization error:", e);
+    return null;
+  }
+}
+
+/**
+ * Infer OEM engine code from make + model + trim + year (and optional displacement/cylinders/fuel).
+ * Used when NHTSA did not provide engine code so enrichment can run with correct context.
+ */
+async function inferEngineCodeFromVehicle(
+  anthropicKey: string,
+  vehicle: {
+    make: string;
+    model: string;
+    trim: string;
+    year: number;
+    displacement: string;
+    cylinders: number;
+    fuelType: string;
+  },
+): Promise<string> {
+  const prompt = `You are an automotive expert. Given this vehicle, return ONLY the OEM engine code (e.g. N63B44O2, B58B30M1, K20C1). No explanation.
+
+Vehicle: ${vehicle.year} ${vehicle.make} ${vehicle.model} ${vehicle.trim}
+Displacement: ${vehicle.displacement}L, ${vehicle.cylinders} cylinders, ${vehicle.fuelType}
+
+Output a single line with only the engine code, or "unknown" if you cannot determine it.`;
+
+  try {
+    const response = await fetchAnthropicWithRetry(anthropicKey, {
+      model: "claude-sonnet-4-5-20250929",
+      messages: [{ role: "user", content: prompt }],
+      max_tokens: 128,
+      temperature: 0,
+    });
+
+    if (!response.ok) return "";
+
+    const result = await response.json();
+    const content = result.content ?? [];
+    const text = (Array.isArray(content) ? content : [content])
+      .filter((b: any) => b.type === "text")
+      .map((b: any) => b.text)
+      .join(" ")
+      .trim();
+    const code = text.replace(/^["']|["']$/g, "").trim();
+    if (code && code.toLowerCase() !== "unknown") return code;
+    return "";
+  } catch (e) {
+    console.error("Engine code inference error:", e);
+    return "";
+  }
+}
 
 /**
  * Extract a field from NHTSA DecodeVinValuesExtended response.

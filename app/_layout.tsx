@@ -3,7 +3,7 @@ import { ClerkProvider, useAuth } from "@clerk/clerk-expo";
 import { tokenCache } from "@clerk/clerk-expo/token-cache";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { DarkTheme, DefaultTheme, ThemeProvider } from "@react-navigation/native";
-import { Stack } from "expo-router";
+import { Stack, type ErrorBoundaryProps } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { type ReactNode, useEffect, useRef, useState } from "react";
@@ -13,13 +13,25 @@ import "react-native-reanimated";
 import { ConvexReactClient } from "convex/react";
 import { ConvexProviderWithClerk } from "convex/react-clerk";
 
+import { ErrorBoundary as AppErrorBoundary, ErrorModalHost, errorBus } from "@/lib/error-ui";
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useAppFonts } from "@/hooks/use-fonts";
+import { useConsoleToConvex } from "@/hooks/useConsoleToConvex";
 import { useEnsureConvexUser } from "@/hooks/useEnsureConvexUser";
 import { useAuthStore } from "@/stores/useAuthStore";
 
-// Prevent the splash screen from auto-hiding before asset loading is complete.
-SplashScreen.preventAutoHideAsync();
+SplashScreen.preventAutoHideAsync().catch(() => {});
+
+// Global error handler: log to Convex + show modal
+if (typeof global !== "undefined") {
+  const ErrorUtils = (global as any).ErrorUtils;
+  if (ErrorUtils?.setGlobalHandler) {
+    ErrorUtils.setGlobalHandler((error: unknown) => {
+      console.error(error);
+      errorBus.set({ visible: true, error });
+    });
+  }
+}
 
 export const unstable_settings = {
   anchor: "(tabs)",
@@ -30,11 +42,17 @@ const convex = new ConvexReactClient(process.env.EXPO_PUBLIC_CONVEX_URL!, {
   unsavedChangesWarning: false,
 });
 
+function ConsoleToConvexLogger() {
+  useConsoleToConvex();
+  return null;
+}
+
 function ConvexClerkProvider({ children }: { children: ReactNode }) {
   // Convex expects the Clerk useAuth hook that matches the provider
   const auth = useAuth();
   return (
     <ConvexProviderWithClerk client={convex} useAuth={() => auth}>
+      <ConsoleToConvexLogger />
       {children}
     </ConvexProviderWithClerk>
   );
@@ -112,13 +130,22 @@ function SyncAuthStoreWithClerk() {
   return null;
 }
 
+function RootErrorBoundary({ error }: ErrorBoundaryProps) {
+  errorBus.set({ visible: true, error });
+  return null;
+}
+
+export { RootErrorBoundary as ErrorBoundary };
+
 export default function RootLayout() {
   const colorScheme = useColorScheme();
   const [fontsLoaded, fontError] = useAppFonts();
 
   useEffect(() => {
     if (fontsLoaded || fontError) {
-      SplashScreen.hideAsync();
+      SplashScreen.hideAsync().catch((err) => {
+        console.error("SplashScreen.hideAsync failed", err);
+      });
     }
   }, [fontsLoaded, fontError]);
 
@@ -130,32 +157,38 @@ export default function RootLayout() {
   return (
     <ClerkProvider publishableKey={process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!} tokenCache={tokenCache}>
       <ConvexClerkProvider>
-        <EnsureConvexUserRecord />
-        <SyncAuthStoreWithClerk />
-        <GestureHandlerRootView style={{ flex: 1 }}>
-          <BottomSheetModalProvider>
-            <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
-              <Stack>
-                <Stack.Screen name="index" options={{ headerShown: false }} />
-                <Stack.Screen name="(onboarding)" options={{ headerShown: false }} />
-                <Stack.Screen name="(main-tabs)" options={{ headerShown: false }} />
-                <Stack.Screen name="(tell-us-about)" options={{ headerShown: false }} />
-                <Stack.Screen name="coming-soon" options={{ headerShown: false }} />
-                <Stack.Screen name="add-vehicle" options={{ headerShown: false }} />
-                <Stack.Screen name="add-car-info" options={{ headerShown: false }} />
-                <Stack.Screen name="vehicle-added" options={{ headerShown: false }} />
-                <Stack.Screen name="vin-scanner" options={{ headerShown: false }} />
-                <Stack.Screen name="add-vehicle-review" options={{ headerShown: false }} />
-                <Stack.Screen name="payments" options={{ headerShown: false }} />
-                <Stack.Screen name="add-payment" options={{ headerShown: false }} />
-                {/* <Stack.Screen name="payment-methods" options={{ headerShown: false }} /> */}
-                <Stack.Screen name="modal" options={{ presentation: "modal", title: "Modal" }} />
-                <Stack.Screen name="membership" options={{ headerShown: false }} />
-              </Stack>
-              <StatusBar style="auto" />
-            </ThemeProvider>
-          </BottomSheetModalProvider>
-        </GestureHandlerRootView>
+        <AppErrorBoundary>
+          <EnsureConvexUserRecord />
+          <SyncAuthStoreWithClerk />
+          <ErrorModalHost />
+          <GestureHandlerRootView style={{ flex: 1 }}>
+            <BottomSheetModalProvider>
+              <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
+                <Stack>
+                  <Stack.Screen name="index" options={{ headerShown: false }} />
+                  <Stack.Screen name="(onboarding)" options={{ headerShown: false }} />
+                  <Stack.Screen name="(main-tabs)" options={{ headerShown: false }} />
+                  <Stack.Screen name="(tell-us-about)" options={{ headerShown: false }} />
+                  <Stack.Screen name="coming-soon" options={{ headerShown: false }} />
+                  <Stack.Screen name="add-vehicle" options={{ headerShown: false }} />
+                  <Stack.Screen name="add-car-info" options={{ headerShown: false }} />
+                  <Stack.Screen name="vehicle-added" options={{ headerShown: false }} />
+                  <Stack.Screen name="vin-scanner" options={{ headerShown: false }} />
+                  <Stack.Screen name="add-vehicle-review" options={{ headerShown: false }} />
+                  <Stack.Screen name="payments" options={{ headerShown: false }} />
+                  <Stack.Screen name="add-payment" options={{ headerShown: false }} />
+                  {/* <Stack.Screen name="payment-methods" options={{ headerShown: false }} /> */}
+                  <Stack.Screen name="modal" options={{ presentation: "modal", title: "Modal" }} />
+                  <Stack.Screen name="membership" options={{ headerShown: false }} />
+                  <Stack.Screen name="suggested-deals" options={{ headerShown: false }} />
+                  <Stack.Screen name="transactions" options={{ headerShown: false }} />
+                  <Stack.Screen name="refer-a-friend" options={{ headerShown: false }} />
+                </Stack>
+                <StatusBar style="auto" />
+              </ThemeProvider>
+            </BottomSheetModalProvider>
+          </GestureHandlerRootView>
+        </AppErrorBoundary>
       </ConvexClerkProvider>
     </ClerkProvider>
   );

@@ -9,28 +9,60 @@
  */
 
 // 1. React & React Native
-import React, { useRef, useState } from 'react';
-import { Animated, Dimensions, Easing, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import ReAnimated from 'react-native-reanimated';
+import React, { useEffect, useRef, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  Animated,
+  Dimensions,
+  Easing,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import ReAnimated from "react-native-reanimated";
 
 // 2. Expo & Third-party
-import { BlurView } from 'expo-blur';
-import { LinearGradient } from 'expo-linear-gradient';
-import { useRouter } from 'expo-router';
-import { ArrowLeft, BadgeCheck, Bell, Building2, Calendar, Check, ChevronRight, CircleDot, CreditCard, FileText, Gift, Headphones, History, Info, PenSquare, Plus, Settings, Star, UserPlus, Wallet, Wrench, Zap } from 'lucide-react-native';
+import { useRouter } from "expo-router";
+import {
+  ArrowLeft,
+  BadgeCheck,
+  Building2,
+  Calendar,
+  Check,
+  ChevronRight,
+  CreditCard,
+  FileText,
+  Gift,
+  Headphones,
+  History,
+  Info,
+  PenSquare,
+  Plus,
+  Star,
+  UserPlus,
+  Wallet,
+  Wrench,
+  Zap,
+} from "lucide-react-native";
+import { useMutation, useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
 
 // 3. Shared UI
-import { ScrollDrivenGradientBackground, Text } from '@/components/shared-ui';
+import { ScrollDrivenGradientBackground, Text } from "@/components/shared-ui";
 
-// 4. Constants
-import { Spacing } from '@/constants/theme';
+// 4. Constants & Hooks
+import { Spacing } from "@/constants/theme";
+import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 
 // ============================================================================
 // CONSTANTS
 // ============================================================================
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 const AVATAR_SIZE = 56;
 const ACTION_BUTTON_SIZE = 64;
 const GLASS_ICON_SIZE = 40;
@@ -40,60 +72,32 @@ const SHEET_HEIGHT = SCREEN_HEIGHT * 0.9;
 // Sample rewards data
 const EARN_REWARDS = [
   {
-    id: '1',
-    title: 'Leave a Verified Review',
-    subtitle: '+$5 Credit',
-    iconBg: '#F3F4F6',
-    iconColor: '#1F2937',
-    icon: 'review',
+    id: "1",
+    title: "Leave a Verified Review",
+    subtitle: "+$5 Credit",
+    iconBg: "#F3F4F6",
+    iconColor: "#1F2937",
+    icon: "review" as const,
     hasButton: false,
   },
   {
-    id: '2',
-    title: 'Upload Service Records',
-    subtitle: '+$10 Credit',
-    iconBg: '#F3F4F6',
-    iconColor: '#1F2937',
-    icon: 'upload',
+    id: "2",
+    title: "Upload Service Records",
+    subtitle: "+$10 Credit",
+    iconBg: "#F3F4F6",
+    iconColor: "#1F2937",
+    icon: "upload" as const,
     hasButton: true,
-    buttonText: 'Upload',
+    buttonText: "Upload",
   },
   {
-    id: '3',
-    title: 'Refer a Friend',
-    subtitle: '+$25 Credit',
-    iconBg: '#F3F4F6',
-    iconColor: '#1F2937',
-    icon: 'refer',
+    id: "3",
+    title: "Refer a Friend",
+    subtitle: "+$25 Credit",
+    iconBg: "#F3F4F6",
+    iconColor: "#1F2937",
+    icon: "refer" as const,
     hasButton: false,
-  },
-];
-
-// Sample deals data
-const SUGGESTED_DEALS = [
-  {
-    id: '1',
-    title: 'Synthetic Oil Change',
-    description: 'Full synthetic + Filter + Fluids',
-    credit: 15,
-    price: 69,
-    isSpecial: true,
-  },
-  {
-    id: '2',
-    title: 'Tire Rotation',
-    description: 'Rotate all 4 tires + Inspection',
-    credit: 10,
-    price: 29,
-    isSpecial: false,
-  },
-  {
-    id: '3',
-    title: 'Brake Inspection',
-    description: 'Full brake system check',
-    credit: 12,
-    price: 49,
-    isSpecial: true,
   },
 ];
 
@@ -104,18 +108,48 @@ const SUGGESTED_DEALS = [
 export default function MembershipPage() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const { userId } = useUserFromConvex();
+
+  const wallet = useQuery(api.rewards.getWallet, userId ? { userId } : "skip");
+  const stats = useQuery(api.rewards.getMembershipStats, userId ? { userId } : "skip");
+  const tierInfo = useQuery(api.rewards.getPrimaryVehicleTier, userId ? { userId } : "skip");
+  const suggestedDeals = useQuery(api.rewards.getSuggestedDeals, {});
+
+  const ensureWallet = useMutation(api.rewards.ensureWallet);
+  const updateRedemptionPreference = useMutation(api.rewards.updateRedemptionPreference);
+  const redeemSelected = useMutation(api.rewards.redeemSelected);
+
+  useEffect(() => {
+    if (userId && wallet === null) ensureWallet({ userId }).catch(() => {});
+  }, [userId, wallet, ensureWallet]);
+
+  const balance = wallet?.balance ?? 0;
+  const milesSafe = stats?.milesSafe ?? 23000;
+  const servicesCount = stats?.services ?? 6;
+  const shopsCount = stats?.shops ?? 3;
+  const tierLabel =
+    tierInfo?.tier === "elite" ? "ELITE MEMBER" : tierInfo?.tier === "preferred" ? "PREFERRED MEMBER" : "DRIVER";
+  const deals = (suggestedDeals ?? []).map((d) => ({
+    id: d._id,
+    title: d.title,
+    description: d.description,
+    credit: d.credit_amount,
+    price: d.price,
+    isSpecial: d.is_special,
+  }));
 
   // Redeem bottom sheet state
   const [showRedeemSheet, setShowRedeemSheet] = useState(false);
-  const [selectedRedeemOption, setSelectedRedeemOption] = useState<'booking' | 'giftcard'>('booking');
-  
+  const [selectedRedeemOption, setSelectedRedeemOption] = useState<"booking" | "giftcard">("booking");
+  const [isRedeeming, setIsRedeeming] = useState(false);
+
   // Elite bottom sheet state
   const [showEliteSheet, setShowEliteSheet] = useState(false);
-  
+
   // Bottom sheet animation values
   const sheetTranslateY = useRef(new Animated.Value(SHEET_HEIGHT)).current;
   const backdropOpacity = useRef(new Animated.Value(0)).current;
-  
+
   // Elite sheet animation values
   const eliteSheetTranslateY = useRef(new Animated.Value(SHEET_HEIGHT)).current;
   const eliteBackdropOpacity = useRef(new Animated.Value(0)).current;
@@ -126,10 +160,11 @@ export default function MembershipPage() {
 
   // Redeem sheet functions
   const openRedeemSheet = () => {
+    setSelectedRedeemOption(wallet?.auto_apply_to_booking !== false ? "booking" : "giftcard");
     setShowRedeemSheet(true);
     sheetTranslateY.setValue(SHEET_HEIGHT);
     backdropOpacity.setValue(0);
-    
+
     Animated.parallel([
       Animated.spring(sheetTranslateY, {
         toValue: 0,
@@ -168,7 +203,7 @@ export default function MembershipPage() {
     setShowEliteSheet(true);
     eliteSheetTranslateY.setValue(SHEET_HEIGHT);
     eliteBackdropOpacity.setValue(0);
-    
+
     Animated.parallel([
       Animated.spring(eliteSheetTranslateY, {
         toValue: 0,
@@ -203,7 +238,7 @@ export default function MembershipPage() {
   };
 
   return (
-    <ScrollDrivenGradientBackground colors={['#5BA3D9', '#8FC4E8', '#d9e8f5']}>
+    <ScrollDrivenGradientBackground colors={["#5BA3D9", "#8FC4E8", "#d9e8f5"]}>
       {(scrollHandler) => (
         <View style={styles.container}>
           <ReAnimated.ScrollView
@@ -225,81 +260,16 @@ export default function MembershipPage() {
               <ArrowLeft size={24} color="#1F2937" strokeWidth={2} />
             </Pressable>
 
-            {/* Header Row */}
-            <View style={styles.headerRow}>
-              {/* Avatar */}
-              <View style={styles.avatar}>
-                <Text weight="bold" size="lg" color="#1F2937">
-                  AH
-                </Text>
-              </View>
-
-              {/* Shop Info */}
-              <View style={styles.shopInfo}>
-                <Text weight="bold" size="lg" color="#1F2937">
-                  Ahmad's Garage
-                </Text>
-                <Text size="sm" color="#6B7280">
-                  Staten Island, NY
-                </Text>
-              </View>
-
-              {/* Right Icons - Glassy Style like Home Page */}
-              <View style={styles.headerIcons}>
-                {/* Bell with notification dot */}
-                <Pressable
-                  style={({ pressed }) => [styles.glassButton, pressed && styles.glassButtonPressed]}
-                >
-                  <View style={styles.glassContainer}>
-                    <BlurView intensity={10} tint="dark" style={styles.glassBlur}>
-                      <View style={styles.glassOverlay} />
-                      <LinearGradient
-                        colors={['rgba(255,255,255,0.25)', 'rgba(255,255,255,0.05)']}
-                        start={{ x: 0.5, y: 0 }}
-                        end={{ x: 0.5, y: 0.5 }}
-                        style={styles.glassGloss}
-                      />
-                      <View style={styles.bellIconContainer}>
-                        <Bell size={22} color="#FFFFFF" fill="none" strokeWidth={2} />
-                        <View style={styles.bellDot} />
-                      </View>
-                    </BlurView>
-                  </View>
-                </Pressable>
-
-                {/* Settings */}
-                <Pressable
-                  style={({ pressed }) => [styles.glassButton, pressed && styles.glassButtonPressed]}
-                >
-                  <View style={styles.glassContainer}>
-                    <BlurView intensity={10} tint="dark" style={styles.glassBlur}>
-                      <View style={styles.glassOverlay} />
-                      <LinearGradient
-                        colors={['rgba(255,255,255,0.25)', 'rgba(255,255,255,0.05)']}
-                        start={{ x: 0.5, y: 0 }}
-                        end={{ x: 0.5, y: 0.5 }}
-                        style={styles.glassGloss}
-                      />
-                      <Settings size={22} color="#FFFFFF" fill="none" strokeWidth={2} />
-                    </BlurView>
-                  </View>
-                </Pressable>
-              </View>
-            </View>
-
-            {/* Elite Member Badge */}
+            {/* Tier Badge */}
             <View style={styles.badgeContainer}>
               <Pressable
                 onPress={openEliteSheet}
-                style={({ pressed }) => [
-                  styles.eliteBadge,
-                  pressed && { opacity: 0.7 },
-                ]}
+                style={({ pressed }) => [styles.eliteBadge, pressed && { opacity: 0.7 }]}
               >
                 {/* Verification badge with spiky circle shape */}
                 <BadgeCheck size={14} color="#FFFFFF" fill="#5299FE" strokeWidth={2} />
                 <Text weight="bold" size="xs" color="#5299FE" style={styles.badgeText}>
-                  ELITE MEMBER
+                  {tierLabel}
                 </Text>
               </Pressable>
             </View>
@@ -307,7 +277,7 @@ export default function MembershipPage() {
             {/* Credit Balance */}
             <View style={styles.balanceContainer}>
               <Text weight="bold" style={styles.balanceAmount}>
-                $32.75
+                ${balance.toFixed(2)}
               </Text>
               <Text weight="medium" size="md" color="#6B7280">
                 Ownership Credit Balance
@@ -319,6 +289,7 @@ export default function MembershipPage() {
               {/* Add Car - Primary */}
               <View style={styles.actionButtonWrapper}>
                 <Pressable
+                  onPress={() => router.push("/(main-tabs)/cars")}
                   style={({ pressed }) => [
                     styles.actionButton,
                     styles.actionButtonPrimary,
@@ -335,6 +306,7 @@ export default function MembershipPage() {
               {/* History */}
               <View style={styles.actionButtonWrapper}>
                 <Pressable
+                  onPress={() => router.push("/transactions")}
                   style={({ pressed }) => [
                     styles.actionButton,
                     styles.actionButtonSecondary,
@@ -371,7 +343,7 @@ export default function MembershipPage() {
               {/* Miles Safe */}
               <View style={styles.statItem}>
                 <Text weight="bold" style={styles.statNumber}>
-                  23k
+                  {milesSafe >= 1000 ? `${Math.round(milesSafe / 1000)}k` : milesSafe}
                 </Text>
                 <Text weight="semiBold" size="xs" color="#6B7280" style={styles.statLabel}>
                   MILES SAFE
@@ -384,7 +356,7 @@ export default function MembershipPage() {
               {/* Services */}
               <View style={styles.statItem}>
                 <Text weight="bold" style={styles.statNumber}>
-                  6
+                  {servicesCount}
                 </Text>
                 <Text weight="semiBold" size="xs" color="#6B7280" style={styles.statLabel}>
                   SERVICES
@@ -397,7 +369,7 @@ export default function MembershipPage() {
               {/* Shops */}
               <View style={styles.statItem}>
                 <Text weight="bold" style={styles.statNumber}>
-                  3
+                  {shopsCount}
                 </Text>
                 <Text weight="semiBold" size="xs" color="#6B7280" style={styles.statLabel}>
                   SHOPS
@@ -418,7 +390,7 @@ export default function MembershipPage() {
                 </Text>
                 <Pressable
                   style={({ pressed }) => pressed && { opacity: 0.7 }}
-                  onPress={() => router.push('/suggested-deals')}
+                  onPress={() => router.push("/suggested-deals")}
                 >
                   <Text weight="semiBold" size="md" color="#5299FE">
                     View all
@@ -432,13 +404,13 @@ export default function MembershipPage() {
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.dealsScrollContent}
               >
-                {SUGGESTED_DEALS.map((deal) => (
+                {deals.map((deal) => (
                   <View key={deal.id} style={styles.dealCard}>
                     {/* Image Placeholder */}
                     <View style={styles.dealImageContainer}>
                       {/* Placeholder - blank for now */}
                       <View style={styles.dealImagePlaceholder} />
-                      
+
                       {/* Special Badge */}
                       {deal.isSpecial && (
                         <View style={styles.specialBadge}>
@@ -473,10 +445,8 @@ export default function MembershipPage() {
 
                         {/* Book Button */}
                         <Pressable
-                          style={({ pressed }) => [
-                            styles.bookButton,
-                            pressed && styles.bookButtonPressed,
-                          ]}
+                          onPress={() => router.push("/(main-tabs)/home")}
+                          style={({ pressed }) => [styles.bookButton, pressed && styles.bookButtonPressed]}
                         >
                           <Text weight="semiBold" size="xs" color="#FFFFFF">
                             Book ${deal.price}
@@ -505,6 +475,15 @@ export default function MembershipPage() {
                 {EARN_REWARDS.map((reward, index) => (
                   <View key={reward.id}>
                     <Pressable
+                      onPress={() => {
+                        if (reward.icon === "review") router.push("/(main-tabs)/bookings");
+                        else if (reward.icon === "refer") router.push("/refer-a-friend");
+                        else if (reward.icon === "upload")
+                          router.push({
+                            pathname: "/coming-soon",
+                            params: { serviceType: "upload", serviceName: "Upload Service Records" },
+                          });
+                      }}
                       style={({ pressed }) => [
                         styles.rewardRow,
                         index === 0 && styles.rewardRowFirst,
@@ -512,44 +491,41 @@ export default function MembershipPage() {
                         pressed && styles.rewardRowPressed,
                       ]}
                     >
-                    {/* Icon */}
-                    <View style={[styles.rewardIcon, { backgroundColor: reward.iconBg }]}>
-                      {reward.icon === 'review' && (
-                        <PenSquare size={20} color={reward.iconColor} strokeWidth={2} />
-                      )}
-                      {reward.icon === 'upload' && (
-                        <FileText size={20} color={reward.iconColor} strokeWidth={2} />
-                      )}
-                      {reward.icon === 'refer' && (
-                        <UserPlus size={20} color={reward.iconColor} strokeWidth={2} />
-                      )}
-                    </View>
+                      {/* Icon */}
+                      <View style={[styles.rewardIcon, { backgroundColor: reward.iconBg }]}>
+                        {reward.icon === "review" && <PenSquare size={20} color={reward.iconColor} strokeWidth={2} />}
+                        {reward.icon === "upload" && <FileText size={20} color={reward.iconColor} strokeWidth={2} />}
+                        {reward.icon === "refer" && <UserPlus size={20} color={reward.iconColor} strokeWidth={2} />}
+                      </View>
 
-                    {/* Text Content */}
-                    <View style={styles.rewardTextContent}>
-                      <Text weight="semiBold" size="md" color="#1F2937">
-                        {reward.title}
-                      </Text>
-                      <Text weight="bold" size="sm" color="#5299FE">
-                        {reward.subtitle}
-                      </Text>
-                    </View>
-
-                    {/* Right Side: Button or Chevron */}
-                    {reward.hasButton ? (
-                      <Pressable
-                        style={({ pressed }) => [
-                          styles.uploadButton,
-                          pressed && styles.uploadButtonPressed,
-                        ]}
-                      >
-                        <Text weight="semiBold" size="sm" color="#FFFFFF">
-                          {reward.buttonText}
+                      {/* Text Content */}
+                      <View style={styles.rewardTextContent}>
+                        <Text weight="semiBold" size="md" color="#1F2937">
+                          {reward.title}
                         </Text>
-                      </Pressable>
-                    ) : (
-                      <ChevronRight size={20} color="#9CA3AF" strokeWidth={2} />
-                    )}
+                        <Text weight="bold" size="sm" color="#5299FE">
+                          {reward.subtitle}
+                        </Text>
+                      </View>
+
+                      {/* Right Side: Button or Chevron */}
+                      {reward.hasButton ? (
+                        <Pressable
+                          onPress={() =>
+                            router.push({
+                              pathname: "/coming-soon",
+                              params: { serviceType: "upload", serviceName: "Upload Service Records" },
+                            })
+                          }
+                          style={({ pressed }) => [styles.uploadButton, pressed && styles.uploadButtonPressed]}
+                        >
+                          <Text weight="semiBold" size="sm" color="#FFFFFF">
+                            {reward.buttonText}
+                          </Text>
+                        </Pressable>
+                      ) : (
+                        <ChevronRight size={20} color="#9CA3AF" strokeWidth={2} />
+                      )}
                     </Pressable>
                     {/* Divider - not on last item */}
                     {index < EARN_REWARDS.length - 1 && (
@@ -564,24 +540,14 @@ export default function MembershipPage() {
           </ReAnimated.ScrollView>
 
           {/* Redeem Bottom Sheet Modal */}
-          <Modal
-            visible={showRedeemSheet}
-            transparent
-            animationType="none"
-            onRequestClose={closeRedeemSheet}
-          >
+          <Modal visible={showRedeemSheet} transparent animationType="none" onRequestClose={closeRedeemSheet}>
             {/* Backdrop */}
             <Animated.View style={[redeemStyles.backdrop, { opacity: backdropOpacity }]}>
               <Pressable style={StyleSheet.absoluteFill} onPress={closeRedeemSheet} />
             </Animated.View>
 
             {/* Bottom Sheet */}
-            <Animated.View
-              style={[
-                redeemStyles.bottomSheet,
-                { transform: [{ translateY: sheetTranslateY }] },
-              ]}
-            >
+            <Animated.View style={[redeemStyles.bottomSheet, { transform: [{ translateY: sheetTranslateY }] }]}>
               {/* Drag Handle */}
               <View style={redeemStyles.dragHandleContainer}>
                 <View style={redeemStyles.dragHandle} />
@@ -601,27 +567,27 @@ export default function MembershipPage() {
 
                 {/* Balance Amount */}
                 <Text weight="bold" style={redeemStyles.sheetBalanceAmount}>
-                  $32.75
+                  ${balance.toFixed(2)}
                 </Text>
 
                 {/* Subtitle */}
                 <Text size="sm" color="#6B7280" style={redeemStyles.balanceSubtitle}>
-                  Available balance earned from{'\n'}maintenance rewards.
+                  Available balance earned from{"\n"}maintenance rewards.
                 </Text>
 
                 {/* Active Selection Card */}
                 <Pressable
-                  onPress={() => setSelectedRedeemOption('booking')}
+                  onPress={() => setSelectedRedeemOption("booking")}
                   style={[
                     redeemStyles.selectionCard,
-                    selectedRedeemOption === 'booking' && redeemStyles.selectionCardActive,
+                    selectedRedeemOption === "booking" && redeemStyles.selectionCardActive,
                   ]}
                 >
                   <View style={redeemStyles.selectionHeader}>
-                    <Text weight="bold" size="xs" color={selectedRedeemOption === 'booking' ? '#5299FE' : '#6B7280'}>
+                    <Text weight="bold" size="xs" color={selectedRedeemOption === "booking" ? "#5299FE" : "#6B7280"}>
                       ACTIVE SELECTION
                     </Text>
-                    {selectedRedeemOption === 'booking' ? (
+                    {selectedRedeemOption === "booking" ? (
                       <View style={redeemStyles.checkCircle}>
                         <Check size={15} color="#FFFFFF" strokeWidth={3} />
                       </View>
@@ -650,24 +616,30 @@ export default function MembershipPage() {
                 </Text>
 
                 <Pressable
-                  onPress={() => setSelectedRedeemOption('giftcard')}
+                  onPress={() => setSelectedRedeemOption("giftcard")}
                   style={[
                     redeemStyles.otherOptionRow,
-                    selectedRedeemOption === 'giftcard' && redeemStyles.otherOptionRowActive,
+                    selectedRedeemOption === "giftcard" && redeemStyles.otherOptionRowActive,
                   ]}
                 >
                   <View style={redeemStyles.otherOptionLeft}>
-                    <View style={[
-                      redeemStyles.otherOptionIcon,
-                      selectedRedeemOption === 'giftcard' && redeemStyles.otherOptionIconActive,
-                    ]}>
-                      <CreditCard size={22} color={selectedRedeemOption === 'giftcard' ? '#5299FE' : '#6B7280'} strokeWidth={1.5} />
+                    <View
+                      style={[
+                        redeemStyles.otherOptionIcon,
+                        selectedRedeemOption === "giftcard" && redeemStyles.otherOptionIconActive,
+                      ]}
+                    >
+                      <CreditCard
+                        size={22}
+                        color={selectedRedeemOption === "giftcard" ? "#5299FE" : "#6B7280"}
+                        strokeWidth={1.5}
+                      />
                     </View>
                     <Text weight="medium" size="md" color="#1F2937">
                       Convert to gift card
                     </Text>
                   </View>
-                  {selectedRedeemOption === 'giftcard' ? (
+                  {selectedRedeemOption === "giftcard" ? (
                     <View style={redeemStyles.checkCircle}>
                       <Check size={15} color="#FFFFFF" strokeWidth={3} />
                     </View>
@@ -686,24 +658,42 @@ export default function MembershipPage() {
 
                 {/* Redeem Button */}
                 <Pressable
-                  style={({ pressed }) => [
-                    redeemStyles.redeemButton,
-                    pressed && redeemStyles.redeemButtonPressed,
-                  ]}
-                  onPress={closeRedeemSheet}
+                  style={({ pressed }) => [redeemStyles.redeemButton, pressed && redeemStyles.redeemButtonPressed]}
+                  onPress={async () => {
+                    if (!userId) return;
+                    setIsRedeeming(true);
+                    try {
+                      if (selectedRedeemOption === "booking") {
+                        await updateRedemptionPreference({ userId, autoApplyToBooking: true });
+                      } else {
+                        await redeemSelected({ userId, option: "giftcard" });
+                        Alert.alert(
+                          "Done",
+                          "Your credits have been converted to a gift card. Processing takes 1-3 business days."
+                        );
+                      }
+                      closeRedeemSheet();
+                    } catch (e) {
+                      Alert.alert("Error", (e as Error).message);
+                    } finally {
+                      setIsRedeeming(false);
+                    }
+                  }}
+                  disabled={isRedeeming || (selectedRedeemOption === "giftcard" && balance <= 0)}
                 >
-                  <Text weight="bold" size="md" color="#FFFFFF">
-                    Redeem Selected
-                  </Text>
+                  {isRedeeming ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <Text weight="bold" size="md" color="#FFFFFF">
+                      Redeem Selected
+                    </Text>
+                  )}
                 </Pressable>
 
                 {/* Cancel Link */}
                 <Pressable
                   onPress={closeRedeemSheet}
-                  style={({ pressed }) => [
-                    redeemStyles.cancelButton,
-                    pressed && { opacity: 0.7 },
-                  ]}
+                  style={({ pressed }) => [redeemStyles.cancelButton, pressed && { opacity: 0.7 }]}
                 >
                   <Text weight="medium" size="md" color="#6B7280">
                     Cancel
@@ -713,7 +703,7 @@ export default function MembershipPage() {
             </Animated.View>
           </Modal>
 
-          {/* Elite Status Bottom Sheet Modal */}
+          {/* Tier Status Bottom Sheet Modal - updates based on user's tier */}
           <Modal
             visible={showEliteSheet}
             transparent
@@ -727,115 +717,205 @@ export default function MembershipPage() {
             </Animated.View>
 
             {/* Bottom Sheet */}
-            <Animated.View
-              style={[
-                eliteStyles.bottomSheet,
-                { transform: [{ translateY: eliteSheetTranslateY }] },
-              ]}
-            >
+            <Animated.View style={[eliteStyles.bottomSheet, { transform: [{ translateY: eliteSheetTranslateY }] }]}>
               {/* Drag Handle */}
               <View style={eliteStyles.dragHandleContainer}>
                 <View style={eliteStyles.dragHandle} />
               </View>
 
-              {/* Content */}
+              {/* Content - dynamic based on tier */}
               <View style={eliteStyles.sheetContent}>
-                {/* Icon */}
                 <View style={eliteStyles.iconContainer}>
                   <BadgeCheck size={32} color="#FFFFFF" fill="#5299FE" strokeWidth={2} />
                 </View>
 
-                {/* Title */}
-                <Text weight="bold" size="2xl" color="#1F2937" style={eliteStyles.title}>
-                  Elite Status
-                </Text>
-
-                {/* Subtitle */}
-                <Text size="sm" color="#6B7280" style={eliteStyles.subtitle}>
-                  Elite is unlocked through consistent ownership and care.
-                </Text>
-
-                {/* Eligibility Requirement Card */}
-                <View style={eliteStyles.requirementCard}>
-                  <Text weight="bold" size="xs" color="#6B7280" style={eliteStyles.requirementLabel}>
-                    ELIGIBILITY REQUIREMENT
-                  </Text>
-                  <View style={eliteStyles.requirementContent}>
-                    <View style={eliteStyles.requirementIconContainer}>
-                      <Calendar size={18} color="#5299FE" strokeWidth={2} />
-                    </View>
-                    <View style={eliteStyles.requirementTextContent}>
-                      <Text weight="bold" size="md" color="#1F2937">
-                        $750 in services booked within a year
+                {tierInfo?.tier === "elite" ? (
+                  <>
+                    <Text weight="bold" size="2xl" color="#1F2937" style={eliteStyles.title}>
+                      Elite Status
+                    </Text>
+                    <Text size="sm" color="#6B7280" style={eliteStyles.subtitle}>
+                      Elite is unlocked through consistent ownership and care.
+                    </Text>
+                    <View style={eliteStyles.requirementCard}>
+                      <Text weight="bold" size="xs" color="#6B7280" style={eliteStyles.requirementLabel}>
+                        ELIGIBILITY REQUIREMENT
                       </Text>
-                      <Text size="sm" color="#6B7280" style={eliteStyles.requirementDescription}>
-                        Includes maintenance, diagnostics, and repairs completed through Otopair.
+                      <View style={eliteStyles.requirementContent}>
+                        <View style={eliteStyles.requirementIconContainer}>
+                          <Calendar size={18} color="#5299FE" strokeWidth={2} />
+                        </View>
+                        <View style={eliteStyles.requirementTextContent}>
+                          <Text weight="bold" size="md" color="#1F2937">
+                            $1,500 in services booked within a year
+                          </Text>
+                          <Text size="sm" color="#6B7280" style={eliteStyles.requirementDescription}>
+                            Includes maintenance, diagnostics, and repairs completed through Otopair.
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+                    <Text weight="bold" size="md" color="#1F2937" style={eliteStyles.unlocksTitle}>
+                      What Elite unlocks
+                    </Text>
+                    <View style={eliteStyles.benefitsList}>
+                      <View style={eliteStyles.benefitRow}>
+                        <View style={eliteStyles.benefitIcon}>
+                          <Building2 size={18} color="#5299FE" strokeWidth={1.5} />
+                        </View>
+                        <Text size="md" color="#1F2937">
+                          Priority booking with trusted shops
+                        </Text>
+                      </View>
+                      <View style={eliteStyles.benefitRow}>
+                        <View style={eliteStyles.benefitIcon}>
+                          <Zap size={18} color="#5299FE" strokeWidth={1.5} />
+                        </View>
+                        <Text size="md" color="#1F2937">
+                          Faster dispute resolution
+                        </Text>
+                      </View>
+                      <View style={eliteStyles.benefitRow}>
+                        <View style={eliteStyles.benefitIcon}>
+                          <Wrench size={18} color="#5299FE" strokeWidth={1.5} />
+                        </View>
+                        <Text size="md" color="#1F2937">
+                          Waived diagnostics when applicable
+                        </Text>
+                      </View>
+                      <View style={eliteStyles.benefitRow}>
+                        <View style={eliteStyles.benefitIcon}>
+                          <Headphones size={18} color="#5299FE" strokeWidth={1.5} />
+                        </View>
+                        <Text size="md" color="#1F2937">
+                          Concierge support when issues arise
+                        </Text>
+                      </View>
+                    </View>
+                  </>
+                ) : tierInfo?.tier === "preferred" ? (
+                  <>
+                    <Text weight="bold" size="2xl" color="#1F2937" style={eliteStyles.title}>
+                      Preferred Status
+                    </Text>
+                    <Text size="sm" color="#6B7280" style={eliteStyles.subtitle}>
+                      Preferred is earned through consistent care with Otopair-trusted shops.
+                    </Text>
+                    <View style={eliteStyles.requirementCard}>
+                      <Text weight="bold" size="xs" color="#6B7280" style={eliteStyles.requirementLabel}>
+                        YOU REACHED PREFERRED AT
+                      </Text>
+                      <View style={eliteStyles.requirementContent}>
+                        <View style={eliteStyles.requirementIconContainer}>
+                          <Calendar size={18} color="#5299FE" strokeWidth={2} />
+                        </View>
+                        <View style={eliteStyles.requirementTextContent}>
+                          <Text weight="bold" size="md" color="#1F2937">
+                            $750 in services booked within a year
+                          </Text>
+                          <Text size="sm" color="#6B7280" style={eliteStyles.requirementDescription}>
+                            Includes maintenance, diagnostics, and repairs completed through Otopair.
+                          </Text>
+                        </View>
+                      </View>
+                    </View>
+                    <Text weight="bold" size="md" color="#1F2937" style={eliteStyles.unlocksTitle}>
+                      What Preferred unlocks
+                    </Text>
+                    <View style={eliteStyles.benefitsList}>
+                      <View style={eliteStyles.benefitRow}>
+                        <View style={eliteStyles.benefitIcon}>
+                          <Building2 size={18} color="#5299FE" strokeWidth={1.5} />
+                        </View>
+                        <Text size="md" color="#1F2937">
+                          Soft priority on booking
+                        </Text>
+                      </View>
+                      <View style={eliteStyles.benefitRow}>
+                        <View style={eliteStyles.benefitIcon}>
+                          <Wrench size={18} color="#5299FE" strokeWidth={1.5} />
+                        </View>
+                        <Text size="md" color="#1F2937">
+                          Diagnostics covered or reduced
+                        </Text>
+                      </View>
+                      <View style={eliteStyles.benefitRow}>
+                        <View style={eliteStyles.benefitIcon}>
+                          <Zap size={18} color="#5299FE" strokeWidth={1.5} />
+                        </View>
+                        <Text size="md" color="#1F2937">
+                          ~3% earn rate on Ownership Credit
+                        </Text>
+                      </View>
+                    </View>
+                    <View style={eliteStyles.requirementCard}>
+                      <Text weight="bold" size="xs" color="#6B7280" style={eliteStyles.requirementLabel}>
+                        REACH ELITE
+                      </Text>
+                      <Text size="sm" color="#1F2937" style={eliteStyles.requirementDescription}>
+                        Book $1,500 in services within a year to unlock Elite.
                       </Text>
                     </View>
-                  </View>
-                </View>
-
-                {/* What Elite Unlocks Section */}
-                <Text weight="bold" size="md" color="#1F2937" style={eliteStyles.unlocksTitle}>
-                  What Elite unlocks
-                </Text>
-
-                <View style={eliteStyles.benefitsList}>
-                  {/* Benefit 1 */}
-                  <View style={eliteStyles.benefitRow}>
-                    <View style={eliteStyles.benefitIcon}>
-                      <Building2 size={18} color="#5299FE" strokeWidth={1.5} />
-                    </View>
-                    <Text size="md" color="#1F2937">
-                      Priority booking with trusted shops
+                  </>
+                ) : (
+                  <>
+                    <Text weight="bold" size="2xl" color="#1F2937" style={eliteStyles.title}>
+                      Driver Status
                     </Text>
-                  </View>
-
-                  {/* Benefit 2 */}
-                  <View style={eliteStyles.benefitRow}>
-                    <View style={eliteStyles.benefitIcon}>
-                      <Zap size={18} color="#5299FE" strokeWidth={1.5} />
-                    </View>
-                    <Text size="md" color="#1F2937">
-                      Faster dispute resolution
+                    <Text size="sm" color="#6B7280" style={eliteStyles.subtitle}>
+                      Driver is your starting tier. Transparent pricing and baseline protections.
                     </Text>
-                  </View>
-
-                  {/* Benefit 3 */}
-                  <View style={eliteStyles.benefitRow}>
-                    <View style={eliteStyles.benefitIcon}>
-                      <Wrench size={18} color="#5299FE" strokeWidth={1.5} />
+                    <View style={eliteStyles.requirementCard}>
+                      <Text weight="bold" size="xs" color="#6B7280" style={eliteStyles.requirementLabel}>
+                        YOUR BENEFITS
+                      </Text>
+                      <View style={eliteStyles.benefitsList}>
+                        <View style={eliteStyles.benefitRow}>
+                          <View style={eliteStyles.benefitIcon}>
+                            <Wrench size={18} color="#5299FE" strokeWidth={1.5} />
+                          </View>
+                          <Text size="md" color="#1F2937">
+                            ~1.5% earn rate on Ownership Credit
+                          </Text>
+                        </View>
+                        <View style={eliteStyles.benefitRow}>
+                          <View style={eliteStyles.benefitIcon}>
+                            <Building2 size={18} color="#5299FE" strokeWidth={1.5} />
+                          </View>
+                          <Text size="md" color="#1F2937">
+                            $50–$75 credit target per year
+                          </Text>
+                        </View>
+                        <View style={eliteStyles.benefitRow}>
+                          <View style={eliteStyles.benefitIcon}>
+                            <Zap size={18} color="#5299FE" strokeWidth={1.5} />
+                          </View>
+                          <Text size="md" color="#1F2937">
+                            Contribution rewards enabled
+                          </Text>
+                        </View>
+                      </View>
                     </View>
-                    <Text size="md" color="#1F2937">
-                      Waived diagnostics when applicable
-                    </Text>
-                  </View>
-
-                  {/* Benefit 4 */}
-                  <View style={eliteStyles.benefitRow}>
-                    <View style={eliteStyles.benefitIcon}>
-                      <Headphones size={18} color="#5299FE" strokeWidth={1.5} />
+                    <View style={eliteStyles.requirementCard}>
+                      <Text weight="bold" size="xs" color="#6B7280" style={eliteStyles.requirementLabel}>
+                        REACH PREFERRED
+                      </Text>
+                      <Text size="sm" color="#1F2937" style={eliteStyles.requirementDescription}>
+                        Book $750 in services within a year to unlock Preferred.
+                      </Text>
                     </View>
-                    <Text size="md" color="#1F2937">
-                      Concierge support when issues arise
-                    </Text>
-                  </View>
-                </View>
+                  </>
+                )}
 
-                {/* Disclaimer */}
                 <View style={eliteStyles.disclaimerRow}>
                   <Info size={14} color="#9CA3AF" strokeWidth={2} />
                   <Text size="xs" color="#9CA3AF" style={eliteStyles.disclaimerText}>
-                    Your current service history contributes toward Elite eligibility.
+                    Your current service history contributes toward tier eligibility.
                   </Text>
                 </View>
 
-                {/* Got it Button */}
                 <Pressable
-                  style={({ pressed }) => [
-                    eliteStyles.gotItButton,
-                    pressed && eliteStyles.gotItButtonPressed,
-                  ]}
+                  style={({ pressed }) => [eliteStyles.gotItButton, pressed && eliteStyles.gotItButtonPressed]}
                   onPress={closeEliteSheet}
                 >
                   <Text weight="bold" size="md" color="#FFFFFF">
@@ -868,8 +948,8 @@ const styles = StyleSheet.create({
   backButton: {
     width: 40,
     height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     marginBottom: Spacing.md,
   },
   backButtonPressed: {
@@ -878,18 +958,18 @@ const styles = StyleSheet.create({
 
   // Header Row
   headerRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     marginBottom: Spacing.xl,
   },
   avatar: {
     width: AVATAR_SIZE,
     height: AVATAR_SIZE,
     borderRadius: AVATAR_SIZE / 2,
-    backgroundColor: '#FFFFFF',
-    justifyContent: 'center',
-    alignItems: 'center',
-    shadowColor: '#000',
+    backgroundColor: "#FFFFFF",
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.1,
     shadowRadius: 4,
@@ -900,15 +980,15 @@ const styles = StyleSheet.create({
     marginLeft: Spacing.md,
   },
   headerIcons: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: Spacing.sm,
   },
 
   // Glassy Icon Buttons (matching Home page style)
   glassButton: {
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   glassButtonPressed: {
     opacity: 0.7,
@@ -917,49 +997,49 @@ const styles = StyleSheet.create({
     width: GLASS_ICON_SIZE,
     height: GLASS_ICON_SIZE,
     borderRadius: GLASS_ICON_SIZE / 2,
-    overflow: 'hidden',
+    overflow: "hidden",
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.5)',
+    borderColor: "rgba(255,255,255,0.5)",
   },
   glassBlur: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   glassOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: "rgba(255,255,255,0.12)",
   },
   glassGloss: {
     ...StyleSheet.absoluteFillObject,
   },
   bellIconContainer: {
-    position: 'relative',
+    position: "relative",
   },
   bellDot: {
-    position: 'absolute',
+    position: "absolute",
     top: 1,
     right: 1,
     width: 7,
     height: 7,
     borderRadius: 3.5,
-    backgroundColor: '#FF3B30',
+    backgroundColor: "#FF3B30",
   },
 
   // Elite Badge
   badgeContainer: {
-    alignItems: 'center',
+    alignItems: "center",
     marginBottom: Spacing.xl,
   },
   eliteBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#EBF4FF',
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#EBF4FF",
     paddingHorizontal: Spacing.sm + 2,
     paddingVertical: Spacing.xs,
     borderRadius: 16,
     gap: Spacing.xs - 1,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 2,
@@ -971,80 +1051,80 @@ const styles = StyleSheet.create({
 
   // Balance
   balanceContainer: {
-    alignItems: 'center',
+    alignItems: "center",
     marginBottom: Spacing["3xl"],
   },
   balanceAmount: {
     fontSize: 52,
     lineHeight: 60,
-    color: '#1F2937',
+    color: "#1F2937",
     marginBottom: Spacing.xs,
   },
 
   // Action Buttons
   actionButtonsRow: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'flex-start',
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "flex-start",
     gap: Spacing["3xl"],
     marginBottom: Spacing.lg,
   },
   actionButtonWrapper: {
-    alignItems: 'center',
+    alignItems: "center",
   },
   actionButton: {
     width: ACTION_BUTTON_SIZE,
     height: ACTION_BUTTON_SIZE,
     borderRadius: ACTION_BUTTON_SIZE / 2,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     marginBottom: Spacing.sm,
   },
   actionButtonPrimary: {
-    backgroundColor: '#5299FE',
-    shadowColor: '#5299FE',
+    backgroundColor: "#5299FE",
+    shadowColor: "#5299FE",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
     elevation: 5,
   },
   actionButtonSecondary: {
-    backgroundColor: '#F3F4F6',
+    backgroundColor: "#F3F4F6",
   },
   actionButtonPressed: {
     opacity: 0.8,
     transform: [{ scale: 0.96 }],
   },
   actionLabel: {
-    textAlign: 'center',
+    textAlign: "center",
   },
 
   // Stats Row
   statsRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-around",
+    alignItems: "center",
     paddingVertical: Spacing.xl,
     marginHorizontal: Spacing.sm,
   },
   statItem: {
-    alignItems: 'center',
+    alignItems: "center",
     flex: 1,
   },
   statNumber: {
     fontSize: 24,
     lineHeight: 30,
-    color: '#1F2937',
+    color: "#1F2937",
     marginBottom: 2,
   },
   statLabel: {
     letterSpacing: 0.5,
-    textTransform: 'uppercase',
+    textTransform: "uppercase",
   },
   statDivider: {
     width: 1,
     height: 56,
-    backgroundColor: 'rgba(0, 0, 0, 0.08)',
+    backgroundColor: "rgba(0, 0, 0, 0.08)",
   },
 
   // ═══════════════ SUGGESTED DEALS SECTION ═══════════════
@@ -1052,9 +1132,9 @@ const styles = StyleSheet.create({
     marginTop: Spacing.lg,
   },
   sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginBottom: Spacing.lg,
   },
   dealsScrollContent: {
@@ -1063,35 +1143,35 @@ const styles = StyleSheet.create({
   },
   dealCard: {
     width: DEAL_CARD_WIDTH,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     borderRadius: 16,
-    overflow: 'hidden',
-    shadowColor: '#000',
+    overflow: "hidden",
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,
     shadowRadius: 8,
     elevation: 3,
   },
   dealImageContainer: {
-    position: 'relative',
+    position: "relative",
     height: 120,
   },
   dealImagePlaceholder: {
     flex: 1,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: "#E5E7EB",
   },
   specialBadge: {
-    position: 'absolute',
+    position: "absolute",
     top: Spacing.sm,
     left: Spacing.sm,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
     paddingHorizontal: Spacing.sm,
     paddingVertical: Spacing.xs,
     borderRadius: 8,
     gap: 4,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
@@ -1105,20 +1185,20 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.md,
   },
   dealBottomRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
   creditBadge: {
-    backgroundColor: '#ECFDF5',
+    backgroundColor: "#ECFDF5",
     paddingHorizontal: Spacing.sm,
     paddingVertical: Spacing.xs,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: '#D1FAE5',
+    borderColor: "#D1FAE5",
   },
   bookButton: {
-    backgroundColor: '#1F2937',
+    backgroundColor: "#1F2937",
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.xs + 2,
     borderRadius: 16,
@@ -1135,10 +1215,10 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.md,
   },
   rewardsList: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     borderRadius: 16,
-    overflow: 'hidden',
-    shadowColor: '#000',
+    overflow: "hidden",
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.06,
     shadowRadius: 8,
@@ -1146,11 +1226,11 @@ const styles = StyleSheet.create({
     marginHorizontal: Spacing.xs,
   },
   rewardRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     paddingVertical: Spacing.lg,
     paddingHorizontal: Spacing.md,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
   },
   rewardRowFirst: {
     borderTopLeftRadius: 16,
@@ -1161,14 +1241,14 @@ const styles = StyleSheet.create({
     borderBottomRightRadius: 16,
   },
   rewardRowPressed: {
-    backgroundColor: '#F9FAFB',
+    backgroundColor: "#F9FAFB",
   },
   rewardIcon: {
     width: 44,
     height: 44,
     borderRadius: 12,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
     marginRight: Spacing.md,
   },
   rewardTextContent: {
@@ -1176,12 +1256,12 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   rewardAmountContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: Spacing.xs,
   },
   uploadButton: {
-    backgroundColor: '#5299FE',
+    backgroundColor: "#5299FE",
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.sm,
     borderRadius: 8,
@@ -1190,11 +1270,11 @@ const styles = StyleSheet.create({
     opacity: 0.8,
   },
   rewardDividerContainer: {
-    paddingHorizontal: Spacing["5xl"]+20,
+    paddingHorizontal: Spacing["5xl"] + 20,
   },
   rewardDivider: {
     height: 1,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: "#F3F4F6",
   },
 });
 
@@ -1205,45 +1285,45 @@ const styles = StyleSheet.create({
 const redeemStyles = StyleSheet.create({
   backdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    backgroundColor: "rgba(0, 0, 0, 0.4)",
   },
   bottomSheet: {
-    position: 'absolute',
+    position: "absolute",
     bottom: SCREEN_HEIGHT * 0.015,
     left: SCREEN_WIDTH * 0.025,
     right: SCREEN_WIDTH * 0.025,
     width: SCREEN_WIDTH * 0.95,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     borderRadius: 40,
     paddingBottom: 10,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
     shadowRadius: 16,
     elevation: 10,
   },
   dragHandleContainer: {
-    alignItems: 'center',
+    alignItems: "center",
     paddingTop: 12,
     paddingBottom: 8,
   },
   dragHandle: {
     width: 40,
     height: 4,
-    backgroundColor: 'rgba(0, 0, 0, 0.15)',
+    backgroundColor: "rgba(0, 0, 0, 0.15)",
     borderRadius: 2,
   },
   sheetContent: {
     paddingHorizontal: 24,
-    alignItems: 'center',
+    alignItems: "center",
   },
   iconContainer: {
     width: 50,
     height: 50,
     borderRadius: 14,
-    backgroundColor: '#EBF4FF',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#EBF4FF",
+    justifyContent: "center",
+    alignItems: "center",
     marginBottom: Spacing.md,
   },
   balanceLabel: {
@@ -1253,54 +1333,54 @@ const redeemStyles = StyleSheet.create({
   sheetBalanceAmount: {
     fontSize: 38,
     lineHeight: 44,
-    color: '#1F2937',
+    color: "#1F2937",
     marginBottom: 4,
   },
   balanceSubtitle: {
-    textAlign: 'center',
+    textAlign: "center",
     marginBottom: Spacing.md,
   },
   selectionCard: {
-    width: '100%',
-    backgroundColor: '#F9FAFB',
+    width: "100%",
+    backgroundColor: "#F9FAFB",
     borderRadius: 14,
     padding: Spacing.md,
     marginBottom: Spacing.md,
     borderWidth: 2,
-    borderColor: 'transparent',
+    borderColor: "transparent",
   },
   selectionCardActive: {
-    backgroundColor: '#EBF4FF',
-    borderColor: '#5299FE',
+    backgroundColor: "#EBF4FF",
+    borderColor: "#5299FE",
   },
   selectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
     marginBottom: Spacing.sm,
   },
   checkCircle: {
     width: 26,
     height: 26,
     borderRadius: 13,
-    backgroundColor: '#5299FE',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#5299FE",
+    justifyContent: "center",
+    alignItems: "center",
   },
   selectionContent: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
+    flexDirection: "row",
+    alignItems: "flex-start",
   },
   selectionIconContainer: {
     width: 36,
     height: 36,
     borderRadius: 9,
-    backgroundColor: '#FFFFFF',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#FFFFFF",
+    justifyContent: "center",
+    alignItems: "center",
     marginRight: Spacing.md,
     borderWidth: 1,
-    borderColor: '#5299FE',
+    borderColor: "#5299FE",
   },
   selectionTextContent: {
     flex: 1,
@@ -1310,55 +1390,55 @@ const redeemStyles = StyleSheet.create({
     lineHeight: 20,
   },
   otherOptionsTitle: {
-    alignSelf: 'flex-start',
+    alignSelf: "flex-start",
     marginBottom: Spacing.sm,
   },
   otherOptionRow: {
-    width: '100%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    width: "100%",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingVertical: Spacing.sm,
     paddingHorizontal: Spacing.md,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: "#F9FAFB",
     borderRadius: 12,
     marginBottom: Spacing.md,
     borderWidth: 2,
-    borderColor: 'transparent',
+    borderColor: "transparent",
   },
   otherOptionRowActive: {
-    backgroundColor: '#EBF4FF',
-    borderColor: '#5299FE',
+    backgroundColor: "#EBF4FF",
+    borderColor: "#5299FE",
   },
   otherOptionLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
   },
   otherOptionIcon: {
     width: 40,
     height: 40,
     borderRadius: 10,
-    backgroundColor: '#FFFFFF',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#FFFFFF",
+    justifyContent: "center",
+    alignItems: "center",
     marginRight: Spacing.md,
   },
   otherOptionIconActive: {
     borderWidth: 1,
-    borderColor: '#5299FE',
+    borderColor: "#5299FE",
   },
   radioButton: {
     width: 24,
     height: 24,
     borderRadius: 12,
     borderWidth: 2,
-    borderColor: '#D1D5DB',
-    justifyContent: 'center',
-    alignItems: 'center',
+    borderColor: "#D1D5DB",
+    justifyContent: "center",
+    alignItems: "center",
   },
   disclaimerRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
+    flexDirection: "row",
+    alignItems: "flex-start",
     paddingHorizontal: Spacing.sm,
     marginBottom: Spacing.md,
     gap: Spacing.sm,
@@ -1368,11 +1448,11 @@ const redeemStyles = StyleSheet.create({
     lineHeight: 18,
   },
   redeemButton: {
-    width: '100%',
-    backgroundColor: '#5299FE',
+    width: "100%",
+    backgroundColor: "#5299FE",
     borderRadius: 24,
     paddingVertical: Spacing.md,
-    alignItems: 'center',
+    alignItems: "center",
     marginBottom: Spacing.sm,
   },
   redeemButtonPressed: {
@@ -1390,57 +1470,57 @@ const redeemStyles = StyleSheet.create({
 const eliteStyles = StyleSheet.create({
   backdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    backgroundColor: "rgba(0, 0, 0, 0.4)",
   },
   bottomSheet: {
-    position: 'absolute',
+    position: "absolute",
     bottom: SCREEN_HEIGHT * 0.015,
     left: SCREEN_WIDTH * 0.025,
     right: SCREEN_WIDTH * 0.025,
     width: SCREEN_WIDTH * 0.95,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     borderRadius: 40,
     paddingBottom: 24,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
     shadowRadius: 16,
     elevation: 10,
   },
   dragHandleContainer: {
-    alignItems: 'center',
+    alignItems: "center",
     paddingTop: 12,
     paddingBottom: 8,
   },
   dragHandle: {
     width: 40,
     height: 4,
-    backgroundColor: 'rgba(0, 0, 0, 0.15)',
+    backgroundColor: "rgba(0, 0, 0, 0.15)",
     borderRadius: 2,
   },
   sheetContent: {
     paddingHorizontal: 24,
-    alignItems: 'center',
+    alignItems: "center",
   },
   iconContainer: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: '#EBF4FF',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#EBF4FF",
+    justifyContent: "center",
+    alignItems: "center",
     marginBottom: Spacing.sm,
   },
   title: {
     marginBottom: 4,
   },
   subtitle: {
-    textAlign: 'center',
+    textAlign: "center",
     marginBottom: Spacing.md,
   },
   requirementCard: {
-    width: '100%',
-    backgroundColor: '#F9FAFB',
+    width: "100%",
+    backgroundColor: "#F9FAFB",
     borderRadius: 14,
     padding: Spacing.md,
     marginBottom: Spacing.md,
@@ -1450,16 +1530,16 @@ const eliteStyles = StyleSheet.create({
     marginBottom: Spacing.sm,
   },
   requirementContent: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
+    flexDirection: "row",
+    alignItems: "flex-start",
   },
   requirementIconContainer: {
     width: 36,
     height: 36,
     borderRadius: 10,
-    backgroundColor: '#FFFFFF',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#FFFFFF",
+    justifyContent: "center",
+    alignItems: "center",
     marginRight: Spacing.md,
   },
   requirementTextContent: {
@@ -1470,32 +1550,32 @@ const eliteStyles = StyleSheet.create({
     lineHeight: 20,
   },
   unlocksTitle: {
-    alignSelf: 'flex-start',
+    alignSelf: "flex-start",
     marginBottom: Spacing.sm,
   },
   benefitsList: {
-    width: '100%',
+    width: "100%",
     marginBottom: Spacing.sm,
   },
   benefitRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     paddingVertical: Spacing.sm,
     borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
+    borderBottomColor: "#F3F4F6",
   },
   benefitIcon: {
     width: 32,
     height: 32,
     borderRadius: 8,
-    backgroundColor: '#F9FAFB',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#F9FAFB",
+    justifyContent: "center",
+    alignItems: "center",
     marginRight: Spacing.sm,
   },
   disclaimerRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
+    flexDirection: "row",
+    alignItems: "flex-start",
     paddingHorizontal: Spacing.sm,
     marginBottom: Spacing.md,
     gap: Spacing.sm,
@@ -1505,11 +1585,11 @@ const eliteStyles = StyleSheet.create({
     lineHeight: 18,
   },
   gotItButton: {
-    width: '100%',
-    backgroundColor: '#5299FE',
+    width: "100%",
+    backgroundColor: "#5299FE",
     borderRadius: 24,
     paddingVertical: Spacing.md,
-    alignItems: 'center',
+    alignItems: "center",
   },
   gotItButtonPressed: {
     opacity: 0.9,
