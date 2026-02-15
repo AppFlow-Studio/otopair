@@ -766,13 +766,13 @@ export default defineSchema({
       v.object({
         question: v.string(),
         answer: v.string(),
-      })
+      }),
     ),
     user_intentions: v.optional(
       v.object({
         question: v.string(),
         intentions: v.array(v.string()),
-      })
+      }),
     ),
     car_knowledge_level: v.optional(v.float64()),
     last_updated: v.float64(),
@@ -919,11 +919,19 @@ export default defineSchema({
     onboardingCompleted: v.boolean(),
     phone: v.optional(v.string()),
     phoneVerified: v.optional(v.boolean()),
-    profile_photo_url: v.optional(v.string()),
+    profile_photo_url: v.optional(v.union(v.string(), v.null())),
+    profile_photo_storage_id: v.optional(v.union(v.string(), v.null())),
     tellUsAboutCompleted: v.optional(v.boolean()),
     user_intentions: v.optional(v.array(v.string())),
     username: v.optional(v.string()),
-  }).index("by_clerkUserId", ["clerkUserId"]),
+    language: v.optional(v.string()),
+    units: v.optional(v.string()),
+    deletionRequestedAt: v.optional(v.float64()),
+    isPendingDeletion: v.optional(v.boolean()),
+    deletionSurveyResponse: v.optional(v.string()),
+    deletionSurveySkipped: v.optional(v.boolean()),
+  }).index("by_clerkUserId", ["clerkUserId"])
+    .index("by_isPendingDeletion", ["isPendingDeletion"]),
 
   // ============================================================================
   // OEM PARTS & NORMALIZATION
@@ -1925,6 +1933,35 @@ export default defineSchema({
     .index("by_vehicle_owner", ["vehicleOwnerId"])
     .index("by_smartcar_vehicle_id", ["smartcarVehicleId"])
     .index("by_status", ["status"]),
+
+  /**
+   * TABLE: user_settings_preferences
+   *
+   * DESCRIPTION:
+   * Stores user-specific app preferences and settings.
+   * Separated from the users table for scalability and organization.
+   *
+   * FIELDS:
+   *   - user_id: References the user
+   *   - notification_preferences: Nested object for various notification toggles
+   *   - last_updated: Unix timestamp of last update
+   *
+   * RELATIONSHIPS:
+   *   FK → users(user_id)
+   */
+  user_settings_preferences: defineTable({
+    user_id: v.id("users"),
+    notification_preferences: v.object({
+      offers: v.boolean(),
+      rewards: v.boolean(),
+      pass: v.boolean(),
+      bookings: v.boolean(),
+      other: v.boolean(),
+    }),
+    language: v.optional(v.string()),
+    units: v.optional(v.string()),
+    last_updated: v.float64(),
+  }).index("by_user_id", ["user_id"]),
 
   /**
    * TABLE: vehicle_health_snapshots

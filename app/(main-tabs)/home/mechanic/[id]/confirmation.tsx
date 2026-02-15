@@ -197,15 +197,15 @@ export default function ConfirmationScreen() {
   const getMechanicById = useMechanicStore((state) => state.getMechanicById);
   const getSelectedVehicle = useVehicleStore((state) => state.getSelectedVehicle);
 
-  // Shop from DB (for address, phone, name)
-  const shopId = selectedMechanicSlot?.shopId ?? mechanic?.shopId;
-  const shop = useQuery(api.shops.getById, shopId ? { id: shopId as Id<"shops"> } : "skip");
-
   // ═══════════════ COMPUTED ═══════════════
   const mechanic = useMemo(() => {
     if (!selectedMechanicId) return null;
     return getMechanicById(selectedMechanicId);
   }, [selectedMechanicId, getMechanicById]);
+
+  // Shop from DB (for address, phone, name)
+  const shopId = selectedMechanicSlot?.shopId ?? (mechanic?.shopId as Id<"shops"> | undefined);
+  const shop = useQuery(api.shops.getById, shopId ? { id: shopId as Id<"shops"> } : "skip");
 
   const selectedVehicle = getSelectedVehicle();
 

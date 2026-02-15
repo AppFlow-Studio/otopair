@@ -16,7 +16,7 @@
 
 // 1. React & React Native
 import React from 'react';
-import { View, StyleSheet, Pressable, Image } from 'react-native';
+import { View, StyleSheet, Pressable, Image, ScrollView, Platform } from 'react-native';
 
 // 2. Expo & Third-party
 import Animated, {
@@ -104,7 +104,8 @@ function InfoItem({
 // ============================================================================
 
 // Default tab bar height fallback (standard iOS/Android tab bar is ~49-83px)
-const TAB_BAR_HEIGHT = 80;
+// Increased on Android to account for the new floating tab bar height + its bottom offset
+const TAB_BAR_HEIGHT = Platform.OS === 'android' ? 100 : 80;
 
 export function AIWelcomeScreen({ onContinue }: AIWelcomeScreenProps) {
   const insets = useSafeAreaInsets();
@@ -120,75 +121,81 @@ export function AIWelcomeScreen({ onContinue }: AIWelcomeScreenProps) {
         style={StyleSheet.absoluteFillObject}
       />
 
-      {/* Content */}
-      <View style={[styles.content, { paddingTop: insets.top + 20 }]}>
-        {/* Logo */}
-        <AILogo />
-
-        {/* Title Section */}
-        <Animated.View 
-          style={styles.titleSection}
-          entering={FadeInUp.delay(200).duration(500)}
-        >
-          <Text style={styles.welcomeTitle} weight="bold">
-            Welcome to OtoPair AI
-          </Text>
-          <Text style={styles.welcomeSubtitle}>
-            Your AI assistant for car diagnostics, repair tips, and maintenance scheduling.
-          </Text>
-        </Animated.View>
-
-        {/* Info Items - ChatGPT style, no boxes */}
-        <View style={styles.infoContainer}>
-          <InfoItem
-            icon={<MessageSquare size={22} color={BrandColors.secondary} />}
-            title="Responses can be inaccurate"
-            description="OtoPair AI may provide inaccurate information about cars, repairs, or maintenance."
-            delay={400}
-          />
-          <InfoItem
-            icon={<Shield size={22} color={BrandColors.secondary} />}
-            title="Don't share sensitive info"
-            description="Chats may be reviewed to improve our service. Learn more."
-            delay={500}
-          />
-          <InfoItem
-            icon={<AlertTriangle size={22} color="#F59E0B" />}
-            title="Not emergency advice"
-            description="For immediate safety concerns, pull over safely and call roadside assistance."
-            delay={600}
-          />
-        </View>
-      </View>
-
-      {/* Footer */}
-      <Animated.View 
-        style={[styles.footer, { paddingBottom: bottomPadding + Spacing.md }]}
-        entering={FadeInDown.delay(700).duration(400)}
+      <ScrollView 
+        style={styles.scrollView}
+        contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 20, paddingBottom: bottomPadding + 20 }]}
+        showsVerticalScrollIndicator={false}
       >
-        <Text style={styles.termsText} size="sm">
-          By continuing, you agree to our{' '}
-          <Text style={styles.termsLink} size="sm" weight="semiBold">
-            Terms of Service
-          </Text>
-          {' '}and{' '}
-          <Text style={styles.termsLink} size="sm" weight="semiBold">
-            Privacy Policy
-          </Text>
-        </Text>
+        {/* Content Wrapper */}
+        <View style={styles.content}>
+          {/* Logo */}
+          <AILogo />
 
-        <Pressable
-          onPress={onContinue}
-          style={({ pressed }) => [
-            styles.continueButton,
-            pressed && styles.continueButtonPressed,
-          ]}
+          {/* Title Section */}
+          <Animated.View 
+            style={styles.titleSection}
+            entering={FadeInUp.delay(200).duration(500)}
+          >
+            <Text style={styles.welcomeTitle} weight="bold">
+              Welcome to OtoPair AI
+            </Text>
+            <Text style={styles.welcomeSubtitle}>
+              Your AI assistant for car diagnostics, repair tips, and maintenance scheduling.
+            </Text>
+          </Animated.View>
+
+          {/* Info Items - ChatGPT style, no boxes */}
+          <View style={styles.infoContainer}>
+            <InfoItem
+              icon={<MessageSquare size={22} color={BrandColors.secondary} />}
+              title="Responses can be inaccurate"
+              description="OtoPair AI may provide inaccurate information about cars, repairs, or maintenance."
+              delay={400}
+            />
+            <InfoItem
+              icon={<Shield size={22} color={BrandColors.secondary} />}
+              title="Don't share sensitive info"
+              description="Chats may be reviewed to improve our service. Learn more."
+              delay={500}
+            />
+            <InfoItem
+              icon={<AlertTriangle size={22} color="#F59E0B" />}
+              title="Not emergency advice"
+              description="For immediate safety concerns, pull over safely and call roadside assistance."
+              delay={600}
+            />
+          </View>
+        </View>
+
+        {/* Footer inside ScrollView to ensure it's reachable on small screens */}
+        <Animated.View 
+          style={styles.footer}
+          entering={FadeInDown.delay(700).duration(400)}
         >
-          <Text style={styles.continueButtonText} weight="semiBold">
-            Continue
+          <Text style={styles.termsText} size="sm">
+            By continuing, you agree to our{' '}
+            <Text style={styles.termsLink} size="sm" weight="semiBold">
+              Terms of Service
+            </Text>
+            {' '}and{' '}
+            <Text style={styles.termsLink} size="sm" weight="semiBold">
+              Privacy Policy
+            </Text>
           </Text>
-        </Pressable>
-      </Animated.View>
+
+          <Pressable
+            onPress={onContinue}
+            style={({ pressed }) => [
+              styles.continueButton,
+              pressed && styles.continueButtonPressed,
+            ]}
+          >
+            <Text style={styles.continueButtonText} weight="semiBold">
+              Continue
+            </Text>
+          </Pressable>
+        </Animated.View>
+      </ScrollView>
     </View>
   );
 }
@@ -202,16 +209,22 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#E8ECF0',
   },
+  scrollView: {
+    flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
+  },
   content: {
     flex: 1,
     paddingHorizontal: Spacing.xl,
     alignItems: 'center',
-    justifyContent: 'flex-end',
+    justifyContent: 'center',
     paddingBottom: Spacing.xl,
   },
   // Logo
   logoContainer: {
-    marginBottom: Spacing.xl,
+    marginBottom: Spacing.lg,
   },
   logoImage: {
     width: 72,

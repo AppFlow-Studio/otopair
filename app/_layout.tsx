@@ -189,6 +189,31 @@ export default function RootLayout() {
             </BottomSheetModalProvider>
           </GestureHandlerRootView>
         </AppErrorBoundary>
+        {/* <EnsureConvexUserRecord />
+        <SyncAuthStoreWithClerk />
+        <GestureHandlerRootView style={{ flex: 1 }}>
+          <BottomSheetModalProvider>
+            <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
+              <Stack>
+                <Stack.Screen name="index" options={{ headerShown: false }} />
+                <Stack.Screen name="(onboarding)" options={{ headerShown: false }} />
+                <Stack.Screen name="(main-tabs)" options={{ headerShown: false }} />
+                <Stack.Screen name="(tell-us-about)" options={{ headerShown: false }} />
+                <Stack.Screen name="coming-soon" options={{ headerShown: false }} />
+                <Stack.Screen name="add-vehicle" options={{ headerShown: false }} />
+                <Stack.Screen name="add-car-info" options={{ headerShown: false }} />
+                <Stack.Screen name="vehicle-added" options={{ headerShown: false }} />
+                <Stack.Screen name="vin-scanner" options={{ headerShown: false }} />
+                <Stack.Screen name="add-vehicle-review" options={{ headerShown: false }} />
+                <Stack.Screen name="payments" options={{ headerShown: false }} />
+                <Stack.Screen name="add-payment" options={{ headerShown: false }} />
+                <Stack.Screen name="modal" options={{ presentation: "modal", title: "Modal" }} />
+                <Stack.Screen name="membership" options={{ headerShown: false }} />
+              </Stack>
+              <StatusBar style="auto" />
+            </ThemeProvider>
+          </BottomSheetModalProvider>
+        </GestureHandlerRootView> */}
       </ConvexClerkProvider>
     </ClerkProvider>
   );

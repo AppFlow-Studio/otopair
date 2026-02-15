@@ -77,7 +77,6 @@ export function SignupStep({ onNext, onBack, onEmailSignup, onLogin }: SignupSte
       const { createdSessionId, setActive, signIn, signUp } = await startSSO({
         strategy: ssoStrategy,
         redirectUrl: "otopair://oauth-callback",
-        redirectUrlComplete: "otopair://oauth-callback",
       });
 
       // Prefill data from OAuth (signUp has user profile; signIn = existing user)

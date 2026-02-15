@@ -11,12 +11,12 @@
  */
 
 // 1. React & React Native
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useLayoutEffect, useRef, useState } from "react";
 import { StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
 import { BlurView } from "expo-blur";
-import { useRouter } from "expo-router";
+import { useNavigation, useRouter } from "expo-router";
 import { ChevronLeft } from "lucide-react-native";
 import MapView from "react-native-maps";
 import Animated, {
@@ -61,7 +61,25 @@ const VERTICAL_OFFSET = 55;
 export default function BookingsScreen() {
   // ═══════════════ HOOKS ═══════════════
   const router = useRouter();
+  const navigation = useNavigation();
   const insets = useSafeAreaInsets();
+
+  // Hide tab bar when map is open so bottom sheet can cover it
+  useLayoutEffect(() => {
+    const parent = navigation.getParent();
+    if (parent) {
+      parent.setOptions({
+        tabBarStyle: { display: "none" },
+      });
+    }
+    return () => {
+      if (parent) {
+        parent.setOptions({
+          tabBarStyle: undefined,
+        });
+      }
+    };
+  }, [navigation]);
 
   // ═══════════════ REFS ═══════════════
   const mapRef = useRef<MapView>(null);

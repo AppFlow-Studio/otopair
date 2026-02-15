@@ -19,63 +19,76 @@
  *   />
  */
 
-import React, { useState, useCallback, useEffect } from "react";
-import { StyleSheet, View, Keyboard } from "react-native";
-import { router } from "expo-router";
-import Animated, { useSharedValue, withTiming, Easing } from "react-native-reanimated";
-import { AnimatedGradientBackground } from "@/components/shared-ui";
-import { useOnboardingStore } from "@/stores/useOnboardingStore";
-import { useAuth } from "@clerk/clerk-expo";
-import { usePrefetchOnboardingQuestions } from "@/hooks/usePrefetchOnboardingQuestions";
-import { useMutation } from "convex/react";
-import { api } from "@/convex/_generated/api";
-import { SignupStep } from "./steps/SignupStep";
-import { EmailSignupStep } from "./steps/EmailSignupStep";
-import { EmailVerificationStep } from "./steps/EmailVerificationStep";
-import { LoginStep } from "./steps/LoginStep";
-import { PhoneNumberStep } from "./steps/PhoneNumberStep";
-import { ConfirmPhoneNumberStep } from "./steps/ConfirmPhoneNumberStep";
-import { NameStep } from "./steps/NameStep";
-import { EmailConfirmStep } from "./steps/EmailConfirmStep";
-import { ProfilePhotoStep } from "./steps/ProfilePhotoStep";
-import { UserIntentStep } from "./steps/UserIntentStep";
-import { PushNotificationsStep } from "./steps/PushNotificationsStep";
-import { LocationServicesStep } from "./steps/LocationServicesStep";
-import { WelcomeStep } from "./steps/WelcomeStep";
+import React, { useState, useCallback, useEffect } from 'react';
+import { StyleSheet, View, Keyboard } from 'react-native';
+import { router } from 'expo-router';
+import Animated, {
+    useSharedValue,
+    withTiming,
+    Easing,
+} from 'react-native-reanimated';
+import { AnimatedGradientBackground } from '@/components/shared-ui';
+import { useOnboardingStore } from '@/stores/useOnboardingStore';
+import { useAuth } from '@clerk/clerk-expo';
+import { usePrefetchOnboardingQuestions } from '@/hooks/usePrefetchOnboardingQuestions';
+import { useMutation } from 'convex/react';
+import { api } from '@/convex/_generated/api';
+import { SignupStep } from './steps/SignupStep';
+import { EmailSignupStep } from './steps/EmailSignupStep';
+import { EmailVerificationStep } from './steps/EmailVerificationStep';
+import { LoginStep } from './steps/LoginStep';
+import { PhoneNumberStep } from './steps/PhoneNumberStep';
+import { ConfirmPhoneNumberStep } from './steps/ConfirmPhoneNumberStep';
+import { NameStep } from './steps/NameStep';
+import { EmailConfirmStep } from './steps/EmailConfirmStep';
+import { ProfilePhotoStep } from './steps/ProfilePhotoStep';
+import { UserIntentStep } from './steps/UserIntentStep';
+import { HeardAboutStep } from './steps/HeardAboutStep';
+import { VisitReasonStep } from './steps/VisitReasonStep';
+import { ZipCodeStep } from './steps/ZipCodeStep';
+import { PushNotificationsStep } from './steps/PushNotificationsStep';
+import { LocationServicesStep } from './steps/LocationServicesStep';
+import { WelcomeStep } from './steps/WelcomeStep';
 
 // Define the steps in the flow
 export type OnboardingStep =
-  | "welcome"
-  | "signup"
-  | "emailSignup"
-  | "emailVerify"
-  | "login"
-  | "phone"
-  | "confirm"
-  | "name"
-  | "emailConfirm"
-  | "profilePhoto"
-  | "userIntent"
-  | "pushNotifications"
-  | "locationServices"
-  | "complete";
+    | 'welcome'
+    | 'signup'
+    | 'emailSignup'
+    | 'emailVerify'
+    | 'login'
+    | 'phone'
+    | 'confirm'
+    | 'name'
+    | 'emailConfirm'
+    | 'profilePhoto'
+    | 'userIntent'
+    | 'heardAbout'
+    | 'visitReason'
+    | 'zipCode'
+    | 'pushNotifications'
+    | 'locationServices'
+    | 'complete';
 
 // Step indices mapping to SHARED_GRADIENT_CONFIGS
 const STEP_INDICES: Record<OnboardingStep, number> = {
-  welcome: 0,
-  signup: 0,
-  emailSignup: 0,
-  emailVerify: 0,
-  login: 0,
-  phone: 1,
-  confirm: 2,
-  name: 3,
-  emailConfirm: 3,
-  profilePhoto: 5,
-  userIntent: 6,
-  pushNotifications: 7,
-  locationServices: 8,
-  complete: 9,
+    welcome: 0,
+    signup: 0,
+    emailSignup: 0,
+    emailVerify: 0,
+    login: 0,
+    phone: 1,
+    confirm: 2,
+    name: 3,
+    emailConfirm: 3,
+    profilePhoto: 5,
+    userIntent: 6,
+    heardAbout: 7,
+    visitReason: 8,
+    zipCode: 9,
+    pushNotifications: 10,
+    locationServices: 11,
+    complete: 12,
 };
 
 interface OnboardingFlowProps {
@@ -86,30 +99,36 @@ interface OnboardingFlowProps {
 
 // Steps that show in the progress bar (excludes signup/login screens and complete)
 const PROGRESS_STEPS: OnboardingStep[] = [
-  "phone",
-  "confirm",
-  "name",
-  "emailConfirm",
-  "profilePhoto",
-  "userIntent",
-  "pushNotifications",
-  "locationServices",
+    'phone',
+    'confirm',
+    'name',
+    'emailConfirm',
+    'profilePhoto',
+    'userIntent',
+    'heardAbout',
+    'visitReason',
+    'zipCode',
+    'pushNotifications',
+    'locationServices',
 ];
 
 // Helper to get incomplete onboarding steps based on store data
 export function getIncompleteOnboardingSteps(): OnboardingStep[] {
   const { data } = useOnboardingStore.getState();
 
-  const stepChecks: { step: OnboardingStep; isComplete: () => boolean }[] = [
-    { step: "phone", isComplete: () => !!data.phoneNumber },
-    { step: "confirm", isComplete: () => !!data.phoneVerified },
-    { step: "name", isComplete: () => !!(data.firstName && data.lastName) },
-    { step: "emailConfirm", isComplete: () => !!data.emailConfirmed },
-    { step: "profilePhoto", isComplete: () => !!data.profilePhotoUri },
-    { step: "userIntent", isComplete: () => !!(data.userIntentions && data.userIntentions.length > 0) },
-    { step: "pushNotifications", isComplete: () => data.pushNotificationStatus !== null },
-    { step: "locationServices", isComplete: () => data.locationPermissionStatus !== null },
-  ];
+    const stepChecks: { step: OnboardingStep; isComplete: () => boolean }[] = [
+        { step: 'phone', isComplete: () => !!data.phoneNumber },
+        { step: 'confirm', isComplete: () => !!data.phoneVerified },
+        { step: 'name', isComplete: () => !!(data.firstName && data.lastName) },
+        { step: 'emailConfirm', isComplete: () => !!data.emailConfirmed },
+        { step: 'profilePhoto', isComplete: () => !!data.profilePhotoUri },
+        { step: 'userIntent', isComplete: () => !!(data.userIntentions && data.userIntentions.length > 0) },
+        { step: 'heardAbout', isComplete: () => !!data.heardAboutOtopair },
+        { step: 'visitReason', isComplete: () => !!data.visitReason },
+        { step: 'zipCode', isComplete: () => !!data.zipCode },
+        { step: 'pushNotifications', isComplete: () => data.pushNotificationStatus !== null },
+        { step: 'locationServices', isComplete: () => data.locationPermissionStatus !== null },
+    ];
 
   return stepChecks.filter(({ isComplete }) => !isComplete()).map(({ step }) => step);
 }
@@ -215,17 +234,25 @@ export function OnboardingFlow({ initialStep = "signup", filteredSteps, isResume
       case "profilePhoto":
         goToStep("name");
         break;
-      case "userIntent":
-        goToStep("profilePhoto");
-        break;
-      case "pushNotifications":
-        goToStep("userIntent");
-        break;
-      case "locationServices": {
-        const previousStep = await getPreviousStepAfterLocationServices();
-        goToStep(previousStep);
-        break;
-      }
+      case 'userIntent':
+                goToStep('profilePhoto');
+                break;
+            case 'heardAbout':
+                goToStep('userIntent');
+                break;
+            case 'visitReason':
+                goToStep('heardAbout');
+                break;
+            case 'zipCode':
+                goToStep('visitReason');
+                break;
+            case 'pushNotifications':
+                goToStep('zipCode');
+                break;
+            case 'locationServices': {
+                goToStep(getPreviousStepAfterLocationServices());
+                break;
+            }
       default:
         break;
     }
@@ -375,49 +402,97 @@ export function OnboardingFlow({ initialStep = "signup", filteredSteps, isResume
       router.replace("/(main-tabs)/home");
     }
   }, [currentStep, isResumeMode, isSignedIn]);
+    // Render the current step component
+    const renderStep = () => {
+        switch (currentStep) {
+            case 'signup':
+                return (
+                    <SignupStep
+                        onNext={goNext}
+                        onBack={goBack}
+                        onEmailSignup={() => goToStep('emailSignup')}
+                        onLogin={() => goToStep('login')}
+                    />
+                );
+            case 'emailSignup':
+                return <EmailSignupStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+            case 'emailVerify':
+                return <EmailVerificationStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+            case 'login':
+                return <LoginStep onNext={goNext} onBack={goBack} />;
+            case 'phone':
+                return <PhoneNumberStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+            case 'confirm':
+                return <ConfirmPhoneNumberStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+            case 'name':
+                return <NameStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+            case 'emailConfirm':
+                return <EmailConfirmStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+            case 'profilePhoto':
+                return <ProfilePhotoStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+            case 'userIntent':
+                return <UserIntentStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+            case 'heardAbout':
+                return <HeardAboutStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+            case 'visitReason':
+                return <VisitReasonStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+            case 'zipCode':
+                return <ZipCodeStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+            case 'pushNotifications':
+                return <PushNotificationsStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+            case 'locationServices':
+                return <LocationServicesStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+            case 'welcome':
+                return <WelcomeStep onNext={goNext} onBack={goBack} />;
+            case 'complete':
+                return null;
+            default:
+                return null;
+        }
+    };
 
   // Render the current step component
-  const renderStep = () => {
-    switch (currentStep) {
-      case "signup":
-        return (
-          <SignupStep
-            onNext={goNext}
-            onBack={goBack}
-            onEmailSignup={() => goToStep("emailSignup")}
-            onLogin={() => goToStep("login")}
-          />
-        );
-      case "emailSignup":
-        return <EmailSignupStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
-      case "emailVerify":
-        return <EmailVerificationStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
-      case "login":
-        return <LoginStep onNext={goNext} onBack={goBack} />;
-      case "phone":
-        return <PhoneNumberStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
-      case "confirm":
-        return <ConfirmPhoneNumberStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
-      case "name":
-        return <NameStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
-      case "emailConfirm":
-        return <EmailConfirmStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
-      case "profilePhoto":
-        return <ProfilePhotoStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
-      case "userIntent":
-        return <UserIntentStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
-      case "pushNotifications":
-        return <PushNotificationsStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
-      case "locationServices":
-        return <LocationServicesStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
-      case "welcome":
-        return <WelcomeStep onNext={goNext} onBack={goBack} />;
-      case "complete":
-        return null;
-      default:
-        return null;
-    }
-  };
+  // const renderStep = () => {
+  //   switch (currentStep) {
+  //     case "signup":
+  //       return (
+  //         <SignupStep
+  //           onNext={goNext}
+  //           onBack={goBack}
+  //           onEmailSignup={() => goToStep("emailSignup")}
+  //           onLogin={() => goToStep("login")}
+  //         />
+  //       );
+  //     case "emailSignup":
+  //       return <EmailSignupStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+  //     case "emailVerify":
+  //       return <EmailVerificationStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+  //     case "login":
+  //       return <LoginStep onNext={goNext} onBack={goBack} />;
+  //     case "phone":
+  //       return <PhoneNumberStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+  //     case "confirm":
+  //       return <ConfirmPhoneNumberStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+  //     case "name":
+  //       return <NameStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+  //     case "emailConfirm":
+  //       return <EmailConfirmStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+  //     case "profilePhoto":
+  //       return <ProfilePhotoStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+  //     case "userIntent":
+  //       return <UserIntentStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+  //     case "pushNotifications":
+  //       return <PushNotificationsStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+  //     case "locationServices":
+  //       return <LocationServicesStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+  //     case "welcome":
+  //       return <WelcomeStep onNext={goNext} onBack={goBack} />;
+  //     case "complete":
+  //       return null;
+  //     default:
+  //       return null;
+  //   }
+  // };
 
   return (
     <View style={styles.container}>

@@ -579,10 +579,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   comingSoonCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.4)',
+    backgroundColor: 'rgba(255, 255, 255, 0.72)',
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
+    borderColor: 'rgba(255, 255, 255, 0.6)',
     padding: 20,
     alignItems: 'center',
     gap: 6,

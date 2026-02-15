@@ -9,6 +9,7 @@
 import { useState, useEffect } from "react";
 import { useSignIn, useAuth, useSSO } from "@clerk/clerk-expo";
 import * as WebBrowser from "expo-web-browser";
+import { useConvex, useMutation } from "convex/react";
 import { BrandColors, FontFamily, FontSize, Spacing, Text, BorderRadius } from "@/components/shared-ui";
 import { FooterButton } from "@/components/shared-ui/FooterButton";
 import { BackButton } from "@/components/shared-ui/BackButton";
@@ -28,6 +29,7 @@ import { router } from "expo-router";
 import { Mail } from "lucide-react-native";
 import { useAuthStore } from "@/stores/useAuthStore";
 import { useEnsureConvexUser } from "@/hooks/useEnsureConvexUser";
+import { api } from "@/convex/_generated/api";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -42,7 +44,9 @@ export function LoginStep({ onNext, onBack }: LoginStepProps) {
   const { signIn, setActive: setSignInActive, isLoaded } = useSignIn();
   const { isSignedIn } = useAuth();
   const ensureConvexUser = useEnsureConvexUser();
-  const { setIsNewUser, setIsAuthenticated } = useAuthStore();
+  const convex = useConvex();
+  const reactivateAccountMutation = useMutation(api.users.reactivateAccount);
+  const { setIsNewUser, setIsAuthenticated, setShouldShowReactivationSheet } = useAuthStore();
   const { startSSOFlow: startGoogleSSO } = useSSO();
   const { startSSOFlow: startAppleSSO } = useSSO();
 
@@ -54,12 +58,16 @@ export function LoginStep({ onNext, onBack }: LoginStepProps) {
 
   // Already signed in → go straight to home
   useEffect(() => {
+    // Don't auto-redirect while an explicit login flow is in progress,
+    // because post-login navigation may need to pass route params.
+    if (loading !== null) return;
+
     if (isLoaded && isSignedIn) {
       setIsNewUser(false);
       setIsAuthenticated(true);
       router.replace("/(main-tabs)/home");
     }
-  }, [isLoaded, isSignedIn, setIsAuthenticated, setIsNewUser]);
+  }, [isLoaded, isSignedIn, loading, setIsAuthenticated, setIsNewUser]);
 
   const dynamicStyles = {
     container: { paddingTop: insets.top + Spacing.lg },
@@ -69,6 +77,23 @@ export function LoginStep({ onNext, onBack }: LoginStepProps) {
   const isCompact = height < 720;
   const buttonSize: "md" | "lg" = isCompact ? "md" : "lg";
   const buttonPaddingVertical = isCompact ? Spacing.sm : Spacing.lg;
+
+  const navigateAfterLogin = async () => {
+    let shouldShowReactivationSheet = false;
+
+    try {
+      const me = await convex.query(api.users.getMe, {});
+      if (me?.isPendingDeletion) {
+        await reactivateAccountMutation({});
+        shouldShowReactivationSheet = true;
+      }
+    } catch (error) {
+      console.error("Failed to process account reactivation after login:", error);
+    }
+
+    setShouldShowReactivationSheet(shouldShowReactivationSheet);
+    router.replace("/(main-tabs)/home");
+  };
 
   // Retry helper to wait for Clerk JWT to propagate to Convex
   const ensureConvexUserWithRetry = async (retries = 3, delay = 1500) => {
@@ -97,7 +122,7 @@ export function LoginStep({ onNext, onBack }: LoginStepProps) {
       const { createdSessionId, setActive } = await startSSOFlow({
         strategy: ssoStrategy,
         redirectUrl: "otopair://oauth-callback",
-        redirectUrlComplete: "otopair://oauth-callback",
+        // redirectUrlComplete: "otopair://oauth-callback",
       });
 
       if (createdSessionId && setActive) {
@@ -109,7 +134,7 @@ export function LoginStep({ onNext, onBack }: LoginStepProps) {
         }
         setIsNewUser(false);
         setIsAuthenticated(true);
-        router.replace("/(main-tabs)/home");
+        await navigateAfterLogin();
         onNext();
       }
     } catch (err) {
@@ -147,7 +172,7 @@ export function LoginStep({ onNext, onBack }: LoginStepProps) {
       }
       setIsNewUser(false);
       setIsAuthenticated(true);
-      router.replace("/(main-tabs)/home");
+      await navigateAfterLogin();
       onNext();
     } catch (err: any) {
       const message = err?.errors?.[0]?.longMessage || err?.errors?.[0]?.message || err?.message || "Unable to sign in";

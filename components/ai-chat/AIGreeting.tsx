@@ -22,7 +22,7 @@
 
 // 1. React & React Native
 import React from 'react';
-import { View, ScrollView, StyleSheet, Pressable } from 'react-native';
+import { View, ScrollView, StyleSheet, Pressable, Platform } from 'react-native';
 
 // 2. Expo & Third-party
 import Animated, {
@@ -47,6 +47,7 @@ interface Suggestion {
   id: string;
   text: string;
   subtitle?: string;
+  value?: string;
 }
 
 interface AIGreetingProps {
@@ -204,7 +205,7 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   suggestionsContainer: {
-    paddingBottom: Spacing.xs,
+    paddingBottom: Platform.OS === 'android' ? Spacing.md : Spacing.xs,
   },
   suggestionsScroll: {
     paddingHorizontal: Spacing.lg,

@@ -918,7 +918,9 @@ export const seed = mutation({
     // --- Onboarding Q&A (unified table) ---
     await ctx.db.insert("onboarding_questions_answers", {
       user_id: userId,
-      questions_and_answers: [{ question: "How often do you service your car?", answer: "Every 3 months" }],
+      questions_and_answers: [
+        { question: "How often do you service your car?", answer: "Every 3 months" },
+      ],
       last_updated: now,
     });
 
@@ -1943,7 +1945,7 @@ export const seedTransactionsForJohnDoe = mutation({
       .unique();
     if (!user) {
       throw new Error(
-        `User with clerkUserId ${JOHN_DOE_CLERK_USER_ID} (John Doe) not found. Ensure the account exists.`
+        `User with clerkUserId ${JOHN_DOE_CLERK_USER_ID} (John Doe) not found. Ensure the account exists.`,
       );
     }
 

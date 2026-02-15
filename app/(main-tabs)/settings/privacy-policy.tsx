@@ -82,6 +82,12 @@ export default function PrivacyPolicyScreen() {
         <Text size="md" color="#374151" style={styles.paragraph}>
           At vero eos et accusamus et iusto odio dignissimos ducimus qui blanditiis praesentium voluptatum deleniti atque corrupti quos dolores et quas molestias excepturi sint occaecati cupiditate non provident.
         </Text>
+        <Text weight="bold" size="lg" color="#111827" style={styles.heading}>
+          Account and Data Deletion
+        </Text>
+        <Text size="md" color="#374151" style={styles.paragraph}>
+          If you wish to delete your account and all associated data, you may do so at any time by contacting our support team at support@otopair.com. We will process your request in accordance with applicable laws and our data retention policies.
+        </Text>
       </ScrollView>
 
       <BlurHeaderOverlay title="Privacy Policy" onBack={() => router.back()} />

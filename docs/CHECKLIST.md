@@ -17,7 +17,10 @@
 - [x] Spec pipeline: ai_enrichment_logs.ts, manual_review_queue.ts, spec_variances.ts, spec_confirmations.ts
 - [x] Services/shops: services.ts, service_categories.ts, service_options.ts, shop_services.ts, shops.ts, mechanics.ts, shops_hours.ts, time_slots.ts, service_vehicle_specs.ts, service_insights.ts, cdn_assets.ts, shop_portfolio.ts
 - [x] User/infra: users.ts (getOrCreateMe), onboarding_questions_answers only (Q&A in app; see [ONBOARDING_QA.md](./ONBOARDING_QA.md))
+<<<<<<< HEAD
 - [x] **Rewards:** rewards.ts — wallet, deals, credit history, membership stats, tier; addCreditForCompletedBooking (on booking completion); spend thresholds ($750 Preferred, $1,500 Elite); claimContributionReward (review $5, upload $10, referral $25 cap 5). transactions.ts for History screen.
+=======
+>>>>>>> origin/daniel-dev
 - [x] Catalog: makes.ts, models.ts, trims.ts, engines.ts (list/getById/getBy\*)
 
 ### Half-implemented
@@ -30,6 +33,7 @@
 
 ---
 
+<<<<<<< HEAD
 ## 2. OTOPAIR Rewards
 
 **Scope:** Ownership Credit, tier status, membership UI. See [REWARDS.md](./REWARDS.md) for full program spec.
@@ -73,6 +77,26 @@
 
 ### Half-implemented
 
+=======
+## 2. Home – Finish setup card
+
+### Done
+
+- [x] **Step completion from Convex** – Create Account (users.onboardingCompleted), About You (users.tellUsAboutCompleted), Add Car (vehicle_owners.getActiveByUser); FinishAccountSetupCard uses api.users.getMe and api.vehicle_owners.getActiveByUser; steps grey out and persist across reloads. See REFERENCE.md § Finish setup card (home).
+
+---
+
+## 3. Frontend – Add vehicle flow
+
+### Done
+
+- [x] **VIN path** – add-vehicle.tsx → decodeVin (NHTSA) → add-vehicle-review.tsx → confirmVehicleForUser; creates vehicles, vehicle_owners; schedules AI enrichment (engine_specs, vehicle_specs, trim_specs, service_vehicle_specs). See [ADD_VEHICLE_PIPELINE.md](./ADD_VEHICLE_PIPELINE.md).
+- [x] **Smartcar path** – add-vehicle-review.tsx "Connect My Car" → useSmartcar.connect → exchangeCodeAndConnect; same NHTSA + AI pipeline; stores smartcar_connections, vehicle_health_snapshots.
+- [x] add-car-info UI and flow (manual VIN, trim, engine, etc.)
+
+### Half-implemented
+
+>>>>>>> origin/daniel-dev
 - [ ] **Manual add-car-info Convex wiring** – add-car-info does not call Convex (no useQuery/useMutation for api.vehicles._, api.specs._); needs vehicles.upsertVehicle, vehicles.addOwner, specs.getFullVehicleSpecPack, transmissions.listByTrimId, chassis_variants.listByTrimId
 
 ### Not implemented
@@ -124,6 +148,7 @@
 
 ---
 
+<<<<<<< HEAD
 ## 6. Summary table
 
 | Area                     | Done                                                                                      | Half-implemented                            | Not implemented               |
@@ -134,6 +159,17 @@
 | **Booking flow UI**      | Full (discovery → confirmation)                                                           | —                                           | —                             |
 | **Booking → Convex**     | createBatch, services, shops, mechanics, time_slots, user, vehicle                        | payments.create; funnel/analytics           | —                             |
 | **Confirmation**         | Success UI; Directions, Contact, Add to Calendar (shop from DB)                           | —                                           | Server booking id, follow_ups |
+=======
+## 5. Summary table
+
+| Area                     | Done                                                                             | Half-implemented                  | Not implemented               |
+| ------------------------ | -------------------------------------------------------------------------------- | --------------------------------- | ----------------------------- |
+| **Convex schema & APIs** | Full (46 tables, vehicle intelligence, core, funnel, cdn_assets, shop_portfolio) | Seed data                         | Tests                         |
+| **Add vehicle**          | VIN + Smartcar paths wired to Convex (NHTSA + AI pipeline)                       | add-car-info manual flow          | Spec pack in UI               |
+| **Booking flow UI**      | Full (discovery → confirmation)                                                  | —                                 | —                             |
+| **Booking → Convex**     | createBatch, services, shops, mechanics, time_slots, user, vehicle               | payments.create; funnel/analytics | —                             |
+| **Confirmation**         | Success UI; Directions, Contact, Add to Calendar (shop from DB)                  | —                                 | Server booking id, follow_ups |
+>>>>>>> origin/daniel-dev
 
 ---
 
