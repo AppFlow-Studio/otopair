@@ -180,6 +180,9 @@ export default function RootLayout() {
                   {/* <Stack.Screen name="payment-methods" options={{ headerShown: false }} /> */}
                   <Stack.Screen name="modal" options={{ presentation: "modal", title: "Modal" }} />
                   <Stack.Screen name="membership" options={{ headerShown: false }} />
+                  <Stack.Screen name="suggested-deals" options={{ headerShown: false }} />
+                  <Stack.Screen name="transactions" options={{ headerShown: false }} />
+                  <Stack.Screen name="refer-a-friend" options={{ headerShown: false }} />
                 </Stack>
                 <StatusBar style="auto" />
               </ThemeProvider>

@@ -1957,4 +1957,83 @@ export default defineSchema({
     .index("by_level", ["level"])
     .index("by_timestamp", ["timestamp"])
     .index("by_user_id", ["user_id"]),
+
+  // ============================================================================
+  // OTOPAIR REWARDS PROGRAM (Ownership Credit, Tiers, Deals)
+  // ============================================================================
+
+  /**
+   * TABLE: user_reward_wallets
+   * One row per user. Tracks Ownership Credit balance and redemption preference.
+   * Per PDF: Credits are dollar-based, applied to services; not points.
+   */
+  user_reward_wallets: defineTable({
+    user_id: v.id("users"),
+    balance: v.float64(), // dollar amount
+    auto_apply_to_booking: v.boolean(), // "Auto Apply to next booking" setting
+    miles_safe: v.optional(v.float64()), // miles safe metric; calculated later (e.g. from Smartcar/odometer)
+    created_at: v.float64(),
+    updated_at: v.float64(),
+  }).index("by_user_id", ["user_id"]),
+
+  /**
+   * TABLE: ownership_credit_transactions
+   * Audit trail for credit earnings and redemptions.
+   */
+  ownership_credit_transactions: defineTable({
+    user_id: v.id("users"),
+    amount: v.float64(), // positive = earn, negative = redeem
+    type: v.string(), // "earn_service" | "earn_review" | "earn_upload" | "earn_referral" | "redeem_booking" | "redeem_giftcard"
+    description: v.string(),
+    reference_id: v.optional(v.string()), // booking_id, deal_id, etc.
+    expires_at: v.optional(v.float64()), // credits expire in 6 months (MVP)
+    created_at: v.float64(),
+  })
+    .index("by_user_id", ["user_id"])
+    .index("by_user_id_created_at", ["user_id", "created_at"]),
+
+  /**
+   * TABLE: reward_deals
+   * Suggested deals with credit rewards (e.g., Synthetic Oil Change +$15).
+   */
+  reward_deals: defineTable({
+    title: v.string(),
+    description: v.string(),
+    credit_amount: v.float64(),
+    price: v.float64(),
+    is_special: v.boolean(),
+    service_id: v.optional(v.id("services")),
+    display_order: v.float64(),
+    created_at: v.float64(),
+  }).index("by_display_order", ["display_order"]),
+
+  /**
+   * TABLE: user_contribution_claims
+   * Tracks which contribution rewards (review, upload, referral) user has claimed.
+   * Prevents double-crediting.
+   */
+  user_contribution_claims: defineTable({
+    user_id: v.id("users"),
+    action_type: v.string(), // "review" | "upload" | "referral"
+    reference_id: v.optional(v.string()), // booking_id for review, etc.
+    created_at: v.float64(),
+  })
+    .index("by_user_id", ["user_id"])
+    .index("by_user_action", ["user_id", "action_type"]),
+
+  /**
+   * TABLE: vehicle_tiers
+   * Per-vehicle tier status (Driver, Preferred, Elite) based on 12-month spend.
+   * MVP: everyone is Driver; tiers introduced in V1.
+   */
+  vehicle_tiers: defineTable({
+    vin: v.string(),
+    user_id: v.id("users"),
+    tier: v.string(), // "driver" | "preferred" | "elite"
+    spend_12mo: v.float64(),
+    created_at: v.float64(),
+    updated_at: v.float64(),
+  })
+    .index("by_vin_user", ["vin", "user_id"])
+    .index("by_user_id", ["user_id"]),
 });

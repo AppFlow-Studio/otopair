@@ -33,6 +33,7 @@ import type * as onboarding_questions_answers from "../onboarding_questions_answ
 import type * as payment_status_history from "../payment_status_history.js";
 import type * as payments from "../payments.js";
 import type * as reviews from "../reviews.js";
+import type * as rewards from "../rewards.js";
 import type * as seed from "../seed.js";
 import type * as seed_services_catalog from "../seed_services_catalog.js";
 import type * as service_categories from "../service_categories.js";
@@ -91,6 +92,7 @@ declare const fullApi: ApiFromModules<{
   payment_status_history: typeof payment_status_history;
   payments: typeof payments;
   reviews: typeof reviews;
+  rewards: typeof rewards;
   seed: typeof seed;
   seed_services_catalog: typeof seed_services_catalog;
   service_categories: typeof service_categories;
