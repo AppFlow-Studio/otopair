@@ -110,7 +110,6 @@ try {
 }
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
-const MENU_WIDTH = 190;
 
 const AnimatedText = Animated.createAnimatedComponent(Text);
 
@@ -1270,37 +1269,6 @@ export default function SettingsHomeScreen() {
         )}
       </ScrollDrivenGradientBackground>
 
-      {/* Modals remain same */}
-      <Modal transparent visible={isLogoutVisible} animationType="fade">
-        <TouchableWithoutFeedback onPress={() => setIsLogoutVisible(false)}>
-          <View style={styles.menuOverlay}>
-            <View
-              style={[
-                styles.menuContainer,
-                {
-                  top: insets.top + 80,
-                  left: SCREEN_WIDTH - MENU_WIDTH - 12,
-                },
-              ]}
-            >
-              <View style={styles.menuContent}>
-                <Pressable
-                  style={styles.menuItem}
-                  onPress={handleConfirmLogout}
-                >
-                  <View style={styles.menuIconBox}>
-                    <LogOut size={18} color="#1F2937" />
-                  </View>
-                  <Text weight="medium" size="md" color="#1F2937">
-                    Logout
-                  </Text>
-                </Pressable>
-              </View>
-            </View>
-          </View>
-        </TouchableWithoutFeedback>
-      </Modal>
-
       <Modal transparent visible={isEditVisible} animationType="fade">
         <View style={styles.modalOverlay}>
           <TouchableWithoutFeedback>
@@ -1783,44 +1751,6 @@ const styles = StyleSheet.create({
     right: 0,
     height: 1,
     backgroundColor: "rgba(0,0,0,0.04)",
-  },
-  menuOverlay: {
-    flex: 1,
-    backgroundColor: "rgba(0,0,0,0.2)",
-  },
-  menuContainer: {
-    position: "absolute",
-    width: MENU_WIDTH,
-    borderRadius: 16,
-    backgroundColor: "#FFF",
-    overflow: "hidden",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.1,
-    shadowRadius: 20,
-    elevation: 10,
-  },
-  menuContent: {
-    padding: 8,
-  },
-  menuItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: 12,
-    gap: 12,
-  },
-  menuIconBox: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    backgroundColor: "rgba(0,0,0,0.05)",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  menuSeparator: {
-    height: 1,
-    backgroundColor: "rgba(0,0,0,0.05)",
-    marginHorizontal: 8,
   },
   modalOverlay: {
     flex: 1,
