@@ -14,7 +14,11 @@ function HydrateBookingData() {
 }
 
 export default function TabLayout() {
-  if (Platform.OS === 'android') {
+  const isIOS26OrNewer =
+    Platform.OS === "ios" && parseInt(String(Platform.Version), 10) >= 26;
+
+  // Use custom tab bar for Android and iOS <= 25.
+  if (!isIOS26OrNewer) {
     return (
       <>
         <HydrateBookingData />

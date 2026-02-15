@@ -56,7 +56,7 @@ import {
   Shield,
   Lock,
   FileText,
-  Info,
+  MapPin,
   MessageSquare,
   RotateCcw,
   ChevronRight,
@@ -120,6 +120,10 @@ const AnimatedText = Animated.createAnimatedComponent(Text);
 const HEADER_MAX_HEIGHT = 440; // Total height of the profile area
 const HEADER_MIN_HEIGHT = 80; // Height of the collapsed sticky bar
 const SHEET_TOP_RADIUS = 32;
+const TAB_BAR_HEIGHT =
+  Platform.OS === "ios" && parseInt(String(Platform.Version), 10) >= 26
+    ? 90
+    : 100;
 
 // ============================================================================
 // SETTINGS LIST ITEM COMPONENT
@@ -639,11 +643,17 @@ export default function SettingsHomeScreen() {
         ? `+${getCallingCode()}${normalizedPhoneDigits}`
         : null;
 
-    const currentEmail = (me?.email ?? data.email ?? "").toString().trim().toLowerCase();
-    const currentPhoneDigits = (me?.phone ?? data.phoneNumber ?? "").toString().replace(/\D/g, "");
+    const currentEmail = (me?.email ?? data.email ?? "")
+      .toString()
+      .trim()
+      .toLowerCase();
+    const currentPhoneDigits = (me?.phone ?? data.phoneNumber ?? "")
+      .toString()
+      .replace(/\D/g, "");
     const nextPhoneDigits = (phoneNumber ?? "").replace(/\D/g, "");
     const emailChanged = email != null && email !== currentEmail;
-    const phoneChanged = phoneNumber != null && nextPhoneDigits !== currentPhoneDigits;
+    const phoneChanged =
+      phoneNumber != null && nextPhoneDigits !== currentPhoneDigits;
 
     // 1. Update Profile Photo if changed
     if (editPhotoUri !== profilePhotoUri) {
@@ -1015,7 +1025,7 @@ export default function SettingsHomeScreen() {
                     color="#6B7280"
                     style={styles.sectionTitle}
                   >
-                    VEHICLES & LOYALTY
+                    MY GARAGE
                   </Text>
                   <View style={styles.sectionCard}>
                     <SettingsListItem
@@ -1033,15 +1043,30 @@ export default function SettingsHomeScreen() {
                       onPress={() => router.push("/settings/my-mechanics")}
                     />
                     <SettingsListItem
-                      icon={<Award size={20} color="#1F2937" />}
-                      label="Loyalty & Rewards"
-                      onPress={() => router.push("/membership")}
+                      icon={<MapPin size={20} color="#1F2937" />}
+                      label="Saved Addresses"
+                      onPress={() =>
+                        router.push({
+                          pathname: "/coming-soon",
+                          params: { serviceName: "Saved Addresses" },
+                        } as any)
+                      }
+                      isLast
                     />
-                    <SettingsListItem
-                      icon={<UserPlus size={20} color="#1F2937" />}
-                      label="Refer a Friend"
-                      onPress={() => router.push("/settings/refer-a-friend")}
-                    />
+                  </View>
+                </View>
+
+                {/* Section 2 */}
+                <View style={styles.section}>
+                  <Text
+                    weight="bold"
+                    size="sm"
+                    color="#6B7280"
+                    style={styles.sectionTitle}
+                  >
+                    PAYMENTS & REWARDS
+                  </Text>
+                  <View style={styles.sectionCard}>
                     <SettingsListItem
                       icon={<CreditCard size={20} color="#1F2937" />}
                       label={
@@ -1059,12 +1084,22 @@ export default function SettingsHomeScreen() {
                           : "Transactions & Receipts"
                       }
                       onPress={() => router.push("/settings/transactions")}
+                    />
+                    <SettingsListItem
+                      icon={<Award size={20} color="#1F2937" />}
+                      label="Loyalty & Rewards"
+                      onPress={() => router.push("/membership")}
+                    />
+                    <SettingsListItem
+                      icon={<UserPlus size={20} color="#1F2937" />}
+                      label="Refer a Friend"
+                      onPress={() => router.push("/settings/refer-a-friend")}
                       isLast
                     />
                   </View>
                 </View>
 
-                {/* Section 2 */}
+                {/* Section 3 */}
                 <View style={styles.section}>
                   <Text
                     weight="bold"
@@ -1072,7 +1107,7 @@ export default function SettingsHomeScreen() {
                     color="#6B7280"
                     style={styles.sectionTitle}
                   >
-                    GENERAL
+                    PREFERENCES
                   </Text>
                   <View style={styles.sectionCard}>
                     <SettingsListItem
@@ -1084,9 +1119,24 @@ export default function SettingsHomeScreen() {
                     />
                     <SettingsListItem
                       icon={<Sliders size={20} color="#1F2937" />}
-                      label="Preferences"
+                      label="App Preferences"
                       onPress={() => router.push("/settings/preferences")}
+                      isLast
                     />
+                  </View>
+                </View>
+
+                {/* Section 4 */}
+                <View style={styles.section}>
+                  <Text
+                    weight="bold"
+                    size="sm"
+                    color="#6B7280"
+                    style={styles.sectionTitle}
+                  >
+                    SUPPORT
+                  </Text>
+                  <View style={styles.sectionCard}>
                     <SettingsListItem
                       icon={<Headset size={20} color="#1F2937" />}
                       label="Contact Us"
@@ -1111,7 +1161,7 @@ export default function SettingsHomeScreen() {
                   </View>
                 </View>
 
-                {/* Section 3 */}
+                {/* Section 5 */}
                 <View style={styles.section}>
                   <Text
                     weight="bold"
@@ -1119,7 +1169,7 @@ export default function SettingsHomeScreen() {
                     color="#6B7280"
                     style={styles.sectionTitle}
                   >
-                    SECURITY & PRIVACY
+                    ACCOUNT
                   </Text>
                   <View style={styles.sectionCard}>
                     {clerkUser?.passwordEnabled && (
@@ -1131,13 +1181,8 @@ export default function SettingsHomeScreen() {
                     )}
                     <SettingsListItem
                       icon={<ShieldCheck size={20} color="#1F2937" />}
-                      label="Two-Factor Authentication (2FA)"
+                      label="Two-Factor Authentication"
                       onPress={() => router.push("/settings/two-factor-method")}
-                    />
-                    <SettingsListItem
-                      icon={<Shield size={20} color="#1F2937" />}
-                      label="Permissions"
-                      onPress={() => router.push("/settings/permissions")}
                     />
                     <SettingsListItem
                       icon={
@@ -1149,27 +1194,31 @@ export default function SettingsHomeScreen() {
                       }
                       label={biometricLabel}
                       onPress={() => router.push("/settings/biometric-setup")}
+                    />
+                    <SettingsListItem
+                      icon={<Shield size={20} color="#1F2937" />}
+                      label="Permissions"
+                      onPress={() => router.push("/settings/permissions")}
                       isLast
                     />
-                  </View>
-                </View>
 
-                {/* Section 4 */}
-                <View style={styles.section}>
-                  <Text
-                    weight="bold"
-                    size="sm"
-                    color="#6B7280"
-                    style={styles.sectionTitle}
-                  >
-                    LEGAL
-                  </Text>
-                  <View style={styles.sectionCard}>
+                    <View style={styles.accountSectionDivider} />
+
                     <SettingsListItem
                       icon={<CircleDollarSign size={20} color="#1F2937" />}
                       label="Pricing Transparency"
                       onPress={() =>
                         router.push("/settings/pricing-transparency")
+                      }
+                    />
+                    <SettingsListItem
+                      icon={<RotateCcw size={20} color="#1F2937" />}
+                      label="How Your Data Is Used"
+                      onPress={() =>
+                        router.push({
+                          pathname: "/coming-soon",
+                          params: { serviceName: "How Your Data Is Used" },
+                        } as any)
                       }
                     />
                     <SettingsListItem
@@ -1185,30 +1234,9 @@ export default function SettingsHomeScreen() {
                       }
                       isLast
                     />
-                  </View>
-                </View>
 
-                {/* Section 5 */}
-                <View style={styles.section}>
-                  <Text
-                    weight="bold"
-                    size="sm"
-                    color="#6B7280"
-                    style={styles.sectionTitle}
-                  >
-                    MORE
-                  </Text>
-                  <View style={styles.sectionCard}>
-                    <SettingsListItem
-                      icon={<Info size={20} color="#1F2937" />}
-                      label="About Otopair v1.0.0"
-                      onPress={() => router.push("/settings/about")}
-                    />
-                    <SettingsListItem
-                      icon={<LogOut size={20} color="#1F2937" />}
-                      label="Logout"
-                      onPress={() => setIsLogoutVisible(true)}
-                    />
+                    <View style={styles.accountSectionDivider} />
+
                     <SettingsListItem
                       icon={<Trash2 size={20} color="#EF4444" />}
                       label="Delete Account"
@@ -1219,7 +1247,23 @@ export default function SettingsHomeScreen() {
                   </View>
                 </View>
 
-                <View style={{ height: insets.bottom + 60 }} />
+                <View style={styles.footerLinksRow}>
+                  <Pressable onPress={() => router.push("/settings/about")}>
+                    <Text weight="medium" size="sm" color="#6B7280">
+                      About Otopair v1.0.0
+                    </Text>
+                  </Pressable>
+                  <Text size="sm" color="#9CA3AF" style={styles.footerDot}>
+                    •
+                  </Text>
+                  <Pressable onPress={() => setIsLogoutVisible(true)}>
+                    <Text weight="medium" size="sm" color="#6B7280">
+                      Logout
+                    </Text>
+                  </Pressable>
+                </View>
+
+                <View style={{ height: insets.bottom + TAB_BAR_HEIGHT }} />
               </View>
             </Animated.ScrollView>
           </>
@@ -1696,6 +1740,23 @@ const styles = StyleSheet.create({
     backgroundColor: "#F9FAFB",
     borderRadius: 20,
     overflow: "hidden",
+  },
+  accountSectionDivider: {
+    height: 1,
+    backgroundColor: "rgba(0,0,0,0.08)",
+    marginLeft: 16,
+    marginRight: 16,
+  },
+  footerLinksRow: {
+    marginTop: -4,
+    marginBottom: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 10,
+  },
+  footerDot: {
+    lineHeight: 16,
   },
   listItem: {
     flexDirection: "row",
