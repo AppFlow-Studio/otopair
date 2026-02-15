@@ -131,9 +131,7 @@ function SyncAuthStoreWithClerk() {
 }
 
 function RootErrorBoundary({ error }: ErrorBoundaryProps) {
-  useEffect(() => {
-    errorBus.set({ visible: true, error });
-  }, [error]);
+  errorBus.set({ visible: true, error });
   return null;
 }
 
