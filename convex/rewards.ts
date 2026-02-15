@@ -13,7 +13,7 @@
  *   - api.rewards.getCreditHistory(userId)
  */
 
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 
 // ============================================================================
@@ -161,6 +161,126 @@ export const hasClaimedContribution = query({
 // ============================================================================
 // MUTATIONS
 // ============================================================================
+
+/**
+ * Internal: Award ownership credit when a booking is completed.
+ * Called from bookings.updateStatus and job_actuals when booking reaches "completed".
+ * Idempotent: skips if this booking was already credited.
+ */
+export const addCreditForCompletedBooking = internalMutation({
+  args: { bookingId: v.id("bookings") },
+  handler: async (ctx, args) => {
+    const booking = await ctx.db.get(args.bookingId);
+    if (!booking || booking.status !== "completed") return null;
+
+    const userId = booking.user_id;
+    const totalCost = booking.total_cost;
+    if (totalCost <= 0) return null;
+
+    // Idempotent: skip if already credited
+    const existing = await ctx.db
+      .query("ownership_credit_transactions")
+      .withIndex("by_user_id", (q) => q.eq("user_id", userId))
+      .filter((q) =>
+        q.and(q.eq(q.field("type"), "earn_service"), q.eq(q.field("reference_id"), args.bookingId.toString()))
+      )
+      .first();
+    if (existing) return null;
+
+    // Get tier for this vehicle (per-vehicle tier per OTOPAIR PDF)
+    const vt = await ctx.db
+      .query("vehicle_tiers")
+      .withIndex("by_vin_user", (q) => q.eq("vin", booking.vin).eq("user_id", userId))
+      .unique();
+    const tier = (vt?.tier ?? "driver") as "driver" | "preferred" | "elite";
+
+    const earnRates: Record<string, number> = {
+      driver: 0.015,
+      preferred: 0.03,
+      elite: 0.05,
+    };
+    const rate = earnRates[tier] ?? 0.015;
+    const creditAmount = Math.round(totalCost * rate * 100) / 100;
+    if (creditAmount <= 0) return null;
+
+    const now = Date.now();
+
+    // Ensure wallet exists
+    let wallet = await ctx.db
+      .query("user_reward_wallets")
+      .withIndex("by_user_id", (q) => q.eq("user_id", userId))
+      .unique();
+    if (!wallet) {
+      await ctx.db.insert("user_reward_wallets", {
+        user_id: userId,
+        balance: creditAmount,
+        auto_apply_to_booking: true,
+        created_at: now,
+        updated_at: now,
+      });
+    } else {
+      await ctx.db.patch(wallet._id, {
+        balance: wallet.balance + creditAmount,
+        updated_at: now,
+      });
+    }
+
+    await ctx.db.insert("ownership_credit_transactions", {
+      user_id: userId,
+      amount: creditAmount,
+      type: "earn_service",
+      description: "Maintenance rewards",
+      reference_id: args.bookingId.toString(),
+      expires_at: now + 180 * 24 * 60 * 60 * 1000, // 6 months
+      created_at: now,
+    });
+
+    await ctx.db.insert("transactions", {
+      user_id: userId,
+      created_at: now,
+      description: "Ownership credits",
+      sub_description: "Maintenance rewards",
+      amount: creditAmount,
+      currency: "USD",
+      status: "completed",
+      transaction_type: "credit",
+      icon_type: "leaf",
+    });
+
+    // --- Spend thresholds: update vehicle tier based on 12-month spend ---
+    const twelveMonthsAgo = now - 365 * 24 * 60 * 60 * 1000;
+    const completedBookings = await ctx.db
+      .query("bookings")
+      .withIndex("by_user_and_status", (q) => q.eq("user_id", userId).eq("status", "completed"))
+      .filter((q) => q.and(q.eq(q.field("vin"), booking.vin), q.gte(q.field("updated_at"), twelveMonthsAgo)))
+      .collect();
+
+    const spend12mo = completedBookings.reduce((sum, b) => sum + b.total_cost, 0);
+
+    const thresholds = { preferred: 750, elite: 1500 };
+    const newTier: "driver" | "preferred" | "elite" =
+      spend12mo >= thresholds.elite ? "elite" : spend12mo >= thresholds.preferred ? "preferred" : "driver";
+
+    if (vt) {
+      await ctx.db.patch(vt._id, {
+        tier: newTier,
+        spend_12mo: spend12mo,
+        updated_at: now,
+      });
+    } else {
+      await ctx.db.insert("vehicle_tiers", {
+        vin: booking.vin,
+        user_id: userId,
+        tier: newTier,
+        spend_12mo: spend12mo,
+        created_at: now,
+        updated_at: now,
+      });
+    }
+
+    return { credited: creditAmount, tier: newTier, spend12mo };
+  },
+});
 
 /**
  * Ensure wallet exists for user. Call from getOrCreateMe or on first wallet access.

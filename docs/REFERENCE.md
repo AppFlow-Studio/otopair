@@ -12,7 +12,7 @@ For high-level and per-part diagrams, see [docs/diagrams.md](diagrams.md). For p
 
 1. [How to use this doc](#how-to-use-this-doc)
 2. [Database overview](#database-overview)
-3. [Tables by domain (44 total)](#tables-by-domain-44-total)
+3. [Tables by domain (51 total)](#tables-by-domain-51-total)
 4. [Key relationships and concepts](#key-relationships-and-concepts)
 5. [Invariants, FSM, timestamps](#invariants-fsm-timestamps)
 6. [Access layer: what’s implemented](#access-layer-whats-implemented)
@@ -33,14 +33,14 @@ For high-level and per-part diagrams, see [docs/diagrams.md](diagrams.md). For p
 
 ## Database overview
 
-- **46 tables** in Convex; VIN-centric vehicles + vehicle_owners; vehicle_specs for engine-level OEM parts.
+- **51 tables** in Convex; VIN-centric vehicles + vehicle_owners; vehicle_specs for engine-level OEM parts; OTOPAIR Rewards (user_reward_wallets, vehicle_tiers, etc.).
 - **VIN-centric model:** One vehicle per VIN; ownership is `vehicle_owners` (soft-delete via status). Bookings and follow-ups reference `vin`.
 - **Vehicle intelligence:** Normalized OEM parts, subsystem specs (engine/transmission/trim), and fitments; optional `confidence_score` (0–1) on AI-populated rows.
 - **Audit:** Append-only `booking_status_history` and `payment_status_history` with FSM validation.
 
 ---
 
-## Tables by domain (46 total)
+## Tables by domain (51 total)
 
 ### Core transactions (5)
 
@@ -131,6 +131,16 @@ For high-level and per-part diagrams, see [docs/diagrams.md](diagrams.md). For p
 | analytics_events   | Event tracking (event_type, event_category, user_id, session_id) |
 | conversion_funnels | Funnel stages (user, funnel_type, stage, booking_id, completed)  |
 
+### OTOPAIR Rewards (5)
+
+| Table                         | Purpose                                                                                                              |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| user_reward_wallets           | Per-user credit balance; `balance`, `auto_apply_to_booking`, optional `miles_safe`; by_user_id                       |
+| ownership_credit_transactions | Audit trail for credit earnings (earn_service, earn_review, earn_upload, earn_referral) and redemptions; 6‑mo expiry |
+| reward_deals                  | Suggested deals with credit rewards; display_order for UI                                                            |
+| user_contribution_claims      | Tracks claimed contribution rewards (review $5, upload $10, referral $25); prevents double-credit; referral cap 5    |
+| vehicle_tiers                 | Per-vehicle tier (driver \| preferred \| elite) based on 12‑month spend; $750 → Preferred, $1,500 → Elite            |
+
 ---
 
 ## Key relationships and concepts
@@ -143,6 +153,14 @@ trims → engines | transmissions | chassis_variants
 vehicles (VIN) → trim_id | engine_id | transmission_id | chassis_id (all optional)
 vehicle_owners → vehicles (vin), users (user_id)
 ```
+
+### OTOPAIR Rewards (two-lane model)
+
+- **Relationship lane (tier):** Per-vehicle; `vehicle_tiers(vin, user_id)` → tier, spend_12mo. Earn rate: Driver 1.5%, Preferred 3%, Elite 5%. Auto-updated when booking completes (spend thresholds $750 / $1,500).
+- **Contribution lane (credit):** Per-user; `user_reward_wallets(user_id)` → balance. Credits pool across vehicles. Earned from: (1) completed services via `addCreditForCompletedBooking`, (2) contribution actions: review $5, upload $10, referral $25 (cap 5).
+- **Booking → credit:** When `bookings.updateStatus(..., "completed")` or `job_actuals.submitJobActuals` sets booking completed, scheduler runs `internal.rewards.addCreditForCompletedBooking(bookingId)` → credits user wallet, updates `vehicle_tiers` for that VIN.
+
+See [REWARDS.md](./REWARDS.md) for full program spec.
 
 ### Spec and parts intelligence
 
@@ -228,6 +246,7 @@ The home screen “Finish setup” card shows four steps: **Create Account**, **
 ### Fully implemented (queries + mutations where applicable)
 
 - **Core:** vehicles.ts, vehicle_owners.ts, bookings.ts, payments.ts, job_actuals.ts, reviews.ts, follow_ups.ts, booking_status_history.ts, payment_status_history.ts
+- **Rewards:** rewards.ts (getWallet, getSuggestedDeals, getAllDeals, getCreditHistory, getMembershipStats, getPrimaryVehicleTier, ensureWallet, updateRedemptionPreference, updateMilesSafe, claimContributionReward; internal addCreditForCompletedBooking)
 - **Vehicle intelligence:** oemParts.ts, specs.ts (includes getFullVehicleSpecPack(vin)), fitments.ts, transmissions.ts, chassis_variants.ts
 - **AI & analytics:** ai_conversations.ts, ai_messages.ts, analytics_events.ts, conversion_funnels.ts
 - **Spec pipeline:** ai_enrichment_logs.ts, manual_review_queue.ts, spec_variances.ts, spec_confirmations.ts (Convex files exist; confirm exports if needed)
@@ -289,6 +308,16 @@ The home screen “Finish setup” card shows four steps: **Create Account**, **
 ### shop_portfolio.ts
 
 - listByShopId(shopId) – portfolio items for a shop with resolved asset URLs (join with cdn_assets); ordered by display_order
+
+### rewards.ts (OTOPAIR Rewards)
+
+- **Queries:** getWallet(userId), getSuggestedDeals(limit?), getAllDeals(), getCreditHistory(userId, limit?), getMembershipStats(userId), getPrimaryVehicleTier(userId), hasClaimedContribution(userId, actionType, referenceId?)
+- **Mutations:** ensureWallet(userId), updateRedemptionPreference(userId, autoApply), updateMilesSafe(userId, milesSafe), redeemSelected(userId, option), claimContributionReward(userId, actionType, referenceId?) – actionType: `"review"` ($5), `"upload"` ($10), `"referral"` ($25, cap 5)
+- **Internal:** addCreditForCompletedBooking(bookingId) – scheduled by bookings.updateStatus and job_actuals.submitJobActuals when booking completes; awards credit by tier (1.5% / 3% / 5%), updates vehicle_tiers with spend thresholds ($750 Preferred, $1,500 Elite)
+
+### transactions.ts
+
+- listForUser(userId, transactionType?, limit?), getById(id), create(...) – user-facing transaction history (charges, credits, refunds); used by rewards for History screen
 
 ### booking_status_history.ts / payment_status_history.ts
 
@@ -359,9 +388,10 @@ The home screen “Finish setup” card shows four steps: **Create Account**, **
 
 ### Done
 
-- Schema: 46 tables; VIN-based vehicles + vehicle_owners; normalized vehicle intelligence; cdn_assets + shop_portfolio for portfolio images. **bookings.live_stage** (optional, when in_progress); **mechanics.photo** → cdn_assets.
+- Schema: 51 tables; VIN-based vehicles + vehicle_owners; normalized vehicle intelligence; cdn_assets + shop_portfolio for portfolio images. **OTOPAIR Rewards:** user_reward_wallets, ownership_credit_transactions, reward_deals, user_contribution_claims, vehicle_tiers. **bookings.live_stage** (optional, when in_progress); **mechanics.photo** → cdn_assets.
 - Core: vehicles, vehicle_owners, bookings, payments, job_actuals, reviews, follow_ups, status history with FSM. **My Bookings / Live Tracker:** getByUserIdWithDetails (liveStage, progressPercent, currentStage, mechanicImageUrl), updateStatus sets/clears live_stage, updateLiveStage(bookingId, liveStage); adapter stagesFromLiveStage; mechanics list/getById/getByShopId return photoUrl.
 - **Seed (demo):** seedPastBookingsForJohnDoe (past bookings for History tab), seedLiveBookingForJohnDoe (one in_progress booking for Live Tracker).
+- **OTOPAIR Rewards:** Booking → credit on completion (addCreditForCompletedBooking scheduled from bookings.updateStatus and job_actuals.submitJobActuals). Per-vehicle tier with spend thresholds ($750 Preferred, $1,500 Elite). Contribution mutation (review $5, upload $10, referral $25 cap 5). Membership UI (app/membership.tsx) with wallet, tier modal, deals, History, Refer a Friend.
 - Vehicle intelligence: oemParts, specs (including getFullVehicleSpecPack), fitments, transmissions, chassis_variants.
 - AI, analytics, conversion_funnels (use startFunnel, updateStage, completeFunnel, abandonFunnel).
 - Spec pipeline and services/shops Convex files exist (confirm as needed).
@@ -440,6 +470,16 @@ const pack = await getFullVehicleSpecPack({ vin });
 // Only when booking.status === "in_progress"
 await updateLiveStage({ bookingId, liveStage: "vehicle_ready" });
 // liveStage: "booking_confirmed" | "service_in_progress" | "vehicle_ready"
+```
+
+### Booking → Ownership Credit (rewards)
+
+When a booking completes, `addCreditForCompletedBooking` runs (scheduled internally). It uses the vehicle's tier (from `vehicle_tiers` or default Driver) to compute earn rate (1.5% / 3% / 5%) of `total_cost`, credits the user's wallet, and updates `vehicle_tiers` with 12‑month spend and new tier if thresholds crossed.
+
+```typescript
+// Triggered automatically by bookings.updateStatus(..., "completed")
+// and job_actuals.submitJobActuals(...)
+// No explicit call needed — scheduler runs internal.rewards.addCreditForCompletedBooking
 ```
 
 ### Seed: past and live bookings (John Doe demo)

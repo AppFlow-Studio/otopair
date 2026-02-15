@@ -230,7 +230,7 @@ export const submitJobActuals = mutation({
         part_name: v.string(),
         oem_number: v.string(),
         cost: v.float64(),
-      }),
+      })
     ),
     actual_parts_cost: v.float64(),
     difficulty_rating: v.float64(),
@@ -257,6 +257,11 @@ export const submitJobActuals = mutation({
 
     // Set booking to completed
     await ctx.db.patch(args.bookingId, { status: "completed", updated_at: now });
+
+    // Award ownership credit (OTOPAIR Rewards)
+    await ctx.scheduler.runAfter(0, internal.rewards.addCreditForCompletedBooking, {
+      bookingId: args.bookingId,
+    });
 
     // --- Learning aggregation ---
     const booking = await ctx.db.get(args.bookingId);

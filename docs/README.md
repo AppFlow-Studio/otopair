@@ -4,7 +4,9 @@
 
 **Add Vehicle Pipeline:** [ADD_VEHICLE_PIPELINE.md](./ADD_VEHICLE_PIPELINE.md) — NHTSA VIN decode, Smartcar OAuth, and Anthropic Claude AI enrichment. Documents how adding a car populates makes/models/trims/engines, engine_specs, vehicle_specs, trim_specs, and service_vehicle_specs.
 
-**Checklist:** [CHECKLIST.md](./CHECKLIST.md) — what's done, half-implemented, and not implemented (backend, add vehicle, booking flow).
+**Checklist:** [CHECKLIST.md](./CHECKLIST.md) — what's done, half-implemented, and not implemented (backend, add vehicle, booking flow, rewards).
+
+**Rewards:** [REWARDS.md](./REWARDS.md) — OTOPAIR Rewards Program: two-lane model, tiers, Ownership Credit, booking→credit flow, spend thresholds, contribution hooks, API reference.
 
 **Booking Integration:** [BOOKING_INTEGRATION.md](./BOOKING_INTEGRATION.md) — Convex + store integration for booking flow, search, shop details, time slots. **§4 My Bookings & Live Tracker** — useMyBookingsWithDetails, live_stage, updateLiveStage, adapter stagesFromLiveStage, seed for John Doe.
 
