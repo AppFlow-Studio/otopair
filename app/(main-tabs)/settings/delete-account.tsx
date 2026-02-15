@@ -241,6 +241,8 @@ export default function DeleteAccountScreen() {
   };
 
   const handleSubmitSurvey = async () => {
+    if (!selectedReason || isDeleting) return;
+
     const trimmedDetails = surveyDetails.trim();
     const response =
       selectedReason && trimmedDetails
@@ -292,6 +294,7 @@ export default function DeleteAccountScreen() {
   const boxMargin = Spacing.sm * 2;
   const totalMarginSpace = 6 * boxMargin;
   const availableWidth = width - containerPadding;
+  const OTHER_REASON = "Other";
   const surveyOptions = [
     "Duplicate account",
     "No longer need the service",
@@ -299,8 +302,9 @@ export default function DeleteAccountScreen() {
     "Moving out of NYC",
     "Privacy concerns",
     "Not satisfied with the app",
-    "Other",
+    OTHER_REASON,
   ];
+  const isSurveySubmitDisabled = isDeleting || !selectedReason;
   const calculatedBoxWidth = Math.max(
     40,
     Math.floor((availableWidth - totalMarginSpace) / 6),
@@ -683,6 +687,7 @@ export default function DeleteAccountScreen() {
               <TextInput
                 value={surveyDetails}
                 onChangeText={setSurveyDetails}
+                onFocus={() => setSelectedReason(OTHER_REASON)}
                 placeholder="(Optional) Enter more details"
                 placeholderTextColor="#9CA3AF"
                 style={styles.surveyDetailsInput}
@@ -693,10 +698,11 @@ export default function DeleteAccountScreen() {
                 <Pressable
                   style={({ pressed }) => [
                     styles.sheetSubmitButton,
-                    (pressed || isDeleting) && styles.sheetPressed,
+                    isSurveySubmitDisabled && styles.sheetDisabled,
+                    (pressed || isSurveySubmitDisabled) && styles.sheetPressed,
                   ]}
                   onPress={handleSubmitSurvey}
-                  disabled={isDeleting}
+                  disabled={isSurveySubmitDisabled}
                 >
                   {isDeleting ? (
                     <ActivityIndicator color="#FFF" />
@@ -1101,5 +1107,8 @@ const styles = StyleSheet.create({
   sheetPressed: {
     opacity: 0.9,
     transform: [{ scale: 0.99 }],
+  },
+  sheetDisabled: {
+    opacity: 0.6,
   },
 });
