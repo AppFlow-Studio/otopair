@@ -42,13 +42,13 @@ Tiers and credits never merge: tier determines earn rate; credits are the spenda
 
 ## 4. Tables
 
-| Table                         | Purpose                                                            |
-| ----------------------------- | ------------------------------------------------------------------ |
-| user_reward_wallets           | Per-user balance, auto_apply_to_booking, miles_safe                |
-| ownership_credit_transactions | Earn/redeem audit; type, reference_id, expires_at                  |
-| reward_deals                  | Suggested deals with credit_amount; display_order                  |
-| user_contribution_claims      | Claimed contribution rewards; prevents double-credit; referral cap |
-| vehicle_tiers                 | Per-vehicle tier, spend_12mo; by_vin_user                          |
+| Table                         | Purpose                                                                                                   |
+| ----------------------------- | --------------------------------------------------------------------------------------------------------- |
+| user_reward_wallets           | Per-user balance, auto_apply_to_booking, miles_safe (current odometer − initial odometer at registration) |
+| ownership_credit_transactions | Earn/redeem audit; type, reference_id, expires_at                                                         |
+| reward_deals                  | Suggested deals with credit_amount; display_order                                                         |
+| user_contribution_claims      | Claimed contribution rewards; prevents double-credit; referral cap                                        |
+| vehicle_tiers                 | Per-vehicle tier, spend_12mo; by_vin_user                                                                 |
 
 ---
 

@@ -133,13 +133,13 @@ For high-level and per-part diagrams, see [docs/diagrams.md](diagrams.md). For p
 
 ### OTOPAIR Rewards (5)
 
-| Table                         | Purpose                                                                                                              |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------------- |
-| user_reward_wallets           | Per-user credit balance; `balance`, `auto_apply_to_booking`, optional `miles_safe`; by_user_id                       |
-| ownership_credit_transactions | Audit trail for credit earnings (earn_service, earn_review, earn_upload, earn_referral) and redemptions; 6‑mo expiry |
-| reward_deals                  | Suggested deals with credit rewards; display_order for UI                                                            |
-| user_contribution_claims      | Tracks claimed contribution rewards (review $5, upload $10, referral $25); prevents double-credit; referral cap 5    |
-| vehicle_tiers                 | Per-vehicle tier (driver \| preferred \| elite) based on 12‑month spend; $750 → Preferred, $1,500 → Elite            |
+| Table                         | Purpose                                                                                                                                     |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| user_reward_wallets           | Per-user credit balance; `balance`, `auto_apply_to_booking`, optional `miles_safe` (current − initial odometer at registration); by_user_id |
+| ownership_credit_transactions | Audit trail for credit earnings (earn_service, earn_review, earn_upload, earn_referral) and redemptions; 6‑mo expiry                        |
+| reward_deals                  | Suggested deals with credit rewards; display_order for UI                                                                                   |
+| user_contribution_claims      | Tracks claimed contribution rewards (review $5, upload $10, referral $25); prevents double-credit; referral cap 5                           |
+| vehicle_tiers                 | Per-vehicle tier (driver \| preferred \| elite) based on 12‑month spend; $750 → Preferred, $1,500 → Elite                                   |
 
 ---
 

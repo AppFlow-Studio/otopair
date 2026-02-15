@@ -77,7 +77,7 @@ export const getCreditHistory = query({
 
 /**
  * Get user stats for membership page (miles safe, services, shops).
- * miles_safe from user_reward_wallets; services/shops from bookings.
+ * miles_safe = current odometer − initial odometer at registration (from user_reward_wallets); services/shops from bookings.
  */
 export const getMembershipStats = query({
   args: { userId: v.id("users") },
@@ -341,7 +341,7 @@ export const updateRedemptionPreference = mutation({
 });
 
 /**
- * Update miles_safe. Call when you've calculated it (e.g. from Smartcar/odometer).
+ * Update miles_safe. Call when computed: current odometer − initial odometer at registration.
  */
 export const updateMilesSafe = mutation({
   args: {

@@ -1971,7 +1971,7 @@ export default defineSchema({
     user_id: v.id("users"),
     balance: v.float64(), // dollar amount
     auto_apply_to_booking: v.boolean(), // "Auto Apply to next booking" setting
-    miles_safe: v.optional(v.float64()), // miles safe metric; calculated later (e.g. from Smartcar/odometer)
+    miles_safe: v.optional(v.float64()), // current odometer − initial odometer at registration; miles driven since car added
     created_at: v.float64(),
     updated_at: v.float64(),
   }).index("by_user_id", ["user_id"]),
