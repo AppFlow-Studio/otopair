@@ -23,6 +23,7 @@ export default function SettingsLayout() {
             <Stack.Screen name="pricing-transparency" options={{ headerShown: false }} />
             <Stack.Screen name="my-mechanics" options={{ headerShown: false }} />
             <Stack.Screen name="delete-account" options={{ headerShown: false }} />
+            <Stack.Screen name="verify-contact-update" options={{ headerShown: false }} />
 
         </Stack>
     )

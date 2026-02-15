@@ -14,7 +14,13 @@
  * TICKET: OTO-XXX
  */
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   Dimensions,
   FlatList,
@@ -75,7 +81,13 @@ import * as ImagePicker from "expo-image-picker";
 import * as LocalAuthentication from "expo-local-authentication";
 import * as StoreReview from "expo-store-review";
 
-import { BrandColors, Button, FeedbackModal, Text, ScrollDrivenGradientBackground } from "@/components/shared-ui";
+import {
+  BrandColors,
+  Button,
+  FeedbackModal,
+  Text,
+  ScrollDrivenGradientBackground,
+} from "@/components/shared-ui";
 import { useAuth, useUser } from "@clerk/clerk-expo";
 import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
@@ -121,10 +133,27 @@ interface SettingsListItemProps {
   isLast?: boolean;
 }
 
-const SettingsListItem = ({ icon, label, labelColor = "#1F2937", onPress, isLast }: SettingsListItemProps) => (
-  <Pressable onPress={onPress} style={({ pressed }) => [styles.listItem, pressed && styles.listItemPressed]}>
+const SettingsListItem = ({
+  icon,
+  label,
+  labelColor = "#1F2937",
+  onPress,
+  isLast,
+}: SettingsListItemProps) => (
+  <Pressable
+    onPress={onPress}
+    style={({ pressed }) => [
+      styles.listItem,
+      pressed && styles.listItemPressed,
+    ]}
+  >
     <View style={styles.listItemIcon}>{icon}</View>
-    <Text weight="medium" size="md" color={labelColor} style={styles.listItemLabel}>
+    <Text
+      weight="medium"
+      size="md"
+      color={labelColor}
+      style={styles.listItemLabel}
+    >
       {label}
     </Text>
     <ChevronRight size={20} color="#9CA3AF" />
@@ -139,17 +168,23 @@ export default function SettingsHomeScreen() {
   const { signOut } = useAuth();
   const { user: clerkUser } = useUser();
   const resetAuth = useAuthStore((s) => s.reset);
-  const { persistProfileField, persistProfilePhoto } = useOnboardingPersistence();
+  const { persistProfileField, persistProfilePhoto } =
+    useOnboardingPersistence();
 
   // Convex: current user and user-scoped data
   const me = useQuery(api.users.getMe);
-  const convexBookings = useQuery(api.bookings.getByUserId, me?._id != null ? { userId: me._id } : "skip");
+  const convexBookings = useQuery(
+    api.bookings.getByUserId,
+    me?._id != null ? { userId: me._id } : "skip",
+  );
 
   // Local stores (fallbacks and payment/vehicle counts)
   const bookingIds = useBookingStore((s) => s.bookingIds);
   const vehicleIds = useVehicleStore((s) => s.vehicleIds);
   const paymentMethods = usePaymentStore((s) => s.paymentMethods);
-  const { transactions: convexTransactions } = useTransactionsFromConvex(me?._id ?? undefined);
+  const { transactions: convexTransactions } = useTransactionsFromConvex(
+    me?._id ?? undefined,
+  );
   const myVehicles = useQuery(api.vehicles.getMyVehicles);
   const convexVehicleCount = myVehicles?.length ?? 0;
 
@@ -160,7 +195,13 @@ export default function SettingsHomeScreen() {
     setNameWidth(e.nativeEvent.layout.width);
   }, []);
 
-  const { data, updateData, reset, isCreateAccountComplete, addFeedbackSubmission } = useOnboardingStore(
+  const {
+    data,
+    updateData,
+    reset,
+    isCreateAccountComplete,
+    addFeedbackSubmission,
+  } = useOnboardingStore(
     useShallow((state) => ({
       data: state.data,
       updateData: state.updateData,
@@ -178,13 +219,22 @@ export default function SettingsHomeScreen() {
       const checkBiometrics = async () => {
         try {
           const hardware = await LocalAuthentication.hasHardwareAsync();
-          const supportedTypes = await LocalAuthentication.supportedAuthenticationTypesAsync();
+          const supportedTypes =
+            await LocalAuthentication.supportedAuthenticationTypesAsync();
 
           if (hardware && supportedTypes.length > 0) {
             if (Platform.OS === "ios") {
-              if (supportedTypes.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION)) {
+              if (
+                supportedTypes.includes(
+                  LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION,
+                )
+              ) {
                 setBiometricLabel("Face ID");
-              } else if (supportedTypes.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)) {
+              } else if (
+                supportedTypes.includes(
+                  LocalAuthentication.AuthenticationType.FINGERPRINT,
+                )
+              ) {
                 setBiometricLabel("Touch ID");
               } else {
                 setBiometricLabel("Biometric Login");
@@ -226,15 +276,22 @@ export default function SettingsHomeScreen() {
   // ─────────────────────────────────────────────────────────────
   const fullName = useMemo(() => {
     const fromConvex =
-      me != null && (me.first_name ?? me.last_name) ? `${me.first_name ?? ""} ${me.last_name ?? ""}`.trim() : "";
+      me != null && (me.first_name ?? me.last_name)
+        ? `${me.first_name ?? ""} ${me.last_name ?? ""}`.trim()
+        : "";
     if (fromConvex.length > 0) return fromConvex;
-    const fromOnboarding = `${data.firstName ?? ""} ${data.lastName ?? ""}`.trim();
+    const fromOnboarding =
+      `${data.firstName ?? ""} ${data.lastName ?? ""}`.trim();
     return fromOnboarding.length > 0 ? fromOnboarding : "John Doe";
   }, [me, data.firstName, data.lastName]);
 
   const initials = useMemo(() => {
-    const first = (me != null ? (me.first_name ?? "") : (data.firstName ?? "")).trim();
-    const last = (me != null ? (me.last_name ?? "") : (data.lastName ?? "")).trim();
+    const first = (
+      me != null ? (me.first_name ?? "") : (data.firstName ?? "")
+    ).trim();
+    const last = (
+      me != null ? (me.last_name ?? "") : (data.lastName ?? "")
+    ).trim();
     const a = first.length > 0 ? first[0] : "";
     const b = last.length > 0 ? last[0] : "";
     const value = `${a}${b}`.toUpperCase();
@@ -307,8 +364,18 @@ export default function SettingsHomeScreen() {
     const targetAvatarCenterX = -52;
     const collapsedAvatarTranslateX = targetAvatarCenterX - SCREEN_WIDTH / 2;
 
-    const scale = interpolate(scrollY.value, [0, scrollDistance], [1, 0.6], Extrapolation.CLAMP);
-    const translateY = interpolate(scrollY.value, [0, scrollDistance], [0, -50], Extrapolation.CLAMP);
+    const scale = interpolate(
+      scrollY.value,
+      [0, scrollDistance],
+      [1, 0.6],
+      Extrapolation.CLAMP,
+    );
+    const translateY = interpolate(
+      scrollY.value,
+      [0, scrollDistance],
+      [0, -50],
+      Extrapolation.CLAMP,
+    );
     const translateX = interpolate(
       scrollY.value,
       [0, scrollDistance],
@@ -323,7 +390,12 @@ export default function SettingsHomeScreen() {
 
   // Expanded profile details (name, email, stats, buttons) fade out
   const expandedDetailsStyle = useAnimatedStyle(() => {
-    const opacity = interpolate(scrollY.value, [0, scrollDistance * 0.4], [1, 0], Extrapolation.CLAMP);
+    const opacity = interpolate(
+      scrollY.value,
+      [0, scrollDistance * 0.4],
+      [1, 0],
+      Extrapolation.CLAMP,
+    );
     return { opacity };
   });
 
@@ -348,7 +420,12 @@ export default function SettingsHomeScreen() {
       [0, collapsedNameTranslateX],
       Extrapolation.CLAMP,
     );
-    const scale = interpolate(scrollY.value, [0, scrollDistance], [1, 0.9], Extrapolation.CLAMP);
+    const scale = interpolate(
+      scrollY.value,
+      [0, scrollDistance],
+      [1, 0.9],
+      Extrapolation.CLAMP,
+    );
     return {
       transform: [{ translateY }, { translateX }, { scale }],
     };
@@ -375,7 +452,9 @@ export default function SettingsHomeScreen() {
   const [editEmail, setEditEmail] = useState("");
   const [editPhone, setEditPhone] = useState("");
   const [editPhoneCountryCode, setEditPhoneCountryCode] = useState("US");
-  const [editPhoneCountry, setEditPhoneCountry] = useState<Country | null>(null);
+  const [editPhoneCountry, setEditPhoneCountry] = useState<Country | null>(
+    null,
+  );
   const [countrySearchQuery, setCountrySearchQuery] = useState("");
   const [allCountries, setAllCountries] = useState<Country[]>([]);
   const [editPhotoUri, setEditPhotoUri] = useState<string | null>(null);
@@ -405,11 +484,27 @@ export default function SettingsHomeScreen() {
         }
 
         const commonCountries: Country[] = [
-          { cca2: "US", callingCode: ["1"], name: { common: "United States" } } as any,
+          {
+            cca2: "US",
+            callingCode: ["1"],
+            name: { common: "United States" },
+          } as any,
           { cca2: "CA", callingCode: ["1"], name: { common: "Canada" } } as any,
-          { cca2: "GB", callingCode: ["44"], name: { common: "United Kingdom" } } as any,
-          { cca2: "AU", callingCode: ["61"], name: { common: "Australia" } } as any,
-          { cca2: "DE", callingCode: ["49"], name: { common: "Germany" } } as any,
+          {
+            cca2: "GB",
+            callingCode: ["44"],
+            name: { common: "United Kingdom" },
+          } as any,
+          {
+            cca2: "AU",
+            callingCode: ["61"],
+            name: { common: "Australia" },
+          } as any,
+          {
+            cca2: "DE",
+            callingCode: ["49"],
+            name: { common: "Germany" },
+          } as any,
         ];
         setAllCountries(commonCountries);
         setEditPhoneCountry(commonCountries[0]);
@@ -437,7 +532,10 @@ export default function SettingsHomeScreen() {
   }, []);
 
   const getCallingCode = useCallback(() => {
-    if (editPhoneCountry?.callingCode && editPhoneCountry.callingCode.length > 0) {
+    if (
+      editPhoneCountry?.callingCode &&
+      editPhoneCountry.callingCode.length > 0
+    ) {
       return editPhoneCountry.callingCode[0];
     }
     return "1";
@@ -461,47 +559,74 @@ export default function SettingsHomeScreen() {
     });
   }, [allCountries, countrySearchQuery]);
 
-  const openEditProfile = useCallback((showPhotos = false) => {
-    const fromConvex =
-      me != null && (me.first_name ?? me.last_name) ? `${me.first_name ?? ""} ${me.last_name ?? ""}`.trim() : "";
-    const fromOnboarding = `${data.firstName ?? ""} ${data.lastName ?? ""}`.trim();
-    const name = fromConvex.length > 0 ? fromConvex : fromOnboarding;
-    const email = (me?.email ?? data.email ?? "").toString().toLowerCase();
-    const rawPhone = (me?.phone ?? data.phoneNumber ?? "").toString();
-    const digitsOnlyPhone = rawPhone.replace(/\D/g, "");
-    let nationalPhone = digitsOnlyPhone;
-    let selectedCountryCode = "US";
-    let selectedCountry: Country | null = allCountries.find((c) => c.cca2 === "US") ?? null;
+  const openEditProfile = useCallback(
+    (showPhotos = false) => {
+      const fromConvex =
+        me != null && (me.first_name ?? me.last_name)
+          ? `${me.first_name ?? ""} ${me.last_name ?? ""}`.trim()
+          : "";
+      const fromOnboarding =
+        `${data.firstName ?? ""} ${data.lastName ?? ""}`.trim();
+      const name = fromConvex.length > 0 ? fromConvex : fromOnboarding;
+      const email = (me?.email ?? data.email ?? "").toString().toLowerCase();
+      const rawPhone = (me?.phone ?? data.phoneNumber ?? "").toString();
+      const digitsOnlyPhone = rawPhone.replace(/\D/g, "");
+      let nationalPhone = digitsOnlyPhone;
+      let selectedCountryCode = "US";
+      let selectedCountry: Country | null =
+        allCountries.find((c) => c.cca2 === "US") ?? null;
 
-    if (rawPhone.trim().startsWith("+") && allCountries.length > 0) {
-      const matches = allCountries
-        .filter((c) => c.callingCode?.[0] && rawPhone.startsWith(`+${c.callingCode[0]}`))
-        .sort((a, b) => (b.callingCode?.[0]?.length ?? 0) - (a.callingCode?.[0]?.length ?? 0));
+      if (rawPhone.trim().startsWith("+") && allCountries.length > 0) {
+        const matches = allCountries
+          .filter(
+            (c) =>
+              c.callingCode?.[0] && rawPhone.startsWith(`+${c.callingCode[0]}`),
+          )
+          .sort(
+            (a, b) =>
+              (b.callingCode?.[0]?.length ?? 0) -
+              (a.callingCode?.[0]?.length ?? 0),
+          );
 
-      if (matches.length > 0) {
-        // If multiple countries share +1, default to US for this settings flow.
-        const usPlusOneMatch = matches.find((c) => c.cca2 === "US" && c.callingCode?.[0] === "1");
-        const bestMatch = usPlusOneMatch ?? matches[0];
-        const callingPrefix = bestMatch.callingCode?.[0] ?? "";
-        selectedCountryCode = bestMatch.cca2;
-        selectedCountry = bestMatch;
-        nationalPhone = rawPhone.replace(`+${callingPrefix}`, "").replace(/\D/g, "");
+        if (matches.length > 0) {
+          // If multiple countries share +1, default to US for this settings flow.
+          const usPlusOneMatch = matches.find(
+            (c) => c.cca2 === "US" && c.callingCode?.[0] === "1",
+          );
+          const bestMatch = usPlusOneMatch ?? matches[0];
+          const callingPrefix = bestMatch.callingCode?.[0] ?? "";
+          selectedCountryCode = bestMatch.cca2;
+          selectedCountry = bestMatch;
+          nationalPhone = rawPhone
+            .replace(`+${callingPrefix}`, "")
+            .replace(/\D/g, "");
+        }
       }
-    }
-    
-    setEditName(name);
-    setEditEmail(email);
-    setEditPhone(nationalPhone);
-    setEditPhoneCountryCode(selectedCountryCode);
-    setEditPhoneCountry(selectedCountry);
-    setEditPhotoUri(profilePhotoUri);
-    setShowPhotoOptions(showPhotos);
-    setIsEditVisible(true);
-  }, [me, data.email, data.firstName, data.lastName, data.phoneNumber, profilePhotoUri, allCountries]);
+
+      setEditName(name);
+      setEditEmail(email);
+      setEditPhone(nationalPhone);
+      setEditPhoneCountryCode(selectedCountryCode);
+      setEditPhoneCountry(selectedCountry);
+      setEditPhotoUri(profilePhotoUri);
+      setShowPhotoOptions(showPhotos);
+      setIsEditVisible(true);
+    },
+    [
+      me,
+      data.email,
+      data.firstName,
+      data.lastName,
+      data.phoneNumber,
+      profilePhotoUri,
+      allCountries,
+    ],
+  );
 
   const handleSaveProfile = useCallback(async () => {
     const normalizedName = editName.trim().replace(/\s+/g, " ");
-    const nameParts = normalizedName.length > 0 ? normalizedName.split(" ") : [];
+    const nameParts =
+      normalizedName.length > 0 ? normalizedName.split(" ") : [];
     const firstName = nameParts.length > 0 ? nameParts[0] : null;
     const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : null;
 
@@ -510,7 +635,15 @@ export default function SettingsHomeScreen() {
 
     const normalizedPhoneDigits = editPhone.replace(/\D/g, "");
     const phoneNumber =
-      normalizedPhoneDigits.length > 0 ? `+${getCallingCode()}${normalizedPhoneDigits}` : null;
+      normalizedPhoneDigits.length > 0
+        ? `+${getCallingCode()}${normalizedPhoneDigits}`
+        : null;
+
+    const currentEmail = (me?.email ?? data.email ?? "").toString().trim().toLowerCase();
+    const currentPhoneDigits = (me?.phone ?? data.phoneNumber ?? "").toString().replace(/\D/g, "");
+    const nextPhoneDigits = (phoneNumber ?? "").replace(/\D/g, "");
+    const emailChanged = email != null && email !== currentEmail;
+    const phoneChanged = phoneNumber != null && nextPhoneDigits !== currentPhoneDigits;
 
     // 1. Update Profile Photo if changed
     if (editPhotoUri !== profilePhotoUri) {
@@ -522,21 +655,43 @@ export default function SettingsHomeScreen() {
       }
     }
 
-    // 2. Update other fields
-    updateData({ firstName, lastName, email, phoneNumber });
-    
+    // 2. Always save name changes now.
+    updateData({ firstName, lastName });
     try {
       await persistProfileField({
         first_name: firstName ?? undefined,
         last_name: lastName ?? undefined,
+      });
+    } catch (e) {
+      console.warn("Convex name update failed:", e);
+    }
+
+    setIsEditVisible(false);
+
+    // 3. If email or phone changed, route to shared verification screen.
+    if (emailChanged || phoneChanged) {
+      router.push({
+        pathname: "/(main-tabs)/settings/verify-contact-update" as any,
+        params: {
+          verifyPhone: phoneChanged ? "1" : "0",
+          verifyEmail: emailChanged ? "1" : "0",
+          pendingPhone: phoneNumber ?? "",
+          pendingEmail: email ?? "",
+        },
+      });
+      return;
+    }
+
+    // 4. Otherwise, persist contact fields directly.
+    updateData({ email, phoneNumber });
+    try {
+      await persistProfileField({
         email: email ?? undefined,
         phone: phoneNumber ?? undefined,
       });
     } catch (e) {
-      console.warn("Convex profile update failed:", e);
+      console.warn("Convex profile contact update failed:", e);
     }
-    
-    setIsEditVisible(false);
   }, [
     editEmail,
     editName,
@@ -547,6 +702,11 @@ export default function SettingsHomeScreen() {
     persistProfileField,
     persistProfilePhoto,
     getCallingCode,
+    me?.email,
+    me?.phone,
+    data.email,
+    data.phoneNumber,
+    router,
   ]);
 
   const requestLibraryPermission = async () => {
@@ -571,7 +731,7 @@ export default function SettingsHomeScreen() {
       aspect: [1, 1],
       quality: 0.9,
     });
-    
+
     setShowPhotoOptions(false);
     if (!result.canceled && result.assets?.length) {
       setEditPhotoUri(result.assets[0].uri);
@@ -617,16 +777,23 @@ export default function SettingsHomeScreen() {
   const renderCountryItem = useCallback(
     ({ item }: { item: Country }) => {
       const isSelected = item.cca2 === editPhoneCountryCode;
-      const countryName = typeof item.name === "string" ? item.name : item.name?.common || item.cca2;
+      const countryName =
+        typeof item.name === "string"
+          ? item.name
+          : item.name?.common || item.cca2;
       return (
         <TouchableOpacity
           style={[styles.countryItem, isSelected && styles.countryItemSelected]}
           onPress={() => handleCountrySelect(item)}
         >
           <View style={styles.countryItemFlag}>
-            <Text style={styles.countryItemFlagText}>{getFlagEmoji(item.cca2)}</Text>
+            <Text style={styles.countryItemFlagText}>
+              {getFlagEmoji(item.cca2)}
+            </Text>
           </View>
-          <Text style={styles.countryItemCode}>+{item.callingCode?.[0] ?? ""}</Text>
+          <Text style={styles.countryItemCode}>
+            +{item.callingCode?.[0] ?? ""}
+          </Text>
           <Text style={styles.countryItemName} numberOfLines={1}>
             {countryName}
           </Text>
@@ -670,31 +837,59 @@ export default function SettingsHomeScreen() {
       <ScrollDrivenGradientBackground
         scrollY={scrollY}
         scrollPerTransition={500}
-        colors={[BrandColors.secondary, BrandColors.secondary, "#f4f1f8", "#f4f1f8"]}
+        colors={[
+          BrandColors.secondary,
+          BrandColors.secondary,
+          "#f4f1f8",
+          "#f4f1f8",
+        ]}
       >
         {(bgScrollHandler) => (
           <>
             {/* ═══════════════════════════════════════════════════════════════
                 LAYER 10: Sticky Header Elements (Always on top)
                 ═══════════════════════════════════════════════════════════════ */}
-            <View 
-              style={[styles.stickyContainer, { height: HEADER_MIN_HEIGHT + insets.top }]}
+            <View
+              style={[
+                styles.stickyContainer,
+                { height: HEADER_MIN_HEIGHT + insets.top },
+              ]}
               pointerEvents="box-none"
             >
               {/* Sticky Background Bar (fades in) */}
-              <Animated.View 
-                style={[StyleSheet.absoluteFill, styles.stickyBarBackground, stickyBarBackgroundStyle]} 
+              <Animated.View
+                style={[
+                  StyleSheet.absoluteFill,
+                  styles.stickyBarBackground,
+                  stickyBarBackgroundStyle,
+                ]}
                 pointerEvents="none"
               />
 
               {/* Transforming Avatar */}
-              <Animated.View style={[styles.avatarWrapper, { top: insets.top + 20 }, avatarStyle]}>
-                <Pressable onPress={() => openEditProfile(true)} style={StyleSheet.absoluteFill}>
+              <Animated.View
+                style={[
+                  styles.avatarWrapper,
+                  { top: insets.top + 20 },
+                  avatarStyle,
+                ]}
+              >
+                <Pressable
+                  onPress={() => openEditProfile(true)}
+                  style={StyleSheet.absoluteFill}
+                >
                   {profilePhotoUri ? (
-                    <Image source={{ uri: profilePhotoUri }} style={styles.avatarImage} />
+                    <Image
+                      source={{ uri: profilePhotoUri }}
+                      style={styles.avatarImage}
+                    />
                   ) : (
                     <View style={styles.avatarPlaceholder}>
-                      <Text weight="semiBold" size="xl" color={BrandColors.secondary}>
+                      <Text
+                        weight="semiBold"
+                        size="xl"
+                        color={BrandColors.secondary}
+                      >
                         {initials}
                       </Text>
                     </View>
@@ -703,8 +898,12 @@ export default function SettingsHomeScreen() {
               </Animated.View>
 
               {/* Single Name that moves beside the avatar */}
-              <Animated.View 
-                style={[styles.movingNameContainer, { top: insets.top + 20 }, nameTransformStyle]}
+              <Animated.View
+                style={[
+                  styles.movingNameContainer,
+                  { top: insets.top + 20 },
+                  nameTransformStyle,
+                ]}
                 pointerEvents="box-none"
               >
                 <AnimatedText
@@ -719,7 +918,10 @@ export default function SettingsHomeScreen() {
               </Animated.View>
 
               {/* Edit Profile Button */}
-              <View collapsable={false} style={[styles.menuAnchor, { top: insets.top + 30 }]}>
+              <View
+                collapsable={false}
+                style={[styles.menuAnchor, { top: insets.top + 30 }]}
+              >
                 <Pressable onPress={() => openEditProfile(false)} hitSlop={10}>
                   <Pencil size={24} color={BrandColors.white} />
                 </Pressable>
@@ -737,7 +939,13 @@ export default function SettingsHomeScreen() {
               style={styles.scrollView}
             >
               {/* Expanded Profile Info (Will scroll up and fade out) */}
-              <Animated.View style={[styles.profileInfoArea, { paddingTop: insets.top + 180 }, expandedDetailsStyle]}>
+              <Animated.View
+                style={[
+                  styles.profileInfoArea,
+                  { paddingTop: insets.top + 180 },
+                  expandedDetailsStyle,
+                ]}
+              >
                 <View style={styles.statsRow}>
                   <View style={styles.statItem}>
                     <Text weight="bold" size="lg" color="#111827">
@@ -749,8 +957,12 @@ export default function SettingsHomeScreen() {
                   </View>
                   <View style={styles.statDivider} />
                   <View style={styles.centerStatItem}>
-                    <Text weight="bold" size="lg" color="#111827">{membershipTier}</Text>
-                    <Text size="xs" color="#6B7280">Member</Text>
+                    <Text weight="bold" size="lg" color="#111827">
+                      {membershipTier}
+                    </Text>
+                    <Text size="xs" color="#6B7280">
+                      Member
+                    </Text>
                   </View>
                   <View style={styles.statDivider} />
                   <View style={styles.statItem}>
@@ -764,14 +976,21 @@ export default function SettingsHomeScreen() {
                 </View>
 
                 <View style={styles.headerActions}>
-                  <Pressable onPress={() => router.push("/membership")} style={styles.headerButtonPill}>
+                  <Pressable
+                    onPress={() => router.push("/membership")}
+                    style={styles.headerButtonPill}
+                  >
                     <Award size={20} color="#374151" />
                     <Text weight="medium" size="md" color="#374151">
                       View Loyalty
                     </Text>
                   </Pressable>
                   <Pressable
-                    onPress={() => router.push(convexVehicleCount > 0 ? "/cars" : "/add-vehicle")}
+                    onPress={() =>
+                      router.push(
+                        convexVehicleCount > 0 ? "/cars" : "/add-vehicle",
+                      )
+                    }
                     style={styles.headerButtonPill}
                   >
                     <CarIcon size={20} color="#374151" weight="bold" />
@@ -779,8 +998,8 @@ export default function SettingsHomeScreen() {
                       {convexVehicleCount === 0
                         ? "Add Vehicle"
                         : convexVehicleCount === 1
-                        ? "View Vehicle"
-                        : "View Vehicles"}
+                          ? "View Vehicle"
+                          : "View Vehicles"}
                     </Text>
                   </Pressable>
                 </View>
@@ -790,13 +1009,22 @@ export default function SettingsHomeScreen() {
               <View style={styles.sheetContainer}>
                 {/* Section 1 */}
                 <View style={styles.section}>
-                  <Text weight="bold" size="sm" color="#6B7280" style={styles.sectionTitle}>
+                  <Text
+                    weight="bold"
+                    size="sm"
+                    color="#6B7280"
+                    style={styles.sectionTitle}
+                  >
                     VEHICLES & LOYALTY
                   </Text>
                   <View style={styles.sectionCard}>
                     <SettingsListItem
                       icon={<Car size={20} color="#1F2937" />}
-                      label={vehicleCount > 0 ? `My Vehicles (${vehicleCount})` : "My Vehicles"}
+                      label={
+                        vehicleCount > 0
+                          ? `My Vehicles (${vehicleCount})`
+                          : "My Vehicles"
+                      }
                       onPress={() => router.push("/cars")}
                     />
                     <SettingsListItem
@@ -816,7 +1044,11 @@ export default function SettingsHomeScreen() {
                     />
                     <SettingsListItem
                       icon={<CreditCard size={20} color="#1F2937" />}
-                      label={paymentMethodCount > 0 ? `Payment Methods (${paymentMethodCount})` : "Payment Methods"}
+                      label={
+                        paymentMethodCount > 0
+                          ? `Payment Methods (${paymentMethodCount})`
+                          : "Payment Methods"
+                      }
                       onPress={() => router.push("/payments")}
                     />
                     <SettingsListItem
@@ -834,14 +1066,21 @@ export default function SettingsHomeScreen() {
 
                 {/* Section 2 */}
                 <View style={styles.section}>
-                  <Text weight="bold" size="sm" color="#6B7280" style={styles.sectionTitle}>
+                  <Text
+                    weight="bold"
+                    size="sm"
+                    color="#6B7280"
+                    style={styles.sectionTitle}
+                  >
                     GENERAL
                   </Text>
                   <View style={styles.sectionCard}>
                     <SettingsListItem
                       icon={<Bell size={20} color="#1F2937" />}
                       label="Notification Preferences"
-                      onPress={() => router.push("/settings/notification-preferences")}
+                      onPress={() =>
+                        router.push("/settings/notification-preferences")
+                      }
                     />
                     <SettingsListItem
                       icon={<Sliders size={20} color="#1F2937" />}
@@ -874,7 +1113,12 @@ export default function SettingsHomeScreen() {
 
                 {/* Section 3 */}
                 <View style={styles.section}>
-                  <Text weight="bold" size="sm" color="#6B7280" style={styles.sectionTitle}>
+                  <Text
+                    weight="bold"
+                    size="sm"
+                    color="#6B7280"
+                    style={styles.sectionTitle}
+                  >
                     SECURITY & PRIVACY
                   </Text>
                   <View style={styles.sectionCard}>
@@ -912,14 +1156,21 @@ export default function SettingsHomeScreen() {
 
                 {/* Section 4 */}
                 <View style={styles.section}>
-                  <Text weight="bold" size="sm" color="#6B7280" style={styles.sectionTitle}>
+                  <Text
+                    weight="bold"
+                    size="sm"
+                    color="#6B7280"
+                    style={styles.sectionTitle}
+                  >
                     LEGAL
                   </Text>
                   <View style={styles.sectionCard}>
                     <SettingsListItem
                       icon={<CircleDollarSign size={20} color="#1F2937" />}
                       label="Pricing Transparency"
-                      onPress={() => router.push("/settings/pricing-transparency")}
+                      onPress={() =>
+                        router.push("/settings/pricing-transparency")
+                      }
                     />
                     <SettingsListItem
                       icon={<Shield size={20} color="#1F2937" />}
@@ -929,7 +1180,9 @@ export default function SettingsHomeScreen() {
                     <SettingsListItem
                       icon={<FileText size={20} color="#1F2937" />}
                       label="Terms and Conditions"
-                      onPress={() => router.push("/settings/terms-and-conditions")}
+                      onPress={() =>
+                        router.push("/settings/terms-and-conditions")
+                      }
                       isLast
                     />
                   </View>
@@ -937,7 +1190,12 @@ export default function SettingsHomeScreen() {
 
                 {/* Section 5 */}
                 <View style={styles.section}>
-                  <Text weight="bold" size="sm" color="#6B7280" style={styles.sectionTitle}>
+                  <Text
+                    weight="bold"
+                    size="sm"
+                    color="#6B7280"
+                    style={styles.sectionTitle}
+                  >
                     MORE
                   </Text>
                   <View style={styles.sectionCard}>
@@ -1005,25 +1263,47 @@ export default function SettingsHomeScreen() {
             <View style={styles.editModalCard}>
               {showPhotoOptions ? (
                 <>
-                  <Text weight="semiBold" size="xl" color="#111827" style={styles.editModalTitle}>
+                  <Text
+                    weight="semiBold"
+                    size="xl"
+                    color="#111827"
+                    style={styles.editModalTitle}
+                  >
                     Profile Photo
                   </Text>
-                  <Text size="sm" color="#6B7280" style={styles.photoModalSubtitle}>
+                  <Text
+                    size="sm"
+                    color="#6B7280"
+                    style={styles.photoModalSubtitle}
+                  >
                     Select an option to update your profile picture
                   </Text>
                   <View style={styles.photoModalButtons}>
-                    <Pressable style={styles.photoModalPrimaryButton} onPress={handleChooseFromLibrary}>
-                      <Text weight="semiBold" size="md" color={BrandColors.white}>
+                    <Pressable
+                      style={styles.photoModalPrimaryButton}
+                      onPress={handleChooseFromLibrary}
+                    >
+                      <Text
+                        weight="semiBold"
+                        size="md"
+                        color={BrandColors.white}
+                      >
                         Choose from library
                       </Text>
                     </Pressable>
-                    <Pressable style={styles.photoModalSecondaryButton} onPress={handleTakePhoto}>
+                    <Pressable
+                      style={styles.photoModalSecondaryButton}
+                      onPress={handleTakePhoto}
+                    >
                       <Text weight="semiBold" size="md" color="#111827">
                         Take a photo
                       </Text>
                     </Pressable>
                     {editPhotoUri ? (
-                      <Pressable style={styles.photoModalRemoveButton} onPress={handleRemovePhoto}>
+                      <Pressable
+                        style={styles.photoModalRemoveButton}
+                        onPress={handleRemovePhoto}
+                      >
                         <Text weight="semiBold" size="md" color="#EF4444">
                           Remove photo
                         </Text>
@@ -1041,7 +1321,12 @@ export default function SettingsHomeScreen() {
                 </>
               ) : (
                 <>
-                  <Text weight="semiBold" size="xl" color="#111827" style={styles.editModalTitle}>
+                  <Text
+                    weight="semiBold"
+                    size="xl"
+                    color="#111827"
+                    style={styles.editModalTitle}
+                  >
                     Edit Profile
                   </Text>
                   <View style={styles.editAvatarRow}>
@@ -1050,10 +1335,17 @@ export default function SettingsHomeScreen() {
                       onPress={() => setShowPhotoOptions(true)}
                     >
                       {editPhotoUri ? (
-                        <Image source={{ uri: editPhotoUri }} style={styles.editAvatarImage} />
+                        <Image
+                          source={{ uri: editPhotoUri }}
+                          style={styles.editAvatarImage}
+                        />
                       ) : (
                         <View style={styles.editAvatarPlaceholder}>
-                          <Text weight="semiBold" size="xl" color={BrandColors.secondary}>
+                          <Text
+                            weight="semiBold"
+                            size="xl"
+                            color={BrandColors.secondary}
+                          >
                             {initials}
                           </Text>
                         </View>
@@ -1083,7 +1375,9 @@ export default function SettingsHomeScreen() {
                     </Text>
                     <TextInput
                       value={editEmail}
-                      onChangeText={(value) => setEditEmail(value.toLowerCase())}
+                      onChangeText={(value) =>
+                        setEditEmail(value.toLowerCase())
+                      }
                       placeholder="you@example.com"
                       style={styles.input}
                       keyboardType="email-address"
@@ -1095,11 +1389,18 @@ export default function SettingsHomeScreen() {
                       Phone Number
                     </Text>
                     <View style={styles.phoneInputContainer}>
-                      <Pressable onPress={() => setShowCountryPicker(true)} style={styles.countryCodeContainer}>
+                      <Pressable
+                        onPress={() => setShowCountryPicker(true)}
+                        style={styles.countryCodeContainer}
+                      >
                         <View style={styles.flagContainer}>
-                          <Text style={styles.countryCodeText}>{getFlagEmoji(editPhoneCountryCode)}</Text>
+                          <Text style={styles.countryCodeText}>
+                            {getFlagEmoji(editPhoneCountryCode)}
+                          </Text>
                         </View>
-                        <Text style={styles.countryCodeNumber}>+{getCallingCode()}</Text>
+                        <Text style={styles.countryCodeNumber}>
+                          +{getCallingCode()}
+                        </Text>
                       </Pressable>
                       <TextInput
                         value={editPhone}
@@ -1120,8 +1421,13 @@ export default function SettingsHomeScreen() {
                     >
                       Cancel
                     </Button>
-                    <Button variant="secondary" fullWidth style={styles.modalActionButton} onPress={handleSaveProfile}>
-                      Save
+                    <Button
+                      variant="secondary"
+                      fullWidth
+                      style={styles.modalActionButton}
+                      onPress={handleSaveProfile}
+                    >
+                      Update
                     </Button>
                   </View>
                 </>
@@ -1131,9 +1437,23 @@ export default function SettingsHomeScreen() {
         </View>
       </Modal>
 
-      <Modal visible={showCountryPicker} transparent animationType="slide" onRequestClose={handleCloseCountryPicker}>
-        <Pressable style={styles.countryPickerBackdrop} onPress={handleCloseCountryPicker}>
-          <Pressable style={[styles.countryPickerSheet, { paddingBottom: insets.bottom }]} onPress={(e) => e.stopPropagation()}>
+      <Modal
+        visible={showCountryPicker}
+        transparent
+        animationType="slide"
+        onRequestClose={handleCloseCountryPicker}
+      >
+        <Pressable
+          style={styles.countryPickerBackdrop}
+          onPress={handleCloseCountryPicker}
+        >
+          <Pressable
+            style={[
+              styles.countryPickerSheet,
+              { paddingBottom: insets.bottom },
+            ]}
+            onPress={(e) => e.stopPropagation()}
+          >
             <View style={styles.countryPickerHandle} />
             <View style={styles.countryPickerHeader}>
               <Text weight="semiBold" size="lg" color="#111827">
@@ -1196,7 +1516,10 @@ export default function SettingsHomeScreen() {
                   <Button
                     variant="primary"
                     fullWidth
-                    style={[styles.modalActionButton, { backgroundColor: "#EF4444" }]}
+                    style={[
+                      styles.modalActionButton,
+                      { backgroundColor: "#EF4444" },
+                    ]}
                     onPress={handleConfirmLogout}
                   >
                     Logout
@@ -1214,7 +1537,9 @@ export default function SettingsHomeScreen() {
         onClose={() => setIsFeedbackVisible(false)}
         onSubmit={async (text) => {
           addFeedbackSubmission(text);
-          const latest = useOnboardingStore.getState().data.feedbackSubmissions.slice(-1)[0];
+          const latest = useOnboardingStore
+            .getState()
+            .data.feedbackSubmissions.slice(-1)[0];
           console.log("Feedback submitted:", latest);
           // Small delay so the loading state is visible (feels intentional)
           await new Promise((r) => setTimeout(r, 450));
@@ -1303,19 +1628,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   statsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
     paddingHorizontal: 20,
     marginBottom: 24,
   },
   statItem: {
-    alignItems: 'center',
+    alignItems: "center",
     minWidth: 80,
   },
   centerStatItem: {
     flex: 1,
-    alignItems: 'center',
+    alignItems: "center",
     paddingHorizontal: 10,
   },
   statDivider: {
