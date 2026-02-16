@@ -137,6 +137,19 @@ export const upsertEngine = internalMutation({
   },
 });
 
+/** Update an engine's engine_code (e.g. after AI infers it from model+trim+year). */
+export const updateEngineCode = internalMutation({
+  args: {
+    engineId: v.id("engines"),
+    engineCode: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const engine = await ctx.db.get(args.engineId);
+    if (!engine) return;
+    await ctx.db.patch(args.engineId, { engine_code: args.engineCode });
+  },
+});
+
 // ============================================
 // SPECS STORAGE MUTATIONS (Stage 3)
 // ============================================

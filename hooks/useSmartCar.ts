@@ -21,9 +21,11 @@ export function useSmartcar() {
 
   /**
    * Full connect flow: OAuth → exchange code → VIN pipeline → AI enrichment
+   * @param userId - Current user's Convex ID
+   * @param vin - Optional VIN for deterministic matching (from Add Vehicle flow)
    */
   const connect = useCallback(
-    async (userId: Id<"users">) => {
+    async (userId: Id<"users">, vin?: string) => {
       setIsConnecting(true);
       setError(null);
 
@@ -31,12 +33,21 @@ export function useSmartcar() {
         // Step 1: OAuth flow
         const oauth = await openSmartcarConnect(userId);
         if (!oauth.success || !oauth.code) {
+          if (oauth.error === "Cancelled") {
+            // User cancelled — not an error
+            return { success: false, error: "Cancelled" };
+          }
           setError(oauth.error || "Connection failed");
           return { success: false, error: oauth.error };
         }
 
         // Step 2: Exchange code → pipeline runs server-side
-        const result = await exchangeCode({ code: oauth.code, userId });
+        // Pass VIN for deterministic matching when available
+        const result = await exchangeCode({
+          code: oauth.code,
+          userId,
+          vin: vin || undefined,
+        });
 
         if (!result.success) setError(result.error || "Connection failed");
         return result;

@@ -218,7 +218,7 @@ export default defineSchema({
         cost: v.float64(),
         oem_number: v.string(),
         part_name: v.string(),
-      }),
+      })
     ),
     technician_notes: v.string(),
   })
@@ -821,6 +821,7 @@ export default defineSchema({
     chassis_id: v.optional(v.id("chassis_variants")),
     year: v.optional(v.float64()),
     metadata: v.optional(v.any()),
+    image_url: v.optional(v.string()), // IMAGIN.studio signed CDN URL (watermark-free)
     created_at: v.float64(),
     updated_at: v.float64(),
   })
@@ -846,12 +847,20 @@ export default defineSchema({
    *   - mileage: (optional) Current vehicle mileage
    *   - added_at: Unix timestamp when vehicle was added
    *   - removed_at: (optional) Unix timestamp when removed
+   *   - smartcarVehicleId: (optional) Smartcar's unique vehicle ID for webhook lookups
+   *   - connectionStatus: (optional) "unconnected" | "connected" | "error"
+   *   - connectedAt: (optional) Unix timestamp when Smartcar was connected
+   *   - avgMonthlyDriving: (optional) "light" | "average" | "heavy" — for service predictions
+   *   - drivingConditions: (optional) "city" | "highway" | "mixed" — adjusts intervals
+   *   - knownIssues: (optional) string[] of current concerns (e.g. "check_engine")
+   *   - onboardingComplete: (optional) true once Phase 1 data collection is done
    *
    * INDEXES:
    *   - by_vin: Get all owners of a vehicle
    *   - by_user_id: Get all vehicles owned by user
    *   - by_vin_user: Combined lookup for specific ownership
    *   - by_user_status: Get user's active/removed vehicles
+   *   - by_smartcar_vehicle_id: Lookup by Smartcar vehicle ID (webhook path)
    *
    * RELATIONSHIPS:
    *   FK → vehicles(vin)
@@ -866,11 +875,20 @@ export default defineSchema({
     mileage: v.optional(v.float64()),
     added_at: v.float64(),
     removed_at: v.optional(v.float64()),
+    smartcarVehicleId: v.optional(v.string()),
+    connectionStatus: v.optional(v.string()), // "unconnected" | "connected" | "error"
+    connectedAt: v.optional(v.float64()),
+    // Vehicle onboarding profile fields (non-Smartcar)
+    avgMonthlyDriving: v.optional(v.string()),   // "light" | "average" | "heavy"
+    drivingConditions: v.optional(v.string()),    // "city" | "highway" | "mixed"
+    knownIssues: v.optional(v.any()),             // string[] e.g. ["check_engine", "weird_noise"]
+    onboardingComplete: v.optional(v.boolean()),  // Phase 1 → Phase 2 gate
   })
     .index("by_vin", ["vin"])
     .index("by_user_id", ["user_id"])
     .index("by_vin_user", ["vin", "user_id"])
-    .index("by_user_status", ["user_id", "status"]),
+    .index("by_user_status", ["user_id", "status"])
+    .index("by_smartcar_vehicle_id", ["smartcarVehicleId"]),
 
   /**
    * TABLE: users
@@ -922,6 +940,8 @@ export default defineSchema({
     profile_photo_url: v.optional(v.union(v.string(), v.null())),
     profile_photo_storage_id: v.optional(v.union(v.string(), v.null())),
     tellUsAboutCompleted: v.optional(v.boolean()),
+    user_intentions: v.optional(v.array(v.string())),
+    username: v.optional(v.string()),
     language: v.optional(v.string()),
     units: v.optional(v.string()),
     deletionRequestedAt: v.optional(v.float64()),
@@ -1531,7 +1551,7 @@ export default defineSchema({
         service_suggestions: v.optional(v.array(v.id("services"))),
         shop_suggestions: v.optional(v.array(v.id("shops"))),
         intent_detected: v.optional(v.string()),
-      }),
+      })
     ),
   })
     .index("by_conversation_id", ["conversation_id"])
@@ -1578,7 +1598,7 @@ export default defineSchema({
         service_id: v.optional(v.id("services")),
         screen_name: v.optional(v.string()),
         custom_properties: v.optional(v.any()),
-      }),
+      })
     ),
     timestamp: v.float64(),
     session_id: v.optional(v.string()),
@@ -1976,4 +1996,156 @@ export default defineSchema({
   })
     .index("by_vehicle_owner", ["vehicleOwnerId"])
     .index("by_vehicle_and_type", ["vehicleOwnerId", "snapshotType"]),
+
+  /**
+   * TABLE: client_logs
+   * Stores client-side logs forwarded from console (error, warn, log, info, debug).
+   * Enables centralized monitoring in Convex dashboard.
+   */
+  client_logs: defineTable({
+    level: v.string(), // "error" | "warn" | "log" | "info" | "debug"
+    message: v.string(),
+    stack: v.optional(v.string()),
+    metadata: v.optional(v.any()), // extra args (objects, etc.)
+    timestamp: v.float64(),
+    user_id: v.optional(v.id("users")),
+    session_id: v.optional(v.string()),
+  })
+    .index("by_level", ["level"])
+    .index("by_timestamp", ["timestamp"])
+    .index("by_user_id", ["user_id"]),
+
+  // ============================================================================
+  // OTOPAIR REWARDS PROGRAM (Ownership Credit, Tiers, Deals)
+  // ============================================================================
+
+  /**
+   * TABLE: user_reward_wallets
+   * One row per user. Tracks Ownership Credit balance and redemption preference.
+   * Per PDF: Credits are dollar-based, applied to services; not points.
+   */
+  user_reward_wallets: defineTable({
+    user_id: v.id("users"),
+    balance: v.float64(), // dollar amount
+    auto_apply_to_booking: v.boolean(), // "Auto Apply to next booking" setting
+    miles_safe: v.optional(v.float64()), // current odometer − initial odometer at registration; miles driven since car added
+    created_at: v.float64(),
+    updated_at: v.float64(),
+  }).index("by_user_id", ["user_id"]),
+
+  /**
+   * TABLE: ownership_credit_transactions
+   * Audit trail for credit earnings and redemptions.
+   */
+  ownership_credit_transactions: defineTable({
+    user_id: v.id("users"),
+    amount: v.float64(), // positive = earn, negative = redeem
+    type: v.string(), // "earn_service" | "earn_review" | "earn_upload" | "earn_referral" | "redeem_booking" | "redeem_giftcard"
+    description: v.string(),
+    reference_id: v.optional(v.string()), // booking_id, deal_id, etc.
+    expires_at: v.optional(v.float64()), // credits expire in 6 months (MVP)
+    created_at: v.float64(),
+  })
+    .index("by_user_id", ["user_id"])
+    .index("by_user_id_created_at", ["user_id", "created_at"]),
+
+  /**
+   * TABLE: reward_deals
+   * Suggested deals with credit rewards (e.g., Synthetic Oil Change +$15).
+   */
+  reward_deals: defineTable({
+    title: v.string(),
+    description: v.string(),
+    credit_amount: v.float64(),
+    price: v.float64(),
+    is_special: v.boolean(),
+    service_id: v.optional(v.id("services")),
+    display_order: v.float64(),
+    created_at: v.float64(),
+  }).index("by_display_order", ["display_order"]),
+
+  /**
+   * TABLE: user_contribution_claims
+   * Tracks which contribution rewards (review, upload, referral) user has claimed.
+   * Prevents double-crediting.
+   */
+  user_contribution_claims: defineTable({
+    user_id: v.id("users"),
+    action_type: v.string(), // "review" | "upload" | "referral"
+    reference_id: v.optional(v.string()), // booking_id for review, etc.
+    created_at: v.float64(),
+  })
+    .index("by_user_id", ["user_id"])
+    .index("by_user_action", ["user_id", "action_type"]),
+
+  /**
+   * TABLE: vehicle_tiers
+   * Per-vehicle tier status (Driver, Preferred, Elite) based on 12-month spend.
+   * MVP: everyone is Driver; tiers introduced in V1.
+   */
+  vehicle_tiers: defineTable({
+    vin: v.string(),
+    user_id: v.id("users"),
+    tier: v.string(), // "driver" | "preferred" | "elite"
+    spend_12mo: v.float64(),
+    created_at: v.float64(),
+    updated_at: v.float64(),
+  })
+    .index("by_vin_user", ["vin", "user_id"])
+    .index("by_user_id", ["user_id"]),
+   /* TABLE: odometer_history
+   *
+   * DESCRIPTION:
+   * Logs odometer readings over time for trip stats (daily/weekly miles driven).
+   * Each row is one reading. Deduplicated: only insert if distance changed.
+   *
+   * FIELDS:
+   *   - vehicleOwnerId: FK to vehicle_owners
+   *   - distance: Odometer value in miles
+   *   - unit: "mi" | "km"
+   *   - recordedAt: Unix timestamp of the reading
+   *
+   * INDEXES:
+   *   - by_vehicle_and_date: For querying history range per vehicle
+   */
+  odometer_history: defineTable({
+    vehicleOwnerId: v.id("vehicle_owners"),
+    distance: v.float64(),
+    unit: v.string(),
+    recordedAt: v.float64(),
+  })
+    .index("by_vehicle_and_date", ["vehicleOwnerId", "recordedAt"]),
+
+  /**
+   * TABLE: maintenance_records
+   *
+   * DESCRIPTION:
+   * User-provided maintenance data for items Smartcar doesn't cover
+   * (brakes, inspection, transmission, battery, etc.).
+   * One record per vehicle + type. Upserted when user submits info.
+   *
+   * FIELDS:
+   *   - vehicleOwnerId: FK to vehicle_owners
+   *   - type: "oil" | "brakes" | "tires" | "inspection" | "battery"
+   *   - lastServiceDate: Unix timestamp of last service (optional)
+   *   - lastServiceMileage: Miles at last service (optional)
+   *   - customInputs: Flexible object for type-specific data (optional)
+   *   - createdAt: Creation timestamp
+   *   - updatedAt: Last update timestamp
+   *
+   * INDEXES:
+   *   - by_vehicle_owner: All records for a vehicle
+   *   - by_vehicle_and_type: Lookup a specific maintenance type per vehicle
+   */
+  maintenance_records: defineTable({
+    vehicleOwnerId: v.id("vehicle_owners"),
+    type: v.string(),
+    lastServiceDate: v.optional(v.float64()),
+    lastServiceMileage: v.optional(v.float64()),
+    customInputs: v.optional(v.any()),
+    createdAt: v.float64(),
+    updatedAt: v.float64(),
+  })
+    .index("by_vehicle_owner", ["vehicleOwnerId"])
+    .index("by_vehicle_and_type", ["vehicleOwnerId", "type"]),
 });

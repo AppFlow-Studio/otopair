@@ -92,9 +92,9 @@ const STEP_INDICES: Record<OnboardingStep, number> = {
 };
 
 interface OnboardingFlowProps {
-    initialStep?: OnboardingStep;
-    filteredSteps?: OnboardingStep[];
-    isResumeMode?: boolean;
+  initialStep?: OnboardingStep;
+  filteredSteps?: OnboardingStep[];
+  isResumeMode?: boolean;
 }
 
 // Steps that show in the progress bar (excludes signup/login screens and complete)
@@ -114,7 +114,7 @@ const PROGRESS_STEPS: OnboardingStep[] = [
 
 // Helper to get incomplete onboarding steps based on store data
 export function getIncompleteOnboardingSteps(): OnboardingStep[] {
-    const { data } = useOnboardingStore.getState();
+  const { data } = useOnboardingStore.getState();
 
     const stepChecks: { step: OnboardingStep; isComplete: () => boolean }[] = [
         { step: 'phone', isComplete: () => !!data.phoneNumber },
@@ -130,111 +130,111 @@ export function getIncompleteOnboardingSteps(): OnboardingStep[] {
         { step: 'locationServices', isComplete: () => data.locationPermissionStatus !== null },
     ];
 
-    return stepChecks
-        .filter(({ isComplete }) => !isComplete())
-        .map(({ step }) => step);
+  return stepChecks.filter(({ isComplete }) => !isComplete()).map(({ step }) => step);
 }
 
-export function OnboardingFlow({
-    initialStep = 'signup',
-    filteredSteps,
-    isResumeMode = false,
-}: OnboardingFlowProps) {
-    const { data } = useOnboardingStore();
-    const [currentStep, setCurrentStep] = useState<OnboardingStep>(initialStep);
-    const [fromStep, setFromStep] = useState<OnboardingStep>(initialStep);
-    const [toStep, setToStep] = useState<OnboardingStep>(initialStep);
-    const { isSignedIn } = useAuth();
-    const completeOnboarding = useMutation(api.users.completeOnboarding);
-    usePrefetchOnboardingQuestions();
+export function OnboardingFlow({ initialStep = "signup", filteredSteps, isResumeMode = false }: OnboardingFlowProps) {
+  const { data } = useOnboardingStore();
+  const [currentStep, setCurrentStep] = useState<OnboardingStep>(initialStep);
+  const [fromStep, setFromStep] = useState<OnboardingStep>(initialStep);
+  const [toStep, setToStep] = useState<OnboardingStep>(initialStep);
+  const { isSignedIn } = useAuth();
+  const completeOnboarding = useMutation(api.users.completeOnboarding);
+  usePrefetchOnboardingQuestions();
 
-    // Animation progress (0 = from step, 1 = to step)
-    const animationProgress = useSharedValue(1);
+  // Animation progress (0 = from step, 1 = to step)
+  const animationProgress = useSharedValue(1);
 
-    // Use filtered steps if provided (resume mode), otherwise use all progress steps
-    const activeSteps = filteredSteps || PROGRESS_STEPS;
-    console.log('activeSteps', activeSteps);
-    console.log('currentStep', currentStep);
-    // Get progress info for the current step
-    const getProgressInfo = () => {
-        const stepIndex = activeSteps.indexOf(currentStep);
-        if (stepIndex === -1) {
-            // Signup/login/complete step - no progress bar
-            return { total: activeSteps.length, filled: 0 };
-        }
-        return { total: activeSteps.length, filled: stepIndex };
-    };
+  // Use filtered steps if provided (resume mode), otherwise use all progress steps
+  const activeSteps = filteredSteps || PROGRESS_STEPS;
+  console.log("activeSteps", activeSteps);
+  console.log("currentStep", currentStep);
+  // Get progress info for the current step
+  const getProgressInfo = () => {
+    const stepIndex = activeSteps.indexOf(currentStep);
+    if (stepIndex === -1) {
+      // Signup/login/complete step - no progress bar
+      return { total: activeSteps.length, filled: 0 };
+    }
+    return { total: activeSteps.length, filled: stepIndex };
+  };
 
-    const progressInfo = getProgressInfo();
+  const progressInfo = getProgressInfo();
 
-    // Handle step changes with animation
-    const goToStep = (nextStep: OnboardingStep) => {
-        if (nextStep === currentStep) return;
+  // Handle step changes with animation
+  const goToStep = (nextStep: OnboardingStep) => {
+    if (nextStep === currentStep) return;
 
-        // Dismiss keyboard when transitioning
-        Keyboard.dismiss();
+    // Dismiss keyboard when transitioning
+    Keyboard.dismiss();
 
-        // Set up transition
-        setFromStep(currentStep);
-        setToStep(nextStep);
+    // Set up transition
+    setFromStep(currentStep);
+    setToStep(nextStep);
 
-        // Reset and animate
-        animationProgress.value = 0;
-        animationProgress.value = withTiming(1, {
-            duration: 1200,
-            easing: Easing.bezier(0.25, 0.1, 0.25, 1),
-        });
+    // Reset and animate
+    animationProgress.value = 0;
+    animationProgress.value = withTiming(1, {
+      duration: 1200,
+      easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+    });
 
-        // Update current step
-        setCurrentStep(nextStep);
-    };
+    // Update current step
+    setCurrentStep(nextStep);
+  };
 
-    // Helper function to determine previous step after locationServices
-    const getPreviousStepAfterLocationServices = (): OnboardingStep => 'pushNotifications';
+  // Helper function to determine previous step after locationServices based on notification permissions
+  const getPreviousStepAfterLocationServices = async (): Promise<OnboardingStep> => {
+    const hasNotifications = await checkNotificationPermissions();
+    if (hasNotifications) {
+      return "userIntent";
+    }
+    return "pushNotifications";
+  };
 
-    const goBack = async () => {
-        const { data: latestData } = useOnboardingStore.getState();
-        
-        // In resume mode, navigate within filtered steps
-        if (isResumeMode && filteredSteps) {
-            const currentIndex = activeSteps.indexOf(currentStep);
-            if (currentIndex <= 0) {
-                router.back();
-                return;
-            }
-            goToStep(activeSteps[currentIndex - 1]);
-            return;
-        }
+  const goBack = async () => {
+    const { data: latestData } = useOnboardingStore.getState();
 
-        // Normal mode navigation
-        switch (currentStep) {
-            case 'signup':
-                break;
-            case 'emailSignup':
-                goToStep('signup');
-                break;
-            case 'emailVerify':
-                goToStep('emailSignup');
-                break;
-            case 'login':
-                goToStep('signup');
-                break;
-            case 'phone':
-                goToStep('signup');
-                break;
-            case 'confirm':
-                goToStep('phone');
-                break;
-            case 'name':
-                goToStep('confirm');
-                break;
-            case 'emailConfirm':
-                goToStep('name');
-                break;
-            case 'profilePhoto':
-                goToStep('name');
-                break;
-            case 'userIntent':
+    // In resume mode, navigate within filtered steps
+    if (isResumeMode && filteredSteps) {
+      const currentIndex = activeSteps.indexOf(currentStep);
+      if (currentIndex <= 0) {
+        router.back();
+        return;
+      }
+      goToStep(activeSteps[currentIndex - 1]);
+      return;
+    }
+
+    // Normal mode navigation
+    switch (currentStep) {
+      case "signup":
+        break;
+      case "emailSignup":
+        goToStep("signup");
+        break;
+      case "emailVerify":
+        goToStep("emailSignup");
+        break;
+      case "login":
+        goToStep("signup");
+        break;
+      case "phone":
+        goToStep("signup");
+        break;
+      case "confirm":
+        goToStep("phone");
+        break;
+      case "name":
+        goToStep("confirm");
+        break;
+      case "emailConfirm":
+        goToStep("name");
+        break;
+      case "profilePhoto":
+        goToStep("name");
+        break;
+      case 'userIntent':
                 goToStep('profilePhoto');
                 break;
             case 'heardAbout':
@@ -253,109 +253,155 @@ export function OnboardingFlow({
                 goToStep(getPreviousStepAfterLocationServices());
                 break;
             }
-            default:
-                break;
-        }
-    };
+      default:
+        break;
+    }
+  };
 
-    // Helper function to determine next step after pushNotifications
-    const getNextStepAfterPushNotifications = (): OnboardingStep => 'locationServices';
+  // Helper function to normalize push notification status
+  const normalizePushStatus = (s: string | null | undefined): "granted" | "provisional" | "denied" | "undetermined" => {
+    if (s === "granted" || s === "provisional" || s === "denied" || s === "undetermined") {
+      return s;
+    }
+    return "undetermined";
+  };
 
-    const goNext = async () => {
-        const { data: latestData } = useOnboardingStore.getState();
+  // Helper function to check notification permissions
+  const checkNotificationPermissions = async (): Promise<boolean> => {
+    try {
+      // @ts-ignore
+      const mod = await import("expo-notifications");
+      const res = await mod.getPermissionsAsync();
+      const normalized = normalizePushStatus(res.status);
+      return normalized === "granted" || normalized === "provisional";
+    } catch {
+      return false;
+    }
+  };
 
-        // In resume mode, navigate within filtered steps
-        if (isResumeMode && filteredSteps) {
-            const currentIndex = activeSteps.indexOf(currentStep);
-            console.log('currentIndex', currentIndex);
-            console.log('activeSteps', activeSteps);
-            if (currentIndex >= activeSteps.length - 1) {
-                goToStep('complete');
-                return;
-            }
-            goToStep(activeSteps[currentIndex + 1]);
-            return;
-        }
+  // Helper function to check location permissions
+  const checkLocationPermissions = async (): Promise<boolean> => {
+    try {
+      // @ts-ignore
+      const mod = await import("expo-location");
+      const res = await mod.getForegroundPermissionsAsync();
+      return res.status === "granted" || res.granted === true;
+    } catch {
+      return false;
+    }
+  };
 
-        // Normal mode navigation
-        switch (currentStep) {
-            case 'welcome': {
-                const mode = latestData.authMode ?? 'signUp';
-                goToStep(mode === 'login' ? 'login' : 'signup');
-                break;
-            }
-            case 'signup':
-                // OAuth success goes directly to phone
-                goToStep('phone');
-                break;
-            case 'emailSignup':
-                goToStep('emailVerify');
-                break;
-            case 'emailVerify':
-                // Email verified, session created, go to phone
-                goToStep('phone');
-                break;
-            case 'login':
-                // Login success - check onboarding status and route accordingly
-                // This is handled by the LoginStep component which calls onNext
-                // The app/index.tsx will handle routing based on onboardingCompleted
-                goToStep('complete');
-                break;
-            case 'phone':
-                goToStep('confirm');
-                break;
-            case 'confirm':
-                goToStep('name');
-                break;
-            case 'name':
-                goToStep('emailConfirm');
-                break;
-            case 'emailConfirm':
-                goToStep('profilePhoto');
-                break;
-            case 'profilePhoto':
-                goToStep('userIntent');
-                break;
-            case 'userIntent':
-                goToStep('heardAbout');
-                break;
-            case 'heardAbout':
-                goToStep('visitReason');
-                break;
-            case 'visitReason':
-                goToStep('zipCode');
-                break;
-            case 'zipCode':
-                goToStep('pushNotifications');
-                break;
-            case 'pushNotifications':
-                goToStep(getNextStepAfterPushNotifications());
-                break;
-            case 'locationServices':
-                goToStep('complete');
-                break;
-            default:
-                break;
-        }
-    };
+  // Helper function to determine next step after userIntent based on permissions
+  const getNextStepAfterUserIntent = async (): Promise<OnboardingStep> => {
+    const hasNotifications = await checkNotificationPermissions();
+    if (!hasNotifications) {
+      return "pushNotifications";
+    }
+    const hasLocation = await checkLocationPermissions();
+    if (hasLocation) {
+      return "complete";
+    }
+    return "locationServices";
+  };
 
-    // Navigate to home screen when onboarding is complete
-    useEffect(() => {
-        if (currentStep !== 'complete') return;
-        // Wait until Clerk reflects a signed-in session to avoid bouncing back to signup/login.
-        if (!isSignedIn) return;
+  // Helper function to determine next step after pushNotifications based on location permissions
+  const getNextStepAfterPushNotifications = async (): Promise<OnboardingStep> => {
+    const hasLocation = await checkLocationPermissions();
+    if (hasLocation) {
+      return "complete";
+    }
+    return "locationServices";
+  };
 
-        completeOnboarding()
-            .then(() => console.log('Onboarding marked complete'))
-            .catch((err) => console.error('Failed to mark onboarding complete:', err));
+  const goNext = async () => {
+    const { data: latestData } = useOnboardingStore.getState();
 
-        if (isResumeMode) {
-            router.back();
-        } else {
-            router.replace('/(main-tabs)/home');
-        }
-    }, [currentStep, isResumeMode, isSignedIn]);
+    // In resume mode, navigate within filtered steps
+    if (isResumeMode && filteredSteps) {
+      const currentIndex = activeSteps.indexOf(currentStep);
+      console.log("currentIndex", currentIndex);
+      console.log("activeSteps", activeSteps);
+      if (currentIndex >= activeSteps.length - 1) {
+        goToStep("complete");
+        return;
+      }
+      goToStep(activeSteps[currentIndex + 1]);
+      return;
+    }
 
+    // Normal mode navigation
+    switch (currentStep) {
+      case "welcome": {
+        const mode = latestData.authMode ?? "signUp";
+        goToStep(mode === "login" ? "login" : "signup");
+        break;
+      }
+      case "signup":
+        // OAuth success goes directly to phone
+        goToStep("phone");
+        break;
+      case "emailSignup":
+        goToStep("emailVerify");
+        break;
+      case "emailVerify":
+        // Email verified, session created, go to phone
+        goToStep("phone");
+        break;
+      case "login":
+        // Login success - check onboarding status and route accordingly
+        // This is handled by the LoginStep component which calls onNext
+        // The app/index.tsx will handle routing based on onboardingCompleted
+        goToStep("complete");
+        break;
+      case "phone":
+        goToStep("confirm");
+        break;
+      case "confirm":
+        goToStep("name");
+        break;
+      case "name":
+        goToStep("emailConfirm");
+        break;
+      case "emailConfirm":
+        goToStep("profilePhoto");
+        break;
+      case "profilePhoto":
+        goToStep("userIntent");
+        break;
+      case "userIntent": {
+        const nextStep = await getNextStepAfterUserIntent();
+        goToStep(nextStep);
+        break;
+      }
+      case "pushNotifications": {
+        const nextStep = await getNextStepAfterPushNotifications();
+        goToStep(nextStep);
+        break;
+      }
+      case "locationServices":
+        goToStep("complete");
+        break;
+      default:
+        break;
+    }
+  };
+
+  // Navigate to home screen when onboarding is complete
+  useEffect(() => {
+    if (currentStep !== "complete") return;
+    // Wait until Clerk reflects a signed-in session to avoid bouncing back to signup/login.
+    if (!isSignedIn) return;
+
+    completeOnboarding()
+      .then(() => console.log("Onboarding marked complete"))
+      .catch((err) => console.error("Failed to mark onboarding complete:", err));
+
+    if (isResumeMode) {
+      router.back();
+    } else {
+      router.replace("/(main-tabs)/home");
+    }
+  }, [currentStep, isResumeMode, isSignedIn]);
     // Render the current step component
     const renderStep = () => {
         switch (currentStep) {
@@ -405,36 +451,77 @@ export function OnboardingFlow({
         }
     };
 
-    return (
-        <View style={styles.container}>
-            {/* Animated gradient background */}
-            <View style={styles.gradientContainer} pointerEvents="none">
-                <AnimatedGradientBackground
-                    progress={animationProgress}
-                    fromIndex={STEP_INDICES[fromStep]}
-                    toIndex={STEP_INDICES[toStep]}
-                />
-            </View>
+  // Render the current step component
+  // const renderStep = () => {
+  //   switch (currentStep) {
+  //     case "signup":
+  //       return (
+  //         <SignupStep
+  //           onNext={goNext}
+  //           onBack={goBack}
+  //           onEmailSignup={() => goToStep("emailSignup")}
+  //           onLogin={() => goToStep("login")}
+  //         />
+  //       );
+  //     case "emailSignup":
+  //       return <EmailSignupStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+  //     case "emailVerify":
+  //       return <EmailVerificationStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+  //     case "login":
+  //       return <LoginStep onNext={goNext} onBack={goBack} />;
+  //     case "phone":
+  //       return <PhoneNumberStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+  //     case "confirm":
+  //       return <ConfirmPhoneNumberStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+  //     case "name":
+  //       return <NameStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+  //     case "emailConfirm":
+  //       return <EmailConfirmStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+  //     case "profilePhoto":
+  //       return <ProfilePhotoStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+  //     case "userIntent":
+  //       return <UserIntentStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+  //     case "pushNotifications":
+  //       return <PushNotificationsStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+  //     case "locationServices":
+  //       return <LocationServicesStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+  //     case "welcome":
+  //       return <WelcomeStep onNext={goNext} onBack={goBack} />;
+  //     case "complete":
+  //       return null;
+  //     default:
+  //       return null;
+  //   }
+  // };
 
-            {/* Content */}
-            <View style={styles.content}>
-                {renderStep()}
-            </View>
-        </View>
-    );
+  return (
+    <View style={styles.container}>
+      {/* Animated gradient background */}
+      <View style={styles.gradientContainer} pointerEvents="none">
+        <AnimatedGradientBackground
+          progress={animationProgress}
+          fromIndex={STEP_INDICES[fromStep]}
+          toIndex={STEP_INDICES[toStep]}
+        />
+      </View>
+
+      {/* Content */}
+      <View style={styles.content}>{renderStep()}</View>
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
-    container: {
-        flex: 1,
-    },
-    gradientContainer: {
-        ...StyleSheet.absoluteFillObject,
-    },
-    gradient: {
-        flex: 1,
-    },
-    content: {
-        flex: 1,
-    },
+  container: {
+    flex: 1,
+  },
+  gradientContainer: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  gradient: {
+    flex: 1,
+  },
+  content: {
+    flex: 1,
+  },
 });

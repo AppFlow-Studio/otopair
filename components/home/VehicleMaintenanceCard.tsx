@@ -35,9 +35,11 @@ import Swiper from 'react-native-deck-swiper';
 // 2. Expo & Third-party
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
 
 // 3. Shared UI
 import { Text } from '@/components/shared-ui';
+import { getVehicleImageUrl } from '@/utils/vehicleImage';
 
 // ============================================================================
 // TYPES
@@ -70,18 +72,12 @@ interface VehicleMaintenanceCardProps {
 // SAMPLE DATA
 // ============================================================================
 
-// Local image imports
-const LAMBO_IMAGE = require('@/assets/images/bluelambo.png');
-const TESLA_IMAGE = require('@/assets/images/redTesla.png');
-const LEXUS_IMAGE = require('@/assets/images/lexus.png');
-
 const SAMPLE_VEHICLES: Vehicle[] = [
   {
     id: '1',
     name: 'Lamborghini\nAventador S',
     vin: '1N6AD06W98C406256',
-    imageUrl: '',
-    localImage: LAMBO_IMAGE,
+    imageUrl: getVehicleImageUrl('Lamborghini', 'Aventador', 2023),
     maintenanceItems: [
       { id: '1', serviceName: 'Oil Change', dueText: 'Due in 500 miles', isOverdue: false },
       { id: '2', serviceName: 'State Inspection', dueText: 'Due in 2 weeks', isOverdue: false },
@@ -92,8 +88,7 @@ const SAMPLE_VEHICLES: Vehicle[] = [
     id: '2',
     name: 'Tesla\nModel S',
     vin: '5YJSA1E26HF000316',
-    imageUrl: '',
-    localImage: TESLA_IMAGE,
+    imageUrl: getVehicleImageUrl('Tesla', 'Model S', 2023),
     maintenanceItems: [
       { id: '1', serviceName: 'Tire Rotation', dueText: 'Due in 1000 miles', isOverdue: false },
       { id: '2', serviceName: 'Brake Inspection', dueText: 'Due in 3 weeks', isOverdue: false },
@@ -104,8 +99,7 @@ const SAMPLE_VEHICLES: Vehicle[] = [
     id: '3',
     name: 'Lexus\nRX 350',
     vin: '2T2BK1BA4HC123456',
-    imageUrl: '',
-    localImage: LEXUS_IMAGE,
+    imageUrl: getVehicleImageUrl('Lexus', 'RX 350', 2023),
     maintenanceItems: [
       { id: '1', serviceName: 'Oil Change', dueText: 'Due in 800 miles', isOverdue: false },
       { id: '2', serviceName: 'Air Filter', dueText: 'Due in 1 month', isOverdue: false },
@@ -126,14 +120,18 @@ export function VehicleMaintenanceCard({
   onSwipeStart,
   onSwipeEnd,
 }: VehicleMaintenanceCardProps) {
+  const router = useRouter();
   const swiperRef = useRef<Swiper<Vehicle>>(null);
   const [cardIndex, setCardIndex] = useState(0);
 
   const handleBookNow = (vehicleId: string, serviceId: string) => {
     if (onBookNow) {
+      // Let parent handle navigation
       onBookNow(vehicleId, serviceId);
+    } else {
+      // Default: navigate to map with services open
+      router.push('/home/map?openServices=true');
     }
-    console.log(`Booking ${serviceId} for vehicle ${vehicleId}`);
   };
 
   const renderCard = (vehicle: Vehicle) => {

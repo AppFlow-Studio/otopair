@@ -20,6 +20,7 @@ import { internal } from "./_generated/api";
 
 const SMARTCAR_AUTH_URL = "https://auth.smartcar.com/oauth/token";
 const SMARTCAR_API = "https://api.smartcar.com/v2.0";
+const SMARTCAR_API_V3 = "https://vehicle.api.smartcar.com/v3";
 const REDIRECT_URI = "otopair://smartcar/callback";
 
 function getCredentials() {
@@ -93,6 +94,53 @@ export const getUserConnectedVehicles = query({
   },
 });
 
+/**
+ * Get the latest health snapshot of each type for a vehicle.
+ * Returns structured data for the VehicleStatsCard UI.
+ */
+export const getLatestSnapshots = query({
+  args: { vehicleOwnerId: v.id("vehicle_owners") },
+  handler: async (ctx, args) => {
+    const snapshotTypes = ["odometer", "tire_pressure", "oil_life", "fuel", "location", "lock_status", "service_history", "online_status"] as const;
+
+    const snapshots: Record<string, any> = {};
+    for (const type of snapshotTypes) {
+      const latest = await ctx.db
+        .query("vehicle_health_snapshots")
+        .withIndex("by_vehicle_and_type", (q) =>
+          q.eq("vehicleOwnerId", args.vehicleOwnerId).eq("snapshotType", type)
+        )
+        .order("desc")
+        .first();
+      if (latest) {
+        snapshots[type] = {
+          data: latest.data,
+          recordedAt: latest.recordedAt,
+        };
+      }
+    }
+
+    // Get connection status for lastSyncedAt
+    const connection = await ctx.db
+      .query("smartcar_connections")
+      .withIndex("by_vehicle_owner", (q) => q.eq("vehicleOwnerId", args.vehicleOwnerId))
+      .first();
+
+    return {
+      odometer: snapshots.odometer || null,
+      tirePressure: snapshots.tire_pressure || null,
+      oilLife: snapshots.oil_life || null,
+      fuel: snapshots.fuel || null,
+      location: snapshots.location || null,
+      lockStatus: snapshots.lock_status || null,
+      serviceHistory: snapshots.service_history || null,
+      onlineStatus: snapshots.online_status || null,
+      lastSyncedAt: connection?.lastSyncedAt || null,
+      isConnected: connection?.status === "active",
+    };
+  },
+});
+
 // ============================================
 // ACTIONS — External API Calls
 // ============================================
@@ -101,15 +149,22 @@ export const getUserConnectedVehicles = query({
  * Exchange OAuth authorization code for tokens.
  * Then fetch connected vehicles, decode VINs, and kick off the pipeline.
  *
+ * Accepts an optional `vin` parameter for deterministic matching when the user
+ * has already decoded their VIN via the Add Vehicle flow. When provided, only
+ * the Smartcar vehicle matching that VIN will be linked.
+ *
  * This is the main entry point after the user completes Smartcar Connect.
  */
 export const exchangeCodeAndConnect = action({
   args: {
     code: v.string(),
     userId: v.id("users"),
+    vin: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     try {
+      const knownVin = args.vin?.toUpperCase().trim() || null;
+
       // ── Step 1: Exchange code for tokens ──
       const tokens = await exchangeCode(args.code);
 
@@ -123,30 +178,56 @@ export const exchangeCodeAndConnect = action({
       const connectedVehicles = [];
 
       for (const smartcarVehicleId of vehicleIds) {
-        // ── Step 3: Get vehicle info + VIN from Smartcar ──
-        const [info, vinData, odometerData] = await Promise.allSettled([
+        // ── Step 3: Get vehicle info + VIN + all data from Smartcar ──
+        const [info, vinData, odometerData, tirePressureData, oilLifeData, fuelData, locationData, securityData, serviceHistoryData] = await Promise.allSettled([
           fetchFromSmartcar(tokens.access_token, smartcarVehicleId, ""),
           fetchFromSmartcar(tokens.access_token, smartcarVehicleId, "/vin"),
           fetchFromSmartcar(tokens.access_token, smartcarVehicleId, "/odometer"),
+          fetchFromSmartcar(tokens.access_token, smartcarVehicleId, "/tires/pressure"),
+          fetchFromSmartcar(tokens.access_token, smartcarVehicleId, "/engine/oil"),
+          fetchFromSmartcar(tokens.access_token, smartcarVehicleId, "/fuel"),
+          fetchFromSmartcar(tokens.access_token, smartcarVehicleId, "/location"),
+          fetchSignalV3(tokens.access_token, smartcarVehicleId, "closure-islocked"),
+          fetchFromSmartcar(tokens.access_token, smartcarVehicleId, "/service/history"),
         ]);
 
         const vehicleInfo = info.status === "fulfilled" ? info.value : null;
-        const vin = vinData.status === "fulfilled" ? vinData.value?.vin : null;
+        const smartcarVin = vinData.status === "fulfilled" ? vinData.value?.vin?.toUpperCase().trim() : null;
         const odometer = odometerData.status === "fulfilled" ? odometerData.value?.distance : null;
+        const tirePressure = tirePressureData.status === "fulfilled" ? tirePressureData.value : null;
+        const oilLife = oilLifeData.status === "fulfilled" ? oilLifeData.value : null;
+        const fuel = fuelData.status === "fulfilled" ? fuelData.value : null;
+        const location = locationData.status === "fulfilled" ? locationData.value : null;
+        const lockSignal = securityData.status === "fulfilled" ? securityData.value : null;
+        const lockStatus = lockSignal != null ? { isLocked: !!lockSignal.value, doors: [], windows: [] } : null;
+        const rawServiceHistory = serviceHistoryData.status === "fulfilled" ? serviceHistoryData.value : null;
+        const serviceHistory = rawServiceHistory?.serviceRecords ?? (Array.isArray(rawServiceHistory) ? rawServiceHistory : null);
 
-        if (!vehicleInfo || !vin) {
+
+        if (!vehicleInfo || !smartcarVin) {
           console.error(`Failed to get info/VIN for ${smartcarVehicleId}`);
           continue;
         }
+
+        // ── Step 3b: Deterministic VIN matching ──
+        // If caller provided a VIN (from the Add Vehicle flow), only link the
+        // Smartcar vehicle whose VIN matches. Skip others.
+        if (knownVin && smartcarVin !== knownVin) {
+          console.log(`Skipping Smartcar vehicle ${smartcarVehicleId} (VIN ${smartcarVin}) — does not match known VIN ${knownVin}`);
+          continue;
+        }
+
+        const vin = smartcarVin;
 
         // ── Step 4: Run VIN through pipeline (Stage 1 + 2) ──
         // Process NHTSA decode → create makes/models/trims/engines
         const pipelineResult = await ctx.runAction(internal.vehicle_pipeline.processVin, { vin });
 
-        // ── Step 5: Create vehicle_owner + vehicle records ──
+        // ── Step 5: Create vehicle_owner + vehicle records (idempotent) ──
         const vehicleOwnerId = await ctx.runMutation(internal.smartcar.createVehicleOwnerFromSmartcar, {
           userId: args.userId,
           vin,
+          smartcarVehicleId,
           mileage: odometer || 0,
           nickname: `${vehicleInfo.year} ${vehicleInfo.make} ${vehicleInfo.model}`,
           engineId: pipelineResult?.engineId || null,
@@ -176,15 +257,82 @@ export const exchangeCodeAndConnect = action({
           expiresIn: tokens.expires_in,
         });
 
-        // ── Step 7: Store initial odometer snapshot ──
+        // ── Step 6b: Subscribe vehicle to webhook (if configured) ──
+        const webhookId = process.env.SMARTCAR_WEBHOOK_ID;
+        if (webhookId) {
+          try {
+            const subResponse = await fetch(
+              `https://api.smartcar.com/v2.0/vehicles/${smartcarVehicleId}/webhooks/${webhookId}`,
+              {
+                method: "POST",
+                headers: { Authorization: `Bearer ${tokens.access_token}` },
+              }
+            );
+            if (subResponse.ok) {
+              console.log(`[Smartcar] Subscribed vehicle ${smartcarVehicleId} to webhook ${webhookId}`);
+            } else {
+              const errText = await subResponse.text();
+              console.error(`[Smartcar] Failed to subscribe vehicle to webhook: ${subResponse.status} ${errText}`);
+            }
+          } catch (e) {
+            console.error("[Smartcar] Webhook subscription error:", e);
+          }
+        }
+
+        // ── Step 7: Store initial health snapshots ──
         if (odometer) {
           await ctx.runMutation(internal.smartcar.storeHealthSnapshot, {
             vehicleOwnerId,
             snapshotType: "odometer",
-            data: {
-              distance: odometer,
-              unit: "mi",
-            },
+            data: { distance: odometer, unit: "mi" },
+            source: "smartcar",
+          });
+        }
+        if (tirePressure) {
+          await ctx.runMutation(internal.smartcar.storeHealthSnapshot, {
+            vehicleOwnerId,
+            snapshotType: "tire_pressure",
+            data: tirePressure,
+            source: "smartcar",
+          });
+        }
+        if (oilLife) {
+          await ctx.runMutation(internal.smartcar.storeHealthSnapshot, {
+            vehicleOwnerId,
+            snapshotType: "oil_life",
+            data: oilLife,
+            source: "smartcar",
+          });
+        }
+        if (fuel) {
+          await ctx.runMutation(internal.smartcar.storeHealthSnapshot, {
+            vehicleOwnerId,
+            snapshotType: "fuel",
+            data: fuel,
+            source: "smartcar",
+          });
+        }
+        if (location) {
+          await ctx.runMutation(internal.smartcar.storeHealthSnapshot, {
+            vehicleOwnerId,
+            snapshotType: "location",
+            data: location,
+            source: "smartcar",
+          });
+        }
+        if (lockStatus) {
+          await ctx.runMutation(internal.smartcar.storeHealthSnapshot, {
+            vehicleOwnerId,
+            snapshotType: "lock_status",
+            data: lockStatus,
+            source: "smartcar",
+          });
+        }
+        if (serviceHistory) {
+          await ctx.runMutation(internal.smartcar.storeHealthSnapshot, {
+            vehicleOwnerId,
+            snapshotType: "service_history",
+            data: serviceHistory,
             source: "smartcar",
           });
         }
@@ -214,6 +362,13 @@ export const exchangeCodeAndConnect = action({
         });
       }
 
+      if (knownVin && connectedVehicles.length === 0) {
+        return {
+          success: false,
+          error: "Could not match your vehicle with Smartcar. Please try again.",
+        };
+      }
+
       return {
         success: true,
         vehicleCount: connectedVehicles.length,
@@ -236,14 +391,19 @@ export const exchangeCodeAndConnect = action({
 export const fetchVehicleData = action({
   args: { vehicleOwnerId: v.id("vehicle_owners") },
   handler: async (ctx, args) => {
+    console.log(`[fetchVehicleData] Starting for vehicleOwnerId=${args.vehicleOwnerId}`);
+
     // Get connection
     const connection = await ctx.runQuery(internal.smartcar.getConnectionByOwner, {
       vehicleOwnerId: args.vehicleOwnerId,
     });
 
     if (!connection || connection.status !== "active") {
+      console.log(`[fetchVehicleData] No active connection found (status=${connection?.status ?? "null"})`);
       return { error: "Vehicle not connected" };
     }
+
+    console.log(`[fetchVehicleData] Connection found, smartcarVehicleId=${connection.smartcarVehicleId}, tokenExpiresAt=${connection.tokenExpiresAt}, now=${Date.now()}, expired=${connection.tokenExpiresAt < Date.now()}`);
 
     // Refresh token if needed
     let accessToken = connection.accessToken;
@@ -251,9 +411,11 @@ export const fetchVehicleData = action({
     const fiveMin = 5 * 60 * 1000;
 
     if (connection.tokenExpiresAt < now + fiveMin) {
+      console.log(`[fetchVehicleData] Token expired/expiring, refreshing...`);
       const newTokens = await refreshToken(connection.refreshToken);
 
       if (!newTokens) {
+        console.log(`[fetchVehicleData] Token refresh FAILED, marking expired`);
         await ctx.runMutation(internal.smartcar.markConnectionExpired, {
           connectionId: connection._id,
         });
@@ -271,13 +433,76 @@ export const fetchVehicleData = action({
     }
 
     // Fetch data via batch endpoint
+    console.log(`[fetchVehicleData] Calling fetchBatchData...`);
     const data = await fetchBatchData(accessToken, connection.smartcarVehicleId);
+    console.log(`[fetchVehicleData] fetchBatchData returned, keys=${Object.keys(data).join(",")}`);
+    console.log(`[fetchVehicleData] odometer=${JSON.stringify(data.odometer)}, fuel=${JSON.stringify(data.fuel)}, oilLife=${JSON.stringify(data.oilLife)}`);
 
-    // Update mileage on vehicle_owners
+    // Store all health snapshots
     if (data.odometer) {
       await ctx.runMutation(internal.smartcar.updateMileage, {
         vehicleOwnerId: args.vehicleOwnerId,
         mileage: data.odometer.distance,
+      });
+      await ctx.runMutation(internal.smartcar.storeHealthSnapshot, {
+        vehicleOwnerId: args.vehicleOwnerId,
+        snapshotType: "odometer",
+        data: data.odometer,
+        source: "smartcar",
+      });
+      // Log to odometer_history for trip stats
+      await ctx.runMutation(internal.smartcar.logOdometerReading, {
+        vehicleOwnerId: args.vehicleOwnerId,
+        distance: data.odometer.distance,
+        unit: data.odometer.unit || "mi",
+      });
+    }
+    if (data.tirePressure) {
+      await ctx.runMutation(internal.smartcar.storeHealthSnapshot, {
+        vehicleOwnerId: args.vehicleOwnerId,
+        snapshotType: "tire_pressure",
+        data: data.tirePressure,
+        source: "smartcar",
+      });
+    }
+    if (data.oilLife) {
+      await ctx.runMutation(internal.smartcar.storeHealthSnapshot, {
+        vehicleOwnerId: args.vehicleOwnerId,
+        snapshotType: "oil_life",
+        data: data.oilLife,
+        source: "smartcar",
+      });
+    }
+    if (data.fuel) {
+      await ctx.runMutation(internal.smartcar.storeHealthSnapshot, {
+        vehicleOwnerId: args.vehicleOwnerId,
+        snapshotType: "fuel",
+        data: data.fuel,
+        source: "smartcar",
+      });
+    }
+    if (data.location) {
+      await ctx.runMutation(internal.smartcar.storeHealthSnapshot, {
+        vehicleOwnerId: args.vehicleOwnerId,
+        snapshotType: "location",
+        data: data.location,
+        source: "smartcar",
+      });
+    }
+    if (data.lockStatus) {
+      await ctx.runMutation(internal.smartcar.storeHealthSnapshot, {
+        vehicleOwnerId: args.vehicleOwnerId,
+        snapshotType: "lock_status",
+        data: data.lockStatus,
+        source: "smartcar",
+      });
+    }
+    if (data.serviceHistory) {
+      await ctx.runMutation(internal.smartcar.storeHealthSnapshot, {
+        vehicleOwnerId: args.vehicleOwnerId,
+        snapshotType: "service_history",
+        data: data.serviceHistory,
+        source: "smartcar",
       });
     }
 
@@ -372,8 +597,132 @@ export const checkCompatibility = action({
 // ============================================
 
 /**
+ * Process v3 webhook signal data directly from the payload.
+ * No external API calls needed — signals are delivered inline.
+ *
+ * Signal codes we care about:
+ *   - closure-islocked → lock_status snapshot
+ *   - connectivitystatus-isonline → online_status snapshot
+ *   - internalcombustionengine-fuellevel → fuel snapshot
+ *   - odometer-traveleddistance → odometer snapshot + mileage update
+ */
+export const processWebhookSignals = internalAction({
+  args: {
+    smartcarVehicleId: v.string(),
+    signals: v.array(
+      v.object({
+        code: v.string(),
+        name: v.string(),
+        group: v.string(),
+        body: v.any(),
+        hasError: v.boolean(),
+      })
+    ),
+    eventId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    // Find the connection/ownership for this vehicle
+    const connection = await ctx.runQuery(
+      internal.smartcar.getConnectionBySmartcarId,
+      { smartcarVehicleId: args.smartcarVehicleId }
+    );
+
+    let vehicleOwnerId = connection?.vehicleOwnerId;
+
+    if (!vehicleOwnerId) {
+      // Fallback: try vehicle_owners table
+      const owner = await ctx.runQuery(
+        internal.smartcar.getOwnerBySmartcarVehicleId,
+        { smartcarVehicleId: args.smartcarVehicleId }
+      );
+      if (!owner) {
+        console.error(`[Webhook Signals] No connection or owner found for ${args.smartcarVehicleId}`);
+        return;
+      }
+      vehicleOwnerId = owner._id;
+    }
+
+    let storedCount = 0;
+
+    for (const signal of args.signals) {
+      if (signal.hasError || !signal.body) continue;
+
+      // Lock status: closure-islocked
+      if (signal.code === "closure-islocked") {
+        await ctx.runMutation(internal.smartcar.storeHealthSnapshot, {
+          vehicleOwnerId,
+          snapshotType: "lock_status",
+          data: { isLocked: !!signal.body.value, doors: [], windows: [] },
+          source: "webhook",
+        });
+        storedCount++;
+      }
+
+      // Online status: connectivitystatus-isonline
+      if (signal.code === "connectivitystatus-isonline") {
+        await ctx.runMutation(internal.smartcar.storeHealthSnapshot, {
+          vehicleOwnerId,
+          snapshotType: "online_status",
+          data: { isOnline: !!signal.body.value },
+          source: "webhook",
+        });
+        storedCount++;
+      }
+
+      // Fuel level: internalcombustionengine-fuellevel
+      // DISABLED: Direct API provides better data (includes range/miles left).
+      // Webhook only sends percentage without range. Re-enable when needed
+      // for vehicles where webhooks add value (e.g. Tesla, BMW).
+      // if (signal.code === "internalcombustionengine-fuellevel") {
+      //   const pct = (signal.body.value ?? 0) / 100;
+      //   await ctx.runMutation(internal.smartcar.storeHealthSnapshot, {
+      //     vehicleOwnerId,
+      //     snapshotType: "fuel",
+      //     data: { percentRemaining: pct, range: null, amountRemaining: null },
+      //     source: "webhook",
+      //   });
+      //   storedCount++;
+      // }
+
+      // Odometer: odometer-traveleddistance
+      // DISABLED: Direct API provides better data (returns in imperial units).
+      // Webhook delivers in km requiring conversion. Re-enable when needed.
+      // if (signal.code === "odometer-traveleddistance") {
+      //   const distanceKm = signal.body.value ?? 0;
+      //   const unit = signal.body.unit || "kilometers";
+      //   const distanceMi = unit === "kilometers" ? distanceKm * 0.621371 : distanceKm;
+      //   await ctx.runMutation(internal.smartcar.storeHealthSnapshot, {
+      //     vehicleOwnerId,
+      //     snapshotType: "odometer",
+      //     data: { distance: distanceMi, unit: "mi" },
+      //     source: "webhook",
+      //   });
+      //   await ctx.runMutation(internal.smartcar.updateMileage, {
+      //     vehicleOwnerId,
+      //     mileage: distanceMi,
+      //   });
+      //   storedCount++;
+      // }
+    }
+
+    // Update lastSyncedAt
+    if (connection && storedCount > 0) {
+      await ctx.runMutation(internal.smartcar.markSynced, {
+        connectionId: connection._id,
+      });
+    }
+
+    console.log(`[Webhook Signals] Stored ${storedCount} snapshots for ${args.smartcarVehicleId}`);
+  },
+});
+
+/**
  * Called from the webhook handler to fetch fresh data and update DB.
  * This is an internalAction because it makes external API calls.
+ *
+ * Lookup strategy:
+ *   1. Primary: smartcar_connections.by_smartcar_vehicle_id
+ *   2. Fallback: vehicle_owners.by_smartcar_vehicle_id (new index)
  */
 export const syncVehicleFromWebhook = internalAction({
   args: {
@@ -381,15 +730,33 @@ export const syncVehicleFromWebhook = internalAction({
     eventType: v.string(),
   },
   handler: async (ctx, args) => {
-    // Find the connection
-    const connection = await ctx.runQuery(internal.smartcar.getConnectionBySmartcarId, {
+    console.log(`[Webhook Sync] Starting sync for smartcarVehicleId=${args.smartcarVehicleId}, event=${args.eventType}`);
+
+    // ── Primary lookup: smartcar_connections ──
+    let connection = await ctx.runQuery(internal.smartcar.getConnectionBySmartcarId, {
       smartcarVehicleId: args.smartcarVehicleId,
     });
 
     if (!connection || connection.status !== "active") {
-      console.log(`No active connection for ${args.smartcarVehicleId}`);
-      return;
+      // ── Fallback: find vehicle_owner by smartcarVehicleId ──
+      console.log(`[Webhook Sync] No active connection in smartcar_connections, checking vehicle_owners fallback`);
+      const ownerRecord = await ctx.runQuery(internal.smartcar.getOwnerBySmartcarVehicleId, {
+        smartcarVehicleId: args.smartcarVehicleId,
+      });
+      if (ownerRecord) {
+        // Try connection lookup by vehicle_owner ID
+        connection = await ctx.runQuery(internal.smartcar.getConnectionByOwner, {
+          vehicleOwnerId: ownerRecord._id,
+        });
+      }
+
+      if (!connection || connection.status !== "active") {
+        console.log(`[Webhook Sync] No active connection found for ${args.smartcarVehicleId} — skipping`);
+        return;
+      }
     }
+
+    console.log(`[Webhook Sync] Found connection=${connection._id}, vehicleOwnerId=${connection.vehicleOwnerId}`);
 
     // Refresh token if needed
     let accessToken = connection.accessToken;
@@ -397,8 +764,10 @@ export const syncVehicleFromWebhook = internalAction({
     const fiveMin = 5 * 60 * 1000;
 
     if (connection.tokenExpiresAt < now + fiveMin) {
+      console.log(`[Webhook Sync] Token expired/expiring — refreshing`);
       const newTokens = await refreshToken(connection.refreshToken);
       if (!newTokens) {
+        console.error(`[Webhook Sync] Token refresh failed — marking connection expired`);
         await ctx.runMutation(internal.smartcar.markConnectionExpired, {
           connectionId: connection._id,
         });
@@ -416,7 +785,7 @@ export const syncVehicleFromWebhook = internalAction({
     // Fetch vehicle data
     const data = await fetchBatchData(accessToken, args.smartcarVehicleId);
 
-    // Update mileage
+    // Update mileage on vehicle_owners
     if (data.odometer) {
       await ctx.runMutation(internal.smartcar.updateMileage, {
         vehicleOwnerId: connection.vehicleOwnerId,
@@ -427,6 +796,12 @@ export const syncVehicleFromWebhook = internalAction({
         snapshotType: "odometer",
         data: data.odometer,
         source: "smartcar",
+      });
+      // Log to odometer_history for trip stats
+      await ctx.runMutation(internal.smartcar.logOdometerReading, {
+        vehicleOwnerId: connection.vehicleOwnerId,
+        distance: data.odometer.distance,
+        unit: data.odometer.unit || "mi",
       });
     }
 
@@ -460,10 +835,42 @@ export const syncVehicleFromWebhook = internalAction({
       });
     }
 
+    // Store location
+    if (data.location) {
+      await ctx.runMutation(internal.smartcar.storeHealthSnapshot, {
+        vehicleOwnerId: connection.vehicleOwnerId,
+        snapshotType: "location",
+        data: data.location,
+        source: "smartcar",
+      });
+    }
+
+    // Store lock status
+    if (data.lockStatus) {
+      await ctx.runMutation(internal.smartcar.storeHealthSnapshot, {
+        vehicleOwnerId: connection.vehicleOwnerId,
+        snapshotType: "lock_status",
+        data: data.lockStatus,
+        source: "smartcar",
+      });
+    }
+
+    // Store service history
+    if (data.serviceHistory) {
+      await ctx.runMutation(internal.smartcar.storeHealthSnapshot, {
+        vehicleOwnerId: connection.vehicleOwnerId,
+        snapshotType: "service_history",
+        data: data.serviceHistory,
+        source: "smartcar",
+      });
+    }
+
     // Mark synced
     await ctx.runMutation(internal.smartcar.markSynced, {
       connectionId: connection._id,
     });
+
+    console.log(`[Webhook Sync] Completed sync for smartcarVehicleId=${args.smartcarVehicleId}`);
   },
 });
 
@@ -491,6 +898,30 @@ export const getConnectionBySmartcarId = internalQuery({
   },
 });
 
+export const getAllActiveConnections = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db
+      .query("smartcar_connections")
+      .filter((q) => q.eq(q.field("status"), "active"))
+      .collect();
+  },
+});
+
+/**
+ * Fallback lookup: find vehicle_owner by smartcarVehicleId (new index).
+ * Used by webhook sync when smartcar_connections lookup fails.
+ */
+export const getOwnerBySmartcarVehicleId = internalQuery({
+  args: { smartcarVehicleId: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("vehicle_owners")
+      .withIndex("by_smartcar_vehicle_id", (q) => q.eq("smartcarVehicleId", args.smartcarVehicleId))
+      .first();
+  },
+});
+
 // ============================================
 // INTERNAL MUTATIONS
 // ============================================
@@ -498,12 +929,13 @@ export const getConnectionBySmartcarId = internalQuery({
 /**
  * Create vehicle_owner + vehicle records from Smartcar data.
  * Handles dedup — if a vehicle_owner with this VIN already exists
- * for this user, returns the existing one.
+ * for this user, updates it with Smartcar fields. Idempotent.
  */
 export const createVehicleOwnerFromSmartcar = internalMutation({
   args: {
     userId: v.id("users"),
     vin: v.string(),
+    smartcarVehicleId: v.string(),
     mileage: v.float64(),
     nickname: v.string(),
     engineId: v.optional(v.union(v.id("engines"), v.null())),
@@ -526,10 +958,22 @@ export const createVehicleOwnerFromSmartcar = internalMutation({
 
     const existing = existingOwners.find((vo) => vo.vin === args.vin);
     if (existing) {
-      // Update mileage if Smartcar has fresher data
-      if (args.mileage > 0 && args.mileage > existing.mileage) {
-        await ctx.db.patch(existing._id, { mileage: args.mileage });
+      // Idempotent update: set Smartcar fields + bump mileage if fresher
+      const updates: Record<string, unknown> = {
+        smartcarVehicleId: args.smartcarVehicleId,
+        connectionStatus: "connected",
+        connectedAt: now,
+      };
+      if (args.mileage > 0 && args.mileage > (existing.mileage ?? 0)) {
+        updates.mileage = args.mileage;
       }
+      // Reactivate if it was removed
+      if (existing.status === "removed") {
+        updates.status = "active";
+        updates.removed_at = undefined;
+        updates.added_at = now;
+      }
+      await ctx.db.patch(existing._id, updates);
       return existing._id;
     }
 
@@ -557,7 +1001,7 @@ export const createVehicleOwnerFromSmartcar = internalMutation({
       await ctx.db.insert("vehicles", vehicleRecord as any);
     }
 
-    // Create vehicle_owner record
+    // Create vehicle_owner record with Smartcar fields
     const vehicleOwnerId = await ctx.db.insert("vehicle_owners", {
       user_id: args.userId,
       vin: args.vin,
@@ -566,6 +1010,9 @@ export const createVehicleOwnerFromSmartcar = internalMutation({
       status: "active",
       is_primary: existingOwners.length === 0, // First vehicle = primary
       added_at: now,
+      smartcarVehicleId: args.smartcarVehicleId,
+      connectionStatus: "connected",
+      connectedAt: now,
     });
 
     return vehicleOwnerId;
@@ -677,10 +1124,7 @@ export const updateMileage = internalMutation({
   handler: async (ctx, args) => {
     const vo = await ctx.db.get(args.vehicleOwnerId);
     if (!vo) return;
-    // Only update if new mileage is higher (odometer goes up)
-    if (args.mileage > vo.mileage) {
-      await ctx.db.patch(args.vehicleOwnerId, { mileage: args.mileage });
-    }
+    await ctx.db.patch(args.vehicleOwnerId, { mileage: args.mileage });
   },
 });
 
@@ -704,6 +1148,69 @@ export const storeHealthSnapshot = internalMutation({
       recordedAt: now,
       createdAt: now,
     });
+  },
+});
+
+/**
+ * Log an odometer reading to odometer_history (deduplicated).
+ * Only inserts if the distance changed from the last entry.
+ */
+export const logOdometerReading = internalMutation({
+  args: {
+    vehicleOwnerId: v.id("vehicle_owners"),
+    distance: v.float64(),
+    unit: v.string(),
+  },
+  handler: async (ctx, args) => {
+    // Get the last entry
+    const lastEntry = await ctx.db
+      .query("odometer_history")
+      .withIndex("by_vehicle_and_date", (q) =>
+        q.eq("vehicleOwnerId", args.vehicleOwnerId)
+      )
+      .order("desc")
+      .first();
+
+    // Skip if same value (deduplicate)
+    if (lastEntry && Math.abs(lastEntry.distance - args.distance) < 0.5) {
+      return;
+    }
+
+    await ctx.db.insert("odometer_history", {
+      vehicleOwnerId: args.vehicleOwnerId,
+      distance: args.distance,
+      unit: args.unit,
+      recordedAt: Date.now(),
+    });
+  },
+});
+
+/**
+ * Get odometer history for the last N days (default 30).
+ * Returns array of { distance, recordedAt } sorted ascending by date.
+ */
+export const getOdometerHistory = query({
+  args: {
+    vehicleOwnerId: v.id("vehicle_owners"),
+    daysBack: v.optional(v.float64()),
+  },
+  handler: async (ctx, args) => {
+    const days = args.daysBack ?? 30;
+    const cutoff = Date.now() - days * 24 * 60 * 60 * 1000;
+
+    const entries = await ctx.db
+      .query("odometer_history")
+      .withIndex("by_vehicle_and_date", (q) =>
+        q.eq("vehicleOwnerId", args.vehicleOwnerId).gte("recordedAt", cutoff)
+      )
+      .order("asc")
+      .collect();
+
+    return entries.map((e) => ({
+      distance: e.distance,
+      unit: e.unit,
+      recordedAt: e.recordedAt,
+    }));
   },
 });
 
@@ -765,38 +1272,96 @@ async function fetchVehicleIds(accessToken: string): Promise<string[]> {
 }
 
 async function fetchFromSmartcar(accessToken: string, vehicleId: string, path: string) {
-  const response = await fetch(`${SMARTCAR_API}/vehicles/${vehicleId}${path}`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  });
-  if (!response.ok) return null;
-  return response.json();
+  try {
+    const response = await fetch(`${SMARTCAR_API}/vehicles/${vehicleId}${path}`, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "SC-Unit-System": "imperial",
+      },
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!response.ok) return null;
+    return response.json();
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Fetch a single signal from the Smartcar Signals API (v3).
+ * Returns the signal body or null on failure.
+ */
+async function fetchSignalV3(accessToken: string, vehicleId: string, signalCode: string) {
+  try {
+    const response = await fetch(
+      `${SMARTCAR_API_V3}/vehicles/${vehicleId}/signals/${signalCode}`,
+      {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        signal: AbortSignal.timeout(8_000),
+      }
+    );
+    if (!response.ok) return null;
+    const data = await response.json();
+    return data?.data?.attributes?.body ?? data?.attributes?.body ?? null;
+  } catch {
+    return null;
+  }
 }
 
 async function fetchBatchData(accessToken: string, smartcarVehicleId: string) {
-  const response = await fetch(`${SMARTCAR_API}/vehicles/${smartcarVehicleId}/batch`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      requests: [
-        { path: "/" },
-        { path: "/odometer" },
-        { path: "/location" },
-        { path: "/tires/pressure" },
-        { path: "/engine/oil" },
-        { path: "/fuel" },
-      ],
+  // Run all three requests in PARALLEL to avoid sequential timeouts
+  const [batchResult, lockResult, serviceResult] = await Promise.allSettled([
+    // 1. Batch request for core data (10s timeout in case OEM servers are slow)
+    fetch(`${SMARTCAR_API}/vehicles/${smartcarVehicleId}/batch`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+        "SC-Unit-System": "imperial",
+      },
+      body: JSON.stringify({
+        requests: [
+          { path: "/" },
+          { path: "/odometer" },
+          { path: "/location" },
+          { path: "/tires/pressure" },
+          { path: "/engine/oil" },
+          { path: "/fuel" },
+        ],
+      }),
+      signal: AbortSignal.timeout(10_000),
     }),
-  });
+    // 2. Lock status via Signals API v3 (may not be supported)
+    fetchSignalV3(accessToken, smartcarVehicleId, "closure-islocked"),
+    // 3. Service history (may not be supported)
+    fetchFromSmartcar(accessToken, smartcarVehicleId, "/service/history"),
+  ]);
 
-  if (!response.ok) {
-    // Fallback to individual requests
-    return fetchIndividual(accessToken, smartcarVehicleId);
+  // Process lock status
+  const lockSignal = lockResult.status === "fulfilled" ? lockResult.value : null;
+  const lockStatus = lockSignal != null ? { isLocked: !!lockSignal.value, doors: [], windows: [] } : null;
+
+  // Process service history
+  let serviceHistory = null;
+  if (serviceResult.status === "fulfilled" && serviceResult.value) {
+    const raw = serviceResult.value;
+    if (raw?.serviceRecords) {
+      serviceHistory = raw.serviceRecords;
+    } else if (Array.isArray(raw)) {
+      serviceHistory = raw;
+    }
+  }
+
+  // Process batch response
+  const response = batchResult.status === "fulfilled" ? batchResult.value : null;
+  if (!response || !response.ok) {
+    // Fallback to individual requests (also run in parallel via fetchIndividual)
+    const individual = await fetchIndividual(accessToken, smartcarVehicleId);
+    return { ...individual, lockStatus: individual.lockStatus ?? lockStatus, serviceHistory };
   }
 
   const batch = await response.json();
+
   return {
     info: extract(batch, "/"),
     odometer: formatOdometer(extract(batch, "/odometer")),
@@ -804,20 +1369,25 @@ async function fetchBatchData(accessToken: string, smartcarVehicleId: string) {
     tirePressure: extract(batch, "/tires/pressure"),
     oilLife: extract(batch, "/engine/oil"),
     fuel: extract(batch, "/fuel"),
+    lockStatus,
+    serviceHistory,
   };
 }
 
 async function fetchIndividual(accessToken: string, vehicleId: string) {
   const get = (path: string) => fetchFromSmartcar(accessToken, vehicleId, path);
 
-  const [info, odo, loc, tires, oil, fuel] = await Promise.allSettled([
+  const [info, odo, loc, tires, oil, fuel, lockSignalResult] = await Promise.allSettled([
     get(""),
     get("/odometer"),
     get("/location"),
     get("/tires/pressure"),
     get("/engine/oil"),
     get("/fuel"),
+    fetchSignalV3(accessToken, vehicleId, "closure-islocked"),
   ]);
+
+  const lockSignal = lockSignalResult.status === "fulfilled" ? lockSignalResult.value : null;
 
   return {
     info: info.status === "fulfilled" ? info.value : null,
@@ -826,8 +1396,73 @@ async function fetchIndividual(accessToken: string, vehicleId: string) {
     tirePressure: tires.status === "fulfilled" ? tires.value : null,
     oilLife: oil.status === "fulfilled" ? oil.value : null,
     fuel: fuel.status === "fulfilled" ? fuel.value : null,
+    lockStatus: lockSignal != null ? { isLocked: !!lockSignal.value, doors: [], windows: [] } : null,
+    serviceHistory: null,
   };
 }
+
+/**
+ * One-off action: Subscribe all active connected vehicles to the webhook.
+ * Call via Convex dashboard or CLI: npx convex run smartcar:subscribeAllVehiclesToWebhook
+ */
+export const subscribeAllVehiclesToWebhook = action({
+  args: {},
+  handler: async (ctx) => {
+    const webhookId = process.env.SMARTCAR_WEBHOOK_ID;
+    if (!webhookId) {
+      return { error: "SMARTCAR_WEBHOOK_ID not set" };
+    }
+
+    const connections: any[] = await ctx.runQuery(internal.smartcar.getAllActiveConnections, {});
+    let subscribed = 0;
+    let failed = 0;
+
+    for (const conn of connections) {
+      // Refresh token if needed
+      let accessToken = conn.accessToken;
+      const now = Date.now();
+      if (conn.tokenExpiresAt && conn.tokenExpiresAt < now + 60_000) {
+        try {
+          const refreshed = await refreshToken(conn.refreshToken);
+          accessToken = refreshed.access_token;
+          await ctx.runMutation(internal.smartcar.updateTokens, {
+            connectionId: conn._id,
+            accessToken: refreshed.access_token,
+            refreshToken: refreshed.refresh_token,
+            expiresIn: refreshed.expires_in,
+          });
+        } catch (e) {
+          console.error(`[Webhook Sub] Token refresh failed for ${conn.smartcarVehicleId}:`, e);
+          failed++;
+          continue;
+        }
+      }
+
+      try {
+        const res = await fetch(
+          `https://api.smartcar.com/v2.0/vehicles/${conn.smartcarVehicleId}/webhooks/${webhookId}`,
+          {
+            method: "POST",
+            headers: { Authorization: `Bearer ${accessToken}` },
+          }
+        );
+        if (res.ok) {
+          console.log(`[Webhook Sub] Subscribed ${conn.smartcarVehicleId}`);
+          subscribed++;
+        } else {
+          const errText = await res.text();
+          console.error(`[Webhook Sub] Failed ${conn.smartcarVehicleId}: ${res.status} ${errText}`);
+          failed++;
+        }
+      } catch (e) {
+        console.error(`[Webhook Sub] Error subscribing ${conn.smartcarVehicleId}:`, e);
+        failed++;
+      }
+    }
+
+    return { subscribed, failed, total: connections.length };
+  },
+});
 
 function extract(batch: any, path: string) {
   const r = batch.responses?.find((r: any) => r.path === path);

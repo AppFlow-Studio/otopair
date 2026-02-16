@@ -163,7 +163,11 @@ export const claimSeedDataForCurrentUser = mutation({
         | "follow_ups"
         | "ai_conversations"
         | "conversion_funnels"
-        | "spec_confirmations",
+        | "spec_confirmations"
+        | "user_reward_wallets"
+        | "ownership_credit_transactions"
+        | "user_contribution_claims"
+        | "vehicle_tiers"
     ) => {
       const rows = await ctx.db.query(table).collect();
       for (const row of rows) {
@@ -179,6 +183,33 @@ export const claimSeedDataForCurrentUser = mutation({
     await reassign("ai_conversations");
     await reassign("conversion_funnels");
     await reassign("spec_confirmations");
+    await reassign("user_reward_wallets");
+    await reassign("ownership_credit_transactions");
+    await reassign("user_contribution_claims");
+    await reassign("vehicle_tiers");
+
+    // Give claimed user a reward wallet with demo balance if none exists
+    const wallet = await ctx.db
+      .query("user_reward_wallets")
+      .withIndex("by_user_id", (q) => q.eq("user_id", currentId))
+      .unique();
+    if (!wallet) {
+      const now = Date.now();
+      await ctx.db.insert("user_reward_wallets", {
+        user_id: currentId,
+        balance: 32.75,
+        auto_apply_to_booking: true,
+        created_at: now,
+        updated_at: now,
+      });
+      await ctx.db.insert("ownership_credit_transactions", {
+        user_id: currentId,
+        amount: 32.75,
+        type: "earn_service",
+        description: "Maintenance rewards",
+        created_at: now,
+      });
+    }
 
     const analyticsRows = await ctx.db.query("analytics_events").collect();
     for (const row of analyticsRows) {
@@ -296,7 +327,67 @@ export const seedAll = action({
     await ctx.runMutation(api.seed.seed);
     await ctx.runMutation(internal.seed.seedVehicleIntelligenceDemoData);
     const result = await ctx.runMutation(api.seed.seedTimeSlots);
+    await ctx.runMutation(api.seed.seedRewardDeals);
     return { success: true, ...result };
+  },
+});
+
+/**
+ * Seeds reward_deals for OTOPAIR Rewards Program. Idempotent - skips if deals exist.
+ */
+export const seedRewardDeals = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const existing = await ctx.db.query("reward_deals").first();
+    if (existing) return { skipped: true };
+
+    const now = Date.now();
+    const deals = [
+      {
+        title: "Synthetic Oil Change",
+        description: "Full synthetic + Filter + Fluids",
+        credit_amount: 15,
+        price: 69,
+        is_special: true,
+        display_order: 0,
+      },
+      {
+        title: "Tire Rotation",
+        description: "Rotate all 4 tires + Inspection",
+        credit_amount: 10,
+        price: 29,
+        is_special: false,
+        display_order: 1,
+      },
+      {
+        title: "Brake Inspection",
+        description: "Full brake system check",
+        credit_amount: 12,
+        price: 49,
+        is_special: true,
+        display_order: 2,
+      },
+      {
+        title: "AC System Service",
+        description: "Recharge + Leak check + Filter",
+        credit_amount: 20,
+        price: 89,
+        is_special: false,
+        display_order: 3,
+      },
+      {
+        title: "Full Detail Package",
+        description: "Interior + Exterior + Engine bay",
+        credit_amount: 25,
+        price: 149,
+        is_special: true,
+        display_order: 4,
+      },
+    ];
+    for (const d of deals) {
+      await ctx.db.insert("reward_deals", { ...d, created_at: now });
+    }
+    return { skipped: false, count: deals.length };
   },
 });
 
@@ -1207,7 +1298,7 @@ export const seedVehicleIntelligenceDemoData = internalMutation({
 
     const ensureEngine = async (trim_id: any) => {
       const existing = (await ctx.db.query("engines").collect()).find(
-        (e) => e.trim_id === trim_id && e.engine_code === "A25A-FKS",
+        (e) => e.trim_id === trim_id && e.engine_code === "A25A-FKS"
       );
       if (existing) return existing;
       const id = await ctx.db.insert("engines", {
@@ -1427,7 +1518,7 @@ export const seedVehicleIntelligenceDemoData = internalMutation({
 
     const ensureVehicle = async (
       vin: string,
-      fields: { trim_id: any; engine_id: any; transmission_id: any; chassis_id: any; year: number },
+      fields: { trim_id: any; engine_id: any; transmission_id: any; chassis_id: any; year: number }
     ) => {
       const normalized = vin.toUpperCase().trim();
       const existing = await ctx.db
@@ -1453,7 +1544,7 @@ export const seedVehicleIntelligenceDemoData = internalMutation({
     // --- Hierarchy ---
     const make = await ensureMake(
       "Toyota",
-      "https://upload.wikimedia.org/wikipedia/commons/9/9d/Toyota_carridge_logo.svg",
+      "https://upload.wikimedia.org/wikipedia/commons/9/9d/Toyota_carridge_logo.svg"
     );
     const model = await ensureModel(make._id, "Camry");
     const trim = await ensureTrim(model._id, "LE", 2018, 2024);
@@ -1534,7 +1625,7 @@ export const seedPastBookingsForJohnDoe = mutation({
       .unique();
     if (!user) {
       throw new Error(
-        `User with clerkUserId ${JOHN_DOE_CLERK_USER_ID} (John Doe) not found. Ensure the account exists.`,
+        `User with clerkUserId ${JOHN_DOE_CLERK_USER_ID} (John Doe) not found. Ensure the account exists.`
       );
     }
 
@@ -1711,7 +1802,7 @@ export const seedLiveBookingForJohnDoe = mutation({
       .unique();
     if (!user) {
       throw new Error(
-        `User with clerkUserId ${JOHN_DOE_CLERK_USER_ID} (John Doe) not found. Ensure the account exists.`,
+        `User with clerkUserId ${JOHN_DOE_CLERK_USER_ID} (John Doe) not found. Ensure the account exists.`
       );
     }
 

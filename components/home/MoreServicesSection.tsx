@@ -15,6 +15,7 @@ import { Dimensions, Image, ImageSourcePropType, Pressable, StyleSheet, View } f
 // 2. Expo & Third-party
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
 import {
   AlertCircle,
   Battery,
@@ -105,9 +106,10 @@ const SERVICE_CARDS: ServiceCard[] = [
 // ============================================================================
 
 export function MoreServicesSection() {
+  const router = useRouter();
+
   const handleCardPress = (serviceId: string) => {
-    // TODO: Navigate to service details or booking flow
-    console.log('Service pressed:', serviceId);
+    router.push({ pathname: '/coming-soon', params: { service: serviceId } });
   };
 
   return (

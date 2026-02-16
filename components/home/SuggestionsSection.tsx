@@ -152,8 +152,8 @@ export function SuggestionsSection({ onCardPress }: SuggestionsSectionProps) {
         },
       });
     } else {
-      // Navigate to mechanic listing
-      router.push('/home/map');
+      // Navigate to map with services sheet open
+      router.push('/home/map?openServices=true');
     }
   };
 

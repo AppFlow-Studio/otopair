@@ -298,7 +298,8 @@ export const updateProfile = mutation({
     }
 
     updates.lastUpdated = Date.now();
-    return await ctx.db.patch(user._id, updates);
+    await ctx.db.patch(user._id, updates);
+    return await ctx.db.get(user._id);
   },
 });
 

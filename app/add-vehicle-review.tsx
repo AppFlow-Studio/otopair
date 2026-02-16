@@ -70,14 +70,25 @@ export default function AddVehicleReviewScreen() {
       setError('Please sign in to continue');
       return;
     }
+    if (!params.vin) {
+      setError('Missing VIN data');
+      return;
+    }
 
     setError(null);
-    const result = await connect(me._id);
 
-    if (result?.success) {
-      router.replace('/vehicle-added');
-    } else if (result?.error && result.error !== 'Cancelled') {
-      setError(result.error || 'Connection failed');
+    try {
+      // Pass VIN for deterministic matching — backend will only link
+      // the Smartcar vehicle whose VIN matches this one.
+      const result = await connect(me._id, params.vin);
+
+      if (result?.success) {
+        router.replace('/vehicle-added');
+      } else if (result?.error && result.error !== 'Cancelled') {
+        setError(result.error || 'Connection failed. Please try again.');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Connection failed. Please try again.');
     }
   };
 

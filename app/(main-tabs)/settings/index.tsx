@@ -1029,11 +1029,7 @@ export default function SettingsHomeScreen() {
                   <View style={styles.sectionCard}>
                     <SettingsListItem
                       icon={<Car size={20} color="#1F2937" />}
-                      label={
-                        vehicleCount > 0
-                          ? `My Vehicles (${vehicleCount})`
-                          : "My Vehicles"
-                      }
+                      label={vehicleCount > 0 ? `My Vehicles (${vehicleCount})` : "My Vehicles"}
                       onPress={() => router.push("/cars")}
                     />
                     <SettingsListItem
@@ -1054,7 +1050,6 @@ export default function SettingsHomeScreen() {
                     />
                   </View>
                 </View>
-
                 {/* Section 2 */}
                 <View style={styles.section}>
                   <Text

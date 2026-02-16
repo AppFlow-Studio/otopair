@@ -122,6 +122,7 @@ export function LoginStep({ onNext, onBack }: LoginStepProps) {
       const { createdSessionId, setActive } = await startSSOFlow({
         strategy: ssoStrategy,
         redirectUrl: "otopair://oauth-callback",
+        // redirectUrlComplete: "otopair://oauth-callback",
       });
 
       if (createdSessionId && setActive) {
