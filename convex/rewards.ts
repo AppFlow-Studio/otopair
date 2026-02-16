@@ -105,6 +105,32 @@ export const getMembershipStats = query({
 });
 
 /**
+ * Get tier for each vehicle owned by user (for My Garage / car selection with status badges).
+ */
+export const getVehicleTiersByUser = query({
+  args: { userId: v.id("users") },
+  handler: async (ctx, args) => {
+    const ownerships = await ctx.db
+      .query("vehicle_owners")
+      .withIndex("by_user_status", (q) => q.eq("user_id", args.userId).eq("status", "active"))
+      .collect();
+
+    const result: { vin: string; tier: "driver" | "preferred" | "elite" }[] = [];
+    for (const o of ownerships) {
+      const vt = await ctx.db
+        .query("vehicle_tiers")
+        .withIndex("by_vin_user", (q) => q.eq("vin", o.vin).eq("user_id", args.userId))
+        .unique();
+      result.push({
+        vin: o.vin,
+        tier: (vt?.tier ?? "driver") as "driver" | "preferred" | "elite",
+      });
+    }
+    return result;
+  },
+});
+
+/**
  * Get primary vehicle tier for user (for "ELITE MEMBER" badge, etc.).
  */
 export const getPrimaryVehicleTier = query({

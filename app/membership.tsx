@@ -26,6 +26,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ReAnimated from "react-native-reanimated";
 
 // 2. Expo & Third-party
+import type { BottomSheetModal } from "@gorhom/bottom-sheet";
 import { useRouter } from "expo-router";
 import {
   ArrowLeft,
@@ -52,11 +53,12 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 
 // 3. Shared UI
-import { FadeInStagger, ScrollDrivenGradientBackground, Text } from '@/components/shared-ui';
+import { FadeInStagger, ScrollDrivenGradientBackground, Text } from "@/components/shared-ui";
 
 // 4. Constants & Hooks
 import { Spacing } from "@/constants/theme";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
+import { GarageCarSelectionSheet } from "@/components/rewards/GarageCarSelectionSheet";
 
 // ============================================================================
 // CONSTANTS
@@ -145,6 +147,11 @@ export default function MembershipPage() {
 
   // Elite bottom sheet state
   const [showEliteSheet, setShowEliteSheet] = useState(false);
+  /** When set, Driver Status modal shows this tier (from garage status badge tap) */
+  const [statusModalTier, setStatusModalTier] = useState<"driver" | "preferred" | "elite" | null>(null);
+
+  // My Garage car selection sheet (rewards context)
+  const garageSheetRef = useRef<BottomSheetModal | null>(null);
 
   // Bottom sheet animation values
   const sheetTranslateY = useRef(new Animated.Value(SHEET_HEIGHT)).current;
@@ -162,20 +169,20 @@ export default function MembershipPage() {
   const handleUploadShare = async () => {
     try {
       await Share.share({
-        message: 'Check out my service records on Otopair!',
+        message: "Check out my service records on Otopair!",
       });
     } catch (error) {
-      console.log('Error sharing:', error);
+      console.log("Error sharing:", error);
     }
   };
 
   const handleReferFriend = async () => {
     try {
       await Share.share({
-        message: 'Join me on Otopair and get $25 credit! Download the app here: https://otopair.com',
+        message: "Join me on Otopair and get $25 credit! Download the app here: https://otopair.com",
       });
     } catch (error) {
-      console.log('Error sharing:', error);
+      console.log("Error sharing:", error);
     }
   };
 
@@ -219,8 +226,9 @@ export default function MembershipPage() {
     });
   };
 
-  // Elite sheet functions
-  const openEliteSheet = () => {
+  // Elite / Driver Status sheet – opens from garage status badge with specific tier
+  const openEliteSheetWithTier = (tier: "driver" | "preferred" | "elite") => {
+    setStatusModalTier(tier);
     setShowEliteSheet(true);
     eliteSheetTranslateY.setValue(SHEET_HEIGHT);
     eliteBackdropOpacity.setValue(0);
@@ -255,7 +263,18 @@ export default function MembershipPage() {
       }),
     ]).start(() => {
       setShowEliteSheet(false);
+      setStatusModalTier(null);
     });
+  };
+
+  // Open My Garage sheet when tier badge is tapped (instead of opening Driver Status directly)
+  const openGarageSheet = () => {
+    garageSheetRef.current?.present();
+  };
+
+  const handleGarageStatusBadgePress = (tier: "driver" | "preferred" | "elite") => {
+    garageSheetRef.current?.dismiss();
+    setTimeout(() => openEliteSheetWithTier(tier), 300);
   };
 
   return (
@@ -274,292 +293,292 @@ export default function MembershipPage() {
           >
             {/* Staggered fade-in for page sections */}
             <FadeInStagger staggerDelay={100} duration={800}>
-            {/* Back Button */}
-            <Pressable
-              onPress={handleBack}
-              style={({ pressed }) => [styles.backButton, pressed && styles.backButtonPressed]}
-              hitSlop={12}
-            >
-              <ArrowLeft size={24} color="#1F2937" strokeWidth={2} />
-            </Pressable>
-
-            {/* Tier Badge */}
-            <View style={styles.badgeContainer}>
+              {/* Back Button */}
               <Pressable
-                onPress={openEliteSheet}
-                style={({ pressed }) => [styles.eliteBadge, pressed && { opacity: 0.7 }]}
+                onPress={handleBack}
+                style={({ pressed }) => [styles.backButton, pressed && styles.backButtonPressed]}
+                hitSlop={12}
               >
-                {/* Verification badge with spiky circle shape */}
-                <BadgeCheck size={14} color="#FFFFFF" fill="#5299FE" strokeWidth={2} />
-                <Text weight="bold" size="xs" color="#5299FE" style={styles.badgeText}>
-                  {tierLabel}
-                </Text>
+                <ArrowLeft size={24} color="#1F2937" strokeWidth={2} />
               </Pressable>
-            </View>
 
-            {/* Credit Balance */}
-            <View style={styles.balanceContainer}>
-              <Text weight="bold" style={styles.balanceAmount}>
-                ${balance.toFixed(2)}
-              </Text>
-              <Text weight="medium" size="md" color="#6B7280">
-                Ownership Credit Balance
-              </Text>
-            </View>
-
-            {/* Action Buttons Row */}
-            <View style={styles.actionButtonsRow}>
-              {/* Add Car - Primary */}
-              <View style={styles.actionButtonWrapper}>
+              {/* Tier Badge */}
+              <View style={styles.badgeContainer}>
                 <Pressable
-                  onPress={() => router.push('/add-vehicle')}
-                  style={({ pressed }) => [
-                    styles.actionButton,
-                    styles.actionButtonPrimary,
-                    pressed && styles.actionButtonPressed,
-                  ]}
+                  onPress={openGarageSheet}
+                  style={({ pressed }) => [styles.eliteBadge, pressed && { opacity: 0.7 }]}
                 >
-                  <Plus size={28} color="#FFFFFF" strokeWidth={2.5} />
-                </Pressable>
-                <Text weight="semiBold" size="sm" color="#5299FE" style={styles.actionLabel}>
-                  Add Car
-                </Text>
-              </View>
-
-              {/* History */}
-              <View style={styles.actionButtonWrapper}>
-                <Pressable
-                  onPress={() => router.push("/transactions")}
-                  style={({ pressed }) => [
-                    styles.actionButton,
-                    styles.actionButtonSecondary,
-                    pressed && styles.actionButtonPressed,
-                  ]}
-                >
-                  <History size={26} color="#1F2937" strokeWidth={1.5} />
-                </Pressable>
-                <Text weight="medium" size="sm" color="#1F2937" style={styles.actionLabel}>
-                  History
-                </Text>
-              </View>
-
-              {/* Redeem */}
-              <View style={styles.actionButtonWrapper}>
-                <Pressable
-                  onPress={openRedeemSheet}
-                  style={({ pressed }) => [
-                    styles.actionButton,
-                    styles.actionButtonSecondary,
-                    pressed && styles.actionButtonPressed,
-                  ]}
-                >
-                  <Gift size={26} color="#1F2937" strokeWidth={1.5} />
-                </Pressable>
-                <Text weight="medium" size="sm" color="#1F2937" style={styles.actionLabel}>
-                  Redeem
-                </Text>
-              </View>
-            </View>
-
-            {/* Stats Row */}
-            <View style={styles.statsRow}>
-              {/* Miles Safe */}
-              <View style={styles.statItem}>
-                <Text weight="bold" style={styles.statNumber}>
-                  {milesSafe >= 1000 ? `${Math.round(milesSafe / 1000)}k` : milesSafe}
-                </Text>
-                <Text weight="semiBold" size="xs" color="#6B7280" style={styles.statLabel}>
-                  MILES SAFE
-                </Text>
-              </View>
-
-              {/* Divider */}
-              <View style={styles.statDivider} />
-
-              {/* Services */}
-              <View style={styles.statItem}>
-                <Text weight="bold" style={styles.statNumber}>
-                  {servicesCount}
-                </Text>
-                <Text weight="semiBold" size="xs" color="#6B7280" style={styles.statLabel}>
-                  SERVICES
-                </Text>
-              </View>
-
-              {/* Divider */}
-              <View style={styles.statDivider} />
-
-              {/* Shops */}
-              <View style={styles.statItem}>
-                <Text weight="bold" style={styles.statNumber}>
-                  {shopsCount}
-                </Text>
-                <Text weight="semiBold" size="xs" color="#6B7280" style={styles.statLabel}>
-                  SHOPS
-                </Text>
-              </View>
-            </View>
-
-            {/* ═══════════════════════════════════════════════════════════════════
-                MIDDLE SECTION: Suggested Deals
-            ═══════════════════════════════════════════════════════════════════ */}
-
-            {/* Suggested Deals Section */}
-            <View style={styles.suggestedDealsSection}>
-              {/* Section Header */}
-              <View style={styles.sectionHeader}>
-                <Text weight="bold" size="lg" color="#1F2937">
-                  Suggested Deals
-                </Text>
-                <Pressable
-                  style={({ pressed }) => pressed && { opacity: 0.7 }}
-                  onPress={() => router.push("/suggested-deals")}
-                >
-                  <Text weight="semiBold" size="md" color="#5299FE">
-                    View all
+                  {/* Verification badge with spiky circle shape */}
+                  <BadgeCheck size={14} color="#FFFFFF" fill="#5299FE" strokeWidth={2} />
+                  <Text weight="bold" size="xs" color="#5299FE" style={styles.badgeText}>
+                    {tierLabel}
                   </Text>
                 </Pressable>
               </View>
 
-              {/* Horizontal Scrolling Cards */}
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.dealsScrollContent}
-              >
-                {deals.map((deal) => (
-                  <View key={deal.id} style={styles.dealCard}>
-                    {/* Image Placeholder */}
-                    <View style={styles.dealImageContainer}>
-                      {/* Placeholder - blank for now */}
-                      <View style={styles.dealImagePlaceholder} />
+              {/* Credit Balance */}
+              <View style={styles.balanceContainer}>
+                <Text weight="bold" style={styles.balanceAmount}>
+                  ${balance.toFixed(2)}
+                </Text>
+                <Text weight="medium" size="md" color="#6B7280">
+                  Ownership Credit Balance
+                </Text>
+              </View>
 
-                      {/* Special Badge */}
-                      {deal.isSpecial && (
-                        <View style={styles.specialBadge}>
-                          <Star size={12} color="#F59E0B" fill="#F59E0B" />
-                          <Text weight="semiBold" size="xs" color="#1F2937">
-                            Special
-                          </Text>
+              {/* Action Buttons Row */}
+              <View style={styles.actionButtonsRow}>
+                {/* Add Car - Primary */}
+                <View style={styles.actionButtonWrapper}>
+                  <Pressable
+                    onPress={() => router.replace("/(main-tabs)/cars")}
+                    style={({ pressed }) => [
+                      styles.actionButton,
+                      styles.actionButtonPrimary,
+                      pressed && styles.actionButtonPressed,
+                    ]}
+                  >
+                    <Plus size={28} color="#FFFFFF" strokeWidth={2.5} />
+                  </Pressable>
+                  <Text weight="semiBold" size="sm" color="#5299FE" style={styles.actionLabel}>
+                    Add Car
+                  </Text>
+                </View>
+
+                {/* History */}
+                <View style={styles.actionButtonWrapper}>
+                  <Pressable
+                    onPress={() => router.push("/transactions")}
+                    style={({ pressed }) => [
+                      styles.actionButton,
+                      styles.actionButtonSecondary,
+                      pressed && styles.actionButtonPressed,
+                    ]}
+                  >
+                    <History size={26} color="#1F2937" strokeWidth={1.5} />
+                  </Pressable>
+                  <Text weight="medium" size="sm" color="#1F2937" style={styles.actionLabel}>
+                    History
+                  </Text>
+                </View>
+
+                {/* Redeem */}
+                <View style={styles.actionButtonWrapper}>
+                  <Pressable
+                    onPress={openRedeemSheet}
+                    style={({ pressed }) => [
+                      styles.actionButton,
+                      styles.actionButtonSecondary,
+                      pressed && styles.actionButtonPressed,
+                    ]}
+                  >
+                    <Gift size={26} color="#1F2937" strokeWidth={1.5} />
+                  </Pressable>
+                  <Text weight="medium" size="sm" color="#1F2937" style={styles.actionLabel}>
+                    Redeem
+                  </Text>
+                </View>
+              </View>
+
+              {/* Stats Row */}
+              <View style={styles.statsRow}>
+                {/* Miles Safe */}
+                <View style={styles.statItem}>
+                  <Text weight="bold" style={styles.statNumber}>
+                    {milesSafe >= 1000 ? `${Math.round(milesSafe / 1000)}k` : milesSafe}
+                  </Text>
+                  <Text weight="semiBold" size="xs" color="#6B7280" style={styles.statLabel}>
+                    MILES SAFE
+                  </Text>
+                </View>
+
+                {/* Divider */}
+                <View style={styles.statDivider} />
+
+                {/* Services */}
+                <View style={styles.statItem}>
+                  <Text weight="bold" style={styles.statNumber}>
+                    {servicesCount}
+                  </Text>
+                  <Text weight="semiBold" size="xs" color="#6B7280" style={styles.statLabel}>
+                    SERVICES
+                  </Text>
+                </View>
+
+                {/* Divider */}
+                <View style={styles.statDivider} />
+
+                {/* Shops */}
+                <View style={styles.statItem}>
+                  <Text weight="bold" style={styles.statNumber}>
+                    {shopsCount}
+                  </Text>
+                  <Text weight="semiBold" size="xs" color="#6B7280" style={styles.statLabel}>
+                    SHOPS
+                  </Text>
+                </View>
+              </View>
+
+              {/* ═══════════════════════════════════════════════════════════════════
+                MIDDLE SECTION: Suggested Deals
+            ═══════════════════════════════════════════════════════════════════ */}
+
+              {/* Suggested Deals Section */}
+              <View style={styles.suggestedDealsSection}>
+                {/* Section Header */}
+                <View style={styles.sectionHeader}>
+                  <Text weight="bold" size="lg" color="#1F2937">
+                    Suggested Deals
+                  </Text>
+                  <Pressable
+                    style={({ pressed }) => pressed && { opacity: 0.7 }}
+                    onPress={() => router.push("/suggested-deals")}
+                  >
+                    <Text weight="semiBold" size="md" color="#5299FE">
+                      View all
+                    </Text>
+                  </Pressable>
+                </View>
+
+                {/* Horizontal Scrolling Cards */}
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.dealsScrollContent}
+                >
+                  {deals.map((deal) => (
+                    <View key={deal.id} style={styles.dealCard}>
+                      {/* Image Placeholder */}
+                      <View style={styles.dealImageContainer}>
+                        {/* Placeholder - blank for now */}
+                        <View style={styles.dealImagePlaceholder} />
+
+                        {/* Special Badge */}
+                        {deal.isSpecial && (
+                          <View style={styles.specialBadge}>
+                            <Star size={12} color="#F59E0B" fill="#F59E0B" />
+                            <Text weight="semiBold" size="xs" color="#1F2937">
+                              Special
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+
+                      {/* Card Content */}
+                      <View style={styles.dealContent}>
+                        {/* Service Title */}
+                        <Text weight="bold" size="lg" color="#1F2937" numberOfLines={1}>
+                          {deal.title}
+                        </Text>
+
+                        {/* Description */}
+                        <Text size="sm" color="#6B7280" numberOfLines={1} style={styles.dealDescription}>
+                          {deal.description}
+                        </Text>
+
+                        {/* Bottom Row: Credit & Book Button */}
+                        <View style={styles.dealBottomRow}>
+                          {/* Credit Badge */}
+                          <View style={styles.creditBadge}>
+                            <Text weight="semiBold" size="xs" color="#22C55E">
+                              + ${deal.credit} Credit
+                            </Text>
+                          </View>
+
+                          {/* Book Button */}
+                          <Pressable
+                            onPress={() => router.push("/(main-tabs)/home")}
+                            style={({ pressed }) => [styles.bookButton, pressed && styles.bookButtonPressed]}
+                          >
+                            <Text weight="semiBold" size="xs" color="#FFFFFF">
+                              Book ${deal.price}
+                            </Text>
+                          </Pressable>
                         </View>
-                      )}
-                    </View>
-
-                    {/* Card Content */}
-                    <View style={styles.dealContent}>
-                      {/* Service Title */}
-                      <Text weight="bold" size="lg" color="#1F2937" numberOfLines={1}>
-                        {deal.title}
-                      </Text>
-
-                      {/* Description */}
-                      <Text size="sm" color="#6B7280" numberOfLines={1} style={styles.dealDescription}>
-                        {deal.description}
-                      </Text>
-
-                      {/* Bottom Row: Credit & Book Button */}
-                      <View style={styles.dealBottomRow}>
-                        {/* Credit Badge */}
-                        <View style={styles.creditBadge}>
-                          <Text weight="semiBold" size="xs" color="#22C55E">
-                            + ${deal.credit} Credit
-                          </Text>
-                        </View>
-
-                        {/* Book Button */}
-                        <Pressable
-                          onPress={() => router.push("/(main-tabs)/home")}
-                          style={({ pressed }) => [styles.bookButton, pressed && styles.bookButtonPressed]}
-                        >
-                          <Text weight="semiBold" size="xs" color="#FFFFFF">
-                            Book ${deal.price}
-                          </Text>
-                        </Pressable>
                       </View>
                     </View>
-                  </View>
-                ))}
-              </ScrollView>
-            </View>
+                  ))}
+                </ScrollView>
+              </View>
 
-            {/* ═══════════════════════════════════════════════════════════════════
+              {/* ═══════════════════════════════════════════════════════════════════
                 BOTTOM SECTION: Earn Rewards
             ═══════════════════════════════════════════════════════════════════ */}
 
-            {/* Earn Rewards Section */}
-            <View style={styles.earnRewardsSection}>
-              {/* Section Header */}
-              <Text weight="bold" size="lg" color="#1F2937" style={styles.earnRewardsTitle}>
-                Earn Rewards
-              </Text>
+              {/* Earn Rewards Section */}
+              <View style={styles.earnRewardsSection}>
+                {/* Section Header */}
+                <Text weight="bold" size="lg" color="#1F2937" style={styles.earnRewardsTitle}>
+                  Earn Rewards
+                </Text>
 
-              {/* Rewards List */}
-              <View style={styles.rewardsList}>
-                {EARN_REWARDS.map((reward, index) => (
-                  <View key={reward.id}>
-                    <Pressable
-                      onPress={() => {
-                        if (reward.icon === "review") router.push("/(main-tabs)/bookings");
-                        else if (reward.icon === "refer") router.push("/refer-a-friend");
-                        else if (reward.icon === "upload")
-                          router.push({
-                            pathname: "/coming-soon",
-                            params: { serviceType: "upload", serviceName: "Upload Service Records" },
-                          });
-                      }}
-                      style={({ pressed }) => [
-                        styles.rewardRow,
-                        index === 0 && styles.rewardRowFirst,
-                        index === EARN_REWARDS.length - 1 && styles.rewardRowLast,
-                        pressed && styles.rewardRowPressed,
-                      ]}
-                    >
-                      {/* Icon */}
-                      <View style={[styles.rewardIcon, { backgroundColor: reward.iconBg }]}>
-                        {reward.icon === "review" && <PenSquare size={20} color={reward.iconColor} strokeWidth={2} />}
-                        {reward.icon === "upload" && <FileText size={20} color={reward.iconColor} strokeWidth={2} />}
-                        {reward.icon === "refer" && <UserPlus size={20} color={reward.iconColor} strokeWidth={2} />}
-                      </View>
-
-                      {/* Text Content */}
-                      <View style={styles.rewardTextContent}>
-                        <Text weight="semiBold" size="md" color="#1F2937">
-                          {reward.title}
-                        </Text>
-                        <Text weight="bold" size="sm" color="#5299FE">
-                          {reward.subtitle}
-                        </Text>
-                      </View>
-
-                      {/* Right Side: Button or Chevron */}
-                      {reward.hasButton ? (
-                        <Pressable
-                          onPress={() =>
+                {/* Rewards List */}
+                <View style={styles.rewardsList}>
+                  {EARN_REWARDS.map((reward, index) => (
+                    <View key={reward.id}>
+                      <Pressable
+                        onPress={() => {
+                          if (reward.icon === "review") router.push("/(main-tabs)/bookings");
+                          else if (reward.icon === "refer") router.push("/refer-a-friend");
+                          else if (reward.icon === "upload")
                             router.push({
                               pathname: "/coming-soon",
                               params: { serviceType: "upload", serviceName: "Upload Service Records" },
-                            })
-                          }
-                          style={({ pressed }) => [styles.uploadButton, pressed && styles.uploadButtonPressed]}
-                        >
-                          <Text weight="semiBold" size="sm" color="#FFFFFF">
-                            {reward.buttonText}
+                            });
+                        }}
+                        style={({ pressed }) => [
+                          styles.rewardRow,
+                          index === 0 && styles.rewardRowFirst,
+                          index === EARN_REWARDS.length - 1 && styles.rewardRowLast,
+                          pressed && styles.rewardRowPressed,
+                        ]}
+                      >
+                        {/* Icon */}
+                        <View style={[styles.rewardIcon, { backgroundColor: reward.iconBg }]}>
+                          {reward.icon === "review" && <PenSquare size={20} color={reward.iconColor} strokeWidth={2} />}
+                          {reward.icon === "upload" && <FileText size={20} color={reward.iconColor} strokeWidth={2} />}
+                          {reward.icon === "refer" && <UserPlus size={20} color={reward.iconColor} strokeWidth={2} />}
+                        </View>
+
+                        {/* Text Content */}
+                        <View style={styles.rewardTextContent}>
+                          <Text weight="semiBold" size="md" color="#1F2937">
+                            {reward.title}
                           </Text>
-                        </Pressable>
-                      ) : (
-                        <ChevronRight size={20} color="#9CA3AF" strokeWidth={2} />
+                          <Text weight="bold" size="sm" color="#5299FE">
+                            {reward.subtitle}
+                          </Text>
+                        </View>
+
+                        {/* Right Side: Button or Chevron */}
+                        {reward.hasButton ? (
+                          <Pressable
+                            onPress={() =>
+                              router.push({
+                                pathname: "/coming-soon",
+                                params: { serviceType: "upload", serviceName: "Upload Service Records" },
+                              })
+                            }
+                            style={({ pressed }) => [styles.uploadButton, pressed && styles.uploadButtonPressed]}
+                          >
+                            <Text weight="semiBold" size="sm" color="#FFFFFF">
+                              {reward.buttonText}
+                            </Text>
+                          </Pressable>
+                        ) : (
+                          <ChevronRight size={20} color="#9CA3AF" strokeWidth={2} />
+                        )}
+                      </Pressable>
+                      {/* Divider - not on last item */}
+                      {index < EARN_REWARDS.length - 1 && (
+                        <View style={styles.rewardDividerContainer}>
+                          <View style={styles.rewardDivider} />
+                        </View>
                       )}
-                    </Pressable>
-                    {/* Divider - not on last item */}
-                    {index < EARN_REWARDS.length - 1 && (
-                      <View style={styles.rewardDividerContainer}>
-                        <View style={styles.rewardDivider} />
-                      </View>
-                    )}
-                  </View>
-                ))}
+                    </View>
+                  ))}
+                </View>
               </View>
-            </View>
             </FadeInStagger>
           </ReAnimated.ScrollView>
 
@@ -753,7 +772,7 @@ export default function MembershipPage() {
                   <BadgeCheck size={32} color="#FFFFFF" fill="#5299FE" strokeWidth={2} />
                 </View>
 
-                {tierInfo?.tier === "elite" ? (
+                {(statusModalTier ?? tierInfo?.tier) === "elite" ? (
                   <>
                     <Text weight="bold" size="2xl" color="#1F2937" style={eliteStyles.title}>
                       Elite Status
@@ -817,7 +836,7 @@ export default function MembershipPage() {
                       </View>
                     </View>
                   </>
-                ) : tierInfo?.tier === "preferred" ? (
+                ) : (statusModalTier ?? tierInfo?.tier) === "preferred" ? (
                   <>
                     <Text weight="bold" size="2xl" color="#1F2937" style={eliteStyles.title}>
                       Preferred Status
@@ -949,6 +968,13 @@ export default function MembershipPage() {
               </View>
             </Animated.View>
           </Modal>
+
+          {/* My Garage car selection sheet – opened when tier badge is tapped */}
+          <GarageCarSelectionSheet
+            innerRef={garageSheetRef}
+            onStatusBadgePress={handleGarageStatusBadgePress}
+            onClose={() => {}}
+          />
         </View>
       )}
     </ScrollDrivenGradientBackground>

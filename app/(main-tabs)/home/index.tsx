@@ -1,11 +1,5 @@
 // 1. React & React Native
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Image, Pressable, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated from "react-native-reanimated";
@@ -14,7 +8,7 @@ import Animated from "react-native-reanimated";
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import * as Location from "expo-location";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import {
   BottomSheetBackdrop,
   BottomSheetModal,
@@ -26,15 +20,11 @@ import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 
 // 3. Shared UI
-import {
-  Button,
-  BrandColors,
-  ScrollDrivenGradientBackground,
-  Text,
-} from "@/components/shared-ui";
+import { Button, BrandColors, ScrollDrivenGradientBackground, Text } from "@/components/shared-ui";
 
 // 4. Stores
 import { useAuthStore } from "@/stores/useAuthStore";
+import { usePendingNavigationStore } from "@/stores/usePendingNavigationStore";
 
 // 6. Flow-specific components
 import { ActionCardsCarousel } from "@/components/home/ActionCardsCarousel";
@@ -52,11 +42,7 @@ import { OtoPairIcon } from "@/components/icons/oto-pair";
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const {
-    isNewUser,
-    shouldShowReactivationSheet,
-    setShouldShowReactivationSheet,
-  } = useAuthStore();
+  const { isNewUser, shouldShowReactivationSheet, setShouldShowReactivationSheet } = useAuthStore();
   const myVehicles = useQuery(api.vehicles.getMyVehicles);
   const hasVehicles = myVehicles != null && myVehicles.length > 0;
   const [showWelcome, setShowWelcome] = useState(true);
@@ -73,14 +59,9 @@ export default function HomeScreen() {
 
   const renderBackdrop = useCallback(
     (props: BottomSheetBackdropProps) => (
-      <BottomSheetBackdrop
-        {...props}
-        disappearsOnIndex={-1}
-        appearsOnIndex={0}
-        opacity={0.5}
-      />
+      <BottomSheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} opacity={0.5} />
     ),
-    [],
+    []
   );
 
   useEffect(() => {
@@ -90,22 +71,13 @@ export default function HomeScreen() {
   }, [shouldShowReactivationSheet, showWelcome]);
 
   useEffect(() => {
-    if (
-      !shouldShowReactivationSheet ||
-      showWelcome ||
-      hasPresentedReactivationRef.current
-    )
-      return;
+    if (!shouldShowReactivationSheet || showWelcome || hasPresentedReactivationRef.current) return;
     hasPresentedReactivationRef.current = true;
     requestAnimationFrame(() => {
       sheetRef.current?.present();
       setShouldShowReactivationSheet(false);
     });
-  }, [
-    shouldShowReactivationSheet,
-    showWelcome,
-    setShouldShowReactivationSheet,
-  ]);
+  }, [shouldShowReactivationSheet, showWelcome, setShouldShowReactivationSheet]);
 
   useEffect(() => {
     (async () => {
@@ -126,9 +98,7 @@ export default function HomeScreen() {
           longitude: location.coords.longitude,
         });
         if (address) {
-          setLocationName(
-            `${address.city || address.subregion || "Unknown"}, ${address.region || ""}`,
-          );
+          setLocationName(`${address.city || address.subregion || "Unknown"}, ${address.region || ""}`);
         }
       } catch (error) {
         setLocationName("Unknown location");
@@ -145,15 +115,25 @@ export default function HomeScreen() {
     router.push("/home/map");
   };
 
+  // When returning from map modal with "Add vehicle" tapped: navigate to cars tab
+  const pendingNavigateToCars = usePendingNavigationStore((s) => s.pendingNavigateToCars);
+  const setPendingNavigateToCars = usePendingNavigationStore((s) => s.setPendingNavigateToCars);
+  useFocusEffect(
+    useCallback(() => {
+      if (pendingNavigateToCars) {
+        setPendingNavigateToCars(false);
+        router.navigate("/(main-tabs)/cars");
+      }
+    }, [pendingNavigateToCars, setPendingNavigateToCars, router])
+  );
+
   const handleAppointmentPress = () => {
     console.log("Appointment pressed");
     // TODO: Navigate to appointment details
   };
 
   // Helper function to get the card type at a given index based on user status
-  const getCardTypeAtIndex = (
-    index: number,
-  ): "appointment" | "resume" | "account" | "car" | null => {
+  const getCardTypeAtIndex = (index: number): "appointment" | "resume" | "account" | "car" | null => {
     if (isNewUser && showAccountSetup) {
       // New user order: account, appointment, resume, car
       switch (index) {
@@ -210,10 +190,7 @@ export default function HomeScreen() {
           {/* Full Page Scroll */}
           <Animated.ScrollView
             style={styles.scrollView}
-            contentContainerStyle={[
-              styles.scrollContent,
-              { paddingTop: insets.top + 12 },
-            ]}
+            contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 12 }]}
             showsVerticalScrollIndicator={false}
             scrollEnabled={!isCardSwiping}
             onScroll={scrollHandler}
@@ -241,67 +218,35 @@ export default function HomeScreen() {
                 {/* Gold Tier Badge - Clickable */}
                 <Pressable
                   onPress={() => setShowLoyaltyCard(true)}
-                  style={({ pressed }) => [
-                    styles.goldTierBadge,
-                    pressed && styles.goldTierBadgePressed,
-                  ]}
+                  style={({ pressed }) => [styles.goldTierBadge, pressed && styles.goldTierBadgePressed]}
                 >
                   <View style={styles.glassContainer}>
-                    <BlurView
-                      intensity={10}
-                      tint="dark"
-                      style={styles.glassBlur}
-                    >
+                    <BlurView intensity={10} tint="dark" style={styles.glassBlur}>
                       <View style={styles.glassOverlay} />
                       <LinearGradient
-                        colors={[
-                          "rgba(255,255,255,0.25)",
-                          "rgba(255,255,255,0.05)",
-                        ]}
+                        colors={["rgba(255,255,255,0.25)", "rgba(255,255,255,0.05)"]}
                         start={{ x: 0.5, y: 0 }}
                         end={{ x: 0.5, y: 0.5 }}
                         style={styles.glassGloss}
                       />
-                      <Trophy
-                        size={22}
-                        color="#FFFFFF"
-                        fill="none"
-                        strokeWidth={2}
-                      />
+                      <Trophy size={22} color="#FFFFFF" fill="none" strokeWidth={2} />
                     </BlurView>
                   </View>
                 </Pressable>
 
                 {/* Notification Bell */}
-                <Pressable
-                  style={({ pressed }) => [
-                    styles.bellButton,
-                    pressed && styles.bellButtonPressed,
-                  ]}
-                >
+                <Pressable style={({ pressed }) => [styles.bellButton, pressed && styles.bellButtonPressed]}>
                   <View style={styles.glassContainer}>
-                    <BlurView
-                      intensity={10}
-                      tint="dark"
-                      style={styles.glassBlur}
-                    >
+                    <BlurView intensity={10} tint="dark" style={styles.glassBlur}>
                       <View style={styles.glassOverlay} />
                       <LinearGradient
-                        colors={[
-                          "rgba(255,255,255,0.25)",
-                          "rgba(255,255,255,0.05)",
-                        ]}
+                        colors={["rgba(255,255,255,0.25)", "rgba(255,255,255,0.05)"]}
                         start={{ x: 0.5, y: 0 }}
                         end={{ x: 0.5, y: 0.5 }}
                         style={styles.glassGloss}
                       />
                       <View style={styles.bellIconContainer}>
-                        <Bell
-                          size={22}
-                          color="#FFFFFF"
-                          fill="none"
-                          strokeWidth={2}
-                        />
+                        <Bell size={22} color="#FFFFFF" fill="none" strokeWidth={2} />
                         <View style={styles.bellDot} />
                       </View>
                     </BlurView>
@@ -368,9 +313,7 @@ export default function HomeScreen() {
                 {hasVehicles ? (
                   <VehicleMaintenanceCard
                     onBookNow={(vehicleId, serviceId) => {
-                      console.log(
-                        `Booking service ${serviceId} for vehicle ${vehicleId}`,
-                      );
+                      console.log(`Booking service ${serviceId} for vehicle ${vehicleId}`);
                       // TODO: Navigate to booking flow
                     }}
                     onSwipeStart={() => setIsCardSwiping(true)}
@@ -420,10 +363,7 @@ export default function HomeScreen() {
           >
             <BottomSheetScrollView
               showsVerticalScrollIndicator={false}
-              contentContainerStyle={[
-                styles.sheetContentContainer,
-                { paddingBottom: insets.bottom + 24 },
-              ]}
+              contentContainerStyle={[styles.sheetContentContainer, { paddingBottom: insets.bottom + 24 }]}
             >
               <View style={styles.sheetTitleWrap}>
                 <Text style={styles.sheetTitle}>Welcome back!</Text>
@@ -431,27 +371,18 @@ export default function HomeScreen() {
 
               <View style={styles.sheetBody}>
                 <Text style={styles.sheetBodyText}>
-                  Your account was scheduled for deletion, but has now been
-                  automatically reactivated since you logged back in.
+                  Your account was scheduled for deletion, but has now been automatically reactivated since you logged
+                  back in.
                 </Text>
-                <Text style={styles.sheetBodyText}>
-                  Your data is safe and your account is fully restored.
-                </Text>
+                <Text style={styles.sheetBodyText}>Your data is safe and your account is fully restored.</Text>
               </View>
 
               <View style={styles.sheetActions}>
                 <Pressable
-                  style={({ pressed }) => [
-                    styles.sheetPrimaryButton,
-                    pressed && styles.sheetPressed,
-                  ]}
+                  style={({ pressed }) => [styles.sheetPrimaryButton, pressed && styles.sheetPressed]}
                   onPress={() => sheetRef.current?.dismiss()}
                 >
-                  <Text
-                    weight="semiBold"
-                    color="#FFF"
-                    style={styles.sheetPrimaryButtonText}
-                  >
+                  <Text weight="semiBold" color="#FFF" style={styles.sheetPrimaryButtonText}>
                     Great!
                   </Text>
                 </Pressable>

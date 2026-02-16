@@ -102,6 +102,8 @@ interface ServiceBottomSheetProps {
   onShopChange?: (shop: { id: number; latitude: number; longitude: number }) => void;
   /** Called when shop preview is closed */
   onShopClose?: () => void;
+  /** Called when "Add a vehicle" is tapped in car selection (e.g. navigate to My Cars) */
+  onAddVehicle?: () => void;
 }
 
 // ============================================================================
@@ -169,6 +171,7 @@ export function ServiceBottomSheet({
   shopPreviewKey = 0,
   onShopChange,
   onShopClose,
+  onAddVehicle: onAddVehicleProp,
 }: ServiceBottomSheetProps) {
   // ═══════════════ REFS ═══════════════
   const bottomSheetRef = useRef<BottomSheet>(null);
@@ -262,7 +265,7 @@ export function ServiceBottomSheet({
     if (!hasFormulaParams) return selectedTotal;
     const total = selectedServices.reduce(
       (sum, s) => sum + laborRate! * (getLaborHours(s) ?? 0) + (getParts(s) ?? 0),
-      0,
+      0
     );
     return Math.round(total);
   }, [selectedMechanicSlot?.shopId, shops, availableServices, selectedServiceIds, selectedTotal, engineSpecs]);
@@ -392,7 +395,7 @@ export function ServiceBottomSheet({
           runOnJS(updatePreviousCarIndex)(rounded);
         }
       }
-    },
+    }
   );
 
   useEffect(() => {
@@ -494,7 +497,7 @@ export function ServiceBottomSheet({
         onShopClose?.();
       }
     },
-    [onShopClose, snapToIndexSafe],
+    [onShopClose, snapToIndexSafe]
   );
 
   // Handle selected shop from map pin - show shop preview and snap to preview position
@@ -575,7 +578,7 @@ export function ServiceBottomSheet({
       const clamped = Math.min(maxIndex, Math.max(-1, index));
       bottomSheetRef.current?.snapToIndex(clamped);
     },
-    [snapPointsLength],
+    [snapPointsLength]
   );
 
   const bottomSheetIndexUnclamped = showCarPreview
@@ -633,7 +636,7 @@ export function ServiceBottomSheet({
       }
       exitSearchMode();
     },
-    [exitSearchMode],
+    [exitSearchMode]
   );
 
   // Handle shop press from search
@@ -642,7 +645,7 @@ export function ServiceBottomSheet({
       exitSearchMode();
       onSelectShop?.(shopId);
     },
-    [exitSearchMode, onSelectShop],
+    [exitSearchMode, onSelectShop]
   );
 
   // Handle mechanic press from search
@@ -651,7 +654,7 @@ export function ServiceBottomSheet({
       exitSearchMode();
       onSelectMechanic?.(mechanicId);
     },
-    [exitSearchMode, onSelectMechanic],
+    [exitSearchMode, onSelectMechanic]
   );
 
   // Handle remove recent shop
@@ -659,7 +662,7 @@ export function ServiceBottomSheet({
     (shopId: number) => {
       removeRecentShop(shopId);
     },
-    [removeRecentShop],
+    [removeRecentShop]
   );
 
   // ═══════════════ SHOP PREVIEW HANDLERS ═══════════════
@@ -673,7 +676,7 @@ export function ServiceBottomSheet({
     (shop: { id: number; latitude: number; longitude: number }) => {
       onShopChange?.(shop);
     },
-    [onShopChange],
+    [onShopChange]
   );
 
   const handleMechanicSearchFocus = useCallback(() => {
@@ -685,7 +688,7 @@ export function ServiceBottomSheet({
     (shop: { id: number }) => {
       onSelectShop?.(shop.id);
     },
-    [onSelectShop],
+    [onSelectShop]
   );
 
   // ═══════════════ CAR SELECTION HANDLERS ═══════════════
@@ -710,6 +713,14 @@ export function ServiceBottomSheet({
     setPendingCarCloseSnapIndex(previousCarSnapIndexRef.current);
     setShowCarPreview(false);
   }, []);
+
+  const handleAddVehicle = useCallback(() => {
+    if (onAddVehicleProp) {
+      onAddVehicleProp();
+    } else {
+      router.navigate("/(main-tabs)/cars");
+    }
+  }, [router, onAddVehicleProp]);
 
   // ═══════════════ HANDLERS ═══════════════
   // Service selection complete -> go to mechanic selection
@@ -961,7 +972,7 @@ export function ServiceBottomSheet({
       selectedMechanicSlot,
       handleMechanicBook,
       handleMechanicFooterLayout,
-    ],
+    ]
   );
 
   // ═══════════════ CONTENT RENDERER ═══════════════
@@ -1329,7 +1340,7 @@ export function ServiceBottomSheet({
             exiting={FadeOut.duration(150)}
             style={styles.contentWrapper}
           >
-            <CarSelectionContent onClose={handleCarSelectionClose} />
+            <CarSelectionContent onClose={handleCarSelectionClose} onAddVehicle={handleAddVehicle} />
           </Animated.View>
         ) : showShopPreview ? (
           <Animated.View
