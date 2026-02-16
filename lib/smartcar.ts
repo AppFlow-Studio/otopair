@@ -17,6 +17,8 @@ const SCOPES = [
   "read_engine_oil",
   "read_fuel",
   "read_battery",
+  "read_security",
+  "read_service_history",
 ];
 
 export interface SmartcarOAuthResult {
@@ -39,7 +41,7 @@ export async function openSmartcarConnect(
       redirect_uri: REDIRECT_URI,
       scope: SCOPES.join(" "),
       state: userId,
-      mode: __DEV__ ? "simulated" : "live",
+      mode : "live",
     });
 
     const authUrl = `https://connect.smartcar.com/oauth/authorize?${params.toString()}`;

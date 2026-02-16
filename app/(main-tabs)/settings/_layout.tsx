@@ -2,29 +2,29 @@ import { Stack } from "expo-router";
 
 export default function SettingsLayout() {
     return (
-        <Stack>
-            <Stack.Screen name="index" options={{ headerShown: false }} />
-            <Stack.Screen name="notification-preferences" options={{ headerShown: false }} />
-            <Stack.Screen name="refer-a-friend" options={{ headerShown: false }} />
-            <Stack.Screen name="faq" options={{ headerShown: false }} />
-            <Stack.Screen name="faq-category" options={{ headerShown: false }} />
-            <Stack.Screen name="biometric-setup" options={{ headerShown: false }} />
-            <Stack.Screen name="two-factor-method" options={{ headerShown: false }} />
-            <Stack.Screen name="two-factor-verify" options={{ headerShown: false }} />
-            <Stack.Screen name="success" options={{ headerShown: false }} />
-            <Stack.Screen name="contact-us" options={{ headerShown: false }} />
-            <Stack.Screen name="transactions" options={{ headerShown: false }} />
-            <Stack.Screen name="privacy-policy" options={{ headerShown: false }} />
-            <Stack.Screen name="terms-and-conditions" options={{ headerShown: false }} />
-            <Stack.Screen name="about" options={{ headerShown: false }} />
-            <Stack.Screen name="change-password" options={{ headerShown: false }} />
-            <Stack.Screen name="permissions" options={{ headerShown: false }} />
-            <Stack.Screen name="preferences" options={{ headerShown: false }} />
-            <Stack.Screen name="pricing-transparency" options={{ headerShown: false }} />
-            <Stack.Screen name="my-mechanics" options={{ headerShown: false }} />
-            <Stack.Screen name="delete-account" options={{ headerShown: false }} />
-            <Stack.Screen name="verify-contact-update" options={{ headerShown: false }} />
-
+        <Stack
+            screenOptions={{
+                headerShown: false,
+                animation: "slide_from_right",
+                animationDuration: 250,
+                gestureEnabled: true,
+                gestureDirection: "horizontal",
+            }}
+        >
+            <Stack.Screen name="index" />
+            <Stack.Screen name="notification-preferences" />
+            <Stack.Screen name="refer-a-friend" />
+            <Stack.Screen name="faq" />
+            <Stack.Screen name="faq-category" />
+            <Stack.Screen name="biometric-setup" />
+            <Stack.Screen name="two-factor-method" />
+            <Stack.Screen name="two-factor-verify" />
+            <Stack.Screen name="success" />
+            <Stack.Screen name="contact-us" />
+            <Stack.Screen name="transactions" />
+            <Stack.Screen name="privacy-policy" />
+            <Stack.Screen name="terms-of-service" />
+            <Stack.Screen name="about" />
         </Stack>
-    )
-}   
+    );
+}

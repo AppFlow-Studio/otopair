@@ -30,8 +30,9 @@ import {
 
 // 2. Expo & Third-party
 import { BlurView } from 'expo-blur';
-import MaskedView from '@react-native-masked-view/masked-view';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useRouter } from 'expo-router';
+import MaskedView from '@react-native-masked-view/masked-view';
 
 // 3. Shared UI
 import { Text } from '@/components/shared-ui';
@@ -165,18 +166,26 @@ export function ServiceBundlesSection({
   onLearnMore,
   onBookNow,
 }: ServiceBundlesSectionProps) {
+  const router = useRouter();
+
   const handleLearnMore = (bundleId: string) => {
     if (onLearnMore) {
+      // Let parent handle navigation
       onLearnMore(bundleId);
+    } else {
+      // Default: navigate to coming soon
+      router.push({ pathname: '/coming-soon', params: { service: bundleId } });
     }
-    console.log('Learn more:', bundleId);
   };
 
   const handleBookNow = (bundleId: string) => {
     if (onBookNow) {
+      // Let parent handle navigation
       onBookNow(bundleId);
+    } else {
+      // Default: navigate to map with services sheet open
+      router.push('/home/map?openServices=true');
     }
-    console.log('Book now:', bundleId);
   };
 
   return (

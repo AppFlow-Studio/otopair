@@ -52,7 +52,7 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 
 // 3. Shared UI
-import { ScrollDrivenGradientBackground, Text } from "@/components/shared-ui";
+import { FadeInStagger, ScrollDrivenGradientBackground, Text } from '@/components/shared-ui';
 
 // 4. Constants & Hooks
 import { Spacing } from "@/constants/theme";
@@ -158,6 +158,27 @@ export default function MembershipPage() {
     router.back();
   };
 
+  // Share functions
+  const handleUploadShare = async () => {
+    try {
+      await Share.share({
+        message: 'Check out my service records on Otopair!',
+      });
+    } catch (error) {
+      console.log('Error sharing:', error);
+    }
+  };
+
+  const handleReferFriend = async () => {
+    try {
+      await Share.share({
+        message: 'Join me on Otopair and get $25 credit! Download the app here: https://otopair.com',
+      });
+    } catch (error) {
+      console.log('Error sharing:', error);
+    }
+  };
+
   // Redeem sheet functions
   const openRedeemSheet = () => {
     setSelectedRedeemOption(wallet?.auto_apply_to_booking !== false ? "booking" : "giftcard");
@@ -251,6 +272,8 @@ export default function MembershipPage() {
             onScroll={scrollHandler}
             scrollEventThrottle={16}
           >
+            {/* Staggered fade-in for page sections */}
+            <FadeInStagger staggerDelay={100} duration={800}>
             {/* Back Button */}
             <Pressable
               onPress={handleBack}
@@ -289,7 +312,7 @@ export default function MembershipPage() {
               {/* Add Car - Primary */}
               <View style={styles.actionButtonWrapper}>
                 <Pressable
-                  onPress={() => router.push("/(main-tabs)/cars")}
+                  onPress={() => router.push('/add-vehicle')}
                   style={({ pressed }) => [
                     styles.actionButton,
                     styles.actionButtonPrimary,
@@ -537,6 +560,7 @@ export default function MembershipPage() {
                 ))}
               </View>
             </View>
+            </FadeInStagger>
           </ReAnimated.ScrollView>
 
           {/* Redeem Bottom Sheet Modal */}

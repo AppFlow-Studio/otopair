@@ -66,6 +66,19 @@ export { Input, PasswordInput, SearchInput, type InputProps } from "./Input";
 // Error Modal
 export { ErrorOccurredModal } from "./ErrorOccurredModal";
 
+// Fade In Stagger Animation Component
+export {
+    FadeInStagger,
+    FadeInItem,
+    FADE_IN_STAGGER_CONFIG
+} from './FadeInStagger';
+
+// Scroll Fade In Animation Component
+export {
+    ScrollFadeIn,
+    SCROLL_FADE_IN_CONFIG
+} from './ScrollFadeIn';
+
 // Feedback Modal
 export { FeedbackModal, type FeedbackModalProps } from "./FeedbackModal";
 

@@ -36,5 +36,6 @@ export function useVehicleOwnershipFromConvex() {
     primaryVin,
     isLoading: listVehicles === undefined,
     hasVehicles: (listVehicles?.length ?? 0) > 0,
+    hasConnectedVehicle: (listVehicles ?? []).some((r) => r.connectionStatus === "connected"),
   };
 }

@@ -14,11 +14,11 @@
  *       AnimatedGradientBackground.tsx, under SHARED_GRADIENT_CONFIGS
  *   - scrollPerTransition (number, optional): Scroll distance (px) per stop transition, from
  *       one index of SHARED_GRADIENT_CONFIGS to the next index
- *   - children ((scrollHandler) => React.ReactNode): Render prop that receives the scroll handler
+ *   - children ((scrollHandler, scrollY) => React.ReactNode): Render prop that receives the scroll handler and scrollY value
  *
  * EXAMPLE:
  *   <ScrollDrivenGradientBackground colors={[BrandColors.secondary, BrandColors.secondary, '#f4f1f8']}>
- *     {(scrollHandler) => (
+ *     {(scrollHandler, scrollY) => (
  *       <Animated.ScrollView onScroll={scrollHandler} scrollEventThrottle={16}>
  *         ...
  *       </Animated.ScrollView>
@@ -50,12 +50,15 @@ const DEFAULT_SCROLL_PER_TRANSITION = 300;
 
 export interface ScrollDrivenGradientBackgroundProps {
   /** Gradient colors passed to `AnimatedGradientBackground` (min 2). Defaults to Activity screen scheme. */
-  colors?: string[]; // Ahmad has colors : [string, string, string] 
+  colors?: string[];
   gradientScrollIndices?: number[];
   scrollPerTransition?: number;
   /** Optional external scrollY to sync with other animations. */
   scrollY?: SharedValue<number>;
-  children: (scrollHandler: ScrollHandlerProcessed<Record<string, unknown>>) => React.ReactNode;
+  children: (
+    scrollHandler: ScrollHandlerProcessed<Record<string, unknown>>,
+    scrollY: SharedValue<number>
+  ) => React.ReactNode;
 }
 
 export function ScrollDrivenGradientBackground({
@@ -122,8 +125,7 @@ export function ScrollDrivenGradientBackground({
           colors={colors}
         />
       </View>
-      {children(scrollHandler)}
+      {children(scrollHandler, scrollY)}
     </>
   );
 }
-
