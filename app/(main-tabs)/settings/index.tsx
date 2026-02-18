@@ -23,15 +23,12 @@ import React, {
 } from "react";
 import {
   Dimensions,
-  FlatList,
   Image,
   LayoutChangeEvent,
   Modal,
   Platform,
   Pressable,
   StyleSheet,
-  TextInput,
-  TouchableOpacity,
   TouchableWithoutFeedback,
   View,
 } from "react-native";
@@ -76,8 +73,6 @@ import Animated, {
 } from "react-native-reanimated";
 import { useShallow } from "zustand/react/shallow";
 import { LinearGradient } from "expo-linear-gradient";
-// @ts-ignore Expo module available at runtime
-import * as ImagePicker from "expo-image-picker";
 import * as LocalAuthentication from "expo-local-authentication";
 import * as StoreReview from "expo-store-review";
 
@@ -97,17 +92,6 @@ import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import { usePaymentStore } from "@/stores/usePaymentStore";
 import { useTransactionsFromConvex } from "@/hooks/useTransactionsFromConvex";
 import { useVehicleStore } from "@/stores/useVehicleStore";
-import { useOnboardingPersistence } from "@/hooks/useOnboardingPersistence";
-import { Country } from "react-native-country-picker-modal";
-
-// Try to import getAllCountries from the country picker module.
-let getAllCountries: ((locale?: string) => Promise<Country[]>) | undefined;
-try {
-  const countryPickerModule = require("react-native-country-picker-modal");
-  getAllCountries = countryPickerModule.getAllCountries;
-} catch {
-  console.log("getAllCountries not available in library");
-}
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -171,8 +155,6 @@ export default function SettingsHomeScreen() {
   const { signOut } = useAuth();
   const { user: clerkUser } = useUser();
   const resetAuth = useAuthStore((s) => s.reset);
-  const { persistProfileField, persistProfilePhoto } =
-    useOnboardingPersistence();
 
   // Convex: current user and user-scoped data
   const me = useQuery(api.users.getMe);
@@ -445,371 +427,14 @@ export default function SettingsHomeScreen() {
     return { color };
   });
 
-  // ─────────────────────────────────────────────────────────────
-  // Edit Profile modal
-  // ─────────────────────────────────────────────────────────────
-  const [isEditVisible, setIsEditVisible] = useState(false);
-  const [showPhotoOptions, setShowPhotoOptions] = useState(false);
-  const [showCountryPicker, setShowCountryPicker] = useState(false);
-  const [editName, setEditName] = useState("");
-  const [editEmail, setEditEmail] = useState("");
-  const [editPhone, setEditPhone] = useState("");
-  const [editPhoneCountryCode, setEditPhoneCountryCode] = useState("US");
-  const [editPhoneCountry, setEditPhoneCountry] = useState<Country | null>(
-    null,
-  );
-  const [countrySearchQuery, setCountrySearchQuery] = useState("");
-  const [allCountries, setAllCountries] = useState<Country[]>([]);
-  const [editPhotoUri, setEditPhotoUri] = useState<string | null>(null);
-
-  useEffect(() => {
-    const loadCountries = async () => {
-      try {
-        if (getAllCountries) {
-          const countries = await getAllCountries("en");
-          if (countries && Array.isArray(countries) && countries.length > 0) {
-            const validCountries = countries.filter(
-              (c: Country) =>
-                c.callingCode &&
-                Array.isArray(c.callingCode) &&
-                c.callingCode.length > 0 &&
-                c.callingCode[0] &&
-                c.callingCode[0].trim() !== "",
-            );
-            setAllCountries(validCountries);
-            const usCountry = validCountries.find((c) => c.cca2 === "US");
-            if (usCountry) {
-              setEditPhoneCountry(usCountry);
-              setEditPhoneCountryCode("US");
-            }
-            return;
-          }
-        }
-
-        const commonCountries: Country[] = [
-          {
-            cca2: "US",
-            callingCode: ["1"],
-            name: { common: "United States" },
-          } as any,
-          { cca2: "CA", callingCode: ["1"], name: { common: "Canada" } } as any,
-          {
-            cca2: "GB",
-            callingCode: ["44"],
-            name: { common: "United Kingdom" },
-          } as any,
-          {
-            cca2: "AU",
-            callingCode: ["61"],
-            name: { common: "Australia" },
-          } as any,
-          {
-            cca2: "DE",
-            callingCode: ["49"],
-            name: { common: "Germany" },
-          } as any,
-        ];
-        setAllCountries(commonCountries);
-        setEditPhoneCountry(commonCountries[0]);
-        setEditPhoneCountryCode("US");
-      } catch (error) {
-        console.error("Error loading countries:", error);
-      }
-    };
-    loadCountries();
-  }, []);
-
-  const getFlagEmoji = useCallback((code: string) => {
-    if (code && code.length === 2) {
-      try {
-        const codePoints = code
-          .toUpperCase()
-          .split("")
-          .map((char) => 0x1f1e6 + (char.charCodeAt(0) - 65));
-        return String.fromCodePoint(...codePoints);
-      } catch {
-        return "🇺🇸";
-      }
-    }
-    return "🇺🇸";
-  }, []);
-
-  const getCallingCode = useCallback(() => {
-    if (
-      editPhoneCountry?.callingCode &&
-      editPhoneCountry.callingCode.length > 0
-    ) {
-      return editPhoneCountry.callingCode[0];
-    }
-    return "1";
-  }, [editPhoneCountry]);
-
-  const filteredCountries = useMemo(() => {
-    if (!countrySearchQuery.trim()) {
-      const usCountry = allCountries.find((c) => c.cca2 === "US");
-      const others = allCountries.filter((c) => c.cca2 !== "US");
-      return usCountry ? [usCountry, ...others] : allCountries;
-    }
-    const query = countrySearchQuery.toLowerCase();
-    return allCountries.filter((c) => {
-      const name = typeof c.name === "string" ? c.name : c.name?.common || "";
-      const nameStr = typeof name === "string" ? name : "";
-      return (
-        nameStr.toLowerCase().includes(query) ||
-        c.callingCode[0]?.includes(query) ||
-        c.cca2.toLowerCase().includes(query)
-      );
-    });
-  }, [allCountries, countrySearchQuery]);
-
   const openEditProfile = useCallback(
     (showPhotos = false) => {
-      const fromConvex =
-        me != null && (me.first_name ?? me.last_name)
-          ? `${me.first_name ?? ""} ${me.last_name ?? ""}`.trim()
-          : "";
-      const fromOnboarding =
-        `${data.firstName ?? ""} ${data.lastName ?? ""}`.trim();
-      const name = fromConvex.length > 0 ? fromConvex : fromOnboarding;
-      const email = (me?.email ?? data.email ?? "").toString().toLowerCase();
-      const rawPhone = (me?.phone ?? data.phoneNumber ?? "").toString();
-      const digitsOnlyPhone = rawPhone.replace(/\D/g, "");
-      let nationalPhone = digitsOnlyPhone;
-      let selectedCountryCode = "US";
-      let selectedCountry: Country | null =
-        allCountries.find((c) => c.cca2 === "US") ?? null;
-
-      if (rawPhone.trim().startsWith("+") && allCountries.length > 0) {
-        const matches = allCountries
-          .filter(
-            (c) =>
-              c.callingCode?.[0] && rawPhone.startsWith(`+${c.callingCode[0]}`),
-          )
-          .sort(
-            (a, b) =>
-              (b.callingCode?.[0]?.length ?? 0) -
-              (a.callingCode?.[0]?.length ?? 0),
-          );
-
-        if (matches.length > 0) {
-          // If multiple countries share +1, default to US for this settings flow.
-          const usPlusOneMatch = matches.find(
-            (c) => c.cca2 === "US" && c.callingCode?.[0] === "1",
-          );
-          const bestMatch = usPlusOneMatch ?? matches[0];
-          const callingPrefix = bestMatch.callingCode?.[0] ?? "";
-          selectedCountryCode = bestMatch.cca2;
-          selectedCountry = bestMatch;
-          nationalPhone = rawPhone
-            .replace(`+${callingPrefix}`, "")
-            .replace(/\D/g, "");
-        }
-      }
-
-      setEditName(name);
-      setEditEmail(email);
-      setEditPhone(nationalPhone);
-      setEditPhoneCountryCode(selectedCountryCode);
-      setEditPhoneCountry(selectedCountry);
-      setEditPhotoUri(profilePhotoUri);
-      setShowPhotoOptions(showPhotos);
-      setIsEditVisible(true);
-    },
-    [
-      me,
-      data.email,
-      data.firstName,
-      data.lastName,
-      data.phoneNumber,
-      profilePhotoUri,
-      allCountries,
-    ],
-  );
-
-  const handleSaveProfile = useCallback(async () => {
-    const normalizedName = editName.trim().replace(/\s+/g, " ");
-    const nameParts =
-      normalizedName.length > 0 ? normalizedName.split(" ") : [];
-    const firstName = nameParts.length > 0 ? nameParts[0] : null;
-    const lastName = nameParts.length > 1 ? nameParts.slice(1).join(" ") : null;
-
-    const normalizedEmail = editEmail.trim().toLowerCase();
-    const email = normalizedEmail.length > 0 ? normalizedEmail : null;
-
-    const normalizedPhoneDigits = editPhone.replace(/\D/g, "");
-    const phoneNumber =
-      normalizedPhoneDigits.length > 0
-        ? `+${getCallingCode()}${normalizedPhoneDigits}`
-        : null;
-
-    const currentEmail = (me?.email ?? data.email ?? "")
-      .toString()
-      .trim()
-      .toLowerCase();
-    const currentPhoneDigits = (me?.phone ?? data.phoneNumber ?? "")
-      .toString()
-      .replace(/\D/g, "");
-    const nextPhoneDigits = (phoneNumber ?? "").replace(/\D/g, "");
-    const emailChanged = email != null && email !== currentEmail;
-    const phoneChanged =
-      phoneNumber != null && nextPhoneDigits !== currentPhoneDigits;
-
-    // 1. Update Profile Photo if changed
-    if (editPhotoUri !== profilePhotoUri) {
-      updateData({ profilePhotoUri: editPhotoUri });
-      try {
-        await persistProfilePhoto(editPhotoUri);
-      } catch (e) {
-        console.warn("Convex photo update failed:", e);
-      }
-    }
-
-    // 2. Always save name changes now.
-    updateData({ firstName, lastName });
-    try {
-      await persistProfileField({
-        first_name: firstName ?? undefined,
-        last_name: lastName ?? undefined,
-      });
-    } catch (e) {
-      console.warn("Convex name update failed:", e);
-    }
-
-    setIsEditVisible(false);
-
-    // 3. If email or phone changed, route to shared verification screen.
-    if (emailChanged || phoneChanged) {
       router.push({
-        pathname: "/(main-tabs)/settings/verify-contact-update" as any,
-        params: {
-          verifyPhone: phoneChanged ? "1" : "0",
-          verifyEmail: emailChanged ? "1" : "0",
-          pendingPhone: phoneNumber ?? "",
-          pendingEmail: email ?? "",
-        },
+        pathname: "/(main-tabs)/settings/edit-profile" as any,
+        params: { showPhotos: showPhotos ? "1" : "0" },
       });
-      return;
-    }
-
-    // 4. Otherwise, persist contact fields directly.
-    updateData({ email, phoneNumber });
-    try {
-      await persistProfileField({
-        email: email ?? undefined,
-        phone: phoneNumber ?? undefined,
-      });
-    } catch (e) {
-      console.warn("Convex profile contact update failed:", e);
-    }
-  }, [
-    editEmail,
-    editName,
-    editPhone,
-    editPhotoUri,
-    profilePhotoUri,
-    updateData,
-    persistProfileField,
-    persistProfilePhoto,
-    getCallingCode,
-    me?.email,
-    me?.phone,
-    data.email,
-    data.phoneNumber,
-    router,
-  ]);
-
-  const requestLibraryPermission = async () => {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    return status === "granted";
-  };
-
-  const requestCameraPermission = async () => {
-    const { status } = await ImagePicker.requestCameraPermissionsAsync();
-    return status === "granted";
-  };
-
-  const handleChooseFromLibrary = useCallback(async () => {
-    const hasPermission = await requestLibraryPermission();
-    if (!hasPermission) {
-      setShowPhotoOptions(false);
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ["images"],
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.9,
-    });
-
-    setShowPhotoOptions(false);
-    if (!result.canceled && result.assets?.length) {
-      setEditPhotoUri(result.assets[0].uri);
-    }
-  }, []);
-
-  const handleTakePhoto = useCallback(async () => {
-    const hasPermission = await requestCameraPermission();
-    if (!hasPermission) {
-      setShowPhotoOptions(false);
-      return;
-    }
-    const result = await ImagePicker.launchCameraAsync({
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.9,
-      mediaTypes: ["images"],
-    });
-
-    setShowPhotoOptions(false);
-    if (!result.canceled && result.assets?.length) {
-      setEditPhotoUri(result.assets[0].uri);
-    }
-  }, []);
-
-  const handleRemovePhoto = useCallback(() => {
-    setShowPhotoOptions(false);
-    setEditPhotoUri(null);
-  }, []);
-
-  const handleCountrySelect = useCallback((selectedCountry: Country) => {
-    setEditPhoneCountryCode(selectedCountry.cca2);
-    setEditPhoneCountry(selectedCountry);
-    setShowCountryPicker(false);
-    setCountrySearchQuery("");
-  }, []);
-
-  const handleCloseCountryPicker = useCallback(() => {
-    setShowCountryPicker(false);
-    setCountrySearchQuery("");
-  }, []);
-
-  const renderCountryItem = useCallback(
-    ({ item }: { item: Country }) => {
-      const isSelected = item.cca2 === editPhoneCountryCode;
-      const countryName =
-        typeof item.name === "string"
-          ? item.name
-          : item.name?.common || item.cca2;
-      return (
-        <TouchableOpacity
-          style={[styles.countryItem, isSelected && styles.countryItemSelected]}
-          onPress={() => handleCountrySelect(item)}
-        >
-          <View style={styles.countryItemFlag}>
-            <Text style={styles.countryItemFlagText}>
-              {getFlagEmoji(item.cca2)}
-            </Text>
-          </View>
-          <Text style={styles.countryItemCode}>
-            +{item.callingCode?.[0] ?? ""}
-          </Text>
-          <Text style={styles.countryItemName} numberOfLines={1}>
-            {countryName}
-          </Text>
-        </TouchableOpacity>
-      );
     },
-    [editPhoneCountryCode, getFlagEmoji, handleCountrySelect],
+    [router],
   );
 
   // ─────────────────────────────────────────────────────────────
@@ -1029,7 +654,11 @@ export default function SettingsHomeScreen() {
                   <View style={styles.sectionCard}>
                     <SettingsListItem
                       icon={<Car size={20} color="#1F2937" />}
-                      label={vehicleCount > 0 ? `My Vehicles (${vehicleCount})` : "My Vehicles"}
+                      label={
+                        vehicleCount > 0
+                          ? `My Vehicles (${vehicleCount})`
+                          : "My Vehicles"
+                      }
                       onPress={() => router.push("/cars")}
                     />
                     <SettingsListItem
@@ -1264,243 +893,13 @@ export default function SettingsHomeScreen() {
         )}
       </ScrollDrivenGradientBackground>
 
-      <Modal transparent visible={isEditVisible} animationType="fade">
-        <View style={styles.modalOverlay}>
-          <TouchableWithoutFeedback>
-            <View style={styles.editModalCard}>
-              {showPhotoOptions ? (
-                <>
-                  <Text
-                    weight="semiBold"
-                    size="xl"
-                    color="#111827"
-                    style={styles.editModalTitle}
-                  >
-                    Profile Photo
-                  </Text>
-                  <Text
-                    size="sm"
-                    color="#6B7280"
-                    style={styles.photoModalSubtitle}
-                  >
-                    Select an option to update your profile picture
-                  </Text>
-                  <View style={styles.photoModalButtons}>
-                    <Pressable
-                      style={styles.photoModalPrimaryButton}
-                      onPress={handleChooseFromLibrary}
-                    >
-                      <Text
-                        weight="semiBold"
-                        size="md"
-                        color={BrandColors.white}
-                      >
-                        Choose from library
-                      </Text>
-                    </Pressable>
-                    <Pressable
-                      style={styles.photoModalSecondaryButton}
-                      onPress={handleTakePhoto}
-                    >
-                      <Text weight="semiBold" size="md" color="#111827">
-                        Take a photo
-                      </Text>
-                    </Pressable>
-                    {editPhotoUri ? (
-                      <Pressable
-                        style={styles.photoModalRemoveButton}
-                        onPress={handleRemovePhoto}
-                      >
-                        <Text weight="semiBold" size="md" color="#EF4444">
-                          Remove photo
-                        </Text>
-                      </Pressable>
-                    ) : null}
-                    <Button
-                      variant="ghost"
-                      fullWidth
-                      style={styles.modalActionButton}
-                      onPress={() => setShowPhotoOptions(false)}
-                    >
-                      Cancel
-                    </Button>
-                  </View>
-                </>
-              ) : (
-                <>
-                  <Text
-                    weight="semiBold"
-                    size="xl"
-                    color="#111827"
-                    style={styles.editModalTitle}
-                  >
-                    Edit Profile
-                  </Text>
-                  <View style={styles.editAvatarRow}>
-                    <Pressable
-                      style={styles.editAvatarWrapper}
-                      onPress={() => setShowPhotoOptions(true)}
-                    >
-                      {editPhotoUri ? (
-                        <Image
-                          source={{ uri: editPhotoUri }}
-                          style={styles.editAvatarImage}
-                        />
-                      ) : (
-                        <View style={styles.editAvatarPlaceholder}>
-                          <Text
-                            weight="semiBold"
-                            size="xl"
-                            color={BrandColors.secondary}
-                          >
-                            {initials}
-                          </Text>
-                        </View>
-                      )}
-                      <View style={styles.cameraBadge}>
-                        <Text weight="semiBold" size="sm" color="#FFF">
-                          +
-                        </Text>
-                      </View>
-                    </Pressable>
-                  </View>
-                  <View style={styles.field}>
-                    <Text weight="medium" size="sm" color="#374151">
-                      Name
-                    </Text>
-                    <TextInput
-                      value={editName}
-                      onChangeText={setEditName}
-                      placeholder="Your name"
-                      style={styles.input}
-                      autoCapitalize="words"
-                    />
-                  </View>
-                  <View style={styles.field}>
-                    <Text weight="medium" size="sm" color="#374151">
-                      Email
-                    </Text>
-                    <TextInput
-                      value={editEmail}
-                      onChangeText={(value) =>
-                        setEditEmail(value.toLowerCase())
-                      }
-                      placeholder="you@example.com"
-                      style={styles.input}
-                      keyboardType="email-address"
-                      autoCapitalize="none"
-                    />
-                  </View>
-                  <View style={styles.field}>
-                    <Text weight="medium" size="sm" color="#374151">
-                      Phone Number
-                    </Text>
-                    <View style={styles.phoneInputContainer}>
-                      <Pressable
-                        onPress={() => setShowCountryPicker(true)}
-                        style={styles.countryCodeContainer}
-                      >
-                        <View style={styles.flagContainer}>
-                          <Text style={styles.countryCodeText}>
-                            {getFlagEmoji(editPhoneCountryCode)}
-                          </Text>
-                        </View>
-                        <Text style={styles.countryCodeNumber}>
-                          +{getCallingCode()}
-                        </Text>
-                      </Pressable>
-                      <TextInput
-                        value={editPhone}
-                        onChangeText={setEditPhone}
-                        placeholder="(555) 123-4567"
-                        style={styles.phoneInput}
-                        keyboardType="phone-pad"
-                        autoCapitalize="none"
-                      />
-                    </View>
-                  </View>
-                  <View style={styles.editActionsRow}>
-                    <Button
-                      variant="ghost"
-                      fullWidth
-                      style={styles.modalActionButton}
-                      onPress={() => setIsEditVisible(false)}
-                    >
-                      Cancel
-                    </Button>
-                    <Button
-                      variant="secondary"
-                      fullWidth
-                      style={styles.modalActionButton}
-                      onPress={handleSaveProfile}
-                    >
-                      Update
-                    </Button>
-                  </View>
-                </>
-              )}
-            </View>
-          </TouchableWithoutFeedback>
-        </View>
-      </Modal>
-
       <Modal
-        visible={showCountryPicker}
         transparent
-        animationType="slide"
-        onRequestClose={handleCloseCountryPicker}
+        visible={isLogoutVisible}
+        animationType="fade"
+        statusBarTranslucent
+        navigationBarTranslucent
       >
-        <Pressable
-          style={styles.countryPickerBackdrop}
-          onPress={handleCloseCountryPicker}
-        >
-          <Pressable
-            style={[
-              styles.countryPickerSheet,
-              { paddingBottom: insets.bottom },
-            ]}
-            onPress={(e) => e.stopPropagation()}
-          >
-            <View style={styles.countryPickerHandle} />
-            <View style={styles.countryPickerHeader}>
-              <Text weight="semiBold" size="lg" color="#111827">
-                Select Country
-              </Text>
-              <Pressable onPress={handleCloseCountryPicker}>
-                <Text weight="medium" size="md" color={BrandColors.secondary}>
-                  Close
-                </Text>
-              </Pressable>
-            </View>
-            <View style={styles.countrySearchContainer}>
-              <TextInput
-                style={styles.countrySearchInput}
-                placeholder="Search country / region"
-                placeholderTextColor="#9CA3AF"
-                value={countrySearchQuery}
-                onChangeText={setCountrySearchQuery}
-              />
-            </View>
-            <FlatList
-              data={filteredCountries}
-              renderItem={renderCountryItem}
-              keyExtractor={(item) => item.cca2}
-              keyboardShouldPersistTaps="handled"
-              contentContainerStyle={styles.countryListContent}
-              style={styles.countryList}
-              ListEmptyComponent={
-                <View style={styles.emptyCountryList}>
-                  <Text size="sm" color="#6B7280">
-                    No countries found.
-                  </Text>
-                </View>
-              }
-            />
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      <Modal transparent visible={isLogoutVisible} animationType="fade">
         <TouchableWithoutFeedback onPress={() => setIsLogoutVisible(false)}>
           <View style={styles.modalOverlay}>
             <TouchableWithoutFeedback>
