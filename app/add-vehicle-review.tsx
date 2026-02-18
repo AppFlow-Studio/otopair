@@ -57,6 +57,7 @@ export default function AddVehicleReviewScreen() {
   const [error, setError] = useState<string | null>(null);
 
   const confirmVehicle = useAction(api.vehicle_pipeline.confirmVehicleForUser);
+  const generateVehicleImage = useAction(api.imagin.generateVehicleImage);
   const { connect, isConnecting, error: smartcarError } = useSmartcar();
 
   const me = useQuery(api.users.getMe);
@@ -117,7 +118,21 @@ export default function AddVehicleReviewScreen() {
       });
 
       if (result.success) {
-        router.replace('/vehicle-added');
+        if (params.make && params.model && params.vin) {
+          generateVehicleImage({
+            vin: params.vin,
+            make: params.make,
+            model: params.model,
+            year: parseFloat(params.year || "0") || undefined,
+          }).catch((e: any) => console.warn("Vehicle image generation failed", e));
+        }
+        router.replace({
+          pathname: '/car-pre-onboarding',
+          params: {
+            flow: 'manual',
+            vehicleOwnerId: String(result.vehicleOwnerId),
+          },
+        });
       } else {
         setError(result.error || 'Failed to add vehicle');
       }

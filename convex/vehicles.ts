@@ -303,7 +303,7 @@ export const addOwner = mutation({
         // Reactivate removed ownership
         const updates: any = {
           status: "active",
-          removed_at: null,
+          removed_at: undefined,
           added_at: now,
           connectionStatus: existing.connectionStatus || "unconnected",
         };
@@ -346,10 +346,10 @@ export const addOwner = mutation({
 });
 
 /**
- * Soft-delete ownership (remove vehicle from user)
- * 
- * Sets status="removed" and removed_at timestamp.
- * Vehicle catalog remains; user just no longer owns it.
+ * Hard-delete ownership (remove vehicle from user).
+ *
+ * Deletes the row from vehicle_owners and cascades cleanup for
+ * vehicle-owner scoped records.
  */
 export const removeOwner = mutation({
   args: {
@@ -371,12 +371,96 @@ export const removeOwner = mutation({
       throw new Error(`No ownership found for VIN: ${args.vin}, User: ${args.userId}`);
     }
     
-    // Soft-delete by setting status="removed"
-    await ctx.db.patch(ownership._id, {
-      status: "removed",
-      removed_at: Date.now(),
-      is_primary: false,  // Force non-primary when removed
-    });
+    // Delete Smartcar connection rows for this ownership
+    const smartcarConnections = await ctx.db
+      .query("smartcar_connections")
+      .withIndex("by_vehicle_owner", (q) => q.eq("vehicleOwnerId", ownership._id))
+      .collect();
+    for (const row of smartcarConnections) {
+      await ctx.db.delete(row._id);
+    }
+
+    // Delete Smartcar snapshot rows for this ownership
+    const healthSnapshots = await ctx.db
+      .query("vehicle_health_snapshots")
+      .withIndex("by_vehicle_owner", (q) => q.eq("vehicleOwnerId", ownership._id))
+      .collect();
+    for (const row of healthSnapshots) {
+      await ctx.db.delete(row._id);
+    }
+
+    // Delete odometer history rows for this ownership
+    const odometerRows = await ctx.db
+      .query("odometer_history")
+      .withIndex("by_vehicle_and_date", (q) => q.eq("vehicleOwnerId", ownership._id))
+      .collect();
+    for (const row of odometerRows) {
+      await ctx.db.delete(row._id);
+    }
+
+    // Delete maintenance records for this ownership
+    const maintenanceRows = await ctx.db
+      .query("maintenance_records")
+      .withIndex("by_vehicle_owner", (q) => q.eq("vehicleOwnerId", ownership._id))
+      .collect();
+    for (const row of maintenanceRows) {
+      await ctx.db.delete(row._id);
+    }
+
+    // Finally delete the ownership row itself.
+    await ctx.db.delete(ownership._id);
+  },
+});
+
+/**
+ * Hard-delete ownership by vehicle_owners._id.
+ *
+ * Use this when caller already has ownership id (most reliable key).
+ */
+export const removeOwnerById = mutation({
+  args: {
+    vehicleOwnerId: v.id("vehicle_owners"),
+  },
+  handler: async (ctx, args) => {
+    const ownership = await ctx.db.get(args.vehicleOwnerId);
+    if (!ownership) {
+      throw new Error(`No ownership found for id: ${args.vehicleOwnerId}`);
+    }
+
+    const smartcarConnections = await ctx.db
+      .query("smartcar_connections")
+      .withIndex("by_vehicle_owner", (q) => q.eq("vehicleOwnerId", ownership._id))
+      .collect();
+    for (const row of smartcarConnections) {
+      await ctx.db.delete(row._id);
+    }
+
+    const healthSnapshots = await ctx.db
+      .query("vehicle_health_snapshots")
+      .withIndex("by_vehicle_owner", (q) => q.eq("vehicleOwnerId", ownership._id))
+      .collect();
+    for (const row of healthSnapshots) {
+      await ctx.db.delete(row._id);
+    }
+
+    const odometerRows = await ctx.db
+      .query("odometer_history")
+      .withIndex("by_vehicle_and_date", (q) => q.eq("vehicleOwnerId", ownership._id))
+      .collect();
+    for (const row of odometerRows) {
+      await ctx.db.delete(row._id);
+    }
+
+    const maintenanceRows = await ctx.db
+      .query("maintenance_records")
+      .withIndex("by_vehicle_owner", (q) => q.eq("vehicleOwnerId", ownership._id))
+      .collect();
+    for (const row of maintenanceRows) {
+      await ctx.db.delete(row._id);
+    }
+
+    await ctx.db.delete(ownership._id);
+    return { success: true };
   },
 });
 
@@ -474,10 +558,21 @@ export const resetVehicleOnboarding = mutation({
   handler: async (ctx, args) => {
     // Clear profile fields
     await ctx.db.patch(args.vehicleOwnerId, {
+      ownershipType: undefined,
+      ownedSinceNew: undefined,
+      mileageAtPurchase: undefined,
+      ownershipDuration: undefined,
       mileage: undefined,
+      annualMileageBand: undefined,
+      usagePattern: undefined,
+      lastServiceWhen: undefined,
+      lastServiceWhat: undefined,
+      serviceLocationPreference: undefined,
+      garageRole: undefined,
       avgMonthlyDriving: undefined,
       drivingConditions: undefined,
       knownIssues: undefined,
+      preOnboardingComplete: undefined,
       onboardingComplete: undefined,
     });
 
@@ -494,6 +589,110 @@ export const resetVehicleOnboarding = mutation({
     }
 
     return { success: true };
+  },
+});
+
+/**
+ * Marks the pre-onboarding flow as complete for a vehicle owner.
+ * This is the gate before the existing CarInfoStepper questions.
+ */
+export const completeVehiclePreOnboarding = mutation({
+  args: {
+    vehicleOwnerId: v.id("vehicle_owners"),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.vehicleOwnerId, {
+      preOnboardingComplete: true,
+    });
+    return { success: true };
+  },
+});
+
+/**
+ * Saves the branching pre-onboarding questionnaire (Vehicle Onboarding v2)
+ * and marks preOnboardingComplete when required answers are present.
+ */
+export const saveVehiclePreOnboarding = mutation({
+  args: {
+    vehicleOwnerId: v.id("vehicle_owners"),
+    ownershipType: v.string(), // "leased" | "owned"
+    ownedSinceNew: v.optional(v.boolean()),
+    mileageAtPurchase: v.optional(v.float64()),
+    ownershipDuration: v.optional(v.string()),
+    currentMileage: v.float64(),
+    annualMileageBand: v.string(), // "light" | "avg" | "heavy" | "very_heavy"
+    usagePattern: v.string(), // "mostly_local" | "mostly_highway" | "mixed"
+    lastServiceWhen: v.optional(v.string()),
+    lastServiceWhat: v.optional(v.array(v.string())),
+    serviceLocationPreference: v.optional(v.string()),
+    concernText: v.optional(v.string()),
+    garageRole: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const owner = await ctx.db.get(args.vehicleOwnerId);
+    if (!owner) {
+      throw new Error(`Vehicle ownership not found: ${args.vehicleOwnerId}`);
+    }
+
+    if (args.ownershipType !== "leased" && args.ownershipType !== "owned") {
+      throw new Error("Invalid ownershipType");
+    }
+    if (args.ownershipType === "owned" && args.ownedSinceNew === undefined) {
+      throw new Error("ownedSinceNew is required when ownershipType is owned");
+    }
+    if (args.currentMileage < 0) {
+      throw new Error("currentMileage must be >= 0");
+    }
+
+    // Map new pre-onboarding bands to existing fields used by maintenance logic.
+    const avgMonthlyDriving =
+      args.annualMileageBand === "light"
+        ? "light"
+        : args.annualMileageBand === "avg"
+          ? "average"
+          : "heavy"; // heavy + very_heavy collapse into existing model
+
+    const drivingConditions =
+      args.usagePattern === "mostly_local"
+        ? "city"
+        : args.usagePattern === "mostly_highway"
+          ? "highway"
+          : "mixed";
+
+    const knownIssues =
+      args.concernText && args.concernText.trim().length > 0
+        ? [args.concernText.trim()]
+        : undefined;
+
+    const path3 = args.ownershipType === "owned" && args.ownedSinceNew === false;
+    const isComplete =
+      !!args.ownershipType &&
+      args.currentMileage >= 0 &&
+      !!args.annualMileageBand &&
+      !!args.usagePattern &&
+      (args.ownershipType === "leased" ||
+        args.ownedSinceNew === true ||
+        (path3 && !!args.ownershipDuration));
+
+    await ctx.db.patch(args.vehicleOwnerId, {
+      ownershipType: args.ownershipType,
+      ownedSinceNew: args.ownershipType === "owned" ? args.ownedSinceNew : undefined,
+      mileageAtPurchase: path3 ? args.mileageAtPurchase : undefined,
+      ownershipDuration: path3 ? args.ownershipDuration : undefined,
+      mileage: args.currentMileage,
+      annualMileageBand: args.annualMileageBand,
+      usagePattern: args.usagePattern,
+      lastServiceWhen: args.lastServiceWhen,
+      lastServiceWhat: args.lastServiceWhat,
+      serviceLocationPreference: args.serviceLocationPreference,
+      garageRole: args.garageRole,
+      avgMonthlyDriving,
+      drivingConditions,
+      knownIssues,
+      preOnboardingComplete: isComplete,
+    });
+
+    return { success: true, preOnboardingComplete: isComplete };
   },
 });
 
@@ -592,6 +791,10 @@ export const saveOnboardingField = mutation({
         const v = value as { date: number };
         const expirationDate = v.date + 12 * 30.44 * 24 * 60 * 60 * 1000;
         await upsertRecord("inspection", v.date, undefined, { expirationDate });
+        break;
+      }
+      case "knownIssues": {
+        await ctx.db.patch(vehicleOwnerId, { knownIssues: value as string[] });
         break;
       }
       default:

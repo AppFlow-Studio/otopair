@@ -82,6 +82,8 @@ interface CarCarouselProps {
   maintenanceItems?: import("@/components/cars/MaintenanceTracker").MaintenanceItem[];
   /** Current odometer reading in miles */
   currentMileage?: number | null;
+  /** Whether to show the health ring (hidden until onboarding is complete for non-connected vehicles) */
+  showHealthRing?: boolean;
 }
 
 // ============================================================================
@@ -1317,7 +1319,7 @@ const ActivityRings = ({
       </Svg>
       {/* Centered percentage */}
       <View style={activityRingStyles.centerContainer}>
-        <Text style={[activityRingStyles.percentageText, { color: ringColor }]}>
+        <Text style={[activityRingStyles.percentageText, { color: '#1F2937' }]}>
           {Math.round(animatedHealth)}%
         </Text>
       </View>
@@ -1453,18 +1455,14 @@ export function CarCarousel({
   isFocused,
   maintenanceItems,
   currentMileage,
+  showHealthRing = true,
 }: CarCarouselProps) {
-  // Sort vehicles so default car is first - memoized to prevent re-renders
-  const sortedVehicles = useMemo(() => 
-    [...vehicles].sort((a, b) => {
-      if (a.isDefault && !b.isDefault) return -1;
-      if (!a.isDefault && b.isDefault) return 1;
-      return 0;
-    }), [vehicles]);
+  // Trust parent ordering to keep indices consistent across screens.
+  const sortedVehicles = useMemo(() => vehicles, [vehicles]);
 
   const [activeIndex, setActiveIndex] = useState(0);
   const rotation = useSharedValue(0);
-  const anglePerItem = (2 * Math.PI) / sortedVehicles.length;
+  const anglePerItem = sortedVehicles.length > 0 ? (2 * Math.PI) / sortedVehicles.length : 0;
   const lastUpdatedIndex = useSharedValue(0);
 
   // Bottom sheet state
@@ -1489,6 +1487,22 @@ export function CarCarousel({
   };
 
   const activeVehicle = sortedVehicles[activeIndex];
+
+  useEffect(() => {
+    if (sortedVehicles.length === 0) {
+      setActiveIndex(0);
+      rotation.value = 0;
+      lastUpdatedIndex.value = 0;
+      return;
+    }
+    const nextIndex = Math.min(activeIndex, sortedVehicles.length - 1);
+    if (nextIndex !== activeIndex) {
+      setActiveIndex(nextIndex);
+      onActiveIndexChange?.(nextIndex);
+    }
+    rotation.value = -nextIndex * anglePerItem;
+    lastUpdatedIndex.value = nextIndex;
+  }, [sortedVehicles.length, activeIndex, anglePerItem, onActiveIndexChange, rotation, lastUpdatedIndex]);
 
   // Calculate overall vehicle condition from real data
   const getMileageScoreForRing = (miles: number) => {
@@ -1738,14 +1752,16 @@ export function CarCarousel({
           </Pressable>
         </View>
 
-        {/* Activity Rings - Vehicle Condition */}
-        <ActivityRings 
-          healthPercentage={overallCondition}
-          maintenancePercentage={maintenanceScoreForRing}
-          servicePercentage={usageScoreForRing}
-          size={72}
-          onPress={() => setShowHealthModal(true)}
-        />
+        {/* Activity Rings - Vehicle Condition (hidden until onboarding is complete) */}
+        {showHealthRing && (
+          <ActivityRings 
+            healthPercentage={overallCondition}
+            maintenancePercentage={maintenanceScoreForRing}
+            servicePercentage={usageScoreForRing}
+            size={72}
+            onPress={() => setShowHealthModal(true)}
+          />
+        )}
       </View>
 
       {/* Separator */}

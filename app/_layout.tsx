@@ -208,6 +208,13 @@ export default function RootLayout() {
                     animationDuration: 300,
                   }}
                 />
+                <Stack.Screen
+                  name="car-pre-onboarding"
+                  options={{
+                    animation: "fade_from_bottom",
+                    animationDuration: 280,
+                  }}
+                />
                 <Stack.Screen name="vin-scanner" />
                 <Stack.Screen name="add-vehicle-review" />
                 <Stack.Screen name="payments" />

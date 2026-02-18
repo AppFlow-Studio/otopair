@@ -556,7 +556,7 @@ export const confirmVehicleForUser = action({
     });
 
     // Link vehicle to user
-    await ctx.runMutation(api.vehicles.addOwner, {
+    const vehicleOwnerId = await ctx.runMutation(api.vehicles.addOwner, {
       vin,
       userId: user._id,
       nickname: `${args.year} ${args.make} ${args.model}`,
@@ -576,7 +576,7 @@ export const confirmVehicleForUser = action({
       fuelType: args.fuelType,
     });
 
-    return { success: true as const };
+    return { success: true as const, vehicleOwnerId };
   },
 });
 

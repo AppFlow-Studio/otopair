@@ -112,6 +112,40 @@ const QUESTION_CONFIGS: Record<MaintenanceType, QuestionConfig> = {
 
 const OIL_TYPES = ["Conventional", "Synthetic", "Synthetic Blend"] as const;
 
+/** Date-range options shown instead of a calendar picker */
+const DATE_RANGE_OPTIONS = [
+  { id: "lt6m", label: "Less than 6 months ago" },
+  { id: "6m1y", label: "6 months to a year ago" },
+  { id: "gt1y", label: "Over a year ago" },
+  { id: "never", label: "Don't know / Never" },
+] as const;
+
+type DateRangeId = (typeof DATE_RANGE_OPTIONS)[number]["id"];
+
+/** Convert a selected range into an approximate past timestamp */
+function dateRangeToTimestamp(range: DateRangeId): number | undefined {
+  const now = Date.now();
+  const MS_PER_MONTH = 30.44 * 24 * 60 * 60 * 1000;
+  switch (range) {
+    case "lt6m":
+      return now - 3 * MS_PER_MONTH;   // ~3 months ago
+    case "6m1y":
+      return now - 9 * MS_PER_MONTH;   // ~9 months ago
+    case "gt1y":
+      return now - 18 * MS_PER_MONTH;  // ~18 months ago
+    case "never":
+      return undefined;                 // no date
+  }
+}
+
+/** Map an existing timestamp back to the closest range option */
+function timestampToDateRange(ts: number): DateRangeId {
+  const monthsAgo = (Date.now() - ts) / (30.44 * 24 * 60 * 60 * 1000);
+  if (monthsAgo < 6) return "lt6m";
+  if (monthsAgo < 12) return "6m1y";
+  return "gt1y";
+}
+
 // ============================================================================
 // COMPONENT
 // ============================================================================
@@ -162,7 +196,7 @@ export function MaintenanceInputModal({
   }, [keyboardOffset]);
 
   // ── Form state ──────────────────────────────────────────────
-  const [serviceDate, setServiceDate] = useState<Date | null>(null);
+  const [serviceDateRange, setServiceDateRange] = useState<DateRangeId | null>(null);
   const [mileage, setMileage] = useState("");
   const [extraDate, setExtraDate] = useState<Date | null>(null);
   const [toggleValue, setToggleValue] = useState(false);
@@ -170,8 +204,7 @@ export function MaintenanceInputModal({
   const [tirePressure, setTirePressure] = useState({ fl: "", fr: "", rl: "", rr: "" });
   const [saving, setSaving] = useState(false);
 
-  // ── Date picker visibility (Android needs explicit show/hide) ──
-  const [showDatePicker, setShowDatePicker] = useState(false);
+  // ── Date picker visibility (Android — extra date only) ──
   const [showExtraDatePicker, setShowExtraDatePicker] = useState(false);
 
   // ── Open/close animations ───────────────────────────────────
@@ -244,7 +277,7 @@ export function MaintenanceInputModal({
   useEffect(() => {
     if (existingRecord) {
       if (existingRecord.lastServiceDate) {
-        setServiceDate(new Date(existingRecord.lastServiceDate));
+        setServiceDateRange(timestampToDateRange(existingRecord.lastServiceDate));
       }
       if (existingRecord.lastServiceMileage) {
         setMileage(String(Math.round(existingRecord.lastServiceMileage)));
@@ -267,7 +300,7 @@ export function MaintenanceInputModal({
       }
     } else {
       // Reset form
-      setServiceDate(null);
+      setServiceDateRange(null);
       setMileage("");
       setExtraDate(null);
       setToggleValue(false);
@@ -294,10 +327,12 @@ export function MaintenanceInputModal({
         };
         customInputs.tirePressure = tp;
       }
+      const computedServiceDate = serviceDateRange ? dateRangeToTimestamp(serviceDateRange) : undefined;
+
       await upsertRecord({
         vehicleOwnerId,
         type: maintenanceType,
-        lastServiceDate: serviceDate ? serviceDate.getTime() : undefined,
+        lastServiceDate: computedServiceDate,
         lastServiceMileage: mileage ? parseFloat(mileage) : undefined,
         customInputs: Object.keys(customInputs).length > 0 ? customInputs : undefined,
       });
@@ -313,7 +348,7 @@ export function MaintenanceInputModal({
     config,
     maintenanceType,
     vehicleOwnerId,
-    serviceDate,
+    serviceDateRange,
     mileage,
     extraDate,
     toggleValue,
@@ -326,15 +361,10 @@ export function MaintenanceInputModal({
 
   // ── Validation: at least one piece of data must be provided ──
   const canSave = useMemo(() => {
-    return !!serviceDate || !!mileage;
-  }, [serviceDate, mileage]);
+    return !!serviceDateRange || !!mileage;
+  }, [serviceDateRange, mileage]);
 
-  // ── Date change handlers ────────────────────────────────────
-  const onServiceDateChange = (_event: DateTimePickerEvent, date?: Date) => {
-    if (Platform.OS === "android") setShowDatePicker(false);
-    if (date) setServiceDate(date);
-  };
-
+  // ── Date change handlers (extra date only — main date uses range options) ──
   const onExtraDateChange = (_event: DateTimePickerEvent, date?: Date) => {
     if (Platform.OS === "android") setShowExtraDatePicker(false);
     if (date) setExtraDate(date);
@@ -384,43 +414,32 @@ export function MaintenanceInputModal({
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
           >
-            {/* ── Date picker ────────────────────────────── */}
+            {/* ── Date range options ─────────────────────── */}
             {config.showDate && (
               <View style={styles.fieldGroup}>
                 <Text weight="semiBold" size="md" color="#1F2937">
                   {config.dateLabel}
                 </Text>
-                {Platform.OS === "ios" ? (
-                  <DateTimePicker
-                    value={serviceDate || new Date()}
-                    mode="date"
-                    display="compact"
-                    maximumDate={new Date()}
-                    onChange={onServiceDateChange}
-                    style={styles.datePicker}
-                  />
-                ) : (
-                  <>
-                    <Pressable
-                      style={styles.dateButton}
-                      onPress={() => setShowDatePicker(true)}
-                    >
-                      <Ionicons name="calendar-outline" size={18} color="#5299FE" />
-                      <Text size="md" color="#1F2937">
-                        {formatDisplayDate(serviceDate)}
-                      </Text>
-                    </Pressable>
-                    {showDatePicker && (
-                      <DateTimePicker
-                        value={serviceDate || new Date()}
-                        mode="date"
-                        display="default"
-                        maximumDate={new Date()}
-                        onChange={onServiceDateChange}
-                      />
-                    )}
-                  </>
-                )}
+                <View style={styles.dateRangeList}>
+                  {DATE_RANGE_OPTIONS.map((opt) => {
+                    const selected = serviceDateRange === opt.id;
+                    return (
+                      <Pressable
+                        key={opt.id}
+                        style={[styles.dateRangeCard, selected && styles.dateRangeCardActive]}
+                        onPress={() => setServiceDateRange(opt.id)}
+                      >
+                        <Text
+                          weight={selected ? "bold" : "medium"}
+                          size="sm"
+                          color={selected ? "#1E40AF" : "#1F2937"}
+                        >
+                          {opt.label}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
               </View>
             )}
 
@@ -458,12 +477,12 @@ export function MaintenanceInputModal({
                     mode="date"
                     display="compact"
                     onChange={onExtraDateChange}
-                    style={styles.datePicker}
+                    style={styles.extraDatePicker}
                   />
                 ) : (
                   <>
                     <Pressable
-                      style={styles.dateButton}
+                      style={styles.extraDateButton}
                       onPress={() => setShowExtraDatePicker(true)}
                     >
                       <Ionicons name="calendar-outline" size={18} color="#5299FE" />
@@ -501,9 +520,9 @@ export function MaintenanceInputModal({
                       onPress={() => setOilType(type)}
                     >
                       <Text
-                        weight={oilType === type ? "semiBold" : "medium"}
+                        weight={oilType === type ? "bold" : "medium"}
                         size="sm"
-                        color={oilType === type ? "#fff" : "#1F2937"}
+                        color={oilType === type ? "#1E40AF" : "#1F2937"}
                       >
                         {type}
                       </Text>
@@ -655,35 +674,66 @@ const styles = StyleSheet.create({
   fieldGroup: {
     gap: 8,
   },
-  datePicker: {
+  dateRangeList: {
+    gap: 8,
+  },
+  dateRangeCard: {
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1.5,
+    borderColor: "#D1D5DB",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  dateRangeCardActive: {
+    backgroundColor: "rgba(82, 153, 254, 0.08)",
+    borderColor: "#5299FE",
+    borderWidth: 2,
+  },
+  extraDatePicker: {
     alignSelf: "flex-start",
   },
-  dateButton: {
+  extraDateButton: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
     paddingVertical: 12,
     paddingHorizontal: 14,
     borderRadius: 12,
-    backgroundColor: "#F9FAFB",
-    borderWidth: 1,
-    borderColor: "#F3F4F6",
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1.5,
+    borderColor: "#D1D5DB",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 2,
+    elevation: 1,
   },
   inputRow: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#FFFFFF",
     borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#F3F4F6",
+    borderWidth: 1.5,
+    borderColor: "#D1D5DB",
     paddingHorizontal: 14,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 2,
+    elevation: 1,
   },
   textInput: {
     flex: 1,
     fontFamily: FontFamily.medium,
     fontSize: FontSize.md,
     color: "#1F2937",
-    paddingVertical: 12,
+    paddingVertical: 14,
   },
   inputSuffix: {
     marginLeft: 6,
@@ -700,9 +750,12 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 20,
     backgroundColor: "#F3F4F6",
+    borderWidth: 1.5,
+    borderColor: "transparent",
   },
   chipActive: {
-    backgroundColor: "#5299FE",
+    backgroundColor: "rgba(82, 153, 254, 0.08)",
+    borderColor: "#5299FE",
   },
 
   // Toggle
@@ -730,12 +783,17 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.medium,
     fontSize: FontSize.md,
     color: "#1F2937",
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#FFFFFF",
     borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#F3F4F6",
-    paddingVertical: 10,
+    borderWidth: 1.5,
+    borderColor: "#D1D5DB",
+    paddingVertical: 12,
     paddingHorizontal: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 2,
+    elevation: 1,
   },
 
   // Footer
