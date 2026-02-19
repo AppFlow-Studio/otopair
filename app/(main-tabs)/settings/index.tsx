@@ -500,7 +500,7 @@ export default function SettingsHomeScreen() {
                 pointerEvents="none"
               />
 
-              {/* Transforming Avatar */}
+              {/* Transforming Avatar (no tap — use pencil to open Edit Profile) */}
               <Animated.View
                 style={[
                   styles.avatarWrapper,
@@ -508,27 +508,22 @@ export default function SettingsHomeScreen() {
                   avatarStyle,
                 ]}
               >
-                <Pressable
-                  onPress={() => openEditProfile(true)}
-                  style={styles.avatarTouchArea}
-                >
-                  {profilePhotoUri ? (
-                    <Image
-                      source={{ uri: profilePhotoUri }}
-                      style={styles.avatarImage}
-                    />
-                  ) : (
-                    <View style={styles.avatarPlaceholder}>
-                      <Text
-                        weight="semiBold"
-                        size="xl"
-                        color={BrandColors.secondary}
-                      >
-                        {initials}
-                      </Text>
-                    </View>
-                  )}
-                </Pressable>
+                {profilePhotoUri ? (
+                  <Image
+                    source={{ uri: profilePhotoUri }}
+                    style={styles.avatarImage}
+                  />
+                ) : (
+                  <View style={styles.avatarPlaceholder}>
+                    <Text
+                      weight="semiBold"
+                      size="xl"
+                      color={BrandColors.secondary}
+                    >
+                      {initials}
+                    </Text>
+                  </View>
+                )}
               </Animated.View>
 
               {/* Single Name that moves beside the avatar */}
