@@ -56,10 +56,8 @@ const MENU_HEIGHT = 150; // Increased height to account for potential text wrapp
 interface Mechanic {
   id: string;
   name: string;
-  specialty: string;
   image?: string;
   initials?: string;
-  isOnline?: boolean;
   isPreferred?: boolean;
   lastVisit?: string;
 }
@@ -68,17 +66,16 @@ const FAVORITES: Mechanic[] = [
   {
     id: '1',
     name: 'Hawk Precision Auto',
-    specialty: 'European Import Specialist',
     image: 'https://lh3.googleusercontent.com/aida-public/AB6AXuDPT3g_vj8ex-ZcymLR-K4Jw2dyOBgaQiJzOYNGcfGqOt6BEGvdU3uWygLkAqjK2MgJDJkxDYCoMO7TJDY7dzdHq4tTemujZrLFOUbED2k-XDUSEQ_5c3nhY-AHoazy1HcbYCruNetG8uPLz3tXmsggcMdYurhywQI_EOemC1-esWvqUBKPutJNCsG5Y309v26u7zUAz1j9MteGwMWpvUIFtOJxaOujh72YH2-oG5zocaKBP_4nKYi3gMZSOP1TyirnlQDBY9w2Kko',
-    isOnline: true,
     isPreferred: true,
+    lastVisit: '1 week ago',
   },
   {
     id: '2',
     name: 'Rapid Fix Garage',
-    specialty: 'General Maintenance',
     initials: 'RF',
     isPreferred: true,
+    lastVisit: '1 month ago',
   },
 ];
 
@@ -86,25 +83,24 @@ const RECENTLY_BOOKED: Mechanic[] = [
   {
     id: '3',
     name: "Mike's Tires",
-    specialty: 'Tire & Wheel Services',
     image: 'https://lh3.googleusercontent.com/aida-public/AB6AXuBu4N9EOUYV-ULwfRP8eTEAXsLeED5H5YdZms3MPi2v-P9wCrjt6hyAEsOZizyVild_xDI0vYa0wVce7t9v2QAdzxO1QGbCmBgzw40YBZMyV4xRrc_KFchjGqVA872TusCMT1lNvUY18PpPAwrHfYSLkwk3XMTwgnXfHr2o0K_NvnUJEKDFs1fJbVKA4x8KMrzaG3MBjxSvge4C3aiv5E-BlVLXORVioKWTEbuTgT-ffufmzIQOq-uQHo385DNHn6j47cMmTbkkMyQ',
     lastVisit: '2 weeks ago',
   },
   {
     id: '4',
     name: 'Downtown Auto Body',
-    specialty: 'Collision Repair',
     initials: 'DA',
+    lastVisit: '3 weeks ago',
   },
   {
     id: '5',
     name: 'Speedy Lube',
-    specialty: 'Oil Change & Fluid',
     image: 'https://lh3.googleusercontent.com/aida-public/AB6AXuB5FGLPFlScN9OAGUnjYMuFV7G0TO9Rwy93DDTxK2F-cb3NRyLIioCGpSKXaY4LtrzpbGM4mTQkFbpLqk-VrNnZCFAsrgw6jet_kz7DCDk-OMpX4ce0asHPqmZLCeShX4PjduwjmznaytHeHkWlvdMU6IcYZhM2KqnJdV2pwFwZTHm_HqoLlVYG6TICSVO8pP-bNo7H7X89iZuu-QcAKIq5H14sma0P3FGQYL9dfHnnD6U6tfJmJQ4nzMoZKC4pEk4WUUBAc6st18A',
+    lastVisit: '2 months ago',
   },
 ];
 
-const FILTERS = ['Favorites', 'All Mechanics', 'Blocked'];
+const FILTERS = ['All Mechanics', 'Favorites', 'Hidden'];
 
 interface MechanicListItemProps {
   mechanic: Mechanic;
@@ -134,15 +130,14 @@ const MechanicListItem = ({ mechanic, fromFavorites = false, onOpenMenu }: Mecha
               <Image source={{ uri: mechanic.image }} style={styles.avatar} />
             ) : (
               <LinearGradient
-                colors={mechanic.id === '2' ? ['#6366F1', BrandColors.primary] : ['#F3F4F6', '#E5E7EB']}
+                colors={['#6366F1', BrandColors.primary]}
                 style={styles.avatarPlaceholder}
               >
-                <Text weight="bold" size="lg" color={mechanic.id === '2' ? '#FFF' : '#6B7280'}>
-                  {mechanic.initials}
+                <Text weight="bold" size="lg" color="#FFF">
+                  {mechanic.initials ?? mechanic.name[0]}
                 </Text>
               </LinearGradient>
             )}
-            {mechanic.isOnline && <View style={styles.onlineBadge} />}
           </View>
           <View style={styles.mechanicInfo}>
             <Text weight="bold" size="md" color="#111318">
@@ -155,11 +150,7 @@ const MechanicListItem = ({ mechanic, fromFavorites = false, onOpenMenu }: Mecha
                   Last visit: {mechanic.lastVisit}
                 </Text>
               </View>
-            ) : (
-              <Text size="sm" color="#86868B" weight="medium">
-                {mechanic.specialty}
-              </Text>
-            )}
+            ) : null}
           </View>
         </View>
 
@@ -180,12 +171,12 @@ export default function MyMechanicsScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [query, setQuery] = useState('');
-  const [activeFilter, setActiveFilter] = useState('Favorites');
+  const [activeFilter, setActiveFilter] = useState('All Mechanics');
 
   // Real state for mechanics
   const [favorites, setFavorites] = useState<Mechanic[]>(FAVORITES);
   const [recentlyBooked, setRecentlyBooked] = useState<Mechanic[]>(RECENTLY_BOOKED);
-  const [blockedIds, setBlockedIds] = useState<string[]>([]);
+  const [hiddenIds, setHiddenIds] = useState<string[]>([]);
 
   // Menu state
   const [isMenuVisible, setIsMenuVisible] = useState(false);
@@ -281,10 +272,10 @@ export default function MyMechanicsScreen() {
     closeMenu();
   }, [selectedMechanic, isFromFavorites, recentlyBooked, closeMenu]);
 
-  const handleBlockMechanic = useCallback(() => {
+  const handleHideMechanic = useCallback(() => {
     if (!selectedMechanic) return;
 
-    setBlockedIds(prev => [...prev, selectedMechanic.id]);
+    setHiddenIds(prev => [...prev, selectedMechanic.id]);
     setFavorites(prev => prev.filter(m => m.id !== selectedMechanic.id));
     setRecentlyBooked(prev => prev.filter(m => m.id !== selectedMechanic.id));
     closeMenu();
@@ -309,7 +300,7 @@ export default function MyMechanicsScreen() {
           <View style={styles.searchContainer}>
             <Search size={18} color="#9CA3AF" />
             <TextInput
-              placeholder="Search name or specialty..."
+              placeholder="Search name..."
               placeholderTextColor="#9CA3AF"
               value={query}
               onChangeText={setQuery}
@@ -351,16 +342,11 @@ export default function MyMechanicsScreen() {
                 <Text weight="semiBold" size="lg" color="#111318">
                   Your Favorites
                 </Text>
-                <Pressable>
-                  <Text weight="medium" size="xs" color={BrandColors.primary}>
-                    Manage
-                  </Text>
-                </Pressable>
               </View>
               <Animated.View layout={LinearTransition.duration(400)} style={styles.glassCard}>
                 {favorites
-                  .filter(m => !blockedIds.includes(m.id))
-                  .filter(m => m.name.toLowerCase().includes(query.toLowerCase()) || m.specialty.toLowerCase().includes(query.toLowerCase()))
+                  .filter(m => !hiddenIds.includes(m.id))
+                  .filter(m => m.name.toLowerCase().includes(query.toLowerCase()))
                   .map((m) => (
                     <MechanicListItem 
                       key={m.id}
@@ -374,7 +360,7 @@ export default function MyMechanicsScreen() {
           )}
 
           {/* Recently Booked Section */}
-          {(activeFilter === 'All Mechanics' || activeFilter === 'Favorites') && recentlyBooked.length > 0 && (
+          {activeFilter === 'All Mechanics' && recentlyBooked.length > 0 && (
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
                 <Text weight="semiBold" size="lg" color="#111318">
@@ -383,8 +369,8 @@ export default function MyMechanicsScreen() {
               </View>
               <Animated.View layout={LinearTransition.duration(400)} style={styles.glassCard}>
                 {recentlyBooked
-                  .filter(m => !blockedIds.includes(m.id))
-                  .filter(m => m.name.toLowerCase().includes(query.toLowerCase()) || m.specialty.toLowerCase().includes(query.toLowerCase()))
+                  .filter(m => !hiddenIds.includes(m.id))
+                  .filter(m => m.name.toLowerCase().includes(query.toLowerCase()))
                   .map((m) => (
                     <MechanicListItem 
                       key={m.id}
@@ -397,18 +383,18 @@ export default function MyMechanicsScreen() {
             </View>
           )}
 
-          {/* Blocked Section */}
-          {activeFilter === 'Blocked' && (
+          {/* Hidden Section */}
+          {activeFilter === 'Hidden' && (
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
                 <Text weight="semiBold" size="lg" color="#111318">
-                  Blocked Mechanics
+                  Hidden Mechanics
                 </Text>
               </View>
               <Animated.View layout={LinearTransition.duration(400)} style={styles.glassCard}>
-                {blockedIds.length > 0 ? (
+                {hiddenIds.length > 0 ? (
                   [...FAVORITES, ...RECENTLY_BOOKED]
-                    .filter(m => blockedIds.includes(m.id))
+                    .filter(m => hiddenIds.includes(m.id))
                     .map(m => (
                       <Animated.View 
                         key={m.id} 
@@ -419,33 +405,47 @@ export default function MyMechanicsScreen() {
                       >
                         <View style={styles.mechanicLeft}>
                           <View style={styles.avatarContainer}>
-                            <View style={[styles.avatarPlaceholder, { backgroundColor: '#F3F4F6' }]}>
-                              <Text weight="bold" size="lg" color="#6B7280">
-                                {m.initials || m.name[0]}
-                              </Text>
-                            </View>
+                            {m.image ? (
+                              <Image source={{ uri: m.image }} style={styles.avatar} />
+                            ) : (
+                              <LinearGradient
+                                colors={['#6366F1', BrandColors.primary]}
+                                style={styles.avatarPlaceholder}
+                              >
+                                <Text weight="bold" size="lg" color="#FFF">
+                                  {m.initials ?? m.name[0]}
+                                </Text>
+                              </LinearGradient>
+                            )}
                           </View>
                           <View style={styles.mechanicInfo}>
                             <Text weight="bold" size="md" color="#111318">{m.name}</Text>
-                            <Text size="sm" color="#86868B">Blocked</Text>
+                            {m.lastVisit ? (
+                              <View style={styles.lastVisitRow}>
+                                <Clock size={12} color="#86868B" />
+                                <Text size="sm" color="#86868B" weight="medium">
+                                  Last visit: {m.lastVisit}
+                                </Text>
+                              </View>
+                            ) : null}
                           </View>
                         </View>
                         <Pressable 
                           onPress={() => {
-                            setBlockedIds(prev => prev.filter(id => id !== m.id));
+                            setHiddenIds(prev => prev.filter(id => id !== m.id));
                             if (!recentlyBooked.some(rb => rb.id === m.id)) {
                               setRecentlyBooked(prev => [m, ...prev]);
                             }
                           }}
-                          style={styles.unblockButton}
+                          style={styles.unhideButton}
                         >
-                          <Text weight="bold" size="xs" color={BrandColors.primary}>UNBLOCK</Text>
+                          <Text weight="bold" size="xs" color={BrandColors.primary}>UNHIDE</Text>
                         </Pressable>
                       </Animated.View>
                     ))
                 ) : (
                   <View style={styles.emptyState}>
-                    <Text size="sm" color="#86868B">No blocked mechanics</Text>
+                    <Text size="sm" color="#86868B">No hidden mechanics</Text>
                   </View>
                 )}
               </Animated.View>
@@ -509,13 +509,13 @@ export default function MyMechanicsScreen() {
                   
                   <Pressable
                     style={styles.menuItem}
-                    onPress={handleBlockMechanic}
+                    onPress={handleHideMechanic}
                   >
                     <View style={styles.menuIconBox}>
                       <ShieldAlert size={18} color="#EF4444" />
                     </View>
                     <Text weight="medium" size="md" color="#EF4444" style={styles.menuItemText}>
-                      Block mechanic
+                      Hide mechanic
                     </Text>
                   </Pressable>
                 </View>
@@ -569,8 +569,8 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(0, 0, 0, 0.05)',
   },
   chipActive: {
-    backgroundColor: BrandColors.primary,
-    borderColor: BrandColors.primary,
+    backgroundColor: BrandColors.secondary,
+    borderColor: BrandColors.secondary,
   },
   section: {
     marginBottom: 32,
@@ -621,17 +621,6 @@ const styles = StyleSheet.create({
     borderRadius: 24,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  onlineBadge: {
-    position: 'absolute',
-    bottom: -1,
-    right: -1,
-    width: 14,
-    height: 14,
-    borderRadius: 7,
-    backgroundColor: '#22C55E',
-    borderWidth: 2,
-    borderColor: '#FFF',
   },
   mechanicInfo: {
     flex: 1,
@@ -706,7 +695,7 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.05)",
     marginHorizontal: 8,
   },
-  unblockButton: {
+  unhideButton: {
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 8,

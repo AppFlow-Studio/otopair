@@ -510,7 +510,7 @@ export default function SettingsHomeScreen() {
               >
                 <Pressable
                   onPress={() => openEditProfile(true)}
-                  style={StyleSheet.absoluteFill}
+                  style={styles.avatarTouchArea}
                 >
                   {profilePhotoUri ? (
                     <Image
@@ -977,22 +977,30 @@ const styles = StyleSheet.create({
     width: 100,
     height: 100,
     borderRadius: 50,
-    backgroundColor: "#FFF",
+    padding: 3,
+    backgroundColor: "rgba(255, 255, 255, 0.95)",
+    borderWidth: 1,
+    borderColor: "rgba(81, 146, 251, 0.25)",
     elevation: 8,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.1,
     shadowRadius: 8,
   },
+  avatarTouchArea: {
+    flex: 1,
+    borderRadius: 47,
+    overflow: "hidden",
+  },
   avatarImage: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+    width: "100%",
+    height: "100%",
+    borderRadius: 47,
   },
   avatarPlaceholder: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+    width: "100%",
+    height: "100%",
+    borderRadius: 47,
     backgroundColor: "#FFF",
     alignItems: "center",
     justifyContent: "center",

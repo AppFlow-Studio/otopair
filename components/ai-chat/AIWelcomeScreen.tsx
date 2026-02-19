@@ -103,9 +103,11 @@ function InfoItem({
 // MAIN COMPONENT
 // ============================================================================
 
-// Default tab bar height fallback (standard iOS/Android tab bar is ~49-83px)
-// Increased on Android to account for the new floating tab bar height + its bottom offset
-const TAB_BAR_HEIGHT = Platform.OS === 'android' ? 100 : 80;
+// Match tab layout behavior: iOS 26+ uses native tabs with a slightly smaller effective offset.
+const TAB_BAR_HEIGHT =
+  Platform.OS === "ios" && parseInt(String(Platform.Version), 10) >= 26
+    ? 90
+    : 100;
 
 export function AIWelcomeScreen({ onContinue }: AIWelcomeScreenProps) {
   const insets = useSafeAreaInsets();

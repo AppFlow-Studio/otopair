@@ -81,16 +81,23 @@ export default function EditProfileScreen() {
   const [phoneCountryCode, setPhoneCountryCode] = useState("US");
   const [phoneCountry, setPhoneCountry] = useState<Country | null>(null);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
   const hasHydratedRef = useRef(false);
 
   useEffect(() => {
     const show = Keyboard.addListener(
       Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
-      () => setIsKeyboardVisible(true),
+      (event) => {
+        setIsKeyboardVisible(true);
+        setKeyboardHeight(event.endCoordinates?.height ?? 0);
+      },
     );
     const hide = Keyboard.addListener(
       Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
-      () => setIsKeyboardVisible(false),
+      () => {
+        setIsKeyboardVisible(false);
+        setKeyboardHeight(0);
+      },
     );
     return () => {
       show.remove();
@@ -489,43 +496,50 @@ export default function EditProfileScreen() {
         style={{ flex: 1 }}
       >
         <ScrollView
+          style={{ flex: 1 }}
           contentContainerStyle={[
             styles.scrollContent,
             {
               paddingTop: insets.top + 80,
-              paddingBottom: bottomActionPadding + (isKeyboardVisible ? 24 : 0),
+              paddingBottom:
+                bottomActionPadding +
+                (isKeyboardVisible ? keyboardHeight + 24 : 0),
             },
           ]}
           showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled"
+          keyboardShouldPersistTaps="always"
+          keyboardDismissMode="none"
+          scrollEnabled
         >
           <View style={styles.avatarSection}>
-            <Pressable
-              style={styles.avatarWrapper}
-              onPress={() => setShowPhotoOptions(true)}
-            >
-              {editPhotoUri ? (
-                <Image
-                  source={{ uri: editPhotoUri }}
-                  style={styles.avatarImage}
-                />
-              ) : (
-                <View style={styles.avatarPlaceholder}>
-                  <Text
-                    weight="semiBold"
-                    size="xl"
-                    color={BrandColors.secondary}
-                  >
-                    {initials}
+            <View style={styles.avatarPortraitFrame}>
+              <Pressable
+                style={styles.avatarWrapper}
+                onPress={() => setShowPhotoOptions(true)}
+              >
+                {editPhotoUri ? (
+                  <Image
+                    source={{ uri: editPhotoUri }}
+                    style={styles.avatarImage}
+                  />
+                ) : (
+                  <View style={styles.avatarPlaceholder}>
+                    <Text
+                      weight="semiBold"
+                      size="xl"
+                      color={BrandColors.secondary}
+                    >
+                      {initials}
+                    </Text>
+                  </View>
+                )}
+                <View style={styles.avatarEditBadge}>
+                  <Text weight="semiBold" size="sm" color="#FFF">
+                    +
                   </Text>
                 </View>
-              )}
-              <View style={styles.avatarEditBadge}>
-                <Text weight="semiBold" size="sm" color="#FFF">
-                  +
-                </Text>
-              </View>
-            </Pressable>
+              </Pressable>
+            </View>
           </View>
 
           <Text weight="bold" style={styles.personalInfoTitle}>
@@ -803,6 +817,22 @@ const styles = StyleSheet.create({
     height: 100,
     borderRadius: 50,
   },
+  avatarPortraitFrame: {
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    padding: 4,
+    backgroundColor: "rgba(255, 255, 255, 0.95)",
+    borderWidth: 1,
+    borderColor: "rgba(81, 146, 251, 0.25)",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 14,
+    elevation: 3,
+  },
   avatarImage: {
     width: "100%",
     height: "100%",
@@ -825,8 +855,8 @@ const styles = StyleSheet.create({
   },
   avatarEditBadge: {
     position: "absolute",
-    right: -2,
-    bottom: -2,
+    right: 1,
+    bottom: 1,
     width: 30,
     height: 30,
     borderRadius: 15,
