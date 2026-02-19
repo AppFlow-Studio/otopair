@@ -41,6 +41,7 @@ import type * as reviews from "../reviews.js";
 import type * as rewards from "../rewards.js";
 import type * as seed from "../seed.js";
 import type * as seed_services_catalog from "../seed_services_catalog.js";
+import type * as seed_transactions from "../seed_transactions.js";
 import type * as service_categories from "../service_categories.js";
 import type * as service_insights from "../service_insights.js";
 import type * as service_options from "../service_options.js";
@@ -105,6 +106,7 @@ declare const fullApi: ApiFromModules<{
   rewards: typeof rewards;
   seed: typeof seed;
   seed_services_catalog: typeof seed_services_catalog;
+  seed_transactions: typeof seed_transactions;
   service_categories: typeof service_categories;
   service_insights: typeof service_insights;
   service_options: typeof service_options;
