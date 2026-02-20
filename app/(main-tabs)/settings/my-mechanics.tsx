@@ -21,7 +21,6 @@ import {
   Animated as RNAnimated,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
   Search,
@@ -40,6 +39,7 @@ import {
   UserMinus,
 } from 'lucide-react-native';
 import Animated, { FadeInUp, FadeOut, LinearTransition, ZoomOut } from 'react-native-reanimated';
+import { useMutation, useQuery } from "convex/react";
 
 import {
   BlurHeaderOverlay,
@@ -48,6 +48,9 @@ import {
   Text,
 } from '@/components/shared-ui';
 import { getSheetContentPadding } from '@/constants/theme';
+import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
+import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 const MENU_WIDTH = 220;
@@ -61,44 +64,6 @@ interface Mechanic {
   isPreferred?: boolean;
   lastVisit?: string;
 }
-
-const FAVORITES: Mechanic[] = [
-  {
-    id: '1',
-    name: 'Hawk Precision Auto',
-    image: 'https://lh3.googleusercontent.com/aida-public/AB6AXuDPT3g_vj8ex-ZcymLR-K4Jw2dyOBgaQiJzOYNGcfGqOt6BEGvdU3uWygLkAqjK2MgJDJkxDYCoMO7TJDY7dzdHq4tTemujZrLFOUbED2k-XDUSEQ_5c3nhY-AHoazy1HcbYCruNetG8uPLz3tXmsggcMdYurhywQI_EOemC1-esWvqUBKPutJNCsG5Y309v26u7zUAz1j9MteGwMWpvUIFtOJxaOujh72YH2-oG5zocaKBP_4nKYi3gMZSOP1TyirnlQDBY9w2Kko',
-    isPreferred: true,
-    lastVisit: '1 week ago',
-  },
-  {
-    id: '2',
-    name: 'Rapid Fix Garage',
-    initials: 'RF',
-    isPreferred: true,
-    lastVisit: '1 month ago',
-  },
-];
-
-const RECENTLY_BOOKED: Mechanic[] = [
-  {
-    id: '3',
-    name: "Mike's Tires",
-    image: 'https://lh3.googleusercontent.com/aida-public/AB6AXuBu4N9EOUYV-ULwfRP8eTEAXsLeED5H5YdZms3MPi2v-P9wCrjt6hyAEsOZizyVild_xDI0vYa0wVce7t9v2QAdzxO1QGbCmBgzw40YBZMyV4xRrc_KFchjGqVA872TusCMT1lNvUY18PpPAwrHfYSLkwk3XMTwgnXfHr2o0K_NvnUJEKDFs1fJbVKA4x8KMrzaG3MBjxSvge4C3aiv5E-BlVLXORVioKWTEbuTgT-ffufmzIQOq-uQHo385DNHn6j47cMmTbkkMyQ',
-    lastVisit: '2 weeks ago',
-  },
-  {
-    id: '4',
-    name: 'Downtown Auto Body',
-    initials: 'DA',
-    lastVisit: '3 weeks ago',
-  },
-  {
-    id: '5',
-    name: 'Speedy Lube',
-    image: 'https://lh3.googleusercontent.com/aida-public/AB6AXuB5FGLPFlScN9OAGUnjYMuFV7G0TO9Rwy93DDTxK2F-cb3NRyLIioCGpSKXaY4LtrzpbGM4mTQkFbpLqk-VrNnZCFAsrgw6jet_kz7DCDk-OMpX4ce0asHPqmZLCeShX4PjduwjmznaytHeHkWlvdMU6IcYZhM2KqnJdV2pwFwZTHm_HqoLlVYG6TICSVO8pP-bNo7H7X89iZuu-QcAKIq5H14sma0P3FGQYL9dfHnnD6U6tfJmJQ4nzMoZKC4pEk4WUUBAc6st18A',
-    lastVisit: '2 months ago',
-  },
-];
 
 const FILTERS = ['All Mechanics', 'Favorites', 'Hidden'];
 
@@ -169,14 +134,19 @@ const MechanicListItem = ({ mechanic, fromFavorites = false, onOpenMenu }: Mecha
 
 export default function MyMechanicsScreen() {
   const insets = useSafeAreaInsets();
-  const router = useRouter();
+  const { userId } = useUserFromConvex();
+  const data = useQuery(
+    (api as any).mechanics.getMyMechanicsForUser,
+    userId ? { userId } : "skip",
+  );
+  const setFavoriteForUser = useMutation((api as any).mechanics.setFavoriteForUser);
+  const setHiddenForUser = useMutation((api as any).mechanics.setHiddenForUser);
   const [query, setQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState('All Mechanics');
 
-  // Real state for mechanics
-  const [favorites, setFavorites] = useState<Mechanic[]>(FAVORITES);
-  const [recentlyBooked, setRecentlyBooked] = useState<Mechanic[]>(RECENTLY_BOOKED);
-  const [hiddenIds, setHiddenIds] = useState<string[]>([]);
+  const favorites = (data?.favorites ?? []) as Mechanic[];
+  const recentlyBooked = (data?.recentlyBooked ?? []) as Mechanic[];
+  const hiddenMechanics = (data?.hidden ?? []) as Mechanic[];
 
   // Menu state
   const [isMenuVisible, setIsMenuVisible] = useState(false);
@@ -254,32 +224,25 @@ export default function MyMechanicsScreen() {
     });
   }, [backdropAnim, menuAnim]);
 
-  const handleToggleFavorite = useCallback(() => {
-    if (!selectedMechanic) return;
-
-    if (isFromFavorites) {
-      // Remove from favorites
-      setFavorites(prev => prev.filter(m => m.id !== selectedMechanic.id));
-      // Optionally add back to recently booked if it's not there
-      if (!recentlyBooked.some(m => m.id === selectedMechanic.id)) {
-        setRecentlyBooked(prev => [selectedMechanic, ...prev]);
-      }
-    } else {
-      // Add to favorites
-      setFavorites(prev => [...prev, { ...selectedMechanic, isPreferred: true }]);
-      setRecentlyBooked(prev => prev.filter(m => m.id !== selectedMechanic.id));
-    }
+  const handleToggleFavorite = useCallback(async () => {
+    if (!selectedMechanic || !userId) return;
+    await setFavoriteForUser({
+      userId,
+      mechanicId: selectedMechanic.id as Id<"mechanics">,
+      isFavorite: !isFromFavorites,
+    });
     closeMenu();
-  }, [selectedMechanic, isFromFavorites, recentlyBooked, closeMenu]);
+  }, [selectedMechanic, userId, isFromFavorites, setFavoriteForUser, closeMenu]);
 
-  const handleHideMechanic = useCallback(() => {
-    if (!selectedMechanic) return;
-
-    setHiddenIds(prev => [...prev, selectedMechanic.id]);
-    setFavorites(prev => prev.filter(m => m.id !== selectedMechanic.id));
-    setRecentlyBooked(prev => prev.filter(m => m.id !== selectedMechanic.id));
+  const handleHideMechanic = useCallback(async () => {
+    if (!selectedMechanic || !userId) return;
+    await setHiddenForUser({
+      userId,
+      mechanicId: selectedMechanic.id as Id<"mechanics">,
+      isHidden: true,
+    });
     closeMenu();
-  }, [selectedMechanic, closeMenu]);
+  }, [selectedMechanic, userId, setHiddenForUser, closeMenu]);
 
   return (
     <View style={[styles.screen, { backgroundColor: BrandColors.background }]}>
@@ -345,7 +308,6 @@ export default function MyMechanicsScreen() {
               </View>
               <Animated.View layout={LinearTransition.duration(400)} style={styles.glassCard}>
                 {favorites
-                  .filter(m => !hiddenIds.includes(m.id))
                   .filter(m => m.name.toLowerCase().includes(query.toLowerCase()))
                   .map((m) => (
                     <MechanicListItem 
@@ -369,7 +331,6 @@ export default function MyMechanicsScreen() {
               </View>
               <Animated.View layout={LinearTransition.duration(400)} style={styles.glassCard}>
                 {recentlyBooked
-                  .filter(m => !hiddenIds.includes(m.id))
                   .filter(m => m.name.toLowerCase().includes(query.toLowerCase()))
                   .map((m) => (
                     <MechanicListItem 
@@ -392,9 +353,8 @@ export default function MyMechanicsScreen() {
                 </Text>
               </View>
               <Animated.View layout={LinearTransition.duration(400)} style={styles.glassCard}>
-                {hiddenIds.length > 0 ? (
-                  [...FAVORITES, ...RECENTLY_BOOKED]
-                    .filter(m => hiddenIds.includes(m.id))
+                {hiddenMechanics.length > 0 ? (
+                  hiddenMechanics
                     .map(m => (
                       <Animated.View 
                         key={m.id} 
@@ -431,11 +391,13 @@ export default function MyMechanicsScreen() {
                           </View>
                         </View>
                         <Pressable 
-                          onPress={() => {
-                            setHiddenIds(prev => prev.filter(id => id !== m.id));
-                            if (!recentlyBooked.some(rb => rb.id === m.id)) {
-                              setRecentlyBooked(prev => [m, ...prev]);
-                            }
+                          onPress={async () => {
+                            if (!userId) return;
+                            await setHiddenForUser({
+                              userId,
+                              mechanicId: m.id as Id<"mechanics">,
+                              isHidden: false,
+                            });
                           }}
                           style={styles.unhideButton}
                         >

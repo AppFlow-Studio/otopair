@@ -1418,6 +1418,34 @@ export default defineSchema({
     .index("by_user_id_type_created_at", ["user_id", "transaction_type", "created_at"])
     .index("by_payment_id", ["payment_id"]),
 
+  /**
+   * TABLE: user_mechanic_preferences
+   *
+   * DESCRIPTION:
+   * Stores user-specific mechanic preferences used by the My Mechanics screen.
+   * Keeps mutable user state (favorite/hidden) separate from booking history.
+   *
+   * FIELDS:
+   *   - user_id: Owner of this preference
+   *   - mechanic_id: Mechanic this preference applies to
+   *   - is_favorite: Whether user marked this mechanic as favorite
+   *   - is_hidden: Whether user hid this mechanic from normal lists
+   *   - updated_at: Last mutation timestamp
+   *
+   * INDEXES:
+   *   - by_user_id: Read all preferences for one user
+   *   - by_user_mechanic: Upsert/lookup one user+mechanic preference row
+   */
+  user_mechanic_preferences: defineTable({
+    user_id: v.id("users"),
+    mechanic_id: v.id("mechanics"),
+    is_favorite: v.boolean(),
+    is_hidden: v.boolean(),
+    updated_at: v.float64(),
+  })
+    .index("by_user_id", ["user_id"])
+    .index("by_user_mechanic", ["user_id", "mechanic_id"]),
+
   // ============================================================================
   // FOLLOW-UPS & MAINTENANCE
   // ============================================================================

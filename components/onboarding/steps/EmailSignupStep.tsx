@@ -6,228 +6,225 @@
  * USED IN: components/onboarding/OnboardingFlow.tsx
  */
 
-import { useState } from 'react';
-import { useSignUp } from '@clerk/clerk-expo';
+import { useState } from "react";
+import { useSignUp } from "@clerk/clerk-expo";
 import {
-    BrandColors,
-    FontFamily,
-    FontSize,
-    Spacing,
-    Text,
-} from '@/components/shared-ui';
-import { ProgressBar } from '@/components/shared-ui/ProgressBar';
-import { FooterButton } from '@/components/shared-ui/FooterButton';
-import { BackButton } from '@/components/shared-ui/BackButton';
+  BrandColors,
+  FontFamily,
+  FontSize,
+  Spacing,
+  Text,
+} from "@/components/shared-ui";
+import { ProgressBar } from "@/components/shared-ui/ProgressBar";
+import { FooterButton } from "@/components/shared-ui/FooterButton";
+import { BackButton } from "@/components/shared-ui/BackButton";
 import {
-    KeyboardAvoidingView,
-    Platform,
-    StyleSheet,
-    TextInput,
-    View,
-    useWindowDimensions,
-    ScrollView,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useOnboardingStore } from '@/stores/useOnboardingStore';
+  KeyboardAvoidingView,
+  Platform,
+  StyleSheet,
+  TextInput,
+  View,
+  useWindowDimensions,
+  ScrollView,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useOnboardingStore } from "@/stores/useOnboardingStore";
 
 interface EmailSignupStepProps {
-    onNext: () => void;
-    onBack: () => void;
-    progress: { total: number; filled: number };
+  onNext: () => void;
+  onBack: () => void;
+  progress: { total: number; filled: number };
 }
 
-export function EmailSignupStep({ onNext, onBack, progress }: EmailSignupStepProps) {
-    const insets = useSafeAreaInsets();
-    const { height } = useWindowDimensions();
-    const { updateData } = useOnboardingStore();
-    const { signUp, isLoaded } = useSignUp();
+export function EmailSignupStep({
+  onNext,
+  onBack,
+  progress,
+}: EmailSignupStepProps) {
+  const insets = useSafeAreaInsets();
+  const { height } = useWindowDimensions();
+  const { updateData } = useOnboardingStore();
+  const { signUp, isLoaded } = useSignUp();
 
-    const [email, setEmail] = useState('');
-    const [password, setPassword] = useState('');
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-    const dynamicStyles = {
-        container: { paddingTop: insets.top + Spacing.lg },
-        bottomContainer: { paddingBottom: insets.bottom + Spacing.lg },
-    };
+  const dynamicStyles = {
+    container: { paddingTop: insets.top + Spacing.lg },
+  };
 
-    const isCompact = height < 720;
-    const buttonSize: 'md' | 'lg' = isCompact ? 'md' : 'lg';
-    const buttonPaddingVertical = isCompact ? Spacing.sm : Spacing.lg;
+  const isCompact = height < 720;
+  const buttonSize: "md" | "lg" = isCompact ? "md" : "lg";
+  const buttonPaddingVertical = isCompact ? Spacing.sm : Spacing.lg;
 
-    const canContinue = email.trim().length > 0 && password.length >= 8;
+  const canContinue = email.trim().length > 0 && password.length >= 8;
 
-    const handleSignup = async () => {
-        if (!isLoaded || !signUp || loading) return;
-        setLoading(true);
-        setError(null);
+  const handleSignup = async () => {
+    if (!isLoaded || !signUp || loading) return;
+    setLoading(true);
+    setError(null);
 
-        try {
-            await signUp.create({
-                emailAddress: email.trim(),
-                password,
-            });
+    try {
+      await signUp.create({
+        emailAddress: email.trim(),
+        password,
+      });
 
-            await signUp.prepareEmailAddressVerification({
-                strategy: 'email_code',
-            });
+      await signUp.prepareEmailAddressVerification({
+        strategy: "email_code",
+      });
 
-            updateData({
-                email: email.trim(),
-                authProvider: 'email',
-            });
+      updateData({
+        email: email.trim(),
+        authProvider: "email",
+      });
 
-            onNext();
-        } catch (err: any) {
-            const message = err?.errors?.[0]?.longMessage
-                || err?.errors?.[0]?.message
-                || err?.message
-                || 'Failed to create account';
-            setError(message);
-        } finally {
-            setLoading(false);
-        }
-    };
+      onNext();
+    } catch (err: any) {
+      const message =
+        err?.errors?.[0]?.longMessage ||
+        err?.errors?.[0]?.message ||
+        err?.message ||
+        "Failed to create account";
+      setError(message);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    return (
-        <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-            style={styles.keyboardView}
+  return (
+    <KeyboardAvoidingView
+      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      style={styles.keyboardView}
+    >
+      <View style={[styles.container, dynamicStyles.container]}>
+        <ProgressBar
+          total={progress.total}
+          filled={progress.filled}
+          leftElement={<BackButton onBack={onBack} alwaysShow />}
+        />
+
+        <ScrollView
+          style={styles.scrollView}
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
-            <View style={[styles.container, dynamicStyles.container]}>
-                <ProgressBar
-                    total={progress.total}
-                    filled={progress.filled}
-                    leftElement={<BackButton onBack={onBack} alwaysShow />}
-                />
+          <View style={styles.headerContent}>
+            <Text style={styles.title}>Create your account</Text>
+            <Text style={styles.subtitle}>
+              Enter your email and create a password
+            </Text>
+          </View>
 
-                <ScrollView
-                    style={styles.scrollView}
-                    contentContainerStyle={styles.scrollContent}
-                    keyboardShouldPersistTaps="handled"
-                    showsVerticalScrollIndicator={false}
-                >
-                    <View style={styles.headerContent}>
-                        <Text style={styles.title}>Create your account</Text>
-                        <Text style={styles.subtitle}>
-                            Enter your email and create a password
-                        </Text>
-                    </View>
-
-                    <View style={styles.inputsContainer}>
-                        <View style={styles.inputWrapper}>
-                            <TextInput
-                                style={styles.input}
-                                placeholder="Email address"
-                                placeholderTextColor="#9CA3AF"
-                                value={email}
-                                onChangeText={setEmail}
-                                autoCapitalize="none"
-                                autoComplete="email"
-                                textContentType="emailAddress"
-                                keyboardType="email-address"
-                                autoFocus
-                            />
-                        </View>
-
-                        <View style={styles.inputWrapper}>
-                            <TextInput
-                                style={styles.input}
-                                placeholder="Password"
-                                placeholderTextColor="#9CA3AF"
-                                value={password}
-                                onChangeText={setPassword}
-                                secureTextEntry
-                                autoComplete="new-password"
-                                textContentType="newPassword"
-                            />
-                            <Text style={styles.helperText}>
-                                At least 8 characters
-                            </Text>
-                        </View>
-                    </View>
-
-                    {error ? (
-                        <Text style={styles.errorText}>{error}</Text>
-                    ) : null}
-                </ScrollView>
-
-                <View style={[styles.bottomContainer, dynamicStyles.bottomContainer]}>
-                    <FooterButton
-                        label={loading ? 'Creating Account...' : 'Continue'}
-                        onPress={handleSignup}
-                        disabled={!canContinue || loading}
-                        size={buttonSize}
-                        paddingVertical={buttonPaddingVertical}
-                        variant={canContinue ? 'primary' : undefined}
-                        backgroundColor={canContinue ? undefined : '#6B7280'}
-                        textColor={canContinue ? undefined : BrandColors.white}
-                    />
-                </View>
+          <View style={styles.inputsContainer}>
+            <View style={styles.inputWrapper}>
+              <TextInput
+                style={styles.input}
+                placeholder="Email address"
+                placeholderTextColor="#9CA3AF"
+                value={email}
+                onChangeText={setEmail}
+                autoCapitalize="none"
+                autoComplete="email"
+                textContentType="emailAddress"
+                keyboardType="email-address"
+                autoFocus
+              />
             </View>
-        </KeyboardAvoidingView>
-    );
+
+            <View style={styles.inputWrapper}>
+              <TextInput
+                style={styles.input}
+                placeholder="Password"
+                placeholderTextColor="#9CA3AF"
+                value={password}
+                onChangeText={setPassword}
+                secureTextEntry
+                autoComplete="new-password"
+                textContentType="newPassword"
+              />
+              <Text style={styles.helperText}>At least 8 characters</Text>
+            </View>
+
+            <View style={styles.continueButtonContainer}>
+              <FooterButton
+                label={loading ? "Creating Account..." : "Continue"}
+                onPress={handleSignup}
+                disabled={!canContinue || loading}
+                size={buttonSize}
+                paddingVertical={buttonPaddingVertical}
+                variant={canContinue ? "primary" : undefined}
+                backgroundColor={canContinue ? undefined : "#6B7280"}
+                textColor={canContinue ? undefined : BrandColors.white}
+              />
+            </View>
+          </View>
+
+          {error ? <Text style={styles.errorText}>{error}</Text> : null}
+        </ScrollView>
+
+      </View>
+    </KeyboardAvoidingView>
+  );
 }
 
 const styles = StyleSheet.create({
-    keyboardView: { flex: 1 },
-    container: { flex: 1 },
-    scrollView: { flex: 1 },
-    scrollContent: {
-        flexGrow: 1,
-        paddingBottom: Spacing.xl,
-    },
-    headerContent: {
-        paddingHorizontal: Spacing['2xl'],
-        marginBottom: Spacing['3xl'],
-    },
-    title: {
-        fontSize: FontSize['4xl'],
-        fontFamily: FontFamily.bold,
-        color: BrandColors.white,
-        marginBottom: Spacing.md,
-        lineHeight: Spacing['5xl'],
-    },
-    subtitle: {
-        fontSize: FontSize.lg,
-        fontFamily: FontFamily.regular,
-        color: BrandColors.white,
-        opacity: 0.9,
-        lineHeight: Spacing['2xl'],
-    },
-    inputsContainer: { paddingHorizontal: Spacing['2xl'], gap: Spacing.lg },
-    inputWrapper: { marginBottom: Spacing.md },
-    input: {
-        backgroundColor: 'rgba(255, 255, 255, 0.1)',
-        borderRadius: 12,
-        paddingHorizontal: Spacing.md,
-        paddingVertical: Spacing.md,
-        fontSize: FontSize.lg,
-        fontFamily: FontFamily.regular,
-        color: BrandColors.white,
-        borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.2)',
-    },
-    helperText: {
-        fontSize: FontSize.sm,
-        fontFamily: FontFamily.regular,
-        color: BrandColors.white,
-        opacity: 0.7,
-        marginTop: Spacing.xs,
-        paddingHorizontal: Spacing.md,
-    },
-    errorText: {
-        textAlign: 'center',
-        color: '#FCA5A5',
-        fontSize: FontSize.sm,
-        fontFamily: FontFamily.medium,
-        marginTop: Spacing.md,
-        paddingHorizontal: Spacing['2xl'],
-    },
-    bottomContainer: {
-        paddingTop: Spacing.sm,
-        paddingHorizontal: Spacing['2xl'],
-        backgroundColor: 'transparent',
-    },
+  keyboardView: { flex: 1 },
+  container: { flex: 1 },
+  scrollView: { flex: 1 },
+  scrollContent: {
+    flexGrow: 1,
+    paddingBottom: Spacing.xl,
+  },
+  headerContent: {
+    paddingHorizontal: Spacing["2xl"],
+    marginBottom: Spacing["3xl"],
+  },
+  title: {
+    fontSize: FontSize["4xl"],
+    fontFamily: FontFamily.bold,
+    color: BrandColors.white,
+    marginBottom: Spacing.md,
+    lineHeight: Spacing["5xl"],
+  },
+  subtitle: {
+    fontSize: FontSize.lg,
+    fontFamily: FontFamily.regular,
+    color: BrandColors.white,
+    opacity: 0.9,
+    lineHeight: Spacing["2xl"],
+  },
+  inputsContainer: { paddingHorizontal: Spacing["2xl"], gap: Spacing.lg },
+  inputWrapper: { marginBottom: 0 },
+  input: {
+    backgroundColor: "rgba(255, 255, 255, 0.1)",
+    borderRadius: 12,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.md,
+    fontSize: FontSize.lg,
+    fontFamily: FontFamily.regular,
+    color: BrandColors.white,
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.2)",
+  },
+  helperText: {
+    fontSize: FontSize.sm,
+    fontFamily: FontFamily.regular,
+    color: BrandColors.white,
+    opacity: 0.7,
+    marginTop: Spacing.xs,
+    paddingHorizontal: Spacing.md,
+  },
+  continueButtonContainer: { marginTop: 0 },
+  errorText: {
+    textAlign: "center",
+    color: "#FCA5A5",
+    fontSize: FontSize.sm,
+    fontFamily: FontFamily.medium,
+    marginTop: Spacing.md,
+    paddingHorizontal: Spacing["2xl"],
+  },
 });
