@@ -1,5 +1,6 @@
 import { action, internalMutation, mutation } from "./_generated/server";
 import { api, internal } from "./_generated/api";
+import { v } from "convex/values";
 
 /**
  * Seed creates a demo user with clerkUserId "seed-demo-user-2". When you sign in with the
@@ -52,16 +53,199 @@ const TABLES_TO_CLEAR = [
   "models",
   "makes",
   "vehicle_owners",
+  "user_mechanic_preferences",
   "vehicles",
   "onboarding_questions_answers",
   "users",
 ];
 
-const clearTables = async (ctx: any) => {
+const clearTables = async (ctx: any, preserveUserId?: any) => {
   for (const table of TABLES_TO_CLEAR) {
     const rows = await ctx.db.query(table).collect();
     for (const r of rows) {
+      if (table === "users" && preserveUserId && r._id === preserveUserId) {
+        continue;
+      }
       await ctx.db.delete(r._id);
+    }
+  }
+};
+
+const clearUserScopedSeedData = async (ctx: any, userId: any) => {
+  const vehicleOwners = await ctx.db
+    .query("vehicle_owners")
+    .withIndex("by_user_id", (q: any) => q.eq("user_id", userId))
+    .collect();
+  const ownedVins = new Set(vehicleOwners.map((o: any) => o.vin));
+  for (const owner of vehicleOwners) {
+    await ctx.db.delete(owner._id);
+  }
+
+  const bookingRows = await ctx.db
+    .query("bookings")
+    .withIndex("by_user_id", (q: any) => q.eq("user_id", userId))
+    .collect();
+  const bookingIds = new Set(bookingRows.map((b: any) => b._id));
+  const timeSlotIds = bookingRows
+    .map((b: any) => b.time_slot_id)
+    .filter(Boolean);
+
+  const bookingStatusHistoryRows = await ctx.db.query("booking_status_history").collect();
+  for (const row of bookingStatusHistoryRows) {
+    if (bookingIds.has(row.booking_id)) await ctx.db.delete(row._id);
+  }
+
+  const jobActualRows = await ctx.db.query("job_actuals").collect();
+  for (const row of jobActualRows) {
+    if (bookingIds.has(row.booking_id)) await ctx.db.delete(row._id);
+  }
+
+  const specConfirmations = await ctx.db
+    .query("spec_confirmations")
+    .withIndex("by_user_id", (q: any) => q.eq("user_id", userId))
+    .collect();
+  for (const row of specConfirmations) {
+    await ctx.db.delete(row._id);
+  }
+
+  const reviewRows = await ctx.db
+    .query("reviews")
+    .withIndex("by_user_id", (q: any) => q.eq("user_id", userId))
+    .collect();
+  for (const row of reviewRows) {
+    await ctx.db.delete(row._id);
+  }
+
+  const paymentRows = await ctx.db
+    .query("payments")
+    .withIndex("by_user_id", (q: any) => q.eq("user_id", userId))
+    .collect();
+  const paymentIds = new Set(paymentRows.map((p: any) => p._id));
+  for (const row of paymentRows) {
+    await ctx.db.delete(row._id);
+  }
+
+  const paymentStatusRows = await ctx.db.query("payment_status_history").collect();
+  for (const row of paymentStatusRows) {
+    if (paymentIds.has(row.payment_id)) await ctx.db.delete(row._id);
+  }
+
+  const transactionRows = await ctx.db
+    .query("transactions")
+    .withIndex("by_user_id", (q: any) => q.eq("user_id", userId))
+    .collect();
+  for (const row of transactionRows) {
+    await ctx.db.delete(row._id);
+  }
+
+  const followUps = await ctx.db
+    .query("follow_ups")
+    .withIndex("by_user_id", (q: any) => q.eq("user_id", userId))
+    .collect();
+  for (const row of followUps) {
+    await ctx.db.delete(row._id);
+  }
+
+  const analytics = await ctx.db
+    .query("analytics_events")
+    .withIndex("by_user_id", (q: any) => q.eq("user_id", userId))
+    .collect();
+  for (const row of analytics) {
+    await ctx.db.delete(row._id);
+  }
+
+  const funnels = await ctx.db
+    .query("conversion_funnels")
+    .withIndex("by_user_id", (q: any) => q.eq("user_id", userId))
+    .collect();
+  for (const row of funnels) {
+    await ctx.db.delete(row._id);
+  }
+
+  const conversations = await ctx.db
+    .query("ai_conversations")
+    .withIndex("by_user_id", (q: any) => q.eq("user_id", userId))
+    .collect();
+  const conversationIds = new Set(conversations.map((c: any) => c._id));
+  for (const row of conversations) {
+    await ctx.db.delete(row._id);
+  }
+
+  const messages = await ctx.db.query("ai_messages").collect();
+  for (const row of messages) {
+    if (conversationIds.has(row.conversation_id)) await ctx.db.delete(row._id);
+  }
+
+  const onboardingRows = await ctx.db
+    .query("onboarding_questions_answers")
+    .withIndex("by_user_id", (q: any) => q.eq("user_id", userId))
+    .collect();
+  for (const row of onboardingRows) {
+    await ctx.db.delete(row._id);
+  }
+
+  const prefs = await ctx.db
+    .query("user_mechanic_preferences")
+    .withIndex("by_user_id", (q: any) => q.eq("user_id", userId))
+    .collect();
+  for (const row of prefs) {
+    await ctx.db.delete(row._id);
+  }
+
+  const wallets = await ctx.db
+    .query("user_reward_wallets")
+    .withIndex("by_user_id", (q: any) => q.eq("user_id", userId))
+    .collect();
+  for (const row of wallets) {
+    await ctx.db.delete(row._id);
+  }
+
+  const creditTxns = await ctx.db
+    .query("ownership_credit_transactions")
+    .withIndex("by_user_id", (q: any) => q.eq("user_id", userId))
+    .collect();
+  for (const row of creditTxns) {
+    await ctx.db.delete(row._id);
+  }
+
+  const claims = await ctx.db
+    .query("user_contribution_claims")
+    .withIndex("by_user_id", (q: any) => q.eq("user_id", userId))
+    .collect();
+  for (const row of claims) {
+    await ctx.db.delete(row._id);
+  }
+
+  const tiers = await ctx.db
+    .query("vehicle_tiers")
+    .withIndex("by_user_id", (q: any) => q.eq("user_id", userId))
+    .collect();
+  for (const row of tiers) {
+    await ctx.db.delete(row._id);
+  }
+
+  for (const booking of bookingRows) {
+    await ctx.db.delete(booking._id);
+  }
+
+  for (const slotId of timeSlotIds) {
+    const slot = await ctx.db.get(slotId);
+    if (slot) await ctx.db.delete(slotId);
+  }
+
+  for (const vin of ownedVins) {
+    const remainingOwners = await ctx.db
+      .query("vehicle_owners")
+      .withIndex("by_vin", (q: any) => q.eq("vin", vin))
+      .collect();
+    if (remainingOwners.length === 0) {
+      const vehicles = await ctx.db
+        .query("vehicles")
+        .withIndex("by_vin", (q: any) => q.eq("vin", vin))
+        .collect();
+      for (const vehicle of vehicles) {
+        await ctx.db.delete(vehicle._id);
+      }
     }
   }
 };
@@ -319,16 +503,28 @@ export const seedTimeSlots = mutation({
 
 /**
  * One-command seed: runs base seed, vehicle intelligence (OEM parts, fitments, specs),
- * then regenerates time slots. Use: npx convex run seed:seedAll
+ * then regenerates time slots.
+ * Use:
+ * npx convex run seed:seedAll '{"userId":"<users_id>"}'
  */
 export const seedAll = action({
-  args: {},
-  handler: async (ctx) => {
-    await ctx.runMutation(api.seed.seed);
+  args: {
+    userId: v.id("users"),
+    clearExisting: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    await ctx.runMutation(api.seed.seed, {
+      userId: args.userId,
+      clearExisting: args.clearExisting ?? false,
+    });
     await ctx.runMutation(internal.seed.seedVehicleIntelligenceDemoData);
-    const result = await ctx.runMutation(api.seed.seedTimeSlots);
+    await ctx.runMutation(api.seed.seedTimeSlots);
     await ctx.runMutation(api.seed.seedRewardDeals);
-    return { success: true, ...result };
+    return {
+      success: true,
+      seededForUserId: args.userId,
+      clearExisting: args.clearExisting ?? false,
+    };
   },
 });
 
@@ -392,9 +588,23 @@ export const seedRewardDeals = mutation({
 });
 
 export const seed = mutation({
-  args: {},
-  handler: async (ctx) => {
-    await clearTables(ctx);
+  args: {
+    userId: v.optional(v.id("users")),
+    clearExisting: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    if (args.userId) {
+      const existingUser = await ctx.db.get(args.userId);
+      if (!existingUser) {
+        throw new Error("User not found for provided userId.");
+      }
+    }
+
+    if (args.userId && (args.clearExisting ?? false)) {
+      await clearUserScopedSeedData(ctx, args.userId);
+    } else if (!args.userId && (args.clearExisting ?? false)) {
+      await clearTables(ctx);
+    }
 
     const now = Date.now();
 
@@ -837,17 +1047,35 @@ export const seed = mutation({
       }
     }
 
-    // --- Users (main demo user; claimSeedDataForCurrentUser reassigns to signed-in guest account) ---
-    const userId = await ctx.db.insert("users", {
-      clerkUserId: SEED_DEMO_CLERK_USER_ID,
-      onboardingCompleted: true,
-      createdAt: Date.now(),
-      lastUpdated: Date.now(),
-      email: "demo@otopair.com",
-      phone: "(512) 555-9999",
-      first_name: "Alex",
-      last_name: "Demo",
-    });
+    // --- Users (main seeded user is provided userId when present) ---
+    let userId: any;
+    if (args.userId) {
+      const existingUser = await ctx.db.get(args.userId);
+      if (!existingUser) {
+        throw new Error("User not found for provided userId.");
+      }
+
+      await ctx.db.patch(args.userId, {
+        onboardingCompleted: true,
+        lastUpdated: Date.now(),
+        email: existingUser.email ?? "demo@otopair.com",
+        phone: existingUser.phone ?? "(512) 555-9999",
+        first_name: existingUser.first_name ?? "Alex",
+        last_name: existingUser.last_name ?? "Demo",
+      });
+      userId = args.userId;
+    } else {
+      userId = await ctx.db.insert("users", {
+        clerkUserId: SEED_DEMO_CLERK_USER_ID,
+        onboardingCompleted: true,
+        createdAt: Date.now(),
+        lastUpdated: Date.now(),
+        email: "demo@otopair.com",
+        phone: "(512) 555-9999",
+        first_name: "Alex",
+        last_name: "Demo",
+      });
+    }
 
     const user2Id = await ctx.db.insert("users", {
       clerkUserId: "seed-demo-user-3",
@@ -864,24 +1092,51 @@ export const seed = mutation({
     const vinCamry = "4T1B11HK5JU123456";
     const vinAccord = "1HGCV1F39KA123456";
 
-    await ctx.db.insert("vehicles", {
-      vin: vinCamry,
+    const ensureSeedVehicle = async (
+      vin: string,
+      fields: {
+        trim_id: any;
+        engine_id: any;
+        year: number;
+        metadata: { color: string; body_style: string };
+      },
+    ) => {
+      const rows = await ctx.db
+        .query("vehicles")
+        .withIndex("by_vin", (q) => q.eq("vin", vin))
+        .collect();
+      const existing = rows[0];
+      if (existing) {
+        // Keep first row, remove duplicates for this VIN.
+        for (let i = 1; i < rows.length; i++) {
+          await ctx.db.delete(rows[i]._id);
+        }
+        await ctx.db.patch(existing._id, {
+          ...fields,
+          updated_at: now,
+        });
+        return existing._id;
+      }
+      return await ctx.db.insert("vehicles", {
+        vin,
+        ...fields,
+        created_at: now,
+        updated_at: now,
+      });
+    };
+
+    await ensureSeedVehicle(vinCamry, {
       trim_id: leId,
       engine_id: engineLeId,
       year: 2022,
       metadata: { color: "Silver", body_style: "Sedan" },
-      created_at: now,
-      updated_at: now,
     });
 
-    await ctx.db.insert("vehicles", {
-      vin: vinAccord,
+    await ensureSeedVehicle(vinAccord, {
       trim_id: sportId,
       engine_id: engineAccordId,
       year: 2021,
       metadata: { color: "Black", body_style: "Sedan" },
-      created_at: now,
-      updated_at: now,
     });
 
     // --- Vehicle Owners (multi-owner demo) ---
@@ -924,59 +1179,171 @@ export const seed = mutation({
       last_updated: now,
     });
 
-    // --- Booking + Payment + Status History ---
-    const slot = await ctx.db.query("time_slots").collect();
-    const timeSlot = slot[0];
-    if (!timeSlot) throw new Error("No time slots available after seed");
+    // --- Bookings + Payments + Transactions (coherent user history) ---
+    const createSeedBookingWithPaymentTransaction = async ({
+      vin,
+      shopId,
+      mechanicId,
+      serviceId,
+      serviceName,
+      laborCost,
+      partsCost,
+      dateOffsetDays,
+      scheduledTime,
+      status,
+      key,
+    }: {
+      vin: string;
+      shopId: any;
+      mechanicId: any;
+      serviceId: any;
+      serviceName: string;
+      laborCost: number;
+      partsCost: number;
+      dateOffsetDays: number;
+      scheduledTime: string;
+      status: "confirmed" | "completed";
+      key: string;
+    }) => {
+      const when = new Date(now);
+      when.setDate(when.getDate() + dateOffsetDays);
+      const scheduledDate = when.toISOString().split("T")[0];
+      const createdAt = now + dateOffsetDays * 24 * 60 * 60 * 1000;
+      const totalCost = laborCost + partsCost;
+      const [startHour] = scheduledTime.split(":").map(Number);
+      const endTime = `${String(startHour + 1).padStart(2, "0")}:00`;
 
-    const bookingId = await ctx.db.insert("bookings", {
-      user_id: userId,
+      const timeSlotId = await ctx.db.insert("time_slots", {
+        shop_id: shopId,
+        mechanic_id: mechanicId,
+        date: scheduledDate,
+        start_time: scheduledTime,
+        end_time: endTime,
+        is_available: status === "completed",
+      });
+
+      const bookingId = await ctx.db.insert("bookings", {
+        user_id: userId,
+        vin,
+        shop_id: shopId,
+        mechanic_id: mechanicId,
+        service_ids: [serviceId],
+        time_slot_id: timeSlotId,
+        scheduled_date: scheduledDate,
+        scheduled_time: scheduledTime,
+        labor_cost: laborCost,
+        parts_cost: partsCost,
+        total_cost: totalCost,
+        status,
+        created_at: createdAt,
+        updated_at: createdAt,
+      });
+
+      await ctx.db.insert("booking_status_history", {
+        booking_id: bookingId,
+        old_status: undefined,
+        new_status: "confirmed",
+        changed_by: userId,
+        reason: `seeded_${key}`,
+        changed_at: createdAt,
+      });
+
+      if (status === "completed") {
+        await ctx.db.insert("booking_status_history", {
+          booking_id: bookingId,
+          old_status: "confirmed",
+          new_status: "completed",
+          changed_by: userId,
+          reason: `seeded_${key}`,
+          changed_at: createdAt + 45 * 60 * 1000,
+        });
+      }
+
+      const paymentId = await ctx.db.insert("payments", {
+        booking_id: bookingId,
+        user_id: userId,
+        shop_id: shopId,
+        amount: totalCost,
+        payment_method: "card",
+        status: "completed",
+        transaction_id: `txn_seed_${key}`,
+        stripe_payment_intent_id: `pi_seed_${key}`,
+        idempotency_key: `seed_${key}`,
+        created_at: createdAt,
+        updated_at: createdAt,
+      });
+
+      await ctx.db.insert("payment_status_history", {
+        payment_id: paymentId,
+        old_status: "processing",
+        new_status: "completed",
+        error_code: undefined,
+        error_message: undefined,
+        changed_at: createdAt,
+      });
+
+      const shop = (await ctx.db.get(shopId)) as any;
+      await ctx.db.insert("transactions", {
+        user_id: userId,
+        created_at: createdAt,
+        description: shop?.name ?? "Otopair Service",
+        sub_description: serviceName,
+        amount: -totalCost,
+        currency: "USD",
+        status: "completed",
+        transaction_type: "charge",
+        shop_id: shopId,
+        booking_id: bookingId,
+        payment_id: paymentId,
+        icon_type: "wrench",
+      });
+
+      return { bookingId, paymentId, createdAt };
+    };
+
+    const completedHistoryPrimary = await createSeedBookingWithPaymentTransaction({
       vin: vinCamry,
-      shop_id: shop1Id,
-      mechanic_id: mech2Id,
-      service_ids: [oilChangeId],
-      time_slot_id: timeSlot._id,
-      scheduled_date: timeSlot.date,
-      scheduled_time: timeSlot.start_time,
-      labor_cost: 47.5,
-      parts_cost: 45,
-      total_cost: 92.5,
-      status: "confirmed",
-      created_at: now,
-      updated_at: now,
-    });
-
-    await ctx.db.insert("booking_status_history", {
-      booking_id: bookingId,
-      old_status: undefined,
-      new_status: "confirmed",
-      changed_by: userId,
-      reason: "seeded",
-      changed_at: now,
-    });
-
-    const paymentId = await ctx.db.insert("payments", {
-      booking_id: bookingId,
-      user_id: userId,
-      shop_id: shop1Id,
-      amount: 92.5,
-      payment_method: "card",
+      shopId: shop1Id,
+      mechanicId: mech2Id,
+      serviceId: oilChangeId,
+      serviceName: "Oil Change",
+      laborCost: 47.5,
+      partsCost: 45,
+      dateOffsetDays: -14,
+      scheduledTime: "10:00",
       status: "completed",
-      transaction_id: "txn_seed_001",
-      stripe_payment_intent_id: "pi_seed_001",
-      idempotency_key: "seed_001",
-      created_at: now,
-      updated_at: now,
+      key: "history_1",
     });
 
-    await ctx.db.insert("payment_status_history", {
-      payment_id: paymentId,
-      old_status: "processing",
-      new_status: "completed",
-      error_code: undefined,
-      error_message: undefined,
-      changed_at: now,
+    await createSeedBookingWithPaymentTransaction({
+      vin: vinCamry,
+      shopId: shop2Id,
+      mechanicId: mech3Id,
+      serviceId: brakePadsId,
+      serviceName: "Brake Pads Replacement",
+      laborCost: 95,
+      partsCost: 60,
+      dateOffsetDays: -45,
+      scheduledTime: "11:00",
+      status: "completed",
+      key: "history_2",
     });
+
+    await createSeedBookingWithPaymentTransaction({
+      vin: vinCamry,
+      shopId: shop1Id,
+      mechanicId: mech1Id,
+      serviceId: tireRotationId,
+      serviceName: "Tire Rotation",
+      laborCost: 30,
+      partsCost: 10,
+      dateOffsetDays: 3,
+      scheduledTime: "09:00",
+      status: "confirmed",
+      key: "upcoming_1",
+    });
+
+    const bookingId = completedHistoryPrimary.bookingId;
 
     // --- Job Actuals ---
     const jobActualId = await ctx.db.insert("job_actuals", {
@@ -984,11 +1351,11 @@ export const seed = mutation({
       mechanic_id: mech2Id,
       actual_labor_minutes: 30,
       actual_parts_cost: 42,
-      started_at: now - 30 * 60 * 1000,
-      completed_at_ms: now - 5 * 60 * 1000,
-      logged_at_ms: now,
-      created_at: now,
-      updated_at: now,
+      started_at: completedHistoryPrimary.createdAt,
+      completed_at_ms: completedHistoryPrimary.createdAt + 25 * 60 * 1000,
+      logged_at_ms: completedHistoryPrimary.createdAt + 30 * 60 * 1000,
+      created_at: completedHistoryPrimary.createdAt + 30 * 60 * 1000,
+      updated_at: completedHistoryPrimary.createdAt + 30 * 60 * 1000,
       difficulty_rating: 2,
       parts_used: [{ part_name: "Oil Filter", oem_number: "90915-YZZD4", cost: 12 }],
       technician_notes: "Standard oil change completed.",
@@ -1002,7 +1369,7 @@ export const seed = mutation({
       mechanic_id: mech2Id,
       rating: 5,
       comment: "Great service!",
-      created_at: now,
+      created_at: completedHistoryPrimary.createdAt + 2 * 60 * 60 * 1000,
     });
 
     // --- Follow-up ---
@@ -1012,17 +1379,17 @@ export const seed = mutation({
       booking_id: bookingId,
       service_id: oilChangeId,
       follow_up_type: "maintenance_due",
-      scheduled_for: now + 90 * 24 * 60 * 60 * 1000,
+      scheduled_for: completedHistoryPrimary.createdAt + 90 * 24 * 60 * 60 * 1000,
       status: "pending",
       message: "Time to schedule your next oil change",
-      created_at: now,
+      created_at: completedHistoryPrimary.createdAt + 2 * 60 * 60 * 1000,
     });
 
     // --- AI Conversations + Messages ---
     const convoId = await ctx.db.insert("ai_conversations", {
       user_id: userId,
-      started_at: now - 10 * 60 * 1000,
-      ended_at: now - 5 * 60 * 1000,
+      started_at: completedHistoryPrimary.createdAt - 10 * 60 * 1000,
+      ended_at: completedHistoryPrimary.createdAt - 5 * 60 * 1000,
       scenario_detected: "price_check",
       led_to_booking: true,
       booking_id: bookingId,
@@ -1034,14 +1401,14 @@ export const seed = mutation({
       conversation_id: convoId,
       role: "user",
       content: "How much is an oil change?",
-      timestamp: now - 9 * 60 * 1000,
+      timestamp: completedHistoryPrimary.createdAt - 9 * 60 * 1000,
     });
 
     await ctx.db.insert("ai_messages", {
       conversation_id: convoId,
       role: "assistant",
       content: "Most oil changes range from $70-$110 for synthetic.",
-      timestamp: now - 8 * 60 * 1000,
+      timestamp: completedHistoryPrimary.createdAt - 8 * 60 * 1000,
       confidence_score: 0.88,
     });
 
@@ -1056,7 +1423,7 @@ export const seed = mutation({
         service_id: oilChangeId,
         screen_name: "BookingConfirmation",
       },
-      timestamp: now,
+      timestamp: completedHistoryPrimary.createdAt,
       session_id: "seed-session-001",
     });
 
@@ -1066,8 +1433,8 @@ export const seed = mutation({
       funnel_type: "booking_flow",
       stage: "completed",
       booking_id: bookingId,
-      entered_at: now - 30 * 60 * 1000,
-      exited_at: now - 25 * 60 * 1000,
+      entered_at: completedHistoryPrimary.createdAt - 30 * 60 * 1000,
+      exited_at: completedHistoryPrimary.createdAt - 25 * 60 * 1000,
       completed: true,
       drop_off_reason: undefined,
     });
@@ -1521,11 +1888,16 @@ export const seedVehicleIntelligenceDemoData = internalMutation({
       fields: { trim_id: any; engine_id: any; transmission_id: any; chassis_id: any; year: number }
     ) => {
       const normalized = vin.toUpperCase().trim();
-      const existing = await ctx.db
+      const rows = await ctx.db
         .query("vehicles")
         .withIndex("by_vin", (q) => q.eq("vin", normalized))
-        .unique();
+        .collect();
+      const existing = rows[0];
       if (existing) {
+        // Keep first row, remove duplicates for this VIN so future unique-like lookups are safe.
+        for (let i = 1; i < rows.length; i++) {
+          await ctx.db.delete(rows[i]._id);
+        }
         await ctx.db.patch(existing._id, {
           ...fields,
           updated_at: now,
@@ -1665,12 +2037,15 @@ export const seedPastBookingsForJohnDoe = mutation({
     const shop2 = shops[1] ?? shop1;
     const mech1 = mechanics.find((m) => m.shop_id === shop1._id) ?? mechanics[0];
     const mech2 = mechanics.find((m) => m.shop_id === shop2._id) ?? mech1;
+    const oilChangeService = oilChange!;
+    const brakePadsService = brakePads ?? oilChangeService;
+    const tireRotationService = tireRotation ?? oilChangeService;
 
     const pastBookings = [
-      { daysAgo: 14, service: oilChange, shop: shop1, mechanic: mech1, labor: 47.5, parts: 45 },
-      { daysAgo: 30, service: brakePads, shop: shop1, mechanic: mech2, labor: 95, parts: 60 },
-      { daysAgo: 60, service: oilChange, shop: shop2, mechanic: mech2, labor: 42.5, parts: 40 },
-      { daysAgo: 90, service: tireRotation, shop: shop1, mechanic: mech1, labor: 47.5, parts: 0 },
+      { daysAgo: 14, service: oilChangeService, shop: shop1, mechanic: mech1, labor: 47.5, parts: 45 },
+      { daysAgo: 30, service: brakePadsService, shop: shop1, mechanic: mech2, labor: 95, parts: 60 },
+      { daysAgo: 60, service: oilChangeService, shop: shop2, mechanic: mech2, labor: 42.5, parts: 40 },
+      { daysAgo: 90, service: tireRotationService, shop: shop1, mechanic: mech1, labor: 47.5, parts: 0 },
     ];
 
     const now = Date.now();

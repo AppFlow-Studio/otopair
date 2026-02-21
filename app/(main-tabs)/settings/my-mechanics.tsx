@@ -20,6 +20,7 @@ import {
   Dimensions,
   Animated as RNAnimated,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
@@ -54,7 +55,7 @@ import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 const MENU_WIDTH = 220;
-const MENU_HEIGHT = 150; // Increased height to account for potential text wrapping
+const MENU_HEIGHT = 210; // Increased for 3 action rows
 
 interface Mechanic {
   id: string;
@@ -112,7 +113,9 @@ const MechanicListItem = ({ mechanic, fromFavorites = false, onOpenMenu }: Mecha
               <View style={styles.lastVisitRow}>
                 <Clock size={12} color="#86868B" />
                 <Text size="sm" color="#86868B" weight="medium">
-                  Last visit: {mechanic.lastVisit}
+                  {mechanic.lastVisit === "Upcoming"
+                    ? "Upcoming"
+                    : `Last visit: ${mechanic.lastVisit}`}
                 </Text>
               </View>
             ) : null}
@@ -134,6 +137,7 @@ const MechanicListItem = ({ mechanic, fromFavorites = false, onOpenMenu }: Mecha
 
 export default function MyMechanicsScreen() {
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const { userId } = useUserFromConvex();
   const data = useQuery(
     (api as any).mechanics.getMyMechanicsForUser,
@@ -243,6 +247,15 @@ export default function MyMechanicsScreen() {
     });
     closeMenu();
   }, [selectedMechanic, userId, setHiddenForUser, closeMenu]);
+
+  const handleOpenTransactionsForShop = useCallback(() => {
+    if (!selectedMechanic?.name) return;
+    closeMenu();
+    router.push({
+      pathname: "/settings/transactions",
+      params: { shop: selectedMechanic.name },
+    } as any);
+  }, [closeMenu, router, selectedMechanic?.name]);
 
   return (
     <View style={[styles.screen, { backgroundColor: BrandColors.background }]}>
@@ -384,7 +397,9 @@ export default function MyMechanicsScreen() {
                               <View style={styles.lastVisitRow}>
                                 <Clock size={12} color="#86868B" />
                                 <Text size="sm" color="#86868B" weight="medium">
-                                  Last visit: {m.lastVisit}
+                                  {m.lastVisit === "Upcoming"
+                                    ? "Upcoming"
+                                    : `Last visit: ${m.lastVisit}`}
                                 </Text>
                               </View>
                             ) : null}
@@ -417,7 +432,13 @@ export default function MyMechanicsScreen() {
       </ScrollView>
 
       {/* Action Menu */}
-      <Modal transparent visible={isMenuVisible} animationType="none">
+      <Modal
+        transparent
+        visible={isMenuVisible}
+        animationType="none"
+        statusBarTranslucent
+        navigationBarTranslucent
+      >
         <TouchableWithoutFeedback onPress={closeMenu}>
           <RNAnimated.View 
             style={[
@@ -446,29 +467,76 @@ export default function MyMechanicsScreen() {
                 ]}
               >
                 <View style={styles.menuContent}>
-                  <Pressable
-                    style={styles.menuItem}
-                    onPress={handleToggleFavorite}
-                  >
-                    <View style={styles.menuIconBox}>
-                      {isFromFavorites ? (
-                        <UserMinus size={18} color="#EF4444" />
-                      ) : (
-                        <Heart size={18} color={BrandColors.primary} />
-                      )}
-                    </View>
-                    <Text 
-                      weight="medium" 
-                      size="md" 
-                      color={isFromFavorites ? "#EF4444" : "#1F2937"}
-                      style={styles.menuItemText}
-                    >
-                      {isFromFavorites ? "Remove from Favorites" : "Add to Favorites"}
-                    </Text>
-                  </Pressable>
-                  
+                  {isFromFavorites ? (
+                    <>
+                      <Pressable
+                        style={styles.menuItem}
+                        onPress={handleOpenTransactionsForShop}
+                      >
+                        <View style={styles.menuIconBox}>
+                          <Calendar size={18} color={BrandColors.primary} />
+                        </View>
+                        <Text weight="medium" size="md" color="#1F2937" style={styles.menuItemText}>
+                          View transactions
+                        </Text>
+                      </Pressable>
+
+                      <View style={styles.menuSeparator} />
+
+                      <Pressable
+                        style={styles.menuItem}
+                        onPress={handleToggleFavorite}
+                      >
+                        <View style={styles.menuIconBox}>
+                          <UserMinus size={18} color="#EF4444" />
+                        </View>
+                        <Text
+                          weight="medium"
+                          size="md"
+                          color="#EF4444"
+                          style={styles.menuItemText}
+                        >
+                          Remove from Favorites
+                        </Text>
+                      </Pressable>
+                    </>
+                  ) : (
+                    <>
+                      <Pressable
+                        style={styles.menuItem}
+                        onPress={handleToggleFavorite}
+                      >
+                        <View style={styles.menuIconBox}>
+                          <Heart size={18} color={BrandColors.primary} />
+                        </View>
+                        <Text
+                          weight="medium"
+                          size="md"
+                          color="#1F2937"
+                          style={styles.menuItemText}
+                        >
+                          Add to Favorites
+                        </Text>
+                      </Pressable>
+
+                      <View style={styles.menuSeparator} />
+
+                      <Pressable
+                        style={styles.menuItem}
+                        onPress={handleOpenTransactionsForShop}
+                      >
+                        <View style={styles.menuIconBox}>
+                          <Calendar size={18} color={BrandColors.primary} />
+                        </View>
+                        <Text weight="medium" size="md" color="#1F2937" style={styles.menuItemText}>
+                          View transactions
+                        </Text>
+                      </Pressable>
+                    </>
+                  )}
+
                   <View style={styles.menuSeparator} />
-                  
+
                   <Pressable
                     style={styles.menuItem}
                     onPress={handleHideMechanic}

@@ -111,8 +111,18 @@ export const getByShopId = query({
   },
 });
 
-function formatLastVisit(createdAt: number): string {
-  const diffMs = Date.now() - createdAt;
+function getBookingTimestamp(booking: { scheduled_date?: string; scheduled_time?: string; created_at: number }) {
+  if (booking.scheduled_date) {
+    const time = booking.scheduled_time ?? "00:00";
+    const parsed = new Date(`${booking.scheduled_date}T${time}`).getTime();
+    if (!Number.isNaN(parsed)) return parsed;
+  }
+  return booking.created_at;
+}
+
+function formatVisitLabel(bookingTs: number): string {
+  if (bookingTs > Date.now()) return "Upcoming";
+  const diffMs = Date.now() - bookingTs;
   const days = Math.max(0, Math.floor(diffMs / (24 * 60 * 60 * 1000)));
   if (days < 7) return "this week";
   if (days < 14) return "1 week ago";
@@ -125,7 +135,7 @@ function formatLastVisit(createdAt: number): string {
 async function buildMechanicCard(
   ctx: any,
   mechanicId: string,
-  lastVisitAt: number | undefined,
+  lastVisitLabel: string | undefined,
   isPreferred: boolean,
 ) {
   const mechanic = await ctx.db.get(mechanicId as any);
@@ -134,12 +144,13 @@ async function buildMechanicCard(
   const photoUrl = mechanic.photo ? (await ctx.db.get(mechanic.photo))?.url : undefined;
   const mechanicName = `${mechanic.first_name} ${mechanic.last_name}`.trim();
   const initials = `${mechanic.first_name?.[0] ?? ""}${mechanic.last_name?.[0] ?? ""}`.toUpperCase();
+  const displayName = shop?.name ?? (mechanicName.length > 0 ? mechanicName : "Mechanic");
   return {
     id: mechanic._id as string,
-    name: mechanicName.length > 0 ? mechanicName : shop?.name ?? "Mechanic",
+    name: displayName,
     image: photoUrl,
     initials: initials.length > 0 ? initials : "M",
-    lastVisit: lastVisitAt ? formatLastVisit(lastVisitAt) : undefined,
+    lastVisit: lastVisitLabel,
     isPreferred,
   };
 }
@@ -177,14 +188,14 @@ export const getMyMechanicsForUser = query({
           b.mechanic_id != null &&
           !["cancelled", "no_show"].includes(b.status),
       )
-      .sort((a, b) => b.created_at - a.created_at);
+      .sort((a, b) => getBookingTimestamp(b) - getBookingTimestamp(a));
 
-    // mechanic_id -> latest booking timestamp
-    const latestByMechanic = new Map<string, number>();
+    // mechanic_id -> latest booking label
+    const latestByMechanic = new Map<string, string>();
     for (const booking of eligible) {
       const mechanicId = booking.mechanic_id as string;
       if (!latestByMechanic.has(mechanicId)) {
-        latestByMechanic.set(mechanicId, booking.created_at);
+        latestByMechanic.set(mechanicId, formatVisitLabel(getBookingTimestamp(booking)));
       }
     }
 
@@ -262,6 +273,8 @@ export const setFavoriteForUser = mutation({
 
     await ctx.db.patch(existing._id, {
       is_favorite: args.isFavorite,
+      // Favoriting and hiding are mutually exclusive states.
+      is_hidden: args.isFavorite ? false : existing.is_hidden,
       updated_at: now,
     });
     return { success: true };
@@ -300,6 +313,8 @@ export const setHiddenForUser = mutation({
 
     await ctx.db.patch(existing._id, {
       is_hidden: args.isHidden,
+      // Favoriting and hiding are mutually exclusive states.
+      is_favorite: args.isHidden ? false : existing.is_favorite,
       updated_at: now,
     });
     return { success: true };
