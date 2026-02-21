@@ -907,6 +907,69 @@ export const seed = mutation({
       confidence_score: 0.85,
     });
 
+    const acServiceId = await ctx.db.insert("services", {
+      name: "AC System Service",
+      slug: "ac-service",
+      description: "AC recharge, leak check, and cabin filter replacement",
+      service_category_id: maintenanceId,
+      default_labor_hours: 1.0,
+      is_labor_only: false,
+      has_options: false,
+      display_order: 4,
+    });
+
+    const batteryReplacementId = await ctx.db.insert("services", {
+      name: "Battery Replacement",
+      slug: "battery-replacement",
+      description: "Replace battery with OEM-spec unit and terminal clean",
+      service_category_id: maintenanceId,
+      default_labor_hours: 0.5,
+      is_labor_only: false,
+      has_options: false,
+      display_order: 5,
+    });
+
+    const wheelAlignmentId = await ctx.db.insert("services", {
+      name: "Wheel Alignment",
+      slug: "wheel-alignment",
+      description: "Four-wheel alignment check and adjustment with printed report",
+      service_category_id: maintenanceId,
+      default_labor_hours: 1.0,
+      is_labor_only: true,
+      has_options: false,
+      display_order: 6,
+    });
+
+    await ctx.db.insert("service_vehicle_specs", {
+      service_id: acServiceId,
+      engine_id: engineLeId,
+      labor_hours: 1.0,
+      parts_cost_low: 20,
+      parts_cost_high: 45,
+      tech_notes: "R-134a refrigerant. Recharge to 24 oz. Check cabin filter.",
+      confidence_score: 0.88,
+    });
+
+    await ctx.db.insert("service_vehicle_specs", {
+      service_id: batteryReplacementId,
+      engine_id: engineLeId,
+      labor_hours: 0.5,
+      parts_cost_low: 80,
+      parts_cost_high: 140,
+      tech_notes: "Group 35 battery. Min 550 CCA. Reset TPMS after swap.",
+      confidence_score: 0.9,
+    });
+
+    await ctx.db.insert("service_vehicle_specs", {
+      service_id: wheelAlignmentId,
+      engine_id: engineLeId,
+      labor_hours: 1.0,
+      parts_cost_low: 0,
+      parts_cost_high: 0,
+      tech_notes: "Four-wheel alignment. Spec: 0° camber, 0.04° toe-in.",
+      confidence_score: 0.87,
+    });
+
     // --- Shops ---
     const shop1Id = await ctx.db.insert("shops", {
       name: "AutoPro Service Center",
@@ -942,9 +1005,60 @@ export const seed = mutation({
       is_verified: true,
     });
 
-    // --- Shop Hours (Mon-Sat for both shops; schema: 0=Sunday, 1=Monday, ... 6=Saturday) ---
+    const shop3Id = await ctx.db.insert("shops", {
+      name: "Precision Auto Works",
+      slug: "precision-auto-works",
+      address: "910 Lamar Blvd",
+      city: "Austin",
+      state: "TX",
+      zip: "78703",
+      lat: 30.2785,
+      lng: -97.7562,
+      phone: "(512) 555-0310",
+      rating: 4.9,
+      review_count: 210,
+      labor_rate: 105,
+      is_active: true,
+      is_verified: true,
+    });
+
+    const shop4Id = await ctx.db.insert("shops", {
+      name: "Sunset Auto Repair",
+      slug: "sunset-auto-repair",
+      address: "3300 Bee Cave Rd",
+      city: "Austin",
+      state: "TX",
+      zip: "78746",
+      lat: 30.2562,
+      lng: -97.8019,
+      phone: "(512) 555-0420",
+      rating: 4.4,
+      review_count: 76,
+      labor_rate: 80,
+      is_active: true,
+      is_verified: true,
+    });
+
+    const shop5Id = await ctx.db.insert("shops", {
+      name: "Capital City Auto",
+      slug: "capital-city-auto",
+      address: "1801 E 51st St",
+      city: "Austin",
+      state: "TX",
+      zip: "78723",
+      lat: 30.3055,
+      lng: -97.7083,
+      phone: "(512) 555-0530",
+      rating: 4.6,
+      review_count: 118,
+      labor_rate: 90,
+      is_active: true,
+      is_verified: true,
+    });
+
+    // --- Shop Hours (Mon-Sat for all shops; schema: 0=Sunday, 1=Monday, ... 6=Saturday) ---
     const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-    for (const shopId of [shop1Id, shop2Id]) {
+    for (const shopId of [shop1Id, shop2Id, shop3Id, shop4Id, shop5Id]) {
       for (let d = 0; d < 7; d++) {
         const isSunday = d === 0;
         await ctx.db.insert("shops_hours", {
@@ -958,11 +1072,14 @@ export const seed = mutation({
       }
     }
 
-    // --- Shop Services (both shops offer all services) ---
-    for (const shopId of [shop1Id, shop2Id]) {
+    // --- Shop Services (all shops offer all services) ---
+    for (const shopId of [shop1Id, shop2Id, shop3Id, shop4Id, shop5Id]) {
       await ctx.db.insert("shop_services", { shop_id: shopId, service_id: oilChangeId, is_offered: true });
       await ctx.db.insert("shop_services", { shop_id: shopId, service_id: brakePadsId, is_offered: true });
       await ctx.db.insert("shop_services", { shop_id: shopId, service_id: tireRotationId, is_offered: true });
+      await ctx.db.insert("shop_services", { shop_id: shopId, service_id: acServiceId, is_offered: true });
+      await ctx.db.insert("shop_services", { shop_id: shopId, service_id: batteryReplacementId, is_offered: true });
+      await ctx.db.insert("shop_services", { shop_id: shopId, service_id: wheelAlignmentId, is_offered: true });
     }
 
     // --- CDN assets (portfolio images) ---
@@ -984,8 +1101,9 @@ export const seed = mutation({
 
     // --- Shop portfolio (link shops to cdn_assets) ---
     for (const [order, assetId] of [asset1Id, asset2Id, asset3Id].entries()) {
-      await ctx.db.insert("shop_portfolio", { shop_id: shop1Id, content_id: assetId, display_order: order });
-      await ctx.db.insert("shop_portfolio", { shop_id: shop2Id, content_id: assetId, display_order: order });
+      for (const shopId of [shop1Id, shop2Id, shop3Id, shop4Id, shop5Id]) {
+        await ctx.db.insert("shop_portfolio", { shop_id: shopId, content_id: assetId, display_order: order });
+      }
     }
 
     // --- Mechanics ---
@@ -1017,12 +1135,64 @@ export const seed = mutation({
       review_count: 51,
     });
 
+    const mech4Id = await ctx.db.insert("mechanics", {
+      shop_id: shop3Id,
+      first_name: "David",
+      last_name: "Park",
+      is_active: true,
+      rating: 4.8,
+      review_count: 73,
+    });
+
+    const mech5Id = await ctx.db.insert("mechanics", {
+      shop_id: shop3Id,
+      first_name: "Lisa",
+      last_name: "Thompson",
+      title: "Senior Technician",
+      is_active: true,
+      rating: 4.7,
+      review_count: 58,
+    });
+
+    const mech6Id = await ctx.db.insert("mechanics", {
+      shop_id: shop4Id,
+      first_name: "Carlos",
+      last_name: "Martinez",
+      is_active: true,
+      rating: 4.5,
+      review_count: 42,
+    });
+
+    const mech7Id = await ctx.db.insert("mechanics", {
+      shop_id: shop4Id,
+      first_name: "Emma",
+      last_name: "Wilson",
+      title: "Lead Mechanic",
+      is_active: true,
+      rating: 4.9,
+      review_count: 96,
+    });
+
+    const mech8Id = await ctx.db.insert("mechanics", {
+      shop_id: shop5Id,
+      first_name: "Robert",
+      last_name: "Kim",
+      is_active: true,
+      rating: 4.6,
+      review_count: 37,
+    });
+
     // --- Time Slots (next 7 days, multiple slots per mechanic) ---
     const today = new Date();
     const mechanicsWithSlots = [
       { shop_id: shop1Id, mechanic_id: mech1Id },
       { shop_id: shop1Id, mechanic_id: mech2Id },
       { shop_id: shop2Id, mechanic_id: mech3Id },
+      { shop_id: shop3Id, mechanic_id: mech4Id },
+      { shop_id: shop3Id, mechanic_id: mech5Id },
+      { shop_id: shop4Id, mechanic_id: mech6Id },
+      { shop_id: shop4Id, mechanic_id: mech7Id },
+      { shop_id: shop5Id, mechanic_id: mech8Id },
     ];
     const startHours = [8, 9, 10, 11, 13, 14, 15];
 
@@ -1191,6 +1361,7 @@ export const seed = mutation({
       dateOffsetDays,
       scheduledTime,
       status,
+      liveStage,
       key,
     }: {
       vin: string;
@@ -1202,7 +1373,8 @@ export const seed = mutation({
       partsCost: number;
       dateOffsetDays: number;
       scheduledTime: string;
-      status: "confirmed" | "completed";
+      status: "confirmed" | "completed" | "in_progress";
+      liveStage?: string;
       key: string;
     }) => {
       const when = new Date(now);
@@ -1235,6 +1407,7 @@ export const seed = mutation({
         parts_cost: partsCost,
         total_cost: totalCost,
         status,
+        ...(status === "in_progress" && { live_stage: liveStage ?? "service_in_progress" }),
         created_at: createdAt,
         updated_at: createdAt,
       });
@@ -1256,6 +1429,15 @@ export const seed = mutation({
           changed_by: userId,
           reason: `seeded_${key}`,
           changed_at: createdAt + 45 * 60 * 1000,
+        });
+      } else if (status === "in_progress") {
+        await ctx.db.insert("booking_status_history", {
+          booking_id: bookingId,
+          old_status: "confirmed",
+          new_status: "in_progress",
+          changed_by: userId,
+          reason: `seeded_${key}`,
+          changed_at: createdAt + 5 * 60 * 1000,
         });
       }
 
@@ -1341,6 +1523,136 @@ export const seed = mutation({
       scheduledTime: "09:00",
       status: "confirmed",
       key: "upcoming_1",
+    });
+
+    // --- Live Tracker (in_progress today) ---
+    await createSeedBookingWithPaymentTransaction({
+      vin: vinCamry,
+      shopId: shop2Id,
+      mechanicId: mech3Id,
+      serviceId: oilChangeId,
+      serviceName: "Oil Change",
+      laborCost: 47.5,
+      partsCost: 42,
+      dateOffsetDays: 0,
+      scheduledTime: "09:00",
+      status: "in_progress",
+      liveStage: "service_in_progress",
+      key: "live_1",
+    });
+
+    // --- More upcoming ---
+    await createSeedBookingWithPaymentTransaction({
+      vin: vinCamry,
+      shopId: shop3Id,
+      mechanicId: mech4Id,
+      serviceId: acServiceId,
+      serviceName: "AC System Service",
+      laborCost: 95,
+      partsCost: 35,
+      dateOffsetDays: 7,
+      scheduledTime: "10:00",
+      status: "confirmed",
+      key: "upcoming_2",
+    });
+
+    await createSeedBookingWithPaymentTransaction({
+      vin: vinCamry,
+      shopId: shop5Id,
+      mechanicId: mech8Id,
+      serviceId: wheelAlignmentId,
+      serviceName: "Wheel Alignment",
+      laborCost: 89,
+      partsCost: 0,
+      dateOffsetDays: 12,
+      scheduledTime: "13:00",
+      status: "confirmed",
+      key: "upcoming_3",
+    });
+
+    // --- More completed history ---
+    await createSeedBookingWithPaymentTransaction({
+      vin: vinCamry,
+      shopId: shop3Id,
+      mechanicId: mech4Id,
+      serviceId: oilChangeId,
+      serviceName: "Oil Change",
+      laborCost: 47.5,
+      partsCost: 45,
+      dateOffsetDays: -7,
+      scheduledTime: "11:00",
+      status: "completed",
+      key: "history_3",
+    });
+
+    await createSeedBookingWithPaymentTransaction({
+      vin: vinCamry,
+      shopId: shop4Id,
+      mechanicId: mech6Id,
+      serviceId: wheelAlignmentId,
+      serviceName: "Wheel Alignment",
+      laborCost: 89,
+      partsCost: 0,
+      dateOffsetDays: -30,
+      scheduledTime: "14:00",
+      status: "completed",
+      key: "history_4",
+    });
+
+    await createSeedBookingWithPaymentTransaction({
+      vin: vinCamry,
+      shopId: shop3Id,
+      mechanicId: mech5Id,
+      serviceId: acServiceId,
+      serviceName: "AC System Service",
+      laborCost: 95,
+      partsCost: 32,
+      dateOffsetDays: -42,
+      scheduledTime: "09:00",
+      status: "completed",
+      key: "history_5",
+    });
+
+    await createSeedBookingWithPaymentTransaction({
+      vin: vinCamry,
+      shopId: shop4Id,
+      mechanicId: mech7Id,
+      serviceId: batteryReplacementId,
+      serviceName: "Battery Replacement",
+      laborCost: 45,
+      partsCost: 115,
+      dateOffsetDays: -68,
+      scheduledTime: "10:00",
+      status: "completed",
+      key: "history_6",
+    });
+
+    await createSeedBookingWithPaymentTransaction({
+      vin: vinCamry,
+      shopId: shop5Id,
+      mechanicId: mech8Id,
+      serviceId: oilChangeId,
+      serviceName: "Oil Change",
+      laborCost: 47.5,
+      partsCost: 45,
+      dateOffsetDays: -95,
+      scheduledTime: "11:00",
+      status: "completed",
+      key: "history_7",
+    });
+
+    await createSeedBookingWithPaymentTransaction({
+      vin: vinCamry,
+      shopId: shop1Id,
+      mechanicId: mech1Id,
+      serviceId: brakePadsId,
+      serviceName: "Brake Pad Replacement",
+      laborCost: 95,
+      partsCost: 70,
+      dateOffsetDays: -115,
+      scheduledTime: "08:00",
+      status: "completed",
+      key: "history_8",
     });
 
     const bookingId = completedHistoryPrimary.bookingId;

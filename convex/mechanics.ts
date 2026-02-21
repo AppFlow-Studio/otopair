@@ -132,6 +132,22 @@ function formatVisitLabel(bookingTs: number): string {
   return months === 1 ? "1 month ago" : `${months} months ago`;
 }
 
+function normalizeName(name: string) {
+  return name.trim().toLowerCase();
+}
+
+function dedupeByName<T extends { name: string }>(items: T[]): T[] {
+  const seen = new Set<string>();
+  const out: T[] = [];
+  for (const item of items) {
+    const key = normalizeName(item.name);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+  }
+  return out;
+}
+
 async function buildMechanicCard(
   ctx: any,
   mechanicId: string,
@@ -190,12 +206,16 @@ export const getMyMechanicsForUser = query({
       )
       .sort((a, b) => getBookingTimestamp(b) - getBookingTimestamp(a));
 
-    // mechanic_id -> latest booking label
-    const latestByMechanic = new Map<string, string>();
+    // mechanic_id -> latest booking metadata
+    const latestByMechanic = new Map<string, { timestamp: number; label: string }>();
     for (const booking of eligible) {
       const mechanicId = booking.mechanic_id as string;
       if (!latestByMechanic.has(mechanicId)) {
-        latestByMechanic.set(mechanicId, formatVisitLabel(getBookingTimestamp(booking)));
+        const bookingTs = getBookingTimestamp(booking);
+        latestByMechanic.set(mechanicId, {
+          timestamp: bookingTs,
+          label: formatVisitLabel(bookingTs),
+        });
       }
     }
 
@@ -213,25 +233,39 @@ export const getMyMechanicsForUser = query({
       const card = await buildMechanicCard(
         ctx as any,
         mechanicId,
-        latestByMechanic.get(mechanicId),
+        latestByMechanic.get(mechanicId)?.label,
         favoriteIds.has(mechanicId),
       );
       if (card) cardsById.set(mechanicId, card);
     }
 
-    const favorites = [...favoriteIds]
+    const favoriteIdsOrdered = [...favoriteIds].sort(
+      (a, b) =>
+        (latestByMechanic.get(b)?.timestamp ?? 0) -
+        (latestByMechanic.get(a)?.timestamp ?? 0),
+    );
+
+    const favorites = dedupeByName(
+      favoriteIdsOrdered
       .filter((id) => !hiddenIds.has(id))
       .map((id) => cardsById.get(id))
-      .filter(Boolean);
+      .filter(Boolean),
+    );
 
-    const recentlyBooked = recentIds
+    const favoriteNames = new Set(favorites.map((m) => normalizeName(m.name)));
+
+    const recentlyBooked = dedupeByName(
+      recentIds
       .filter((id) => !hiddenIds.has(id) && !favoriteIds.has(id))
       .map((id) => cardsById.get(id))
-      .filter(Boolean);
+      .filter((m) => Boolean(m) && !favoriteNames.has(normalizeName(m.name))),
+    );
 
-    const hidden = [...hiddenIds]
+    const hidden = dedupeByName(
+      [...hiddenIds]
       .map((id) => cardsById.get(id))
-      .filter(Boolean);
+      .filter(Boolean),
+    );
 
     return {
       favorites,

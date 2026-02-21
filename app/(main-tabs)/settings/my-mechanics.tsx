@@ -7,7 +7,7 @@
  * USED IN: app/(main-tabs)/settings/index.tsx
  */
 
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect } from "react";
 import {
   Image,
   Pressable,
@@ -19,10 +19,10 @@ import {
   TouchableWithoutFeedback,
   Dimensions,
   Animated as RNAnimated,
-} from 'react-native';
-import { useRouter } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
+} from "react-native";
+import { useRouter } from "expo-router";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { LinearGradient } from "expo-linear-gradient";
 import {
   Search,
   MoreHorizontal,
@@ -38,8 +38,13 @@ import {
   ShieldAlert,
   Trash2,
   UserMinus,
-} from 'lucide-react-native';
-import Animated, { FadeInUp, FadeOut, LinearTransition, ZoomOut } from 'react-native-reanimated';
+} from "lucide-react-native";
+import Animated, {
+  FadeInUp,
+  FadeOut,
+  LinearTransition,
+  ZoomOut,
+} from "react-native-reanimated";
 import { useMutation, useQuery } from "convex/react";
 
 import {
@@ -47,8 +52,8 @@ import {
   BrandColors,
   Spacing,
   Text,
-} from '@/components/shared-ui';
-import { getSheetContentPadding } from '@/constants/theme';
+} from "@/components/shared-ui";
+import { getSheetContentPadding } from "@/constants/theme";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
@@ -56,6 +61,8 @@ import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 const MENU_WIDTH = 220;
 const MENU_HEIGHT = 210; // Increased for 3 action rows
+const MENU_BELOW_OFFSET = 28;
+const MENU_FLIP_BUFFER = SCREEN_HEIGHT <= 800 ? 70 : 150;
 
 interface Mechanic {
   id: string;
@@ -66,19 +73,27 @@ interface Mechanic {
   lastVisit?: string;
 }
 
-const FILTERS = ['All Mechanics', 'Favorites', 'Hidden'];
+const FILTERS = ["All Mechanics", "Favorites", "Hidden"];
 
 interface MechanicListItemProps {
   mechanic: Mechanic;
   fromFavorites?: boolean;
-  onOpenMenu: (mechanic: Mechanic, fromFavorites: boolean, anchorRef: React.RefObject<View | null>) => void;
+  onOpenMenu: (
+    mechanic: Mechanic,
+    fromFavorites: boolean,
+    anchorRef: React.RefObject<View | null>,
+  ) => void;
 }
 
-const MechanicListItem = ({ mechanic, fromFavorites = false, onOpenMenu }: MechanicListItemProps) => {
+const MechanicListItem = ({
+  mechanic,
+  fromFavorites = false,
+  onOpenMenu,
+}: MechanicListItemProps) => {
   const anchorRef = useRef<View>(null);
-  
+
   return (
-    <Animated.View 
+    <Animated.View
       layout={LinearTransition.duration(400)}
       entering={FadeInUp.duration(300)}
       exiting={ZoomOut.duration(200)}
@@ -87,7 +102,7 @@ const MechanicListItem = ({ mechanic, fromFavorites = false, onOpenMenu }: Mecha
         key={mechanic.id}
         style={({ pressed }) => [
           styles.mechanicRow,
-          pressed && styles.rowPressed
+          pressed && styles.rowPressed,
         ]}
       >
         <View style={styles.mechanicLeft}>
@@ -96,7 +111,7 @@ const MechanicListItem = ({ mechanic, fromFavorites = false, onOpenMenu }: Mecha
               <Image source={{ uri: mechanic.image }} style={styles.avatar} />
             ) : (
               <LinearGradient
-                colors={['#6366F1', BrandColors.primary]}
+                colors={["#6366F1", BrandColors.primary]}
                 style={styles.avatarPlaceholder}
               >
                 <Text weight="bold" size="lg" color="#FFF">
@@ -123,7 +138,7 @@ const MechanicListItem = ({ mechanic, fromFavorites = false, onOpenMenu }: Mecha
         </View>
 
         <View ref={anchorRef} collapsable={false}>
-          <Pressable 
+          <Pressable
             style={styles.moreButton}
             onPress={() => onOpenMenu(mechanic, fromFavorites, anchorRef)}
           >
@@ -143,10 +158,12 @@ export default function MyMechanicsScreen() {
     (api as any).mechanics.getMyMechanicsForUser,
     userId ? { userId } : "skip",
   );
-  const setFavoriteForUser = useMutation((api as any).mechanics.setFavoriteForUser);
+  const setFavoriteForUser = useMutation(
+    (api as any).mechanics.setFavoriteForUser,
+  );
   const setHiddenForUser = useMutation((api as any).mechanics.setHiddenForUser);
-  const [query, setQuery] = useState('');
-  const [activeFilter, setActiveFilter] = useState('All Mechanics');
+  const [query, setQuery] = useState("");
+  const [activeFilter, setActiveFilter] = useState("All Mechanics");
 
   const favorites = (data?.favorites ?? []) as Mechanic[];
   const recentlyBooked = (data?.recentlyBooked ?? []) as Mechanic[];
@@ -154,8 +171,13 @@ export default function MyMechanicsScreen() {
 
   // Menu state
   const [isMenuVisible, setIsMenuVisible] = useState(false);
-  const [menuPosition, setMenuPosition] = useState<{ top: number; left: number } | null>(null);
-  const [selectedMechanic, setSelectedMechanic] = useState<Mechanic | null>(null);
+  const [menuPosition, setMenuPosition] = useState<{
+    top: number;
+    left: number;
+  } | null>(null);
+  const [selectedMechanic, setSelectedMechanic] = useState<Mechanic | null>(
+    null,
+  );
   const [isFromFavorites, setIsFromFavorites] = useState(false);
 
   // Action Menu Animation Values
@@ -197,36 +219,54 @@ export default function MyMechanicsScreen() {
     }
   }, [isMenuVisible, backdropAnim, menuAnim]);
 
-  const openMenu = useCallback((mechanic: Mechanic, fromFavorites: boolean, anchorRef: React.RefObject<View | null>) => {
-    anchorRef.current?.measureInWindow?.((x, y, w, h) => {
-      const left = Math.min(Math.max(12, x + w - MENU_WIDTH), SCREEN_WIDTH - MENU_WIDTH - 12);
-      
-      // Calculate available space
-      const spaceBelow = SCREEN_HEIGHT - (y + h + 150); // Increased buffer to 150px to flip to top position much sooner
-      const spaceAbove = y - 100; // 100px buffer for header/safe area
-      
-      let top;
-      // If it fits below, put it below (default preference)
-      if (spaceBelow >= MENU_HEIGHT) {
-        top = y + h + 8;
-      } 
-      // If it doesn't fit below but fits above, flip it
-      else if (spaceAbove >= MENU_HEIGHT) {
-        top = y - MENU_HEIGHT - 8;
-      } 
-      // If it fits neither perfectly, pick the side with more space
-      else {
-        top = spaceBelow > spaceAbove ? y + h + 8 : y - MENU_HEIGHT - 8;
-      }
+  const openMenu = useCallback(
+    (
+      mechanic: Mechanic,
+      fromFavorites: boolean,
+      anchorRef: React.RefObject<View | null>,
+    ) => {
+      anchorRef.current?.measureInWindow?.((x, y, w, h) => {
+        const left = Math.min(
+          Math.max(12, x + w - MENU_WIDTH),
+          SCREEN_WIDTH - MENU_WIDTH - 12,
+        );
 
-      setMenuPosition({ top, left });
-      setSelectedMechanic(mechanic);
-      setIsFromFavorites(fromFavorites);
-      backdropAnim.setValue(0);
-      menuAnim.setValue(0);
-      setIsMenuVisible(true);
-    });
-  }, [backdropAnim, menuAnim]);
+        // Calculate available space
+        const spaceBelow = SCREEN_HEIGHT - (y + h + MENU_FLIP_BUFFER);
+        const spaceAbove = y - 100; // 100px buffer for header/safe area
+
+        // iPhone SE = 667pt, iPhone mini = 812pt — both need tighter gaps
+        const smallScreen = SCREEN_HEIGHT <= 820;
+        const belowOffset = smallScreen ? -12 : MENU_BELOW_OFFSET;
+        const aboveOffset = smallScreen ? -33 : -56;
+
+        let top;
+        // If it fits below, put it below (default preference)
+        if (spaceBelow >= MENU_HEIGHT) {
+          top = y + h + belowOffset;
+        }
+        // If it doesn't fit below but fits above, flip it
+        else if (spaceAbove >= MENU_HEIGHT) {
+          top = y - MENU_HEIGHT - aboveOffset;
+        }
+        // If it fits neither perfectly, pick the side with more space
+        else {
+          top =
+            spaceBelow > spaceAbove
+              ? y + h + belowOffset
+              : y - MENU_HEIGHT - aboveOffset;
+        }
+
+        setMenuPosition({ top, left });
+        setSelectedMechanic(mechanic);
+        setIsFromFavorites(fromFavorites);
+        backdropAnim.setValue(0);
+        menuAnim.setValue(0);
+        setIsMenuVisible(true);
+      });
+    },
+    [backdropAnim, menuAnim],
+  );
 
   const handleToggleFavorite = useCallback(async () => {
     if (!selectedMechanic || !userId) return;
@@ -236,7 +276,13 @@ export default function MyMechanicsScreen() {
       isFavorite: !isFromFavorites,
     });
     closeMenu();
-  }, [selectedMechanic, userId, isFromFavorites, setFavoriteForUser, closeMenu]);
+  }, [
+    selectedMechanic,
+    userId,
+    isFromFavorites,
+    setFavoriteForUser,
+    closeMenu,
+  ]);
 
   const handleHideMechanic = useCallback(async () => {
     if (!selectedMechanic || !userId) return;
@@ -300,9 +346,9 @@ export default function MyMechanicsScreen() {
                   style={[styles.chip, isActive && styles.chipActive]}
                 >
                   <Text
-                    weight={isActive ? 'bold' : 'medium'}
+                    weight={isActive ? "bold" : "medium"}
                     size="sm"
-                    color={isActive ? '#FFFFFF' : '#6B7280'}
+                    color={isActive ? "#FFFFFF" : "#6B7280"}
                   >
                     {filter}
                   </Text>
@@ -312,45 +358,56 @@ export default function MyMechanicsScreen() {
           </ScrollView>
 
           {/* Your Favorites Section */}
-          {(activeFilter === 'Favorites' || activeFilter === 'All Mechanics') && favorites.length > 0 && (
-            <View style={styles.section}>
-              <View style={styles.sectionHeader}>
-                <Text weight="semiBold" size="lg" color="#111318">
-                  Your Favorites
-                </Text>
+          {(activeFilter === "Favorites" || activeFilter === "All Mechanics") &&
+            favorites.length > 0 && (
+              <View style={styles.section}>
+                <View style={styles.sectionHeader}>
+                  <Text weight="semiBold" size="lg" color="#111318">
+                    Your Favorites
+                  </Text>
+                </View>
+                <Animated.View
+                  layout={LinearTransition.duration(400)}
+                  style={styles.glassCard}
+                >
+                  {favorites
+                    .filter((m) =>
+                      m.name.toLowerCase().includes(query.toLowerCase()),
+                    )
+                    .map((m) => (
+                      <MechanicListItem
+                        key={m.id}
+                        mechanic={m}
+                        fromFavorites={true}
+                        onOpenMenu={openMenu}
+                      />
+                    ))}
+                </Animated.View>
               </View>
-              <Animated.View layout={LinearTransition.duration(400)} style={styles.glassCard}>
-                {favorites
-                  .filter(m => m.name.toLowerCase().includes(query.toLowerCase()))
-                  .map((m) => (
-                    <MechanicListItem 
-                      key={m.id}
-                      mechanic={m} 
-                      fromFavorites={true} 
-                      onOpenMenu={openMenu} 
-                    />
-                  ))}
-              </Animated.View>
-            </View>
-          )}
+            )}
 
           {/* Recently Booked Section */}
-          {activeFilter === 'All Mechanics' && recentlyBooked.length > 0 && (
+          {activeFilter === "All Mechanics" && recentlyBooked.length > 0 && (
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
                 <Text weight="semiBold" size="lg" color="#111318">
                   Recently Booked
                 </Text>
               </View>
-              <Animated.View layout={LinearTransition.duration(400)} style={styles.glassCard}>
+              <Animated.View
+                layout={LinearTransition.duration(400)}
+                style={styles.glassCard}
+              >
                 {recentlyBooked
-                  .filter(m => m.name.toLowerCase().includes(query.toLowerCase()))
+                  .filter((m) =>
+                    m.name.toLowerCase().includes(query.toLowerCase()),
+                  )
                   .map((m) => (
-                    <MechanicListItem 
+                    <MechanicListItem
                       key={m.id}
-                      mechanic={m} 
-                      fromFavorites={false} 
-                      onOpenMenu={openMenu} 
+                      mechanic={m}
+                      fromFavorites={false}
+                      onOpenMenu={openMenu}
                     />
                   ))}
               </Animated.View>
@@ -358,71 +415,86 @@ export default function MyMechanicsScreen() {
           )}
 
           {/* Hidden Section */}
-          {activeFilter === 'Hidden' && (
+          {activeFilter === "Hidden" && (
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
                 <Text weight="semiBold" size="lg" color="#111318">
                   Hidden Mechanics
                 </Text>
               </View>
-              <Animated.View layout={LinearTransition.duration(400)} style={styles.glassCard}>
+              <Animated.View
+                layout={LinearTransition.duration(400)}
+                style={styles.glassCard}
+              >
                 {hiddenMechanics.length > 0 ? (
-                  hiddenMechanics
-                    .map(m => (
-                      <Animated.View 
-                        key={m.id} 
-                        layout={LinearTransition.duration(400)}
-                        entering={FadeInUp.duration(300)}
-                        exiting={ZoomOut.duration(200)}
-                        style={styles.mechanicRow}
-                      >
-                        <View style={styles.mechanicLeft}>
-                          <View style={styles.avatarContainer}>
-                            {m.image ? (
-                              <Image source={{ uri: m.image }} style={styles.avatar} />
-                            ) : (
-                              <LinearGradient
-                                colors={['#6366F1', BrandColors.primary]}
-                                style={styles.avatarPlaceholder}
-                              >
-                                <Text weight="bold" size="lg" color="#FFF">
-                                  {m.initials ?? m.name[0]}
-                                </Text>
-                              </LinearGradient>
-                            )}
-                          </View>
-                          <View style={styles.mechanicInfo}>
-                            <Text weight="bold" size="md" color="#111318">{m.name}</Text>
-                            {m.lastVisit ? (
-                              <View style={styles.lastVisitRow}>
-                                <Clock size={12} color="#86868B" />
-                                <Text size="sm" color="#86868B" weight="medium">
-                                  {m.lastVisit === "Upcoming"
-                                    ? "Upcoming"
-                                    : `Last visit: ${m.lastVisit}`}
-                                </Text>
-                              </View>
-                            ) : null}
-                          </View>
+                  hiddenMechanics.map((m) => (
+                    <Animated.View
+                      key={m.id}
+                      layout={LinearTransition.duration(400)}
+                      entering={FadeInUp.duration(300)}
+                      exiting={ZoomOut.duration(200)}
+                      style={styles.mechanicRow}
+                    >
+                      <View style={styles.mechanicLeft}>
+                        <View style={styles.avatarContainer}>
+                          {m.image ? (
+                            <Image
+                              source={{ uri: m.image }}
+                              style={styles.avatar}
+                            />
+                          ) : (
+                            <LinearGradient
+                              colors={["#6366F1", BrandColors.primary]}
+                              style={styles.avatarPlaceholder}
+                            >
+                              <Text weight="bold" size="lg" color="#FFF">
+                                {m.initials ?? m.name[0]}
+                              </Text>
+                            </LinearGradient>
+                          )}
                         </View>
-                        <Pressable 
-                          onPress={async () => {
-                            if (!userId) return;
-                            await setHiddenForUser({
-                              userId,
-                              mechanicId: m.id as Id<"mechanics">,
-                              isHidden: false,
-                            });
-                          }}
-                          style={styles.unhideButton}
+                        <View style={styles.mechanicInfo}>
+                          <Text weight="bold" size="md" color="#111318">
+                            {m.name}
+                          </Text>
+                          {m.lastVisit ? (
+                            <View style={styles.lastVisitRow}>
+                              <Clock size={12} color="#86868B" />
+                              <Text size="sm" color="#86868B" weight="medium">
+                                {m.lastVisit === "Upcoming"
+                                  ? "Upcoming"
+                                  : `Last visit: ${m.lastVisit}`}
+                              </Text>
+                            </View>
+                          ) : null}
+                        </View>
+                      </View>
+                      <Pressable
+                        onPress={async () => {
+                          if (!userId) return;
+                          await setHiddenForUser({
+                            userId,
+                            mechanicId: m.id as Id<"mechanics">,
+                            isHidden: false,
+                          });
+                        }}
+                        style={styles.unhideButton}
+                      >
+                        <Text
+                          weight="bold"
+                          size="xs"
+                          color={BrandColors.primary}
                         >
-                          <Text weight="bold" size="xs" color={BrandColors.primary}>UNHIDE</Text>
-                        </Pressable>
-                      </Animated.View>
-                    ))
+                          UNHIDE
+                        </Text>
+                      </Pressable>
+                    </Animated.View>
+                  ))
                 ) : (
                   <View style={styles.emptyState}>
-                    <Text size="sm" color="#86868B">No hidden mechanics</Text>
+                    <Text size="sm" color="#86868B">
+                      No hidden mechanics
+                    </Text>
                   </View>
                 )}
               </Animated.View>
@@ -440,12 +512,12 @@ export default function MyMechanicsScreen() {
         navigationBarTranslucent
       >
         <TouchableWithoutFeedback onPress={closeMenu}>
-          <RNAnimated.View 
+          <RNAnimated.View
             style={[
               styles.menuOverlay,
               {
-                opacity: backdropAnim
-              }
+                opacity: backdropAnim,
+              },
             ]}
           >
             <TouchableWithoutFeedback>
@@ -457,12 +529,13 @@ export default function MyMechanicsScreen() {
                     left: menuPosition?.left ?? 0,
                     opacity: menuAnim,
                     transform: [
-                      { scale: menuAnim.interpolate({
+                      {
+                        scale: menuAnim.interpolate({
                           inputRange: [0, 1],
-                          outputRange: [0.95, 1]
-                        }) 
-                      }
-                    ]
+                          outputRange: [0.95, 1],
+                        }),
+                      },
+                    ],
                   },
                 ]}
               >
@@ -476,7 +549,12 @@ export default function MyMechanicsScreen() {
                         <View style={styles.menuIconBox}>
                           <Calendar size={18} color={BrandColors.primary} />
                         </View>
-                        <Text weight="medium" size="md" color="#1F2937" style={styles.menuItemText}>
+                        <Text
+                          weight="medium"
+                          size="md"
+                          color="#1F2937"
+                          style={styles.menuItemText}
+                        >
                           View transactions
                         </Text>
                       </Pressable>
@@ -528,7 +606,12 @@ export default function MyMechanicsScreen() {
                         <View style={styles.menuIconBox}>
                           <Calendar size={18} color={BrandColors.primary} />
                         </View>
-                        <Text weight="medium" size="md" color="#1F2937" style={styles.menuItemText}>
+                        <Text
+                          weight="medium"
+                          size="md"
+                          color="#1F2937"
+                          style={styles.menuItemText}
+                        >
                           View transactions
                         </Text>
                       </Pressable>
@@ -544,7 +627,12 @@ export default function MyMechanicsScreen() {
                     <View style={styles.menuIconBox}>
                       <ShieldAlert size={18} color="#EF4444" />
                     </View>
-                    <Text weight="medium" size="md" color="#EF4444" style={styles.menuItemText}>
+                    <Text
+                      weight="medium"
+                      size="md"
+                      color="#EF4444"
+                      style={styles.menuItemText}
+                    >
                       Hide mechanic
                     </Text>
                   </Pressable>
@@ -566,12 +654,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   searchContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.7)',
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "rgba(255, 255, 255, 0.7)",
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.05)',
+    borderColor: "rgba(0, 0, 0, 0.05)",
     paddingHorizontal: 16,
     height: 52,
     marginBottom: 20,
@@ -579,7 +667,7 @@ const styles = StyleSheet.create({
   searchInput: {
     flex: 1,
     fontSize: 16,
-    color: '#111318',
+    color: "#111318",
     marginLeft: 12,
   },
   chipScroll: {
@@ -592,11 +680,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     height: 38,
     borderRadius: 19,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#FFFFFF',
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFFFFF",
     borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.05)',
+    borderColor: "rgba(0, 0, 0, 0.05)",
   },
   chipActive: {
     backgroundColor: BrandColors.secondary,
@@ -606,59 +694,59 @@ const styles = StyleSheet.create({
     marginBottom: 32,
   },
   sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'baseline',
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "baseline",
     paddingHorizontal: 8,
     marginBottom: 12,
   },
   glassCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.65)',
+    backgroundColor: "rgba(255, 255, 255, 0.65)",
     borderRadius: 20,
-    overflow: 'hidden',
+    overflow: "hidden",
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.5)',
+    borderColor: "rgba(255, 255, 255, 0.5)",
   },
   mechanicRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(0, 0, 0, 0.05)',
+    borderBottomColor: "rgba(0, 0, 0, 0.05)",
   },
   rowPressed: {
-    backgroundColor: 'rgba(81, 146, 251, 0.05)',
+    backgroundColor: "rgba(81, 146, 251, 0.05)",
   },
   mechanicLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 16,
     flex: 1,
   },
   avatarContainer: {
-    position: 'relative',
+    position: "relative",
   },
   avatar: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: "#F3F4F6",
   },
   avatarPlaceholder: {
     width: 48,
     height: 48,
     borderRadius: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   mechanicInfo: {
     flex: 1,
     gap: 2,
   },
   lastVisitRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 6,
     marginTop: 2,
   },
@@ -667,15 +755,15 @@ const styles = StyleSheet.create({
     marginRight: -8,
   },
   fab: {
-    position: 'absolute',
+    position: "absolute",
     right: 24,
     bottom: 24,
     width: 56,
     height: 56,
     borderRadius: 28,
     backgroundColor: BrandColors.primary,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     shadowColor: BrandColors.primary,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
@@ -698,7 +786,7 @@ const styles = StyleSheet.create({
     shadowRadius: 20,
     elevation: 10,
     borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.05)',
+    borderColor: "rgba(0,0,0,0.05)",
   },
   menuContent: {
     padding: 8,
@@ -729,11 +817,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 8,
-    backgroundColor: 'rgba(81, 146, 251, 0.1)',
+    backgroundColor: "rgba(81, 146, 251, 0.1)",
   },
   emptyState: {
     padding: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
 });
