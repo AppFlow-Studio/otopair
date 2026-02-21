@@ -9,6 +9,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  BackHandler,
   Pressable,
   ScrollView,
   SectionList,
@@ -220,6 +221,17 @@ export default function TransactionsScreen() {
       setQuery(shop);
     }
   }, [shop]);
+
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (selectedTransaction != null) {
+        sheetRef.current?.dismiss();
+        return true;
+      }
+      return false;
+    });
+    return () => sub.remove();
+  }, [selectedTransaction]);
 
   const transactionType =
     activeFilter === 'all' ? undefined : (activeFilter as 'charge' | 'credit' | 'refund');
@@ -560,8 +572,8 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
   },
   chipActive: {
-    backgroundColor: '#1D1D1F',
-    borderColor: '#1D1D1F',
+    backgroundColor: BrandColors.secondary,
+    borderColor: BrandColors.secondary,
     shadowOpacity: 0.1,
     shadowRadius: 10,
   },
