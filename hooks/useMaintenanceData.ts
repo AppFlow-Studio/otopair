@@ -56,7 +56,8 @@ export function useMaintenanceRecords(
   currentOdometer: number | null,
   make?: string,
   drivingConditions?: string,
-  avgMonthlyDriving?: string
+  avgMonthlyDriving?: string,
+  knownIssues?: string[]
 ) {
   const records = useQuery(
     api.maintenance.getRecordsByVehicle,
@@ -81,7 +82,8 @@ export function useMaintenanceRecords(
         make,
         undefined,
         drivingConditions,
-        avgMonthlyDriving
+        avgMonthlyDriving,
+        knownIssues
       );
 
       map.set(type, {
@@ -94,7 +96,7 @@ export function useMaintenanceRecords(
     }
 
     return map;
-  }, [records, currentOdometer, make, drivingConditions, avgMonthlyDriving]);
+  }, [records, currentOdometer, make, drivingConditions, avgMonthlyDriving, knownIssues]);
 
   return { records, items };
 }
@@ -119,9 +121,11 @@ export function useMergedMaintenance(
   currentOdometer: number | null,
   make?: string,
   drivingConditions?: string,
-  avgMonthlyDriving?: string
+  avgMonthlyDriving?: string,
+  knownIssues?: string[],
+  vehicleYear?: number
 ) {
-  const { records, items: userItems } = useMaintenanceRecords(vehicleOwnerId, currentOdometer, make, drivingConditions, avgMonthlyDriving);
+  const { records, items: userItems } = useMaintenanceRecords(vehicleOwnerId, currentOdometer, make, drivingConditions, avgMonthlyDriving, knownIssues);
 
   // Build a lookup of Smartcar items by our type key
   const smartcarByType = useMemo(() => {
@@ -152,7 +156,41 @@ export function useMergedMaintenance(
         continue;
       }
 
-      // Priority 3: Unknown — prompt user to add info
+      // Priority 3: No record — check for warning lights that should escalate
+      const WARNING_LIGHT_FOR_TYPE: Partial<Record<MaintenanceType, { lightId: string; label: string }>> = {
+        oil: { lightId: "oil_pressure", label: "Oil pressure warning light active — service urgently needed" },
+        battery: { lightId: "battery_charging", label: "Battery/charging warning light active — have it tested soon" },
+        brakes: { lightId: "abs", label: "ABS / brake warning light active — have brakes inspected soon" },
+        tires: { lightId: "tpms", label: "Tire pressure (TPMS) warning light active — check tires soon" },
+      };
+
+      const lightInfo = WARNING_LIGHT_FOR_TYPE[type];
+      if (lightInfo && knownIssues?.includes(lightInfo.lightId)) {
+        result.push({
+          id: `unknown-${type}`,
+          serviceName: MAINTENANCE_LABELS[type] || type,
+          description: lightInfo.label,
+          detail: "Warning light",
+          status: "needs_attention",
+        });
+        continue;
+      }
+
+      // Battery: infer healthy status for young vehicles
+      if (type === "battery") {
+        const vehicleAge = vehicleYear ? new Date().getFullYear() - vehicleYear : 0;
+        if (vehicleAge < 3) {
+          result.push({
+            id: `unknown-${type}`,
+            serviceName: MAINTENANCE_LABELS[type] || type,
+            description: `Battery is ~${vehicleAge || "<1"} year${vehicleAge !== 1 ? "s" : ""} old — healthy`,
+            detail: "On time",
+            status: "on_time",
+          });
+          continue;
+        }
+      }
+
       result.push({
         id: `unknown-${type}`,
         serviceName: MAINTENANCE_LABELS[type] || type,
@@ -163,7 +201,7 @@ export function useMergedMaintenance(
     }
 
     return result;
-  }, [smartcarByType, userItems]);
+  }, [smartcarByType, userItems, knownIssues, vehicleYear]);
 
   // Expose raw records so the modal can pre-fill from existing data
   const recordsByType = useMemo(() => {

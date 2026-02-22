@@ -17,17 +17,19 @@ const IMAGIN_BASE = "https://cdn.imagin.studio/getImage";
 /**
  * Build an IMAGIN.studio image URL for a vehicle.
  *
- * @param make   - Vehicle manufacturer (e.g. "Volkswagen", "TOYOTA")
- * @param model  - Model family (e.g. "Tiguan", "Corolla")
- * @param year   - Optional model year (e.g. 2024)
- * @param vin    - Optional VIN used as cache key
- * @returns      - Full CDN image URL
+ * @param make             - Vehicle manufacturer (e.g. "Volkswagen", "TOYOTA")
+ * @param model            - Model family (e.g. "Tiguan", "Corolla")
+ * @param year             - Optional model year (e.g. 2024)
+ * @param vin              - Optional VIN used as cache key
+ * @param paintDescription - Optional color name (e.g. "black", "midnight-silver")
+ * @returns                - Full CDN image URL
  */
 export function getVehicleImageUrl(
   make: string,
   model: string,
   year?: number,
-  vin?: string
+  vin?: string,
+  paintDescription?: string
 ): string {
   // Weekly rotating cache key to refresh CDN images before 7-day TTL expires
   const weekNum = Math.floor(Date.now() / (7 * 24 * 60 * 60 * 1000));
@@ -36,9 +38,10 @@ export function getVehicleImageUrl(
     customer: IMAGIN_CUSTOMER,
     make: normalize(make),
     modelFamily: normalize(model),
-    zoomType: "relative",
-    width: "1600",
-    angle: "01",
+    zoomType: "fullscreen",
+    width: "2400",
+    angle: "229",
+    tailoring: "imagin",
     _v: String(weekNum),
   });
 
@@ -49,6 +52,10 @@ export function getVehicleImageUrl(
   const normalizedVin = (vin ?? "").toUpperCase().trim();
   if (normalizedVin.length === 17) {
     params.set("vehicleKey", normalizedVin);
+  }
+
+  if (paintDescription) {
+    params.set("paintDescription", paintDescription.trim());
   }
 
   return `${IMAGIN_BASE}?${params.toString()}`;

@@ -397,6 +397,7 @@ export default function ReviewVehicleDetailsScreen() {
           make: brand,
           model: model,
           year: year ? parseFloat(year) : undefined,
+          paintDescription: selectedColor || undefined,
         }).catch((e: any) => console.warn("Vehicle image generation failed", e));
       }
     } catch (e) {

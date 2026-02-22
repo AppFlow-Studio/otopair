@@ -84,6 +84,8 @@ interface CarCarouselProps {
   currentMileage?: number | null;
   /** Whether to show the health ring (hidden until onboarding is complete for non-connected vehicles) */
   showHealthRing?: boolean;
+  /** Pre-computed unified health score (0–100) from utils/healthScore.ts */
+  healthScore?: number;
 }
 
 // ============================================================================
@@ -214,28 +216,18 @@ const VehicleHealthModal = ({
     return items;
   }, [realItems]);
 
-  // Maintenance score from real data (passed from parent)
+  // Use the unified health score passed from parent
+  const calculatedCondition = healthPercentage;
+
+  // Sub-scores for display breakdown
   const knownItems = (realItems ?? []).filter((i) => i.status !== "unknown");
   const onTimeItems = knownItems.filter((i) => i.status === "on_time");
   const maintenanceCompleted = onTimeItems.length;
   const maintenanceTotal = Math.max(knownItems.length, 1);
   const maintenanceScore = maintenancePercentage;
 
-  // Usage & Wear from real mileage
   const vehicleMileage = realMileage ?? 0;
-  const getMileageScore = (miles: number) => {
-    if (miles <= 30000) return 100;
-    if (miles <= 60000) return 90;
-    if (miles <= 100000) return 75;
-    if (miles <= 150000) return 55;
-    return 35;
-  };
-  const usageScore = getMileageScore(vehicleMileage);
-
-  // Overall = (Maintenance × 70%) + (Usage × 30%)
-  const calculatedCondition = Math.round(
-    (maintenanceScore * 0.7) + (usageScore * 0.3)
-  );
+  const usageScore = servicePercentage;
 
   // Format mileage for display
   const formatMileage = (miles: number) => {
@@ -1424,7 +1416,7 @@ const CircularCarouselItem = memo(({ item, index, rotation, totalItems }: Carous
           styles.carouselCarImage,
           item.make === 'Lexus' && styles.carouselCarImageLexus,
           item.make === 'Lamborghini' && styles.carouselCarImageLambo,
-          { transform: [{ translateY: 142 }] },
+          { transform: [{ translateY: 155 }] },
         ]}
         resizeMode="contain"
       />
@@ -1456,6 +1448,7 @@ export function CarCarousel({
   maintenanceItems,
   currentMileage,
   showHealthRing = true,
+  healthScore: parentHealthScore,
 }: CarCarouselProps) {
   // Trust parent ordering to keep indices consistent across screens.
   const sortedVehicles = useMemo(() => vehicles, [vehicles]);
@@ -1504,7 +1497,19 @@ export function CarCarousel({
     lastUpdatedIndex.value = nextIndex;
   }, [sortedVehicles.length, activeIndex, anglePerItem, onActiveIndexChange, rotation, lastUpdatedIndex]);
 
-  // Calculate overall vehicle condition from real data
+  // Use the unified health score from the parent (computed by utils/healthScore.ts)
+  const overallCondition = parentHealthScore ?? 0;
+
+  // Sub-scores for the detail modal rings (maintenance = % of known items on_time, usage = mileage curve)
+  const knownItems = (maintenanceItems ?? []).filter((i) => i.status !== "unknown");
+  const onTimeItems = knownItems.filter((i) => i.status === "on_time");
+  const maintenanceTotal = Math.max(knownItems.length, 1);
+  const maintenanceCompleted = onTimeItems.length;
+  const maintenanceScoreForRing = knownItems.length > 0
+    ? Math.round((maintenanceCompleted / maintenanceTotal) * 100)
+    : overallCondition; // no known items → match overall so it doesn't look broken
+
+  const vehicleMileage = currentMileage ?? activeVehicle?.mileage ?? 0;
   const getMileageScoreForRing = (miles: number) => {
     if (miles <= 30000) return 100;
     if (miles <= 60000) return 90;
@@ -1512,19 +1517,7 @@ export function CarCarousel({
     if (miles <= 150000) return 55;
     return 35;
   };
-
-  // Maintenance score: count on_time items out of total known items (exclude unknown)
-  const knownItems = (maintenanceItems ?? []).filter((i) => i.status !== "unknown");
-  const onTimeItems = knownItems.filter((i) => i.status === "on_time");
-  const maintenanceTotal = Math.max(knownItems.length, 1);
-  const maintenanceCompleted = onTimeItems.length;
-  const maintenanceScoreForRing = Math.round((maintenanceCompleted / maintenanceTotal) * 100);
-
-  // Usage score from real mileage
-  const vehicleMileage = currentMileage ?? activeVehicle?.mileage ?? 0;
   const usageScoreForRing = getMileageScoreForRing(vehicleMileage);
-
-  const overallCondition = Math.round((maintenanceScoreForRing * 0.7) + (usageScoreForRing * 0.3));
 
   // Deferred state update - waits for ALL animations to complete before updating
   const deferredStateUpdate = useCallback((newIndex: number) => {
@@ -1986,6 +1979,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     position: 'absolute',
     bottom: 0,
+    overflow: 'visible',
   },
   logoContainer: {
     position: 'absolute',
@@ -2014,7 +2008,7 @@ const styles = StyleSheet.create({
   },
   carouselCarImage: {
     width: '140%',
-    height: 240,
+    height: 260,
     zIndex: 1,
   },
   carouselCarImageLexus: {

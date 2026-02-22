@@ -12,6 +12,7 @@ import {
   ActivityIndicator,
   Dimensions,
   Pressable,
+  ScrollView,
   StyleSheet,
   View,
 } from 'react-native';
@@ -55,10 +56,24 @@ export default function AddVehicleReviewScreen() {
 
   const [isConfirming, setIsConfirming] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedColor, setSelectedColor] = useState('');
 
   const confirmVehicle = useAction(api.vehicle_pipeline.confirmVehicleForUser);
   const generateVehicleImage = useAction(api.imagin.generateVehicleImage);
   const { connect, isConnecting, error: smartcarError } = useSmartcar();
+
+  const CAR_COLORS = [
+    { id: 'black', label: 'Black', hex: '#1a1a1a' },
+    { id: 'midnight-silver', label: 'Midnight Silver', hex: '#4A4A4A' },
+    { id: 'silver', label: 'Silver', hex: '#C0C0C0' },
+    { id: 'white', label: 'White', hex: '#FFFFFF' },
+    { id: 'gray', label: 'Gray', hex: '#808080' },
+    { id: 'red', label: 'Red', hex: '#DC2626' },
+    { id: 'blue', label: 'Blue', hex: '#2563EB' },
+    { id: 'green', label: 'Green', hex: '#16A34A' },
+    { id: 'beige', label: 'Beige', hex: '#D4B896' },
+    { id: 'brown', label: 'Brown', hex: '#8B4513' },
+  ];
 
   const me = useQuery(api.users.getMe);
 
@@ -124,6 +139,7 @@ export default function AddVehicleReviewScreen() {
             make: params.make,
             model: params.model,
             year: parseFloat(params.year || "0") || undefined,
+            paintDescription: selectedColor || undefined,
           }).catch((e: any) => console.warn("Vehicle image generation failed", e));
         }
         router.replace({
@@ -192,6 +208,36 @@ export default function AddVehicleReviewScreen() {
             {params.vin}
           </Text>
         </View>
+      </View>
+
+      {/* Color Picker */}
+      <View style={styles.colorSection}>
+        <Text weight="semiBold" size="sm" color="#333333" style={styles.colorLabel}>
+          What color is your {params.make}?
+        </Text>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.colorRow}
+        >
+          {CAR_COLORS.map((c) => (
+            <Pressable
+              key={c.id}
+              onPress={() => setSelectedColor(c.id)}
+              style={[
+                styles.colorSwatch,
+                { backgroundColor: c.hex },
+                c.id === 'white' && styles.colorSwatchWhite,
+                selectedColor === c.id && styles.colorSwatchSelected,
+              ]}
+            />
+          ))}
+        </ScrollView>
+        {selectedColor ? (
+          <Text size="xs" color="#888888" style={styles.colorName}>
+            {CAR_COLORS.find((c) => c.id === selectedColor)?.label}
+          </Text>
+        ) : null}
       </View>
 
       {/* Smartcar Section */}
@@ -339,6 +385,34 @@ const styles = StyleSheet.create({
   },
   vinText: {
     letterSpacing: 1,
+  },
+  colorSection: {
+    marginTop: 20,
+    marginHorizontal: Spacing.lg,
+    alignItems: 'center',
+  },
+  colorLabel: {
+    marginBottom: 12,
+  },
+  colorRow: {
+    gap: 10,
+    paddingHorizontal: 4,
+  },
+  colorSwatch: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+  },
+  colorSwatchWhite: {
+    borderWidth: 1,
+    borderColor: '#E0E0E0',
+  },
+  colorSwatchSelected: {
+    borderWidth: 3,
+    borderColor: '#5299FE',
+  },
+  colorName: {
+    marginTop: 8,
   },
   connectSection: {
     marginTop: 28,

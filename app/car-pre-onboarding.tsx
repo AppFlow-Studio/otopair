@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Dimensions,
+  Keyboard,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -10,6 +11,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMutation, useQuery } from "convex/react";
@@ -97,6 +99,9 @@ export default function CarPreOnboardingScreen() {
   const [concernText, setConcernText] = useState("");
   const [garageRole, setGarageRole] = useState<GarageRole | undefined>();
   const [includeOptionalSection, setIncludeOptionalSection] = useState<boolean | undefined>();
+  const [ctaLift, setCtaLift] = useState(0);
+  const [keyboardTop, setKeyboardTop] = useState<number | null>(null);
+  const ctaWrapRef = useRef<View>(null);
 
   const vehicleOwnerId = useMemo(
     () => (typeof params.vehicleOwnerId === "string" && params.vehicleOwnerId ? params.vehicleOwnerId : ""),
@@ -108,6 +113,9 @@ export default function CarPreOnboardingScreen() {
   );
 
   const isSecondVehicle = (listVehicles?.length ?? 0) > 1;
+
+  const parsedMileageForSteps = toNumber(currentMileage);
+  const isNewVehicleMileage = parsedMileageForSteps != null && parsedMileageForSteps <= 1000;
 
   const steps = useMemo(() => {
     const ordered: StepId[] = ["ownershipType"];
@@ -122,22 +130,25 @@ export default function CarPreOnboardingScreen() {
       "annualMileageBand",
       "usagePattern",
     );
-    ordered.push("optionalGate");
-    if (includeOptionalSection !== false) {
-      ordered.push(
-        "lastServiceWhen",
-        "lastServiceWhat",
-        "serviceLocationPreference",
-        "concerns",
-      );
-    }
-    if (isSecondVehicle) {
+    // ≤1,000 mi → brand new vehicle, skip optional questions entirely
+    if (!isNewVehicleMileage) {
+      ordered.push("optionalGate");
       if (includeOptionalSection !== false) {
-        ordered.push("garageRole");
+        ordered.push(
+          "lastServiceWhen",
+          "lastServiceWhat",
+          "serviceLocationPreference",
+          "concerns",
+        );
+      }
+      if (isSecondVehicle) {
+        if (includeOptionalSection !== false) {
+          ordered.push("garageRole");
+        }
       }
     }
     return ordered;
-  }, [ownershipType, ownedSinceNew, isSecondVehicle, includeOptionalSection]);
+  }, [ownershipType, ownedSinceNew, isSecondVehicle, includeOptionalSection, isNewVehicleMileage]);
 
   useEffect(() => {
     if (stepIndex >= steps.length) {
@@ -145,13 +156,51 @@ export default function CarPreOnboardingScreen() {
     }
   }, [stepIndex, steps.length]);
 
+  useEffect(() => {
+    const showSub = Keyboard.addListener("keyboardDidShow", (event) => {
+      const nextTop =
+        event.endCoordinates?.screenY ??
+        (SCREEN_HEIGHT - (event.endCoordinates?.height ?? 0));
+      setKeyboardTop(nextTop);
+    });
+    const frameSub = Keyboard.addListener("keyboardDidChangeFrame", (event) => {
+      const nextTop =
+        event.endCoordinates?.screenY ??
+        (SCREEN_HEIGHT - (event.endCoordinates?.height ?? 0));
+      setKeyboardTop(nextTop);
+    });
+    const hideSub = Keyboard.addListener("keyboardDidHide", () => {
+      setKeyboardTop(null);
+      setCtaLift(0);
+    });
+
+    return () => {
+      showSub.remove();
+      frameSub.remove();
+      hideSub.remove();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (keyboardTop === null) return;
+
+    requestAnimationFrame(() => {
+      ctaWrapRef.current?.measureInWindow((x, y, width, height) => {
+        const desiredBottom = keyboardTop - 8;
+        const currentBottom = y + height;
+        const overlap = currentBottom - desiredBottom;
+        setCtaLift(overlap > 0 ? -overlap : 0);
+      });
+    });
+  }, [keyboardTop, currentMileage, mileageAtPurchase, concernText, stepIndex]);
+
   const currentStep = steps[stepIndex];
   const isLastStep = stepIndex === steps.length - 1;
 
-  const transitionToStep = (nextIndex: number) => {
+  const transitionToStep = useCallback((nextIndex: number) => {
     if (nextIndex < 0 || nextIndex >= steps.length || nextIndex === stepIndex) return;
     setStepIndex(nextIndex);
-  };
+  }, [steps.length, stepIndex]);
 
   const canContinue = useMemo(() => {
     switch (currentStep) {
@@ -188,6 +237,9 @@ export default function CarPreOnboardingScreen() {
   ]);
 
   const handleSkipOptional = () => {
+    Keyboard.dismiss();
+    setKeyboardTop(null);
+    setCtaLift(0);
     if (!OPTIONAL_STEPS.has(currentStep)) return;
     if (currentStep === "lastServiceWhen") setLastServiceWhen(undefined);
     if (currentStep === "lastServiceWhat") setLastServiceWhat([]);
@@ -201,6 +253,9 @@ export default function CarPreOnboardingScreen() {
   };
 
   const handleBack = () => {
+    Keyboard.dismiss();
+    setKeyboardTop(null);
+    setCtaLift(0);
     if (stepIndex === 0) {
       router.back();
       return;
@@ -209,6 +264,9 @@ export default function CarPreOnboardingScreen() {
   };
 
   const handleContinue = async () => {
+    Keyboard.dismiss();
+    setKeyboardTop(null);
+    setCtaLift(0);
     if (!isLastStep) {
       transitionToStep(stepIndex + 1);
       return;
@@ -454,27 +512,31 @@ export default function CarPreOnboardingScreen() {
     currentStep === "concerns" ? "Anything on your mind about your car right now?" :
     "How does this car fit into your garage?";
 
-  const stepDescription =
+  const isOptionalStep = OPTIONAL_STEPS.has(currentStep);
+  const stepBadge: { label: string; bg: string; color: string } | null =
+    currentStep === "currentMileage" || currentStep === "optionalGate"
+      ? null
+      : isOptionalStep
+        ? { label: "Optional", bg: "#FFF7ED", color: "#92400E" }
+        : { label: "Required", bg: "#EEF4FF", color: "#1E3A8A" };
+
+  const stepDescriptionText =
     currentStep === "currentMileage"
       ? "An estimate is fine - we'll refine over time."
       : currentStep === "optionalGate"
         ? "These are optional. You can finish now or continue with extra setup."
-      : OPTIONAL_STEPS.has(currentStep)
-        ? "Optional - you can answer now or skip."
-        : "Required";
-  const cardMinHeight = Math.max(500, SCREEN_HEIGHT - insets.top - insets.bottom - 200);
+        : null;
+
+  const entering = FadeIn.duration(250);
+  const exiting = FadeOut.duration(150);
+
+  const cardMinHeight = 420;
 
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      behavior={undefined}
     >
-      <LinearGradient
-        colors={["#5BA3D9", "#8FC4E8", "#d9e8f5"]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 0, y: 1 }}
-        style={styles.backgroundGradient}
-      />
       <View style={[styles.content, { paddingTop: insets.top + Spacing.md }]}>
         <View style={styles.headerRow}>
           <Pressable
@@ -482,10 +544,17 @@ export default function CarPreOnboardingScreen() {
             style={({ pressed }) => [styles.backButton, pressed && styles.backButtonPressed]}
             hitSlop={12}
           >
-            <ArrowLeft size={24} color={BrandColors.black} />
+            <BlurView intensity={60} tint="light" style={styles.backButtonBlur}>
+              <ArrowLeft size={20} color={BrandColors.black} />
+            </BlurView>
           </Pressable>
         </View>
-        <ScrollView contentContainerStyle={styles.scrollArea} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+        <ScrollView
+          contentContainerStyle={styles.scrollArea}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          showsVerticalScrollIndicator={false}
+        >
           <View style={[styles.card, { minHeight: cardMinHeight }]}>
             <BlurView intensity={100} tint="light" style={StyleSheet.absoluteFill} />
             <LinearGradient
@@ -504,43 +573,60 @@ export default function CarPreOnboardingScreen() {
             />
 
             <View style={styles.cardContent} pointerEvents="box-none">
-              <Text weight="bold" size="3xl" color="#0F172A" style={styles.title}>
-                {stepTitle}
-              </Text>
-              <Text size="md" color="#64748B" style={styles.description}>
-                {stepDescription}
-              </Text>
-              <View style={styles.questionBody}>
-                {renderQuestionContent()}
+              <Animated.View
+                key={currentStep}
+                entering={entering}
+                exiting={exiting}
+              >
+                <Text weight="bold" size="3xl" color="#0F172A" style={styles.title}>
+                  {stepTitle}
+                </Text>
+                {stepBadge ? (
+                  <View style={[styles.pillBadge, { backgroundColor: stepBadge.bg }]}>
+                    <Text weight="semiBold" size="sm" color={stepBadge.color}>
+                      {stepBadge.label}
+                    </Text>
+                  </View>
+                ) : stepDescriptionText ? (
+                  <Text size="md" color="#64748B" style={styles.description}>
+                    {stepDescriptionText}
+                  </Text>
+                ) : null}
+                <View style={styles.questionBody}>
+                  {renderQuestionContent()}
+                </View>
+              </Animated.View>
+              <View style={styles.actionSection}>
+                <View ref={ctaWrapRef} style={styles.ctaButtonWrap}>
+                  <View style={{ transform: [{ translateY: ctaLift }] }}>
+                    {currentStep === "optionalGate" && includeOptionalSection === false ? (
+                      <FooterButton
+                        label="Finish Setup"
+                        onPress={submitAndComplete}
+                        disabled={isSubmitting || !canContinue}
+                        backgroundColor={BrandColors.secondary}
+                        rightIcon={isSubmitting ? <ActivityIndicator size="small" color={BrandColors.white} /> : undefined}
+                      />
+                    ) : (
+                      <FooterButton
+                        label={isLastStep ? "Finish Setup" : "Continue"}
+                        onPress={handleContinue}
+                        disabled={isSubmitting || !canContinue}
+                        backgroundColor={BrandColors.secondary}
+                        rightIcon={isSubmitting ? <ActivityIndicator size="small" color={BrandColors.white} /> : undefined}
+                      />
+                    )}
+                  </View>
+                </View>
+                {OPTIONAL_STEPS.has(currentStep) && (
+                  <Pressable onPress={handleSkipOptional} style={({ pressed }) => [styles.skipButton, pressed && { opacity: 0.75 }]}>
+                    <Text weight="semiBold" size="sm" color="#475569">Skip</Text>
+                  </Pressable>
+                )}
               </View>
             </View>
           </View>
         </ScrollView>
-
-        <View style={[styles.footer, { paddingBottom: insets.bottom + Spacing.lg }]}>
-          {OPTIONAL_STEPS.has(currentStep) && (
-            <Pressable onPress={handleSkipOptional} style={({ pressed }) => [styles.skipButton, pressed && { opacity: 0.75 }]}>
-              <Text weight="semiBold" size="sm" color="#475569">Skip</Text>
-            </Pressable>
-          )}
-          {currentStep === "optionalGate" && includeOptionalSection === false ? (
-            <FooterButton
-              label="Finish Setup"
-              onPress={submitAndComplete}
-              disabled={isSubmitting || !canContinue}
-              backgroundColor={BrandColors.secondary}
-              rightIcon={isSubmitting ? <ActivityIndicator size="small" color={BrandColors.white} /> : undefined}
-            />
-          ) : (
-            <FooterButton
-              label={isLastStep ? "Finish Setup" : "Continue"}
-              onPress={handleContinue}
-              disabled={isSubmitting || !canContinue}
-              backgroundColor={BrandColors.secondary}
-              rightIcon={isSubmitting ? <ActivityIndicator size="small" color={BrandColors.white} /> : undefined}
-            />
-          )}
-        </View>
       </View>
     </KeyboardAvoidingView>
   );
@@ -585,10 +671,7 @@ function Chip({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#d9e8f5",
-  },
-  backgroundGradient: {
-    ...StyleSheet.absoluteFillObject,
+    backgroundColor: BrandColors.background,
   },
   content: {
     flex: 1,
@@ -600,10 +683,20 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
   },
   backButton: {
-    width: 36,
-    height: 36,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    overflow: "hidden",
+  },
+  backButtonBlur: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     justifyContent: "center",
     alignItems: "center",
+    borderWidth: 1,
+    borderColor: "rgba(255, 255, 255, 0.4)",
+    overflow: "hidden",
   },
   backButtonPressed: {
     opacity: 0.65,
@@ -659,8 +752,21 @@ const styles = StyleSheet.create({
   description: {
     lineHeight: 24,
   },
+  pillBadge: {
+    alignSelf: "flex-start",
+    borderRadius: 999,
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+  },
   questionBody: {
     marginTop: Spacing.lg,
+  },
+  actionSection: {
+    marginTop: "auto",
+    paddingTop: Spacing.xl,
+  },
+  ctaButtonWrap: {
+    marginTop: Spacing.xs,
   },
   optionList: {
     gap: 12,
@@ -710,14 +816,9 @@ const styles = StyleSheet.create({
     borderColor: BrandColors.secondary,
     backgroundColor: "#EEF4FF",
   },
-  footer: {
-    paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.sm,
-    backgroundColor: "#d9e8f5",
-  },
   skipButton: {
     alignSelf: "center",
-    marginBottom: Spacing.sm,
+    marginTop: Spacing.sm,
     paddingVertical: 6,
     paddingHorizontal: Spacing.md,
     borderRadius: BorderRadius.full,

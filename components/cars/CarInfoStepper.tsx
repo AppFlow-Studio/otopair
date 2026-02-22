@@ -1,14 +1,13 @@
 /**
- * CarInfoStepper
+ * CarInfoStepper — Quick Read Flow
  *
- * PURPOSE: Inline stepper that collects 9 vehicle data points for non-Smartcar
- *          vehicles. Replaces the bottom-sheet wizard — renders in-place inside
- *          the scroll view with horizontal slide transitions between steps.
+ * PURPOSE: Post-onboarding vehicle condition check. Captures brake health,
+ *          tire status, and warning light data in 5–8 taps (~30s). Branching
+ *          logic adds conditional follow-up questions based on answers.
  *
  * PHASES:
  *   "intro"    — marketing card (benefits + Get Started CTA)
- *   "stepping"  — 9-step form with progress bar, Back/Next, carousel-like slides
- *   "complete"  — brief checkmark + "All set!" before parent success overlay
+ *   "stepping"  — 5–8 step form with progress bar, Back/Next, carousel-like slides
  *
  * USED IN: app/(main-tabs)/cars/index.tsx
  *
@@ -25,17 +24,15 @@ import {
   Platform,
   Pressable,
   StyleSheet,
-  TextInput,
   UIManager,
   View,
 } from "react-native";
-// DateTimePicker removed — we now use date-range option cards instead
 import { useMutation } from "convex/react";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 
 import { Text } from "@/components/shared-ui";
-import { FontFamily, FontSize, Spacing } from "@/constants/theme";
+import { Spacing } from "@/constants/theme";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 
@@ -52,8 +49,6 @@ if (
 // ============================================================================
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
-const TOTAL_STEPS = 9;
-const SLIDE_DURATION = 300;
 const DEFAULT_CARD_WIDTH = SCREEN_WIDTH - 80;
 
 // ============================================================================
@@ -70,57 +65,52 @@ interface CarInfoStepperProps {
 
 type Phase = "intro" | "stepping";
 
-// Step metadata
-const STEP_META: { title: string; subtitle: string }[] = [
-  { title: "Current Mileage", subtitle: "Almost every service interval is mileage-based." },
-  { title: "Average Monthly Driving", subtitle: "Helps us predict when services will be due." },
-  { title: "Last Oil Change", subtitle: "Oil is the most common and predictable service." },
-  { title: "Last Tire Service", subtitle: "Lets us estimate tire age and rotation schedule." },
-  { title: "Last Brake Service", subtitle: "Brake pads typically last 30K\u201370K miles." },
-  { title: "Battery Install Date", subtitle: "Car batteries last 3\u20135 years on average." },
-  { title: "Last State Inspection", subtitle: "We\u2019ll set a 12-month reminder for you." },
-  { title: "Driving Conditions", subtitle: "Adjusts service intervals for your driving style." },
-  { title: "Any Known Issues?", subtitle: "Helps us flag things that need attention right now." },
-];
+type StepId =
+  | "brakeLastDone"
+  | "brakeFeel"
+  | "brakeAction"
+  | "tireReplaced"
+  | "tireReplacedWhen"
+  | "tireRepaired"
+  | "warningLight"
+  | "warningLightType";
 
-const KNOWN_ISSUE_OPTIONS = [
-  { id: "check_engine", label: "Check engine light on" },
-  { id: "weird_noise", label: "Weird noise" },
-  { id: "something_off", label: "Something feels off" },
-  { id: "all_good", label: "All good" },
-] as const;
+type BrakeLastDone = "within_6m" | "6m_to_1y" | "over_1y" | "never_on_this_car" | "dont_know";
+type BrakeFeel = "normal" | "squeak" | "soft_slow" | "not_noticed";
+type BrakeAction = "waiting_quote" | "not_scheduled" | "no_not_yet";
+type TireReplaced = "yes_new" | "original" | "dont_know";
+type TireReplacedWhen = "within_6m" | "6m_to_1y" | "1_to_2y" | "over_2y";
+type TireRepaired = "yes" | "no" | "not_sure";
+type WarningLight = "no_all_clear" | "check_engine" | "different_light" | "not_sure";
+type WarningLightType = "tpms" | "battery_charging" | "temperature" | "oil_pressure" | "abs" | "airbag_srs" | "transmission" | "not_sure_which";
+
+const STEP_META: Record<StepId, { title: string; subtitle: string }> = {
+  brakeLastDone:     { title: "Brakes", subtitle: "Helps us estimate brake pad life from your history." },
+  brakeFeel:         { title: "Brakes", subtitle: "Symptoms help separate normal wear from other issues." },
+  brakeAction:       { title: "Brakes", subtitle: "Let\u2019s help you get this handled." },
+  tireReplaced:      { title: "Tires", subtitle: "Helps us estimate tread life accurately." },
+  tireReplacedWhen:  { title: "Tires", subtitle: "We\u2019ll project when replacements may be needed." },
+  tireRepaired:      { title: "Tires", subtitle: "A repaired tire has a different lifespan than an intact one." },
+  warningLight:      { title: "Warning Lights", subtitle: "Active warnings change what we recommend first." },
+  warningLightType:  { title: "Warning Lights", subtitle: "Helps us route to the right diagnostic." },
+};
+
+const WARNING_LIGHT_TYPE_OPTIONS = [
+  { id: "tpms" as const, label: "Tire pressure (TPMS)", icon: "speedometer-outline" as const },
+  { id: "battery_charging" as const, label: "Battery / charging", icon: "battery-half-outline" as const },
+  { id: "temperature" as const, label: "Temperature / overheating", icon: "thermometer-outline" as const },
+  { id: "oil_pressure" as const, label: "Oil pressure", icon: "water-outline" as const },
+  { id: "abs" as const, label: "ABS / braking system", icon: "warning-outline" as const },
+  { id: "airbag_srs" as const, label: "Airbag / SRS", icon: "shield-outline" as const },
+  { id: "transmission" as const, label: "Transmission", icon: "cog-outline" as const },
+  { id: "not_sure_which" as const, label: "I\u2019m not sure which one", icon: "help-circle-outline" as const },
+];
 
 const LAYOUT_ANIM_CONFIG = LayoutAnimation.create(
   200,
   LayoutAnimation.Types.easeInEaseOut,
   LayoutAnimation.Properties.scaleY,
 );
-
-/** Date-range options shown instead of a calendar picker */
-const DATE_RANGE_OPTIONS = [
-  { id: "lt6m", label: "Less than 6 months ago" },
-  { id: "6m1y", label: "6 months to a year ago" },
-  { id: "gt1y", label: "Over a year ago" },
-  { id: "never", label: "Don't know / Never" },
-] as const;
-
-type DateRangeId = (typeof DATE_RANGE_OPTIONS)[number]["id"];
-
-/** Convert a selected range into an approximate past timestamp */
-function dateRangeToTimestamp(range: DateRangeId): number | undefined {
-  const now = Date.now();
-  const MS_PER_MONTH = 30.44 * 24 * 60 * 60 * 1000;
-  switch (range) {
-    case "lt6m":
-      return now - 3 * MS_PER_MONTH;
-    case "6m1y":
-      return now - 9 * MS_PER_MONTH;
-    case "gt1y":
-      return now - 18 * MS_PER_MONTH;
-    case "never":
-      return undefined;
-  }
-}
 
 // ============================================================================
 // COMPONENT
@@ -145,28 +135,28 @@ export default function CarInfoStepper({
   const isAnimating = useRef(false);
   const [cardWidth, setCardWidth] = useState(DEFAULT_CARD_WIDTH);
 
-  // ── Form state (persists across steps) ──────────────────────
-  const [currentMileage, setCurrentMileage] = useState("");
-  const [avgMonthlyDriving, setAvgMonthlyDriving] = useState<string>("");
+  // ── Quick Read form state ───────────────────────────────────
+  const [brakeLastDone, setBrakeLastDone] = useState<BrakeLastDone | null>(null);
+  const [brakeFeel, setBrakeFeel] = useState<BrakeFeel | null>(null);
+  const [brakeAction, setBrakeAction] = useState<BrakeAction | null>(null);
+  const [tireReplaced, setTireReplaced] = useState<TireReplaced | null>(null);
+  const [tireReplacedWhen, setTireReplacedWhen] = useState<TireReplacedWhen | null>(null);
+  const [tireRepaired, setTireRepaired] = useState<TireRepaired | null>(null);
+  const [warningLight, setWarningLight] = useState<WarningLight | null>(null);
+  const [warningLightTypes, setWarningLightTypes] = useState<WarningLightType[]>([]);
 
-  const [oilDateRange, setOilDateRange] = useState<DateRangeId | null>(null);
-  const [oilMileage, setOilMileage] = useState("");
-  const [oilDontRemember, setOilDontRemember] = useState(false);
+  // ── Dynamic step list (branching logic) ─────────────────────
+  const steps: StepId[] = (() => {
+    const ordered: StepId[] = ["brakeLastDone", "brakeFeel"];
+    if (brakeFeel === "soft_slow") ordered.push("brakeAction");
+    ordered.push("tireReplaced");
+    if (tireReplaced === "yes_new") ordered.push("tireReplacedWhen");
+    ordered.push("tireRepaired", "warningLight");
+    if (warningLight === "different_light") ordered.push("warningLightType");
+    return ordered;
+  })();
 
-  const [tireType, setTireType] = useState<string>("");
-  const [tireDateRange, setTireDateRange] = useState<DateRangeId | null>(null);
-
-  const [brakeDateRange, setBrakeDateRange] = useState<DateRangeId | null>(null);
-
-  const [batteryDateRange, setBatteryDateRange] = useState<DateRangeId | null>(null);
-  const [batteryOriginal, setBatteryOriginal] = useState(false);
-
-  const [inspectionDateRange, setInspectionDateRange] = useState<DateRangeId | null>(null);
-
-  const [drivingConditions, setDrivingConditions] = useState<string>("");
-
-  const [knownIssues, setKnownIssues] = useState<Set<string>>(new Set());
-  const [knownIssuesFreeText, setKnownIssuesFreeText] = useState("");
+  const totalSteps = steps.length;
 
   // ── Slide helper (two-phase: quick exit → swap → smooth enter) ──
   const animateSlide = useCallback(
@@ -210,30 +200,31 @@ export default function CarInfoStepper({
   );
 
   // ── Navigation ──────────────────────────────────────────────
+  const currentStepId = steps[step];
+
   const canGoNext = useCallback((): boolean => {
-    switch (step) {
-      case 0: return !!currentMileage && parseFloat(currentMileage) > 0;
-      case 1: return !!avgMonthlyDriving;
-      case 2: return true;
-      case 3: return true;
-      case 4: return true;
-      case 5: return true;
-      case 6: return true;
-      case 7: return !!drivingConditions;
-      case 8: return knownIssues.size > 0;
+    switch (currentStepId) {
+      case "brakeLastDone":    return brakeLastDone !== null;
+      case "brakeFeel":        return brakeFeel !== null;
+      case "brakeAction":      return brakeAction !== null;
+      case "tireReplaced":     return tireReplaced !== null;
+      case "tireReplacedWhen": return tireReplacedWhen !== null;
+      case "tireRepaired":     return tireRepaired !== null;
+      case "warningLight":     return warningLight !== null;
+      case "warningLightType": return warningLightTypes.length > 0;
       default: return false;
     }
-  }, [step, currentMileage, avgMonthlyDriving, drivingConditions, knownIssues]);
+  }, [currentStepId, brakeLastDone, brakeFeel, brakeAction, tireReplaced, tireReplacedWhen, tireRepaired, warningLight, warningLightTypes]);
 
   const handleGetStarted = useCallback(() => {
     animateSlide("forward", "stepping", 0);
   }, [animateSlide]);
 
   const handleNext = useCallback(() => {
-    if (step < TOTAL_STEPS - 1) {
+    if (step < totalSteps - 1) {
       animateSlide("forward", null, step + 1);
     }
-  }, [step, animateSlide]);
+  }, [step, totalSteps, animateSlide]);
 
   const handleBack = useCallback(() => {
     if (step > 0) {
@@ -248,249 +239,222 @@ export default function CarInfoStepper({
   // ── Complete handler ────────────────────────────────────────
   const handleComplete = useCallback(async () => {
     setSaving(true);
-    // Signal parent immediately BEFORE saves so it blocks content rendering
-    // before any Convex subscription update can flip isOnboardingComplete
     onComplete();
     try {
-      await saveField({ vehicleOwnerId, field: "mileage", value: parseFloat(currentMileage) });
-      await saveField({ vehicleOwnerId, field: "avgMonthlyDriving", value: avgMonthlyDriving });
-      await saveField({ vehicleOwnerId, field: "oil", value: { date: oilDateRange ? dateRangeToTimestamp(oilDateRange) : undefined, mileage: oilMileage ? parseFloat(oilMileage) : undefined } });
-      await saveField({ vehicleOwnerId, field: "tires", value: { type: tireType || "dont_remember", date: tireDateRange ? dateRangeToTimestamp(tireDateRange) : undefined } });
-      await saveField({ vehicleOwnerId, field: "brakes", value: { date: brakeDateRange ? dateRangeToTimestamp(brakeDateRange) : undefined } });
-      await saveField({ vehicleOwnerId, field: "battery", value: { date: batteryDateRange && !batteryOriginal ? dateRangeToTimestamp(batteryDateRange) : undefined, isOriginal: batteryOriginal || undefined, modelYear: vehicleYear || undefined } });
-      if (inspectionDateRange) {
-        await saveField({ vehicleOwnerId, field: "inspection", value: { date: dateRangeToTimestamp(inspectionDateRange) } });
-      }
-      await saveField({ vehicleOwnerId, field: "drivingConditions", value: drivingConditions });
-      const issuesArr = [...knownIssues];
-      if (knownIssuesFreeText.trim()) issuesArr.push(knownIssuesFreeText.trim());
-      await saveField({ vehicleOwnerId, field: "knownIssues", value: issuesArr });
+      await saveField({
+        vehicleOwnerId,
+        field: "brakes",
+        value: {
+          lastDone: brakeLastDone,
+          feel: brakeFeel,
+          actionStatus: brakeAction ?? undefined,
+        },
+      });
+      await saveField({
+        vehicleOwnerId,
+        field: "tires",
+        value: {
+          replaced: tireReplaced,
+          replacedWhen: tireReplacedWhen ?? undefined,
+          repaired: tireRepaired,
+        },
+      });
+      await saveField({
+        vehicleOwnerId,
+        field: "warningLights",
+        value: {
+          status: warningLight,
+          lightTypes: warningLightTypes.length > 0 ? warningLightTypes : undefined,
+        },
+      });
     } catch (err) {
       console.error("[CarInfoStepper] Save failed:", err);
     } finally {
       setSaving(false);
     }
   }, [
-    vehicleOwnerId, currentMileage, avgMonthlyDriving,
-    oilDateRange, oilMileage, tireType, tireDateRange,
-    brakeDateRange, batteryDateRange, batteryOriginal,
-    vehicleYear, inspectionDateRange, drivingConditions,
-    knownIssues, knownIssuesFreeText,
-    saveField, onComplete, animateSlide,
+    vehicleOwnerId, brakeLastDone, brakeFeel, brakeAction,
+    tireReplaced, tireReplacedWhen, tireRepaired,
+    warningLight, warningLightTypes,
+    saveField, onComplete,
   ]);
 
-  const toggleIssue = (id: string) => {
-    setKnownIssues((prev) => {
-      const next = new Set(prev);
-      if (id === "all_good") {
-        if (next.has("all_good")) { next.delete("all_good"); } else { next.clear(); next.add("all_good"); }
-      } else {
-        next.delete("all_good");
-        if (next.has(id)) { next.delete(id); } else { next.add(id); }
-      }
-      return next;
-    });
-  };
-
-  // ── Render step content (verbatim from wizard) ──────────────
-  const renderStepContent = (stepIdx: number) => {
-    switch (stepIdx) {
-      case 0:
+  // ── Render step content ──────────────────────────────────────
+  const renderStepContent = (stepId: StepId) => {
+    switch (stepId) {
+      case "brakeLastDone":
         return (
           <View style={s.fieldGroup}>
-            <Text weight="semiBold" size="md" color="#1F2937">What is your current mileage?</Text>
-            <View style={s.inputRow}>
-              <TextInput style={s.textInput} value={currentMileage} onChangeText={setCurrentMileage} placeholder="67,450" placeholderTextColor="rgba(0,0,0,0.3)" keyboardType="numeric" />
-              <Text size="sm" color="rgba(0,0,0,0.4)" style={s.inputSuffix}>mi</Text>
-            </View>
-          </View>
-        );
-
-      case 1:
-        return (
-          <View style={s.fieldGroup}>
-            <Text weight="semiBold" size="md" color="#1F2937">How much do you drive per month?</Text>
+            <Text weight="semiBold" size="md" color="#1F2937">When were your brakes last done?</Text>
             <View style={s.chipColumn}>
               {([
-                { id: "light", label: "Light", desc: "Under 500 mi/month" },
-                { id: "average", label: "Average", desc: "500\u20131,000 mi/month" },
-                { id: "heavy", label: "Heavy", desc: "Over 1,000 mi/month" },
-              ] as const).map((opt) => (
-                <Pressable key={opt.id} style={[s.optionCard, avgMonthlyDriving === opt.id && s.optionCardActive]} onPress={() => setAvgMonthlyDriving(opt.id)}>
-                  <View style={s.optionCardContent}>
-                    <Text weight={avgMonthlyDriving === opt.id ? "bold" : "semiBold"} size="md" color={avgMonthlyDriving === opt.id ? "#1E40AF" : "#1F2937"}>{opt.label}</Text>
-                    <Text weight="medium" size="sm" color={avgMonthlyDriving === opt.id ? "#5299FE" : "#6B7280"}>{opt.desc}</Text>
-                  </View>
-                  {avgMonthlyDriving === opt.id && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
+                { id: "within_6m" as const, label: "Within the last 6 months" },
+                { id: "6m_to_1y" as const, label: "6 months to a year ago" },
+                { id: "over_1y" as const, label: "Over a year ago" },
+                { id: "never_on_this_car" as const, label: "I\u2019ve never had them done on this car" },
+                { id: "dont_know" as const, label: "I don\u2019t know" },
+              ]).map((opt) => (
+                <Pressable key={opt.id} style={[s.optionCard, brakeLastDone === opt.id && s.optionCardActive]} onPress={() => setBrakeLastDone(opt.id)}>
+                  <Text weight={brakeLastDone === opt.id ? "bold" : "semiBold"} size="md" color={brakeLastDone === opt.id ? "#1E40AF" : "#1F2937"}>{opt.label}</Text>
+                  {brakeLastDone === opt.id && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
                 </Pressable>
               ))}
             </View>
           </View>
         );
 
-      case 2:
+      case "brakeFeel":
         return (
           <View style={s.fieldGroup}>
-            <Text weight="semiBold" size="md" color="#1F2937">When was your last oil change?</Text>
-            <View style={s.chipColumn}>
-              {DATE_RANGE_OPTIONS.map((opt) => (
-                <Pressable key={opt.id} style={[s.optionCard, oilDateRange === opt.id && s.optionCardActive]} onPress={() => setOilDateRange(opt.id)}>
-                  <Text weight={oilDateRange === opt.id ? "bold" : "semiBold"} size="md" color={oilDateRange === opt.id ? "#1E40AF" : "#1F2937"}>{opt.label}</Text>
-                  {oilDateRange === opt.id && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
-                </Pressable>
-              ))}
-            </View>
-            {oilDateRange && oilDateRange !== "never" && !oilDontRemember && (
-              <View style={[s.fieldGroup, { marginTop: 16 }]}>
-                <Text weight="semiBold" size="md" color="#1F2937">Mileage at last oil change</Text>
-                <View style={s.inputRow}>
-                  <TextInput style={s.textInput} value={oilMileage} onChangeText={setOilMileage} placeholder="e.g. 62000" placeholderTextColor="rgba(0,0,0,0.3)" keyboardType="numeric" />
-                  <Text size="sm" color="rgba(0,0,0,0.4)" style={s.inputSuffix}>mi</Text>
-                </View>
-              </View>
-            )}
-            {oilDateRange && oilDateRange !== "never" && (
-              <Pressable style={s.toggleChip} onPress={() => { setOilDontRemember(!oilDontRemember); if (!oilDontRemember) setOilMileage(""); }}>
-                <Ionicons name={oilDontRemember ? "checkbox" : "square-outline"} size={20} color={oilDontRemember ? "#5299FE" : "#9CA3AF"} />
-                <Text weight="medium" size="sm" color={oilDontRemember ? "#5299FE" : "#6B7280"}>I don&apos;t remember the mileage</Text>
-              </Pressable>
-            )}
-          </View>
-        );
-
-      case 3:
-        return (
-          <View style={s.fieldGroup}>
-            <Text weight="semiBold" size="md" color="#1F2937">What was your last tire service?</Text>
+            <Text weight="semiBold" size="md" color="#1F2937">How do your brakes feel right now?</Text>
             <View style={s.chipColumn}>
               {([
-                { id: "rotation", label: "Tire Rotation" },
-                { id: "new_tires", label: "New Tires Installed" },
-                { id: "dont_remember", label: "Don\u2019t Remember / Never" },
-              ] as const).map((opt) => (
-                <Pressable key={opt.id} style={[s.optionCard, tireType === opt.id && s.optionCardActive]} onPress={() => setTireType(opt.id)}>
-                  <Text weight={tireType === opt.id ? "bold" : "semiBold"} size="md" color={tireType === opt.id ? "#1E40AF" : "#1F2937"}>{opt.label}</Text>
-                  {tireType === opt.id && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
-                </Pressable>
-              ))}
-            </View>
-            {(tireType === "rotation" || tireType === "new_tires") && (
-              <View style={[s.fieldGroup, { marginTop: 16 }]}>
-                <Text weight="semiBold" size="md" color="#1F2937">When was this done?</Text>
-                <View style={s.chipColumn}>
-                  {DATE_RANGE_OPTIONS.map((opt) => (
-                    <Pressable key={opt.id} style={[s.optionCard, tireDateRange === opt.id && s.optionCardActive]} onPress={() => setTireDateRange(opt.id)}>
-                      <Text weight={tireDateRange === opt.id ? "bold" : "semiBold"} size="md" color={tireDateRange === opt.id ? "#1E40AF" : "#1F2937"}>{opt.label}</Text>
-                      {tireDateRange === opt.id && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
-                    </Pressable>
-                  ))}
-                </View>
-              </View>
-            )}
-          </View>
-        );
-
-      case 4:
-        return (
-          <View style={s.fieldGroup}>
-            <Text weight="semiBold" size="md" color="#1F2937">When were your brakes last serviced?</Text>
-            <View style={s.chipColumn}>
-              {DATE_RANGE_OPTIONS.map((opt) => (
-                <Pressable key={opt.id} style={[s.optionCard, brakeDateRange === opt.id && s.optionCardActive]} onPress={() => setBrakeDateRange(opt.id)}>
-                  <Text weight={brakeDateRange === opt.id ? "bold" : "semiBold"} size="md" color={brakeDateRange === opt.id ? "#1E40AF" : "#1F2937"}>{opt.label}</Text>
-                  {brakeDateRange === opt.id && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
-                </Pressable>
-              ))}
-            </View>
-          </View>
-        );
-
-      case 5:
-        return (
-          <View style={s.fieldGroup}>
-            <Text weight="semiBold" size="md" color="#1F2937">When was your battery installed?</Text>
-            {!batteryOriginal && (
-              <View style={s.chipColumn}>
-                {DATE_RANGE_OPTIONS.map((opt) => (
-                  <Pressable key={opt.id} style={[s.optionCard, batteryDateRange === opt.id && s.optionCardActive]} onPress={() => setBatteryDateRange(opt.id)}>
-                    <Text weight={batteryDateRange === opt.id ? "bold" : "semiBold"} size="md" color={batteryDateRange === opt.id ? "#1E40AF" : "#1F2937"}>{opt.label}</Text>
-                    {batteryDateRange === opt.id && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
-                  </Pressable>
-                ))}
-              </View>
-            )}
-            <Pressable style={s.toggleChip} onPress={() => { setBatteryOriginal(!batteryOriginal); if (!batteryOriginal) setBatteryDateRange(null); }}>
-              <Ionicons name={batteryOriginal ? "checkbox" : "square-outline"} size={20} color={batteryOriginal ? "#5299FE" : "#9CA3AF"} />
-              <Text weight="medium" size="sm" color={batteryOriginal ? "#5299FE" : "#6B7280"}>Original battery (came with the car)</Text>
-            </Pressable>
-            {batteryOriginal && vehicleYear > 0 && (
-              <Text size="xs" color="#9CA3AF" style={{ marginTop: 4 }}>We&apos;ll estimate based on your {vehicleYear} model year.</Text>
-            )}
-          </View>
-        );
-
-      case 6:
-        return (
-          <View style={s.fieldGroup}>
-            <Text weight="semiBold" size="md" color="#1F2937">When was your last state inspection?</Text>
-            <View style={s.chipColumn}>
-              {DATE_RANGE_OPTIONS.map((opt) => (
-                <Pressable key={opt.id} style={[s.optionCard, inspectionDateRange === opt.id && s.optionCardActive]} onPress={() => setInspectionDateRange(opt.id)}>
-                  <Text weight={inspectionDateRange === opt.id ? "bold" : "semiBold"} size="md" color={inspectionDateRange === opt.id ? "#1E40AF" : "#1F2937"}>{opt.label}</Text>
-                  {inspectionDateRange === opt.id && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
-                </Pressable>
-              ))}
-            </View>
-          </View>
-        );
-
-      case 7:
-        return (
-          <View style={s.fieldGroup}>
-            <Text weight="semiBold" size="md" color="#1F2937">What are your typical driving conditions?</Text>
-            <View style={s.chipColumn}>
-              {([
-                { id: "city", label: "Mostly City", desc: "Stop-and-go, short trips", icon: "business" as const },
-                { id: "highway", label: "Mostly Highway", desc: "Long stretches, steady speed", icon: "car" as const },
-                { id: "mixed", label: "Mixed", desc: "A bit of both", icon: "swap-horizontal" as const },
-              ] as const).map((opt) => (
-                <Pressable key={opt.id} style={[s.optionCard, drivingConditions === opt.id && s.optionCardActive]} onPress={() => setDrivingConditions(opt.id)}>
-                  <View style={s.optionCardContent}>
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                      <Ionicons name={opt.icon} size={20} color="#5299FE" />
-                      <Text weight={drivingConditions === opt.id ? "bold" : "semiBold"} size="md" color={drivingConditions === opt.id ? "#1E40AF" : "#1F2937"}>{opt.label}</Text>
-                    </View>
-                    <Text weight="medium" size="sm" color={drivingConditions === opt.id ? "#5299FE" : "#6B7280"}>{opt.desc}</Text>
-                  </View>
-                  {drivingConditions === opt.id && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
-                </Pressable>
-              ))}
-            </View>
-          </View>
-        );
-
-      case 8:
-        return (
-          <View style={s.fieldGroup}>
-            <Text weight="semiBold" size="md" color="#1F2937">Any known issues right now?</Text>
-            <View style={s.chipColumn}>
-              {KNOWN_ISSUE_OPTIONS.map((opt) => {
-                const selected = knownIssues.has(opt.id);
-                const isGood = opt.id === "all_good" && selected;
+                { id: "normal" as const, label: "They feel normal" },
+                { id: "squeak" as const, label: "They squeak or make noise" },
+                { id: "soft_slow" as const, label: "They feel soft or take longer to stop" },
+                { id: "not_noticed" as const, label: "I haven\u2019t noticed anything either way" },
+              ]).map((opt) => {
+                const isNormal = opt.id === "normal" && brakeFeel === opt.id;
                 return (
-                  <Pressable key={opt.id} style={[s.optionCard, selected && s.optionCardActive, isGood && s.optionCardGood]} onPress={() => toggleIssue(opt.id)}>
-                    <Text weight={selected ? "bold" : "semiBold"} size="md" color={selected ? (isGood ? "#166534" : "#1E40AF") : "#1F2937"}>{opt.label}</Text>
-                    {selected && <Ionicons name="checkmark-circle" size={22} color={isGood ? "#22C55E" : "#5299FE"} />}
+                  <Pressable key={opt.id} style={[s.optionCard, brakeFeel === opt.id && s.optionCardActive, isNormal && s.optionCardGood]} onPress={() => setBrakeFeel(opt.id)}>
+                    <Text weight={brakeFeel === opt.id ? "bold" : "semiBold"} size="md" color={brakeFeel === opt.id ? (isNormal ? "#166534" : "#1E40AF") : "#1F2937"}>{opt.label}</Text>
+                    {brakeFeel === opt.id && <Ionicons name="checkmark-circle" size={22} color={isNormal ? "#22C55E" : "#5299FE"} />}
                   </Pressable>
                 );
               })}
             </View>
-            {!knownIssues.has("all_good") && (
-              <View style={[s.fieldGroup, { marginTop: 12 }]}>
-                <Text weight="medium" size="sm" color="#6B7280">Anything else? (optional)</Text>
-                <TextInput style={[s.textInput, s.inputRowBorder]} value={knownIssuesFreeText} onChangeText={setKnownIssuesFreeText} placeholder="Describe any issues..." placeholderTextColor="rgba(0,0,0,0.3)" multiline numberOfLines={3} />
-              </View>
-            )}
+          </View>
+        );
+
+      case "brakeAction":
+        return (
+          <View style={s.fieldGroup}>
+            <Text weight="semiBold" size="md" color="#1F2937">Have you had them looked at yet?</Text>
+            <View style={s.chipColumn}>
+              {([
+                { id: "waiting_quote" as const, label: "Yes, waiting on a quote" },
+                { id: "not_scheduled" as const, label: "Yes, but haven\u2019t scheduled yet" },
+                { id: "no_not_yet" as const, label: "No, not yet" },
+              ]).map((opt) => (
+                <Pressable key={opt.id} style={[s.optionCard, brakeAction === opt.id && s.optionCardActive]} onPress={() => setBrakeAction(opt.id)}>
+                  <Text weight={brakeAction === opt.id ? "bold" : "semiBold"} size="md" color={brakeAction === opt.id ? "#1E40AF" : "#1F2937"}>{opt.label}</Text>
+                  {brakeAction === opt.id && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        );
+
+      case "tireReplaced":
+        return (
+          <View style={s.fieldGroup}>
+            <Text weight="semiBold" size="md" color="#1F2937">Have your tires been replaced on this car?</Text>
+            <View style={s.chipColumn}>
+              {([
+                { id: "yes_new" as const, label: "Yes, I put new tires on" },
+                { id: "original" as const, label: "No, they\u2019re the original tires" },
+                { id: "dont_know" as const, label: "I don\u2019t know (I bought it this way)" },
+              ]).map((opt) => (
+                <Pressable key={opt.id} style={[s.optionCard, tireReplaced === opt.id && s.optionCardActive]} onPress={() => setTireReplaced(opt.id)}>
+                  <Text weight={tireReplaced === opt.id ? "bold" : "semiBold"} size="md" color={tireReplaced === opt.id ? "#1E40AF" : "#1F2937"}>{opt.label}</Text>
+                  {tireReplaced === opt.id && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        );
+
+      case "tireReplacedWhen":
+        return (
+          <View style={s.fieldGroup}>
+            <Text weight="semiBold" size="md" color="#1F2937">Roughly when?</Text>
+            <View style={s.chipColumn}>
+              {([
+                { id: "within_6m" as const, label: "Within the last 6 months" },
+                { id: "6m_to_1y" as const, label: "6 months to a year ago" },
+                { id: "1_to_2y" as const, label: "1 to 2 years ago" },
+                { id: "over_2y" as const, label: "Over 2 years ago" },
+              ]).map((opt) => (
+                <Pressable key={opt.id} style={[s.optionCard, tireReplacedWhen === opt.id && s.optionCardActive]} onPress={() => setTireReplacedWhen(opt.id)}>
+                  <Text weight={tireReplacedWhen === opt.id ? "bold" : "semiBold"} size="md" color={tireReplacedWhen === opt.id ? "#1E40AF" : "#1F2937"}>{opt.label}</Text>
+                  {tireReplacedWhen === opt.id && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        );
+
+      case "tireRepaired":
+        return (
+          <View style={s.fieldGroup}>
+            <Text weight="semiBold" size="md" color="#1F2937">Have any of your tires been repaired? (Patched, plugged, etc.)</Text>
+            <View style={s.chipColumn}>
+              {([
+                { id: "yes" as const, label: "Yes" },
+                { id: "no" as const, label: "No" },
+                { id: "not_sure" as const, label: "I\u2019m not sure" },
+              ]).map((opt) => {
+                const isNo = opt.id === "no" && tireRepaired === opt.id;
+                return (
+                  <Pressable key={opt.id} style={[s.optionCard, tireRepaired === opt.id && s.optionCardActive, isNo && s.optionCardGood]} onPress={() => setTireRepaired(opt.id)}>
+                    <Text weight={tireRepaired === opt.id ? "bold" : "semiBold"} size="md" color={tireRepaired === opt.id ? (isNo ? "#166534" : "#1E40AF") : "#1F2937"}>{opt.label}</Text>
+                    {tireRepaired === opt.id && <Ionicons name="checkmark-circle" size={22} color={isNo ? "#22C55E" : "#5299FE"} />}
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        );
+
+      case "warningLight":
+        return (
+          <View style={s.fieldGroup}>
+            <Text weight="semiBold" size="md" color="#1F2937">Is your car showing any dashboard warning lights right now?</Text>
+            <View style={s.chipColumn}>
+              {([
+                { id: "no_all_clear" as const, label: "No, all clear" },
+                { id: "check_engine" as const, label: "Yes, check engine light" },
+                { id: "different_light" as const, label: "Yes, a different warning light" },
+                { id: "not_sure" as const, label: "There might be, I\u2019m not sure" },
+              ]).map((opt) => {
+                const isClear = opt.id === "no_all_clear" && warningLight === opt.id;
+                return (
+                  <Pressable key={opt.id} style={[s.optionCard, warningLight === opt.id && s.optionCardActive, isClear && s.optionCardGood]} onPress={() => setWarningLight(opt.id)}>
+                    <Text weight={warningLight === opt.id ? "bold" : "semiBold"} size="md" color={warningLight === opt.id ? (isClear ? "#166534" : "#1E40AF") : "#1F2937"}>{opt.label}</Text>
+                    {warningLight === opt.id && <Ionicons name="checkmark-circle" size={22} color={isClear ? "#22C55E" : "#5299FE"} />}
+                  </Pressable>
+                );
+              })}
+            </View>
+          </View>
+        );
+
+      case "warningLightType":
+        return (
+          <View style={s.fieldGroup}>
+            <Text weight="semiBold" size="md" color="#1F2937">Which ones? Select all that apply.</Text>
+            <View style={s.chipColumn}>
+              {WARNING_LIGHT_TYPE_OPTIONS.map((opt) => {
+                const selected = warningLightTypes.includes(opt.id);
+                return (
+                  <Pressable
+                    key={opt.id}
+                    style={[s.optionCard, selected && s.optionCardActive]}
+                    onPress={() => {
+                      setWarningLightTypes((prev) =>
+                        prev.includes(opt.id) ? prev.filter((id) => id !== opt.id) : [...prev, opt.id]
+                      );
+                    }}
+                  >
+                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                      <Ionicons name={opt.icon} size={20} color={selected ? "#5299FE" : "#6B7280"} />
+                      <Text weight={selected ? "bold" : "semiBold"} size="md" color={selected ? "#1E40AF" : "#1F2937"}>{opt.label}</Text>
+                    </View>
+                    {selected && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
+                  </Pressable>
+                );
+              })}
+            </View>
           </View>
         );
 
@@ -500,21 +464,21 @@ export default function CarInfoStepper({
   };
 
   // ── Render intro content ────────────────────────────────────
-  const displayName = vehicleMake && vehicleModel ? `${vehicleMake} ${vehicleModel}` : "Your Vehicle";
+  const displayName = vehicleMake && vehicleModel ? `${vehicleMake} ${vehicleModel}` : "your vehicle";
 
   const renderIntro = () => (
     <View style={s.introContent}>
       <View style={s.iconContainer}>
-        <Ionicons name="clipboard-outline" size={32} color="#5299FE" />
+        <Ionicons name="pulse-outline" size={32} color="#5299FE" />
       </View>
       <Text weight="bold" size="lg" color="#1F2937" style={s.introTitle}>
-        Tell us about your {displayName}
+        Let&apos;s get a quick read on your {displayName}
       </Text>
       <Text weight="medium" size="sm" color="#6B7280" style={s.introSubtitle}>
-        Answer a few quick questions to unlock your vehicle health score and maintenance tracking.
+        Three quick checks to understand your vehicle&apos;s current condition.
       </Text>
       <View style={s.benefitsList}>
-        {["Personalized maintenance schedule", "Service due date predictions", "Vehicle health score"].map((b) => (
+        {["Brake health assessment", "Tire life estimation", "Warning light detection"].map((b) => (
           <View key={b} style={s.benefitRow}>
             <Ionicons name="checkmark-circle" size={16} color="#22C55E" />
             <Text weight="medium" size="sm" color="#374151">{b}</Text>
@@ -525,24 +489,24 @@ export default function CarInfoStepper({
         <Text weight="bold" size="md" color="#FFFFFF">Get Started</Text>
         <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
       </Pressable>
-      <Text weight="medium" size="xs" color="#9CA3AF" style={{ marginTop: 10 }}>Takes about 2 minutes</Text>
+      <Text weight="medium" size="xs" color="#9CA3AF" style={{ marginTop: 10 }}>Takes about 30 seconds</Text>
     </View>
   );
 
   // ── Render stepping content ─────────────────────────────────
   const renderStepping = (forStep: number) => {
-    const isLast = forStep === TOTAL_STEPS - 1;
-    const meta = STEP_META[forStep];
+    const stepId = steps[forStep];
+    const isLast = forStep === totalSteps - 1;
+    const meta = STEP_META[stepId];
     return (
       <View>
-        {/* Header with close button */}
         <View style={s.stepHeader}>
           <View style={{ flex: 1 }}>
             <View style={s.progressContainer}>
               <View style={s.progressTrack}>
-                <View style={[s.progressFill, { width: `${((forStep + 1) / TOTAL_STEPS) * 100}%` }]} />
+                <View style={[s.progressFill, { width: `${((forStep + 1) / totalSteps) * 100}%` }]} />
               </View>
-              <Text weight="medium" size="xs" color="#9CA3AF">Step {forStep + 1} of {TOTAL_STEPS}</Text>
+              <Text weight="medium" size="xs" color="#9CA3AF">{forStep + 1} of {totalSteps}</Text>
             </View>
             <Text weight="bold" size="lg" color="#1F2937" style={{ marginTop: 12 }}>{meta.title}</Text>
             <Text weight="medium" size="sm" color="#6B7280" style={{ marginTop: 2 }}>{meta.subtitle}</Text>
@@ -552,12 +516,10 @@ export default function CarInfoStepper({
           </Pressable>
         </View>
 
-        {/* Step content */}
         <View style={s.stepBody}>
-          {renderStepContent(forStep)}
+          {renderStepContent(stepId)}
         </View>
 
-        {/* Footer */}
         <View style={s.footer}>
           <View style={s.footerButtons}>
             {forStep > 0 ? (
@@ -579,11 +541,6 @@ export default function CarInfoStepper({
               {!isLast && !saving && <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />}
             </Pressable>
           </View>
-          {forStep >= 2 && forStep <= 6 && (
-            <Pressable style={({ pressed }) => [s.skipButton, pressed && { opacity: 0.7 }]} onPress={handleNext}>
-              <Text weight="medium" size="sm" color="#9CA3AF">Skip this step</Text>
-            </Pressable>
-          )}
         </View>
       </View>
     );
@@ -758,53 +715,9 @@ const s = StyleSheet.create({
   nextButtonPressed: {
     opacity: 0.9,
   },
-  skipButton: {
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-  },
-
   // ── Form fields ──
   fieldGroup: {
     gap: 10,
-  },
-  inputRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: "#D1D5DB",
-    paddingHorizontal: 14,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  inputRowBorder: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 12,
-    borderWidth: 1.5,
-    borderColor: "#D1D5DB",
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-    textAlignVertical: "top",
-    minHeight: 80,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04,
-    shadowRadius: 2,
-    elevation: 1,
-  },
-  textInput: {
-    flex: 1,
-    fontFamily: FontFamily.medium,
-    fontSize: FontSize.md,
-    color: "#1F2937",
-    paddingVertical: 14,
-  },
-  inputSuffix: {
-    marginLeft: 6,
   },
   chipColumn: {
     gap: 10,
@@ -829,15 +742,5 @@ const s = StyleSheet.create({
     backgroundColor: "rgba(34, 197, 94, 0.08)",
     borderColor: "#22C55E",
     borderWidth: 2,
-  },
-  optionCardContent: {
-    flex: 1,
-    gap: 2,
-  },
-  toggleChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-    paddingVertical: 8,
   },
 });

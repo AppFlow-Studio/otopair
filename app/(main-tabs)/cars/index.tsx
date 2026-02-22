@@ -20,6 +20,7 @@ import { useSmartcarData } from "@/hooks/useSmartcarData";
 import { useMergedMaintenance } from "@/hooks/useMaintenanceData";
 import type { Id } from "@/convex/_generated/dataModel";
 import { ALL_MAINTENANCE_TYPES, MAINTENANCE_LABELS, type MaintenanceType } from "@/utils/maintenanceStatus";
+import { computeVehicleHealthScore } from "@/utils/healthScore";
 
 // 4. Shared UI
 import { Text } from "@/components/shared-ui";
@@ -45,6 +46,20 @@ const DEFAULT_GRADIENTS = [
   ["#9a9cc0", "#e7e3fd", "#e0dcf4", "#f1ecfe"],
   ["#5090d8", "#c0daf8", "#b8d4f8", "#d8ecff"],
 ];
+
+// Map car colors to background gradient palettes
+const COLOR_GRADIENTS: Record<string, string[]> = {
+  black:            ["#3a3a3a", "#5c5c5c", "#787878", "#a0a0a0"],
+  "midnight-silver":["#4a4a5a", "#7a7a8a", "#9a9aaa", "#c0c0d0"],
+  silver:           ["#9a9cc0", "#e7e3fd", "#e0dcf4", "#f1ecfe"],
+  white:            ["#b8c0cc", "#d8dce6", "#e8ecf2", "#f4f6fa"],
+  gray:             ["#6b7080", "#8e929e", "#adb0ba", "#cdd0d8"],
+  red:              ["#a03030", "#d06868", "#e09898", "#f0c8c8"],
+  blue:             ["#5090d8", "#c0daf8", "#b8d4f8", "#d8ecff"],
+  green:            ["#2a7a4a", "#60b080", "#90d0a8", "#c8f0d8"],
+  beige:            ["#b8a080", "#d4c0a8", "#e4d8c4", "#f2ece0"],
+  brown:            ["#6b4030", "#8b6050", "#b08878", "#d8b8a8"],
+};
 
 // (Service history is now sourced from Smartcar data via useSmartcarData)
 
@@ -203,6 +218,7 @@ export default function CarsHomeScreen() {
   const updateOwnershipPrimary = useMutation(api.vehicles.updateOwnershipPrimary);
   const resetOnboarding = useMutation(api.vehicles.resetVehicleOnboarding);
   const removeOwner = useMutation(api.vehicles.removeOwner);
+  const autoCompleteNewVehicle = useMutation(api.vehicles.autoCompleteNewVehicleOnboarding);
   const fetchVehicleData = useAction(api.smartcar.fetchVehicleData);
   const [isRefreshingSmartcar, setIsRefreshingSmartcar] = useState(false);
 
@@ -219,8 +235,10 @@ export default function CarsHomeScreen() {
     listVehicles.forEach((r: any, i: number) => {
       const v = r.vehicle;
       const o = r.ownership;
-      const meta = v ? (v as { metadata?: { make?: string; model?: string } }).metadata : undefined;
-      const gradient = DEFAULT_GRADIENTS[i % DEFAULT_GRADIENTS.length];
+      const meta = v ? (v as { metadata?: { make?: string; model?: string; color?: string } }).metadata : undefined;
+      const paintColor = meta?.color;
+      const gradient = (paintColor && COLOR_GRADIENTS[paintColor])
+        || DEFAULT_GRADIENTS[i % DEFAULT_GRADIENTS.length];
       const displayMake = meta?.make ?? o?.nickname?.split(" ")[1] ?? "Vehicle";
       const displayModel = meta?.model ?? o?.nickname?.split(" ").slice(2).join(" ") ?? r.vin.slice(-6);
       paired.push({
@@ -237,7 +255,7 @@ export default function CarsHomeScreen() {
           imageSource: v?.image_url
             ? { uri: `${v.image_url}?v=${v.updated_at || v._creationTime}` }
             : displayMake && displayModel
-              ? { uri: getVehicleImageUrl(displayMake, displayModel, v?.year, r.vin) }
+              ? { uri: getVehicleImageUrl(displayMake, displayModel, v?.year, r.vin, paintColor) }
               : undefined,
           logoSource: undefined,
           condition: undefined,
@@ -284,13 +302,33 @@ export default function CarsHomeScreen() {
   // between Convex pushing isOnboardingComplete and React applying state updates.
   const celebrationDismissed = isOnboardingComplete && !pendingHealthSheet && !showHealthRingSheet && !celebrationFlowActive.current;
   const showPostOnboardingContent = celebrationDismissed && !revealingDashboard;
+  const activeOwnershipMileage = activeOwnership?.mileage as number | undefined;
+  const isNewVehicle = isPreOnboardingComplete && !isOnboardingComplete
+    && activeOwnershipMileage != null && activeOwnershipMileage <= 1000;
+
+  // Auto-complete onboarding for brand-new vehicles (≤1,000 mi) — skip the Quick Read
+  const autoCompleteFired = useRef(false);
+  useEffect(() => {
+    if (!isNewVehicle || !activeOwnershipId || autoCompleteFired.current) return;
+    autoCompleteFired.current = true;
+    (async () => {
+      try {
+        await autoCompleteNewVehicle({ vehicleOwnerId: activeOwnershipId });
+        celebrationFlowActive.current = true;
+        setPendingHealthSheet(true);
+      } catch (err) {
+        console.warn("[AutoComplete] Failed for new vehicle:", err);
+        autoCompleteFired.current = false;
+      }
+    })();
+  }, [isNewVehicle, activeOwnershipId, autoCompleteNewVehicle]);
+
   const activeOwnershipDrivingConditions = activeOwnership?.drivingConditions as string | undefined;
   const activeOwnershipAvgMonthlyDriving = activeOwnership?.avgMonthlyDriving as string | undefined;
   // Smartcar data for the active vehicle
   const {
     stats: smartcarStats,
     maintenanceItems: smartcarMaintenanceItems,
-    healthScore,
     tripStats,
     nextServicePrediction,
     isConnected: isActiveVehicleConnected,
@@ -300,32 +338,32 @@ export default function CarsHomeScreen() {
   // For non-connected vehicles with onboarding, use ownership.mileage as the odometer
   const currentOdometer = smartcarStats?.odometer?.distance
     ?? (isOnboardingComplete ? (activeOwnership?.mileage ?? null) : null);
+  const activeOwnershipKnownIssues = activeOwnership?.knownIssues as string[] | undefined;
   const { mergedItems: mergedMaintenanceItems, recordsByType } = useMergedMaintenance(
     smartcarMaintenanceItems,
     activeOwnershipId,
     currentOdometer,
     activeVehicle?.make,
     activeOwnershipDrivingConditions,
-    activeOwnershipAvgMonthlyDriving
+    activeOwnershipAvgMonthlyDriving,
+    activeOwnershipKnownIssues,
+    activeVehicle?.year
   );
 
-  // Compute overall vehicle health score from real data
-  // Formula: Overall = (Maintenance × 70%) + (Usage × 30%)
+  // Unified vehicle health score — graduated maintenance statuses, warning-light
+  // penalty, and Smartcar live-sensor blend when connected.
   const computedHealthScore = useMemo(() => {
-    const getMileageScore = (miles: number) => {
-      if (miles <= 30000) return 100;
-      if (miles <= 60000) return 90;
-      if (miles <= 100000) return 75;
-      if (miles <= 150000) return 55;
-      return 35;
-    };
-    const knownItems = mergedMaintenanceItems.filter((i) => i.status !== "unknown");
-    const onTimeItems = knownItems.filter((i) => i.status === "on_time");
-    const total = Math.max(knownItems.length, 1);
-    const maintenancePct = Math.round((onTimeItems.length / total) * 100);
-    const usagePct = getMileageScore(currentOdometer ?? activeVehicle?.mileage ?? 0);
-    return Math.round((maintenancePct * 0.7) + (usagePct * 0.3));
-  }, [mergedMaintenanceItems, currentOdometer, activeVehicle?.mileage]);
+    return computeVehicleHealthScore({
+      maintenanceItems: mergedMaintenanceItems,
+      odometerMiles: currentOdometer ?? activeVehicle?.mileage ?? 0,
+      knownIssues: activeOwnershipKnownIssues,
+      smartcar: smartcarStats ? {
+        oilLife: smartcarStats.oilLife,
+        tirePressure: smartcarStats.tirePressure,
+        fuelPercent: smartcarStats.fuel?.percentRemaining,
+      } : undefined,
+    });
+  }, [mergedMaintenanceItems, currentOdometer, activeVehicle?.mileage, activeOwnershipKnownIssues, smartcarStats]);
 
   // Keep the ref in sync so openHealthSheet always reads the latest score
   latestScoreRef.current = computedHealthScore;
@@ -412,15 +450,11 @@ export default function CarsHomeScreen() {
   }, [activeOwnershipId, fetchVehicleData]);
 
 
-  // Pre-render gradients - animate opacity by active index
-  const lamboOpacity = useRef(new Animated.Value(0)).current;
-  useEffect(() => {
-    Animated.timing(lamboOpacity, {
-      toValue: activeVehicleIndex === 1 ? 1 : 0,
-      duration: 300,
-      useNativeDriver: true,
-    }).start();
-  }, [activeVehicleIndex]);
+  // Active vehicle's gradient colors for the background
+  const activeGradient = useMemo(
+    () => activeVehicle?.gradientColors ?? DEFAULT_GRADIENTS[0],
+    [activeVehicle?.gradientColors]
+  );
 
   // Handle default toggle via Convex
   const handleToggleDefault = useCallback(
@@ -515,48 +549,25 @@ export default function CarsHomeScreen() {
         scrollEventThrottle={16}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#6B7280" />}
       >
-        {/* Scrolling Gradient - PRE-RENDERED for both cars, only opacity animates */}
+        {/* Scrolling Gradient - uses active vehicle's color */}
         <View style={styles.scrollingGradientContainer} pointerEvents="none">
-          {/* LEXUS gradient - always rendered, fades out when Lambo selected */}
-          <Animated.View style={[StyleSheet.absoluteFill, { opacity: Animated.subtract(1, lamboOpacity) }]}>
-            <LinearGradient
-              colors={["#9a9cc0", "#e7e3fd", "#e0dcf4", "#f1ecfe"]}
-              locations={[0, 0.33, 0.33, 1]}
-              style={StyleSheet.absoluteFill}
-            />
-            <LinearGradient
-              colors={["rgba(255, 255, 255, 0)", "rgba(255, 255, 255, 0.15)", "rgba(255, 255, 255, 0.35)"]}
-              locations={[0, 0.5, 1]}
-              style={StyleSheet.absoluteFill}
-            />
-            <LinearGradient
-              colors={["rgba(255, 255, 255, 0.1)", "rgba(255, 255, 255, 0)", "rgba(255, 255, 255, 0.1)"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              locations={[0, 0.5, 1]}
-              style={StyleSheet.absoluteFill}
-            />
-          </Animated.View>
-
-          {/* LAMBO gradient - always rendered, fades in when Lambo selected */}
-          <Animated.View style={[StyleSheet.absoluteFill, { opacity: lamboOpacity }]}>
-            <LinearGradient
-              colors={["#5090d8", "#c0daf8", "#b8d4f8", "#d8ecff"]}
-              locations={[0, 0.33, 0.335, 1]}
-              style={StyleSheet.absoluteFill}
-            />
-            <LinearGradient
-              colors={["rgba(255, 255, 255, 0)", "rgba(255, 255, 255, 0.12)", "rgba(255, 255, 255, 0.3)"]}
-              locations={[0, 0.5, 1]}
-              style={StyleSheet.absoluteFill}
-            />
-            <LinearGradient
-              colors={["rgba(180, 210, 255, 0.15)", "rgba(255, 255, 255, 0)"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 0.5, y: 0 }}
-              style={StyleSheet.absoluteFill}
-            />
-          </Animated.View>
+          <LinearGradient
+            colors={activeGradient as [string, string, ...string[]]}
+            locations={[0, 0.33, 0.33, 1]}
+            style={StyleSheet.absoluteFill}
+          />
+          <LinearGradient
+            colors={["rgba(255, 255, 255, 0)", "rgba(255, 255, 255, 0.15)", "rgba(255, 255, 255, 0.35)"]}
+            locations={[0, 0.5, 1]}
+            style={StyleSheet.absoluteFill}
+          />
+          <LinearGradient
+            colors={["rgba(255, 255, 255, 0.1)", "rgba(255, 255, 255, 0)", "rgba(255, 255, 255, 0.1)"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            locations={[0, 0.5, 1]}
+            style={StyleSheet.absoluteFill}
+          />
         </View>
 
         {/* ═══════════════════════════════════════════════════════════════════
@@ -574,6 +585,7 @@ export default function CarsHomeScreen() {
             maintenanceItems={mergedMaintenanceItems}
             currentMileage={currentOdometer}
             showHealthRing={isActiveVehicleConnected || celebrationDismissed}
+            healthScore={computedHealthScore}
           />
         </View>
 
@@ -622,8 +634,8 @@ export default function CarsHomeScreen() {
             </View>
           )}
 
-          {/* Non-connected + pre-onboarding complete + no onboarding → show inline stepper */}
-          {!isActiveVehicleConnected && isPreOnboardingComplete && !isOnboardingComplete && activeOwnershipId && (
+          {/* Non-connected + pre-onboarding complete + no onboarding + NOT a new vehicle → show inline stepper */}
+          {!isActiveVehicleConnected && isPreOnboardingComplete && !isOnboardingComplete && !isNewVehicle && activeOwnershipId && (
             <CarInfoStepper
               vehicleOwnerId={activeOwnershipId}
               vehicleMake={activeVehicle?.make ?? ""}
@@ -726,7 +738,7 @@ export default function CarsHomeScreen() {
           {(isActiveVehicleConnected || (isPreOnboardingComplete && showPostOnboardingContent)) && (
             <MaintenanceTracker
               items={mergedMaintenanceItems}
-              vehicleCondition={isActiveVehicleConnected && activeVehicle?.connectionStatus === 'connected' ? (healthScore ?? computedHealthScore) : computedHealthScore}
+              vehicleCondition={computedHealthScore}
               onBookNow={(id) => {
                 router.push('/home/map');
               }}
@@ -774,6 +786,8 @@ export default function CarsHomeScreen() {
           visible={maintenanceModalVisible}
           maintenanceType={maintenanceModalType}
           vehicleOwnerId={activeOwnershipId}
+          vehicleYear={activeVehicle?.year}
+          knownIssues={activeOwnershipKnownIssues}
           existingRecord={
             recordsByType.get(maintenanceModalType)
               ? {
