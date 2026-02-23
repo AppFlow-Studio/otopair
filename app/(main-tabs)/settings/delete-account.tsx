@@ -977,6 +977,7 @@ const styles = StyleSheet.create({
   },
   sheetBulletStrong: {
     fontFamily: FontFamily.bold,
+    color: "#1d1d1f",
   },
   sheetInfoText: {
     marginTop: 4,
