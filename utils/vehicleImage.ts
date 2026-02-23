@@ -17,26 +17,31 @@ const IMAGIN_BASE = "https://cdn.imagin.studio/getImage";
 /**
  * Build an IMAGIN.studio image URL for a vehicle.
  *
- * @param make   - Vehicle manufacturer (e.g. "Volkswagen", "TOYOTA")
- * @param model  - Model family (e.g. "Tiguan", "Corolla")
- * @param year   - Optional model year (e.g. 2024)
- * @returns      - Full CDN image URL
+ * @param make             - Vehicle manufacturer (e.g. "Volkswagen", "TOYOTA")
+ * @param model            - Model family (e.g. "Tiguan", "Corolla")
+ * @param year             - Optional model year (e.g. 2024)
+ * @param vin              - Optional VIN used as cache key
+ * @param paintDescription - Optional color name (e.g. "black", "midnight-silver")
+ * @returns                - Full CDN image URL
  */
 export function getVehicleImageUrl(
   make: string,
   model: string,
-  year?: number
+  year?: number,
+  vin?: string,
+  paintDescription?: string
 ): string {
   // Weekly rotating cache key to refresh CDN images before 7-day TTL expires
   const weekNum = Math.floor(Date.now() / (7 * 24 * 60 * 60 * 1000));
 
   const params = new URLSearchParams({
     customer: IMAGIN_CUSTOMER,
-    make: sanitize(make),
-    modelFamily: sanitize(model),
-    zoomType: "relative",
-    width: "1600",
-    angle: "01",
+    make: normalize(make),
+    modelFamily: normalize(model),
+    zoomType: "fullscreen",
+    width: "2400",
+    angle: "229",
+    tailoring: "imagin",
     _v: String(weekNum),
   });
 
@@ -44,14 +49,19 @@ export function getVehicleImageUrl(
     params.set("modelYear", String(year));
   }
 
+  const normalizedVin = (vin ?? "").toUpperCase().trim();
+  if (normalizedVin.length === 17) {
+    params.set("vehicleKey", normalizedVin);
+  }
+
+  if (paintDescription) {
+    params.set("paintDescription", paintDescription.trim());
+  }
+
   return `${IMAGIN_BASE}?${params.toString()}`;
 }
 
-/** Lowercase, trim, and replace spaces/special chars with hyphens */
-function sanitize(value: string): string {
-  return value
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
+/** Keep provider-friendly casing and spacing. */
+function normalize(value: string): string {
+  return value.trim();
 }

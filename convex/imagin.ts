@@ -56,19 +56,29 @@ function getAuthHeader(): string {
 async function fetchVehicleImageBlob(
   make: string,
   model: string,
-  year?: number
+  year?: number,
+  vin?: string,
+  paintDescription?: string
 ): Promise<Blob> {
   const key = process.env.IMAGIN_CUSTOMER_KEY;
   const params = new URLSearchParams({
     customer: key || "us-appflowstudio",
     make: sanitize(make),
     modelFamily: sanitize(model),
-    zoomType: "relative",
-    width: "1600",
-    angle: "01",
+    zoomType: "fullscreen",
+    width: "2400",
+    angle: "229",
+    tailoring: "imagin",
   });
   if (year && year > 1900) {
     params.set("modelYear", String(year));
+  }
+  const normalizedVin = (vin ?? "").toUpperCase().trim();
+  if (normalizedVin.length === 17) {
+    params.set("vehicleKey", normalizedVin);
+  }
+  if (paintDescription) {
+    params.set("paintDescription", sanitize(paintDescription));
   }
 
   const url = `${IMAGIN_BASE}/getImage?${params.toString()}`;
@@ -108,6 +118,7 @@ export const generateVehicleImage = action({
     make: v.string(),
     model: v.string(),
     year: v.optional(v.float64()),
+    paintDescription: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<string | null> => {
     if (!args.make || !args.model) {
@@ -120,7 +131,9 @@ export const generateVehicleImage = action({
       const imageBlob = await fetchVehicleImageBlob(
         args.make,
         args.model,
-        args.year
+        args.year,
+        args.vin,
+        args.paintDescription
       );
 
       console.log(
@@ -183,10 +196,37 @@ export const storeVehicleImageUrl = internalMutation({
 // INTERNAL QUERY: Get all vehicles (for backfill)
 // ============================================================================
 
-export const getAllVehicles = internalQuery({
+export const getAllVehiclesWithMakeModel = internalQuery({
   args: {},
   handler: async (ctx) => {
-    return await ctx.db.query("vehicles").collect();
+    const vehicles = await ctx.db.query("vehicles").collect();
+
+    return Promise.all(
+      vehicles.map(async (vehicle) => {
+        const meta = vehicle.metadata as
+          | { make?: string; model?: string; color?: string }
+          | undefined;
+        let make = meta?.make;
+        let model = meta?.model;
+        const color = meta?.color;
+
+        if ((!make || !model) && vehicle.trim_id) {
+          const trim = await ctx.db.get(vehicle.trim_id);
+          if (trim) {
+            const modelDoc = await ctx.db.get(trim.model_id);
+            if (modelDoc) {
+              model = model || modelDoc.name;
+              const makeDoc = await ctx.db.get(modelDoc.make_id);
+              if (makeDoc) {
+                make = make || makeDoc.name;
+              }
+            }
+          }
+        }
+
+        return { ...vehicle, resolvedMake: make, resolvedModel: model, resolvedColor: color };
+      })
+    );
   },
 });
 
@@ -203,7 +243,9 @@ export const getAllVehicles = internalQuery({
 export const backfillAllVehicleImages = action({
   args: {},
   handler: async (ctx) => {
-    const vehicles = await ctx.runQuery(internal.imagin.getAllVehicles);
+    const vehicles = await ctx.runQuery(
+      internal.imagin.getAllVehiclesWithMakeModel
+    );
 
     console.log(
       `[IMAGIN] Backfilling images for ${vehicles.length} vehicle(s)…`
@@ -214,14 +256,13 @@ export const backfillAllVehicleImages = action({
     let failed = 0;
 
     for (const vehicle of vehicles) {
-      const meta = vehicle.metadata as
-        | { make?: string; model?: string }
-        | undefined;
-      const make = meta?.make;
-      const model = meta?.model;
+      const make = vehicle.resolvedMake;
+      const model = vehicle.resolvedModel;
 
       if (!make || !model) {
-        console.log(`[IMAGIN] Skipping ${vehicle.vin} — no make/model in metadata`);
+        console.log(
+          `[IMAGIN] Skipping ${vehicle.vin} — could not resolve make/model`
+        );
         skipped++;
         continue;
       }
@@ -230,7 +271,9 @@ export const backfillAllVehicleImages = action({
         const imageBlob = await fetchVehicleImageBlob(
           make,
           model,
-          vehicle.year
+          vehicle.year,
+          vehicle.vin,
+          vehicle.resolvedColor
         );
 
         const storageId = await ctx.storage.store(imageBlob);

@@ -287,7 +287,8 @@ export function computeMaintenanceStatus(
   make?: string,
   now: number = Date.now(),
   drivingConditions?: string,
-  avgMonthlyDriving?: string
+  avgMonthlyDriving?: string,
+  knownIssues?: string[]
 ): StatusResult {
   const type = record.type as MaintenanceType;
 
@@ -298,21 +299,53 @@ export function computeMaintenanceStatus(
 
   // Special case: Tires — factor in tire pressure custom inputs
   if (type === "tires") {
-    return computeTireStatus(record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving);
+    return computeTireStatus(record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, knownIssues);
   }
 
-  // Special case: Brakes — factor in squeaking
+  // Special case: Brakes — factor in symptoms + warning light
   if (type === "brakes") {
-    return computeBrakeStatus(record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving);
+    return computeBrakeStatus(record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, knownIssues);
   }
 
   // Special case: Battery — time-based with specific thresholds + slow starts
   if (type === "battery") {
-    return computeBatteryStatus(record, make, now);
+    return computeBatteryStatus(record, make, now, knownIssues);
   }
 
   // Generic: Oil (hybrid mileage + time, whichever comes first)
-  return computeHybridStatus(type, record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving);
+  return computeOilStatus(record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving, knownIssues);
+}
+
+// ============================================================================
+// OIL STATUS (hybrid + warning light escalation)
+// ============================================================================
+
+function computeOilStatus(
+  record: MaintenanceRecord,
+  currentOdometer: number | null,
+  make: string | undefined,
+  now: number,
+  drivingConditions?: string,
+  avgMonthlyDriving?: string,
+  knownIssues?: string[]
+): StatusResult {
+  const result = computeHybridStatus("oil", record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving);
+
+  if (knownIssues?.includes("oil_pressure")) {
+    return escalateForWarningLight(result, "Oil pressure warning light active — service urgently needed");
+  }
+
+  return result;
+}
+
+function escalateForWarningLight(result: StatusResult, description: string): StatusResult {
+  const SEVERITY_ORDER: MaintenanceStatus[] = ["on_time", "unknown", "due_soon", "needs_attention", "overdue"];
+  const currentIdx = SEVERITY_ORDER.indexOf(result.status);
+  const targetIdx = SEVERITY_ORDER.indexOf("needs_attention");
+  if (currentIdx < targetIdx) {
+    return { ...result, status: "needs_attention", description, percentUsed: Math.max(result.percentUsed, 75) };
+  }
+  return { ...result, description: `${description} · ${result.description}` };
 }
 
 // ============================================================================
@@ -410,7 +443,25 @@ function computeTireStatus(
   make: string | undefined,
   now: number,
   drivingConditions?: string,
-  avgMonthlyDriving?: string
+  avgMonthlyDriving?: string,
+  knownIssues?: string[]
+): StatusResult {
+  const result = computeTireStatusCore(record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving);
+
+  if (knownIssues?.includes("tpms")) {
+    return escalateForWarningLight(result, "Tire pressure (TPMS) warning light active — check tires soon");
+  }
+
+  return result;
+}
+
+function computeTireStatusCore(
+  record: MaintenanceRecord,
+  currentOdometer: number | null,
+  make: string | undefined,
+  now: number,
+  drivingConditions?: string,
+  avgMonthlyDriving?: string,
 ): StatusResult {
   const tp = record.customInputs?.tirePressure as Record<string, number | null> | undefined;
 
@@ -474,6 +525,30 @@ function computeTireStatus(
     }
   }
 
+  // Quick Read fields
+  const tireReplaced = record.customInputs?.tireReplaced as string | undefined;
+  const tireRepaired = record.customInputs?.tireRepaired as string | undefined;
+
+  // Quick Read: user doesn't know tire status → unknown
+  if (tireReplaced === "dont_know" && !record.lastServiceDate && !record.lastServiceMileage && !tp) {
+    return {
+      status: "unknown",
+      percentUsed: 0,
+      description: "Tire replacement history unknown",
+      detail: "Unknown",
+    };
+  }
+
+  // Quick Read: original tires with no service date → recommend inspection
+  if (tireReplaced === "original" && !record.lastServiceDate && !record.lastServiceMileage && !tp) {
+    return {
+      status: "needs_attention",
+      percentUsed: 60,
+      description: "Original tires — age unknown, inspection recommended",
+      detail: "Check soon",
+    };
+  }
+
   // Fall through to interval-based check (tire replacement age/mileage)
   if (!record.lastServiceDate && !record.lastServiceMileage) {
     if (tp) {
@@ -492,7 +567,7 @@ function computeTireStatus(
         status: "overdue",
         percentUsed: 100,
         description: "Tires over 6 years old — replacement recommended",
-        detail: formatShortDate(record.lastServiceDate),
+        detail: formatRelativeTime(record.lastServiceDate, now),
       };
     }
     if (monthsSince >= 48) {
@@ -500,9 +575,29 @@ function computeTireStatus(
         status: "due_soon",
         percentUsed: 80,
         description: `Tires ${Math.round(monthsSince / 12)} years old — inspection recommended`,
-        detail: formatShortDate(record.lastServiceDate),
+        detail: formatRelativeTime(record.lastServiceDate, now),
       };
     }
+  }
+
+  // Quick Read: patched/plugged tire — flag regardless of interval status
+  if (tireRepaired === "yes") {
+    const intervalResult = record.lastServiceDate
+      ? computeHybridStatus("tires", record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving)
+      : null;
+    const worstStatus: MaintenanceStatus =
+      intervalResult && (intervalResult.status === "overdue" || intervalResult.status === "due_soon")
+        ? intervalResult.status
+        : "needs_attention";
+    const desc = intervalResult
+      ? `Patched/plugged tire · ${intervalResult.description}`
+      : "Patched/plugged tire — inspection recommended";
+    return {
+      status: worstStatus,
+      percentUsed: Math.max(intervalResult?.percentUsed ?? 60, 60),
+      description: desc,
+      detail: record.lastServiceDate ? formatRelativeTime(record.lastServiceDate, now) : "Check soon",
+    };
   }
 
   // Standard hybrid interval (mileage + time)
@@ -515,9 +610,35 @@ function computeBrakeStatus(
   make: string | undefined,
   now: number,
   drivingConditions?: string,
-  avgMonthlyDriving?: string
+  avgMonthlyDriving?: string,
+  knownIssues?: string[]
 ): StatusResult {
-  const squeaking = record.customInputs?.squeaking === true;
+  const result = computeBrakeStatusCore(record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving);
+
+  if (knownIssues?.includes("abs")) {
+    return escalateForWarningLight(result, "ABS / brake warning light active — have brakes inspected soon");
+  }
+
+  return result;
+}
+
+function computeBrakeStatusCore(
+  record: MaintenanceRecord,
+  currentOdometer: number | null,
+  make: string | undefined,
+  now: number,
+  drivingConditions?: string,
+  avgMonthlyDriving?: string,
+): StatusResult {
+  // Legacy field OR Quick Read brakeFeel → unified symptom flags
+  const brakeFeel = record.customInputs?.brakeFeel as string | undefined;
+  const squeaking = record.customInputs?.squeaking === true || brakeFeel === "squeak";
+  const softSlow = brakeFeel === "soft_slow";
+  const hasSymptom = squeaking || softSlow;
+
+  const symptomLabel = softSlow
+    ? "Soft/spongy pedal"
+    : "Squeaking/grinding";
 
   // First compute interval-based status
   const hasIntervalData = !!record.lastServiceDate || !!record.lastServiceMileage;
@@ -532,33 +653,46 @@ function computeBrakeStatus(
     intervalStatus = hybrid.status;
   }
 
-  // Squeaking + interval already due_soon or overdue → overdue
-  if (squeaking && (intervalStatus === "due_soon" || intervalStatus === "overdue")) {
+  // soft_slow is a safety signal — always at least overdue when interval is concerning
+  if (softSlow && (intervalStatus === "due_soon" || intervalStatus === "overdue" || !hasIntervalData)) {
     const desc = record.lastServiceDate
-      ? `Squeaking reported · Last replaced ${formatShortDate(record.lastServiceDate)}`
-      : "Squeaking/grinding reported — inspection needed";
+      ? `${symptomLabel} reported · Last replaced ${formatRelativeTime(record.lastServiceDate, now)}`
+      : "Soft/spongy brake pedal — inspection needed urgently";
     return {
       status: "overdue",
       percentUsed: 100,
       description: desc,
-      detail: record.lastServiceDate ? formatShortDate(record.lastServiceDate) : "Check now",
+      detail: record.lastServiceDate ? formatRelativeTime(record.lastServiceDate, now) : "Check now",
     };
   }
 
-  // Squeaking but interval is fine → needs_attention
-  if (squeaking) {
+  // Symptom + interval already due_soon or overdue → overdue
+  if (hasSymptom && (intervalStatus === "due_soon" || intervalStatus === "overdue")) {
+    const desc = record.lastServiceDate
+      ? `${symptomLabel} reported · Last replaced ${formatRelativeTime(record.lastServiceDate, now)}`
+      : `${symptomLabel} reported — inspection needed`;
+    return {
+      status: "overdue",
+      percentUsed: 100,
+      description: desc,
+      detail: record.lastServiceDate ? formatRelativeTime(record.lastServiceDate, now) : "Check now",
+    };
+  }
+
+  // Symptom but interval is fine → needs_attention
+  if (hasSymptom) {
     const desc = hasIntervalData
-      ? `Squeaking reported · ${intervalDescription}`
-      : "Squeaking/grinding reported — inspection recommended";
+      ? `${symptomLabel} reported · ${intervalDescription}`
+      : `${symptomLabel} reported — inspection recommended`;
     return {
       status: "needs_attention",
       percentUsed: Math.max(65, Math.min(Math.round(intervalRatio * 100), 100)),
       description: desc,
-      detail: record.lastServiceDate ? formatShortDate(record.lastServiceDate) : "Check soon",
+      detail: record.lastServiceDate ? formatRelativeTime(record.lastServiceDate, now) : "Check soon",
     };
   }
 
-  // No squeaking, no interval data
+  // No symptoms, no interval data
   if (!hasIntervalData) {
     return { status: "unknown", percentUsed: 0, description: "No brake service history", detail: "Unknown" };
   }
@@ -570,17 +704,18 @@ function computeBrakeStatus(
 function computeBatteryStatus(
   record: MaintenanceRecord,
   make: string | undefined,
-  now: number
+  now: number,
+  knownIssues?: string[]
 ): StatusResult {
-  const slowStarts = record.customInputs?.slowStarts === true;
+  const hasWarningLight = knownIssues?.includes("battery_charging") === true;
 
   if (!record.lastServiceDate) {
-    if (slowStarts) {
+    if (hasWarningLight) {
       return {
         status: "needs_attention",
-        percentUsed: 50,
-        description: "Slow starts reported — battery test recommended",
-        detail: "Check soon",
+        percentUsed: 75,
+        description: "Battery/charging warning light active — have it tested soon",
+        detail: "Warning light",
       };
     }
     return { status: "unknown", percentUsed: 0, description: "No battery data", detail: "Unknown" };
@@ -594,30 +729,7 @@ function computeBatteryStatus(
   const interval = getInterval("battery", make);
   const maxMonths = interval.months ?? 60;
 
-  // Slow starts compound the severity
-  if (slowStarts) {
-    const desc = `Slow starts reported · Installed ${formatShortDate(record.lastServiceDate)}`;
-
-    if (monthsSince >= BATTERY_FLAG_MONTHS) {
-      // 3+ years old with slow starts = overdue
-      return {
-        status: "overdue",
-        percentUsed: 100,
-        description: desc,
-        detail: formatShortDate(record.lastServiceDate),
-      };
-    }
-
-    // Under 3 years but slow starts = needs_attention
-    return {
-      status: "needs_attention",
-      percentUsed: 50,
-      description: desc,
-      detail: formatShortDate(record.lastServiceDate),
-    };
-  }
-
-  // No slow starts — pure age-based
+  // Pure age-based
   if (monthsSince >= BATTERY_URGENT_MONTHS) {
     // 4.5+ years → overdue
     const yearsOld = (monthsSince / 12).toFixed(1);
@@ -625,7 +737,7 @@ function computeBatteryStatus(
       status: "overdue",
       percentUsed: 100,
       description: `Battery is ${yearsOld} years old — replacement recommended`,
-      detail: formatShortDate(record.lastServiceDate),
+      detail: formatRelativeTime(record.lastServiceDate, now),
     };
   }
 
@@ -636,7 +748,7 @@ function computeBatteryStatus(
       status: "due_soon",
       percentUsed: Math.min(Math.round((monthsSince / maxMonths) * 100), 95),
       description: `Battery ${Math.round(monthsSince / 12)} years old · ~${monthsLeft} months until replacement`,
-      detail: formatShortDate(record.lastServiceDate),
+      detail: formatRelativeTime(record.lastServiceDate, now),
       monthsRemaining: monthsLeft,
       estimatedDueDate: new Date(record.lastServiceDate + BATTERY_URGENT_MONTHS * 30.44 * 24 * 60 * 60 * 1000),
     };
@@ -650,14 +762,20 @@ function computeBatteryStatus(
     ? `Battery check recommended in ~${monthsLeft} months`
     : `Battery healthy · ~${yearsLeft} years until check-up`;
 
-  return {
+  const baseResult: StatusResult = {
     status: "on_time",
     percentUsed,
     description,
-    detail: formatShortDate(record.lastServiceDate),
+    detail: formatRelativeTime(record.lastServiceDate, now),
     monthsRemaining: monthsLeft,
     estimatedDueDate: new Date(record.lastServiceDate + BATTERY_FLAG_MONTHS * 30.44 * 24 * 60 * 60 * 1000),
   };
+
+  if (hasWarningLight) {
+    return escalateForWarningLight(baseResult, "Battery/charging warning light active — have it tested soon");
+  }
+
+  return baseResult;
 }
 
 // ============================================================================
@@ -676,9 +794,13 @@ function computeInspectionStatus(record: MaintenanceRecord, now: number): Status
         detail: "Unknown",
       };
     }
-    // No explicit expiration → assume 12 months from last service
-    const expiresAt = record.lastServiceDate + 12 * 30.44 * 24 * 60 * 60 * 1000;
-    return computeInspectionFromExpiration(record.lastServiceDate, expiresAt, now);
+    // User provided a service date but no expiration — don't fabricate one
+    return {
+      status: "on_time",
+      percentUsed: 0,
+      description: `Last inspected ${formatRelativeTime(record.lastServiceDate, now)}`,
+      detail: formatRelativeTime(record.lastServiceDate, now),
+    };
   }
 
   const lastService = record.lastServiceDate || expiration - 12 * 30.44 * 24 * 60 * 60 * 1000;
@@ -785,7 +907,7 @@ function buildHybridDescription(
   }
 
   if (parts.length === 0) {
-    return record.lastServiceDate ? `Last serviced ${formatShortDate(record.lastServiceDate)}` : "No data";
+    return record.lastServiceDate ? `Last serviced ${formatRelativeTime(record.lastServiceDate)}` : "No data";
   }
 
   return parts.join(" · ");
@@ -793,9 +915,30 @@ function buildHybridDescription(
 
 function buildDetail(lastServiceDate?: number): string {
   if (!lastServiceDate) return "Unknown";
-  return formatShortDate(lastServiceDate);
+  return formatRelativeTime(lastServiceDate);
 }
 
+/**
+ * Human-friendly relative time: "~2 weeks ago", "~3 months ago", "~2 years ago".
+ * Used for estimated service dates so we don't display a fake-precise "Jan 2025".
+ */
+function formatRelativeTime(timestamp: number, now: number = Date.now()): string {
+  const ms = now - timestamp;
+  if (ms < 0) return "Recently";
+  const days = Math.round(ms / (1000 * 60 * 60 * 24));
+  if (days < 7) return "This week";
+  if (days < 30) {
+    const weeks = Math.round(days / 7);
+    return `~${weeks} week${weeks !== 1 ? "s" : ""} ago`;
+  }
+  const months = Math.round(days / 30.44);
+  if (months < 12) return `~${months} month${months !== 1 ? "s" : ""} ago`;
+  const years = +(months / 12).toFixed(1);
+  if (years <= 1) return "~1 year ago";
+  return `~${years % 1 === 0 ? Math.round(years) : years} years ago`;
+}
+
+/** Calendar format — only used for inspection expiration dates (user-selected). */
 function formatShortDate(timestamp: number): string {
   const d = new Date(timestamp);
   const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];

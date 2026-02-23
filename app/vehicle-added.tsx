@@ -15,7 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // 2. Expo & Third-party
 import { StatusBar } from 'expo-status-bar';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ArrowLeft } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import Svg, { Path } from 'react-native-svg';
@@ -74,6 +74,10 @@ const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 export default function VehicleAddedScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const params = useLocalSearchParams<{ flow?: string; vehicleOwnerId?: string; fromPreOnboarding?: string }>();
+  const isManualAddFlow = params.flow === "manual";
+  const vehicleOwnerId = typeof params.vehicleOwnerId === "string" ? params.vehicleOwnerId : "";
+  const cameFromPreOnboarding = params.fromPreOnboarding === "true";
 
   // Animation values
   const checkmarkScale = useRef(new Animated.Value(0)).current;
@@ -153,7 +157,15 @@ export default function VehicleAddedScreen() {
   };
 
   const handleViewVehicle = () => {
-    // Navigate to my cars page
+    if (isManualAddFlow && vehicleOwnerId && !cameFromPreOnboarding) {
+      router.replace({
+        pathname: '/car-pre-onboarding',
+        params: { vehicleOwnerId },
+      });
+      return;
+    }
+
+    // Default: navigate to my cars page
     router.replace('/(main-tabs)/cars');
   };
 
@@ -236,7 +248,7 @@ export default function VehicleAddedScreen() {
           ]}
         >
           <Text weight="semiBold" size="md" color="#FFFFFF" style={styles.viewVehicleButtonText}>
-            VIEW MY VEHICLE
+            {isManualAddFlow ? "CONTINUE" : "VIEW MY VEHICLE"}
           </Text>
         </Pressable>
       </Animated.View>

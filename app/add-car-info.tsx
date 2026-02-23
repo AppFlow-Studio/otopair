@@ -362,6 +362,7 @@ export default function ReviewVehicleDetailsScreen() {
       return;
     }
 
+    let createdOwnershipId: string | null = null;
     try {
       const normalizedVin =
         typeof vin === "string" && vin.trim().length === 17
@@ -380,13 +381,14 @@ export default function ReviewVehicleDetailsScreen() {
         },
       });
 
-      await addOwner({
+      const ownershipId = await addOwner({
         vin: normalizedVin,
         userId,
         is_primary: true,
         nickname: brand && model && year ? `${year} ${brand} ${model}` : undefined,
         mileage: mileage ? Number(mileage) : undefined,
       });
+      createdOwnershipId = String(ownershipId);
 
       // Generate watermark-free vehicle image (fire-and-forget, don't block navigation)
       if (brand && model) {
@@ -395,12 +397,19 @@ export default function ReviewVehicleDetailsScreen() {
           make: brand,
           model: model,
           year: year ? parseFloat(year) : undefined,
+          paintDescription: selectedColor || undefined,
         }).catch((e: any) => console.warn("Vehicle image generation failed", e));
       }
     } catch (e) {
       console.warn("Convex add vehicle failed", e);
     }
-    router.push("/vehicle-added");
+    router.push({
+      pathname: "/car-pre-onboarding",
+      params: {
+        flow: "manual",
+        vehicleOwnerId: createdOwnershipId ?? "",
+      },
+    });
   };
 
   const handleToggleEdit = () => {

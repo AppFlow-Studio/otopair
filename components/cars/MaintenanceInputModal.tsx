@@ -3,9 +3,9 @@
  *
  * PURPOSE: Bottom-sheet-style modal to collect user-provided maintenance data
  *          for items Smartcar doesn't cover (brakes, inspection, battery, etc.).
- *          Uses the same bottom sheet animation pattern as membership.tsx.
+ *          Uses a tabbed step-by-step layout for multi-question types.
  *
- * USED IN: app/(main-tabs)/cars/index.tsx (triggered by "Add Info" button on MaintenanceTracker)
+ * USED IN: app/(main-tabs)/cars/index.tsx (triggered by "Add Info" / edit button)
  *
  * OWNER: Ahmad Hamoudeh
  */
@@ -16,6 +16,7 @@ import {
   Dimensions,
   Easing,
   Keyboard,
+  LayoutAnimation,
   Modal,
   Platform,
   Pressable,
@@ -23,6 +24,7 @@ import {
   StyleSheet,
   Switch,
   TextInput,
+  UIManager,
   View,
 } from "react-native";
 import DateTimePicker, { type DateTimePickerEvent } from "@react-native-community/datetimepicker";
@@ -30,13 +32,20 @@ import { useMutation } from "convex/react";
 import { Ionicons } from "@expo/vector-icons";
 
 import { Text } from "@/components/shared-ui";
-import { BrandColors, Colors, FontFamily, FontSize, Spacing } from "@/constants/theme";
+import { FontFamily, FontSize, Spacing } from "@/constants/theme";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import {
   MAINTENANCE_LABELS,
   type MaintenanceType,
 } from "@/utils/maintenanceStatus";
+
+if (
+  Platform.OS === "android" &&
+  UIManager.setLayoutAnimationEnabledExperimental
+) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
 
 // ============================================================================
 // CONSTANTS
@@ -45,15 +54,29 @@ import {
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 const SHEET_HEIGHT = SCREEN_HEIGHT * 0.85;
 
+
 // ============================================================================
 // TYPES
 // ============================================================================
+
+const WARNING_LIGHT_FOR_TYPE: Partial<Record<MaintenanceType, string>> = {
+  oil: "oil_pressure",
+  battery: "battery_charging",
+  brakes: "abs",
+  tires: "tpms",
+};
+
+const WARNING_LIGHT_LABELS: Record<string, string> = {
+  oil_pressure: "Oil pressure light",
+  battery_charging: "Battery / charging light",
+  abs: "ABS / brake warning light",
+  tpms: "Tire pressure (TPMS) light",
+};
 
 interface MaintenanceInputModalProps {
   visible: boolean;
   maintenanceType: MaintenanceType;
   vehicleOwnerId: Id<"vehicle_owners">;
-  /** Pre-fill form if editing an existing record */
   existingRecord?: {
     lastServiceDate?: number;
     lastServiceMileage?: number;
@@ -61,56 +84,75 @@ interface MaintenanceInputModalProps {
   };
   onClose: () => void;
   onSaved: () => void;
+  vehicleYear?: number;
+  knownIssues?: string[];
 }
 
+type DateRangeId = "lt6m" | "6m1y" | "gt1y" | "never";
+type BrakeLastDone = "within_6m" | "6m_to_1y" | "over_1y" | "never_on_this_car" | "dont_know";
+type BrakeFeel = "normal" | "squeak" | "soft_slow" | "not_noticed";
+type BrakeAction = "waiting_quote" | "not_scheduled" | "no_not_yet";
+type TireReplaced = "yes_new" | "original" | "dont_know";
+type TireReplacedWhen = "within_6m" | "6m_to_1y" | "1_to_2y" | "over_2y";
+type TireRepaired = "yes" | "no" | "not_sure";
+
 // ============================================================================
-// QUESTION CONFIGS
+// DATE HELPERS
 // ============================================================================
 
-interface QuestionConfig {
-  showDate: boolean;
-  dateLabel: string;
-  showMileage: boolean;
-  extraDate?: { key: string; label: string };
-  toggle?: { key: string; label: string };
-  oilTypePicker?: boolean;
-  tirePressure?: boolean;
+const DATE_RANGE_OPTIONS: { id: DateRangeId; label: string }[] = [
+  { id: "lt6m", label: "Less than 6 months ago" },
+  { id: "6m1y", label: "6 months to a year ago" },
+  { id: "gt1y", label: "Over a year ago" },
+  { id: "never", label: "Don't know / Never" },
+];
+
+function dateRangeToTimestamp(range: DateRangeId): number | undefined {
+  const now = Date.now();
+  const MS = 30.44 * 24 * 60 * 60 * 1000;
+  switch (range) {
+    case "lt6m":  return now - 3 * MS;
+    case "6m1y":  return now - 9 * MS;
+    case "gt1y":  return now - 18 * MS;
+    case "never": return undefined;
+  }
 }
 
-const QUESTION_CONFIGS: Record<MaintenanceType, QuestionConfig> = {
-  oil: {
-    showDate: true,
-    dateLabel: "When was your last oil change?",
-    showMileage: true,
-    oilTypePicker: true,
-  },
-  brakes: {
-    showDate: true,
-    dateLabel: "When were your brakes last replaced?",
-    showMileage: true,
-    toggle: { key: "squeaking", label: "Do you hear squeaking or grinding?" },
-  },
-  inspection: {
-    showDate: true,
-    dateLabel: "When was your last inspection?",
-    showMileage: false,
-    extraDate: { key: "expirationDate", label: "When does your inspection expire?" },
-  },
-  tires: {
-    showDate: true,
-    dateLabel: "When were your tires last replaced?",
-    showMileage: true,
-    tirePressure: true,
-  },
-  battery: {
-    showDate: true,
-    dateLabel: "When was your battery last replaced?",
-    showMileage: false,
-    toggle: { key: "slowStarts", label: "Have you experienced slow starts?" },
-  },
-};
+function timestampToDateRange(ts: number): DateRangeId {
+  const monthsAgo = (Date.now() - ts) / (30.44 * 24 * 60 * 60 * 1000);
+  if (monthsAgo < 6) return "lt6m";
+  if (monthsAgo < 12) return "6m1y";
+  return "gt1y";
+}
 
-const OIL_TYPES = ["Conventional", "Synthetic", "Synthetic Blend"] as const;
+const MS_PER_MONTH = 30.44 * 24 * 60 * 60 * 1000;
+
+function quickReadDateToTimestamp(range: string): number | undefined {
+  const now = Date.now();
+  switch (range) {
+    case "within_6m": return now - 3 * MS_PER_MONTH;
+    case "6m_to_1y":  return now - 9 * MS_PER_MONTH;
+    case "over_1y":   return now - 18 * MS_PER_MONTH;
+    case "1_to_2y":   return now - 18 * MS_PER_MONTH;
+    case "over_2y":   return now - 30 * MS_PER_MONTH;
+    default:          return undefined;
+  }
+}
+
+function timestampToBrakeLastDone(ts: number): BrakeLastDone {
+  const monthsAgo = (Date.now() - ts) / MS_PER_MONTH;
+  if (monthsAgo < 6) return "within_6m";
+  if (monthsAgo < 12) return "6m_to_1y";
+  return "over_1y";
+}
+
+function timestampToTireReplacedWhen(ts: number): TireReplacedWhen {
+  const monthsAgo = (Date.now() - ts) / MS_PER_MONTH;
+  if (monthsAgo < 6) return "within_6m";
+  if (monthsAgo < 12) return "6m_to_1y";
+  if (monthsAgo < 24) return "1_to_2y";
+  return "over_2y";
+}
 
 // ============================================================================
 // COMPONENT
@@ -123,22 +165,22 @@ export function MaintenanceInputModal({
   existingRecord,
   onClose,
   onSaved,
+  vehicleYear,
+  knownIssues,
 }: MaintenanceInputModalProps) {
   const upsertRecord = useMutation(api.maintenance.upsertRecord);
-  const config = QUESTION_CONFIGS[maintenanceType];
+  const updateWarningLight = useMutation(api.vehicles.updateWarningLight);
   const label = MAINTENANCE_LABELS[maintenanceType];
 
-  // ── Animation refs (same pattern as membership.tsx) ─────────
+  // ── Animation refs ─────────────────────────────────────────
   const sheetTranslateY = useRef(new Animated.Value(SHEET_HEIGHT)).current;
   const backdropOpacity = useRef(new Animated.Value(0)).current;
   const keyboardOffset = useRef(new Animated.Value(0)).current;
   const [modalVisible, setModalVisible] = useState(false);
 
-  // ── Keyboard offset: shift sheet up when keyboard appears ─────────
   useEffect(() => {
     const showEvent = Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
     const hideEvent = Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
-
     const showSub = Keyboard.addListener(showEvent, (e) => {
       Animated.timing(keyboardOffset, {
         toValue: -e.endCoordinates.height + 10,
@@ -146,7 +188,6 @@ export function MaintenanceInputModal({
         useNativeDriver: false,
       }).start();
     });
-
     const hideSub = Keyboard.addListener(hideEvent, (e) => {
       Animated.timing(keyboardOffset, {
         toValue: 0,
@@ -154,44 +195,81 @@ export function MaintenanceInputModal({
         useNativeDriver: false,
       }).start();
     });
-
-    return () => {
-      showSub.remove();
-      hideSub.remove();
-    };
+    return () => { showSub.remove(); hideSub.remove(); };
   }, [keyboardOffset]);
 
-  // ── Form state ──────────────────────────────────────────────
-  const [serviceDate, setServiceDate] = useState<Date | null>(null);
+  // ── Tab state ──────────────────────────────────────────────
+  const [currentTab, setCurrentTab] = useState(0);
+
+  // ── Shared form state (oil, battery, inspection) ───────────
+  const [serviceDateRange, setServiceDateRange] = useState<DateRangeId | null>(null);
   const [mileage, setMileage] = useState("");
   const [extraDate, setExtraDate] = useState<Date | null>(null);
-  const [toggleValue, setToggleValue] = useState(false);
-  const [oilType, setOilType] = useState<string>("Conventional");
-  const [tirePressure, setTirePressure] = useState({ fl: "", fr: "", rl: "", rr: "" });
-  const [saving, setSaving] = useState(false);
-
-  // ── Date picker visibility (Android needs explicit show/hide) ──
-  const [showDatePicker, setShowDatePicker] = useState(false);
+  const [warningLightOn, setWarningLightOn] = useState(false);
   const [showExtraDatePicker, setShowExtraDatePicker] = useState(false);
 
-  // ── Open/close animations ───────────────────────────────────
+  const relevantLight = WARNING_LIGHT_FOR_TYPE[maintenanceType];
+  const lightLabel = relevantLight ? WARNING_LIGHT_LABELS[relevantLight] : undefined;
+
+  // ── Brakes Quick Read state ────────────────────────────────
+  const [brakeLastDone, setBrakeLastDone] = useState<BrakeLastDone | null>(null);
+  const [brakeFeel, setBrakeFeel] = useState<BrakeFeel | null>(null);
+  const [brakeAction, setBrakeAction] = useState<BrakeAction | null>(null);
+
+  // ── Tires Quick Read state ─────────────────────────────────
+  const [tireReplaced, setTireReplaced] = useState<TireReplaced | null>(null);
+  const [tireReplacedWhen, setTireReplacedWhen] = useState<TireReplacedWhen | null>(null);
+  const [tireRepaired, setTireRepaired] = useState<TireRepaired | null>(null);
+
+  const [saving, setSaving] = useState(false);
+
+  const vehicleAge = vehicleYear ? new Date().getFullYear() - vehicleYear : 0;
+  const isBatteryYoung = maintenanceType === "battery" && vehicleAge < 3;
+
+  // ── Compute active tabs for current type ───────────────────
+  const tabs = useMemo(() => {
+    switch (maintenanceType) {
+      case "oil":
+        return serviceDateRange === "never" ? ["date"] : ["date", "mileage"];
+      case "battery":
+        return isBatteryYoung ? ["batteryHealthy"] : ["date"];
+      case "brakes": {
+        const base: string[] = ["brakeLastDone", "brakeFeel"];
+        if (brakeFeel === "squeak" || brakeFeel === "soft_slow") base.push("brakeAction");
+        return base;
+      }
+      case "tires": {
+        const base: string[] = ["tireReplaced"];
+        if (tireReplaced === "yes_new") base.push("tireReplacedWhen");
+        base.push("tireRepaired");
+        return base;
+      }
+      case "inspection":
+        return ["single"] as const;
+      default:
+        return ["single"] as const;
+    }
+  }, [maintenanceType, brakeFeel, tireReplaced, serviceDateRange, isBatteryYoung]);
+
+  const totalTabs = tabs.length;
+  const isMultiTab = totalTabs > 1;
+  const isLastTab = currentTab >= totalTabs - 1;
+
+  // Clamp tab when conditional tabs disappear
+  useEffect(() => {
+    if (currentTab >= totalTabs) {
+      setCurrentTab(Math.max(0, totalTabs - 1));
+    }
+  }, [totalTabs, currentTab]);
+
+  // ── Open/close animations ──────────────────────────────────
   const openSheet = useCallback(() => {
     setModalVisible(true);
     sheetTranslateY.setValue(SHEET_HEIGHT);
     backdropOpacity.setValue(0);
-
     Animated.parallel([
-      Animated.spring(sheetTranslateY, {
-        toValue: 0,
-        tension: 40,
-        friction: 12,
-        useNativeDriver: false,
-      }),
-      Animated.timing(backdropOpacity, {
-        toValue: 1,
-        duration: 400,
-        useNativeDriver: true,
-      }),
+      Animated.spring(sheetTranslateY, { toValue: 0, tension: 40, friction: 12, useNativeDriver: false }),
+      Animated.timing(backdropOpacity, { toValue: 1, duration: 400, useNativeDriver: true }),
     ]).start();
   }, [sheetTranslateY, backdropOpacity]);
 
@@ -199,108 +277,182 @@ export function MaintenanceInputModal({
     Keyboard.dismiss();
     keyboardOffset.setValue(0);
     Animated.parallel([
-      Animated.timing(sheetTranslateY, {
-        toValue: SHEET_HEIGHT,
-        duration: 250,
-        easing: Easing.bezier(0.25, 0.1, 0.25, 1),
-        useNativeDriver: false,
-      }),
-      Animated.timing(backdropOpacity, {
-        toValue: 0,
-        duration: 200,
-        useNativeDriver: true,
-      }),
+      Animated.timing(sheetTranslateY, { toValue: SHEET_HEIGHT, duration: 250, easing: Easing.bezier(0.25, 0.1, 0.25, 1), useNativeDriver: false }),
+      Animated.timing(backdropOpacity, { toValue: 0, duration: 200, useNativeDriver: true }),
     ]).start(() => {
       setModalVisible(false);
       onClose();
     });
   }, [sheetTranslateY, backdropOpacity, keyboardOffset, onClose]);
 
-  // Sync with parent visible prop
   useEffect(() => {
     if (visible) {
       openSheet();
     } else if (modalVisible) {
-      // Parent closed us — run close animation
       Animated.parallel([
-        Animated.timing(sheetTranslateY, {
-          toValue: SHEET_HEIGHT,
-          duration: 250,
-          easing: Easing.bezier(0.25, 0.1, 0.25, 1),
-          useNativeDriver: false,
-        }),
-        Animated.timing(backdropOpacity, {
-          toValue: 0,
-          duration: 200,
-          useNativeDriver: true,
-        }),
-      ]).start(() => {
-        setModalVisible(false);
-      });
+        Animated.timing(sheetTranslateY, { toValue: SHEET_HEIGHT, duration: 250, easing: Easing.bezier(0.25, 0.1, 0.25, 1), useNativeDriver: false }),
+        Animated.timing(backdropOpacity, { toValue: 0, duration: 200, useNativeDriver: true }),
+      ]).start(() => { setModalVisible(false); });
     }
   }, [visible]);
 
-  // ── Pre-fill from existing record ────────────────────────────
+  // ── Pre-fill from existing record ──────────────────────────
   useEffect(() => {
+    setCurrentTab(0);
+
     if (existingRecord) {
       if (existingRecord.lastServiceDate) {
-        setServiceDate(new Date(existingRecord.lastServiceDate));
+        setServiceDateRange(timestampToDateRange(existingRecord.lastServiceDate));
+      } else {
+        setServiceDateRange(null);
       }
       if (existingRecord.lastServiceMileage) {
         setMileage(String(Math.round(existingRecord.lastServiceMileage)));
+      } else {
+        setMileage("");
       }
       const ci = existingRecord.customInputs;
       if (ci) {
         if (ci.expirationDate) setExtraDate(new Date(ci.expirationDate as number));
-        if (ci.squeaking != null) setToggleValue(ci.squeaking as boolean);
-        if (ci.slowStarts != null) setToggleValue(ci.slowStarts as boolean);
-        if (ci.oilType) setOilType(ci.oilType as string);
-        if (ci.tirePressure) {
-          const tp = ci.tirePressure as Record<string, number>;
-          setTirePressure({
-            fl: tp.fl ? String(tp.fl) : "",
-            fr: tp.fr ? String(tp.fr) : "",
-            rl: tp.rl ? String(tp.rl) : "",
-            rr: tp.rr ? String(tp.rr) : "",
-          });
+        // Brakes Quick Read pre-fill
+        if (ci.brakeLastDoneAnswer) {
+          setBrakeLastDone(ci.brakeLastDoneAnswer as BrakeLastDone);
+        } else if (existingRecord.lastServiceDate && maintenanceType === "brakes") {
+          setBrakeLastDone(timestampToBrakeLastDone(existingRecord.lastServiceDate));
+        } else {
+          setBrakeLastDone(null);
         }
+        setBrakeFeel((ci.brakeFeel as BrakeFeel) ?? null);
+        setBrakeAction((ci.brakeActionStatus as BrakeAction) ?? null);
+
+        // Tires Quick Read pre-fill
+        setTireReplaced((ci.tireReplaced as TireReplaced) ?? null);
+        if (ci.tireReplacedWhen) {
+          setTireReplacedWhen(ci.tireReplacedWhen as TireReplacedWhen);
+        } else if (existingRecord.lastServiceDate && maintenanceType === "tires") {
+          setTireReplacedWhen(timestampToTireReplacedWhen(existingRecord.lastServiceDate));
+        } else {
+          setTireReplacedWhen(null);
+        }
+        setTireRepaired((ci.tireRepaired as TireRepaired) ?? null);
+      } else {
+        // No customInputs — reset type-specific fields
+        setBrakeLastDone(null); setBrakeFeel(null); setBrakeAction(null);
+        setTireReplaced(null); setTireReplacedWhen(null); setTireRepaired(null);
+        setExtraDate(null);
       }
     } else {
-      // Reset form
-      setServiceDate(null);
-      setMileage("");
-      setExtraDate(null);
-      setToggleValue(false);
-      setOilType("Conventional");
-      setTirePressure({ fl: "", fr: "", rl: "", rr: "" });
+      // Full reset
+      setServiceDateRange(null); setMileage(""); setExtraDate(null);
+      setBrakeLastDone(null); setBrakeFeel(null); setBrakeAction(null);
+      setTireReplaced(null); setTireReplacedWhen(null); setTireRepaired(null);
     }
-  }, [existingRecord, visible]);
 
-  // ── Save handler ────────────────────────────────────────────
+    // Pre-fill warning light toggle from knownIssues
+    setWarningLightOn(relevantLight ? (knownIssues?.includes(relevantLight) ?? false) : false);
+  }, [existingRecord, visible, maintenanceType, knownIssues, relevantLight]);
+
+  // ── Per-tab validation ─────────────────────────────────────
+  const canProceed = useMemo(() => {
+    const tabId = tabs[currentTab];
+    switch (tabId) {
+      // Oil / Battery shared tabs
+      case "date":        return !!serviceDateRange;
+      case "mileage":     return true; // mileage is optional
+      case "batteryHealthy": return true;
+      // Brakes
+      case "brakeLastDone": return brakeLastDone !== null;
+      case "brakeFeel":     return brakeFeel !== null;
+      case "brakeAction":   return brakeAction !== null;
+      // Tires
+      case "tireReplaced":     return tireReplaced !== null;
+      case "tireReplacedWhen": return tireReplacedWhen !== null;
+      case "tireRepaired":     return tireRepaired !== null;
+      // Inspection (single)
+      case "single":      return !!serviceDateRange;
+      default:            return true;
+    }
+  }, [tabs, currentTab, serviceDateRange, brakeLastDone, brakeFeel, brakeAction, tireReplaced, tireReplacedWhen, tireRepaired]);
+
+  // ── Navigation ─────────────────────────────────────────────
+  const handleNext = useCallback(() => {
+    if (currentTab < totalTabs - 1) {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      setCurrentTab(currentTab + 1);
+    }
+  }, [currentTab, totalTabs]);
+
+  const handleBack = useCallback(() => {
+    if (currentTab > 0) {
+      LayoutAnimation.configureNext(LayoutAnimation.Presets.easeInEaseOut);
+      setCurrentTab(currentTab - 1);
+    } else {
+      closeSheet();
+    }
+  }, [currentTab, closeSheet]);
+
+  // ── Save handler ───────────────────────────────────────────
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
+      let lastServiceDate: number | undefined;
+      let lastServiceMileage: number | undefined;
       const customInputs: Record<string, unknown> = {};
 
-      if (config.oilTypePicker) customInputs.oilType = oilType;
-      if (config.toggle) customInputs[config.toggle.key] = toggleValue;
-      if (config.extraDate && extraDate) customInputs[config.extraDate.key] = extraDate.getTime();
-      if (config.tirePressure) {
-        const tp: Record<string, number | null> = {
-          fl: tirePressure.fl ? parseFloat(tirePressure.fl) : null,
-          fr: tirePressure.fr ? parseFloat(tirePressure.fr) : null,
-          rl: tirePressure.rl ? parseFloat(tirePressure.rl) : null,
-          rr: tirePressure.rr ? parseFloat(tirePressure.rr) : null,
-        };
-        customInputs.tirePressure = tp;
+      switch (maintenanceType) {
+        case "oil": {
+          lastServiceDate = serviceDateRange ? dateRangeToTimestamp(serviceDateRange) : undefined;
+          lastServiceMileage = mileage ? parseFloat(mileage) : undefined;
+          break;
+        }
+        case "battery": {
+          if (isBatteryYoung) {
+            // Young vehicle — assume factory battery, installed at vehicle manufacture
+            lastServiceDate = vehicleYear
+              ? new Date(vehicleYear, 0, 1).getTime()
+              : Date.now();
+          } else {
+            lastServiceDate = serviceDateRange ? dateRangeToTimestamp(serviceDateRange) : undefined;
+          }
+          break;
+        }
+        case "brakes": {
+          lastServiceDate = brakeLastDone ? quickReadDateToTimestamp(brakeLastDone) : undefined;
+          customInputs.brakeLastDoneAnswer = brakeLastDone;
+          customInputs.brakeFeel = brakeFeel;
+          if (brakeAction) customInputs.brakeActionStatus = brakeAction;
+          break;
+        }
+        case "tires": {
+          lastServiceDate = tireReplacedWhen ? quickReadDateToTimestamp(tireReplacedWhen) : undefined;
+          customInputs.tireReplaced = tireReplaced;
+          if (tireReplacedWhen) customInputs.tireReplacedWhen = tireReplacedWhen;
+          customInputs.tireRepaired = tireRepaired;
+          break;
+        }
+        case "inspection": {
+          lastServiceDate = serviceDateRange ? dateRangeToTimestamp(serviceDateRange) : undefined;
+          if (extraDate) customInputs.expirationDate = extraDate.getTime();
+          break;
+        }
       }
+
       await upsertRecord({
         vehicleOwnerId,
         type: maintenanceType,
-        lastServiceDate: serviceDate ? serviceDate.getTime() : undefined,
-        lastServiceMileage: mileage ? parseFloat(mileage) : undefined,
+        lastServiceDate,
+        lastServiceMileage,
         customInputs: Object.keys(customInputs).length > 0 ? customInputs : undefined,
       });
+
+      // Update warning light status if this type has a corresponding light
+      if (relevantLight) {
+        await updateWarningLight({
+          vehicleOwnerId,
+          lightId: relevantLight,
+          isOn: warningLightOn,
+        });
+      }
 
       onSaved();
       closeSheet();
@@ -310,42 +462,289 @@ export function MaintenanceInputModal({
       setSaving(false);
     }
   }, [
-    config,
-    maintenanceType,
-    vehicleOwnerId,
-    serviceDate,
-    mileage,
-    extraDate,
-    toggleValue,
-    oilType,
-    tirePressure,
-    upsertRecord,
-    onSaved,
-    closeSheet,
+    maintenanceType, vehicleOwnerId,
+    serviceDateRange, mileage, extraDate, warningLightOn, relevantLight, updateWarningLight,
+    brakeLastDone, brakeFeel, brakeAction,
+    tireReplaced, tireReplacedWhen, tireRepaired,
+    upsertRecord, onSaved, closeSheet,
   ]);
 
-  // ── Validation: at least one piece of data must be provided ──
-  const canSave = useMemo(() => {
-    return !!serviceDate || !!mileage;
-  }, [serviceDate, mileage]);
-
-  // ── Date change handlers ────────────────────────────────────
-  const onServiceDateChange = (_event: DateTimePickerEvent, date?: Date) => {
-    if (Platform.OS === "android") setShowDatePicker(false);
-    if (date) setServiceDate(date);
-  };
-
+  // ── Date change handler (inspection extra date) ────────────
   const onExtraDateChange = (_event: DateTimePickerEvent, date?: Date) => {
     if (Platform.OS === "android") setShowExtraDatePicker(false);
     if (date) setExtraDate(date);
   };
-
   const formatDisplayDate = (d: Date | null) => {
     if (!d) return "Select date";
     return d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
   };
 
-  // ── Render ──────────────────────────────────────────────────
+  // ── Render helpers ─────────────────────────────────────────
+
+  const renderOptionCard = <T extends string>(
+    value: T | null,
+    setValue: (v: T) => void,
+    options: { id: T; label: string; good?: boolean; icon?: string }[],
+  ) => (
+    <View style={styles.optionList}>
+      {options.map((opt) => {
+        const selected = value === opt.id;
+        const isGood = opt.good && selected;
+        return (
+          <Pressable
+            key={opt.id}
+            style={[styles.optionCard, selected && styles.optionCardActive, isGood && styles.optionCardGood]}
+            onPress={() => setValue(opt.id)}
+          >
+            <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flex: 1 }}>
+              {opt.icon && <Ionicons name={opt.icon as any} size={20} color={selected ? "#5299FE" : "#6B7280"} />}
+              <Text
+                weight={selected ? "bold" : "semiBold"}
+                size="md"
+                color={selected ? (isGood ? "#166534" : "#1E40AF") : "#1F2937"}
+                style={{ flex: 1 }}
+              >
+                {opt.label}
+              </Text>
+            </View>
+            {selected && <Ionicons name="checkmark-circle" size={22} color={isGood ? "#22C55E" : "#5299FE"} />}
+          </Pressable>
+        );
+      })}
+    </View>
+  );
+
+  const renderMileageTab = () => (
+    <View style={styles.fieldGroup}>
+      <Text weight="semiBold" size="md" color="#1F2937">
+        What was your mileage at that service?
+      </Text>
+      <Text weight="medium" size="sm" color="#9CA3AF" style={{ marginTop: -2 }}>
+        Optional — helps us predict your next service
+      </Text>
+      <View style={styles.inputRow}>
+        <TextInput
+          style={styles.textInput}
+          value={mileage}
+          onChangeText={setMileage}
+          placeholder="e.g. 42000"
+          placeholderTextColor="rgba(0,0,0,0.3)"
+          keyboardType="numeric"
+        />
+        <Text size="sm" color="rgba(0,0,0,0.4)" style={styles.inputSuffix}>
+          miles
+        </Text>
+      </View>
+    </View>
+  );
+
+  // ── Render tab content ─────────────────────────────────────
+  const renderTabContent = () => {
+    const tabId = tabs[currentTab];
+
+    switch (tabId) {
+      // ── Oil / Battery: Date tab ────────────────────────
+      case "date": {
+        const dateLabel = maintenanceType === "oil"
+          ? "When was your last oil change?"
+          : "When was your battery last replaced?";
+        return (
+          <View style={styles.fieldGroup}>
+            <Text weight="semiBold" size="md" color="#1F2937">{dateLabel}</Text>
+            <View style={styles.optionList}>
+              {DATE_RANGE_OPTIONS.map((opt) => {
+                const selected = serviceDateRange === opt.id;
+                return (
+                  <Pressable
+                    key={opt.id}
+                    style={[styles.optionCard, selected && styles.optionCardActive]}
+                    onPress={() => setServiceDateRange(opt.id)}
+                  >
+                    <Text
+                      weight={selected ? "bold" : "semiBold"}
+                      size="md"
+                      color={selected ? "#1E40AF" : "#1F2937"}
+                      style={{ flex: 1 }}
+                    >
+                      {opt.label}
+                    </Text>
+                    {selected && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
+                  </Pressable>
+                );
+              })}
+            </View>
+
+          </View>
+        );
+      }
+
+      // ── Oil: Mileage tab ─────────────────────────────────
+      case "mileage":
+        return renderMileageTab();
+
+      // ── Battery: Young vehicle confirmation ────────────
+      case "batteryHealthy":
+        return (
+          <View style={styles.fieldGroup}>
+            <View style={{ alignItems: "center", paddingVertical: 16, gap: 12 }}>
+              <Ionicons name="checkmark-circle" size={48} color="#22C55E" />
+              <Text weight="bold" size="lg" color="#166534">Battery looks good</Text>
+              <Text weight="medium" size="sm" color="#6B7280" style={{ textAlign: "center", lineHeight: 20 }}>
+                Your vehicle is {vehicleAge > 0 ? `~${vehicleAge} year${vehicleAge !== 1 ? "s" : ""}` : "less than a year"} old.
+                Factory batteries typically last 3–5 years, so yours should still be in great shape.
+              </Text>
+            </View>
+          </View>
+        );
+
+      // ── Brakes: Quick Read questions ───────────────────
+      case "brakeLastDone":
+        return (
+          <View style={styles.fieldGroup}>
+            <Text weight="semiBold" size="md" color="#1F2937">When were your brakes last done?</Text>
+            {renderOptionCard(brakeLastDone, setBrakeLastDone, [
+              { id: "within_6m", label: "Within the last 6 months" },
+              { id: "6m_to_1y", label: "6 months to a year ago" },
+              { id: "over_1y", label: "Over a year ago" },
+              { id: "never_on_this_car", label: "I\u2019ve never had them done on this car" },
+              { id: "dont_know", label: "I don\u2019t know" },
+            ])}
+          </View>
+        );
+
+      case "brakeFeel":
+        return (
+          <View style={styles.fieldGroup}>
+            <Text weight="semiBold" size="md" color="#1F2937">How do your brakes feel right now?</Text>
+            {renderOptionCard(brakeFeel, setBrakeFeel, [
+              { id: "normal", label: "They feel normal", good: true },
+              { id: "squeak", label: "They squeak or make noise" },
+              { id: "soft_slow", label: "They feel soft or take longer to stop" },
+              { id: "not_noticed", label: "I haven\u2019t noticed anything either way" },
+            ])}
+          </View>
+        );
+
+      case "brakeAction":
+        return (
+          <View style={styles.fieldGroup}>
+            <Text weight="semiBold" size="md" color="#1F2937">Have you had them looked at yet?</Text>
+            {renderOptionCard(brakeAction, setBrakeAction, [
+              { id: "waiting_quote", label: "Yes, waiting on a quote" },
+              { id: "not_scheduled", label: "Yes, but haven\u2019t scheduled yet" },
+              { id: "no_not_yet", label: "No, not yet" },
+            ])}
+          </View>
+        );
+
+      // ── Tires: Quick Read questions ────────────────────
+      case "tireReplaced":
+        return (
+          <View style={styles.fieldGroup}>
+            <Text weight="semiBold" size="md" color="#1F2937">Have your tires been replaced on this car?</Text>
+            {renderOptionCard(tireReplaced, setTireReplaced, [
+              { id: "yes_new", label: "Yes, I put new tires on" },
+              { id: "original", label: "No, they\u2019re the original tires" },
+              { id: "dont_know", label: "I don\u2019t know (I bought it this way)" },
+            ])}
+          </View>
+        );
+
+      case "tireReplacedWhen":
+        return (
+          <View style={styles.fieldGroup}>
+            <Text weight="semiBold" size="md" color="#1F2937">Roughly when?</Text>
+            {renderOptionCard(tireReplacedWhen, setTireReplacedWhen, [
+              { id: "within_6m", label: "Within the last 6 months" },
+              { id: "6m_to_1y", label: "6 months to a year ago" },
+              { id: "1_to_2y", label: "1 to 2 years ago" },
+              { id: "over_2y", label: "Over 2 years ago" },
+            ])}
+          </View>
+        );
+
+      case "tireRepaired":
+        return (
+          <View style={styles.fieldGroup}>
+            <Text weight="semiBold" size="md" color="#1F2937">Have any of your tires been repaired? (Patched, plugged, etc.)</Text>
+            {renderOptionCard(tireRepaired, setTireRepaired, [
+              { id: "yes", label: "Yes" },
+              { id: "no", label: "No", good: true },
+              { id: "not_sure", label: "I\u2019m not sure" },
+            ])}
+          </View>
+        );
+
+      // ── Inspection: single page (unchanged) ────────────
+      case "single":
+        return (
+          <>
+            <View style={styles.fieldGroup}>
+              <Text weight="semiBold" size="md" color="#1F2937">
+                When was your last inspection?
+              </Text>
+              <View style={styles.optionList}>
+                {DATE_RANGE_OPTIONS.map((opt) => {
+                  const selected = serviceDateRange === opt.id;
+                  return (
+                    <Pressable
+                      key={opt.id}
+                      style={[styles.optionCard, selected && styles.optionCardActive]}
+                      onPress={() => setServiceDateRange(opt.id)}
+                    >
+                      <Text
+                        weight={selected ? "bold" : "semiBold"}
+                        size="md"
+                        color={selected ? "#1E40AF" : "#1F2937"}
+                        style={{ flex: 1 }}
+                      >
+                        {opt.label}
+                      </Text>
+                      {selected && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+
+            <View style={styles.fieldGroup}>
+              <Text weight="semiBold" size="md" color="#1F2937">
+                When does your inspection expire?
+              </Text>
+              {Platform.OS === "ios" ? (
+                <DateTimePicker
+                  value={extraDate || new Date()}
+                  mode="date"
+                  display="compact"
+                  onChange={onExtraDateChange}
+                  style={{ alignSelf: "flex-start" }}
+                />
+              ) : (
+                <>
+                  <Pressable style={styles.extraDateButton} onPress={() => setShowExtraDatePicker(true)}>
+                    <Ionicons name="calendar-outline" size={18} color="#5299FE" />
+                    <Text size="md" color="#1F2937">{formatDisplayDate(extraDate)}</Text>
+                  </Pressable>
+                  {showExtraDatePicker && (
+                    <DateTimePicker
+                      value={extraDate || new Date()}
+                      mode="date"
+                      display="default"
+                      onChange={onExtraDateChange}
+                    />
+                  )}
+                </>
+              )}
+            </View>
+          </>
+        );
+
+      default:
+        return null;
+    }
+  };
+
+  // ── Render ─────────────────────────────────────────────────
   return (
     <Modal
       visible={modalVisible}
@@ -354,240 +753,115 @@ export function MaintenanceInputModal({
       statusBarTranslucent
       onRequestClose={closeSheet}
     >
-      {/* Backdrop */}
       <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]}>
         <Pressable style={StyleSheet.absoluteFill} onPress={closeSheet} />
       </Animated.View>
 
-      {/* Bottom Sheet */}
       <Animated.View
         style={[
           styles.bottomSheet,
           { transform: [{ translateY: Animated.add(sheetTranslateY, keyboardOffset) }] },
         ]}
       >
-          {/* Drag Handle */}
-          <View style={styles.dragHandleContainer}>
-            <View style={styles.dragHandle} />
-          </View>
+        <View style={styles.dragHandleContainer}>
+          <View style={styles.dragHandle} />
+        </View>
 
-          {/* Header */}
-          <View style={styles.header}>
-            <Text weight="bold" size="xl" color="#1F2937">
-              {label}
-            </Text>
-          </View>
-
-          <ScrollView
-            style={styles.scrollContent}
-            contentContainerStyle={styles.scrollInner}
-            showsVerticalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
-          >
-            {/* ── Date picker ────────────────────────────── */}
-            {config.showDate && (
-              <View style={styles.fieldGroup}>
-                <Text weight="semiBold" size="md" color="#1F2937">
-                  {config.dateLabel}
-                </Text>
-                {Platform.OS === "ios" ? (
-                  <DateTimePicker
-                    value={serviceDate || new Date()}
-                    mode="date"
-                    display="compact"
-                    maximumDate={new Date()}
-                    onChange={onServiceDateChange}
-                    style={styles.datePicker}
-                  />
-                ) : (
-                  <>
-                    <Pressable
-                      style={styles.dateButton}
-                      onPress={() => setShowDatePicker(true)}
-                    >
-                      <Ionicons name="calendar-outline" size={18} color="#5299FE" />
-                      <Text size="md" color="#1F2937">
-                        {formatDisplayDate(serviceDate)}
-                      </Text>
-                    </Pressable>
-                    {showDatePicker && (
-                      <DateTimePicker
-                        value={serviceDate || new Date()}
-                        mode="date"
-                        display="default"
-                        maximumDate={new Date()}
-                        onChange={onServiceDateChange}
-                      />
-                    )}
-                  </>
-                )}
+        {/* Header + progress */}
+        <View style={styles.header}>
+          <Text weight="bold" size="xl" color="#1F2937">{label}</Text>
+          {isMultiTab && (
+            <View style={styles.progressRow}>
+              <View style={styles.progressTrack}>
+                <View style={[styles.progressFill, { width: `${((currentTab + 1) / totalTabs) * 100}%` }]} />
               </View>
-            )}
-
-            {/* ── Mileage input ──────────────────────────── */}
-            {config.showMileage && (
-              <View style={styles.fieldGroup}>
-                <Text weight="semiBold" size="md" color="#1F2937">
-                  Mileage at last service
-                </Text>
-                <View style={styles.inputRow}>
-                  <TextInput
-                    style={styles.textInput}
-                    value={mileage}
-                    onChangeText={setMileage}
-                    placeholder="e.g. 42000"
-                    placeholderTextColor="rgba(0,0,0,0.3)"
-                    keyboardType="numeric"
-                  />
-                  <Text size="sm" color="rgba(0,0,0,0.4)" style={styles.inputSuffix}>
-                    miles
-                  </Text>
-                </View>
-              </View>
-            )}
-
-            {/* ── Extra date (inspection expiration) ──────── */}
-            {config.extraDate && (
-              <View style={styles.fieldGroup}>
-                <Text weight="semiBold" size="md" color="#1F2937">
-                  {config.extraDate.label}
-                </Text>
-                {Platform.OS === "ios" ? (
-                  <DateTimePicker
-                    value={extraDate || new Date()}
-                    mode="date"
-                    display="compact"
-                    onChange={onExtraDateChange}
-                    style={styles.datePicker}
-                  />
-                ) : (
-                  <>
-                    <Pressable
-                      style={styles.dateButton}
-                      onPress={() => setShowExtraDatePicker(true)}
-                    >
-                      <Ionicons name="calendar-outline" size={18} color="#5299FE" />
-                      <Text size="md" color="#1F2937">
-                        {formatDisplayDate(extraDate)}
-                      </Text>
-                    </Pressable>
-                    {showExtraDatePicker && (
-                      <DateTimePicker
-                        value={extraDate || new Date()}
-                        mode="date"
-                        display="default"
-                        onChange={onExtraDateChange}
-                      />
-                    )}
-                  </>
-                )}
-              </View>
-            )}
-
-            {/* ── Oil type picker ────────────────────────── */}
-            {config.oilTypePicker && (
-              <View style={styles.fieldGroup}>
-                <Text weight="semiBold" size="md" color="#1F2937">
-                  Oil type (optional)
-                </Text>
-                <View style={styles.chipRow}>
-                  {OIL_TYPES.map((type) => (
-                    <Pressable
-                      key={type}
-                      style={[
-                        styles.chip,
-                        oilType === type && styles.chipActive,
-                      ]}
-                      onPress={() => setOilType(type)}
-                    >
-                      <Text
-                        weight={oilType === type ? "semiBold" : "medium"}
-                        size="sm"
-                        color={oilType === type ? "#fff" : "#1F2937"}
-                      >
-                        {type}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
-              </View>
-            )}
-
-            {/* ── Toggle (squeaking / slow starts) ───────── */}
-            {config.toggle && (
-              <View style={styles.fieldGroup}>
-                <View style={styles.toggleRow}>
-                  <Text weight="semiBold" size="md" color="#1F2937" style={styles.toggleLabel}>
-                    {config.toggle.label}
-                  </Text>
-                  <Switch
-                    value={toggleValue}
-                    onValueChange={setToggleValue}
-                    trackColor={{ false: "#E5E7EB", true: "#5299FE" }}
-                    thumbColor="#fff"
-                  />
-                </View>
-              </View>
-            )}
-
-            {/* ── Tire pressure inputs ───────────────────── */}
-            {config.tirePressure && (
-              <View style={styles.fieldGroup}>
-                <Text weight="semiBold" size="md" color="#1F2937">
-                  Current tire pressure (optional)
-                </Text>
-                <View style={styles.tireGrid}>
-                  {(["fl", "fr", "rl", "rr"] as const).map((pos) => (
-                    <View key={pos} style={styles.tireInputWrap}>
-                      <Text weight="medium" size="xs" color="#6B7280">
-                        {pos === "fl" ? "Front Left" : pos === "fr" ? "Front Right" : pos === "rl" ? "Rear Left" : "Rear Right"}
-                      </Text>
-                      <TextInput
-                        style={styles.tireInput}
-                        value={tirePressure[pos]}
-                        onChangeText={(val) =>
-                          setTirePressure((prev) => ({ ...prev, [pos]: val }))
-                        }
-                        placeholder="PSI"
-                        placeholderTextColor="rgba(0,0,0,0.25)"
-                        keyboardType="numeric"
-                      />
-                    </View>
-                  ))}
-                </View>
-              </View>
-            )}
-
-          </ScrollView>
-
-          {/* ── Footer ───────────────────────────────────── */}
-          <View style={styles.footer}>
-            <Pressable
-              style={({ pressed }) => [
-                styles.saveButton,
-                !canSave && styles.saveButtonDisabled,
-                pressed && canSave && styles.saveButtonPressed,
-              ]}
-              onPress={handleSave}
-              disabled={!canSave || saving}
-            >
-              <Text weight="bold" size="md" color="#FFFFFF">
-                {saving ? "Saving..." : "Save"}
+              <Text weight="medium" size="xs" color="#9CA3AF">
+                {currentTab + 1} of {totalTabs}
               </Text>
-            </Pressable>
+            </View>
+          )}
+        </View>
 
-            <Pressable
-              onPress={closeSheet}
-              style={({ pressed }) => [
-                styles.cancelButton,
-                pressed && { opacity: 0.7 },
-              ]}
-            >
-              <Text weight="medium" size="md" color="#6B7280">
-                Cancel
-              </Text>
-            </Pressable>
-          </View>
+        <ScrollView
+          style={styles.scrollContent}
+          contentContainerStyle={styles.scrollInner}
+          showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
+        >
+          {renderTabContent()}
+
+          {/* Warning light toggle — shown on last tab for types with a corresponding light */}
+          {relevantLight && lightLabel && currentTab === totalTabs - 1 && maintenanceType !== "inspection" && (
+            <View style={[styles.fieldGroup, { marginTop: 16 }]}>
+              <View style={styles.toggleRow}>
+                <View style={{ flex: 1, gap: 2 }}>
+                  <Text weight="semiBold" size="md" color="#1F2937">{lightLabel}</Text>
+                  <Text weight="medium" size="xs" color="#6B7280">Is this light currently on in your dashboard?</Text>
+                </View>
+                <Switch
+                  value={warningLightOn}
+                  onValueChange={setWarningLightOn}
+                  trackColor={{ false: "#E5E7EB", true: warningLightOn ? "#F87171" : "#E5E7EB" }}
+                  thumbColor="#fff"
+                />
+              </View>
+            </View>
+          )}
+        </ScrollView>
+
+        {/* Footer */}
+        <View style={styles.footer}>
+          {isMultiTab ? (
+            <View style={styles.footerButtons}>
+              <Pressable
+                style={({ pressed }) => [styles.backButton, pressed && { opacity: 0.7 }]}
+                onPress={handleBack}
+              >
+                <Ionicons name="arrow-back" size={18} color="#6B7280" />
+                <Text weight="semiBold" size="md" color="#6B7280">
+                  {currentTab === 0 ? "Cancel" : "Back"}
+                </Text>
+              </Pressable>
+
+              <Pressable
+                style={({ pressed }) => [
+                  styles.nextButton,
+                  !canProceed && styles.nextButtonDisabled,
+                  pressed && canProceed && { opacity: 0.9 },
+                ]}
+                onPress={isLastTab ? handleSave : handleNext}
+                disabled={!canProceed || saving}
+              >
+                <Text weight="bold" size="md" color="#FFFFFF">
+                  {saving ? "Saving..." : isLastTab ? "Save" : "Next"}
+                </Text>
+                {!isLastTab && !saving && <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />}
+              </Pressable>
+            </View>
+          ) : (
+            <>
+              <Pressable
+                style={({ pressed }) => [
+                  styles.saveButton,
+                  !canProceed && styles.saveButtonDisabled,
+                  pressed && canProceed && styles.saveButtonPressed,
+                ]}
+                onPress={handleSave}
+                disabled={!canProceed || saving}
+              >
+                <Text weight="bold" size="md" color="#FFFFFF">
+                  {saving ? "Saving..." : "Save"}
+                </Text>
+              </Pressable>
+              <Pressable
+                onPress={closeSheet}
+                style={({ pressed }) => [styles.cancelButton, pressed && { opacity: 0.7 }]}
+              >
+                <Text weight="medium" size="md" color="#6B7280">Cancel</Text>
+              </Pressable>
+            </>
+          )}
+        </View>
       </Animated.View>
     </Modal>
   );
@@ -598,13 +872,10 @@ export function MaintenanceInputModal({
 // ============================================================================
 
 const styles = StyleSheet.create({
-  // Backdrop — same as membership.tsx
   backdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(0, 0, 0, 0.4)",
   },
-
-  // Bottom sheet — same positioning & radius as membership.tsx
   bottomSheet: {
     position: "absolute",
     bottom: SCREEN_HEIGHT * 0.015,
@@ -621,8 +892,6 @@ const styles = StyleSheet.create({
     elevation: 10,
     maxHeight: SCREEN_HEIGHT * 0.85,
   },
-
-  // Drag handle — same as membership.tsx
   dragHandleContainer: {
     alignItems: "center",
     paddingTop: 12,
@@ -634,14 +903,28 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(0, 0, 0, 0.15)",
     borderRadius: 2,
   },
-
-  // Header
   header: {
     paddingHorizontal: 24,
     marginBottom: 16,
   },
-
-  // Scrollable content
+  progressRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+    marginTop: 10,
+  },
+  progressTrack: {
+    flex: 1,
+    height: 4,
+    backgroundColor: "#E5E7EB",
+    borderRadius: 2,
+    overflow: "hidden",
+  },
+  progressFill: {
+    height: 4,
+    backgroundColor: "#5299FE",
+    borderRadius: 2,
+  },
   scrollContent: {
     maxHeight: SCREEN_HEIGHT * 0.5,
   },
@@ -650,46 +933,77 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
     gap: 20,
   },
-
-  // Fields
   fieldGroup: {
     gap: 8,
   },
-  datePicker: {
-    alignSelf: "flex-start",
+  optionList: {
+    gap: 8,
   },
-  dateButton: {
+  optionCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1.5,
+    borderColor: "#D1D5DB",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 2,
+    elevation: 1,
+  },
+  optionCardActive: {
+    backgroundColor: "rgba(82, 153, 254, 0.08)",
+    borderColor: "#5299FE",
+    borderWidth: 2,
+  },
+  optionCardGood: {
+    backgroundColor: "rgba(34, 197, 94, 0.08)",
+    borderColor: "#22C55E",
+  },
+  extraDateButton: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
     paddingVertical: 12,
     paddingHorizontal: 14,
     borderRadius: 12,
-    backgroundColor: "#F9FAFB",
-    borderWidth: 1,
-    borderColor: "#F3F4F6",
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1.5,
+    borderColor: "#D1D5DB",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 2,
+    elevation: 1,
   },
   inputRow: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#F9FAFB",
+    backgroundColor: "#FFFFFF",
     borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "#F3F4F6",
+    borderWidth: 1.5,
+    borderColor: "#D1D5DB",
     paddingHorizontal: 14,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.04,
+    shadowRadius: 2,
+    elevation: 1,
   },
   textInput: {
     flex: 1,
     fontFamily: FontFamily.medium,
     fontSize: FontSize.md,
     color: "#1F2937",
-    paddingVertical: 12,
+    paddingVertical: 14,
   },
   inputSuffix: {
     marginLeft: 6,
   },
-
-  // Chips (oil type)
   chipRow: {
     flexDirection: "row",
     gap: 8,
@@ -700,12 +1014,13 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 20,
     backgroundColor: "#F3F4F6",
+    borderWidth: 1.5,
+    borderColor: "transparent",
   },
   chipActive: {
-    backgroundColor: "#5299FE",
+    backgroundColor: "rgba(82, 153, 254, 0.08)",
+    borderColor: "#5299FE",
   },
-
-  // Toggle
   toggleRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -715,34 +1030,37 @@ const styles = StyleSheet.create({
     flex: 1,
     marginRight: 12,
   },
-
-  // Tire pressure grid
-  tireGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
-  },
-  tireInputWrap: {
-    width: "47%" as unknown as number,
-    gap: 4,
-  },
-  tireInput: {
-    fontFamily: FontFamily.medium,
-    fontSize: FontSize.md,
-    color: "#1F2937",
-    backgroundColor: "#F9FAFB",
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: "#F3F4F6",
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-  },
-
-  // Footer
   footer: {
     paddingHorizontal: 24,
     paddingTop: 12,
     alignItems: "center",
+  },
+  footerButtons: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    width: "100%",
+    gap: 12,
+  },
+  backButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+  },
+  nextButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    backgroundColor: "#5299FE",
+    borderRadius: 24,
+    paddingVertical: 14,
+  },
+  nextButtonDisabled: {
+    opacity: 0.4,
   },
   saveButton: {
     width: "100%",

@@ -24,7 +24,7 @@
 
 // 1. React & React Native
 import React, { useEffect, useState } from 'react';
-import { Alert, StyleSheet, View } from 'react-native';
+import { Alert, Pressable, StyleSheet, View } from 'react-native';
 
 // 2. Expo & Third-party
 import { BlurView } from 'expo-blur';
@@ -57,7 +57,7 @@ interface MaintenanceTrackerProps {
   vehicleCondition?: number;
   onBookNow?: (id: string) => void;
   onAddInfo?: (id: string) => void;
-  onEditInfo?: (id: string) => void;
+  onEditPressed?: () => void;
 }
 
 // ============================================================================
@@ -227,7 +227,7 @@ const ringStyles = StyleSheet.create({
 // COMPONENT
 // ============================================================================
 
-export function MaintenanceTracker({ items, vehicleCondition, onBookNow, onAddInfo, onEditInfo }: MaintenanceTrackerProps) {
+export function MaintenanceTracker({ items, vehicleCondition, onBookNow, onAddInfo, onEditPressed }: MaintenanceTrackerProps) {
   // Sort items by status priority: overdue → due_soon → on_time → unknown
   const sortedItems = [...items].sort(
     (a, b) => STATUS_PRIORITY[a.status] - STATUS_PRIORITY[b.status]
@@ -240,8 +240,11 @@ export function MaintenanceTracker({ items, vehicleCondition, onBookNow, onAddIn
         <Text weight="semiBold" size="lg" color={Colors.light.text}>
           Maintenance Tracker
         </Text>
-        {/* Optional "View All" link placeholder for future */}
-        {/* <Text size="sm" color={BrandColors.secondary}>View All</Text> */}
+        {onEditPressed && (
+          <Pressable onPress={onEditPressed} style={({ pressed }) => [styles.editHeaderButton, pressed && { opacity: 0.6 }]}>
+            <Ionicons name="options-outline" size={22} color="#6B7280" />
+          </Pressable>
+        )}
       </View>
       
 
@@ -259,7 +262,6 @@ export function MaintenanceTracker({ items, vehicleCondition, onBookNow, onAddIn
         sortedItems.map((item) => {
           const config = STATUS_CONFIG[item.status];
           const isUnknown = item.status === 'unknown';
-          const isUserProvided = item.id.startsWith('user-');
 
           const handlePrimaryPress = () => {
             if (isUnknown) {
@@ -321,51 +323,25 @@ export function MaintenanceTracker({ items, vehicleCondition, onBookNow, onAddIn
                       </Text>
                     </Button>
                   ) : item.status === 'on_time' ? (
-                    <View style={styles.buttonGroup}>
-                      {isUserProvided && (
-                        <Button
-                          variant="ghost"
-                          onPress={() => onEditInfo?.(item.id)}
-                          style={styles.editButton}
-                        >
-                          <Text weight="medium" size="sm" color="#5299FE">
-                            Edit
-                          </Text>
-                        </Button>
-                      )}
-                      <Button
-                        variant="ghost"
-                        onPress={handlePrimaryPress}
-                        style={styles.remindButton}
-                      >
-                        <Text weight="semiBold" size="sm" color="#1a1a1a">
-                          Remind me
-                        </Text>
-                      </Button>
-                    </View>
+                    <Button
+                      variant="ghost"
+                      onPress={handlePrimaryPress}
+                      style={styles.remindButton}
+                    >
+                      <Text weight="semiBold" size="sm" color="#1a1a1a">
+                        Remind me
+                      </Text>
+                    </Button>
                   ) : (
-                    <View style={styles.buttonGroup}>
-                      {isUserProvided && (
-                        <Button
-                          variant="ghost"
-                          onPress={() => onEditInfo?.(item.id)}
-                          style={styles.editButton}
-                        >
-                          <Text weight="medium" size="sm" color="#5299FE">
-                            Edit
-                          </Text>
-                        </Button>
-                      )}
-                      <Button
-                        variant="primary"
-                        onPress={handlePrimaryPress}
-                        style={styles.primaryButton}
-                      >
-                        <Text weight="semiBold" size="sm" color="#FFFFFF">
-                          Book Now
-                        </Text>
-                      </Button>
-                    </View>
+                    <Button
+                      variant="primary"
+                      onPress={handlePrimaryPress}
+                      style={styles.primaryButton}
+                    >
+                      <Text weight="semiBold" size="sm" color="#FFFFFF">
+                        Book Now
+                      </Text>
+                    </Button>
                   )}
                 </View>
               </View>
@@ -644,16 +620,13 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.8)',
     backgroundColor: 'rgba(255, 255, 255, 0.4)',
   },
-  buttonGroup: {
-    alignItems: 'flex-end',
-    gap: 6,
-  },
-  editButton: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 10,
-    minWidth: 60,
-    backgroundColor: 'rgba(82, 153, 254, 0.1)',
+  editHeaderButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(0,0,0,0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   remindButton: {
     paddingHorizontal: 18,

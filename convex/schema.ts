@@ -853,7 +853,18 @@ export default defineSchema({
    *   - avgMonthlyDriving: (optional) "light" | "average" | "heavy" — for service predictions
    *   - drivingConditions: (optional) "city" | "highway" | "mixed" — adjusts intervals
    *   - knownIssues: (optional) string[] of current concerns (e.g. "check_engine")
-   *   - onboardingComplete: (optional) true once Phase 1 data collection is done
+   *   - ownershipType: (optional) "leased" | "owned"
+   *   - ownedSinceNew: (optional) true if user has had vehicle since new
+   *   - mileageAtPurchase: (optional) odometer when user acquired vehicle
+   *   - ownershipDuration: (optional) "<1" | "1_2" | "2_4" | "4_plus"
+   *   - annualMileageBand: (optional) "light" | "avg" | "heavy" | "very_heavy"
+   *   - usagePattern: (optional) "mostly_local" | "mostly_highway" | "mixed"
+   *   - lastServiceWhen: (optional) "recently" | "few_months" | "over_6_months" | "not_sure"
+   *   - lastServiceWhat: (optional) string[] of selected service types
+   *   - serviceLocationPreference: (optional) "dealer" | "independent" | "wherever" | "no_goto"
+   *   - garageRole: (optional) "primary" | "secondary" | "weekend" | "stored"
+   *   - preOnboardingComplete: (optional) true once pre-step onboarding is done
+   *   - onboardingComplete: (optional) true once follow-up onboarding is done
    *
    * INDEXES:
    *   - by_vin: Get all owners of a vehicle
@@ -879,9 +890,20 @@ export default defineSchema({
     connectionStatus: v.optional(v.string()), // "unconnected" | "connected" | "error"
     connectedAt: v.optional(v.float64()),
     // Vehicle onboarding profile fields (non-Smartcar)
+    ownershipType: v.optional(v.string()),
+    ownedSinceNew: v.optional(v.boolean()),
+    mileageAtPurchase: v.optional(v.float64()),
+    ownershipDuration: v.optional(v.string()),
+    annualMileageBand: v.optional(v.string()),
+    usagePattern: v.optional(v.string()),
+    lastServiceWhen: v.optional(v.string()),
+    lastServiceWhat: v.optional(v.array(v.string())),
+    serviceLocationPreference: v.optional(v.string()),
+    garageRole: v.optional(v.string()),
     avgMonthlyDriving: v.optional(v.string()),   // "light" | "average" | "heavy"
     drivingConditions: v.optional(v.string()),    // "city" | "highway" | "mixed"
     knownIssues: v.optional(v.any()),             // string[] e.g. ["check_engine", "weird_noise"]
+    preOnboardingComplete: v.optional(v.boolean()), // Pre-step gate before CarInfoStepper
     onboardingComplete: v.optional(v.boolean()),  // Phase 1 → Phase 2 gate
   })
     .index("by_vin", ["vin"])
