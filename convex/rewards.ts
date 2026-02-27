@@ -105,6 +105,60 @@ export const getMembershipStats = query({
 });
 
 /**
+ * Get per-vehicle stats for membership page (individual view).
+ * Credit earned = sum of earn_service transactions from bookings for this vin.
+ * Services = count of completed bookings for this vin.
+ * Shops = unique shops from those bookings.
+ * Miles safe = pooled miles_safe split proportionally by services ratio (MVP).
+ */
+export const getMembershipStatsByVehicle = query({
+  args: { userId: v.id("users"), vin: v.string() },
+  handler: async (ctx, args) => {
+    const completedBookings = await ctx.db
+      .query("bookings")
+      .withIndex("by_user_id", (q) => q.eq("user_id", args.userId))
+      .filter((q) => q.and(q.eq(q.field("vin"), args.vin), q.eq(q.field("status"), "completed")))
+      .collect();
+
+    const servicesCount = completedBookings.length;
+    const uniqueShops = new Set(completedBookings.map((b) => b.shop_id.toString()));
+    const bookingIds = new Set(completedBookings.map((b) => b._id.toString()));
+
+    let creditEarned = 0;
+    const transactions = await ctx.db
+      .query("ownership_credit_transactions")
+      .withIndex("by_user_id", (q) => q.eq("user_id", args.userId))
+      .filter((q) => q.eq(q.field("type"), "earn_service"))
+      .collect();
+    for (const tx of transactions) {
+      if (tx.reference_id && tx.amount > 0 && bookingIds.has(tx.reference_id)) {
+        creditEarned += tx.amount;
+      }
+    }
+
+    const wallet = await ctx.db
+      .query("user_reward_wallets")
+      .withIndex("by_user_id", (q) => q.eq("user_id", args.userId))
+      .unique();
+    const pooledMilesSafe = wallet?.miles_safe ?? 0;
+    const totalServices = await ctx.db
+      .query("bookings")
+      .withIndex("by_user_id", (q) => q.eq("user_id", args.userId))
+      .filter((q) => q.eq(q.field("status"), "completed"))
+      .collect();
+    const totalCount = totalServices.length;
+    const milesSafe = totalCount > 0 ? Math.round((pooledMilesSafe * servicesCount) / totalCount) : 0;
+
+    return {
+      creditEarned,
+      milesSafe,
+      services: servicesCount,
+      shops: uniqueShops.size,
+    };
+  },
+});
+
+/**
  * Get tier for each vehicle owned by user (for My Garage / car selection with status badges).
  */
 export const getVehicleTiersByUser = query({

@@ -26,7 +26,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import ReAnimated from "react-native-reanimated";
 
 // 2. Expo & Third-party
-import type { BottomSheetModal } from "@gorhom/bottom-sheet";
 import { useRouter } from "expo-router";
 import {
   ArrowLeft,
@@ -34,6 +33,7 @@ import {
   Building2,
   Calendar,
   Check,
+  ChevronDown,
   ChevronRight,
   CreditCard,
   FileText,
@@ -58,7 +58,13 @@ import { FadeInStagger, ScrollDrivenGradientBackground, Text } from "@/component
 // 4. Constants & Hooks
 import { Spacing } from "@/constants/theme";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
-import { GarageCarSelectionSheet } from "@/components/rewards/GarageCarSelectionSheet";
+import { useVehicleStore } from "@/stores/useVehicleStore";
+import {
+  GarageCarSelectionSheet,
+  type GarageCarSheetRef,
+} from "@/components/rewards/GarageCarSelectionSheet";
+
+const FLIP_DURATION = 400;
 
 // ============================================================================
 // CONSTANTS
@@ -112,10 +118,22 @@ export default function MembershipPage() {
   const router = useRouter();
   const { userId } = useUserFromConvex();
 
+  const [viewMode, setViewMode] = useState<"pooled" | "individual">("pooled");
+  const [selectedVehicleVinForIndividual, setSelectedVehicleVinForIndividual] = useState<string | null>(null);
+
   const wallet = useQuery(api.rewards.getWallet, userId ? { userId } : "skip");
   const stats = useQuery(api.rewards.getMembershipStats, userId ? { userId } : "skip");
+  const perVehicleStats = useQuery(
+    api.rewards.getMembershipStatsByVehicle,
+    userId && selectedVehicleVinForIndividual ? { userId, vin: selectedVehicleVinForIndividual } : "skip"
+  );
   const tierInfo = useQuery(api.rewards.getPrimaryVehicleTier, userId ? { userId } : "skip");
+  const vehicleTiers = useQuery(api.rewards.getVehicleTiersByUser, userId ? { userId } : "skip");
   const suggestedDeals = useQuery(api.rewards.getSuggestedDeals, {});
+
+  const vehicles = useVehicleStore((s) => s.vehicles);
+  const vehicleIds = useVehicleStore((s) => s.vehicleIds);
+  const vehicleCount = vehicleIds.length;
 
   const ensureWallet = useMutation(api.rewards.ensureWallet);
   const updateRedemptionPreference = useMutation(api.rewards.updateRedemptionPreference);
@@ -125,12 +143,16 @@ export default function MembershipPage() {
     if (userId && wallet === null) ensureWallet({ userId }).catch(() => {});
   }, [userId, wallet, ensureWallet]);
 
-  const balance = wallet?.balance ?? 0;
-  const milesSafe = stats?.milesSafe ?? 23000;
-  const servicesCount = stats?.services ?? 6;
-  const shopsCount = stats?.shops ?? 3;
-  const tierLabel =
-    tierInfo?.tier === "elite" ? "ELITE MEMBER" : tierInfo?.tier === "preferred" ? "PREFERRED MEMBER" : "DRIVER";
+  const isIndividual = viewMode === "individual" && selectedVehicleVinForIndividual != null;
+  const walletBalance = wallet?.balance ?? 0;
+  const balance = isIndividual ? (perVehicleStats?.creditEarned ?? 0) : walletBalance;
+  const milesSafe = isIndividual ? (perVehicleStats?.milesSafe ?? 0) : (stats?.milesSafe ?? 0);
+  const servicesCount = isIndividual ? (perVehicleStats?.services ?? 0) : (stats?.services ?? 0);
+  const shopsCount = isIndividual ? (perVehicleStats?.shops ?? 0) : (stats?.shops ?? 0);
+
+  // Tier label for badge (short form: PREFERRED, ELITE, DRIVER)
+  const getTierLabel = (tier: "driver" | "preferred" | "elite") =>
+    tier === "elite" ? "ELITE" : tier === "preferred" ? "PREFERRED" : "DRIVER";
   const deals = (suggestedDeals ?? []).map((d) => ({
     id: d._id,
     title: d.title,
@@ -150,8 +172,26 @@ export default function MembershipPage() {
   /** When set, Driver Status modal shows this tier (from garage status badge tap) */
   const [statusModalTier, setStatusModalTier] = useState<"driver" | "preferred" | "elite" | null>(null);
 
+  // Badge card-flip animation (rotateY: 0 = pooled/MY GARAGE, 180 = individual/tier)
+  const badgeFlipAnim = useRef(new Animated.Value(0)).current;
+  // Cross-fade for balance and stats when switching views
+  const contentOpacity = useRef(new Animated.Value(1)).current;
+
+  const tierByVin = React.useMemo(() => {
+    const map: Record<string, "driver" | "preferred" | "elite"> = {};
+    (vehicleTiers ?? []).forEach((t) => {
+      map[t.vin] = t.tier;
+    });
+    return map;
+  }, [vehicleTiers]);
+
+  const selectedVehicleTier =
+    selectedVehicleVinForIndividual != null
+      ? (tierByVin[selectedVehicleVinForIndividual] ?? "driver")
+      : (tierInfo?.tier ?? "driver");
+
   // My Garage car selection sheet (rewards context)
-  const garageSheetRef = useRef<BottomSheetModal | null>(null);
+  const garageSheetRef = useRef<GarageCarSheetRef | null>(null);
 
   // Bottom sheet animation values
   const sheetTranslateY = useRef(new Animated.Value(SHEET_HEIGHT)).current;
@@ -267,11 +307,52 @@ export default function MembershipPage() {
     });
   };
 
-  // Open My Garage sheet when tier badge is tapped (instead of opening Driver Status directly)
-  const openGarageSheet = () => {
-    garageSheetRef.current?.present();
+  const isFirstRender = useRef(true);
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    contentOpacity.setValue(0);
+    Animated.timing(contentOpacity, {
+      toValue: 1,
+      duration: FLIP_DURATION,
+      easing: Easing.inOut(Easing.ease),
+      useNativeDriver: true,
+    }).start();
+  }, [viewMode, selectedVehicleVinForIndividual]);
+
+  // Badge tap: pooled → open sheet; individual → snap back to pooled (no sheet)
+  const handleBadgePress = () => {
+    if (viewMode === "pooled") {
+      garageSheetRef.current?.present();
+    } else {
+      // Individual → Pooled: flip 180→0 (tier rotates out, MY GARAGE rotates in)
+      setViewMode("pooled");
+      setSelectedVehicleVinForIndividual(null);
+      Animated.timing(badgeFlipAnim, {
+        toValue: 0,
+        duration: FLIP_DURATION,
+        easing: Easing.inOut(Easing.ease),
+        useNativeDriver: true,
+      }).start();
+    }
   };
 
+  // When user selects a car from bottom sheet → switch to individual view with flip (sheet dismisses itself)
+  const handleCarSelectedFromSheet = (vin: string) => {
+    setSelectedVehicleVinForIndividual(vin);
+    setViewMode("individual");
+    // Pooled → Individual: flip 0→180 (MY GARAGE rotates out, tier rotates in)
+    Animated.timing(badgeFlipAnim, {
+      toValue: 180,
+      duration: FLIP_DURATION,
+      easing: Easing.inOut(Easing.ease),
+      useNativeDriver: true,
+    }).start();
+  };
+
+  // Status badge tap inside sheet → open Driver Status modal (keep existing behavior)
   const handleGarageStatusBadgePress = (tier: "driver" | "preferred" | "elite") => {
     garageSheetRef.current?.dismiss();
     setTimeout(() => openEliteSheetWithTier(tier), 300);
@@ -302,29 +383,88 @@ export default function MembershipPage() {
                 <ArrowLeft size={24} color="#1F2937" strokeWidth={2} />
               </Pressable>
 
-              {/* Tier Badge */}
+              {/* Flip Badge: MY GARAGE ▾ (pooled) ↔ PREFERRED ▾ (individual) */}
               <View style={styles.badgeContainer}>
                 <Pressable
-                  onPress={openGarageSheet}
-                  style={({ pressed }) => [styles.eliteBadge, pressed && { opacity: 0.7 }]}
+                  onPress={handleBadgePress}
+                  style={({ pressed }) => [styles.badgePressable, pressed && { opacity: 0.7 }]}
                 >
-                  {/* Verification badge with spiky circle shape */}
-                  <BadgeCheck size={14} color="#FFFFFF" fill="#5299FE" strokeWidth={2} />
-                  <Text weight="bold" size="xs" color="#5299FE" style={styles.badgeText}>
-                    {tierLabel}
-                  </Text>
+                  <View style={styles.badgeFlipContainer}>
+                    {/* Sizing spacer: hug container to current visible label */}
+                    <View style={styles.badgeSizer} collapsable={false}>
+                      <BadgeCheck size={14} color="transparent" strokeWidth={2} />
+                      <Text weight="bold" size="xs" color="transparent" style={styles.badgeText}>
+                        {viewMode === "pooled" ? "MY GARAGE" : getTierLabel(selectedVehicleTier)}
+                      </Text>
+                      <ChevronDown size={12} color="transparent" style={styles.badgeChevron} />
+                    </View>
+                    {/* Front face (rotateY 0): MY GARAGE ▾ */}
+                    <Animated.View
+                      style={[
+                        styles.badgeFace,
+                        {
+                          backfaceVisibility: "hidden",
+                          transform: [
+                            { perspective: 400 },
+                            {
+                              rotateY: badgeFlipAnim.interpolate({
+                                inputRange: [0, 180],
+                                outputRange: ["0deg", "180deg"],
+                              }),
+                            },
+                          ],
+                        },
+                      ]}
+                    >
+                      <BadgeCheck size={14} color="#FFFFFF" fill="#5299FE" strokeWidth={2} />
+                      <Text weight="bold" size="xs" color="#5299FE" style={styles.badgeText}>
+                        MY GARAGE
+                      </Text>
+                      <ChevronDown size={12} color="#5299FE" style={styles.badgeChevron} />
+                    </Animated.View>
+                    {/* Back face (rotateY 180): Tier ▾ */}
+                    <Animated.View
+                      style={[
+                        styles.badgeFace,
+                        styles.badgeFaceBack,
+                        {
+                          backfaceVisibility: "hidden",
+                          transform: [
+                            { perspective: 400 },
+                            {
+                              rotateY: badgeFlipAnim.interpolate({
+                                inputRange: [0, 180],
+                                outputRange: ["180deg", "360deg"],
+                              }),
+                            },
+                          ],
+                        },
+                      ]}
+                    >
+                      <BadgeCheck size={14} color="#FFFFFF" fill="#5299FE" strokeWidth={2} />
+                      <Text weight="bold" size="xs" color="#5299FE" style={styles.badgeText}>
+                        {getTierLabel(selectedVehicleTier)}
+                      </Text>
+                      <ChevronDown size={12} color="#5299FE" style={styles.badgeChevron} />
+                    </Animated.View>
+                  </View>
                 </Pressable>
               </View>
 
-              {/* Credit Balance */}
-              <View style={styles.balanceContainer}>
+              {/* Credit Balance — cross-fades when switching pooled ↔ individual */}
+              <Animated.View style={[styles.balanceContainer, { opacity: contentOpacity }]}>
                 <Text weight="bold" style={styles.balanceAmount}>
                   ${balance.toFixed(2)}
                 </Text>
                 <Text weight="medium" size="md" color="#6B7280">
-                  Ownership Credit Balance
+                  {isIndividual ? "Credit earned for this vehicle" : "Ownership Credit Balance"}
                 </Text>
-              </View>
+                {viewMode === "pooled" && vehicleCount > 1 && (
+                  <Text weight="medium" size="sm" color="#9CA3AF" style={styles.balanceSubtext}>
+                    across {vehicleCount} vehicles
+                  </Text>
+                )}
+              </Animated.View>
 
               {/* Action Buttons Row */}
               <View style={styles.actionButtonsRow}>
@@ -380,8 +520,8 @@ export default function MembershipPage() {
                 </View>
               </View>
 
-              {/* Stats Row */}
-              <View style={styles.statsRow}>
+              {/* Stats Row — cross-fades when switching pooled ↔ individual */}
+              <Animated.View style={[styles.statsRow, { opacity: contentOpacity }]}>
                 {/* Miles Safe */}
                 <View style={styles.statItem}>
                   <Text weight="bold" style={styles.statNumber}>
@@ -417,7 +557,7 @@ export default function MembershipPage() {
                     SHOPS
                   </Text>
                 </View>
-              </View>
+              </Animated.View>
 
               {/* ═══════════════════════════════════════════════════════════════════
                 MIDDLE SECTION: Suggested Deals
@@ -610,7 +750,7 @@ export default function MembershipPage() {
 
                 {/* Balance Amount */}
                 <Text weight="bold" style={redeemStyles.sheetBalanceAmount}>
-                  ${balance.toFixed(2)}
+                  ${walletBalance.toFixed(2)}
                 </Text>
 
                 {/* Subtitle */}
@@ -722,7 +862,7 @@ export default function MembershipPage() {
                       setIsRedeeming(false);
                     }
                   }}
-                  disabled={isRedeeming || (selectedRedeemOption === "giftcard" && balance <= 0)}
+                  disabled={isRedeeming || (selectedRedeemOption === "giftcard" && walletBalance <= 0)}
                 >
                   {isRedeeming ? (
                     <ActivityIndicator size="small" color="#FFFFFF" />
@@ -969,10 +1109,11 @@ export default function MembershipPage() {
             </Animated.View>
           </Modal>
 
-          {/* My Garage car selection sheet – opened when tier badge is tapped */}
+          {/* My Garage car selection sheet – opened when MY GARAGE ▾ tapped (pooled view) */}
           <GarageCarSelectionSheet
             innerRef={garageSheetRef}
             onStatusBadgePress={handleGarageStatusBadgePress}
+            onCarSelected={handleCarSelectedFromSheet}
             onClose={() => {}}
           />
         </View>
@@ -1076,27 +1217,55 @@ const styles = StyleSheet.create({
     backgroundColor: "#FF3B30",
   },
 
-  // Elite Badge
+  // Flip Badge (MY GARAGE ▾ ↔ PREFERRED ▾)
   badgeContainer: {
     alignItems: "center",
     marginBottom: Spacing.xl,
   },
-  eliteBadge: {
+  badgePressable: {
+    alignSelf: "center",
+  },
+  badgeFlipContainer: {
+    alignSelf: "center",
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 36,
+  },
+  badgeSizer: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#EBF4FF",
-    paddingHorizontal: Spacing.sm + 2,
+    paddingHorizontal: Spacing.sm + 4,
     paddingVertical: Spacing.xs,
-    borderRadius: 16,
-    gap: Spacing.xs - 1,
+    gap: Spacing.xs,
+    opacity: 0,
+  },
+  badgeFace: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#EBF4FF",
+    paddingHorizontal: Spacing.sm + 4,
+    paddingVertical: Spacing.xs,
+    borderRadius: 18,
+    gap: Spacing.xs,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 2,
     elevation: 1,
   },
+  badgeFaceBack: {
+    left: 0,
+    right: 0,
+  },
   badgeText: {
     letterSpacing: 1,
+  },
+  badgeChevron: {
+    marginLeft: 2,
   },
 
   // Balance
@@ -1109,6 +1278,9 @@ const styles = StyleSheet.create({
     lineHeight: 60,
     color: "#1F2937",
     marginBottom: Spacing.xs,
+  },
+  balanceSubtext: {
+    marginTop: 4,
   },
 
   // Action Buttons

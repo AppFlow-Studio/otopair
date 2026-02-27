@@ -18,8 +18,8 @@ import type { Vehicle } from "@/stores/useVehicleStore";
 export type VehicleTier = "driver" | "preferred" | "elite";
 
 const TIER_CONFIG: Record<VehicleTier, { label: string; bg: string; text: string }> = {
-  driver: { label: "Driver", bg: "#DBEAFE", text: "#1D4ED8" },
-  preferred: { label: "Preferred", bg: "#EDE9FE", text: "#6D28D9" },
+  driver: { label: "Driver", bg: "#EBF4FF", text: BrandColors.secondary },
+  preferred: { label: "Preferred", bg: "#EBF4FF", text: BrandColors.secondary },
   elite: { label: "Elite", bg: "#FFEDD5", text: "#EA580C" },
 };
 

@@ -2,16 +2,23 @@
  * GarageCarSelectionSheet
  *
  * PURPOSE: My Garage car selection bottom sheet for rewards page.
- *          Design from 1st image: circular car images, "X vehicles", status badges.
- *          Similar to Select Vehicle (2nd image): list, Add vehicle, Confirm.
- *          Tapping status badge opens Driver Status modal.
+ *          Uses same Modal + Animated implementation as Driver Status for floating look.
+ *          Design: vehicle cards, status badges, add vehicle. Selecting opens Driver Status.
  *
  * USED IN: app/membership.tsx
  */
 
-import React, { useCallback, useMemo } from "react";
-import { Dimensions, Pressable, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
-import { BottomSheetBackdrop, BottomSheetModal, BottomSheetView } from "@gorhom/bottom-sheet";
+import React, { useCallback, useImperativeHandle, useMemo, useRef, useState } from "react";
+import {
+  Animated,
+  Dimensions,
+  Easing,
+  Modal,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  View,
+} from "react-native";
 import { useRouter } from "expo-router";
 import { Plus, X } from "lucide-react-native";
 import { useQuery, useMutation } from "convex/react";
@@ -23,21 +30,31 @@ import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 import { useVehicleStore, type Vehicle } from "@/stores/useVehicleStore";
 import { GarageCarSelectionCard, type VehicleTier } from "./GarageCarSelectionCard";
 
-const { height: SCREEN_HEIGHT } = Dimensions.get("window");
-const MAX_VISIBLE_ROWS = 5;
-const ROW_HEIGHT = 88;
-const SNAP_PERCENT = Math.min(85, Math.max(45, ((MAX_VISIBLE_ROWS * ROW_HEIGHT + 180) / SCREEN_HEIGHT) * 100));
+const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
+const SHEET_HEIGHT = SCREEN_HEIGHT * 0.9;
+
+export interface GarageCarSheetRef {
+  present: () => void;
+  dismiss: () => void;
+}
 
 export interface GarageCarSelectionSheetProps {
   /** Ref to control present/dismiss */
-  innerRef: React.RefObject<BottomSheetModal | null>;
+  innerRef: React.RefObject<GarageCarSheetRef | null>;
   /** Called when user taps a status badge - open Driver Status modal with this tier */
   onStatusBadgePress: (tier: VehicleTier) => void;
+  /** Called when user confirms car selection - switch to individual view (vin) */
+  onCarSelected?: (vin: string) => void;
   /** Called when sheet is dismissed */
   onClose?: () => void;
 }
 
-export function GarageCarSelectionSheet({ innerRef, onStatusBadgePress, onClose }: GarageCarSelectionSheetProps) {
+export function GarageCarSelectionSheet({
+  innerRef,
+  onStatusBadgePress,
+  onCarSelected,
+  onClose,
+}: GarageCarSelectionSheetProps) {
   const router = useRouter();
   const { userId } = useUserFromConvex();
   const vehicleTiers = useQuery(api.rewards.getVehicleTiersByUser, userId ? { userId } : "skip");
@@ -45,8 +62,11 @@ export function GarageCarSelectionSheet({ innerRef, onStatusBadgePress, onClose 
 
   const vehicles = useVehicleStore((s) => s.vehicles);
   const vehicleIds = useVehicleStore((s) => s.vehicleIds);
-  const selectedVehicleId = useVehicleStore((s) => s.selectedVehicleId);
   const selectVehicle = useVehicleStore((s) => s.selectVehicle);
+
+  const [visible, setVisible] = useState(false);
+  const sheetTranslateY = useRef(new Animated.Value(SHEET_HEIGHT)).current;
+  const backdropOpacity = useRef(new Animated.Value(0)).current;
 
   const vehiclesList = useMemo(
     () => vehicleIds.map((id) => vehicles[id]).filter((v): v is Vehicle => Boolean(v)),
@@ -61,121 +81,174 @@ export function GarageCarSelectionSheet({ innerRef, onStatusBadgePress, onClose 
     return map;
   }, [vehicleTiers]);
 
-  const snapPoints = useMemo(() => [`${SNAP_PERCENT}%`], []);
+  const present = useCallback(() => {
+    setVisible(true);
+    sheetTranslateY.setValue(SHEET_HEIGHT);
+    backdropOpacity.setValue(0);
 
-  const handleClose = useCallback(() => {
-    innerRef.current?.dismiss();
-    onClose?.();
-  }, [innerRef, onClose]);
+    Animated.parallel([
+      Animated.spring(sheetTranslateY, {
+        toValue: 0,
+        tension: 40,
+        friction: 12,
+        useNativeDriver: false,
+      }),
+      Animated.timing(backdropOpacity, {
+        toValue: 1,
+        duration: 400,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [sheetTranslateY, backdropOpacity]);
 
-  const handleConfirm = useCallback(async () => {
-    if (!selectedVehicleId || !userId) return;
-    try {
-      await updateOwnershipPrimary({
-        vin: selectedVehicleId,
-        userId: userId as Id<"users">,
-        is_primary: true,
-      });
-    } catch {
-      // Convex will refetch; tier/badge will update
-    }
-    handleClose();
-  }, [selectedVehicleId, userId, updateOwnershipPrimary, handleClose]);
+  const dismiss = useCallback(() => {
+    Animated.parallel([
+      Animated.timing(sheetTranslateY, {
+        toValue: SHEET_HEIGHT,
+        duration: 300,
+        easing: Easing.bezier(0.25, 0.1, 0.25, 1),
+        useNativeDriver: false,
+      }),
+      Animated.timing(backdropOpacity, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: true,
+      }),
+    ]).start(() => {
+      setVisible(false);
+      onClose?.();
+    });
+  }, [sheetTranslateY, backdropOpacity, onClose]);
 
-  const handleAddVehicle = useCallback(() => {
-    handleClose();
-    router.replace("/(main-tabs)/cars");
-  }, [handleClose, router]);
+  useImperativeHandle(innerRef, () => ({ present, dismiss }), [present, dismiss]);
 
-  const renderBackdrop = useCallback(
-    (props: any) => <BottomSheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} />,
-    []
+  const handleSelectVehicle = useCallback(
+    async (vin: string) => {
+      if (!userId) return;
+      selectVehicle(vin);
+      try {
+        await updateOwnershipPrimary({
+          vin,
+          userId: userId as Id<"users">,
+          is_primary: true,
+        });
+      } catch {
+        // Convex will refetch; tier/badge will update
+      }
+      onCarSelected?.(vin);
+      dismiss();
+    },
+    [userId, updateOwnershipPrimary, dismiss, onCarSelected, selectVehicle]
   );
 
+  const handleAddVehicle = useCallback(() => {
+    dismiss();
+    router.replace("/(main-tabs)/cars");
+  }, [dismiss, router]);
+
   return (
-    <BottomSheetModal
-      ref={innerRef}
-      snapPoints={snapPoints}
-      enablePanDownToClose={false}
-      enableContentPanningGesture={false}
-      enableHandlePanningGesture={false}
-      backdropComponent={renderBackdrop}
-      handleIndicatorStyle={styles.handle}
-      backgroundStyle={styles.sheet}
-      onDismiss={onClose}
-    >
-      <BottomSheetView style={styles.container}>
-        <TouchableOpacity
-          onPress={handleClose}
-          style={styles.closeButton}
-          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-        >
-          <X size={20} color={BrandColors.primary} />
-        </TouchableOpacity>
+    <Modal visible={visible} transparent animationType="none" onRequestClose={dismiss}>
+        {/* Backdrop - same as Driver Status */}
+        <Animated.View style={[sheetStyles.backdrop, { opacity: backdropOpacity }]}>
+          <Pressable style={StyleSheet.absoluteFill} onPress={dismiss} />
+        </Animated.View>
 
-        <View style={styles.header}>
-          <View style={styles.headerTitleBlock}>
-            <Text size="xl" weight="bold" color="#1F2937" style={styles.headerTitle}>
-              My Garage
-            </Text>
-            <Text size="sm" color="#6B7280" style={styles.subtitle}>
-              {vehiclesList.length} vehicle{vehiclesList.length !== 1 ? "s" : ""}
-            </Text>
+        {/* Bottom Sheet - same positioning as Driver Status (eliteStyles) */}
+        <Animated.View style={[sheetStyles.bottomSheet, { transform: [{ translateY: sheetTranslateY }] }]}>
+          {/* Drag Handle */}
+          <View style={sheetStyles.dragHandleContainer}>
+            <View style={sheetStyles.dragHandle} />
           </View>
-        </View>
 
-        <ScrollView
-          style={styles.scrollView}
-          contentContainerStyle={styles.scrollContent}
-          showsVerticalScrollIndicator={vehiclesList.length > MAX_VISIBLE_ROWS}
-        >
-          {vehiclesList.map((vehicle) => (
-            <GarageCarSelectionCard
-              key={vehicle.id}
-              vehicle={vehicle}
-              tier={tierByVin[vehicle.id] ?? "driver"}
-              isSelected={vehicle.id === selectedVehicleId}
-              onSelect={() => selectVehicle(vehicle.id)}
-              onStatusPress={() => onStatusBadgePress(tierByVin[vehicle.id] ?? "driver")}
-            />
-          ))}
+          <View style={sheetStyles.sheetContent}>
+            <Pressable
+              onPress={dismiss}
+              style={({ pressed }) => [sheetStyles.closeButton, pressed && { opacity: 0.7 }]}
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
+              <X size={20} color={BrandColors.primary} />
+            </Pressable>
 
-          <TouchableOpacity style={styles.addRow} onPress={handleAddVehicle} activeOpacity={0.7}>
-            <Plus size={20} color="#9CA3AF" />
-            <Text size="md" weight="medium" color="#9CA3AF">
-              Add a vehicle
-            </Text>
-          </TouchableOpacity>
-        </ScrollView>
+            <View style={sheetStyles.header}>
+              <Text size="xl" weight="bold" color="#1F2937" style={sheetStyles.headerTitle}>
+                My Garage
+              </Text>
+              <Text size="sm" color="#6B7280" style={sheetStyles.subtitle}>
+                {vehiclesList.length} vehicle{vehiclesList.length !== 1 ? "s" : ""}
+              </Text>
+            </View>
 
-        <Pressable
-          style={({ pressed }) => [styles.confirmButton, pressed && styles.confirmButtonPressed]}
-          onPress={handleConfirm}
-        >
-          <Text weight="bold" size="md" color="#FFFFFF">
-            Confirm
-          </Text>
-        </Pressable>
-      </BottomSheetView>
-    </BottomSheetModal>
+            <ScrollView
+              style={sheetStyles.scrollView}
+              contentContainerStyle={sheetStyles.scrollContent}
+              showsVerticalScrollIndicator={vehiclesList.length > 5}
+            >
+              {vehiclesList.map((vehicle) => (
+                <GarageCarSelectionCard
+                  key={vehicle.id}
+                  vehicle={vehicle}
+                  tier={tierByVin[vehicle.id] ?? "driver"}
+                  isSelected={false}
+                  onSelect={() => handleSelectVehicle(vehicle.id)}
+                  onStatusPress={() => onStatusBadgePress(tierByVin[vehicle.id] ?? "driver")}
+                />
+              ))}
+
+              <Pressable
+                style={({ pressed }) => [sheetStyles.addButton, pressed && sheetStyles.addButtonPressed]}
+                onPress={handleAddVehicle}
+              >
+                <View style={sheetStyles.addButtonIconCircle}>
+                  <Plus size={18} color="#5299FE" strokeWidth={2.5} />
+                </View>
+                <Text size="md" weight="bold" color="#FFFFFF">
+                  Add a vehicle
+                </Text>
+              </Pressable>
+            </ScrollView>
+          </View>
+      </Animated.View>
+    </Modal>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    paddingHorizontal: Spacing.lg,
+// Same styles as Driver Status (eliteStyles) - floating bottom sheet
+const sheetStyles = StyleSheet.create({
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0, 0, 0, 0.4)",
   },
-  handle: {
+  bottomSheet: {
+    position: "absolute",
+    bottom: SCREEN_HEIGHT * 0.015,
+    left: SCREEN_WIDTH * 0.025,
+    right: SCREEN_WIDTH * 0.025,
+    width: SCREEN_WIDTH * 0.95,
+    maxHeight: SHEET_HEIGHT,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 40,
+    paddingBottom: 12,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    elevation: 10,
+  },
+  dragHandleContainer: {
+    alignItems: "center",
+    paddingTop: 12,
+    paddingBottom: 8,
+  },
+  dragHandle: {
     width: 40,
     height: 4,
-    backgroundColor: "#D1D5DB",
+    backgroundColor: "rgba(0, 0, 0, 0.15)",
     borderRadius: 2,
   },
-  sheet: {
-    backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: 20,
-    borderTopRightRadius: 20,
+  sheetContent: {
+    flex: 1,
+    paddingHorizontal: Spacing.lg,
+    minHeight: 0,
   },
   closeButton: {
     position: "absolute",
@@ -194,9 +267,6 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.md,
     alignItems: "center",
   },
-  headerTitleBlock: {
-    alignItems: "center",
-  },
   headerTitle: {
     textAlign: "center",
   },
@@ -209,28 +279,33 @@ const styles = StyleSheet.create({
     minHeight: 0,
   },
   scrollContent: {
-    paddingBottom: Spacing.lg,
+    paddingBottom: Spacing.sm,
   },
-  addRow: {
+  addButton: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: Spacing.sm,
     paddingVertical: Spacing.md,
     marginTop: Spacing.sm,
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1.5,
-    borderStyle: "dashed",
-    borderColor: "#D1D5DB",
-  },
-  confirmButton: {
+    marginBottom: Spacing.sm,
     backgroundColor: "#5299FE",
-    paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.lg,
-    alignItems: "center",
-    marginBottom: Spacing.xl,
+    borderRadius: 24,
+    shadowColor: "#5299FE",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 4,
   },
-  confirmButtonPressed: {
+  addButtonPressed: {
     opacity: 0.9,
+  },
+  addButtonIconCircle: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
   },
 });
