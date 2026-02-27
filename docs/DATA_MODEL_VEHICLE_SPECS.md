@@ -2,7 +2,7 @@
 
 **Purpose:** Documents the `vehicle_specs` and related schema changes to support MVP services, verified pricing, and Vehicle Health—aligned with Otopair's product vision. Defines what is in scope now vs. deferred.
 
-**See also:** [BOOKING_INTEGRATION.md](./BOOKING_INTEGRATION.md), [REFERENCE.md](./REFERENCE.md), [convex/schema.ts](../convex/schema.ts). **How specs get populated:** [ADD_VEHICLE_PIPELINE.md](./ADD_VEHICLE_PIPELINE.md) — NHTSA VIN decode + Anthropic Claude AI (engine_specs, vehicle_specs, trim_specs, service_vehicle_specs).
+**See also:** [BOOKING_INTEGRATION.md](./BOOKING_INTEGRATION.md), [REFERENCE.md](./REFERENCE.md), [convex/schema.ts](../convex/schema.ts). **How specs get populated:** [VEHICLE_PIPELINE_GUIDE.md](./VEHICLE_PIPELINE_GUIDE.md).
 
 ---
 
@@ -19,7 +19,7 @@
 - **Vehicle attributes** on `engine_specs`: `power_steering_type`, `timing_system`, `has_turbocharger`, `fuel_injection_type`, `transmission_type`, `drivetrain_type`.
 - **Service applicability** on `service_vehicle_specs`: optional `is_applicable` (false = service N/A for this vehicle, e.g. power steering flush on electric PS).
 
-See [VEHICLE_PIPELINE_IMPROVEMENTS.md](./VEHICLE_PIPELINE_IMPROVEMENTS.md) for full details.
+See [VEHICLE_PIPELINE_GUIDE.md](./VEHICLE_PIPELINE_GUIDE.md) for full pipeline details.
 
 ## 3. Deferred (Not Aligned With Current Goals)
 
