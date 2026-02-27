@@ -13,17 +13,24 @@
 - **Vehicle Health foundation** – Fluids, intervals, tire pressure for “due in X” predictions
 - **Trust software** – Correct specs (brake fluid, coolant, lug torque) for safe service
 
-## 2. Deferred (Not Aligned With Current Goals)
+## 2. Implemented (Engine Specs & Service Vehicle Specs)
 
-- **Engine specs structure changes** – No schema changes to `engine_specs` table structure
+- **Structured intervals** on `engine_specs`: `_miles`, `_months`, `_status` per maintenance item (oil, coolant, brake fluid, tire rotation, air filters, spark plugs, serpentine belt, transmission fluid).
+- **Vehicle attributes** on `engine_specs`: `power_steering_type`, `timing_system`, `has_turbocharger`, `fuel_injection_type`, `transmission_type`, `drivetrain_type`.
+- **Service applicability** on `service_vehicle_specs`: optional `is_applicable` (false = service N/A for this vehicle, e.g. power steering flush on electric PS).
+
+See [VEHICLE_PIPELINE_IMPROVEMENTS.md](./VEHICLE_PIPELINE_IMPROVEMENTS.md) for full details.
+
+## 3. Deferred (Not Aligned With Current Goals)
+
 - **Transmission specs structure changes** – No schema changes to `transmission_specs` or `transmissions` tables
 - **Transmission fluid / capacity / type** – Future work; not added to `vehicle_specs` or elsewhere for now
 
 ---
 
-## 3. Schema Changes Implemented
+## 4. Schema Changes Implemented
 
-### 3.1 `vehicle_specs` (engine-level OEM parts)
+### 4.1 `vehicle_specs` (engine-level OEM parts)
 
 **Added fields** (all optional):
 
@@ -41,7 +48,7 @@
 
 **Existing fields** (unchanged): `oil_viscocity`, `oil_capacity_qts`, `oil_filter_oem`, `front_brake_pad_oem`, `rear_brake_pad_oem`, `parking_brake_type`, `battery_group`, `battery_cca`.
 
-### 3.2 `trim_specs` (trim-level specs)
+### 4.2 `trim_specs` (trim-level specs)
 
 **Added fields** (all optional):
 
@@ -55,7 +62,7 @@
 
 ---
 
-## 4. Where Other Specs Live
+## 5. Where Other Specs Live
 
 | Spec                                 | Table                           | Notes                                               |
 | ------------------------------------ | ------------------------------- | --------------------------------------------------- |
@@ -69,7 +76,7 @@
 
 ---
 
-## 5. job_actuals Suggested Parts
+## 6. job_actuals Suggested Parts
 
 `job_actuals.getPrefillData` now supports suggested parts for:
 
@@ -85,7 +92,7 @@ When these services are added to the `services` table, mechanics will get pre-fi
 
 ---
 
-## 6. Service Pricing (Car-Specific)
+## 7. Service Pricing (Car-Specific)
 
 For the booking flow, service price is computed as `(shop.labor_rate × labor_hours) + parts` per service.
 
@@ -97,7 +104,7 @@ For the booking flow, service price is computed as `(shop.labor_rate × labor_ho
 
 ---
 
-## 7. Fitments Architecture (Parallel Path)
+## 8. Fitments Architecture (Parallel Path)
 
 The schema also has a richer fitments architecture:
 
@@ -110,12 +117,10 @@ The schema also has a richer fitments architecture:
 
 ---
 
-## 8. Next Steps (When Goals Shift)
+## 9. Next Steps (When Goals Shift)
 
-1. **AI enrichment prompt** – Update to request all new `vehicle_specs` and `trim_specs` fields
-2. **Transmission fluid specs** – Add to `transmission_specs` when transmission work is in scope
-3. **Interval fields** – Consider separate `_miles` and `_months` for decision-tree logic (Vehicle Health)
-4. **Fitments for job_actuals** – Long-term: optionally migrate job_actuals to use fitments for suggested parts
+1. **Transmission fluid specs** – Add to `transmission_specs` when transmission work is in scope
+2. **Fitments for job_actuals** – Long-term: optionally migrate job_actuals to use fitments for suggested parts
 
 ---
 

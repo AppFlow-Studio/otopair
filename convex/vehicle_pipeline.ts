@@ -193,138 +193,83 @@ export const enrichVehicleSpecs = internalAction({
       return;
     }
 
-    // ── Infer engine code from model + trim + year when NHTSA didn't provide it ──
+    // ── Step 0: Resolve engine code ──
     let effectiveEngineCode = args.engineCode?.trim() ?? "";
     if (!effectiveEngineCode) {
-      const inferred = await inferEngineCodeFromVehicle(anthropicKey, {
-        make: args.make,
-        model: args.model,
-        trim: args.trim,
-        year: args.year,
-        displacement: args.displacement,
-        cylinders: args.cylinders,
-        fuelType: args.fuelType,
-      });
-      if (inferred) {
-        await ctx.runMutation(internal.vehicle_mutations.updateEngineCode, {
-          engineId: args.engineId,
-          engineCode: inferred,
+      const engine = await ctx.runQuery(internal.vehicle_mutations.getEngine, { engineId: args.engineId });
+      if (engine) {
+        const trimEngines = await ctx.runQuery(internal.vehicle_mutations.getEnginesByTrim, {
+          trimId: engine.trim_id,
         });
-        effectiveEngineCode = inferred;
-        await delay(5_000); // Spread rate limit: inference then base specs
+        if (trimEngines && trimEngines.length === 1 && trimEngines[0].engine_code) {
+          effectiveEngineCode = trimEngines[0].engine_code;
+          await ctx.runMutation(internal.vehicle_mutations.updateEngineCode, {
+            engineId: args.engineId,
+            engineCode: effectiveEngineCode,
+          });
+        }
       }
+      if (!effectiveEngineCode) {
+        const inferred = await inferEngineCodeFromVehicle(anthropicKey, {
+          make: args.make,
+          model: args.model,
+          trim: args.trim,
+          year: args.year,
+          displacement: args.displacement,
+          cylinders: args.cylinders,
+          fuelType: args.fuelType,
+        });
+        if (inferred) {
+          await ctx.runMutation(internal.vehicle_mutations.updateEngineCode, {
+            engineId: args.engineId,
+            engineCode: inferred,
+          });
+          effectiveEngineCode = inferred;
+        }
+      }
+      await delay(5_000);
     }
 
     const vehicleDesc = `${args.year} ${args.make} ${args.model} ${args.trim} (${args.displacement}L ${args.cylinders}-cylinder ${args.fuelType}, engine code: ${effectiveEngineCode})`;
 
-    // ── Variables populated by base-specs call, used by pricing call ──
+    // ── State passed between calls ──
     let oilViscosity = "N/A";
     let oilCapacityQts = 0;
     let confidenceScore = 0.75;
+    let flatVehicleSpecs: Record<string, any> = {};
+    let fieldConfidences: Record<string, number> = {};
+    let nullFields: string[] = [];
+    let vehicleAttributes: VehicleAttributes = {
+      power_steering_type: null,
+      timing_system: null,
+      has_turbocharger: null,
+      fuel_injection_type: null,
+      transmission_type: null,
+      drivetrain_type: null,
+    };
 
     // ============================================================
-    // CLAUDE CALL #1 — Base specs (engine, vehicle, trim)
+    // CALL 1A — Fluids, Intervals & Vehicle Attributes
     // ============================================================
     if (needsBaseSpecs) {
-      const specsPrompt = `You are an automotive OEM specifications extractor.
-
-      Vehicle: ${vehicleDesc}
-      
-      Goal: Fill the JSON template EXACTLY. Output ONLY valid JSON (no markdown, no comments).
-      
-      SEARCH STRATEGY (use web_search)
-      - Search by make + model + trim + year (e.g. "BMW 5 Series M550i 2020") and by engine code when present.
-      - If exact match yields few results, also search by make + trim (e.g. "BMW M550i") or model line + trim; many OEM parts are shared across years and engine variants.
-      - Prefer filling every OEM part number when you find a reliable source (OEM catalog, dealer, parts site). Only use "N/A" when no reasonable source is found after trying the fallback ladder below.
-      
-      FALLBACK LADDER (try in order; use first tier that returns part numbers)
-      1) Exact vehicle (year + make + model + trim + engine code)
-      2) Same trim, different year (e.g. 2019–2021 M550i)
-      3) Same engine code in same make/model family
-      4) Same model line + trim without engine code (e.g. "BMW 5 Series M550i parts")
-      
-      Rules:
-      - Every field MUST be present.
-      - Use "N/A" only when no reliable part number is found after the fallback ladder. Do NOT default to N/A when a plausible match exists.
-      - Do NOT invent OEM part numbers. When a part number appears in OEM/dealer/parts catalog sources, include it.
-      - Prefer values that are specific to: exact year/trim/engine code > same engine code > same model/gen > generic.
-      - confidence_score: 0.90+ verified exact match, 0.70-0.89 strong match (same engine code/platform), 0.50-0.69 partial/estimated, <0.50 mostly unknown.
-      
-      Return this JSON shape:
-      
-      {
-        "engine_specs": {
-          "oil_viscosity": "",
-          "oil_capacity_qts": 0,
-          "oil_change_interval": "",
-          "coolant_type": "",
-          "coolant_capacity_qts": 0,
-          "brake_fluid_type": "",
-          "tire_rotation_interval": "",
-          "spark_plug_interval": "",
-          "serpentine_belt_interval": "",
-          "transmission_fluid_interval": "",
-          "engine_air_filter_interval": "",
-          "cabin_air_filter_interval": ""
-        },
-        "vehicle_specs": {
-          "oil_filter_oem": "",
-          "oil_drain_plug_gasket_oem": "",
-          "engine_air_filter_oem": "",
-          "cabin_air_filter_oem": "",
-          "front_brake_pad_oem": "",
-          "rear_brake_pad_oem": "",
-          "front_brake_rotor_oem": "",
-          "rear_brake_rotor_oem": "",
-          "spark_plug_oem": "",
-          "spark_plug_quantity": 0,
-          "spark_plug_gap_mm": 0,
-          "serpentine_belt_oem": "",
-          "battery_group": "",
-          "battery_cca": 0,
-          "oil_viscosity": "",
-          "oil_capacity_qts": 0,
-          "parking_brake_type": ""
-        },
-        "trim_specs": {
-          "tire_size_front": "",
-          "tire_size_rear": "",
-          "recommended_tire_pressure_front_psi": 0,
-          "recommended_tire_pressure_rear_psi": 0,
-          "lug_nut_torque_ft_lbs": 0,
-          "wiper_blade_driver_size_in": 0,
-          "wiper_blade_passenger_size_in": 0,
-          "parking_brake_type": ""
-        },
-        "confidence_score": 0
-      }`;
-
+      console.log(`[Call 1A] Fluids & intervals: ${vehicleDesc}`);
+      const fluidsPrompt = buildFluidsPrompt(vehicleDesc, args, effectiveEngineCode);
       try {
         const response = await fetchAnthropicWithRetry(anthropicKey, {
           model: "claude-sonnet-4-5-20250929",
-          messages: [{ role: "user", content: specsPrompt }],
-          max_tokens: 50000,
+          messages: [{ role: "user", content: fluidsPrompt }],
+          max_tokens: 8000,
           temperature: 0.1,
-          tools: [
-            {
-              type: "web_search_20250305",
-              name: "web_search",
-              max_uses: 10,
-            },
-          ],
+          tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 8 }],
         });
-
         if (!response.ok) {
-          console.error("Claude API error (base specs):", await response.text());
+          console.error("Claude API error (fluids):", await response.text());
           return;
         }
-
         const result = await response.json();
         const specs = extractJsonFromContentBlocks(result.content || []);
+        confidenceScore = specs.confidence_score ?? 0.75;
 
-        confidenceScore = specs.confidence_score || 0.75;
-
-        // ── Store engine_specs ──
         if (specs.engine_specs) {
           oilViscosity = specs.engine_specs.oil_viscosity || "N/A";
           oilCapacityQts = parseFloat(specs.engine_specs.oil_capacity_qts) || 0;
@@ -334,51 +279,183 @@ export const enrichVehicleSpecs = internalAction({
             confidenceScore,
           });
         }
-
-        // ── Store vehicle_specs ──
-        if (specs.vehicle_specs) {
-          await ctx.runMutation(internal.vehicle_mutations.storeVehicleSpecs, {
+        if (specs.vehicle_attributes) {
+          vehicleAttributes = { ...vehicleAttributes, ...specs.vehicle_attributes };
+          await ctx.runMutation(internal.vehicle_mutations.updateEngineAttributes, {
             engineId: args.engineId,
-            specs: specs.vehicle_specs,
-            confidenceScore,
+            attributes: specs.vehicle_attributes,
           });
         }
-
-        // ── Store trim_specs ──
-        if (specs.trim_specs) {
-          const engine = await ctx.runQuery(internal.vehicle_mutations.getEngine, { engineId: args.engineId });
-          if (engine) {
-            await ctx.runMutation(internal.vehicle_mutations.storeTrimSpecs, {
-              trimId: engine.trim_id,
-              specs: specs.trim_specs,
-              confidenceScore,
-            });
-          }
-        }
-
-        // ── Log the enrichment ──
         await ctx.runMutation(internal.vehicle_mutations.logEnrichment, {
           engineId: args.engineId,
           confidenceScore,
-          source: "claude-sonnet",
+          source: "claude-sonnet-fluids",
         });
-
-        console.log(`Enriched specs for ${vehicleDesc} (confidence: ${confidenceScore})`);
+        console.log(`[Call 1A] Done — confidence: ${confidenceScore}`);
       } catch (error) {
-        console.error("AI enrichment error (base specs):", error);
+        console.error("AI enrichment error (fluids):", error);
         await ctx.runMutation(internal.vehicle_mutations.logEnrichment, {
           engineId: args.engineId,
           confidenceScore: 0,
-          source: "claude-sonnet-failed",
+          source: "claude-sonnet-fluids-failed",
         });
-        // Don't return — still attempt pricing if base specs existed before
         if (!existingSpecs) return;
+      }
+      await delay(10_000);
+
+      // ============================================================
+      // CALL 1B — OEM Part Numbers + Trim Specs
+      // ============================================================
+      console.log(`[Call 1B] Part numbers: ${vehicleDesc}`);
+      const partsPrompt = buildPartsPrompt(vehicleDesc, args, effectiveEngineCode, vehicleAttributes);
+      try {
+        const response = await fetchAnthropicWithRetry(anthropicKey, {
+          model: "claude-sonnet-4-5-20250929",
+          messages: [{ role: "user", content: partsPrompt }],
+          max_tokens: 8000,
+          temperature: 0.1,
+          tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 10 }],
+        });
+        if (!response.ok) {
+          console.error("Claude API error (parts):", await response.text());
+        } else {
+          const result = await response.json();
+          const specs = extractJsonFromContentBlocks(result.content || []);
+          if (specs.vehicle_specs) {
+            const { flat, confidences, nulls } = flattenPerFieldSpecs(specs.vehicle_specs);
+            flatVehicleSpecs = flat;
+            fieldConfidences = confidences;
+            nullFields = nulls;
+
+            const validatedSpecs = { ...flat };
+            const oemFields = [
+              "oil_filter_oem", "oil_drain_plug_gasket_oem", "engine_air_filter_oem", "cabin_air_filter_oem",
+              "front_brake_pad_oem", "rear_brake_pad_oem", "front_brake_rotor_oem", "rear_brake_rotor_oem",
+              "spark_plug_oem", "serpentine_belt_oem",
+            ] as const;
+            for (const field of oemFields) {
+              const partNum = flat[field];
+              if (!partNum || partNum === "N/A" || partNum === "" || partNum === 0) continue;
+              const validation = await validateOEMPart(ctx, String(partNum), args.engineId, args.make);
+              if (!validation.valid) {
+                console.warn(`[Validate] ${field} "${partNum}": ${validation.reason}`);
+                (validatedSpecs as any)[field] = "N/A";
+              }
+            }
+            await ctx.runMutation(internal.vehicle_mutations.storeVehicleSpecs, {
+              engineId: args.engineId,
+              specs: validatedSpecs,
+              confidenceScore: specs.overall_confidence ?? 0.70,
+            });
+            flatVehicleSpecs = validatedSpecs;
+          }
+          if (specs.trim_specs) {
+            const { flat: trimFlat } = flattenPerFieldSpecs(specs.trim_specs);
+            const engine = await ctx.runQuery(internal.vehicle_mutations.getEngine, { engineId: args.engineId });
+            if (engine) {
+              await ctx.runMutation(internal.vehicle_mutations.storeTrimSpecs, {
+                trimId: engine.trim_id,
+                specs: trimFlat,
+                confidenceScore: specs.overall_confidence ?? 0.70,
+              });
+            }
+          }
+          console.log(`[Call 1B] Done — ${nullFields.length} null fields`);
+        }
+      } catch (error) {
+        console.error("AI enrichment error (parts):", error);
+      }
+      await delay(10_000);
+
+      // ============================================================
+      // GAP FILL — Cross-reference siblings, then targeted AI retry
+      // ============================================================
+      const lowConfFields = Object.entries(fieldConfidences)
+        .filter(([, conf]) => conf < 0.70)
+        .map(([f]) => f);
+      const fieldsToRetry = [...new Set([...nullFields, ...lowConfFields])];
+      if (fieldsToRetry.length > 0 && effectiveEngineCode) {
+        console.log(`[Gap Fill] ${fieldsToRetry.length} fields need attention`);
+        const crossRefResults = await crossReferenceFromSiblings(
+          ctx,
+          effectiveEngineCode,
+          args.engineId,
+          fieldsToRetry,
+        );
+        const crossRefUpdates: Record<string, any> = {};
+        const remainingFields: string[] = [];
+        for (const field of fieldsToRetry) {
+          if (crossRefResults[field]) {
+            crossRefUpdates[field] = crossRefResults[field].value;
+            fieldConfidences[field] = crossRefResults[field].confidence;
+            flatVehicleSpecs[field] = crossRefResults[field].value;
+          } else {
+            remainingFields.push(field);
+          }
+        }
+        if (Object.keys(crossRefUpdates).length > 0) {
+          await ctx.runMutation(internal.vehicle_mutations.updateVehicleSpecs, {
+            engineId: args.engineId,
+            updates: crossRefUpdates,
+          });
+          console.log(`[Gap Fill] Cross-referenced ${Object.keys(crossRefUpdates).length} fields from siblings`);
+        }
+        if (remainingFields.length > 0 && remainingFields.length <= 8) {
+          console.log(`[Gap Fill] AI retry for ${remainingFields.length} remaining fields`);
+          const gapPrompt = buildGapFillPrompt(vehicleDesc, args, effectiveEngineCode, remainingFields);
+          try {
+            await delay(10_000);
+            const response = await fetchAnthropicWithRetry(anthropicKey, {
+              model: "claude-sonnet-4-5-20250929",
+              messages: [{ role: "user", content: gapPrompt }],
+              max_tokens: 4000,
+              temperature: 0.1,
+              tools: [{ type: "web_search_20250305", name: "web_search", max_uses: 5 }],
+            });
+            if (response.ok) {
+              const result = await response.json();
+              const gapData = extractJsonFromContentBlocks(result.content || []);
+              const gapUpdates: Record<string, any> = {};
+              for (const [field, data] of Object.entries(gapData)) {
+                const d = data as { value?: any; confidence?: number } | null;
+                if (d && typeof d === "object" && "value" in d && d.value != null && (d.confidence ?? 0) >= 0.60) {
+                  gapUpdates[field] = d.value;
+                  fieldConfidences[field] = d.confidence ?? 0.65;
+                  flatVehicleSpecs[field] = d.value;
+                }
+              }
+              if (Object.keys(gapUpdates).length > 0) {
+                await ctx.runMutation(internal.vehicle_mutations.updateVehicleSpecs, {
+                  engineId: args.engineId,
+                  updates: gapUpdates,
+                });
+                console.log(`[Gap Fill] AI filled ${Object.keys(gapUpdates).length} fields`);
+              }
+            }
+          } catch (error) {
+            console.error("Gap fill error:", error);
+          }
+        }
       }
     } else {
       // Base specs already exist — pull values for pricing prompt context
       oilViscosity = existingSpecs.oil_viscosity || "N/A";
       oilCapacityQts = existingSpecs.oil_capacity_qts || 0;
       confidenceScore = existingSpecs.confidence_score || 0.75;
+      vehicleAttributes = {
+        power_steering_type: existingSpecs.power_steering_type ?? null,
+        timing_system: existingSpecs.timing_system ?? null,
+        has_turbocharger: existingSpecs.has_turbocharger ?? null,
+        fuel_injection_type: existingSpecs.fuel_injection_type ?? null,
+        transmission_type: existingSpecs.transmission_type ?? null,
+        drivetrain_type: existingSpecs.drivetrain_type ?? null,
+      };
+      const existingVehicleSpecs = await ctx.runQuery(internal.vehicle_mutations.getVehicleSpecs, {
+        engineId: args.engineId,
+      });
+      if (existingVehicleSpecs) {
+        flatVehicleSpecs = existingVehicleSpecs;
+      }
     }
 
     // ============================================================
@@ -402,6 +479,22 @@ export const enrichVehicleSpecs = internalAction({
           )
           .join("\n");
 
+        const knownParts = Object.entries(flatVehicleSpecs)
+          .filter(([k, v]) => k.endsWith("_oem") && v && v !== "N/A" && String(v).trim())
+          .map(([field, value]) => `  - ${field}: ${value}`)
+          .join("\n");
+
+        const attrLines: string[] = [];
+        if (vehicleAttributes.power_steering_type)
+          attrLines.push(`- Power steering: ${vehicleAttributes.power_steering_type}`);
+        if (vehicleAttributes.timing_system) attrLines.push(`- Timing: ${vehicleAttributes.timing_system}`);
+        if (vehicleAttributes.has_turbocharger != null)
+          attrLines.push(`- Turbocharger: ${vehicleAttributes.has_turbocharger ? "yes" : "no"}`);
+        if (vehicleAttributes.transmission_type)
+          attrLines.push(`- Transmission: ${vehicleAttributes.transmission_type}`);
+        if (vehicleAttributes.drivetrain_type)
+          attrLines.push(`- Drivetrain: ${vehicleAttributes.drivetrain_type}`);
+
         const pricingPrompt = `You are an automotive service pricing specialist.
 
           Vehicle: ${vehicleDesc}
@@ -412,8 +505,20 @@ export const enrichVehicleSpecs = internalAction({
           - Engine: ${args.displacement}L ${args.cylinders}-cyl ${args.fuelType}
           - Engine code: ${effectiveEngineCode}
           
+          VEHICLE ATTRIBUTES (use to mark N/A services):
+          ${attrLines.length ? attrLines.join("\n") : "  (none)"}
+          
+          KNOWN OEM PART NUMBERS (search for actual MSRP/dealer retail when pricing — use parts_cost_high as the quote buffer):
+          ${knownParts || "  (none available — estimate from vehicle class)"}
+          
           Services to price (include ALL of them):
           ${serviceList}
+          
+          SERVICE APPLICABILITY — Mark is_applicable: false when:
+          - Power steering flush → electric power steering
+          - Differential service → FWD (no rear differential)
+          - Timing belt replacement → timing chain
+          For N/A services: labor_hours=0, parts_cost=0, tech_notes="NOT APPLICABLE: <reason>".
           
           GOAL
           For EACH service slug, return labor_hours and parts_cost_low/high for THIS vehicle.
@@ -455,6 +560,8 @@ export const enrichVehicleSpecs = internalAction({
           [
             {
               "slug": "oil-change",
+              "is_applicable": true,
+              "not_applicable_reason": null,
               "labor_hours": 0,
               "parts_cost_low": 0,
               "parts_cost_high": 0,
@@ -468,10 +575,12 @@ export const enrichVehicleSpecs = internalAction({
             }
           ]
           
-          RETURN ONLY valid JSON array (no extra text). Each element MUST include EXACT fields:
+          RETURN ONLY valid JSON array (no extra text). Each element:
           [
             {
               "slug": string,
+              "is_applicable": true | false,
+              "not_applicable_reason": string | null,
               "labor_hours": number,
               "parts_cost_low": number,
               "parts_cost_high": number,
@@ -521,11 +630,14 @@ export const enrichVehicleSpecs = internalAction({
             continue;
           }
 
+          const isApplicable = item.is_applicable !== false;
           const laborHours = parseFloat(item.labor_hours) || svc.default_labor_hours;
-          const partsCostLow = parseFloat(item.parts_cost_low) || 0;
-          const partsCostHigh = parseFloat(item.parts_cost_high) || 0;
+          const partsCostLow = isApplicable ? (parseFloat(item.parts_cost_low) || 0) : 0;
+          const partsCostHigh = isApplicable ? (parseFloat(item.parts_cost_high) || 0) : 0;
           const itemConfidence = parseFloat(item.confidence_score) || 0.6;
-          const techNotes = item.tech_notes || "";
+          const techNotes = item.is_applicable === false
+            ? `NOT APPLICABLE: ${item.not_applicable_reason || ""}`
+            : (item.tech_notes || "");
 
           await ctx.runMutation(internal.vehicle_mutations.upsertServiceVehicleSpec, {
             engineId: args.engineId,
@@ -533,8 +645,9 @@ export const enrichVehicleSpecs = internalAction({
             laborHours,
             partsCostLow,
             partsCostHigh,
-            confidenceScore: itemConfidence,
+            confidenceScore: isApplicable ? itemConfidence : 0.90,
             techNotes,
+            ...(item.is_applicable === false && { isApplicable: false }),
           });
 
           await ctx.runMutation(internal.vehicle_mutations.logServiceEnrichment, {
@@ -852,6 +965,307 @@ Output a single line with only the engine code, or "unknown" if you cannot deter
     console.error("Engine code inference error:", e);
     return "";
   }
+}
+
+// ---------------------------------------------------------------------------
+// Prompt builders & helpers (Call 1A, 1B, Gap Fill)
+// ---------------------------------------------------------------------------
+
+interface VehicleAttributes {
+  power_steering_type: string | null;
+  timing_system: string | null;
+  has_turbocharger: boolean | null;
+  fuel_injection_type: string | null;
+  transmission_type: string | null;
+  drivetrain_type: string | null;
+}
+
+function buildFluidsPrompt(
+  vehicleDesc: string,
+  args: { make: string; model: string; year: number; trim: string; displacement: string },
+  engineCode: string,
+): string {
+  return `You are an automotive maintenance specialist. Extract fluid specs, maintenance intervals, and vehicle mechanical attributes.
+
+Vehicle: ${vehicleDesc}
+
+TASK: Extract engine_specs (fluids, intervals) and vehicle_attributes. Use 8 web searches.
+
+SEARCH STRATEGY:
+1. "${args.year} ${args.make} ${args.model} owner's manual maintenance schedule"
+2. "${args.make} ${engineCode || args.displacement + "L"} oil type capacity"
+3. "${args.year} ${args.make} ${args.model} ${args.trim} service intervals"
+4. "${args.year} ${args.make} ${args.model} power steering type timing chain or belt"
+5-8. Fill remaining gaps.
+
+For intervals: provide display string AND structured fields (_miles, _months, _status).
+- interval_status: "scheduled" | "not_applicable" | "conditional_severe" | "lifetime" | "inspect_only" | "data_unavailable"
+
+vehicle_attributes (from general knowledge or search): power_steering_type, timing_system, has_turbocharger, fuel_injection_type, transmission_type, drivetrain_type.
+
+Return ONLY valid JSON:
+{
+  "engine_specs": {
+    "oil_viscosity": "", "oil_capacity_qts": 0,
+    "oil_change_interval": "", "oil_change_interval_miles": null, "oil_change_interval_months": null, "oil_change_interval_status": "scheduled",
+    "coolant_type": "", "coolant_capacity_qts": 0, "coolant_interval": "", "coolant_interval_miles": null, "coolant_interval_months": null, "coolant_interval_status": "scheduled",
+    "brake_fluid_type": "", "brake_fluid_interval": "", "brake_fluid_interval_miles": null, "brake_fluid_interval_months": null, "brake_fluid_interval_status": "scheduled",
+    "tire_rotation_interval": "", "tire_rotation_interval_miles": null, "tire_rotation_interval_months": null, "tire_rotation_interval_status": "scheduled",
+    "engine_air_filter_interval": "", "engine_air_filter_interval_miles": null, "engine_air_filter_interval_months": null, "engine_air_filter_interval_status": "scheduled",
+    "cabin_air_filter_interval": "", "cabin_air_filter_interval_miles": null, "cabin_air_filter_interval_months": null, "cabin_air_filter_interval_status": "scheduled",
+    "spark_plug_interval": "", "spark_plug_interval_miles": null, "spark_plug_interval_months": null, "spark_plug_interval_status": "scheduled",
+    "serpentine_belt_interval": "", "serpentine_belt_interval_miles": null, "serpentine_belt_interval_months": null, "serpentine_belt_interval_status": "scheduled",
+    "transmission_fluid_interval": "", "transmission_fluid_interval_miles": null, "transmission_fluid_interval_months": null, "transmission_fluid_interval_status": "scheduled",
+    "transmission_fluid_severe_interval_miles": null, "transmission_fluid_severe_note": null
+  },
+  "vehicle_attributes": {
+    "power_steering_type": null, "timing_system": null, "has_turbocharger": null,
+    "fuel_injection_type": null, "transmission_type": null, "drivetrain_type": null
+  },
+  "confidence_score": 0
+}`;
+}
+
+function buildPartsPrompt(
+  vehicleDesc: string,
+  args: { make: string; model: string; year: number; trim: string },
+  engineCode: string,
+  attributes: VehicleAttributes,
+): string {
+  const year = Math.round(args.year);
+  const skips: string[] = [];
+  if (attributes.power_steering_type === "electric") skips.push("SKIP power steering parts");
+  if (attributes.timing_system === "chain") skips.push("SKIP timing belt");
+  const skipBlock = skips.length ? `\nPARTS TO SKIP: ${skips.join("; ")}\n` : "";
+
+  return `You are an OEM automotive parts specialist. Find exact manufacturer part numbers.
+
+Vehicle: ${vehicleDesc}${skipBlock}
+
+CRITICAL: Parts MUST be verified for model year ${year}. If unverified for ${year}, set confidence ≤ 0.5.
+
+For each field: { "value": "... or null", "confidence": 0.0-1.0, "source": "..." }.
+0.9+ = OEM catalog, 0.7-0.89 = cross-ref, 0.5-0.69 = same engine/platform, ≤0.5 = unverified.
+
+Return ONLY valid JSON:
+{
+  "vehicle_specs": {
+    "oil_filter_oem": { "value": null, "confidence": 0, "source": null },
+    "oil_drain_plug_gasket_oem": { "value": null, "confidence": 0, "source": null },
+    "engine_air_filter_oem": { "value": null, "confidence": 0, "source": null },
+    "cabin_air_filter_oem": { "value": null, "confidence": 0, "source": null },
+    "front_brake_pad_oem": { "value": null, "confidence": 0, "source": null },
+    "rear_brake_pad_oem": { "value": null, "confidence": 0, "source": null },
+    "front_brake_rotor_oem": { "value": null, "confidence": 0, "source": null },
+    "rear_brake_rotor_oem": { "value": null, "confidence": 0, "source": null },
+    "spark_plug_oem": { "value": null, "confidence": 0, "source": null },
+    "spark_plug_quantity": { "value": 4, "confidence": 0.95 },
+    "spark_plug_gap_mm": { "value": null, "confidence": 0 },
+    "serpentine_belt_oem": { "value": null, "confidence": 0, "source": null },
+    "battery_group": { "value": null, "confidence": 0 },
+    "battery_cca": { "value": null, "confidence": 0 },
+    "parking_brake_type": { "value": null, "confidence": 0 }
+  },
+  "trim_specs": {
+    "tire_size_front": { "value": null, "confidence": 0 }, "tire_size_rear": { "value": null, "confidence": 0 },
+    "recommended_tire_pressure_front_psi": { "value": null, "confidence": 0 },
+    "recommended_tire_pressure_rear_psi": { "value": null, "confidence": 0 },
+    "lug_nut_torque_ft_lbs": { "value": null, "confidence": 0 },
+    "wiper_blade_driver_size_in": { "value": null, "confidence": 0 },
+    "wiper_blade_passenger_size_in": { "value": null, "confidence": 0 }
+  },
+  "overall_confidence": 0
+}`;
+}
+
+function buildGapFillPrompt(
+  vehicleDesc: string,
+  args: { make: string; model: string; year: number },
+  engineCode: string,
+  missingFields: string[],
+): string {
+  const desc: Record<string, string> = {
+    oil_filter_oem: "OEM oil filter part number",
+    oil_drain_plug_gasket_oem: "OEM drain plug gasket",
+    engine_air_filter_oem: "OEM engine air filter",
+    cabin_air_filter_oem: "OEM cabin air filter",
+    front_brake_pad_oem: "OEM front brake pad set",
+    rear_brake_pad_oem: "OEM rear brake pad set",
+    front_brake_rotor_oem: "OEM front brake rotor",
+    rear_brake_rotor_oem: "OEM rear brake rotor",
+    spark_plug_oem: "OEM spark plug part number",
+    spark_plug_quantity: "Number of spark plugs",
+    spark_plug_gap_mm: "Spark plug gap mm",
+    serpentine_belt_oem: "OEM serpentine belt",
+    battery_group: "Battery group size",
+    battery_cca: "Cold cranking amps",
+  };
+  const list = missingFields.map((f) => `- ${f}: ${desc[f] || f}`).join("\n");
+  const genRange = getGenerationRange(args.year, args.make, args.model);
+  return `Fill SPECIFIC missing data for: ${vehicleDesc}
+
+MISSING FIELDS: ${list}
+
+Search "${args.make} ${args.model} ${args.year} [part]" for each. If not found, try engine ${engineCode} in other ${args.make} models or ${genRange}.
+Return null if unverified. null is better than wrong part number.
+
+Return JSON: { "field_name": { "value": "..." | null, "confidence": 0.0-1.0, "source": "..." }, ... }`;
+}
+
+function flattenPerFieldSpecs(specs: Record<string, any>): {
+  flat: Record<string, any>;
+  confidences: Record<string, number>;
+  nulls: string[];
+} {
+  const flat: Record<string, any> = {};
+  const confidences: Record<string, number> = {};
+  const nulls: string[] = [];
+  for (const [field, data] of Object.entries(specs)) {
+    if (data && typeof data === "object" && "value" in data) {
+      flat[field] = (data as { value: any }).value;
+      confidences[field] = (data as { confidence?: number }).confidence ?? 0;
+      const v = (data as { value: any }).value;
+      if (v === null || v === undefined || v === "" || v === "N/A") nulls.push(field);
+    } else {
+      flat[field] = data;
+      confidences[field] = 0.70;
+      if (data == null || data === "" || data === "N/A") nulls.push(field);
+    }
+  }
+  return { flat, confidences, nulls };
+}
+
+const CROSS_REF_SAFE = new Set([
+  "oil_filter_oem", "oil_drain_plug_gasket_oem", "engine_air_filter_oem",
+  "spark_plug_oem", "spark_plug_quantity", "spark_plug_gap_mm", "serpentine_belt_oem",
+]);
+
+async function crossReferenceFromSiblings(
+  ctx: { runQuery: (ref: any, args: any) => Promise<any> },
+  engineCode: string,
+  currentEngineId: string,
+  missingFields: string[],
+): Promise<Record<string, { value: any; confidence: number; source: string }>> {
+  const found: Record<string, { value: any; confidence: number; source: string }> = {};
+  const toCheck = missingFields.filter((f) => CROSS_REF_SAFE.has(f));
+  if (toCheck.length === 0) return found;
+  const siblings = await ctx.runQuery(internal.vehicle_mutations.getEnginesByCode, { engineCode });
+  for (const sibling of siblings) {
+    if (sibling._id === currentEngineId) continue;
+    const specs = await ctx.runQuery(internal.vehicle_mutations.getVehicleSpecs, { engineId: sibling._id });
+    if (!specs) continue;
+    for (const field of toCheck) {
+      if (found[field]) continue;
+      const val = (specs as Record<string, any>)[field];
+      if (val && val !== "N/A" && val !== "" && val !== 0) {
+        found[field] = { value: val, confidence: 0.80, source: `cross_ref_engine_${sibling._id}` };
+      }
+    }
+    if (toCheck.every((f) => found[f])) break;
+  }
+  return found;
+}
+
+function getGenerationRange(year: number, make: string, model: string): string {
+  const gens: Record<string, [number, number][]> = {
+    "Honda CR-V": [[2012, 2016], [2017, 2022], [2023, 2027]],
+    "Honda Accord": [[2013, 2017], [2018, 2022], [2023, 2027]],
+    "Honda Civic": [[2012, 2015], [2016, 2021], [2022, 2027]],
+    "Toyota Camry": [[2012, 2017], [2018, 2024], [2025, 2027]],
+    "Toyota RAV4": [[2013, 2018], [2019, 2025]],
+    "BMW 3 Series": [[2012, 2018], [2019, 2027]],
+    "BMW 5 Series": [[2011, 2016], [2017, 2023], [2024, 2027]],
+  };
+  const key = `${make} ${model}`;
+  const list = gens[key];
+  if (!list) return `${year - 2} to ${year + 2}`;
+  const match = list.find(([a, b]) => year >= a && year <= b);
+  return match ? `${match[0]}–${match[1]} ${make} ${model}` : `${year - 2} to ${year + 2}`;
+}
+
+// ---------------------------------------------------------------------------
+// Part number validation (Layer 3)
+// ---------------------------------------------------------------------------
+
+/** OEM part number format patterns by make (relaxed — some OEMs vary). */
+const PART_NUMBER_PATTERNS: Record<string, RegExp[]> = {
+  Honda: [/^[A-Z0-9]{3,4}-[A-Z0-9]{3,6}-[A-Z0-9]{2,4}$/i, /^[0-9]{8}-[A-Z0-9]{3}$/i],
+  Toyota: [/^[0-9]{5}-[0-9]{5}$/, /^[0-9]{10}$/, /^9[0-9]{9}$/],
+  Nissan: [/^[0-9]{5}-[A-Z0-9]{2}[A-Z0-9]{2,4}$/i, /^[0-9]{10}$/],
+  BMW: [/^[0-9]{2}\s[0-9]\s[0-9]\s[0-9]{3}\s[0-9]{3}$/, /^[0-9]{11}$/],
+  Mercedes: [/^[A-Z]{3}[0-9]{8}$/i],
+  Ford: [/^[A-Z0-9]{2}[A-Z0-9]{2}-[0-9]{4}[A-Z]$/i, /^[0-9]{4}[A-Z0-9]{4}$/i],
+  Chevrolet: [/^[0-9]{8}$/, /^[0-9]{10}$/],
+  Hyundai: [/^[0-9]{5}-[A-Z0-9]{5}$/i],
+  Kia: [/^[0-9]{5}-[A-Z0-9]{5}$/i],
+  Subaru: [/^[0-9]{5}-[A-Z0-9]{5}$/i],
+  Mazda: [/^[A-Z0-9]{4}-[0-9]{2}-[0-9]{3}[A-Z]?$/i],
+  Volkswagen: [/^[0-9]{3}\s[0-9]{3}\s[0-9]{3}[A-Z]?$/i, /^[0-9]{9}[A-Z]?$/i],
+  Audi: [/^[0-9]{3}\s[0-9]{3}\s[0-9]{3}[A-Z]?$/i],
+};
+
+function validatePartNumberFormat(partNumber: string, make: string): boolean {
+  const normalized = partNumber.trim();
+  if (!normalized || normalized === "N/A") return true; // Skip empty
+  if (normalized.length < 4 || normalized.length > 24) return false;
+
+  const makeKey = make.trim();
+  const patterns = PART_NUMBER_PATTERNS[makeKey];
+  if (patterns) {
+    return patterns.some((p) => p.test(normalized));
+  }
+  // Unknown make: accept alphanumeric with common separators (-, space)
+  return /^[A-Z0-9\s\-\.]+$/i.test(normalized);
+}
+
+export type ValidateOEMPartResult =
+  | { valid: true }
+  | { valid: false; reason: string; flag?: "year_mismatch" | "format_invalid" };
+
+/**
+ * Validate an OEM part before saving.
+ * - Check 1: Part already mapped to different model year (same model) = suspicious
+ * - Check 2: OEM part number format validation (brand-specific patterns)
+ */
+async function validateOEMPart(
+  ctx: { runQuery: (ref: any, args: any) => Promise<any> },
+  partNumber: string,
+  engineId: import("./_generated/dataModel").Id<"engines">,
+  make: string,
+): Promise<ValidateOEMPartResult> {
+  const normalized = partNumber.trim();
+  if (!normalized || normalized === "N/A") return { valid: true };
+
+  const formatValid = validatePartNumberFormat(partNumber, make);
+  if (!formatValid) {
+    return { valid: false, reason: "Part number format invalid for make", flag: "format_invalid" };
+  }
+
+  const engineContext = await ctx.runQuery(internal.vehicle_mutations.getEngineWithTrimModel, { engineId });
+  if (!engineContext?.trim || !engineContext?.model) return { valid: true }; // Can't validate, allow
+
+  const currentYear = engineContext.trim.year_start; // Use trim year range
+  const currentModel = engineContext.model.name;
+
+  const existingFitments = await ctx.runQuery(internal.vehicle_mutations.getOtherEnginesWithPartNumber, {
+    partNumber: normalized,
+    excludeEngineId: engineId,
+  });
+
+  for (const fitment of existingFitments) {
+    if (fitment.model_name === currentModel) {
+      const otherYearRange = fitment.year_start;
+      if (otherYearRange !== currentYear) {
+        return {
+          valid: false,
+          reason: "Part already mapped to different model year",
+          flag: "year_mismatch",
+        };
+      }
+    }
+  }
+
+  return { valid: true };
 }
 
 /**

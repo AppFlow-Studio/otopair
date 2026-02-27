@@ -122,7 +122,9 @@ export default defineSchema({
     engine_code: v.string(),
     fuel_type: v.string(),
     trim_id: v.id("trims"),
-  }).index("by_trim_id", ["trim_id"]),
+  })
+    .index("by_trim_id", ["trim_id"])
+    .index("by_engine_code", ["engine_code"]),
 
   /**
    * TABLE: vehicle_specs
@@ -479,6 +481,7 @@ export default defineSchema({
     parts_cost_low: v.float64(),
     service_id: v.id("services"),
     tech_notes: v.string(),
+    is_applicable: v.optional(v.boolean()), // false = service N/A for this vehicle
   })
     .index("by_engine_id", ["engine_id"])
     .index("by_service_id", ["service_id"])
@@ -1111,6 +1114,43 @@ export default defineSchema({
     tire_rotation_interval: v.optional(v.string()),
     confidence_score: v.optional(v.float64()), // 0-1
     created_at: v.float64(),
+    // Structured intervals (_miles, _months, _status)
+    oil_change_interval_miles: v.optional(v.float64()),
+    oil_change_interval_months: v.optional(v.float64()),
+    oil_change_interval_status: v.optional(v.string()),
+    coolant_interval_miles: v.optional(v.float64()),
+    coolant_interval_months: v.optional(v.float64()),
+    coolant_interval_status: v.optional(v.string()),
+    brake_fluid_interval_miles: v.optional(v.float64()),
+    brake_fluid_interval_months: v.optional(v.float64()),
+    brake_fluid_interval_status: v.optional(v.string()),
+    tire_rotation_interval_miles: v.optional(v.float64()),
+    tire_rotation_interval_months: v.optional(v.float64()),
+    tire_rotation_interval_status: v.optional(v.string()),
+    engine_air_filter_interval_miles: v.optional(v.float64()),
+    engine_air_filter_interval_months: v.optional(v.float64()),
+    engine_air_filter_interval_status: v.optional(v.string()),
+    cabin_air_filter_interval_miles: v.optional(v.float64()),
+    cabin_air_filter_interval_months: v.optional(v.float64()),
+    cabin_air_filter_interval_status: v.optional(v.string()),
+    spark_plug_interval_miles: v.optional(v.float64()),
+    spark_plug_interval_months: v.optional(v.float64()),
+    spark_plug_interval_status: v.optional(v.string()),
+    serpentine_belt_interval_miles: v.optional(v.float64()),
+    serpentine_belt_interval_months: v.optional(v.float64()),
+    serpentine_belt_interval_status: v.optional(v.string()),
+    transmission_fluid_interval_miles: v.optional(v.float64()),
+    transmission_fluid_interval_months: v.optional(v.float64()),
+    transmission_fluid_interval_status: v.optional(v.string()),
+    transmission_fluid_severe_interval_miles: v.optional(v.float64()),
+    transmission_fluid_severe_note: v.optional(v.string()),
+    // Vehicle attributes (power steering, timing, etc.)
+    power_steering_type: v.optional(v.string()),
+    timing_system: v.optional(v.string()),
+    has_turbocharger: v.optional(v.boolean()),
+    fuel_injection_type: v.optional(v.string()),
+    transmission_type: v.optional(v.string()),
+    drivetrain_type: v.optional(v.string()),
   }).index("by_engine", ["engine_id"]),
 
   /**

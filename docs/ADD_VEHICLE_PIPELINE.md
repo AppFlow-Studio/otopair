@@ -2,7 +2,7 @@
 
 **Purpose:** Documents how adding a car populates the vehicle catalog and intelligence tables using NHTSA VIN decode, Smartcar OAuth (optional), and Anthropic Claude AI for spec research.
 
-**See also:** [REFERENCE.md](./REFERENCE.md) (schema), [DATA_MODEL_VEHICLE_SPECS.md](./DATA_MODEL_VEHICLE_SPECS.md) (spec fields), [convex/vehicle_pipeline.ts](../convex/vehicle_pipeline.ts), [convex/smartcar.ts](../convex/smartcar.ts).
+**See also:** [REFERENCE.md](./REFERENCE.md) (schema), [DATA_MODEL_VEHICLE_SPECS.md](./DATA_MODEL_VEHICLE_SPECS.md) (spec fields), [VEHICLE_PIPELINE_IMPROVEMENTS.md](./VEHICLE_PIPELINE_IMPROVEMENTS.md) (recent enhancements), [convex/vehicle_pipeline.ts](../convex/vehicle_pipeline.ts), [convex/smartcar.ts](../convex/smartcar.ts).
 
 ---
 
@@ -60,18 +60,27 @@ There are two entry points for adding a vehicle; both feed into the same pipelin
 
 Triggered after a vehicle is added (via `confirmVehicleForUser` or `exchangeCodeAndConnect`). Scheduled in background with `scheduler.runAfter(0, ...)`.
 
-### Claude Call #1 — Base specs
+### Call 1A — Fluids, intervals & vehicle attributes
 
-- **Model:** Claude Sonnet 4.5 with `web_search_20250305`.
-- **Writes to:** `engine_specs`, `vehicle_specs`, `trim_specs`.
-- **Fields:** oil viscosity/capacity/intervals, coolant, brake fluid, OEM part numbers (filters, pads, rotors, spark plugs, belt, battery), tire sizes/pressures, lug torque, wiper sizes, etc.
-- **Re-enrichment guard:** Skips if specs already exist for this engine.
+- **Model:** Claude Sonnet 4.5 with `web_search_20250305` (8 web searches).
+- **Writes to:** `engine_specs` (including structured intervals), `engine_specs` via `updateEngineAttributes` (vehicle attributes).
+- **Fields:** oil viscosity/capacity, coolant, brake fluid, maintenance intervals with `_miles` / `_months` / `_status`, vehicle attributes (power steering type, timing system, drivetrain, turbo, etc.).
 
-### Claude Call #2 — Service pricing
+### Call 1B — OEM part numbers & trim specs
+
+- **Model:** Claude Sonnet 4.5 with `web_search_20250305` (10 web searches).
+- **Writes to:** `vehicle_specs`, `trim_specs`.
+- **Fields:** OEM part numbers (per-field confidence), tire sizes/pressures, lug torque, wiper sizes. Skips power steering / timing belt parts when attributes indicate they don't apply. Part numbers are validated before save (year-mismatch, format checks).
+
+### Gap fill — Cross-reference & targeted retry
+
+- Sibling engines (same `engine_code`) are cross-referenced for missing parts; then a targeted AI call fills remaining nulls (≤8 fields).
+
+### Call 2 — Service pricing
 
 - **Model:** Claude Sonnet 4.5 with web search.
 - **Writes to:** `service_vehicle_specs`.
-- **Fields:** labor hours, parts_cost_low, parts_cost_high, tech_notes per service.
+- **Fields:** labor hours, parts_cost_low, parts_cost_high, tech_notes, `is_applicable` (for N/A services). Receives vehicle attributes and known OEM part numbers for more accurate pricing.
 - **Re-enrichment guard:** Skips if service_vehicle_specs already exist for this engine.
 
 Both calls log to **ai_enrichment_logs** for audit.
@@ -103,8 +112,10 @@ Smartcar OAuth ── exchangeCodeAndConnect ───────────�
                            │
                            ▼
                   enrichVehicleSpecs (Claude)
-                    ├── Call 1: engine_specs, vehicle_specs, trim_specs
-                    └── Call 2: service_vehicle_specs (pricing)
+                    ├── Call 1A: engine_specs (fluids/intervals), vehicle attributes
+                    ├── Call 1B: vehicle_specs, trim_specs (+ validation)
+                    ├── Gap fill: cross-reference siblings, targeted AI retry
+                    └── Call 2: service_vehicle_specs (pricing, is_applicable)
 ```
 
 ---
