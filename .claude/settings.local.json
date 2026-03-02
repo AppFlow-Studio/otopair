@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(done)",
+      "Bash(ls -la \"/c/Users/manso/Desktop/otopair-1/app/\\(main-tabs\\)/\")",
+      "Bash(ls -la \"/c/Users/manso/Desktop/otopair-1/app/\\(main-tabs\\)/settings/\")",
+      "Bash(npx tsc --noEmit --pretty)"
+    ]
+  }
+}
