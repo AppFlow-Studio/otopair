@@ -59,7 +59,6 @@ export default function AddVehicleReviewScreen() {
   const [selectedColor, setSelectedColor] = useState('');
 
   const confirmVehicle = useAction(api.vehicle_pipeline.confirmVehicleForUser);
-  const generateVehicleImage = useAction(api.imagin.generateVehicleImage);
   const { connect, isConnecting, error: smartcarError } = useSmartcar();
 
   const CAR_COLORS = [
@@ -130,18 +129,10 @@ export default function AddVehicleReviewScreen() {
         displacement: params.displacement || '',
         cylinders: parseFloat(params.cylinders || '0'),
         fuelType: params.fuelType || 'Gasoline',
+        color: selectedColor || undefined,
       });
 
       if (result.success) {
-        if (params.make && params.model && params.vin) {
-          generateVehicleImage({
-            vin: params.vin,
-            make: params.make,
-            model: params.model,
-            year: parseFloat(params.year || "0") || undefined,
-            paintDescription: selectedColor || undefined,
-          }).catch((e: any) => console.warn("Vehicle image generation failed", e));
-        }
         router.replace({
           pathname: '/car-pre-onboarding',
           params: {

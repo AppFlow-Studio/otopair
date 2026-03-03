@@ -13,6 +13,7 @@
  */
 
 import { query, mutation } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
 
 /**
@@ -55,27 +56,38 @@ export const upsertRecord = mutation({
       )
       .unique();
 
+    let recordId;
     if (existing) {
-      // Update existing record
       await ctx.db.patch(existing._id, {
         lastServiceDate: args.lastServiceDate,
         lastServiceMileage: args.lastServiceMileage,
         customInputs: args.customInputs,
         updatedAt: now,
       });
-      return existing._id;
+      recordId = existing._id;
+    } else {
+      recordId = await ctx.db.insert("maintenance_records", {
+        vehicleOwnerId: args.vehicleOwnerId,
+        type: args.type,
+        lastServiceDate: args.lastServiceDate,
+        lastServiceMileage: args.lastServiceMileage,
+        customInputs: args.customInputs,
+        createdAt: now,
+        updatedAt: now,
+      });
     }
 
-    // Insert new record
-    return await ctx.db.insert("maintenance_records", {
-      vehicleOwnerId: args.vehicleOwnerId,
-      type: args.type,
-      lastServiceDate: args.lastServiceDate,
-      lastServiceMileage: args.lastServiceMileage,
-      customInputs: args.customInputs,
-      createdAt: now,
-      updatedAt: now,
-    });
+    // Re-run pipeline so health score reflects the updated service data
+    const owner = await ctx.db.get(args.vehicleOwnerId);
+    if (owner?.preOnboardingComplete) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.maintenance_pipeline.runPipeline,
+        { vehicleOwnerId: args.vehicleOwnerId, triggeredBy: "quick_read" }
+      );
+    }
+
+    return recordId;
   },
 });
 

@@ -86,6 +86,10 @@ interface CarCarouselProps {
   showHealthRing?: boolean;
   /** Pre-computed unified health score (0–100) from utils/healthScore.ts */
   healthScore?: number;
+  /** True when showing the pipeline estimate (pre-onboarding done, CarInfoStepper not done) */
+  isEstimatedScore?: boolean;
+  /** Called when the user taps to resume the Quick Read from the estimated modal */
+  onResumeCheckin?: () => void;
 }
 
 // ============================================================================
@@ -149,6 +153,8 @@ interface VehicleHealthModalProps {
   servicePercentage: number;
   maintenanceItems?: import("@/components/cars/MaintenanceTracker").MaintenanceItem[];
   currentMileage?: number;
+  isEstimated?: boolean;
+  onResumeCheckin?: () => void;
 }
 
 const VehicleHealthModal = ({
@@ -160,9 +166,14 @@ const VehicleHealthModal = ({
   servicePercentage,
   maintenanceItems: realItems,
   currentMileage: realMileage,
+  isEstimated,
+  onResumeCheckin,
 }: VehicleHealthModalProps) => {
   const slideAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const ringScaleAnim = useRef(new Animated.Value(1)).current;
+  const ringGlowAnim = useRef(new Animated.Value(0)).current;
+  const ringPulseAnim = useRef(new Animated.Value(1)).current;
   
   // Animated ring values for staggered animation
   const [animatedHealth, setAnimatedHealth] = useState(0);
@@ -282,8 +293,11 @@ const VehicleHealthModal = ({
       setProgressHealth(0);
       setProgressMaintenance(0);
       setProgressService(0);
+      ringScaleAnim.setValue(1);
+      ringGlowAnim.setValue(0);
+      ringPulseAnim.setValue(1);
 
-      // Open modal animation
+      // Open modal + glow + pulse all at once
       Animated.parallel([
         Animated.spring(slideAnim, {
           toValue: 0,
@@ -296,9 +310,17 @@ const VehicleHealthModal = ({
           duration: 300,
           useNativeDriver: true,
         }),
+        Animated.timing(ringGlowAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
       ]).start();
 
-      // Staggered ring animations: green first (0ms), yellow (200ms), red (400ms)
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(ringPulseAnim, { toValue: 1.08, duration: 1500, useNativeDriver: true }),
+          Animated.timing(ringPulseAnim, { toValue: 1, duration: 1500, useNativeDriver: true }),
+        ]),
+      ).start();
+
+      // Staggered ring animations
       const animateRing = (
         setter: (val: number) => void,
         target: number,
@@ -312,15 +334,13 @@ const VehicleHealthModal = ({
 
           const interval = setInterval(() => {
             currentStep++;
-            const progress = 1 - Math.pow(1 - currentStep / steps, 3); // easeOut
+            const progress = 1 - Math.pow(1 - currentStep / steps, 3);
             setter(progress * target);
             if (currentStep >= steps) clearInterval(interval);
           }, stepDuration);
         }, delay);
       };
 
-      // Overall condition first, then maintenance, then usage
-      // Uses the same values as the metrics: calculatedCondition, maintenanceScore, usageScore
       animateRing(setAnimatedService, calculatedCondition, 0);
       animateRing(setProgressService, calculatedCondition, 0);
       animateRing(setAnimatedHealth, maintenanceScore, 200);
@@ -367,47 +387,35 @@ const VehicleHealthModal = ({
 
   const renderRings = () => (
     <View style={modalStyles.ringsContainer}>
-      <Svg width={modalRingSize} height={modalRingSize}>
-        <Defs>
-          <SvgLinearGradient id="mainRingGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-            <Stop offset="0%" stopColor={ringColor} />
-            <Stop offset="100%" stopColor={ringColor} />
-          </SvgLinearGradient>
-        </Defs>
+      <Animated.View style={[modalStyles.ringGlow, {
+        backgroundColor: ringColor,
+        opacity: Animated.multiply(ringGlowAnim, new Animated.Value(0.12)),
+        transform: [{ scale: ringPulseAnim }],
+      }]} />
+      <Animated.View style={[modalStyles.ringGlowInner, {
+        backgroundColor: ringColor,
+        opacity: Animated.multiply(ringGlowAnim, new Animated.Value(0.06)),
+        transform: [{ scale: ringPulseAnim }],
+      }]} />
+      <Animated.View style={{ transform: [{ scale: ringScaleAnim }] }}>
+        <Svg width={modalRingSize} height={modalRingSize}>
+          <Defs>
+            <SvgLinearGradient id="mainRingGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+              <Stop offset="0%" stopColor={ringColor} />
+              <Stop offset="50%" stopColor={ringColor} stopOpacity={0.9} />
+              <Stop offset="100%" stopColor={ringColor} stopOpacity={0.8} />
+            </SvgLinearGradient>
+          </Defs>
 
-        {/* Track (background ring) */}
-        <Circle
-          cx={center}
-          cy={center}
-          r={ringRadius}
-          stroke="rgba(48, 209, 88, 0.15)"
-          strokeWidth={ringStrokeWidth}
-          fill="none"
-        />
-        
-        {/* Progress ring */}
-        <Circle
-          cx={center}
-          cy={center}
-          r={ringRadius}
-          stroke={ringColor}
-          strokeWidth={ringStrokeWidth}
-          fill="none"
-          strokeDasharray={circumference}
-          strokeDashoffset={strokeDashoffset}
-          strokeLinecap="round"
-          rotation={-90}
-          origin={`${center}, ${center}`}
-        />
-      </Svg>
+          <Circle cx={center} cy={center} r={ringRadius} stroke={ringColor} strokeWidth={ringStrokeWidth} fill="none" opacity={0.15} />
+          <Circle cx={center} cy={center} r={ringRadius} stroke="url(#mainRingGradient)" strokeWidth={ringStrokeWidth} fill="none" strokeDasharray={circumference} strokeDashoffset={strokeDashoffset} strokeLinecap="round" rotation={-90} origin={`${center}, ${center}`} />
+          <Circle cx={center} cy={center} r={ringRadius} stroke={ringColor} strokeWidth={ringStrokeWidth + 4} fill="none" strokeDasharray={circumference} strokeDashoffset={strokeDashoffset} strokeLinecap="round" rotation={-90} origin={`${center}, ${center}`} opacity={0.2} />
+        </Svg>
+      </Animated.View>
       
-      {/* Centered percentage text */}
       <View style={modalStyles.ringCenterContent}>
-        <View style={modalStyles.percentageRow}>
-          <Text style={modalStyles.percentageText}>{Math.round(overallPercentage)}</Text>
-          <Text style={modalStyles.percentageSymbol}>%</Text>
-        </View>
-        <Text style={modalStyles.optimizedText}>OPTIMIZED</Text>
+        <Text style={modalStyles.percentageText}>{Math.round(overallPercentage)}</Text>
+        <Text style={modalStyles.ringSubLabel}>out of 100</Text>
       </View>
     </View>
   );
@@ -494,17 +502,36 @@ const VehicleHealthModal = ({
 
           <View style={modalStyles.headerSeparator} />
 
-          {/* Scrollable content */}
+          {isEstimated ? (
+            /* ── Simplified estimated view ── */
+            <View style={modalStyles.scrollContent}>
+              {renderRings()}
+
+              <Text style={modalStyles.estimatedLabel}>Estimated Score</Text>
+              <Text style={modalStyles.estimatedSubtitle}>
+                Based on your vehicle's age, mileage, and driving habits.
+              </Text>
+
+              <Pressable
+                style={({ pressed }) => [modalStyles.resumeCheckinButton, pressed && { opacity: 0.85 }]}
+                onPress={() => { onClose(); setTimeout(() => onResumeCheckin?.(), 350); }}
+              >
+                <Text style={modalStyles.resumeCheckinText}>
+                  Get my complete score
+                </Text>
+              </Pressable>
+            </View>
+          ) : (
+            /* ── Full breakdown view ── */
+            <>
           <ScrollView 
             style={modalStyles.scrollView}
             contentContainerStyle={modalStyles.scrollContent}
             showsVerticalScrollIndicator={false}
             bounces={true}
           >
-            {/* Large rings display */}
             {renderRings()}
 
-            {/* What Affects Your Score */}
             <View style={modalStyles.breakdownSection}>
               <View style={modalStyles.sectionTitleRow}>
                 <Text style={modalStyles.sectionTitle}>WHAT AFFECTS YOUR SCORE</Text>
@@ -517,17 +544,15 @@ const VehicleHealthModal = ({
                 </Pressable>
               </View>
               
-              {/* Overall Vehicle Condition - first */}
               {renderBreakdownRow(
                 metrics[0].color,
                 metrics[0].name,
                 metrics[0].subtitle,
                 metrics[0].percentage,
-                progressService, // Uses the calculated condition animation
+                progressService,
                 metrics[0].displayValue,
                 metrics[0].scoreImpact
               )}
-              {/* Maintenance */}
               {renderBreakdownRow(
                 metrics[1].color,
                 metrics[1].name,
@@ -537,7 +562,6 @@ const VehicleHealthModal = ({
                 metrics[1].displayValue,
                 metrics[1].scoreImpact
               )}
-              {/* Usage & Wear */}
               {renderBreakdownRow(
                 metrics[2].color,
                 metrics[2].name,
@@ -549,7 +573,6 @@ const VehicleHealthModal = ({
               )}
             </View>
 
-            {/* How to Improve Your Score - Glassy Style */}
             {needsAttention && (
               <View style={modalStyles.attentionCardOuter}>
                 <BlurView intensity={20} tint="light" style={modalStyles.attentionBlur}>
@@ -557,7 +580,6 @@ const VehicleHealthModal = ({
                     colors={['rgba(82, 153, 254, 0.12)', 'rgba(82, 153, 254, 0.06)']}
                     style={StyleSheet.absoluteFill}
                   />
-                  {/* Glossy top highlight */}
                   <LinearGradient
                     colors={['rgba(255, 255, 255, 0.5)', 'rgba(255, 255, 255, 0)']}
                     locations={[0, 0.5]}
@@ -580,7 +602,6 @@ const VehicleHealthModal = ({
                         ]}
                         onPress={() => toggleServiceSelection(index)}
                       >
-                        {/* Checkbox */}
                         <View style={[
                           modalStyles.checkbox,
                           isSelected && modalStyles.checkboxSelected
@@ -617,7 +638,6 @@ const VehicleHealthModal = ({
                     );
                   })}
                   
-                  {/* Total potential improvement */}
                   <View style={modalStyles.totalImprovementRow}>
                     <Text style={modalStyles.totalImprovementLabel}>Complete all to gain</Text>
                     <Text style={modalStyles.totalImprovementValue}>
@@ -628,11 +648,9 @@ const VehicleHealthModal = ({
               </View>
             )}
 
-            {/* Bottom padding for sticky button */}
             <View style={{ height: 20 }} />
           </ScrollView>
           
-          {/* Schedule Service Button - Sticky & Glassy */}
           <View style={modalStyles.scheduleButtonContainer}>
             <Pressable style={modalStyles.scheduleButton}>
               <BlurView intensity={80} tint="dark" style={modalStyles.scheduleButtonBlur}>
@@ -642,7 +660,6 @@ const VehicleHealthModal = ({
                     : ['rgba(40, 40, 40, 0.9)', 'rgba(20, 20, 20, 0.95)']}
                   style={StyleSheet.absoluteFill}
                 />
-                {/* Glossy top highlight */}
                 <LinearGradient
                   colors={['rgba(255, 255, 255, 0.15)', 'rgba(255, 255, 255, 0)']}
                   locations={[0, 0.5]}
@@ -661,6 +678,8 @@ const VehicleHealthModal = ({
               </View>
             </Pressable>
           </View>
+            </>
+          )}
         </Animated.View>
 
         {/* Info Modal - Explains the formula */}
@@ -810,36 +829,40 @@ const modalStyles = StyleSheet.create({
   ringsContainer: {
     alignItems: 'center',
     justifyContent: 'center',
+    alignSelf: 'center',
     marginVertical: 20,
     position: 'relative',
+    width: 200,
+    height: 200,
+  },
+  ringGlow: {
+    position: 'absolute',
+    width: 220,
+    height: 220,
+    borderRadius: 110,
+  },
+  ringGlowInner: {
+    position: 'absolute',
+    width: 170,
+    height: 170,
+    borderRadius: 85,
   },
   ringCenterContent: {
     position: 'absolute',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  percentageRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-  },
   percentageText: {
-    fontSize: 48,
+    fontSize: 42,
     fontFamily: 'Urbanist-Bold',
-    color: '#1a1a1a',
-    lineHeight: 52,
+    color: '#1F2937',
+    lineHeight: 46,
   },
-  percentageSymbol: {
-    fontSize: 24,
-    fontFamily: 'Urbanist-Bold',
-    color: '#1a1a1a',
-    marginTop: 6,
-  },
-  optimizedText: {
+  ringSubLabel: {
     fontSize: 12,
     fontFamily: 'Urbanist-SemiBold',
     color: '#9CA3AF',
-    letterSpacing: 1.5,
-    marginTop: 2,
+    marginTop: -2,
   },
   breakdownSection: {
     marginTop: 16,
@@ -1084,6 +1107,43 @@ const modalStyles = StyleSheet.create({
     paddingBottom: 20,
     paddingTop: 8,
     backgroundColor: '#fff',
+  },
+  estimatedLabel: {
+    fontSize: 13,
+    fontFamily: 'Urbanist-SemiBold',
+    color: '#9CA3AF',
+    letterSpacing: 1,
+    textAlign: 'center',
+    textTransform: 'uppercase',
+    marginTop: -4,
+  },
+  estimatedSubtitle: {
+    fontSize: 14,
+    fontFamily: 'Urbanist-Regular',
+    color: '#6B7280',
+    textAlign: 'center',
+    lineHeight: 20,
+    marginTop: 8,
+    paddingHorizontal: 8,
+  },
+  resumeCheckinButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#5299FE',
+    borderRadius: 25,
+    paddingVertical: 16,
+    paddingHorizontal: 24,
+    marginTop: 24,
+    width: '100%',
+  },
+  resumeCheckinText: {
+    fontSize: 15,
+    fontFamily: 'Urbanist-SemiBold',
+    color: '#FFFFFF',
+    textAlign: 'center',
+    flex: 1,
   },
   scheduleButton: {
     borderRadius: 25,
@@ -1418,7 +1478,7 @@ const CircularCarouselItem = memo(({ item, index, rotation, totalItems }: Carous
           item.make === 'Lamborghini' && styles.carouselCarImageLambo,
           { transform: [{ translateY: 155 }] },
         ]}
-        resizeMode="contain"
+        resizeMode="stretch"
       />
       
       {/* Simple Reflection */}
@@ -1429,7 +1489,7 @@ const CircularCarouselItem = memo(({ item, index, rotation, totalItems }: Carous
           item.make === 'Lexus' && styles.carouselReflectionLexus,
           item.make === 'Lamborghini' && styles.carouselReflectionLambo
         ]}
-        resizeMode="contain"
+        resizeMode="stretch"
       />
     </ReAnimated.View>
   );
@@ -1449,6 +1509,8 @@ export function CarCarousel({
   currentMileage,
   showHealthRing = true,
   healthScore: parentHealthScore,
+  isEstimatedScore,
+  onResumeCheckin,
 }: CarCarouselProps) {
   // Trust parent ordering to keep indices consistent across screens.
   const sortedVehicles = useMemo(() => vehicles, [vehicles]);
@@ -1950,6 +2012,8 @@ export function CarCarousel({
         servicePercentage={usageScoreForRing}
         maintenanceItems={maintenanceItems}
         currentMileage={vehicleMileage}
+        isEstimated={isEstimatedScore}
+        onResumeCheckin={onResumeCheckin}
       />
     </View>
   );
@@ -2007,8 +2071,8 @@ const styles = StyleSheet.create({
     height: 240,
   },
   carouselCarImage: {
-    width: '140%',
-    height: 260,
+    width: '100%',
+    height: 180,
     zIndex: 1,
   },
   carouselCarImageLexus: {
@@ -2018,8 +2082,8 @@ const styles = StyleSheet.create({
     // No longer needed — dynamic images have consistent sizing
   },
   carouselReflection: {
-    width: '140%',
-    height: 240,
+    width: '100%',
+    height: 180,
     transform: [{ scaleY: -1 }],
     opacity: 0.03,
     marginTop: -40,

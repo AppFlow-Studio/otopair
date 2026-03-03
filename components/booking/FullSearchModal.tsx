@@ -36,10 +36,12 @@ import { BorderRadius, FontFamily, FontSize, Shadows } from "@/constants/theme";
 import type { ServiceCategory } from "@/stores/types/store.types";
 import { useRecentlyBookedMechanicIdsFromConvex } from "@/hooks/useRecentlyBookedMechanicIdsFromConvex";
 import { useRecentlyBookedShopIdsFromConvex } from "@/hooks/useRecentlyBookedShopIdsFromConvex";
+import { useSmartPricing } from "@/hooks/useSmartPricing";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useSearchStore, type SearchSuggestion } from "@/stores/useSearchStore";
 import { useShopStore } from "@/stores/useShopStore";
+import { useVehicleStore } from "@/stores/useVehicleStore";
 
 // ============================================================================
 // TYPES
@@ -106,6 +108,9 @@ export function FullSearchModal({
 
   // ═══════════════ STORES ═══════════════
   const availableServices = useBookingStore((state) => state.availableServices);
+  const selectedVehicle = useVehicleStore((state) => state.getSelectedVehicle());
+  const allServiceIds = useMemo(() => availableServices.map((s) => s.id), [availableServices]);
+  const smartPricing = useSmartPricing(selectedVehicle?.engineId, allServiceIds);
   const getRecentShopIds = useSearchStore((state) => state.getRecentShopIds);
   const getSearchSuggestions = useSearchStore((state) => state.getSearchSuggestions);
   const removeRecentShop = useSearchStore((state) => state.removeRecentShop);
@@ -410,11 +415,33 @@ export function FullSearchModal({
                       </Text>
                     )}
                   </View>
-                  {suggestion.type === "service" && (
-                    <Text size="md" weight="bold" color={BrandColors.secondary}>
-                      ${suggestion.service.price}
-                    </Text>
-                  )}
+                  {suggestion.type === "service" && (() => {
+                    const sp = smartPricing[suggestion.service.id];
+                    if (sp?.hasEngineData && sp.result.tier !== "contact") {
+                      return (
+                        <View style={{ alignItems: "flex-end" }}>
+                          <Text size="md" weight="bold" color={BrandColors.secondary}>
+                            {sp.formatted}
+                          </Text>
+                          <Text size="xs" weight="medium" color="#9CA3AF">
+                            {sp.result.label}
+                          </Text>
+                        </View>
+                      );
+                    }
+                    if (sp?.hasEngineData && sp.result.tier === "contact") {
+                      return (
+                        <Text size="xs" weight="medium" color="#9CA3AF">
+                          Contact for Quote
+                        </Text>
+                      );
+                    }
+                    return (
+                      <Text size="md" weight="bold" color={BrandColors.secondary}>
+                        ${suggestion.service.price}
+                      </Text>
+                    );
+                  })()}
                 </TouchableOpacity>
               ))}
             </View>

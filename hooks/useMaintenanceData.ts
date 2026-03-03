@@ -191,13 +191,27 @@ export function useMergedMaintenance(
         }
       }
 
+      const fallback: Record<string, { status: MaintenanceItem["status"]; description: string; detail: string }> = {
+        oil:    { status: "due_soon",  description: "No oil change data — service recommended", detail: "Check soon" },
+        brakes: { status: "on_time",   description: "No brake concerns reported",              detail: "On time" },
+        tires:  { status: "on_time",   description: "No tire concerns reported",               detail: "On time" },
+        battery:{ status: "on_time",   description: "No battery concerns reported",            detail: "On time" },
+      };
+      const fb = fallback[type] ?? { status: "on_time" as const, description: "No concerns reported", detail: "On time" };
       result.push({
         id: `unknown-${type}`,
         serviceName: MAINTENANCE_LABELS[type] || type,
-        description: "No data available",
-        detail: "Unknown",
-        status: "unknown",
+        description: fb.description,
+        detail: fb.detail,
+        status: fb.status,
       });
+    }
+
+    // Append inspection records when they exist (inspection is excluded from the
+    // default loop since the stepper doesn't ask about it)
+    const inspectionItem = userItems.get("inspection");
+    if (inspectionItem) {
+      result.push(inspectionItem);
     }
 
     return result;

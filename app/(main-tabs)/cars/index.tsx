@@ -10,6 +10,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import Svg, { Circle, Defs, LinearGradient as SvgLinearGradient, Stop } from "react-native-svg";
+import LottieView from "lottie-react-native";
 
 // 3. Convex & hooks
 import { useAction, useMutation } from "convex/react";
@@ -33,7 +34,8 @@ import CarCarousel, { Vehicle } from "@/components/cars/CarCarousel";
 import LoyaltyPoints from "@/components/cars/LoyaltyPoints";
 import MaintenanceTracker from "@/components/cars/MaintenanceTracker";
 import MaintenanceInputModal from "@/components/cars/MaintenanceInputModal";
-import CarInfoStepper from "@/components/cars/CarInfoStepper";
+import { CheckinBanner } from "@/components/cars/CheckinBanner";
+import CarInfoStepper, { type CarInfoStepperHandle } from "@/components/cars/CarInfoStepper";
 import ServiceHistory, { ServiceRecord } from "@/components/cars/ServiceHistory";
 import VehicleStatsCard from "@/components/cars/VehicleStatsCard";
 
@@ -83,17 +85,30 @@ export default function CarsHomeScreen() {
   // so it's guaranteed true before any Convex subscription update can cause a render.
   // This prevents the maintenance tracker from flashing even for a single frame.
   const celebrationFlowActive = useRef(false);
+  // State mirror of celebrationFlowActive so ref mutations trigger re-renders
+  const [celebrationActive, setCelebrationActive] = useState(false);
   const [pendingHealthSheet, setPendingHealthSheet] = useState(false);
   const [showHealthRingSheet, setShowHealthRingSheet] = useState(false);
-  const healthSheetY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
-  const healthSheetBackdrop = useRef(new Animated.Value(0)).current;
-  const [healthSheetModal, setHealthSheetModal] = useState(false);
+  const [localOnboardingDone, setLocalOnboardingDone] = useState(false);
+  // Page-transition animated values (replaces bottom-sheet slide-up)
+  const mainPageSlideX = useRef(new Animated.Value(0)).current;
+  const mainPageFade = useRef(new Animated.Value(1)).current;
+  const healthPageSlideX = useRef(new Animated.Value(300)).current;
+  const healthPageFade = useRef(new Animated.Value(0)).current;
+  const [healthPageVisible, setHealthPageVisible] = useState(false);
 
   // Post-celebration reveal animation
   const [revealingDashboard, setRevealingDashboard] = useState(false);
   const dashboardFade = useRef(new Animated.Value(0)).current;
   const dashboardSlide = useRef(new Animated.Value(20)).current;
   const skeletonPulse = useRef(new Animated.Value(0.3)).current;
+
+  // Fullscreen gears overlay
+  const [gearsOverlayVisible, setGearsOverlayVisible] = useState(false);
+  const [gearsPhase, setGearsPhase] = useState<'looping' | 'building' | 'ready'>('looping');
+  const gearsOverlayOpacity = useRef(new Animated.Value(1)).current;
+  const gearsBtnOpacity = useRef(new Animated.Value(0)).current;
+  const gearsLottieRef = useRef<any>(null);
 
   // Emotional animation refs
   const [displayedScore, setDisplayedScore] = useState(0);
@@ -108,17 +123,29 @@ export default function CarsHomeScreen() {
   const scoreCountRef = useRef<ReturnType<typeof setInterval> | null>(null);
   // Ref that always holds the latest computed score — avoids stale closures
   const latestScoreRef = useRef(0);
+  // Ref that holds the latest estimated (pre-confirmed) score
+  const latestEstimatedScoreRef = useRef(0);
+
+  // Health sheet display mode: 'estimated' shows stepper inside, 'confirmed' shows benefits + CTA
+  const [healthSheetMode, setHealthSheetMode] = useState<'estimated' | 'confirmed'>('confirmed');
+  const [estimatedPage, setEstimatedPage] = useState<'score' | 'checkin'>('score');
+  const pageSlideX = useRef(new Animated.Value(0)).current;
+  const pageFade = useRef(new Animated.Value(1)).current;
+  const stepperRef = useRef<CarInfoStepperHandle>(null);
+  // Mirrors healthSheetMode for use inside closeHealthSheet's stale closure
+  const healthSheetModeRef = useRef<'estimated' | 'confirmed'>('confirmed');
+  // Guards the estimated sheet trigger so it fires once per tab mount cycle
+  const estimatedSheetShownRef = useRef(false);
 
   const openHealthSheet = useCallback(() => {
+    setHealthSheetMode('confirmed');
     const target = latestScoreRef.current;
-    setHealthSheetModal(true);
+    setHealthPageVisible(true);
     setShowHealthRingSheet(true);
     setDisplayedScore(0);
     setRingProgress(0);
 
-    // Reset all animations
-    healthSheetY.setValue(SCREEN_HEIGHT);
-    healthSheetBackdrop.setValue(0);
+    // Reset content animations
     ringScale.setValue(0.3);
     ringGlow.setValue(0);
     titleFade.setValue(0);
@@ -126,11 +153,17 @@ export default function CarsHomeScreen() {
     benefitsFade.setValue(0);
     buttonFade.setValue(0);
     pulseAnim.setValue(1);
+    pageSlideX.setValue(0);
+    pageFade.setValue(1);
 
-    // Phase 1: Sheet slides up + backdrop fades in
+    // Reset page-transition positions
+    healthPageSlideX.setValue(300);
+    healthPageFade.setValue(0);
+
+    // Phase 1: Health page slides in from right
     Animated.parallel([
-      Animated.spring(healthSheetY, { toValue: 0, tension: 40, friction: 12, useNativeDriver: false }),
-      Animated.timing(healthSheetBackdrop, { toValue: 1, duration: 400, useNativeDriver: true }),
+      Animated.timing(healthPageSlideX, { toValue: 0, duration: 300, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+      Animated.timing(healthPageFade, { toValue: 1, duration: 300, easing: Easing.out(Easing.ease), useNativeDriver: true }),
     ]).start(() => {
       // Phase 2: Ring bounces in with glow
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -138,7 +171,6 @@ export default function CarsHomeScreen() {
         Animated.spring(ringScale, { toValue: 1, tension: 60, friction: 7, useNativeDriver: true }),
         Animated.timing(ringGlow, { toValue: 1, duration: 600, useNativeDriver: true }),
       ]).start(() => {
-        // Start gentle pulse loop on the glow
         Animated.loop(
           Animated.sequence([
             Animated.timing(pulseAnim, { toValue: 1.08, duration: 1500, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
@@ -174,43 +206,250 @@ export default function CarsHomeScreen() {
         Animated.timing(buttonFade, { toValue: 1, duration: 400, useNativeDriver: true }),
       ]).start();
     });
-  }, [healthSheetY, healthSheetBackdrop, ringScale, ringGlow, titleFade, subtitleFade, benefitsFade, buttonFade, pulseAnim]);
+  }, [healthPageSlideX, healthPageFade, ringScale, ringGlow, titleFade, subtitleFade, benefitsFade, buttonFade, pulseAnim]);
+
+  const openEstimatedHealthSheet = useCallback(() => {
+    setHealthSheetMode('estimated');
+    setEstimatedPage('score');
+    pageSlideX.setValue(0);
+    pageFade.setValue(1);
+    const target = latestEstimatedScoreRef.current;
+    setHealthPageVisible(true);
+    setShowHealthRingSheet(true);
+    setDisplayedScore(0);
+    setRingProgress(0);
+
+    // Reset content animations
+    ringScale.setValue(0.3);
+    ringGlow.setValue(0);
+    titleFade.setValue(0);
+    subtitleFade.setValue(0);
+    benefitsFade.setValue(0);
+    buttonFade.setValue(0);
+    pulseAnim.setValue(1);
+
+    // Reset page-transition positions
+    healthPageSlideX.setValue(300);
+    healthPageFade.setValue(0);
+
+    // Phase 1: Main page slides left + health page slides in from right
+    Animated.parallel([
+      Animated.timing(mainPageSlideX, { toValue: -300, duration: 300, easing: Easing.in(Easing.ease), useNativeDriver: true }),
+      Animated.timing(mainPageFade, { toValue: 0, duration: 250, easing: Easing.in(Easing.ease), useNativeDriver: true }),
+    ]).start();
+
+    setTimeout(() => {
+      Animated.parallel([
+        Animated.timing(healthPageSlideX, { toValue: 0, duration: 300, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+        Animated.timing(healthPageFade, { toValue: 1, duration: 300, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+      ]).start(() => {
+        // Phase 2: Ring bounces in with lighter haptic
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+        Animated.parallel([
+          Animated.spring(ringScale, { toValue: 1, tension: 60, friction: 7, useNativeDriver: true }),
+          Animated.timing(ringGlow, { toValue: 1, duration: 600, useNativeDriver: true }),
+        ]).start(() => {
+          Animated.loop(
+            Animated.sequence([
+              Animated.timing(pulseAnim, { toValue: 1.08, duration: 1500, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+              Animated.timing(pulseAnim, { toValue: 1, duration: 1500, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+            ]),
+          ).start();
+        });
+
+        // Phase 3: Count up the score number + ring fill simultaneously
+        const duration = 1000;
+        const steps = 40;
+        const stepDuration = duration / steps;
+        let currentStep = 0;
+        if (scoreCountRef.current) clearInterval(scoreCountRef.current);
+        scoreCountRef.current = setInterval(() => {
+          currentStep++;
+          const progress = 1 - Math.pow(1 - currentStep / steps, 3);
+          setDisplayedScore(Math.round(progress * target));
+          setRingProgress(progress * target);
+          if (currentStep >= steps) {
+            if (scoreCountRef.current) clearInterval(scoreCountRef.current);
+            setDisplayedScore(target);
+            setRingProgress(target);
+          }
+        }, stepDuration);
+
+        // Phase 4: Staggered content fade-ins
+        Animated.stagger(180, [
+          Animated.timing(titleFade, { toValue: 1, duration: 400, useNativeDriver: true }),
+          Animated.timing(subtitleFade, { toValue: 1, duration: 400, useNativeDriver: true }),
+          Animated.timing(benefitsFade, { toValue: 1, duration: 400, useNativeDriver: true }),
+          Animated.timing(buttonFade, { toValue: 1, duration: 400, useNativeDriver: true }),
+        ]).start();
+      });
+    }, 50);
+  }, [mainPageSlideX, mainPageFade, healthPageSlideX, healthPageFade, ringScale, ringGlow, titleFade, subtitleFade, benefitsFade, buttonFade, pulseAnim]);
+
+  const animateToCheckin = useCallback(() => {
+    Animated.parallel([
+      Animated.timing(pageSlideX, { toValue: -300, duration: 300, easing: Easing.in(Easing.ease), useNativeDriver: true }),
+      Animated.timing(pageFade, { toValue: 0, duration: 250, easing: Easing.in(Easing.ease), useNativeDriver: true }),
+    ]).start(() => {
+      setEstimatedPage('checkin');
+      pageSlideX.setValue(300);
+      setTimeout(() => {
+        Animated.parallel([
+          Animated.timing(pageSlideX, { toValue: 0, duration: 300, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+          Animated.timing(pageFade, { toValue: 1, duration: 300, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+        ]).start();
+      }, 50);
+    });
+  }, [pageSlideX, pageFade]);
+
+  const animateBackToScore = useCallback(() => {
+    Animated.parallel([
+      Animated.timing(pageSlideX, { toValue: 300, duration: 300, easing: Easing.in(Easing.ease), useNativeDriver: true }),
+      Animated.timing(pageFade, { toValue: 0, duration: 250, easing: Easing.in(Easing.ease), useNativeDriver: true }),
+    ]).start(() => {
+      setEstimatedPage('score');
+      pageSlideX.setValue(-300);
+      setTimeout(() => {
+        Animated.parallel([
+          Animated.timing(pageSlideX, { toValue: 0, duration: 300, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+          Animated.timing(pageFade, { toValue: 1, duration: 300, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+        ]).start();
+      }, 50);
+    });
+  }, [pageSlideX, pageFade]);
+
+  const animateToConfirmedScore = useCallback(() => {
+    // Slide stepper content out to the left + fade (within the health page)
+    Animated.parallel([
+      Animated.timing(pageSlideX, { toValue: -300, duration: 300, easing: Easing.in(Easing.ease), useNativeDriver: true }),
+      Animated.timing(pageFade, { toValue: 0, duration: 250, easing: Easing.in(Easing.ease), useNativeDriver: true }),
+    ]).start(() => {
+      // Switch to confirmed mode and reset internal page anim
+      setHealthSheetMode('confirmed');
+      setEstimatedPage('score');
+      pageSlideX.setValue(300);
+      pageFade.setValue(0);
+
+      // Show gears behind the health page before confirmed content slides in
+      setGearsOverlayVisible(true);
+      setGearsPhase('looping');
+      gearsOverlayOpacity.setValue(1);
+      gearsBtnOpacity.setValue(0);
+
+      // Reset confirmed content animations
+      ringScale.setValue(0.3);
+      ringGlow.setValue(0);
+      titleFade.setValue(0);
+      subtitleFade.setValue(0);
+      benefitsFade.setValue(0);
+      buttonFade.setValue(0);
+      pulseAnim.setValue(1);
+      setDisplayedScore(0);
+      setRingProgress(0);
+
+      setTimeout(() => {
+        // Slide confirmed content in from right
+        Animated.parallel([
+          Animated.timing(pageSlideX, { toValue: 0, duration: 300, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+          Animated.timing(pageFade, { toValue: 1, duration: 300, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+        ]).start(() => {
+          const target = latestScoreRef.current;
+          // Ring bounce + glow
+          Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+          Animated.parallel([
+            Animated.spring(ringScale, { toValue: 1, tension: 60, friction: 7, useNativeDriver: true }),
+            Animated.timing(ringGlow, { toValue: 1, duration: 600, useNativeDriver: true }),
+          ]).start(() => {
+            Animated.loop(
+              Animated.sequence([
+                Animated.timing(pulseAnim, { toValue: 1.08, duration: 1500, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+                Animated.timing(pulseAnim, { toValue: 1, duration: 1500, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+              ]),
+            ).start();
+          });
+
+          // Score count-up
+          const duration = 1000;
+          const steps = 40;
+          const stepDuration = duration / steps;
+          let currentStep = 0;
+          if (scoreCountRef.current) clearInterval(scoreCountRef.current);
+          scoreCountRef.current = setInterval(() => {
+            currentStep++;
+            const progress = 1 - Math.pow(1 - currentStep / steps, 3);
+            setDisplayedScore(Math.round(progress * target));
+            setRingProgress(progress * target);
+            if (currentStep >= steps) {
+              if (scoreCountRef.current) clearInterval(scoreCountRef.current);
+              setDisplayedScore(target);
+              setRingProgress(target);
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+            }
+          }, stepDuration);
+
+          // Staggered content fade-ins
+          Animated.stagger(180, [
+            Animated.timing(titleFade, { toValue: 1, duration: 400, useNativeDriver: true }),
+            Animated.timing(subtitleFade, { toValue: 1, duration: 400, useNativeDriver: true }),
+            Animated.timing(benefitsFade, { toValue: 1, duration: 400, useNativeDriver: true }),
+            Animated.timing(buttonFade, { toValue: 1, duration: 400, useNativeDriver: true }),
+          ]).start();
+        });
+      }, 100);
+    });
+  }, [pageSlideX, pageFade, gearsOverlayOpacity, gearsBtnOpacity, ringScale, ringGlow, titleFade, subtitleFade, benefitsFade, buttonFade, pulseAnim]);
 
   const closeHealthSheet = useCallback(() => {
     if (scoreCountRef.current) clearInterval(scoreCountRef.current);
-    Animated.parallel([
-      Animated.timing(healthSheetY, { toValue: SCREEN_HEIGHT, duration: 250, easing: Easing.bezier(0.25, 0.1, 0.25, 1), useNativeDriver: false }),
-      Animated.timing(healthSheetBackdrop, { toValue: 0, duration: 200, useNativeDriver: true }),
-    ]).start(() => {
-      setHealthSheetModal(false);
-      setShowHealthRingSheet(false);
-      // Start the reveal phase: show loading state, then fade in content
-      setRevealingDashboard(true);
-      dashboardFade.setValue(0);
-      dashboardSlide.setValue(20);
-      skeletonPulse.setValue(0.3);
 
-      // Pulse the skeleton lines
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(skeletonPulse, { toValue: 0.8, duration: 700, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-          Animated.timing(skeletonPulse, { toValue: 0.3, duration: 700, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        ]),
-      ).start();
-
-      // After the loading phase, fade in the real content
-      setTimeout(() => {
-        skeletonPulse.stopAnimation();
+    if (healthSheetModeRef.current === 'estimated') {
+      // Estimated mode: slide health page right, bring main page back
+      Animated.parallel([
+        Animated.timing(healthPageSlideX, { toValue: 300, duration: 300, easing: Easing.in(Easing.ease), useNativeDriver: true }),
+        Animated.timing(healthPageFade, { toValue: 0, duration: 250, easing: Easing.in(Easing.ease), useNativeDriver: true }),
+      ]).start(() => {
+        setHealthPageVisible(false);
+        setShowHealthRingSheet(false);
+        // Bring main page back in
+        mainPageSlideX.setValue(300);
+        mainPageFade.setValue(0);
         Animated.parallel([
-          Animated.timing(dashboardFade, { toValue: 1, duration: 500, easing: Easing.out(Easing.ease), useNativeDriver: true }),
-          Animated.timing(dashboardSlide, { toValue: 0, duration: 500, easing: Easing.out(Easing.ease), useNativeDriver: true }),
-        ]).start(() => {
-          celebrationFlowActive.current = false;
-          setRevealingDashboard(false);
-        });
-      }, 1400);
+          Animated.timing(mainPageSlideX, { toValue: 0, duration: 300, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+          Animated.timing(mainPageFade, { toValue: 1, duration: 300, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+        ]).start();
+      });
+    } else {
+      // Confirmed mode: slide health page right (reveals gears underneath), then run gears flow
+      Animated.parallel([
+        Animated.timing(healthPageSlideX, { toValue: 300, duration: 400, easing: Easing.in(Easing.ease), useNativeDriver: true }),
+        Animated.timing(healthPageFade, { toValue: 0, duration: 350, easing: Easing.in(Easing.ease), useNativeDriver: true }),
+      ]).start(() => {
+        setHealthPageVisible(false);
+        setShowHealthRingSheet(false);
+        setPendingHealthSheet(false);
+        // Transition gears overlay to building phase
+        setGearsPhase('building');
+        gearsBtnOpacity.setValue(0);
+
+        setTimeout(() => {
+          setGearsPhase('ready');
+          Animated.timing(gearsBtnOpacity, { toValue: 1, duration: 400, useNativeDriver: true }).start();
+        }, 5000);
+      });
+    }
+  }, [healthPageSlideX, healthPageFade, mainPageSlideX, mainPageFade, gearsBtnOpacity]);
+
+  const dismissGearsOverlay = useCallback(() => {
+    // Bring main page back in underneath, then fade out gears
+    mainPageSlideX.setValue(0);
+    mainPageFade.setValue(1);
+    Animated.timing(gearsOverlayOpacity, { toValue: 0, duration: 500, easing: Easing.out(Easing.ease), useNativeDriver: true }).start(() => {
+      setGearsOverlayVisible(false);
+      setGearsPhase('looping');
+      celebrationFlowActive.current = false;
+      setCelebrationActive(false);
     });
-  }, [healthSheetY, healthSheetBackdrop, dashboardFade, dashboardSlide]);
+  }, [gearsOverlayOpacity, mainPageSlideX, mainPageFade]);
 
   // Convex: user's vehicles
   const { userId } = useUserFromConvex();
@@ -251,12 +490,9 @@ export default function CarsHomeScreen() {
           mileage: o?.mileage ?? 0,
           nextServiceDate: undefined,
           isDefault: o?.is_primary ?? false,
-          // Prefer stable stored image_url; fallback to derived URL.
-          imageSource: v?.image_url
-            ? { uri: `${v.image_url}?v=${v.updated_at || v._creationTime}` }
-            : displayMake && displayModel
-              ? { uri: getVehicleImageUrl(displayMake, displayModel, v?.year, r.vin, paintColor) }
-              : undefined,
+          imageSource: displayMake && displayModel
+            ? { uri: getVehicleImageUrl(displayMake, displayModel, v?.year, r.vin, paintColor) }
+            : undefined,
           logoSource: undefined,
           condition: undefined,
           nextUnlock: undefined,
@@ -295,13 +531,18 @@ export default function CarsHomeScreen() {
   const activeOwnership = useMemo(() => ownerships[activeVehicleIndex], [ownerships, activeVehicleIndex]);
   const isPreOnboardingComplete = activeOwnership?.preOnboardingComplete === true;
 
-  // Onboarding state for non-Smartcar vehicles
-  const isOnboardingComplete = activeOwnership?.onboardingComplete === true;
+  // Onboarding state for non-Smartcar vehicles.
+  // localOnboardingDone is set immediately when the stepper finishes saving,
+  // working around a Convex subscription delay that can leave the field undefined.
+  const isOnboardingComplete = activeOwnership?.onboardingComplete === true || localOnboardingDone;
   // True only when onboarding is done AND the entire celebration flow is finished.
   // celebrationFlowActive.current is the synchronous guard that prevents any flash
   // between Convex pushing isOnboardingComplete and React applying state updates.
-  const celebrationDismissed = isOnboardingComplete && !pendingHealthSheet && !showHealthRingSheet && !celebrationFlowActive.current;
-  const showPostOnboardingContent = celebrationDismissed && !revealingDashboard;
+  const celebrationDismissed = isOnboardingComplete && !pendingHealthSheet && !showHealthRingSheet && !celebrationActive;
+  // Show post-onboarding content (MaintenanceTracker, etc.) once onboarding is
+  // confirmed and the reveal animation has finished. The health page is a
+  // full-screen overlay so content behind it is not visible — no need to gate on sheet flags.
+  const showPostOnboardingContent = isOnboardingComplete && !gearsOverlayVisible;
   const activeOwnershipMileage = activeOwnership?.mileage as number | undefined;
   const isNewVehicle = isPreOnboardingComplete && !isOnboardingComplete
     && activeOwnershipMileage != null && activeOwnershipMileage <= 1000;
@@ -314,7 +555,9 @@ export default function CarsHomeScreen() {
     (async () => {
       try {
         await autoCompleteNewVehicle({ vehicleOwnerId: activeOwnershipId });
+        setLocalOnboardingDone(true);
         celebrationFlowActive.current = true;
+        setCelebrationActive(true);
         setPendingHealthSheet(true);
       } catch (err) {
         console.warn("[AutoComplete] Failed for new vehicle:", err);
@@ -362,23 +605,53 @@ export default function CarsHomeScreen() {
         tirePressure: smartcarStats.tirePressure,
         fuelPercent: smartcarStats.fuel?.percentRemaining,
       } : undefined,
+      pipelineHealthScore: activeOwnership?.health_score as number | undefined,
+      pipelineIsEstimated: activeOwnership?.health_score_is_estimated as boolean | undefined,
     });
-  }, [mergedMaintenanceItems, currentOdometer, activeVehicle?.mileage, activeOwnershipKnownIssues, smartcarStats]);
+  }, [mergedMaintenanceItems, currentOdometer, activeVehicle?.mileage, activeOwnershipKnownIssues, smartcarStats, activeOwnership?.health_score, activeOwnership?.health_score_is_estimated]);
 
-  // Keep the ref in sync so openHealthSheet always reads the latest score
+  // Keep refs in sync so openHealthSheet/openEstimatedHealthSheet always read the latest scores
   latestScoreRef.current = computedHealthScore;
+  latestEstimatedScoreRef.current = (activeOwnership?.health_score as number | undefined) ?? 0;
+  healthSheetModeRef.current = healthSheetMode;
 
-  // Open the health sheet once Convex data has propagated after onboarding.
-  // We wait for isOnboardingComplete (Convex confirmed) AND currentOdometer
-  // to be non-null (mileage data is available for score calculation).
-  // NOTE: no cleanup/clearTimeout — the setPendingHealthSheet(false) call
-  // triggers a re-render whose cleanup would cancel the timer before it fires.
+  // Open the confirmed health sheet once onboarding data has propagated.
+  // Skip if the sheet is already visible (e.g. the estimated sheet transitioned
+  // to confirmed mode in-place) to avoid a double-animation glitch.
   useEffect(() => {
-    if (pendingHealthSheet && isOnboardingComplete && currentOdometer != null) {
+    if (pendingHealthSheet && isOnboardingComplete && currentOdometer != null && !healthPageVisible) {
       setPendingHealthSheet(false);
-      setTimeout(() => openHealthSheet(), 300);
+      setTimeout(() => openHealthSheet(), 1200);
     }
-  }, [pendingHealthSheet, isOnboardingComplete, currentOdometer, openHealthSheet]);
+  }, [pendingHealthSheet, isOnboardingComplete, currentOdometer, openHealthSheet, healthPageVisible]);
+
+  // Keep the health sheet score/ring in sync when computedHealthScore updates
+  // after the animation already finished (e.g. subscription delivers new data).
+  useEffect(() => {
+    if (showHealthRingSheet && healthSheetMode === 'confirmed') {
+      setDisplayedScore(computedHealthScore);
+      setRingProgress(computedHealthScore);
+    }
+  }, [computedHealthScore, showHealthRingSheet, healthSheetMode]);
+
+  // Open the estimated sheet once after pre-onboarding completes (before CarInfoStepper is done).
+  // State-based alternative to params.fromPreOnboarding — fires once per tab mount when conditions are met.
+  // Hide main page immediately so it doesn't flash before the health page slides in.
+  useEffect(() => {
+    if (
+      isPreOnboardingComplete &&
+      !isOnboardingComplete &&
+      !isNewVehicle &&
+      activeOwnership != null &&
+      !healthPageVisible &&
+      !estimatedSheetShownRef.current
+    ) {
+      estimatedSheetShownRef.current = true;
+      mainPageSlideX.setValue(-300);
+      mainPageFade.setValue(0);
+      setTimeout(() => openEstimatedHealthSheet(), 300);
+    }
+  }, [isPreOnboardingComplete, isOnboardingComplete, isNewVehicle, activeOwnership, healthPageVisible, openEstimatedHealthSheet, mainPageSlideX, mainPageFade]);
 
   // Maintenance input modal state
   const [maintenanceModalVisible, setMaintenanceModalVisible] = useState(false);
@@ -537,7 +810,8 @@ export default function CarsHomeScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Full Page Scroll */}
+      {/* Main page wrapper — animated out when health page slides in */}
+      <Animated.View style={{ flex: 1, opacity: mainPageFade, transform: [{ translateX: mainPageSlideX }] }}>
       <ScrollView
         ref={scrollViewRef}
         style={styles.scrollView}
@@ -584,8 +858,12 @@ export default function CarsHomeScreen() {
             isFocused={isFocused}
             maintenanceItems={mergedMaintenanceItems}
             currentMileage={currentOdometer}
-            showHealthRing={isActiveVehicleConnected || celebrationDismissed}
-            healthScore={computedHealthScore}
+            showHealthRing={isActiveVehicleConnected || celebrationDismissed || (isPreOnboardingComplete && !celebrationActive && !healthPageVisible)}
+            healthScore={isPreOnboardingComplete && !isOnboardingComplete
+              ? (activeOwnership?.health_score as number | undefined) ?? computedHealthScore
+              : computedHealthScore}
+            isEstimatedScore={isPreOnboardingComplete && !isOnboardingComplete}
+            onResumeCheckin={openEstimatedHealthSheet}
           />
         </View>
 
@@ -634,49 +912,7 @@ export default function CarsHomeScreen() {
             </View>
           )}
 
-          {/* Non-connected + pre-onboarding complete + no onboarding + NOT a new vehicle → show inline stepper */}
-          {!isActiveVehicleConnected && isPreOnboardingComplete && !isOnboardingComplete && !isNewVehicle && activeOwnershipId && (
-            <CarInfoStepper
-              vehicleOwnerId={activeOwnershipId}
-              vehicleMake={activeVehicle?.make ?? ""}
-              vehicleModel={activeVehicle?.model ?? ""}
-              vehicleYear={activeVehicle?.year ?? 0}
-              onComplete={() => {
-                celebrationFlowActive.current = true;
-                setPendingHealthSheet(true);
-              }}
-            />
-          )}
-
-          {/* Post-celebration loading state */}
-          {revealingDashboard && (
-            <View style={revealStyles.container}>
-              <LinearGradient
-                colors={["#F0F4FF", "#FFFFFF"]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 0, y: 1 }}
-                style={revealStyles.card}
-              >
-                <View style={revealStyles.spinnerRow}>
-                  <Animated.View style={[revealStyles.dot, { opacity: skeletonPulse }]}>
-                    <View style={revealStyles.pulsingDot} />
-                  </Animated.View>
-                  <Text weight="semiBold" size="md" color="#1F2937">
-                    Building your dashboard...
-                  </Text>
-                </View>
-                <Text weight="medium" size="sm" color="#6B7280" style={{ textAlign: "center", marginTop: 6 }}>
-                  Setting up health tracking and service reminders
-                </Text>
-                {/* Skeleton lines */}
-                <View style={revealStyles.skeletonGroup}>
-                  <Animated.View style={[revealStyles.skeletonLine, { width: "90%", opacity: skeletonPulse }]} />
-                  <Animated.View style={[revealStyles.skeletonLine, { width: "70%", opacity: skeletonPulse }]} />
-                  <Animated.View style={[revealStyles.skeletonLine, { width: "80%", opacity: skeletonPulse }]} />
-                </View>
-              </LinearGradient>
-            </View>
-          )}
+          
 
           {/* Reset onboarding button for non-connected vehicles */}
           {!isActiveVehicleConnected && isPreOnboardingComplete && showPostOnboardingContent && activeOwnershipId && (
@@ -699,6 +935,7 @@ export default function CarsHomeScreen() {
               onPress={async () => {
                 try {
                   await resetOnboarding({ vehicleOwnerId: activeOwnershipId });
+                  setLocalOnboardingDone(false);
                 } catch (err) {
                   console.warn("Reset onboarding failed:", err);
                 }
@@ -730,6 +967,45 @@ export default function CarsHomeScreen() {
             >
               <Text weight="semiBold" size="sm" color="#DC2626">
                 Remove Vehicle
+              </Text>
+            </Pressable>
+          )}
+
+          {/* Quarterly Check-in Banner */}
+          {activeOwnershipId && isPreOnboardingComplete && (
+            <CheckinBanner
+              vehicleOwnerId={activeOwnershipId}
+              vehicleName={activeVehicle?.make ? `${activeVehicle.make} ${activeVehicle.model ?? ""}`.trim() : undefined}
+            />
+          )}
+
+          {/* DEV: Demo button to open Quarterly Check-in */}
+          {activeOwnershipId && isPreOnboardingComplete && (
+            <Pressable
+              onPress={() =>
+                router.push({
+                  pathname: "/quarterly-checkin",
+                  params: {
+                    vehicleOwnerId: activeOwnershipId,
+                    vehicleName: activeVehicle?.make
+                      ? `${activeVehicle.make} ${activeVehicle.model ?? ""}`.trim()
+                      : undefined,
+                  },
+                })
+              }
+              style={{
+                alignSelf: "center",
+                paddingVertical: 8,
+                paddingHorizontal: 16,
+                borderRadius: 8,
+                borderWidth: 1,
+                borderColor: "#D1D5DB",
+                backgroundColor: "#F9FAFB",
+                marginTop: 4,
+              }}
+            >
+              <Text size="sm" color="#6B7280">
+                Demo: Open Quarterly Check-In
               </Text>
             </Pressable>
           )}
@@ -779,6 +1055,7 @@ export default function CarsHomeScreen() {
           />
         </View>
       </ScrollView>
+      </Animated.View>
 
       {/* Maintenance Input Modal */}
       {activeOwnershipId && (
@@ -849,123 +1126,256 @@ export default function CarsHomeScreen() {
       </Modal>
 
       {/* ═══════════════════════════════════════════════════════════════════
-          HEALTH RING BOTTOM SHEET (shown after onboarding completes)
+          HEALTH PAGE + GEARS OVERLAY (full-screen modal, covers tab bar)
       ═══════════════════════════════════════════════════════════════════ */}
-      <Modal visible={healthSheetModal} transparent animationType="none" statusBarTranslucent onRequestClose={closeHealthSheet}>
-        <Animated.View style={[StyleSheet.absoluteFill, healthSheetStyles.backdrop, { opacity: healthSheetBackdrop }]}>
-          <Pressable style={StyleSheet.absoluteFill} onPress={closeHealthSheet} />
-        </Animated.View>
-        <Animated.View style={[healthSheetStyles.sheet, { transform: [{ translateY: healthSheetY }] }]}>
-          <View style={healthSheetStyles.dragHandleContainer}>
-            <View style={healthSheetStyles.dragHandle} />
-          </View>
-          <View style={healthSheetStyles.content}>
-            {/* SVG health ring matching CarCarousel ActivityRings */}
-            <View style={healthSheetStyles.ringContainer}>
-              {/* Pulsing glow behind the ring */}
-              <Animated.View style={[
-                healthSheetStyles.ringGlow,
-                {
-                  opacity: Animated.multiply(ringGlow, new Animated.Value(0.35)),
-                  transform: [{ scale: pulseAnim }],
-                  backgroundColor: computedHealthScore >= 75 ? '#30D158' : computedHealthScore >= 60 ? '#FFD60A' : '#FF3B30',
-                },
-              ]} />
-              <Animated.View style={[
-                healthSheetStyles.ringGlowInner,
-                {
-                  opacity: Animated.multiply(ringGlow, new Animated.Value(0.15)),
-                  transform: [{ scale: pulseAnim }],
-                  backgroundColor: computedHealthScore >= 75 ? '#30D158' : computedHealthScore >= 60 ? '#FFD60A' : '#FF3B30',
-                },
-              ]} />
-              {/* Animated SVG ring */}
-              <Animated.View style={{ transform: [{ scale: ringScale }] }}>
-                {(() => {
-                  const ringSize = 140;
-                  const strokeWidth = 10;
-                  const radius = (ringSize - strokeWidth) / 2;
-                  const circumference = 2 * Math.PI * radius;
-                  const strokeDashoffset = circumference * (1 - ringProgress / 100);
-                  const center = ringSize / 2;
-                  const ringColor = computedHealthScore >= 75 ? '#30D158' : computedHealthScore >= 60 ? '#FFD60A' : '#FF3B30';
-                  return (
-                    <View style={{ width: ringSize, height: ringSize, alignItems: "center", justifyContent: "center" }}>
-                      <Svg width={ringSize} height={ringSize}>
-                        <Defs>
-                          <SvgLinearGradient id="healthSheetRingGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-                            <Stop offset="0%" stopColor={ringColor} />
-                            <Stop offset="50%" stopColor={ringColor} stopOpacity={0.9} />
-                            <Stop offset="100%" stopColor={ringColor} stopOpacity={0.8} />
-                          </SvgLinearGradient>
-                        </Defs>
-                        {/* Background track */}
-                        <Circle cx={center} cy={center} r={radius} stroke={ringColor} strokeWidth={strokeWidth} fill="none" opacity={0.15} />
-                        {/* Progress ring */}
-                        <Circle cx={center} cy={center} r={radius} stroke="url(#healthSheetRingGrad)" strokeWidth={strokeWidth} fill="none" strokeDasharray={circumference} strokeDashoffset={strokeDashoffset} strokeLinecap="round" rotation={-90} origin={`${center}, ${center}`} />
-                        {/* Glow layer */}
-                        <Circle cx={center} cy={center} r={radius} stroke={ringColor} strokeWidth={strokeWidth + 4} fill="none" strokeDasharray={circumference} strokeDashoffset={strokeDashoffset} strokeLinecap="round" rotation={-90} origin={`${center}, ${center}`} opacity={0.2} />
-                      </Svg>
-                      {/* Centered score */}
-                      <View style={healthSheetStyles.ringCenterLabel}>
-                        <Text weight="bold" size="3xl" color="#1F2937">{displayedScore}</Text>
-                        <Text weight="semiBold" size="xs" color="#9CA3AF" style={{ marginTop: -2 }}>out of 100</Text>
+      <Modal
+        visible={healthPageVisible || gearsOverlayVisible}
+        transparent={false}
+        animationType="none"
+        statusBarTranslucent
+        presentationStyle="fullScreen"
+        onRequestClose={closeHealthSheet}
+      >
+      {healthPageVisible && (
+        <Animated.View style={[healthSheetStyles.fullPage, { zIndex: 40, opacity: healthPageFade, transform: [{ translateX: healthPageSlideX }] }]}>
+          {/* --- Header --- */}
+          {healthSheetMode === 'estimated' ? (
+            estimatedPage === 'checkin' ? (
+              <View style={healthSheetStyles.fullPageHeader}>
+                <Pressable onPress={() => {
+                  if (stepperRef.current?.isExpanded()) {
+                    stepperRef.current.goBack();
+                  } else {
+                    animateBackToScore();
+                  }
+                }} hitSlop={12} style={healthSheetStyles.fullPageCloseBtn}>
+                  <Ionicons name="chevron-back" size={22} color="#6B7280" />
+                </Pressable>
+                <View style={{ width: 36 }} />
+              </View>
+            ) : (
+              <View style={{ paddingTop: Platform.OS === "ios" ? 70 : 50 }} />
+            )
+          ) : (
+            <View style={{ paddingTop: Platform.OS === "ios" ? 70 : 50 }} />
+          )}
+
+          {/* --- Page content --- */}
+          <Animated.View style={{ flex: 1, opacity: pageFade, transform: [{ translateX: pageSlideX }] }}>
+          {healthSheetMode === 'estimated' && estimatedPage === 'checkin' ? (
+            <View style={{ flex: 1, width: '100%' }}>
+              {activeOwnershipId && (
+                <CarInfoStepper
+                  ref={stepperRef}
+                  vehicleOwnerId={activeOwnershipId}
+                  vehicleMake={activeVehicle?.make ?? ''}
+                  vehicleModel={activeVehicle?.model ?? ''}
+                  vehicleYear={activeVehicle?.year ?? 0}
+                  skipIntro
+                  onComplete={() => {
+                    console.log('[CarInfoStepper] onComplete fired — SHEET instance');
+                    setLocalOnboardingDone(true);
+                    celebrationFlowActive.current = true;
+                    setCelebrationActive(true);
+                    animateToConfirmedScore();
+                  }}
+                />
+              )}
+            </View>
+          ) : (
+            <View style={[healthSheetStyles.content, { flex: 1, justifyContent: "center" }]}>
+              {/* SVG health ring */}
+              {(() => {
+                const ringColor = healthSheetMode === 'estimated'
+                  ? '#94A3B8'
+                  : computedHealthScore >= 75 ? '#30D158'
+                  : computedHealthScore >= 60 ? '#FFD60A'
+                  : '#FF3B30';
+                return (
+              <View style={healthSheetStyles.ringContainer}>
+                <Animated.View style={[
+                  healthSheetStyles.ringGlow,
+                  {
+                    opacity: Animated.multiply(ringGlow, new Animated.Value(0.35)),
+                    transform: [{ scale: pulseAnim }],
+                    backgroundColor: ringColor,
+                  },
+                ]} />
+                <Animated.View style={[
+                  healthSheetStyles.ringGlowInner,
+                  {
+                    opacity: Animated.multiply(ringGlow, new Animated.Value(0.15)),
+                    transform: [{ scale: pulseAnim }],
+                    backgroundColor: ringColor,
+                  },
+                ]} />
+                <Animated.View style={{ transform: [{ scale: ringScale }] }}>
+                  {(() => {
+                    const ringSize = 140;
+                    const strokeWidth = 10;
+                    const radius = (ringSize - strokeWidth) / 2;
+                    const circumference = 2 * Math.PI * radius;
+                    const strokeDashoffset = circumference * (1 - ringProgress / 100);
+                    const center = ringSize / 2;
+                    return (
+                      <View style={{ width: ringSize, height: ringSize, alignItems: "center", justifyContent: "center" }}>
+                        <Svg width={ringSize} height={ringSize}>
+                          <Defs>
+                            <SvgLinearGradient id="healthSheetRingGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                              <Stop offset="0%" stopColor={ringColor} />
+                              <Stop offset="50%" stopColor={ringColor} stopOpacity={0.9} />
+                              <Stop offset="100%" stopColor={ringColor} stopOpacity={0.8} />
+                            </SvgLinearGradient>
+                          </Defs>
+                          <Circle cx={center} cy={center} r={radius} stroke={ringColor} strokeWidth={strokeWidth} fill="none" opacity={0.15} />
+                          <Circle cx={center} cy={center} r={radius} stroke="url(#healthSheetRingGrad)" strokeWidth={strokeWidth} fill="none" strokeDasharray={circumference} strokeDashoffset={strokeDashoffset} strokeLinecap="round" rotation={-90} origin={`${center}, ${center}`} />
+                          <Circle cx={center} cy={center} r={radius} stroke={ringColor} strokeWidth={strokeWidth + 4} fill="none" strokeDasharray={circumference} strokeDashoffset={strokeDashoffset} strokeLinecap="round" rotation={-90} origin={`${center}, ${center}`} opacity={0.2} />
+                        </Svg>
+                        <View style={healthSheetStyles.ringCenterLabel}>
+                          <Text weight="bold" size="3xl" color="#1F2937">{activeOwnership?.health_score_is_estimated ? "~" : ""}{displayedScore}</Text>
+                          <Text weight="semiBold" size="xs" color="#9CA3AF" style={{ marginTop: -2 }}>{activeOwnership?.health_score_is_estimated ? "estimated" : "out of 100"}</Text>
+                        </View>
                       </View>
+                    );
+                  })()}
+                </Animated.View>
+              </View>
+                );
+              })()}
+
+              {/* Title */}
+              <Animated.View style={{ opacity: titleFade, marginTop: healthSheetMode === 'confirmed' ? 50 : 0, transform: [{ translateY: titleFade.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }] }}>
+                <Text weight="bold" size="xl" color="#1F2937" style={healthSheetStyles.title}>
+                  {healthSheetMode === 'estimated'
+                    ? `Here's where your ${activeVehicle?.make ?? "vehicle"} stands`
+                    : computedHealthScore >= 80
+                      ? `Your ${activeVehicle?.make ?? "vehicle"} is in great shape`
+                      : computedHealthScore >= 60
+                        ? `Your ${activeVehicle?.make ?? "vehicle"} is looking solid`
+                        : `We've got a plan for your ${activeVehicle?.make ?? "vehicle"}`}
+                </Text>
+              </Animated.View>
+
+              {/* Subtitle */}
+              <Animated.View style={{ opacity: subtitleFade, transform: [{ translateY: subtitleFade.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }] }}>
+                <Text weight="medium" size="sm" color="#6B7280" style={healthSheetStyles.subtitle}>
+                  {healthSheetMode === 'estimated'
+                    ? "Answer a few quick questions to get your confirmed health score."
+                    : computedHealthScore >= 80
+                      ? "You're clearly someone who takes care of their ride. We'll make sure it stays that way."
+                      : computedHealthScore >= 60
+                        ? "A few things could use attention, but nothing we can't help with. You're in good hands."
+                        : "Don't worry — now that we know what's going on, we'll guide you through every service it needs."}
+                </Text>
+              </Animated.View>
+
+              {/* Estimated: Quick Read intro card  |  Confirmed: Benefits + Done CTA */}
+              {healthSheetMode === 'estimated' ? (
+                <Animated.View style={[{ width: "100%", marginTop: 8 }, { opacity: benefitsFade, transform: [{ translateY: benefitsFade.interpolate({ inputRange: [0, 1], outputRange: [16, 0] }) }] }]}>
+                  <View style={healthSheetStyles.introCard}>
+                    <View style={healthSheetStyles.introIconContainer}>
+                      <Ionicons name="pulse-outline" size={28} color="#5299FE" />
                     </View>
-                  );
-                })()}
+                    <Text weight="bold" size="md" color="#1F2937" style={{ marginTop: 12, textAlign: "center" }}>
+                      Let&apos;s get a quick read on your {activeVehicle?.make ?? "vehicle"}
+                    </Text>
+                    <Text weight="medium" size="sm" color="#6B7280" style={{ marginTop: 4, textAlign: "center" }}>
+                      Three quick checks to understand your vehicle&apos;s current condition.
+                    </Text>
+                    <View style={healthSheetStyles.introBenefits}>
+                      {["Brake health assessment", "Tire life estimation", "Warning light detection"].map((b) => (
+                        <View key={b} style={healthSheetStyles.introBenefitRow}>
+                          <Ionicons name="checkmark-circle" size={16} color="#22C55E" />
+                          <Text weight="medium" size="sm" color="#374151" style={{ marginLeft: 8 }}>{b}</Text>
+                        </View>
+                      ))}
+                    </View>
+                    <Pressable
+                      onPress={animateToCheckin}
+                      style={({ pressed }) => [healthSheetStyles.doneBtn, pressed && { opacity: 0.85 }]}
+                    >
+                      <Text weight="bold" size="md" color="#FFFFFF">Get Started</Text>
+                      <Ionicons name="arrow-forward" size={18} color="#FFFFFF" style={{ marginLeft: 8 }} />
+                    </Pressable>
+                    <Text weight="medium" size="xs" color="#9CA3AF" style={{ marginTop: 10 }}>Takes about 30 seconds</Text>
+                    <Pressable
+                      onPress={closeHealthSheet}
+                      style={({ pressed }) => [{ marginTop: 14, paddingVertical: 10, paddingHorizontal: 24 }, pressed && { opacity: 0.6 }]}
+                    >
+                      <Text weight="semiBold" size="sm" color="#6B7280">I'll finish later</Text>
+                    </Pressable>
+                  </View>
+                </Animated.View>
+              ) : (
+                <>
+                  <Animated.View style={[healthSheetStyles.benefitsContainer, { opacity: benefitsFade, transform: [{ translateY: benefitsFade.interpolate({ inputRange: [0, 1], outputRange: [16, 0] }) }] }]}>
+                    {[
+                      { icon: "shield-checkmark" as const, text: "Health monitoring active" },
+                      { icon: "notifications" as const, text: "Service reminders enabled" },
+                      { icon: "trending-up" as const, text: "Maintenance predictions on" },
+                    ].map((benefit) => (
+                      <View key={benefit.text} style={healthSheetStyles.benefitRow}>
+                        <View style={healthSheetStyles.benefitIcon}>
+                          <Ionicons name={benefit.icon} size={16} color="#22C55E" />
+                        </View>
+                        <Text weight="medium" size="sm" color="#374151">{benefit.text}</Text>
+                      </View>
+                    ))}
+                  </Animated.View>
+                  <Animated.View style={[{ width: "100%", marginTop: "auto", paddingBottom: insets.bottom + 24 }, { opacity: buttonFade, transform: [{ translateY: buttonFade.interpolate({ inputRange: [0, 1], outputRange: [16, 0] }) }] }]}>
+                    <Pressable
+                      onPress={closeHealthSheet}
+                      style={({ pressed }) => [healthSheetStyles.doneBtn, pressed && { opacity: 0.85 }]}
+                    >
+                      <Text weight="bold" size="md" color="#FFFFFF">Optimize my vehicle profile</Text>
+                    </Pressable>
+                  </Animated.View>
+                </>
+              )}
+            </View>
+          )}
+          </Animated.View>
+        </Animated.View>
+      )}
+
+      {/* Fullscreen gears overlay */}
+      {gearsOverlayVisible && (
+        <Animated.View style={[StyleSheet.absoluteFillObject, { opacity: gearsOverlayOpacity, backgroundColor: '#FFFFFF', zIndex: 35 }]}>
+          <LottieView
+            ref={gearsLottieRef}
+            source={require("@/assets/animations/loading-gears.json")}
+            loop
+            autoPlay={false}
+            onLayout={() => gearsLottieRef.current?.play(48, 264)}
+            style={{ position: 'absolute', top: '15%', left: '-10%', right: '-10%', bottom: '15%' }}
+            resizeMode="contain"
+          />
+          {gearsPhase !== 'looping' && (
+            <View style={{ zIndex: 1, marginTop: Platform.OS === 'ios' ? 80 : 48, alignItems: 'center', paddingHorizontal: 24 }}>
+              <Animated.View style={{ position: 'absolute', opacity: gearsBtnOpacity.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }}>
+                <Text weight="bold" size="3xl" color="#0F172A" style={{ textAlign: 'center' }}>
+                  Optimizing your vehicle profile...
+                </Text>
+              </Animated.View>
+              <Animated.View style={{ opacity: gearsBtnOpacity }}>
+                <Text weight="bold" size="3xl" color="#0F172A" style={{ textAlign: 'center' }}>
+                  Vehicle profile optimized
+                </Text>
               </Animated.View>
             </View>
-
-            {/* Title */}
-            <Animated.View style={{ opacity: titleFade, transform: [{ translateY: titleFade.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }] }}>
-              <Text weight="bold" size="xl" color="#1F2937" style={healthSheetStyles.title}>
-                {computedHealthScore >= 80
-                  ? `Your ${activeVehicle?.make ?? "vehicle"} is in great shape`
-                  : computedHealthScore >= 60
-                    ? `Your ${activeVehicle?.make ?? "vehicle"} is looking solid`
-                    : `We've got a plan for your ${activeVehicle?.make ?? "vehicle"}`}
-              </Text>
-            </Animated.View>
-
-            {/* Subtitle */}
-            <Animated.View style={{ opacity: subtitleFade, transform: [{ translateY: subtitleFade.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }] }}>
-              <Text weight="medium" size="sm" color="#6B7280" style={healthSheetStyles.subtitle}>
-                {computedHealthScore >= 80
-                  ? "You're clearly someone who takes care of their ride. We'll make sure it stays that way."
-                  : computedHealthScore >= 60
-                    ? "A few things could use attention, but nothing we can't help with. You're in good hands."
-                    : "Don't worry — now that we know what's going on, we'll guide you through every service it needs."}
-              </Text>
-            </Animated.View>
-
-            {/* Unlocked benefits */}
-            <Animated.View style={[healthSheetStyles.benefitsContainer, { opacity: benefitsFade, transform: [{ translateY: benefitsFade.interpolate({ inputRange: [0, 1], outputRange: [16, 0] }) }] }]}>
-              {[
-                { icon: "shield-checkmark" as const, text: "Health monitoring active" },
-                { icon: "notifications" as const, text: "Service reminders enabled" },
-                { icon: "trending-up" as const, text: "Maintenance predictions on" },
-              ].map((benefit) => (
-                <View key={benefit.text} style={healthSheetStyles.benefitRow}>
-                  <View style={healthSheetStyles.benefitIcon}>
-                    <Ionicons name={benefit.icon} size={16} color="#22C55E" />
-                  </View>
-                  <Text weight="medium" size="sm" color="#374151">{benefit.text}</Text>
-                </View>
-              ))}
-            </Animated.View>
-
-            {/* CTA button */}
-            <Animated.View style={[{ width: "100%" }, { opacity: buttonFade, transform: [{ translateY: buttonFade.interpolate({ inputRange: [0, 1], outputRange: [16, 0] }) }] }]}>
+          )}
+          {gearsPhase === 'ready' && (
+            <Animated.View style={{ opacity: gearsBtnOpacity, zIndex: 1, position: 'absolute', bottom: insets.bottom + 40, left: 24, right: 24 }}>
               <Pressable
-                onPress={closeHealthSheet}
+                onPress={dismissGearsOverlay}
                 style={({ pressed }) => [healthSheetStyles.doneBtn, pressed && { opacity: 0.85 }]}
               >
                 <Text weight="bold" size="md" color="#FFFFFF">View My Dashboard</Text>
               </Pressable>
             </Animated.View>
-          </View>
+          )}
         </Animated.View>
+      )}
       </Modal>
 
     </View>
@@ -1034,47 +1444,69 @@ const pickerStyles = StyleSheet.create({
 // ============================================================================
 
 const healthSheetStyles = StyleSheet.create({
-  backdrop: {
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-  },
-  sheet: {
+  fullPage: {
     position: "absolute",
-    bottom: SCREEN_HEIGHT * 0.015,
-    left: SCREEN_WIDTH * 0.025,
-    right: SCREEN_WIDTH * 0.025,
-    width: SCREEN_WIDTH * 0.95,
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
     backgroundColor: "#FFFFFF",
-    borderRadius: 40,
-    paddingBottom: Platform.OS === "ios" ? 34 : 24,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 24,
-    elevation: 12,
   },
-  dragHandleContainer: {
+  fullPageHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
     alignItems: "center",
-    paddingTop: 12,
+    paddingTop: Platform.OS === "ios" ? 56 : 16,
+    paddingHorizontal: 20,
     paddingBottom: 4,
   },
-  dragHandle: {
-    width: 40,
-    height: 4,
-    backgroundColor: "rgba(0, 0, 0, 0.12)",
-    borderRadius: 2,
+  fullPageCloseBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(0,0,0,0.06)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  introCard: {
+    alignItems: "center",
+    backgroundColor: "#F0F4FF",
+    borderRadius: 20,
+    paddingVertical: 16,
+    paddingHorizontal: 20,
+    borderWidth: 1,
+    borderColor: "rgba(82, 153, 254, 0.15)",
+  },
+  introIconContainer: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "rgba(82, 153, 254, 0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  introBenefits: {
+    alignSelf: "stretch",
+    marginTop: 12,
+    marginBottom: 14,
+    gap: 8,
+  },
+  introBenefitRow: {
+    flexDirection: "row",
+    alignItems: "center",
   },
   content: {
     alignItems: "center",
     paddingHorizontal: 24,
-    paddingTop: 20,
+    paddingTop: 12,
     paddingBottom: 8,
   },
   ringContainer: {
-    marginBottom: 24,
+    marginBottom: 16,
     alignItems: "center",
     justifyContent: "center",
-    width: 180,
-    height: 180,
+    width: 160,
+    height: 160,
   },
   ringGlow: {
     position: "absolute",
@@ -1104,7 +1536,7 @@ const healthSheetStyles = StyleSheet.create({
   subtitle: {
     textAlign: "center",
     lineHeight: 20,
-    marginBottom: 20,
+    marginBottom: 12,
     paddingHorizontal: 4,
   },
   benefitsContainer: {
@@ -1130,12 +1562,14 @@ const healthSheetStyles = StyleSheet.create({
     justifyContent: "center",
   },
   doneBtn: {
+    flexDirection: "row",
     backgroundColor: "#5299FE",
     borderRadius: 24,
     paddingVertical: 16,
     paddingHorizontal: 48,
     width: "100%",
     alignItems: "center",
+    justifyContent: "center",
   },
 });
 
@@ -1150,7 +1584,11 @@ const revealStyles = StyleSheet.create({
     padding: 28,
     borderWidth: 1,
     borderColor: "rgba(82, 153, 254, 0.15)",
+    backgroundColor: "#F0F4FF",
     alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+    height: 260,
   },
   spinnerRow: {
     flexDirection: "row",

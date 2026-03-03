@@ -153,6 +153,10 @@ export interface HealthScoreInput {
   odometerMiles: number;
   knownIssues?: string[];
   smartcar?: SmartcarSignals;
+  /** Pipeline-computed health score from vehicle_owners.health_score */
+  pipelineHealthScore?: number | null;
+  /** Whether the pipeline score is an estimate (quarterly check-in overdue) */
+  pipelineIsEstimated?: boolean;
 }
 
 /**
@@ -166,6 +170,10 @@ export interface HealthScoreInput {
  */
 export function computeVehicleHealthScore(input: HealthScoreInput): number {
   const { maintenanceItems, odometerMiles, knownIssues, smartcar } = input;
+
+  // The pipeline score is stored on vehicle_owners for cron/check-in use,
+  // but the client always computes its own score so the health ring reacts
+  // immediately to stepper answers without waiting for the async pipeline.
 
   // ── Maintenance component (graduated) ─────────────────────────
   // Unknown items get a mileage-aware inferred score instead of being

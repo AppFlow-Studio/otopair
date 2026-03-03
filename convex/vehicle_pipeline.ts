@@ -197,7 +197,9 @@ Return ONLY a JSON object with no additional text. Every field must be filled �
     "serpentine_belt_interval": "e.g. 60000 miles",
     "transmission_fluid_interval": "e.g. 60000 miles",
     "engine_air_filter_interval": "e.g. 30000 miles",
-    "cabin_air_filter_interval": "e.g. 15000 miles"
+    "cabin_air_filter_interval": "e.g. 15000 miles",
+    "timing_type": "belt or chain or gear",
+    "steering_type": "hydraulic or electric"
   },
   "vehicle_specs": {
     "oil_filter_oem": "e.g. 04152-YZZA1",
@@ -261,6 +263,12 @@ Return ONLY a JSON object with no additional text. Every field must be filled �
 
         confidenceScore = specs.confidence_score || 0.75;
 
+        if (confidenceScore < 0.7) {
+          console.warn(
+            `[AI Enrichment] Low confidence ${confidenceScore} for engine ${args.engineId} — flagged for manual review`
+          );
+        }
+
         // ── Store engine_specs ──
         if (specs.engine_specs) {
           oilViscosity = specs.engine_specs.oil_viscosity || "N/A";
@@ -270,6 +278,30 @@ Return ONLY a JSON object with no additional text. Every field must be filled �
             specs: specs.engine_specs,
             confidenceScore,
           });
+
+          // Store timing_type on engines table
+          const timingType = specs.engine_specs.timing_type;
+          if (timingType && timingType !== "N/A") {
+            await ctx.runMutation(internal.vehicle_mutations.patchEngine, {
+              engineId: args.engineId,
+              timingType,
+            });
+          }
+
+          // Store steering_type on trims table (per spec: timing→engines, steering→trims)
+          const steeringType = specs.engine_specs.steering_type;
+          if (steeringType && steeringType !== "N/A") {
+            const engine = await ctx.runQuery(
+              internal.vehicle_mutations.getEngine,
+              { engineId: args.engineId }
+            );
+            if (engine) {
+              await ctx.runMutation(internal.vehicle_mutations.patchTrim, {
+                trimId: engine.trim_id,
+                steeringType,
+              });
+            }
+          }
         }
 
         // ── Store vehicle_specs ──
@@ -347,7 +379,7 @@ Return ONLY a JSON object with no additional text. Every field must be filled �
           )
           .join("\n");
 
-        const pricingPrompt = `You are an automotive service pricing specialist. I need accurate labor hours and parts cost estimates for servicing a ${vehicleDesc}.
+        const pricingPrompt = `You are an automotive service pricing specialist. I need accurate labor hours, parts cost estimates, AND OEM maintenance intervals for servicing a ${vehicleDesc}.
 
 Vehicle specs already known:
 - Oil: ${oilViscosity}, ${oilCapacityQts} qts
@@ -356,7 +388,7 @@ Vehicle specs already known:
 Services to price:
 ${serviceList}
 
-Use web search to find real-world parts pricing and labor times for this SPECIFIC vehicle. Check auto parts retailers for parts pricing and RepairPal/mechanic forums for labor times.
+Use web search to find real-world parts pricing and labor times for this SPECIFIC vehicle. Check auto parts retailers for parts pricing, RepairPal/mechanic forums for labor times, and manufacturer maintenance schedules for OEM intervals.
 
 Return ONLY a JSON array:
 [
@@ -366,14 +398,23 @@ Return ONLY a JSON array:
     "parts_cost_low": 35.00,
     "parts_cost_high": 55.00,
     "confidence_score": 0.9,
-    "tech_notes": "Uses 0W-20 synthetic. OEM filter ..."
+    "tech_notes": "Uses 0W-20 synthetic. OEM filter ...",
+    "oem_interval_miles": 5000,
+    "oem_interval_months": 6,
+    "oem_interval_note": "Every 5,000 miles or 6 months under normal conditions",
+    "parts_required": [{"name": "Oil filter", "oem_part_num": "04152-YZZA1", "cost_estimate": 8.50}],
+    "is_applicable": true,
+    "exclusion_reason": null
   }
 ]
 
 Rules:
 - Include ALL services listed above. For labor_only services: parts_cost_low and parts_cost_high must be 0.
 - Reflect THIS vehicle's real-world pricing, not generic defaults.
-- confidence_score: 0.6 if estimating, 0.9+ if verified via web search.`;
+- confidence_score: 0.6 if estimating, 0.9+ if verified via web search.
+- oem_interval_miles/months: The manufacturer-recommended interval. Use null if not applicable.
+- is_applicable: false if the service doesn't apply (e.g. timing belt on a chain engine, diesel on gas vehicle).
+- exclusion_reason: brief explanation when is_applicable is false (e.g. "Chain-driven, no timing belt").`;
 
         const pricingResponse = await fetch(
           "https://api.anthropic.com/v1/messages",
@@ -386,7 +427,7 @@ Rules:
             },
             body: JSON.stringify({
               model: "claude-sonnet-4-20250514",
-              max_tokens: 3000,
+              max_tokens: 8000,
               messages: [{ role: "user", content: pricingPrompt }],
               tools: [{
                 type: "web_search_20250305",
@@ -428,6 +469,11 @@ Rules:
           const partsCostLow = parseFloat(item.parts_cost_low) || 0;
           const partsCostHigh = parseFloat(item.parts_cost_high) || 0;
           const itemConfidence = parseFloat(item.confidence_score) || 0.6;
+          if (itemConfidence < 0.7) {
+            console.warn(
+              `[AI Pricing] Low confidence ${itemConfidence} for ${item.slug} on engine ${args.engineId} — flagged for manual review`
+            );
+          }
           const techNotes = item.tech_notes || "";
 
           await ctx.runMutation(
@@ -440,6 +486,14 @@ Rules:
               partsCostHigh,
               confidenceScore: itemConfidence,
               techNotes,
+              oemIntervalMiles: item.oem_interval_miles ?? undefined,
+              oemIntervalMonths: item.oem_interval_months ?? undefined,
+              oemIntervalNote: item.oem_interval_note ?? undefined,
+              partsRequired: item.parts_required
+                ? JSON.stringify(item.parts_required)
+                : undefined,
+              isApplicable: item.is_applicable !== false,
+              exclusionReason: item.exclusion_reason ?? undefined,
             }
           );
 
@@ -530,6 +584,7 @@ export const confirmVehicleForUser = action({
     displacement: v.string(),
     cylinders: v.float64(),
     fuelType: v.string(),
+    color: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     // Resolve current user from auth
@@ -553,6 +608,11 @@ export const confirmVehicleForUser = action({
       trim_id: args.trimId,
       engine_id: args.engineId,
       year: args.year,
+      metadata: {
+        make: args.make,
+        model: args.model,
+        color: args.color || "",
+      },
     });
 
     // Link vehicle to user

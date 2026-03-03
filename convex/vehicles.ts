@@ -1,5 +1,11 @@
 import { query, mutation } from "./_generated/server";
+import { internal } from "./_generated/api";
 import { v } from "convex/values";
+import {
+  deriveHistoryConfidence,
+  ownershipDurationToMonths,
+  calculatePrevOwnerAnnualRate,
+} from "./lib/classifier";
 
 /**
  * vehicles.ts - Canonical vehicle catalog management
@@ -672,7 +678,34 @@ export const saveVehiclePreOnboarding = mutation({
       !!args.usagePattern &&
       (args.ownershipType === "leased" ||
         args.ownedSinceNew === true ||
-        (path3 && !!args.ownershipDuration));
+        path3);
+
+    // Derive Maintenance Intelligence modifier inputs
+    const historyConfidence = deriveHistoryConfidence(
+      args.ownedSinceNew,
+      args.ownershipType,
+      args.lastServiceWhen,
+      args.lastServiceWhat ?? undefined
+    );
+    const durationMonths = ownershipDurationToMonths(args.ownershipDuration);
+    const vehicle = await ctx.db
+      .query("vehicles")
+      .withIndex("by_vin", (q) => q.eq("vin", owner.vin))
+      .unique();
+    const prevOwnerRate = path3
+      ? calculatePrevOwnerAnnualRate(
+          args.mileageAtPurchase,
+          vehicle?.year ?? undefined,
+          durationMonths
+            ? new Date().getFullYear() - Math.round(durationMonths / 12)
+            : undefined
+        )
+      : undefined;
+
+    const mileageTier =
+      args.currentMileage <= 75_000 ? "low" :
+      args.currentMileage <= 150_000 ? "moderate" :
+      args.currentMileage <= 250_000 ? "high" : "ultra";
 
     await ctx.db.patch(args.vehicleOwnerId, {
       ownershipType: args.ownershipType,
@@ -690,6 +723,19 @@ export const saveVehiclePreOnboarding = mutation({
       drivingConditions,
       knownIssues,
       preOnboardingComplete: isComplete,
+      // Maintenance Intelligence fields
+      usage_pattern: drivingConditions,
+      vehicle_age_years: vehicle?.year
+        ? new Date().getFullYear() - vehicle.year
+        : undefined,
+      mileage_tier: mileageTier,
+      prev_usage_intensity: prevOwnerRate
+        ? prevOwnerRate < 10_000 ? "light"
+          : prevOwnerRate <= 15_000 ? "average"
+          : prevOwnerRate <= 25_000 ? "heavy" : "ultra_heavy"
+        : undefined,
+      history_confidence: historyConfidence,
+      prev_owner_annual_rate: prevOwnerRate,
     });
 
     // ── Create maintenance records from "last service" answers ──────────
@@ -698,9 +744,12 @@ export const saveVehiclePreOnboarding = mutation({
       const MS_PER_MONTH = 30.44 * 24 * 60 * 60 * 1000;
 
       const serviceDate: number =
-        args.lastServiceWhen === "recently" ? now - 0.5 * MS_PER_MONTH :     // ~2 weeks ago
-        args.lastServiceWhen === "few_months" ? now - 3 * MS_PER_MONTH :     // ~3 months ago
-        now - 8 * MS_PER_MONTH;                                              // over_6_months → ~8 months ago
+        args.lastServiceWhen === "lt1mo" ? now - 0.5 * MS_PER_MONTH :
+        args.lastServiceWhen === "1_3mo" ? now - 2 * MS_PER_MONTH :
+        args.lastServiceWhen === "3_6mo" ? now - 4.5 * MS_PER_MONTH :
+        args.lastServiceWhen === "6_12mo" ? now - 9 * MS_PER_MONTH :
+        args.lastServiceWhen === "12plus" ? now - 15 * MS_PER_MONTH :
+        now - 8 * MS_PER_MONTH;
 
       const TYPE_MAP: Record<string, string> = {
         oil_change: "oil",
@@ -742,6 +791,61 @@ export const saveVehiclePreOnboarding = mutation({
             updatedAt: now,
           });
         }
+      }
+    }
+
+    // Write to vehicle_driving_profiles (raw answers table)
+    if (isComplete) {
+      const now = Date.now();
+      const onboardingPath =
+        args.ownershipType === "leased" ? "leased" :
+        args.ownedSinceNew ? "owned_new" : "owned_used";
+
+      const existingProfile = await ctx.db
+        .query("vehicle_driving_profiles")
+        .withIndex("by_vehicle_owner", (q) =>
+          q.eq("vehicle_owner_id", args.vehicleOwnerId)
+        )
+        .unique();
+
+      const profileData = {
+        vehicle_owner_id: args.vehicleOwnerId,
+        onboarding_path: onboardingPath,
+        onboarding_completed_at: now,
+        mileage_at_purchase: path3 ? args.mileageAtPurchase : undefined,
+        ownership_duration: path3 ? args.ownershipDuration : undefined,
+        current_mileage: args.currentMileage,
+        annual_mileage_band: args.annualMileageBand,
+        usage_pattern: drivingConditions,
+        last_service_when: args.lastServiceWhen,
+        last_service_what: args.lastServiceWhat,
+        where_serviced: args.serviceLocationPreference,
+        current_concerns: args.concernText,
+        garage_role: args.garageRole,
+        source: "onboarding" as const,
+        created_at: existingProfile?.created_at ?? now,
+        updated_at: now,
+      };
+
+      if (existingProfile) {
+        await ctx.db.patch(existingProfile._id, profileData);
+      } else {
+        await ctx.db.insert("vehicle_driving_profiles", profileData);
+      }
+
+      // For new vehicles (≤1000 mi), autoCompleteNewVehicleOnboarding will
+      // create factory-fresh records and trigger the pipeline itself.
+      // Triggering here would race and overwrite with a no-anchor result.
+      const isNewVehicle = args.currentMileage <= 1000;
+      if (!isNewVehicle) {
+        await ctx.scheduler.runAfter(
+          0,
+          internal.maintenance_pipeline.runPipeline,
+          {
+            vehicleOwnerId: args.vehicleOwnerId,
+            triggeredBy: "onboarding",
+          }
+        );
       }
     }
 
@@ -825,26 +929,45 @@ export const saveOnboardingField = mutation({
         break;
       }
       case "oil": {
-        const v = value as { date?: number; mileage?: number };
-        await upsertRecord("oil", v.date, v.mileage);
+        const v = value as { date?: number; mileage?: number; recency?: string };
+        let oilDate = v.date;
+        if (!oilDate && v.recency) {
+          const MS = 24 * 60 * 60 * 1000;
+          const recencyMap: Record<string, number> = {
+            recently: now - 30 * MS,
+            few_months: now - 90 * MS,
+            over_6mo: now - 210 * MS,
+          };
+          oilDate = recencyMap[v.recency];
+        }
+        await upsertRecord("oil", oilDate, v.mileage, { recency: v.recency });
         break;
       }
       case "tires": {
-        // Quick Read shape: { replaced, replacedWhen?, repaired }
+        // Quick Read shape: { replaced, replacedWhen?, repaired } or v3 shape: { original }
         // Legacy shape:     { type, date? }
-        const v = value as { type?: string; date?: number; replaced?: string; replacedWhen?: string; repaired?: string };
+        const v = value as { type?: string; date?: number; replaced?: string; replacedWhen?: string; repaired?: string; original?: string };
         const date = v.date ?? (v.replacedWhen ? quickReadDateToTimestamp(v.replacedWhen) : undefined);
+        // Bridge CarInfoStepper's "original" answer to the "tireReplaced" field
+        // that computeTireStatusCore reads for status calculation
+        let tireReplaced = v.replaced;
+        if (!tireReplaced && v.original) {
+          tireReplaced = v.original === "yes" ? "original"
+            : v.original === "no" ? "replaced"
+            : "dont_know";
+        }
         await upsertRecord("tires", date, undefined, {
           tireServiceType: v.type,
-          tireReplaced: v.replaced,
+          tireReplaced,
           tireReplacedWhen: v.replacedWhen,
           tireRepaired: v.repaired,
+          tireOriginal: v.original,
         });
         break;
       }
       case "brakes": {
-        // Quick Read shape: { lastDone, feel, actionStatus? }
-        // Legacy shape:     { date? }
+        // v3 shape:     { feel }
+        // Legacy shape: { date? }
         const v = value as { date?: number; lastDone?: string; feel?: string; actionStatus?: string };
         const date = v.date ?? (v.lastDone ? quickReadDateToTimestamp(v.lastDone) : undefined);
         await upsertRecord("brakes", date, undefined, {
@@ -855,12 +978,25 @@ export const saveOnboardingField = mutation({
         break;
       }
       case "battery": {
-        const v = value as { date?: number; isOriginal?: boolean; modelYear?: number };
+        const v = value as { date?: number; isOriginal?: boolean; modelYear?: number; replaced?: string };
         let installDate = v.date;
         if (v.isOriginal && !installDate && v.modelYear) {
           installDate = new Date(v.modelYear, 0, 1).getTime();
         }
-        await upsertRecord("battery", installDate);
+        // Original battery (not replaced) — infer install date from vehicle model year
+        if (v.replaced === "no" && !installDate) {
+          const owner = await ctx.db.get(vehicleOwnerId);
+          if (owner) {
+            const vehicle = await ctx.db
+              .query("vehicles")
+              .withIndex("by_vin", (q) => q.eq("vin", owner.vin))
+              .unique();
+            if (vehicle?.year) {
+              installDate = new Date(vehicle.year, 0, 1).getTime();
+            }
+          }
+        }
+        await upsertRecord("battery", installDate, undefined, { batteryReplaced: v.replaced });
         break;
       }
       case "inspection": {
@@ -869,8 +1005,17 @@ export const saveOnboardingField = mutation({
         await upsertRecord("inspection", v.date, undefined, { expirationDate });
         break;
       }
+      case "lastServiceWhen": {
+        await upsertRecord("service_history_when", undefined, undefined, { answer: value as string });
+        break;
+      }
+      case "lastServiceWhat": {
+        await upsertRecord("service_history_what", undefined, undefined, { items: value as string[] });
+        break;
+      }
       case "warningLights": {
-        const v = value as { status: string; lightType?: string; lightTypes?: string[] };
+        const v = value as { status: string | null; lightType?: string; lightTypes?: string[] };
+        if (v.status === null) break;
         const issues: string[] = [v.status];
         if (v.lightTypes && v.lightTypes.length > 0) {
           issues.push(...v.lightTypes);
@@ -889,26 +1034,82 @@ export const saveOnboardingField = mutation({
     }
 
     // ── Auto-compute onboardingComplete ────────────────────────────────
-    // Required: mileage (from pre-onboarding) + brakes + tires records + warningLights answered
+    // Required: mileage (from pre-onboarding) + warningLights answered (always the last step).
+    // brakes/tires follow-up steps are conditional, so we cannot require their records here.
     const owner = await ctx.db.get(vehicleOwnerId);
     if (!owner) return { success: true };
 
     const hasMileage = owner.mileage != null && owner.mileage > 0;
     const hasWarningLights = owner.knownIssues != null;
 
-    const requiredTypes = ["brakes", "tires"];
-    const records = await ctx.db
-      .query("maintenance_records")
-      .withIndex("by_vehicle_owner", (q) => q.eq("vehicleOwnerId", vehicleOwnerId))
-      .collect();
-
-    const recordTypes = new Set(records.map((r) => r.type));
-    const hasAllRecords = requiredTypes.every((t) => recordTypes.has(t));
-
-    const isComplete = hasMileage && hasAllRecords && hasWarningLights;
+    const isComplete = hasMileage && hasWarningLights;
 
     if (isComplete && !owner.onboardingComplete) {
       await ctx.db.patch(vehicleOwnerId, { onboardingComplete: true });
+
+      // Create records for types the user said they serviced (from lastServiceWhat)
+      // so skipped follow-up steps don't leave gaps as "unknown".
+      const whenRecord = await ctx.db
+        .query("maintenance_records")
+        .withIndex("by_vehicle_and_type", (q) =>
+          q.eq("vehicleOwnerId", vehicleOwnerId).eq("type", "service_history_when")
+        )
+        .unique();
+      const whatRecord = await ctx.db
+        .query("maintenance_records")
+        .withIndex("by_vehicle_and_type", (q) =>
+          q.eq("vehicleOwnerId", vehicleOwnerId).eq("type", "service_history_what")
+        )
+        .unique();
+      const lastServiceWhenAnswer = (whenRecord?.customInputs as any)?.answer as string | undefined;
+      const lastServiceWhatItems = (whatRecord?.customInputs as any)?.items as string[] | undefined;
+
+      if (lastServiceWhenAnswer && lastServiceWhenAnswer !== "not_sure") {
+        const MS = 24 * 60 * 60 * 1000;
+        const dateMap: Record<string, number> = {
+          recently:   now - 30  * MS,
+          few_months: now - 90  * MS,
+          over_6mo:   now - 210 * MS,
+        };
+        const estimatedDate = dateMap[lastServiceWhenAnswer];
+        if (estimatedDate && lastServiceWhatItems) {
+          const SERVICE_TO_TYPE: Record<string, string> = {
+            brakes: "brakes",
+            oil_change: "oil",
+            tires: "tires",
+            battery: "battery",
+          };
+          for (const item of lastServiceWhatItems) {
+            const recordType = SERVICE_TO_TYPE[item];
+            if (!recordType) continue;
+            const existing = await ctx.db
+              .query("maintenance_records")
+              .withIndex("by_vehicle_and_type", (q) =>
+                q.eq("vehicleOwnerId", vehicleOwnerId).eq("type", recordType)
+              )
+              .unique();
+            if (!existing) {
+              await upsertRecord(recordType, estimatedDate);
+            } else if (!existing.lastServiceDate) {
+              await ctx.db.patch(existing._id, { lastServiceDate: estimatedDate, updatedAt: now });
+            }
+          }
+        }
+      }
+
+      // First-time onboarding complete → full pipeline with all new data
+      await ctx.scheduler.runAfter(
+        0,
+        internal.maintenance_pipeline.runPipeline,
+        { vehicleOwnerId, triggeredBy: "onboarding" }
+      );
+    } else if (owner.onboardingComplete && owner.preOnboardingComplete) {
+      // Already onboarded — re-run pipeline with updated Quick Read data
+      await ctx.scheduler.runAfter(
+        0,
+        internal.maintenance_pipeline.runPipeline,
+        { vehicleOwnerId, triggeredBy: "quick_read" }
+      );
     }
 
     return { success: true, onboardingComplete: isComplete };
@@ -963,25 +1164,23 @@ export const autoCompleteNewVehicleOnboarding = mutation({
 
     const mileage = owner.mileage ?? 0;
 
-    // Oil: brand new → just serviced from factory
+    // Factory-fresh records for all service types
     await upsertRecord("oil", now, mileage);
-
-    // Brakes: brand new → recently done, feel normal
     await upsertRecord("brakes", now, mileage, {
       brakeLastDoneAnswer: "within_6m",
       brakeFeel: "normal",
     });
-
-    // Tires: brand new → original tires, no repairs
     await upsertRecord("tires", now, mileage, {
       tireReplaced: "original",
       tireRepaired: "no",
     });
-
-    // Battery: brand new → just installed
     await upsertRecord("battery", now, mileage);
+    await upsertRecord("fluids", now, mileage);
+    await upsertRecord("filters", now, mileage);
+    await upsertRecord("wipers", now, mileage);
+    await upsertRecord("engine_parts", now, mileage);
+    await upsertRecord("diagnostics", now, mileage);
 
-    // Inspection: brand new → just passed (expires in 12 months)
     const expirationDate = now + 12 * 30.44 * 24 * 60 * 60 * 1000;
     await upsertRecord("inspection", now, undefined, { expirationDate });
 
@@ -990,6 +1189,13 @@ export const autoCompleteNewVehicleOnboarding = mutation({
       knownIssues: ["no_all_clear"],
       onboardingComplete: true,
     });
+
+    // Trigger the pipeline now that records exist
+    await ctx.scheduler.runAfter(
+      0,
+      internal.maintenance_pipeline.runPipeline,
+      { vehicleOwnerId, triggeredBy: "onboarding" }
+    );
 
     return { success: true };
   },
@@ -1029,6 +1235,16 @@ export const updateWarningLight = mutation({
     }
 
     await ctx.db.patch(args.vehicleOwnerId, { knownIssues: updated });
+
+    // Re-run pipeline so urgency overrides from warning lights take effect
+    if (owner.preOnboardingComplete) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.maintenance_pipeline.runPipeline,
+        { vehicleOwnerId: args.vehicleOwnerId, triggeredBy: "quick_read" }
+      );
+    }
+
     return { success: true };
   },
 });

@@ -33,7 +33,7 @@ import { BottomSheetModal, BottomSheetBackdrop, BottomSheetFlatList } from "@gor
 import LottieView from "lottie-react-native";
 
 // 3. Convex & hooks
-import { useAction, useMutation } from "convex/react";
+import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 
@@ -254,8 +254,6 @@ export default function ReviewVehicleDetailsScreen() {
   const { userId } = useUserFromConvex();
   const addOwner = useMutation(api.vehicles.addOwner);
   const upsertVehicle = useMutation(api.vehicles.upsertVehicle);
-  const generateVehicleImage = useAction(api.imagin.generateVehicleImage);
-
   // Check if this is manual entry mode (no VIN provided)
   const isManualEntry = manual === "true";
 
@@ -390,16 +388,6 @@ export default function ReviewVehicleDetailsScreen() {
       });
       createdOwnershipId = String(ownershipId);
 
-      // Generate watermark-free vehicle image (fire-and-forget, don't block navigation)
-      if (brand && model) {
-        generateVehicleImage({
-          vin: normalizedVin,
-          make: brand,
-          model: model,
-          year: year ? parseFloat(year) : undefined,
-          paintDescription: selectedColor || undefined,
-        }).catch((e: any) => console.warn("Vehicle image generation failed", e));
-      }
     } catch (e) {
       console.warn("Convex add vehicle failed", e);
     }

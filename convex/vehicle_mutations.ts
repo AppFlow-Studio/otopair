@@ -31,6 +31,49 @@ export const getEngine = internalQuery({
   },
 });
 
+export const getTrim = internalQuery({
+  args: { trimId: v.id("trims") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.trimId);
+  },
+});
+
+export const getModel = internalQuery({
+  args: { modelId: v.id("models") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.modelId);
+  },
+});
+
+export const getMake = internalQuery({
+  args: { makeId: v.id("makes") },
+  handler: async (ctx, args) => {
+    return await ctx.db.get(args.makeId);
+  },
+});
+
+export const patchEngine = internalMutation({
+  args: {
+    engineId: v.id("engines"),
+    timingType: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    if (args.timingType) {
+      await ctx.db.patch(args.engineId, { timing_type: args.timingType });
+    }
+  },
+});
+
+export const patchTrim = internalMutation({
+  args: {
+    trimId: v.id("trims"),
+    steeringType: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.trimId, { steering_type: args.steeringType });
+  },
+});
+
 export const getUserByClerkId = internalQuery({
   args: { clerkUserId: v.string() },
   handler: async (ctx, args) => {
@@ -282,8 +325,26 @@ export const upsertServiceVehicleSpec = internalMutation({
     partsCostHigh: v.float64(),
     confidenceScore: v.float64(),
     techNotes: v.string(),
+    oemIntervalMiles: v.optional(v.float64()),
+    oemIntervalMonths: v.optional(v.float64()),
+    oemIntervalNote: v.optional(v.string()),
+    partsRequired: v.optional(v.string()),
+    isApplicable: v.boolean(),
+    exclusionReason: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    const now = Date.now();
+    const oemFields = {
+      oem_interval_miles: args.oemIntervalMiles,
+      oem_interval_months: args.oemIntervalMonths,
+      oem_interval_note: args.oemIntervalNote,
+      parts_required: args.partsRequired,
+      is_applicable: args.isApplicable,
+      exclusion_reason: args.exclusionReason,
+      data_source: "ai_enrichment" as const,
+      last_enriched_at: now,
+    };
+
     const existing = await ctx.db
       .query("service_vehicle_specs")
       .withIndex("by_engine_and_service", (q) => q.eq("engine_id", args.engineId).eq("service_id", args.serviceId))
@@ -297,6 +358,7 @@ export const upsertServiceVehicleSpec = internalMutation({
           parts_cost_high: args.partsCostHigh,
           confidence_score: args.confidenceScore,
           tech_notes: args.techNotes,
+          ...oemFields,
         });
       }
       return existing._id;
@@ -310,6 +372,7 @@ export const upsertServiceVehicleSpec = internalMutation({
       parts_cost_high: args.partsCostHigh,
       confidence_score: args.confidenceScore,
       tech_notes: args.techNotes,
+      ...oemFields,
     });
   },
 });

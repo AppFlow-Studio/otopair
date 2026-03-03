@@ -11,60 +11,63 @@ import {
   TextInput,
   View,
 } from "react-native";
-import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
+import Animated, {
+  Easing,
+  FadeIn,
+  interpolateColor,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withSequence,
+  withSpring,
+  withTiming,
+} from "react-native-reanimated";
+import { AnimatedGradientBackground } from "@/components/shared-ui/AnimatedGradientBackground";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMutation, useQuery } from "convex/react";
-import { ArrowLeft } from "lucide-react-native";
+import { ArrowLeft, Check } from "lucide-react-native";
 import { BlurView } from "expo-blur";
-import { LinearGradient } from "expo-linear-gradient";
-
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { FooterButton, Text } from "@/components/shared-ui";
-import { BorderRadius, BrandColors, Shadows, Spacing } from "@/constants/theme";
+import { BorderRadius, BrandColors, FontFamily, Spacing } from "@/constants/theme";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 
 type StepId =
   | "ownershipType"
   | "ownedSinceNew"
   | "mileageAtPurchase"
-  | "ownershipDuration"
   | "currentMileage"
-  | "annualMileageBand"
-  | "usagePattern"
-  | "optionalGate"
-  | "lastServiceWhen"
-  | "lastServiceWhat"
-  | "serviceLocationPreference"
-  | "concerns"
-  | "garageRole";
+  | "mileageAndUsage";
 
 type OwnershipType = "leased" | "owned";
 type AnnualMileageBand = "light" | "avg" | "heavy" | "very_heavy";
 type UsagePattern = "mostly_local" | "mostly_highway" | "mixed";
-type OwnershipDuration = "lt1" | "y1_2" | "y2_4" | "gt4";
-type LastServiceWhen = "recently" | "few_months" | "over_6_months" | "not_sure";
-type ServiceLocationPreference = "dealer" | "independent" | "wherever" | "no_goto";
-type GarageRole = "primary" | "secondary" | "weekend" | "stored";
-type ConcernChoice = "yes" | "no";
 
-const SERVICE_WHAT_OPTIONS = [
-  { id: "oil_change", label: "Oil change" },
-  { id: "brakes", label: "Brakes" },
-  { id: "tires", label: "Tires" },
-  { id: "inspection", label: "Inspection" },
-  { id: "other", label: "Other" },
-  { id: "dont_remember", label: "Don't remember" },
-] as const;
-
-const OPTIONAL_STEPS = new Set<StepId>([
-  "lastServiceWhen",
-  "lastServiceWhat",
-  "serviceLocationPreference",
-  "concerns",
-  "garageRole",
-]);
+const STEP_COPY: Record<StepId, { title: string; subtitle: string }> = {
+  ownershipType: {
+    title: "How do you own this vehicle?",
+    subtitle: "This helps us tailor maintenance plans to your situation.",
+  },
+  ownedSinceNew: {
+    title: "Did you buy it new?",
+    subtitle: "First owners tend to have more complete service history.",
+  },
+  mileageAtPurchase: {
+    title: "What was the mileage when you got it?",
+    subtitle: "A rough estimate is fine — we'll refine over time.",
+  },
+  currentMileage: {
+    title: "What's on the odometer right now?",
+    subtitle: "An estimate is fine — we'll refine over time.",
+  },
+  mileageAndUsage: {
+    title: "How do you drive?",
+    subtitle: "This helps us build your maintenance profile.",
+  },
+};
 
 function toNumber(raw: string): number | undefined {
   const normalized = raw.replace(/,/g, "").trim();
@@ -74,13 +77,23 @@ function toNumber(raw: string): number | undefined {
 }
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
+const FOOTER_AREA_HEIGHT = 110;
+const OPTION_CARD_HEIGHT = SCREEN_HEIGHT * 0.065;
+const OPTION_CARD_HEIGHT_COMPACT = SCREEN_HEIGHT * 0.055;
+
+
+function getEncouragementText(index: number): string {
+  if (index === 0) return "Let's get to know your car";
+  if (index === 1) return "Looking good";
+  if (index === 2) return "Almost there";
+  return "Last question";
+}
 
 export default function CarPreOnboardingScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const params = useLocalSearchParams<{ vehicleOwnerId?: string; flow?: string }>();
   const { userId } = useUserFromConvex();
-  const listVehicles = useQuery(api.vehicles.listVehiclesByUser, userId ? { userId } : "skip");
   const savePreOnboarding = useMutation(api.vehicles.saveVehiclePreOnboarding);
   const [stepIndex, setStepIndex] = useState(0);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -88,20 +101,18 @@ export default function CarPreOnboardingScreen() {
   const [ownedSinceNew, setOwnedSinceNew] = useState<boolean | undefined>();
   const [mileageAtPurchase, setMileageAtPurchase] = useState("");
   const [mileageAtPurchaseNotSure, setMileageAtPurchaseNotSure] = useState(false);
-  const [ownershipDuration, setOwnershipDuration] = useState<OwnershipDuration | undefined>();
   const [currentMileage, setCurrentMileage] = useState("");
   const [annualMileageBand, setAnnualMileageBand] = useState<AnnualMileageBand | undefined>();
   const [usagePattern, setUsagePattern] = useState<UsagePattern | undefined>();
-  const [lastServiceWhen, setLastServiceWhen] = useState<LastServiceWhen | undefined>();
-  const [lastServiceWhat, setLastServiceWhat] = useState<string[]>([]);
-  const [serviceLocationPreference, setServiceLocationPreference] = useState<ServiceLocationPreference | undefined>();
-  const [concernChoice, setConcernChoice] = useState<ConcernChoice | undefined>();
-  const [concernText, setConcernText] = useState("");
-  const [garageRole, setGarageRole] = useState<GarageRole | undefined>();
-  const [includeOptionalSection, setIncludeOptionalSection] = useState<boolean | undefined>();
-  const [ctaLift, setCtaLift] = useState(0);
   const [keyboardTop, setKeyboardTop] = useState<number | null>(null);
   const ctaWrapRef = useRef<View>(null);
+  const buttonOpacity = useSharedValue(0.4);
+  const ctaLiftAnim = useSharedValue(0);
+  const animationProgress = useSharedValue(0);
+  const gradientFromIndex = useSharedValue(0);
+  const gradientToIndex = useSharedValue(1);
+  const stepTranslateX = useSharedValue(0);
+  const stepOpacity = useSharedValue(1);
 
   const vehicleOwnerId = useMemo(
     () => (typeof params.vehicleOwnerId === "string" && params.vehicleOwnerId ? params.vehicleOwnerId : ""),
@@ -112,43 +123,17 @@ export default function CarPreOnboardingScreen() {
     [params.flow],
   );
 
-  const isSecondVehicle = (listVehicles?.length ?? 0) > 1;
-
-  const parsedMileageForSteps = toNumber(currentMileage);
-  const isNewVehicleMileage = parsedMileageForSteps != null && parsedMileageForSteps <= 1000;
-
   const steps = useMemo(() => {
     const ordered: StepId[] = ["ownershipType"];
     if (ownershipType === "owned") {
       ordered.push("ownedSinceNew");
       if (ownedSinceNew === false) {
-        ordered.push("mileageAtPurchase", "ownershipDuration");
+        ordered.push("mileageAtPurchase");
       }
     }
-    ordered.push(
-      "currentMileage",
-      "annualMileageBand",
-      "usagePattern",
-    );
-    // ≤1,000 mi → brand new vehicle, skip optional questions entirely
-    if (!isNewVehicleMileage) {
-      ordered.push("optionalGate");
-      if (includeOptionalSection !== false) {
-        ordered.push(
-          "lastServiceWhen",
-          "lastServiceWhat",
-          "serviceLocationPreference",
-          "concerns",
-        );
-      }
-      if (isSecondVehicle) {
-        if (includeOptionalSection !== false) {
-          ordered.push("garageRole");
-        }
-      }
-    }
+    ordered.push("currentMileage", "mileageAndUsage");
     return ordered;
-  }, [ownershipType, ownedSinceNew, isSecondVehicle, includeOptionalSection, isNewVehicleMileage]);
+  }, [ownershipType, ownedSinceNew]);
 
   useEffect(() => {
     if (stepIndex >= steps.length) {
@@ -171,7 +156,7 @@ export default function CarPreOnboardingScreen() {
     });
     const hideSub = Keyboard.addListener("keyboardDidHide", () => {
       setKeyboardTop(null);
-      setCtaLift(0);
+      ctaLiftAnim.value = withTiming(0, { duration: 250 });
     });
 
     return () => {
@@ -185,22 +170,46 @@ export default function CarPreOnboardingScreen() {
     if (keyboardTop === null) return;
 
     requestAnimationFrame(() => {
-      ctaWrapRef.current?.measureInWindow((x, y, width, height) => {
+      ctaWrapRef.current?.measureInWindow((_x, y, _width, height) => {
         const desiredBottom = keyboardTop - 8;
         const currentBottom = y + height;
         const overlap = currentBottom - desiredBottom;
-        setCtaLift(overlap > 0 ? -overlap : 0);
+        ctaLiftAnim.value = withTiming(overlap > 0 ? -overlap : 0, { duration: 250 });
       });
     });
-  }, [keyboardTop, currentMileage, mileageAtPurchase, concernText, stepIndex]);
+  }, [keyboardTop, currentMileage, mileageAtPurchase, stepIndex]);
 
   const currentStep = steps[stepIndex];
   const isLastStep = stepIndex === steps.length - 1;
 
+  const animateTransition = useCallback((nextIndex: number, direction: 'forward' | 'back') => {
+    const exitTo = direction === 'forward' ? -300 : 300;
+    const enterFrom = direction === 'forward' ? 300 : -300;
+    stepTranslateX.value = withTiming(exitTo, { duration: 300, easing: Easing.in(Easing.ease) });
+    stepOpacity.value = withTiming(0, { duration: 250, easing: Easing.in(Easing.ease) }, (finished) => {
+      'worklet';
+      if (finished) {
+        runOnJS(setStepIndex)(nextIndex);
+        stepTranslateX.value = enterFrom;
+        stepOpacity.value = withDelay(400, withTiming(1, { duration: 300, easing: Easing.out(Easing.ease) }));
+        stepTranslateX.value = withDelay(400, withTiming(0, { duration: 300, easing: Easing.out(Easing.ease) }));
+      }
+    });
+  }, []);
+
   const transitionToStep = useCallback((nextIndex: number) => {
     if (nextIndex < 0 || nextIndex >= steps.length || nextIndex === stepIndex) return;
-    setStepIndex(nextIndex);
-  }, [steps.length, stepIndex]);
+    const clampedTo = Math.min(nextIndex, 10);
+    gradientToIndex.value = clampedTo;
+    animationProgress.value = withTiming(1, { duration: 600, easing: Easing.inOut(Easing.ease) }, (finished) => {
+      'worklet';
+      if (finished) {
+        gradientFromIndex.value = clampedTo;
+        animationProgress.value = 0;
+      }
+    });
+    animateTransition(nextIndex, 'forward');
+  }, [steps.length, stepIndex, animateTransition]);
 
   const canContinue = useMemo(() => {
     switch (currentStep) {
@@ -210,16 +219,10 @@ export default function CarPreOnboardingScreen() {
         return ownedSinceNew !== undefined;
       case "mileageAtPurchase":
         return mileageAtPurchaseNotSure || toNumber(mileageAtPurchase) !== undefined;
-      case "ownershipDuration":
-        return !!ownershipDuration;
       case "currentMileage":
         return toNumber(currentMileage) !== undefined;
-      case "annualMileageBand":
-        return !!annualMileageBand;
-      case "usagePattern":
-        return !!usagePattern;
-      case "optionalGate":
-        return includeOptionalSection !== undefined;
+      case "mileageAndUsage":
+        return !!annualMileageBand && !!usagePattern;
       default:
         return true;
     }
@@ -229,44 +232,59 @@ export default function CarPreOnboardingScreen() {
     ownedSinceNew,
     mileageAtPurchaseNotSure,
     mileageAtPurchase,
-    ownershipDuration,
     currentMileage,
     annualMileageBand,
     usagePattern,
-    includeOptionalSection,
   ]);
 
-  const handleSkipOptional = () => {
-    Keyboard.dismiss();
-    setKeyboardTop(null);
-    setCtaLift(0);
-    if (!OPTIONAL_STEPS.has(currentStep)) return;
-    if (currentStep === "lastServiceWhen") setLastServiceWhen(undefined);
-    if (currentStep === "lastServiceWhat") setLastServiceWhat([]);
-    if (currentStep === "serviceLocationPreference") setServiceLocationPreference(undefined);
-    if (currentStep === "concerns") {
-      setConcernChoice("no");
-      setConcernText("");
-    }
-    if (currentStep === "garageRole") setGarageRole(undefined);
-    transitionToStep(stepIndex + 1);
-  };
+  const ctaDisabled = isSubmitting || !canContinue;
+
+  useEffect(() => {
+    buttonOpacity.value = withTiming(ctaDisabled ? 0.4 : 1, { duration: 200 });
+  }, [ctaDisabled]);
+
+  const animatedButtonStyle = useAnimatedStyle(() => ({
+    opacity: buttonOpacity.value,
+  }));
+
+  const ctaLiftStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: ctaLiftAnim.value }],
+  }));
+
+  const buttonScale = useSharedValue(1);
+  const buttonScaleStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: buttonScale.value }],
+  }));
+
+  const stepAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: stepOpacity.value,
+    transform: [{ translateX: stepTranslateX.value }],
+  }));
 
   const handleBack = () => {
     Keyboard.dismiss();
     setKeyboardTop(null);
-    setCtaLift(0);
+    ctaLiftAnim.value = withTiming(0, { duration: 250 });
     if (stepIndex === 0) {
       router.back();
       return;
     }
-    transitionToStep(stepIndex - 1);
+    const clampedTo = Math.min(stepIndex - 1, 10);
+    gradientToIndex.value = clampedTo;
+    animationProgress.value = withTiming(1, { duration: 600, easing: Easing.inOut(Easing.ease) }, (finished) => {
+      'worklet';
+      if (finished) {
+        gradientFromIndex.value = clampedTo;
+        animationProgress.value = 0;
+      }
+    });
+    animateTransition(stepIndex - 1, 'back');
   };
 
   const handleContinue = async () => {
     Keyboard.dismiss();
     setKeyboardTop(null);
-    setCtaLift(0);
+    ctaLiftAnim.value = withTiming(0, { duration: 250 });
     if (!isLastStep) {
       transitionToStep(stepIndex + 1);
       return;
@@ -291,15 +309,9 @@ export default function CarPreOnboardingScreen() {
         ownershipType,
         ownedSinceNew,
         mileageAtPurchase: mileageAtPurchaseNotSure ? undefined : toNumber(mileageAtPurchase),
-        ownershipDuration,
         currentMileage: parsedCurrentMileage,
         annualMileageBand,
         usagePattern,
-        lastServiceWhen: includeOptionalSection === false ? undefined : lastServiceWhen,
-        lastServiceWhat: includeOptionalSection === false ? undefined : (lastServiceWhat.length ? lastServiceWhat : undefined),
-        serviceLocationPreference: includeOptionalSection === false ? undefined : serviceLocationPreference,
-        concernText: includeOptionalSection === false ? undefined : (concernChoice === "yes" ? concernText : undefined),
-        garageRole: includeOptionalSection === false ? undefined : garageRole,
       });
     } catch (err) {
       console.warn("[car-pre-onboarding] Failed to save pre-onboarding", err);
@@ -318,17 +330,6 @@ export default function CarPreOnboardingScreen() {
         router.replace("/(main-tabs)/cars");
       }
     }
-  };
-
-  const toggleServiceWhat = (id: string) => {
-    if (id === "dont_remember") {
-      setLastServiceWhat((prev) => (prev.includes("dont_remember") ? [] : ["dont_remember"]));
-      return;
-    }
-    setLastServiceWhat((prev) => {
-      const next = prev.filter((v) => v !== "dont_remember");
-      return next.includes(id) ? next.filter((v) => v !== id) : [...next, id];
-    });
   };
 
   const renderQuestionContent = () => {
@@ -362,19 +363,10 @@ export default function CarPreOnboardingScreen() {
               placeholderTextColor="#94A3B8"
             />
             <Pressable onPress={() => setMileageAtPurchaseNotSure((v) => !v)} style={styles.notSureRow}>
-              <Text size="sm" color={mileageAtPurchaseNotSure ? "#2563EB" : "#475569"}>
-                {mileageAtPurchaseNotSure ? "Not sure selected" : "Not sure"}
+              <Text size="sm" weight="medium" color={mileageAtPurchaseNotSure ? BrandColors.secondary : "#64748B"}>
+                {mileageAtPurchaseNotSure ? "Not sure ✓" : "Not sure"}
               </Text>
             </Pressable>
-          </View>
-        );
-      case "ownershipDuration":
-        return (
-          <View style={styles.optionList}>
-            <OptionCard label="< 1 year" selected={ownershipDuration === "lt1"} onPress={() => setOwnershipDuration("lt1")} />
-            <OptionCard label="1 - 2 years" selected={ownershipDuration === "y1_2"} onPress={() => setOwnershipDuration("y1_2")} />
-            <OptionCard label="2 - 4 years" selected={ownershipDuration === "y2_4"} onPress={() => setOwnershipDuration("y2_4")} />
-            <OptionCard label="4+ years" selected={ownershipDuration === "gt4"} onPress={() => setOwnershipDuration("gt4")} />
           </View>
         );
       case "currentMileage":
@@ -384,112 +376,26 @@ export default function CarPreOnboardingScreen() {
             value={currentMileage}
             onChangeText={setCurrentMileage}
             keyboardType="number-pad"
-            placeholder="What's on the odometer?"
+            placeholder="e.g. 45,000"
             placeholderTextColor="#94A3B8"
           />
         );
-      case "annualMileageBand":
+      case "mileageAndUsage":
         return (
           <View style={styles.optionList}>
-            <OptionCard label="Light (<7.5k)" selected={annualMileageBand === "light"} onPress={() => setAnnualMileageBand("light")} />
-            <OptionCard label="Avg (7.5k-12k)" selected={annualMileageBand === "avg"} onPress={() => setAnnualMileageBand("avg")} />
-            <OptionCard label="Heavy (12k-18k)" selected={annualMileageBand === "heavy"} onPress={() => setAnnualMileageBand("heavy")} />
+            <Text weight="semiBold" size="sm" color="#64748B" style={{ marginBottom: 4 }}>
+              Miles per year
+            </Text>
+            <OptionCard label="Light (< 7,500 mi)" selected={annualMileageBand === "light"} onPress={() => setAnnualMileageBand("light")} />
+            <OptionCard label="Average (7,500 – 12k)" selected={annualMileageBand === "avg"} onPress={() => setAnnualMileageBand("avg")} />
+            <OptionCard label="Heavy (12k – 18k)" selected={annualMileageBand === "heavy"} onPress={() => setAnnualMileageBand("heavy")} />
             <OptionCard label="Very Heavy (18k+)" selected={annualMileageBand === "very_heavy"} onPress={() => setAnnualMileageBand("very_heavy")} />
-          </View>
-        );
-      case "usagePattern":
-        return (
-          <View style={styles.optionList}>
-            <OptionCard
-              label="Mostly local (short trips)"
-              selected={usagePattern === "mostly_local"}
-              onPress={() => setUsagePattern("mostly_local")}
-            />
-            <OptionCard
-              label="Mostly highway (long drives)"
-              selected={usagePattern === "mostly_highway"}
-              onPress={() => setUsagePattern("mostly_highway")}
-            />
-            <OptionCard label="Mix of both" selected={usagePattern === "mixed"} onPress={() => setUsagePattern("mixed")} />
-          </View>
-        );
-      case "optionalGate":
-        return (
-          <View style={styles.optionList}>
-            <OptionCard
-              label="Continue with extra questions"
-              selected={includeOptionalSection === true}
-              onPress={() => setIncludeOptionalSection(true)}
-            />
-            <OptionCard
-              label="Finish now"
-              selected={includeOptionalSection === false}
-              onPress={() => setIncludeOptionalSection(false)}
-            />
-          </View>
-        );
-      case "lastServiceWhen":
-        return (
-          <View style={styles.optionList}>
-            <OptionCard label="Recently (within a month)" selected={lastServiceWhen === "recently"} onPress={() => setLastServiceWhen("recently")} />
-            <OptionCard label="Few months ago" selected={lastServiceWhen === "few_months"} onPress={() => setLastServiceWhen("few_months")} />
-            <OptionCard label="Over 6 months" selected={lastServiceWhen === "over_6_months"} onPress={() => setLastServiceWhen("over_6_months")} />
-            <OptionCard label="I'm not sure" selected={lastServiceWhen === "not_sure"} onPress={() => setLastServiceWhen("not_sure")} />
-          </View>
-        );
-      case "lastServiceWhat":
-        return (
-          <View style={styles.chipWrap}>
-            {SERVICE_WHAT_OPTIONS.map((option) => (
-              <Chip
-                key={option.id}
-                label={option.label}
-                selected={lastServiceWhat.includes(option.id)}
-                onPress={() => toggleServiceWhat(option.id)}
-              />
-            ))}
-          </View>
-        );
-      case "serviceLocationPreference":
-        return (
-          <View style={styles.optionList}>
-            <OptionCard label="Dealership" selected={serviceLocationPreference === "dealer"} onPress={() => setServiceLocationPreference("dealer")} />
-            <OptionCard
-              label="Independent shop"
-              selected={serviceLocationPreference === "independent"}
-              onPress={() => setServiceLocationPreference("independent")}
-            />
-            <OptionCard label="Wherever's convenient" selected={serviceLocationPreference === "wherever"} onPress={() => setServiceLocationPreference("wherever")} />
-            <OptionCard label="No go-to spot" selected={serviceLocationPreference === "no_goto"} onPress={() => setServiceLocationPreference("no_goto")} />
-          </View>
-        );
-      case "concerns":
-        return (
-          <View>
-            <View style={styles.optionList}>
-              <OptionCard label="Nope, all good" selected={concernChoice === "no"} onPress={() => setConcernChoice("no")} />
-              <OptionCard label="Yes, something's bugging me" selected={concernChoice === "yes"} onPress={() => setConcernChoice("yes")} />
-            </View>
-            {concernChoice === "yes" && (
-              <TextInput
-                style={[styles.input, { marginTop: 10, minHeight: 92 }]}
-                value={concernText}
-                onChangeText={setConcernText}
-                placeholder="What's on your mind?"
-                placeholderTextColor="#94A3B8"
-                multiline
-                textAlignVertical="top"
-              />
-            )}
-          </View>
-        );
-      case "garageRole":
-        return (
-          <View style={styles.optionList}>
-            <OptionCard label="Primary" selected={garageRole === "primary"} onPress={() => setGarageRole("primary")} />
-            <OptionCard label="Secondary" selected={garageRole === "secondary"} onPress={() => setGarageRole("secondary")} />
-            <OptionCard label="Weekend" selected={garageRole === "weekend"} onPress={() => setGarageRole("weekend")} />
-            <OptionCard label="Stored" selected={garageRole === "stored"} onPress={() => setGarageRole("stored")} />
+            <Text weight="semiBold" size="sm" color="#64748B" style={{ marginTop: 16, marginBottom: 4 }}>
+              Driving style
+            </Text>
+            <OptionCard label="Mostly local (short trips)" selected={usagePattern === "mostly_local"} onPress={() => setUsagePattern("mostly_local")} compact />
+            <OptionCard label="Mostly highway (long drives)" selected={usagePattern === "mostly_highway"} onPress={() => setUsagePattern("mostly_highway")} compact />
+            <OptionCard label="Mix of both" selected={usagePattern === "mixed"} onPress={() => setUsagePattern("mixed")} compact />
           </View>
         );
       default:
@@ -497,47 +403,22 @@ export default function CarPreOnboardingScreen() {
     }
   };
 
-  const stepTitle =
-    currentStep === "ownershipType" ? "This vehicle is..." :
-    currentStep === "ownedSinceNew" ? "Have you had this car since new?" :
-    currentStep === "mileageAtPurchase" ? "Roughly, what was the mileage when you got it?" :
-    currentStep === "ownershipDuration" ? "How long have you had this vehicle?" :
-    currentStep === "currentMileage" ? "What's on the odometer?" :
-    currentStep === "annualMileageBand" ? "How much do you drive in a typical year?" :
-    currentStep === "usagePattern" ? "How do you mostly drive?" :
-    currentStep === "optionalGate" ? "Want a head start with extra questions?" :
-    currentStep === "lastServiceWhen" ? "When was your car last serviced?" :
-    currentStep === "lastServiceWhat" ? "What was done? Select all that apply." :
-    currentStep === "serviceLocationPreference" ? "Where do you usually go?" :
-    currentStep === "concerns" ? "Anything on your mind about your car right now?" :
-    "How does this car fit into your garage?";
-
-  const isOptionalStep = OPTIONAL_STEPS.has(currentStep);
-  const stepBadge: { label: string; bg: string; color: string } | null =
-    currentStep === "currentMileage" || currentStep === "optionalGate"
-      ? null
-      : isOptionalStep
-        ? { label: "Optional", bg: "#FFF7ED", color: "#92400E" }
-        : { label: "Required", bg: "#EEF4FF", color: "#1E3A8A" };
-
-  const stepDescriptionText =
-    currentStep === "currentMileage"
-      ? "An estimate is fine - we'll refine over time."
-      : currentStep === "optionalGate"
-        ? "These are optional. You can finish now or continue with extra setup."
-        : null;
-
-  const entering = FadeIn.duration(250);
-  const exiting = FadeOut.duration(150);
-
-  const cardMinHeight = 420;
+  const { title: stepTitle, subtitle: stepSubtitle } = STEP_COPY[currentStep];
 
   return (
     <KeyboardAvoidingView
       style={styles.container}
       behavior={undefined}
     >
-      <View style={[styles.content, { paddingTop: insets.top + Spacing.md }]}>
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        <AnimatedGradientBackground
+          progress={animationProgress}
+          fromIndexSV={gradientFromIndex}
+          toIndexSV={gradientToIndex}
+          colors={['#FFFFFF', '#FFFFFF', '#D6EAF8']}
+        />
+      </View>
+      <View style={[styles.screen, { paddingTop: insets.top + Spacing.md }]}>
         <View style={styles.headerRow}>
           <Pressable
             onPress={handleBack}
@@ -549,84 +430,75 @@ export default function CarPreOnboardingScreen() {
             </BlurView>
           </Pressable>
         </View>
+        <View style={styles.progressBarContainer}>
+          <View style={styles.progressBarTrack}>
+            <Animated.View
+              style={[
+                styles.progressBarFill,
+                { width: `${((stepIndex + 1) / steps.length) * 100}%` },
+              ]}
+            />
+          </View>
+        </View>
+        <Animated.View
+          key={getEncouragementText(stepIndex)}
+          entering={FadeIn.duration(300)}
+          style={styles.encouragementRow}
+        >
+          <Text size="xs" weight="medium" color="#94A3B8">
+            {getEncouragementText(stepIndex)}
+          </Text>
+        </Animated.View>
+
         <ScrollView
+          style={{ flex: 1 }}
           contentContainerStyle={styles.scrollArea}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
           showsVerticalScrollIndicator={false}
+          scrollEnabled={true}
         >
-          <View style={[styles.card, { minHeight: cardMinHeight }]}>
-            <BlurView intensity={100} tint="light" style={StyleSheet.absoluteFill} />
-            <LinearGradient
-              colors={["rgba(255, 255, 255, 0.6)", "rgba(255, 255, 255, 0.55)"]}
-              style={StyleSheet.absoluteFill}
-            />
-            <LinearGradient
-              colors={["rgba(255, 255, 255, 0.7)", "rgba(255, 255, 255, 0.3)", "rgba(255, 255, 255, 0)"]}
-              locations={[0, 0.2, 0.5]}
-              style={styles.glossyHighlight}
-            />
-            <LinearGradient
-              colors={["rgba(255, 255, 255, 0.5)", "rgba(255, 255, 255, 0)", "rgba(255, 255, 255, 0)"]}
-              locations={[0, 0.15, 0.4]}
-              style={styles.glossyShine}
-            />
-
-            <View style={styles.cardContent} pointerEvents="box-none">
-              <Animated.View
-                key={currentStep}
-                entering={entering}
-                exiting={exiting}
-              >
+          <View
+            style={[styles.cardContent, { paddingBottom: 0 }]}
+            pointerEvents="box-none"
+          >
+              <Animated.View style={[{ flex: 1 }, stepAnimatedStyle]}>
                 <Text weight="bold" size="3xl" color="#0F172A" style={styles.title}>
                   {stepTitle}
                 </Text>
-                {stepBadge ? (
-                  <View style={[styles.pillBadge, { backgroundColor: stepBadge.bg }]}>
-                    <Text weight="semiBold" size="sm" color={stepBadge.color}>
-                      {stepBadge.label}
-                    </Text>
-                  </View>
-                ) : stepDescriptionText ? (
-                  <Text size="md" color="#64748B" style={styles.description}>
-                    {stepDescriptionText}
-                  </Text>
-                ) : null}
-                <View style={styles.questionBody}>
+                <Text weight="medium" size="md" color="#94A3B8" style={styles.subtitle}>
+                  {stepSubtitle}
+                </Text>
+                <View style={[styles.questionBody, (currentStep === "currentMileage" || currentStep === "mileageAtPurchase") && { justifyContent: "flex-start" }]}>
                   {renderQuestionContent()}
                 </View>
               </Animated.View>
-              <View style={styles.actionSection}>
-                <View ref={ctaWrapRef} style={styles.ctaButtonWrap}>
-                  <View style={{ transform: [{ translateY: ctaLift }] }}>
-                    {currentStep === "optionalGate" && includeOptionalSection === false ? (
-                      <FooterButton
-                        label="Finish Setup"
-                        onPress={submitAndComplete}
-                        disabled={isSubmitting || !canContinue}
-                        backgroundColor={BrandColors.secondary}
-                        rightIcon={isSubmitting ? <ActivityIndicator size="small" color={BrandColors.white} /> : undefined}
-                      />
-                    ) : (
-                      <FooterButton
-                        label={isLastStep ? "Finish Setup" : "Continue"}
-                        onPress={handleContinue}
-                        disabled={isSubmitting || !canContinue}
-                        backgroundColor={BrandColors.secondary}
-                        rightIcon={isSubmitting ? <ActivityIndicator size="small" color={BrandColors.white} /> : undefined}
-                      />
-                    )}
-                  </View>
-                </View>
-                {OPTIONAL_STEPS.has(currentStep) && (
-                  <Pressable onPress={handleSkipOptional} style={({ pressed }) => [styles.skipButton, pressed && { opacity: 0.75 }]}>
-                    <Text weight="semiBold" size="sm" color="#475569">Skip</Text>
-                  </Pressable>
-                )}
-              </View>
+              <View style={{ height: FOOTER_AREA_HEIGHT + insets.bottom + 24 }} />
             </View>
-          </View>
         </ScrollView>
+
+        <View
+          ref={ctaWrapRef}
+          style={[styles.pinnedFooter, { paddingBottom: insets.bottom + 12 }]}
+        >
+          <Animated.View style={[styles.footerContent, ctaLiftStyle]}>
+            <Pressable
+              disabled={ctaDisabled}
+              onPressIn={() => { buttonScale.value = withSpring(0.97, { damping: 15, stiffness: 200 }); }}
+              onPressOut={() => { buttonScale.value = withSpring(1.0, { damping: 15, stiffness: 200 }); }}
+              style={{ alignSelf: "stretch" }}
+            >
+              <Animated.View style={[animatedButtonStyle, buttonScaleStyle, { alignSelf: "stretch" }]} pointerEvents={ctaDisabled ? "none" : "auto"}>
+                <FooterButton
+                  label={isLastStep ? "Finish Setup" : "Continue"}
+                  onPress={handleContinue}
+                  backgroundColor={BrandColors.secondary}
+                  rightIcon={isSubmitting ? <ActivityIndicator size="small" color={BrandColors.white} /> : undefined}
+                />
+              </Animated.View>
+            </Pressable>
+          </Animated.View>
+        </View>
       </View>
     </KeyboardAvoidingView>
   );
@@ -636,16 +508,47 @@ function OptionCard({
   label,
   selected,
   onPress,
+  compact,
 }: {
   label: string;
   selected: boolean;
   onPress: () => void;
+  compact?: boolean;
 }) {
+  const progress = useSharedValue(selected ? 1 : 0);
+  const scaleAnim = useSharedValue(1);
+  const prevSelectedRef = React.useRef(selected);
+
+  useEffect(() => {
+    const wasSelected = prevSelectedRef.current;
+    prevSelectedRef.current = selected;
+    progress.value = withTiming(selected ? 1 : 0, { duration: 150 });
+    if (selected && !wasSelected) {
+      scaleAnim.value = withSequence(
+        withSpring(1.012, { damping: 12, stiffness: 180 }),
+        withSpring(1.0, { damping: 16, stiffness: 200 })
+      );
+    }
+  }, [selected]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    borderColor: interpolateColor(progress.value, [0, 1], ["#A0AEC0", "#5299FE"]),
+    backgroundColor: interpolateColor(progress.value, [0, 1], ["#FFFFFF", "#EFF6FF"]),
+    transform: [{ scale: scaleAnim.value }],
+  }));
+
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.optionCard, selected && styles.optionCardSelected, pressed && { opacity: 0.9 }]}>
-      <Text weight="semiBold" size="md" color={selected ? "#1E3A8A" : "#111827"}>
-        {label}
-      </Text>
+    <Pressable onPress={onPress} style={({ pressed }) => [pressed && { opacity: 0.9 }]}>
+      <Animated.View style={[styles.optionCard, animatedStyle, { height: compact ? OPTION_CARD_HEIGHT_COMPACT : OPTION_CARD_HEIGHT }]}>
+        <Text weight={selected ? "semiBold" : "medium"} size="md" color={selected ? "#1E40AF" : "#374151"}>
+          {label}
+        </Text>
+        {selected && (
+          <Animated.View entering={FadeIn.duration(150)}>
+            <Check size={20} color={BrandColors.secondary} strokeWidth={2.5} />
+          </Animated.View>
+        )}
+      </Animated.View>
     </Pressable>
   );
 }
@@ -654,16 +557,36 @@ function Chip({
   label,
   selected,
   onPress,
+  fullWidth,
 }: {
   label: string;
   selected: boolean;
   onPress: () => void;
+  fullWidth?: boolean;
 }) {
+  const progress = useSharedValue(selected ? 1 : 0);
+
+  useEffect(() => {
+    progress.value = withTiming(selected ? 1 : 0, { duration: 150 });
+  }, [selected]);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    borderColor: interpolateColor(progress.value, [0, 1], ["#A0AEC0", "#5299FE"]),
+    backgroundColor: interpolateColor(progress.value, [0, 1], ["#FFFFFF", "#EFF6FF"]),
+  }));
+
   return (
-    <Pressable onPress={onPress} style={({ pressed }) => [styles.chip, selected && styles.chipSelected, pressed && { opacity: 0.85 }]}>
-      <Text weight="medium" size="md" color={selected ? "#1E3A8A" : "#334155"}>
-        {label}
-      </Text>
+    <Pressable onPress={onPress} style={({ pressed }) => [fullWidth && { width: "100%", alignItems: "flex-start" }, pressed && { opacity: 0.85 }]}>
+      <Animated.View style={[styles.chip, animatedStyle]}>
+        <Text weight={selected ? "semiBold" : "medium"} size="md" color={selected ? "#1E40AF" : "#374151"}>
+          {label}
+        </Text>
+        {selected && (
+          <Animated.View entering={FadeIn.duration(150)}>
+            <Check size={16} color={BrandColors.secondary} strokeWidth={2.5} />
+          </Animated.View>
+        )}
+      </Animated.View>
     </Pressable>
   );
 }
@@ -671,16 +594,38 @@ function Chip({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: BrandColors.background,
+    backgroundColor: 'transparent',
   },
-  content: {
+  screen: {
     flex: 1,
-    justifyContent: "space-between",
   },
   headerRow: {
     paddingHorizontal: Spacing.md,
     marginBottom: Spacing.xs,
     alignItems: "flex-start",
+  },
+  progressBarContainer: {
+    paddingHorizontal: Spacing.lg,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  progressBarTrack: {
+    flex: 1,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: "rgba(0, 0, 0, 0.06)",
+    overflow: "hidden",
+  },
+  progressBarFill: {
+    height: "100%",
+    borderRadius: 2,
+    backgroundColor: BrandColors.secondary,
+  },
+  encouragementRow: {
+    paddingHorizontal: Spacing.lg,
+    marginTop: 4,
+    marginBottom: Spacing.sm,
+    alignItems: "flex-end",
   },
   backButton: {
     width: 40,
@@ -703,94 +648,63 @@ const styles = StyleSheet.create({
   },
   scrollArea: {
     flexGrow: 1,
-    paddingBottom: Spacing.md,
     paddingHorizontal: Spacing.lg,
   },
-  card: {
-    marginTop: Spacing.xs,
-    borderRadius: BorderRadius["2xl"],
-    paddingVertical: 0,
-    paddingHorizontal: 0,
-    backgroundColor: "transparent",
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.45)",
-    overflow: "hidden",
-    position: "relative",
-    ...Shadows.md,
-  },
   cardContent: {
-    paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing["2xl"] + 2,
-    paddingBottom: Spacing["2xl"] + 6,
+    flex: 1,
+    paddingTop: Spacing.xl,
+    paddingBottom: Spacing["2xl"],
     position: "relative",
     zIndex: 1,
-    flex: 1,
-  },
-  glossyHighlight: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: "52%",
-    borderTopLeftRadius: BorderRadius["2xl"],
-    borderTopRightRadius: BorderRadius["2xl"],
-  },
-  glossyShine: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: "36%",
-    borderTopLeftRadius: BorderRadius["2xl"],
-    borderTopRightRadius: BorderRadius["2xl"],
   },
   title: {
     textAlign: "left",
-    marginBottom: Spacing.sm,
-    lineHeight: 36,
+    marginBottom: Spacing.xs,
+    lineHeight: 38,
   },
-  description: {
-    lineHeight: 24,
-  },
-  pillBadge: {
-    alignSelf: "flex-start",
-    borderRadius: 999,
-    paddingVertical: 4,
-    paddingHorizontal: 12,
+  subtitle: {
+    marginBottom: Spacing.lg,
+    lineHeight: 22,
   },
   questionBody: {
-    marginTop: Spacing.lg,
+    flex: 1,
+    justifyContent: "flex-start",
+    marginTop: Spacing.sm,
   },
-  actionSection: {
-    marginTop: "auto",
-    paddingTop: Spacing.xl,
+  pinnedFooter: {
+    position: "absolute",
+    bottom: 0,
+    left: 0,
+    right: 0,
+    paddingHorizontal: Spacing.lg,
   },
-  ctaButtonWrap: {
-    marginTop: Spacing.xs,
+  footerContent: {
+    gap: Spacing.sm,
+    alignItems: "center",
   },
   optionList: {
+    flexDirection: "column",
     gap: 12,
+    marginTop: Spacing.xl,
   },
   optionCard: {
-    borderRadius: BorderRadius.lg,
-    backgroundColor: BrandColors.white,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
-    paddingVertical: Spacing.md + 2,
-    paddingHorizontal: Spacing.md + 2,
-  },
-  optionCardSelected: {
-    borderColor: BrandColors.secondary,
-    backgroundColor: "#EEF4FF",
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    borderRadius: BorderRadius.full,
+    borderWidth: 1.5,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
   },
   input: {
-    borderRadius: BorderRadius.lg,
+    borderRadius: BorderRadius.xl,
     borderWidth: 1,
     borderColor: "#D7DBE2",
     backgroundColor: BrandColors.white,
-    paddingHorizontal: Spacing.md + 2,
-    paddingVertical: Spacing.md + 2,
-    fontSize: 18,
+    paddingHorizontal: 16,
+    paddingVertical: 16,
+    fontFamily: FontFamily.medium,
+    fontSize: 17,
     color: "#111827",
   },
   notSureRow: {
@@ -803,28 +717,23 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     gap: 10,
+    marginTop: Spacing.xl,
   },
   chip: {
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: "#D7DBE2",
-    backgroundColor: BrandColors.white,
-    paddingVertical: Spacing.sm + 2,
-    paddingHorizontal: Spacing.md + 2,
-  },
-  chipSelected: {
-    borderColor: BrandColors.secondary,
-    backgroundColor: "#EEF4FF",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderRadius: 9999,
+    borderWidth: 1.5,
+    paddingVertical: 12,
+    paddingHorizontal: 20,
   },
   skipButton: {
-    alignSelf: "center",
-    marginTop: Spacing.sm,
     paddingVertical: 6,
-    paddingHorizontal: Spacing.md,
+    paddingHorizontal: Spacing.lg,
     borderRadius: BorderRadius.full,
     borderWidth: 1,
     borderColor: "#D7DBE2",
     backgroundColor: BrandColors.white,
   },
 });
-

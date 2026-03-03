@@ -122,6 +122,7 @@ export default defineSchema({
     engine_code: v.string(),
     fuel_type: v.string(),
     trim_id: v.id("trims"),
+    timing_type: v.optional(v.string()),    // "belt" | "chain" | "gear"
   }).index("by_trim_id", ["trim_id"]),
 
   /**
@@ -479,6 +480,20 @@ export default defineSchema({
     parts_cost_low: v.float64(),
     service_id: v.id("services"),
     tech_notes: v.string(),
+    // OEM baselines (Maintenance Intelligence)
+    oem_interval_miles: v.optional(v.float64()),
+    oem_interval_months: v.optional(v.float64()),
+    oem_interval_note: v.optional(v.string()),
+    // Vehicle-specific parts: JSON array [{name, oem_part_num, cost_estimate}]
+    parts_required: v.optional(v.string()),
+    estimated_labor_hours: v.optional(v.float64()),
+    labor_notes: v.optional(v.string()),
+    // Applicability gate (e.g. timing belt on chain engines)
+    is_applicable: v.boolean(),
+    exclusion_reason: v.optional(v.string()),
+    // Data provenance
+    data_source: v.optional(v.string()),         // "ai_enrichment" | "manual" | "actuals"
+    last_enriched_at: v.optional(v.float64()),
   })
     .index("by_engine_id", ["engine_id"])
     .index("by_service_id", ["service_id"])
@@ -738,6 +753,7 @@ export default defineSchema({
     name: v.string(),
     year_end: v.float64(),
     year_start: v.float64(),
+    steering_type: v.optional(v.string()),  // "hydraulic" | "electric"
   }).index("by_model_id", ["model_id"]),
 
   /**
@@ -821,7 +837,7 @@ export default defineSchema({
     chassis_id: v.optional(v.id("chassis_variants")),
     year: v.optional(v.float64()),
     metadata: v.optional(v.any()),
-    image_url: v.optional(v.string()), // IMAGIN.studio signed CDN URL (watermark-free)
+    image_url: v.optional(v.string()),
     created_at: v.float64(),
     updated_at: v.float64(),
   })
@@ -859,9 +875,9 @@ export default defineSchema({
    *   - ownershipDuration: (optional) "<1" | "1_2" | "2_4" | "4_plus"
    *   - annualMileageBand: (optional) "light" | "avg" | "heavy" | "very_heavy"
    *   - usagePattern: (optional) "mostly_local" | "mostly_highway" | "mixed"
-   *   - lastServiceWhen: (optional) "recently" | "few_months" | "over_6_months" | "not_sure"
+   *   - lastServiceWhen: (optional) "lt1mo" | "1_3mo" | "3_6mo" | "6_12mo" | "12plus" | "not_sure"
    *   - lastServiceWhat: (optional) string[] of selected service types
-   *   - serviceLocationPreference: (optional) "dealer" | "independent" | "wherever" | "no_goto"
+   *   - serviceLocationPreference: (optional) "dealer" | "independent" | "chain" | "self" | "not_sure"
    *   - garageRole: (optional) "primary" | "secondary" | "weekend" | "stored"
    *   - preOnboardingComplete: (optional) true once pre-step onboarding is done
    *   - onboardingComplete: (optional) true once follow-up onboarding is done
@@ -905,6 +921,30 @@ export default defineSchema({
     knownIssues: v.optional(v.any()),             // string[] e.g. ["check_engine", "weird_noise"]
     preOnboardingComplete: v.optional(v.boolean()), // Pre-step gate before CarInfoStepper
     onboardingComplete: v.optional(v.boolean()),  // Phase 1 → Phase 2 gate
+    // Maintenance Intelligence: modifier inputs
+    usage_pattern: v.optional(v.string()),        // "city" | "highway" | "mixed"
+    vehicle_age_years: v.optional(v.float64()),
+    mileage_tier: v.optional(v.string()),         // "low" | "moderate" | "high" | "ultra"
+    prev_usage_intensity: v.optional(v.string()), // "light" | "average" | "heavy" | "ultra_heavy"
+    history_confidence: v.optional(v.string()),   // "full" | "partial" | "none"
+    // Maintenance Intelligence: segment & classification
+    owner_segment: v.optional(v.string()),        // "A" | "B" | "C" | "D"
+    segment_classified_at: v.optional(v.float64()),
+    annual_mileage_rate: v.optional(v.float64()),
+    prev_owner_annual_rate: v.optional(v.float64()),
+    // Classification & check-in pointers (denormalized for fast reads)
+    active_classification_id: v.optional(v.id("vehicle_classifications")),
+    vehicle_mode: v.optional(v.string()),         // "lease" | "owned_new" | "owned_active" | "owned_endurance" | "owned_weekend"
+    last_checkin_at: v.optional(v.float64()),
+    next_checkin_due: v.optional(v.float64()),
+    health_score: v.optional(v.float64()),
+    health_score_is_estimated: v.optional(v.boolean()),
+    // Q8 ownership plans — affects service philosophy
+    ownership_plan: v.optional(v.string()),   // "keeping" | "might_sell" | "not_sure"
+    // Q7 lease status
+    lease_ending_soon: v.optional(v.boolean()),
+    // Q11 lease mileage pace
+    lease_mileage_pace: v.optional(v.string()), // "on_track" | "running_ahead" | "well_under"
   })
     .index("by_vin", ["vin"])
     .index("by_user_id", ["user_id"])
@@ -2033,9 +2073,177 @@ export default defineSchema({
     lastServiceDate: v.optional(v.float64()),
     lastServiceMileage: v.optional(v.float64()),
     customInputs: v.optional(v.any()),
+    serviceSource: v.optional(v.string()),    // "otopair" | "external" | "unknown"
+    confidence: v.optional(v.string()),       // "verified" | "unverified"
     createdAt: v.float64(),
     updatedAt: v.float64(),
   })
     .index("by_vehicle_owner", ["vehicleOwnerId"])
     .index("by_vehicle_and_type", ["vehicleOwnerId", "type"]),
+
+  // ============================================================================
+  // MAINTENANCE INTELLIGENCE
+  // ============================================================================
+
+  /**
+   * TABLE: composite_modifier_weights
+   *
+   * Weight profiles per service category. Weights must sum to 1.00
+   * for non-compliance rows. Changing weights never requires a code deploy.
+   */
+  composite_modifier_weights: defineTable({
+    category_name: v.string(),   // "routine" | "tires" | "brakes" | "battery" | "fluids" | "diagnostics" | "compliance"
+    dcm_weight: v.float64(),     // Driving Condition
+    vam_weight: v.float64(),     // Vehicle Age
+    mtm_weight: v.float64(),     // Mileage Tier
+    pum_weight: v.float64(),     // Previous Usage
+    hcm_weight: v.float64(),     // History Confidence
+    is_fixed: v.boolean(),       // true = Compliance, skip modifier entirely
+  })
+    .index("by_category", ["category_name"]),
+
+  /**
+   * TABLE: vehicle_driving_profiles
+   *
+   * Raw onboarding answers. One row per vehicle-owner pair, upserted on
+   * completion. Stores the onboarding path alongside answers so we always
+   * know which question set was presented.
+   */
+  vehicle_driving_profiles: defineTable({
+    vehicle_owner_id: v.id("vehicle_owners"),
+    onboarding_path: v.string(),          // "leased" | "owned_new" | "owned_used"
+    onboarding_completed_at: v.float64(),
+    // Path 3 only
+    mileage_at_purchase: v.optional(v.float64()),
+    ownership_duration: v.optional(v.string()),  // "<1yr" | "1-2" | "2-4" | "4+"
+    // Shared fields (all paths)
+    current_mileage: v.float64(),
+    annual_mileage_band: v.string(),       // "light" | "average" | "heavy" | "very_heavy"
+    usage_pattern: v.string(),             // "city" | "highway" | "mixed"
+    // Optional "Head Start" section
+    last_service_when: v.optional(v.string()),
+    last_service_what: v.optional(v.array(v.string())),
+    where_serviced: v.optional(v.string()),  // "dealer" | "independent" | "chain" | "self" | "not_sure"
+    current_concerns: v.optional(v.string()),
+    // Conditional
+    garage_role: v.optional(v.string()),   // "primary" | "secondary" | "weekend" | "stored"
+    // Metadata
+    source: v.string(),                    // "onboarding" | "settings_edit" | "checkin_reclassify"
+    created_at: v.float64(),
+    updated_at: v.float64(),
+  })
+    .index("by_vehicle_owner", ["vehicle_owner_id"]),
+
+  /**
+   * TABLE: vehicle_classifications
+   *
+   * Computed mode + 5 dimension scores + 6 pre-computed composite modifiers.
+   * Append-only with status (active/superseded) for full audit trail.
+   */
+  vehicle_classifications: defineTable({
+    vehicle_owner_id: v.id("vehicle_owners"),
+    // Mode assignment
+    vehicle_mode: v.string(),  // "lease" | "owned_new" | "owned_active" | "owned_endurance" | "owned_weekend"
+    owner_segment: v.string(), // "A" | "B" | "C" | "D"
+    // Five dimension scores
+    driving_condition_modifier: v.float64(),
+    vehicle_age_modifier: v.float64(),
+    mileage_tier_modifier: v.float64(),
+    previous_usage_modifier: v.float64(),
+    history_confidence_modifier: v.float64(),
+    // Pre-computed composite modifiers per service category
+    composite_routine: v.float64(),
+    composite_tires: v.float64(),
+    composite_brakes: v.float64(),
+    composite_battery: v.float64(),
+    composite_fluids: v.float64(),
+    composite_diagnostics: v.float64(),
+    // Velocity data
+    annual_mileage_estimated: v.float64(),
+    velocity_confidence: v.string(),           // "high" | "moderate" | "low"
+    // Lifecycle
+    status: v.string(),                        // "active" | "superseded"
+    computed_at: v.float64(),
+    triggered_by: v.string(),                  // "onboarding" | "checkin" | "booking" | "manual"
+    superseded_at: v.optional(v.float64()),
+    superseded_by: v.optional(v.id("vehicle_classifications")),
+  })
+    .index("by_vehicle_owner", ["vehicle_owner_id"])
+    .index("by_vehicle_owner_active", ["vehicle_owner_id", "status"])
+    .index("by_computed_at", ["computed_at"]),
+
+  /**
+   * TABLE: vehicle_service_states
+   *
+   * Central output of the intelligence engine. One row per vehicle per service.
+   * Updated on new data (mileage update, Quick Read, booking, check-in).
+   */
+  vehicle_service_states: defineTable({
+    vehicle_owner_id: v.id("vehicle_owners"),
+    service_id: v.id("services"),
+    // Gate results
+    is_applicable: v.boolean(),
+    exclusion_reason: v.optional(v.string()),
+    // Interval calculation outputs
+    adjusted_interval_miles: v.optional(v.float64()),
+    adjusted_interval_months: v.optional(v.float64()),
+    composite_modifier: v.optional(v.float64()),
+    // Due date outputs
+    due_at_mileage: v.optional(v.float64()),
+    due_at_date: v.optional(v.float64()),
+    trigger_type: v.optional(v.string()),   // "mileage" | "time" | "both"
+    // Last service anchor
+    last_service_mileage: v.optional(v.float64()),
+    last_service_date: v.optional(v.float64()),
+    last_service_booking_id: v.optional(v.id("bookings")),
+    last_service_source: v.optional(v.string()), // "user_reported" | "booking" | "smartcar"
+    // Urgency
+    urgency: v.string(),                    // "none" | "low" | "moderate" | "high" | "critical"
+    urgency_score: v.optional(v.float64()),
+    // Quick Read overrides
+    quick_read_flag: v.optional(v.string()),
+    quick_read_urgency: v.optional(v.string()),
+    // Phase scheduling (Segment C)
+    phase_visit: v.optional(v.float64()),   // 1 | 2 | 3
+    is_surfaced: v.boolean(),
+    calculated_at: v.float64(),
+  })
+    .index("by_vehicle_owner", ["vehicle_owner_id"])
+    .index("by_vehicle_service", ["vehicle_owner_id", "service_id"])
+    .index("by_urgency", ["vehicle_owner_id", "urgency"])
+    .index("by_surfaced", ["vehicle_owner_id", "is_surfaced"]),
+
+  /**
+   * TABLE: vehicle_checkins
+   *
+   * Quarterly check-in responses. Append-only — every check-in is a new row.
+   */
+  vehicle_checkins: defineTable({
+    vehicle_owner_id: v.id("vehicle_owners"),
+    mode_at_checkin: v.string(),
+    questions_shown: v.array(v.string()),
+    answers: v.any(),
+    // Denormalized key fields
+    mileage_reported: v.float64(),
+    mileage_projected: v.float64(),
+    velocity_delta: v.float64(),
+    services_reported: v.optional(v.array(v.string())),
+    services_through_otopair: v.optional(v.string()), // "yes" | "no" | "partial"
+    warning_lights: v.boolean(),
+    symptoms_text: v.optional(v.string()),
+    // Mode transition
+    mode_transition_triggered: v.boolean(),
+    new_mode: v.optional(v.string()),
+    new_classification_id: v.optional(v.id("vehicle_classifications")),
+    engine_recalc_completed_at: v.optional(v.float64()),
+    // Lifecycle
+    started_at: v.float64(),
+    completed_at: v.optional(v.float64()),
+    status: v.string(),                        // "completed" | "abandoned" | "in_progress"
+    next_checkin_due: v.optional(v.float64()),
+  })
+    .index("by_vehicle_owner", ["vehicle_owner_id"])
+    .index("by_status", ["status"])
+    .index("by_next_due", ["next_checkin_due"])
+    .index("by_vehicle_owner_completed", ["vehicle_owner_id", "completed_at"]),
 });

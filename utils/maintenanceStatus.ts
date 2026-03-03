@@ -41,12 +41,13 @@ export const MAINTENANCE_LABELS: Record<MaintenanceType, string> = {
   battery: "Battery",
 };
 
-/** All maintenance types in display order */
+/** All maintenance types in display order.
+ *  Inspection is excluded — it only appears when a record exists
+ *  (e.g. from autoCompleteNewVehicleOnboarding or manual entry). */
 export const ALL_MAINTENANCE_TYPES: MaintenanceType[] = [
   "oil",
   "brakes",
   "tires",
-  "inspection",
   "battery",
 ];
 
@@ -335,6 +336,14 @@ function computeOilStatus(
     return escalateForWarningLight(result, "Oil pressure warning light active — service urgently needed");
   }
 
+  if (result.status === "unknown") {
+    const recency = record.customInputs?.recency as string | undefined;
+    if (recency === "not_sure") {
+      return { status: "due_soon", percentUsed: 50, description: "Oil change history uncertain — service recommended", detail: "Check soon" };
+    }
+    return { status: "due_soon", percentUsed: 50, description: "No oil change data — service recommended", detail: "Check soon" };
+  }
+
   return result;
 }
 
@@ -529,13 +538,13 @@ function computeTireStatusCore(
   const tireReplaced = record.customInputs?.tireReplaced as string | undefined;
   const tireRepaired = record.customInputs?.tireRepaired as string | undefined;
 
-  // Quick Read: user doesn't know tire status → unknown
+  // Quick Read: user doesn't know tire status — flag for attention
   if (tireReplaced === "dont_know" && !record.lastServiceDate && !record.lastServiceMileage && !tp) {
     return {
-      status: "unknown",
-      percentUsed: 0,
-      description: "Tire replacement history unknown",
-      detail: "Unknown",
+      status: "due_soon",
+      percentUsed: 50,
+      description: "Tire condition uncertain — inspection recommended",
+      detail: "Check soon",
     };
   }
 
@@ -551,10 +560,10 @@ function computeTireStatusCore(
 
   // Fall through to interval-based check (tire replacement age/mileage)
   if (!record.lastServiceDate && !record.lastServiceMileage) {
-    if (tp) {
-      return { status: "unknown", percentUsed: 0, description: "No tire data", detail: "Unknown" };
+    if (tireReplaced === "replaced") {
+      return { status: "on_time", percentUsed: 10, description: "Tires replaced — no service date on file", detail: "On time" };
     }
-    return { status: "unknown", percentUsed: 0, description: "No tire data", detail: "Unknown" };
+    return { status: "on_time", percentUsed: 0, description: "No tire concerns reported", detail: "On time" };
   }
 
   // Tire age: flag at 4 years (48 months) for inspection, overdue at 6 years (72 months)
@@ -632,7 +641,7 @@ function computeBrakeStatusCore(
 ): StatusResult {
   // Legacy field OR Quick Read brakeFeel → unified symptom flags
   const brakeFeel = record.customInputs?.brakeFeel as string | undefined;
-  const squeaking = record.customInputs?.squeaking === true || brakeFeel === "squeak";
+  const squeaking = record.customInputs?.squeaking === true || brakeFeel === "squeak" || brakeFeel === "noise";
   const softSlow = brakeFeel === "soft_slow";
   const hasSymptom = squeaking || softSlow;
 
@@ -692,9 +701,9 @@ function computeBrakeStatusCore(
     };
   }
 
-  // No symptoms, no interval data
+  // No symptoms, no interval data — user reported brakes are fine
   if (!hasIntervalData) {
-    return { status: "unknown", percentUsed: 0, description: "No brake service history", detail: "Unknown" };
+    return { status: "on_time", percentUsed: 0, description: "Brakes feel fine — no concerns reported", detail: "On time" };
   }
 
   // Return the hybrid result
@@ -718,7 +727,14 @@ function computeBatteryStatus(
         detail: "Warning light",
       };
     }
-    return { status: "unknown", percentUsed: 0, description: "No battery data", detail: "Unknown" };
+    const batteryReplaced = record.customInputs?.batteryReplaced as string | undefined;
+    if (batteryReplaced === "yes") {
+      return { status: "on_time", percentUsed: 10, description: "Battery replaced — no date on file", detail: "On time" };
+    }
+    if (batteryReplaced === "not_sure") {
+      return { status: "due_soon", percentUsed: 50, description: "Battery status uncertain — consider having it tested", detail: "Check soon" };
+    }
+    return { status: "on_time", percentUsed: 0, description: "No battery concerns reported", detail: "On time" };
   }
 
   const msSince = now - record.lastServiceDate;

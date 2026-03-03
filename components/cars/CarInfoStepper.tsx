@@ -2,47 +2,52 @@
  * CarInfoStepper — Quick Read Flow
  *
  * PURPOSE: Post-onboarding vehicle condition check. Captures brake health,
- *          tire status, and warning light data in 5–8 taps (~30s). Branching
- *          logic adds conditional follow-up questions based on answers.
+ *          tire status, oil recency, battery status, and warning light data
+ *          via a 2×2 service grid + warning lights step.
  *
  * PHASES:
  *   "intro"    — marketing card (benefits + Get Started CTA)
- *   "stepping"  — 5–8 step form with progress bar, Back/Next, carousel-like slides
+ *   "stepping"  — service grid + warning lights step with progress bar
  *
  * USED IN: app/(main-tabs)/cars/index.tsx
  *
  * OWNER: Ahmad Hamoudeh
  */
 
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useImperativeHandle, useRef, useState, forwardRef } from "react";
 import {
   Animated,
   Dimensions,
   Easing,
+  Image,
   Keyboard,
-  LayoutAnimation,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
-  UIManager,
   View,
 } from "react-native";
 import { useMutation } from "convex/react";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
+
+import ReAnimated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withTiming,
+  interpolate,
+  runOnJS,
+  Layout,
+  FadeOut,
+} from "react-native-reanimated";
+import { AlertTriangle } from "lucide-react-native";
+import LottieView from "lottie-react-native";
 
 import { Text } from "@/components/shared-ui";
-import { Spacing } from "@/constants/theme";
+
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 
-// Enable LayoutAnimation on Android
-if (
-  Platform.OS === "android" &&
-  UIManager.setLayoutAnimationEnabledExperimental
-) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
 
 // ============================================================================
 // CONSTANTS
@@ -55,44 +60,45 @@ const DEFAULT_CARD_WIDTH = SCREEN_WIDTH - 80;
 // TYPES
 // ============================================================================
 
+export interface CarInfoStepperHandle {
+  isExpanded: () => boolean;
+  goBack: () => void;
+}
+
 interface CarInfoStepperProps {
   vehicleOwnerId: Id<"vehicle_owners">;
   vehicleMake: string;
   vehicleModel: string;
   vehicleYear: number;
   onComplete: () => void;
+  skipIntro?: boolean;
 }
 
 type Phase = "intro" | "stepping";
 
-type StepId =
-  | "brakeLastDone"
-  | "brakeFeel"
-  | "brakeAction"
-  | "tireReplaced"
-  | "tireReplacedWhen"
-  | "tireRepaired"
-  | "warningLight"
-  | "warningLightType";
+type StepId = "serviceGrid";
 
-type BrakeLastDone = "within_6m" | "6m_to_1y" | "over_1y" | "never_on_this_car" | "dont_know";
-type BrakeFeel = "normal" | "squeak" | "soft_slow" | "not_noticed";
-type BrakeAction = "waiting_quote" | "not_scheduled" | "no_not_yet";
-type TireReplaced = "yes_new" | "original" | "dont_know";
-type TireReplacedWhen = "within_6m" | "6m_to_1y" | "1_to_2y" | "over_2y";
-type TireRepaired = "yes" | "no" | "not_sure";
-type WarningLight = "no_all_clear" | "check_engine" | "different_light" | "not_sure";
-type WarningLightType = "tpms" | "battery_charging" | "temperature" | "oil_pressure" | "abs" | "airbag_srs" | "transmission" | "not_sure_which";
+type ServiceCardId = "brakes" | "tires" | "oil" | "battery" | "warningLights";
+
+const SERVICE_CARD_IMAGES: Partial<Record<ServiceCardId, any>> = {
+  brakes:  require("@/assets/images/services/newIcons/brakesicon.png"),
+  tires:   require("@/assets/images/services/newIcons/tiresicon.png"),
+  oil:     require("@/assets/images/services/newIcons/oilchangeicon.png"),
+  battery: require("@/assets/images/services/newIcons/batteryicon.png"),
+};
+
+const SERVICE_CARDS: Record<ServiceCardId, { label: string; color: string }> = {
+  brakes:        { label: "Brakes",         color: "#EF4444" },
+  tires:         { label: "Tires",          color: "#F59E0B" },
+  oil:           { label: "Oil",            color: "#3B82F6" },
+  battery:       { label: "Battery",        color: "#22C55E" },
+  warningLights: { label: "Warning Lights", color: "#F97316" },
+};
+
+const ALL_CARD_IDS: ServiceCardId[] = ["brakes", "tires", "oil", "battery", "warningLights"];
 
 const STEP_META: Record<StepId, { title: string; subtitle: string }> = {
-  brakeLastDone:     { title: "Brakes", subtitle: "Helps us estimate brake pad life from your history." },
-  brakeFeel:         { title: "Brakes", subtitle: "Symptoms help separate normal wear from other issues." },
-  brakeAction:       { title: "Brakes", subtitle: "Let\u2019s help you get this handled." },
-  tireReplaced:      { title: "Tires", subtitle: "Helps us estimate tread life accurately." },
-  tireReplacedWhen:  { title: "Tires", subtitle: "We\u2019ll project when replacements may be needed." },
-  tireRepaired:      { title: "Tires", subtitle: "A repaired tire has a different lifespan than an intact one." },
-  warningLight:      { title: "Warning Lights", subtitle: "Active warnings change what we recommend first." },
-  warningLightType:  { title: "Warning Lights", subtitle: "Helps us route to the right diagnostic." },
+  serviceGrid: { title: "Vehicle Check-in", subtitle: "Tap each to tell us what you know." },
 };
 
 const WARNING_LIGHT_TYPE_OPTIONS = [
@@ -106,27 +112,25 @@ const WARNING_LIGHT_TYPE_OPTIONS = [
   { id: "not_sure_which" as const, label: "I\u2019m not sure which one", icon: "help-circle-outline" as const },
 ];
 
-const LAYOUT_ANIM_CONFIG = LayoutAnimation.create(
-  200,
-  LayoutAnimation.Types.easeInEaseOut,
-  LayoutAnimation.Properties.scaleY,
-);
 
 // ============================================================================
 // COMPONENT
 // ============================================================================
 
-export default function CarInfoStepper({
+const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(function CarInfoStepper({
   vehicleOwnerId,
   vehicleMake,
   vehicleModel,
   vehicleYear,
   onComplete,
-}: CarInfoStepperProps) {
+  skipIntro = false,
+}: CarInfoStepperProps, ref) {
+  console.log('[CarInfoStepper] rendering — vehicleOwnerId:', vehicleOwnerId);
+  const insets = useSafeAreaInsets();
   const saveField = useMutation(api.vehicles.saveOnboardingField);
 
   // ── Phase & step state ──────────────────────────────────────
-  const [phase, setPhase] = useState<Phase>("intro");
+  const [phase, setPhase] = useState<Phase>(skipIntro ? "stepping" : "intro");
   const [step, setStep] = useState(0);
   const [saving, setSaving] = useState(false);
 
@@ -135,28 +139,85 @@ export default function CarInfoStepper({
   const isAnimating = useRef(false);
   const [cardWidth, setCardWidth] = useState(DEFAULT_CARD_WIDTH);
 
+  // ── Grid / expansion state ─────────────────────────────────
+  const [activeCard, setActiveCard] = useState<ServiceCardId | null>(null);
+  const [showQuestion, setShowQuestion] = useState(false);
+  const [completedCards, setCompletedCards] = useState<Set<ServiceCardId>>(new Set());
+  const cardRefs = useRef<Record<string, any>>({});
+  const expansionProgress = useSharedValue(0);
+  const expandOriginX = useSharedValue(0);
+  const expandOriginY = useSharedValue(0);
+  const expandOriginW = useSharedValue(0);
+  const expandOriginH = useSharedValue(0);
+  const containerOriginY = useSharedValue(0);
+  const containerRef = useRef<View>(null);
+
   // ── Quick Read form state ───────────────────────────────────
-  const [brakeLastDone, setBrakeLastDone] = useState<BrakeLastDone | null>(null);
-  const [brakeFeel, setBrakeFeel] = useState<BrakeFeel | null>(null);
-  const [brakeAction, setBrakeAction] = useState<BrakeAction | null>(null);
-  const [tireReplaced, setTireReplaced] = useState<TireReplaced | null>(null);
-  const [tireReplacedWhen, setTireReplacedWhen] = useState<TireReplacedWhen | null>(null);
-  const [tireRepaired, setTireRepaired] = useState<TireRepaired | null>(null);
-  const [warningLight, setWarningLight] = useState<WarningLight | null>(null);
-  const [warningLightTypes, setWarningLightTypes] = useState<WarningLightType[]>([]);
+  const [brakeRecency, setBrakeRecency] = useState<string | null>(null);
+  const [brakeFeel, setBrakeFeel] = useState<string | null>(null);
+  const [tireRecency, setTireRecency] = useState<string | null>(null);
+  const [tireOriginal, setTireOriginal] = useState<string | null>(null);
+  const [oilRecency, setOilRecency] = useState<string | null>(null);
+  const [batteryRecency, setBatteryRecency] = useState<string | null>(null);
+  const [batteryReplaced, setBatteryReplaced] = useState<string | null>(null);
+  const [warningLight, setWarningLight] = useState<string | null>(null);
+  const [warningLightTypes, setWarningLightTypes] = useState<string[]>([]);
+  const [followUp, setFollowUp] = useState<Set<ServiceCardId>>(new Set());
 
-  // ── Dynamic step list (branching logic) ─────────────────────
-  const steps: StepId[] = (() => {
-    const ordered: StepId[] = ["brakeLastDone", "brakeFeel"];
-    if (brakeFeel === "soft_slow") ordered.push("brakeAction");
-    ordered.push("tireReplaced");
-    if (tireReplaced === "yes_new") ordered.push("tireReplacedWhen");
-    ordered.push("tireRepaired", "warningLight");
-    if (warningLight === "different_light") ordered.push("warningLightType");
-    return ordered;
-  })();
-
+  // ── Steps (no branching) ────────────────────────────────────
+  const steps: StepId[] = ["serviceGrid"];
   const totalSteps = steps.length;
+
+  // ── Animated styles for shared element transition ──────────
+  const HERO_Y = -20;
+  const HERO_Y_COMPACT = -70;
+  const HERO_Y_WARNING = 20;
+  const HERO_Y_COMPACT_WARNING = -50;
+  const HERO_SCALE = 2.4;
+  const HERO_SCALE_COMPACT = 1.0;
+  const compactProgress = useSharedValue(0);
+  const isWarningCardSV = useSharedValue(0);
+
+  const floatingCardStyle = useAnimatedStyle(() => {
+    const p = expansionProgress.value;
+    const cp = compactProgress.value;
+    const w = isWarningCardSV.value;
+    const heroY = interpolate(w, [0, 1], [HERO_Y, HERO_Y_WARNING]);
+    const heroYCompact = interpolate(w, [0, 1], [HERO_Y_COMPACT, HERO_Y_COMPACT_WARNING]);
+    const currentScale = interpolate(cp, [0, 1], [HERO_SCALE, HERO_SCALE_COMPACT]);
+    const currentY = interpolate(cp, [0, 1], [heroY, heroYCompact]);
+    const destW = expandOriginW.value * currentScale;
+    const destH = expandOriginH.value * currentScale;
+    const destX = (SCREEN_WIDTH - destW) / 2;
+    const originYRelative = expandOriginY.value - containerOriginY.value;
+    return {
+      position: 'absolute' as const,
+      left: interpolate(p, [0, 1], [expandOriginX.value, destX]),
+      top: interpolate(p, [0, 1], [originYRelative, currentY]),
+      width: interpolate(p, [0, 1], [expandOriginW.value, destW]),
+      height: interpolate(p, [0, 1], [expandOriginH.value, destH]),
+      zIndex: 300,
+      transform: [{ scale: interpolate(p, [0, 1], [1, currentScale]) }],
+      opacity: interpolate(p, [0.05, 0.2], [0, 1]),
+    };
+  });
+
+  const gridFadeStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(expansionProgress.value, [0, 0.15], [1, 0]),
+  }));
+
+  const questionFadeStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(expansionProgress.value, [0.6, 1], [0, 1]),
+  }));
+
+  const spacerAnimatedStyle = useAnimatedStyle(() => {
+    const w = isWarningCardSV.value;
+    const expandedH = interpolate(w, [0, 1], [380, 400]);
+    const compactH = interpolate(w, [0, 1], [110, 120]);
+    return {
+      height: interpolate(compactProgress.value, [0, 1], [expandedH, compactH]),
+    };
+  });
 
   // ── Slide helper (two-phase: quick exit → swap → smooth enter) ──
   const animateSlide = useCallback(
@@ -172,19 +233,15 @@ export default function CarInfoStepper({
       const exitTo = direction === "forward" ? -cardWidth : cardWidth;
       const enterFrom = direction === "forward" ? cardWidth : -cardWidth;
 
-      // Phase 1: slide current content out (fast)
       Animated.timing(slideX, {
         toValue: exitTo,
         duration: 120,
         easing: Easing.in(Easing.cubic),
         useNativeDriver: true,
       }).start(() => {
-        // Swap content
-        LayoutAnimation.configureNext(LAYOUT_ANIM_CONFIG);
         if (newPhase !== null) setPhase(newPhase);
         if (newStep !== null) setStep(newStep);
 
-        // Phase 2: slide new content in (slightly slower for deceleration feel)
         slideX.setValue(enterFrom);
         Animated.timing(slideX, {
           toValue: 0,
@@ -204,17 +261,10 @@ export default function CarInfoStepper({
 
   const canGoNext = useCallback((): boolean => {
     switch (currentStepId) {
-      case "brakeLastDone":    return brakeLastDone !== null;
-      case "brakeFeel":        return brakeFeel !== null;
-      case "brakeAction":      return brakeAction !== null;
-      case "tireReplaced":     return tireReplaced !== null;
-      case "tireReplacedWhen": return tireReplacedWhen !== null;
-      case "tireRepaired":     return tireRepaired !== null;
-      case "warningLight":     return warningLight !== null;
-      case "warningLightType": return warningLightTypes.length > 0;
+      case "serviceGrid": return completedCards.size === ALL_CARD_IDS.length;
       default: return false;
     }
-  }, [currentStepId, brakeLastDone, brakeFeel, brakeAction, tireReplaced, tireReplacedWhen, tireRepaired, warningLight, warningLightTypes]);
+  }, [currentStepId, completedCards]);
 
   const handleGetStarted = useCallback(() => {
     animateSlide("forward", "stepping", 0);
@@ -236,221 +286,375 @@ export default function CarInfoStepper({
     animateSlide("back", "intro", 0);
   }, [animateSlide]);
 
+  // ── Card tap → expand to question page ──────────────────────
+  const startExpansion = useCallback((cardId: ServiceCardId) => {
+    setActiveCard(cardId);
+    isWarningCardSV.value = cardId === "warningLights" ? 1 : 0;
+    expansionProgress.value = withTiming(1, { duration: 400 }, () => {
+      runOnJS(setShowQuestion)(true);
+    });
+  }, [expansionProgress, isWarningCardSV]);
+
+  const handleCardTap = useCallback((cardId: ServiceCardId) => {
+    const ref = cardRefs.current[cardId];
+    if (ref?.measureInWindow) {
+      ref.measureInWindow((x: number, y: number, w: number, h: number) => {
+        expandOriginX.value = x;
+        expandOriginY.value = y;
+        expandOriginW.value = w;
+        expandOriginH.value = h;
+        containerRef.current?.measureInWindow((_cx: number, cy: number) => {
+          containerOriginY.value = cy;
+          startExpansion(cardId);
+        });
+      });
+    } else {
+      startExpansion(cardId);
+    }
+  }, [startExpansion, expandOriginX, expandOriginY, expandOriginW, expandOriginH, containerOriginY]);
+
+  // ── Back to grid (dismiss without completing) ──────────────
+  const resetAfterDismiss = useCallback((cardId: ServiceCardId | null) => {
+    if (cardId) {
+      setFollowUp(prev => {
+        const next = new Set(prev);
+        next.delete(cardId);
+        return next;
+      });
+      if (cardId === "brakes") { setBrakeRecency(null); setBrakeFeel(null); }
+      if (cardId === "tires") { setTireRecency(null); setTireOriginal(null); }
+      if (cardId === "oil") { setOilRecency(null); }
+      if (cardId === "battery") { setBatteryRecency(null); setBatteryReplaced(null); }
+      if (cardId === "warningLights") { setWarningLight(null); setWarningLightTypes([]); }
+    }
+    requestAnimationFrame(() => setActiveCard(null));
+  }, []);
+
+  const handleBackToGrid = useCallback(() => {
+    const dismissedCard = activeCard;
+    setShowQuestion(false);
+    compactProgress.value = withTiming(0, { duration: 250 });
+    expansionProgress.value = withTiming(0, { duration: 400 }, (finished) => {
+      'worklet';
+      if (finished) {
+        runOnJS(resetAfterDismiss)(dismissedCard);
+      }
+    });
+  }, [expansionProgress, compactProgress, activeCard, resetAfterDismiss]);
+
+  useImperativeHandle(ref, () => ({
+    isExpanded: () => !!activeCard,
+    goBack: () => handleBackToGrid(),
+  }), [activeCard, handleBackToGrid]);
+
+  // ── Transition to follow-up question ───────────────────────
+  const transitionToFollowUp = useCallback((cardId: ServiceCardId) => {
+    setFollowUp(prev => new Set(prev).add(cardId));
+    if (cardId === "warningLights") {
+      compactProgress.value = withTiming(1, { duration: 350 });
+    }
+  }, [compactProgress]);
+
+  // ── Card answer → collapse back to grid + mark completed ───
+  const finishCardAnswer = useCallback((cardId: ServiceCardId) => {
+    requestAnimationFrame(() => {
+      setActiveCard(null);
+      setCompletedCards(prev => new Set(prev).add(cardId));
+    });
+  }, []);
+
+  const handleCardAnswer = useCallback((cardId: ServiceCardId) => {
+    setShowQuestion(false);
+    compactProgress.value = withTiming(0, { duration: 250 });
+    expansionProgress.value = withTiming(0, { duration: 400 }, (finished) => {
+      'worklet';
+      if (finished) {
+        runOnJS(finishCardAnswer)(cardId);
+      }
+    });
+  }, [expansionProgress, compactProgress, finishCardAnswer]);
+
   // ── Complete handler ────────────────────────────────────────
   const handleComplete = useCallback(async () => {
     setSaving(true);
-    onComplete();
     try {
-      await saveField({
-        vehicleOwnerId,
-        field: "brakes",
-        value: {
-          lastDone: brakeLastDone,
-          feel: brakeFeel,
-          actionStatus: brakeAction ?? undefined,
-        },
-      });
-      await saveField({
-        vehicleOwnerId,
-        field: "tires",
-        value: {
-          replaced: tireReplaced,
-          replacedWhen: tireReplacedWhen ?? undefined,
-          repaired: tireRepaired,
-        },
-      });
-      await saveField({
-        vehicleOwnerId,
-        field: "warningLights",
-        value: {
-          status: warningLight,
-          lightTypes: warningLightTypes.length > 0 ? warningLightTypes : undefined,
-        },
-      });
+      if (brakeRecency !== null || brakeFeel !== null)
+        await saveField({ vehicleOwnerId, field: "brakes", value: { recency: brakeRecency, feel: brakeFeel } });
+      if (tireRecency !== null || tireOriginal !== null)
+        await saveField({ vehicleOwnerId, field: "tires", value: { recency: tireRecency, original: tireOriginal } });
+      if (oilRecency !== null)
+        await saveField({ vehicleOwnerId, field: "oil", value: { recency: oilRecency } });
+      if (batteryRecency !== null || batteryReplaced !== null)
+        await saveField({ vehicleOwnerId, field: "battery", value: { recency: batteryRecency, replaced: batteryReplaced } });
+      await saveField({ vehicleOwnerId, field: "warningLights", value: { status: warningLight, lightTypes: warningLightTypes } });
+      onComplete();
     } catch (err) {
       console.error("[CarInfoStepper] Save failed:", err);
+      onComplete();
     } finally {
       setSaving(false);
     }
   }, [
-    vehicleOwnerId, brakeLastDone, brakeFeel, brakeAction,
-    tireReplaced, tireReplacedWhen, tireRepaired,
+    vehicleOwnerId,
+    brakeRecency, brakeFeel, tireRecency, tireOriginal,
+    oilRecency, batteryRecency, batteryReplaced,
     warningLight, warningLightTypes,
     saveField, onComplete,
   ]);
 
-  // ── Render step content ──────────────────────────────────────
-  const renderStepContent = (stepId: StepId) => {
-    switch (stepId) {
-      case "brakeLastDone":
-        return (
-          <View style={s.fieldGroup}>
-            <Text weight="semiBold" size="md" color="#1F2937">When were your brakes last done?</Text>
-            <View style={s.chipColumn}>
-              {([
-                { id: "within_6m" as const, label: "Within the last 6 months" },
-                { id: "6m_to_1y" as const, label: "6 months to a year ago" },
-                { id: "over_1y" as const, label: "Over a year ago" },
-                { id: "never_on_this_car" as const, label: "I\u2019ve never had them done on this car" },
-                { id: "dont_know" as const, label: "I don\u2019t know" },
-              ]).map((opt) => (
-                <Pressable key={opt.id} style={[s.optionCard, brakeLastDone === opt.id && s.optionCardActive]} onPress={() => setBrakeLastDone(opt.id)}>
-                  <Text weight={brakeLastDone === opt.id ? "bold" : "semiBold"} size="md" color={brakeLastDone === opt.id ? "#1E40AF" : "#1F2937"}>{opt.label}</Text>
-                  {brakeLastDone === opt.id && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
-                </Pressable>
-              ))}
-            </View>
-          </View>
-        );
-
-      case "brakeFeel":
-        return (
-          <View style={s.fieldGroup}>
-            <Text weight="semiBold" size="md" color="#1F2937">How do your brakes feel right now?</Text>
-            <View style={s.chipColumn}>
-              {([
-                { id: "normal" as const, label: "They feel normal" },
-                { id: "squeak" as const, label: "They squeak or make noise" },
-                { id: "soft_slow" as const, label: "They feel soft or take longer to stop" },
-                { id: "not_noticed" as const, label: "I haven\u2019t noticed anything either way" },
-              ]).map((opt) => {
-                const isNormal = opt.id === "normal" && brakeFeel === opt.id;
-                return (
-                  <Pressable key={opt.id} style={[s.optionCard, brakeFeel === opt.id && s.optionCardActive, isNormal && s.optionCardGood]} onPress={() => setBrakeFeel(opt.id)}>
-                    <Text weight={brakeFeel === opt.id ? "bold" : "semiBold"} size="md" color={brakeFeel === opt.id ? (isNormal ? "#166534" : "#1E40AF") : "#1F2937"}>{opt.label}</Text>
-                    {brakeFeel === opt.id && <Ionicons name="checkmark-circle" size={22} color={isNormal ? "#22C55E" : "#5299FE"} />}
+  // ── Render card question (shown in the bottom sheet) ────────
+  const renderCardQuestion = (cardId: ServiceCardId) => {
+    switch (cardId) {
+      case "brakes":
+        if (followUp.has("brakes")) {
+          return (
+            <View style={s.fieldGroup}>
+              <Text weight="semiBold" size="md" color="#1F2937">How do your brakes feel?</Text>
+              <View style={s.chipColumn}>
+                {([
+                  { id: "fine",      label: "Fine" },
+                  { id: "noise",     label: "They make noise" },
+                  { id: "soft_slow", label: "They feel soft or slow" },
+                ]).map((opt) => (
+                  <Pressable
+                    key={opt.id}
+                    style={[s.optionCard, brakeFeel === opt.id && s.optionCardActive]}
+                    onPress={() => { setBrakeFeel(opt.id); handleCardAnswer("brakes"); }}
+                  >
+                    <Text weight={brakeFeel === opt.id ? "bold" : "semiBold"} size="md" color={brakeFeel === opt.id ? "#1E40AF" : "#1F2937"}>{opt.label}</Text>
+                    {brakeFeel === opt.id && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
                   </Pressable>
-                );
-              })}
+                ))}
+              </View>
             </View>
-          </View>
-        );
-
-      case "brakeAction":
+          );
+        }
         return (
           <View style={s.fieldGroup}>
-            <Text weight="semiBold" size="md" color="#1F2937">Have you had them looked at yet?</Text>
+            <Text weight="semiBold" size="md" color="#1F2937">When were your brakes last serviced?</Text>
             <View style={s.chipColumn}>
               {([
-                { id: "waiting_quote" as const, label: "Yes, waiting on a quote" },
-                { id: "not_scheduled" as const, label: "Yes, but haven\u2019t scheduled yet" },
-                { id: "no_not_yet" as const, label: "No, not yet" },
+                { id: "recently",   label: "Recently" },
+                { id: "few_months", label: "A few months ago" },
+                { id: "over_6mo",   label: "Over 6 months ago" },
+                { id: "not_sure",   label: "I'm not sure" },
               ]).map((opt) => (
-                <Pressable key={opt.id} style={[s.optionCard, brakeAction === opt.id && s.optionCardActive]} onPress={() => setBrakeAction(opt.id)}>
-                  <Text weight={brakeAction === opt.id ? "bold" : "semiBold"} size="md" color={brakeAction === opt.id ? "#1E40AF" : "#1F2937"}>{opt.label}</Text>
-                  {brakeAction === opt.id && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
+                <Pressable
+                  key={opt.id}
+                  style={[s.optionCard, brakeRecency === opt.id && s.optionCardActive]}
+                  onPress={() => {
+                    setBrakeRecency(opt.id);
+                    if (opt.id === "not_sure") {
+                      transitionToFollowUp("brakes");
+                    } else {
+                      handleCardAnswer("brakes");
+                    }
+                  }}
+                >
+                  <Text weight={brakeRecency === opt.id ? "bold" : "semiBold"} size="md" color={brakeRecency === opt.id ? "#1E40AF" : "#1F2937"}>{opt.label}</Text>
+                  {brakeRecency === opt.id && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
                 </Pressable>
               ))}
             </View>
           </View>
         );
 
-      case "tireReplaced":
-        return (
-          <View style={s.fieldGroup}>
-            <Text weight="semiBold" size="md" color="#1F2937">Have your tires been replaced on this car?</Text>
-            <View style={s.chipColumn}>
-              {([
-                { id: "yes_new" as const, label: "Yes, I put new tires on" },
-                { id: "original" as const, label: "No, they\u2019re the original tires" },
-                { id: "dont_know" as const, label: "I don\u2019t know (I bought it this way)" },
-              ]).map((opt) => (
-                <Pressable key={opt.id} style={[s.optionCard, tireReplaced === opt.id && s.optionCardActive]} onPress={() => setTireReplaced(opt.id)}>
-                  <Text weight={tireReplaced === opt.id ? "bold" : "semiBold"} size="md" color={tireReplaced === opt.id ? "#1E40AF" : "#1F2937"}>{opt.label}</Text>
-                  {tireReplaced === opt.id && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
-                </Pressable>
-              ))}
-            </View>
-          </View>
-        );
-
-      case "tireReplacedWhen":
-        return (
-          <View style={s.fieldGroup}>
-            <Text weight="semiBold" size="md" color="#1F2937">Roughly when?</Text>
-            <View style={s.chipColumn}>
-              {([
-                { id: "within_6m" as const, label: "Within the last 6 months" },
-                { id: "6m_to_1y" as const, label: "6 months to a year ago" },
-                { id: "1_to_2y" as const, label: "1 to 2 years ago" },
-                { id: "over_2y" as const, label: "Over 2 years ago" },
-              ]).map((opt) => (
-                <Pressable key={opt.id} style={[s.optionCard, tireReplacedWhen === opt.id && s.optionCardActive]} onPress={() => setTireReplacedWhen(opt.id)}>
-                  <Text weight={tireReplacedWhen === opt.id ? "bold" : "semiBold"} size="md" color={tireReplacedWhen === opt.id ? "#1E40AF" : "#1F2937"}>{opt.label}</Text>
-                  {tireReplacedWhen === opt.id && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
-                </Pressable>
-              ))}
-            </View>
-          </View>
-        );
-
-      case "tireRepaired":
-        return (
-          <View style={s.fieldGroup}>
-            <Text weight="semiBold" size="md" color="#1F2937">Have any of your tires been repaired? (Patched, plugged, etc.)</Text>
-            <View style={s.chipColumn}>
-              {([
-                { id: "yes" as const, label: "Yes" },
-                { id: "no" as const, label: "No" },
-                { id: "not_sure" as const, label: "I\u2019m not sure" },
-              ]).map((opt) => {
-                const isNo = opt.id === "no" && tireRepaired === opt.id;
-                return (
-                  <Pressable key={opt.id} style={[s.optionCard, tireRepaired === opt.id && s.optionCardActive, isNo && s.optionCardGood]} onPress={() => setTireRepaired(opt.id)}>
-                    <Text weight={tireRepaired === opt.id ? "bold" : "semiBold"} size="md" color={tireRepaired === opt.id ? (isNo ? "#166534" : "#1E40AF") : "#1F2937"}>{opt.label}</Text>
-                    {tireRepaired === opt.id && <Ionicons name="checkmark-circle" size={22} color={isNo ? "#22C55E" : "#5299FE"} />}
+      case "tires":
+        if (followUp.has("tires")) {
+          return (
+            <View style={s.fieldGroup}>
+              <Text weight="semiBold" size="md" color="#1F2937">Are these the original tires?</Text>
+              <View style={s.chipColumn}>
+                {([
+                  { id: "yes",      label: "Yes" },
+                  { id: "no",       label: "No" },
+                  { id: "not_sure", label: "Not sure" },
+                ]).map((opt) => (
+                  <Pressable
+                    key={opt.id}
+                    style={[s.optionCard, tireOriginal === opt.id && s.optionCardActive]}
+                    onPress={() => { setTireOriginal(opt.id); handleCardAnswer("tires"); }}
+                  >
+                    <Text weight={tireOriginal === opt.id ? "bold" : "semiBold"} size="md" color={tireOriginal === opt.id ? "#1E40AF" : "#1F2937"}>{opt.label}</Text>
+                    {tireOriginal === opt.id && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
                   </Pressable>
-                );
-              })}
+                ))}
+              </View>
+            </View>
+          );
+        }
+        return (
+          <View style={s.fieldGroup}>
+            <Text weight="semiBold" size="md" color="#1F2937">When were your tires last replaced?</Text>
+            <View style={s.chipColumn}>
+              {([
+                { id: "recently",   label: "Recently" },
+                { id: "few_months", label: "A few months ago" },
+                { id: "over_6mo",   label: "Over 6 months ago" },
+                { id: "not_sure",   label: "I'm not sure" },
+              ]).map((opt) => (
+                <Pressable
+                  key={opt.id}
+                  style={[s.optionCard, tireRecency === opt.id && s.optionCardActive]}
+                  onPress={() => {
+                    setTireRecency(opt.id);
+                    if (opt.id === "not_sure") {
+                      transitionToFollowUp("tires");
+                    } else {
+                      handleCardAnswer("tires");
+                    }
+                  }}
+                >
+                  <Text weight={tireRecency === opt.id ? "bold" : "semiBold"} size="md" color={tireRecency === opt.id ? "#1E40AF" : "#1F2937"}>{opt.label}</Text>
+                  {tireRecency === opt.id && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
+                </Pressable>
+              ))}
             </View>
           </View>
         );
 
-      case "warningLight":
+      case "oil":
         return (
           <View style={s.fieldGroup}>
-            <Text weight="semiBold" size="md" color="#1F2937">Is your car showing any dashboard warning lights right now?</Text>
+            <Text weight="semiBold" size="md" color="#1F2937">Know when your last oil change was?</Text>
             <View style={s.chipColumn}>
               {([
-                { id: "no_all_clear" as const, label: "No, all clear" },
-                { id: "check_engine" as const, label: "Yes, check engine light" },
-                { id: "different_light" as const, label: "Yes, a different warning light" },
-                { id: "not_sure" as const, label: "There might be, I\u2019m not sure" },
+                { id: "recently",   label: "Recently" },
+                { id: "few_months", label: "A few months ago" },
+                { id: "over_6mo",   label: "Over 6 months ago" },
+                { id: "not_sure",   label: "Not sure" },
+              ]).map((opt) => (
+                <Pressable
+                  key={opt.id}
+                  style={[s.optionCard, oilRecency === opt.id && s.optionCardActive]}
+                  onPress={() => { setOilRecency(opt.id); handleCardAnswer("oil"); }}
+                >
+                  <Text weight={oilRecency === opt.id ? "bold" : "semiBold"} size="md" color={oilRecency === opt.id ? "#1E40AF" : "#1F2937"}>{opt.label}</Text>
+                  {oilRecency === opt.id && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        );
+
+      case "battery":
+        if (followUp.has("battery")) {
+          return (
+            <View style={s.fieldGroup}>
+              <Text weight="semiBold" size="md" color="#1F2937">Has your battery ever been replaced?</Text>
+              <View style={s.chipColumn}>
+                {([
+                  { id: "yes",      label: "Yes" },
+                  { id: "no",       label: "No" },
+                  { id: "not_sure", label: "Not sure" },
+                ]).map((opt) => (
+                  <Pressable
+                    key={opt.id}
+                    style={[s.optionCard, batteryReplaced === opt.id && s.optionCardActive]}
+                    onPress={() => { setBatteryReplaced(opt.id); handleCardAnswer("battery"); }}
+                  >
+                    <Text weight={batteryReplaced === opt.id ? "bold" : "semiBold"} size="md" color={batteryReplaced === opt.id ? "#1E40AF" : "#1F2937"}>{opt.label}</Text>
+                    {batteryReplaced === opt.id && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+          );
+        }
+        return (
+          <View style={s.fieldGroup}>
+            <Text weight="semiBold" size="md" color="#1F2937">When was your battery last replaced?</Text>
+            <View style={s.chipColumn}>
+              {([
+                { id: "recently",   label: "Recently" },
+                { id: "few_months", label: "A few months ago" },
+                { id: "over_6mo",   label: "Over 6 months ago" },
+                { id: "not_sure",   label: "I'm not sure" },
+              ]).map((opt) => (
+                <Pressable
+                  key={opt.id}
+                  style={[s.optionCard, batteryRecency === opt.id && s.optionCardActive]}
+                  onPress={() => {
+                    setBatteryRecency(opt.id);
+                    if (opt.id === "not_sure") {
+                      transitionToFollowUp("battery");
+                    } else {
+                      handleCardAnswer("battery");
+                    }
+                  }}
+                >
+                  <Text weight={batteryRecency === opt.id ? "bold" : "semiBold"} size="md" color={batteryRecency === opt.id ? "#1E40AF" : "#1F2937"}>{opt.label}</Text>
+                  {batteryRecency === opt.id && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
+                </Pressable>
+              ))}
+            </View>
+          </View>
+        );
+
+      case "warningLights":
+        if (followUp.has("warningLights")) {
+          return (
+            <View style={s.fieldGroup}>
+              <Text weight="semiBold" size="md" color="#1F2937">Which warning lights are on?</Text>
+              <View style={s.chipColumn}>
+                {WARNING_LIGHT_TYPE_OPTIONS.map((opt) => {
+                  const selected = warningLightTypes.includes(opt.id);
+                  return (
+                    <Pressable
+                      key={opt.id}
+                      style={[s.optionCard, selected && s.optionCardActive]}
+                      onPress={() => {
+                        setWarningLightTypes((prev) =>
+                          prev.includes(opt.id) ? prev.filter((id) => id !== opt.id) : [...prev, opt.id]
+                        );
+                      }}
+                    >
+                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+                        <Ionicons name={opt.icon} size={20} color={selected ? "#5299FE" : "#6B7280"} />
+                        <Text weight={selected ? "bold" : "semiBold"} size="md" color={selected ? "#1E40AF" : "#1F2937"}>{opt.label}</Text>
+                      </View>
+                      {selected && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
+                    </Pressable>
+                  );
+                })}
+              </View>
+              {warningLightTypes.length > 0 && (
+                <Pressable
+                  style={({ pressed }) => [s.ctaButton, pressed && s.ctaButtonPressed, { marginTop: 8 }]}
+                  onPress={() => handleCardAnswer("warningLights")}
+                >
+                  <Text weight="bold" size="md" color="#FFFFFF">Done</Text>
+                </Pressable>
+              )}
+            </View>
+          );
+        }
+        return (
+          <View style={s.fieldGroup}>
+            <Text weight="semiBold" size="md" color="#1F2937">Any dashboard warning lights on right now?</Text>
+            <View style={s.chipColumn}>
+              {([
+                { id: "no_all_clear", label: "No, all clear" },
+                { id: "check_engine", label: "Yes, check engine" },
+                { id: "other",        label: "Yes, something else" },
+                { id: "not_sure",     label: "Not sure" },
               ]).map((opt) => {
                 const isClear = opt.id === "no_all_clear" && warningLight === opt.id;
                 return (
-                  <Pressable key={opt.id} style={[s.optionCard, warningLight === opt.id && s.optionCardActive, isClear && s.optionCardGood]} onPress={() => setWarningLight(opt.id)}>
-                    <Text weight={warningLight === opt.id ? "bold" : "semiBold"} size="md" color={warningLight === opt.id ? (isClear ? "#166534" : "#1E40AF") : "#1F2937"}>{opt.label}</Text>
-                    {warningLight === opt.id && <Ionicons name="checkmark-circle" size={22} color={isClear ? "#22C55E" : "#5299FE"} />}
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
-        );
-
-      case "warningLightType":
-        return (
-          <View style={s.fieldGroup}>
-            <Text weight="semiBold" size="md" color="#1F2937">Which ones? Select all that apply.</Text>
-            <View style={s.chipColumn}>
-              {WARNING_LIGHT_TYPE_OPTIONS.map((opt) => {
-                const selected = warningLightTypes.includes(opt.id);
-                return (
                   <Pressable
                     key={opt.id}
-                    style={[s.optionCard, selected && s.optionCardActive]}
+                    style={[s.optionCard, warningLight === opt.id && s.optionCardActive, isClear && s.optionCardGood]}
                     onPress={() => {
-                      setWarningLightTypes((prev) =>
-                        prev.includes(opt.id) ? prev.filter((id) => id !== opt.id) : [...prev, opt.id]
-                      );
+                      setWarningLight(opt.id);
+                      if (opt.id === "other") {
+                        transitionToFollowUp("warningLights");
+                      } else {
+                        handleCardAnswer("warningLights");
+                      }
                     }}
                   >
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                      <Ionicons name={opt.icon} size={20} color={selected ? "#5299FE" : "#6B7280"} />
-                      <Text weight={selected ? "bold" : "semiBold"} size="md" color={selected ? "#1E40AF" : "#1F2937"}>{opt.label}</Text>
-                    </View>
-                    {selected && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
+                    <Text weight={warningLight === opt.id ? "bold" : "semiBold"} size="md" color={warningLight === opt.id ? (isClear ? "#166534" : "#1E40AF") : "#1F2937"}>{opt.label}</Text>
+                    {warningLight === opt.id && <Ionicons name="checkmark-circle" size={22} color={isClear ? "#22C55E" : "#5299FE"} />}
                   </Pressable>
                 );
               })}
@@ -461,6 +665,58 @@ export default function CarInfoStepper({
       default:
         return null;
     }
+  };
+
+  // ── Render the service grid ─────────────────────────────────
+  const renderServiceGrid = () => {
+    const remaining = ALL_CARD_IDS.filter(id => !completedCards.has(id));
+
+    if (remaining.length === 0) {
+      return (
+        <View style={{ alignItems: "center", paddingVertical: 24, gap: 12 }}>
+          <LottieView
+            source={require("@/assets/animations/success.json")}
+            autoPlay
+            loop={false}
+            style={{ width: 160, height: 160 }}
+          />
+          <Text weight="bold" size="xl" color="#0F172A">You're all set!</Text>
+          <Text weight="medium" size="md" color="#94A3B8">Your vehicle health score is ready.</Text>
+        </View>
+      );
+    }
+
+    return (
+      <ReAnimated.View style={s.serviceGrid} layout={Layout.duration(400)}>
+        {remaining.map((cardId) => {
+          const cardData = SERVICE_CARDS[cardId];
+          const isWarning = cardId === "warningLights";
+          return (
+            <ReAnimated.View
+              key={cardId}
+              layout={Layout.duration(400)}
+              exiting={FadeOut.duration(200)}
+              style={s.serviceCard}
+            >
+              <Pressable
+                ref={(r) => { cardRefs.current[cardId] = r; }}
+                style={({ pressed }) => [s.serviceCardInner, pressed && { opacity: 0.85 }]}
+                onPress={() => handleCardTap(cardId)}
+              >
+                {isWarning ? (
+                  <View style={s.warningIconBg}>
+                    <AlertTriangle size={54} color="#F97316" strokeWidth={2} />
+                  </View>
+                ) : (
+                  <Image source={SERVICE_CARD_IMAGES[cardId]} style={s.serviceCardImage} />
+                )}
+                <Text weight="semiBold" size="md" color="#1F2937" style={{ marginTop: isWarning ? -2 : -28 }}>{cardData.label}</Text>
+              </Pressable>
+            </ReAnimated.View>
+          );
+        })}
+      </ReAnimated.View>
+    );
   };
 
   // ── Render intro content ────────────────────────────────────
@@ -498,50 +754,69 @@ export default function CarInfoStepper({
     const stepId = steps[forStep];
     const isLast = forStep === totalSteps - 1;
     const meta = STEP_META[stepId];
+    const isExpanded = !!activeCard;
     return (
-      <View>
-        <View style={s.stepHeader}>
-          <View style={{ flex: 1 }}>
-            <View style={s.progressContainer}>
-              <View style={s.progressTrack}>
-                <View style={[s.progressFill, { width: `${((forStep + 1) / totalSteps) * 100}%` }]} />
+      <View ref={containerRef} style={s.steppingPage}>
+        {/* Header — fades out during expansion */}
+        <ReAnimated.View style={[s.steppingHeader, gridFadeStyle]}>
+          <Text weight="bold" size="3xl" color="#0F172A">{meta.title}</Text>
+          <Text weight="medium" size="md" color="#94A3B8" style={{ marginTop: 4 }}>{meta.subtitle}</Text>
+        </ReAnimated.View>
+
+        {/* Grid — fades out during expansion */}
+        <ReAnimated.View style={[s.steppingBody, gridFadeStyle]}>
+          {renderServiceGrid()}
+        </ReAnimated.View>
+
+        {/* Floating card (shared element transition) */}
+        {activeCard && (
+          <ReAnimated.View pointerEvents="none" style={[floatingCardStyle, s.floatingCard]}>
+            {activeCard === "warningLights" ? (
+              <View style={s.warningIconBg}>
+                <AlertTriangle size={44} color="#F97316" strokeWidth={2} />
               </View>
-              <Text weight="medium" size="xs" color="#9CA3AF">{forStep + 1} of {totalSteps}</Text>
-            </View>
-            <Text weight="bold" size="lg" color="#1F2937" style={{ marginTop: 12 }}>{meta.title}</Text>
-            <Text weight="medium" size="sm" color="#6B7280" style={{ marginTop: 2 }}>{meta.subtitle}</Text>
-          </View>
-          <Pressable onPress={handleDismiss} hitSlop={12} style={s.closeButton}>
-            <Ionicons name="close" size={20} color="#9CA3AF" />
-          </Pressable>
-        </View>
-
-        <View style={s.stepBody}>
-          {renderStepContent(stepId)}
-        </View>
-
-        <View style={s.footer}>
-          <View style={s.footerButtons}>
-            {forStep > 0 ? (
-              <Pressable style={({ pressed }) => [s.backButton, pressed && { opacity: 0.7 }]} onPress={handleBack}>
-                <Ionicons name="arrow-back" size={18} color="#6B7280" />
-                <Text weight="semiBold" size="md" color="#6B7280">Back</Text>
-              </Pressable>
             ) : (
-              <View style={{ width: 80 }} />
+              <Image source={SERVICE_CARD_IMAGES[activeCard]} style={s.serviceCardImage} />
             )}
+            <Text weight="semiBold" size="md" color="#1F2937" style={{ marginTop: activeCard === "warningLights" ? -2 : -28 }}>
+              {SERVICE_CARDS[activeCard].label}
+            </Text>
+          </ReAnimated.View>
+        )}
+
+        {/* Question content — fades in after expansion */}
+        {showQuestion && activeCard && (
+          <ReAnimated.View style={[s.questionOverlay, questionFadeStyle]}>
+            <ReAnimated.View style={spacerAnimatedStyle} />
+            <ScrollView style={s.questionContent} showsVerticalScrollIndicator={false} bounces={false}>
+              {renderCardQuestion(activeCard)}
+            </ScrollView>
+          </ReAnimated.View>
+        )}
+
+        {/* Footer — hidden during expansion */}
+        {!isExpanded && (
+          <View style={[s.steppingFooter, { marginTop: 20, paddingBottom: insets.bottom + 24 }]}>
             <Pressable
               style={({ pressed }) => [s.nextButton, !canGoNext() && s.nextButtonDisabled, pressed && canGoNext() && s.nextButtonPressed]}
               onPress={isLast ? handleComplete : handleNext}
               disabled={!canGoNext() || saving}
             >
-              <Text weight="bold" size="md" color="#FFFFFF">
+              <Text weight="bold" size="xl" color="#FFFFFF">
                 {saving ? "Saving..." : isLast ? "Complete" : "Next"}
               </Text>
-              {!isLast && !saving && <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />}
             </Pressable>
+            {!canGoNext() && (
+              <Pressable
+                style={({ pressed }) => [s.finishForNowButton, pressed && { opacity: 0.7 }]}
+                onPress={handleComplete}
+                disabled={saving}
+              >
+                <Text weight="semiBold" size="md" color="#6B7280">Finish for now</Text>
+              </Pressable>
+            )}
           </View>
-        </View>
+        )}
       </View>
     );
   };
@@ -556,24 +831,20 @@ export default function CarInfoStepper({
 
   return (
     <View style={s.container}>
-      <LinearGradient
-        colors={["#F0F4FF", "#FFFFFF"]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 0, y: 1 }}
-        style={s.card}
+      <View
+        style={s.pageContent}
+        onLayout={(e) => setCardWidth(e.nativeEvent.layout.width)}
       >
-        <View
-          style={s.slideClip}
-          onLayout={(e) => setCardWidth(e.nativeEvent.layout.width)}
-        >
-          <Animated.View style={{ transform: [{ translateX: slideX }] }}>
-            {renderForPhase(phase, step)}
-          </Animated.View>
-        </View>
-      </LinearGradient>
+        <Animated.View style={[{ flex: 1 }, { transform: [{ translateX: slideX }] }]}>
+          {renderForPhase(phase, step)}
+        </Animated.View>
+      </View>
+
     </View>
   );
-}
+});
+
+export default CarInfoStepper;
 
 // ============================================================================
 // STYLES
@@ -581,18 +852,10 @@ export default function CarInfoStepper({
 
 const s = StyleSheet.create({
   container: {
-    paddingHorizontal: 16,
-    marginTop: 8,
-    marginBottom: 16,
+    flex: 1,
   },
-  card: {
-    borderRadius: 24,
-    padding: 24,
-    borderWidth: 1,
-    borderColor: "rgba(82, 153, 254, 0.15)",
-  },
-  slideClip: {
-    overflow: "hidden",
+  pageContent: {
+    flex: 1,
   },
 
   // ── Intro ──
@@ -644,70 +907,35 @@ const s = StyleSheet.create({
     opacity: 0.9,
   },
 
-  // ── Stepping ──
-  stepHeader: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    marginBottom: 16,
-  },
-  closeButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: "rgba(0,0,0,0.06)",
-    alignItems: "center",
-    justifyContent: "center",
-    marginLeft: 8,
-    marginTop: 2,
-  },
-  progressContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  progressTrack: {
+  // ── Stepping (full-page layout) ──
+  steppingPage: {
     flex: 1,
-    height: 4,
-    backgroundColor: "#F3F4F6",
-    borderRadius: 2,
-    overflow: "hidden",
+    paddingHorizontal: 24,
   },
-  progressFill: {
-    height: "100%",
-    backgroundColor: "#5299FE",
-    borderRadius: 2,
+  steppingHeader: {
+    marginTop: 0,
+    marginBottom: -15,
   },
-  stepBody: {
-    marginBottom: 16,
+  steppingBody: {
+    flex: 1,
   },
-
-  // ── Footer ──
-  footer: {
-    alignItems: "center",
-  },
-  footerButtons: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    width: "100%",
+  steppingFooter: {
+    paddingTop: 8,
     gap: 12,
-  },
-  backButton: {
-    flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    paddingVertical: Spacing.md,
-    paddingHorizontal: 16,
+  },
+  finishForNowButton: {
+    paddingVertical: 10,
   },
   nextButton: {
-    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 6,
     backgroundColor: "#5299FE",
     borderRadius: 24,
-    paddingVertical: Spacing.md,
+    paddingVertical: 16,
+    width: "100%",
   },
   nextButtonDisabled: {
     opacity: 0.4,
@@ -715,6 +943,7 @@ const s = StyleSheet.create({
   nextButtonPressed: {
     opacity: 0.9,
   },
+
   // ── Form fields ──
   fieldGroup: {
     gap: 10,
@@ -742,5 +971,50 @@ const s = StyleSheet.create({
     backgroundColor: "rgba(34, 197, 94, 0.08)",
     borderColor: "#22C55E",
     borderWidth: 2,
+  },
+
+  // ── Service grid ──
+  serviceGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: 10,
+  },
+  serviceCard: {
+    width: "48%",
+    aspectRatio: 1,
+  },
+  serviceCardInner: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  serviceCardImage: {
+    width: 160,
+    height: 160,
+    resizeMode: "contain",
+  },
+  warningIconBg: {
+    width: 110,
+    height: 110,
+    borderRadius: 55,
+    backgroundColor: "rgba(249, 115, 22, 0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  // ── Floating card (shared element) ──
+  floatingCard: {
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  // ── Question overlay (full-page, over grid) ──
+  questionOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    paddingHorizontal: 24,
+  },
+  questionContent: {
+    flex: 1,
   },
 });
