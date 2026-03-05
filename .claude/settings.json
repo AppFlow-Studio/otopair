@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx convex run \"ai_enrichment_logs:getByEngineId\" \"{\"\"engineId\"\":\"\"j9709r5srb05tyqf1prkvzc4rn824y5k\"\"}\")"
+    ]
+  }
+}

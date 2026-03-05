@@ -99,15 +99,15 @@ export default function ReferAFriendScreen() {
                   weight="extraBold"
                   style={[styles.heroTitle, { color: COLORS.textDark } ]}
                 >
-                  Give 250, get 250
+                  Give $15, get $15
                 </Text>
                 <Text
                   size="md"
                   color={COLORS.textMuted}
                   style={styles.heroDescription}
                 >
-                  Invite your friends to Otopair. They get 250 points for their first booking,
-                  and you get 250 points credit.
+                  Invite your friends to Otopair. They get $15 credit for their first booking,
+                  and you get $15 credit.
                 </Text>
               </View>
               <View
@@ -169,7 +169,7 @@ export default function ReferAFriendScreen() {
                   weight="bold"
                   style={[styles.statValue, { color: COLORS.textDark }]}
                 >
-                  750
+                  $45
                 </Text>
               </GlassPanel>
               <GlassPanel style={styles.statCard}>
@@ -225,7 +225,7 @@ export default function ReferAFriendScreen() {
                     </View>
                   </View>
                   <Text size="xs" color={COLORS.textMuted}>
-                    Earned 250 credit
+                    Earned $15 credit
                   </Text>
                 </View>
               </Pressable>

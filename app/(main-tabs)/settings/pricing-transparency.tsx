@@ -98,15 +98,15 @@ export default function PricingTransparencyScreen() {
               </View>
             </View>
 
-            {/* Platform Fee */}
+            {/* Otopair Service Fee */}
             <View style={styles.miniFeatureItem}>
               <View style={styles.iconContainer}>
                 <ShieldCheck size={20} color={BrandColors.primary} />
               </View>
               <View style={styles.cardContent}>
-                <Text weight="semiBold" size="sm" color="#111827" style={styles.cardTitle}>Platform Fee</Text>
+                <Text weight="semiBold" size="sm" color="#111827" style={styles.cardTitle}>Otopair Service Fee</Text>
                 <Text size="xs" color="#616E89" style={styles.cardBody}>
-                  A small, flat service fee is applied to each booking to support the app, insurance, and customer support team.
+                  A 7% service fee (minimum $4.99) is applied to each booking to support the app, insurance, and customer support team. Waived for Preferred and Elite subscribers.
                 </Text>
               </View>
             </View>

@@ -82,7 +82,7 @@ const EARN_REWARDS = [
   {
     id: "1",
     title: "Leave a Verified Review",
-    subtitle: "+$5 Credit",
+    subtitle: "+$3 Credit",
     iconBg: "#F3F4F6",
     iconColor: "#1F2937",
     icon: "review" as const,
@@ -91,7 +91,7 @@ const EARN_REWARDS = [
   {
     id: "2",
     title: "Upload Service Records",
-    subtitle: "+$10 Credit",
+    subtitle: "+$5 Credit",
     iconBg: "#F3F4F6",
     iconColor: "#1F2937",
     icon: "upload" as const,
@@ -101,7 +101,7 @@ const EARN_REWARDS = [
   {
     id: "3",
     title: "Refer a Friend",
-    subtitle: "+$25 Credit",
+    subtitle: "+$15 Credit",
     iconBg: "#F3F4F6",
     iconColor: "#1F2937",
     icon: "refer" as const,
@@ -944,10 +944,18 @@ export default function MembershipPage() {
                     <View style={eliteStyles.benefitsList}>
                       <View style={eliteStyles.benefitRow}>
                         <View style={eliteStyles.benefitIcon}>
+                          <Wrench size={18} color="#5299FE" strokeWidth={1.5} />
+                        </View>
+                        <Text size="md" color="#1F2937">
+                          ~2% earn rate on Ownership Credit
+                        </Text>
+                      </View>
+                      <View style={eliteStyles.benefitRow}>
+                        <View style={eliteStyles.benefitIcon}>
                           <Building2 size={18} color="#5299FE" strokeWidth={1.5} />
                         </View>
                         <Text size="md" color="#1F2937">
-                          Priority booking with trusted shops
+                          $60–$100 credit target per year
                         </Text>
                       </View>
                       <View style={eliteStyles.benefitRow}>
@@ -955,15 +963,7 @@ export default function MembershipPage() {
                           <Zap size={18} color="#5299FE" strokeWidth={1.5} />
                         </View>
                         <Text size="md" color="#1F2937">
-                          Faster dispute resolution
-                        </Text>
-                      </View>
-                      <View style={eliteStyles.benefitRow}>
-                        <View style={eliteStyles.benefitIcon}>
-                          <Wrench size={18} color="#5299FE" strokeWidth={1.5} />
-                        </View>
-                        <Text size="md" color="#1F2937">
-                          Waived diagnostics when applicable
+                          Non-expiring Ownership Credits
                         </Text>
                       </View>
                       <View style={eliteStyles.benefitRow}>
@@ -971,7 +971,7 @@ export default function MembershipPage() {
                           <Headphones size={18} color="#5299FE" strokeWidth={1.5} />
                         </View>
                         <Text size="md" color="#1F2937">
-                          Concierge support when issues arise
+                          Concierge support and priority booking
                         </Text>
                       </View>
                     </View>
@@ -1008,18 +1008,18 @@ export default function MembershipPage() {
                     <View style={eliteStyles.benefitsList}>
                       <View style={eliteStyles.benefitRow}>
                         <View style={eliteStyles.benefitIcon}>
-                          <Building2 size={18} color="#5299FE" strokeWidth={1.5} />
+                          <Wrench size={18} color="#5299FE" strokeWidth={1.5} />
                         </View>
                         <Text size="md" color="#1F2937">
-                          Soft priority on booking
+                          ~1.5% earn rate on Ownership Credit
                         </Text>
                       </View>
                       <View style={eliteStyles.benefitRow}>
                         <View style={eliteStyles.benefitIcon}>
-                          <Wrench size={18} color="#5299FE" strokeWidth={1.5} />
+                          <Building2 size={18} color="#5299FE" strokeWidth={1.5} />
                         </View>
                         <Text size="md" color="#1F2937">
-                          Diagnostics covered or reduced
+                          $40–$75 credit target per year
                         </Text>
                       </View>
                       <View style={eliteStyles.benefitRow}>
@@ -1027,7 +1027,15 @@ export default function MembershipPage() {
                           <Zap size={18} color="#5299FE" strokeWidth={1.5} />
                         </View>
                         <Text size="md" color="#1F2937">
-                          ~3% earn rate on Ownership Credit
+                          Diagnostics covered or reduced
+                        </Text>
+                      </View>
+                      <View style={eliteStyles.benefitRow}>
+                        <View style={eliteStyles.benefitIcon}>
+                          <Building2 size={18} color="#5299FE" strokeWidth={1.5} />
+                        </View>
+                        <Text size="md" color="#1F2937">
+                          Soft priority on booking
                         </Text>
                       </View>
                     </View>
@@ -1058,7 +1066,7 @@ export default function MembershipPage() {
                             <Wrench size={18} color="#5299FE" strokeWidth={1.5} />
                           </View>
                           <Text size="md" color="#1F2937">
-                            ~1.5% earn rate on Ownership Credit
+                            ~1% earn rate on Ownership Credit
                           </Text>
                         </View>
                         <View style={eliteStyles.benefitRow}>
@@ -1066,7 +1074,7 @@ export default function MembershipPage() {
                             <Building2 size={18} color="#5299FE" strokeWidth={1.5} />
                           </View>
                           <Text size="md" color="#1F2937">
-                            $50–$75 credit target per year
+                            $20–$40 credit target per year
                           </Text>
                         </View>
                         <View style={eliteStyles.benefitRow}>

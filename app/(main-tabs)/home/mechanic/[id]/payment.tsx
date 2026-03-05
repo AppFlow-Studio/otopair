@@ -42,7 +42,10 @@ import { useVehicleStore } from "@/stores/useVehicleStore";
 // CONSTANTS
 // ============================================================================
 
-const PLATFORM_FEE = 4.79;
+// Service fee: 7% of service subtotal, $4.99 minimum, no cap
+// TODO: When subscriptions are wired, waive service fee for Preferred/Elite subscribers
+const SERVICE_FEE_RATE = 0.07;
+const SERVICE_FEE_MINIMUM = 4.99;
 const TAXES_AND_FEES = 5.0;
 
 // ============================================================================
@@ -111,15 +114,16 @@ export default function PaymentScreen() {
     const laborHours = selectedServices.reduce((sum, s) => sum + (s.default_labor_hours ?? 0), 0);
     const laborCost = laborHours * rate;
     const partsCost = Math.max(0, servicesTotal - laborCost);
+    const serviceFee = servicesTotal > 0 ? Math.max(servicesTotal * SERVICE_FEE_RATE, SERVICE_FEE_MINIMUM) : 0;
 
     return {
       laborHours,
       laborCost: Math.max(0, laborCost),
       partsCost: Math.max(0, partsCost),
       taxesAndFees: TAXES_AND_FEES,
-      platformFee: PLATFORM_FEE,
+      platformFee: serviceFee,
       subtotal: servicesTotal,
-      total: servicesTotal + TAXES_AND_FEES + PLATFORM_FEE,
+      total: servicesTotal + TAXES_AND_FEES + serviceFee,
     };
   }, [selectedServices, laborRate]);
 
@@ -333,11 +337,11 @@ export default function PaymentScreen() {
             </View>
           </View>
 
-          {/* Platform Fee */}
+          {/* Otopair Service Fee */}
           <View style={styles.serviceRow}>
             <View style={styles.feeRow}>
               <Text size="sm" weight="regular" color="#6B7280">
-                Platform Fee
+                Otopair Service Fee — 7%
               </Text>
               <TouchableOpacity style={styles.infoButton} activeOpacity={0.7}>
                 <Info size={14} color="#9CA3AF" />

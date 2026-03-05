@@ -275,11 +275,11 @@ export const addCreditForCompletedBooking = internalMutation({
     const tier = (vt?.tier ?? "driver") as "driver" | "preferred" | "elite";
 
     const earnRates: Record<string, number> = {
-      driver: 0.015,
-      preferred: 0.03,
-      elite: 0.05,
+      driver: 0.01,
+      preferred: 0.015,
+      elite: 0.02,
     };
-    const rate = earnRates[tier] ?? 0.015;
+    const rate = earnRates[tier] ?? 0.01;
     const creditAmount = Math.round(totalCost * rate * 100) / 100;
     if (creditAmount <= 0) return null;
 
@@ -311,7 +311,8 @@ export const addCreditForCompletedBooking = internalMutation({
       type: "earn_service",
       description: "Maintenance rewards",
       reference_id: args.bookingId.toString(),
-      expires_at: now + 180 * 24 * 60 * 60 * 1000, // 6 months
+      // Elite credits never expire; Driver/Preferred expire in 6 months
+      ...(tier === "elite" ? {} : { expires_at: now + 180 * 24 * 60 * 60 * 1000 }),
       created_at: now,
     });
 
@@ -528,7 +529,7 @@ export const redeemSelected = mutation({
 });
 
 /**
- * Claim contribution reward (review $5, upload $10, referral $25).
+ * Claim contribution reward (review $3, upload $5, referral $15).
  * Call when user completes the action.
  */
 export const claimContributionReward = mutation({
@@ -539,9 +540,9 @@ export const claimContributionReward = mutation({
   },
   handler: async (ctx, args) => {
     const amounts: Record<string, number> = {
-      review: 5,
-      upload: 10,
-      referral: 25,
+      review: 3,
+      upload: 5,
+      referral: 15,
     };
     const amount = amounts[args.actionType];
 
@@ -609,7 +610,9 @@ export const claimContributionReward = mutation({
       type: `earn_${args.actionType}`,
       description: desc,
       reference_id: args.referenceId,
-      expires_at: now + 180 * 24 * 60 * 60 * 1000, // 6 months
+      // Contribution credits expire in 6 months for all tiers
+      // (Elite non-expiring applies to earn_service credits in addCreditForCompletedBooking)
+      expires_at: now + 180 * 24 * 60 * 60 * 1000,
       created_at: now,
     });
 
