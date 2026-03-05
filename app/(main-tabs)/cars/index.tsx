@@ -4,6 +4,7 @@ import { Alert, Animated, Dimensions, Easing, Modal, Platform, Pressable, Refres
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 2. Expo & Third-party
+import { useSharedValue } from "react-native-reanimated";
 import { useIsFocused } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
@@ -36,6 +37,7 @@ import MaintenanceTracker from "@/components/cars/MaintenanceTracker";
 import MaintenanceInputModal from "@/components/cars/MaintenanceInputModal";
 import { CheckinBanner } from "@/components/cars/CheckinBanner";
 import CarInfoStepper, { type CarInfoStepperHandle } from "@/components/cars/CarInfoStepper";
+import { AnimatedGradientBackground } from "@/components/shared-ui/AnimatedGradientBackground";
 import ServiceHistory, { ServiceRecord } from "@/components/cars/ServiceHistory";
 import VehicleStatsCard from "@/components/cars/VehicleStatsCard";
 
@@ -132,6 +134,7 @@ export default function CarsHomeScreen() {
   const pageSlideX = useRef(new Animated.Value(0)).current;
   const pageFade = useRef(new Animated.Value(1)).current;
   const stepperRef = useRef<CarInfoStepperHandle>(null);
+  const stepperGradientProgress = useSharedValue(1);
   // Mirrors healthSheetMode for use inside closeHealthSheet's stale closure
   const healthSheetModeRef = useRef<'estimated' | 'confirmed'>('confirmed');
   // Guards the estimated sheet trigger so it fires once per tab mount cycle
@@ -1138,6 +1141,16 @@ export default function CarsHomeScreen() {
       >
       {healthPageVisible && (
         <Animated.View style={[healthSheetStyles.fullPage, { zIndex: 40, opacity: healthPageFade, transform: [{ translateX: healthPageSlideX }] }]}>
+          {healthSheetMode === 'estimated' && estimatedPage === 'checkin' && (
+            <View style={StyleSheet.absoluteFill} pointerEvents="none">
+              <AnimatedGradientBackground
+                progress={stepperGradientProgress}
+                fromIndex={0}
+                toIndex={1}
+                colors={['#EDF4FC', '#D6E8F8', '#B8D4F0']}
+              />
+            </View>
+          )}
           {/* --- Header --- */}
           {healthSheetMode === 'estimated' ? (
             estimatedPage === 'checkin' ? (

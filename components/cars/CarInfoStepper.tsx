@@ -29,6 +29,8 @@ import {
 } from "react-native";
 import { useMutation } from "convex/react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { BlurView } from "expo-blur";
+import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 
 import ReAnimated, {
@@ -218,18 +220,6 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
   const questionFadeStyle = useAnimatedStyle(() => ({
     opacity: interpolate(expansionProgress.value, [0.6, 1], [0, 1]),
   }));
-
-  const pageBgStyle = useAnimatedStyle(() => {
-    const p = expansionProgress.value;
-    return {
-      position: 'absolute' as const,
-      top: -200,
-      left: -24,
-      right: -24,
-      bottom: 0,
-      backgroundColor: `rgba(82,153,254,${interpolate(p, [0, 0.3, 0.6], [0, 0, 0.08])})`,
-    };
-  });
 
   const spacerAnimatedStyle = useAnimatedStyle(() => {
     const w = isWarningCardSV.value;
@@ -725,7 +715,19 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
             onPress={() => handleCardTap(cardId)}
           >
             <View style={s.orb}>
-              <IconComponent size={56} />
+              <BlurView intensity={100} tint="light" style={StyleSheet.absoluteFill} />
+              <LinearGradient
+                colors={['rgba(255,255,255,0.6)', 'rgba(255,255,255,0.55)']}
+                style={StyleSheet.absoluteFill}
+              />
+              <LinearGradient
+                colors={['rgba(255,255,255,0.7)', 'rgba(255,255,255,0.3)', 'rgba(255,255,255,0)']}
+                locations={[0, 0.2, 0.5]}
+                style={s.orbGlossyHighlight}
+              />
+              <View style={s.orbContent}>
+                <IconComponent size={56} />
+              </View>
             </View>
             <Text weight="semiBold" size="md" color="#1F2937" style={s.orbLabel}>
               {card.label}
@@ -742,6 +744,16 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
         exiting={FadeOut.duration(250)}
         style={s.warningPill}
       >
+        <BlurView intensity={100} tint="light" style={StyleSheet.absoluteFill} />
+        <LinearGradient
+          colors={['rgba(255,255,255,0.6)', 'rgba(255,255,255,0.55)']}
+          style={StyleSheet.absoluteFill}
+        />
+        <LinearGradient
+          colors={['rgba(255,255,255,0.7)', 'rgba(255,255,255,0.3)', 'rgba(255,255,255,0)']}
+          locations={[0, 0.2, 0.5]}
+          style={s.warningPillGlossyHighlight}
+        />
         <Pressable
           ref={(r) => { cardRefs.current['warningLights'] = r; }}
           style={({ pressed }) => [s.warningPillInner, pressed && { opacity: 0.85 }]}
@@ -807,7 +819,6 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
     const isExpanded = !!activeCard;
     return (
       <View ref={containerRef} style={s.steppingPage}>
-        <ReAnimated.View pointerEvents="none" style={pageBgStyle} />
         {/* Header — fades out during expansion */}
         <ReAnimated.View style={[s.steppingHeader, gridFadeStyle]}>
           <Text weight="bold" size="3xl" color="#0F172A">{meta.title}</Text>
@@ -957,7 +968,6 @@ const s = StyleSheet.create({
   steppingPage: {
     flex: 1,
     paddingHorizontal: 24,
-    backgroundColor: "#FFFFFF",
   },
   steppingHeader: {
     marginTop: 8,
@@ -1042,17 +1052,29 @@ const s = StyleSheet.create({
   orb: {
     width: 148,
     height: 148,
-    borderRadius: 74,
-    backgroundColor: "rgba(82,153,254,0.08)",
-    borderWidth: 1.5,
-    borderColor: "rgba(82,153,254,0.15)",
+    borderRadius: 32,
+    backgroundColor: "transparent",
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  orbGlossyHighlight: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: "50%",
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
+  },
+  orbContent: {
+    flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    shadowColor: "#5299FE",
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.15,
-    shadowRadius: 20,
-    elevation: 6,
+    zIndex: 1,
   },
   orbLabel: {
     marginTop: 14,
@@ -1062,14 +1084,22 @@ const s = StyleSheet.create({
   // ── Warning pill ──
   warningPill: {
     borderRadius: 24,
-    backgroundColor: "rgba(82,153,254,0.06)",
-    borderWidth: 1,
-    borderColor: "rgba(82,153,254,0.15)",
-    shadowColor: "#5299FE",
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
+    backgroundColor: "transparent",
+    overflow: "hidden",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
     shadowRadius: 12,
-    elevation: 3,
+    elevation: 4,
+  },
+  warningPillGlossyHighlight: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: "50%",
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
   },
   warningPillInner: {
     flexDirection: "row",
@@ -1081,8 +1111,8 @@ const s = StyleSheet.create({
   warningOrbSmall: {
     width: 48,
     height: 48,
-    borderRadius: 24,
-    backgroundColor: "rgba(82,153,254,0.10)",
+    borderRadius: 14,
+    backgroundColor: "rgba(255,255,255,0.5)",
     alignItems: "center",
     justifyContent: "center",
   },
