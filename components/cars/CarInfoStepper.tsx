@@ -44,6 +44,7 @@ import { AlertTriangle } from "lucide-react-native";
 import LottieView from "lottie-react-native";
 
 import { Text } from "@/components/shared-ui";
+import { BrakesIcon, TireIcon, OilIcon, BatteryIcon, WarningIcon } from "@/components/cars/ServiceIcons";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -87,18 +88,26 @@ const SERVICE_CARD_IMAGES: Partial<Record<ServiceCardId, any>> = {
   battery: require("@/assets/images/services/newIcons/batteryicon.png"),
 };
 
-const SERVICE_CARDS: Record<ServiceCardId, { label: string; color: string }> = {
-  brakes:        { label: "Brakes",         color: "#EF4444" },
-  tires:         { label: "Tires",          color: "#F59E0B" },
-  oil:           { label: "Oil",            color: "#3B82F6" },
-  battery:       { label: "Battery",        color: "#22C55E" },
-  warningLights: { label: "Warning Lights", color: "#F97316" },
+const SERVICE_CARDS: Record<ServiceCardId, { label: string; icon: string; color: string }> = {
+  brakes:        { label: "Brakes",         icon: "disc-outline",             color: "#5299FE" },
+  tires:         { label: "Tires",          icon: "ellipse-outline",          color: "#5299FE" },
+  oil:           { label: "Oil",            icon: "water-outline",            color: "#5299FE" },
+  battery:       { label: "Battery",        icon: "battery-charging-outline", color: "#5299FE" },
+  warningLights: { label: "Warning Lights", icon: "warning-outline",          color: "#5299FE" },
+};
+
+const SERVICE_ICON_COMPONENTS: Record<ServiceCardId, React.FC<{ size?: number }>> = {
+  brakes: BrakesIcon,
+  tires: TireIcon,
+  oil: OilIcon,
+  battery: BatteryIcon,
+  warningLights: WarningIcon,
 };
 
 const ALL_CARD_IDS: ServiceCardId[] = ["brakes", "tires", "oil", "battery", "warningLights"];
 
 const STEP_META: Record<StepId, { title: string; subtitle: string }> = {
-  serviceGrid: { title: "Vehicle Check-in", subtitle: "Tap each to tell us what you know." },
+  serviceGrid: { title: "Service History", subtitle: "Tap each item to tell us what you know." },
 };
 
 const WARNING_LIGHT_TYPE_OPTIONS = [
@@ -209,6 +218,18 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
   const questionFadeStyle = useAnimatedStyle(() => ({
     opacity: interpolate(expansionProgress.value, [0.6, 1], [0, 1]),
   }));
+
+  const pageBgStyle = useAnimatedStyle(() => {
+    const p = expansionProgress.value;
+    return {
+      position: 'absolute' as const,
+      top: -200,
+      left: -24,
+      right: -24,
+      bottom: 0,
+      backgroundColor: `rgba(82,153,254,${interpolate(p, [0, 0.3, 0.6], [0, 0, 0.08])})`,
+    };
+  });
 
   const spacerAnimatedStyle = useAnimatedStyle(() => {
     const w = isWarningCardSV.value;
@@ -686,36 +707,65 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
       );
     }
 
-    return (
-      <ReAnimated.View style={s.serviceGrid} layout={Layout.duration(400)}>
-        {remaining.map((cardId) => {
-          const cardData = SERVICE_CARDS[cardId];
-          const isWarning = cardId === "warningLights";
-          return (
-            <ReAnimated.View
-              key={cardId}
-              layout={Layout.duration(400)}
-              exiting={FadeOut.duration(200)}
-              style={s.serviceCard}
-            >
-              <Pressable
-                ref={(r) => { cardRefs.current[cardId] = r; }}
-                style={({ pressed }) => [s.serviceCardInner, pressed && { opacity: 0.85 }]}
-                onPress={() => handleCardTap(cardId)}
-              >
-                {isWarning ? (
-                  <View style={s.warningIconBg}>
-                    <AlertTriangle size={54} color="#F97316" strokeWidth={2} />
-                  </View>
-                ) : (
-                  <Image source={SERVICE_CARD_IMAGES[cardId]} style={s.serviceCardImage} />
-                )}
-                <Text weight="semiBold" size="md" color="#1F2937" style={{ marginTop: isWarning ? -2 : -28 }}>{cardData.label}</Text>
-              </Pressable>
-            </ReAnimated.View>
-          );
-        })}
+    const serviceOrbs = remaining.filter(id => id !== 'warningLights');
+
+    const renderOrb = (cardId: ServiceCardId) => {
+      const card = SERVICE_CARDS[cardId];
+      const IconComponent = SERVICE_ICON_COMPONENTS[cardId];
+      return (
+        <ReAnimated.View
+          key={cardId}
+          exiting={FadeOut.duration(250)}
+          layout={Layout.springify().damping(36)}
+          style={s.orbWrapper}
+        >
+          <Pressable
+            ref={(r) => { cardRefs.current[cardId] = r; }}
+            style={({ pressed }) => [pressed && { transform: [{ scale: 0.95 }] }]}
+            onPress={() => handleCardTap(cardId)}
+          >
+            <View style={s.orb}>
+              <IconComponent size={56} />
+            </View>
+            <Text weight="semiBold" size="md" color="#1F2937" style={s.orbLabel}>
+              {card.label}
+            </Text>
+          </Pressable>
+        </ReAnimated.View>
+      );
+    };
+
+    const hasWarning = remaining.includes('warningLights');
+
+    const renderWarningPill = () => (
+      <ReAnimated.View
+        exiting={FadeOut.duration(250)}
+        style={s.warningPill}
+      >
+        <Pressable
+          ref={(r) => { cardRefs.current['warningLights'] = r; }}
+          style={({ pressed }) => [s.warningPillInner, pressed && { opacity: 0.85 }]}
+          onPress={() => handleCardTap('warningLights')}
+        >
+          <View style={s.warningOrbSmall}>
+            <WarningIcon size={32} />
+          </View>
+          <View style={s.warningPillText}>
+            <Text weight="bold" size="md" color="#1F2937">Warning Lights</Text>
+            <Text weight="medium" size="sm" color="#94A3B8">Any dashboard warnings on?</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={18} color="#CBD5E1" />
+        </Pressable>
       </ReAnimated.View>
+    );
+
+    return (
+      <View style={s.orbContainer}>
+        <View style={s.orbGridArea}>
+          {serviceOrbs.map(cardId => renderOrb(cardId))}
+        </View>
+        {hasWarning && renderWarningPill()}
+      </View>
     );
   };
 
@@ -757,6 +807,7 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
     const isExpanded = !!activeCard;
     return (
       <View ref={containerRef} style={s.steppingPage}>
+        <ReAnimated.View pointerEvents="none" style={pageBgStyle} />
         {/* Header — fades out during expansion */}
         <ReAnimated.View style={[s.steppingHeader, gridFadeStyle]}>
           <Text weight="bold" size="3xl" color="#0F172A">{meta.title}</Text>
@@ -771,14 +822,11 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
         {/* Floating card (shared element transition) */}
         {activeCard && (
           <ReAnimated.View pointerEvents="none" style={[floatingCardStyle, s.floatingCard]}>
-            {activeCard === "warningLights" ? (
-              <View style={s.warningIconBg}>
-                <AlertTriangle size={44} color="#F97316" strokeWidth={2} />
-              </View>
-            ) : (
-              <Image source={SERVICE_CARD_IMAGES[activeCard]} style={s.serviceCardImage} />
-            )}
-            <Text weight="semiBold" size="md" color="#1F2937" style={{ marginTop: activeCard === "warningLights" ? -2 : -28 }}>
+            {(() => {
+              const FloatingIcon = SERVICE_ICON_COMPONENTS[activeCard];
+              return <FloatingIcon size={56} />;
+            })()}
+            <Text weight="semiBold" size="md" color="#1F2937" style={{ marginTop: 8 }}>
               {SERVICE_CARDS[activeCard].label}
             </Text>
           </ReAnimated.View>
@@ -794,9 +842,8 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
           </ReAnimated.View>
         )}
 
-        {/* Footer — hidden during expansion */}
-        {!isExpanded && (
-          <View style={[s.steppingFooter, { marginTop: 20, paddingBottom: insets.bottom + 24 }]}>
+        {/* Footer — invisible during expansion but keeps layout space */}
+        <View style={[s.steppingFooter, { marginTop: 20, paddingBottom: insets.bottom + 24, opacity: isExpanded ? 0 : 1 }]} pointerEvents={isExpanded ? "none" : "auto"}>
             <Pressable
               style={({ pressed }) => [s.nextButton, !canGoNext() && s.nextButtonDisabled, pressed && canGoNext() && s.nextButtonPressed]}
               onPress={isLast ? handleComplete : handleNext}
@@ -812,11 +859,10 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
                 onPress={handleComplete}
                 disabled={saving}
               >
-                <Text weight="semiBold" size="md" color="#6B7280">Finish for now</Text>
+                <Text weight="semiBold" size="md" color="#94A3B8">Finish for now</Text>
               </Pressable>
             )}
           </View>
-        )}
       </View>
     );
   };
@@ -911,13 +957,15 @@ const s = StyleSheet.create({
   steppingPage: {
     flex: 1,
     paddingHorizontal: 24,
+    backgroundColor: "#FFFFFF",
   },
   steppingHeader: {
-    marginTop: 0,
+    marginTop: 8,
     marginBottom: -15,
   },
   steppingBody: {
     flex: 1,
+    marginTop: 12,
   },
   steppingFooter: {
     paddingTop: 8,
@@ -926,6 +974,7 @@ const s = StyleSheet.create({
   },
   finishForNowButton: {
     paddingVertical: 10,
+    opacity: 0.7,
   },
   nextButton: {
     flexDirection: "row",
@@ -973,22 +1022,76 @@ const s = StyleSheet.create({
     borderWidth: 2,
   },
 
-  // ── Service grid ──
-  serviceGrid: {
+  // ── Orb grid ──
+  orbContainer: {
+    flex: 1,
+    paddingTop: 12,
+  },
+  orbGridArea: {
+    flex: 1,
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "center",
-    gap: 10,
+    alignContent: "center",
+    gap: 20,
+    paddingHorizontal: 8,
   },
-  serviceCard: {
-    width: "48%",
-    aspectRatio: 1,
+  orbWrapper: {
+    alignItems: "center",
   },
-  serviceCardInner: {
-    flex: 1,
+  orb: {
+    width: 148,
+    height: 148,
+    borderRadius: 74,
+    backgroundColor: "rgba(82,153,254,0.08)",
+    borderWidth: 1.5,
+    borderColor: "rgba(82,153,254,0.15)",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#5299FE",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.15,
+    shadowRadius: 20,
+    elevation: 6,
+  },
+  orbLabel: {
+    marginTop: 14,
+    textAlign: "center",
+  },
+
+  // ── Warning pill ──
+  warningPill: {
+    borderRadius: 24,
+    backgroundColor: "rgba(82,153,254,0.06)",
+    borderWidth: 1,
+    borderColor: "rgba(82,153,254,0.15)",
+    shadowColor: "#5299FE",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  warningPillInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 20,
+    paddingVertical: 18,
+    gap: 14,
+  },
+  warningOrbSmall: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "rgba(82,153,254,0.10)",
     alignItems: "center",
     justifyContent: "center",
   },
+  warningPillText: {
+    flex: 1,
+    gap: 2,
+  },
+
+  // ── Shared (used by floating card in renderStepping) ──
   serviceCardImage: {
     width: 160,
     height: 160,
@@ -1007,6 +1110,7 @@ const s = StyleSheet.create({
   floatingCard: {
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
   },
 
   // ── Question overlay (full-page, over grid) ──

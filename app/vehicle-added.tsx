@@ -87,8 +87,6 @@ export default function VehicleAddedScreen() {
   const buttonTranslateY = useRef(new Animated.Value(100)).current;
   const buttonOpacity = useRef(new Animated.Value(0)).current;
   const imageScale = useRef(new Animated.Value(1)).current;
-  const pageSlideX = useRef(new Animated.Value(0)).current;
-  const pageFade = useRef(new Animated.Value(1)).current;
 
   // Run animations on mount
   useEffect(() => {
@@ -159,23 +157,18 @@ export default function VehicleAddedScreen() {
   };
 
   const handleViewVehicle = () => {
-    Animated.parallel([
-      Animated.timing(pageSlideX, { toValue: -300, duration: 300, useNativeDriver: true }),
-      Animated.timing(pageFade, { toValue: 0, duration: 250, useNativeDriver: true }),
-    ]).start(() => {
-      if (isManualAddFlow && vehicleOwnerId && !cameFromPreOnboarding) {
-        router.replace({
-          pathname: '/car-pre-onboarding',
-          params: { vehicleOwnerId },
-        });
-        return;
-      }
-      router.replace('/(main-tabs)/cars');
-    });
+    if (isManualAddFlow && vehicleOwnerId && !cameFromPreOnboarding) {
+      router.replace({
+        pathname: '/car-pre-onboarding',
+        params: { vehicleOwnerId },
+      });
+      return;
+    }
+    router.replace('/(main-tabs)/cars');
   };
 
   return (
-    <Animated.View style={[styles.container, { opacity: pageFade, transform: [{ translateX: pageSlideX }] }]}>
+    <View style={styles.container}>
       <StatusBar style="dark" translucent />
       
       {/* Full Screen Car Image with subtle zoom */}
@@ -257,7 +250,7 @@ export default function VehicleAddedScreen() {
           </Text>
         </Pressable>
       </Animated.View>
-    </Animated.View>
+    </View>
   );
 }
 
