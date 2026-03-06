@@ -706,7 +706,7 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
         <ReAnimated.View
           key={cardId}
           exiting={FadeOut.duration(250)}
-          layout={Layout.springify().damping(36)}
+          layout={Layout.springify().damping(50)}
           style={s.orbWrapper}
         >
           <Pressable

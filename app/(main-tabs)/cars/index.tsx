@@ -137,6 +137,9 @@ export default function CarsHomeScreen() {
   const stepperGradientProgress = useSharedValue(1);
   // Mirrors healthSheetMode for use inside closeHealthSheet's stale closure
   const healthSheetModeRef = useRef<'estimated' | 'confirmed'>('confirmed');
+  // Inline Quick Read card pulse animation
+  const quickReadPulse = useRef(new Animated.Value(1)).current;
+
   // Guards the estimated sheet trigger so it fires once per tab mount cycle
   const estimatedSheetShownRef = useRef(false);
 
@@ -406,20 +409,17 @@ export default function CarsHomeScreen() {
     if (scoreCountRef.current) clearInterval(scoreCountRef.current);
 
     if (healthSheetModeRef.current === 'estimated') {
-      // Estimated mode: slide health page right, bring main page back
+      // Reset main page to normal position behind the modal
+      mainPageSlideX.setValue(0);
+      mainPageFade.setValue(1);
+
+      // Slide health page right and fade out — main page is visible behind (transparent modal)
       Animated.parallel([
         Animated.timing(healthPageSlideX, { toValue: 300, duration: 300, easing: Easing.in(Easing.ease), useNativeDriver: true }),
-        Animated.timing(healthPageFade, { toValue: 0, duration: 250, easing: Easing.in(Easing.ease), useNativeDriver: true }),
+        Animated.timing(healthPageFade, { toValue: 0, duration: 300, easing: Easing.in(Easing.ease), useNativeDriver: true }),
       ]).start(() => {
         setHealthPageVisible(false);
         setShowHealthRingSheet(false);
-        // Bring main page back in
-        mainPageSlideX.setValue(300);
-        mainPageFade.setValue(0);
-        Animated.parallel([
-          Animated.timing(mainPageSlideX, { toValue: 0, duration: 300, easing: Easing.out(Easing.ease), useNativeDriver: true }),
-          Animated.timing(mainPageFade, { toValue: 1, duration: 300, easing: Easing.out(Easing.ease), useNativeDriver: true }),
-        ]).start();
       });
     } else {
       // Confirmed mode: slide health page right (reveals gears underneath), then run gears flow
@@ -613,6 +613,20 @@ export default function CarsHomeScreen() {
     });
   }, [mergedMaintenanceItems, currentOdometer, activeVehicle?.mileage, activeOwnershipKnownIssues, smartcarStats, activeOwnership?.health_score, activeOwnership?.health_score_is_estimated]);
 
+  // Pulse animation for inline Quick Read health ring
+  const showQuickReadCard = !isActiveVehicleConnected && isPreOnboardingComplete && !isOnboardingComplete && !isNewVehicle;
+  useEffect(() => {
+    if (!showQuickReadCard) return;
+    const loop = Animated.loop(
+      Animated.sequence([
+        Animated.timing(quickReadPulse, { toValue: 1.08, duration: 1500, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(quickReadPulse, { toValue: 1, duration: 1500, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      ]),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [showQuickReadCard, quickReadPulse]);
+
   // Keep refs in sync so openHealthSheet/openEstimatedHealthSheet always read the latest scores
   latestScoreRef.current = computedHealthScore;
   latestEstimatedScoreRef.current = (activeOwnership?.health_score as number | undefined) ?? 0;
@@ -637,24 +651,34 @@ export default function CarsHomeScreen() {
     }
   }, [computedHealthScore, showHealthRingSheet, healthSheetMode]);
 
-  // Open the estimated sheet once after pre-onboarding completes (before CarInfoStepper is done).
-  // State-based alternative to params.fromPreOnboarding — fires once per tab mount when conditions are met.
-  // Hide main page immediately so it doesn't flash before the health page slides in.
-  useEffect(() => {
-    if (
-      isPreOnboardingComplete &&
-      !isOnboardingComplete &&
-      !isNewVehicle &&
-      activeOwnership != null &&
-      !healthPageVisible &&
-      !estimatedSheetShownRef.current
-    ) {
-      estimatedSheetShownRef.current = true;
-      mainPageSlideX.setValue(-300);
-      mainPageFade.setValue(0);
-      setTimeout(() => openEstimatedHealthSheet(), 300);
-    }
-  }, [isPreOnboardingComplete, isOnboardingComplete, isNewVehicle, activeOwnership, healthPageVisible, openEstimatedHealthSheet, mainPageSlideX, mainPageFade]);
+  // Opens the full-screen stepper directly (skips the score page, goes straight to checkin/grid).
+  const openStepperDirectly = useCallback(() => {
+    setHealthSheetMode('estimated');
+    setEstimatedPage('checkin');
+    healthSheetModeRef.current = 'estimated';
+    setHealthPageVisible(true);
+    setShowHealthRingSheet(true);
+
+    healthPageSlideX.setValue(300);
+    healthPageFade.setValue(0);
+    pageSlideX.setValue(0);
+    pageFade.setValue(1);
+
+    Animated.parallel([
+      Animated.timing(mainPageSlideX, { toValue: -300, duration: 900, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      Animated.timing(mainPageFade, { toValue: 0, duration: 900, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+    ]).start();
+
+    setTimeout(() => {
+      Animated.parallel([
+        Animated.timing(healthPageSlideX, { toValue: 0, duration: 600, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+        Animated.timing(healthPageFade, { toValue: 1, duration: 600, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+      ]).start(() => {
+        mainPageSlideX.setValue(0);
+        mainPageFade.setValue(1);
+      });
+    }, 400);
+  }, [mainPageSlideX, mainPageFade, healthPageSlideX, healthPageFade, pageSlideX, pageFade]);
 
   // Maintenance input modal state
   const [maintenanceModalVisible, setMaintenanceModalVisible] = useState(false);
@@ -847,6 +871,41 @@ export default function CarsHomeScreen() {
           />
         </View>
 
+        {/* Dev/debug buttons — top left */}
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, paddingHorizontal: 16, marginBottom: 4 }}>
+          {!isActiveVehicleConnected && isPreOnboardingComplete && showPostOnboardingContent && activeOwnershipId && (
+            <Pressable
+              style={({ pressed }) => [{ paddingVertical: 4, paddingHorizontal: 10, borderRadius: 12, backgroundColor: "rgba(82,153,254,0.1)" }, pressed && { opacity: 0.7 }]}
+              onPress={async () => {
+                try {
+                  await resetOnboarding({ vehicleOwnerId: activeOwnershipId });
+                  setLocalOnboardingDone(false);
+                } catch (err) {
+                  console.warn("Reset onboarding failed:", err);
+                }
+              }}
+            >
+              <Text weight="semiBold" size="xs" color="#5299FE">Redo Info</Text>
+            </Pressable>
+          )}
+          {!!activeVehicle?.vin && !!userId && (
+            <Pressable
+              style={({ pressed }) => [{ paddingVertical: 4, paddingHorizontal: 10, borderRadius: 12, backgroundColor: "rgba(239,68,68,0.12)" }, pressed && { opacity: 0.7 }]}
+              onPress={handleRemoveActiveVehicle}
+            >
+              <Text weight="semiBold" size="xs" color="#DC2626">Remove</Text>
+            </Pressable>
+          )}
+          {activeOwnershipId && isPreOnboardingComplete && (
+            <Pressable
+              style={({ pressed }) => [{ paddingVertical: 4, paddingHorizontal: 10, borderRadius: 12, backgroundColor: "rgba(0,0,0,0.05)" }, pressed && { opacity: 0.7 }]}
+              onPress={() => router.push({ pathname: "/quarterly-checkin", params: { vehicleOwnerId: activeOwnershipId, vehicleName: activeVehicle?.make ? `${activeVehicle.make} ${activeVehicle.model ?? ""}`.trim() : undefined } })}
+            >
+              <Text weight="semiBold" size="xs" color="#6B7280">Demo Check-In</Text>
+            </Pressable>
+          )}
+        </View>
+
         {/* ═══════════════════════════════════════════════════════════════════
             TOP SECTION: Vehicle Carousel
         ═══════════════════════════════════════════════════════════════════ */}
@@ -861,7 +920,7 @@ export default function CarsHomeScreen() {
             isFocused={isFocused}
             maintenanceItems={mergedMaintenanceItems}
             currentMileage={currentOdometer}
-            showHealthRing={isActiveVehicleConnected || celebrationDismissed || (isPreOnboardingComplete && !celebrationActive && !healthPageVisible)}
+            showHealthRing={isActiveVehicleConnected || celebrationDismissed || (isOnboardingComplete && !celebrationActive && !healthPageVisible)}
             healthScore={isPreOnboardingComplete && !isOnboardingComplete
               ? (activeOwnership?.health_score as number | undefined) ?? computedHealthScore
               : computedHealthScore}
@@ -869,6 +928,66 @@ export default function CarsHomeScreen() {
             onResumeCheckin={openEstimatedHealthSheet}
           />
         </View>
+
+        {/* Quick Read intro card — shown when pre-onboarding done but onboarding not yet complete */}
+        {!isActiveVehicleConnected && isPreOnboardingComplete && !isOnboardingComplete && !isNewVehicle && (() => {
+          const estScore = (activeOwnership?.health_score as number | undefined) ?? computedHealthScore;
+          const ringSize = 120;
+          const strokeWidth = 10;
+          const radius = (ringSize - strokeWidth) / 2;
+          const circumference = 2 * Math.PI * radius;
+          const strokeDashoffset = circumference * (1 - estScore / 100);
+          const center = ringSize / 2;
+          return (
+          <View style={styles.quickReadCard}>
+            <View style={{ alignItems: "center", justifyContent: "center", width: 140, height: 140, marginBottom: 12 }}>
+              <Animated.View style={{ position: "absolute", width: 160, height: 160, borderRadius: 80, backgroundColor: "#94A3B8", opacity: 0.12, transform: [{ scale: quickReadPulse }] }} />
+              <Animated.View style={{ position: "absolute", width: 130, height: 130, borderRadius: 65, backgroundColor: "#94A3B8", opacity: 0.06, transform: [{ scale: quickReadPulse }] }} />
+              <View style={{ width: ringSize, height: ringSize, alignItems: "center", justifyContent: "center" }}>
+                <Svg width={ringSize} height={ringSize}>
+                  <Circle cx={center} cy={center} r={radius} stroke="rgba(0,0,0,0.06)" strokeWidth={strokeWidth} fill="none" />
+                  <Circle
+                    cx={center} cy={center} r={radius}
+                    stroke="#94A3B8"
+                    strokeWidth={strokeWidth}
+                    fill="none"
+                    strokeLinecap="round"
+                    strokeDasharray={circumference}
+                    strokeDashoffset={strokeDashoffset}
+                    transform={`rotate(-90 ${center} ${center})`}
+                  />
+                </Svg>
+                <View style={{ position: "absolute", alignItems: "center" }}>
+                  <Text weight="bold" size="2xl" color="#1F2937">{estScore}</Text>
+                  <Text weight="medium" size="xs" color="#94A3B8">Estimated</Text>
+                </View>
+              </View>
+            </View>
+            <Text weight="bold" size="lg" color="#1F2937" style={{ textAlign: "center" }}>
+              Let&apos;s get a quick read on your {activeVehicle?.make && activeVehicle?.model ? `${activeVehicle.make} ${activeVehicle.model}` : "vehicle"}
+            </Text>
+            <Text weight="medium" size="sm" color="#6B7280" style={{ textAlign: "center", marginTop: 6 }}>
+              Three quick checks to understand your vehicle&apos;s current condition.
+            </Text>
+            <View style={styles.quickReadBenefits}>
+              {["Brake health assessment", "Tire life estimation", "Warning light detection"].map((b) => (
+                <View key={b} style={styles.quickReadBenefitRow}>
+                  <Ionicons name="checkmark-circle" size={16} color="#22C55E" />
+                  <Text weight="medium" size="sm" color="#374151">{b}</Text>
+                </View>
+              ))}
+            </View>
+            <Pressable
+              style={({ pressed }) => [styles.quickReadCta, pressed && { opacity: 0.85 }]}
+              onPress={openStepperDirectly}
+            >
+              <Text weight="bold" size="md" color="#FFFFFF">Get Started</Text>
+              <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
+            </Pressable>
+            <Text weight="medium" size="xs" color="#9CA3AF" style={{ marginTop: 10 }}>Takes about 30 seconds</Text>
+          </View>
+          );
+        })()}
 
         {/* ═══════════════════════════════════════════════════════════════════
             SMARTCAR STATS (only for connected vehicles)
@@ -917,63 +1036,6 @@ export default function CarsHomeScreen() {
 
           
 
-          {/* Reset onboarding button for non-connected vehicles */}
-          {!isActiveVehicleConnected && isPreOnboardingComplete && showPostOnboardingContent && activeOwnershipId && (
-            <Pressable
-              style={({ pressed }) => [
-                {
-                  flexDirection: 'row' as const,
-                  alignItems: 'center' as const,
-                  justifyContent: 'center' as const,
-                  gap: 6,
-                  alignSelf: 'center' as const,
-                  paddingVertical: 8,
-                  paddingHorizontal: 16,
-                  borderRadius: 20,
-                  backgroundColor: 'rgba(82,153,254,0.1)',
-                  marginBottom: 12,
-                },
-                pressed && { opacity: 0.7 },
-              ]}
-              onPress={async () => {
-                try {
-                  await resetOnboarding({ vehicleOwnerId: activeOwnershipId });
-                  setLocalOnboardingDone(false);
-                } catch (err) {
-                  console.warn("Reset onboarding failed:", err);
-                }
-              }}
-            >
-              <Text weight="semiBold" size="sm" color="#5299FE">
-                Redo Vehicle Info
-              </Text>
-            </Pressable>
-          )}
-
-          {!!activeVehicle?.vin && !!userId && (
-            <Pressable
-              style={({ pressed }) => [
-                {
-                  flexDirection: "row" as const,
-                  alignItems: "center" as const,
-                  justifyContent: "center" as const,
-                  alignSelf: "center" as const,
-                  paddingVertical: 8,
-                  paddingHorizontal: 16,
-                  borderRadius: 20,
-                  backgroundColor: "rgba(239,68,68,0.12)",
-                  marginBottom: 12,
-                },
-                pressed && { opacity: 0.7 },
-              ]}
-              onPress={handleRemoveActiveVehicle}
-            >
-              <Text weight="semiBold" size="sm" color="#DC2626">
-                Remove Vehicle
-              </Text>
-            </Pressable>
-          )}
-
           {/* Quarterly Check-in Banner */}
           {activeOwnershipId && isPreOnboardingComplete && (
             <CheckinBanner
@@ -982,39 +1044,8 @@ export default function CarsHomeScreen() {
             />
           )}
 
-          {/* DEV: Demo button to open Quarterly Check-in */}
-          {activeOwnershipId && isPreOnboardingComplete && (
-            <Pressable
-              onPress={() =>
-                router.push({
-                  pathname: "/quarterly-checkin",
-                  params: {
-                    vehicleOwnerId: activeOwnershipId,
-                    vehicleName: activeVehicle?.make
-                      ? `${activeVehicle.make} ${activeVehicle.model ?? ""}`.trim()
-                      : undefined,
-                  },
-                })
-              }
-              style={{
-                alignSelf: "center",
-                paddingVertical: 8,
-                paddingHorizontal: 16,
-                borderRadius: 8,
-                borderWidth: 1,
-                borderColor: "#D1D5DB",
-                backgroundColor: "#F9FAFB",
-                marginTop: 4,
-              }}
-            >
-              <Text size="sm" color="#6B7280">
-                Demo: Open Quarterly Check-In
-              </Text>
-            </Pressable>
-          )}
-
           {/* Maintenance tracker (shown for connected vehicles, or non-connected after onboarding + sheet dismissed) */}
-          {(isActiveVehicleConnected || (isPreOnboardingComplete && showPostOnboardingContent)) && (
+          {(isActiveVehicleConnected || showPostOnboardingContent) && (
             <MaintenanceTracker
               items={mergedMaintenanceItems}
               vehicleCondition={computedHealthScore}
@@ -1030,8 +1061,8 @@ export default function CarsHomeScreen() {
             />
           )}
 
-          {/* Service History Section */}
-          <ServiceHistory
+          {/* Service History Section (hidden until onboarding complete) */}
+          {(isActiveVehicleConnected || isOnboardingComplete) && <ServiceHistory
             records={serviceRecords}
             onAddNotes={(id) => {
               // TODO: Open notes modal/screen for this service record
@@ -1041,10 +1072,10 @@ export default function CarsHomeScreen() {
               // TODO: Download PDF receipt for this service record
               console.log("Download Receipt for record", id);
             }}
-          />
+          />}
 
-          {/* Loyalty Points Section */}
-          <LoyaltyPoints
+          {/* Loyalty Points Section (hidden until onboarding complete) */}
+          {(isActiveVehicleConnected || isOnboardingComplete) && <LoyaltyPoints
             totalPoints={1240}
             currentTier="Gold Member"
             currentPoints={240}
@@ -1055,7 +1086,7 @@ export default function CarsHomeScreen() {
               // Navigate to full membership/loyalty page
               router.push('/membership');
             }}
-          />
+          />}
         </View>
       </ScrollView>
       </Animated.View>
@@ -1133,7 +1164,7 @@ export default function CarsHomeScreen() {
       ═══════════════════════════════════════════════════════════════════ */}
       <Modal
         visible={healthPageVisible || gearsOverlayVisible}
-        transparent={false}
+        transparent={true}
         animationType="none"
         statusBarTranslucent
         presentationStyle="fullScreen"
@@ -1159,7 +1190,7 @@ export default function CarsHomeScreen() {
                   if (stepperRef.current?.isExpanded()) {
                     stepperRef.current.goBack();
                   } else {
-                    animateBackToScore();
+                    closeHealthSheet();
                   }
                 }} hitSlop={12} style={healthSheetStyles.fullPageCloseBtn}>
                   <Ionicons name="chevron-back" size={22} color="#6B7280" />
@@ -1703,6 +1734,46 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     paddingHorizontal: 18,
     borderRadius: 20,
+    backgroundColor: "#5299FE",
+  },
+  quickReadCard: {
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 12,
+    paddingVertical: 24,
+    paddingHorizontal: 20,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.88)",
+    alignItems: "center",
+  },
+  quickReadIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: "rgba(82,153,254,0.1)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  quickReadBenefits: {
+    alignSelf: "stretch",
+    gap: 8,
+    marginTop: 16,
+    marginBottom: 20,
+    paddingLeft: 8,
+  },
+  quickReadBenefitRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  quickReadCta: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    alignSelf: "stretch",
+    paddingVertical: 14,
+    borderRadius: 28,
     backgroundColor: "#5299FE",
   },
 });
