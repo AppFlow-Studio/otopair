@@ -758,8 +758,13 @@ export const runPipeline = internalAction({
     });
     console.log(`[Pipeline] Service breakdown:`, JSON.stringify(breakdown));
 
+    const EXCLUDED_FROM_HEALTH = new Set(["fluids"]);
+    const healthCoreStates = applicableStates.filter(
+      (s) => !EXCLUDED_FROM_HEALTH.has((s as (typeof serviceStates)[number]).serviceCategory ?? "")
+    );
+
     const healthScore = calculateHealthFromStates(
-      applicableStates.map((s) => (s as (typeof serviceStates)[number]).urgencyResult.urgency),
+      healthCoreStates.map((s) => (s as (typeof serviceStates)[number]).urgencyResult.urgency),
       issues
     );
 
