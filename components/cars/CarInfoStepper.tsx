@@ -3,50 +3,49 @@
  *
  * PURPOSE: Post-onboarding vehicle condition check. Captures brake health,
  *          tire status, oil recency, battery status, and warning light data
- *          via a 2×2 service grid + warning lights step.
+ *          via a 2×2 service grid + question overlay.
  *
  * PHASES:
  *   "intro"    — marketing card (benefits + Get Started CTA)
- *   "stepping"  — service grid + warning lights step with progress bar
+ *   "stepping"  — service grid with question overlay per service
  *
  * USED IN: app/(main-tabs)/cars/index.tsx
  *
  * OWNER: Ahmad Hamoudeh
  */
 
-import React, { useCallback, useImperativeHandle, useRef, useState, forwardRef } from "react";
+import React, { useCallback, useEffect, useImperativeHandle, useRef, useState, forwardRef } from "react";
 import {
   Animated,
   Dimensions,
   Easing,
-  Image,
   Keyboard,
-  Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   View,
 } from "react-native";
 import { useMutation } from "convex/react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 
 import ReAnimated, {
   useSharedValue,
   useAnimatedStyle,
+  withSpring,
   withTiming,
-  interpolate,
-  runOnJS,
+  withSequence,
+  withDelay,
+  interpolateColor,
+  Easing as REasing,
   Layout,
-  FadeOut,
 } from "react-native-reanimated";
-import { AlertTriangle } from "lucide-react-native";
-import LottieView from "lottie-react-native";
 
 import { Text } from "@/components/shared-ui";
 import { BrakesIcon, TireIcon, OilIcon, BatteryIcon, WarningIcon } from "@/components/cars/ServiceIcons";
+import SquircleRing from "@/components/cars/SquircleRing";
+import QuestionOverlay from "@/components/cars/QuestionOverlay";
+import type { QuestionDef } from "@/components/cars/QuestionOverlay";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -98,7 +97,7 @@ const SERVICE_CARDS: Record<ServiceCardId, { label: string; icon: string; color:
   warningLights: { label: "Warning Lights", icon: "warning-outline",          color: "#5299FE" },
 };
 
-const SERVICE_ICON_COMPONENTS: Record<ServiceCardId, React.FC<{ size?: number }>> = {
+const SERVICE_ICON_COMPONENTS: Record<ServiceCardId, React.FC<{ size?: number; color?: string }>> = {
   brakes: BrakesIcon,
   tires: TireIcon,
   oil: OilIcon,
@@ -122,6 +121,280 @@ const WARNING_LIGHT_TYPE_OPTIONS = [
   { id: "transmission" as const, label: "Transmission", icon: "cog-outline" as const },
   { id: "not_sure_which" as const, label: "I\u2019m not sure which one", icon: "help-circle-outline" as const },
 ];
+
+// ============================================================================
+// DECLARATIVE QUESTION DATA
+// ============================================================================
+
+const SERVICE_QUESTIONS: Record<ServiceCardId, QuestionDef[]> = {
+  brakes: [
+    {
+      key: "recency",
+      text: "When were your brakes last serviced?",
+      options: [
+        { id: "recently", label: "Recently" },
+        { id: "few_months", label: "A few months ago" },
+        { id: "over_6mo", label: "Over 6 months ago" },
+        { id: "not_sure", label: "I\u2019m not sure" },
+      ],
+      triggerFollowUp: "not_sure",
+    },
+    {
+      key: "feel",
+      text: "How do your brakes feel?",
+      options: [
+        { id: "fine", label: "Fine" },
+        { id: "noise", label: "They make noise" },
+        { id: "soft_slow", label: "They feel soft or slow" },
+      ],
+    },
+  ],
+  tires: [
+    {
+      key: "recency",
+      text: "When were your tires last replaced?",
+      options: [
+        { id: "recently", label: "Recently" },
+        { id: "few_months", label: "A few months ago" },
+        { id: "over_6mo", label: "Over 6 months ago" },
+        { id: "not_sure", label: "I\u2019m not sure" },
+      ],
+      triggerFollowUp: "not_sure",
+    },
+    {
+      key: "original",
+      text: "Are these the original tires?",
+      options: [
+        { id: "yes", label: "Yes" },
+        { id: "no", label: "No" },
+        { id: "not_sure", label: "Not sure" },
+      ],
+    },
+  ],
+  oil: [
+    {
+      key: "recency",
+      text: "Know when your last oil change was?",
+      options: [
+        { id: "recently", label: "Recently" },
+        { id: "few_months", label: "A few months ago" },
+        { id: "over_6mo", label: "Over 6 months ago" },
+        { id: "not_sure", label: "Not sure" },
+      ],
+    },
+  ],
+  battery: [
+    {
+      key: "recency",
+      text: "When was your battery last replaced?",
+      options: [
+        { id: "recently", label: "Recently" },
+        { id: "few_months", label: "A few months ago" },
+        { id: "over_6mo", label: "Over 6 months ago" },
+        { id: "not_sure", label: "I\u2019m not sure" },
+      ],
+      triggerFollowUp: "not_sure",
+    },
+    {
+      key: "replaced",
+      text: "Has your battery ever been replaced?",
+      options: [
+        { id: "yes", label: "Yes" },
+        { id: "no", label: "No" },
+        { id: "not_sure", label: "Not sure" },
+      ],
+    },
+  ],
+  warningLights: [
+    {
+      key: "status",
+      text: "Any dashboard warning lights on right now?",
+      options: [
+        { id: "no_all_clear", label: "No, all clear" },
+        { id: "check_engine", label: "Yes, check engine" },
+        { id: "other", label: "Yes, something else" },
+        { id: "not_sure", label: "Not sure" },
+      ],
+      triggerFollowUp: "other",
+    },
+    {
+      key: "lightTypes",
+      text: "Which warning lights are on?",
+      multiSelect: true,
+      options: WARNING_LIGHT_TYPE_OPTIONS.map((o) => ({ id: o.id, label: o.label, icon: o.icon })),
+    },
+  ],
+};
+
+
+// ============================================================================
+// OrbGridItem (with completion animation)
+// ============================================================================
+
+function OrbGridItem({ cardId, isDone, isJustCompleted, progress, onPress }: {
+  cardId: ServiceCardId;
+  isDone: boolean;
+  isJustCompleted: boolean;
+  progress: number;
+  onPress: () => void;
+}) {
+  const scale = useSharedValue(1);
+  const card = SERVICE_CARDS[cardId];
+  const IconComponent = SERVICE_ICON_COMPONENTS[cardId];
+  const isCompleted = isDone || isJustCompleted;
+
+  const completionAnim = useSharedValue(isDone ? 1 : 0);
+  const pulseScale = useSharedValue(1);
+  const glowShadowOpacity = useSharedValue(isDone ? 0.32 : 0);
+  const glowShadowRadius = useSharedValue(isDone ? 18 : 0);
+  const burstScale = useSharedValue(1);
+  const burstOpacity = useSharedValue(0);
+  const checkScale = useSharedValue(isDone ? 1 : 0);
+  const checkRotation = useSharedValue(isDone ? 0 : -15);
+
+  useEffect(() => {
+    if (!isJustCompleted) return;
+
+    completionAnim.value = withTiming(1, {
+      duration: 800,
+      easing: REasing.bezier(0.16, 1, 0.3, 1),
+    });
+
+    pulseScale.value = withSequence(
+      withTiming(1.06, { duration: 250 }),
+      withTiming(1, { duration: 500, easing: REasing.bezier(0.16, 1, 0.3, 1) }),
+    );
+
+    glowShadowOpacity.value = withSequence(
+      withTiming(0.45, { duration: 250 }),
+      withTiming(0.32, { duration: 600 }),
+    );
+    glowShadowRadius.value = withSequence(
+      withTiming(28, { duration: 250 }),
+      withTiming(18, { duration: 600 }),
+    );
+
+    burstOpacity.value = withSequence(
+      withTiming(0.3, { duration: 10 }),
+      withTiming(0, { duration: 600 }),
+    );
+    burstScale.value = withTiming(1.3, { duration: 600 });
+
+    checkScale.value = withDelay(400, withSpring(1, { damping: 12, stiffness: 180 }));
+    checkRotation.value = withDelay(400, withSpring(0, { damping: 12, stiffness: 180 }));
+  }, [isJustCompleted]);
+
+  const pressStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  const glowWrapperStyle = useAnimatedStyle(() => ({
+    shadowColor: "#5299FE",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: glowShadowOpacity.value,
+    shadowRadius: glowShadowRadius.value,
+  }));
+
+  const pulseAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: pulseScale.value }],
+  }));
+
+  const gradientOverlayStyle = useAnimatedStyle(() => ({
+    opacity: completionAnim.value,
+  }));
+
+  const burstAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: burstScale.value }],
+    opacity: burstOpacity.value,
+  }));
+
+  const checkmarkAnimStyle = useAnimatedStyle(() => ({
+    transform: [
+      { scale: checkScale.value },
+      { rotate: `${checkRotation.value}deg` },
+    ],
+  }));
+
+  return (
+    <ReAnimated.View
+      layout={Layout.springify().damping(50)}
+      style={s.orbItemWrapper}
+    >
+      <ReAnimated.View style={pressStyle}>
+        <Pressable
+          disabled={isCompleted}
+          onPressIn={() => { scale.value = withSpring(0.95, { damping: 15, stiffness: 200 }); }}
+          onPressOut={() => { scale.value = withSpring(1, { damping: 12, stiffness: 180 }); }}
+          onPress={onPress}
+        >
+          <ReAnimated.View style={glowWrapperStyle}>
+            <ReAnimated.View style={pulseAnimStyle}>
+              <View style={s.orbOuter}>
+                <SquircleRing progress={progress} isDone={isCompleted} />
+
+                {/* Default white squircle with colored icon */}
+                <View style={s.squircle}>
+                  <IconComponent size={48} />
+                </View>
+
+                {/* Gradient overlay (fades in on completion) */}
+                <ReAnimated.View style={[s.gradientOverlay, gradientOverlayStyle]}>
+                  <LinearGradient
+                    colors={["#8AC2FF", "#5299FE", "#3B7FEB", "#2D6AD9"]}
+                    locations={[0, 0.4, 0.8, 1]}
+                    start={{ x: 0.2, y: 0 }}
+                    end={{ x: 0.8, y: 1 }}
+                    style={s.gradientOverlayInner}
+                  >
+                    <IconComponent size={48} color="#FFFFFF" />
+                  </LinearGradient>
+                </ReAnimated.View>
+
+                {/* Ring burst circle */}
+                <ReAnimated.View style={[s.burstCircle, burstAnimStyle]} />
+
+                {/* Checkmark badge */}
+                <ReAnimated.View style={[s.checkBadge, checkmarkAnimStyle]}>
+                  <Ionicons name="checkmark-sharp" size={14} color="#5299FE" />
+                </ReAnimated.View>
+              </View>
+            </ReAnimated.View>
+          </ReAnimated.View>
+        </Pressable>
+      </ReAnimated.View>
+      <Text weight="semiBold" size="sm" color="#33475B" style={s.orbLabel}>{card.label}</Text>
+    </ReAnimated.View>
+  );
+}
+
+
+// ============================================================================
+// FooterDot (animated background color)
+// ============================================================================
+
+function FooterDot({ isDone }: { isDone: boolean }) {
+  const bg = useSharedValue(isDone ? 1 : 0);
+
+  useEffect(() => {
+    bg.value = withTiming(isDone ? 1 : 0, { duration: 350 });
+  }, [isDone]);
+
+  const animStyle = useAnimatedStyle(() => ({
+    backgroundColor: interpolateColor(
+      bg.value,
+      [0, 1],
+      ["rgba(82,153,254,0.13)", "#5299FE"],
+    ),
+    shadowOpacity: bg.value,
+    shadowRadius: bg.value * 8,
+  }));
+
+  return (
+    <ReAnimated.View
+      style={[s.dot, s.dotShadowBase, animStyle]}
+    />
+  );
+}
 
 
 // ============================================================================
@@ -150,85 +423,33 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
   const isAnimating = useRef(false);
   const [cardWidth, setCardWidth] = useState(DEFAULT_CARD_WIDTH);
 
-  // ── Grid / expansion state ─────────────────────────────────
+  // ── Grid / overlay state ──────────────────────────────────
   const [activeCard, setActiveCard] = useState<ServiceCardId | null>(null);
-  const [showQuestion, setShowQuestion] = useState(false);
   const [completedCards, setCompletedCards] = useState<Set<ServiceCardId>>(new Set());
-  const cardRefs = useRef<Record<string, any>>({});
-  const expansionProgress = useSharedValue(0);
-  const expandOriginX = useSharedValue(0);
-  const expandOriginY = useSharedValue(0);
-  const expandOriginW = useSharedValue(0);
-  const expandOriginH = useSharedValue(0);
-  const containerOriginY = useSharedValue(0);
-  const containerRef = useRef<View>(null);
+  const [justCompletedId, setJustCompletedId] = useState<ServiceCardId | null>(null);
+  const [serviceAnswers, setServiceAnswers] = useState<
+    Partial<Record<ServiceCardId, Record<string, string | string[]>>>
+  >({});
+  const [serviceQuestionIndex, setServiceQuestionIndex] = useState<
+    Partial<Record<ServiceCardId, number>>
+  >({});
+  const [serviceProgress, setServiceProgress] = useState<
+    Partial<Record<ServiceCardId, number>>
+  >({});
 
-  // ── Quick Read form state ───────────────────────────────────
-  const [brakeRecency, setBrakeRecency] = useState<string | null>(null);
-  const [brakeFeel, setBrakeFeel] = useState<string | null>(null);
-  const [tireRecency, setTireRecency] = useState<string | null>(null);
-  const [tireOriginal, setTireOriginal] = useState<string | null>(null);
-  const [oilRecency, setOilRecency] = useState<string | null>(null);
-  const [batteryRecency, setBatteryRecency] = useState<string | null>(null);
-  const [batteryReplaced, setBatteryReplaced] = useState<string | null>(null);
-  const [warningLight, setWarningLight] = useState<string | null>(null);
-  const [warningLightTypes, setWarningLightTypes] = useState<string[]>([]);
-  const [followUp, setFollowUp] = useState<Set<ServiceCardId>>(new Set());
+  // ── Finalize completion after animation ─────────────────────
+  useEffect(() => {
+    if (!justCompletedId) return;
+    const timer = setTimeout(() => {
+      setCompletedCards(prev => new Set(prev).add(justCompletedId));
+      setJustCompletedId(null);
+    }, 900);
+    return () => clearTimeout(timer);
+  }, [justCompletedId]);
 
   // ── Steps (no branching) ────────────────────────────────────
   const steps: StepId[] = ["serviceGrid"];
   const totalSteps = steps.length;
-
-  // ── Animated styles for shared element transition ──────────
-  const HERO_Y = -20;
-  const HERO_Y_COMPACT = -70;
-  const HERO_Y_WARNING = 20;
-  const HERO_Y_COMPACT_WARNING = -50;
-  const HERO_SCALE = 2.4;
-  const HERO_SCALE_COMPACT = 1.0;
-  const compactProgress = useSharedValue(0);
-  const isWarningCardSV = useSharedValue(0);
-
-  const floatingCardStyle = useAnimatedStyle(() => {
-    const p = expansionProgress.value;
-    const cp = compactProgress.value;
-    const w = isWarningCardSV.value;
-    const heroY = interpolate(w, [0, 1], [HERO_Y, HERO_Y_WARNING]);
-    const heroYCompact = interpolate(w, [0, 1], [HERO_Y_COMPACT, HERO_Y_COMPACT_WARNING]);
-    const currentScale = interpolate(cp, [0, 1], [HERO_SCALE, HERO_SCALE_COMPACT]);
-    const currentY = interpolate(cp, [0, 1], [heroY, heroYCompact]);
-    const destW = expandOriginW.value * currentScale;
-    const destH = expandOriginH.value * currentScale;
-    const destX = (SCREEN_WIDTH - destW) / 2;
-    const originYRelative = expandOriginY.value - containerOriginY.value;
-    return {
-      position: 'absolute' as const,
-      left: interpolate(p, [0, 1], [expandOriginX.value, destX]),
-      top: interpolate(p, [0, 1], [originYRelative, currentY]),
-      width: interpolate(p, [0, 1], [expandOriginW.value, destW]),
-      height: interpolate(p, [0, 1], [expandOriginH.value, destH]),
-      zIndex: 300,
-      transform: [{ scale: interpolate(p, [0, 1], [1, currentScale]) }],
-      opacity: interpolate(p, [0.05, 0.2], [0, 1]),
-    };
-  });
-
-  const gridFadeStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(expansionProgress.value, [0, 0.15], [1, 0]),
-  }));
-
-  const questionFadeStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(expansionProgress.value, [0.6, 1], [0, 1]),
-  }));
-
-  const spacerAnimatedStyle = useAnimatedStyle(() => {
-    const w = isWarningCardSV.value;
-    const expandedH = interpolate(w, [0, 1], [380, 400]);
-    const compactH = interpolate(w, [0, 1], [110, 120]);
-    return {
-      height: interpolate(compactProgress.value, [0, 1], [expandedH, compactH]),
-    };
-  });
 
   // ── Slide helper (two-phase: quick exit → swap → smooth enter) ──
   const animateSlide = useCallback(
@@ -297,107 +518,49 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
     animateSlide("back", "intro", 0);
   }, [animateSlide]);
 
-  // ── Card tap → expand to question page ──────────────────────
-  const startExpansion = useCallback((cardId: ServiceCardId) => {
-    setActiveCard(cardId);
-    isWarningCardSV.value = cardId === "warningLights" ? 1 : 0;
-    expansionProgress.value = withTiming(1, { duration: 400 }, () => {
-      runOnJS(setShowQuestion)(true);
-    });
-  }, [expansionProgress, isWarningCardSV]);
-
+  // ── Card tap → open overlay ────────────────────────────────
   const handleCardTap = useCallback((cardId: ServiceCardId) => {
-    const ref = cardRefs.current[cardId];
-    if (ref?.measureInWindow) {
-      ref.measureInWindow((x: number, y: number, w: number, h: number) => {
-        expandOriginX.value = x;
-        expandOriginY.value = y;
-        expandOriginW.value = w;
-        expandOriginH.value = h;
-        containerRef.current?.measureInWindow((_cx: number, cy: number) => {
-          containerOriginY.value = cy;
-          startExpansion(cardId);
-        });
-      });
-    } else {
-      startExpansion(cardId);
-    }
-  }, [startExpansion, expandOriginX, expandOriginY, expandOriginW, expandOriginH, containerOriginY]);
-
-  // ── Back to grid (dismiss without completing) ──────────────
-  const resetAfterDismiss = useCallback((cardId: ServiceCardId | null) => {
-    if (cardId) {
-      setFollowUp(prev => {
-        const next = new Set(prev);
-        next.delete(cardId);
-        return next;
-      });
-      if (cardId === "brakes") { setBrakeRecency(null); setBrakeFeel(null); }
-      if (cardId === "tires") { setTireRecency(null); setTireOriginal(null); }
-      if (cardId === "oil") { setOilRecency(null); }
-      if (cardId === "battery") { setBatteryRecency(null); setBatteryReplaced(null); }
-      if (cardId === "warningLights") { setWarningLight(null); setWarningLightTypes([]); }
-    }
-    requestAnimationFrame(() => setActiveCard(null));
+    setActiveCard(cardId);
   }, []);
 
-  const handleBackToGrid = useCallback(() => {
-    const dismissedCard = activeCard;
-    setShowQuestion(false);
-    compactProgress.value = withTiming(0, { duration: 250 });
-    expansionProgress.value = withTiming(0, { duration: 400 }, (finished) => {
-      'worklet';
-      if (finished) {
-        runOnJS(resetAfterDismiss)(dismissedCard);
-      }
-    });
-  }, [expansionProgress, compactProgress, activeCard, resetAfterDismiss]);
+  // ── Overlay callbacks ──────────────────────────────────────
+  const handleOverlayAnswer = useCallback((
+    answers: Record<string, string | string[]>,
+    questionIndex: number,
+    progress: number,
+  ) => {
+    if (!activeCard) return;
+    setServiceAnswers(prev => ({ ...prev, [activeCard]: answers }));
+    setServiceQuestionIndex(prev => ({ ...prev, [activeCard]: questionIndex }));
+    setServiceProgress(prev => ({ ...prev, [activeCard]: progress }));
+  }, [activeCard]);
+
+  const handleOverlayComplete = useCallback(() => {
+    if (!activeCard) return;
+    setServiceProgress(prev => ({ ...prev, [activeCard]: 1 }));
+    setJustCompletedId(activeCard);
+    setActiveCard(null);
+  }, [activeCard]);
+
+  const handleOverlayDismiss = useCallback(() => {
+    setActiveCard(null);
+  }, []);
 
   useImperativeHandle(ref, () => ({
     isExpanded: () => !!activeCard,
-    goBack: () => handleBackToGrid(),
-  }), [activeCard, handleBackToGrid]);
-
-  // ── Transition to follow-up question ───────────────────────
-  const transitionToFollowUp = useCallback((cardId: ServiceCardId) => {
-    setFollowUp(prev => new Set(prev).add(cardId));
-    if (cardId === "warningLights") {
-      compactProgress.value = withTiming(1, { duration: 350 });
-    }
-  }, [compactProgress]);
-
-  // ── Card answer → collapse back to grid + mark completed ───
-  const finishCardAnswer = useCallback((cardId: ServiceCardId) => {
-    requestAnimationFrame(() => {
-      setActiveCard(null);
-      setCompletedCards(prev => new Set(prev).add(cardId));
-    });
-  }, []);
-
-  const handleCardAnswer = useCallback((cardId: ServiceCardId) => {
-    setShowQuestion(false);
-    compactProgress.value = withTiming(0, { duration: 250 });
-    expansionProgress.value = withTiming(0, { duration: 400 }, (finished) => {
-      'worklet';
-      if (finished) {
-        runOnJS(finishCardAnswer)(cardId);
-      }
-    });
-  }, [expansionProgress, compactProgress, finishCardAnswer]);
+    goBack: () => { if (activeCard) handleOverlayDismiss(); },
+  }), [activeCard, handleOverlayDismiss]);
 
   // ── Complete handler ────────────────────────────────────────
   const handleComplete = useCallback(async () => {
     setSaving(true);
     try {
-      if (brakeRecency !== null || brakeFeel !== null)
-        await saveField({ vehicleOwnerId, field: "brakes", value: { recency: brakeRecency, feel: brakeFeel } });
-      if (tireRecency !== null || tireOriginal !== null)
-        await saveField({ vehicleOwnerId, field: "tires", value: { recency: tireRecency, original: tireOriginal } });
-      if (oilRecency !== null)
-        await saveField({ vehicleOwnerId, field: "oil", value: { recency: oilRecency } });
-      if (batteryRecency !== null || batteryReplaced !== null)
-        await saveField({ vehicleOwnerId, field: "battery", value: { recency: batteryRecency, replaced: batteryReplaced } });
-      await saveField({ vehicleOwnerId, field: "warningLights", value: { status: warningLight, lightTypes: warningLightTypes } });
+      for (const cardId of ALL_CARD_IDS) {
+        const answers = serviceAnswers[cardId];
+        if (answers && Object.keys(answers).length > 0) {
+          await saveField({ vehicleOwnerId, field: cardId, value: answers });
+        }
+      }
       onComplete();
     } catch (err) {
       console.error("[CarInfoStepper] Save failed:", err);
@@ -405,378 +568,22 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
     } finally {
       setSaving(false);
     }
-  }, [
-    vehicleOwnerId,
-    brakeRecency, brakeFeel, tireRecency, tireOriginal,
-    oilRecency, batteryRecency, batteryReplaced,
-    warningLight, warningLightTypes,
-    saveField, onComplete,
-  ]);
-
-  // ── Render card question (shown in the bottom sheet) ────────
-  const renderCardQuestion = (cardId: ServiceCardId) => {
-    switch (cardId) {
-      case "brakes":
-        if (followUp.has("brakes")) {
-          return (
-            <View style={s.fieldGroup}>
-              <Text weight="semiBold" size="md" color="#1F2937">How do your brakes feel?</Text>
-              <View style={s.chipColumn}>
-                {([
-                  { id: "fine",      label: "Fine" },
-                  { id: "noise",     label: "They make noise" },
-                  { id: "soft_slow", label: "They feel soft or slow" },
-                ]).map((opt) => (
-                  <Pressable
-                    key={opt.id}
-                    style={[s.optionCard, brakeFeel === opt.id && s.optionCardActive]}
-                    onPress={() => { setBrakeFeel(opt.id); handleCardAnswer("brakes"); }}
-                  >
-                    <Text weight={brakeFeel === opt.id ? "bold" : "semiBold"} size="md" color={brakeFeel === opt.id ? "#1E40AF" : "#1F2937"}>{opt.label}</Text>
-                    {brakeFeel === opt.id && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
-                  </Pressable>
-                ))}
-              </View>
-            </View>
-          );
-        }
-        return (
-          <View style={s.fieldGroup}>
-            <Text weight="semiBold" size="md" color="#1F2937">When were your brakes last serviced?</Text>
-            <View style={s.chipColumn}>
-              {([
-                { id: "recently",   label: "Recently" },
-                { id: "few_months", label: "A few months ago" },
-                { id: "over_6mo",   label: "Over 6 months ago" },
-                { id: "not_sure",   label: "I'm not sure" },
-              ]).map((opt) => (
-                <Pressable
-                  key={opt.id}
-                  style={[s.optionCard, brakeRecency === opt.id && s.optionCardActive]}
-                  onPress={() => {
-                    setBrakeRecency(opt.id);
-                    if (opt.id === "not_sure") {
-                      transitionToFollowUp("brakes");
-                    } else {
-                      handleCardAnswer("brakes");
-                    }
-                  }}
-                >
-                  <Text weight={brakeRecency === opt.id ? "bold" : "semiBold"} size="md" color={brakeRecency === opt.id ? "#1E40AF" : "#1F2937"}>{opt.label}</Text>
-                  {brakeRecency === opt.id && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
-                </Pressable>
-              ))}
-            </View>
-          </View>
-        );
-
-      case "tires":
-        if (followUp.has("tires")) {
-          return (
-            <View style={s.fieldGroup}>
-              <Text weight="semiBold" size="md" color="#1F2937">Are these the original tires?</Text>
-              <View style={s.chipColumn}>
-                {([
-                  { id: "yes",      label: "Yes" },
-                  { id: "no",       label: "No" },
-                  { id: "not_sure", label: "Not sure" },
-                ]).map((opt) => (
-                  <Pressable
-                    key={opt.id}
-                    style={[s.optionCard, tireOriginal === opt.id && s.optionCardActive]}
-                    onPress={() => { setTireOriginal(opt.id); handleCardAnswer("tires"); }}
-                  >
-                    <Text weight={tireOriginal === opt.id ? "bold" : "semiBold"} size="md" color={tireOriginal === opt.id ? "#1E40AF" : "#1F2937"}>{opt.label}</Text>
-                    {tireOriginal === opt.id && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
-                  </Pressable>
-                ))}
-              </View>
-            </View>
-          );
-        }
-        return (
-          <View style={s.fieldGroup}>
-            <Text weight="semiBold" size="md" color="#1F2937">When were your tires last replaced?</Text>
-            <View style={s.chipColumn}>
-              {([
-                { id: "recently",   label: "Recently" },
-                { id: "few_months", label: "A few months ago" },
-                { id: "over_6mo",   label: "Over 6 months ago" },
-                { id: "not_sure",   label: "I'm not sure" },
-              ]).map((opt) => (
-                <Pressable
-                  key={opt.id}
-                  style={[s.optionCard, tireRecency === opt.id && s.optionCardActive]}
-                  onPress={() => {
-                    setTireRecency(opt.id);
-                    if (opt.id === "not_sure") {
-                      transitionToFollowUp("tires");
-                    } else {
-                      handleCardAnswer("tires");
-                    }
-                  }}
-                >
-                  <Text weight={tireRecency === opt.id ? "bold" : "semiBold"} size="md" color={tireRecency === opt.id ? "#1E40AF" : "#1F2937"}>{opt.label}</Text>
-                  {tireRecency === opt.id && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
-                </Pressable>
-              ))}
-            </View>
-          </View>
-        );
-
-      case "oil":
-        return (
-          <View style={s.fieldGroup}>
-            <Text weight="semiBold" size="md" color="#1F2937">Know when your last oil change was?</Text>
-            <View style={s.chipColumn}>
-              {([
-                { id: "recently",   label: "Recently" },
-                { id: "few_months", label: "A few months ago" },
-                { id: "over_6mo",   label: "Over 6 months ago" },
-                { id: "not_sure",   label: "Not sure" },
-              ]).map((opt) => (
-                <Pressable
-                  key={opt.id}
-                  style={[s.optionCard, oilRecency === opt.id && s.optionCardActive]}
-                  onPress={() => { setOilRecency(opt.id); handleCardAnswer("oil"); }}
-                >
-                  <Text weight={oilRecency === opt.id ? "bold" : "semiBold"} size="md" color={oilRecency === opt.id ? "#1E40AF" : "#1F2937"}>{opt.label}</Text>
-                  {oilRecency === opt.id && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
-                </Pressable>
-              ))}
-            </View>
-          </View>
-        );
-
-      case "battery":
-        if (followUp.has("battery")) {
-          return (
-            <View style={s.fieldGroup}>
-              <Text weight="semiBold" size="md" color="#1F2937">Has your battery ever been replaced?</Text>
-              <View style={s.chipColumn}>
-                {([
-                  { id: "yes",      label: "Yes" },
-                  { id: "no",       label: "No" },
-                  { id: "not_sure", label: "Not sure" },
-                ]).map((opt) => (
-                  <Pressable
-                    key={opt.id}
-                    style={[s.optionCard, batteryReplaced === opt.id && s.optionCardActive]}
-                    onPress={() => { setBatteryReplaced(opt.id); handleCardAnswer("battery"); }}
-                  >
-                    <Text weight={batteryReplaced === opt.id ? "bold" : "semiBold"} size="md" color={batteryReplaced === opt.id ? "#1E40AF" : "#1F2937"}>{opt.label}</Text>
-                    {batteryReplaced === opt.id && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
-                  </Pressable>
-                ))}
-              </View>
-            </View>
-          );
-        }
-        return (
-          <View style={s.fieldGroup}>
-            <Text weight="semiBold" size="md" color="#1F2937">When was your battery last replaced?</Text>
-            <View style={s.chipColumn}>
-              {([
-                { id: "recently",   label: "Recently" },
-                { id: "few_months", label: "A few months ago" },
-                { id: "over_6mo",   label: "Over 6 months ago" },
-                { id: "not_sure",   label: "I'm not sure" },
-              ]).map((opt) => (
-                <Pressable
-                  key={opt.id}
-                  style={[s.optionCard, batteryRecency === opt.id && s.optionCardActive]}
-                  onPress={() => {
-                    setBatteryRecency(opt.id);
-                    if (opt.id === "not_sure") {
-                      transitionToFollowUp("battery");
-                    } else {
-                      handleCardAnswer("battery");
-                    }
-                  }}
-                >
-                  <Text weight={batteryRecency === opt.id ? "bold" : "semiBold"} size="md" color={batteryRecency === opt.id ? "#1E40AF" : "#1F2937"}>{opt.label}</Text>
-                  {batteryRecency === opt.id && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
-                </Pressable>
-              ))}
-            </View>
-          </View>
-        );
-
-      case "warningLights":
-        if (followUp.has("warningLights")) {
-          return (
-            <View style={s.fieldGroup}>
-              <Text weight="semiBold" size="md" color="#1F2937">Which warning lights are on?</Text>
-              <View style={s.chipColumn}>
-                {WARNING_LIGHT_TYPE_OPTIONS.map((opt) => {
-                  const selected = warningLightTypes.includes(opt.id);
-                  return (
-                    <Pressable
-                      key={opt.id}
-                      style={[s.optionCard, selected && s.optionCardActive]}
-                      onPress={() => {
-                        setWarningLightTypes((prev) =>
-                          prev.includes(opt.id) ? prev.filter((id) => id !== opt.id) : [...prev, opt.id]
-                        );
-                      }}
-                    >
-                      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                        <Ionicons name={opt.icon} size={20} color={selected ? "#5299FE" : "#6B7280"} />
-                        <Text weight={selected ? "bold" : "semiBold"} size="md" color={selected ? "#1E40AF" : "#1F2937"}>{opt.label}</Text>
-                      </View>
-                      {selected && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
-                    </Pressable>
-                  );
-                })}
-              </View>
-              {warningLightTypes.length > 0 && (
-                <Pressable
-                  style={({ pressed }) => [s.ctaButton, pressed && s.ctaButtonPressed, { marginTop: 8 }]}
-                  onPress={() => handleCardAnswer("warningLights")}
-                >
-                  <Text weight="bold" size="md" color="#FFFFFF">Done</Text>
-                </Pressable>
-              )}
-            </View>
-          );
-        }
-        return (
-          <View style={s.fieldGroup}>
-            <Text weight="semiBold" size="md" color="#1F2937">Any dashboard warning lights on right now?</Text>
-            <View style={s.chipColumn}>
-              {([
-                { id: "no_all_clear", label: "No, all clear" },
-                { id: "check_engine", label: "Yes, check engine" },
-                { id: "other",        label: "Yes, something else" },
-                { id: "not_sure",     label: "Not sure" },
-              ]).map((opt) => {
-                const isClear = opt.id === "no_all_clear" && warningLight === opt.id;
-                return (
-                  <Pressable
-                    key={opt.id}
-                    style={[s.optionCard, warningLight === opt.id && s.optionCardActive, isClear && s.optionCardGood]}
-                    onPress={() => {
-                      setWarningLight(opt.id);
-                      if (opt.id === "other") {
-                        transitionToFollowUp("warningLights");
-                      } else {
-                        handleCardAnswer("warningLights");
-                      }
-                    }}
-                  >
-                    <Text weight={warningLight === opt.id ? "bold" : "semiBold"} size="md" color={warningLight === opt.id ? (isClear ? "#166534" : "#1E40AF") : "#1F2937"}>{opt.label}</Text>
-                    {warningLight === opt.id && <Ionicons name="checkmark-circle" size={22} color={isClear ? "#22C55E" : "#5299FE"} />}
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
-        );
-
-      default:
-        return null;
-    }
-  };
+  }, [vehicleOwnerId, serviceAnswers, saveField, onComplete]);
 
   // ── Render the service grid ─────────────────────────────────
   const renderServiceGrid = () => {
-    const remaining = ALL_CARD_IDS.filter(id => !completedCards.has(id));
-
-    if (remaining.length === 0) {
-      return (
-        <View style={{ alignItems: "center", paddingVertical: 24, gap: 12 }}>
-          <LottieView
-            source={require("@/assets/animations/success.json")}
-            autoPlay
-            loop={false}
-            style={{ width: 160, height: 160 }}
-          />
-          <Text weight="bold" size="xl" color="#0F172A">You're all set!</Text>
-          <Text weight="medium" size="md" color="#94A3B8">Your vehicle health score is ready.</Text>
-        </View>
-      );
-    }
-
-    const serviceOrbs = remaining.filter(id => id !== 'warningLights');
-
-    const renderOrb = (cardId: ServiceCardId) => {
-      const card = SERVICE_CARDS[cardId];
-      const IconComponent = SERVICE_ICON_COMPONENTS[cardId];
-      return (
-        <ReAnimated.View
-          key={cardId}
-          exiting={FadeOut.duration(250)}
-          layout={Layout.springify().damping(50)}
-          style={s.orbWrapper}
-        >
-          <Pressable
-            ref={(r) => { cardRefs.current[cardId] = r; }}
-            style={({ pressed }) => [pressed && { transform: [{ scale: 0.95 }] }]}
-            onPress={() => handleCardTap(cardId)}
-          >
-            <View style={s.orb}>
-              <BlurView intensity={100} tint="light" style={StyleSheet.absoluteFill} />
-              <LinearGradient
-                colors={['rgba(255,255,255,0.6)', 'rgba(255,255,255,0.55)']}
-                style={StyleSheet.absoluteFill}
-              />
-              <LinearGradient
-                colors={['rgba(255,255,255,0.7)', 'rgba(255,255,255,0.3)', 'rgba(255,255,255,0)']}
-                locations={[0, 0.2, 0.5]}
-                style={s.orbGlossyHighlight}
-              />
-              <View style={s.orbContent}>
-                <IconComponent size={56} />
-              </View>
-            </View>
-            <Text weight="semiBold" size="md" color="#1F2937" style={s.orbLabel}>
-              {card.label}
-            </Text>
-          </Pressable>
-        </ReAnimated.View>
-      );
-    };
-
-    const hasWarning = remaining.includes('warningLights');
-
-    const renderWarningPill = () => (
-      <ReAnimated.View
-        exiting={FadeOut.duration(250)}
-        style={s.warningPill}
-      >
-        <BlurView intensity={100} tint="light" style={StyleSheet.absoluteFill} />
-        <LinearGradient
-          colors={['rgba(255,255,255,0.6)', 'rgba(255,255,255,0.55)']}
-          style={StyleSheet.absoluteFill}
-        />
-        <LinearGradient
-          colors={['rgba(255,255,255,0.7)', 'rgba(255,255,255,0.3)', 'rgba(255,255,255,0)']}
-          locations={[0, 0.2, 0.5]}
-          style={s.warningPillGlossyHighlight}
-        />
-        <Pressable
-          ref={(r) => { cardRefs.current['warningLights'] = r; }}
-          style={({ pressed }) => [s.warningPillInner, pressed && { opacity: 0.85 }]}
-          onPress={() => handleCardTap('warningLights')}
-        >
-          <View style={s.warningOrbSmall}>
-            <WarningIcon size={32} />
-          </View>
-          <View style={s.warningPillText}>
-            <Text weight="bold" size="md" color="#1F2937">Warning Lights</Text>
-            <Text weight="medium" size="sm" color="#94A3B8">Any dashboard warnings on?</Text>
-          </View>
-          <Ionicons name="chevron-forward" size={18} color="#CBD5E1" />
-        </Pressable>
-      </ReAnimated.View>
-    );
-
     return (
-      <View style={s.orbContainer}>
-        <View style={s.orbGridArea}>
-          {serviceOrbs.map(cardId => renderOrb(cardId))}
-        </View>
-        {hasWarning && renderWarningPill()}
+      <View style={s.orbGrid}>
+        {ALL_CARD_IDS.map(cardId => (
+          <OrbGridItem
+            key={cardId}
+            cardId={cardId}
+            isDone={completedCards.has(cardId)}
+            isJustCompleted={justCompletedId === cardId}
+            progress={serviceProgress[cardId] ?? (completedCards.has(cardId) ? 1 : 0)}
+            onPress={() => handleCardTap(cardId)}
+          />
+        ))}
       </View>
     );
   };
@@ -816,64 +623,97 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
     const stepId = steps[forStep];
     const isLast = forStep === totalSteps - 1;
     const meta = STEP_META[stepId];
-    const isExpanded = !!activeCard;
     return (
-      <View ref={containerRef} style={s.steppingPage}>
-        {/* Header — fades out during expansion */}
-        <ReAnimated.View style={[s.steppingHeader, gridFadeStyle]}>
-          <Text weight="bold" size="3xl" color="#0F172A">{meta.title}</Text>
-          <Text weight="medium" size="md" color="#94A3B8" style={{ marginTop: 4 }}>{meta.subtitle}</Text>
-        </ReAnimated.View>
-
-        {/* Grid — fades out during expansion */}
-        <ReAnimated.View style={[s.steppingBody, gridFadeStyle]}>
-          {renderServiceGrid()}
-        </ReAnimated.View>
-
-        {/* Floating card (shared element transition) */}
-        {activeCard && (
-          <ReAnimated.View pointerEvents="none" style={[floatingCardStyle, s.floatingCard]}>
-            {(() => {
-              const FloatingIcon = SERVICE_ICON_COMPONENTS[activeCard];
-              return <FloatingIcon size={56} />;
-            })()}
-            <Text weight="semiBold" size="md" color="#1F2937" style={{ marginTop: 8 }}>
-              {SERVICE_CARDS[activeCard].label}
+      <View style={{ flex: 1 }}>
+        <LinearGradient
+          colors={['#D0E7F4', '#DFEDF6', '#EBF2F8', '#F3F7FA', '#FAFCFD', '#FFFFFF']}
+          locations={[0, 0.18, 0.35, 0.5, 0.7, 1]}
+          start={{ x: 0.5, y: 0 }}
+          end={{ x: 0.5, y: 1 }}
+          style={{ position: 'absolute', top: -150, left: 0, right: 0, bottom: 0 }}
+        />
+        <View style={s.steppingPage}>
+          {/* Header */}
+          <View style={s.steppingHeader}>
+            <Text weight="bold" size="xl" color="#16293B" style={s.steppingTitle}>
+              {meta.title}
             </Text>
-          </ReAnimated.View>
-        )}
+            <Text weight="medium" size="sm" color="#829BAD" style={s.steppingSubtitle}>
+              {meta.subtitle}
+            </Text>
+          </View>
 
-        {/* Question content — fades in after expansion */}
-        {showQuestion && activeCard && (
-          <ReAnimated.View style={[s.questionOverlay, questionFadeStyle]}>
-            <ReAnimated.View style={spacerAnimatedStyle} />
-            <ScrollView style={s.questionContent} showsVerticalScrollIndicator={false} bounces={false}>
-              {renderCardQuestion(activeCard)}
-            </ScrollView>
-          </ReAnimated.View>
-        )}
+          {/* Grid */}
+          <View style={s.steppingBody}>
+            {renderServiceGrid()}
+          </View>
 
-        {/* Footer — invisible during expansion but keeps layout space */}
-        <View style={[s.steppingFooter, { marginTop: 20, paddingBottom: insets.bottom + 24, opacity: isExpanded ? 0 : 1 }]} pointerEvents={isExpanded ? "none" : "auto"}>
+          {/* Footer */}
+          <View style={[s.steppingFooter, { paddingBottom: insets.bottom + 24 }]}>
+            {/* Progress dots */}
+            <View style={s.dotsRow}>
+              {ALL_CARD_IDS.map((id) => (
+                <FooterDot key={id} isDone={completedCards.has(id)} />
+              ))}
+              <Text weight="semiBold" size="xs" color="#829BAD" style={s.dotsCounter}>
+                {completedCards.size} of 5
+              </Text>
+            </View>
+
+            {/* Complete button */}
             <Pressable
-              style={({ pressed }) => [s.nextButton, !canGoNext() && s.nextButtonDisabled, pressed && canGoNext() && s.nextButtonPressed]}
               onPress={isLast ? handleComplete : handleNext}
               disabled={!canGoNext() || saving}
+              style={({ pressed }) => [
+                s.completeButton,
+                !canGoNext() && s.completeButtonDisabled,
+                pressed && canGoNext() && { opacity: 0.9 },
+              ]}
             >
-              <Text weight="bold" size="xl" color="#FFFFFF">
-                {saving ? "Saving..." : isLast ? "Complete" : "Next"}
-              </Text>
+              <LinearGradient
+                colors={['#7BB8FF', '#5299FE', '#3B7FEB']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={s.completeButtonGradient}
+              >
+                <Text weight="semiBold" size="md" color="#FFFFFF" style={{ fontSize: 17 }}>
+                  {saving ? "Saving..." : isLast ? "Complete" : "Next"}
+                </Text>
+              </LinearGradient>
             </Pressable>
+
+            {/* Finish for now */}
             {!canGoNext() && (
               <Pressable
                 style={({ pressed }) => [s.finishForNowButton, pressed && { opacity: 0.7 }]}
                 onPress={handleComplete}
                 disabled={saving}
               >
-                <Text weight="semiBold" size="md" color="#94A3B8">Finish for now</Text>
+                <Text weight="medium" size="sm" color="#A3B5C4" style={{ fontSize: 14 }}>
+                  Finish for now
+                </Text>
               </Pressable>
             )}
           </View>
+        </View>
+
+        {/* Question overlay */}
+        {activeCard && (() => {
+          const HeroIcon = SERVICE_ICON_COMPONENTS[activeCard];
+          return (
+            <QuestionOverlay
+              serviceId={activeCard}
+              serviceName={SERVICE_CARDS[activeCard].label}
+              heroIcon={<HeroIcon size={32} color="#FFFFFF" />}
+              questions={SERVICE_QUESTIONS[activeCard]}
+              initialQuestionIndex={serviceQuestionIndex[activeCard] ?? 0}
+              initialAnswers={serviceAnswers[activeCard] ?? {}}
+              onAnswerUpdate={handleOverlayAnswer}
+              onComplete={handleOverlayComplete}
+              onDismiss={handleOverlayDismiss}
+            />
+          );
+        })()}
       </View>
     );
   };
@@ -970,8 +810,16 @@ const s = StyleSheet.create({
     paddingHorizontal: 24,
   },
   steppingHeader: {
-    marginTop: 8,
-    marginBottom: -15,
+    marginBottom: 4,
+  },
+  steppingTitle: {
+    fontSize: 30,
+    letterSpacing: -0.6,
+    marginTop: 6,
+  },
+  steppingSubtitle: {
+    fontSize: 15,
+    marginTop: 6,
   },
   steppingBody: {
     flex: 1,
@@ -982,173 +830,133 @@ const s = StyleSheet.create({
     gap: 12,
     alignItems: "center",
   },
-  finishForNowButton: {
-    paddingVertical: 10,
-    opacity: 0.7,
-  },
-  nextButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    backgroundColor: "#5299FE",
-    borderRadius: 24,
-    paddingVertical: 16,
-    width: "100%",
-  },
-  nextButtonDisabled: {
-    opacity: 0.4,
-  },
-  nextButtonPressed: {
-    opacity: 0.9,
-  },
-
-  // ── Form fields ──
-  fieldGroup: {
-    gap: 10,
-  },
-  chipColumn: {
-    gap: 10,
-  },
-  optionCard: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: 16,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1.5,
-    borderColor: "#E5E7EB",
-  },
-  optionCardActive: {
-    backgroundColor: "rgba(82, 153, 254, 0.08)",
-    borderColor: "#5299FE",
-    borderWidth: 2,
-  },
-  optionCardGood: {
-    backgroundColor: "rgba(34, 197, 94, 0.08)",
-    borderColor: "#22C55E",
-    borderWidth: 2,
-  },
 
   // ── Orb grid ──
-  orbContainer: {
-    flex: 1,
-    paddingTop: 12,
-  },
-  orbGridArea: {
+  orbGrid: {
     flex: 1,
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "center",
     alignContent: "center",
-    gap: 20,
+    gap: 16,
     paddingHorizontal: 8,
   },
-  orbWrapper: {
+  orbItemWrapper: {
     alignItems: "center",
   },
-  orb: {
-    width: 148,
-    height: 148,
-    borderRadius: 32,
-    backgroundColor: "transparent",
-    overflow: "hidden",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    elevation: 4,
-  },
-  orbGlossyHighlight: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: "50%",
-    borderTopLeftRadius: 32,
-    borderTopRightRadius: 32,
-  },
-  orbContent: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 1,
-  },
-  orbLabel: {
-    marginTop: 14,
-    textAlign: "center",
-  },
-
-  // ── Warning pill ──
-  warningPill: {
-    borderRadius: 24,
-    backgroundColor: "transparent",
-    overflow: "hidden",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    elevation: 4,
-  },
-  warningPillGlossyHighlight: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: "50%",
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-  },
-  warningPillInner: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 20,
-    paddingVertical: 18,
-    gap: 14,
-  },
-  warningOrbSmall: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
-    backgroundColor: "rgba(255,255,255,0.5)",
+  orbOuter: {
+    width: 130,
+    height: 130,
     alignItems: "center",
     justifyContent: "center",
   },
-  warningPillText: {
-    flex: 1,
-    gap: 2,
-  },
-
-  // ── Shared (used by floating card in renderStepping) ──
-  serviceCardImage: {
-    width: 160,
-    height: 160,
-    resizeMode: "contain",
-  },
-  warningIconBg: {
+  squircle: {
     width: 110,
     height: 110,
-    borderRadius: 55,
-    backgroundColor: "rgba(249, 115, 22, 0.12)",
+    borderRadius: 30,
+    backgroundColor: "rgba(255,255,255,0.85)",
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.9)",
     alignItems: "center",
     justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.05,
+    shadowRadius: 28,
+    elevation: 4,
   },
-
-  // ── Floating card (shared element) ──
-  floatingCard: {
-    alignItems: "center",
-    justifyContent: "center",
+  gradientOverlay: {
+    position: "absolute",
+    top: 10,
+    left: 10,
+    width: 110,
+    height: 110,
+    borderRadius: 30,
     overflow: "hidden",
   },
-
-  // ── Question overlay (full-page, over grid) ──
-  questionOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    paddingHorizontal: 24,
+  gradientOverlayInner: {
+    width: 110,
+    height: 110,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  questionContent: {
-    flex: 1,
+  burstCircle: {
+    position: "absolute",
+    top: 10,
+    left: 10,
+    width: 110,
+    height: 110,
+    borderRadius: 30,
+    borderWidth: 2,
+    borderColor: "#5299FE",
+  },
+  checkBadge: {
+    position: "absolute",
+    bottom: 2,
+    right: 2,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
+    borderWidth: 2,
+    borderColor: "rgba(82,153,254,0.12)",
+  },
+  orbLabel: {
+    marginTop: 10,
+    textAlign: "center",
+    fontSize: 14,
+  },
+
+  // ── Progress dots ──
+  dotsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    marginBottom: 4,
+  },
+  dot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  dotShadowBase: {
+    shadowColor: "rgba(82,153,254,0.35)",
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 3,
+  },
+  dotsCounter: {
+    fontSize: 13,
+    marginLeft: 4,
+  },
+
+  // ── Complete button ──
+  completeButton: {
+    width: "100%",
+    borderRadius: 16,
+    overflow: "hidden",
+    shadowColor: "rgba(82,153,254,0.3)",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  completeButtonDisabled: {
+    opacity: 0.4,
+  },
+  completeButtonGradient: {
+    paddingVertical: 17,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  finishForNowButton: {
+    paddingVertical: 8,
   },
 });
