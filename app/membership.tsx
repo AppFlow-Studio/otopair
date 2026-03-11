@@ -354,8 +354,7 @@ export default function MembershipPage() {
 
   // Status badge tap inside sheet → open Driver Status modal (keep existing behavior)
   const handleGarageStatusBadgePress = (tier: "driver" | "preferred" | "elite") => {
-    garageSheetRef.current?.dismiss();
-    setTimeout(() => openEliteSheetWithTier(tier), 300);
+    openEliteSheetWithTier(tier);
   };
 
   return (

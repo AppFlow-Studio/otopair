@@ -12,7 +12,8 @@
       "Bash(node test-pipeline.mjs)",
       "Bash(npx convex run \"vehicle_mutations:getEngineSpecs\" \"{\"\"engineId\"\":\"\"j9709r5srb05tyqf1prkvzc4rn824y5k\"\"}\")",
       "Bash(npx convex run \"vehicle_mutations:listAllServices\" \"{}\")",
-      "Bash(npx convex run \"vehicle_specs:list\" \"{}\")"
+      "Bash(npx convex run \"vehicle_specs:list\" \"{}\")",
+      "Bash(npx convex run seed:seed)"
     ]
   }
 }

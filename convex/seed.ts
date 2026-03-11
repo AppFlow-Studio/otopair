@@ -1,4 +1,5 @@
 import { action, internalMutation, mutation } from "./_generated/server";
+import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 
 /**
@@ -580,91 +581,459 @@ export const seed = mutation({
 
     // --- Service Categories ---
     const maintenanceId = await ctx.db.insert("service_categories", {
-      name: "Maintenance",
+      name: "Routine Maintenance",
       icon_name: "wrench",
       display_order: 1,
     });
 
-    const brakesId = await ctx.db.insert("service_categories", {
-      name: "Brakes",
-      icon_name: "disc",
+    const tiresWheelsId = await ctx.db.insert("service_categories", {
+      name: "Tires & Wheels",
+      icon_name: "circle",
       display_order: 2,
     });
 
-    // --- Services ---
+    const brakesId = await ctx.db.insert("service_categories", {
+      name: "Brakes",
+      icon_name: "octagon",
+      display_order: 3,
+    });
+
+    const diagnosticsId = await ctx.db.insert("service_categories", {
+      name: "Diagnostics & Electrical",
+      icon_name: "zap",
+      display_order: 4,
+    });
+
+    const complianceId = await ctx.db.insert("service_categories", {
+      name: "Compliance",
+      icon_name: "clipboard",
+      display_order: 5,
+    });
+
+    // --- Services: Routine Maintenance ---
     const oilChangeId = await ctx.db.insert("services", {
       name: "Oil Change",
       slug: "oil-change",
-      description: "Full synthetic oil change with filter replacement",
+      description: "Engine oil and filter replacement",
       service_category_id: maintenanceId,
-      default_labor_hours: 0.5,
+      default_labor_hours: 0.4,
       is_labor_only: false,
-      has_options: true,
+      has_options: false,
       display_order: 1,
     });
 
-    const brakePadsId = await ctx.db.insert("services", {
-      name: "Brake Pad Replacement",
-      slug: "brake-pads",
-      description: "Replace front or rear brake pads",
-      service_category_id: brakesId,
-      default_labor_hours: 1.5,
+    const filterReplacementId = await ctx.db.insert("services", {
+      name: "Filter Replacement",
+      slug: "filter-replacement",
+      description: "Engine and/or cabin air filter replacement",
+      service_category_id: maintenanceId,
+      default_labor_hours: 0.25,
       is_labor_only: false,
       has_options: true,
       display_order: 2,
     });
 
+    const wiperBladeId = await ctx.db.insert("services", {
+      name: "Wiper Blade Replacement",
+      slug: "wiper-blade-replacement",
+      description: "Windshield wiper blade replacement",
+      service_category_id: maintenanceId,
+      default_labor_hours: 0.15,
+      is_labor_only: false,
+      has_options: false,
+      display_order: 3,
+    });
+
+    const sparkPlugId = await ctx.db.insert("services", {
+      name: "Spark Plug Replacement",
+      slug: "spark-plug-replacement",
+      description: "Spark plug replacement",
+      service_category_id: maintenanceId,
+      default_labor_hours: 0.8,
+      is_labor_only: false,
+      has_options: false,
+      display_order: 5,
+    });
+
+    const serpentineBeltId = await ctx.db.insert("services", {
+      name: "Serpentine Belt Replacement",
+      slug: "serpentine-belt-replacement",
+      description: "Serpentine drive belt replacement",
+      service_category_id: maintenanceId,
+      default_labor_hours: 0.5,
+      is_labor_only: false,
+      has_options: false,
+      display_order: 6,
+    });
+
+    const batteryReplacementId = await ctx.db.insert("services", {
+      name: "Battery Replacement",
+      slug: "battery-replacement",
+      description: "Replace battery with OEM battery",
+      service_category_id: maintenanceId,
+      default_labor_hours: 0.3,
+      is_labor_only: false,
+      has_options: false,
+      display_order: 1,
+    });
+
+    const batteryTestId = await ctx.db.insert("services", {
+      name: "Battery Test",
+      slug: "battery-test",
+      description: "Load test battery and charging system",
+      service_category_id: maintenanceId,
+      default_labor_hours: 0.2,
+      is_labor_only: true,
+      has_options: false,
+      display_order: 2,
+    });
+
+    const coolantFlushId = await ctx.db.insert("services", {
+      name: "Coolant Flush",
+      slug: "coolant-flush",
+      description: "Flush and replace engine coolant",
+      service_category_id: maintenanceId,
+      default_labor_hours: 0.8,
+      is_labor_only: false,
+      has_options: false,
+      display_order: 1,
+    });
+
+    const transmissionFluidId = await ctx.db.insert("services", {
+      name: "Transmission Fluid Service",
+      slug: "transmission-fluid-service",
+      description: "Replace transmission fluid",
+      service_category_id: maintenanceId,
+      default_labor_hours: 1,
+      is_labor_only: false,
+      has_options: false,
+      display_order: 2,
+    });
+
+    // --- Services: Tires & Wheels ---
     const tireRotationId = await ctx.db.insert("services", {
       name: "Tire Rotation",
       slug: "tire-rotation",
       description: "Rotate tires for even wear",
-      service_category_id: maintenanceId,
-      default_labor_hours: 0.5,
+      service_category_id: tiresWheelsId,
+      default_labor_hours: 0.3,
+      is_labor_only: true,
+      has_options: false,
+      display_order: 1,
+    });
+
+    const wheelBalancingId = await ctx.db.insert("services", {
+      name: "Wheel Balancing",
+      slug: "wheel-balancing",
+      description: "Balance wheels to eliminate vibration",
+      service_category_id: tiresWheelsId,
+      default_labor_hours: 0.6,
+      is_labor_only: false,
+      has_options: true,
+      display_order: 2,
+    });
+
+    const wheelAlignmentId = await ctx.db.insert("services", {
+      name: "Wheel Alignment",
+      slug: "wheel-alignment",
+      description: "Adjust wheel angles for proper alignment",
+      service_category_id: tiresWheelsId,
+      default_labor_hours: 1,
       is_labor_only: true,
       has_options: false,
       display_order: 3,
     });
 
-    // --- Service Options ---
+    const tireReplacementId = await ctx.db.insert("services", {
+      name: "Tire Replacement",
+      slug: "tire-replacement",
+      description: "Replace tires with new OEM tires",
+      service_category_id: tiresWheelsId,
+      default_labor_hours: 1.2,
+      is_labor_only: false,
+      has_options: true,
+      display_order: 4,
+    });
+
+    const tireInstallationId = await ctx.db.insert("services", {
+      name: "Tire Installation",
+      slug: "tire-installation",
+      description: "Mount and balance customer-provided tires",
+      service_category_id: tiresWheelsId,
+      default_labor_hours: 1,
+      is_labor_only: false,
+      has_options: false,
+      display_order: 5,
+    });
+
+    const tpmsSensorId = await ctx.db.insert("services", {
+      name: "TPMS Sensor Calibration",
+      slug: "tpms-sensor-calibration",
+      description: "Reset and calibrate tire pressure monitoring sensors",
+      service_category_id: tiresWheelsId,
+      default_labor_hours: 0.2,
+      is_labor_only: true,
+      has_options: false,
+      display_order: 6,
+    });
+
+    // --- Services: Brakes ---
+    const brakePadsId = await ctx.db.insert("services", {
+      name: "Brake Pad Replacement",
+      slug: "brake-pad-replacement",
+      description: "Replace brake pads with OEM parts",
+      service_category_id: brakesId,
+      default_labor_hours: 0.8,
+      is_labor_only: false,
+      has_options: true,
+      display_order: 1,
+    });
+
+    const brakeRotorId = await ctx.db.insert("services", {
+      name: "Brake Rotor Replacement",
+      slug: "brake-rotor-replacement",
+      description: "Replace brake rotors and pads with OEM parts",
+      service_category_id: brakesId,
+      default_labor_hours: 1.2,
+      is_labor_only: false,
+      has_options: true,
+      display_order: 2,
+    });
+
+    const brakeFluidId = await ctx.db.insert("services", {
+      name: "Brake Fluid Flush",
+      slug: "brake-fluid-flush",
+      description: "Flush and replace brake fluid",
+      service_category_id: brakesId,
+      default_labor_hours: 0.5,
+      is_labor_only: false,
+      has_options: false,
+      display_order: 3,
+    });
+
+    // --- Services: Diagnostics & Electrical ---
+    const generalDiagnosticId = await ctx.db.insert("services", {
+      name: "General Diagnostic",
+      slug: "general-diagnostic",
+      description: "Diagnose unusual vehicle behavior or symptoms",
+      service_category_id: diagnosticsId,
+      default_labor_hours: 0.5,
+      is_labor_only: true,
+      has_options: false,
+      display_order: 1,
+    });
+
+    const checkEngineLightId = await ctx.db.insert("services", {
+      name: "Check Engine Light",
+      slug: "check-engine-light",
+      description: "Diagnose check engine light codes and causes",
+      service_category_id: diagnosticsId,
+      default_labor_hours: 0.5,
+      is_labor_only: true,
+      has_options: false,
+      display_order: 2,
+    });
+
+    const brakeInspectionId = await ctx.db.insert("services", {
+      name: "Brake System Inspection",
+      slug: "brake-system-inspection",
+      description: "Inspect brake pads, rotors, and brake system",
+      service_category_id: diagnosticsId,
+      default_labor_hours: 0.3,
+      is_labor_only: true,
+      has_options: false,
+      display_order: 3,
+    });
+
+    // --- Services: Compliance ---
+    const nyInspectionId = await ctx.db.insert("services", {
+      name: "NY State Inspection",
+      slug: "ny-state-inspection",
+      description: "New York State vehicle safety and emissions inspection",
+      service_category_id: complianceId,
+      default_labor_hours: 0.5,
+      is_labor_only: true,
+      has_options: true,
+      display_order: 1,
+    });
+
+    // --- Service Options: Brake Pad Replacement (axle_position) ---
     await ctx.db.insert("service_options", {
-      service_id: oilChangeId,
-      option_type: "oil_type",
-      option_label: "Full Synthetic",
-      parts_cost_low: 35,
-      parts_cost_high: 55,
-      labor_hours: 0.5,
+      service_id: brakePadsId,
+      option_type: "axle_position",
+      option_label: "Front only",
+      parts_cost_low: 75,
+      parts_cost_high: 95,
+      labor_hours: 0.8,
       display_order: 1,
     });
 
     await ctx.db.insert("service_options", {
-      service_id: oilChangeId,
-      option_type: "oil_type",
-      option_label: "Conventional",
-      parts_cost_low: 20,
-      parts_cost_high: 35,
-      labor_hours: 0.5,
+      service_id: brakePadsId,
+      option_type: "axle_position",
+      option_label: "Rear only",
+      parts_cost_low: 55,
+      parts_cost_high: 75,
+      labor_hours: 0.8,
       display_order: 2,
     });
 
     await ctx.db.insert("service_options", {
       service_id: brakePadsId,
-      option_type: "position",
-      option_label: "Front Brake Pads",
-      parts_cost_low: 40,
-      parts_cost_high: 80,
+      option_type: "axle_position",
+      option_label: "Both (front + rear)",
+      parts_cost_low: 130,
+      parts_cost_high: 170,
       labor_hours: 1.5,
+      display_order: 3,
+    });
+
+    // --- Service Options: Brake Rotor Replacement (axle_position) ---
+    await ctx.db.insert("service_options", {
+      service_id: brakeRotorId,
+      option_type: "axle_position",
+      option_label: "Front only",
+      parts_cost_low: 200,
+      parts_cost_high: 260,
+      labor_hours: 1.2,
       display_order: 1,
     });
 
     await ctx.db.insert("service_options", {
-      service_id: brakePadsId,
-      option_type: "position",
-      option_label: "Rear Brake Pads",
-      parts_cost_low: 35,
-      parts_cost_high: 70,
-      labor_hours: 1.5,
+      service_id: brakeRotorId,
+      option_type: "axle_position",
+      option_label: "Rear only",
+      parts_cost_low: 170,
+      parts_cost_high: 220,
+      labor_hours: 1.2,
       display_order: 2,
     });
+
+    await ctx.db.insert("service_options", {
+      service_id: brakeRotorId,
+      option_type: "axle_position",
+      option_label: "Both",
+      parts_cost_low: 370,
+      parts_cost_high: 480,
+      labor_hours: 2.2,
+      display_order: 3,
+    });
+
+    // --- Service Options: Filter Replacement (filter_type) ---
+    await ctx.db.insert("service_options", {
+      service_id: filterReplacementId,
+      option_type: "filter_type",
+      option_label: "Engine air filter only",
+      parts_cost_low: 15,
+      parts_cost_high: 30,
+      labor_hours: 0.15,
+      display_order: 1,
+    });
+
+    await ctx.db.insert("service_options", {
+      service_id: filterReplacementId,
+      option_type: "filter_type",
+      option_label: "Cabin air filter only",
+      parts_cost_low: 15,
+      parts_cost_high: 25,
+      labor_hours: 0.25,
+      display_order: 2,
+    });
+
+    await ctx.db.insert("service_options", {
+      service_id: filterReplacementId,
+      option_type: "filter_type",
+      option_label: "Both",
+      parts_cost_low: 25,
+      parts_cost_high: 50,
+      labor_hours: 0.35,
+      display_order: 3,
+    });
+
+    // --- Service Options: Tire Replacement (quantity) ---
+    await ctx.db.insert("service_options", {
+      service_id: tireReplacementId,
+      option_type: "quantity",
+      option_label: "Single tire",
+      parts_cost_low: 120,
+      parts_cost_high: 200,
+      labor_hours: 0.3,
+      display_order: 1,
+    });
+
+    await ctx.db.insert("service_options", {
+      service_id: tireReplacementId,
+      option_type: "quantity",
+      option_label: "Pair (2 tires)",
+      parts_cost_low: 240,
+      parts_cost_high: 400,
+      labor_hours: 0.6,
+      display_order: 2,
+    });
+
+    await ctx.db.insert("service_options", {
+      service_id: tireReplacementId,
+      option_type: "quantity",
+      option_label: "Full set (4 tires)",
+      parts_cost_low: 480,
+      parts_cost_high: 800,
+      labor_hours: 1.2,
+      display_order: 3,
+    });
+
+    // --- Service Options: Wheel Balancing (quantity) ---
+    await ctx.db.insert("service_options", {
+      service_id: wheelBalancingId,
+      option_type: "quantity",
+      option_label: "Single wheel",
+      parts_cost_low: 2,
+      parts_cost_high: 4,
+      labor_hours: 0.15,
+      display_order: 1,
+    });
+
+    await ctx.db.insert("service_options", {
+      service_id: wheelBalancingId,
+      option_type: "quantity",
+      option_label: "Pair (2 wheels)",
+      parts_cost_low: 4,
+      parts_cost_high: 6,
+      labor_hours: 0.3,
+      display_order: 2,
+    });
+
+    await ctx.db.insert("service_options", {
+      service_id: wheelBalancingId,
+      option_type: "quantity",
+      option_label: "Full set (4 wheels)",
+      parts_cost_low: 8,
+      parts_cost_high: 12,
+      labor_hours: 0.6,
+      display_order: 3,
+    });
+
+    // --- Service Options: NY State Inspection (inspection_scope) ---
+    await ctx.db.insert("service_options", {
+      service_id: nyInspectionId,
+      option_type: "inspection_scope",
+      option_label: "Safety + Emissions",
+      parts_cost_low: 0,
+      parts_cost_high: 0,
+      labor_hours: 0.5,
+      state_fee: 37,
+      display_order: 1,
+    });
+
+    await ctx.db.insert("service_options", {
+      service_id: nyInspectionId,
+      option_type: "inspection_scope",
+      option_label: "Safety only",
+      parts_cost_low: 0,
+      parts_cost_high: 0,
+      labor_hours: 0.3,
+      display_order: 2,
+    });
+
 
     // --- Service Vehicle Specs ---
     await ctx.db.insert("service_vehicle_specs", {
@@ -2735,5 +3104,73 @@ export const seedTransactionsForJohnDoe = mutation({
     });
 
     return { success: true, transactionsCreated: 3 };
+  },
+});
+
+/**
+ * seedVehiclesForUser — Add 10 unique vehicles to any user by Clerk ID.
+ */
+export const seedVehiclesForUser = mutation({
+  args: { clerkUserId: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", args.clerkUserId))
+      .unique();
+    if (!user) throw new Error(`User not found for clerkUserId: ${args.clerkUserId}`);
+
+    const VEHICLES = [
+      { vin: "1HGCV1F34LA012345", year: 2020, make: "Honda", model: "Accord", mileage: 34200, nickname: "2020 Honda Accord" },
+      { vin: "5YJSA1E26MF123456", year: 2021, make: "Tesla", model: "Model 3", mileage: 18700, nickname: "2021 Tesla Model 3" },
+      { vin: "WBA8E9C50JA789012", year: 2018, make: "BMW", model: "330i", mileage: 56800, nickname: "2018 BMW 330i" },
+      { vin: "1G1YY22G965234567", year: 2022, make: "Chevrolet", model: "Corvette", mileage: 8300, nickname: "2022 Chevrolet Corvette" },
+      { vin: "WVWZZZ3CZWE345678", year: 2023, make: "Volkswagen", model: "Tiguan", mileage: 12100, nickname: "2023 Volkswagen Tiguan" },
+      { vin: "JN1TBNT30Z0456789", year: 2019, make: "Nissan", model: "Altima", mileage: 47600, nickname: "2019 Nissan Altima" },
+      { vin: "2T1BURHE5JC567890", year: 2024, make: "Toyota", model: "Corolla", mileage: 3200, nickname: "2024 Toyota Corolla" },
+      { vin: "3FA6P0H76HR678901", year: 2017, make: "Ford", model: "Fusion", mileage: 82400, nickname: "2017 Ford Fusion" },
+      { vin: "KNAE35L14N5789012", year: 2022, make: "Kia", model: "EV6", mileage: 15800, nickname: "2022 Kia EV6" },
+      { vin: "19UUB2F34LA890123", year: 2020, make: "Acura", model: "TLX", mileage: 29500, nickname: "2020 Acura TLX" },
+    ];
+
+    const now = Date.now();
+    let created = 0;
+
+    for (const v of VEHICLES) {
+      const existing = await ctx.db
+        .query("vehicles")
+        .withIndex("by_vin", (q) => q.eq("vin", v.vin))
+        .unique();
+
+      if (!existing) {
+        await ctx.db.insert("vehicles", {
+          vin: v.vin,
+          year: v.year,
+          metadata: { make: v.make, model: v.model },
+          created_at: now,
+          updated_at: now,
+        });
+      }
+
+      const ownershipExists = await ctx.db
+        .query("vehicle_owners")
+        .withIndex("by_vin_user", (q) => q.eq("vin", v.vin).eq("user_id", user._id))
+        .unique();
+
+      if (!ownershipExists) {
+        await ctx.db.insert("vehicle_owners", {
+          vin: v.vin,
+          user_id: user._id,
+          status: "active",
+          nickname: v.nickname,
+          is_primary: false,
+          mileage: v.mileage,
+          added_at: now,
+          connectionStatus: "unconnected",
+        });
+        created++;
+      }
+    }
+
+    return { success: true, vehiclesCreated: created, userId: user._id };
   },
 });

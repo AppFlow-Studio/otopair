@@ -59,8 +59,10 @@ import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Flow-specific components
 import { ServiceSelectionFooter } from "./footers";
+import { ServiceOptionsFooter } from "./footers/ServiceOptionsFooter";
 import { CarSelectionContent } from "./sheets/CarSelectionContent";
 import { MechanicSelectionContent } from "./sheets/MechanicSelectionContent";
+import { ServiceOptionsContent } from "./sheets/ServiceOptionsContent";
 import { ServiceSelectionContent } from "./sheets/ServiceSelectionContent";
 import { ShopPreviewContent } from "./sheets/ShopPreviewContent";
 
@@ -69,6 +71,7 @@ import { BorderRadius, FontFamily, FontSize, Shadows } from "@/constants/theme";
 import { useBookingTransition } from "@/hooks/useBookingTransition";
 import { useRecentlyBookedMechanicIdsFromConvex } from "@/hooks/useRecentlyBookedMechanicIdsFromConvex";
 import { useRecentlyBookedShopIdsFromConvex } from "@/hooks/useRecentlyBookedShopIdsFromConvex";
+import { useServiceOptionsForSelected } from "@/hooks/useServiceOptionsForSelected";
 import { useServiceVehicleSpecsForEngine } from "@/hooks/useServiceVehicleSpecsForEngine";
 import type { ServiceCategory } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
@@ -131,6 +134,8 @@ const SNAP_POINTS_CONFIG = {
   // Discovery & Service Selection: 4 snap points
   discovery: { collapsed: 23, preview: 38, mid: 55, expanded: 98 },
   service_selection: { collapsed: 23, preview: 38, mid: 55, expanded: 98 },
+  // Service Options: same 4 snap points
+  service_options: { collapsed: 23, preview: 38, mid: 55, expanded: 98 },
   // Mechanic Selection: same 4 snap points
   mechanic_selection: { collapsed: 23, preview: 38, mid: 55, expanded: 98 },
 } as const;
@@ -216,6 +221,7 @@ export function ServiceBottomSheet({
   const availableServices = useBookingStore((state) => state.availableServices);
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
   const selectedMechanicSlot = useBookingStore((state) => state.selectedMechanicSlot);
+  const selectedServiceOptions = useBookingStore((state) => state.selectedServiceOptions);
   const setBookingTypeAndProceed = useBookingStore((state) => state.setBookingTypeAndProceed);
   const setScheduledAppointment = useBookingStore((state) => state.setScheduledAppointment);
   const setSkippedBookingDetails = useBookingStore((state) => state.setSkippedBookingDetails);
@@ -235,8 +241,18 @@ export function ServiceBottomSheet({
 
   // ═══════════════ COMPUTED ═══════════════
   const hasSelection = selectedCount > 0;
-  const isServiceStage = currentStage === "discovery" || currentStage === "service_selection";
+  const isServiceStage = currentStage === "discovery" || currentStage === "service_selection" || currentStage === "service_options";
+  const isServiceOptionsStage = currentStage === "service_options";
   const isMechanicStage = currentStage === "mechanic_selection";
+
+  // Service options data + computed
+  const { servicesWithOptions } = useServiceOptionsForSelected();
+  const allOptionsSelected = useMemo(() => {
+    if (servicesWithOptions.length === 0) return false;
+    return servicesWithOptions.every(
+      (svc) => selectedServiceOptions[svc.serviceId] != null,
+    );
+  }, [servicesWithOptions, selectedServiceOptions]);
 
   // Car-specific (engine-specific) labor/parts for footer price
   const selectedVehicle = useVehicleStore((state) => state.getSelectedVehicle());
@@ -251,24 +267,28 @@ export function ServiceBottomSheet({
     return `${selectedServices.length} Services`;
   }, [availableServices, selectedServiceIds]);
 
-  // Mechanic footer total: use (labor_rate × time) + parts, engine-specific when available
+  // Mechanic footer total: use (labor_rate × time) + parts
+  // Priority: option-specific → engine-specific → service defaults
   const mechanicFooterTotal = useMemo(() => {
     if (!selectedMechanicSlot?.shopId) return selectedTotal;
     const shop = shops[selectedMechanicSlot.shopId];
     const laborRate = shop?.labor_rate;
     const selectedServices = availableServices.filter((s) => selectedServiceIds.includes(s.id));
-    // Use engine-specific labor/parts when available, else service defaults
-    const getLaborHours = (s: (typeof selectedServices)[0]) => engineSpecs[s.id]?.labor_hours ?? s.default_labor_hours;
-    const getParts = (s: (typeof selectedServices)[0]) => engineSpecs[s.id]?.parts_cost_avg ?? s.default_parts_estimate;
+    const getLaborHours = (s: (typeof selectedServices)[0]) =>
+      selectedServiceOptions[s.id]?.labor_hours ?? engineSpecs[s.id]?.labor_hours ?? s.default_labor_hours;
+    const getParts = (s: (typeof selectedServices)[0]) =>
+      selectedServiceOptions[s.id]?.parts_cost_avg ?? engineSpecs[s.id]?.parts_cost_avg ?? s.default_parts_estimate;
+    const getStateFee = (s: (typeof selectedServices)[0]) =>
+      selectedServiceOptions[s.id]?.state_fee ?? 0;
     const hasFormulaParams =
       laborRate != null && selectedServices.every((s) => getLaborHours(s) != null && getParts(s) != null);
     if (!hasFormulaParams) return selectedTotal;
     const total = selectedServices.reduce(
-      (sum, s) => sum + laborRate! * (getLaborHours(s) ?? 0) + (getParts(s) ?? 0),
+      (sum, s) => sum + laborRate! * (getLaborHours(s) ?? 0) + (getParts(s) ?? 0) + getStateFee(s),
       0
     );
     return Math.round(total);
-  }, [selectedMechanicSlot?.shopId, shops, availableServices, selectedServiceIds, selectedTotal, engineSpecs]);
+  }, [selectedMechanicSlot?.shopId, shops, availableServices, selectedServiceIds, selectedTotal, engineSpecs, selectedServiceOptions]);
 
   // ═══════════════ SEARCH COMPUTED VALUES ═══════════════
   const recentShopIds = useMemo(() => getRecentShopIds(), [getRecentShopIds]);
@@ -527,7 +547,7 @@ export function ServiceBottomSheet({
 
   // Get snap points config, fallback to discovery for stages handled by pages
   const stageConfig =
-    currentStage === "discovery" || currentStage === "service_selection" || currentStage === "mechanic_selection"
+    currentStage === "discovery" || currentStage === "service_selection" || currentStage === "service_options" || currentStage === "mechanic_selection"
       ? SNAP_POINTS_CONFIG[currentStage]
       : SNAP_POINTS_CONFIG.discovery;
 
@@ -723,8 +743,25 @@ export function ServiceBottomSheet({
   }, [router, onAddVehicleProp]);
 
   // ═══════════════ HANDLERS ═══════════════
-  // Service selection complete -> go to mechanic selection
+  // Service selection complete -> go to service options if any, else mechanic selection
   const handleServicesSelected = useCallback(() => {
+    const anyHasOptions = availableServices.some(
+      (svc) => selectedServiceIds.includes(svc.id) && svc.has_options === true,
+    );
+    if (anyHasOptions) {
+      setBookingStage("service_options", "forward");
+    } else {
+      setBookingStage("mechanic_selection", "forward");
+    }
+  }, [setBookingStage, availableServices, selectedServiceIds]);
+
+  // Service options -> go back to service selection
+  const handleServiceOptionsGoBack = useCallback(() => {
+    setBookingStage("service_selection", "backward");
+  }, [setBookingStage]);
+
+  // Service options complete -> go to mechanic selection
+  const handleServiceOptionsContinue = useCallback(() => {
     setBookingStage("mechanic_selection", "forward");
   }, [setBookingStage]);
 
@@ -872,8 +909,21 @@ export function ServiceBottomSheet({
         );
       }
 
+      // Service options footer
+      if (isServiceOptionsStage && !showCarPreview && !showShopPreview) {
+        return (
+          <ServiceOptionsFooter
+            {...props}
+            bottomInset={footerBottomInset}
+            animatedStyle={footerAnimatedStyle}
+            allOptionsSelected={allOptionsSelected}
+            onContinue={handleServiceOptionsContinue}
+          />
+        );
+      }
+
       // Only show footer for service selection stage when NOT in car/shop preview mode
-      if (isServiceStage && !showCarPreview && !showShopPreview) {
+      if (isServiceStage && !isServiceOptionsStage && !showCarPreview && !showShopPreview) {
         return (
           <ServiceSelectionFooter
             {...props}
@@ -957,6 +1007,7 @@ export function ServiceBottomSheet({
     },
     [
       isServiceStage,
+      isServiceOptionsStage,
       isMechanicStage,
       showCarPreview,
       showShopPreview,
@@ -968,6 +1019,8 @@ export function ServiceBottomSheet({
       selectedCount,
       mechanicFooterTotal,
       handleServicesSelected,
+      handleServiceOptionsContinue,
+      allOptionsSelected,
       mechanicFooterServiceName,
       selectedMechanicSlot,
       handleMechanicBook,
@@ -986,13 +1039,19 @@ export function ServiceBottomSheet({
           </Animated.View>
         );
 
+      case "service_options":
+        return (
+          <Animated.View key="service-options" entering={sheetEntering} exiting={sheetExiting} style={styles.contentWrapper}>
+            <ServiceOptionsContent onGoBack={handleServiceOptionsGoBack} />
+          </Animated.View>
+        );
+
       case "mechanic_selection":
         return (
           <Animated.View key="mechanic" entering={sheetEntering} exiting={sheetExiting} style={styles.contentWrapper}>
             <MechanicSelectionContent
               onSelectMechanic={handleMechanicSelected}
               onCarSelect={handleCarToggle}
-              footerInset={mechanicFooterHeight}
               onSearchFocus={handleMechanicSearchFocus}
             />
           </Animated.View>
@@ -1255,8 +1314,8 @@ export function ServiceBottomSheet({
       handleStyle={styles.handleContainer}
       footerComponent={isSearchMode ? undefined : renderFooter}
     >
-      {/* Header - Only show for service selection stages when NOT in shop/car preview */}
-      {isServiceStage && !showShopPreview && !showCarPreview && (
+      {/* Header - Only show for discovery/service_selection stages when NOT in shop/car preview */}
+      {isServiceStage && !isServiceOptionsStage && !showShopPreview && !showCarPreview && (
         <View style={styles.header}>
           <View style={styles.headerTop}>
             {/* Title */}

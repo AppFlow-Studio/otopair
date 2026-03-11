@@ -2,25 +2,26 @@
  * GarageCarSelectionCard
  *
  * PURPOSE: Vehicle row for My Garage car selection (rewards context).
- *          Circular car image, details, and tappable status badge (Driver/Preferred/Elite).
- *          Design matches 1st image - purple border + checkmark when selected.
+ *          Circular car image, details, tappable tier badge pill, and chevron affordance.
+ *          White card on grey sheet surface — no explicit border, depth via shadow.
  *
  * USED IN: components/rewards/GarageCarSelectionSheet.tsx
  */
 
 import React, { memo } from "react";
 import { Image, Pressable, StyleSheet, View } from "react-native";
-import { Car, Check } from "lucide-react-native";
+import { Car, ChevronRight } from "lucide-react-native";
 import { BrandColors, Text } from "@/components/shared-ui";
 import { BorderRadius, Spacing } from "@/constants/theme";
 import type { Vehicle } from "@/stores/useVehicleStore";
 
 export type VehicleTier = "driver" | "preferred" | "elite";
 
-const TIER_CONFIG: Record<VehicleTier, { label: string; bg: string; text: string }> = {
-  driver: { label: "Driver", bg: "#EBF4FF", text: BrandColors.secondary },
-  preferred: { label: "Preferred", bg: "#EBF4FF", text: BrandColors.secondary },
-  elite: { label: "Elite", bg: "#FFEDD5", text: "#EA580C" },
+/** Tier badge config — all OtoPair blue */
+const TIER_CONFIG: Record<VehicleTier, { label: string }> = {
+  driver: { label: "DRIVER" },
+  preferred: { label: "PREFERRED" },
+  elite: { label: "ELITE" },
 };
 
 function formatMileage(mileage: number | undefined): string {
@@ -28,16 +29,14 @@ function formatMileage(mileage: number | undefined): string {
   return `${mileage.toLocaleString()} mi`;
 }
 
-function formatPlateOrVin(vin: string | undefined): string {
+function formatVin(vin: string | undefined): string {
   if (!vin) return "";
-  if (vin.length <= 8) return vin;
-  return vin.slice(0, 8).toUpperCase();
+  return vin.toUpperCase();
 }
 
 export interface GarageCarSelectionCardProps {
   vehicle: Vehicle;
   tier: VehicleTier;
-  isSelected: boolean;
   onSelect: () => void;
   onStatusPress: () => void;
 }
@@ -45,49 +44,59 @@ export interface GarageCarSelectionCardProps {
 function GarageCarSelectionCardComponent({
   vehicle,
   tier,
-  isSelected,
   onSelect,
   onStatusPress,
 }: GarageCarSelectionCardProps) {
   const tierConfig = TIER_CONFIG[tier];
 
   return (
-    <Pressable style={[styles.row, isSelected && styles.rowSelected]} onPress={onSelect}>
-      {isSelected && (
-        <View style={styles.checkmark}>
-          <Check size={16} color={BrandColors.secondary} strokeWidth={2.5} />
-        </View>
-      )}
+    <Pressable
+      style={({ pressed }) => [
+        styles.row,
+        pressed && styles.rowPressed,
+      ]}
+      onPress={onSelect}
+    >
       <View style={styles.content}>
-        <View style={styles.details}>
-          <View style={styles.imageWrapper}>
-            {vehicle.imageSource ? (
-              <Image source={vehicle.imageSource} style={styles.carImage} resizeMode="cover" />
-            ) : (
-              <View style={[styles.imagePlaceholder, isSelected && styles.imagePlaceholderSelected]}>
-                <Car size={24} color={isSelected ? BrandColors.secondary : "#9CA3AF"} />
-              </View>
-            )}
-          </View>
-          <View style={styles.textBlock}>
-            <Text weight="bold" size="md" color="#1F2937" numberOfLines={1}>
-              {vehicle.year} {vehicle.make} {vehicle.model}
-            </Text>
-            <Text size="sm" color="#6B7280">
-              {formatMileage(vehicle.mileage)} · {formatPlateOrVin(vehicle.vin) || "—"}
-            </Text>
-          </View>
+        {/* Left: Car image */}
+        <View style={styles.imageWrapper}>
+          {vehicle.imageSource ? (
+            <Image source={vehicle.imageSource} style={styles.carImage} resizeMode="cover" />
+          ) : (
+            <View style={styles.imagePlaceholder}>
+              <Car size={24} color="#8CBBFE" />
+            </View>
+          )}
+        </View>
+
+        {/* Center: Vehicle details */}
+        <View style={styles.textBlock}>
+          <Text weight="bold" size="md" color="#1F2937" numberOfLines={1}>
+            {vehicle.make} {vehicle.model}
+          </Text>
+          <Text size="sm" color="#6B7280" style={styles.subtitleText}>
+            {vehicle.year} · {formatMileage(vehicle.mileage)}
+          </Text>
+          <Text size="xs" color="#9CA3AF" style={styles.roleLabel}>
+            {formatVin(vehicle.vin) || "—"}
+          </Text>
+        </View>
+
+        {/* Right: Tier badge pill + chevron */}
+        <View style={styles.rightSection}>
           <Pressable
             onPress={(e) => {
               e.stopPropagation();
               onStatusPress();
             }}
-            style={[styles.statusBadge, { backgroundColor: tierConfig.bg }]}
+            style={styles.tierBadge}
+            hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
           >
-            <Text size="xs" weight="semiBold" color={tierConfig.text}>
+            <Text size="xs" weight="bold" color={BrandColors.secondary}>
               {tierConfig.label}
             </Text>
           </Pressable>
+          <ChevronRight size={18} color="#D1D5DB" strokeWidth={2} />
         </View>
       </View>
     </Pressable>
@@ -100,39 +109,33 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#F9FAFB",
-    borderRadius: BorderRadius.lg,
-    padding: Spacing.md,
-    paddingRight: Spacing.lg,
-    borderWidth: 1.5,
-    borderColor: "#E5E7EB",
-    marginBottom: Spacing.sm,
+    backgroundColor: "#FFFFFF",
+    borderRadius: BorderRadius.xl,
+    padding: Spacing.md + 2,
+    paddingRight: Spacing.md,
+    marginBottom: Spacing.md,
+    // Soft shadow for depth against grey sheet
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  rowSelected: {
-    borderColor: BrandColors.secondary,
-    backgroundColor: "rgba(82, 153, 254, 0.06)",
-  },
-  checkmark: {
-    position: "absolute",
-    top: Spacing.sm,
-    right: Spacing.sm,
-    zIndex: 1,
+  rowPressed: {
+    opacity: 0.85,
   },
   content: {
     flex: 1,
-    minWidth: 0,
-  },
-  details: {
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.md,
   },
   imageWrapper: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     overflow: "hidden",
-    backgroundColor: "#F3F4F6",
+    backgroundColor: "#EDF3FE",
   },
   carImage: {
     width: "100%",
@@ -144,16 +147,26 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  imagePlaceholderSelected: {
-    backgroundColor: "rgba(82, 153, 254, 0.15)",
-  },
   textBlock: {
     flex: 1,
     minWidth: 0,
   },
-  statusBadge: {
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 4,
-    borderRadius: 12,
+  subtitleText: {
+    marginTop: 1,
+  },
+  roleLabel: {
+    marginTop: 2,
+  },
+  rightSection: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    flexShrink: 0,
+  },
+  tierBadge: {
+    paddingHorizontal: Spacing.sm + 2,
+    paddingVertical: 5,
+    borderRadius: 14,
+    backgroundColor: "#EBF4FF",
   },
 });

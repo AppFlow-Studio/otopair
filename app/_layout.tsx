@@ -9,6 +9,7 @@ import { StatusBar } from "expo-status-bar";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
+import { KeyboardProvider } from "react-native-keyboard-controller";
 
 import { ConvexReactClient } from "convex/react";
 import { ConvexProviderWithClerk } from "convex/react-clerk";
@@ -223,6 +224,7 @@ export default function RootLayout() {
             <EnsureConvexUserRecord />
             <SyncAuthStoreWithClerk />
             <ErrorModalHost />
+            <KeyboardProvider>
             <GestureHandlerRootView style={{ flex: 1 }}>
               <BottomSheetModalProvider>
                 <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
@@ -276,6 +278,7 @@ export default function RootLayout() {
                 </ThemeProvider>
               </BottomSheetModalProvider>
             </GestureHandlerRootView>
+            </KeyboardProvider>
           </AppErrorBoundary>
           {/* <EnsureConvexUserRecord />
         <SyncAuthStoreWithClerk />
