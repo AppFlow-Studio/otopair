@@ -825,6 +825,7 @@ export default defineSchema({
     year: v.optional(v.float64()),
     metadata: v.optional(v.any()),
     image_url: v.optional(v.string()), // IMAGIN.studio signed CDN URL (watermark-free)
+    enriched_engine_config_id: v.optional(v.id("enriched_engine_configs")),
     created_at: v.float64(),
     updated_at: v.float64(),
   })
@@ -832,7 +833,8 @@ export default defineSchema({
     .index("by_engine_id", ["engine_id"])
     .index("by_trim_id", ["trim_id"])
     .index("by_transmission", ["transmission_id"])
-    .index("by_chassis", ["chassis_id"]),
+    .index("by_chassis", ["chassis_id"])
+    .index("by_enriched_config", ["enriched_engine_config_id"]),
 
   /**
    * TABLE: vehicle_owners
@@ -2188,4 +2190,503 @@ export default defineSchema({
   })
     .index("by_vehicle_owner", ["vehicleOwnerId"])
     .index("by_vehicle_and_type", ["vehicleOwnerId", "type"]),
+
+  /**
+   * TABLE: enriched_engine_configs
+   *
+   * Permanently stores AI-enriched vehicle data keyed by engine config.
+   * One record per unique engine config — all future vehicles with the
+   * same engine reuse this data with zero API calls.
+   */
+  enriched_engine_configs: defineTable({
+    engineConfig: v.string(), // unique key e.g. "2019_bmw_330i_b58"
+    year: v.float64(),
+    make: v.string(),
+    model: v.string(),
+    engineCode: v.string(),
+    enrichedAt: v.float64(),
+    fillRate: v.float64(),
+    sourceUrls: v.array(v.string()),
+
+    // ── Fluids ──
+    oil_viscosity: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+    oil_capacity_qts: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+    coolant_type: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+    coolant_capacity_qts: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+    power_steering_type: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+    brake_fluid_type: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+
+    // ── Service Intervals ──
+    oil_change_miles: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+    oil_change_months: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+    spark_plug_miles: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+    spark_plug_months: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+    transmission_service_miles: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+    transmission_service_months: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+    coolant_flush_miles: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+    coolant_flush_months: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+    air_filter_miles: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+    air_filter_months: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+    cabin_filter_miles: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+    cabin_filter_months: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+
+    // ── Vehicle Attributes ──
+    timing_system: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+    drivetrain: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+    turbo: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+
+    // ── OEM Part Numbers ──
+    oil_filter_oem: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+    air_filter_oem: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+    cabin_filter_oem: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+    spark_plug_oem: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+    front_brake_pad_oem: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+    rear_brake_pad_oem: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+    drain_plug_gasket_oem: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+    battery_group: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+    battery_cca: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+    parking_brake_type: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+
+    // ── Pricing ──
+    oil_change_price: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+    brake_pad_front_price: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+    brake_pad_rear_price: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+    spark_plug_price: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+    air_filter_price: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+    cabin_filter_price: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+
+    // ── Labor Estimates ──
+    estimated_labor_oil_change_hrs: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+    estimated_labor_brake_front_hrs: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+    estimated_labor_brake_rear_hrs: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+    estimated_labor_spark_plug_hrs: v.object({
+      value: v.union(v.string(), v.float64(), v.boolean(), v.null()),
+      source: v.union(v.string(), v.null()),
+      confidence: v.union(v.float64(), v.null()),
+      verified: v.boolean(),
+      apiConfirmed: v.boolean(),
+      apiDisagreed: v.boolean(),
+      apiValue: v.union(v.string(), v.null()),
+    }),
+
+    // ── v4 New Intervals (optional for backward compat) ──
+    brake_fluid_flush_miles: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+    brake_fluid_flush_months: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+    serpentine_belt_miles: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+    serpentine_belt_months: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+    timing_service_miles: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+    timing_service_months: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+
+    // ── v4 New Attributes (optional) ──
+    fuel_injection_type: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+    transmission_type: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+    power_steering_system: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+
+    // ── v4 New OEM Parts (optional) ──
+    serpentine_belt_oem: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+    timing_belt_oem: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+    wiper_blade_set_oem: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+
+    // ── v4 Battery & Electrical Extras (optional) ──
+    spark_plug_quantity: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+    spark_plug_gap: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+
+    // ── v4 Trim Specs (optional) ──
+    front_tire_size: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+    rear_tire_size: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+    tire_pressure_front_psi: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+    tire_pressure_rear_psi: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+    lug_nut_torque_ft_lbs: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+    front_wiper_size: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+    rear_wiper_size: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+
+    // ── v7 New OEM Parts (optional) ──
+    rotor_front_oem: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+    rotor_rear_oem: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+    battery_oem: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+    coolant_oem: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+
+    // ── v7 New Fluid Types (optional) ──
+    trans_fluid_type: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+    diff_fluid_type: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+    transfer_case_fluid_type: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+
+    // ── v7 New Fluid Intervals (optional) ──
+    diff_fluid_miles: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+    diff_fluid_months: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+    transfer_case_fluid_miles: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+    transfer_case_fluid_months: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+
+    // ── v7 New Pricing (optional) ──
+    rotor_front_price: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+    rotor_rear_price: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+    battery_price: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+    serpentine_belt_price: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+    coolant_flush_price: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+    transmission_service_price: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+    brake_fluid_flush_price: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+
+    // ── v7 New Labor Hours (optional) ──
+    estimated_labor_rotor_front_hrs: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+    estimated_labor_rotor_rear_hrs: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+    estimated_labor_serpentine_belt_hrs: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+    estimated_labor_coolant_flush_hrs: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+    estimated_labor_trans_fluid_hrs: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+    estimated_labor_battery_hrs: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+    estimated_labor_brake_fluid_flush_hrs: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+    estimated_labor_timing_service_hrs: v.optional(v.object({ value: v.union(v.string(), v.float64(), v.boolean(), v.null()), source: v.union(v.string(), v.null()), confidence: v.union(v.float64(), v.null()), verified: v.boolean(), apiConfirmed: v.boolean(), apiDisagreed: v.boolean(), apiValue: v.union(v.string(), v.null()) })),
+
+    // ── v4 Metadata (optional) ──
+    enrichmentVersion: v.optional(v.string()),
+    enrichmentDurationMs: v.optional(v.float64()),
+    callLog: v.optional(v.any()),
+    servicePricing: v.optional(v.any()),
+    intervalMeta: v.optional(v.any()),
+  })
+    .index("by_engine_config", ["engineConfig"])
+    .index("by_engine_code", ["engineCode"]),
+
+  /**
+   * TABLE: raw_scrape_cache
+   *
+   * Caches raw FireCrawl markdown by URL so the same page is never
+   * re-scraped within its TTL. Parts/manual pages expire after 30 days;
+   * pricing pages expire after 7 days.
+   */
+  raw_scrape_cache: defineTable({
+    url: v.string(),
+    scrapedAt: v.float64(),
+    markdown: v.string(),
+    vehicleMake: v.string(),
+    vehicleModel: v.string(),
+    vehicleYear: v.float64(),
+    sourceType: v.union(
+      v.literal("parts_catalog"),
+      v.literal("owner_manual"),
+      v.literal("pricing"),
+    ),
+    expiresAt: v.float64(),
+  })
+    .index("by_url", ["url"])
+    .index("by_vehicle", ["vehicleMake", "vehicleModel", "vehicleYear"]),
 });

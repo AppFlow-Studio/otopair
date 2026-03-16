@@ -11,6 +11,7 @@
     "lint": "expo lint"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
     "@callstack/liquid-glass": "^0.6.1",
     "@clerk/clerk-expo": "^2.19.21",
     "@expo-google-fonts/urbanist": "^0.4.2",

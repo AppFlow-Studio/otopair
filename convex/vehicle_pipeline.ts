@@ -750,7 +750,7 @@ export const confirmVehicleForUser = action({
     const vin = args.vin.toUpperCase().trim();
 
     // Upsert vehicle catalog record
-    await ctx.runMutation(api.vehicles.upsertVehicle, {
+    const vehicle = await ctx.runMutation(api.vehicles.upsertVehicle, {
       vin,
       trim_id: args.trimId,
       engine_id: args.engineId,
@@ -765,18 +765,18 @@ export const confirmVehicleForUser = action({
       is_primary: true,
     });
 
-    // Schedule AI enrichment in background
-    await ctx.scheduler.runAfter(0, internal.vehicle_pipeline.enrichVehicleSpecs, {
-      engineId: args.engineId,
-      make: args.make,
-      model: args.model,
-      year: args.year,
-      trim: args.trim,
-      engineCode: args.engineCode,
-      displacement: args.displacement,
-      cylinders: args.cylinders,
-      fuelType: args.fuelType,
-    });
+    // Schedule v4.2 batch enrichment pipeline (Haiku + Batch API, no rate limits)
+    if (vehicle?._id && args.engineCode) {
+      await ctx.scheduler.runAfter(0, internal.vehicleEnrichment.pipelineBatch.enrichVehicleBatch, {
+        vehicleId: vehicle._id,
+        year: args.year,
+        make: args.make,
+        model: args.model,
+        trim: args.trim,
+        engineCode: args.engineCode,
+        displacement: args.displacement,
+      });
+    }
 
     return { success: true as const };
   },
