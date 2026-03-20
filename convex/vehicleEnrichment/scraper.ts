@@ -12,7 +12,7 @@
  *    No single known URL for maintenance schedules across all makes.
  *    Broad queries targeting dealer maintenance pages and manufacturer sites.
  *
- * Results are cached in `raw_scrape_cache` (30-day TTL).
+ * Results are cached in `scrape_cache` (30-day TTL).
  * A cache hit skips FireCrawl entirely.
  *
  * NOTE: Pricing is extracted by Batch 1 from parts pages (parts pages include

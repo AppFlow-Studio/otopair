@@ -221,7 +221,7 @@ export const runV3Test = internalAction({
     let pipelineError: string | null = null;
     try {
       pipelineResult = await ctx.runAction(
-        internal.vehicleEnrichment.pipelineBatch.enrichVehicleBatch,
+        internal.vehicleEnrichment.v3pipeline.enrichVehicleBatchV3,
         {
           vehicleId: vehicle._id,
           year: BMW_M550I.year,
@@ -384,7 +384,7 @@ export const runMultiTest = internalAction({
       let error: string | null = null;
       try {
         await ctx.runAction(
-          internal.vehicleEnrichment.pipelineBatch.enrichVehicleBatch,
+          internal.vehicleEnrichment.v3pipeline.enrichVehicleBatchV3,
           {
             vehicleId: vehicle._id,
             year: tv.year,
@@ -915,7 +915,7 @@ export const runV4Test = internalAction({
 
     try {
       pipelineResult = await ctx.runAction(
-        internal.vehicleEnrichment.pipelineBatch.enrichVehicleBatch,
+        internal.vehicleEnrichment.v3pipeline.enrichVehicleBatchV3,
         {
           vehicleId: vehicle._id,
           year: BMW_M550I.year,

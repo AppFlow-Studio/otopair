@@ -1,0 +1,1273 @@
+/**
+ * vehicleEnrichment/v3pipeline.ts — v8 Normalized Pipeline
+ *
+ * Replaces pipelineBatch.ts. Same batch API calls, scraping, and prompts.
+ * What changes: parsed results get written to normalized v3 tables
+ * (engines, transmissions, vehicle_configs, trim_specs, drivetrain_configs,
+ * oem_parts, part_fitments, part_prices, service_intervals, labor_times,
+ * enrichment_evidence) instead of the flat enriched_engine_configs table.
+ */
+
+import { v } from "convex/values";
+import { internalAction } from "../_generated/server";
+import { internal } from "../_generated/api";
+import type {
+  VehicleInput,
+  FieldResult,
+  ServicePricingResult,
+  CallLogEntry,
+  VehicleIdentity,
+} from "./types";
+import { buildEngineKey, emptyField, V4_FIELD_KEYS, SIBLING_SAFE_FIELDS } from "./types";
+import { submitBatch, getBatchStatus, getBatchResults } from "./utils/batchClient";
+import { BATCH_1_SYSTEM, buildBatch1Prompt } from "./prompts/batch1Prompt";
+import { BATCH_1B_SYSTEM, buildBatch1bPrompt } from "./prompts/batch1bPrompt";
+import { BATCH_2_SYSTEM, buildBatch2Prompt } from "./prompts/batch2Prompt";
+import { runSanityChecks } from "./validation/sanityChecks";
+import { validateAllOemParts } from "./validation/oemValidation";
+import { BLOCKED_DOMAINS } from "./sourceRegistry";
+import { applyApplicabilityRules } from "./applicabilityRules";
+import { scrapeVehicleSources } from "./scraper";
+import type { Id } from "../_generated/dataModel";
+
+// ─── Constants ─────────────────────────────────────────────────────
+
+const MAX_POLL_ATTEMPTS = 180;
+const POLL_INTERVAL_MS = 1 * 60 * 1000;
+
+const MAKES_WITH_BRAKE_PAD_SENSORS = new Set([
+  "BMW", "Mercedes-Benz", "Porsche", "Audi", "Mini", "Rolls-Royce",
+]);
+
+// ─── Field Parsing (copied from pipelineBatch.ts — same logic) ────
+
+function parseField(raw: any): FieldResult {
+  if (!raw || raw.value === undefined) return emptyField();
+  let value = raw.value ?? null;
+  if (typeof value === "string") {
+    // Parse price strings "$45.00" → 45.00
+    if (value.startsWith("$")) {
+      const n = parseFloat(value.replace(/[$,]/g, ""));
+      if (!isNaN(n)) value = n;
+    }
+    // Parse numeric strings "0.95" → 0.95
+    else if (/^\d+\.?\d*$/.test(value)) {
+      const n = parseFloat(value);
+      if (!isNaN(n)) value = n;
+    }
+  }
+  return {
+    value,
+    source_url: raw.source_url ?? raw.source ?? null,
+    source_type: raw.source_type ?? (raw.source_url ? "scraped" : null),
+    confidence: raw.confidence ?? null,
+    flagged: false,
+    flag_reason: null,
+  };
+}
+
+function parseInterval(raw: any): { miles: FieldResult; months: FieldResult; status: string; display_string: string | null } {
+  if (!raw) return { miles: emptyField(), months: emptyField(), status: "scheduled", display_string: null };
+  return {
+    miles: parseField(raw.miles),
+    months: parseField(raw.months),
+    status: raw.status ?? "scheduled",
+    display_string: raw.display_string ?? null,
+  };
+}
+
+// ─── Parsers (same as pipelineBatch.ts) ──────────────────────────
+
+function parseBatch1a(data: Record<string, any>): Record<string, FieldResult> {
+  const f: Record<string, FieldResult> = {};
+  if (!data) return f;
+
+  // Fluids
+  const fluids = data.fluids ?? {};
+  f.oil_viscosity = parseField(fluids.oil_viscosity);
+  f.oil_capacity_qts = parseField(fluids.oil_capacity_qts);
+  f.coolant_type = parseField(fluids.coolant_type);
+  f.coolant_capacity_qts = parseField(fluids.coolant_capacity_qts);
+  f.brake_fluid_type = parseField(fluids.brake_fluid_type);
+  f.power_steering_type = parseField(fluids.power_steering_type);
+
+  // Intervals
+  const intervals = data.intervals ?? {};
+  for (const key of ["oil_change", "spark_plug", "transmission_service", "coolant_flush", "air_filter", "cabin_filter", "brake_fluid_flush", "serpentine_belt"]) {
+    const iv = parseInterval(intervals[key]);
+    f[`${key}_miles`] = iv.miles;
+    f[`${key}_months`] = iv.months;
+  }
+  const timing = parseInterval(intervals.timing_belt_or_chain_service);
+  f.timing_service_miles = timing.miles;
+  f.timing_service_months = timing.months;
+
+  // Attributes
+  const attrs = data.attributes ?? {};
+  f.timing_system = parseField(attrs.timing_system);
+  f.drivetrain = parseField(attrs.drivetrain);
+  f.turbo = parseField(attrs.turbo);
+  f.fuel_injection_type = parseField(attrs.fuel_injection_type);
+  f.transmission_type = parseField(attrs.transmission_type);
+  f.power_steering_system = parseField(attrs.power_steering_system);
+
+  // OEM Parts
+  const parts = data.oem_parts ?? {};
+  for (const k of ["oil_filter_oem", "air_filter_oem", "cabin_filter_oem", "spark_plug_oem",
+    "front_brake_pad_oem", "rear_brake_pad_oem", "drain_plug_gasket_oem",
+    "serpentine_belt_oem", "timing_belt_oem", "wiper_blade_set_oem",
+    "rotor_front_oem", "rotor_rear_oem", "battery_oem", "coolant_oem"]) {
+    f[k] = parseField(parts[k]);
+  }
+
+  // Pricing from parts pages
+  const pricing = data.oem_pricing ?? data.pricing ?? {};
+  for (const k of ["rotor_front_price", "rotor_rear_price", "battery_price"]) {
+    f[k] = parseField(pricing[k]);
+  }
+
+  // Battery & electrical
+  const battery = data.battery ?? {};
+  f.battery_group = parseField(battery.battery_group);
+  f.battery_cca = parseField(battery.battery_cca);
+  const spark = data.spark_plug ?? {};
+  f.spark_plug_quantity = parseField(spark.quantity);
+  f.spark_plug_gap = parseField(spark.gap_mm);
+  f.parking_brake_type = parseField(data.parking_brake_type);
+
+  // Trim specs
+  const trim = data.trim_specs ?? {};
+  f.front_tire_size = parseField(trim.front_tire_size);
+  f.rear_tire_size = parseField(trim.rear_tire_size);
+  f.tire_pressure_front_psi = parseField(trim.tire_pressure_front_psi);
+  f.tire_pressure_rear_psi = parseField(trim.tire_pressure_rear_psi);
+  f.lug_nut_torque_ft_lbs = parseField(trim.lug_nut_torque_ft_lbs);
+  f.front_wiper_size = parseField(trim.front_wiper_size);
+  f.rear_wiper_size = parseField(trim.rear_wiper_size);
+
+  return f;
+}
+
+function parseBatch1b(data: Record<string, any>): Record<string, FieldResult> {
+  const f = parseBatch1a(data);
+  if (!data) return f;
+
+  // Additional 1B fields: new fluid types + intervals
+  const fluids = data.fluids ?? {};
+  f.trans_fluid_type = parseField(fluids.trans_fluid_type);
+  f.diff_fluid_type = parseField(fluids.diff_fluid_type);
+  f.transfer_case_fluid_type = parseField(fluids.transfer_case_fluid_type);
+
+  const intervals = data.intervals ?? {};
+  const diff = parseInterval(intervals.diff_fluid);
+  f.diff_fluid_miles = diff.miles;
+  f.diff_fluid_months = diff.months;
+  const tc = parseInterval(intervals.transfer_case_fluid);
+  f.transfer_case_fluid_miles = tc.miles;
+  f.transfer_case_fluid_months = tc.months;
+
+  return f;
+}
+
+function mergeBatch1(
+  a: Record<string, FieldResult>,
+  b: Record<string, FieldResult>,
+): Record<string, FieldResult> {
+  const merged = { ...a };
+  for (const key of Object.keys(b)) {
+    if (merged[key]?.value == null && b[key]?.value != null) {
+      merged[key] = b[key];
+    }
+  }
+  // Ensure all V4 keys exist
+  for (const k of V4_FIELD_KEYS) {
+    if (!merged[k]) merged[k] = emptyField();
+  }
+  return merged;
+}
+
+function getNullFields(fields: Record<string, FieldResult>): string[] {
+  return V4_FIELD_KEYS.filter((k) => fields[k]?.value == null);
+}
+
+function getOemParts(fields: Record<string, FieldResult>): Record<string, string> {
+  const oemFields = V4_FIELD_KEYS.filter((k) => k.endsWith("_oem"));
+  const result: Record<string, string> = {};
+  for (const k of oemFields) {
+    const val = fields[k]?.value;
+    if (typeof val === "string" && val.length > 0) {
+      result[k] = val;
+    }
+  }
+  return result;
+}
+
+/** Legacy flat-field fill rate (for logging comparison only). */
+function calculateFlatFillRate(fields: Record<string, FieldResult>): number {
+  const total = V4_FIELD_KEYS.length;
+  const filled = V4_FIELD_KEYS.filter((k) => fields[k]?.value != null).length;
+  return Math.round((filled / total) * 100);
+}
+
+/** V3 fill rate — counts actual data coverage across normalized tables. */
+async function calculateV3FillRate(
+  ctx: any,
+  vehicleConfigId: Id<"vehicle_configs">,
+  engineId: Id<"engines">,
+  transmissionId?: Id<"transmissions">,
+): Promise<{ rate: number; breakdown: string }> {
+  let filled = 0;
+  let total = 0;
+
+  // Engine specs (8 key fields)
+  const engine = await ctx.runQuery(internal.vehicleEnrichment.v3queries.getEngine, { engineId });
+  const engineFields = [
+    engine?.oil_viscosity, engine?.oil_capacity_qts,
+    engine?.coolant_type, engine?.coolant_capacity_qts,
+    engine?.timing_system, engine?.fuel_injection,
+    engine?.aspiration, engine?.spark_plug_quantity,
+  ];
+  const engineTotal = engineFields.length;
+  const engineFilled = engineFields.filter((v: unknown) => v != null).length;
+  total += engineTotal;
+  filled += engineFilled;
+
+  // Transmission specs (1 key field)
+  let transFilled = 0;
+  let transTotal = 0;
+  if (transmissionId) {
+    const trans = await ctx.runQuery(internal.vehicleEnrichment.v3queries.getTransmission, { transmissionId });
+    transTotal = 1;
+    transFilled = trans?.fluid_type ? 1 : 0;
+    total += transTotal;
+    filled += transFilled;
+  }
+
+  // Drivetrain config (conditional fields)
+  const dt = await ctx.runQuery(internal.vehicleEnrichment.v3queries.getDrivetrainConfig, { vehicleConfigId });
+  let dtTotal = 0;
+  let dtFilled = 0;
+  if (dt?.has_differential) {
+    dtTotal += 1;
+    if (dt?.diff_fluid_type) dtFilled += 1;
+  }
+  if (dt?.has_transfer_case) {
+    dtTotal += 1;
+    if (dt?.tc_fluid_type) dtFilled += 1;
+  }
+  total += dtTotal;
+  filled += dtFilled;
+
+  // Trim specs (7 key fields)
+  const trim = await ctx.runQuery(internal.vehicleEnrichment.v3queries.getTrimSpecs, { vehicleConfigId });
+  const trimFields = [
+    trim?.tire_size_front ?? trim?.front_tire_size,
+    trim?.tire_size_rear ?? trim?.rear_tire_size,
+    trim?.recommended_tire_pressure_front_psi ?? trim?.tire_pressure_front,
+    trim?.recommended_tire_pressure_rear_psi ?? trim?.tire_pressure_rear,
+    trim?.lug_nut_torque_ft_lbs,
+    trim?.battery_group,
+    trim?.battery_cca,
+  ];
+  const trimTotal = trimFields.length;
+  const trimFilled = trimFields.filter((v: unknown) => v != null).length;
+  total += trimTotal;
+  filled += trimFilled;
+
+  // Vehicle config fields (2 key fields)
+  const vc = await ctx.runQuery(internal.vehicleEnrichment.v3queries.getVehicleConfigById, { vehicleConfigId });
+  const vcFields = [vc?.brake_fluid_type, vc?.has_brake_pad_sensor];
+  total += vcFields.length;
+  filled += vcFields.filter((v: unknown) => v != null).length;
+
+  // OEM parts — count fitments vs expected
+  const isBelt = engine?.timing_system === "belt";
+  const expectedParts = isBelt ? 14 : 13;
+  const fitments = await ctx.runQuery(internal.vehicleEnrichment.v3queries.getPartFitments, { vehicleConfigId });
+  const partsFilled = Math.min(fitments.length, expectedParts);
+  total += expectedParts;
+  filled += partsFilled;
+
+  // Service intervals
+  const intervals = await ctx.runQuery(internal.vehicleEnrichment.v3queries.getServiceIntervals, { vehicleConfigId });
+  const intervalsFilled = intervals.filter(
+    (si: any) => si.interval_miles != null || si.interval_months != null
+      || si.status === "cbs_driven" || si.status === "not_applicable"
+  ).length;
+  total += intervals.length;
+  filled += intervalsFilled;
+
+  // Labor times
+  const laborTimes = await ctx.runQuery(internal.vehicleEnrichment.v3queries.getLaborTimes, { vehicleConfigId });
+  const laborFilled = laborTimes.filter((lt: any) => lt.book_hours != null).length;
+  total += laborTimes.length;
+  filled += laborFilled;
+
+  // Part prices — count priced parts vs total parts
+  const pricedParts = await ctx.runQuery(internal.vehicleEnrichment.v3queries.getPricedPartCount, { vehicleConfigId });
+  total += fitments.length;
+  filled += pricedParts;
+
+  const rate = total > 0 ? Math.round((filled / total) * 100) : 0;
+  const breakdown = `engine=${engineFilled}/${engineTotal}, trans=${transFilled}/${transTotal}, dt=${dtFilled}/${dtTotal}, trim=${trimFilled}/${trimTotal}, vc=${vcFields.filter((v: unknown) => v != null).length}/2, parts=${partsFilled}/${expectedParts}, intervals=${intervalsFilled}/${intervals.length}, labor=${laborFilled}/${laborTimes.length}, prices=${pricedParts}/${fitments.length}`;
+
+  return { rate, breakdown };
+}
+
+// ─── Pricing Parsers ─────────────────────────────────────────────
+
+const SERVICE_FIELD_MAP: Record<string, { price?: string; labor?: string }> = {
+  "Oil Change": { price: "oil_change_price", labor: "estimated_labor_oil_change_hrs" },
+  "Brake Pad Replacement - Front": { price: "brake_pad_front_price", labor: "estimated_labor_brake_front_hrs" },
+  "Brake Pad Replacement - Rear": { price: "brake_pad_rear_price", labor: "estimated_labor_brake_rear_hrs" },
+  "Brake Pad + Rotor Replacement - Front": { price: "rotor_front_price", labor: "estimated_labor_rotor_front_hrs" },
+  "Brake Pad + Rotor Replacement - Rear": { price: "rotor_rear_price", labor: "estimated_labor_rotor_rear_hrs" },
+  "Spark Plug Replacement": { price: "spark_plug_price", labor: "estimated_labor_spark_plug_hrs" },
+  "Air Filter Replacement": { price: "air_filter_price" },
+  "Cabin Air Filter Replacement": { price: "cabin_filter_price" },
+  "Serpentine Belt Replacement": { price: "serpentine_belt_price", labor: "estimated_labor_serpentine_belt_hrs" },
+  "Coolant Flush": { price: "coolant_flush_price", labor: "estimated_labor_coolant_flush_hrs" },
+  "Transmission Fluid Service": { price: "transmission_service_price", labor: "estimated_labor_trans_fluid_hrs" },
+  "Battery Replacement": { price: "battery_price", labor: "estimated_labor_battery_hrs" },
+  "Brake Fluid Flush": { price: "brake_fluid_flush_price", labor: "estimated_labor_brake_fluid_flush_hrs" },
+  "Timing Belt/Chain Service": { labor: "estimated_labor_timing_service_hrs" },
+};
+
+function isBlockedDomain(url: string | null | undefined): boolean {
+  if (!url) return false;
+  try {
+    const hostname = new URL(url).hostname.replace(/^www\./, "");
+    return BLOCKED_DOMAINS.some((d) => hostname === d || hostname.endsWith("." + d));
+  } catch { return false; }
+}
+
+function parseBatch2(
+  data: Record<string, any>,
+  nullFields: string[],
+): { gapFields: Record<string, FieldResult>; services: ServicePricingResult[] } {
+  const gapFields: Record<string, FieldResult> = {};
+  const services: ServicePricingResult[] = [];
+
+  if (!data) return { gapFields, services };
+
+  // Gap fields — reject values from blocked domains
+  const gapData = data.gap_fields ?? {};
+  for (const k of nullFields) {
+    const raw = gapData[k];
+    if (raw && !isBlockedDomain(raw.source_url)) {
+      const f = parseField(raw);
+      if (f.value != null) {
+        f.source_type = f.source_url ? "web_search" : "gap_fill";
+        gapFields[k] = f;
+      }
+    }
+  }
+
+  // Services
+  const svcData = data.services ?? [];
+  for (const s of svcData) {
+    services.push({
+      service_name: s.service_name ?? "",
+      is_applicable: s.is_applicable ?? true,
+      labor_hours: parseField(s.labor_hours),
+      parts_cost_low: parseField(s.parts_cost_low),
+      parts_cost_high: parseField(s.parts_cost_high),
+      total_cost_low: null,
+      total_cost_high: null,
+      confidence: s.confidence ?? 0.5,
+      tech_notes: s.tech_notes ?? null,
+    });
+  }
+
+  return { gapFields, services };
+}
+
+function mapPricingToFields(services: ServicePricingResult[]): Record<string, FieldResult> {
+  const result: Record<string, FieldResult> = {};
+  for (const svc of services) {
+    if (!svc.is_applicable) continue;
+    const mapping = SERVICE_FIELD_MAP[svc.service_name];
+    if (!mapping) continue;
+    if (mapping.price && svc.parts_cost_low?.value != null) {
+      result[mapping.price] = svc.parts_cost_low;
+    }
+    if (mapping.labor && svc.labor_hours?.value != null) {
+      result[mapping.labor] = svc.labor_hours;
+    }
+  }
+  return result;
+}
+
+// ─── V3 Write Helpers ────────────────────────────────────────────
+
+/** Map service name from Batch 2 pricing to our service slug. */
+const SERVICE_NAME_TO_SLUG: Record<string, string> = {
+  "Oil Change": "oil_change",
+  "Spark Plug Replacement": "spark_plugs",
+  "Air Filter Replacement": "filter_replacement",
+  "Cabin Air Filter Replacement": "filter_replacement",
+  "Brake Pad Replacement - Front": "brake_pad_replacement",
+  "Brake Pad Replacement - Rear": "brake_pad_replacement",
+  "Brake Pad + Rotor Replacement - Front": "rotor_replacement",
+  "Brake Pad + Rotor Replacement - Rear": "rotor_replacement",
+  "Brake Fluid Flush": "brake_fluid_flush",
+  "Coolant Flush": "coolant_flush",
+  "Transmission Fluid Service": "transmission_service",
+  "Power Steering Fluid Flush": "power_steering_flush",
+  "Serpentine Belt Replacement": "serpentine_belt",
+  "Timing Belt/Chain Service": "timing_belt",
+  "Battery Replacement": "battery_replacement",
+  "Tire Rotation": "tire_rotation",
+  "Wheel Alignment (4-wheel)": "wheel_alignment",
+  "Fuel System Cleaning": "fuel_system_cleaning",
+};
+
+/** Map OEM part field to { name, category, subcategory, serviceSlug, position }. */
+const PART_FIELD_MAP: Record<string, {
+  name: string;
+  category: string;
+  subcategory: string;
+  serviceSlug: string | null;
+  position?: string;
+}> = {
+  oil_filter_oem: { name: "Oil Filter", category: "filter", subcategory: "oil_filter", serviceSlug: "oil_change" },
+  drain_plug_gasket_oem: { name: "Oil Drain Plug Gasket", category: "gasket", subcategory: "drain_plug_gasket", serviceSlug: "oil_change" },
+  air_filter_oem: { name: "Engine Air Filter", category: "filter", subcategory: "air_filter", serviceSlug: "filter_replacement" },
+  cabin_filter_oem: { name: "Cabin Air Filter", category: "filter", subcategory: "cabin_filter", serviceSlug: "filter_replacement" },
+  spark_plug_oem: { name: "Spark Plug", category: "ignition", subcategory: "spark_plug", serviceSlug: "spark_plugs" },
+  front_brake_pad_oem: { name: "Front Brake Pads", category: "brake", subcategory: "front_brake_pad", serviceSlug: "brake_pad_replacement", position: "front" },
+  rear_brake_pad_oem: { name: "Rear Brake Pads", category: "brake", subcategory: "rear_brake_pad", serviceSlug: "brake_pad_replacement", position: "rear" },
+  rotor_front_oem: { name: "Front Brake Rotor", category: "rotor", subcategory: "front_rotor", serviceSlug: "rotor_replacement", position: "front" },
+  rotor_rear_oem: { name: "Rear Brake Rotor", category: "rotor", subcategory: "rear_rotor", serviceSlug: "rotor_replacement", position: "rear" },
+  serpentine_belt_oem: { name: "Serpentine Belt", category: "belt", subcategory: "serpentine_belt", serviceSlug: null },
+  timing_belt_oem: { name: "Timing Belt", category: "timing", subcategory: "timing_belt", serviceSlug: "timing_belt" },
+  wiper_blade_set_oem: { name: "Wiper Blade Set", category: "wiper", subcategory: "wiper_blade_set", serviceSlug: null },
+  battery_oem: { name: "Battery", category: "electrical", subcategory: "battery", serviceSlug: "battery_replacement" },
+  coolant_oem: { name: "Coolant", category: "cooling", subcategory: "coolant", serviceSlug: "coolant_flush" },
+};
+
+/** Map interval field prefix to service slug. */
+const INTERVAL_TO_SERVICE: Record<string, string> = {
+  oil_change: "oil_change",
+  spark_plug: "spark_plugs",
+  transmission_service: "transmission_service",
+  coolant_flush: "coolant_flush",
+  air_filter: "filter_replacement",
+  cabin_filter: "filter_replacement",
+  brake_fluid_flush: "brake_fluid_flush",
+  timing_service: "timing_belt",
+  diff_fluid: "differential_service",
+  transfer_case_fluid: "differential_service",
+};
+
+function extractDomain(url: string | null | undefined): string | undefined {
+  if (!url) return undefined;
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return undefined;
+  }
+}
+
+function slugify(s: string): string {
+  return s.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9-]/g, "");
+}
+
+function asNumber(val: unknown): number | undefined {
+  if (val === null || val === undefined) return undefined;
+  if (typeof val === "number" && val !== 0) return val;
+  if (typeof val === "string") {
+    const n = parseFloat(val);
+    if (!isNaN(n) && n !== 0) return n;
+  }
+  return undefined;
+}
+
+function asString(val: unknown): string | undefined {
+  if (val === null || val === undefined) return undefined;
+  if (typeof val === "string" && val.length > 0) return val;
+  if (typeof val === "number" && val !== 0) return String(val);
+  return undefined;
+}
+
+function asBoolean(val: unknown): boolean | undefined {
+  if (val === null || val === undefined) return undefined;
+  if (typeof val === "boolean") return val;
+  if (val === "true") return true;
+  if (val === "false") return false;
+  return undefined;
+}
+
+// ─── Shared args for poll actions ────────────────────────────────
+
+const vehicleArgs = {
+  vehicleId: v.id("vehicles"),
+  year: v.float64(),
+  make: v.string(),
+  model: v.string(),
+  trim: v.string(),
+  engineCode: v.string(),
+  displacement: v.string(),
+  startTime: v.float64(),
+  callLog: v.array(v.object({
+    call: v.string(),
+    tokensIn: v.float64(),
+    tokensOut: v.float64(),
+    webSearches: v.float64(),
+    durationMs: v.float64(),
+  })),
+  sourceUrls: v.array(v.string()),
+  attempt: v.optional(v.float64()),
+};
+
+// ─── Write normalized data from parsed fields ────────────────────
+
+async function writeNormalizedData(
+  ctx: any,
+  fields: Record<string, FieldResult>,
+  vehicleConfigId: Id<"vehicle_configs">,
+  engineId: Id<"engines">,
+  transmissionId: Id<"transmissions"> | undefined,
+  makeId: Id<"makes">,
+  runId: Id<"enrichment_runs">,
+  make: string,
+  serviceCache: Map<string, Id<"services">>,
+) {
+  const now = Date.now();
+
+  // A. Engine specs — typed coercion
+  const turboVal = fields.turbo?.value;
+  let aspiration: string | undefined;
+  if (turboVal === true || turboVal === "Yes" || turboVal === "yes") aspiration = "turbo";
+  else if (turboVal === "twin-turbo") aspiration = "twin-turbo";
+  else if (turboVal === false || turboVal === "No" || turboVal === "no") aspiration = "natural";
+
+  await ctx.runMutation(internal.vehicleEnrichment.v3mutations.updateEngineSpecs, {
+    engine_id: engineId,
+    oil_viscosity: asString(fields.oil_viscosity?.value),
+    oil_capacity_qts: asNumber(fields.oil_capacity_qts?.value),
+    coolant_type: asString(fields.coolant_type?.value),
+    coolant_capacity_qts: asNumber(fields.coolant_capacity_qts?.value),
+    timing_system: asString(fields.timing_system?.value),
+    fuel_injection: asString(fields.fuel_injection_type?.value),
+    aspiration,
+    spark_plug_quantity: asNumber(fields.spark_plug_quantity?.value),
+    spark_plug_gap_mm: asNumber(fields.spark_plug_gap?.value),
+    has_serpentine_belt: fields.serpentine_belt_oem?.value != null ? true : undefined,
+    data_quality: "enriched",
+  });
+
+  // B. Transmission specs
+  if (transmissionId) {
+    await ctx.runMutation(internal.vehicleEnrichment.v3mutations.updateTransmissionSpecs, {
+      transmission_id: transmissionId,
+      fluid_type: asString(fields.trans_fluid_type?.value),
+      data_quality: "enriched",
+    });
+  }
+
+  // C. Drivetrain config fluid types
+  const diffFluid = asString(fields.diff_fluid_type?.value);
+  const tcFluid = asString(fields.transfer_case_fluid_type?.value);
+  if (diffFluid || tcFluid) {
+    const drivetrainVal = asString(fields.drivetrain?.value) ?? "FWD";
+    await ctx.runMutation(internal.vehicleEnrichment.v3mutations.upsertDrivetrainConfig, {
+      vehicle_config_id: vehicleConfigId,
+      drivetrain_type: drivetrainVal,
+      has_differential: drivetrainVal !== "FWD",
+      diff_fluid_type: diffFluid,
+      has_transfer_case: drivetrainVal === "AWD" || drivetrainVal === "4WD",
+      tc_fluid_type: tcFluid,
+    });
+  }
+
+  // D. Trim specs — typed coercion
+  await ctx.runMutation(internal.vehicleEnrichment.v3mutations.upsertTrimSpecs, {
+    vehicle_config_id: vehicleConfigId,
+    front_tire_size: asString(fields.front_tire_size?.value),
+    rear_tire_size: asString(fields.rear_tire_size?.value),
+    tire_pressure_front: asNumber(fields.tire_pressure_front_psi?.value),
+    tire_pressure_rear: asNumber(fields.tire_pressure_rear_psi?.value),
+    lug_nut_torque_ft_lbs: asNumber(fields.lug_nut_torque_ft_lbs?.value),
+    front_wiper_size_in: asString(fields.front_wiper_size?.value),
+    rear_wiper_size_in: asString(fields.rear_wiper_size?.value),
+    battery_group: asString(fields.battery_group?.value),
+    battery_cca: asNumber(fields.battery_cca?.value),
+  });
+
+  // E. Vehicle config fields — typed coercion
+  const psType = asString(fields.power_steering_type?.value);
+  await ctx.runMutation(internal.vehicleEnrichment.v3mutations.patchVehicleConfig, {
+    vehicle_config_id: vehicleConfigId,
+    brake_fluid_type: asString(fields.brake_fluid_type?.value),
+    has_brake_pad_sensor: MAKES_WITH_BRAKE_PAD_SENSORS.has(make),
+    ps_fluid_type: psType && psType !== "electric" ? psType : undefined,
+  });
+
+  // F. OEM parts + fitments
+  for (const [fieldKey, meta] of Object.entries(PART_FIELD_MAP)) {
+    const rawVal = fields[fieldKey]?.value;
+    const conf = fields[fieldKey]?.confidence;
+    const src = fields[fieldKey]?.source_url;
+
+    // Coerce to string — BMW 11-digit part numbers may parse as numbers
+    const val = rawVal != null ? String(rawVal) : null;
+
+    console.log(`[v8-parts] ${fieldKey}: value=${rawVal} (type=${typeof rawVal}), confidence=${conf}, source=${src}`);
+
+    if (val == null || val.length === 0) {
+      console.log(`[v8-parts] SKIPPED ${fieldKey}: reason=null_or_empty`);
+      continue;
+    }
+
+    let qty = 1;
+    if (meta.subcategory === "spark_plug") {
+      qty = asNumber(fields.spark_plug_quantity?.value) ?? 1;
+    } else if (meta.subcategory === "front_rotor" || meta.subcategory === "rear_rotor") {
+      qty = 2;
+    }
+
+    console.log(`[v8-parts] Writing part: ${val} as ${meta.subcategory} for service ${meta.serviceSlug ?? meta.subcategory}`);
+
+    await ctx.runMutation(internal.vehicleEnrichment.v3mutations.upsertPartAndFitment, {
+      oem_part_number: val,
+      name: meta.name,
+      category: meta.category,
+      subcategory: meta.subcategory,
+      make_id: makeId,
+      vehicle_config_id: vehicleConfigId,
+      service_type: meta.serviceSlug ?? meta.subcategory,
+      quantity_needed: qty,
+      position: meta.position,
+      confidence: fields[fieldKey]?.confidence ?? 0.7,
+      source_domain: extractDomain(fields[fieldKey]?.source_url),
+    });
+  }
+
+  // G. Service intervals
+  const intervalPrefixes = Object.keys(INTERVAL_TO_SERVICE);
+  for (const prefix of intervalPrefixes) {
+    const milesVal = asNumber(fields[`${prefix}_miles`]?.value);
+    const monthsVal = asNumber(fields[`${prefix}_months`]?.value);
+    if (milesVal == null && monthsVal == null) continue;
+
+    const slug = INTERVAL_TO_SERVICE[prefix];
+    const serviceId = await resolveServiceId(ctx, slug, serviceCache);
+    if (!serviceId) continue;
+
+    const confidence = Math.min(
+      fields[`${prefix}_miles`]?.confidence ?? 1,
+      fields[`${prefix}_months`]?.confidence ?? 1,
+    );
+
+    await ctx.runMutation(internal.vehicleEnrichment.v3mutations.upsertServiceInterval, {
+      vehicle_config_id: vehicleConfigId,
+      service_id: serviceId,
+      interval_miles: milesVal,
+      interval_months: monthsVal,
+      status: milesVal || monthsVal ? "scheduled" : "on_demand",
+      confidence,
+      data_quality: "enriched",
+    });
+  }
+
+  // H. Evidence batch
+  const evidenceRows: Array<{
+    entity_type: string;
+    entity_id: string;
+    field_name: string;
+    observed_value: string;
+    observed_type: string;
+    source_url?: string;
+    source_domain?: string;
+    source_type: string;
+    confidence: number;
+    enrichment_run_id: Id<"enrichment_runs">;
+    observed_at: number;
+  }> = [];
+
+  for (const k of V4_FIELD_KEYS) {
+    const f = fields[k];
+    if (!f || f.value == null) continue;
+    evidenceRows.push({
+      entity_type: getEntityType(k),
+      entity_id: String(vehicleConfigId),
+      field_name: k,
+      observed_value: String(f.value),
+      observed_type: typeof f.value === "number" ? "number" : typeof f.value === "boolean" ? "boolean" : "string",
+      source_url: f.source_url ?? undefined,
+      source_domain: extractDomain(f.source_url),
+      source_type: f.source_type ?? "training_data",
+      confidence: f.confidence ?? 0.5,
+      enrichment_run_id: runId,
+      observed_at: now,
+    });
+  }
+
+  // Insert in batches of 50 to avoid transaction limits
+  for (let i = 0; i < evidenceRows.length; i += 50) {
+    const batch = evidenceRows.slice(i, i + 50);
+    await ctx.runMutation(internal.vehicleEnrichment.v3mutations.addEvidenceBatch, {
+      evidence_rows: batch,
+    });
+  }
+}
+
+function getEntityType(fieldName: string): string {
+  if (fieldName.includes("tire") || fieldName.includes("wiper") || fieldName.includes("lug_nut") || fieldName.includes("battery_group") || fieldName.includes("battery_cca") || fieldName.includes("battery_type") || fieldName.includes("battery_location") || fieldName.includes("alignment")) return "trim_spec";
+  if (fieldName.includes("oil_") || fieldName.includes("coolant") || fieldName.includes("timing") || fieldName.includes("spark_plug") || fieldName.includes("fuel_injection") || fieldName === "turbo" || fieldName.includes("aspiration") || fieldName.includes("serpentine")) return "engine";
+  if (fieldName.includes("trans_fluid") || fieldName.includes("transmission")) return "transmission";
+  if (fieldName.includes("diff_fluid") || fieldName.includes("transfer_case")) return "drivetrain_config";
+  if (fieldName.endsWith("_oem")) return "part";
+  if (fieldName.endsWith("_miles") || fieldName.endsWith("_months")) return "interval";
+  if (fieldName.endsWith("_price") || fieldName.startsWith("estimated_labor")) return "vehicle_config";
+  return "vehicle_config";
+}
+
+async function resolveServiceId(
+  ctx: any,
+  slug: string,
+  cache: Map<string, Id<"services">>,
+): Promise<Id<"services"> | null> {
+  if (cache.has(slug)) return cache.get(slug)!;
+  const svc = await ctx.runQuery(internal.vehicleEnrichment.v3queries.getServiceBySlug, { slug });
+  if (svc) {
+    cache.set(slug, svc._id);
+    return svc._id;
+  }
+  return null;
+}
+
+// ============================================================================
+// 1. enrichVehicleBatchV3 — Entry Point
+// ============================================================================
+
+export const enrichVehicleBatchV3 = internalAction({
+  args: {
+    vehicleId: v.id("vehicles"),
+    year: v.float64(),
+    make: v.string(),
+    model: v.string(),
+    trim: v.string(),
+    engineCode: v.string(),
+    displacement: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const startTime = Date.now();
+    const vehicle: VehicleInput = {
+      vehicleId: args.vehicleId,
+      year: args.year,
+      make: args.make,
+      model: args.model,
+      trim: args.trim,
+      engineCode: args.engineCode,
+      displacement: args.displacement,
+    };
+    const configKey = buildEngineKey(vehicle);
+    console.log(`[v8] Starting enrichment for ${configKey}`);
+
+    // STEP 0: Cache check — does a vehicle_config already exist and is complete?
+    const existingConfig = await ctx.runQuery(
+      internal.vehicleEnrichment.v3queries.getVehicleConfigByKey,
+      { configKey },
+    );
+    if (existingConfig && (existingConfig.enrichment_status === "complete" || existingConfig.enrichment_status === "verified")) {
+      console.log(`[v8] Cache hit for ${configKey} (status=${existingConfig.enrichment_status})`);
+      await ctx.runMutation(
+        internal.vehicleEnrichment.v3mutations.attachVehicleConfig,
+        { vehicle_id: args.vehicleId, vehicle_config_id: existingConfig._id },
+      );
+      return { status: "cache_hit" as const, configId: existingConfig._id };
+    }
+
+    // STEP 1: Read vehicle identity from DB
+    let vPicData: VehicleIdentity | null = null;
+    try {
+      vPicData = await ctx.runQuery(
+        internal.vehicleEnrichment.nhtsa.getIdentity,
+        { vehicleId: args.vehicleId },
+      );
+      if (vPicData) {
+        console.log(`[v8] DB identity: drivetrain=${vPicData.drivetrain}, cylinders=${vPicData.cylinders}`);
+      }
+    } catch (e) {
+      console.warn("[v8] Could not read vehicle identity:", e);
+    }
+
+    // STEP 2: Resolve make + model IDs
+    const makeDoc = await ctx.runQuery(
+      internal.vehicleEnrichment.v3queries.getMakeByName,
+      { name: args.make },
+    );
+    if (!makeDoc) {
+      console.error(`[v8] Make "${args.make}" not found in makes table — aborting`);
+      return { status: "error" as const, reason: "make_not_found" };
+    }
+
+    let modelDoc = await ctx.runQuery(
+      internal.vehicleEnrichment.v3queries.getModelByMakeAndName,
+      { makeId: makeDoc._id, name: args.model },
+    );
+    if (!modelDoc) {
+      const modelId = await ctx.runMutation(
+        internal.vehicleEnrichment.v3queries.createModel,
+        { make_id: makeDoc._id, name: args.model },
+      );
+      modelDoc = { _id: modelId } as any;
+    }
+
+    // STEP 3: Read engine + transmission IDs from vehicles table
+    const vehicleDoc = await ctx.runQuery(
+      internal.vehicleEnrichment.v3queries.getVehicle,
+      { vehicleId: args.vehicleId },
+    );
+    if (!vehicleDoc?.engine_id) {
+      console.error("[v8] Vehicle has no engine_id — aborting");
+      return { status: "error" as const, reason: "no_engine_id" };
+    }
+
+    // STEP 4: Create enrichment run (vehicle_config_id not yet known)
+    const runId = await ctx.runMutation(
+      internal.vehicleEnrichment.v3mutations.createEnrichmentRun,
+      { vehicle_config_id: existingConfig?._id, version: "v8", trigger: "new_vehicle" },
+    );
+
+    // STEP 5: Upsert vehicle_config
+    const drivetrainVal = vPicData?.drivetrain ?? "FWD";
+    const vehicleConfigId = await ctx.runMutation(
+      internal.vehicleEnrichment.v3mutations.upsertVehicleConfig,
+      {
+        config_key: configKey,
+        year: args.year,
+        make_id: makeDoc._id,
+        model_id: modelDoc._id,
+        engine_id: vehicleDoc.engine_id,
+        transmission_id: vehicleDoc.transmission_id,
+        drivetrain: drivetrainVal,
+        trim_name: args.trim,
+        trim_slug: slugify(args.trim),
+        enrichment_status: "enriching",
+        fill_rate: 0,
+        enrichment_version: "v8",
+      },
+    );
+
+    // Link enrichment run to the vehicle_config now that we have the ID
+    await ctx.runMutation(internal.vehicleEnrichment.v3mutations.updateEnrichmentRun, {
+      run_id: runId,
+      vehicle_config_id: vehicleConfigId,
+      status: "scraping",
+    });
+
+    // STEP 6: Upsert drivetrain_config
+    await ctx.runMutation(internal.vehicleEnrichment.v3mutations.upsertDrivetrainConfig, {
+      vehicle_config_id: vehicleConfigId,
+      drivetrain_type: drivetrainVal,
+      has_differential: drivetrainVal !== "FWD",
+      has_transfer_case: drivetrainVal === "AWD" || drivetrainVal === "4WD",
+    });
+
+    // STEP 7: FireCrawl scrape — parts catalog + owner's manual
+    const sources = await scrapeVehicleSources(ctx, vehicle);
+
+    // STEP 8: Submit Batch [1A, 1B]
+    await ctx.runMutation(internal.vehicleEnrichment.v3mutations.updateEnrichmentRun, {
+      run_id: runId,
+      status: "batch1",
+    });
+
+    const batchId = await submitBatch([
+      {
+        customId: "batch1a",
+        system: BATCH_1_SYSTEM,
+        userPrompt: buildBatch1Prompt(vehicle, vPicData, sources.partsMarkdown, sources.manualMarkdown),
+        maxTokens: 8192,
+        temperature: 0,
+        maxSearchUses: 0,
+      },
+      {
+        customId: "batch1b",
+        system: BATCH_1B_SYSTEM,
+        userPrompt: buildBatch1bPrompt(vehicle),
+        maxTokens: 16384,
+        temperature: 0,
+        maxSearchUses: 1,
+        blockedDomains: BLOCKED_DOMAINS,
+      },
+    ]);
+
+    console.log(`[v8] Batch [1A, 1B] submitted (batchId=${batchId}), scheduling poll`);
+
+    await ctx.scheduler.runAfter(
+      POLL_INTERVAL_MS,
+      internal.vehicleEnrichment.v3pipeline._pollBatch1V3,
+      {
+        vehicleId: args.vehicleId,
+        year: args.year, make: args.make, model: args.model,
+        trim: args.trim, engineCode: args.engineCode, displacement: args.displacement,
+        startTime,
+        callLog: [],
+        sourceUrls: [...sources.partsSourceUrls, ...sources.manualSourceUrls],
+        batchId,
+        vPicData: vPicData as any,
+        vehicleConfigId,
+        engineId: vehicleDoc.engine_id,
+        transmissionId: vehicleDoc.transmission_id,
+        makeId: makeDoc._id,
+        runId,
+        attempt: 1,
+      },
+    );
+
+    return { status: "batch_submitted" as const, configKey, batchId };
+  },
+});
+
+// ============================================================================
+// 2. _pollBatch1V3 — Poll Batch 1A+1B, write to normalized tables
+// ============================================================================
+
+export const _pollBatch1V3 = internalAction({
+  args: {
+    ...vehicleArgs,
+    batchId: v.string(),
+    vPicData: v.optional(v.any()),
+    vehicleConfigId: v.id("vehicle_configs"),
+    engineId: v.id("engines"),
+    transmissionId: v.optional(v.id("transmissions")),
+    makeId: v.id("makes"),
+    runId: v.id("enrichment_runs"),
+  },
+  handler: async (ctx, args) => {
+    const attempt = args.attempt ?? 1;
+    console.log(`[v8/_pollBatch1] Poll attempt ${attempt} for batchId=${args.batchId}`);
+
+    const status = await getBatchStatus(args.batchId);
+    if (status !== "ended") {
+      if (attempt >= MAX_POLL_ATTEMPTS) {
+        console.error(`[v8/_pollBatch1] Timed out after ${attempt} attempts`);
+        await ctx.runMutation(internal.vehicleEnrichment.v3mutations.updateEnrichmentRun, {
+          run_id: args.runId,
+          status: "failed",
+          errors: ["batch1_timeout"],
+        });
+        return;
+      }
+      await ctx.scheduler.runAfter(
+        POLL_INTERVAL_MS,
+        internal.vehicleEnrichment.v3pipeline._pollBatch1V3,
+        { ...args, attempt: attempt + 1 },
+      );
+      return;
+    }
+
+    // Parse Batch 1A + 1B
+    const results = await getBatchResults(args.batchId);
+    const r1a = results["batch1a"];
+    const r1b = results["batch1b"];
+
+    if (!r1a) {
+      console.error("[v8/_pollBatch1] No batch1a result — aborting");
+      await ctx.runMutation(internal.vehicleEnrichment.v3mutations.updateEnrichmentRun, {
+        run_id: args.runId,
+        status: "failed",
+        errors: ["no_batch1a_result"],
+      });
+      return;
+    }
+
+    const callLog: CallLogEntry[] = [
+      ...args.callLog,
+      { call: "batch1a", tokensIn: r1a.usage.tokensIn, tokensOut: r1a.usage.tokensOut, webSearches: 0, durationMs: 0 },
+      ...(r1b ? [{ call: "batch1b", tokensIn: r1b.usage.tokensIn, tokensOut: r1b.usage.tokensOut, webSearches: r1b.usage.webSearches, durationMs: 0 }] : []),
+    ];
+
+    const fields1a = parseBatch1a(r1a.data);
+    const fields1b = r1b ? parseBatch1b(r1b.data) : {};
+    let fields = mergeBatch1(fields1a, fields1b);
+
+    const vehicle: VehicleInput = {
+      vehicleId: args.vehicleId,
+      year: args.year, make: args.make, model: args.model,
+      trim: args.trim, engineCode: args.engineCode, displacement: args.displacement,
+    };
+
+    // Apply applicability rules
+    const vPicData = args.vPicData as VehicleIdentity | null;
+    fields = applyApplicabilityRules(fields, vPicData);
+
+    const filledCount = V4_FIELD_KEYS.filter((k) => fields[k]?.value != null).length;
+    console.log(`[v8/_pollBatch1] ${filledCount}/${V4_FIELD_KEYS.length} fields after merge+applicability`);
+
+    // Write to normalized tables
+    const serviceCache = new Map<string, Id<"services">>();
+    await writeNormalizedData(
+      ctx, fields,
+      args.vehicleConfigId, args.engineId, args.transmissionId,
+      args.makeId, args.runId, args.make, serviceCache,
+    );
+
+    // Submit Batch 2
+    const oemParts = getOemParts(fields);
+    const nullFields = getNullFields(fields);
+    console.log(`[v8/_pollBatch1] ${nullFields.length} null fields for Batch 2 gap fill`);
+
+    await ctx.runMutation(internal.vehicleEnrichment.v3mutations.updateEnrichmentRun, {
+      run_id: args.runId,
+      status: "batch2",
+      total_tokens_in: callLog.reduce((s, c) => s + c.tokensIn, 0),
+      total_tokens_out: callLog.reduce((s, c) => s + c.tokensOut, 0),
+      total_web_searches: callLog.reduce((s, c) => s + c.webSearches, 0),
+    });
+
+    const batch2Id = await submitBatch([
+      {
+        customId: "batch2",
+        system: BATCH_2_SYSTEM,
+        userPrompt: buildBatch2Prompt(vehicle, nullFields, oemParts),
+        maxTokens: 16384,
+        temperature: 0,
+        maxSearchUses: 1,
+        blockedDomains: BLOCKED_DOMAINS,
+      },
+    ]);
+
+    await ctx.scheduler.runAfter(
+      POLL_INTERVAL_MS,
+      internal.vehicleEnrichment.v3pipeline._pollBatch2V3,
+      {
+        vehicleId: args.vehicleId,
+        year: args.year, make: args.make, model: args.model,
+        trim: args.trim, engineCode: args.engineCode, displacement: args.displacement,
+        startTime: args.startTime,
+        callLog,
+        sourceUrls: args.sourceUrls,
+        batchId: batch2Id,
+        batch1Fields: fields as any,
+        nullFields,
+        vehicleConfigId: args.vehicleConfigId,
+        engineId: args.engineId,
+        transmissionId: args.transmissionId,
+        makeId: args.makeId,
+        runId: args.runId,
+        attempt: 1,
+      },
+    );
+  },
+});
+
+// ============================================================================
+// 3. _pollBatch2V3 — Poll Batch 2, gap fill + pricing + finalize
+// ============================================================================
+
+export const _pollBatch2V3 = internalAction({
+  args: {
+    ...vehicleArgs,
+    batchId: v.string(),
+    batch1Fields: v.any(),
+    nullFields: v.array(v.string()),
+    vehicleConfigId: v.id("vehicle_configs"),
+    engineId: v.id("engines"),
+    transmissionId: v.optional(v.id("transmissions")),
+    makeId: v.id("makes"),
+    runId: v.id("enrichment_runs"),
+  },
+  handler: async (ctx, args) => {
+    const attempt = args.attempt ?? 1;
+    console.log(`[v8/_pollBatch2] Poll attempt ${attempt} for batchId=${args.batchId}`);
+
+    const status = await getBatchStatus(args.batchId);
+    if (status !== "ended") {
+      if (attempt >= MAX_POLL_ATTEMPTS) {
+        console.error("[v8/_pollBatch2] Timed out — storing partial results");
+      } else {
+        await ctx.scheduler.runAfter(
+          POLL_INTERVAL_MS,
+          internal.vehicleEnrichment.v3pipeline._pollBatch2V3,
+          { ...args, attempt: attempt + 1 },
+        );
+        return;
+      }
+    }
+
+    const results = await getBatchResults(args.batchId);
+    const r2 = results["batch2"];
+
+    const callLog: CallLogEntry[] = [
+      ...args.callLog,
+      ...(r2 ? [{ call: "batch2", tokensIn: r2.usage.tokensIn, tokensOut: r2.usage.tokensOut, webSearches: r2.usage.webSearches, durationMs: 0 }] : []),
+    ];
+
+    let allFields: Record<string, FieldResult> = { ...args.batch1Fields };
+    let services: ServicePricingResult[] = [];
+
+    if (r2) {
+      // Gap fill — only fill nulls
+      const parsed = parseBatch2(r2.data, args.nullFields);
+      const gapFields = parsed.gapFields;
+      services = parsed.services;
+      for (const [k, fv] of Object.entries(gapFields)) {
+        if (allFields[k]?.value == null) {
+          allFields[k] = fv;
+        }
+      }
+
+      // Pricing fields
+      const pricingFields = mapPricingToFields(services);
+      for (const [k, fv] of Object.entries(pricingFields)) {
+        if (allFields[k]?.value == null) {
+          allFields[k] = fv;
+        }
+      }
+
+    }
+
+    // Validation — MUST run BEFORE writeNormalizedData so bad values get nulled first
+    const vehicle: VehicleInput = {
+      vehicleId: args.vehicleId,
+      year: args.year, make: args.make, model: args.model,
+      trim: args.trim, engineCode: args.engineCode, displacement: args.displacement,
+    };
+    const cylinders = parseInt(vehicle.displacement) >= 4 ? 8 : parseInt(vehicle.displacement) >= 2.5 ? 6 : 4;
+    const sanityFlags = runSanityChecks(allFields, cylinders);
+    const oemFlags = validateAllOemParts(allFields, vehicle.make);
+    if (sanityFlags.length > 0) console.log(`[v8] Sanity: ${sanityFlags.length} flags (applied before write)`);
+    if (oemFlags.length > 0) console.log(`[v8] OEM: ${oemFlags.length} issues`);
+
+    // Write sanitized data to normalized tables
+    if (r2) {
+      const serviceCache = new Map<string, Id<"services">>();
+      await writeNormalizedData(
+        ctx, allFields,
+        args.vehicleConfigId, args.engineId, args.transmissionId,
+        args.makeId, args.runId, args.make, serviceCache,
+      );
+
+      // Write labor times from Batch 2 pricing
+      for (const svc of services) {
+        if (!svc.is_applicable) continue;
+        const laborVal = asNumber(svc.labor_hours?.value);
+        if (laborVal == null) continue;
+
+        const slug = SERVICE_NAME_TO_SLUG[svc.service_name];
+        if (!slug) continue;
+
+        const serviceId = await resolveServiceId(ctx, slug, serviceCache);
+        if (!serviceId) continue;
+
+        const engineDoc = await ctx.runQuery(
+          internal.vehicleEnrichment.v3queries.getEngine,
+          { engineId: args.engineId },
+        );
+
+        await ctx.runMutation(internal.vehicleEnrichment.v3mutations.upsertLaborTime, {
+          vehicle_config_id: args.vehicleConfigId,
+          service_id: serviceId,
+          book_hours: laborVal,
+          source: svc.labor_hours?.source_url ? "web_search" : "training_data",
+          confidence: svc.confidence ?? 0.7,
+          engine_family: engineDoc?.engine_family,
+        });
+      }
+
+      // Write part prices from Batch 2 pricing
+      for (const svc of services) {
+        if (!svc.is_applicable || svc.parts_cost_low?.value == null) continue;
+        const priceVal = asNumber(svc.parts_cost_low.value);
+        if (priceVal == null) continue;
+
+        const slug = SERVICE_NAME_TO_SLUG[svc.service_name];
+        if (!slug) continue;
+
+        const fitments = await ctx.runQuery(
+          internal.vehicleEnrichment.v3queries.getFitmentsByConfigAndService,
+          { vehicleConfigId: args.vehicleConfigId, serviceType: slug },
+        );
+
+        if (fitments.length > 0) {
+          const pricePerPart = priceVal / fitments.length;
+          for (const fitment of fitments) {
+            await ctx.runMutation(internal.vehicleEnrichment.v3mutations.upsertPartPrice, {
+              part_id: fitment.part_id,
+              price: pricePerPart,
+              price_type: "online_discount",
+              source_domain: extractDomain(svc.parts_cost_low.source_url) ?? "enrichment",
+              source_url: svc.parts_cost_low.source_url ?? undefined,
+            });
+          }
+        }
+      }
+    }
+
+    // Finalize
+    const flatFillRate = calculateFlatFillRate(allFields);
+    const durationMs = Date.now() - args.startTime;
+    const totalTokensIn = callLog.reduce((s, c) => s + c.tokensIn, 0);
+    const totalTokensOut = callLog.reduce((s, c) => s + c.tokensOut, 0);
+    const totalWebSearches = callLog.reduce((s, c) => s + c.webSearches, 0);
+
+    // Calculate v3 normalized fill rate
+    const { rate: fillRate, breakdown } = await calculateV3FillRate(
+      ctx, args.vehicleConfigId, args.engineId, args.transmissionId,
+    );
+    console.log(`[v8] Fill rate: ${fillRate}% (flat: ${flatFillRate}%)`);
+    console.log(`[v8] Breakdown: ${breakdown}`);
+
+    // Update enrichment run
+    await ctx.runMutation(internal.vehicleEnrichment.v3mutations.updateEnrichmentRun, {
+      run_id: args.runId,
+      status: "complete",
+      total_tokens_in: totalTokensIn,
+      total_tokens_out: totalTokensOut,
+      total_web_searches: totalWebSearches,
+      completed_at: Date.now(),
+      duration_ms: durationMs,
+      fields_filled: V4_FIELD_KEYS.filter((k) => allFields[k]?.value != null).length,
+      fields_total: V4_FIELD_KEYS.length,
+      fill_rate: fillRate,
+      fields_changed: V4_FIELD_KEYS.filter((k) => allFields[k]?.value != null),
+      errors: [
+        ...sanityFlags.map((f) => `sanity:${f.field}:${f.reason}`),
+        ...oemFlags.map((f) => `oem:${f.field}:${f.reason}`),
+      ],
+    });
+
+    // Update vehicle_config status
+    await ctx.runMutation(internal.vehicleEnrichment.v3mutations.upsertVehicleConfig, {
+      config_key: buildEngineKey(vehicle),
+      year: args.year,
+      make_id: args.makeId,
+      model_id: (await ctx.runQuery(internal.vehicleEnrichment.v3queries.getModelByMakeAndName, { makeId: args.makeId, name: args.model }))?._id ?? args.makeId as any,
+      engine_id: args.engineId,
+      transmission_id: args.transmissionId,
+      drivetrain: (allFields.drivetrain?.value as string) ?? "FWD",
+      trim_name: args.trim,
+      trim_slug: slugify(args.trim),
+      enrichment_status: fillRate >= 70 ? "complete" : "partial",
+      fill_rate: fillRate,
+      enrichment_version: "v8",
+    });
+
+    // Attach to vehicle
+    await ctx.runMutation(
+      internal.vehicleEnrichment.v3mutations.attachVehicleConfig,
+      { vehicle_id: args.vehicleId, vehicle_config_id: args.vehicleConfigId },
+    );
+
+    // Update source reliability scores based on consensus
+    try {
+      await ctx.runMutation(
+        internal.vehicleEnrichment.v3mutations.runSourceScoring,
+        { enrichment_run_id: args.runId },
+      );
+    } catch (e) {
+      console.warn("[v8] Source scoring failed (non-fatal):", e);
+    }
+
+    console.log(
+      `[v8] COMPLETE: ${buildEngineKey(vehicle)} — fillRate=${fillRate}% (flat=${flatFillRate}%), ` +
+      `tokens=${totalTokensIn}in/${totalTokensOut}out, ` +
+      `searches=${totalWebSearches}, time=${Math.round(durationMs / 1000)}s`,
+    );
+  },
+});

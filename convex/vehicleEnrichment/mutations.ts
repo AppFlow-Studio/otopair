@@ -70,7 +70,7 @@ export const debugScheduleEnrichment = mutation({
     displacement: v.string(),
   },
   handler: async (ctx, args) => {
-    await ctx.scheduler.runAfter(0, internal.vehicleEnrichment.pipelineBatch.enrichVehicleBatch, {
+    await ctx.scheduler.runAfter(0, internal.vehicleEnrichment.v3pipeline.enrichVehicleBatchV3, {
       vehicleId: args.vehicleId,
       year: args.year,
       make: args.make,

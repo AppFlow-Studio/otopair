@@ -1,9 +1,23 @@
 /**
- * vehicleEnrichment/scraperQueries.ts — Convex queries/mutations for raw_scrape_cache
+ * vehicleEnrichment/scraperQueries.ts — Convex queries/mutations for scrape_cache
  */
 
 import { v } from "convex/values";
 import { internalQuery, internalMutation, mutation } from "../_generated/server";
+
+/** Build a deterministic cache key from vehicle + source type. */
+function buildCacheKey(make: string, model: string, year: number, sourceType: string): string {
+  return `${make}_${model}_${year}_${sourceType}`.toLowerCase().replace(/\s+/g, "_");
+}
+
+/** Extract domain from a URL. */
+function extractDomain(url: string): string {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "");
+  } catch {
+    return "unknown";
+  }
+}
 
 /** Return a non-expired cached scrape for this vehicle + source type, or null. */
 export const getCachedScrape = internalQuery({
@@ -19,22 +33,26 @@ export const getCachedScrape = internalQuery({
   },
   handler: async (ctx, args) => {
     const now = Date.now();
-    const rows = await ctx.db
-      .query("raw_scrape_cache")
-      .withIndex("by_vehicle", (q) =>
-        q
-          .eq("vehicleMake", args.vehicleMake)
-          .eq("vehicleModel", args.vehicleModel)
-          .eq("vehicleYear", args.vehicleYear),
-      )
-      .filter((q) => q.eq(q.field("sourceType"), args.sourceType))
-      .order("desc")
-      .take(1);
+    const cacheKey = buildCacheKey(args.vehicleMake, args.vehicleModel, args.vehicleYear, args.sourceType);
 
-    const row = rows[0];
+    const row = await ctx.db
+      .query("scrape_cache")
+      .withIndex("by_cache_key", (q) => q.eq("cache_key", cacheKey))
+      .first();
+
     if (!row) return null;
-    if (row.expiresAt < now) return null; // expired
-    return row;
+    if (row.expires_at < now) return null; // expired
+    // Return in the shape the scraper expects
+    return {
+      ...row,
+      // Legacy field aliases so scraper.ts doesn't need changes
+      scrapedAt: row.scraped_at,
+      expiresAt: row.expires_at,
+      sourceType: row.source_type,
+      vehicleMake: args.vehicleMake,
+      vehicleModel: args.vehicleModel,
+      vehicleYear: args.vehicleYear,
+    };
   },
 });
 
@@ -46,17 +64,21 @@ export const debugClearVehicleCache = mutation({
     vehicleYear: v.float64(),
   },
   handler: async (ctx, args) => {
-    const rows = await ctx.db
-      .query("raw_scrape_cache")
-      .withIndex("by_vehicle", (q) =>
-        q
-          .eq("vehicleMake", args.vehicleMake)
-          .eq("vehicleModel", args.vehicleModel)
-          .eq("vehicleYear", args.vehicleYear),
-      )
-      .collect();
-    for (const row of rows) await ctx.db.delete(row._id);
-    return { deleted: rows.length };
+    // Find all cache entries for this vehicle across all source types
+    const sourceTypes = ["parts_catalog", "owner_manual", "pricing"] as const;
+    let deleted = 0;
+    for (const st of sourceTypes) {
+      const cacheKey = buildCacheKey(args.vehicleMake, args.vehicleModel, args.vehicleYear, st);
+      const row = await ctx.db
+        .query("scrape_cache")
+        .withIndex("by_cache_key", (q) => q.eq("cache_key", cacheKey))
+        .first();
+      if (row) {
+        await ctx.db.delete(row._id);
+        deleted++;
+      }
+    }
+    return { deleted };
   },
 });
 
@@ -77,27 +99,42 @@ export const storeScrapeCache = internalMutation({
     expiresAt: v.float64(),
   },
   handler: async (ctx, args) => {
+    const cacheKey = buildCacheKey(args.vehicleMake, args.vehicleModel, args.vehicleYear, args.sourceType);
+    const ttlDays = args.sourceType === "owner_manual" ? 90 : args.sourceType === "pricing" ? 7 : 30;
+    const domain = extractDomain(args.url);
+    const now = Date.now();
+
     // Check for existing row to overwrite
     const existing = await ctx.db
-      .query("raw_scrape_cache")
-      .withIndex("by_vehicle", (q) =>
-        q
-          .eq("vehicleMake", args.vehicleMake)
-          .eq("vehicleModel", args.vehicleModel)
-          .eq("vehicleYear", args.vehicleYear),
-      )
-      .filter((q) => q.eq(q.field("sourceType"), args.sourceType))
+      .query("scrape_cache")
+      .withIndex("by_cache_key", (q) => q.eq("cache_key", cacheKey))
       .first();
 
     if (existing) {
       await ctx.db.patch(existing._id, {
         url: args.url,
-        scrapedAt: args.scrapedAt,
+        domain,
         markdown: args.markdown,
-        expiresAt: args.expiresAt,
+        markdown_length: args.markdown.length,
+        scraped_at: args.scrapedAt,
+        expires_at: args.expiresAt,
+        scrape_success: true,
       });
     } else {
-      await ctx.db.insert("raw_scrape_cache", args);
+      await ctx.db.insert("scrape_cache", {
+        cache_key: cacheKey,
+        url: args.url,
+        domain,
+        source_type: args.sourceType,
+        year: args.vehicleYear,
+        markdown: args.markdown,
+        markdown_length: args.markdown.length,
+        scraped_at: args.scrapedAt,
+        expires_at: args.expiresAt,
+        ttl_days: ttlDays,
+        scrape_success: true,
+        created_at: now,
+      });
     }
   },
 });

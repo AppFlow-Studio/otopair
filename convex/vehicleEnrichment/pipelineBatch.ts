@@ -1,3 +1,6 @@
+// DEPRECATED — replaced by v3pipeline.ts. Do not use.
+// Will be deleted after v3 pipeline is verified stable.
+
 /**
  * vehicleEnrichment/pipelineBatch.ts — v7 Batch API Pipeline
  *

@@ -767,7 +767,7 @@ export const confirmVehicleForUser = action({
 
     // Schedule v4.2 batch enrichment pipeline (Haiku + Batch API, no rate limits)
     if (vehicle?._id && args.engineCode) {
-      await ctx.scheduler.runAfter(0, internal.vehicleEnrichment.pipelineBatch.enrichVehicleBatch, {
+      await ctx.scheduler.runAfter(0, internal.vehicleEnrichment.v3pipeline.enrichVehicleBatchV3, {
         vehicleId: vehicle._id,
         year: args.year,
         make: args.make,
