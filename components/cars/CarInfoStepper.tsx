@@ -28,6 +28,7 @@ import { useMutation } from "convex/react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
+import LottieView from "lottie-react-native";
 
 import ReAnimated, {
   useSharedValue,
@@ -57,6 +58,23 @@ import type { Id } from "@/convex/_generated/dataModel";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 const DEFAULT_CARD_WIDTH = SCREEN_WIDTH - 80;
+
+const GRID_H_PAD = 16;
+const GRID_GAP = 14;
+const GRID_CONTENT_W = SCREEN_WIDTH - 48 - GRID_H_PAD * 2;
+const CARD_W = Math.floor((GRID_CONTENT_W - GRID_GAP) / 2);
+const CARD_H = 163;
+const CARD_RX = 22;
+const CARD_RING_INSET = 4;
+const CARD_INNER_W = CARD_W - CARD_RING_INSET * 2;
+const CARD_INNER_H = CARD_H - CARD_RING_INSET * 2;
+
+const WIDE_CARD_W = GRID_CONTENT_W;
+const WIDE_CARD_H = 150;
+const WIDE_INNER_W = WIDE_CARD_W - CARD_RING_INSET * 2;
+const WIDE_INNER_H = WIDE_CARD_H - CARD_RING_INSET * 2;
+
+import { FontFamily } from "@/constants/theme";
 
 // ============================================================================
 // TYPES
@@ -228,20 +246,26 @@ const SERVICE_QUESTIONS: Record<ServiceCardId, QuestionDef[]> = {
 
 
 // ============================================================================
-// OrbGridItem (with completion animation)
+// CardGridItem (with completion animation)
 // ============================================================================
 
-function OrbGridItem({ cardId, isDone, isJustCompleted, progress, onPress }: {
+function CardGridItem({ cardId, isDone, isJustCompleted, progress, onPress, isWide }: {
   cardId: ServiceCardId;
   isDone: boolean;
   isJustCompleted: boolean;
   progress: number;
   onPress: () => void;
+  isWide?: boolean;
 }) {
   const scale = useSharedValue(1);
   const card = SERVICE_CARDS[cardId];
   const IconComponent = SERVICE_ICON_COMPONENTS[cardId];
   const isCompleted = isDone || isJustCompleted;
+
+  const outerW = isWide ? WIDE_CARD_W : CARD_W;
+  const outerH = isWide ? WIDE_CARD_H : CARD_H;
+  const innerW = isWide ? WIDE_INNER_W : CARD_INNER_W;
+  const innerH = isWide ? WIDE_INNER_H : CARD_INNER_H;
 
   const completionAnim = useSharedValue(isDone ? 1 : 0);
   const pulseScale = useSharedValue(1);
@@ -315,43 +339,94 @@ function OrbGridItem({ cardId, isDone, isJustCompleted, progress, onPress }: {
     ],
   }));
 
+  const labelColor = isCompleted ? "#FFFFFF" : "#33475B";
+
   return (
     <ReAnimated.View
       layout={Layout.springify().damping(50)}
-      style={s.orbItemWrapper}
+      style={{ alignItems: "center" }}
     >
       <ReAnimated.View style={pressStyle}>
         <Pressable
           disabled={isCompleted}
-          onPressIn={() => { scale.value = withSpring(0.95, { damping: 15, stiffness: 200 }); }}
-          onPressOut={() => { scale.value = withSpring(1, { damping: 12, stiffness: 180 }); }}
+          onPressIn={() => { scale.value = withSpring(0.96, { damping: 20, stiffness: 300 }); }}
+          onPressOut={() => { scale.value = withSpring(1, { damping: 20, stiffness: 300 }); }}
           onPress={onPress}
         >
           <ReAnimated.View style={glowWrapperStyle}>
             <ReAnimated.View style={pulseAnimStyle}>
-              <View style={s.orbOuter}>
-                <SquircleRing progress={progress} isDone={isCompleted} />
+              <View style={{ width: outerW, height: outerH, alignItems: "center", justifyContent: "center" }}>
+                <SquircleRing width={outerW} height={outerH} rx={CARD_RX} progress={progress} isDone={isCompleted} />
 
-                {/* Default white squircle with colored icon */}
-                <View style={s.squircle}>
-                  <IconComponent size={48} />
+                {/* Default glass card */}
+                <View style={[s.card, { width: innerW, height: innerH, borderRadius: CARD_RX, flexDirection: "column" }]}>
+                  <View style={{ flex: 1, alignItems: "center", justifyContent: "center", marginTop: isWide ? 0 : 25 }}>
+                    <IconComponent size={isWide ? 46 : 42} />
+                  </View>
+                  <View style={{ paddingBottom: isWide ? 12 : 14, marginTop: isWide ? -6 : 0, alignItems: "center" }}>
+                    <Text
+                      weight="semiBold"
+                      size="sm"
+                      color={labelColor}
+                      style={{ fontFamily: FontFamily.serifSemiBold, fontSize: 17, textAlign: "center" }}
+                    >
+                      {card.label}
+                    </Text>
+                    {isWide && (
+                      <Text
+                        weight="medium"
+                        size="xs"
+                        color={labelColor}
+                        style={{ fontSize: 11.5, opacity: isCompleted ? 0.7 : 0.55, marginTop: 2, textAlign: "center" }}
+                      >
+                        Any dashboard warnings on?
+                      </Text>
+                    )}
+                  </View>
                 </View>
 
                 {/* Gradient overlay (fades in on completion) */}
-                <ReAnimated.View style={[s.gradientOverlay, gradientOverlayStyle]}>
+                <ReAnimated.View style={[s.cardGradientOverlay, { width: innerW, height: innerH, borderRadius: CARD_RX }, gradientOverlayStyle]}>
                   <LinearGradient
-                    colors={["#8AC2FF", "#5299FE", "#3B7FEB", "#2D6AD9"]}
-                    locations={[0, 0.4, 0.8, 1]}
-                    start={{ x: 0.2, y: 0 }}
-                    end={{ x: 0.8, y: 1 }}
-                    style={s.gradientOverlayInner}
+                    colors={["#5299FE", "#70B7FF"]}
+                    start={{ x: 0.5, y: 0 }}
+                    end={{ x: 0.5, y: 1 }}
+                    style={{ width: innerW, height: innerH, alignItems: "center", justifyContent: "center", borderRadius: CARD_RX, flexDirection: "column" }}
                   >
-                    <IconComponent size={48} color="#FFFFFF" />
+                    <View style={{ flex: 1, alignItems: "center", justifyContent: "center", marginTop: isWide ? 0 : 25 }}>
+                      <IconComponent size={isWide ? 46 : 42} color="#FFFFFF" />
+                    </View>
+                    <View style={{ paddingBottom: isWide ? 12 : 14, marginTop: isWide ? -6 : 0, alignItems: "center" }}>
+                      <Text
+                        weight="semiBold"
+                        size="sm"
+                        color="#FFFFFF"
+                        style={{ fontFamily: FontFamily.serifSemiBold, fontSize: 17, textAlign: "center" }}
+                      >
+                        {card.label}
+                      </Text>
+                      {isWide && (
+                        <Text
+                          weight="medium"
+                          size="xs"
+                          color="#FFFFFF"
+                          style={{ fontSize: 11.5, opacity: 0.7, marginTop: 2, textAlign: "center" }}
+                        >
+                          Any dashboard warnings on?
+                        </Text>
+                      )}
+                    </View>
                   </LinearGradient>
                 </ReAnimated.View>
 
-                {/* Ring burst circle */}
-                <ReAnimated.View style={[s.burstCircle, burstAnimStyle]} />
+                {/* Ring burst */}
+                <ReAnimated.View style={[{
+                  position: "absolute",
+                  top: CARD_RING_INSET, left: CARD_RING_INSET,
+                  width: innerW, height: innerH,
+                  borderRadius: CARD_RX,
+                  borderWidth: 2, borderColor: "#5299FE",
+                }, burstAnimStyle]} />
 
                 {/* Checkmark badge */}
                 <ReAnimated.View style={[s.checkBadge, checkmarkAnimStyle]}>
@@ -362,7 +437,6 @@ function OrbGridItem({ cardId, isDone, isJustCompleted, progress, onPress }: {
           </ReAnimated.View>
         </Pressable>
       </ReAnimated.View>
-      <Text weight="semiBold" size="sm" color="#33475B" style={s.orbLabel}>{card.label}</Text>
     </ReAnimated.View>
   );
 }
@@ -462,8 +536,8 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
       isAnimating.current = true;
       Keyboard.dismiss();
 
-      const exitTo = direction === "forward" ? -cardWidth : cardWidth;
-      const enterFrom = direction === "forward" ? cardWidth : -cardWidth;
+      const exitTo = direction === "forward" ? cardWidth : -cardWidth;
+      const enterFrom = direction === "forward" ? -cardWidth : cardWidth;
 
       Animated.timing(slideX, {
         toValue: exitTo,
@@ -471,10 +545,10 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
         easing: Easing.in(Easing.cubic),
         useNativeDriver: true,
       }).start(() => {
+        slideX.setValue(enterFrom);
         if (newPhase !== null) setPhase(newPhase);
         if (newStep !== null) setStep(newStep);
 
-        slideX.setValue(enterFrom);
         Animated.timing(slideX, {
           toValue: 0,
           duration: 180,
@@ -570,20 +644,76 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
     }
   }, [vehicleOwnerId, serviceAnswers, saveField, onComplete]);
 
+  // ── All-done state ──────────────────────────────────────────
+  const allDone = completedCards.size === ALL_CARD_IDS.length;
+  const allDoneTriggered = useRef(false);
+  const lottieOpacity = useSharedValue(0);
+  const lottieTranslateY = useSharedValue(-20);
+  const gridScale = useSharedValue(1);
+  const gridTranslateY = useSharedValue(0);
+
+  useEffect(() => {
+    if (allDone && !allDoneTriggered.current) {
+      allDoneTriggered.current = true;
+      lottieOpacity.value = withTiming(1, { duration: 500 });
+      lottieTranslateY.value = withTiming(0, { duration: 500, easing: REasing.out(REasing.ease) });
+      gridScale.value = withTiming(0.75, { duration: 600, easing: REasing.out(REasing.ease) });
+      gridTranslateY.value = withTiming(-30, { duration: 600, easing: REasing.out(REasing.ease) });
+    }
+  }, [allDone]);
+
+  const lottieStyle = useAnimatedStyle(() => ({
+    opacity: lottieOpacity.value,
+    transform: [{ translateY: lottieTranslateY.value }],
+  }));
+
+  const gridShrinkStyle = useAnimatedStyle(() => ({
+    transform: [
+      { scale: gridScale.value },
+      { translateY: gridTranslateY.value },
+    ],
+  }));
+
   // ── Render the service grid ─────────────────────────────────
   const renderServiceGrid = () => {
+    const squareCards: ServiceCardId[] = ["brakes", "tires", "oil", "battery"];
     return (
-      <View style={s.orbGrid}>
-        {ALL_CARD_IDS.map(cardId => (
-          <OrbGridItem
-            key={cardId}
-            cardId={cardId}
-            isDone={completedCards.has(cardId)}
-            isJustCompleted={justCompletedId === cardId}
-            progress={serviceProgress[cardId] ?? (completedCards.has(cardId) ? 1 : 0)}
-            onPress={() => handleCardTap(cardId)}
+      <View style={{ flex: 1 }}>
+        {allDone && (
+          <ReAnimated.View style={[{ alignItems: "center", gap: 8, marginBottom: 4 }, lottieStyle]}>
+            <LottieView
+              source={require("@/assets/animations/success.json")}
+              autoPlay
+              loop={false}
+              style={{ width: 140, height: 140 }}
+            />
+            <Text weight="bold" size="xl" color="#0F172A" style={{ fontFamily: FontFamily.serifBold }}>You&apos;re all set!</Text>
+            <Text weight="medium" size="md" color="#94A3B8" style={{ fontFamily: FontFamily.serif }}>Your vehicle health score is ready.</Text>
+          </ReAnimated.View>
+        )}
+        <ReAnimated.View style={[s.cardGrid, !allDone && { flex: 1 }, gridShrinkStyle]}>
+          <View style={s.cardGridSquares}>
+            {squareCards.map(cardId => (
+              <CardGridItem
+                key={cardId}
+                cardId={cardId}
+                isDone={completedCards.has(cardId)}
+                isJustCompleted={justCompletedId === cardId}
+                progress={serviceProgress[cardId] ?? (completedCards.has(cardId) ? 1 : 0)}
+                onPress={() => handleCardTap(cardId)}
+              />
+            ))}
+          </View>
+          <CardGridItem
+            key="warningLights"
+            cardId="warningLights"
+            isDone={completedCards.has("warningLights")}
+            isJustCompleted={justCompletedId === "warningLights"}
+            progress={serviceProgress["warningLights"] ?? (completedCards.has("warningLights") ? 1 : 0)}
+            onPress={() => handleCardTap("warningLights")}
+            isWide
           />
-        ))}
+        </ReAnimated.View>
       </View>
     );
   };
@@ -596,25 +726,25 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
       <View style={s.iconContainer}>
         <Ionicons name="pulse-outline" size={32} color="#5299FE" />
       </View>
-      <Text weight="bold" size="lg" color="#1F2937" style={s.introTitle}>
+      <Text weight="bold" size="lg" color="#1F2937" style={[s.introTitle, { fontFamily: FontFamily.serifBold }]}>
         Let&apos;s get a quick read on your {displayName}
       </Text>
-      <Text weight="medium" size="sm" color="#6B7280" style={s.introSubtitle}>
+      <Text weight="medium" size="sm" color="#6B7280" style={[s.introSubtitle, { fontFamily: FontFamily.serif }]}>
         Three quick checks to understand your vehicle&apos;s current condition.
       </Text>
       <View style={s.benefitsList}>
         {["Brake health assessment", "Tire life estimation", "Warning light detection"].map((b) => (
           <View key={b} style={s.benefitRow}>
             <Ionicons name="checkmark-circle" size={16} color="#22C55E" />
-            <Text weight="medium" size="sm" color="#374151">{b}</Text>
+            <Text weight="medium" size="sm" color="#374151" style={{ fontFamily: FontFamily.serif }}>{b}</Text>
           </View>
         ))}
       </View>
       <Pressable style={({ pressed }) => [s.ctaButton, pressed && s.ctaButtonPressed]} onPress={handleGetStarted}>
-        <Text weight="bold" size="md" color="#FFFFFF">Get Started</Text>
+        <Text weight="bold" size="md" color="#FFFFFF" style={{ fontFamily: FontFamily.serifBold }}>Get Started</Text>
         <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
       </Pressable>
-      <Text weight="medium" size="xs" color="#9CA3AF" style={{ marginTop: 10 }}>Takes about 30 seconds</Text>
+      <Text weight="medium" size="xs" color="#9CA3AF" style={{ marginTop: 10, fontFamily: FontFamily.serif }}>Takes about 30 seconds</Text>
     </View>
   );
 
@@ -635,10 +765,10 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
         <View style={s.steppingPage}>
           {/* Header */}
           <View style={s.steppingHeader}>
-            <Text weight="bold" size="xl" color="#16293B" style={s.steppingTitle}>
+            <Text weight="regular" size="xl" color="#16293B" style={[s.steppingTitle, { fontFamily: FontFamily.serif }]}>
               {meta.title}
             </Text>
-            <Text weight="medium" size="sm" color="#829BAD" style={s.steppingSubtitle}>
+            <Text weight="regular" size="sm" color="#829BAD" style={[s.steppingSubtitle, { fontFamily: FontFamily.serif }]}>
               {meta.subtitle}
             </Text>
           </View>
@@ -655,7 +785,7 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
               {ALL_CARD_IDS.map((id) => (
                 <FooterDot key={id} isDone={completedCards.has(id)} />
               ))}
-              <Text weight="semiBold" size="xs" color="#829BAD" style={s.dotsCounter}>
+              <Text weight="semiBold" size="xs" color="#829BAD" style={[s.dotsCounter, { fontFamily: FontFamily.serif }]}>
                 {completedCards.size} of 5
               </Text>
             </View>
@@ -676,7 +806,7 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
                 end={{ x: 1, y: 0 }}
                 style={s.completeButtonGradient}
               >
-                <Text weight="semiBold" size="md" color="#FFFFFF" style={{ fontSize: 17 }}>
+                <Text weight="semiBold" size="md" color="#FFFFFF" style={{ fontSize: 17, fontFamily: FontFamily.serifBold }}>
                   {saving ? "Saving..." : isLast ? "Complete" : "Next"}
                 </Text>
               </LinearGradient>
@@ -689,7 +819,7 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
                 onPress={handleComplete}
                 disabled={saving}
               >
-                <Text weight="medium" size="sm" color="#A3B5C4" style={{ fontSize: 14 }}>
+                <Text weight="medium" size="sm" color="#A3B5C4" style={{ fontSize: 14, fontFamily: FontFamily.serif }}>
                   Finish for now
                 </Text>
               </Pressable>
@@ -704,7 +834,7 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
             <QuestionOverlay
               serviceId={activeCard}
               serviceName={SERVICE_CARDS[activeCard].label}
-              heroIcon={<HeroIcon size={32} color="#FFFFFF" />}
+              heroIcon={<HeroIcon size={40} color="#FFFFFF" />}
               questions={SERVICE_QUESTIONS[activeCard]}
               initialQuestionIndex={serviceQuestionIndex[activeCard] ?? 0}
               initialAnswers={serviceAnswers[activeCard] ?? {}}
@@ -815,15 +945,15 @@ const s = StyleSheet.create({
   steppingTitle: {
     fontSize: 30,
     letterSpacing: -0.6,
-    marginTop: 6,
+    marginTop: -10,
   },
   steppingSubtitle: {
     fontSize: 15,
-    marginTop: 6,
+    marginTop: 4,
   },
   steppingBody: {
     flex: 1,
-    marginTop: 12,
+    marginTop: 10,
   },
   steppingFooter: {
     paddingTop: 8,
@@ -831,29 +961,21 @@ const s = StyleSheet.create({
     alignItems: "center",
   },
 
-  // ── Orb grid ──
-  orbGrid: {
-    flex: 1,
+  // ── Card grid ──
+  cardGrid: {
+    justifyContent: "center",
+    alignItems: "center",
+    gap: GRID_GAP,
+    paddingHorizontal: GRID_H_PAD,
+    marginTop: -14,
+  },
+  cardGridSquares: {
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "center",
-    alignContent: "center",
-    gap: 16,
-    paddingHorizontal: 8,
+    gap: GRID_GAP,
   },
-  orbItemWrapper: {
-    alignItems: "center",
-  },
-  orbOuter: {
-    width: 130,
-    height: 130,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  squircle: {
-    width: 110,
-    height: 110,
-    borderRadius: 30,
+  card: {
     backgroundColor: "rgba(255,255,255,0.85)",
     borderWidth: 1.5,
     borderColor: "rgba(255,255,255,0.9)",
@@ -865,30 +987,11 @@ const s = StyleSheet.create({
     shadowRadius: 28,
     elevation: 4,
   },
-  gradientOverlay: {
+  cardGradientOverlay: {
     position: "absolute",
-    top: 10,
-    left: 10,
-    width: 110,
-    height: 110,
-    borderRadius: 30,
+    top: CARD_RING_INSET,
+    left: CARD_RING_INSET,
     overflow: "hidden",
-  },
-  gradientOverlayInner: {
-    width: 110,
-    height: 110,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  burstCircle: {
-    position: "absolute",
-    top: 10,
-    left: 10,
-    width: 110,
-    height: 110,
-    borderRadius: 30,
-    borderWidth: 2,
-    borderColor: "#5299FE",
   },
   checkBadge: {
     position: "absolute",
@@ -907,11 +1010,6 @@ const s = StyleSheet.create({
     elevation: 4,
     borderWidth: 2,
     borderColor: "rgba(82,153,254,0.12)",
-  },
-  orbLabel: {
-    marginTop: 10,
-    textAlign: "center",
-    fontSize: 14,
   },
 
   // ── Progress dots ──

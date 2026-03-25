@@ -16,7 +16,6 @@ import {
   Dimensions,
   Image,
   ImageSourcePropType,
-  InteractionManager,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -39,8 +38,10 @@ import ReAnimated, {
   useAnimatedStyle,
   useSharedValue,
   withSpring,
+  withTiming,
   runOnJS,
   SharedValue,
+  Easing as REasing,
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 
@@ -261,7 +262,7 @@ const VehicleHealthModal = ({
     {
       name: 'Maintenance',
       subtitle: 'More services completed = higher score',
-      color: maintenanceScore >= 75 ? '#30D158' : maintenanceScore >= 60 ? '#FFD60A' : '#FF3B5C',
+      color: maintenanceScore >= 75 ? '#30D158' : maintenanceScore >= 60 ? '#FFEA00' : '#FF3B5C',
       percentage: maintenanceScore,
       displayValue: `${maintenanceCompleted}/${maintenanceTotal}`,
       // Weighted impact: (75 - score) × 0.7 weight
@@ -270,7 +271,7 @@ const VehicleHealthModal = ({
     {
       name: 'Usage & Wear',
       subtitle: 'Lower mileage = higher score',
-      color: usageScore >= 75 ? '#30D158' : usageScore >= 60 ? '#FFD60A' : '#FF3B5C',
+      color: usageScore >= 75 ? '#30D158' : usageScore >= 60 ? '#FFEA00' : '#FF3B5C',
       percentage: usageScore,
       displayValue: formatMileage(vehicleMileage),
       // Weighted impact: (75 - score) × 0.3 weight
@@ -379,7 +380,7 @@ const VehicleHealthModal = ({
   // Determine ring color based on calculated condition
   const getRingColor = () => {
     if (calculatedCondition >= 75) return '#30D158'; // Green
-    if (calculatedCondition >= 60) return '#FFD60A'; // Yellow
+    if (calculatedCondition >= 60) return '#FFEA00'; // Yellow
     return '#FF3B5C'; // Red
   };
   
@@ -1313,7 +1314,7 @@ const ActivityRings = ({
   // Color based on health percentage
   const getColor = () => {
     if (healthPercentage >= 75) return '#30D158'; // Green
-    if (healthPercentage >= 60) return '#FFD60A'; // Yellow
+    if (healthPercentage >= 60) return '#FFEA00'; // Yellow
     return '#FF3B30'; // Red
   };
   const ringColor = getColor();
@@ -1413,7 +1414,8 @@ interface CarouselItemProps {
 }
 
 const CircularCarouselItem = memo(({ item, index, rotation, totalItems }: CarouselItemProps) => {
-  const imageSource = item.imageSource || FALLBACK_VEHICLE_IMAGE;
+  const [hasImageError, setHasImageError] = useState(false);
+  const imageSource = hasImageError ? FALLBACK_VEHICLE_IMAGE : (item.imageSource || FALLBACK_VEHICLE_IMAGE);
 
   const animatedStyle = useAnimatedStyle(() => {
     const anglePerItem = (2 * Math.PI) / totalItems;
@@ -1476,9 +1478,10 @@ const CircularCarouselItem = memo(({ item, index, rotation, totalItems }: Carous
           styles.carouselCarImage,
           item.make === 'Lexus' && styles.carouselCarImageLexus,
           item.make === 'Lamborghini' && styles.carouselCarImageLambo,
-          { transform: [{ translateY: 155 }] },
+          { transform: [{ translateY: 60 }] },
         ]}
         resizeMode="stretch"
+        onError={() => setHasImageError(true)}
       />
       
       {/* Simple Reflection */}
@@ -1519,6 +1522,7 @@ export function CarCarousel({
   const rotation = useSharedValue(0);
   const anglePerItem = sortedVehicles.length > 0 ? (2 * Math.PI) / sortedVehicles.length : 0;
   const lastUpdatedIndex = useSharedValue(0);
+  const isUserAnimating = useRef(false);
 
   // Bottom sheet state
   const [showBottomSheet, setShowBottomSheet] = useState(false);
@@ -1555,7 +1559,9 @@ export function CarCarousel({
       setActiveIndex(nextIndex);
       onActiveIndexChange?.(nextIndex);
     }
-    rotation.value = -nextIndex * anglePerItem;
+    if (!isUserAnimating.current) {
+      rotation.value = -nextIndex * anglePerItem;
+    }
     lastUpdatedIndex.value = nextIndex;
   }, [sortedVehicles.length, activeIndex, anglePerItem, onActiveIndexChange, rotation, lastUpdatedIndex]);
 
@@ -1581,14 +1587,14 @@ export function CarCarousel({
   };
   const usageScoreForRing = getMileageScoreForRing(vehicleMileage);
 
-  // Deferred state update - waits for ALL animations to complete before updating
-  const deferredStateUpdate = useCallback((newIndex: number) => {
-    // Wait for animations to complete, then update state
-    InteractionManager.runAfterInteractions(() => {
-      setActiveIndex(newIndex);
-      onActiveIndexChange?.(newIndex);
-    });
+  const setAnimatingTrue = useCallback(() => { isUserAnimating.current = true; }, []);
+  const finishAnimation = useCallback((newIndex: number) => {
+    isUserAnimating.current = false;
+    setActiveIndex(newIndex);
+    onActiveIndexChange?.(newIndex);
   }, [onActiveIndexChange]);
+
+  const SETTLE_EASING = REasing.bezier(0.16, 1, 0.3, 1);
 
   // Pan gesture for rotating carousel
   const lastTranslationX = useSharedValue(0);
@@ -1598,40 +1604,40 @@ export function CarCarousel({
       lastTranslationX.value = 0;
     })
     .onUpdate((e) => {
-      // Only update rotation - NO state updates during drag
       const delta = e.translationX - lastTranslationX.value;
-      rotation.value -= delta * 0.008; // Reversed: swipe right = car goes right
+      rotation.value -= delta * 0.008;
       lastTranslationX.value = e.translationX;
       
-      // Track index in shared value only - no JS bridge calls
       const currentRotationInSteps = Math.round(rotation.value / anglePerItem);
       const currentClosestIndex = (((-currentRotationInSteps % sortedVehicles.length) + sortedVehicles.length) % sortedVehicles.length);
       lastUpdatedIndex.value = currentClosestIndex;
     })
     .onEnd((e) => {
-      const velocity = e.velocityX * -0.0005; // Reversed to match swipe direction
+      const velocity = e.velocityX * -0.0005;
       const targetRotation = rotation.value + velocity;
       const nearestIndex = Math.round(targetRotation / anglePerItem);
       const snappedRotation = nearestIndex * anglePerItem;
 
-      // Start spring animation FIRST - less bouncy
-      rotation.value = withSpring(snappedRotation, {
-        damping: 28,
-        stiffness: 120,
-      });
-
-      // Then update state after animation starts
       const normalizedIndex = (((-nearestIndex % sortedVehicles.length) + sortedVehicles.length) % sortedVehicles.length);
       lastUpdatedIndex.value = normalizedIndex;
-      runOnJS(deferredStateUpdate)(normalizedIndex);
+      runOnJS(setAnimatingTrue)();
+
+      rotation.value = withTiming(snappedRotation, {
+        duration: 350,
+        easing: SETTLE_EASING,
+      }, (finished) => {
+        'worklet';
+        if (finished) {
+          runOnJS(finishAnimation)(normalizedIndex);
+        }
+      });
     });
 
   // Rotate to specific index
   const rotateToIndex = useCallback((targetIndex: number) => {
-    // Update shared value immediately for gesture tracking
     lastUpdatedIndex.value = targetIndex;
+    isUserAnimating.current = true;
     
-    // Calculate and start animation FIRST
     const currentRotationInSteps = Math.round(rotation.value / anglePerItem);
     const currentIndex = (((-currentRotationInSteps % sortedVehicles.length) + sortedVehicles.length) % sortedVehicles.length);
     
@@ -1645,23 +1651,20 @@ export function CarCarousel({
 
     const targetRotation = rotation.value - (indexDiff * anglePerItem);
     
-    // Start animation FIRST - smooth with minimal bounce
-    rotation.value = withSpring(targetRotation, {
-      damping: 28,
-      stiffness: 120,
+    rotation.value = withTiming(targetRotation, {
+      duration: 400,
+      easing: SETTLE_EASING,
+    }, (finished) => {
+      'worklet';
+      if (finished) {
+        runOnJS(finishAnimation)(targetIndex);
+      }
     });
     
-    // Close bottom sheet immediately if needed
     if (showBottomSheet) {
       closeBottomSheet();
     }
-    
-    // Wait for animation to complete before updating state
-    InteractionManager.runAfterInteractions(() => {
-      setActiveIndex(targetIndex);
-      onActiveIndexChange?.(targetIndex);
-    });
-  }, [anglePerItem, sortedVehicles.length, showBottomSheet, onActiveIndexChange]);
+  }, [anglePerItem, sortedVehicles.length, showBottomSheet, finishAnimation, SETTLE_EASING]);
 
   // Bottom sheet functions
   const openBottomSheet = () => {
@@ -2030,7 +2033,7 @@ const styles = StyleSheet.create({
   
   // 3D Carousel Styles
   carouselContainer: {
-    height: SCREEN_HEIGHT * 0.28,
+    height: SCREEN_HEIGHT * 0.24,
     alignItems: 'center',
     justifyContent: 'flex-end',
     position: 'relative',
@@ -2086,7 +2089,7 @@ const styles = StyleSheet.create({
     height: 180,
     transform: [{ scaleY: -1 }],
     opacity: 0.03,
-    marginTop: -40,
+    marginTop: -165,
   },
   carouselReflectionLexus: {
     // No longer needed
@@ -2095,14 +2098,14 @@ const styles = StyleSheet.create({
     width: '130%',
     height: 260,
     opacity: 0.04,
-    marginTop: -50,
+    marginTop: -175,
     transform: [{ scaleY: -1 }, { translateY: 40 }],
   },
   
   // Active Car Info
   activeCarInfo: {
     alignItems: 'center',
-    marginTop: 20,
+    marginTop: 8,
   },
   heroCarName: {
     color: '#000000',

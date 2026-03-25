@@ -28,7 +28,7 @@
  */
 
 // 1. React & React Native
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
     Dimensions,
     Modal,
@@ -39,7 +39,6 @@ import {
 
 // 2. Expo & Third-party
 import { Ionicons } from '@expo/vector-icons';
-import { BlurView } from 'expo-blur';
 import Animated, {
     Easing,
     runOnJS,
@@ -72,6 +71,7 @@ interface SharedElementModalProps {
   onClose: () => void;
   title: string;
   children: React.ReactNode;
+  hideHeader?: boolean;
 }
 
 // ============================================================================
@@ -103,7 +103,12 @@ export function SharedElementModal({
   onClose,
   title,
   children,
+  hideHeader,
 }: SharedElementModalProps) {
+  // Internal visibility keeps the modal mounted while the exit animation runs
+  const [showModal, setShowModal] = useState(false);
+  const isAnimatingOut = useRef(false);
+
   // Animated values for the card
   const cardX = useSharedValue(layoutInfo?.x ?? 0);
   const cardY = useSharedValue(layoutInfo?.y ?? 0);
@@ -116,6 +121,9 @@ export function SharedElementModal({
   // Handle opening animation
   useEffect(() => {
     if (visible && layoutInfo) {
+      isAnimatingOut.current = false;
+      setShowModal(true);
+
       // Reset to starting position
       cardX.value = layoutInfo.x;
       cardY.value = layoutInfo.y;
@@ -133,20 +141,25 @@ export function SharedElementModal({
       borderRadius.value = withSpring(20, springConfig);
       overlayOpacity.value = withTiming(1, { duration: 300 });
       contentOpacity.value = withTiming(1, { duration: 400, easing: Easing.out(Easing.ease) });
+    } else if (!visible && showModal && !isAnimatingOut.current) {
+      // visible went false externally — run exit animation
+      animateOut();
     }
   }, [visible, layoutInfo]);
 
   // Handle closing animation
-  const handleClose = () => {
+  const animateOut = () => {
+    if (isAnimatingOut.current) return;
+    isAnimatingOut.current = true;
+
     if (!layoutInfo) {
+      setShowModal(false);
       onClose();
       return;
     }
 
-    // Animate content fade out first
     contentOpacity.value = withTiming(0, { duration: 200 });
 
-    // Then animate card back to original position
     cardX.value = withSpring(layoutInfo.x, springConfig);
     cardY.value = withSpring(layoutInfo.y, springConfig);
     cardWidth.value = withSpring(layoutInfo.width, springConfig);
@@ -154,9 +167,19 @@ export function SharedElementModal({
     borderRadius.value = withSpring(12, springConfig);
     overlayOpacity.value = withTiming(0, { duration: 300 }, (finished) => {
       if (finished) {
-        runOnJS(onClose)();
+        runOnJS(finishClose)();
       }
     });
+  };
+
+  const finishClose = () => {
+    setShowModal(false);
+    isAnimatingOut.current = false;
+    onClose();
+  };
+
+  const handleClose = () => {
+    animateOut();
   };
 
   // Animated styles for the card
@@ -180,11 +203,11 @@ export function SharedElementModal({
     opacity: contentOpacity.value,
   }));
 
-  if (!visible) return null;
+  if (!showModal) return null;
 
   return (
     <Modal
-      visible={visible}
+      visible={showModal}
       transparent
       animationType="none"
       statusBarTranslucent
@@ -197,25 +220,24 @@ export function SharedElementModal({
 
       {/* Animated Card */}
       <Animated.View style={animatedCardStyle}>
-        <BlurView intensity={20} tint="light" style={styles.blurView}>
-          <View style={styles.glassBackground} />
-          <View style={styles.glassBorder} />
-          
+        <View style={styles.modalBody}>
           {/* Header with close button */}
-          <Animated.View style={[styles.header, animatedContentStyle]}>
-            <Text weight="bold" size="xl" color={Colors.light.text}>
-              {title}
-            </Text>
-            <Pressable
-              onPress={handleClose}
-              style={({ pressed }) => [
-                styles.closeButton,
-                pressed && styles.closeButtonPressed,
-              ]}
-            >
-              <Ionicons name="close" size={24} color={Colors.light.text} />
-            </Pressable>
-          </Animated.View>
+          {!hideHeader && (
+            <Animated.View style={[styles.header, animatedContentStyle]}>
+              <Text weight="bold" size="xl" color={Colors.light.text}>
+                {title}
+              </Text>
+              <Pressable
+                onPress={handleClose}
+                style={({ pressed }) => [
+                  styles.closeButton,
+                  pressed && styles.closeButtonPressed,
+                ]}
+              >
+                <Ionicons name="close" size={24} color={Colors.light.text} />
+              </Pressable>
+            </Animated.View>
+          )}
 
           {/* Content */}
           <Animated.ScrollView
@@ -223,11 +245,11 @@ export function SharedElementModal({
             contentContainerStyle={styles.scrollContent}
             showsVerticalScrollIndicator={false}
           >
-            <Animated.View style={animatedContentStyle}>
+            <Animated.View style={[animatedContentStyle, { flex: 1 }]}>
               {children}
             </Animated.View>
           </Animated.ScrollView>
-        </BlurView>
+        </View>
       </Animated.View>
     </Modal>
   );
@@ -245,19 +267,11 @@ const styles = StyleSheet.create({
   overlayPressable: {
     flex: 1,
   },
-  blurView: {
+  modalBody: {
     flex: 1,
-    overflow: 'hidden',
-  },
-  glassBackground: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(255, 255, 255, 0.7)',
-  },
-  glassBorder: {
-    ...StyleSheet.absoluteFillObject,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.5)',
+    backgroundColor: '#FFFFFF',
     borderRadius: 20,
+    overflow: 'hidden',
   },
   header: {
     flexDirection: 'row',
@@ -284,9 +298,10 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
+    flexGrow: 1,
     paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.md,
-    paddingBottom: Spacing.xl,
+    paddingTop: Spacing.sm,
+    paddingBottom: Spacing.lg,
   },
 });
 

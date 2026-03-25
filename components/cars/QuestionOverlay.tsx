@@ -1,14 +1,16 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View } from "react-native";
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import ReAnimated, {
   useSharedValue,
   useAnimatedStyle,
+  useAnimatedScrollHandler,
   withTiming,
   withSpring,
   interpolate,
+  Extrapolation,
   runOnJS,
   Easing,
   FadeIn,
@@ -16,6 +18,7 @@ import ReAnimated, {
 } from "react-native-reanimated";
 
 import { Text } from "@/components/shared-ui";
+import { FontFamily } from "@/constants/theme";
 import SquircleRing from "@/components/cars/SquircleRing";
 
 // ============================================================================
@@ -71,6 +74,7 @@ export default function QuestionOverlay({
   const backdropOpacity = useSharedValue(0);
   const contentProgress = useSharedValue(0);
   const heroScale = useSharedValue(0.3);
+  const scrollY = useSharedValue(0);
 
   useEffect(() => {
     backdropOpacity.value = withTiming(1, { duration: 300 });
@@ -78,7 +82,7 @@ export default function QuestionOverlay({
       duration: 450,
       easing: Easing.bezier(0.16, 1, 0.3, 1),
     });
-    heroScale.value = withSpring(1, { damping: 12, stiffness: 180 });
+    heroScale.value = withSpring(1, { damping: 30, stiffness: 400 });
   }, []);
 
   const animateOut = useCallback((callback: () => void) => {
@@ -103,9 +107,30 @@ export default function QuestionOverlay({
     transform: [{ translateY: interpolate(contentProgress.value, [0, 1], [50, 0]) }],
   }));
 
-  const heroAnimStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: heroScale.value }],
-  }));
+  const scrollHandler = useAnimatedScrollHandler({
+    onScroll: (event) => {
+      scrollY.value = event.contentOffset.y;
+    },
+  });
+
+  const heroAnimStyle = useAnimatedStyle(() => {
+    const scrollScale = interpolate(
+      scrollY.value,
+      [0, 150],
+      [1, 0.55],
+      Extrapolation.CLAMP,
+    );
+    const scrollOpacity = interpolate(
+      scrollY.value,
+      [0, 120],
+      [1, 0],
+      Extrapolation.CLAMP,
+    );
+    return {
+      transform: [{ scale: heroScale.value * scrollScale }],
+      opacity: scrollOpacity,
+    };
+  });
 
   const currentQuestion = questions[questionIndex];
   const totalQuestions = questions.length;
@@ -189,100 +214,94 @@ export default function QuestionOverlay({
           <Text style={st.closeButtonText}>{"\u2715"}</Text>
         </Pressable>
 
-        {/* Hero icon with ring */}
-        <ReAnimated.View style={[st.heroWrapper, heroAnimStyle]}>
-          <SquircleRing size={100} progress={ringProgress} isDone={false} />
-          <View style={st.heroSquircleOuter}>
-            <LinearGradient
-              colors={["#8AC2FF", "#5299FE", "#3B7FEB", "#2D6AD9"]}
-              locations={[0, 0.4, 0.8, 1]}
-              start={{ x: 0.2, y: 0 }}
-              end={{ x: 0.8, y: 1 }}
-              style={st.heroSquircle}
-            >
-              {heroIcon}
-            </LinearGradient>
-          </View>
-        </ReAnimated.View>
+        <ReAnimated.ScrollView
+          style={{ flex: 1, width: "100%" }}
+          contentContainerStyle={st.scrollContent}
+          showsVerticalScrollIndicator={false}
+          bounces
+          onScroll={scrollHandler}
+          scrollEventThrottle={16}
+        >
+          {/* Hero card */}
+          <ReAnimated.View style={[st.heroWrapper, heroAnimStyle]}>
+            <SquircleRing width={164} height={163} rx={22} progress={ringProgress} isDone={false} />
+            <View style={st.heroCardOuter}>
+              <LinearGradient
+                colors={["#5299FE", "#70B7FF"]}
+                start={{ x: 0.5, y: 0 }}
+                end={{ x: 0.5, y: 1 }}
+                style={st.heroCard}
+              >
+                <View style={{ flex: 1, alignItems: "center", justifyContent: "center", marginTop: 25 }}>
+                  {heroIcon}
+                </View>
+                <Text
+                  weight="semiBold"
+                  size="sm"
+                  color="#FFFFFF"
+                  style={{ fontFamily: FontFamily.serifSemiBold, fontSize: 17, textAlign: "center", paddingBottom: 14 }}
+                >
+                  {serviceName}
+                </Text>
+              </LinearGradient>
+            </View>
+          </ReAnimated.View>
 
-        {/* Question area */}
-        <View style={st.questionArea}>
-          <Text weight="bold" size="xs" color="#5299FE" style={st.serviceLabel}>
-            {serviceName.toUpperCase()}
-          </Text>
-
+          {/* Question text */}
           <ReAnimated.View
             key={`q-${serviceId}-${questionIndex}`}
             entering={FadeIn.duration(300).delay(150)}
             exiting={FadeOut.duration(150)}
           >
-            <Text weight="bold" size="xl" color="#16293B" style={st.questionText}>
+            <Text weight="bold" size="xl" color="#16293B" style={[st.questionText, { fontFamily: FontFamily.serifBold, marginBottom: isMultiSelect ? 20 : 72 }]}>
               {currentQuestion.text}
             </Text>
           </ReAnimated.View>
 
-          <ScrollView
-            style={st.optionsScroll}
-            contentContainerStyle={st.optionsScrollContent}
-            showsVerticalScrollIndicator={false}
-            bounces={false}
-          >
-            <View style={st.optionsStack}>
-              {currentQuestion.options.map((opt) => {
-                const isSelected = isMultiSelect
-                  ? multiSelectValues.includes(opt.id)
-                  : answers[currentQuestion.key] === opt.id;
+          {/* Options */}
+          <View style={st.optionsStack}>
+            {currentQuestion.options.map((opt) => {
+              const isSelected = isMultiSelect
+                ? multiSelectValues.includes(opt.id)
+                : answers[currentQuestion.key] === opt.id;
 
-                return (
-                  <OptionButton
-                    key={opt.id}
-                    label={opt.label}
-                    icon={opt.icon}
-                    isSelected={isSelected}
-                    isMultiSelect={isMultiSelect}
-                    onPress={() => {
-                      if (isMultiSelect) {
-                        handleMultiSelectToggle(opt.id);
-                      } else {
-                        handleOptionTap(opt.id);
-                      }
-                    }}
-                  />
-                );
-              })}
-            </View>
-
-            {isMultiSelect && multiSelectValues.length > 0 && (
-              <Pressable
-                style={({ pressed }) => [st.doneButton, pressed && { opacity: 0.9 }]}
-                onPress={handleMultiSelectDone}
-              >
-                <LinearGradient
-                  colors={["#7BB8FF", "#5299FE", "#3B7FEB"]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={st.doneButtonGradient}
-                >
-                  <Text weight="semiBold" size="md" color="#FFFFFF" style={{ fontSize: 17 }}>
-                    Done
-                  </Text>
-                </LinearGradient>
-              </Pressable>
-            )}
-          </ScrollView>
-        </View>
-
-        {/* Progress dots */}
-        <View style={st.dotsArea}>
-          <View style={st.dotsRow}>
-            {questions.map((_, i) => (
-              <ProgressDot key={i} isDone={i < questionIndex} isActive={i === questionIndex} />
-            ))}
+              return (
+                <OptionButton
+                  key={opt.id}
+                  label={opt.label}
+                  icon={opt.icon}
+                  isSelected={isSelected}
+                  isMultiSelect={isMultiSelect}
+                  onPress={() => {
+                    if (isMultiSelect) {
+                      handleMultiSelectToggle(opt.id);
+                    } else {
+                      handleOptionTap(opt.id);
+                    }
+                  }}
+                />
+              );
+            })}
           </View>
-          <Text weight="medium" size="xs" color="#A3B5C4" style={st.dotsLabel}>
-            Question {questionIndex + 1} of {totalQuestions}
-          </Text>
-        </View>
+
+          {isMultiSelect && multiSelectValues.length > 0 && (
+            <Pressable
+              style={({ pressed }) => [st.doneButton, pressed && { opacity: 0.9 }]}
+              onPress={handleMultiSelectDone}
+            >
+              <LinearGradient
+                colors={["#7BB8FF", "#5299FE", "#3B7FEB"]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={st.doneButtonGradient}
+              >
+                <Text weight="semiBold" size="md" color="#FFFFFF" style={{ fontSize: 17 }}>
+                  Done
+                </Text>
+              </LinearGradient>
+            </Pressable>
+          )}
+        </ReAnimated.ScrollView>
       </ReAnimated.View>
     </View>
   );
@@ -314,10 +333,10 @@ function OptionButton({
     <ReAnimated.View style={animatedStyle}>
       <Pressable
         onPressIn={() => {
-          scale.value = withSpring(0.98, { damping: 15, stiffness: 200 });
+          scale.value = withSpring(0.96, { damping: 20, stiffness: 300 });
         }}
         onPressOut={() => {
-          scale.value = withSpring(1, { damping: 12, stiffness: 180 });
+          scale.value = withSpring(1, { damping: 20, stiffness: 300 });
         }}
         onPress={onPress}
         style={[st.optionButton, isSelected && st.optionButtonSelected]}
@@ -393,7 +412,6 @@ const st = StyleSheet.create({
   content: {
     flex: 1,
     paddingHorizontal: 24,
-    paddingTop: 200,
     alignItems: "center",
   },
   closeButton: {
@@ -415,31 +433,30 @@ const st = StyleSheet.create({
     color: "#4A6F8A",
   },
   heroWrapper: {
-    width: 100,
-    height: 100,
+    width: 164,
+    height: 163,
     alignItems: "center",
     justifyContent: "center",
     marginTop: 40,
   },
-  heroSquircleOuter: {
+  heroCardOuter: {
     shadowColor: "#5299FE",
     shadowOpacity: 0.3,
     shadowRadius: 28,
     shadowOffset: { width: 0, height: 0 },
     elevation: 8,
   },
-  heroSquircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 24,
+  heroCard: {
+    width: 156,
+    height: 155,
+    borderRadius: 22,
     alignItems: "center",
     justifyContent: "center",
   },
-  questionArea: {
-    flex: 1,
-    width: "100%",
-    marginTop: 24,
+  scrollContent: {
     alignItems: "center",
+    paddingTop: 200,
+    paddingBottom: 60,
   },
   serviceLabel: {
     fontSize: 12,
@@ -452,17 +469,13 @@ const st = StyleSheet.create({
     letterSpacing: -0.4,
     textAlign: "center",
     maxWidth: 300,
-    marginBottom: 96,
+    marginTop: 24,
+    marginBottom: 20,
     alignSelf: "center",
   },
-  optionsScroll: {
-    width: "100%",
-  },
-  optionsScrollContent: {
-    paddingBottom: 16,
-  },
   optionsStack: {
-    gap: 10,
+    width: "100%",
+    gap: 12,
   },
   optionButton: {
     width: "100%",
@@ -470,14 +483,14 @@ const st = StyleSheet.create({
     paddingHorizontal: 20,
     borderRadius: 16,
     backgroundColor: "rgba(255,255,255,0.65)",
-    borderWidth: 1.5,
-    borderColor: "rgba(255,255,255,0.85)",
+    borderWidth: 0,
     overflow: "hidden",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
   },
   optionButtonSelected: {
+    borderWidth: 1.5,
     borderColor: "#5299FE",
   },
   optionContent: {
@@ -503,19 +516,5 @@ const st = StyleSheet.create({
     paddingVertical: 17,
     alignItems: "center",
     justifyContent: "center",
-  },
-  dotsArea: {
-    alignItems: "center",
-    paddingBottom: 40,
-    marginTop: "auto",
-  },
-  dotsRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-  },
-  dotsLabel: {
-    fontSize: 12,
-    marginTop: 12,
   },
 });

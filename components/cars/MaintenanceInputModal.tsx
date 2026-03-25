@@ -26,9 +26,10 @@ import {
   View,
 } from "react-native";
 import { useMutation } from "convex/react";
-import { Ionicons } from "@expo/vector-icons";
+import Svg, { Circle, Path } from "react-native-svg";
 
 import { Text } from "@/components/shared-ui";
+import { OilIcon, BrakesIcon, TireIcon, BatteryIcon, WarningIcon } from "@/components/cars/ServiceIcons";
 import { FontFamily, FontSize, Spacing } from "@/constants/theme";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
@@ -64,6 +65,16 @@ const WARNING_LIGHT_LABELS: Record<string, string> = {
   abs: "ABS / brake warning light",
   tpms: "Tire pressure (TPMS) light",
 };
+
+function getServiceIcon(type: MaintenanceType, size: number, color: string) {
+  switch (type) {
+    case "oil":     return <OilIcon size={size} color={color} />;
+    case "brakes":  return <BrakesIcon size={size} color={color} />;
+    case "tires":   return <TireIcon size={size} color={color} />;
+    case "battery": return <BatteryIcon size={size} color={color} />;
+    default:        return <WarningIcon size={size} color={color} />;
+  }
+}
 
 // ============================================================================
 // TYPES
@@ -267,7 +278,12 @@ export function MaintenanceInputModal({
             >
               {opt.label}
             </Text>
-            {selected && <Ionicons name="checkmark-circle" size={22} color={isGood ? "#22C55E" : "#5299FE"} />}
+            {selected && (
+              <Svg width={22} height={22} viewBox="0 0 24 24" fill="none">
+                <Circle cx={12} cy={12} r={11} fill={isGood ? "#22C55E" : "#5299FE"} />
+                <Path d="M7 12.5l3 3 7-7" stroke="#FFFFFF" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+              </Svg>
+            )}
           </Pressable>
         );
       })}
@@ -361,6 +377,7 @@ export function MaintenanceInputModal({
 
         {/* Header */}
         <View style={styles.header}>
+          {getServiceIcon(maintenanceType, 28, "#5299FE")}
           <Text weight="bold" size="xl" color="#1F2937">{label}</Text>
         </View>
 
@@ -384,7 +401,7 @@ export function MaintenanceInputModal({
                   value={warningLightOn}
                   onValueChange={setWarningLightOn}
                   trackColor={{ false: "#E5E7EB", true: "#5299FE" }}
-                  thumbColor="#fff"
+                  ios_backgroundColor="#E5E7EB"
                 />
               </View>
             </View>
@@ -455,6 +472,9 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   header: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
     paddingHorizontal: 24,
     marginBottom: 16,
   },

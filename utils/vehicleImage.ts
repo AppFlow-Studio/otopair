@@ -11,7 +11,7 @@
  * Docs: https://docs.imagin.studio/guides/getting-images
  */
 
-const IMAGIN_CUSTOMER = "us-appflowstudio";
+const IMAGIN_CUSTOMER = "img";
 const IMAGIN_BASE = "https://cdn.imagin.studio/getImage";
 
 /**

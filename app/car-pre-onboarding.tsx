@@ -23,7 +23,7 @@ import Animated, {
   withSpring,
   withTiming,
 } from "react-native-reanimated";
-import { AnimatedGradientBackground } from "@/components/shared-ui/AnimatedGradientBackground";
+import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useMutation, useQuery } from "convex/react";
@@ -108,9 +108,6 @@ export default function CarPreOnboardingScreen() {
   const ctaWrapRef = useRef<View>(null);
   const buttonOpacity = useSharedValue(0.4);
   const ctaLiftAnim = useSharedValue(0);
-  const animationProgress = useSharedValue(0);
-  const gradientFromIndex = useSharedValue(0);
-  const gradientToIndex = useSharedValue(1);
   const stepTranslateX = useSharedValue(0);
   const stepOpacity = useSharedValue(1);
 
@@ -199,15 +196,6 @@ export default function CarPreOnboardingScreen() {
 
   const transitionToStep = useCallback((nextIndex: number) => {
     if (nextIndex < 0 || nextIndex >= steps.length || nextIndex === stepIndex) return;
-    const clampedTo = Math.min(nextIndex, 10);
-    gradientToIndex.value = clampedTo;
-    animationProgress.value = withTiming(1, { duration: 600, easing: Easing.inOut(Easing.ease) }, (finished) => {
-      'worklet';
-      if (finished) {
-        gradientFromIndex.value = clampedTo;
-        animationProgress.value = 0;
-      }
-    });
     animateTransition(nextIndex, 'forward');
   }, [steps.length, stepIndex, animateTransition]);
 
@@ -269,15 +257,6 @@ export default function CarPreOnboardingScreen() {
       router.back();
       return;
     }
-    const clampedTo = Math.min(stepIndex - 1, 10);
-    gradientToIndex.value = clampedTo;
-    animationProgress.value = withTiming(1, { duration: 600, easing: Easing.inOut(Easing.ease) }, (finished) => {
-      'worklet';
-      if (finished) {
-        gradientFromIndex.value = clampedTo;
-        animationProgress.value = 0;
-      }
-    });
     animateTransition(stepIndex - 1, 'back');
   };
 
@@ -410,14 +389,13 @@ export default function CarPreOnboardingScreen() {
       style={styles.container}
       behavior={undefined}
     >
-      <View style={StyleSheet.absoluteFill} pointerEvents="none">
-        <AnimatedGradientBackground
-          progress={animationProgress}
-          fromIndexSV={gradientFromIndex}
-          toIndexSV={gradientToIndex}
-          colors={['#FFFFFF', '#FFFFFF', '#D6EAF8']}
-        />
-      </View>
+      <LinearGradient
+        colors={['#FFFFFF', '#FFFFFF', '#D6EAF8']}
+        start={{ x: 0.5, y: 0 }}
+        end={{ x: 0.5, y: 1 }}
+        style={StyleSheet.absoluteFill}
+        pointerEvents="none"
+      />
       <View style={[styles.screen, { paddingTop: insets.top + Spacing.md }]}>
         <View style={styles.headerRow}>
           <Pressable
@@ -450,19 +428,20 @@ export default function CarPreOnboardingScreen() {
           </Text>
         </Animated.View>
 
-        <ScrollView
-          style={{ flex: 1 }}
-          contentContainerStyle={styles.scrollArea}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          showsVerticalScrollIndicator={false}
-          scrollEnabled={true}
-        >
-          <View
-            style={[styles.cardContent, { paddingBottom: 0 }]}
-            pointerEvents="box-none"
-          >
-              <Animated.View style={[{ flex: 1 }, stepAnimatedStyle]}>
+        <View style={{ flex: 1, overflow: 'hidden' }}>
+          <Animated.View style={[{ flex: 1 }, stepAnimatedStyle]}>
+            <ScrollView
+              style={{ flex: 1 }}
+              contentContainerStyle={styles.scrollArea}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              showsVerticalScrollIndicator={false}
+              scrollEnabled={true}
+            >
+              <View
+                style={[styles.cardContent, { paddingBottom: 0 }]}
+                pointerEvents="box-none"
+              >
                 <Text weight="bold" size="3xl" color="#0F172A" style={styles.title}>
                   {stepTitle}
                 </Text>
@@ -472,10 +451,11 @@ export default function CarPreOnboardingScreen() {
                 <View style={[styles.questionBody, (currentStep === "currentMileage" || currentStep === "mileageAtPurchase") && { justifyContent: "flex-start" }]}>
                   {renderQuestionContent()}
                 </View>
-              </Animated.View>
-              <View style={{ height: FOOTER_AREA_HEIGHT + insets.bottom + 24 }} />
-            </View>
-        </ScrollView>
+                <View style={{ height: FOOTER_AREA_HEIGHT + insets.bottom + 24 }} />
+              </View>
+            </ScrollView>
+          </Animated.View>
+        </View>
 
         <View
           ref={ctaWrapRef}

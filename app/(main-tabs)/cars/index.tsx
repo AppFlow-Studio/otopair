@@ -1,6 +1,6 @@
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Animated, Dimensions, Easing, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import { Alert, Animated, Dimensions, Easing, Image, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 2. Expo & Third-party
@@ -22,10 +22,12 @@ import { useSmartcarData } from "@/hooks/useSmartcarData";
 import { useMergedMaintenance } from "@/hooks/useMaintenanceData";
 import type { Id } from "@/convex/_generated/dataModel";
 import { ALL_MAINTENANCE_TYPES, MAINTENANCE_LABELS, type MaintenanceType } from "@/utils/maintenanceStatus";
-import { computeVehicleHealthScore } from "@/utils/healthScore";
+import { computeVehicleHealthScore, type HealthScoreInput } from "@/utils/healthScore";
 
 // 4. Shared UI
 import { Text } from "@/components/shared-ui";
+import { OilIcon, BrakesIcon, TireIcon, BatteryIcon, WarningIcon } from "@/components/cars/ServiceIcons";
+import { FontFamily } from "@/constants/theme";
 import { getVehicleImageUrl } from "@/utils/vehicleImage";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
@@ -111,6 +113,8 @@ export default function CarsHomeScreen() {
   const gearsOverlayOpacity = useRef(new Animated.Value(1)).current;
   const gearsBtnOpacity = useRef(new Animated.Value(0)).current;
   const gearsLottieRef = useRef<any>(null);
+  const lottieFadeOut = useRef(new Animated.Value(1)).current;
+  const carImageFadeIn = useRef(new Animated.Value(0)).current;
 
   // Emotional animation refs
   const [displayedScore, setDisplayedScore] = useState(0);
@@ -332,6 +336,7 @@ export default function CarsHomeScreen() {
     ]).start(() => {
       // Switch to confirmed mode and reset internal page anim
       setHealthSheetMode('confirmed');
+      healthSheetModeRef.current = 'confirmed';
       setEstimatedPage('score');
       pageSlideX.setValue(300);
       pageFade.setValue(0);
@@ -341,6 +346,8 @@ export default function CarsHomeScreen() {
       setGearsPhase('looping');
       gearsOverlayOpacity.setValue(1);
       gearsBtnOpacity.setValue(0);
+      lottieFadeOut.setValue(1);
+      carImageFadeIn.setValue(0);
 
       // Reset confirmed content animations
       ringScale.setValue(0.3);
@@ -430,14 +437,16 @@ export default function CarsHomeScreen() {
         setHealthPageVisible(false);
         setShowHealthRingSheet(false);
         setPendingHealthSheet(false);
-        // Transition gears overlay to building phase
+        // Transition gears overlay to building phase (Lottie mounts & autoPlays here)
+        lottieFadeOut.setValue(1);
+        carImageFadeIn.setValue(0);
         setGearsPhase('building');
         gearsBtnOpacity.setValue(0);
 
         setTimeout(() => {
           setGearsPhase('ready');
           Animated.timing(gearsBtnOpacity, { toValue: 1, duration: 400, useNativeDriver: true }).start();
-        }, 5000);
+        }, 8000);
       });
     }
   }, [healthPageSlideX, healthPageFade, mainPageSlideX, mainPageFade, gearsBtnOpacity]);
@@ -481,8 +490,8 @@ export default function CarsHomeScreen() {
       const paintColor = meta?.color;
       const gradient = (paintColor && COLOR_GRADIENTS[paintColor])
         || DEFAULT_GRADIENTS[i % DEFAULT_GRADIENTS.length];
-      const displayMake = meta?.make ?? o?.nickname?.split(" ")[1] ?? "Vehicle";
-      const displayModel = meta?.model ?? o?.nickname?.split(" ").slice(2).join(" ") ?? r.vin.slice(-6);
+      const displayMake = meta?.make || o?.nickname?.split(" ")[1] || "Vehicle";
+      const displayModel = meta?.model || o?.nickname?.split(" ").slice(2).join(" ") || r.vin.slice(-6);
       paired.push({
         vehicle: {
           id: r.vin,
@@ -598,20 +607,22 @@ export default function CarsHomeScreen() {
 
   // Unified vehicle health score — graduated maintenance statuses, warning-light
   // penalty, and Smartcar live-sensor blend when connected.
+  const healthScoreInput: HealthScoreInput = useMemo(() => ({
+    maintenanceItems: mergedMaintenanceItems,
+    odometerMiles: currentOdometer ?? activeVehicle?.mileage ?? 0,
+    knownIssues: activeOwnershipKnownIssues,
+    smartcar: smartcarStats ? {
+      oilLife: smartcarStats.oilLife,
+      tirePressure: smartcarStats.tirePressure,
+      fuelPercent: smartcarStats.fuel?.percentRemaining,
+    } : undefined,
+    pipelineHealthScore: activeOwnership?.health_score as number | undefined,
+    pipelineIsEstimated: activeOwnership?.health_score_is_estimated as boolean | undefined,
+  }), [mergedMaintenanceItems, currentOdometer, activeVehicle?.mileage, activeOwnershipKnownIssues, smartcarStats, activeOwnership?.health_score, activeOwnership?.health_score_is_estimated]);
+
   const computedHealthScore = useMemo(() => {
-    return computeVehicleHealthScore({
-      maintenanceItems: mergedMaintenanceItems,
-      odometerMiles: currentOdometer ?? activeVehicle?.mileage ?? 0,
-      knownIssues: activeOwnershipKnownIssues,
-      smartcar: smartcarStats ? {
-        oilLife: smartcarStats.oilLife,
-        tirePressure: smartcarStats.tirePressure,
-        fuelPercent: smartcarStats.fuel?.percentRemaining,
-      } : undefined,
-      pipelineHealthScore: activeOwnership?.health_score as number | undefined,
-      pipelineIsEstimated: activeOwnership?.health_score_is_estimated as boolean | undefined,
-    });
-  }, [mergedMaintenanceItems, currentOdometer, activeVehicle?.mileage, activeOwnershipKnownIssues, smartcarStats, activeOwnership?.health_score, activeOwnership?.health_score_is_estimated]);
+    return computeVehicleHealthScore(healthScoreInput);
+  }, [healthScoreInput]);
 
   // Pulse animation for inline Quick Read health ring
   const showQuickReadCard = !isActiveVehicleConnected && isPreOnboardingComplete && !isOnboardingComplete && !isNewVehicle;
@@ -842,7 +853,7 @@ export default function CarsHomeScreen() {
       <ScrollView
         ref={scrollViewRef}
         style={styles.scrollView}
-        contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 12 }]}
+        contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         automaticallyAdjustKeyboardInsets
@@ -872,7 +883,7 @@ export default function CarsHomeScreen() {
         </View>
 
         {/* Dev/debug buttons — top left */}
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, paddingHorizontal: 16, marginBottom: 4 }}>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, paddingHorizontal: 16, marginBottom: 4, zIndex: 10, position: "relative" }}>
           {!isActiveVehicleConnected && isPreOnboardingComplete && showPostOnboardingContent && activeOwnershipId && (
             <Pressable
               style={({ pressed }) => [{ paddingVertical: 4, paddingHorizontal: 10, borderRadius: 12, backgroundColor: "rgba(82,153,254,0.1)" }, pressed && { opacity: 0.7 }]}
@@ -964,15 +975,15 @@ export default function CarsHomeScreen() {
               </View>
             </View>
             <Text weight="bold" size="lg" color="#1F2937" style={{ textAlign: "center" }}>
-              Let&apos;s get a quick read on your {activeVehicle?.make && activeVehicle?.model ? `${activeVehicle.make} ${activeVehicle.model}` : "vehicle"}
+              Here&apos;s an estimate of where your {activeVehicle?.make && activeVehicle?.model ? `${activeVehicle.make} ${activeVehicle.model}` : "vehicle"} stands
             </Text>
             <Text weight="medium" size="sm" color="#6B7280" style={{ textAlign: "center", marginTop: 6 }}>
-              Three quick checks to understand your vehicle&apos;s current condition.
+              Five quick checks to understand your vehicle&apos;s current condition.
             </Text>
             <View style={styles.quickReadBenefits}>
-              {["Brake health assessment", "Tire life estimation", "Warning light detection"].map((b) => (
+              {["Brake health assessment", "Tire life estimation", "Oil service status", "Battery condition check", "Warning light detection"].map((b) => (
                 <View key={b} style={styles.quickReadBenefitRow}>
-                  <Ionicons name="checkmark-circle" size={16} color="#22C55E" />
+                  <Ionicons name="checkmark-circle" size={16} color="#5299FE" />
                   <Text weight="medium" size="sm" color="#374151">{b}</Text>
                 </View>
               ))}
@@ -981,7 +992,7 @@ export default function CarsHomeScreen() {
               style={({ pressed }) => [styles.quickReadCta, pressed && { opacity: 0.85 }]}
               onPress={openStepperDirectly}
             >
-              <Text weight="bold" size="md" color="#FFFFFF">Get Started</Text>
+              <Text weight="bold" size="md" color="#FFFFFF">Get a quick read on your {activeVehicle?.make && activeVehicle?.model ? `${activeVehicle.make} ${activeVehicle.model}` : "vehicle"}</Text>
               <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
             </Pressable>
             <Text weight="medium" size="xs" color="#9CA3AF" style={{ marginTop: 10 }}>Takes about 30 seconds</Text>
@@ -1049,6 +1060,7 @@ export default function CarsHomeScreen() {
             <MaintenanceTracker
               items={mergedMaintenanceItems}
               vehicleCondition={computedHealthScore}
+              healthScoreInput={healthScoreInput}
               onBookNow={(id) => {
                 router.push('/home/map');
               }}
@@ -1128,12 +1140,14 @@ export default function CarsHomeScreen() {
             Edit Maintenance Info
           </Text>
           {ALL_MAINTENANCE_TYPES.map((type) => {
-            const iconMap: Record<MaintenanceType, string> = {
-              oil: "water-outline",
-              brakes: "disc-outline",
-              tires: "ellipse-outline",
-              inspection: "document-text-outline",
-              battery: "battery-half-outline",
+            const renderIcon = () => {
+              switch (type) {
+                case "oil":     return <OilIcon size={22} color="#5299FE" />;
+                case "brakes":  return <BrakesIcon size={22} color="#5299FE" />;
+                case "tires":   return <TireIcon size={22} color="#5299FE" />;
+                case "battery": return <BatteryIcon size={22} color="#5299FE" />;
+                default:        return <WarningIcon size={22} color="#5299FE" />;
+              }
             };
             return (
               <Pressable
@@ -1147,12 +1161,12 @@ export default function CarsHomeScreen() {
                 }}
               >
                 <View style={pickerStyles.rowIcon}>
-                  <Ionicons name={iconMap[type] as any} size={22} color="#5299FE" />
+                  {renderIcon()}
                 </View>
                 <Text weight="medium" size="md" color="#1F2937" style={{ flex: 1 }}>
                   {MAINTENANCE_LABELS[type]}
                 </Text>
-                <Ionicons name="chevron-forward" size={18} color="#9CA3AF" />
+                <Text weight="semiBold" size="sm" color="#5299FE">Edit</Text>
               </Pressable>
             );
           })}
@@ -1181,6 +1195,16 @@ export default function CarsHomeScreen() {
                 colors={['#EDF4FC', '#D6E8F8', '#B8D4F0']}
               />
             </View>
+          )}
+          {healthSheetMode === 'confirmed' && (
+            <LinearGradient
+              colors={['#D0E7F4', '#DFEDF6', '#EBF2F8', '#F3F7FA', '#FAFCFD', '#FFFFFF']}
+              locations={[0, 0.18, 0.35, 0.5, 0.7, 1]}
+              start={{ x: 0.5, y: 0 }}
+              end={{ x: 0.5, y: 1 }}
+              style={StyleSheet.absoluteFill}
+              pointerEvents="none"
+            />
           )}
           {/* --- Header --- */}
           {healthSheetMode === 'estimated' ? (
@@ -1233,7 +1257,7 @@ export default function CarsHomeScreen() {
                 const ringColor = healthSheetMode === 'estimated'
                   ? '#94A3B8'
                   : computedHealthScore >= 75 ? '#30D158'
-                  : computedHealthScore >= 60 ? '#FFD60A'
+                  : computedHealthScore >= 60 ? '#FFEA00'
                   : '#FF3B30';
                 return (
               <View style={healthSheetStyles.ringContainer}>
@@ -1276,8 +1300,8 @@ export default function CarsHomeScreen() {
                           <Circle cx={center} cy={center} r={radius} stroke={ringColor} strokeWidth={strokeWidth + 4} fill="none" strokeDasharray={circumference} strokeDashoffset={strokeDashoffset} strokeLinecap="round" rotation={-90} origin={`${center}, ${center}`} opacity={0.2} />
                         </Svg>
                         <View style={healthSheetStyles.ringCenterLabel}>
-                          <Text weight="bold" size="3xl" color="#1F2937">{activeOwnership?.health_score_is_estimated ? "~" : ""}{displayedScore}</Text>
-                          <Text weight="semiBold" size="xs" color="#9CA3AF" style={{ marginTop: -2 }}>{activeOwnership?.health_score_is_estimated ? "estimated" : "out of 100"}</Text>
+                          <Text weight="bold" size="3xl" color="#1F2937" style={{ fontFamily: FontFamily.serifBold }}>{activeOwnership?.health_score_is_estimated ? "~" : ""}{displayedScore}</Text>
+                          <Text weight="semiBold" size="xs" color="#9CA3AF" style={{ marginTop: -2, fontFamily: FontFamily.serif }}>{activeOwnership?.health_score_is_estimated ? "estimated" : "out of 100"}</Text>
                         </View>
                       </View>
                     );
@@ -1289,7 +1313,7 @@ export default function CarsHomeScreen() {
 
               {/* Title */}
               <Animated.View style={{ opacity: titleFade, marginTop: healthSheetMode === 'confirmed' ? 50 : 0, transform: [{ translateY: titleFade.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }] }}>
-                <Text weight="bold" size="xl" color="#1F2937" style={healthSheetStyles.title}>
+                <Text weight="bold" size="xl" color="#1F2937" style={[healthSheetStyles.title, { fontFamily: FontFamily.serifBold }]}>
                   {healthSheetMode === 'estimated'
                     ? `Here's where your ${activeVehicle?.make ?? "vehicle"} stands`
                     : computedHealthScore >= 80
@@ -1302,7 +1326,7 @@ export default function CarsHomeScreen() {
 
               {/* Subtitle */}
               <Animated.View style={{ opacity: subtitleFade, transform: [{ translateY: subtitleFade.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }] }}>
-                <Text weight="medium" size="sm" color="#6B7280" style={healthSheetStyles.subtitle}>
+                <Text weight="medium" size="sm" color="#6B7280" style={[healthSheetStyles.subtitle, { fontFamily: FontFamily.serif }]}>
                   {healthSheetMode === 'estimated'
                     ? "Answer a few quick questions to get your confirmed health score."
                     : computedHealthScore >= 80
@@ -1320,58 +1344,72 @@ export default function CarsHomeScreen() {
                     <View style={healthSheetStyles.introIconContainer}>
                       <Ionicons name="pulse-outline" size={28} color="#5299FE" />
                     </View>
-                    <Text weight="bold" size="md" color="#1F2937" style={{ marginTop: 12, textAlign: "center" }}>
+                    <Text weight="bold" size="md" color="#1F2937" style={{ marginTop: 12, textAlign: "center", fontFamily: FontFamily.serifBold }}>
                       Let&apos;s get a quick read on your {activeVehicle?.make ?? "vehicle"}
                     </Text>
-                    <Text weight="medium" size="sm" color="#6B7280" style={{ marginTop: 4, textAlign: "center" }}>
-                      Three quick checks to understand your vehicle&apos;s current condition.
+                    <Text weight="medium" size="sm" color="#6B7280" style={{ marginTop: 4, textAlign: "center", fontFamily: FontFamily.serif }}>
+                      Five quick checks to understand your vehicle&apos;s current condition.
                     </Text>
                     <View style={healthSheetStyles.introBenefits}>
-                      {["Brake health assessment", "Tire life estimation", "Warning light detection"].map((b) => (
+                      {["Brake health assessment", "Tire life estimation", "Oil service status", "Battery condition check", "Warning light detection"].map((b) => (
                         <View key={b} style={healthSheetStyles.introBenefitRow}>
-                          <Ionicons name="checkmark-circle" size={16} color="#22C55E" />
-                          <Text weight="medium" size="sm" color="#374151" style={{ marginLeft: 8 }}>{b}</Text>
+                          <Ionicons name="checkmark-circle" size={16} color="#5299FE" />
+                          <Text weight="medium" size="sm" color="#374151" style={{ marginLeft: 8, fontFamily: FontFamily.serif }}>{b}</Text>
                         </View>
                       ))}
                     </View>
                     <Pressable
                       onPress={animateToCheckin}
-                      style={({ pressed }) => [healthSheetStyles.doneBtn, pressed && { opacity: 0.85 }]}
+                      style={({ pressed }) => [healthSheetStyles.ctaButton, pressed && { opacity: 0.9 }]}
                     >
-                      <Text weight="bold" size="md" color="#FFFFFF">Get Started</Text>
-                      <Ionicons name="arrow-forward" size={18} color="#FFFFFF" style={{ marginLeft: 8 }} />
+                      <LinearGradient
+                        colors={['#7BB8FF', '#5299FE', '#3B7FEB']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={[healthSheetStyles.ctaButtonGradient, { flexDirection: "row" }]}
+                      >
+                        <Text weight="semiBold" size="md" color="#FFFFFF" style={{ fontSize: 17, fontFamily: FontFamily.serifBold }}>Get Started</Text>
+                        <Ionicons name="arrow-forward" size={18} color="#FFFFFF" style={{ marginLeft: 8 }} />
+                      </LinearGradient>
                     </Pressable>
-                    <Text weight="medium" size="xs" color="#9CA3AF" style={{ marginTop: 10 }}>Takes about 30 seconds</Text>
+                    <Text weight="medium" size="xs" color="#9CA3AF" style={{ marginTop: 10, fontFamily: FontFamily.serif }}>Takes about 30 seconds</Text>
                     <Pressable
                       onPress={closeHealthSheet}
                       style={({ pressed }) => [{ marginTop: 14, paddingVertical: 10, paddingHorizontal: 24 }, pressed && { opacity: 0.6 }]}
                     >
-                      <Text weight="semiBold" size="sm" color="#6B7280">I'll finish later</Text>
+                      <Text weight="semiBold" size="sm" color="#6B7280" style={{ fontFamily: FontFamily.serif }}>I'll finish later</Text>
                     </Pressable>
                   </View>
                 </Animated.View>
               ) : (
                 <>
-                  <Animated.View style={[healthSheetStyles.benefitsContainer, { opacity: benefitsFade, transform: [{ translateY: benefitsFade.interpolate({ inputRange: [0, 1], outputRange: [16, 0] }) }] }]}>
+                  <Animated.View style={[{ alignSelf: "stretch", marginTop: 20, marginBottom: 20, gap: 28, paddingHorizontal: 8 }, { opacity: benefitsFade, transform: [{ translateY: benefitsFade.interpolate({ inputRange: [0, 1], outputRange: [16, 0] }) }] }]}>
                     {[
                       { icon: "shield-checkmark" as const, text: "Health monitoring active" },
                       { icon: "notifications" as const, text: "Service reminders enabled" },
                       { icon: "trending-up" as const, text: "Maintenance predictions on" },
                     ].map((benefit) => (
-                      <View key={benefit.text} style={healthSheetStyles.benefitRow}>
+                      <View key={benefit.text} style={{ flexDirection: "row", alignItems: "center", gap: 16 }}>
                         <View style={healthSheetStyles.benefitIcon}>
-                          <Ionicons name={benefit.icon} size={16} color="#22C55E" />
+                          <Ionicons name={benefit.icon} size={24} color="#5299FE" />
                         </View>
-                        <Text weight="medium" size="sm" color="#374151">{benefit.text}</Text>
+                        <Text weight="medium" size="xl" color="#1F2937" style={{ fontFamily: FontFamily.serif }}>{benefit.text}</Text>
                       </View>
                     ))}
                   </Animated.View>
                   <Animated.View style={[{ width: "100%", marginTop: "auto", paddingBottom: insets.bottom + 24 }, { opacity: buttonFade, transform: [{ translateY: buttonFade.interpolate({ inputRange: [0, 1], outputRange: [16, 0] }) }] }]}>
                     <Pressable
                       onPress={closeHealthSheet}
-                      style={({ pressed }) => [healthSheetStyles.doneBtn, pressed && { opacity: 0.85 }]}
+                      style={({ pressed }) => [healthSheetStyles.ctaButton, pressed && { opacity: 0.9 }]}
                     >
-                      <Text weight="bold" size="md" color="#FFFFFF">Optimize my vehicle profile</Text>
+                      <LinearGradient
+                        colors={['#7BB8FF', '#5299FE', '#3B7FEB']}
+                        start={{ x: 0, y: 0 }}
+                        end={{ x: 1, y: 0 }}
+                        style={healthSheetStyles.ctaButtonGradient}
+                      >
+                        <Text weight="semiBold" size="md" color="#FFFFFF" style={{ fontSize: 17, fontFamily: FontFamily.serifBold }}>Optimize my vehicle profile</Text>
+                      </LinearGradient>
                     </Pressable>
                   </Animated.View>
                 </>
@@ -1384,25 +1422,65 @@ export default function CarsHomeScreen() {
 
       {/* Fullscreen gears overlay */}
       {gearsOverlayVisible && (
-        <Animated.View style={[StyleSheet.absoluteFillObject, { opacity: gearsOverlayOpacity, backgroundColor: '#FFFFFF', zIndex: 35 }]}>
-          <LottieView
-            ref={gearsLottieRef}
-            source={require("@/assets/animations/loading-gears.json")}
-            loop
-            autoPlay={false}
-            onLayout={() => gearsLottieRef.current?.play(48, 264)}
-            style={{ position: 'absolute', top: '15%', left: '-10%', right: '-10%', bottom: '15%' }}
-            resizeMode="contain"
+        <Animated.View style={[StyleSheet.absoluteFillObject, { opacity: gearsOverlayOpacity, zIndex: 35 }]}>
+          <LinearGradient
+            colors={['#D0E7F4', '#DFEDF6', '#EBF2F8', '#F3F7FA', '#FAFCFD', '#FFFFFF']}
+            locations={[0, 0.18, 0.35, 0.5, 0.7, 1]}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
+            style={StyleSheet.absoluteFill}
+            pointerEvents="none"
           />
           {gearsPhase !== 'looping' && (
-            <View style={{ zIndex: 1, marginTop: Platform.OS === 'ios' ? 80 : 48, alignItems: 'center', paddingHorizontal: 24 }}>
-              <Animated.View style={{ position: 'absolute', opacity: gearsBtnOpacity.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }}>
-                <Text weight="bold" size="3xl" color="#0F172A" style={{ textAlign: 'center' }}>
+            <Animated.View style={{ position: 'absolute', top: '28%', left: '15%', right: '15%', bottom: '27%', opacity: lottieFadeOut }}>
+              <LottieView
+                ref={gearsLottieRef}
+                source={require("@/assets/animations/loading-bar.json")}
+                loop={false}
+                autoPlay={false}
+                onLayout={() => gearsLottieRef.current?.play(100, 275)}
+                onAnimationFinish={(isCancelled) => {
+                  if (isCancelled) return;
+                  Animated.parallel([
+                    Animated.timing(lottieFadeOut, { toValue: 0, duration: 600, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+                    Animated.timing(carImageFadeIn, { toValue: 1, duration: 800, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+                  ]).start();
+                }}
+                colorFilters={[
+                  { keypath: 'progress', color: '#5299FE' },
+                  { keypath: '0% ', color: '#5299FE' },
+                  { keypath: 'bg', color: '#E8F1FE' },
+                ]}
+                style={{ flex: 1 }}
+                resizeMode="contain"
+              />
+            </Animated.View>
+          )}
+          {activeVehicle?.imageSource && (
+            <Animated.View style={{ position: 'absolute', top: '35%', left: 0, right: 0, alignItems: 'center', opacity: carImageFadeIn, transform: [{ scale: carImageFadeIn.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) }] }}>
+              <View style={{ width: 320, height: 240, alignItems: 'center', justifyContent: 'center' }}>
+                <Image
+                  source={activeVehicle.imageSource}
+                  style={{ width: '100%', height: 180, zIndex: 1, transform: [{ translateY: 155 }] }}
+                  resizeMode="stretch"
+                />
+                <Image
+                  source={activeVehicle.imageSource}
+                  style={{ width: '100%', height: 180, transform: [{ scaleY: -1 }], opacity: 0.03, marginTop: -40 }}
+                  resizeMode="stretch"
+                />
+              </View>
+            </Animated.View>
+          )}
+          {gearsPhase !== 'looping' && (
+            <View style={{ zIndex: 1, marginTop: Platform.OS === 'ios' ? 140 : 96, alignItems: 'center', paddingHorizontal: 24 }}>
+              <Animated.View style={{ position: 'absolute', opacity: carImageFadeIn.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }}>
+                <Text weight="bold" size="3xl" color="#0F172A" style={{ textAlign: 'center', fontFamily: FontFamily.serifBold }}>
                   Optimizing your vehicle profile...
                 </Text>
               </Animated.View>
-              <Animated.View style={{ opacity: gearsBtnOpacity }}>
-                <Text weight="bold" size="3xl" color="#0F172A" style={{ textAlign: 'center' }}>
+              <Animated.View style={{ opacity: carImageFadeIn }}>
+                <Text weight="bold" size="3xl" color="#0F172A" style={{ textAlign: 'center', fontFamily: FontFamily.serifBold }}>
                   Vehicle profile optimized
                 </Text>
               </Animated.View>
@@ -1412,9 +1490,16 @@ export default function CarsHomeScreen() {
             <Animated.View style={{ opacity: gearsBtnOpacity, zIndex: 1, position: 'absolute', bottom: insets.bottom + 40, left: 24, right: 24 }}>
               <Pressable
                 onPress={dismissGearsOverlay}
-                style={({ pressed }) => [healthSheetStyles.doneBtn, pressed && { opacity: 0.85 }]}
+                style={({ pressed }) => [healthSheetStyles.ctaButton, pressed && { opacity: 0.9 }]}
               >
-                <Text weight="bold" size="md" color="#FFFFFF">View My Dashboard</Text>
+                <LinearGradient
+                  colors={['#7BB8FF', '#5299FE', '#3B7FEB']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 0 }}
+                  style={healthSheetStyles.ctaButtonGradient}
+                >
+                  <Text weight="semiBold" size="md" color="#FFFFFF" style={{ fontSize: 17, fontFamily: FontFamily.serifBold }}>View My Dashboard</Text>
+                </LinearGradient>
               </Pressable>
             </Animated.View>
           )}
@@ -1586,32 +1671,37 @@ const healthSheetStyles = StyleSheet.create({
   benefitsContainer: {
     alignSelf: "stretch",
     backgroundColor: "#F9FAFB",
-    borderRadius: 16,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+    borderRadius: 20,
+    paddingVertical: 20,
+    paddingHorizontal: 20,
     marginBottom: 20,
-    gap: 12,
+    gap: 16,
   },
   benefitRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: 12,
   },
   benefitIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    backgroundColor: "rgba(34, 197, 94, 0.1)",
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: "rgba(82, 153, 254, 0.1)",
     alignItems: "center",
     justifyContent: "center",
   },
-  doneBtn: {
-    flexDirection: "row",
-    backgroundColor: "#5299FE",
-    borderRadius: 24,
-    paddingVertical: 16,
-    paddingHorizontal: 48,
+  ctaButton: {
     width: "100%",
+    borderRadius: 16,
+    overflow: "hidden",
+    shadowColor: "rgba(82,153,254,0.3)",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  ctaButtonGradient: {
+    paddingVertical: 17,
     alignItems: "center",
     justifyContent: "center",
   },

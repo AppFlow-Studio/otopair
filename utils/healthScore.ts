@@ -216,3 +216,17 @@ export function computeVehicleHealthScore(input: HealthScoreInput): number {
 
   return Math.max(0, Math.min(100, Math.round(raw)));
 }
+
+/**
+ * Compute what the health score would be if a specific maintenance item
+ * were resolved (status flipped to on_time).
+ */
+export function computeProjectedHealthScore(
+  input: HealthScoreInput,
+  fixedItemId: string,
+): number {
+  const adjustedItems = input.maintenanceItems.map((item) =>
+    item.id === fixedItemId ? { ...item, status: 'on_time' as MaintenanceStatus } : item
+  );
+  return computeVehicleHealthScore({ ...input, maintenanceItems: adjustedItems });
+}

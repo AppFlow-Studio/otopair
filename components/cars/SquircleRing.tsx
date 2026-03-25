@@ -12,25 +12,39 @@ import Animated, {
 const AnimatedRect = Animated.createAnimatedComponent(Rect);
 
 const INSET = 2;
-const RX = 28;
 const STROKE_WIDTH = 3;
 const DEFAULT_SIZE = 130;
+const DEFAULT_RX = 28;
 
-function computePerimeter(size: number) {
-  const rectSize = size - INSET * 2;
-  const straight = rectSize - 2 * RX;
-  return 4 * straight + 2 * Math.PI * RX;
+function computePerimeter(w: number, h: number, rx: number) {
+  const innerW = w - INSET * 2;
+  const innerH = h - INSET * 2;
+  const r = Math.min(rx, innerW / 2, innerH / 2);
+  return 2 * (innerW - 2 * r) + 2 * (innerH - 2 * r) + 2 * Math.PI * r;
 }
 
 interface SquircleRingProps {
+  width?: number;
+  height?: number;
   size?: number;
+  rx?: number;
   progress: number;
   isDone: boolean;
 }
 
-export default function SquircleRing({ size = DEFAULT_SIZE, progress, isDone }: SquircleRingProps) {
-  const rectSize = size - INSET * 2;
-  const perimeter = useMemo(() => computePerimeter(size), [size]);
+export default function SquircleRing({
+  width,
+  height,
+  size = DEFAULT_SIZE,
+  rx = DEFAULT_RX,
+  progress,
+  isDone,
+}: SquircleRingProps) {
+  const w = width ?? size;
+  const h = height ?? size;
+  const rectW = w - INSET * 2;
+  const rectH = h - INSET * 2;
+  const perimeter = useMemo(() => computePerimeter(w, h, rx), [w, h, rx]);
   const animatedProgress = useSharedValue(progress);
   const glowAnim = useSharedValue(isDone ? 1 : 0);
 
@@ -64,17 +78,17 @@ export default function SquircleRing({ size = DEFAULT_SIZE, progress, isDone }: 
     <Animated.View
       style={[
         styles.wrapper,
-        { width: size, height: size },
+        { width: w, height: h },
         glowStyle,
       ]}
     >
-      <Svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      <Svg width={w} height={h} viewBox={`0 0 ${w} ${h}`}>
         <Rect
           x={INSET}
           y={INSET}
-          width={rectSize}
-          height={rectSize}
-          rx={RX}
+          width={rectW}
+          height={rectH}
+          rx={rx}
           fill="none"
           stroke="rgba(82,153,254,0.1)"
           strokeWidth={STROKE_WIDTH}
@@ -82,9 +96,9 @@ export default function SquircleRing({ size = DEFAULT_SIZE, progress, isDone }: 
         <AnimatedRect
           x={INSET}
           y={INSET}
-          width={rectSize}
-          height={rectSize}
-          rx={RX}
+          width={rectW}
+          height={rectH}
+          rx={rx}
           fill="none"
           stroke="#5299FE"
           strokeWidth={STROKE_WIDTH}

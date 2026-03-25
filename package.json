@@ -13,6 +13,7 @@
   "dependencies": {
     "@callstack/liquid-glass": "^0.6.1",
     "@clerk/clerk-expo": "^2.19.21",
+    "@expo-google-fonts/source-serif-4": "^0.4.1",
     "@expo-google-fonts/urbanist": "^0.4.2",
     "@expo/metro-runtime": "~6.1.2",
     "@expo/ui": "~0.2.0-beta.9",
