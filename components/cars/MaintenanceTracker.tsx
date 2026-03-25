@@ -149,6 +149,7 @@ interface UrgentTheme {
   primary: string;
   accentGradient: [string, string, string];
   buttonGradient: [string, string];
+  buttonTextColor: string;
   iconBg: string;
   iconBorder: string;
   pillBg: string;
@@ -163,6 +164,7 @@ const URGENT_THEME: Partial<Record<MaintenanceStatus, UrgentTheme>> = {
     primary: '#FFEA00',
     accentGradient: ['#FFEA00', '#FFF59E', '#FFEA00'],
     buttonGradient: ['#FFEA00', '#E6D600'],
+    buttonTextColor: '#1A1A00',
     iconBg: 'rgba(255,234,0,0.08)',
     iconBorder: 'rgba(255,234,0,0.18)',
     pillBg: 'rgba(255,234,0,0.1)',
@@ -175,6 +177,7 @@ const URGENT_THEME: Partial<Record<MaintenanceStatus, UrgentTheme>> = {
     primary: '#EF4444',
     accentGradient: ['#EF4444', '#F87171', '#EF4444'],
     buttonGradient: ['#EF4444', '#DC2626'],
+    buttonTextColor: '#FFFFFF',
     iconBg: 'rgba(239,68,68,0.08)',
     iconBorder: 'rgba(239,68,68,0.18)',
     pillBg: 'rgba(239,68,68,0.1)',
@@ -187,6 +190,7 @@ const URGENT_THEME: Partial<Record<MaintenanceStatus, UrgentTheme>> = {
     primary: '#FFEA00',
     accentGradient: ['#FFEA00', '#FFF59E', '#FFEA00'],
     buttonGradient: ['#FFEA00', '#E6D600'],
+    buttonTextColor: '#1A1A00',
     iconBg: 'rgba(255,234,0,0.08)',
     iconBorder: 'rgba(255,234,0,0.18)',
     pillBg: 'rgba(255,234,0,0.1)',
@@ -525,7 +529,7 @@ function UrgentCard({ item, entryDelay, onBookNow, onAddInfo, onCardPress }: Urg
         {/* Action buttons */}
         <View style={ucStyles.buttonRow}>
           <Pressable
-            style={({ pressed }) => [ucStyles.bookBtn, pressed && { opacity: 0.9 }]}
+            style={({ pressed }) => [ucStyles.bookBtn, { shadowColor: theme.primary }, pressed && { opacity: 0.9 }]}
             onPress={() => onBookNow?.(item.id)}
           >
             <LinearGradient
@@ -534,7 +538,7 @@ function UrgentCard({ item, entryDelay, onBookNow, onAddInfo, onCardPress }: Urg
               end={{ x: 1, y: 0 }}
               style={ucStyles.bookBtnInner}
             >
-              <Text weight="semiBold" style={ucStyles.bookBtnText}>
+              <Text weight="semiBold" style={[ucStyles.bookBtnText, { color: theme.buttonTextColor, fontFamily: FontFamily.serifBold }]}>
                 Book Service
               </Text>
             </LinearGradient>
@@ -723,7 +727,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
     <View style={styles.container}>
       {/* Section Header */}
       <View style={styles.headerRow}>
-        <Text weight="bold" color={Colors.light.text} style={{ fontSize: 22 }}>
+        <Text weight="bold" color="#0F172A" style={{ fontSize: 22, fontFamily: FontFamily.serifBold }}>
           Maintenance Tracker
         </Text>
         {onEditPressed && (
@@ -747,10 +751,10 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
       {/* Empty state */}
       {items.length === 0 ? (
         <View style={styles.emptyState}>
-          <Text weight="medium" size="md" color="#6B7280">
+          <Text weight="medium" size="md" color="#829BAD">
             No maintenance items yet.
           </Text>
-          <Text size="sm" color="#9CA3AF">
+          <Text size="sm" color="#829BAD" style={{ opacity: 0.7 }}>
             We&apos;ll show your services here once you add them.
           </Text>
         </View>
@@ -841,6 +845,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     alignItems: 'center',
     gap: 4,
+    backgroundColor: 'rgba(255,255,255,0.65)',
     shadowColor: 'rgba(0, 0, 0, 0.1)',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 1,
@@ -938,7 +943,7 @@ const ucStyles = StyleSheet.create({
   },
   serviceName: {
     fontSize: 18,
-    color: '#16293B',
+    color: '#0F172A',
   },
   pill: {
     paddingVertical: 3,
@@ -964,9 +969,8 @@ const ucStyles = StyleSheet.create({
   },
   bookBtn: {
     flex: 1,
-    borderRadius: 14,
+    borderRadius: 24,
     overflow: 'hidden',
-    shadowColor: '#F5A623',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.25,
     shadowRadius: 14,
@@ -977,7 +981,7 @@ const ucStyles = StyleSheet.create({
     paddingHorizontal: 16,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 14,
+    borderRadius: 24,
   },
   bookBtnText: {
     fontSize: 15,
@@ -986,7 +990,7 @@ const ucStyles = StyleSheet.create({
   viewDetailsBtn: {
     flex: 1,
     backgroundColor: '#FFFFFF',
-    borderRadius: 14,
+    borderRadius: 24,
     paddingVertical: 14,
     paddingHorizontal: 16,
     alignItems: 'center',
@@ -999,7 +1003,7 @@ const ucStyles = StyleSheet.create({
   },
   viewDetailsBtnText: {
     fontSize: 14,
-    color: '#6B7280',
+    color: '#829BAD',
   },
   remindBtn: {
     paddingVertical: 11,
@@ -1051,6 +1055,7 @@ const groupLabelStyles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     paddingLeft: 20,
+    marginTop: 4,
     marginBottom: 8,
   },
   overdueDot: {
@@ -1147,7 +1152,7 @@ const hcStyles = StyleSheet.create({
   },
   serviceName: {
     fontSize: 15,
-    color: '#16293B',
+    color: '#0F172A',
   },
   remainingText: {
     fontSize: 12.5,

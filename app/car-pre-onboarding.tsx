@@ -110,6 +110,8 @@ export default function CarPreOnboardingScreen() {
   const ctaLiftAnim = useSharedValue(0);
   const stepTranslateX = useSharedValue(0);
   const stepOpacity = useSharedValue(1);
+  const progressWidth = useSharedValue(0);
+
 
   const vehicleOwnerId = useMemo(
     () => (typeof params.vehicleOwnerId === "string" && params.vehicleOwnerId ? params.vehicleOwnerId : ""),
@@ -136,6 +138,10 @@ export default function CarPreOnboardingScreen() {
     if (stepIndex >= steps.length) {
       setStepIndex(Math.max(0, steps.length - 1));
     }
+  }, [stepIndex, steps.length]);
+
+  useEffect(() => {
+    progressWidth.value = withTiming(((stepIndex + 1) / steps.length) * 100, { duration: 400, easing: Easing.out(Easing.ease) });
   }, [stepIndex, steps.length]);
 
   useEffect(() => {
@@ -228,7 +234,7 @@ export default function CarPreOnboardingScreen() {
   const ctaDisabled = isSubmitting || !canContinue;
 
   useEffect(() => {
-    buttonOpacity.value = withTiming(ctaDisabled ? 0.4 : 1, { duration: 200 });
+    buttonOpacity.value = withTiming(ctaDisabled ? 0.5 : 1, { duration: 200 });
   }, [ctaDisabled]);
 
   const animatedButtonStyle = useAnimatedStyle(() => ({
@@ -247,6 +253,10 @@ export default function CarPreOnboardingScreen() {
   const stepAnimatedStyle = useAnimatedStyle(() => ({
     opacity: stepOpacity.value,
     transform: [{ translateX: stepTranslateX.value }],
+  }));
+
+  const progressBarAnimStyle = useAnimatedStyle(() => ({
+    width: `${progressWidth.value}%`,
   }));
 
   const handleBack = () => {
@@ -339,12 +349,19 @@ export default function CarPreOnboardingScreen() {
               }}
               keyboardType="number-pad"
               placeholder="e.g. 42,000"
-              placeholderTextColor="#94A3B8"
+              placeholderTextColor="#829BAD"
             />
             <Pressable onPress={() => setMileageAtPurchaseNotSure((v) => !v)} style={styles.notSureRow}>
-              <Text size="sm" weight="medium" color={mileageAtPurchaseNotSure ? BrandColors.secondary : "#64748B"}>
-                {mileageAtPurchaseNotSure ? "Not sure ✓" : "Not sure"}
-              </Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <Text size="sm" weight="medium" color={mileageAtPurchaseNotSure ? BrandColors.secondary : "#64748B"}>
+                  Not sure
+                </Text>
+                {mileageAtPurchaseNotSure && (
+                  <Animated.View entering={FadeIn.duration(150)}>
+                    <Check size={16} color={BrandColors.secondary} strokeWidth={2.5} />
+                  </Animated.View>
+                )}
+              </View>
             </Pressable>
           </View>
         );
@@ -356,7 +373,7 @@ export default function CarPreOnboardingScreen() {
             onChangeText={setCurrentMileage}
             keyboardType="number-pad"
             placeholder="e.g. 45,000"
-            placeholderTextColor="#94A3B8"
+            placeholderTextColor="#829BAD"
           />
         );
       case "mileageAndUsage":
@@ -413,7 +430,7 @@ export default function CarPreOnboardingScreen() {
             <Animated.View
               style={[
                 styles.progressBarFill,
-                { width: `${((stepIndex + 1) / steps.length) * 100}%` },
+                progressBarAnimStyle,
               ]}
             />
           </View>
@@ -423,7 +440,7 @@ export default function CarPreOnboardingScreen() {
           entering={FadeIn.duration(300)}
           style={styles.encouragementRow}
         >
-          <Text size="xs" weight="medium" color="#94A3B8">
+          <Text size="xs" weight="medium" color="#829BAD">
             {getEncouragementText(stepIndex)}
           </Text>
         </Animated.View>
@@ -442,10 +459,10 @@ export default function CarPreOnboardingScreen() {
                 style={[styles.cardContent, { paddingBottom: 0 }]}
                 pointerEvents="box-none"
               >
-                <Text weight="bold" size="3xl" color="#0F172A" style={styles.title}>
+                <Text weight="bold" size="3xl" color="#0F172A" style={[styles.title, { fontFamily: FontFamily.serifBold }]}>
                   {stepTitle}
                 </Text>
-                <Text weight="medium" size="md" color="#94A3B8" style={styles.subtitle}>
+                <Text weight="medium" size="md" color="#829BAD" style={[styles.subtitle, { fontFamily: FontFamily.serif }]}>
                   {stepSubtitle}
                 </Text>
                 <View style={[styles.questionBody, (currentStep === "currentMileage" || currentStep === "mileageAtPurchase") && { justifyContent: "flex-start" }]}>

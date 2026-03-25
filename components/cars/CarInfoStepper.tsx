@@ -688,7 +688,7 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
               style={{ width: 140, height: 140 }}
             />
             <Text weight="bold" size="xl" color="#0F172A" style={{ fontFamily: FontFamily.serifBold }}>You&apos;re all set!</Text>
-            <Text weight="medium" size="md" color="#94A3B8" style={{ fontFamily: FontFamily.serif }}>Your vehicle health score is ready.</Text>
+            <Text weight="medium" size="md" color="#829BAD" style={{ fontFamily: FontFamily.serif }}>Your vehicle health score is ready.</Text>
           </ReAnimated.View>
         )}
         <ReAnimated.View style={[s.cardGrid, !allDone && { flex: 1 }, gridShrinkStyle]}>
@@ -726,11 +726,11 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
       <View style={s.iconContainer}>
         <Ionicons name="pulse-outline" size={32} color="#5299FE" />
       </View>
-      <Text weight="bold" size="lg" color="#1F2937" style={[s.introTitle, { fontFamily: FontFamily.serifBold }]}>
+      <Text weight="bold" size="lg" color="#0F172A" style={[s.introTitle, { fontFamily: FontFamily.serifBold }]}>
         Let&apos;s get a quick read on your {displayName}
       </Text>
-      <Text weight="medium" size="sm" color="#6B7280" style={[s.introSubtitle, { fontFamily: FontFamily.serif }]}>
-        Three quick checks to understand your vehicle&apos;s current condition.
+      <Text weight="medium" size="sm" color="#829BAD" style={[s.introSubtitle, { fontFamily: FontFamily.serif }]}>
+        A few quick checks to understand your vehicle&apos;s current condition.
       </Text>
       <View style={s.benefitsList}>
         {["Brake health assessment", "Tire life estimation", "Warning light detection"].map((b) => (
@@ -744,7 +744,7 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
         <Text weight="bold" size="md" color="#FFFFFF" style={{ fontFamily: FontFamily.serifBold }}>Get Started</Text>
         <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
       </Pressable>
-      <Text weight="medium" size="xs" color="#9CA3AF" style={{ marginTop: 10, fontFamily: FontFamily.serif }}>Takes about 30 seconds</Text>
+      <Text weight="medium" size="xs" color="#829BAD" style={{ marginTop: 10, fontFamily: FontFamily.serif, opacity: 0.7 }}>Takes about 30 seconds</Text>
     </View>
   );
 
@@ -765,10 +765,10 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
         <View style={s.steppingPage}>
           {/* Header */}
           <View style={s.steppingHeader}>
-            <Text weight="regular" size="xl" color="#16293B" style={[s.steppingTitle, { fontFamily: FontFamily.serif }]}>
+            <Text weight="bold" size="xl" color="#0F172A" style={[s.steppingTitle, { fontFamily: FontFamily.serifBold }]}>
               {meta.title}
             </Text>
-            <Text weight="regular" size="sm" color="#829BAD" style={[s.steppingSubtitle, { fontFamily: FontFamily.serif }]}>
+            <Text weight="medium" size="sm" color="#829BAD" style={[s.steppingSubtitle, { fontFamily: FontFamily.serif }]}>
               {meta.subtitle}
             </Text>
           </View>
@@ -819,7 +819,7 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
                 onPress={handleComplete}
                 disabled={saving}
               >
-                <Text weight="medium" size="sm" color="#A3B5C4" style={{ fontSize: 14, fontFamily: FontFamily.serif }}>
+                <Text weight="medium" size="sm" color="#829BAD" style={{ fontSize: 14, fontFamily: FontFamily.serif, textDecorationLine: "underline" }}>
                   Finish for now
                 </Text>
               </Pressable>
@@ -912,7 +912,7 @@ const s = StyleSheet.create({
     alignSelf: "stretch",
     gap: 10,
     marginBottom: 24,
-    paddingLeft: 8,
+    paddingHorizontal: 8,
   },
   benefitRow: {
     flexDirection: "row",
@@ -1038,7 +1038,7 @@ const s = StyleSheet.create({
   // ── Complete button ──
   completeButton: {
     width: "100%",
-    borderRadius: 16,
+    borderRadius: 24,
     overflow: "hidden",
     shadowColor: "rgba(82,153,254,0.3)",
     shadowOffset: { width: 0, height: 4 },
@@ -1047,14 +1047,15 @@ const s = StyleSheet.create({
     elevation: 4,
   },
   completeButtonDisabled: {
-    opacity: 0.4,
+    opacity: 0.5,
   },
   completeButtonGradient: {
-    paddingVertical: 17,
+    paddingVertical: 14,
     alignItems: "center",
     justifyContent: "center",
   },
   finishForNowButton: {
     paddingVertical: 8,
+    paddingHorizontal: 16,
   },
 });
