@@ -37,6 +37,7 @@ import {
   MAINTENANCE_LABELS,
   type MaintenanceType,
 } from "@/utils/maintenanceStatus";
+import { scale, moderateScale } from '@/utils/responsive';
 
 if (
   Platform.OS === "android" &&
@@ -391,9 +392,9 @@ export function MaintenanceInputModal({
 
           {/* Warning light toggle */}
           {relevantLight && lightLabel && (
-            <View style={[styles.fieldGroup, { marginTop: 16 }]}>
+            <View style={[styles.fieldGroup, { marginTop: scale(16) }]}>
               <View style={styles.toggleRow}>
-                <View style={{ flex: 1, gap: 2 }}>
+                <View style={{ flex: 1, gap: scale(2) }}>
                   <Text weight="semiBold" size="md" color="#1F2937">{lightLabel}</Text>
                   <Text weight="medium" size="xs" color="#6B7280">Is this light currently on in your dashboard?</Text>
                 </View>
@@ -451,8 +452,8 @@ const styles = StyleSheet.create({
     right: SCREEN_WIDTH * 0.025,
     width: SCREEN_WIDTH * 0.95,
     backgroundColor: "#FFFFFF",
-    borderRadius: 40,
-    paddingBottom: Platform.OS === "ios" ? 24 : 16,
+    borderRadius: moderateScale(40),
+    paddingBottom: Platform.OS === "ios" ? scale(24) : scale(16),
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.2,
@@ -462,11 +463,11 @@ const styles = StyleSheet.create({
   },
   dragHandleContainer: {
     alignItems: "center",
-    paddingTop: 12,
-    paddingBottom: 8,
+    paddingTop: scale(12),
+    paddingBottom: scale(8),
   },
   dragHandle: {
-    width: 40,
+    width: scale(40),
     height: 4,
     backgroundColor: "rgba(0, 0, 0, 0.15)",
     borderRadius: 2,
@@ -474,31 +475,31 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
-    paddingHorizontal: 24,
-    marginBottom: 16,
+    gap: scale(10),
+    paddingHorizontal: scale(24),
+    marginBottom: scale(16),
   },
   scrollContent: {
     maxHeight: SCREEN_HEIGHT * 0.5,
   },
   scrollInner: {
-    paddingHorizontal: 24,
-    paddingBottom: 16,
-    gap: 20,
+    paddingHorizontal: scale(24),
+    paddingBottom: scale(16),
+    gap: scale(20),
   },
   fieldGroup: {
-    gap: 8,
+    gap: scale(8),
   },
   optionList: {
-    gap: 8,
+    gap: scale(8),
   },
   optionCard: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: 14,
+    paddingVertical: scale(14),
+    paddingHorizontal: scale(16),
+    borderRadius: moderateScale(14),
     backgroundColor: "#FFFFFF",
     borderWidth: 1.5,
     borderColor: "#D1D5DB",
@@ -523,14 +524,14 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   footer: {
-    paddingHorizontal: 24,
-    paddingTop: 12,
+    paddingHorizontal: scale(24),
+    paddingTop: scale(12),
     alignItems: "center",
   },
   saveButton: {
     width: "100%",
     backgroundColor: "#5299FE",
-    borderRadius: 24,
+    borderRadius: moderateScale(24),
     paddingVertical: Spacing.md,
     alignItems: "center",
     justifyContent: "center",

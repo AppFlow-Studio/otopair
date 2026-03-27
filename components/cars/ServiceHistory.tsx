@@ -41,6 +41,7 @@ import SharedElementModal, { LayoutInfo } from './SharedElementModal';
 
 // 5. Constants, hooks, types
 import { BrandColors, Colors, Spacing } from '@/constants/theme';
+import { scale, moderateScale } from '@/utils/responsive';
 
 // ============================================================================
 // TYPES
@@ -58,6 +59,7 @@ interface ServiceHistoryProps {
   records: ServiceRecord[];
   onAddNotes?: (id: string) => void;
   onDownloadReceipt?: (id: string) => void;
+  onAddServiceHistory?: () => void;
 }
 
 // ============================================================================
@@ -68,6 +70,7 @@ export function ServiceHistory({
   records,
   onAddNotes,
   onDownloadReceipt,
+  onAddServiceHistory,
 }: ServiceHistoryProps) {
   const [modalVisible, setModalVisible] = useState(false);
   const [layoutInfo, setLayoutInfo] = useState<LayoutInfo | null>(null);
@@ -105,43 +108,52 @@ export function ServiceHistory({
         </Text>
       </View>
 
-      {/* Pressable Card - triggers modal */}
-      <Pressable
-        ref={cardRef}
-        onPress={handlePress}
-        style={({ pressed }) => [
-          styles.cardOuter,
-          pressed && styles.cardPressed,
-        ]}
-      >
-        {/* Frosted glass blur layer */}
-        <BlurView intensity={22} tint="light" style={styles.blurContainer}>
-          {/* White overlay for frosted effect */}
-          <View style={styles.whiteOverlay} />
-        </BlurView>
-        <View style={styles.collapsibleCard}>
-          {/* Preview Header */}
-          <View style={styles.headerSection}>
-            <View style={styles.collapsibleHeader}>
-              <View style={styles.headerTextContainer}>
-                <Text weight="semiBold" size="xl" color={Colors.light.text}>
-                  Your Service History
-                </Text>
-                <Text size="sm" color={Colors.light.text}>
-                  {records.length} past service{records.length !== 1 ? 's' : ''}
-                </Text>
+      {records.length > 0 ? (
+        <Pressable
+          ref={cardRef}
+          onPress={handlePress}
+          style={({ pressed }) => [
+            styles.cardOuter,
+            pressed && styles.cardPressed,
+          ]}
+        >
+          <BlurView intensity={22} tint="light" style={styles.blurContainer}>
+            <View style={styles.whiteOverlay} />
+          </BlurView>
+          <View style={styles.collapsibleCard}>
+            <View style={styles.headerSection}>
+              <View style={styles.collapsibleHeader}>
+                <View style={styles.headerTextContainer}>
+                  <Text weight="semiBold" size="xl" color={Colors.light.text}>
+                    Your Service History
+                  </Text>
+                  <Text size="sm" color={Colors.light.text}>
+                    {records.length} past service{records.length !== 1 ? 's' : ''}
+                  </Text>
+                </View>
+                <Ionicons
+                  name="chevron-forward"
+                  size={24}
+                  color="#D1D5DB"
+                />
               </View>
-
-              {/* Arrow indicator */}
-              <Ionicons
-                name="chevron-forward"
-                size={24}
-                color="#D1D5DB"
-              />
             </View>
           </View>
-        </View>
-      </Pressable>
+        </Pressable>
+      ) : (
+        <Pressable
+          onPress={onAddServiceHistory}
+          style={({ pressed }) => [
+            styles.addHistoryBtn,
+            pressed && styles.addHistoryBtnPressed,
+          ]}
+        >
+          <Ionicons name="add-circle-outline" size={22} color="#5299FE" />
+          <Text weight="semiBold" size="md" color="#5299FE">
+            Add Service History
+          </Text>
+        </Pressable>
+      )}
 
       {/* Expanded Modal */}
       <SharedElementModal
@@ -227,17 +239,33 @@ export function ServiceHistory({
 
 const styles = StyleSheet.create({
   container: {
-    marginTop: 24,
+    marginTop: scale(24),
     paddingHorizontal: Spacing.md,
   },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    marginBottom: scale(12),
+  },
+  addHistoryBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: scale(8),
+    paddingVertical: scale(16),
+    borderRadius: moderateScale(16),
+    borderWidth: 1.5,
+    borderColor: 'rgba(82, 153, 254, 0.25)',
+    borderStyle: 'dashed',
+    backgroundColor: 'rgba(82, 153, 254, 0.04)',
+  },
+  addHistoryBtnPressed: {
+    opacity: 0.7,
+    transform: [{ scale: 0.98 }],
   },
   cardOuter: {
-    borderRadius: 16,
+    borderRadius: moderateScale(16),
     overflow: 'hidden',
     position: 'relative',
     // Frosted glass border
@@ -252,7 +280,7 @@ const styles = StyleSheet.create({
   },
   blurContainer: {
     ...StyleSheet.absoluteFillObject,
-    borderRadius: 16,
+    borderRadius: moderateScale(16),
   },
   whiteOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -261,7 +289,7 @@ const styles = StyleSheet.create({
   collapsibleCard: {
     overflow: 'hidden',
     backgroundColor: 'transparent',
-    borderRadius: 16,
+    borderRadius: moderateScale(16),
   },
   cardPressed: {
     opacity: 0.9,
@@ -274,21 +302,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingHorizontal: scale(12),
+    paddingVertical: scale(10),
   },
   headerTextContainer: {
     flex: 1,
-    gap: 6,
+    gap: scale(6),
   },
   // Expanded modal content styles
   emptyState: {
-    paddingVertical: 48,
+    paddingVertical: scale(48),
     alignItems: 'center',
-    gap: 8,
+    gap: scale(8),
   },
   emptyStateText: {
-    marginTop: 8,
+    marginTop: scale(8),
   },
   recordCard: {
     paddingVertical: Spacing.lg,
@@ -301,17 +329,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: scale(12),
   },
   recordMiddleRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
-    marginBottom: 16,
+    marginBottom: scale(16),
   },
   servicesText: {
     flex: 1,
-    marginRight: 16,
+    marginRight: scale(16),
   },
   recordBottomRow: {
     flexDirection: 'row',
@@ -319,17 +347,17 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   outlinedButton: {
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    borderRadius: 14,
+    paddingHorizontal: scale(18),
+    paddingVertical: scale(10),
+    borderRadius: moderateScale(14),
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.8)',
     backgroundColor: 'rgba(255, 255, 255, 0.4)',
   },
   primaryButton: {
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    borderRadius: 14,
+    paddingHorizontal: scale(18),
+    paddingVertical: scale(10),
+    borderRadius: moderateScale(14),
     backgroundColor: 'rgba(20, 28, 36, 0.9)',
     shadowColor: 'rgba(0, 0, 0, 0.2)',
     shadowOffset: { width: 0, height: 4 },

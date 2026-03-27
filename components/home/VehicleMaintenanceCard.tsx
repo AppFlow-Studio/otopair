@@ -22,7 +22,7 @@
  */
 
 // 1. React & React Native
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   Dimensions,
   Image,
@@ -39,7 +39,7 @@ import { useRouter } from 'expo-router';
 
 // 3. Shared UI
 import { Text } from '@/components/shared-ui';
-import { getVehicleImageUrl } from '@/utils/vehicleImage';
+import { fetchVehicleImageUrl } from '@/utils/vehicleImage';
 
 // ============================================================================
 // TYPES
@@ -59,6 +59,7 @@ interface Vehicle {
   imageUrl: string;
   localImage?: any;
   maintenanceItems: MaintenanceItem[];
+  _fetchParams?: { make: string; model: string; year?: number };
 }
 
 interface VehicleMaintenanceCardProps {
@@ -77,34 +78,37 @@ const SAMPLE_VEHICLES: Vehicle[] = [
     id: '1',
     name: 'Lamborghini\nAventador S',
     vin: '1N6AD06W98C406256',
-    imageUrl: getVehicleImageUrl('Lamborghini', 'Aventador', 2023),
+    imageUrl: '',
     maintenanceItems: [
       { id: '1', serviceName: 'Oil Change', dueText: 'Due in 500 miles', isOverdue: false },
       { id: '2', serviceName: 'State Inspection', dueText: 'Due in 2 weeks', isOverdue: false },
       { id: '3', serviceName: 'Tire Rotation', dueText: 'Overdue by 200 miles', isOverdue: true },
     ],
+    _fetchParams: { make: 'Lamborghini', model: 'Aventador', year: 2023 },
   },
   {
     id: '2',
     name: 'Tesla\nModel S',
     vin: '5YJSA1E26HF000316',
-    imageUrl: getVehicleImageUrl('Tesla', 'Model S', 2023),
+    imageUrl: '',
     maintenanceItems: [
       { id: '1', serviceName: 'Tire Rotation', dueText: 'Due in 1000 miles', isOverdue: false },
       { id: '2', serviceName: 'Brake Inspection', dueText: 'Due in 3 weeks', isOverdue: false },
       { id: '3', serviceName: 'Battery Check', dueText: 'Due in 6 months', isOverdue: false },
     ],
+    _fetchParams: { make: 'Tesla', model: 'Model S', year: 2023 },
   },
   {
     id: '3',
     name: 'Lexus\nRX 350',
     vin: '2T2BK1BA4HC123456',
-    imageUrl: getVehicleImageUrl('Lexus', 'RX 350', 2023),
+    imageUrl: '',
     maintenanceItems: [
       { id: '1', serviceName: 'Oil Change', dueText: 'Due in 800 miles', isOverdue: false },
       { id: '2', serviceName: 'Air Filter', dueText: 'Due in 1 month', isOverdue: false },
       { id: '3', serviceName: 'Coolant Flush', dueText: 'Overdue by 500 miles', isOverdue: true },
     ],
+    _fetchParams: { make: 'Lexus', model: 'RX 350', year: 2023 },
   },
 ];
 
@@ -123,6 +127,17 @@ export function VehicleMaintenanceCard({
   const router = useRouter();
   const swiperRef = useRef<Swiper<Vehicle>>(null);
   const [cardIndex, setCardIndex] = useState(0);
+  const [fetchedImageUrls, setFetchedImageUrls] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    vehicles.forEach((v) => {
+      if (v.imageUrl || fetchedImageUrls[v.id] || !v._fetchParams) return;
+      const { make, model, year } = v._fetchParams;
+      fetchVehicleImageUrl(make, model, year, v.vin).then((url) => {
+        if (url) setFetchedImageUrls((prev) => ({ ...prev, [v.id]: url }));
+      });
+    });
+  }, [vehicles]);
 
   const handleBookNow = (vehicleId: string, serviceId: string) => {
     if (onBookNow) {
@@ -143,7 +158,7 @@ export function VehicleMaintenanceCard({
         <View style={styles.topSection}>
           {/* Base gradient layer - solid */}
           <LinearGradient
-            colors={['#FFFFFF', '#F8F9FB']}
+            colors={['#FFFFFF', '#FFFFFF']}
             start={{ x: 0, y: 0 }}
             end={{ x: 0, y: 1 }}
             style={StyleSheet.absoluteFill}
@@ -159,7 +174,7 @@ export function VehicleMaintenanceCard({
                 </Text>
               </View>
               <Image
-                source={vehicle.localImage || { uri: vehicle.imageUrl }}
+                source={vehicle.localImage || { uri: fetchedImageUrls[vehicle.id] || vehicle.imageUrl }}
                 style={styles.vehicleImage}
                 resizeMode="contain"
               />
@@ -392,7 +407,7 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
   },
   bottomSection: {
-    backgroundColor: '#f2f3f8',
+    backgroundColor: '#FFFFFF',
     padding: 20,
     paddingTop: 10,
     paddingBottom: 2,

@@ -13,9 +13,9 @@ import Animated, {
 } from 'react-native-reanimated';
 
 import { Text } from '@/components/shared-ui';
-import { FontFamily } from '@/constants/theme';
 import { OilIcon, BrakesIcon, TireIcon, BatteryIcon, WarningIcon } from '@/components/cars/ServiceIcons';
 import type { MaintenanceItem } from '@/components/cars/MaintenanceTracker';
+import { scale, verticalScale, moderateScale } from '@/utils/responsive';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -43,9 +43,9 @@ const OVERDUE_GRADIENT: [string, ...string[]] = [
 ];
 
 const DUE_SOON_GRADIENT: [string, ...string[]] = [
-  '#3D2606', '#5E3D0A', '#8A5C0E', '#D4870E', '#DFA02E',
-  '#E8B854', '#EFCC7A', '#F4DCA0', '#F8E8BF', '#FBF0D8',
-  '#FDF6EA', '#FEFBF5', '#FFFFFF',
+  '#4A3800', '#6B5700', '#9E8200', '#F5C623', '#F7D24E',
+  '#FADA6E', '#FCE18E', '#FDE8AE', '#FEEECC', '#FFF3E0',
+  '#FFF8EE', '#FFFCF7', '#FFFFFF',
 ];
 
 const GRADIENT_LOCATIONS: number[] = [
@@ -61,24 +61,24 @@ const STATUS_CONFIG = {
     buttonGradient: ['#D35448', '#C0392B', '#A93226'] as [string, string, string],
   },
   due_soon: {
-    color: '#D4870E',
-    softColor: '#E8B854',
+    color: '#F5C623',
+    softColor: '#FADA6E',
     label: 'NEEDS ATTENTION',
     headerGradient: DUE_SOON_GRADIENT,
-    buttonGradient: ['#E09B2D', '#D4870E', '#B8740C'] as [string, string, string],
+    buttonGradient: ['#FADA6E', '#F5C623', '#D4AA1C'] as [string, string, string],
   },
   needs_attention: {
-    color: '#D4870E',
-    softColor: '#E8B854',
+    color: '#F5C623',
+    softColor: '#FADA6E',
     label: 'NEEDS ATTENTION',
     headerGradient: DUE_SOON_GRADIENT,
-    buttonGradient: ['#E09B2D', '#D4870E', '#B8740C'] as [string, string, string],
+    buttonGradient: ['#FADA6E', '#F5C623', '#D4AA1C'] as [string, string, string],
   },
 };
 
 
-const RING_SIZE = 105;
-const RING_STROKE = 7;
+const RING_SIZE = scale(105);
+const RING_STROKE = scale(7);
 const RING_RADIUS = (RING_SIZE - RING_STROKE) / 2;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 const RING_CENTER = RING_SIZE / 2;
@@ -161,7 +161,7 @@ function HealthRing({
         />
       </Svg>
       <View style={ringStyles.centerWrap}>
-        <Text weight="extraBold" style={[ringStyles.scoreNum, { fontFamily: FontFamily.serifBold }]}>
+        <Text weight="extraBold" style={ringStyles.scoreNum}>
           {Math.round(progress)}
         </Text>
       </View>
@@ -180,9 +180,9 @@ const ringStyles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  scoreNum: { fontSize: 30, color: '#16293B', lineHeight: 34 },
-  label: { fontSize: 12, color: '#16293B', marginTop: 10 },
-  sublabel: { fontSize: 10, color: '#B0BEC5', marginTop: 1 },
+  scoreNum: { fontSize: moderateScale(30), color: '#16293B', lineHeight: moderateScale(34) },
+  label: { fontSize: moderateScale(12), color: '#16293B', marginTop: scale(10) },
+  sublabel: { fontSize: moderateScale(10), color: '#B0BEC5', marginTop: 1 },
 });
 
 // ============================================================================
@@ -356,7 +356,7 @@ export default function MaintenanceDetailView({
             {/* Header text content */}
             <View style={styles.headerContent}>
               <Text weight="semiBold" style={styles.eyebrow}>SERVICE DETAIL</Text>
-              <Text weight="extraBold" style={[styles.title, { fontFamily: FontFamily.serifBold }]}>
+              <Text weight="extraBold" style={styles.title}>
                 {item.serviceName}
               </Text>
               <View style={styles.statusPill}>
@@ -471,7 +471,7 @@ export default function MaintenanceDetailView({
                   end={{ x: 1, y: 0 }}
                   style={styles.bookBtnInner}
                 >
-                  <Text weight="bold" style={[styles.bookBtnText, { fontFamily: FontFamily.serifBold }]}>
+                  <Text weight="bold" style={styles.bookBtnText}>
                     Book Service Now
                   </Text>
                 </LinearGradient>
@@ -493,9 +493,9 @@ const HEADER_HEIGHT = SCREEN_HEIGHT * 0.42;
 const styles = StyleSheet.create({
   headerGradient: {
     height: HEADER_HEIGHT,
-    paddingTop: 56,
-    paddingHorizontal: 24,
-    paddingBottom: 72,
+    paddingTop: verticalScale(56),
+    paddingHorizontal: scale(24),
+    paddingBottom: verticalScale(72),
   },
   scrollContent: {
     flexGrow: 1,
@@ -504,57 +504,57 @@ const styles = StyleSheet.create({
   // Close button
   closeBtnWrap: {
     position: 'absolute',
-    top: 52,
-    right: 20,
+    top: verticalScale(52),
+    right: scale(20),
     zIndex: 10,
   },
   closeBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: scale(36),
+    height: scale(36),
+    borderRadius: scale(18),
     backgroundColor: 'rgba(255,255,255,0.15)',
     alignItems: 'center',
     justifyContent: 'center',
   },
   closeBtnText: {
-    fontSize: 16,
+    fontSize: moderateScale(16),
     color: 'rgba(255,255,255,0.85)',
   },
 
   // Header content
   headerContent: {
-    paddingTop: 72,
-    paddingBottom: 58,
-    paddingHorizontal: 24,
+    paddingTop: verticalScale(72),
+    paddingBottom: verticalScale(58),
+    paddingHorizontal: scale(24),
     alignItems: 'center',
     justifyContent: 'center',
   },
   eyebrow: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     color: 'rgba(255,255,255,0.5)',
     textTransform: 'uppercase',
     letterSpacing: 0.12 * 12,
-    marginBottom: 14,
+    marginBottom: scale(14),
   },
   title: {
-    fontSize: 32,
+    fontSize: moderateScale(32),
     color: '#FFFFFF',
     letterSpacing: -0.5,
     textAlign: 'center',
-    lineHeight: 32 * 1.3,
+    lineHeight: moderateScale(32) * 1.3,
     paddingVertical: 4,
   },
   statusPill: {
     paddingVertical: 5,
-    paddingHorizontal: 16,
-    borderRadius: 20,
+    paddingHorizontal: scale(16),
+    borderRadius: moderateScale(20),
     backgroundColor: 'rgba(255,255,255,0.15)',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.12)',
-    marginTop: 16,
+    marginTop: scale(16),
   },
   statusPillText: {
-    fontSize: 11,
+    fontSize: moderateScale(11),
     color: '#FFFFFF',
     letterSpacing: 0.04 * 11,
     textTransform: 'uppercase',
@@ -563,13 +563,13 @@ const styles = StyleSheet.create({
   // Floating badge
   badgeOuter: {
     alignItems: 'center',
-    marginTop: -36,
+    marginTop: scale(-36),
     zIndex: 5,
   },
   badgeContainer: {
-    width: 72,
-    height: 72,
-    borderRadius: 36,
+    width: scale(72),
+    height: scale(72),
+    borderRadius: scale(36),
     backgroundColor: 'rgba(255,255,255,0.12)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -584,12 +584,12 @@ const styles = StyleSheet.create({
   },
   badgeGlassRing: {
     ...StyleSheet.absoluteFillObject,
-    borderRadius: 36,
+    borderRadius: scale(36),
   },
   badgeRing: {
-    width: 54,
-    height: 54,
-    borderRadius: 27,
+    width: scale(54),
+    height: scale(54),
+    borderRadius: scale(27),
     overflow: 'hidden',
   },
   badgeInner: {
@@ -600,9 +600,9 @@ const styles = StyleSheet.create({
 
   // Content area
   contentArea: {
-    paddingTop: 28,
-    paddingHorizontal: 28,
-    paddingBottom: 28,
+    paddingTop: scale(28),
+    paddingHorizontal: scale(28),
+    paddingBottom: scale(28),
     alignItems: 'center',
   },
 
@@ -611,7 +611,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     justifyContent: 'center',
-    gap: 28,
+    gap: scale(28),
   },
   arrowWrap: {
     marginTop: (RING_SIZE / 2) + 30,
@@ -621,35 +621,35 @@ const styles = StyleSheet.create({
   deltaBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingVertical: 6,
-    paddingHorizontal: 14,
-    borderRadius: 12,
+    gap: scale(6),
+    paddingVertical: scale(6),
+    paddingHorizontal: scale(14),
+    borderRadius: moderateScale(12),
     backgroundColor: 'rgba(52,199,89,0.08)',
-    marginTop: 16,
-    marginBottom: 20,
+    marginTop: scale(16),
+    marginBottom: scale(20),
   },
   deltaText: {
-    fontSize: 15,
+    fontSize: moderateScale(15),
     color: '#34C759',
   },
 
   // Divider
   divider: {
-    width: 36,
+    width: scale(36),
     height: 1,
     backgroundColor: 'rgba(0,0,0,0.06)',
-    marginTop: 4,
-    marginBottom: 20,
+    marginTop: scale(4),
+    marginBottom: scale(20),
   },
 
   // Description
   description: {
-    fontSize: 15,
+    fontSize: moderateScale(15),
     color: '#6B8599',
-    lineHeight: 15 * 1.6,
+    lineHeight: moderateScale(15) * 1.6,
     textAlign: 'center',
-    maxWidth: 300,
+    maxWidth: scale(300),
   },
 
   // Meta line
@@ -657,23 +657,23 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     justifyContent: 'center',
-    marginTop: 8,
+    marginTop: scale(8),
   },
   metaText: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     color: '#B0BEC5',
   },
 
   // Book button
   bookBtnFixed: {
     position: 'absolute',
-    bottom: 40,
-    left: 28,
-    right: 28,
+    bottom: verticalScale(40),
+    left: scale(28),
+    right: scale(28),
     zIndex: 10,
   },
   bookBtnShadow: {
-    borderRadius: 16,
+    borderRadius: moderateScale(16),
     overflow: 'hidden',
     shadowOpacity: 0.25,
     shadowOffset: { width: 0, height: 6 },
@@ -681,13 +681,13 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   bookBtnInner: {
-    paddingVertical: 17,
+    paddingVertical: scale(17),
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 16,
+    borderRadius: moderateScale(16),
   },
   bookBtnText: {
-    fontSize: 17,
+    fontSize: moderateScale(17),
     color: '#FFFFFF',
     letterSpacing: -0.01 * 17,
   },

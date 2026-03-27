@@ -13,12 +13,11 @@ import ReAnimated, {
   Extrapolation,
   runOnJS,
   Easing,
-  FadeIn,
-  FadeOut,
 } from "react-native-reanimated";
 
 import { Text } from "@/components/shared-ui";
 import { FontFamily } from "@/constants/theme";
+import { scale as s, verticalScale as vs, moderateScale as ms } from '@/utils/responsive';
 import SquircleRing from "@/components/cars/SquircleRing";
 
 // ============================================================================
@@ -75,6 +74,7 @@ export default function QuestionOverlay({
   const contentProgress = useSharedValue(0);
   const heroScale = useSharedValue(0.3);
   const scrollY = useSharedValue(0);
+  const questionFade = useSharedValue(0);
 
   useEffect(() => {
     backdropOpacity.value = withTiming(1, { duration: 300 });
@@ -83,6 +83,7 @@ export default function QuestionOverlay({
       easing: Easing.bezier(0.16, 1, 0.3, 1),
     });
     heroScale.value = withSpring(1, { damping: 30, stiffness: 400 });
+    questionFade.value = withTiming(1, { duration: 300 });
   }, []);
 
   const animateOut = useCallback((callback: () => void) => {
@@ -116,13 +117,13 @@ export default function QuestionOverlay({
   const heroAnimStyle = useAnimatedStyle(() => {
     const scrollScale = interpolate(
       scrollY.value,
-      [0, 150],
+      [0, vs(150)],
       [1, 0.55],
       Extrapolation.CLAMP,
     );
     const scrollOpacity = interpolate(
       scrollY.value,
-      [0, 120],
+      [0, vs(120)],
       [1, 0],
       Extrapolation.CLAMP,
     );
@@ -131,6 +132,10 @@ export default function QuestionOverlay({
       opacity: scrollOpacity,
     };
   });
+
+  const questionFadeStyle = useAnimatedStyle(() => ({
+    opacity: questionFade.value,
+  }));
 
   const currentQuestion = questions[questionIndex];
   const totalQuestions = questions.length;
@@ -156,7 +161,12 @@ export default function QuestionOverlay({
         if (hasFollowUp && questionIndex < totalQuestions - 1) {
           const nextIndex = questionIndex + 1;
           const progress = computeProgress(nextIndex, false);
-          setQuestionIndex(nextIndex);
+          questionFade.value = withTiming(0, { duration: 120 }, () => {
+            runOnJS(setQuestionIndex)(nextIndex);
+          });
+          setTimeout(() => {
+            questionFade.value = withTiming(1, { duration: 250 });
+          }, 150);
           processing.current = false;
           onAnswerUpdate(updatedAnswers, nextIndex, progress);
         } else {
@@ -224,7 +234,7 @@ export default function QuestionOverlay({
         >
           {/* Hero card */}
           <ReAnimated.View style={[st.heroWrapper, heroAnimStyle]}>
-            <SquircleRing width={164} height={163} rx={22} progress={ringProgress} isDone={false} />
+            <SquircleRing width={s(164)} height={s(163)} rx={ms(22)} progress={ringProgress} isDone={false} />
             <View style={st.heroCardOuter}>
               <LinearGradient
                 colors={["#5299FE", "#70B7FF"]}
@@ -232,14 +242,14 @@ export default function QuestionOverlay({
                 end={{ x: 0.5, y: 1 }}
                 style={st.heroCard}
               >
-                <View style={{ flex: 1, alignItems: "center", justifyContent: "center", marginTop: 25 }}>
+                <View style={{ flex: 1, alignItems: "center", justifyContent: "center", marginTop: s(25) }}>
                   {heroIcon}
                 </View>
                 <Text
                   weight="semiBold"
                   size="sm"
                   color="#FFFFFF"
-                  style={{ fontFamily: FontFamily.serifSemiBold, fontSize: 17, textAlign: "center", paddingBottom: 14 }}
+                  style={{ fontFamily: FontFamily.serifSemiBold, fontSize: ms(17), textAlign: "center", paddingBottom: s(14) }}
                 >
                   {serviceName}
                 </Text>
@@ -248,12 +258,8 @@ export default function QuestionOverlay({
           </ReAnimated.View>
 
           {/* Question text */}
-          <ReAnimated.View
-            key={`q-${serviceId}-${questionIndex}`}
-            entering={FadeIn.duration(300).delay(150)}
-            exiting={FadeOut.duration(150)}
-          >
-            <Text weight="bold" size="xl" color="#16293B" style={[st.questionText, { fontFamily: FontFamily.serifBold, marginBottom: isMultiSelect ? 20 : 72 }]}>
+          <ReAnimated.View style={questionFadeStyle}>
+            <Text weight="bold" size="xl" color="#16293B" style={[st.questionText, { fontFamily: FontFamily.serifBold, marginBottom: isMultiSelect ? s(20) : s(72) }]}>
               {currentQuestion.text}
             </Text>
           </ReAnimated.View>
@@ -295,7 +301,7 @@ export default function QuestionOverlay({
                 end={{ x: 1, y: 0 }}
                 style={st.doneButtonGradient}
               >
-                <Text weight="semiBold" size="md" color="#FFFFFF" style={{ fontSize: 17 }}>
+                <Text weight="semiBold" size="md" color="#FFFFFF" style={{ fontSize: ms(17) }}>
                   Done
                 </Text>
               </LinearGradient>
@@ -355,7 +361,7 @@ function OptionButton({
               name={icon as any}
               size={20}
               color={isSelected ? "#5299FE" : "#6B7280"}
-              style={{ marginRight: 8 }}
+              style={{ marginRight: s(8) }}
             />
           ) : null}
           <Text
@@ -380,16 +386,16 @@ function OptionButton({
 // ============================================================================
 
 function ProgressDot({ isDone, isActive }: { isDone: boolean; isActive: boolean }) {
-  const width = useSharedValue(isActive ? 28 : 6);
+  const width = useSharedValue(isActive ? s(28) : s(6));
 
   useEffect(() => {
-    width.value = withTiming(isActive ? 28 : 6, { duration: 350 });
+    width.value = withTiming(isActive ? s(28) : s(6), { duration: 350 });
   }, [isActive]);
 
   const animatedStyle = useAnimatedStyle(() => ({
     width: width.value,
-    height: 6,
-    borderRadius: 3,
+    height: s(6),
+    borderRadius: ms(3),
     backgroundColor: isDone || isActive ? "#5299FE" : "rgba(82,153,254,0.18)",
   }));
 
@@ -403,7 +409,7 @@ function ProgressDot({ isDone, isActive }: { isDone: boolean; isActive: boolean 
 const st = StyleSheet.create({
   container: {
     position: "absolute",
-    top: -150,
+    top: vs(-150),
     left: 0,
     right: 0,
     bottom: 0,
@@ -411,16 +417,16 @@ const st = StyleSheet.create({
   },
   content: {
     flex: 1,
-    paddingHorizontal: 24,
+    paddingHorizontal: s(24),
     alignItems: "center",
   },
   closeButton: {
     position: "absolute",
-    top: 140,
-    right: 24,
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    top: vs(140),
+    right: s(24),
+    width: s(34),
+    height: s(34),
+    borderRadius: s(17),
     backgroundColor: "rgba(255,255,255,0.55)",
     borderWidth: 1,
     borderColor: "rgba(255,255,255,0.7)",
@@ -429,15 +435,15 @@ const st = StyleSheet.create({
     zIndex: 10,
   },
   closeButtonText: {
-    fontSize: 15,
+    fontSize: ms(15),
     color: "#4A6F8A",
   },
   heroWrapper: {
-    width: 164,
-    height: 163,
+    width: s(164),
+    height: s(163),
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 40,
+    marginTop: s(40),
   },
   heroCardOuter: {
     shadowColor: "#5299FE",
@@ -447,41 +453,41 @@ const st = StyleSheet.create({
     elevation: 8,
   },
   heroCard: {
-    width: 156,
-    height: 155,
-    borderRadius: 22,
+    width: s(156),
+    height: s(155),
+    borderRadius: ms(22),
     alignItems: "center",
     justifyContent: "center",
   },
   scrollContent: {
     alignItems: "center",
-    paddingTop: 200,
-    paddingBottom: 60,
+    paddingTop: vs(200),
+    paddingBottom: s(60),
   },
   serviceLabel: {
-    fontSize: 12,
+    fontSize: ms(12),
     letterSpacing: 1.2,
-    marginBottom: 12,
+    marginBottom: s(12),
   },
   questionText: {
-    fontSize: 23,
-    lineHeight: 30,
+    fontSize: ms(23),
+    lineHeight: ms(30),
     letterSpacing: -0.4,
     textAlign: "center",
-    maxWidth: 300,
-    marginTop: 24,
-    marginBottom: 20,
+    maxWidth: s(300),
+    marginTop: s(24),
+    marginBottom: s(20),
     alignSelf: "center",
   },
   optionsStack: {
     width: "100%",
-    gap: 12,
+    gap: s(12),
   },
   optionButton: {
     width: "100%",
-    paddingVertical: 17,
-    paddingHorizontal: 20,
-    borderRadius: 16,
+    paddingVertical: s(17),
+    paddingHorizontal: s(20),
+    borderRadius: ms(16),
     backgroundColor: "rgba(255,255,255,0.65)",
     borderWidth: 0,
     overflow: "hidden",
@@ -499,13 +505,13 @@ const st = StyleSheet.create({
     flex: 1,
   },
   optionText: {
-    fontSize: 16,
+    fontSize: ms(16),
   },
   doneButton: {
     width: "100%",
-    borderRadius: 16,
+    borderRadius: ms(16),
     overflow: "hidden",
-    marginTop: 16,
+    marginTop: s(16),
     shadowColor: "rgba(82,153,254,0.3)",
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 1,
@@ -513,7 +519,7 @@ const st = StyleSheet.create({
     elevation: 4,
   },
   doneButtonGradient: {
-    paddingVertical: 17,
+    paddingVertical: s(17),
     alignItems: "center",
     justifyContent: "center",
   },

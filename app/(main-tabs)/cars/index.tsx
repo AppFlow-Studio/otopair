@@ -10,8 +10,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
+import * as DocumentPicker from "expo-document-picker";
 import Svg, { Circle, Defs, LinearGradient as SvgLinearGradient, Stop } from "react-native-svg";
-import LottieView from "lottie-react-native";
 
 // 3. Convex & hooks
 import { useAction, useMutation } from "convex/react";
@@ -27,8 +27,8 @@ import { computeVehicleHealthScore, type HealthScoreInput } from "@/utils/health
 // 4. Shared UI
 import { Text } from "@/components/shared-ui";
 import { OilIcon, BrakesIcon, TireIcon, BatteryIcon, WarningIcon } from "@/components/cars/ServiceIcons";
-import { FontFamily } from "@/constants/theme";
-import { getVehicleImageUrl } from "@/utils/vehicleImage";
+import { fetchVehicleImageUrl } from "@/utils/vehicleImage";
+import { scale, verticalScale, moderateScale } from '@/utils/responsive';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -42,6 +42,18 @@ import CarInfoStepper, { type CarInfoStepperHandle } from "@/components/cars/Car
 import { AnimatedGradientBackground } from "@/components/shared-ui/AnimatedGradientBackground";
 import ServiceHistory, { ServiceRecord } from "@/components/cars/ServiceHistory";
 import VehicleStatsCard from "@/components/cars/VehicleStatsCard";
+
+// ============================================================================
+// HELPERS
+// ============================================================================
+
+function titleCase(str: string): string {
+  return str
+    .toLowerCase()
+    .split(' ')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+}
 
 // ============================================================================
 // VEHICLE-SPECIFIC DATA
@@ -100,6 +112,7 @@ export default function CarsHomeScreen() {
   const healthPageSlideX = useRef(new Animated.Value(300)).current;
   const healthPageFade = useRef(new Animated.Value(0)).current;
   const [healthPageVisible, setHealthPageVisible] = useState(false);
+  const [healthPageReady, setHealthPageReady] = useState(false);
 
   // Post-celebration reveal animation
   const [revealingDashboard, setRevealingDashboard] = useState(false);
@@ -112,9 +125,22 @@ export default function CarsHomeScreen() {
   const [gearsPhase, setGearsPhase] = useState<'looping' | 'building' | 'ready'>('looping');
   const gearsOverlayOpacity = useRef(new Animated.Value(1)).current;
   const gearsBtnOpacity = useRef(new Animated.Value(0)).current;
-  const gearsLottieRef = useRef<any>(null);
   const lottieFadeOut = useRef(new Animated.Value(1)).current;
   const carImageFadeIn = useRef(new Animated.Value(0)).current;
+  // AI profile building messages
+  const AI_MESSAGES = [
+    "Building your vehicle profile…",
+    "Analyzing service data…",
+    "Generating health insights…",
+    "Calculating maintenance schedule…",
+    "Preparing recommendations…",
+    "Almost there…",
+  ];
+  const [aiMsgIndex, setAiMsgIndex] = useState(0);
+  const aiMsgOpacity = useRef(new Animated.Value(0)).current;
+  const carPulseAnim = useRef(new Animated.Value(1)).current;
+  const aiMsgIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const carPulseLoopRef = useRef<Animated.CompositeAnimation | null>(null);
 
   // Emotional animation refs
   const [displayedScore, setDisplayedScore] = useState(0);
@@ -426,6 +452,7 @@ export default function CarsHomeScreen() {
         Animated.timing(healthPageFade, { toValue: 0, duration: 300, easing: Easing.in(Easing.ease), useNativeDriver: true }),
       ]).start(() => {
         setHealthPageVisible(false);
+        setHealthPageReady(false);
         setShowHealthRingSheet(false);
       });
     } else {
@@ -435,23 +462,62 @@ export default function CarsHomeScreen() {
         Animated.timing(healthPageFade, { toValue: 0, duration: 350, easing: Easing.in(Easing.ease), useNativeDriver: true }),
       ]).start(() => {
         setHealthPageVisible(false);
+        setHealthPageReady(false);
         setShowHealthRingSheet(false);
         setPendingHealthSheet(false);
-        // Transition gears overlay to building phase (Lottie mounts & autoPlays here)
+        // Transition gears overlay to building phase
         lottieFadeOut.setValue(1);
         carImageFadeIn.setValue(0);
         setGearsPhase('building');
         gearsBtnOpacity.setValue(0);
 
+        // Start cycling AI messages
+        setAiMsgIndex(0);
+        aiMsgOpacity.setValue(0);
+        Animated.timing(aiMsgOpacity, { toValue: 1, duration: 400, useNativeDriver: true }).start();
+        aiMsgIntervalRef.current = setInterval(() => {
+          Animated.timing(aiMsgOpacity, { toValue: 0, duration: 300, useNativeDriver: true }).start(() => {
+            setAiMsgIndex((prev) => (prev + 1) % 6);
+            Animated.timing(aiMsgOpacity, { toValue: 1, duration: 400, useNativeDriver: true }).start();
+          });
+        }, 2200);
+
+        // Start pulsing car image
+        carPulseAnim.setValue(1);
+        const pulse = Animated.loop(
+          Animated.sequence([
+            Animated.timing(carPulseAnim, { toValue: 0.3, duration: 2000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+            Animated.timing(carPulseAnim, { toValue: 1, duration: 2000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+          ])
+        );
+        carPulseLoopRef.current = pulse;
+        pulse.start();
+
+        // After 6s, transition to "optimized" state
         setTimeout(() => {
+          // Stop cycling & pulsing
+          if (aiMsgIntervalRef.current) clearInterval(aiMsgIntervalRef.current);
+          aiMsgIntervalRef.current = null;
+          if (carPulseLoopRef.current) carPulseLoopRef.current.stop();
+          carPulseAnim.setValue(1);
+
+          // Fade out AI messages, fade in car + "optimized" text
+          Animated.parallel([
+            Animated.timing(lottieFadeOut, { toValue: 0, duration: 600, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+            Animated.timing(carImageFadeIn, { toValue: 1, duration: 800, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+          ]).start();
+
           setGearsPhase('ready');
-          Animated.timing(gearsBtnOpacity, { toValue: 1, duration: 400, useNativeDriver: true }).start();
-        }, 8000);
+          Animated.timing(gearsBtnOpacity, { toValue: 1, duration: 400, delay: 600, useNativeDriver: true }).start();
+        }, 6000);
       });
     }
   }, [healthPageSlideX, healthPageFade, mainPageSlideX, mainPageFade, gearsBtnOpacity]);
 
   const dismissGearsOverlay = useCallback(() => {
+    // Clean up AI message cycling & car pulse
+    if (aiMsgIntervalRef.current) { clearInterval(aiMsgIntervalRef.current); aiMsgIntervalRef.current = null; }
+    if (carPulseLoopRef.current) { carPulseLoopRef.current.stop(); carPulseLoopRef.current = null; }
     // Bring main page back in underneath, then fade out gears
     mainPageSlideX.setValue(0);
     mainPageFade.setValue(1);
@@ -471,7 +537,37 @@ export default function CarsHomeScreen() {
   const removeOwner = useMutation(api.vehicles.removeOwner);
   const autoCompleteNewVehicle = useMutation(api.vehicles.autoCompleteNewVehicleOnboarding);
   const fetchVehicleData = useAction(api.smartcar.fetchVehicleData);
+  const saveVehicleImageUrl = useMutation(api.vehicles.saveVehicleImageUrl);
   const [isRefreshingSmartcar, setIsRefreshingSmartcar] = useState(false);
+  const [vehicleImageUrls, setVehicleImageUrls] = useState<Record<string, string>>({});
+
+  // Use cached image_url from Convex, or fetch from API and save it
+  useEffect(() => {
+    if (!listVehicles?.length) return;
+    listVehicles.forEach((r: any) => {
+      if (!r.vin || vehicleImageUrls[r.vin]) return;
+
+      // Use cached URL from Convex if it's from our current provider
+      const cachedUrl = r.vehicle?.image_url;
+      if (cachedUrl && (cachedUrl.includes("vehicledatabases.com") || cachedUrl.includes("vhr.nyc3.cdn"))) {
+        setVehicleImageUrls((prev) => ({ ...prev, [r.vin]: cachedUrl }));
+        return;
+      }
+
+      // Otherwise fetch from API and save to Convex
+      const v = r.vehicle;
+      const meta = v?.metadata as { make?: string; model?: string; color?: string } | undefined;
+      const make = meta?.make ?? "";
+      const model = meta?.model ?? "";
+      const color = meta?.color ?? r.ownership?.color ?? "";
+      fetchVehicleImageUrl(make, model, v?.year, r.vin, color).then((url) => {
+        if (url) {
+          setVehicleImageUrls((prev) => ({ ...prev, [r.vin]: url }));
+          saveVehicleImageUrl({ vin: r.vin, image_url: url });
+        }
+      });
+    });
+  }, [listVehicles]);
 
   // Map Convex list to Vehicle[] for CarCarousel (also track ownership IDs + raw ownership)
   const { vehicles, ownershipIds, ownerships } = useMemo(() => {
@@ -488,10 +584,12 @@ export default function CarsHomeScreen() {
       const o = r.ownership;
       const meta = v ? (v as { metadata?: { make?: string; model?: string; color?: string } }).metadata : undefined;
       const paintColor = meta?.color;
-      const gradient = (paintColor && COLOR_GRADIENTS[paintColor])
-        || DEFAULT_GRADIENTS[i % DEFAULT_GRADIENTS.length];
-      const displayMake = meta?.make || o?.nickname?.split(" ")[1] || "Vehicle";
-      const displayModel = meta?.model || o?.nickname?.split(" ").slice(2).join(" ") || r.vin.slice(-6);
+      // TODO: re-enable once car images have transparent backgrounds
+      // const gradient = (paintColor && COLOR_GRADIENTS[paintColor])
+      //   || DEFAULT_GRADIENTS[i % DEFAULT_GRADIENTS.length];
+      const gradient = ["#FFFFFF", "#FFFFFF", "#FFFFFF", "#FFFFFF"];
+      const displayMake = titleCase(meta?.make || o?.nickname?.split(" ")[1] || "Vehicle");
+      const displayModel = titleCase(meta?.model || o?.nickname?.split(" ").slice(2).join(" ") || r.vin.slice(-6));
       paired.push({
         vehicle: {
           id: r.vin,
@@ -502,8 +600,8 @@ export default function CarsHomeScreen() {
           mileage: o?.mileage ?? 0,
           nextServiceDate: undefined,
           isDefault: o?.is_primary ?? false,
-          imageSource: displayMake && displayModel
-            ? { uri: getVehicleImageUrl(displayMake, displayModel, v?.year, r.vin, paintColor) }
+          imageSource: vehicleImageUrls[r.vin]
+            ? { uri: vehicleImageUrls[r.vin] }
             : undefined,
           logoSource: undefined,
           condition: undefined,
@@ -528,7 +626,7 @@ export default function CarsHomeScreen() {
       ownershipIds: paired.map((p) => p.ownershipId),
       ownerships: paired.map((p) => p.ownership),
     };
-  }, [listVehicles]);
+  }, [listVehicles, vehicleImageUrls]);
 
   // Clamp active index when list changes
   useEffect(() => {
@@ -675,20 +773,17 @@ export default function CarsHomeScreen() {
     pageSlideX.setValue(0);
     pageFade.setValue(1);
 
+    setHealthPageReady(false);
     Animated.parallel([
-      Animated.timing(mainPageSlideX, { toValue: -300, duration: 900, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-      Animated.timing(mainPageFade, { toValue: 0, duration: 900, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-    ]).start();
-
-    setTimeout(() => {
-      Animated.parallel([
-        Animated.timing(healthPageSlideX, { toValue: 0, duration: 600, easing: Easing.out(Easing.ease), useNativeDriver: true }),
-        Animated.timing(healthPageFade, { toValue: 1, duration: 600, easing: Easing.out(Easing.ease), useNativeDriver: true }),
-      ]).start(() => {
-        mainPageSlideX.setValue(0);
-        mainPageFade.setValue(1);
-      });
-    }, 400);
+      Animated.timing(mainPageSlideX, { toValue: -300, duration: 350, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      Animated.timing(mainPageFade, { toValue: 0, duration: 350, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      Animated.timing(healthPageSlideX, { toValue: 0, duration: 350, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+      Animated.timing(healthPageFade, { toValue: 1, duration: 350, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+    ]).start(() => {
+      mainPageSlideX.setValue(0);
+      mainPageFade.setValue(1);
+      setHealthPageReady(true);
+    });
   }, [mainPageSlideX, mainPageFade, healthPageSlideX, healthPageFade, pageSlideX, pageFade]);
 
   // Maintenance input modal state
@@ -883,10 +978,10 @@ export default function CarsHomeScreen() {
         </View>
 
         {/* Dev/debug buttons — top left */}
-        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6, paddingHorizontal: 16, marginBottom: 4, zIndex: 10, position: "relative" }}>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: scale(6), paddingHorizontal: scale(16), marginBottom: scale(4), zIndex: 10, position: "relative" }}>
           {!isActiveVehicleConnected && isPreOnboardingComplete && showPostOnboardingContent && activeOwnershipId && (
             <Pressable
-              style={({ pressed }) => [{ paddingVertical: 4, paddingHorizontal: 10, borderRadius: 12, backgroundColor: "rgba(82,153,254,0.1)" }, pressed && { opacity: 0.7 }]}
+              style={({ pressed }) => [{ paddingVertical: scale(4), paddingHorizontal: scale(10), borderRadius: moderateScale(12), backgroundColor: "rgba(82,153,254,0.1)" }, pressed && { opacity: 0.7 }]}
               onPress={async () => {
                 try {
                   await resetOnboarding({ vehicleOwnerId: activeOwnershipId });
@@ -901,7 +996,7 @@ export default function CarsHomeScreen() {
           )}
           {!!activeVehicle?.vin && !!userId && (
             <Pressable
-              style={({ pressed }) => [{ paddingVertical: 4, paddingHorizontal: 10, borderRadius: 12, backgroundColor: "rgba(239,68,68,0.12)" }, pressed && { opacity: 0.7 }]}
+              style={({ pressed }) => [{ paddingVertical: scale(4), paddingHorizontal: scale(10), borderRadius: moderateScale(12), backgroundColor: "rgba(239,68,68,0.12)" }, pressed && { opacity: 0.7 }]}
               onPress={handleRemoveActiveVehicle}
             >
               <Text weight="semiBold" size="xs" color="#DC2626">Remove</Text>
@@ -909,7 +1004,7 @@ export default function CarsHomeScreen() {
           )}
           {activeOwnershipId && isPreOnboardingComplete && (
             <Pressable
-              style={({ pressed }) => [{ paddingVertical: 4, paddingHorizontal: 10, borderRadius: 12, backgroundColor: "rgba(0,0,0,0.05)" }, pressed && { opacity: 0.7 }]}
+              style={({ pressed }) => [{ paddingVertical: scale(4), paddingHorizontal: scale(10), borderRadius: moderateScale(12), backgroundColor: "rgba(0,0,0,0.05)" }, pressed && { opacity: 0.7 }]}
               onPress={() => router.push({ pathname: "/quarterly-checkin", params: { vehicleOwnerId: activeOwnershipId, vehicleName: activeVehicle?.make ? `${activeVehicle.make} ${activeVehicle.model ?? ""}`.trim() : undefined } })}
             >
               <Text weight="semiBold" size="xs" color="#6B7280">Demo Check-In</Text>
@@ -951,9 +1046,9 @@ export default function CarsHomeScreen() {
           const center = ringSize / 2;
           return (
           <View style={styles.quickReadCard}>
-            <View style={{ alignItems: "center", justifyContent: "center", width: 140, height: 140, marginBottom: 12 }}>
-              <Animated.View style={{ position: "absolute", width: 160, height: 160, borderRadius: 80, backgroundColor: "#94A3B8", opacity: 0.12, transform: [{ scale: quickReadPulse }] }} />
-              <Animated.View style={{ position: "absolute", width: 130, height: 130, borderRadius: 65, backgroundColor: "#94A3B8", opacity: 0.06, transform: [{ scale: quickReadPulse }] }} />
+            <View style={{ alignItems: "center", justifyContent: "center", width: scale(140), height: scale(140), marginBottom: scale(12) }}>
+              <Animated.View style={{ position: "absolute", width: scale(160), height: scale(160), borderRadius: scale(80), backgroundColor: "#94A3B8", opacity: 0.12, transform: [{ scale: quickReadPulse }] }} />
+              <Animated.View style={{ position: "absolute", width: scale(130), height: scale(130), borderRadius: scale(65), backgroundColor: "#94A3B8", opacity: 0.06, transform: [{ scale: quickReadPulse }] }} />
               <View style={{ width: ringSize, height: ringSize, alignItems: "center", justifyContent: "center" }}>
                 <Svg width={ringSize} height={ringSize}>
                   <Circle cx={center} cy={center} r={radius} stroke="rgba(0,0,0,0.06)" strokeWidth={strokeWidth} fill="none" />
@@ -974,17 +1069,17 @@ export default function CarsHomeScreen() {
                 </View>
               </View>
             </View>
-            <Text weight="bold" size="lg" color="#1F2937" style={{ textAlign: "center" }}>
+            <Text weight="bold" size="lg" color="#0F172A" style={{ textAlign: "center" }}>
               Here&apos;s an estimate of where your {activeVehicle?.make && activeVehicle?.model ? `${activeVehicle.make} ${activeVehicle.model}` : "vehicle"} stands
             </Text>
-            <Text weight="medium" size="sm" color="#6B7280" style={{ textAlign: "center", marginTop: 6 }}>
+            <Text weight="medium" size="sm" color="#829BAD" style={{ textAlign: "center", marginTop: scale(6) }}>
               Five quick checks to understand your vehicle&apos;s current condition.
             </Text>
             <View style={styles.quickReadBenefits}>
               {["Brake health assessment", "Tire life estimation", "Oil service status", "Battery condition check", "Warning light detection"].map((b) => (
                 <View key={b} style={styles.quickReadBenefitRow}>
-                  <Ionicons name="checkmark-circle" size={16} color="#5299FE" />
-                  <Text weight="medium" size="sm" color="#374151">{b}</Text>
+                  <Ionicons name="checkmark-circle" size={scale(16)} color="#5299FE" />
+                  <Text weight="medium" size="sm" color="#0F172A">{b}</Text>
                 </View>
               ))}
             </View>
@@ -992,10 +1087,17 @@ export default function CarsHomeScreen() {
               style={({ pressed }) => [styles.quickReadCta, pressed && { opacity: 0.85 }]}
               onPress={openStepperDirectly}
             >
-              <Text weight="bold" size="md" color="#FFFFFF">Get a quick read on your {activeVehicle?.make && activeVehicle?.model ? `${activeVehicle.make} ${activeVehicle.model}` : "vehicle"}</Text>
-              <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
+              <LinearGradient
+                colors={['#7BB8FF', '#5299FE', '#3B7FEB']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.quickReadCtaGradient}
+              >
+                <Text weight="bold" size="md" color="#FFFFFF">Get a quick read on your {activeVehicle?.make && activeVehicle?.model ? `${activeVehicle.make} ${activeVehicle.model}` : "vehicle"}</Text>
+                <Ionicons name="arrow-forward" size={scale(18)} color="#FFFFFF" />
+              </LinearGradient>
             </Pressable>
-            <Text weight="medium" size="xs" color="#9CA3AF" style={{ marginTop: 10 }}>Takes about 30 seconds</Text>
+            <Text weight="medium" size="xs" color="#829BAD" style={{ marginTop: scale(10), opacity: 0.7 }}>Takes about 30 seconds</Text>
           </View>
           );
         })()}
@@ -1023,7 +1125,7 @@ export default function CarsHomeScreen() {
               <Text weight="semiBold" size="md" color="#111827" style={{ textAlign: "center" }}>
                 Continue setup to unlock your maintenance dashboard
               </Text>
-              <Text size="sm" color="#6B7280" style={{ textAlign: "center", marginTop: 6, marginBottom: 12 }}>
+              <Text size="sm" color="#6B7280" style={{ textAlign: "center", marginTop: scale(6), marginBottom: scale(12) }}>
                 We have added your vehicle. Complete a quick setup first, then we will ask your detailed follow-up questions.
               </Text>
               <Pressable
@@ -1083,6 +1185,30 @@ export default function CarsHomeScreen() {
             onDownloadReceipt={(id) => {
               // TODO: Download PDF receipt for this service record
               console.log("Download Receipt for record", id);
+            }}
+            onAddServiceHistory={async () => {
+              try {
+                const result = await DocumentPicker.getDocumentAsync({
+                  type: [
+                    'application/pdf',
+                    'image/*',
+                    'application/msword',
+                    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+                  ],
+                  multiple: true,
+                  copyToCacheDirectory: true,
+                });
+                if (!result.canceled && result.assets.length > 0) {
+                  // TODO: Upload/process the picked documents
+                  console.log("Picked documents:", result.assets);
+                  Alert.alert(
+                    "Documents Selected",
+                    `${result.assets.length} file${result.assets.length !== 1 ? 's' : ''} selected. Upload coming soon!`
+                  );
+                }
+              } catch (err) {
+                console.error("Document picker error:", err);
+              }
             }}
           />}
 
@@ -1217,12 +1343,12 @@ export default function CarsHomeScreen() {
                     closeHealthSheet();
                   }
                 }} hitSlop={12} style={healthSheetStyles.fullPageCloseBtn}>
-                  <Ionicons name="chevron-back" size={22} color="#6B7280" />
+                  <Ionicons name="chevron-back" size={scale(22)} color="#6B7280" />
                 </Pressable>
-                <View style={{ width: 36 }} />
+                <View style={{ width: scale(36) }} />
               </View>
             ) : (
-              <View style={{ paddingTop: Platform.OS === "ios" ? 70 : 50 }} />
+              <View style={{ paddingTop: Platform.OS === "ios" ? scale(70) : scale(50) }} />
             )
           ) : (
             <View style={{ paddingTop: Platform.OS === "ios" ? 70 : 50 }} />
@@ -1232,7 +1358,7 @@ export default function CarsHomeScreen() {
           <Animated.View style={{ flex: 1, opacity: pageFade, transform: [{ translateX: pageSlideX }] }}>
           {healthSheetMode === 'estimated' && estimatedPage === 'checkin' ? (
             <View style={{ flex: 1, width: '100%' }}>
-              {activeOwnershipId && (
+              {activeOwnershipId && healthPageReady && (
                 <CarInfoStepper
                   ref={stepperRef}
                   vehicleOwnerId={activeOwnershipId}
@@ -1300,8 +1426,8 @@ export default function CarsHomeScreen() {
                           <Circle cx={center} cy={center} r={radius} stroke={ringColor} strokeWidth={strokeWidth + 4} fill="none" strokeDasharray={circumference} strokeDashoffset={strokeDashoffset} strokeLinecap="round" rotation={-90} origin={`${center}, ${center}`} opacity={0.2} />
                         </Svg>
                         <View style={healthSheetStyles.ringCenterLabel}>
-                          <Text weight="bold" size="3xl" color="#1F2937" style={{ fontFamily: FontFamily.serifBold }}>{activeOwnership?.health_score_is_estimated ? "~" : ""}{displayedScore}</Text>
-                          <Text weight="semiBold" size="xs" color="#9CA3AF" style={{ marginTop: -2, fontFamily: FontFamily.serif }}>{activeOwnership?.health_score_is_estimated ? "estimated" : "out of 100"}</Text>
+                          <Text weight="bold" size="3xl" color="#1F2937">{activeOwnership?.health_score_is_estimated ? "~" : ""}{displayedScore}</Text>
+                          <Text weight="semiBold" size="xs" color="#9CA3AF" style={{ marginTop: scale(-2) }}>{activeOwnership?.health_score_is_estimated ? "estimated" : "out of 100"}</Text>
                         </View>
                       </View>
                     );
@@ -1312,8 +1438,8 @@ export default function CarsHomeScreen() {
               })()}
 
               {/* Title */}
-              <Animated.View style={{ opacity: titleFade, marginTop: healthSheetMode === 'confirmed' ? 50 : 0, transform: [{ translateY: titleFade.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }] }}>
-                <Text weight="bold" size="xl" color="#1F2937" style={[healthSheetStyles.title, { fontFamily: FontFamily.serifBold }]}>
+              <Animated.View style={{ opacity: titleFade, marginTop: healthSheetMode === 'confirmed' ? scale(50) : 0, transform: [{ translateY: titleFade.interpolate({ inputRange: [0, 1], outputRange: [scale(12), 0] }) }] }}>
+                <Text weight="bold" size="xl" color="#1F2937" style={healthSheetStyles.title}>
                   {healthSheetMode === 'estimated'
                     ? `Here's where your ${activeVehicle?.make ?? "vehicle"} stands`
                     : computedHealthScore >= 80
@@ -1325,8 +1451,8 @@ export default function CarsHomeScreen() {
               </Animated.View>
 
               {/* Subtitle */}
-              <Animated.View style={{ opacity: subtitleFade, transform: [{ translateY: subtitleFade.interpolate({ inputRange: [0, 1], outputRange: [12, 0] }) }] }}>
-                <Text weight="medium" size="sm" color="#6B7280" style={[healthSheetStyles.subtitle, { fontFamily: FontFamily.serif }]}>
+              <Animated.View style={{ opacity: subtitleFade, transform: [{ translateY: subtitleFade.interpolate({ inputRange: [0, 1], outputRange: [scale(12), 0] }) }] }}>
+                <Text weight="medium" size="sm" color="#6B7280" style={healthSheetStyles.subtitle}>
                   {healthSheetMode === 'estimated'
                     ? "Answer a few quick questions to get your confirmed health score."
                     : computedHealthScore >= 80
@@ -1339,22 +1465,22 @@ export default function CarsHomeScreen() {
 
               {/* Estimated: Quick Read intro card  |  Confirmed: Benefits + Done CTA */}
               {healthSheetMode === 'estimated' ? (
-                <Animated.View style={[{ width: "100%", marginTop: 8 }, { opacity: benefitsFade, transform: [{ translateY: benefitsFade.interpolate({ inputRange: [0, 1], outputRange: [16, 0] }) }] }]}>
+                <Animated.View style={[{ width: "100%", marginTop: scale(8) }, { opacity: benefitsFade, transform: [{ translateY: benefitsFade.interpolate({ inputRange: [0, 1], outputRange: [scale(16), 0] }) }] }]}>
                   <View style={healthSheetStyles.introCard}>
                     <View style={healthSheetStyles.introIconContainer}>
-                      <Ionicons name="pulse-outline" size={28} color="#5299FE" />
+                      <Ionicons name="pulse-outline" size={scale(28)} color="#5299FE" />
                     </View>
-                    <Text weight="bold" size="md" color="#1F2937" style={{ marginTop: 12, textAlign: "center", fontFamily: FontFamily.serifBold }}>
+                    <Text weight="bold" size="md" color="#1F2937" style={{ marginTop: scale(12), textAlign: "center" }}>
                       Let&apos;s get a quick read on your {activeVehicle?.make ?? "vehicle"}
                     </Text>
-                    <Text weight="medium" size="sm" color="#6B7280" style={{ marginTop: 4, textAlign: "center", fontFamily: FontFamily.serif }}>
+                    <Text weight="medium" size="sm" color="#6B7280" style={{ marginTop: scale(4), textAlign: "center" }}>
                       Five quick checks to understand your vehicle&apos;s current condition.
                     </Text>
                     <View style={healthSheetStyles.introBenefits}>
                       {["Brake health assessment", "Tire life estimation", "Oil service status", "Battery condition check", "Warning light detection"].map((b) => (
                         <View key={b} style={healthSheetStyles.introBenefitRow}>
-                          <Ionicons name="checkmark-circle" size={16} color="#5299FE" />
-                          <Text weight="medium" size="sm" color="#374151" style={{ marginLeft: 8, fontFamily: FontFamily.serif }}>{b}</Text>
+                          <Ionicons name="checkmark-circle" size={scale(16)} color="#5299FE" />
+                          <Text weight="medium" size="sm" color="#374151" style={{ marginLeft: scale(8) }}>{b}</Text>
                         </View>
                       ))}
                     </View>
@@ -1368,36 +1494,36 @@ export default function CarsHomeScreen() {
                         end={{ x: 1, y: 0 }}
                         style={[healthSheetStyles.ctaButtonGradient, { flexDirection: "row" }]}
                       >
-                        <Text weight="semiBold" size="md" color="#FFFFFF" style={{ fontSize: 17, fontFamily: FontFamily.serifBold }}>Get Started</Text>
-                        <Ionicons name="arrow-forward" size={18} color="#FFFFFF" style={{ marginLeft: 8 }} />
+                        <Text weight="bold" size="md" color="#FFFFFF" style={{ fontSize: moderateScale(17) }}>Get Started</Text>
+                        <Ionicons name="arrow-forward" size={scale(18)} color="#FFFFFF" style={{ marginLeft: scale(8) }} />
                       </LinearGradient>
                     </Pressable>
-                    <Text weight="medium" size="xs" color="#9CA3AF" style={{ marginTop: 10, fontFamily: FontFamily.serif }}>Takes about 30 seconds</Text>
+                    <Text weight="medium" size="xs" color="#9CA3AF" style={{ marginTop: scale(10) }}>Takes about 30 seconds</Text>
                     <Pressable
                       onPress={closeHealthSheet}
-                      style={({ pressed }) => [{ marginTop: 14, paddingVertical: 10, paddingHorizontal: 24 }, pressed && { opacity: 0.6 }]}
+                      style={({ pressed }) => [{ marginTop: scale(14), paddingVertical: scale(10), paddingHorizontal: scale(24) }, pressed && { opacity: 0.6 }]}
                     >
-                      <Text weight="semiBold" size="sm" color="#6B7280" style={{ fontFamily: FontFamily.serif }}>I'll finish later</Text>
+                      <Text weight="semiBold" size="sm" color="#6B7280">I'll finish later</Text>
                     </Pressable>
                   </View>
                 </Animated.View>
               ) : (
                 <>
-                  <Animated.View style={[{ alignSelf: "stretch", marginTop: 20, marginBottom: 20, gap: 28, paddingHorizontal: 8 }, { opacity: benefitsFade, transform: [{ translateY: benefitsFade.interpolate({ inputRange: [0, 1], outputRange: [16, 0] }) }] }]}>
+                  <Animated.View style={[{ alignSelf: "stretch", marginTop: scale(20), marginBottom: scale(20), gap: scale(28), paddingHorizontal: scale(8) }, { opacity: benefitsFade, transform: [{ translateY: benefitsFade.interpolate({ inputRange: [0, 1], outputRange: [scale(16), 0] }) }] }]}>
                     {[
                       { icon: "shield-checkmark" as const, text: "Health monitoring active" },
                       { icon: "notifications" as const, text: "Service reminders enabled" },
                       { icon: "trending-up" as const, text: "Maintenance predictions on" },
                     ].map((benefit) => (
-                      <View key={benefit.text} style={{ flexDirection: "row", alignItems: "center", gap: 16 }}>
+                      <View key={benefit.text} style={{ flexDirection: "row", alignItems: "center", gap: scale(16) }}>
                         <View style={healthSheetStyles.benefitIcon}>
-                          <Ionicons name={benefit.icon} size={24} color="#5299FE" />
+                          <Ionicons name={benefit.icon} size={scale(24)} color="#5299FE" />
                         </View>
-                        <Text weight="medium" size="xl" color="#1F2937" style={{ fontFamily: FontFamily.serif }}>{benefit.text}</Text>
+                        <Text weight="medium" size="xl" color="#1F2937">{benefit.text}</Text>
                       </View>
                     ))}
                   </Animated.View>
-                  <Animated.View style={[{ width: "100%", marginTop: "auto", paddingBottom: insets.bottom + 24 }, { opacity: buttonFade, transform: [{ translateY: buttonFade.interpolate({ inputRange: [0, 1], outputRange: [16, 0] }) }] }]}>
+                  <Animated.View style={[{ width: "100%", marginTop: "auto", paddingBottom: insets.bottom + scale(24) }, { opacity: buttonFade, transform: [{ translateY: buttonFade.interpolate({ inputRange: [0, 1], outputRange: [scale(16), 0] }) }] }]}>
                     <Pressable
                       onPress={closeHealthSheet}
                       style={({ pressed }) => [healthSheetStyles.ctaButton, pressed && { opacity: 0.9 }]}
@@ -1408,7 +1534,7 @@ export default function CarsHomeScreen() {
                         end={{ x: 1, y: 0 }}
                         style={healthSheetStyles.ctaButtonGradient}
                       >
-                        <Text weight="semiBold" size="md" color="#FFFFFF" style={{ fontSize: 17, fontFamily: FontFamily.serifBold }}>Optimize my vehicle profile</Text>
+                        <Text weight="bold" size="md" color="#FFFFFF" style={{ fontSize: moderateScale(17) }}>Optimize my vehicle profile</Text>
                       </LinearGradient>
                     </Pressable>
                   </Animated.View>
@@ -1423,71 +1549,54 @@ export default function CarsHomeScreen() {
       {/* Fullscreen gears overlay */}
       {gearsOverlayVisible && (
         <Animated.View style={[StyleSheet.absoluteFillObject, { opacity: gearsOverlayOpacity, zIndex: 35 }]}>
-          <LinearGradient
-            colors={['#D0E7F4', '#DFEDF6', '#EBF2F8', '#F3F7FA', '#FAFCFD', '#FFFFFF']}
-            locations={[0, 0.18, 0.35, 0.5, 0.7, 1]}
-            start={{ x: 0.5, y: 0 }}
-            end={{ x: 0.5, y: 1 }}
-            style={StyleSheet.absoluteFill}
-            pointerEvents="none"
-          />
+          <View style={[StyleSheet.absoluteFill, { backgroundColor: '#FFFFFF' }]} pointerEvents="none" />
+          {/* Building phase: pulsing car image + cycling AI messages */}
           {gearsPhase !== 'looping' && (
-            <Animated.View style={{ position: 'absolute', top: '28%', left: '15%', right: '15%', bottom: '27%', opacity: lottieFadeOut }}>
-              <LottieView
-                ref={gearsLottieRef}
-                source={require("@/assets/animations/loading-bar.json")}
-                loop={false}
-                autoPlay={false}
-                onLayout={() => gearsLottieRef.current?.play(100, 275)}
-                onAnimationFinish={(isCancelled) => {
-                  if (isCancelled) return;
-                  Animated.parallel([
-                    Animated.timing(lottieFadeOut, { toValue: 0, duration: 600, easing: Easing.out(Easing.ease), useNativeDriver: true }),
-                    Animated.timing(carImageFadeIn, { toValue: 1, duration: 800, easing: Easing.out(Easing.ease), useNativeDriver: true }),
-                  ]).start();
-                }}
-                colorFilters={[
-                  { keypath: 'progress', color: '#5299FE' },
-                  { keypath: '0% ', color: '#5299FE' },
-                  { keypath: 'bg', color: '#E8F1FE' },
-                ]}
-                style={{ flex: 1 }}
-                resizeMode="contain"
-              />
+            <Animated.View style={{ position: 'absolute', top: '30%', left: 0, right: 0, alignItems: 'center', opacity: lottieFadeOut }}>
+              {activeVehicle?.imageSource && (
+                <Animated.View style={{ opacity: carPulseAnim, width: scale(340), height: scale(210), marginBottom: scale(24) }}>
+                  <Image
+                    source={activeVehicle.imageSource}
+                    style={{ width: '100%', height: '100%' }}
+                    resizeMode="contain"
+                  />
+                </Animated.View>
+              )}
+              <Animated.View style={{ opacity: aiMsgOpacity }}>
+                <Text weight="semiBold" size="lg" color="#5299FE" style={{ textAlign: 'center' }}>
+                  {AI_MESSAGES[aiMsgIndex]}
+                </Text>
+              </Animated.View>
             </Animated.View>
           )}
+          {/* Ready phase: car image revealed + "optimized" text */}
           {activeVehicle?.imageSource && (
             <Animated.View style={{ position: 'absolute', top: '35%', left: 0, right: 0, alignItems: 'center', opacity: carImageFadeIn, transform: [{ scale: carImageFadeIn.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) }] }}>
-              <View style={{ width: 320, height: 240, alignItems: 'center', justifyContent: 'center' }}>
+              <View style={{ width: scale(320), height: scale(240), alignItems: 'center', justifyContent: 'center' }}>
                 <Image
                   source={activeVehicle.imageSource}
-                  style={{ width: '100%', height: 180, zIndex: 1, transform: [{ translateY: 155 }] }}
+                  style={{ width: '100%', height: scale(180), zIndex: 1, transform: [{ translateY: scale(155) }] }}
                   resizeMode="stretch"
                 />
                 <Image
                   source={activeVehicle.imageSource}
-                  style={{ width: '100%', height: 180, transform: [{ scaleY: -1 }], opacity: 0.03, marginTop: -40 }}
+                  style={{ width: '100%', height: scale(180), transform: [{ scaleY: -1 }], opacity: 0.03, marginTop: scale(-40) }}
                   resizeMode="stretch"
                 />
               </View>
             </Animated.View>
           )}
           {gearsPhase !== 'looping' && (
-            <View style={{ zIndex: 1, marginTop: Platform.OS === 'ios' ? 140 : 96, alignItems: 'center', paddingHorizontal: 24 }}>
-              <Animated.View style={{ position: 'absolute', opacity: carImageFadeIn.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) }}>
-                <Text weight="bold" size="3xl" color="#0F172A" style={{ textAlign: 'center', fontFamily: FontFamily.serifBold }}>
-                  Optimizing your vehicle profile...
-                </Text>
-              </Animated.View>
-              <Animated.View style={{ opacity: carImageFadeIn }}>
-                <Text weight="bold" size="3xl" color="#0F172A" style={{ textAlign: 'center', fontFamily: FontFamily.serifBold }}>
+            <View style={{ zIndex: 1, marginTop: Platform.OS === 'ios' ? scale(140) : scale(96), alignItems: 'center', paddingHorizontal: scale(24) }}>
+              <Animated.View style={{ position: 'absolute', opacity: carImageFadeIn }}>
+                <Text weight="bold" size="3xl" color="#0F172A" style={{ textAlign: 'center' }}>
                   Vehicle profile optimized
                 </Text>
               </Animated.View>
             </View>
           )}
           {gearsPhase === 'ready' && (
-            <Animated.View style={{ opacity: gearsBtnOpacity, zIndex: 1, position: 'absolute', bottom: insets.bottom + 40, left: 24, right: 24 }}>
+            <Animated.View style={{ opacity: gearsBtnOpacity, zIndex: 1, position: 'absolute', bottom: insets.bottom + scale(40), left: scale(24), right: scale(24) }}>
               <Pressable
                 onPress={dismissGearsOverlay}
                 style={({ pressed }) => [healthSheetStyles.ctaButton, pressed && { opacity: 0.9 }]}
@@ -1498,7 +1607,7 @@ export default function CarsHomeScreen() {
                   end={{ x: 1, y: 0 }}
                   style={healthSheetStyles.ctaButtonGradient}
                 >
-                  <Text weight="semiBold" size="md" color="#FFFFFF" style={{ fontSize: 17, fontFamily: FontFamily.serifBold }}>View My Dashboard</Text>
+                  <Text weight="bold" size="md" color="#FFFFFF" style={{ fontSize: moderateScale(17) }}>View My Dashboard</Text>
                 </LinearGradient>
               </Pressable>
             </Animated.View>
@@ -1527,9 +1636,9 @@ const pickerStyles = StyleSheet.create({
     right: SCREEN_WIDTH * 0.025,
     width: SCREEN_WIDTH * 0.95,
     backgroundColor: "#FFFFFF",
-    borderRadius: 40,
-    paddingHorizontal: 24,
-    paddingBottom: Platform.OS === "ios" ? 34 : 24,
+    borderRadius: moderateScale(40),
+    paddingHorizontal: scale(24),
+    paddingBottom: Platform.OS === "ios" ? scale(34) : scale(24),
     shadowColor: "#000",
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.15,
@@ -1537,34 +1646,34 @@ const pickerStyles = StyleSheet.create({
     elevation: 12,
   },
   handle: {
-    width: 40,
+    width: scale(40),
     height: 4,
     borderRadius: 2,
     backgroundColor: "rgba(0, 0, 0, 0.15)",
     alignSelf: "center",
-    marginTop: 12,
-    marginBottom: 16,
+    marginTop: scale(12),
+    marginBottom: scale(16),
   },
   title: {
-    marginBottom: 16,
+    marginBottom: scale(16),
     textAlign: "center",
   },
   row: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 14,
-    paddingHorizontal: 4,
+    paddingVertical: scale(14),
+    paddingHorizontal: scale(4),
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: "rgba(0,0,0,0.08)",
   },
   rowIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: scale(40),
+    height: scale(40),
+    borderRadius: scale(20),
     backgroundColor: "rgba(82, 153, 254, 0.1)",
     alignItems: "center",
     justifyContent: "center",
-    marginRight: 14,
+    marginRight: scale(14),
   },
 });
 
@@ -1585,14 +1694,14 @@ const healthSheetStyles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingTop: Platform.OS === "ios" ? 56 : 16,
-    paddingHorizontal: 20,
-    paddingBottom: 4,
+    paddingTop: Platform.OS === "ios" ? scale(56) : scale(16),
+    paddingHorizontal: scale(20),
+    paddingBottom: scale(4),
   },
   fullPageCloseBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: scale(36),
+    height: scale(36),
+    borderRadius: scale(18),
     backgroundColor: "rgba(0,0,0,0.06)",
     alignItems: "center",
     justifyContent: "center",
@@ -1600,25 +1709,25 @@ const healthSheetStyles = StyleSheet.create({
   introCard: {
     alignItems: "center",
     backgroundColor: "#F0F4FF",
-    borderRadius: 20,
-    paddingVertical: 16,
-    paddingHorizontal: 20,
+    borderRadius: moderateScale(20),
+    paddingVertical: scale(16),
+    paddingHorizontal: scale(20),
     borderWidth: 1,
     borderColor: "rgba(82, 153, 254, 0.15)",
   },
   introIconContainer: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: scale(56),
+    height: scale(56),
+    borderRadius: scale(28),
     backgroundColor: "rgba(82, 153, 254, 0.12)",
     alignItems: "center",
     justifyContent: "center",
   },
   introBenefits: {
     alignSelf: "stretch",
-    marginTop: 12,
-    marginBottom: 14,
-    gap: 8,
+    marginTop: scale(12),
+    marginBottom: scale(14),
+    gap: scale(8),
   },
   introBenefitRow: {
     flexDirection: "row",
@@ -1626,28 +1735,28 @@ const healthSheetStyles = StyleSheet.create({
   },
   content: {
     alignItems: "center",
-    paddingHorizontal: 24,
-    paddingTop: 12,
-    paddingBottom: 8,
+    paddingHorizontal: scale(24),
+    paddingTop: scale(12),
+    paddingBottom: scale(8),
   },
   ringContainer: {
-    marginBottom: 16,
+    marginBottom: scale(16),
     alignItems: "center",
     justifyContent: "center",
-    width: 160,
-    height: 160,
+    width: scale(160),
+    height: scale(160),
   },
   ringGlow: {
     position: "absolute",
-    width: 180,
-    height: 180,
-    borderRadius: 90,
+    width: scale(180),
+    height: scale(180),
+    borderRadius: scale(90),
   },
   ringGlowInner: {
     position: "absolute",
-    width: 150,
-    height: 150,
-    borderRadius: 75,
+    width: scale(150),
+    height: scale(150),
+    borderRadius: scale(75),
   },
   ringCenterLabel: {
     position: "absolute",
@@ -1660,39 +1769,39 @@ const healthSheetStyles = StyleSheet.create({
   },
   title: {
     textAlign: "center",
-    marginBottom: 6,
+    marginBottom: scale(6),
   },
   subtitle: {
     textAlign: "center",
-    lineHeight: 20,
-    marginBottom: 12,
-    paddingHorizontal: 4,
+    lineHeight: moderateScale(20),
+    marginBottom: scale(12),
+    paddingHorizontal: scale(4),
   },
   benefitsContainer: {
     alignSelf: "stretch",
     backgroundColor: "#F9FAFB",
-    borderRadius: 20,
-    paddingVertical: 20,
-    paddingHorizontal: 20,
-    marginBottom: 20,
-    gap: 16,
+    borderRadius: moderateScale(20),
+    paddingVertical: scale(20),
+    paddingHorizontal: scale(20),
+    marginBottom: scale(20),
+    gap: scale(16),
   },
   benefitRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
+    gap: scale(12),
   },
   benefitIcon: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+    width: scale(34),
+    height: scale(34),
+    borderRadius: scale(17),
     backgroundColor: "rgba(82, 153, 254, 0.1)",
     alignItems: "center",
     justifyContent: "center",
   },
   ctaButton: {
     width: "100%",
-    borderRadius: 16,
+    borderRadius: moderateScale(16),
     overflow: "hidden",
     shadowColor: "rgba(82,153,254,0.3)",
     shadowOffset: { width: 0, height: 4 },
@@ -1701,7 +1810,7 @@ const healthSheetStyles = StyleSheet.create({
     elevation: 4,
   },
   ctaButtonGradient: {
-    paddingVertical: 17,
+    paddingVertical: scale(17),
     alignItems: "center",
     justifyContent: "center",
   },
@@ -1709,46 +1818,46 @@ const healthSheetStyles = StyleSheet.create({
 
 const revealStyles = StyleSheet.create({
   container: {
-    paddingHorizontal: 16,
-    marginTop: 8,
-    marginBottom: 16,
+    paddingHorizontal: scale(16),
+    marginTop: scale(8),
+    marginBottom: scale(16),
   },
   card: {
-    borderRadius: 24,
-    padding: 28,
+    borderRadius: moderateScale(24),
+    padding: scale(28),
     borderWidth: 1,
     borderColor: "rgba(82, 153, 254, 0.15)",
     backgroundColor: "#F0F4FF",
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
-    height: 260,
+    height: scale(260),
   },
   spinnerRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 10,
+    gap: scale(10),
   },
   dot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+    width: scale(10),
+    height: scale(10),
+    borderRadius: scale(5),
     overflow: "hidden",
   },
   pulsingDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+    width: scale(10),
+    height: scale(10),
+    borderRadius: scale(5),
     backgroundColor: "#5299FE",
   },
   skeletonGroup: {
     alignSelf: "stretch",
-    marginTop: 20,
-    gap: 10,
+    marginTop: scale(20),
+    gap: scale(10),
   },
   skeletonLine: {
-    height: 12,
-    borderRadius: 6,
+    height: scale(12),
+    borderRadius: moderateScale(6),
     backgroundColor: "rgba(0, 0, 0, 0.06)",
   },
 });
@@ -1762,23 +1871,23 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   emptyContent: {
-    paddingHorizontal: 24,
+    paddingHorizontal: scale(24),
     alignItems: "center",
   },
   emptyTitle: {
     color: "#FFFFFF",
-    marginBottom: 8,
+    marginBottom: scale(8),
   },
   emptySubtitle: {
     color: "rgba(255,255,255,0.9)",
     textAlign: "center",
-    marginBottom: 24,
+    marginBottom: scale(24),
   },
   emptyButton: {
     backgroundColor: "rgba(255,255,255,0.3)",
-    paddingVertical: 14,
-    paddingHorizontal: 28,
-    borderRadius: 24,
+    paddingVertical: scale(14),
+    paddingHorizontal: scale(28),
+    borderRadius: moderateScale(24),
   },
   emptyButtonPressed: {
     opacity: 0.9,
@@ -1792,8 +1901,8 @@ const styles = StyleSheet.create({
     zIndex: 0,
   },
   header: {
-    paddingHorizontal: 16,
-    paddingBottom: 12,
+    paddingHorizontal: scale(16),
+    paddingBottom: scale(12),
     alignItems: "center",
   },
   scrollView: {
@@ -1801,7 +1910,7 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingHorizontal: 0,
-    paddingBottom: 120,
+    paddingBottom: scale(120),
   },
   // ═══════════════ SECTION CONTAINERS ═══════════════
   topSection: {
@@ -1811,59 +1920,66 @@ const styles = StyleSheet.create({
     zIndex: 1,
   },
   preOnboardingCard: {
-    marginHorizontal: 16,
-    marginTop: 8,
-    marginBottom: 12,
-    paddingVertical: 16,
-    paddingHorizontal: 14,
-    borderRadius: 16,
+    marginHorizontal: scale(16),
+    marginTop: scale(8),
+    marginBottom: scale(12),
+    paddingVertical: scale(16),
+    paddingHorizontal: scale(14),
+    borderRadius: moderateScale(16),
     backgroundColor: "rgba(255,255,255,0.88)",
   },
   preOnboardingButton: {
     alignSelf: "center",
-    paddingVertical: 10,
-    paddingHorizontal: 18,
-    borderRadius: 20,
+    paddingVertical: scale(10),
+    paddingHorizontal: scale(18),
+    borderRadius: moderateScale(20),
     backgroundColor: "#5299FE",
   },
   quickReadCard: {
-    marginHorizontal: 16,
-    marginTop: 12,
-    marginBottom: 12,
-    paddingVertical: 24,
-    paddingHorizontal: 20,
-    borderRadius: 20,
+    marginHorizontal: scale(16),
+    marginTop: scale(12),
+    marginBottom: scale(12),
+    paddingVertical: scale(24),
+    paddingHorizontal: scale(20),
+    borderRadius: moderateScale(20),
     backgroundColor: "rgba(255,255,255,0.88)",
     alignItems: "center",
   },
   quickReadIconWrap: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: scale(56),
+    height: scale(56),
+    borderRadius: scale(28),
     backgroundColor: "rgba(82,153,254,0.1)",
     alignItems: "center",
     justifyContent: "center",
   },
   quickReadBenefits: {
     alignSelf: "stretch",
-    gap: 8,
-    marginTop: 16,
-    marginBottom: 20,
-    paddingLeft: 8,
+    gap: scale(8),
+    marginTop: scale(16),
+    marginBottom: scale(20),
+    paddingLeft: scale(8),
   },
   quickReadBenefitRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: scale(8),
   },
   quickReadCta: {
+    alignSelf: "stretch",
+    borderRadius: moderateScale(24),
+    overflow: "hidden",
+    shadowColor: "rgba(82,153,254,0.3)",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  quickReadCtaGradient: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
-    alignSelf: "stretch",
-    paddingVertical: 14,
-    borderRadius: 28,
-    backgroundColor: "#5299FE",
+    gap: scale(8),
+    paddingVertical: scale(14),
   },
 });

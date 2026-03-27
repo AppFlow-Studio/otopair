@@ -29,7 +29,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
 import { Ionicons } from "@expo/vector-icons";
 import LottieView from "lottie-react-native";
-
 import ReAnimated, {
   useSharedValue,
   useAnimatedStyle,
@@ -50,6 +49,7 @@ import type { QuestionDef } from "@/components/cars/QuestionOverlay";
 
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { scale, verticalScale, moderateScale } from '@/utils/responsive';
 
 
 // ============================================================================
@@ -57,24 +57,23 @@ import type { Id } from "@/convex/_generated/dataModel";
 // ============================================================================
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
-const DEFAULT_CARD_WIDTH = SCREEN_WIDTH - 80;
+const DEFAULT_CARD_WIDTH = SCREEN_WIDTH - scale(80);
 
-const GRID_H_PAD = 16;
-const GRID_GAP = 14;
-const GRID_CONTENT_W = SCREEN_WIDTH - 48 - GRID_H_PAD * 2;
+const GRID_H_PAD = scale(16);
+const GRID_GAP = scale(14);
+const GRID_CONTENT_W = SCREEN_WIDTH - scale(48) - GRID_H_PAD * 2;
 const CARD_W = Math.floor((GRID_CONTENT_W - GRID_GAP) / 2);
-const CARD_H = 163;
-const CARD_RX = 22;
+const CARD_H = scale(163);
+const CARD_RX = moderateScale(22);
 const CARD_RING_INSET = 4;
 const CARD_INNER_W = CARD_W - CARD_RING_INSET * 2;
 const CARD_INNER_H = CARD_H - CARD_RING_INSET * 2;
 
 const WIDE_CARD_W = GRID_CONTENT_W;
-const WIDE_CARD_H = 150;
+const WIDE_CARD_H = scale(150);
 const WIDE_INNER_W = WIDE_CARD_W - CARD_RING_INSET * 2;
 const WIDE_INNER_H = WIDE_CARD_H - CARD_RING_INSET * 2;
 
-import { FontFamily } from "@/constants/theme";
 
 // ============================================================================
 // TYPES
@@ -257,7 +256,7 @@ function CardGridItem({ cardId, isDone, isJustCompleted, progress, onPress, isWi
   onPress: () => void;
   isWide?: boolean;
 }) {
-  const scale = useSharedValue(1);
+  const pressScale = useSharedValue(1);
   const card = SERVICE_CARDS[cardId];
   const IconComponent = SERVICE_ICON_COMPONENTS[cardId];
   const isCompleted = isDone || isJustCompleted;
@@ -309,7 +308,7 @@ function CardGridItem({ cardId, isDone, isJustCompleted, progress, onPress, isWi
   }, [isJustCompleted]);
 
   const pressStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
+    transform: [{ scale: pressScale.value }],
   }));
 
   const glowWrapperStyle = useAnimatedStyle(() => ({
@@ -349,8 +348,8 @@ function CardGridItem({ cardId, isDone, isJustCompleted, progress, onPress, isWi
       <ReAnimated.View style={pressStyle}>
         <Pressable
           disabled={isCompleted}
-          onPressIn={() => { scale.value = withSpring(0.96, { damping: 20, stiffness: 300 }); }}
-          onPressOut={() => { scale.value = withSpring(1, { damping: 20, stiffness: 300 }); }}
+          onPressIn={() => { pressScale.value = withSpring(0.96, { damping: 20, stiffness: 300 }); }}
+          onPressOut={() => { pressScale.value = withSpring(1, { damping: 20, stiffness: 300 }); }}
           onPress={onPress}
         >
           <ReAnimated.View style={glowWrapperStyle}>
@@ -360,15 +359,15 @@ function CardGridItem({ cardId, isDone, isJustCompleted, progress, onPress, isWi
 
                 {/* Default glass card */}
                 <View style={[s.card, { width: innerW, height: innerH, borderRadius: CARD_RX, flexDirection: "column" }]}>
-                  <View style={{ flex: 1, alignItems: "center", justifyContent: "center", marginTop: isWide ? 0 : 25 }}>
-                    <IconComponent size={isWide ? 46 : 42} />
+                  <View style={{ flex: 1, alignItems: "center", justifyContent: "center", marginTop: isWide ? 0 : scale(25) }}>
+                    <IconComponent size={isWide ? scale(46) : scale(42)} />
                   </View>
-                  <View style={{ paddingBottom: isWide ? 12 : 14, marginTop: isWide ? -6 : 0, alignItems: "center" }}>
+                  <View style={{ paddingBottom: isWide ? scale(12) : scale(14), marginTop: isWide ? scale(-6) : 0, alignItems: "center" }}>
                     <Text
                       weight="semiBold"
                       size="sm"
                       color={labelColor}
-                      style={{ fontFamily: FontFamily.serifSemiBold, fontSize: 17, textAlign: "center" }}
+                      style={{ fontSize: moderateScale(17), textAlign: "center" }}
                     >
                       {card.label}
                     </Text>
@@ -377,7 +376,7 @@ function CardGridItem({ cardId, isDone, isJustCompleted, progress, onPress, isWi
                         weight="medium"
                         size="xs"
                         color={labelColor}
-                        style={{ fontSize: 11.5, opacity: isCompleted ? 0.7 : 0.55, marginTop: 2, textAlign: "center" }}
+                        style={{ fontSize: moderateScale(11.5), opacity: isCompleted ? 0.7 : 0.55, marginTop: scale(2), textAlign: "center" }}
                       >
                         Any dashboard warnings on?
                       </Text>
@@ -393,15 +392,15 @@ function CardGridItem({ cardId, isDone, isJustCompleted, progress, onPress, isWi
                     end={{ x: 0.5, y: 1 }}
                     style={{ width: innerW, height: innerH, alignItems: "center", justifyContent: "center", borderRadius: CARD_RX, flexDirection: "column" }}
                   >
-                    <View style={{ flex: 1, alignItems: "center", justifyContent: "center", marginTop: isWide ? 0 : 25 }}>
-                      <IconComponent size={isWide ? 46 : 42} color="#FFFFFF" />
+                    <View style={{ flex: 1, alignItems: "center", justifyContent: "center", marginTop: isWide ? 0 : scale(25) }}>
+                      <IconComponent size={isWide ? scale(46) : scale(42)} color="#FFFFFF" />
                     </View>
-                    <View style={{ paddingBottom: isWide ? 12 : 14, marginTop: isWide ? -6 : 0, alignItems: "center" }}>
+                    <View style={{ paddingBottom: isWide ? scale(12) : scale(14), marginTop: isWide ? scale(-6) : 0, alignItems: "center" }}>
                       <Text
                         weight="semiBold"
                         size="sm"
                         color="#FFFFFF"
-                        style={{ fontFamily: FontFamily.serifSemiBold, fontSize: 17, textAlign: "center" }}
+                        style={{ fontSize: moderateScale(17), textAlign: "center" }}
                       >
                         {card.label}
                       </Text>
@@ -410,7 +409,7 @@ function CardGridItem({ cardId, isDone, isJustCompleted, progress, onPress, isWi
                           weight="medium"
                           size="xs"
                           color="#FFFFFF"
-                          style={{ fontSize: 11.5, opacity: 0.7, marginTop: 2, textAlign: "center" }}
+                          style={{ fontSize: moderateScale(11.5), opacity: 0.7, marginTop: scale(2), textAlign: "center" }}
                         >
                           Any dashboard warnings on?
                         </Text>
@@ -430,7 +429,7 @@ function CardGridItem({ cardId, isDone, isJustCompleted, progress, onPress, isWi
 
                 {/* Checkmark badge */}
                 <ReAnimated.View style={[s.checkBadge, checkmarkAnimStyle]}>
-                  <Ionicons name="checkmark-sharp" size={14} color="#5299FE" />
+                  <Ionicons name="checkmark-sharp" size={scale(14)} color="#5299FE" />
                 </ReAnimated.View>
               </View>
             </ReAnimated.View>
@@ -491,6 +490,20 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
   const [phase, setPhase] = useState<Phase>(skipIntro ? "stepping" : "intro");
   const [step, setStep] = useState(0);
   const [saving, setSaving] = useState(false);
+
+  // ── Mount fade-in (when entering stepping directly) ────────
+  const mountHeaderFade = useRef(new Animated.Value(skipIntro ? 0 : 1)).current;
+  const mountGridFade = useRef(new Animated.Value(skipIntro ? 0 : 1)).current;
+  const mountFooterFade = useRef(new Animated.Value(skipIntro ? 0 : 1)).current;
+
+  useEffect(() => {
+    if (!skipIntro) return;
+    Animated.stagger(180, [
+      Animated.timing(mountHeaderFade, { toValue: 1, duration: 500, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+      Animated.timing(mountGridFade, { toValue: 1, duration: 500, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+      Animated.timing(mountFooterFade, { toValue: 1, duration: 500, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+    ]).start();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Slide animation ─────────────────────────────────────────
   const slideX = useRef(new Animated.Value(0)).current;
@@ -680,15 +693,15 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
     return (
       <View style={{ flex: 1 }}>
         {allDone && (
-          <ReAnimated.View style={[{ alignItems: "center", gap: 8, marginBottom: 4 }, lottieStyle]}>
+          <ReAnimated.View style={[{ alignItems: "center", gap: scale(8), marginBottom: scale(4) }, lottieStyle]}>
             <LottieView
               source={require("@/assets/animations/success.json")}
               autoPlay
               loop={false}
-              style={{ width: 140, height: 140 }}
+              style={{ width: scale(140), height: scale(140) }}
             />
-            <Text weight="bold" size="xl" color="#0F172A" style={{ fontFamily: FontFamily.serifBold }}>You&apos;re all set!</Text>
-            <Text weight="medium" size="md" color="#829BAD" style={{ fontFamily: FontFamily.serif }}>Your vehicle health score is ready.</Text>
+            <Text weight="bold" size="xl" color="#0F172A">You&apos;re all set!</Text>
+            <Text weight="medium" size="md" color="#829BAD">Your vehicle health score is ready.</Text>
           </ReAnimated.View>
         )}
         <ReAnimated.View style={[s.cardGrid, !allDone && { flex: 1 }, gridShrinkStyle]}>
@@ -724,27 +737,34 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
   const renderIntro = () => (
     <View style={s.introContent}>
       <View style={s.iconContainer}>
-        <Ionicons name="pulse-outline" size={32} color="#5299FE" />
+        <Ionicons name="pulse-outline" size={scale(32)} color="#5299FE" />
       </View>
-      <Text weight="bold" size="lg" color="#0F172A" style={[s.introTitle, { fontFamily: FontFamily.serifBold }]}>
+      <Text weight="bold" size="lg" color="#0F172A" style={s.introTitle}>
         Let&apos;s get a quick read on your {displayName}
       </Text>
-      <Text weight="medium" size="sm" color="#829BAD" style={[s.introSubtitle, { fontFamily: FontFamily.serif }]}>
+      <Text weight="medium" size="sm" color="#829BAD" style={s.introSubtitle}>
         A few quick checks to understand your vehicle&apos;s current condition.
       </Text>
       <View style={s.benefitsList}>
         {["Brake health assessment", "Tire life estimation", "Warning light detection"].map((b) => (
           <View key={b} style={s.benefitRow}>
-            <Ionicons name="checkmark-circle" size={16} color="#22C55E" />
-            <Text weight="medium" size="sm" color="#374151" style={{ fontFamily: FontFamily.serif }}>{b}</Text>
+            <Ionicons name="checkmark-circle" size={scale(16)} color="#5299FE" />
+            <Text weight="medium" size="sm" color="#0F172A">{b}</Text>
           </View>
         ))}
       </View>
       <Pressable style={({ pressed }) => [s.ctaButton, pressed && s.ctaButtonPressed]} onPress={handleGetStarted}>
-        <Text weight="bold" size="md" color="#FFFFFF" style={{ fontFamily: FontFamily.serifBold }}>Get Started</Text>
-        <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
+        <LinearGradient
+          colors={['#7BB8FF', '#5299FE', '#3B7FEB']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={s.ctaButtonGradient}
+        >
+          <Text weight="bold" size="md" color="#FFFFFF">Get Started</Text>
+          <Ionicons name="arrow-forward" size={scale(18)} color="#FFFFFF" />
+        </LinearGradient>
       </Pressable>
-      <Text weight="medium" size="xs" color="#829BAD" style={{ marginTop: 10, fontFamily: FontFamily.serif, opacity: 0.7 }}>Takes about 30 seconds</Text>
+      <Text weight="medium" size="xs" color="#829BAD" style={{ marginTop: scale(10), opacity: 0.7 }}>Takes about 30 seconds</Text>
     </View>
   );
 
@@ -760,32 +780,32 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
           locations={[0, 0.18, 0.35, 0.5, 0.7, 1]}
           start={{ x: 0.5, y: 0 }}
           end={{ x: 0.5, y: 1 }}
-          style={{ position: 'absolute', top: -150, left: 0, right: 0, bottom: 0 }}
+          style={{ position: 'absolute', top: verticalScale(-150), left: 0, right: 0, bottom: 0 }}
         />
         <View style={s.steppingPage}>
           {/* Header */}
-          <View style={s.steppingHeader}>
-            <Text weight="bold" size="xl" color="#0F172A" style={[s.steppingTitle, { fontFamily: FontFamily.serifBold }]}>
+          <Animated.View style={[s.steppingHeader, { opacity: mountHeaderFade }]}>
+            <Text weight="bold" size="xl" color="#0F172A" style={s.steppingTitle}>
               {meta.title}
             </Text>
-            <Text weight="medium" size="sm" color="#829BAD" style={[s.steppingSubtitle, { fontFamily: FontFamily.serif }]}>
+            <Text weight="medium" size="sm" color="#829BAD" style={s.steppingSubtitle}>
               {meta.subtitle}
             </Text>
-          </View>
+          </Animated.View>
 
           {/* Grid */}
-          <View style={s.steppingBody}>
+          <Animated.View style={[s.steppingBody, { opacity: mountGridFade }]}>
             {renderServiceGrid()}
-          </View>
+          </Animated.View>
 
           {/* Footer */}
-          <View style={[s.steppingFooter, { paddingBottom: insets.bottom + 24 }]}>
+          <Animated.View style={[s.steppingFooter, { paddingBottom: insets.bottom + scale(24), opacity: mountFooterFade }]}>
             {/* Progress dots */}
             <View style={s.dotsRow}>
               {ALL_CARD_IDS.map((id) => (
                 <FooterDot key={id} isDone={completedCards.has(id)} />
               ))}
-              <Text weight="semiBold" size="xs" color="#829BAD" style={[s.dotsCounter, { fontFamily: FontFamily.serif }]}>
+              <Text weight="semiBold" size="xs" color="#829BAD" style={s.dotsCounter}>
                 {completedCards.size} of 5
               </Text>
             </View>
@@ -806,7 +826,7 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
                 end={{ x: 1, y: 0 }}
                 style={s.completeButtonGradient}
               >
-                <Text weight="semiBold" size="md" color="#FFFFFF" style={{ fontSize: 17, fontFamily: FontFamily.serifBold }}>
+                <Text weight="bold" size="md" color="#FFFFFF" style={{ fontSize: moderateScale(17) }}>
                   {saving ? "Saving..." : isLast ? "Complete" : "Next"}
                 </Text>
               </LinearGradient>
@@ -819,12 +839,12 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
                 onPress={handleComplete}
                 disabled={saving}
               >
-                <Text weight="medium" size="sm" color="#829BAD" style={{ fontSize: 14, fontFamily: FontFamily.serif, textDecorationLine: "underline" }}>
+                <Text weight="medium" size="sm" color="#829BAD" style={{ fontSize: moderateScale(14), textDecorationLine: "underline" }}>
                   Finish for now
                 </Text>
               </Pressable>
             )}
-          </View>
+          </Animated.View>
         </View>
 
         {/* Question overlay */}
@@ -834,7 +854,7 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
             <QuestionOverlay
               serviceId={activeCard}
               serviceName={SERVICE_CARDS[activeCard].label}
-              heroIcon={<HeroIcon size={40} color="#FFFFFF" />}
+              heroIcon={<HeroIcon size={scale(40)} color="#FFFFFF" />}
               questions={SERVICE_QUESTIONS[activeCard]}
               initialQuestionIndex={serviceQuestionIndex[activeCard] ?? 0}
               initialAnswers={serviceAnswers[activeCard] ?? {}}
@@ -890,45 +910,52 @@ const s = StyleSheet.create({
     alignItems: "center",
   },
   iconContainer: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: scale(56),
+    height: scale(56),
+    borderRadius: moderateScale(28),
     backgroundColor: "rgba(82, 153, 254, 0.1)",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 16,
+    marginBottom: scale(16),
   },
   introTitle: {
     textAlign: "center",
-    marginBottom: 8,
+    marginBottom: scale(8),
   },
   introSubtitle: {
     textAlign: "center",
-    lineHeight: 20,
-    marginBottom: 20,
-    paddingHorizontal: 8,
+    lineHeight: moderateScale(20),
+    marginBottom: scale(20),
+    paddingHorizontal: scale(8),
   },
   benefitsList: {
     alignSelf: "stretch",
-    gap: 10,
-    marginBottom: 24,
-    paddingHorizontal: 8,
+    gap: scale(10),
+    marginBottom: scale(24),
+    paddingHorizontal: scale(8),
   },
   benefitRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: scale(8),
   },
   ctaButton: {
+    borderRadius: moderateScale(24),
+    width: "100%",
+    overflow: "hidden",
+    shadowColor: "rgba(82,153,254,0.3)",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  ctaButtonGradient: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
-    backgroundColor: "#5299FE",
-    borderRadius: 24,
-    paddingVertical: 14,
-    paddingHorizontal: 32,
-    width: "100%",
+    gap: scale(8),
+    paddingVertical: scale(14),
+    paddingHorizontal: scale(32),
   },
   ctaButtonPressed: {
     opacity: 0.9,
@@ -937,27 +964,26 @@ const s = StyleSheet.create({
   // ── Stepping (full-page layout) ──
   steppingPage: {
     flex: 1,
-    paddingHorizontal: 24,
+    paddingHorizontal: scale(24),
   },
   steppingHeader: {
-    marginBottom: 4,
+    marginBottom: scale(8),
   },
   steppingTitle: {
-    fontSize: 30,
-    letterSpacing: -0.6,
-    marginTop: -10,
+    fontSize: moderateScale(24),
+    letterSpacing: -0.3,
   },
   steppingSubtitle: {
-    fontSize: 15,
-    marginTop: 4,
+    fontSize: moderateScale(15),
+    marginTop: scale(4),
   },
   steppingBody: {
     flex: 1,
-    marginTop: 10,
+    marginTop: 0,
   },
   steppingFooter: {
-    paddingTop: 8,
-    gap: 12,
+    paddingTop: scale(16),
+    gap: scale(12),
     alignItems: "center",
   },
 
@@ -967,7 +993,7 @@ const s = StyleSheet.create({
     alignItems: "center",
     gap: GRID_GAP,
     paddingHorizontal: GRID_H_PAD,
-    marginTop: -14,
+    marginTop: 0,
   },
   cardGridSquares: {
     flexDirection: "row",
@@ -995,11 +1021,11 @@ const s = StyleSheet.create({
   },
   checkBadge: {
     position: "absolute",
-    bottom: 2,
-    right: 2,
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    bottom: scale(2),
+    right: scale(2),
+    width: scale(24),
+    height: scale(24),
+    borderRadius: moderateScale(12),
     backgroundColor: "#FFFFFF",
     alignItems: "center",
     justifyContent: "center",
@@ -1017,13 +1043,13 @@ const s = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
-    marginBottom: 4,
+    gap: scale(8),
+    marginBottom: scale(4),
   },
   dot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+    width: scale(10),
+    height: scale(10),
+    borderRadius: moderateScale(5),
   },
   dotShadowBase: {
     shadowColor: "rgba(82,153,254,0.35)",
@@ -1031,14 +1057,14 @@ const s = StyleSheet.create({
     elevation: 3,
   },
   dotsCounter: {
-    fontSize: 13,
-    marginLeft: 4,
+    fontSize: moderateScale(13),
+    marginLeft: scale(4),
   },
 
   // ── Complete button ──
   completeButton: {
     width: "100%",
-    borderRadius: 24,
+    borderRadius: moderateScale(24),
     overflow: "hidden",
     shadowColor: "rgba(82,153,254,0.3)",
     shadowOffset: { width: 0, height: 4 },
@@ -1050,12 +1076,12 @@ const s = StyleSheet.create({
     opacity: 0.5,
   },
   completeButtonGradient: {
-    paddingVertical: 14,
+    paddingVertical: scale(14),
     alignItems: "center",
     justifyContent: "center",
   },
   finishForNowButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 16,
+    paddingVertical: scale(8),
+    paddingHorizontal: scale(16),
   },
 });

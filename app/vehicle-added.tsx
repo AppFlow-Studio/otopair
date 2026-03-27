@@ -25,6 +25,7 @@ import { Text } from '@/components/shared-ui';
 
 // 4. Constants
 import { Spacing } from '@/constants/theme';
+import { scale, verticalScale, moderateScale } from '@/utils/responsive';
 
 // ============================================================================
 // ANIMATED CHECK COMPONENT
@@ -186,16 +187,16 @@ export default function VehicleAddedScreen() {
         onPress={handleBack}
         style={({ pressed }) => [
           styles.backButton,
-          { top: insets.top + 12 },
+          { top: insets.top + scale(12) },
           pressed && styles.backButtonPressed,
         ]}
         hitSlop={12}
       >
-        <ArrowLeft size={24} color="#000000" strokeWidth={2} />
+        <ArrowLeft size={scale(24)} color="#000000" strokeWidth={2} />
       </Pressable>
 
       {/* Success Content */}
-      <View style={[styles.successContainer, { top: insets.top + 40 }]}>
+      <View style={[styles.successContainer, { top: insets.top + scale(40) }]}>
         {/* Checkmark Circle - Animated */}
         <Animated.View 
           style={[
@@ -204,7 +205,7 @@ export default function VehicleAddedScreen() {
           ]}
         >
           <AnimatedCheckmark
-            size={40}
+            size={scale(40)}
             color="#FFFFFF"
             strokeWidth={3}
             progress={checkmarkDrawProgress}
@@ -232,7 +233,7 @@ export default function VehicleAddedScreen() {
         style={[
           styles.bottomButtonContainer, 
           { 
-            paddingBottom: insets.bottom + 20,
+            paddingBottom: insets.bottom + scale(20),
             opacity: buttonOpacity,
             transform: [{ translateY: buttonTranslateY }],
           }
@@ -292,9 +293,9 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   checkmarkCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: scale(80),
+    height: scale(80),
+    borderRadius: scale(40),
     backgroundColor: '#5299FE',
     justifyContent: 'center',
     alignItems: 'center',
@@ -312,7 +313,7 @@ const styles = StyleSheet.create({
   },
   successDescription: {
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: moderateScale(20),
   },
   bottomButtonContainer: {
     position: 'absolute',
@@ -324,8 +325,8 @@ const styles = StyleSheet.create({
   },
   viewVehicleButton: {
     backgroundColor: '#5299FE',
-    borderRadius: 30,
-    paddingVertical: 16,
+    borderRadius: moderateScale(30),
+    paddingVertical: scale(16),
     alignItems: 'center',
     justifyContent: 'center',
   },

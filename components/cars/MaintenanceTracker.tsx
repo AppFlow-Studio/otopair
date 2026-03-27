@@ -24,13 +24,13 @@
 
 // 1. React & React Native
 import React, { useEffect, useState } from 'react';
-import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 // 2. Expo & Third-party
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
-import Svg, { Circle, Path, Text as SvgText } from 'react-native-svg';
+import Svg, { Circle } from 'react-native-svg';
 import Animated, {
   Easing as REasing,
   useAnimatedStyle,
@@ -50,8 +50,8 @@ import { OilIcon, BrakesIcon, TireIcon, BatteryIcon, WarningIcon } from '@/compo
 import MaintenanceDetailView from '@/components/cars/MaintenanceDetailView';
 
 // 5. Constants, hooks, types
-import { Colors, FontFamily } from '@/constants/theme';
 import { computeProjectedHealthScore, type HealthScoreInput } from '@/utils/healthScore';
+import { scale, moderateScale } from '@/utils/responsive';
 
 // ============================================================================
 // TYPES
@@ -94,110 +94,22 @@ const STATUS_PRIORITY: Record<MaintenanceStatus, number> = {
   unknown: 4,
 };
 
-const STATUS_CONFIG: Record<
-  MaintenanceStatus,
-  {
-    label: string;
-    badgeBg: string;
-    badgeText: string;
-    iconBg: string;
-    iconColor: string;
-  }
-> = {
-  on_time: {
-    label: 'On Time',
-    badgeBg: '#DCFCE7',
-    badgeText: '#15803D',
-    iconBg: '#DCFCE7',
-    iconColor: '#22C55E',
-  },
-  needs_attention: {
-    label: 'Needs Attention',
-    badgeBg: '#FFFDE0',
-    badgeText: '#7A7200',
-    iconBg: '#FFFDE0',
-    iconColor: '#FFEA00',
-  },
-  due_soon: {
-    label: 'Due Soon',
-    badgeBg: '#FFFDE0',
-    badgeText: '#7A7200',
-    iconBg: '#FFFDE0',
-    iconColor: '#FFEA00',
-  },
-  overdue: {
-    label: 'Overdue',
-    badgeBg: '#FEE2E2',
-    badgeText: '#B91C1C',
-    iconBg: '#FEE2E2',
-    iconColor: '#DC2626',
-  },
-  unknown: {
-    label: 'Unknown',
-    badgeBg: '#E5E7EB',
-    badgeText: '#4B5563',
-    iconBg: '#E5E7EB',
-    iconColor: '#6B7280',
-  },
-};
-
 // ============================================================================
-// URGENT CARD THEME CONFIG
+// CARD COLOR MAPPING
 // ============================================================================
 
-interface UrgentTheme {
-  primary: string;
-  accentGradient: [string, string, string];
-  buttonGradient: [string, string];
-  buttonTextColor: string;
-  iconBg: string;
-  iconBorder: string;
-  pillBg: string;
-  pillBorder: string;
-  remindBorder: string;
-  remindBg: string;
-  viewDetailsBorder: string;
-}
-
-const URGENT_THEME: Partial<Record<MaintenanceStatus, UrgentTheme>> = {
-  due_soon: {
-    primary: '#FFEA00',
-    accentGradient: ['#FFEA00', '#FFF59E', '#FFEA00'],
-    buttonGradient: ['#FFEA00', '#E6D600'],
-    buttonTextColor: '#1A1A00',
-    iconBg: 'rgba(255,234,0,0.08)',
-    iconBorder: 'rgba(255,234,0,0.18)',
-    pillBg: 'rgba(255,234,0,0.1)',
-    pillBorder: 'rgba(255,234,0,0.25)',
-    remindBorder: 'rgba(255,234,0,0.25)',
-    remindBg: 'rgba(255,234,0,0.04)',
-    viewDetailsBorder: 'rgba(255,234,0,0.3)',
-  },
+const CARD_COLORS: Partial<Record<MaintenanceStatus, { statusColor: string; iconBg: string }>> = {
   overdue: {
-    primary: '#EF4444',
-    accentGradient: ['#EF4444', '#F87171', '#EF4444'],
-    buttonGradient: ['#EF4444', '#DC2626'],
-    buttonTextColor: '#FFFFFF',
-    iconBg: 'rgba(239,68,68,0.08)',
-    iconBorder: 'rgba(239,68,68,0.18)',
-    pillBg: 'rgba(239,68,68,0.1)',
-    pillBorder: 'rgba(239,68,68,0.25)',
-    remindBorder: 'rgba(239,68,68,0.25)',
-    remindBg: 'rgba(239,68,68,0.04)',
-    viewDetailsBorder: 'rgba(239,68,68,0.3)',
+    statusColor: '#C0392B',
+    iconBg: 'rgba(192, 57, 43, 0.07)',
   },
   needs_attention: {
-    primary: '#FFEA00',
-    accentGradient: ['#FFEA00', '#FFF59E', '#FFEA00'],
-    buttonGradient: ['#FFEA00', '#E6D600'],
-    buttonTextColor: '#1A1A00',
-    iconBg: 'rgba(255,234,0,0.08)',
-    iconBorder: 'rgba(255,234,0,0.18)',
-    pillBg: 'rgba(255,234,0,0.1)',
-    pillBorder: 'rgba(255,234,0,0.25)',
-    remindBorder: 'rgba(255,234,0,0.25)',
-    remindBg: 'rgba(255,234,0,0.04)',
-    viewDetailsBorder: 'rgba(255,234,0,0.3)',
+    statusColor: '#F5C623',
+    iconBg: 'rgba(245, 198, 35, 0.07)',
+  },
+  due_soon: {
+    statusColor: '#F5C623',
+    iconBg: 'rgba(245, 198, 35, 0.07)',
   },
 };
 
@@ -258,7 +170,7 @@ function VehicleHealthRing({ percentage, size = 64 }: VehicleHealthRingProps) {
   // Determine ring color based on percentage
   const getRingColor = () => {
     if (percentage >= 80) return '#22C55E'; // Green
-    if (percentage >= 60) return '#FFEA00'; // Yellow
+    if (percentage >= 60) return '#F5C623'; // Yellow
     if (percentage >= 40) return '#F97316'; // Orange
     return '#EF4444'; // Red
   };
@@ -319,41 +231,6 @@ const ringStyles = StyleSheet.create({
 // GROUP LABELS
 // ============================================================================
 
-function NeedsAttentionLabel() {
-  const pulseStyle = useAnimatedStyle(() => ({
-    opacity: withRepeat(
-      withSequence(
-        withTiming(0.5, { duration: 1000 }),
-        withTiming(1, { duration: 1000 }),
-      ),
-      -1,
-    ),
-    transform: [
-      {
-        scale: withRepeat(
-          withSequence(
-            withTiming(1.4, { duration: 1000 }),
-            withTiming(1, { duration: 1000 }),
-          ),
-          -1,
-        ),
-      },
-    ],
-  }));
-
-  return (
-    <View style={groupLabelStyles.needsAttentionRow}>
-      <Animated.View style={[groupLabelStyles.pulseDot, pulseStyle]} />
-      <Text
-        weight="bold"
-        style={groupLabelStyles.needsAttentionText}
-      >
-        NEEDS ATTENTION
-      </Text>
-    </View>
-  );
-}
-
 function OverdueLabel() {
   const pulseStyle = useAnimatedStyle(() => ({
     opacity: withRepeat(
@@ -377,38 +254,39 @@ function OverdueLabel() {
   }));
 
   return (
-    <View style={groupLabelStyles.overdueRow}>
+    <View style={groupLabelStyles.row}>
       <Animated.View style={[groupLabelStyles.overdueDot, pulseStyle]} />
-      <Text
-        weight="bold"
-        style={groupLabelStyles.overdueText}
-      >
-        OVERDUE
-      </Text>
+      <Text weight="bold" style={groupLabelStyles.overdueText}>OVERDUE</Text>
     </View>
   );
 }
 
-function AllGoodLabel() {
+function NeedsAttentionLabel() {
+  const pulseStyle = useAnimatedStyle(() => ({
+    opacity: withRepeat(
+      withSequence(
+        withTiming(0.5, { duration: 1000 }),
+        withTiming(1, { duration: 1000 }),
+      ),
+      -1,
+    ),
+    transform: [
+      {
+        scale: withRepeat(
+          withSequence(
+            withTiming(1.4, { duration: 1000 }),
+            withTiming(1, { duration: 1000 }),
+          ),
+          -1,
+        ),
+      },
+    ],
+  }));
+
   return (
-    <View style={groupLabelStyles.allGoodRow}>
-      <Svg width={14} height={14} viewBox="0 0 14 14">
-        <Circle cx={7} cy={7} r={7} fill="rgba(52, 199, 89, 0.15)" />
-        <Path
-          d="M4 7.2L6.2 9.4L10 4.6"
-          stroke="#34C759"
-          strokeWidth={1.5}
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          fill="none"
-        />
-      </Svg>
-      <Text
-        weight="bold"
-        style={groupLabelStyles.allGoodText}
-      >
-        ALL GOOD
-      </Text>
+    <View style={groupLabelStyles.row}>
+      <Animated.View style={[groupLabelStyles.needsAttentionDot, pulseStyle]} />
+      <Text weight="bold" style={groupLabelStyles.needsAttentionText}>NEEDS ATTENTION</Text>
     </View>
   );
 }
@@ -420,19 +298,22 @@ function AllGoodLabel() {
 interface UrgentCardProps {
   item: MaintenanceItem;
   entryDelay: number;
+  vehicleCondition: number;
+  healthScoreInput?: HealthScoreInput;
   onBookNow?: (id: string) => void;
   onAddInfo?: (id: string) => void;
   onCardPress?: (item: MaintenanceItem) => void;
 }
 
-function UrgentCard({ item, entryDelay, onBookNow, onAddInfo, onCardPress }: UrgentCardProps) {
-  const theme = URGENT_THEME[item.status]!;
-  const statusLabel = STATUS_CONFIG[item.status].label;
+function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBookNow, onCardPress }: UrgentCardProps) {
+  const colors = CARD_COLORS[item.status] ?? { statusColor: '#F5C623', iconBg: 'rgba(245,198,35,0.07)' };
 
-  // Press scale animation
+  const delta = healthScoreInput
+    ? Math.round(computeProjectedHealthScore(healthScoreInput, item.id) - vehicleCondition)
+    : 0;
+
   const cardScale = useSharedValue(1);
 
-  // Entry animation
   const entryOpacity = useSharedValue(0);
   const entryTranslateY = useSharedValue(18);
   useEffect(() => {
@@ -450,108 +331,43 @@ function UrgentCard({ item, entryDelay, onBookNow, onAddInfo, onCardPress }: Urg
     transform: [{ translateY: entryTranslateY.value }, { scale: cardScale.value }],
   }));
 
-  // Pulsing pill glow
-  const pillGlowStyle = useAnimatedStyle(() => ({
-    shadowColor: theme.primary,
-    shadowOffset: { width: 0, height: 0 },
-    shadowRadius: 8,
-    shadowOpacity: withRepeat(
-      withSequence(
-        withTiming(0.15, { duration: 1500 }),
-        withTiming(0, { duration: 1500 }),
-      ),
-      -1,
-    ),
-  }));
-
-  const handlePress = () => {
-    if (onCardPress) {
-      onCardPress(item);
-    } else {
-      onBookNow?.(item.id);
-    }
-  };
-
   return (
     <Pressable
       onPressIn={() => { cardScale.value = withSpring(0.98, { damping: 20, stiffness: 300 }); }}
       onPressOut={() => { cardScale.value = withSpring(1, { damping: 20, stiffness: 300 }); }}
-      onPress={handlePress}
+      onPress={() => onCardPress ? onCardPress(item) : onBookNow?.(item.id)}
     >
-      <Animated.View
-        style={[
-          ucStyles.container,
-          entryStyle,
-        ]}
-      >
-        {/* Glassy layers — tuned for the cars page's lighter background */}
-        <BlurView intensity={40} tint="light" style={StyleSheet.absoluteFill} />
-        <LinearGradient
-          colors={['rgba(255,255,255,0.35)', 'rgba(255,255,255,0.25)']}
-          style={StyleSheet.absoluteFill}
-        />
-        <LinearGradient
-          colors={['rgba(255,255,255,0.5)', 'rgba(255,255,255,0.18)', 'rgba(255,255,255,0)']}
-          locations={[0, 0.2, 0.5]}
-          style={ucStyles.glossyHighlight}
-        />
-        <LinearGradient
-          colors={['rgba(255,255,255,0.3)', 'rgba(255,255,255,0)', 'rgba(255,255,255,0)']}
-          locations={[0, 0.15, 0.4]}
-          style={ucStyles.glossyShine}
-        />
-
-        {/* Card content (above glass layers) */}
-        <View style={ucStyles.cardContent} pointerEvents="box-none">
-        {/* Top section: icon + title centered */}
-        <View style={ucStyles.topSection}>
-          <View
-            style={[
-              ucStyles.iconBox,
-              { backgroundColor: theme.iconBg, borderColor: theme.iconBorder },
-            ]}
-          >
-            {getServiceIcon(item.id, 28, '#000000')}
+      <Animated.View style={[cardStyles.container, entryStyle]}>
+        <View style={cardStyles.topRow}>
+          <View style={[cardStyles.iconContainer, { backgroundColor: colors.iconBg }]}>
+            {getServiceIcon(item.id, 24, colors.statusColor)}
           </View>
-          <Text
-            weight="bold"
-            style={[ucStyles.serviceName, { fontFamily: FontFamily.serifBold }]}
-          >
-            {item.serviceName}
-          </Text>
+          <View style={cardStyles.textColumn}>
+            <Text weight="bold" style={cardStyles.title}>{item.serviceName}</Text>
+            <Text style={cardStyles.subtitle}>{item.description}</Text>
+          </View>
+          {delta > 0 && (
+            <View style={cardStyles.scoreColumn}>
+              <View style={cardStyles.scoreRow}>
+                <Text style={cardStyles.scoreNumber}>+{delta}</Text>
+                <Text style={cardStyles.scorePercent}>%</Text>
+              </View>
+            </View>
+          )}
         </View>
-
-        {/* Description */}
-        <Text weight="medium" style={ucStyles.detailText}>
-          {item.description}
-        </Text>
-
-        {/* Action buttons */}
-        <View style={ucStyles.buttonRow}>
+        <View style={cardStyles.buttonRow}>
           <Pressable
-            style={({ pressed }) => [ucStyles.bookBtn, { shadowColor: theme.primary }, pressed && { opacity: 0.9 }]}
+            style={({ pressed }) => [cardStyles.bookServiceBtn, pressed && { opacity: 0.85 }]}
             onPress={() => onBookNow?.(item.id)}
           >
-            <LinearGradient
-              colors={theme.buttonGradient}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={ucStyles.bookBtnInner}
-            >
-              <Text weight="semiBold" style={[ucStyles.bookBtnText, { color: theme.buttonTextColor, fontFamily: FontFamily.serifBold }]}>
-                Book Service
-              </Text>
-            </LinearGradient>
+            <Text weight="semiBold" style={cardStyles.bookServiceText}>Book Service</Text>
           </Pressable>
           <Pressable
-            style={({ pressed }) => [ucStyles.viewDetailsBtn, pressed && { opacity: 0.8 }]}
+            style={({ pressed }) => [cardStyles.viewDetailsBtn, pressed && { opacity: 0.85 }]}
             onPress={() => onCardPress?.(item)}
           >
-            <Text weight="semiBold" style={ucStyles.viewDetailsBtnText}>
-              View Details
-            </Text>
+            <Text weight="semiBold" style={cardStyles.viewDetailsText}>View Details</Text>
           </Pressable>
-        </View>
         </View>
       </Animated.View>
     </Pressable>
@@ -559,133 +375,58 @@ function UrgentCard({ item, entryDelay, onBookNow, onAddInfo, onCardPress }: Urg
 }
 
 // ============================================================================
-// HEALTHY CARD COMPONENT
+// HEALTHY ITEMS SECTION (expandable)
 // ============================================================================
 
-interface HealthyTheme {
-  primary: string;
-  iconBg: string;
-  iconBorder: string;
-  remindBorder: string;
-  dotColor: string;
-}
+function HealthySection({ items }: { items: MaintenanceItem[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const chevronRotation = useSharedValue(0);
 
-const HEALTHY_THEME: Record<'on_time' | 'unknown', HealthyTheme> = {
-  on_time: {
-    primary: '#34C759',
-    iconBg: 'rgba(52,199,89,0.06)',
-    iconBorder: 'rgba(52,199,89,0.15)',
-    remindBorder: 'rgba(52,199,89,0.18)',
-    dotColor: '#34C759',
-  },
-  unknown: {
-    primary: '#6B7280',
-    iconBg: 'rgba(107,114,128,0.06)',
-    iconBorder: 'rgba(107,114,128,0.15)',
-    remindBorder: 'rgba(107,114,128,0.18)',
-    dotColor: '#6B7280',
-  },
-};
+  if (items.length === 0) return null;
 
-interface HealthyCardProps {
-  item: MaintenanceItem;
-  entryDelay: number;
-  onBookNow?: (id: string) => void;
-  onAddInfo?: (id: string) => void;
-}
+  const toggle = () => {
+    setExpanded(prev => !prev);
+    chevronRotation.value = withTiming(expanded ? 0 : 1, { duration: 200 });
+  };
 
-function HealthyCard({ item, entryDelay, onBookNow, onAddInfo }: HealthyCardProps) {
-  const themeKey = item.status === 'unknown' ? 'unknown' : 'on_time';
-  const theme = HEALTHY_THEME[themeKey];
-
-  // Press scale
-  const cardScale = useSharedValue(1);
-
-  // Entry animation
-  const entryOpacity = useSharedValue(0);
-  const entryTranslateY = useSharedValue(18);
-  useEffect(() => {
-    entryOpacity.value = withDelay(
-      entryDelay,
-      withTiming(1, { duration: 550, easing: REasing.bezier(0.16, 1, 0.3, 1) }),
-    );
-    entryTranslateY.value = withDelay(
-      entryDelay,
-      withTiming(0, { duration: 550, easing: REasing.bezier(0.16, 1, 0.3, 1) }),
-    );
-  }, []);
-  const entryStyle = useAnimatedStyle(() => ({
-    opacity: entryOpacity.value,
-    transform: [{ translateY: entryTranslateY.value }, { scale: cardScale.value }],
+  const chevronStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${chevronRotation.value * 90}deg` }],
   }));
 
   return (
-    <Pressable
-      onPressIn={() => { cardScale.value = withSpring(0.98, { damping: 20, stiffness: 300 }); }}
-      onPressOut={() => { cardScale.value = withSpring(1, { damping: 20, stiffness: 300 }); }}
-      onPress={() => {
-        if (item.status === 'unknown') onAddInfo?.(item.id);
-        else onBookNow?.(item.id);
-      }}
-    >
-      <Animated.View style={[hcStyles.container, entryStyle]}>
-        {/* Glassy layers — tuned for the cars page's lighter background */}
-        <BlurView intensity={40} tint="light" style={StyleSheet.absoluteFill} />
-        <LinearGradient
-          colors={['rgba(255,255,255,0.35)', 'rgba(255,255,255,0.25)']}
-          style={StyleSheet.absoluteFill}
-        />
-        <LinearGradient
-          colors={['rgba(255,255,255,0.5)', 'rgba(255,255,255,0.18)', 'rgba(255,255,255,0)']}
-          locations={[0, 0.2, 0.5]}
-          style={hcStyles.glossyHighlight}
-        />
-        <LinearGradient
-          colors={['rgba(255,255,255,0.3)', 'rgba(255,255,255,0)', 'rgba(255,255,255,0)']}
-          locations={[0, 0.15, 0.4]}
-          style={hcStyles.glossyShine}
-        />
-
-        {/* Main horizontal row */}
-        <View style={[hcStyles.row, { zIndex: 1 }]}>
-          {/* Icon area */}
-          <View style={hcStyles.iconWrap}>
-            <View style={[hcStyles.iconBox, { backgroundColor: theme.iconBg, borderColor: theme.iconBorder }]}>
-              {getServiceIcon(item.id, 22, theme.primary)}
-            </View>
-            <View style={[hcStyles.statusDot, { backgroundColor: theme.dotColor, shadowColor: theme.dotColor }]} />
-          </View>
-
-          {/* Content */}
-          <View style={hcStyles.content}>
-            <Text weight="semiBold" style={[hcStyles.serviceName, { fontFamily: FontFamily.serifSemiBold }]}>
-              {item.serviceName}
-            </Text>
-            <Text weight="medium" style={hcStyles.remainingText}>
-              {item.description}
-            </Text>
-          </View>
-
-          {/* Remind / Add Info button */}
-          <Pressable
-            style={({ pressed }) => [
-              hcStyles.remindBtn,
-              { borderColor: theme.remindBorder },
-              pressed && { opacity: 0.7 },
-            ]}
-            onPress={(e) => {
-              e.stopPropagation?.();
-              if (item.status === 'unknown') onAddInfo?.(item.id);
-              else Alert.alert('Reminder Set!');
-            }}
-          >
-            <Text weight="semiBold" style={[hcStyles.remindBtnText, { color: theme.primary }]}>
-              {item.status === 'unknown' ? 'Add Info' : 'Remind'}
-            </Text>
-          </Pressable>
+    <View>
+      <Pressable onPress={toggle} style={({ pressed }) => pressed && { opacity: 0.7 }}>
+        <View style={summaryStyles.headerRow}>
+          <View style={summaryStyles.dot} />
+          <Text weight="semiBold" style={summaryStyles.headerText}>
+            {items.length} {items.length === 1 ? 'item' : 'items'} healthy
+          </Text>
+          <Animated.View style={chevronStyle}>
+            <Ionicons name="chevron-forward" size={16} color="#C7C7CC" />
+          </Animated.View>
         </View>
-      </Animated.View>
-    </Pressable>
+      </Pressable>
+
+      {expanded && (
+        <View style={summaryStyles.card}>
+          {items.map((item, index) => (
+            <View key={item.id}>
+              <View style={summaryStyles.itemRow}>
+                <View style={summaryStyles.itemIcon}>
+                  {getServiceIcon(item.id, 20, '#34C759')}
+                </View>
+                <View style={summaryStyles.itemContent}>
+                  <Text weight="semiBold" style={summaryStyles.itemName}>{item.serviceName}</Text>
+                  <Text style={summaryStyles.itemDesc}>{item.description}</Text>
+                </View>
+                <Ionicons name="checkmark-circle" size={18} color="#34C759" />
+              </View>
+              {index < items.length - 1 && <View style={summaryStyles.separator} />}
+            </View>
+          ))}
+        </View>
+      )}
+    </View>
   );
 }
 
@@ -721,13 +462,13 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
 
   const overdueBaseDelay = 0;
   const urgentBaseDelay = overdueItems.length * 80 + 150;
-  const healthyBaseDelay = (overdueItems.length + urgentItems.length) * 80 + 300;
+
 
   return (
     <View style={styles.container}>
       {/* Section Header */}
       <View style={styles.headerRow}>
-        <Text weight="bold" color="#0F172A" style={{ fontSize: 22, fontFamily: FontFamily.serifBold }}>
+        <Text weight="bold" color="#0F172A" style={{ fontSize: moderateScale(22) }}>
           Maintenance Tracker
         </Text>
         {onEditPressed && (
@@ -742,7 +483,6 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
               locations={[0, 0.35, 0.7]}
               style={styles.editButtonGloss}
             />
-            <Ionicons name="create-outline" size={15} color="#5299FE" style={{ zIndex: 1 }} />
             <Text weight="bold" style={styles.editHeaderButtonText}>Update Info</Text>
           </Pressable>
         )}
@@ -760,7 +500,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
         </View>
       ) : (
         <>
-          {/* Group 1: Overdue */}
+          {/* Overdue items */}
           {overdueItems.length > 0 && (
             <>
               <OverdueLabel />
@@ -770,6 +510,8 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
                     key={item.id}
                     item={item}
                     entryDelay={overdueBaseDelay + index * 80}
+                    vehicleCondition={vehicleCondition ?? 0}
+                    healthScoreInput={healthScoreInput}
                     onBookNow={onBookNow}
                     onAddInfo={onAddInfo}
                     onCardPress={handleCardPress}
@@ -779,7 +521,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
             </>
           )}
 
-          {/* Group 2: Needs Attention */}
+          {/* Needs attention / due soon items */}
           {urgentItems.length > 0 && (
             <>
               <NeedsAttentionLabel />
@@ -789,6 +531,8 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
                     key={item.id}
                     item={item}
                     entryDelay={urgentBaseDelay + index * 80}
+                    vehicleCondition={vehicleCondition ?? 0}
+                    healthScoreInput={healthScoreInput}
                     onBookNow={onBookNow}
                     onAddInfo={onAddInfo}
                     onCardPress={handleCardPress}
@@ -798,6 +542,8 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
             </>
           )}
 
+          {/* Healthy items (expandable) */}
+          <HealthySection items={healthyItems} />
         </>
       )}
 
@@ -830,21 +576,21 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
 
 const styles = StyleSheet.create({
   container: {
-    marginTop: 24,
+    marginTop: scale(24),
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 12,
-    paddingHorizontal: 20,
+    marginBottom: scale(12),
+    paddingHorizontal: scale(20),
   },
   emptyState: {
-    paddingVertical: 24,
-    paddingHorizontal: 16,
-    borderRadius: 16,
+    paddingVertical: scale(24),
+    paddingHorizontal: scale(16),
+    borderRadius: moderateScale(16),
     alignItems: 'center',
-    gap: 4,
+    gap: scale(4),
     backgroundColor: 'rgba(255,255,255,0.65)',
     shadowColor: 'rgba(0, 0, 0, 0.1)',
     shadowOffset: { width: 0, height: 6 },
@@ -854,21 +600,17 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   urgentGroup: {
-    paddingHorizontal: 20,
-    gap: 12,
-  },
-  healthyGroup: {
-    paddingHorizontal: 20,
-    gap: 10,
+    paddingHorizontal: scale(20),
+    gap: scale(12),
   },
   editHeaderButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
+    gap: scale(5),
     backgroundColor: 'rgba(255,255,255,0.15)',
-    borderRadius: 15,
-    paddingVertical: 7,
-    paddingHorizontal: 14,
+    borderRadius: moderateScale(15),
+    paddingVertical: scale(7),
+    paddingHorizontal: scale(14),
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.6)',
@@ -884,290 +626,212 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: '100%',
-    borderRadius: 14,
+    borderRadius: moderateScale(14),
   },
   editHeaderButtonText: {
     color: '#5299FE',
-    fontSize: 13,
+    fontSize: moderateScale(13),
     zIndex: 1,
   },
 });
 
-const ucStyles = StyleSheet.create({
+// ============================================================================
+// CARD STYLES
+// ============================================================================
+
+const cardStyles = StyleSheet.create({
   container: {
-    backgroundColor: 'transparent',
-    borderRadius: 22,
-    overflow: 'hidden',
-    position: 'relative',
+    backgroundColor: '#FFFFFF',
+    borderRadius: moderateScale(24),
+    padding: scale(20),
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    elevation: 4,
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+    borderWidth: 0.5,
+    borderColor: 'rgba(0,0,0,0.05)',
   },
-  glossyHighlight: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: '50%',
-    borderTopLeftRadius: 22,
-    borderTopRightRadius: 22,
-  },
-  glossyShine: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: '35%',
-    borderTopLeftRadius: 22,
-    borderTopRightRadius: 22,
-  },
-  cardContent: {
-    padding: 20,
-    position: 'relative',
-    zIndex: 1,
-  },
-  topSection: {
+  topRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 14,
+    gap: scale(14),
   },
-  iconBox: {
-    width: 52,
-    height: 52,
-    borderRadius: 16,
-    borderWidth: 1.5,
+  iconContainer: {
+    width: scale(46),
+    height: scale(46),
+    borderRadius: moderateScale(16),
     alignItems: 'center',
     justifyContent: 'center',
   },
-  serviceName: {
-    fontSize: 18,
-    color: '#0F172A',
+  textColumn: {
+    flex: 1,
   },
-  pill: {
-    paddingVertical: 3,
-    paddingHorizontal: 10,
-    borderRadius: 10,
-    borderWidth: 1,
+  title: {
+    fontSize: moderateScale(16),
+    color: '#2d3435',
   },
-  pillText: {
-    fontSize: 10.5,
-    letterSpacing: 0.03 * 10.5,
-    textTransform: 'uppercase',
+  subtitle: {
+    fontSize: moderateScale(12),
+    color: '#757c7d',
+    marginTop: 1,
   },
-  detailText: {
-    fontSize: 14,
-    color: '#5A7A94',
-    lineHeight: 19,
-    marginTop: 8,
+  scoreColumn: {
+    alignItems: 'flex-end',
+  },
+  scoreRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+  },
+  scoreNumber: {
+    fontSize: moderateScale(20),
+    fontWeight: '300',
+    color: '#34C759',
+  },
+  scorePercent: {
+    fontSize: moderateScale(13),
+    fontWeight: '300',
+    color: '#34C759',
   },
   buttonRow: {
     flexDirection: 'row',
-    gap: 10,
-    marginTop: 14,
+    gap: scale(8),
+    marginTop: scale(16),
   },
-  bookBtn: {
+  bookServiceBtn: {
     flex: 1,
-    borderRadius: 24,
-    overflow: 'hidden',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 14,
-    elevation: 4,
-  },
-  bookBtnInner: {
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+    backgroundColor: '#2d3435',
+    paddingVertical: scale(12),
+    borderRadius: 100,
     alignItems: 'center',
     justifyContent: 'center',
-    borderRadius: 24,
   },
-  bookBtnText: {
-    fontSize: 15,
+  bookServiceText: {
+    fontSize: moderateScale(14),
     color: '#FFFFFF',
   },
   viewDetailsBtn: {
-    flex: 1,
-    backgroundColor: '#FFFFFF',
-    borderRadius: 24,
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  viewDetailsBtnText: {
-    fontSize: 14,
-    color: '#829BAD',
-  },
-  remindBtn: {
-    paddingVertical: 11,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    borderWidth: 1.5,
+    paddingVertical: scale(12),
+    paddingHorizontal: scale(22),
+    backgroundColor: '#E4E9EA',
+    borderRadius: 100,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  remindBtnText: {
-    fontSize: 13.5,
-  },
-  tapHint: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    marginTop: 12,
-  },
-  tapHintText: {
-    fontSize: 11,
-    color: '#A3B5C4',
+  viewDetailsText: {
+    fontSize: moderateScale(14),
+    color: '#2d3435',
   },
 });
+
+// ============================================================================
+// GROUP LABEL STYLES
+// ============================================================================
 
 const groupLabelStyles = StyleSheet.create({
-  needsAttentionRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingLeft: 20,
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  pulseDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#FFEA00',
-  },
-  needsAttentionText: {
-    fontSize: 14,
-    color: '#B8A300',
-    letterSpacing: 1.12,
-    textTransform: 'uppercase',
-  },
-  overdueRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingLeft: 20,
-    marginTop: 4,
-    marginBottom: 8,
-  },
-  overdueDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#EF4444',
-  },
-  overdueText: {
-    fontSize: 14,
-    color: '#EF4444',
-    letterSpacing: 1.12,
-    textTransform: 'uppercase',
-  },
-  allGoodRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingLeft: 20,
-    marginTop: 16,
-    marginBottom: 8,
-  },
-  allGoodText: {
-    fontSize: 14,
-    color: '#34C759',
-    letterSpacing: 1.12,
-    textTransform: 'uppercase',
-  },
-});
-
-const hcStyles = StyleSheet.create({
-  container: {
-    backgroundColor: 'transparent',
-    borderRadius: 16,
-    overflow: 'hidden',
-    position: 'relative',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.12,
-    shadowRadius: 12,
-    elevation: 4,
-  },
-  glossyHighlight: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: '50%',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-  },
-  glossyShine: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: '35%',
-    borderTopLeftRadius: 16,
-    borderTopRightRadius: 16,
-  },
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
+    gap: scale(6),
+    paddingLeft: scale(20),
+    marginTop: scale(16),
+    marginBottom: scale(8),
   },
-  iconWrap: {
-    position: 'relative',
-    marginRight: 12,
+  overdueDot: {
+    width: scale(8),
+    height: scale(8),
+    borderRadius: moderateScale(4),
+    backgroundColor: '#EF4444',
   },
-  iconBox: {
-    width: 42,
-    height: 42,
-    borderRadius: 12,
-    borderWidth: 1.5,
+  overdueText: {
+    fontSize: moderateScale(11),
+    color: '#EF4444',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+  needsAttentionDot: {
+    width: scale(8),
+    height: scale(8),
+    borderRadius: moderateScale(4),
+    backgroundColor: '#F5C623',
+  },
+  needsAttentionText: {
+    fontSize: moderateScale(11),
+    color: '#B8A300',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+});
+
+// ============================================================================
+// HEALTHY SUMMARY STYLES
+// ============================================================================
+
+const summaryStyles = StyleSheet.create({
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(10),
+    paddingVertical: scale(14),
+    paddingHorizontal: scale(24),
+    marginTop: scale(8),
+  },
+  dot: {
+    width: scale(8),
+    height: scale(8),
+    borderRadius: moderateScale(4),
+    backgroundColor: '#34C759',
+  },
+  headerText: {
+    flex: 1,
+    fontSize: moderateScale(15),
+    color: '#2d3435',
+  },
+  card: {
+    marginHorizontal: scale(20),
+    marginTop: scale(4),
+    backgroundColor: '#FFFFFF',
+    borderRadius: moderateScale(20),
+    paddingVertical: scale(6),
+    paddingHorizontal: scale(16),
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+    borderWidth: 0.5,
+    borderColor: 'rgba(0,0,0,0.05)',
+  },
+  itemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(12),
+    paddingVertical: scale(12),
+  },
+  itemIcon: {
+    width: scale(36),
+    height: scale(36),
+    borderRadius: moderateScale(12),
+    backgroundColor: 'rgba(52, 199, 89, 0.07)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  statusDot: {
-    position: 'absolute',
-    top: -2,
-    right: -2,
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    borderWidth: 2,
-    borderColor: '#fff',
-    shadowOpacity: 0.4,
-    shadowRadius: 6,
-    shadowOffset: { width: 0, height: 0 },
-  },
-  content: {
+  itemContent: {
     flex: 1,
   },
-  serviceName: {
-    fontSize: 15,
-    color: '#0F172A',
+  itemName: {
+    fontSize: moderateScale(14),
+    color: '#2d3435',
   },
-  remainingText: {
-    fontSize: 12.5,
-    color: '#5A7A94',
+  itemDesc: {
+    fontSize: moderateScale(11),
+    color: '#757c7d',
     marginTop: 1,
   },
-  remindBtn: {
-    paddingVertical: 6,
-    paddingHorizontal: 12,
-    borderRadius: 8,
-    borderWidth: 1.5,
-    marginLeft: 6,
-  },
-  remindBtnText: {
-    fontSize: 11.5,
+  separator: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(0,0,0,0.06)',
+    marginLeft: scale(48),
   },
 });
 

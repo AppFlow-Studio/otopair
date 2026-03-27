@@ -52,6 +52,9 @@ import { Text } from '@/components/shared-ui';
 import { BrandColors, Colors, Spacing } from '@/constants/theme';
 import { router } from 'expo-router';
 
+// 5. Responsive utilities
+import { scale, verticalScale, moderateScale, isTablet } from '@/utils/responsive';
+
 // ============================================================================
 // TYPES
 // ============================================================================
@@ -98,8 +101,8 @@ interface CarCarouselProps {
 // ============================================================================
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-const CAR_CARD_WIDTH = 320;
-const CAR_CARD_HEIGHT = 240;
+const CAR_CARD_WIDTH = Math.min(scale(320), 420);
+const CAR_CARD_HEIGHT = scale(240);
 const RADIUS = SCREEN_WIDTH * 0.5;
 
 // Fallback image used only when no dynamic imageSource is available
@@ -367,9 +370,9 @@ const VehicleHealthModal = ({
   }, [visible, calculatedCondition, maintenanceScore, usageScore]);
 
   // Single large ring configuration
-  const modalRingSize = 180;
-  const ringStrokeWidth = 12;
-  const ringRadius = (modalRingSize / 2) - (ringStrokeWidth / 2) - 8;
+  const modalRingSize = scale(180);
+  const ringStrokeWidth = scale(12);
+  const ringRadius = (modalRingSize / 2) - (ringStrokeWidth / 2) - scale(8);
   const circumference = 2 * Math.PI * ringRadius;
   const center = modalRingSize / 2;
   
@@ -497,7 +500,7 @@ const VehicleHealthModal = ({
               <Text style={modalStyles.headerSubtitle}>{vehicleName} • Premium Package</Text>
             </View>
             <Pressable style={modalStyles.closeButton} onPress={onClose}>
-              <X size={18} color="#666" />
+              <X size={scale(18)} color="#666" />
             </Pressable>
           </View>
 
@@ -538,10 +541,10 @@ const VehicleHealthModal = ({
                 <Text style={modalStyles.sectionTitle}>WHAT AFFECTS YOUR SCORE</Text>
                 <Pressable 
                   onPress={() => setShowInfoModal(true)}
-                  hitSlop={10}
+                  hitSlop={scale(10)}
                   style={modalStyles.infoButton}
                 >
-                  <Info size={16} color="#888" />
+                  <Info size={scale(16)} color="#888" />
                 </Pressable>
               </View>
               
@@ -607,7 +610,7 @@ const VehicleHealthModal = ({
                           modalStyles.checkbox,
                           isSelected && modalStyles.checkboxSelected
                         ]}>
-                          {isSelected && <Check size={14} color="#fff" strokeWidth={3} />}
+                          {isSelected && <Check size={scale(14)} color="#fff" strokeWidth={3} />}
                         </View>
                         
                         <View style={modalStyles.serviceItemLeft}>
@@ -649,7 +652,7 @@ const VehicleHealthModal = ({
               </View>
             )}
 
-            <View style={{ height: 20 }} />
+            <View style={{ height: scale(20) }} />
           </ScrollView>
           
           <View style={modalStyles.scheduleButtonContainer}>
@@ -675,7 +678,7 @@ const VehicleHealthModal = ({
                       ? '1 service selected'
                       : `${selectedServices.size} services selected`}
                 </Text>
-                <Calendar size={20} color="#fff" />
+                <Calendar size={scale(20)} color="#fff" />
               </View>
             </Pressable>
           </View>
@@ -698,7 +701,7 @@ const VehicleHealthModal = ({
               <View style={modalStyles.infoModalHeader}>
                 <Text style={modalStyles.infoModalTitle}>How We Calculate Your Score</Text>
                 <Pressable onPress={() => setShowInfoModal(false)}>
-                  <X size={20} color="#666" />
+                  <X size={scale(20)} color="#666" />
                 </Pressable>
               </View>
               
@@ -761,8 +764,8 @@ const modalStyles = StyleSheet.create({
     left: 0,
     right: 0,
     backgroundColor: '#fff',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    borderTopLeftRadius: moderateScale(24),
+    borderTopRightRadius: moderateScale(24),
     maxHeight: SCREEN_HEIGHT * 0.85,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
@@ -772,12 +775,12 @@ const modalStyles = StyleSheet.create({
   },
   dragHandleContainer: {
     alignItems: 'center',
-    paddingTop: 12,
-    paddingBottom: 8,
+    paddingTop: scale(12),
+    paddingBottom: scale(8),
   },
   dragHandle: {
-    width: 40,
-    height: 4,
+    width: scale(40),
+    height: scale(4),
     backgroundColor: 'rgba(0, 0, 0, 0.15)',
     borderRadius: 2,
   },
@@ -785,39 +788,39 @@ const modalStyles = StyleSheet.create({
     maxHeight: SCREEN_HEIGHT * 0.55,
   },
   scrollContent: {
-    paddingHorizontal: 24,
-    paddingBottom: 20,
+    paddingHorizontal: scale(24),
+    paddingBottom: scale(20),
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 24,
-    paddingTop: 20,
-    paddingBottom: 16,
+    paddingHorizontal: scale(24),
+    paddingTop: scale(20),
+    paddingBottom: scale(16),
   },
   headerTitleContainer: {
     flex: 1,
     alignItems: 'center',
   },
   headerTitle: {
-    fontSize: 20,
+    fontSize: moderateScale(20),
     fontFamily: 'Urbanist-SemiBold',
     color: '#1a1a1a',
   },
   headerSubtitle: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: 'Urbanist-Regular',
     color: '#666',
-    marginTop: 2,
+    marginTop: scale(2),
   },
   closeButton: {
     position: 'absolute',
-    right: 20,
-    top: 20,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    right: scale(20),
+    top: scale(20),
+    width: scale(32),
+    height: scale(32),
+    borderRadius: moderateScale(16),
     backgroundColor: 'rgba(0, 0, 0, 0.06)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -825,28 +828,28 @@ const modalStyles = StyleSheet.create({
   headerSeparator: {
     height: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.08)',
-    marginHorizontal: 24,
+    marginHorizontal: scale(24),
   },
   ringsContainer: {
     alignItems: 'center',
     justifyContent: 'center',
     alignSelf: 'center',
-    marginVertical: 20,
+    marginVertical: scale(20),
     position: 'relative',
-    width: 200,
-    height: 200,
+    width: Math.min(scale(200), 260),
+    height: Math.min(scale(200), 260),
   },
   ringGlow: {
     position: 'absolute',
-    width: 220,
-    height: 220,
-    borderRadius: 110,
+    width: Math.min(scale(220), 280),
+    height: Math.min(scale(220), 280),
+    borderRadius: Math.min(scale(220), 280) / 2,
   },
   ringGlowInner: {
     position: 'absolute',
-    width: 170,
-    height: 170,
-    borderRadius: 85,
+    width: Math.min(scale(170), 220),
+    height: Math.min(scale(170), 220),
+    borderRadius: Math.min(scale(170), 220) / 2,
   },
   ringCenterContent: {
     position: 'absolute',
@@ -854,22 +857,22 @@ const modalStyles = StyleSheet.create({
     justifyContent: 'center',
   },
   percentageText: {
-    fontSize: 42,
+    fontSize: moderateScale(42),
     fontFamily: 'Urbanist-Bold',
     color: '#1F2937',
-    lineHeight: 46,
+    lineHeight: moderateScale(46),
   },
   ringSubLabel: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: 'Urbanist-SemiBold',
     color: '#9CA3AF',
-    marginTop: -2,
+    marginTop: scale(-2),
   },
   breakdownSection: {
-    marginTop: 16,
+    marginTop: scale(16),
   },
   sectionTitle: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: 'Urbanist-SemiBold',
     color: '#888',
     letterSpacing: 1,
@@ -878,15 +881,15 @@ const modalStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 16,
+    marginBottom: scale(16),
   },
   infoButton: {
-    padding: 4,
+    padding: scale(4),
   },
   breakdownRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    paddingVertical: 16,
+    paddingVertical: scale(16),
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(0, 0, 0, 0.06)',
   },
@@ -896,11 +899,11 @@ const modalStyles = StyleSheet.create({
     flex: 1,
   },
   colorDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    marginRight: 12,
-    marginTop: 4,
+    width: scale(12),
+    height: scale(12),
+    borderRadius: moderateScale(6),
+    marginRight: scale(12),
+    marginTop: scale(4),
   },
   breakdownTextContainer: {
     flex: 1,
@@ -909,27 +912,27 @@ const modalStyles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: scale(4),
   },
   breakdownName: {
-    fontSize: 15,
+    fontSize: moderateScale(15),
     fontFamily: 'Urbanist-SemiBold',
     color: '#1a1a1a',
   },
   breakdownSubtitle: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: 'Urbanist-Regular',
     color: '#888',
-    marginBottom: 8,
-    lineHeight: 16,
+    marginBottom: scale(8),
+    lineHeight: moderateScale(16),
   },
   progressBarRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: scale(10),
   },
   progressBarContainer: {
-    height: 6,
+    height: scale(6),
     backgroundColor: 'rgba(0, 0, 0, 0.08)',
     borderRadius: 3,
     overflow: 'hidden',
@@ -940,22 +943,22 @@ const modalStyles = StyleSheet.create({
     borderRadius: 3,
   },
   breakdownPercentage: {
-    fontSize: 15,
+    fontSize: moderateScale(15),
     fontFamily: 'Urbanist-SemiBold',
     color: '#1a1a1a',
   },
   scoreImpactBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
+    paddingHorizontal: scale(8),
+    paddingVertical: scale(4),
+    borderRadius: moderateScale(6),
   },
   scoreImpactText: {
-    fontSize: 11,
+    fontSize: moderateScale(11),
     fontFamily: 'Urbanist-Bold',
   },
   attentionCardOuter: {
-    marginTop: 24,
-    borderRadius: 16,
+    marginTop: scale(24),
+    borderRadius: moderateScale(16),
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.5)',
@@ -976,38 +979,38 @@ const modalStyles = StyleSheet.create({
     height: '40%',
   },
   attentionContent: {
-    padding: 16,
+    padding: scale(16),
   },
   attentionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: scale(12),
   },
   attentionTitle: {
-    fontSize: 15,
+    fontSize: moderateScale(15),
     fontFamily: 'Urbanist-SemiBold',
     color: '#FF3B5C',
   },
   serviceItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: scale(12),
     borderTopWidth: 1,
     borderTopColor: 'rgba(0, 0, 0, 0.06)',
-    gap: 12,
+    gap: scale(12),
   },
   serviceItemSelected: {
     backgroundColor: 'rgba(82, 153, 254, 0.08)',
-    marginHorizontal: -16,
-    paddingHorizontal: 16,
-    borderRadius: 12,
+    marginHorizontal: scale(-16),
+    paddingHorizontal: scale(16),
+    borderRadius: moderateScale(12),
     borderTopWidth: 0,
-    marginTop: 4,
+    marginTop: scale(4),
   },
   checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 6,
+    width: scale(24),
+    height: scale(24),
+    borderRadius: moderateScale(6),
     borderWidth: 2,
     borderColor: 'rgba(0, 0, 0, 0.2)',
     alignItems: 'center',
@@ -1022,20 +1025,20 @@ const modalStyles = StyleSheet.create({
     flex: 1,
   },
   serviceName: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: 'Urbanist-Medium',
     color: '#1a1a1a',
   },
   serviceDue: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: 'Urbanist-Regular',
     color: '#666',
-    marginTop: 2,
+    marginTop: scale(2),
   },
   statusBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
+    paddingHorizontal: scale(10),
+    paddingVertical: scale(4),
+    borderRadius: moderateScale(8),
   },
   overdueBadge: {
     backgroundColor: 'rgba(255, 59, 92, 0.12)',
@@ -1044,7 +1047,7 @@ const modalStyles = StyleSheet.create({
     backgroundColor: 'rgba(255, 214, 10, 0.2)',
   },
   statusText: {
-    fontSize: 10,
+    fontSize: moderateScale(10),
     fontFamily: 'Urbanist-Bold',
     letterSpacing: 0.5,
   },
@@ -1057,30 +1060,30 @@ const modalStyles = StyleSheet.create({
   serviceNameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 2,
+    gap: scale(8),
+    marginBottom: scale(2),
   },
   actionDescription: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: 'Urbanist-Regular',
     color: '#5299FE',
-    marginTop: 4,
+    marginTop: scale(4),
   },
   scoreImpactBadgeLarge: {
     backgroundColor: 'rgba(48, 209, 88, 0.15)',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
+    paddingHorizontal: scale(12),
+    paddingVertical: scale(8),
+    borderRadius: moderateScale(10),
     alignItems: 'center',
-    minWidth: 50,
+    minWidth: scale(50),
   },
   scoreImpactTextLarge: {
-    fontSize: 18,
+    fontSize: moderateScale(18),
     fontFamily: 'Urbanist-Bold',
     color: '#30D158',
   },
   scoreImpactLabel: {
-    fontSize: 10,
+    fontSize: moderateScale(10),
     fontFamily: 'Urbanist-Medium',
     color: '#30D158',
   },
@@ -1088,66 +1091,66 @@ const modalStyles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 16,
-    paddingTop: 12,
+    marginTop: scale(16),
+    paddingTop: scale(12),
     borderTopWidth: 1,
     borderTopColor: 'rgba(0, 0, 0, 0.08)',
   },
   totalImprovementLabel: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: 'Urbanist-Medium',
     color: '#666',
   },
   totalImprovementValue: {
-    fontSize: 16,
+    fontSize: moderateScale(16),
     fontFamily: 'Urbanist-Bold',
     color: '#30D158',
   },
   scheduleButtonContainer: {
-    paddingHorizontal: 24,
-    paddingBottom: 20,
-    paddingTop: 8,
+    paddingHorizontal: scale(24),
+    paddingBottom: scale(20),
+    paddingTop: scale(8),
     backgroundColor: '#fff',
   },
   estimatedLabel: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: 'Urbanist-SemiBold',
     color: '#9CA3AF',
     letterSpacing: 1,
     textAlign: 'center',
     textTransform: 'uppercase',
-    marginTop: -4,
+    marginTop: scale(-4),
   },
   estimatedSubtitle: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: 'Urbanist-Regular',
     color: '#6B7280',
     textAlign: 'center',
-    lineHeight: 20,
-    marginTop: 8,
-    paddingHorizontal: 8,
+    lineHeight: moderateScale(20),
+    marginTop: scale(8),
+    paddingHorizontal: scale(8),
   },
   resumeCheckinButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    gap: scale(8),
     backgroundColor: '#5299FE',
-    borderRadius: 25,
-    paddingVertical: 16,
-    paddingHorizontal: 24,
-    marginTop: 24,
+    borderRadius: moderateScale(25),
+    paddingVertical: scale(16),
+    paddingHorizontal: scale(24),
+    marginTop: scale(24),
     width: '100%',
   },
   resumeCheckinText: {
-    fontSize: 15,
+    fontSize: moderateScale(15),
     fontFamily: 'Urbanist-SemiBold',
     color: '#FFFFFF',
     textAlign: 'center',
     flex: 1,
   },
   scheduleButton: {
-    borderRadius: 25,
+    borderRadius: moderateScale(25),
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
@@ -1171,11 +1174,11 @@ const modalStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
-    paddingVertical: 16,
+    gap: scale(10),
+    paddingVertical: scale(16),
   },
   scheduleButtonText: {
-    fontSize: 16,
+    fontSize: moderateScale(16),
     fontFamily: 'Urbanist-SemiBold',
     color: '#fff',
   },
@@ -1185,13 +1188,13 @@ const modalStyles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 24,
+    padding: scale(24),
   },
   infoModalContent: {
     backgroundColor: '#fff',
-    borderRadius: 20,
+    borderRadius: moderateScale(20),
     width: '100%',
-    maxWidth: 340,
+    maxWidth: scale(340),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.25,
@@ -1202,70 +1205,70 @@ const modalStyles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 20,
-    paddingBottom: 16,
+    padding: scale(20),
+    paddingBottom: scale(16),
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(0, 0, 0, 0.08)',
   },
   infoModalTitle: {
-    fontSize: 18,
+    fontSize: moderateScale(18),
     fontFamily: 'Urbanist-Bold',
     color: '#1a1a1a',
   },
   infoModalBody: {
-    padding: 20,
+    padding: scale(20),
   },
   infoFormulaTitle: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: 'Urbanist-SemiBold',
     color: '#888',
     letterSpacing: 1,
-    marginBottom: 8,
+    marginBottom: scale(8),
   },
   formulaBox: {
     backgroundColor: 'rgba(82, 153, 254, 0.1)',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 20,
+    borderRadius: moderateScale(12),
+    padding: scale(16),
+    marginBottom: scale(20),
   },
   formulaText: {
-    fontSize: 15,
+    fontSize: moderateScale(15),
     fontFamily: 'Urbanist-Bold',
     color: '#5299FE',
     textAlign: 'center',
   },
   infoSection: {
-    marginBottom: 16,
+    marginBottom: scale(16),
   },
   infoLabel: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: 'Urbanist-SemiBold',
     color: '#1a1a1a',
-    marginBottom: 4,
+    marginBottom: scale(4),
   },
   infoDescription: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: 'Urbanist-Regular',
     color: '#666',
-    lineHeight: 20,
+    lineHeight: moderateScale(20),
   },
   infoExample: {
     backgroundColor: 'rgba(48, 209, 88, 0.1)',
-    borderRadius: 12,
-    padding: 16,
-    marginTop: 8,
+    borderRadius: moderateScale(12),
+    padding: scale(16),
+    marginTop: scale(8),
   },
   infoExampleTitle: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: 'Urbanist-SemiBold',
     color: '#30D158',
-    marginBottom: 8,
+    marginBottom: scale(8),
   },
   infoExampleText: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: 'Urbanist-Medium',
     color: '#1a1a1a',
-    lineHeight: 22,
+    lineHeight: moderateScale(22),
   },
 });
 
@@ -1283,7 +1286,7 @@ interface ActivityRingsProps {
 
 const ActivityRings = ({ 
   healthPercentage, 
-  size = 72,
+  size = scale(72),
   onPress,
 }: ActivityRingsProps) => {
   const [animatedHealth, setAnimatedHealth] = useState(0);
@@ -1305,7 +1308,7 @@ const ActivityRings = ({
     return () => clearInterval(interval);
   }, [healthPercentage]);
 
-  const strokeWidth = 8;
+  const strokeWidth = scale(8);
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference * (1 - animatedHealth / 100);
@@ -1397,7 +1400,7 @@ const activityRingStyles = StyleSheet.create({
     justifyContent: 'center',
   },
   percentageText: {
-    fontSize: 16,
+    fontSize: moderateScale(16),
     fontFamily: 'Urbanist-Bold',
   },
 });
@@ -1478,22 +1481,13 @@ const CircularCarouselItem = memo(({ item, index, rotation, totalItems }: Carous
           styles.carouselCarImage,
           item.make === 'Lexus' && styles.carouselCarImageLexus,
           item.make === 'Lamborghini' && styles.carouselCarImageLambo,
-          { transform: [{ translateY: 60 }] },
+          { transform: [{ translateY: scale(30) }] },
         ]}
         resizeMode="stretch"
         onError={() => setHasImageError(true)}
       />
       
-      {/* Simple Reflection */}
-      <Image
-        source={imageSource}
-        style={[
-          styles.carouselReflection,
-          item.make === 'Lexus' && styles.carouselReflectionLexus,
-          item.make === 'Lamborghini' && styles.carouselReflectionLambo
-        ]}
-        resizeMode="stretch"
-      />
+      {/* Reflection removed — car images have white backgrounds */}
     </ReAnimated.View>
   );
 });
@@ -1534,15 +1528,15 @@ export function CarCarousel({
   const [showHealthModal, setShowHealthModal] = useState(false);
 
   // Bottom sheet animation values
-  const sheetTranslateY = useRef(new Animated.Value(300)).current;
+  const sheetTranslateY = useRef(new Animated.Value(scale(300))).current;
   const backdropOpacity = useRef(new Animated.Value(0)).current;
-  const sheetHeight = useRef(new Animated.Value(280)).current;
+  const sheetHeight = useRef(new Animated.Value(scale(280))).current;
 
   const SHEET_HEIGHTS = {
-    main: 280,
-    modelYear: 200,
-    mileage: 200,
-    nextService: 320,
+    main: scale(280),
+    modelYear: scale(200),
+    mileage: scale(200),
+    nextService: scale(320),
   };
 
   const activeVehicle = sortedVehicles[activeIndex];
@@ -1669,7 +1663,7 @@ export function CarCarousel({
   // Bottom sheet functions
   const openBottomSheet = () => {
     setShowBottomSheet(true);
-    sheetTranslateY.setValue(300);
+    sheetTranslateY.setValue(scale(300));
     backdropOpacity.setValue(0);
     
     Animated.parallel([
@@ -1690,7 +1684,7 @@ export function CarCarousel({
   const closeBottomSheet = () => {
     Animated.parallel([
       Animated.timing(sheetTranslateY, {
-        toValue: 300,
+        toValue: scale(300),
         duration: 250,
         easing: Easing.bezier(0.25, 0.1, 0.25, 1),
         useNativeDriver: false,
@@ -1771,7 +1765,7 @@ export function CarCarousel({
         </Text>
         {activeVehicle?.connectionStatus === 'connected' && (
           <View style={styles.connectedBadge}>
-            <Check size={12} color="#FFFFFF" strokeWidth={3} />
+            <Check size={scale(12)} color="#FFFFFF" strokeWidth={3} />
             <Text style={styles.connectedBadgeText}>Connected</Text>
           </View>
         )}
@@ -1806,7 +1800,7 @@ export function CarCarousel({
           <Pressable style={styles.addCarButton}
           onPress={() => router.push('/add-vehicle')}
           >
-            <Plus size={18} color="#000000" />
+            <Plus size={scale(18)} color="#000000" />
           </Pressable>
         </View>
 
@@ -1816,7 +1810,7 @@ export function CarCarousel({
             healthPercentage={overallCondition}
             maintenancePercentage={maintenanceScoreForRing}
             servicePercentage={usageScoreForRing}
-            size={72}
+            size={scale(72)}
             onPress={() => setShowHealthModal(true)}
           />
         )}
@@ -1825,13 +1819,13 @@ export function CarCarousel({
       {/* Separator */}
       <View style={[
         styles.separatorContainer,
-        { width: (sortedVehicles.length * 48) + ((sortedVehicles.length - 1) * Spacing.sm) }
+        { width: (sortedVehicles.length * scale(48)) + ((sortedVehicles.length - 1) * Spacing.sm) }
       ]}>
         <View style={styles.separator} />
         <View 
           style={[
             styles.separatorIndicator, 
-            { left: activeIndex * (48 + Spacing.sm) }
+            { left: activeIndex * (scale(48) + Spacing.sm) }
           ]} 
         />
       </View>
@@ -1846,7 +1840,7 @@ export function CarCarousel({
         <KeyboardAvoidingView 
           style={styles.modalContainer}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          keyboardVerticalOffset={40}
+          keyboardVerticalOffset={scale(40)}
         >
           <Animated.View 
             style={[styles.backdrop, { opacity: backdropOpacity }]}
@@ -1865,12 +1859,12 @@ export function CarCarousel({
           >
             {sheetMode !== 'main' && (
               <Pressable style={styles.backButton} onPress={handleBackToMain}>
-                <ChevronLeft size={24} color="#6B7280" />
+                <ChevronLeft size={scale(24)} color="#6B7280" />
               </Pressable>
             )}
 
             <Pressable style={styles.closeButton} onPress={closeBottomSheet}>
-              <X size={24} color="#6B7280" />
+              <X size={scale(24)} color="#6B7280" />
             </Pressable>
 
             {/* Main View */}
@@ -1903,7 +1897,7 @@ export function CarCarousel({
                         <Text weight="bold" size="lg" color={Colors.light.text}>
                           {detailItem.value}
                         </Text>
-                        <ChevronRight size={18} color="#9CA3AF" />
+                        <ChevronRight size={scale(18)} color="#9CA3AF" />
                       </View>
                     </Pressable>
                   ))}
@@ -1974,7 +1968,7 @@ export function CarCarousel({
                     onPress={handleBackToMain}
                   >
                     <View style={[styles.serviceOptionIcon, { backgroundColor: '#EBF5FF' }]}>
-                      <Calendar size={20} color={BrandColors.secondary} />
+                      <Calendar size={scale(20)} color={BrandColors.secondary} />
                     </View>
                     <Text weight="medium" size="md" color={Colors.light.text}>Reschedule</Text>
                   </Pressable>
@@ -1984,7 +1978,7 @@ export function CarCarousel({
                     onPress={handleBackToMain}
                   >
                     <View style={[styles.serviceOptionIcon, { backgroundColor: '#FEE2E2' }]}>
-                      <XCircle size={20} color="#EF4444" />
+                      <XCircle size={scale(20)} color="#EF4444" />
                     </View>
                     <Text weight="medium" size="md" color={Colors.light.text}>Cancel</Text>
                   </Pressable>
@@ -1994,7 +1988,7 @@ export function CarCarousel({
                     onPress={handleBackToMain}
                   >
                     <View style={[styles.serviceOptionIcon, { backgroundColor: '#D1FAE5' }]}>
-                      <Check size={20} color="#10B981" />
+                      <Check size={scale(20)} color="#10B981" />
                     </View>
                     <Text weight="medium" size="md" color={Colors.light.text}>Mark as Done</Text>
                   </Pressable>
@@ -2030,7 +2024,7 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  
+
   // 3D Carousel Styles
   carouselContainer: {
     height: SCREEN_HEIGHT * 0.24,
@@ -2057,25 +2051,25 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   logoContainerLexus: {
-    top: -280,
+    top: verticalScale(-280),
   },
   logoContainerLambo: {
-    top: -240,
+    top: verticalScale(-240),
   },
   carouselLogo: {
     opacity: 0.08,
   },
   carouselLogoLexus: {
-    width: 280,
-    height: 280,
+    width: scale(280),
+    height: scale(280),
   },
   carouselLogoLambo: {
-    width: 240,
-    height: 240,
+    width: scale(240),
+    height: scale(240),
   },
   carouselCarImage: {
     width: '100%',
-    height: 180,
+    height: scale(180),
     zIndex: 1,
   },
   carouselCarImageLexus: {
@@ -2086,39 +2080,39 @@ const styles = StyleSheet.create({
   },
   carouselReflection: {
     width: '100%',
-    height: 180,
+    height: scale(180),
     transform: [{ scaleY: -1 }],
     opacity: 0.03,
-    marginTop: -165,
+    marginTop: scale(-165),
   },
   carouselReflectionLexus: {
     // No longer needed
   },
   carouselReflectionLambo: {
     width: '130%',
-    height: 260,
+    height: scale(260),
     opacity: 0.04,
-    marginTop: -175,
+    marginTop: scale(-175),
     transform: [{ scaleY: -1 }, { translateY: 40 }],
   },
-  
+
   // Active Car Info
   activeCarInfo: {
     alignItems: 'center',
-    marginTop: 8,
+    marginTop: scale(8),
   },
   heroCarName: {
     color: '#000000',
-    fontSize: 24,
+    fontSize: moderateScale(24),
     fontWeight: '700',
   },
   heroCarNameLight: {
     color: '#ffffff',
   },
   heroCarMeta: {
-    marginTop: 4,
+    marginTop: scale(4),
     color: '#000000',
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontWeight: '700',
   },
   heroCarMetaLight: {
@@ -2127,21 +2121,21 @@ const styles = StyleSheet.create({
   connectedBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    marginTop: 6,
+    gap: scale(4),
+    marginTop: scale(6),
     backgroundColor: '#34C759',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingHorizontal: scale(10),
+    paddingVertical: scale(4),
+    borderRadius: moderateScale(12),
     alignSelf: 'center',
   },
   connectedBadgeText: {
     color: '#FFFFFF',
-    fontSize: 11,
+    fontSize: moderateScale(11),
     fontWeight: '700',
     letterSpacing: 0.3,
   },
-  
+
   // Thumbnail Row
   thumbnailRow: {
     flexDirection: 'row',
@@ -2156,29 +2150,29 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
   },
   thumbnailButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 10,
+    width: scale(48),
+    height: scale(48),
+    borderRadius: moderateScale(10),
     backgroundColor: 'transparent',
     justifyContent: 'center',
     alignItems: 'center',
   },
   thumbnailButtonActive: {},
   thumbnailImage: {
-    width: 36,
-    height: 36,
+    width: scale(36),
+    height: scale(36),
   },
   addCarButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: scale(36),
+    height: scale(36),
+    borderRadius: scale(18),
     backgroundColor: 'transparent',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
     borderColor: '#000000',
   },
-  
+
   // Separator
   separatorContainer: {
     position: 'absolute',
@@ -2192,20 +2186,20 @@ const styles = StyleSheet.create({
   separatorIndicator: {
     position: 'absolute',
     top: -1,
-    width: 48,
+    width: scale(48),
     height: 3,
     backgroundColor: BrandColors.secondary,
     borderRadius: 1.5,
   },
-  
-  
+
+
   // Modal Styles
   modalContainer: {
     flex: 1,
     justifyContent: 'flex-end',
     alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingBottom: 24,
+    paddingHorizontal: scale(10),
+    paddingBottom: scale(24),
   },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
@@ -2213,12 +2207,12 @@ const styles = StyleSheet.create({
   },
   bottomSheet: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 50,
+    borderRadius: moderateScale(50),
     width: '100%',
     paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.lg,
     paddingTop: Spacing.xs,
-    marginBottom: 10,
+    marginBottom: scale(10),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
@@ -2229,21 +2223,21 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: Spacing.md,
     left: Spacing.lg,
-    padding: 8,
+    padding: scale(8),
   },
   closeButton: {
     position: 'absolute',
     top: Spacing.md,
     right: Spacing.lg,
-    padding: 8,
+    padding: scale(8),
   },
   sheetContent: {
     alignItems: 'center',
-    paddingTop: 40,
+    paddingTop: scale(40),
   },
   sheetLogo: {
-    width: 80,
-    height: 90,
+    width: scale(80),
+    height: scale(90),
     marginBottom: Spacing.sm,
     marginTop: Spacing.xs,
   },
@@ -2258,7 +2252,7 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.sm,
     paddingHorizontal: Spacing.md,
     backgroundColor: '#F9FAFB',
-    borderRadius: 12,
+    borderRadius: moderateScale(12),
   },
   detailItemPressed: {
     backgroundColor: '#F3F4F6',
@@ -2266,12 +2260,12 @@ const styles = StyleSheet.create({
   detailLabel: {
     textTransform: 'uppercase',
     letterSpacing: 1.5,
-    fontSize: 11,
+    fontSize: moderateScale(11),
   },
   valueRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: scale(8),
   },
   sheetTitle: {
     marginBottom: Spacing.lg,
@@ -2280,10 +2274,10 @@ const styles = StyleSheet.create({
   textInput: {
     width: '100%',
     backgroundColor: '#F9FAFB',
-    borderRadius: 12,
+    borderRadius: moderateScale(12),
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.md,
-    fontSize: 18,
+    fontSize: moderateScale(18),
     fontWeight: '600',
     color: Colors.light.text,
     marginBottom: Spacing.lg,
@@ -2291,7 +2285,7 @@ const styles = StyleSheet.create({
   saveButton: {
     width: '100%',
     backgroundColor: BrandColors.secondary,
-    borderRadius: 12,
+    borderRadius: moderateScale(12),
     paddingVertical: Spacing.md,
     alignItems: 'center',
   },
@@ -2306,7 +2300,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#F9FAFB',
-    borderRadius: 12,
+    borderRadius: moderateScale(12),
     paddingVertical: Spacing.md,
     paddingHorizontal: Spacing.lg,
     gap: Spacing.md,
@@ -2315,9 +2309,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#F3F4F6',
   },
   serviceOptionIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: scale(40),
+    height: scale(40),
+    borderRadius: scale(20),
     justifyContent: 'center',
     alignItems: 'center',
   },

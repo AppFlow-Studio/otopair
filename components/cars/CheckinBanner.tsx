@@ -17,6 +17,7 @@ import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import { Text } from "@/components/shared-ui";
 import { BorderRadius, BrandColors, Shadows, Spacing } from "@/constants/theme";
+import { scale, moderateScale } from "@/utils/responsive";
 
 interface CheckinBannerProps {
   vehicleOwnerId: Id<"vehicle_owners">;
@@ -112,9 +113,9 @@ const styles = StyleSheet.create({
     ...Shadows.sm,
   },
   iconContainer: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: scale(36),
+    height: scale(36),
+    borderRadius: scale(18),
     backgroundColor: "rgba(255,255,255,0.8)",
     justifyContent: "center",
     alignItems: "center",
@@ -125,11 +126,11 @@ const styles = StyleSheet.create({
   },
   title: {
     color: BrandColors.primary,
-    fontSize: 14,
+    fontSize: moderateScale(14),
   },
   subtitle: {
     color: "#6B7280",
-    fontSize: 12,
+    fontSize: moderateScale(12),
   },
   dismissButton: {
     alignSelf: "center",
@@ -137,6 +138,6 @@ const styles = StyleSheet.create({
   },
   dismissText: {
     color: "#9CA3AF",
-    fontSize: 12,
+    fontSize: moderateScale(12),
   },
 });

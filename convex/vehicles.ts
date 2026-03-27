@@ -198,6 +198,26 @@ export const listOwnedVINsByUser = query({
   },
 });
 
+
+/**
+ * Save a cached image URL for a vehicle so we don't re-fetch from the API.
+ */
+export const saveVehicleImageUrl = mutation({
+  args: {
+    vin: v.string(),
+    image_url: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const vehicle = await ctx.db
+      .query("vehicles")
+      .withIndex("by_vin", (q) => q.eq("vin", args.vin.toUpperCase().trim()))
+      .unique();
+    if (vehicle) {
+      await ctx.db.patch(vehicle._id, { image_url: args.image_url });
+    }
+  },
+});
+
 // MUTATIONS
 
 /**

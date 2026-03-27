@@ -31,8 +31,9 @@ import { ArrowLeft, Check } from "lucide-react-native";
 import { BlurView } from "expo-blur";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { FooterButton, Text } from "@/components/shared-ui";
+import { Text } from "@/components/shared-ui";
 import { BorderRadius, BrandColors, FontFamily, Spacing } from "@/constants/theme";
+import { scale, verticalScale, moderateScale } from '@/utils/responsive';
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 
 type StepId =
@@ -77,7 +78,7 @@ function toNumber(raw: string): number | undefined {
 }
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
-const FOOTER_AREA_HEIGHT = 110;
+const FOOTER_AREA_HEIGHT = scale(110);
 const OPTION_CARD_HEIGHT = SCREEN_HEIGHT * 0.065;
 const OPTION_CARD_HEIGHT_COMPACT = SCREEN_HEIGHT * 0.055;
 
@@ -352,13 +353,13 @@ export default function CarPreOnboardingScreen() {
               placeholderTextColor="#829BAD"
             />
             <Pressable onPress={() => setMileageAtPurchaseNotSure((v) => !v)} style={styles.notSureRow}>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: scale(6) }}>
                 <Text size="sm" weight="medium" color={mileageAtPurchaseNotSure ? BrandColors.secondary : "#64748B"}>
                   Not sure
                 </Text>
                 {mileageAtPurchaseNotSure && (
                   <Animated.View entering={FadeIn.duration(150)}>
-                    <Check size={16} color={BrandColors.secondary} strokeWidth={2.5} />
+                    <Check size={scale(16)} color={BrandColors.secondary} strokeWidth={2.5} />
                   </Animated.View>
                 )}
               </View>
@@ -379,14 +380,14 @@ export default function CarPreOnboardingScreen() {
       case "mileageAndUsage":
         return (
           <View style={styles.optionList}>
-            <Text weight="semiBold" size="sm" color="#64748B" style={{ marginBottom: 4 }}>
+            <Text weight="semiBold" size="sm" color="#0F172A" style={{ marginBottom: scale(4) }}>
               Miles per year
             </Text>
             <OptionCard label="Light (< 7,500 mi)" selected={annualMileageBand === "light"} onPress={() => setAnnualMileageBand("light")} />
             <OptionCard label="Average (7,500 – 12k)" selected={annualMileageBand === "avg"} onPress={() => setAnnualMileageBand("avg")} />
             <OptionCard label="Heavy (12k – 18k)" selected={annualMileageBand === "heavy"} onPress={() => setAnnualMileageBand("heavy")} />
             <OptionCard label="Very Heavy (18k+)" selected={annualMileageBand === "very_heavy"} onPress={() => setAnnualMileageBand("very_heavy")} />
-            <Text weight="semiBold" size="sm" color="#64748B" style={{ marginTop: 16, marginBottom: 4 }}>
+            <Text weight="semiBold" size="sm" color="#0F172A" style={{ marginTop: scale(20), marginBottom: scale(4) }}>
               Driving style
             </Text>
             <OptionCard label="Mostly local (short trips)" selected={usagePattern === "mostly_local"} onPress={() => setUsagePattern("mostly_local")} compact />
@@ -421,7 +422,7 @@ export default function CarPreOnboardingScreen() {
             hitSlop={12}
           >
             <BlurView intensity={60} tint="light" style={styles.backButtonBlur}>
-              <ArrowLeft size={20} color={BrandColors.black} />
+              <ArrowLeft size={scale(20)} color={BrandColors.black} />
             </BlurView>
           </Pressable>
         </View>
@@ -459,16 +460,16 @@ export default function CarPreOnboardingScreen() {
                 style={[styles.cardContent, { paddingBottom: 0 }]}
                 pointerEvents="box-none"
               >
-                <Text weight="bold" size="3xl" color="#0F172A" style={[styles.title, { fontFamily: FontFamily.serifBold }]}>
+                <Text weight="bold" size="3xl" color="#0F172A" style={styles.title}>
                   {stepTitle}
                 </Text>
-                <Text weight="medium" size="md" color="#829BAD" style={[styles.subtitle, { fontFamily: FontFamily.serif }]}>
+                <Text weight="medium" size="sm" color="#829BAD" style={styles.subtitle}>
                   {stepSubtitle}
                 </Text>
                 <View style={[styles.questionBody, (currentStep === "currentMileage" || currentStep === "mileageAtPurchase") && { justifyContent: "flex-start" }]}>
                   {renderQuestionContent()}
                 </View>
-                <View style={{ height: FOOTER_AREA_HEIGHT + insets.bottom + 24 }} />
+                <View style={{ height: FOOTER_AREA_HEIGHT + insets.bottom + scale(24) }} />
               </View>
             </ScrollView>
           </Animated.View>
@@ -476,22 +477,36 @@ export default function CarPreOnboardingScreen() {
 
         <View
           ref={ctaWrapRef}
-          style={[styles.pinnedFooter, { paddingBottom: insets.bottom + 12 }]}
+          style={[styles.pinnedFooter, { paddingBottom: insets.bottom + scale(12) }]}
         >
+          <LinearGradient
+            colors={['rgba(255,255,255,0)', 'rgba(255,255,255,0.85)', '#FFFFFF']}
+            locations={[0, 0.35, 0.7]}
+            style={styles.footerFade}
+            pointerEvents="none"
+          />
           <Animated.View style={[styles.footerContent, ctaLiftStyle]}>
             <Pressable
               disabled={ctaDisabled}
               onPressIn={() => { buttonScale.value = withSpring(0.97, { damping: 15, stiffness: 200 }); }}
               onPressOut={() => { buttonScale.value = withSpring(1.0, { damping: 15, stiffness: 200 }); }}
+              onPress={handleContinue}
               style={{ alignSelf: "stretch" }}
             >
               <Animated.View style={[animatedButtonStyle, buttonScaleStyle, { alignSelf: "stretch" }]} pointerEvents={ctaDisabled ? "none" : "auto"}>
-                <FooterButton
-                  label={isLastStep ? "Finish Setup" : "Continue"}
-                  onPress={handleContinue}
-                  backgroundColor={BrandColors.secondary}
-                  rightIcon={isSubmitting ? <ActivityIndicator size="small" color={BrandColors.white} /> : undefined}
-                />
+                <View style={styles.primaryCta}>
+                  <LinearGradient
+                    colors={['#7BB8FF', '#5299FE', '#3B7FEB']}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={styles.primaryCtaGradient}
+                  >
+                    <Text weight="bold" size="md" color="#FFFFFF">
+                      {isLastStep ? "Finish Setup" : "Continue"}
+                    </Text>
+                    {isSubmitting && <ActivityIndicator size="small" color="#FFFFFF" />}
+                  </LinearGradient>
+                </View>
               </Animated.View>
             </Pressable>
           </Animated.View>
@@ -529,7 +544,7 @@ function OptionCard({
   }, [selected]);
 
   const animatedStyle = useAnimatedStyle(() => ({
-    borderColor: interpolateColor(progress.value, [0, 1], ["#A0AEC0", "#5299FE"]),
+    borderColor: interpolateColor(progress.value, [0, 1], ["#E2E8F0", "#5299FE"]),
     backgroundColor: interpolateColor(progress.value, [0, 1], ["#FFFFFF", "#EFF6FF"]),
     transform: [{ scale: scaleAnim.value }],
   }));
@@ -542,7 +557,7 @@ function OptionCard({
         </Text>
         {selected && (
           <Animated.View entering={FadeIn.duration(150)}>
-            <Check size={20} color={BrandColors.secondary} strokeWidth={2.5} />
+            <Check size={scale(20)} color={BrandColors.secondary} strokeWidth={2.5} />
           </Animated.View>
         )}
       </Animated.View>
@@ -568,7 +583,7 @@ function Chip({
   }, [selected]);
 
   const animatedStyle = useAnimatedStyle(() => ({
-    borderColor: interpolateColor(progress.value, [0, 1], ["#A0AEC0", "#5299FE"]),
+    borderColor: interpolateColor(progress.value, [0, 1], ["#E2E8F0", "#5299FE"]),
     backgroundColor: interpolateColor(progress.value, [0, 1], ["#FFFFFF", "#EFF6FF"]),
   }));
 
@@ -580,7 +595,7 @@ function Chip({
         </Text>
         {selected && (
           <Animated.View entering={FadeIn.duration(150)}>
-            <Check size={16} color={BrandColors.secondary} strokeWidth={2.5} />
+            <Check size={scale(16)} color={BrandColors.secondary} strokeWidth={2.5} />
           </Animated.View>
         )}
       </Animated.View>
@@ -620,20 +635,20 @@ const styles = StyleSheet.create({
   },
   encouragementRow: {
     paddingHorizontal: Spacing.lg,
-    marginTop: 4,
+    marginTop: scale(4),
     marginBottom: Spacing.sm,
     alignItems: "flex-end",
   },
   backButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: scale(40),
+    height: scale(40),
+    borderRadius: scale(20),
     overflow: "hidden",
   },
   backButtonBlur: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: scale(40),
+    height: scale(40),
+    borderRadius: scale(20),
     justifyContent: "center",
     alignItems: "center",
     borderWidth: 1,
@@ -657,23 +672,31 @@ const styles = StyleSheet.create({
   title: {
     textAlign: "left",
     marginBottom: Spacing.xs,
-    lineHeight: 38,
+    lineHeight: moderateScale(38),
   },
   subtitle: {
     marginBottom: Spacing.lg,
-    lineHeight: 22,
+    lineHeight: moderateScale(22),
   },
   questionBody: {
     flex: 1,
     justifyContent: "flex-start",
-    marginTop: Spacing.sm,
+    marginTop: scale(4),
   },
   pinnedFooter: {
     position: "absolute",
     bottom: 0,
     left: 0,
     right: 0,
+    paddingTop: scale(32),
     paddingHorizontal: Spacing.lg,
+  },
+  footerFade: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
   },
   footerContent: {
     gap: Spacing.sm,
@@ -681,8 +704,8 @@ const styles = StyleSheet.create({
   },
   optionList: {
     flexDirection: "column",
-    gap: 12,
-    marginTop: Spacing.xl,
+    gap: scale(12),
+    marginTop: Spacing.sm,
   },
   optionCard: {
     flexDirection: "row",
@@ -690,43 +713,60 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     borderRadius: BorderRadius.full,
     borderWidth: 1.5,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
+    paddingVertical: scale(12),
+    paddingHorizontal: scale(20),
   },
   input: {
-    borderRadius: BorderRadius.xl,
-    borderWidth: 1,
-    borderColor: "#D7DBE2",
+    borderRadius: BorderRadius.full,
+    borderWidth: 1.5,
+    borderColor: "#E2E8F0",
     backgroundColor: BrandColors.white,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
+    paddingHorizontal: scale(16),
+    paddingVertical: scale(16),
     fontFamily: FontFamily.medium,
-    fontSize: 17,
+    fontSize: moderateScale(17),
     color: "#111827",
   },
   notSureRow: {
-    marginTop: 10,
+    marginTop: scale(10),
     alignSelf: "flex-start",
-    paddingVertical: 4,
-    paddingHorizontal: 2,
+    paddingVertical: scale(4),
+    paddingHorizontal: scale(2),
   },
   chipWrap: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 10,
+    gap: scale(10),
     marginTop: Spacing.xl,
   },
   chip: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    gap: scale(6),
     borderRadius: 9999,
     borderWidth: 1.5,
-    paddingVertical: 12,
-    paddingHorizontal: 20,
+    paddingVertical: scale(12),
+    paddingHorizontal: scale(20),
+  },
+  primaryCta: {
+    borderRadius: moderateScale(24),
+    overflow: "hidden",
+    shadowColor: "rgba(82,153,254,0.3)",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  primaryCtaGradient: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: scale(8),
+    paddingVertical: scale(16),
+    paddingHorizontal: scale(32),
   },
   skipButton: {
-    paddingVertical: 6,
+    paddingVertical: scale(6),
     paddingHorizontal: Spacing.lg,
     borderRadius: BorderRadius.full,
     borderWidth: 1,
