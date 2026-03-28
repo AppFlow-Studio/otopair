@@ -74,6 +74,7 @@ export const upsertVehicleConfig = internalMutation({
 export const patchVehicleConfig = internalMutation({
   args: {
     vehicle_config_id: v.id("vehicle_configs"),
+    drivetrain: v.optional(v.string()),
     has_brake_pad_sensor: v.optional(v.boolean()),
     brake_fluid_type: v.optional(v.string()),
     brake_fluid_capacity_oz: v.optional(v.float64()),
@@ -224,6 +225,7 @@ export const upsertTrimSpecs = internalMutation({
 export const updateEngineSpecs = internalMutation({
   args: {
     engine_id: v.id("engines"),
+    make_id: v.optional(v.id("makes")),
     oil_viscosity: v.optional(v.string()),
     oil_spec_standard: v.optional(v.string()),
     oil_capacity_qts: v.optional(v.float64()),

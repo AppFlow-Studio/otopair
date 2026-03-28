@@ -53,18 +53,33 @@ export async function scrapeVehicleSources(
   vehicle: VehicleInput,
 ): Promise<ScrapedSources> {
   const config = getSourceConfig(vehicle.make);
+  const manualQueries = config
+    ? getManualSearchQueries(config, vehicle)
+    : buildDefaultManualQueries(vehicle);
 
-  if (!config) {
-    console.warn(`[scraper] No source config for make: ${vehicle.make} — returning empty sources`);
-    return { partsMarkdown: "", manualMarkdown: "", partsSourceUrls: [], manualSourceUrls: [] };
+  // Parts: try URL templates for BMW (known good), otherwise search the open web
+  let partsPromise: Promise<{ markdown: string; urls: string[] }>;
+
+  if (config && vehicle.make.toUpperCase() === "BMW") {
+    const yearSpecificUrls = getPartsPageUrls(config, vehicle);
+    const genericUrls = getGenericPartsPageUrls(config, vehicle);
+    partsPromise = scrapePartsPages(ctx, vehicle, yearSpecificUrls, genericUrls).then(
+      async (result) => {
+        // If BMW template returned nothing, fall back to search
+        if (result.markdown.length === 0) {
+          console.log(`[scraper] BMW template returned 0 chars — falling back to search`);
+          return searchPartsPages(ctx, vehicle);
+        }
+        return result;
+      },
+    );
+  } else {
+    // All non-BMW makes: search the open web directly
+    partsPromise = searchPartsPages(ctx, vehicle);
   }
 
-  const yearSpecificUrls = getPartsPageUrls(config, vehicle);
-  const genericUrls = getGenericPartsPageUrls(config, vehicle);
-  const manualQueries = getManualSearchQueries(config, vehicle);
-
   const [partsResult, manualResult] = await Promise.allSettled([
-    scrapePartsPages(ctx, vehicle, yearSpecificUrls, genericUrls),
+    partsPromise,
     scrapeManual(ctx, vehicle, manualQueries),
   ]);
 
@@ -83,6 +98,85 @@ export async function scrapeVehicleSources(
     partsSourceUrls:  parts.urls,
     manualSourceUrls: manual.urls,
   };
+}
+
+/** Default manual queries when no sourceRegistry config exists for this make. */
+function buildDefaultManualQueries(vehicle: VehicleInput): string[] {
+  const v = `${vehicle.year} ${vehicle.make} ${vehicle.model} ${vehicle.trim}`;
+  return [
+    `${v} maintenance schedule service intervals`,
+    `${v} owner's manual oil change coolant transmission fluid`,
+    `${v} recommended maintenance miles months`,
+  ];
+}
+
+/** Search the open web for parts pages — works for any make. */
+async function searchPartsPages(
+  ctx: ActionCtx,
+  vehicle: VehicleInput,
+): Promise<{ markdown: string; urls: string[] }> {
+  // Check cache first
+  const cached = await ctx.runQuery(
+    internal.vehicleEnrichment.scraperQueries.getCachedScrape,
+    { vehicleMake: vehicle.make, vehicleModel: vehicle.model, vehicleYear: vehicle.year, sourceType: "parts_catalog" },
+  );
+  if (cached) {
+    console.log(`[scraper] Cache hit: parts_catalog (search) for ${vehicle.year} ${vehicle.make}`);
+    return { markdown: cached.markdown, urls: [cached.url] };
+  }
+
+  const v = `${vehicle.year} ${vehicle.make} ${vehicle.trim || vehicle.model}`;
+  const partsQueries = [
+    `${v} OEM oil filter air filter part number`,
+    `${v} OEM brake pads rotors spark plugs part number`,
+    `${v} genuine parts catalog OEM numbers`,
+  ];
+
+  console.log(`[scraper] Parts search: running ${partsQueries.length} open web queries for ${vehicle.make}`);
+
+  const markdownParts: string[] = [];
+  const sourceUrls: string[] = [];
+  let totalChars = 0;
+
+  for (const query of partsQueries) {
+    if (totalChars >= MAX_MARKDOWN_CHARS) break;
+
+    try {
+      const results = await searchAndFetch(query, 3);
+      for (const r of results) {
+        if (!r.markdown || r.markdown.length < 200 || totalChars >= MAX_MARKDOWN_CHARS) continue;
+
+        const host = (() => { try { return new URL(r.url).hostname.replace(/^www\./, ""); } catch { return ""; } })();
+        if (BLOCKED_DOMAINS.some((d) => host === d || host.endsWith("." + d))) continue;
+
+        const chunk = r.markdown.slice(0, MAX_PER_PAGE_CHARS);
+        markdownParts.push(`\n\n--- Source: ${r.url} ---\n${chunk}`);
+        sourceUrls.push(r.url);
+        totalChars += chunk.length;
+      }
+    } catch (err) {
+      console.log(`[scraper] Parts search query failed: ${err}`);
+    }
+  }
+
+  const markdown = markdownParts.join("").trim();
+  console.log(`[scraper] Parts search: ${sourceUrls.length} pages, ${markdown.length} chars`);
+
+  if (markdown.length > 0) {
+    const now = Date.now();
+    await ctx.runMutation(internal.vehicleEnrichment.scraperQueries.storeScrapeCache, {
+      url: sourceUrls[0] ?? `search:${vehicle.make}:parts_catalog`,
+      scrapedAt: now,
+      markdown,
+      vehicleMake: vehicle.make,
+      vehicleModel: vehicle.model,
+      vehicleYear: vehicle.year,
+      sourceType: "parts_catalog",
+      expiresAt: now + TTL_PARTS_MS,
+    });
+  }
+
+  return { markdown, urls: sourceUrls };
 }
 
 // ─── Parts: direct URL fetch with generic fallback ────────────────

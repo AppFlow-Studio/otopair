@@ -175,14 +175,43 @@ export function emptyInterval(): IntervalResult {
 
 // ─── Engine Config Key ───────────────────────────────────────────
 
-export function buildEngineKey(input: VehicleInput): string {
-  const parts = [input.year, input.make, input.model, input.trim, input.engineCode]
-    .filter(Boolean);
-  return parts
-    .join("_")
+/** Normalize all separators to underscores, strip non-alphanumeric. */
+function canonicalize(raw: string | undefined | null): string {
+  if (!raw) return "";
+  return raw
     .toLowerCase()
-    .replace(/\s+/g, "_")
-    .replace(/[^a-z0-9_]/g, "");
+    .trim()
+    .replace(/[-_/\\.,]+/g, " ")  // all separators → space
+    .replace(/\s+/g, " ")          // collapse spaces
+    .trim()
+    .replace(/\s/g, "_")           // space → underscore
+    .replace(/[^a-z0-9_]/g, "");   // strip the rest
+}
+
+/** Known make aliases so "Mercedes-Benz", "Mercedes", "MercedesBenz" all resolve the same. */
+const MAKE_ALIASES: Record<string, string> = {
+  mercedes_benz: "mercedes_benz",
+  mercedes: "mercedes_benz",
+  mercedesbenz: "mercedes_benz",
+  land_rover: "land_rover",
+  landrover: "land_rover",
+  vw: "volkswagen",
+};
+
+function canonicalizeMake(raw: string): string {
+  const base = canonicalize(raw);
+  return MAKE_ALIASES[base] ?? base;
+}
+
+export function buildEngineKey(input: VehicleInput): string {
+  const year = String(input.year);
+  const make = canonicalizeMake(input.make);
+  const model = canonicalize(input.model);
+  const trim = canonicalize(input.trim);
+  const engine = canonicalize(input.engineCode);
+
+  const parts = [year, make, model, trim, engine].filter((p) => p.length > 0);
+  return parts.join("_");
 }
 
 // ─── Field Lists (for fill rate calculation) ─────────────────────

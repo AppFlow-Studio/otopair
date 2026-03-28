@@ -145,6 +145,19 @@ export const getUserByClerkId = internalQuery({
   },
 });
 
+export const createTestUser = internalMutation({
+  args: { clerkUserId: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("users", {
+      clerkUserId: args.clerkUserId,
+      first_name: "Test",
+      last_name: "User",
+      email: "test@otopair.com",
+      role: "car_owner",
+    });
+  },
+});
+
 // ============================================
 // UPSERT MUTATIONS (Stage 2)
 // ============================================

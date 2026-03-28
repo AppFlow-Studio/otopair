@@ -15,6 +15,9 @@
 import { v } from "convex/values";
 import { action, internalAction } from "./_generated/server";
 import { api, internal } from "./_generated/api";
+import Anthropic from "@anthropic-ai/sdk";
+import { searchAndFetch } from "./vehicleEnrichment/firecrawl";
+import { advancedVinDecode, extractVDBFields } from "./lib/vehicleDatabases";
 
 const NHTSA_API = "https://vpic.nhtsa.dot.gov/api/vehicles/decodevinvaluesextended/";
 
@@ -30,114 +33,301 @@ export const processVin = internalAction({
   args: { vin: v.string() },
   handler: async (ctx, args) => {
     try {
-      // ── Call NHTSA API ──
-      const response = await fetch(`${NHTSA_API}/${args.vin}?format=json`);
-      const data = await response.json();
+      // ════════════════════════════════════════════════════════════
+      // SOURCE 1: Vehicle Databases API (primary — paid, structured)
+      // ════════════════════════════════════════════════════════════
+      const vdbRaw = await advancedVinDecode(args.vin);
+      const vdb = vdbRaw ? extractVDBFields(vdbRaw) : null;
 
-      // Check for errors — ErrorCode "0" means clean decode.
-      // Some VINs return comma-separated codes like "0,6" (partial decode).
-      // We accept any response that includes "0" among the codes.
-      const errorCode = getValue(data, "ErrorCode");
+      if (vdb) {
+        console.log(`[decode] VDB: ${vdb.year} ${vdb.make} ${vdb.model} ${vdb.trim}`);
+        console.log(`[decode] VDB engine: ${vdb.engineDescription ?? "?"} | code=${vdb.engineCode ?? "none"}`);
+        console.log(`[decode] VDB trans: ${vdb.transType ?? "?"} ${vdb.transSpeeds ?? "?"}spd`);
+        console.log(`[decode] VDB tires: ${vdb.frontTireSize ?? "?"} / ${vdb.rearTireSize ?? "?"} @ ${vdb.frontTirePressure ?? "?"}/${vdb.rearTirePressure ?? "?"} PSI`);
+        console.log(`[decode] VDB battery: ${vdb.cca ?? "?"} CCA | torque: ${vdb.wheelTorque ?? "?"} lb-ft | drive: ${vdb.drivetrain ?? "?"}`);
+      } else {
+        console.log("[decode] VDB unavailable — NHTSA only");
+      }
+
+      // ════════════════════════════════════════════════════════════
+      // SOURCE 2: NHTSA vPIC (fallback — free, always available)
+      // ════════════════════════════════════════════════════════════
+      const nhtsaResp = await fetch(`${NHTSA_API}/${args.vin}?format=json`);
+      const nhtsaData = await nhtsaResp.json();
+
+      const errorCode = getValue(nhtsaData, "ErrorCode");
       const errorCodes = errorCode.split(",").map((c: string) => c.trim());
       if (!errorCodes.includes("0")) {
-        console.error("NHTSA decode error:", errorCode, getValue(data, "ErrorText"));
-        return null;
+        console.error("NHTSA decode error:", errorCode, getValue(nhtsaData, "ErrorText"));
+        if (!vdb) return null; // both sources failed
       }
 
-      // Extract fields from NHTSA
-      const extracted = {
-        make: getValue(data, "Make") || "",
-        model: getValue(data, "Model") || "",
-        year: parseInt(getValue(data, "ModelYear") || "0"),
-        trim: getValue(data, "Trim") || "Base",
-        engineCode: getValue(data, "EngineModel") || "",
-        cylinders: parseFloat(getValue(data, "EngineCylinders") || "0"),
-        displacement: getValue(data, "DisplacementL") || "",
-        fuelType: getValue(data, "FuelTypePrimary") || "Gasoline",
-        turbo: getValue(data, "Turbo") === "Yes",
-        bodyStyle: getValue(data, "BodyClass") || "",
-        transmission: getValue(data, "TransmissionStyle") || "",
-        driveType: getValue(data, "DriveType") || "",
-        trim2: getValue(data, "Trim2") || "",
-        series: getValue(data, "Series") || "",
-        series2: getValue(data, "Series2") || "",
+      const nhtsa = {
+        make: getValue(nhtsaData, "Make"),
+        model: getValue(nhtsaData, "Model"),
+        year: getValue(nhtsaData, "ModelYear"),
+        trim: getValue(nhtsaData, "Trim"),
+        trim2: getValue(nhtsaData, "Trim2"),
+        series: getValue(nhtsaData, "Series"),
+        series2: getValue(nhtsaData, "Series2"),
+        bodyClass: getValue(nhtsaData, "BodyClass"),
+        doors: getValue(nhtsaData, "Doors"),
+        vehicleType: getValue(nhtsaData, "VehicleType"),
+        engineModel: getValue(nhtsaData, "EngineModel"),
+        cylinders: getValue(nhtsaData, "EngineCylinders"),
+        displacementL: getValue(nhtsaData, "DisplacementL"),
+        engineConfig: getValue(nhtsaData, "EngineConfiguration"),
+        fuelType: getValue(nhtsaData, "FuelTypePrimary"),
+        turbo: getValue(nhtsaData, "Turbo"),
+        valveTrain: getValue(nhtsaData, "ValveTrainDesign"),
+        fuelInjection: getValue(nhtsaData, "FuelInjectionType"),
+        engineHP: getValue(nhtsaData, "EngineHP"),
+        otherEngineInfo: getValue(nhtsaData, "OtherEngineInfo"),
+        transStyle: getValue(nhtsaData, "TransmissionStyle"),
+        transSpeeds: getValue(nhtsaData, "TransmissionSpeeds"),
+        driveType: getValue(nhtsaData, "DriveType"),
       };
 
-      if (!extracted.make || !extracted.model || !extracted.year) {
-        console.error("NHTSA: Missing critical fields", extracted);
+      // ════════════════════════════════════════════════════════════
+      // MERGE: VDB wins, NHTSA fills gaps
+      // ════════════════════════════════════════════════════════════
+      const merged = {
+        make: vdb?.make || nhtsa.make || "",
+        model: vdb?.model || nhtsa.model || "",
+        year: vdb?.year || parseInt(nhtsa.year || "0"),
+        trim: vdb?.trim || nhtsa.trim || "Base",
+        trim2: nhtsa.trim2 || "",
+        series: nhtsa.series || "",
+        series2: nhtsa.series2 || "",
+        bodyClass: nhtsa.bodyClass || vdb?.bodyType || "",
+        doors: vdb?.doors || (parseInt(nhtsa.doors || "0") || null),
+        vehicleType: nhtsa.vehicleType || "",
+
+        // Engine — VDB wins, NHTSA fills gaps
+        cylinders: vdb?.cylinders || parseFloat(nhtsa.cylinders || "0") || 0,
+        displacement: (vdb?.displacement ? String(vdb.displacement) : "") || nhtsa.displacementL || "",
+        fuelType: vdb?.fuelType || nhtsa.fuelType || "Gasoline",
+        turbo: nhtsa.turbo === "Yes",
+        engineConfiguration: vdb?.blockType || nhtsa.engineConfig || null,
+        fuelInjection: nhtsa.fuelInjection || null,
+        valveTrain: vdb?.camType || nhtsa.valveTrain || null,
+        engineHP: nhtsa.engineHP ? parseFloat(nhtsa.engineHP) : null,
+        otherEngineInfo: nhtsa.otherEngineInfo || null,
+
+        // Transmission — VDB wins
+        transStyle: vdb?.transType || nhtsa.transStyle || "",
+        transSpeeds: vdb?.transSpeeds || (nhtsa.transSpeeds ? parseInt(nhtsa.transSpeeds) : null),
+        transDescription: vdb?.transDescription || null,
+
+        // Drivetrain — VDB wins
+        driveType: vdb?.drivetrain || nhtsa.driveType || "",
+
+        // VDB-only trim specs (NHTSA never has these)
+        frontTireSize: vdb?.frontTireSize || null,
+        rearTireSize: vdb?.rearTireSize || null,
+        frontTirePressure: vdb?.frontTirePressure || null,
+        rearTirePressure: vdb?.rearTirePressure || null,
+        wheelTorque: vdb?.wheelTorque || null,
+        cca: vdb?.cca || null,
+        steeringType: vdb?.steeringType || null,
+      };
+
+      if (!merged.make || !merged.model || !merged.year) {
+        console.error("Decode: Missing critical fields", { make: merged.make, model: merged.model, year: merged.year });
         return null;
       }
 
-      // ── Optional: AI normalization (correct model/trim/drivetrain/engine_code when NHTSA is wrong) ──
-      let finalModel = extracted.model;
-      let finalTrim = extracted.trim;
-      let finalEngineCode = extracted.engineCode;
+      // ════════════════════════════════════════════════════════════
+      // ENGINE CODE RESOLUTION
+      // Priority: VDB code → NHTSA code (filtered) → Claude norm → web search + Haiku → synthetic
+      // ════════════════════════════════════════════════════════════
+
+      // Marketing terms that are NOT real engine codes
+      const ENGINE_MARKETING_TERMS = new Set([
+        "tsi", "tfsi", "tdi", "fsi", "ecoboost", "coyote", "powerboost",
+        "vtec", "ivtec", "earth dreams", "skyactiv-g", "skyactiv-d",
+        "ecotec", "duramax", "vortec", "hemi", "pentastar", "hurricane",
+        "boxer", "fa", "fb", "gdi", "mpi", "t-gdi",
+        "hr", "mr", "vr", "sr", "qr", "hybrid", "phev", "bev", "ev",
+      ]);
+
+      const nhtsaEngineRaw = nhtsa.engineModel?.trim() || "";
+      const nhtsaEngineClean = ENGINE_MARKETING_TERMS.has(nhtsaEngineRaw.toLowerCase()) ? "" : nhtsaEngineRaw;
+      if (nhtsaEngineRaw && !nhtsaEngineClean) {
+        console.log(`[decode] NHTSA EngineModel "${nhtsaEngineRaw}" is marketing term — ignored`);
+      }
+
+      let finalEngineCode = vdb?.engineCode || nhtsaEngineClean || "";
+      const engineCodeSource = vdb?.engineCode ? "vdb" : nhtsaEngineClean ? "nhtsa" : "none";
+      console.log(`[decode] Engine code after merge: "${finalEngineCode}" (from ${engineCodeSource})`);
+
+      // AI normalization (fix NHTSA model/trim/drivetrain mislabeling)
+      let finalModel = merged.model;
+      let finalTrim = merged.trim;
       let drivetrainType: string | undefined;
 
       const anthropicKey = process.env.ANTHROPIC_API_KEY;
       if (anthropicKey) {
         const normalized = await normalizeNhtsaWithClaude(anthropicKey, {
-          make: extracted.make,
-          year: extracted.year,
-          nhtsaModel: extracted.model,
-          nhtsaTrim: extracted.trim,
-          nhtsaTrim2: extracted.trim2,
-          nhtsaSeries: extracted.series,
-          nhtsaSeries2: extracted.series2,
-          bodyClass: extracted.bodyStyle,
-          driveType: extracted.driveType,
-          engineModel: extracted.engineCode,
+          make: merged.make,
+          year: merged.year,
+          nhtsaModel: merged.model,
+          nhtsaTrim: merged.trim,
+          nhtsaTrim2: merged.trim2,
+          nhtsaSeries: merged.series,
+          nhtsaSeries2: merged.series2,
+          bodyClass: merged.bodyClass,
+          driveType: merged.driveType,
+          engineModel: finalEngineCode || nhtsaEngineRaw,
         });
         if (normalized) {
           if (normalized.model) finalModel = normalized.model;
           if (normalized.trim) finalTrim = normalized.trim;
-          if (normalized.engine_code) finalEngineCode = normalized.engine_code;
+          if (normalized.engine_code && !vdb?.engineCode) finalEngineCode = normalized.engine_code;
           if (normalized.drivetrain_type) drivetrainType = normalized.drivetrain_type;
         }
       }
 
-      // ── Upsert database records: makes → models → trims → engines ──
-      const makeId = await ctx.runMutation(internal.vehicle_mutations.upsertMake, { name: extracted.make });
+      // Web search + Haiku fallback when still no real engine code
+      if (
+        (!finalEngineCode || finalEngineCode.includes("_")) &&
+        merged.cylinders && merged.displacement
+      ) {
+        try {
+          const desc = vdb?.engineDescription ?? "";
+          const query = desc
+            ? `${merged.year} ${merged.make} ${finalModel} ${finalTrim} "${desc}" engine code`
+            : `${merged.year} ${merged.make} ${finalModel} ${finalTrim} engine code ${merged.displacement}L ${merged.cylinders} cylinder`;
+          const results = await searchAndFetch(query, 3);
 
+          let searchContent = "";
+          for (const r of results) {
+            if (r.markdown && r.markdown.length > 100) {
+              searchContent += r.markdown.slice(0, 5000) + "\n\n";
+            }
+          }
+
+          if (searchContent.length > 0) {
+            const haiku = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+            const resp = await haiku.messages.create({
+              model: "claude-haiku-4-5-20251001",
+              max_tokens: 50,
+              temperature: 0,
+              messages: [{
+                role: "user",
+                content: `Based on the following search results, what is the FULL manufacturer engine code including the complete variant suffix for a ${merged.year} ${merged.make} ${finalModel} ${finalTrim} with ${merged.cylinders} cylinders and ${merged.displacement}L displacement? For example, BMW uses codes like B48B20M2 or N63B44O2, not just B48 or N63. Mercedes uses M176DE40 not just M176. Include the full displacement and variant designation.\n\nSearch results:\n${searchContent.slice(0, 15000)}\n\nReply with ONLY the engine code. Nothing else.`,
+              }],
+            });
+            const code = (resp.content[0]?.type === "text" ? resp.content[0].text.trim() : "")
+              .replace(/[^a-zA-Z0-9\-_.]/g, "");
+            if (code && code.length >= 2 && code.length <= 20) {
+              console.log(`[decode] Search + Haiku resolved engine code: ${code} (was "${finalEngineCode}")`);
+              finalEngineCode = code;
+            }
+          }
+        } catch (err) {
+          console.log(`[decode] Engine code search failed: ${err}`);
+        }
+      }
+
+      // LAST RESORT: synthetic from numeric fields ONLY
+      if (!finalEngineCode || finalEngineCode.includes("_")) {
+        finalEngineCode = `${merged.displacement || "unknown"}l_${merged.cylinders || "unknown"}cyl`;
+        console.log(`[decode] Using synthetic engine code: ${finalEngineCode}`);
+      }
+
+      // ════════════════════════════════════════════════════════════
+      // WRITE TO DATABASE
+      // ════════════════════════════════════════════════════════════
+      const makeId = await ctx.runMutation(internal.vehicle_mutations.upsertMake, { name: merged.make });
       const modelId = await ctx.runMutation(internal.vehicle_mutations.upsertModel, { makeId, name: finalModel });
-
       const trimId = await ctx.runMutation(internal.vehicle_mutations.upsertTrim, {
-        modelId,
-        name: finalTrim,
-        year: extracted.year,
+        modelId, name: finalTrim, year: merged.year,
       });
 
-      // ── Drivetrain variant (e.g. xDrive → awd) when AI provided it ──
-      const canonicalDrivetrain = drivetrainType ? toCanonicalDrivetrain(drivetrainType) : undefined;
-      if (canonicalDrivetrain) {
+      // Drivetrain: AI normalized > NHTSA mapped > VDB > unknown
+      const nhtsaDrivetrain = mapNhtsaDriveType(merged.driveType);
+      const canonicalDrivetrain = drivetrainType
+        ? toCanonicalDrivetrain(drivetrainType)
+        : nhtsaDrivetrain;
+      if (canonicalDrivetrain && canonicalDrivetrain !== "unknown") {
         await ctx.runMutation(api.chassis_variants.upsertChassisVariant, {
           trim_id: trimId,
           drivetrain_type: canonicalDrivetrain,
-          confidence_score: 0.85,
+          confidence_score: drivetrainType ? 0.85 : 0.70,
         });
       }
 
+      // Engine
       const engineId = await ctx.runMutation(internal.vehicle_mutations.upsertEngine, {
-        trimId,
-        engineCode: finalEngineCode,
-        cylinders: extracted.cylinders,
-        displacement: extracted.displacement,
-        fuelType: extracted.fuelType,
+        trimId, engineCode: finalEngineCode,
+        cylinders: merged.cylinders, displacement: merged.displacement,
+        fuelType: merged.fuelType,
       });
 
+      // Engine extras
+      const enginePatch: Record<string, unknown> = { make_id: makeId };
+      const cfg = merged.engineConfiguration?.toLowerCase() ?? "";
+      if (cfg.includes("v")) enginePatch.configuration = "V";
+      else if (cfg.includes("in-line") || cfg.includes("inline")) enginePatch.configuration = "inline";
+      else if (cfg.includes("flat")) enginePatch.configuration = "flat";
+      if (merged.turbo) enginePatch.aspiration = "turbo";
+      const fi = merged.fuelInjection?.toLowerCase() ?? "";
+      if (fi.includes("direct")) enginePatch.fuel_injection = "direct";
+      else if (fi.includes("port")) enginePatch.fuel_injection = "port";
+      if (merged.displacement) enginePatch.displacement_l = parseFloat(merged.displacement) || undefined;
+
+      const cleanPatch: Record<string, unknown> = {};
+      for (const [k, val] of Object.entries(enginePatch)) { if (val !== undefined) cleanPatch[k] = val; }
+      if (Object.keys(cleanPatch).length > 0) {
+        await ctx.runMutation(internal.vehicleEnrichment.v3mutations.updateEngineSpecs, {
+          engine_id: engineId, ...cleanPatch,
+        } as any);
+      }
+
+      // Transmission — always create
+      const transType = merged.transStyle || "unknown";
+      const transDoc = await ctx.runMutation(api.transmissions.upsertTransmission, {
+        trim_id: trimId,
+        transmission_type: transType,
+        confidence_score: transType !== "unknown" ? 0.70 : 0.1,
+      });
+      const transmissionId = transDoc?._id ?? null;
+
+      if (transmissionId) {
+        const tp: Record<string, unknown> = {};
+        if (merged.transSpeeds) tp.speeds = merged.transSpeeds;
+        const mapped = mapTransmissionStyle(transType);
+        if (mapped) tp.type = mapped;
+        if (Object.keys(tp).length > 0) {
+          await ctx.runMutation(internal.vehicleEnrichment.v3mutations.updateTransmissionSpecs, {
+            transmission_id: transmissionId, ...tp,
+          } as any);
+        }
+      }
+
+      console.log(
+        `[processVin] ${merged.year} ${merged.make} ${finalModel} ${finalTrim} | ` +
+        `engine=${finalEngineCode} (${engineCodeSource}) | trans=${transType} | drive=${canonicalDrivetrain ?? "unknown"} | ` +
+        `vdb=${vdb ? "yes" : "no"}`,
+      );
+
       return {
-        makeId,
-        modelId,
-        trimId,
-        engineId,
-        make: extracted.make,
-        model: finalModel,
-        year: extracted.year,
-        trim: finalTrim,
+        makeId, modelId, trimId, engineId, transmissionId,
+        make: merged.make, model: finalModel, year: merged.year, trim: finalTrim,
         engineCode: finalEngineCode,
-        cylinders: extracted.cylinders,
-        displacement: extracted.displacement,
-        fuelType: extracted.fuelType,
+        cylinders: merged.cylinders, displacement: merged.displacement,
+        fuelType: merged.fuelType,
+        drivetrain: canonicalDrivetrain ?? "unknown",
+        // VDB trim data for pre-population
+        vdbTrimData: vdb ? {
+          frontTireSize: vdb.frontTireSize,
+          rearTireSize: vdb.rearTireSize,
+          frontTirePressure: vdb.frontTirePressure,
+          rearTirePressure: vdb.rearTirePressure,
+          wheelTorque: vdb.wheelTorque,
+          cca: vdb.cca,
+        } : null,
       };
     } catch (error) {
       console.error("VIN pipeline error:", error);
@@ -724,6 +914,7 @@ export const confirmVehicleForUser = action({
     vin: v.string(),
     trimId: v.id("trims"),
     engineId: v.id("engines"),
+    transmissionId: v.optional(v.id("transmissions")),
     year: v.float64(),
     make: v.string(),
     model: v.string(),
@@ -732,6 +923,7 @@ export const confirmVehicleForUser = action({
     displacement: v.string(),
     cylinders: v.float64(),
     fuelType: v.string(),
+    drivetrain: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     // Resolve current user from auth
@@ -754,6 +946,7 @@ export const confirmVehicleForUser = action({
       vin,
       trim_id: args.trimId,
       engine_id: args.engineId,
+      transmission_id: args.transmissionId,
       year: args.year,
     });
 
@@ -775,6 +968,7 @@ export const confirmVehicleForUser = action({
         trim: args.trim,
         engineCode: args.engineCode,
         displacement: args.displacement,
+        drivetrain: args.drivetrain,
       });
     }
 
@@ -835,6 +1029,28 @@ function toCanonicalDrivetrain(value: string): "fwd" | "rwd" | "awd" | "4wd" | u
   if (v === "fwd" || v === "rwd" || v === "awd" || v === "4wd") return v as "fwd" | "rwd" | "awd" | "4wd";
   if (v === "xdrive" || v === "4matic" || v === "quattro" || v === "4motion") return "awd";
   if (v === "sdrive") return "rwd";
+  return undefined;
+}
+
+/** Map NHTSA DriveType string to canonical drivetrain value. */
+function mapNhtsaDriveType(driveType: string): string | undefined {
+  if (!driveType) return undefined;
+  const d = driveType.toLowerCase();
+  if (d.includes("4wd") || d.includes("4-wheel") || d.includes("4x4")) return "4WD";
+  if (d.includes("awd") || d.includes("all-wheel") || d.includes("all wheel")) return "AWD";
+  if (d.includes("fwd") || d.includes("front-wheel") || d.includes("front wheel")) return "FWD";
+  if (d.includes("rwd") || d.includes("rear-wheel") || d.includes("rear wheel")) return "RWD";
+  return undefined;
+}
+
+/** Map NHTSA TransmissionStyle to v3 type. */
+function mapTransmissionStyle(style: string): string | undefined {
+  if (!style || style === "unknown") return undefined;
+  const s = style.toLowerCase();
+  if (s.includes("cvt") || s.includes("continuously variable")) return "CVT";
+  if (s.includes("dual clutch") || s.includes("dct") || s.includes("automated manual")) return "DCT";
+  if (s.includes("manual")) return "manual";
+  if (s.includes("automatic")) return "automatic";
   return undefined;
 }
 

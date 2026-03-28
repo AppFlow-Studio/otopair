@@ -10,7 +10,7 @@
 
 import { v } from "convex/values";
 import { internalAction } from "../_generated/server";
-import { internal } from "../_generated/api";
+import { internal, api } from "../_generated/api";
 import type {
   VehicleInput,
   FieldResult,
@@ -566,20 +566,52 @@ async function writeNormalizedData(
     });
   }
 
-  // C. Drivetrain config fluid types
+  // C. Drivetrain config — resolve drivetrain from Batch 1B before setting diff/TC
+  const batch1Drivetrain = asString(fields.drivetrain?.value);
   const diffFluid = asString(fields.diff_fluid_type?.value);
   const tcFluid = asString(fields.transfer_case_fluid_type?.value);
-  if (diffFluid || tcFluid) {
-    const drivetrainVal = asString(fields.drivetrain?.value) ?? "FWD";
-    await ctx.runMutation(internal.vehicleEnrichment.v3mutations.upsertDrivetrainConfig, {
+
+  // Read the current vehicle_config to check if drivetrain was resolved
+  const currentVc = await ctx.runQuery(
+    internal.vehicleEnrichment.v3queries.getVehicleConfigById,
+    { vehicleConfigId },
+  );
+  const existingDrivetrain = currentVc?.drivetrain;
+
+  // Priority: Batch 1B > existing (if real) > "FWD" as absolute last resort
+  const isResolved = (val: string | undefined | null): val is string =>
+    !!val && val !== "unknown";
+
+  const resolvedDrivetrain = isResolved(batch1Drivetrain)
+    ? batch1Drivetrain
+    : isResolved(existingDrivetrain)
+      ? existingDrivetrain
+      : "FWD"; // last resort — all sources exhausted
+
+  if (batch1Drivetrain && batch1Drivetrain !== existingDrivetrain) {
+    console.log(`[v8] Drivetrain resolved by Batch 1B: "${existingDrivetrain}" → "${batch1Drivetrain}"`);
+    // Update vehicle_config with the real drivetrain
+    await ctx.runMutation(internal.vehicleEnrichment.v3mutations.patchVehicleConfig, {
       vehicle_config_id: vehicleConfigId,
-      drivetrain_type: drivetrainVal,
-      has_differential: drivetrainVal !== "FWD",
-      diff_fluid_type: diffFluid,
-      has_transfer_case: drivetrainVal === "AWD" || drivetrainVal === "4WD",
-      tc_fluid_type: tcFluid,
+      drivetrain: resolvedDrivetrain,
+    });
+  } else if (existingDrivetrain === "unknown") {
+    console.log(`[v8] Drivetrain still unknown after Batch 1B — defaulting to FWD`);
+    await ctx.runMutation(internal.vehicleEnrichment.v3mutations.patchVehicleConfig, {
+      vehicle_config_id: vehicleConfigId,
+      drivetrain: "FWD",
     });
   }
+
+  // NOW upsert drivetrain_config with the resolved value
+  await ctx.runMutation(internal.vehicleEnrichment.v3mutations.upsertDrivetrainConfig, {
+    vehicle_config_id: vehicleConfigId,
+    drivetrain_type: resolvedDrivetrain,
+    has_differential: resolvedDrivetrain !== "FWD",
+    diff_fluid_type: diffFluid,
+    has_transfer_case: resolvedDrivetrain === "AWD" || resolvedDrivetrain === "4WD",
+    tc_fluid_type: tcFluid,
+  });
 
   // D. Trim specs — typed coercion
   await ctx.runMutation(internal.vehicleEnrichment.v3mutations.upsertTrimSpecs, {
@@ -751,6 +783,7 @@ export const enrichVehicleBatchV3 = internalAction({
     trim: v.string(),
     engineCode: v.string(),
     displacement: v.string(),
+    drivetrain: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const startTime = Date.now();
@@ -763,7 +796,7 @@ export const enrichVehicleBatchV3 = internalAction({
       engineCode: args.engineCode,
       displacement: args.displacement,
     };
-    const configKey = buildEngineKey(vehicle);
+    let configKey = buildEngineKey(vehicle);
     console.log(`[v8] Starting enrichment for ${configKey}`);
 
     // STEP 0: Cache check — does a vehicle_config already exist and is complete?
@@ -772,12 +805,28 @@ export const enrichVehicleBatchV3 = internalAction({
       { configKey },
     );
     if (existingConfig && (existingConfig.enrichment_status === "complete" || existingConfig.enrichment_status === "verified")) {
-      console.log(`[v8] Cache hit for ${configKey} (status=${existingConfig.enrichment_status})`);
-      await ctx.runMutation(
-        internal.vehicleEnrichment.v3mutations.attachVehicleConfig,
-        { vehicle_id: args.vehicleId, vehicle_config_id: existingConfig._id },
-      );
-      return { status: "cache_hit" as const, configId: existingConfig._id };
+      const STALE_MS = 180 * 24 * 60 * 60 * 1000; // 180 days
+      const lastEnriched = existingConfig.last_enriched_at;
+      if (!lastEnriched || (Date.now() - lastEnriched) > STALE_MS) {
+        console.log(`[v8] Cache stale (>180 days), scheduling validation for ${configKey}`);
+        await ctx.scheduler.runAfter(
+          0,
+          internal.vehicleEnrichment.cacheValidation.validateCachedConfig,
+          { vehicle_config_id: existingConfig._id },
+        );
+        await ctx.runMutation(
+          internal.vehicleEnrichment.v3mutations.attachVehicleConfig,
+          { vehicle_id: args.vehicleId, vehicle_config_id: existingConfig._id },
+        );
+        return { status: "cache_hit_validating" as const, configId: existingConfig._id };
+      } else {
+        console.log(`[v8] Cache hit for ${configKey} (status=${existingConfig.enrichment_status})`);
+        await ctx.runMutation(
+          internal.vehicleEnrichment.v3mutations.attachVehicleConfig,
+          { vehicle_id: args.vehicleId, vehicle_config_id: existingConfig._id },
+        );
+        return { status: "cache_hit" as const, configId: existingConfig._id };
+      }
     }
 
     // STEP 1: Read vehicle identity from DB
@@ -826,6 +875,40 @@ export const enrichVehicleBatchV3 = internalAction({
       return { status: "error" as const, reason: "no_engine_id" };
     }
 
+    // STEP 3a: Ensure transmission record exists for ICE vehicles
+    let transmissionId = vehicleDoc.transmission_id ?? null;
+    if (!transmissionId) {
+      console.log("[v8] No transmission_id on vehicle — creating placeholder");
+      const trimId = vehicleDoc.trim_id;
+      if (trimId) {
+        const transDoc = await ctx.runMutation(api.transmissions.upsertTransmission, {
+          trim_id: trimId,
+          transmission_type: "unknown",
+          confidence_score: 0.1,
+        });
+        if (transDoc?._id) {
+          transmissionId = transDoc._id;
+          // Link to vehicle
+          await ctx.runMutation(api.vehicles.upsertVehicle, {
+            vin: vehicleDoc.vin,
+            transmission_id: transmissionId,
+          });
+          console.log(`[v8] Placeholder transmission created: ${transmissionId}`);
+        }
+      }
+    }
+
+    // STEP 3b: Fuzzy dedup — if a config with the same engine+year+make exists
+    // under a slightly different key, reuse it instead of creating a duplicate
+    const possibleDupe = await ctx.runQuery(
+      internal.vehicleEnrichment.v3queries.findSimilarConfig,
+      { engine_id: vehicleDoc.engine_id, year: args.year, make_id: makeDoc._id },
+    );
+    if (possibleDupe && possibleDupe.config_key !== configKey) {
+      console.log(`[v8] Dedup: using existing key "${possibleDupe.config_key}" instead of "${configKey}"`);
+      configKey = possibleDupe.config_key;
+    }
+
     // STEP 4: Create enrichment run (vehicle_config_id not yet known)
     const runId = await ctx.runMutation(
       internal.vehicleEnrichment.v3mutations.createEnrichmentRun,
@@ -833,7 +916,16 @@ export const enrichVehicleBatchV3 = internalAction({
     );
 
     // STEP 5: Upsert vehicle_config
-    const drivetrainVal = vPicData?.drivetrain ?? "FWD";
+    // Do NOT default drivetrain to "FWD" here — NHTSA often returns null.
+    // The real drivetrain value comes from Batch 1B. Use "unknown" as placeholder.
+    // Priority: args.drivetrain (from processVin) > vPicData (from getIdentity) > "unknown"
+    const nhtsDrivetrain = args.drivetrain ?? vPicData?.drivetrain ?? null;
+    const drivetrainVal = nhtsDrivetrain ?? "unknown";
+    if (nhtsDrivetrain) {
+      console.log(`[v8] Drivetrain from decode: ${nhtsDrivetrain}`);
+    } else {
+      console.log(`[v8] Drivetrain unknown — deferring to Batch 1B`);
+    }
     const vehicleConfigId = await ctx.runMutation(
       internal.vehicleEnrichment.v3mutations.upsertVehicleConfig,
       {
@@ -842,7 +934,7 @@ export const enrichVehicleBatchV3 = internalAction({
         make_id: makeDoc._id,
         model_id: modelDoc._id,
         engine_id: vehicleDoc.engine_id,
-        transmission_id: vehicleDoc.transmission_id,
+        transmission_id: transmissionId ?? undefined,
         drivetrain: drivetrainVal,
         trim_name: args.trim,
         trim_slug: slugify(args.trim),
@@ -859,13 +951,17 @@ export const enrichVehicleBatchV3 = internalAction({
       status: "scraping",
     });
 
-    // STEP 6: Upsert drivetrain_config
-    await ctx.runMutation(internal.vehicleEnrichment.v3mutations.upsertDrivetrainConfig, {
-      vehicle_config_id: vehicleConfigId,
-      drivetrain_type: drivetrainVal,
-      has_differential: drivetrainVal !== "FWD",
-      has_transfer_case: drivetrainVal === "AWD" || drivetrainVal === "4WD",
-    });
+    // STEP 6: Upsert drivetrain_config — only if we have a REAL value from NHTSA.
+    // If drivetrain is unknown, skip this. _pollBatch1V3 will create it after
+    // Batch 1B resolves the drivetrain.
+    if (nhtsDrivetrain) {
+      await ctx.runMutation(internal.vehicleEnrichment.v3mutations.upsertDrivetrainConfig, {
+        vehicle_config_id: vehicleConfigId,
+        drivetrain_type: nhtsDrivetrain,
+        has_differential: nhtsDrivetrain !== "FWD",
+        has_transfer_case: nhtsDrivetrain === "AWD" || nhtsDrivetrain === "4WD",
+      });
+    }
 
     // STEP 7: FireCrawl scrape — parts catalog + owner's manual
     const sources = await scrapeVehicleSources(ctx, vehicle);
@@ -876,7 +972,7 @@ export const enrichVehicleBatchV3 = internalAction({
       status: "batch1",
     });
 
-    const batchId = await submitBatch([
+    const batch1Requests = [
       {
         customId: "batch1a",
         system: BATCH_1_SYSTEM,
@@ -894,7 +990,18 @@ export const enrichVehicleBatchV3 = internalAction({
         maxSearchUses: 1,
         blockedDomains: BLOCKED_DOMAINS,
       },
-    ]);
+    ];
+
+    for (const req of batch1Requests) {
+      console.log(`[v8-debug] Batch request ${req.customId}:`);
+      console.log(`[v8-debug]   model: sonnet (default)`);
+      console.log(`[v8-debug]   system prompt length: ${req.system.length} chars`);
+      console.log(`[v8-debug]   user message length: ${req.userPrompt.length} chars`);
+      console.log(`[v8-debug]   max_tokens: ${req.maxTokens}`);
+      console.log(`[v8-debug]   first 200 chars: ${req.userPrompt.substring(0, 200)}`);
+    }
+
+    const batchId = await submitBatch(batch1Requests);
 
     console.log(`[v8] Batch [1A, 1B] submitted (batchId=${batchId}), scheduling poll`);
 
@@ -912,7 +1019,7 @@ export const enrichVehicleBatchV3 = internalAction({
         vPicData: vPicData as any,
         vehicleConfigId,
         engineId: vehicleDoc.engine_id,
-        transmissionId: vehicleDoc.transmission_id,
+        transmissionId: transmissionId ?? undefined,
         makeId: makeDoc._id,
         runId,
         attempt: 1,
@@ -1160,12 +1267,18 @@ export const _pollBatch2V3 = internalAction({
           { engineId: args.engineId },
         );
 
+        // Determine source type: web_search only if there's a real, non-blocked source URL
+        const laborSourceUrl = svc.labor_hours?.source_url;
+        const isWebSource = laborSourceUrl && !isBlockedDomain(laborSourceUrl);
+        const laborSource = isWebSource ? "web_search" as const : "training_data" as const;
+        const laborConfidence = isWebSource ? 0.85 : 0.75;
+
         await ctx.runMutation(internal.vehicleEnrichment.v3mutations.upsertLaborTime, {
           vehicle_config_id: args.vehicleConfigId,
           service_id: serviceId,
           book_hours: laborVal,
-          source: svc.labor_hours?.source_url ? "web_search" : "training_data",
-          confidence: svc.confidence ?? 0.7,
+          source: laborSource,
+          confidence: laborConfidence,
           engine_family: engineDoc?.engine_family,
         });
       }
@@ -1232,6 +1345,12 @@ export const _pollBatch2V3 = internalAction({
       ],
     });
 
+    // Read current vehicle_config to get resolved drivetrain
+    const currentVcForFinal = await ctx.runQuery(
+      internal.vehicleEnrichment.v3queries.getVehicleConfigById,
+      { vehicleConfigId: args.vehicleConfigId },
+    );
+
     // Update vehicle_config status
     await ctx.runMutation(internal.vehicleEnrichment.v3mutations.upsertVehicleConfig, {
       config_key: buildEngineKey(vehicle),
@@ -1240,7 +1359,7 @@ export const _pollBatch2V3 = internalAction({
       model_id: (await ctx.runQuery(internal.vehicleEnrichment.v3queries.getModelByMakeAndName, { makeId: args.makeId, name: args.model }))?._id ?? args.makeId as any,
       engine_id: args.engineId,
       transmission_id: args.transmissionId,
-      drivetrain: (allFields.drivetrain?.value as string) ?? "FWD",
+      drivetrain: (allFields.drivetrain?.value as string) ?? currentVcForFinal?.drivetrain ?? "FWD",
       trim_name: args.trim,
       trim_slug: slugify(args.trim),
       enrichment_status: fillRate >= 70 ? "complete" : "partial",

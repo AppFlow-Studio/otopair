@@ -82,13 +82,22 @@ export function computeConsensus(
         (o) => o.source_type === "mechanic"
       );
 
-      let score =
-        avgConfidence * 0.4 +
-        (sourceCount / totalObservations) * 0.3 +
-        maxConfidence * 0.3;
-
+      // When no mechanic has verified, source diversity matters more.
+      // Two sources agreeing at 0.85 should beat one source at 0.90.
+      // When a mechanic HAS verified, their high confidence should
+      // carry more weight regardless of source count.
+      let score: number;
       if (hasMechanicVerification) {
+        score =
+          avgConfidence * 0.4 +
+          (sourceCount / totalObservations) * 0.3 +
+          maxConfidence * 0.3;
         score = Math.min(score * 1.2, 1.0);
+      } else {
+        score =
+          avgConfidence * 0.3 +
+          (sourceCount / totalObservations) * 0.4 +
+          maxConfidence * 0.3;
       }
 
       return { value, score, sourceCount, hasMechanicVerification };

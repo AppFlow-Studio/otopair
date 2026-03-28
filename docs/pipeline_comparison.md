@@ -24,6 +24,7 @@
 | v6 R2 | 85% | 62 | ~$0.32 | 494s | Removed max_uses cap + parser domain filter — recovered 3 fields; kbb.com still entering via FireCrawl scrape; coolant_flush_miles still 10k |
 | v6 R3 | **85%** | 62 | ~$0.32 | **313s** | Blocked kbb.com in FireCrawl scraper — coolant_flush_miles fixed (10k→50k); 92% excluding correct N/A nulls |
 | v7 R1 | **88%** | **88** | $0.574 | 422s | Parallel Batch [1A+1B], 26 new fields (rotors/battery/coolant OEM, fluid types, diff/TC intervals, expanded pricing+labor) |
+| v8.5 | **96% avg** | **20 tables** | $0.66 avg | ~10 min | Normalized schema (20 tables), multi-make (BMW/Mercedes/Nissan/VW), VDB+NHTSA dual decode, evidence consensus, mechanic verification, 3-tier enrichment |
 
 ---
 
@@ -963,3 +964,130 @@ With 46 null fields + 9 OEM parts for pricing, the formula `min(nullFields * 2 +
 - Fill rate on original 62 fields: **85% → 85%** (same — all v6 R3 fills held)
 - Net new value: +26 fields, 20 of which are filled (77% fill rate on new fields)
 - Applicability rules correctly nulled: `timing_belt_oem`, `rear_wiper_size`, `timing_service_miles/months`, `estimated_labor_timing_service_hrs`
+
+---
+
+## v7 R1 → v8.5 (Normalized Schema + Multi-Vehicle + VDB Integration)
+
+**What changed** — complete architectural overhaul:
+
+### Schema: Flat → Normalized (20 tables)
+- Replaced single `enriched_engine_configs` (88 flat fields) with **20 normalized tables**: `vehicle_configs`, `engines`, `transmissions`, `drivetrain_configs`, `trim_specs`, `oem_parts`, `part_fitments`, `part_prices`, `service_intervals`, `labor_times`, `enrichment_evidence`, `enrichment_runs`, `mechanic_verifications`, `source_registry`, `blocked_domains`, `scrape_cache`, plus existing `makes`, `models`, `services`, `generations`
+- Each table has its own lifecycle (parts change yearly via supersession, prices monthly, specs are immutable per engine)
+- Evidence-based consensus: every observation stored with source, confidence, timestamp
+
+### Pipeline: Single-make → Any-make
+- **VDB + NHTSA dual decode**: Vehicle Databases API (primary, paid, structured) + NHTSA vPIC (fallback, free). VDB provides tire sizes, pressures, battery CCA, brake rotor dimensions, lug torque at decode time — data NHTSA never has
+- **Open web scraping**: Replaced bmwpartsdeal.com URL templates with `searchAndFetch` for all makes. BMW still tries templates first, falls back to search
+- **Marketing term filter**: "TSI", "EcoBoost", "VTEC", "Hemi" etc. blocked from becoming engine codes → synthetic fallback → web search + Haiku resolution
+- **Drivetrain direct passthrough**: `processVin` → `enrichVehicleBatchV3(drivetrain: "AWD")` — no chassis_variants roundtrip race condition
+- **Transmission always created**: Even when NHTSA returns empty, placeholder record exists for enrichment to write into
+
+### Enrichment: 3-tier architecture
+- **Tier 1** (Batch API): Batch [1A, 1B] parallel + Batch 2 gap fill — same as v7 but writes to normalized tables
+- **Tier 2** (Multi-source): Open web search per under-evidenced field + Haiku extraction (was regex-only in v7)
+- **Tier 3** (Mechanic verification): `processMechanicVerification` — confirms/corrects values, updates labor empirical hours, promotes to "verified" status
+
+### Evidence + Consensus
+- Every extracted value stored as `enrichment_evidence` row with source URL, domain, confidence
+- `computeConsensus()` groups normalized values, scores by source diversity + confidence + mechanic verification
+- Source scoring: tracks accuracy per domain, auto-blocks below 40% after 20+ observations
+
+### Validation
+- Sanity checks run BEFORE writes (not after): coolant_flush ≤15K miles → rejected
+- Cache staleness: >180 days → background validation (part supersession check, price refresh, spec spot-check)
+- Config key dedup: `canonicalize()` + `findSimilarConfig()` prevents duplicates from NHTSA inconsistencies
+
+---
+
+## v8.5 — Multi-Vehicle Test Results
+
+**7 vehicles tested across 4 makes**
+
+| # | Vehicle | VIN | Fill | Engine | Trans | DT | Trim | VC | Parts | Intervals | Labor | Prices | Evidence | Tokens In | Searches | Time | Cost |
+|---|---------|-----|------|--------|-------|----|------|----|-------|-----------|-------|--------|----------|-----------|----------|------|------|
+| 1 | 2020 BMW M550i xDrive | WBAJS7C01LBN96146 | **98%** | 8/8 | 1/1 | 2/2 | 7/7 | 2/2 | 13/13 | 7/7 | 12/12 | 12/13 | 116 | 591K | 32 | ~7m | ~$0.53 |
+| 2 | 2023 Nissan Rogue SV | JN8BT3BB9PW213363 | **98%** | 8/8 | 1/1 | 0/0 | 7/7 | 2/2 | 13/13 | 7/7 | 12/12 | 12/13 | ~120 | 598K | 38 | ~13m | ~$0.54 |
+| 3 | 2022 Mercedes SL55 AMG | W1KVK8AB1NF003059 | **88%** | 8/8 | — | 1/1 | 7/7 | 2/2 | 8/13 | 7/7 | 12/12 | 8/8 | 100 | ~600K | ~35 | ~8m | ~$0.55 |
+| 4 | 2026 BMW 530i xDrive | WBA53FJ02TCW71135 | **97%** | 8/8 | 1/1 | 2/2 | 7/7 | 2/2 | 12/13 | 7/7 | 12/12 | 11/12 | 108 | 707K | 39 | 9m | $0.63 |
+| 5 | 2020 Mercedes AMG GT C | W1K6G6KB8PA188364 | **95%** | 8/8 | 1/1 | 1/1 | 7/7 | 2/2 | 10/13 | 7/7 | 12/12 | 10/10 | ~100 | 1,001K | 40 | 10m | ~$0.88 |
+| 6 | 2023 Mercedes S580e | — | **97%** | 8/8 | 1/1 | 2/2 | 7/7 | 2/2 | 12/13 | 7/7 | 12/12 | 11/12 | ~100 | 1,025K | 49 | 12m | ~$0.89 |
+| 7 | 2024 VW Tiguan SE R-Line | 3VV5B7AX9RM230023 | **98%** | 8/8 | 1/1 | 0/0 | 7/7 | 2/2 | 13/13 | 7/7 | 12/12 | 12/13 | ~110 | 641K | 32 | 12m | ~$0.58 |
+
+### Aggregates
+
+| Metric | v7 R1 (BMW only) | v8.5 (7 vehicles, 4 makes) |
+|--------|-------------------|---------------------------|
+| **Avg fill rate** | 88% | **96%** |
+| **Engine 8/8** | 1/1 | 7/7 (100%) |
+| **Intervals 7/7** | — | 7/7 (100%) |
+| **Labor 12/12** | — | 7/7 (100%) |
+| **Avg parts** | 14/14 (flat) | 11.6/13 (89%) |
+| **Avg cost** | $0.57 | **$0.66** |
+| **Avg time** | 7 min | **10 min** |
+| **Makes supported** | BMW only | BMW, Mercedes, Nissan, VW |
+| **VIN decode sources** | NHTSA only | VDB + NHTSA |
+| **Evidence rows** | 0 (flat) | ~108 avg per vehicle |
+| **Multi-source consensus** | No | Yes |
+| **Mechanic verification** | No | Yes (Tier 3) |
+
+### Coverage by Category (across all 7 vehicles)
+
+| Category | Perfect (100%) | High (>90%) | Gaps |
+|----------|---------------|-------------|------|
+| Engine specs (8 fields) | 7/7 | — | — |
+| Transmission | 6/6 measured | — | SL55 missing (pre-fix) |
+| Drivetrain config | 5/5 applicable | — | — |
+| Trim specs (7 fields) | 6/6 measured | — | SL55 captured separately |
+| Vehicle config (2 fields) | 6/6 measured | — | — |
+| Service intervals (7) | 7/7 | — | — |
+| Labor times (12) | 7/7 | — | — |
+| OEM parts | 3/7 at 13/13 | 3/7 at 12/13 | 1/7 at 8/13 (SL55) |
+| Part prices | 2/7 all priced | 4/7 missing 1 | 1/7 missing 5 (SL55) |
+
+### Per-Vehicle Highlights
+
+**BMW M550i (98%)**: Reference vehicle. 13/13 parts, all from bmwpartsdeal.com templates. Coolant flush correctly rejected by sanity check.
+
+**Nissan Rogue (98%)**: First non-BMW vehicle. Engine code MR15DDT resolved by Haiku from web search (NHTSA returned empty). Drivetrain correctly set to AWD. Open web scraping found 13/13 parts without any registry.
+
+**Mercedes SL55 (88%)**: Lowest fill rate. New-generation R232 has sparse online parts coverage. Only 8/13 parts found. No transmission record (pre-fix). `has_brake_pad_sensor: false` is wrong for Mercedes — inference logic needs work.
+
+**BMW 530i (97%)**: 2026 model year — too new for most sources. Engine code synthetic `2l_4cyl` (web search couldn't resolve B48 variant for 2026). 12/13 parts still found.
+
+**Mercedes AMG GT C (95%)**: RWD correctly resolved by Batch 1B. Scraper returned 0 chars for parts (no parts catalog for AMG GT online) — entire enrichment done via Batch 1B web search + Batch 2 gap fill. Still hit 10/13 parts.
+
+**Mercedes S580e (97%)**: PHEV. Scraper returned 0 chars — everything from web search. 12/13 parts, AWD correctly resolved.
+
+**VW Tiguan (98%)**: First VDB-integrated run. VDB provided tire sizes (P235/50HR19), pressures (33/33 PSI), battery CCA (360), lug torque (103 ft-lbs), drivetrain (AWD), brake rotor diameters at decode time. NHTSA's "TSI" marketing term correctly filtered. 13/13 parts.
+
+### Known Issues in v8.5
+
+| Issue | Impact | Status |
+|-------|--------|--------|
+| Engine code synthetic for new model years | Config key includes `2l_4cyl` instead of `B48B20` | Web search can't find 2026 data yet |
+| SL55 `has_brake_pad_sensor: false` | Mercedes should always be true | Inference logic only checks BMW/Porsche |
+| Coolant flush from training data | Sometimes returns 10K miles (kbb contamination) | Sanity check rejects ≤15K, but field becomes null |
+| All labor is `training_data` | No web search sources for labor | Batch 2 returns labor but source URLs not flagged |
+| VDB quota exhausted | Falls through to NHTSA-only | Local VDB cache added as workaround |
+| Convex 600s action timeout | `runTest:go` times out before enrichment completes | Enrichment runs via scheduled polls, test action needs redesign |
+
+### v8.5 vs v7 — What Changed
+
+| Feature | v7 | v8.5 |
+|---------|-----|------|
+| Schema | 1 flat table (88 fields) | 20 normalized tables |
+| Makes tested | BMW only | BMW, Mercedes, Nissan, VW |
+| VIN decode | NHTSA only | VDB (primary) + NHTSA (fallback) |
+| Parts scraping | bmwpartsdeal.com templates only | Open web search (all makes) + BMW templates |
+| Drivetrain | Default FWD, race condition | Direct passthrough, Batch 1B fallback |
+| Engine code | Accept marketing terms | Filter + web search + Haiku + synthetic |
+| Transmission | Often missing | Always created at decode |
+| Evidence tracking | None | 100-120 rows per vehicle, multi-source |
+| Consensus | None | Normalized grouping, source diversity weighted |
+| Mechanic verification | None | Full loop: confirm/correct → evidence → empirical labor |
+| Source scoring | None | Per-domain accuracy tracking, auto-blocking |
+| Cache validation | Full re-enrichment | Background supersession + price check |
+| Tier 2 extraction | Regex only | Haiku primary, regex fallback |
+| Fill rate (BMW) | 88% | **98%** |
+| Fill rate (non-BMW) | N/A | **95% avg** |

@@ -143,6 +143,7 @@ export async function getBatchResults(batchId: string): Promise<Record<string, B
       };
     } else {
       console.error(`[batch] Request ${item.custom_id} ${item.result.type}`);
+      console.error(`[batch] ERROR detail: ${JSON.stringify(item.result)}`);
       results[item.custom_id] = {
         customId: item.custom_id,
         data: {},

@@ -95,6 +95,23 @@ export const getFitmentsByConfigAndService = internalQuery({
   },
 });
 
+/** Fuzzy dedup: find an existing config with the same engine + year + make. */
+export const findSimilarConfig = internalQuery({
+  args: {
+    engine_id: v.id("engines"),
+    year: v.float64(),
+    make_id: v.id("makes"),
+  },
+  handler: async (ctx, args) => {
+    const configs = await ctx.db
+      .query("vehicle_configs")
+      .withIndex("by_engine", (q) => q.eq("engine_id", args.engine_id))
+      .collect();
+
+    return configs.find((c) => c.year === args.year && c.make_id === args.make_id) ?? null;
+  },
+});
+
 // ─── Fill rate queries ───────────────────────────────────────────
 
 export const getVehicleConfigById = internalQuery({
@@ -151,6 +168,41 @@ export const getLaborTimes = internalQuery({
       .query("labor_times")
       .withIndex("by_vehicle_config", (q) => q.eq("vehicle_config_id", args.vehicleConfigId))
       .collect();
+  },
+});
+
+/** Best available labor estimate for a single service on a vehicle config. */
+export const getQuotableLaborTime = internalQuery({
+  args: {
+    vehicle_config_id: v.id("vehicle_configs"),
+    service_id: v.id("services"),
+  },
+  handler: async (ctx, args) => {
+    const labor = await ctx.db
+      .query("labor_times")
+      .withIndex("by_vehicle_config", (q) =>
+        q
+          .eq("vehicle_config_id", args.vehicle_config_id)
+          .eq("service_id", args.service_id),
+      )
+      .first();
+
+    if (!labor) return null;
+
+    const MIN_SAMPLES = 3;
+    const useEmpirical =
+      labor.empirical_hours != null &&
+      labor.empirical_sample_size >= MIN_SAMPLES;
+
+    return {
+      hours: useEmpirical ? labor.empirical_hours! : labor.book_hours,
+      source: useEmpirical ? ("empirical" as const) : labor.source,
+      is_empirical: useEmpirical,
+      sample_size: labor.empirical_sample_size,
+      book_hours: labor.book_hours,
+      empirical_hours: labor.empirical_hours ?? null,
+      confidence: useEmpirical ? 0.95 : (labor.confidence ?? 0.75),
+    };
   },
 });
 
@@ -246,6 +298,23 @@ export const getPartById = internalQuery({
   args: { partId: v.id("oem_parts") },
   handler: async (ctx, { partId }) => {
     return await ctx.db.get(partId);
+  },
+});
+
+export const getOemPartById = internalQuery({
+  args: { partId: v.id("oem_parts") },
+  handler: async (ctx, { partId }) => {
+    return await ctx.db.get(partId);
+  },
+});
+
+export const getPricesForPart = internalQuery({
+  args: { partId: v.id("oem_parts") },
+  handler: async (ctx, { partId }) => {
+    return await ctx.db
+      .query("part_prices")
+      .withIndex("by_part", (q) => q.eq("part_id", partId))
+      .collect();
   },
 });
 
