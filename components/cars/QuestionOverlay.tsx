@@ -86,6 +86,10 @@ export default function QuestionOverlay({
     questionFade.value = withTiming(1, { duration: 300 });
   }, []);
 
+  const runExitCallback = useCallback(() => {
+    exitCallback.current?.();
+  }, []);
+
   const animateOut = useCallback((callback: () => void) => {
     if (isClosing.current) return;
     isClosing.current = true;
@@ -93,11 +97,11 @@ export default function QuestionOverlay({
     backdropOpacity.value = withTiming(0, { duration: 200 });
     contentProgress.value = withTiming(0, { duration: 250 }, (finished) => {
       "worklet";
-      if (finished && exitCallback.current) {
-        runOnJS(exitCallback.current)();
+      if (finished) {
+        runOnJS(runExitCallback)();
       }
     });
-  }, [backdropOpacity, contentProgress]);
+  }, [backdropOpacity, contentProgress, runExitCallback]);
 
   const backdropStyle = useAnimatedStyle(() => ({
     opacity: backdropOpacity.value,
@@ -114,16 +118,18 @@ export default function QuestionOverlay({
     },
   });
 
+  const heroScrollRange = vs(150);
+  const heroFadeRange = vs(120);
   const heroAnimStyle = useAnimatedStyle(() => {
     const scrollScale = interpolate(
       scrollY.value,
-      [0, vs(150)],
+      [0, heroScrollRange],
       [1, 0.55],
       Extrapolation.CLAMP,
     );
     const scrollOpacity = interpolate(
       scrollY.value,
-      [0, vs(120)],
+      [0, heroFadeRange],
       [1, 0],
       Extrapolation.CLAMP,
     );
@@ -385,17 +391,22 @@ function OptionButton({
 // ProgressDot (animated width)
 // ============================================================================
 
+const DOT_ACTIVE_W = s(28);
+const DOT_INACTIVE_W = s(6);
+const DOT_H = s(6);
+const DOT_BR = ms(3);
+
 function ProgressDot({ isDone, isActive }: { isDone: boolean; isActive: boolean }) {
-  const width = useSharedValue(isActive ? s(28) : s(6));
+  const width = useSharedValue(isActive ? DOT_ACTIVE_W : DOT_INACTIVE_W);
 
   useEffect(() => {
-    width.value = withTiming(isActive ? s(28) : s(6), { duration: 350 });
+    width.value = withTiming(isActive ? DOT_ACTIVE_W : DOT_INACTIVE_W, { duration: 350 });
   }, [isActive]);
 
   const animatedStyle = useAnimatedStyle(() => ({
     width: width.value,
-    height: s(6),
-    borderRadius: ms(3),
+    height: DOT_H,
+    borderRadius: DOT_BR,
     backgroundColor: isDone || isActive ? "#5299FE" : "rgba(82,153,254,0.18)",
   }));
 

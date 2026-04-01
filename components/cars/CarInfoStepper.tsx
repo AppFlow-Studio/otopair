@@ -662,16 +662,16 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
   const allDoneTriggered = useRef(false);
   const lottieOpacity = useSharedValue(0);
   const lottieTranslateY = useSharedValue(-20);
-  const gridScale = useSharedValue(1);
-  const gridTranslateY = useSharedValue(0);
+  const gridOpacity = useSharedValue(1);
 
   useEffect(() => {
     if (allDone && !allDoneTriggered.current) {
       allDoneTriggered.current = true;
-      lottieOpacity.value = withTiming(1, { duration: 500 });
-      lottieTranslateY.value = withTiming(0, { duration: 500, easing: REasing.out(REasing.ease) });
-      gridScale.value = withTiming(0.75, { duration: 600, easing: REasing.out(REasing.ease) });
-      gridTranslateY.value = withTiming(-30, { duration: 600, easing: REasing.out(REasing.ease) });
+      // Fade out the grid cards
+      gridOpacity.value = withTiming(0, { duration: 500, easing: REasing.out(REasing.ease) });
+      // Then fade in the lottie + text after cards are gone
+      lottieOpacity.value = withDelay(300, withTiming(1, { duration: 500 }));
+      lottieTranslateY.value = withDelay(300, withTiming(0, { duration: 500, easing: REasing.out(REasing.ease) }));
     }
   }, [allDone]);
 
@@ -680,11 +680,8 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
     transform: [{ translateY: lottieTranslateY.value }],
   }));
 
-  const gridShrinkStyle = useAnimatedStyle(() => ({
-    transform: [
-      { scale: gridScale.value },
-      { translateY: gridTranslateY.value },
-    ],
+  const gridFadeStyle = useAnimatedStyle(() => ({
+    opacity: gridOpacity.value,
   }));
 
   // ── Render the service grid ─────────────────────────────────
@@ -693,7 +690,7 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
     return (
       <View style={{ flex: 1 }}>
         {allDone && (
-          <ReAnimated.View style={[{ alignItems: "center", gap: scale(8), marginBottom: scale(4) }, lottieStyle]}>
+          <ReAnimated.View style={[{ alignItems: "center", justifyContent: "center", gap: scale(8), flex: 1 }, lottieStyle]}>
             <LottieView
               source={require("@/assets/animations/success.json")}
               autoPlay
@@ -704,7 +701,7 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
             <Text weight="medium" size="md" color="#829BAD">Your vehicle health score is ready.</Text>
           </ReAnimated.View>
         )}
-        <ReAnimated.View style={[s.cardGrid, !allDone && { flex: 1 }, gridShrinkStyle]}>
+        {!allDone && <ReAnimated.View style={[s.cardGrid, { flex: 1 }, gridFadeStyle]}>
           <View style={s.cardGridSquares}>
             {squareCards.map(cardId => (
               <CardGridItem
@@ -726,7 +723,7 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
             onPress={() => handleCardTap("warningLights")}
             isWide
           />
-        </ReAnimated.View>
+        </ReAnimated.View>}
       </View>
     );
   };

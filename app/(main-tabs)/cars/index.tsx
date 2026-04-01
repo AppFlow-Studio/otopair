@@ -11,6 +11,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import * as DocumentPicker from "expo-document-picker";
+import { WebView } from "react-native-webview";
 import Svg, { Circle, Defs, LinearGradient as SvgLinearGradient, Stop } from "react-native-svg";
 
 // 3. Convex & hooks
@@ -40,7 +41,7 @@ import MaintenanceInputModal from "@/components/cars/MaintenanceInputModal";
 import { CheckinBanner } from "@/components/cars/CheckinBanner";
 import CarInfoStepper, { type CarInfoStepperHandle } from "@/components/cars/CarInfoStepper";
 import { AnimatedGradientBackground } from "@/components/shared-ui/AnimatedGradientBackground";
-import ServiceHistory, { ServiceRecord } from "@/components/cars/ServiceHistory";
+import ServiceHistory, { ServiceRecord, type PickedDocument } from "@/components/cars/ServiceHistory";
 import VehicleStatsCard from "@/components/cars/VehicleStatsCard";
 
 // ============================================================================
@@ -121,25 +122,31 @@ export default function CarsHomeScreen() {
   const skeletonPulse = useRef(new Animated.Value(0.3)).current;
 
   // Fullscreen gears overlay
+  const [pickedDocuments, setPickedDocuments] = useState<PickedDocument[]>([]);
+  const [viewingDocument, setViewingDocument] = useState<PickedDocument | null>(null);
   const [gearsOverlayVisible, setGearsOverlayVisible] = useState(false);
   const [gearsPhase, setGearsPhase] = useState<'looping' | 'building' | 'ready'>('looping');
   const gearsOverlayOpacity = useRef(new Animated.Value(1)).current;
   const gearsBtnOpacity = useRef(new Animated.Value(0)).current;
   const lottieFadeOut = useRef(new Animated.Value(1)).current;
   const carImageFadeIn = useRef(new Animated.Value(0)).current;
-  // AI profile building messages
-  const AI_MESSAGES = [
-    "Building your vehicle profile…",
-    "Analyzing service data…",
-    "Generating health insights…",
-    "Calculating maintenance schedule…",
-    "Preparing recommendations…",
-    "Almost there…",
+  // AI profile building steps (Claude-like sequential task list)
+  const AI_STEPS = [
+    { icon: "car-sport-outline" as const, label: "Reading vehicle identification data…" },
+    { icon: "search-outline" as const, label: "Cross-referencing VIN with manufacturer records…" },
+    { icon: "speedometer-outline" as const, label: "Analyzing odometer and driving patterns…" },
+    { icon: "construct-outline" as const, label: "Evaluating maintenance history and service gaps…" },
+    { icon: "analytics-outline" as const, label: "Computing health score from 12 data signals…" },
+    { icon: "calendar-outline" as const, label: "Generating personalized maintenance schedule…" },
+    { icon: "shield-checkmark-outline" as const, label: "Finalizing vehicle profile and recommendations…" },
   ];
-  const [aiMsgIndex, setAiMsgIndex] = useState(0);
-  const aiMsgOpacity = useRef(new Animated.Value(0)).current;
+  const [completedSteps, setCompletedSteps] = useState(0);
+  const [activeStep, setActiveStep] = useState(0);
+  const stepOpacities = useRef(AI_STEPS.map(() => new Animated.Value(0))).current;
+  const stepIconScales = useRef(AI_STEPS.map(() => new Animated.Value(0.5))).current;
+  const lineHeights = useRef(AI_STEPS.map(() => new Animated.Value(0))).current;
+  const aiStepTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const carPulseAnim = useRef(new Animated.Value(1)).current;
-  const aiMsgIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const carPulseLoopRef = useRef<Animated.CompositeAnimation | null>(null);
 
   // Emotional animation refs
@@ -456,9 +463,9 @@ export default function CarsHomeScreen() {
         setShowHealthRingSheet(false);
       });
     } else {
-      // Confirmed mode: slide health page right (reveals gears underneath), then run gears flow
+      // Confirmed mode: slide health page left (reveals gears underneath), then run gears flow
       Animated.parallel([
-        Animated.timing(healthPageSlideX, { toValue: 300, duration: 400, easing: Easing.in(Easing.ease), useNativeDriver: true }),
+        Animated.timing(healthPageSlideX, { toValue: -300, duration: 400, easing: Easing.in(Easing.ease), useNativeDriver: true }),
         Animated.timing(healthPageFade, { toValue: 0, duration: 350, easing: Easing.in(Easing.ease), useNativeDriver: true }),
       ]).start(() => {
         setHealthPageVisible(false);
@@ -471,52 +478,75 @@ export default function CarsHomeScreen() {
         setGearsPhase('building');
         gearsBtnOpacity.setValue(0);
 
-        // Start cycling AI messages
-        setAiMsgIndex(0);
-        aiMsgOpacity.setValue(0);
-        Animated.timing(aiMsgOpacity, { toValue: 1, duration: 400, useNativeDriver: true }).start();
-        aiMsgIntervalRef.current = setInterval(() => {
-          Animated.timing(aiMsgOpacity, { toValue: 0, duration: 300, useNativeDriver: true }).start(() => {
-            setAiMsgIndex((prev) => (prev + 1) % 6);
-            Animated.timing(aiMsgOpacity, { toValue: 1, duration: 400, useNativeDriver: true }).start();
-          });
-        }, 2200);
+        // Reset step state
+        setCompletedSteps(0);
+        setActiveStep(0);
+        stepOpacities.forEach(o => o.setValue(0));
+        stepIconScales.forEach(s => s.setValue(0.5));
+        lineHeights.forEach(h => h.setValue(0));
 
         // Start pulsing car image
         carPulseAnim.setValue(1);
         const pulse = Animated.loop(
           Animated.sequence([
-            Animated.timing(carPulseAnim, { toValue: 0.3, duration: 2000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+            Animated.timing(carPulseAnim, { toValue: 0.6, duration: 2000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
             Animated.timing(carPulseAnim, { toValue: 1, duration: 2000, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
           ])
         );
         carPulseLoopRef.current = pulse;
         pulse.start();
 
-        // After 6s, transition to "optimized" state
-        setTimeout(() => {
-          // Stop cycling & pulsing
-          if (aiMsgIntervalRef.current) clearInterval(aiMsgIntervalRef.current);
-          aiMsgIntervalRef.current = null;
-          if (carPulseLoopRef.current) carPulseLoopRef.current.stop();
-          carPulseAnim.setValue(1);
+        // Sequentially reveal each step (Claude-like)
+        const STEP_DELAY = 1800; // ms between each step appearing
+        const revealStep = (idx: number) => {
+          if (idx >= AI_STEPS.length) {
+            // All steps done — transition to ready phase after a pause
+            aiStepTimeoutRef.current = setTimeout(() => {
+              if (carPulseLoopRef.current) carPulseLoopRef.current.stop();
+              carPulseAnim.setValue(1);
+              setCompletedSteps(AI_STEPS.length);
 
-          // Fade out AI messages, fade in car + "optimized" text
+              Animated.parallel([
+                Animated.timing(lottieFadeOut, { toValue: 0, duration: 600, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+                Animated.timing(carImageFadeIn, { toValue: 1, duration: 800, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+              ]).start();
+
+              setGearsPhase('ready');
+              Animated.timing(gearsBtnOpacity, { toValue: 1, duration: 400, delay: 600, useNativeDriver: true }).start();
+            }, 1200);
+            return;
+          }
+
+          setActiveStep(idx);
+          // Animate step appearing
           Animated.parallel([
-            Animated.timing(lottieFadeOut, { toValue: 0, duration: 600, easing: Easing.out(Easing.ease), useNativeDriver: true }),
-            Animated.timing(carImageFadeIn, { toValue: 1, duration: 800, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+            Animated.timing(stepOpacities[idx], { toValue: 1, duration: 400, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+            Animated.spring(stepIconScales[idx], { toValue: 1, damping: 15, stiffness: 200, useNativeDriver: true }),
           ]).start();
 
-          setGearsPhase('ready');
-          Animated.timing(gearsBtnOpacity, { toValue: 1, duration: 400, delay: 600, useNativeDriver: true }).start();
-        }, 6000);
+          // Animate connecting line growing (after step is visible)
+          if (idx > 0) {
+            Animated.timing(lineHeights[idx - 1], { toValue: 1, duration: 500, easing: Easing.out(Easing.ease), useNativeDriver: false }).start();
+          }
+
+          // Mark previous step as completed after a brief delay
+          if (idx > 0) {
+            setTimeout(() => setCompletedSteps(idx), 300);
+          }
+
+          // Schedule next step
+          aiStepTimeoutRef.current = setTimeout(() => revealStep(idx + 1), STEP_DELAY);
+        };
+
+        // Start first step after a short pause
+        aiStepTimeoutRef.current = setTimeout(() => revealStep(0), 600);
       });
     }
   }, [healthPageSlideX, healthPageFade, mainPageSlideX, mainPageFade, gearsBtnOpacity]);
 
   const dismissGearsOverlay = useCallback(() => {
-    // Clean up AI message cycling & car pulse
-    if (aiMsgIntervalRef.current) { clearInterval(aiMsgIntervalRef.current); aiMsgIntervalRef.current = null; }
+    // Clean up AI step sequencing & car pulse
+    if (aiStepTimeoutRef.current) { clearTimeout(aiStepTimeoutRef.current); aiStepTimeoutRef.current = null; }
     if (carPulseLoopRef.current) { carPulseLoopRef.current.stop(); carPulseLoopRef.current = null; }
     // Bring main page back in underneath, then fade out gears
     mainPageSlideX.setValue(0);
@@ -1103,19 +1133,6 @@ export default function CarsHomeScreen() {
         })()}
 
         {/* ═══════════════════════════════════════════════════════════════════
-            SMARTCAR STATS (only for connected vehicles)
-        ═══════════════════════════════════════════════════════════════════ */}
-        {isActiveVehicleConnected && activeVehicle?.connectionStatus === 'connected' && smartcarStats && (
-          <VehicleStatsCard
-            stats={smartcarStats}
-            tripStats={tripStats}
-            nextServicePrediction={nextServicePrediction}
-            onRefresh={handleSmartcarRefresh}
-            isRefreshing={isRefreshingSmartcar}
-          />
-        )}
-
-        {/* ═══════════════════════════════════════════════════════════════════
             BOTTOM SECTION: Maintenance, Service History, Loyalty
         ═══════════════════════════════════════════════════════════════════ */}
         <View style={styles.bottomSection}>
@@ -1147,7 +1164,7 @@ export default function CarsHomeScreen() {
             </View>
           )}
 
-          
+
 
           {/* Quarterly Check-in Banner */}
           {activeOwnershipId && isPreOnboardingComplete && (
@@ -1175,6 +1192,19 @@ export default function CarsHomeScreen() {
             />
           )}
 
+        {/* ═══════════════════════════════════════════════════════════════════
+            SMARTCAR STATS (only for connected vehicles)
+        ═══════════════════════════════════════════════════════════════════ */}
+        {isActiveVehicleConnected && activeVehicle?.connectionStatus === 'connected' && smartcarStats && (
+          <VehicleStatsCard
+            stats={smartcarStats}
+            tripStats={tripStats}
+            nextServicePrediction={nextServicePrediction}
+            onRefresh={handleSmartcarRefresh}
+            isRefreshing={isRefreshingSmartcar}
+          />
+        )}
+
           {/* Service History Section (hidden until onboarding complete) */}
           {(isActiveVehicleConnected || isOnboardingComplete) && <ServiceHistory
             records={serviceRecords}
@@ -1199,17 +1229,23 @@ export default function CarsHomeScreen() {
                   copyToCacheDirectory: true,
                 });
                 if (!result.canceled && result.assets.length > 0) {
-                  // TODO: Upload/process the picked documents
-                  console.log("Picked documents:", result.assets);
-                  Alert.alert(
-                    "Documents Selected",
-                    `${result.assets.length} file${result.assets.length !== 1 ? 's' : ''} selected. Upload coming soon!`
-                  );
+                  const newDocs: PickedDocument[] = result.assets.map(asset => ({
+                    uri: asset.uri,
+                    name: asset.name,
+                    mimeType: asset.mimeType ?? 'application/octet-stream',
+                    size: asset.size ?? undefined,
+                  }));
+                  setPickedDocuments(prev => [...prev, ...newDocs]);
                 }
               } catch (err) {
                 console.error("Document picker error:", err);
               }
             }}
+            documents={pickedDocuments}
+            onRemoveDocument={(index) => {
+              setPickedDocuments(prev => prev.filter((_, i) => i !== index));
+            }}
+            onOpenDocument={(doc) => setViewingDocument(doc)}
           />}
 
           {/* Loyalty Points Section (hidden until onboarding complete) */}
@@ -1550,11 +1586,12 @@ export default function CarsHomeScreen() {
       {gearsOverlayVisible && (
         <Animated.View style={[StyleSheet.absoluteFillObject, { opacity: gearsOverlayOpacity, zIndex: 35 }]}>
           <View style={[StyleSheet.absoluteFill, { backgroundColor: '#FFFFFF' }]} pointerEvents="none" />
-          {/* Building phase: pulsing car image + cycling AI messages */}
+          {/* Building phase: car image + sequential AI task list */}
           {gearsPhase !== 'looping' && (
-            <Animated.View style={{ position: 'absolute', top: '30%', left: 0, right: 0, alignItems: 'center', opacity: lottieFadeOut }}>
+            <Animated.View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, opacity: lottieFadeOut }}>
+              {/* Car image at top */}
               {activeVehicle?.imageSource && (
-                <Animated.View style={{ opacity: carPulseAnim, width: scale(340), height: scale(210), marginBottom: scale(24) }}>
+                <Animated.View style={{ opacity: carPulseAnim, width: scale(280), height: scale(170), alignSelf: 'center', marginTop: verticalScale(100) }}>
                   <Image
                     source={activeVehicle.imageSource}
                     style={{ width: '100%', height: '100%' }}
@@ -1562,41 +1599,103 @@ export default function CarsHomeScreen() {
                   />
                 </Animated.View>
               )}
-              <Animated.View style={{ opacity: aiMsgOpacity }}>
-                <Text weight="semiBold" size="lg" color="#5299FE" style={{ textAlign: 'center' }}>
-                  {AI_MESSAGES[aiMsgIndex]}
-                </Text>
-              </Animated.View>
-            </Animated.View>
-          )}
-          {/* Ready phase: car image revealed + "optimized" text */}
-          {activeVehicle?.imageSource && (
-            <Animated.View style={{ position: 'absolute', top: '35%', left: 0, right: 0, alignItems: 'center', opacity: carImageFadeIn, transform: [{ scale: carImageFadeIn.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) }] }}>
-              <View style={{ width: scale(320), height: scale(240), alignItems: 'center', justifyContent: 'center' }}>
-                <Image
-                  source={activeVehicle.imageSource}
-                  style={{ width: '100%', height: scale(180), zIndex: 1, transform: [{ translateY: scale(155) }] }}
-                  resizeMode="stretch"
-                />
-                <Image
-                  source={activeVehicle.imageSource}
-                  style={{ width: '100%', height: scale(180), transform: [{ scaleY: -1 }], opacity: 0.03, marginTop: scale(-40) }}
-                  resizeMode="stretch"
-                />
+              {/* Sequential step list */}
+              <View style={{ paddingHorizontal: scale(28), marginTop: scale(24) }}>
+                {AI_STEPS.map((step, idx) => {
+                  const isCompleted = idx < completedSteps;
+                  const isActive = idx === activeStep && idx >= completedSteps;
+                  return (
+                    <Animated.View key={idx} style={{ opacity: stepOpacities[idx] }}>
+                      {/* Connecting line from previous step */}
+                      {idx > 0 && (
+                        <View style={{ marginLeft: scale(15), width: 2, overflow: 'hidden' }}>
+                          <Animated.View style={{ width: 2, height: lineHeights[idx - 1].interpolate({ inputRange: [0, 1], outputRange: [0, scale(16)] }), backgroundColor: isCompleted ? '#5299FE' : '#E2E8F0' }} />
+                        </View>
+                      )}
+                      {/* Step row */}
+                      <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: scale(6) }}>
+                        {/* Icon circle */}
+                        <Animated.View style={{
+                          width: scale(32), height: scale(32), borderRadius: scale(16),
+                          backgroundColor: isCompleted ? '#5299FE' : isActive ? 'rgba(82,153,254,0.12)' : '#F1F5F9',
+                          alignItems: 'center', justifyContent: 'center',
+                          transform: [{ scale: stepIconScales[idx] }],
+                        }}>
+                          {isCompleted ? (
+                            <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+                          ) : (
+                            <Ionicons name={step.icon} size={16} color={isActive ? '#5299FE' : '#94A3B8'} />
+                          )}
+                        </Animated.View>
+                        {/* Label */}
+                        <Text
+                          weight={isActive ? 'semiBold' : 'medium'}
+                          style={{
+                            fontSize: moderateScale(13.5),
+                            color: isCompleted ? '#64748B' : isActive ? '#0F172A' : '#94A3B8',
+                            marginLeft: scale(12),
+                            flex: 1,
+                          }}
+                        >
+                          {step.label}
+                        </Text>
+                      </View>
+                    </Animated.View>
+                  );
+                })}
               </View>
             </Animated.View>
           )}
-          {gearsPhase !== 'looping' && (
-            <View style={{ zIndex: 1, marginTop: Platform.OS === 'ios' ? scale(140) : scale(96), alignItems: 'center', paddingHorizontal: scale(24) }}>
-              <Animated.View style={{ position: 'absolute', opacity: carImageFadeIn }}>
+          {/* Ready phase: title + car image + completed steps */}
+          {gearsPhase === 'ready' && (
+            <Animated.View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, opacity: carImageFadeIn }}>
+              {/* Title — near top */}
+              <View style={{ alignItems: 'center', marginTop: verticalScale(72) }}>
                 <Text weight="bold" size="3xl" color="#0F172A" style={{ textAlign: 'center' }}>
                   Vehicle profile optimized
                 </Text>
-              </Animated.View>
-            </View>
+              </View>
+              {/* Car image — below title */}
+              {activeVehicle?.imageSource && (
+                <Animated.View style={{ alignSelf: 'center', marginTop: scale(16), transform: [{ scale: carImageFadeIn.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) }] }}>
+                  <View style={{ width: scale(280), height: scale(170), alignItems: 'center', justifyContent: 'center' }}>
+                    <Image
+                      source={activeVehicle.imageSource}
+                      style={{ width: '100%', height: '100%' }}
+                      resizeMode="contain"
+                    />
+                  </View>
+                </Animated.View>
+              )}
+              {/* Completed steps list */}
+              <View style={{ paddingHorizontal: scale(28), marginTop: scale(20) }}>
+                {AI_STEPS.map((step, idx) => (
+                  <View key={idx}>
+                    {idx > 0 && (
+                      <View style={{ marginLeft: scale(15), width: 2, height: scale(16), backgroundColor: '#5299FE' }} />
+                    )}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', paddingVertical: scale(6) }}>
+                      <View style={{
+                        width: scale(32), height: scale(32), borderRadius: scale(16),
+                        backgroundColor: '#5299FE',
+                        alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+                      </View>
+                      <Text
+                        weight="medium"
+                        style={{ fontSize: moderateScale(13.5), color: '#64748B', marginLeft: scale(12), flex: 1 }}
+                      >
+                        {step.label.replace('…', '')}
+                      </Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </Animated.View>
           )}
           {gearsPhase === 'ready' && (
-            <Animated.View style={{ opacity: gearsBtnOpacity, zIndex: 1, position: 'absolute', bottom: insets.bottom + scale(40), left: scale(24), right: scale(24) }}>
+            <Animated.View style={{ opacity: gearsBtnOpacity, zIndex: 1, position: 'absolute', bottom: insets.bottom, left: scale(24), right: scale(24) }}>
               <Pressable
                 onPress={dismissGearsOverlay}
                 style={({ pressed }) => [healthSheetStyles.ctaButton, pressed && { opacity: 0.9 }]}
@@ -1614,6 +1713,42 @@ export default function CarsHomeScreen() {
           )}
         </Animated.View>
       )}
+      </Modal>
+
+      {/* Document Viewer Modal */}
+      <Modal
+        visible={!!viewingDocument}
+        animationType="slide"
+        presentationStyle="pageSheet"
+        onRequestClose={() => setViewingDocument(null)}
+      >
+        <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: verticalScale(56), paddingHorizontal: scale(16), paddingBottom: scale(12), borderBottomWidth: 1, borderBottomColor: '#E5E7EB' }}>
+            <Text weight="semiBold" style={{ fontSize: moderateScale(16), color: '#16293B', flex: 1 }} numberOfLines={1}>
+              {viewingDocument?.name ?? 'Document'}
+            </Text>
+            <Pressable onPress={() => setViewingDocument(null)} hitSlop={12}>
+              <Ionicons name="close-circle" size={28} color="#9CA3AF" />
+            </Pressable>
+          </View>
+          {viewingDocument?.mimeType.startsWith('image/') ? (
+            <Image
+              source={{ uri: viewingDocument.uri }}
+              style={{ flex: 1 }}
+              resizeMode="contain"
+            />
+          ) : (
+            <WebView
+              source={{ uri: viewingDocument?.uri ?? '' }}
+              style={{ flex: 1 }}
+              originWhitelist={['*']}
+              allowFileAccess
+              allowFileAccessFromFileURLs
+              allowUniversalAccessFromFileURLs
+              startInLoadingState
+            />
+          )}
+        </View>
       </Modal>
 
     </View>
@@ -1865,7 +2000,7 @@ const revealStyles = StyleSheet.create({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#f1ecfe", // Fallback
+    backgroundColor: "#FFFFFF",
   },
   emptyContainer: {
     justifyContent: "center",

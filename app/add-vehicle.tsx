@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // 2. Expo & Third-party
 import { StatusBar } from 'expo-status-bar';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { ArrowLeft, QrCode, Edit3 } from 'lucide-react-native';
 import { useAction } from 'convex/react';
@@ -274,13 +275,20 @@ export default function AddVehicleScreen() {
               isDecoding && styles.buttonDisabled,
             ]}
           >
-            {isDecoding ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
-            ) : (
-              <Text weight="semiBold" size="md" color="#FFFFFF" style={styles.scanVinButtonText}>
-                DECODE VIN
-              </Text>
-            )}
+            <LinearGradient
+              colors={['#7BB8FF', '#5299FE', '#3B7FEB']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.scanVinButtonGradient}
+            >
+              {isDecoding ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Text weight="bold" size="md" color="#FFFFFF">
+                  Decode VIN
+                </Text>
+              )}
+            </LinearGradient>
           </Pressable>
         ) : (
           <Pressable
@@ -290,10 +298,17 @@ export default function AddVehicleScreen() {
               pressed && styles.scanVinButtonPressed,
             ]}
           >
-            <QrCode size={scale(20)} color="#FFFFFF" strokeWidth={2} />
-            <Text weight="semiBold" size="md" color="#FFFFFF" style={styles.scanVinButtonText}>
-              SCAN VIN
-            </Text>
+            <LinearGradient
+              colors={['#7BB8FF', '#5299FE', '#3B7FEB']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.scanVinButtonGradient}
+            >
+              <QrCode size={scale(20)} color="#FFFFFF" strokeWidth={2} />
+              <Text weight="bold" size="md" color="#FFFFFF">
+                Scan VIN
+              </Text>
+            </LinearGradient>
           </Pressable>
         )}
 
@@ -419,19 +434,25 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   scanVinButton: {
-    backgroundColor: '#5299FE',
-    borderRadius: moderateScale(30),
-    paddingVertical: scale(16),
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-    gap: scale(8),
+    borderRadius: moderateScale(24),
+    overflow: 'hidden',
+    shadowColor: 'rgba(82,153,254,0.3)',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 12,
+    elevation: 4,
   },
   scanVinButtonPressed: {
-    opacity: 0.8,
+    opacity: 0.85,
+    transform: [{ scale: 0.98 }],
   },
-  scanVinButtonText: {
-    letterSpacing: scale(0.5),
+  scanVinButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: scale(8),
+    paddingVertical: scale(16),
+    paddingHorizontal: scale(32),
   },
   manualEntryButton: {
     flexDirection: 'row',

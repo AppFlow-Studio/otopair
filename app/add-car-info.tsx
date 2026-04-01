@@ -395,7 +395,7 @@ export default function ReviewVehicleDetailsScreen() {
       console.warn("Convex add vehicle failed", e);
     }
     router.push({
-      pathname: "/car-pre-onboarding",
+      pathname: "/vehicle-added",
       params: {
         flow: "manual",
         vehicleOwnerId: createdOwnershipId ?? "",

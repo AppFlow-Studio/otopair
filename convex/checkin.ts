@@ -224,14 +224,36 @@ export const completeCheckin = mutation({
 
     // Update known issues from warning lights + symptom flags
     {
+      const WARNING_FLAGS = [
+        "check_engine", "oil_pressure", "battery_charging",
+        "abs", "tpms", "airbag_srs", "transmission",
+      ];
       const existingIssues = (await ctx.db.get(args.vehicleOwnerId))
         ?.knownIssues as string[] | undefined ?? [];
-      const newIssues = new Set(existingIssues);
-      if (warningLights) newIssues.add("check_engine");
-      for (const flag of symptomFlags) newIssues.add(flag);
-      const merged = [...newIssues];
-      if (merged.length !== existingIssues.length) {
-        await ctx.db.patch(args.vehicleOwnerId, { knownIssues: merged });
+
+      let updated: string[];
+      if (warningLights) {
+        // Add new flags on top of existing
+        const newIssues = new Set(existingIssues);
+        newIssues.add("check_engine");
+        for (const flag of symptomFlags) newIssues.add(flag);
+        updated = [...newIssues];
+      } else {
+        // No warning lights reported — clear all warning-light flags
+        updated = existingIssues.filter(
+          (i: string) => !WARNING_FLAGS.includes(i)
+        );
+        // Re-add symptom flags (non-light issues like alignment, noise)
+        for (const flag of symptomFlags) {
+          if (!updated.includes(flag)) updated.push(flag);
+        }
+      }
+
+      if (
+        updated.length !== existingIssues.length ||
+        updated.some((v, i) => v !== existingIssues[i])
+      ) {
+        await ctx.db.patch(args.vehicleOwnerId, { knownIssues: updated });
       }
     }
 
@@ -241,6 +263,7 @@ export const completeCheckin = mutation({
         oil_change: "oil",
         brakes: "brakes",
         tires: "tires",
+        battery: "battery",
         inspection: "inspection",
       };
 
@@ -261,9 +284,18 @@ export const completeCheckin = mutation({
           .unique();
 
         if (existing) {
+          // Clear old symptom data — service resets the condition
+          const SYMPTOM_KEYS = ["brakeFeel", "squeaking", "tireRepaired", "recency"];
+          const currentInputs = (existing.customInputs ?? {}) as Record<string, unknown>;
+          const cleaned: Record<string, unknown> = {};
+          for (const [k, v] of Object.entries(currentInputs)) {
+            if (!SYMPTOM_KEYS.includes(k)) cleaned[k] = v;
+          }
           await ctx.db.patch(existing._id, {
             lastServiceDate: now,
             lastServiceMileage: args.mileageReported,
+            customInputs: cleaned,
+            confirmedHealthyAt: now,
             serviceSource,
             confidence,
             updatedAt: now,
@@ -293,6 +325,76 @@ export const completeCheckin = mutation({
         await ctx.db.patch(args.vehicleOwnerId, {
           knownIssues: [...existingIssues, batteryFlag],
         });
+      }
+    }
+
+    // Q4b: Confirmed-healthy parts → stamp confirmedHealthyAt in customInputs
+    const q4bAnswer = Array.isArray(answers.Q4b) ? answers.Q4b : [];
+    const HEALTHY_MAP: Record<string, string> = {
+      oil_good: "oil",
+      brakes_good: "brakes",
+      tires_good: "tires",
+      battery_good: "battery",
+    };
+    const confirmedTypes = q4bAnswer
+      .map((v: string) => HEALTHY_MAP[v])
+      .filter((t): t is string => !!t);
+
+    for (const partType of confirmedTypes) {
+      // Always process — Q4b clears symptoms that Q2 doesn't fully cover
+      const existing = await ctx.db
+        .query("maintenance_records")
+        .withIndex("by_vehicle_and_type", (q) =>
+          q.eq("vehicleOwnerId", args.vehicleOwnerId).eq("type", partType)
+        )
+        .unique();
+
+      if (existing) {
+        // Clear old symptom/issue data — user is confirming "all good"
+        const SYMPTOM_KEYS = ["brakeFeel", "squeaking", "tireRepaired", "recency"];
+        const currentInputs = (existing.customInputs ?? {}) as Record<string, unknown>;
+        const cleaned: Record<string, unknown> = {};
+        for (const [k, v] of Object.entries(currentInputs)) {
+          if (!SYMPTOM_KEYS.includes(k)) cleaned[k] = v;
+        }
+        await ctx.db.patch(existing._id, {
+          customInputs: cleaned,
+          confirmedHealthyAt: now,
+          updatedAt: now,
+        });
+      } else {
+        await ctx.db.insert("maintenance_records", {
+          vehicleOwnerId: args.vehicleOwnerId,
+          type: partType,
+          confirmedHealthyAt: now,
+          serviceSource: "checkin_confirmation",
+          confidence: "self_reported",
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+    }
+
+    // Q4b: Also clear warning-light flags for confirmed-healthy parts
+    if (confirmedTypes.length > 0) {
+      const HEALTHY_TO_LIGHT: Record<string, string> = {
+        oil: "oil_pressure",
+        brakes: "abs",
+        tires: "tpms",
+        battery: "battery_charging",
+      };
+      const lightsToRemove = confirmedTypes
+        .map((t: string) => HEALTHY_TO_LIGHT[t])
+        .filter(Boolean);
+      if (lightsToRemove.length > 0) {
+        const owner = await ctx.db.get(args.vehicleOwnerId);
+        const currentIssues = (owner?.knownIssues as string[] | undefined) ?? [];
+        const cleaned = currentIssues.filter(
+          (i: string) => !lightsToRemove.includes(i)
+        );
+        if (cleaned.length !== currentIssues.length) {
+          await ctx.db.patch(args.vehicleOwnerId, { knownIssues: cleaned });
+        }
       }
     }
 

@@ -36,16 +36,10 @@ interface MaintenanceDetailViewProps {
 // CONSTANTS
 // ============================================================================
 
-const OVERDUE_GRADIENT: [string, ...string[]] = [
-  '#5C1A14', '#7A2820', '#A33328', '#C0392B', '#D45246',
-  '#E0736A', '#E8948C', '#F0B5AE', '#F5CEC9', '#F9DFDC',
-  '#FCEEED', '#FEF6F5', '#FFFFFF',
-];
-
-const DUE_SOON_GRADIENT: [string, ...string[]] = [
-  '#4A3800', '#6B5700', '#9E8200', '#F5C623', '#F7D24E',
-  '#FADA6E', '#FCE18E', '#FDE8AE', '#FEEECC', '#FFF3E0',
-  '#FFF8EE', '#FFFCF7', '#FFFFFF',
+const BLUE_GRADIENT: [string, ...string[]] = [
+  '#1A3A5C', '#204B78', '#2E6AAE', '#5299FE', '#6DACFE',
+  '#8ABFFE', '#A6D0FE', '#C2E0FE', '#D9ECFE', '#E8F3FE',
+  '#F2F8FF', '#F9FCFF', '#FFFFFF',
 ];
 
 const GRADIENT_LOCATIONS: number[] = [
@@ -54,25 +48,31 @@ const GRADIENT_LOCATIONS: number[] = [
 
 const STATUS_CONFIG = {
   overdue: {
-    color: '#C0392B',
-    softColor: '#E07468',
+    color: '#5299FE',
+    softColor: '#8ABFFE',
+    pillColor: '#C0392B',
+    ringColor: '#C0392B',
     label: 'OVERDUE',
-    headerGradient: OVERDUE_GRADIENT,
-    buttonGradient: ['#D35448', '#C0392B', '#A93226'] as [string, string, string],
+    headerGradient: BLUE_GRADIENT,
+    buttonGradient: ['#6DACFE', '#5299FE', '#3A7FE0'] as [string, string, string],
   },
   due_soon: {
-    color: '#F5C623',
-    softColor: '#FADA6E',
+    color: '#5299FE',
+    softColor: '#8ABFFE',
+    pillColor: '#F5C623',
+    ringColor: '#F5C623',
     label: 'NEEDS ATTENTION',
-    headerGradient: DUE_SOON_GRADIENT,
-    buttonGradient: ['#FADA6E', '#F5C623', '#D4AA1C'] as [string, string, string],
+    headerGradient: BLUE_GRADIENT,
+    buttonGradient: ['#6DACFE', '#5299FE', '#3A7FE0'] as [string, string, string],
   },
   needs_attention: {
-    color: '#F5C623',
-    softColor: '#FADA6E',
+    color: '#5299FE',
+    softColor: '#8ABFFE',
+    pillColor: '#F5C623',
+    ringColor: '#F5C623',
     label: 'NEEDS ATTENTION',
-    headerGradient: DUE_SOON_GRADIENT,
-    buttonGradient: ['#FADA6E', '#F5C623', '#D4AA1C'] as [string, string, string],
+    headerGradient: BLUE_GRADIENT,
+    buttonGradient: ['#6DACFE', '#5299FE', '#3A7FE0'] as [string, string, string],
   },
 };
 
@@ -359,7 +359,7 @@ export default function MaintenanceDetailView({
               <Text weight="extraBold" style={styles.title}>
                 {item.serviceName}
               </Text>
-              <View style={styles.statusPill}>
+              <View style={[styles.statusPill, { backgroundColor: config.pillColor }]}>
                 <Text weight="bold" style={styles.statusPillText}>{config.label}</Text>
               </View>
             </View>
@@ -392,7 +392,7 @@ export default function MaintenanceDetailView({
               <Animated.View style={[styles.ringsRow, ringsAnimStyle]}>
                 <HealthRing
                   score={currentHealthScore}
-                  strokeColor={config.color}
+                  strokeColor={config.ringColor}
                   label="Current"
                   sublabel="Health score"
                 />
@@ -548,9 +548,7 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     paddingHorizontal: scale(16),
     borderRadius: moderateScale(20),
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.12)',
+    borderWidth: 0,
     marginTop: scale(16),
   },
   statusPillText: {

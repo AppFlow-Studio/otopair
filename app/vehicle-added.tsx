@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // 2. Expo & Third-party
 import { StatusBar } from 'expo-status-bar';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { ArrowLeft } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
@@ -158,10 +159,10 @@ export default function VehicleAddedScreen() {
   };
 
   const handleViewVehicle = () => {
-    if (isManualAddFlow && vehicleOwnerId && !cameFromPreOnboarding) {
+    if (vehicleOwnerId) {
       router.replace({
         pathname: '/car-pre-onboarding',
-        params: { vehicleOwnerId },
+        params: { vehicleOwnerId, flow: params.flow ?? "manual" },
       });
       return;
     }
@@ -223,7 +224,7 @@ export default function VehicleAddedScreen() {
             YOUR VEHICLE HAS BEEN ADDED
           </Text>
           <Text size="sm" color="#666666" style={styles.successDescription}>
-            Your vehicle is now ready to go. You can view and manage it from your garage.
+            Just a few quick questions about your car and we'll set up your personalized maintenance plan.
           </Text>
         </Animated.View>
       </View>
@@ -246,9 +247,16 @@ export default function VehicleAddedScreen() {
             pressed && styles.viewVehicleButtonPressed,
           ]}
         >
-          <Text weight="semiBold" size="md" color="#FFFFFF" style={styles.viewVehicleButtonText}>
-            {isManualAddFlow ? "CONTINUE" : "VIEW MY VEHICLE"}
-          </Text>
+          <LinearGradient
+            colors={['#7BB8FF', '#5299FE', '#3B7FEB']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.viewVehicleButtonGradient}
+          >
+            <Text weight="bold" size="md" color="#FFFFFF">
+              {isManualAddFlow ? "Continue" : "View My Vehicle"}
+            </Text>
+          </LinearGradient>
         </Pressable>
       </Animated.View>
     </View>
@@ -324,16 +332,23 @@ const styles = StyleSheet.create({
     zIndex: 20,
   },
   viewVehicleButton: {
-    backgroundColor: '#5299FE',
-    borderRadius: moderateScale(30),
-    paddingVertical: scale(16),
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderRadius: moderateScale(24),
+    overflow: 'hidden',
+    shadowColor: 'rgba(82,153,254,0.3)',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 12,
+    elevation: 4,
   },
   viewVehicleButtonPressed: {
-    opacity: 0.8,
+    opacity: 0.85,
+    transform: [{ scale: 0.98 }],
   },
-  viewVehicleButtonText: {
-    letterSpacing: 0.5,
+  viewVehicleButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: scale(16),
+    paddingHorizontal: scale(32),
   },
 });

@@ -61,6 +61,18 @@ export const SMARTCAR_ID_TO_TYPE: Record<string, MaintenanceType> = {
 };
 
 // ============================================================================
+// CONFIRMED HEALTHY (from quarterly check-in Q4b)
+// ============================================================================
+
+const CONFIRMED_HEALTHY_TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
+
+function isConfirmedHealthy(record: MaintenanceRecord, now: number): boolean {
+  const confirmedAt = record.confirmedHealthyAt;
+  if (!confirmedAt) return false;
+  return (now - confirmedAt) < CONFIRMED_HEALTHY_TTL_MS;
+}
+
+// ============================================================================
 // MONTHLY DRIVING AVERAGE
 // ============================================================================
 
@@ -256,6 +268,7 @@ interface MaintenanceRecord {
   lastServiceDate?: number; // Unix timestamp
   lastServiceMileage?: number;
   customInputs?: Record<string, unknown>;
+  confirmedHealthyAt?: number;
 }
 
 interface StatusResult {
@@ -331,6 +344,12 @@ function computeOilStatus(
   knownIssues?: string[]
 ): StatusResult {
   const result = computeHybridStatus("oil", record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving);
+
+  // Confirmed healthy (Q4b) overrides both interval and warning-light escalation
+  // because the user explicitly said "all good" in the same check-in that asks about lights
+  if (isConfirmedHealthy(record, now)) {
+    return { status: "on_time", percentUsed: 0, description: "Confirmed in good shape", detail: "On time" };
+  }
 
   if (knownIssues?.includes("oil_pressure")) {
     return escalateForWarningLight(result, "Oil pressure warning light active — service urgently needed");
@@ -455,6 +474,10 @@ function computeTireStatus(
   avgMonthlyDriving?: string,
   knownIssues?: string[]
 ): StatusResult {
+  if (isConfirmedHealthy(record, now)) {
+    return { status: "on_time", percentUsed: 0, description: "Confirmed in good shape", detail: "On time" };
+  }
+
   const result = computeTireStatusCore(record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving);
 
   if (knownIssues?.includes("tpms")) {
@@ -532,6 +555,11 @@ function computeTireStatusCore(
         };
       }
     }
+  }
+
+  // Confirmed healthy via check-in → on_time (tire pressure safety checks above still take priority)
+  if (isConfirmedHealthy(record, now)) {
+    return { status: "on_time", percentUsed: 0, description: "Confirmed in good shape", detail: "On time" };
   }
 
   // Quick Read fields
@@ -622,6 +650,11 @@ function computeBrakeStatus(
   avgMonthlyDriving?: string,
   knownIssues?: string[]
 ): StatusResult {
+  // Confirmed healthy overrides both interval and warning-light escalation
+  if (isConfirmedHealthy(record, now)) {
+    return { status: "on_time", percentUsed: 0, description: "Confirmed in good shape", detail: "On time" };
+  }
+
   const result = computeBrakeStatusCore(record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving);
 
   if (knownIssues?.includes("abs")) {
@@ -701,6 +734,11 @@ function computeBrakeStatusCore(
     };
   }
 
+  // No symptoms, confirmed healthy via check-in → on_time
+  if (!hasSymptom && isConfirmedHealthy(record, now)) {
+    return { status: "on_time", percentUsed: 0, description: "Confirmed in good shape", detail: "On time" };
+  }
+
   // No symptoms, no interval data — user reported brakes are fine
   if (!hasIntervalData) {
     return { status: "on_time", percentUsed: 0, description: "Brakes feel fine — no concerns reported", detail: "On time" };
@@ -716,6 +754,11 @@ function computeBatteryStatus(
   now: number,
   knownIssues?: string[]
 ): StatusResult {
+  // Confirmed healthy overrides both interval and warning-light escalation
+  if (isConfirmedHealthy(record, now)) {
+    return { status: "on_time", percentUsed: 0, description: "Confirmed in good shape", detail: "On time" };
+  }
+
   const hasWarningLight = knownIssues?.includes("battery_charging") === true;
 
   if (!record.lastServiceDate) {

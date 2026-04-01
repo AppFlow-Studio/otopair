@@ -25,6 +25,7 @@
 import React, { useRef, useState } from 'react';
 import {
   Pressable,
+  ScrollView,
   StyleSheet,
   View,
 } from 'react-native';
@@ -42,6 +43,7 @@ import SharedElementModal, { LayoutInfo } from './SharedElementModal';
 // 5. Constants, hooks, types
 import { BrandColors, Colors, Spacing } from '@/constants/theme';
 import { scale, moderateScale } from '@/utils/responsive';
+import DocumentThumbnail from './DocumentThumbnail';
 
 // ============================================================================
 // TYPES
@@ -55,11 +57,21 @@ export interface ServiceRecord {
   totalCost: number;
 }
 
+export interface PickedDocument {
+  uri: string;
+  name: string;
+  mimeType: string;
+  size?: number;
+}
+
 interface ServiceHistoryProps {
   records: ServiceRecord[];
   onAddNotes?: (id: string) => void;
   onDownloadReceipt?: (id: string) => void;
   onAddServiceHistory?: () => void;
+  documents?: PickedDocument[];
+  onRemoveDocument?: (index: number) => void;
+  onOpenDocument?: (document: PickedDocument) => void;
 }
 
 // ============================================================================
@@ -71,6 +83,9 @@ export function ServiceHistory({
   onAddNotes,
   onDownloadReceipt,
   onAddServiceHistory,
+  documents,
+  onRemoveDocument,
+  onOpenDocument,
 }: ServiceHistoryProps) {
   const [modalVisible, setModalVisible] = useState(false);
   const [layoutInfo, setLayoutInfo] = useState<LayoutInfo | null>(null);
@@ -108,13 +123,50 @@ export function ServiceHistory({
         </Text>
       </View>
 
-      {records.length > 0 ? (
+      {/* Always show Add button */}
+      {onAddServiceHistory && (
+        <Pressable
+          onPress={onAddServiceHistory}
+          style={({ pressed }) => [
+            styles.addHistoryBtn,
+            pressed && styles.addHistoryBtnPressed,
+          ]}
+        >
+          <Ionicons name="add-circle-outline" size={22} color="#5299FE" />
+          <Text weight="semiBold" size="md" color="#5299FE">
+            Add Service History
+          </Text>
+        </Pressable>
+      )}
+
+      {/* Document thumbnails row */}
+      {documents && documents.length > 0 && (
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.thumbnailRow}
+          style={styles.thumbnailScroll}
+        >
+          {documents.map((doc, index) => (
+            <DocumentThumbnail
+              key={`${doc.name}-${index}`}
+              document={doc}
+              onRemove={() => onRemoveDocument?.(index)}
+              onPress={() => onOpenDocument?.(doc)}
+            />
+          ))}
+        </ScrollView>
+      )}
+
+      {/* Records card */}
+      {records.length > 0 && (
         <Pressable
           ref={cardRef}
           onPress={handlePress}
           style={({ pressed }) => [
             styles.cardOuter,
             pressed && styles.cardPressed,
+            (onAddServiceHistory || (documents && documents.length > 0)) && styles.cardWithTopMargin,
           ]}
         >
           <BlurView intensity={22} tint="light" style={styles.blurContainer}>
@@ -139,19 +191,6 @@ export function ServiceHistory({
               </View>
             </View>
           </View>
-        </Pressable>
-      ) : (
-        <Pressable
-          onPress={onAddServiceHistory}
-          style={({ pressed }) => [
-            styles.addHistoryBtn,
-            pressed && styles.addHistoryBtnPressed,
-          ]}
-        >
-          <Ionicons name="add-circle-outline" size={22} color="#5299FE" />
-          <Text weight="semiBold" size="md" color="#5299FE">
-            Add Service History
-          </Text>
         </Pressable>
       )}
 
@@ -263,6 +302,16 @@ const styles = StyleSheet.create({
   addHistoryBtnPressed: {
     opacity: 0.7,
     transform: [{ scale: 0.98 }],
+  },
+  thumbnailScroll: {
+    marginTop: scale(12),
+  },
+  thumbnailRow: {
+    gap: scale(8),
+    paddingRight: scale(4),
+  },
+  cardWithTopMargin: {
+    marginTop: scale(12),
   },
   cardOuter: {
     borderRadius: moderateScale(16),

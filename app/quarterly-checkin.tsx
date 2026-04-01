@@ -221,8 +221,15 @@ export default function QuarterlyCheckinScreen() {
     return (
       <View style={[styles.container, { paddingTop: insets.top }]}>
         <Animated.View entering={FadeIn.duration(400)} style={styles.completionContainer}>
-          <View style={styles.checkCircle}>
-            <Check size={40} color={BrandColors.white} strokeWidth={3} />
+          <View style={styles.checkCircleOuter}>
+            <LinearGradient
+              colors={['#7BB8FF', '#5299FE', '#3B7FEB']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={styles.checkCircleGradient}
+            >
+              <Check size={40} color={BrandColors.white} strokeWidth={3} />
+            </LinearGradient>
           </View>
           <Text variant="h2" style={styles.completionTitle}>
             All set — your {vehicleName} is up to date.
@@ -234,11 +241,24 @@ export default function QuarterlyCheckinScreen() {
               </Text>
             </Animated.View>
           )}
-          <FooterButton
-            label="Done"
+          <Pressable
             onPress={() => router.back()}
-            style={styles.doneButton}
-          />
+            style={({ pressed }) => [
+              styles.doneButton,
+              pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] },
+            ]}
+          >
+            <LinearGradient
+              colors={['#7BB8FF', '#5299FE', '#3B7FEB']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.doneButtonGradient}
+            >
+              <Text weight="bold" size="md" color="#FFFFFF">
+                Done
+              </Text>
+            </LinearGradient>
+          </Pressable>
         </Animated.View>
       </View>
     );
@@ -266,6 +286,7 @@ export default function QuarterlyCheckinScreen() {
             <FooterButton
               label="Let's go"
               onPress={handleStart}
+              variant="secondary"
               style={styles.startButton}
             />
             <Pressable onPress={() => router.back()} style={styles.skipLink}>
@@ -523,6 +544,7 @@ export default function QuarterlyCheckinScreen() {
           label={isLast ? (submitting ? "Updating..." : "Finish") : "Next"}
           onPress={handleNext}
           disabled={!canAdvance || submitting}
+          variant="secondary"
         />
       </View>
     </KeyboardAvoidingView>
@@ -679,14 +701,24 @@ const styles = StyleSheet.create({
     alignItems: "center",
     paddingHorizontal: Spacing.xl,
   },
-  checkCircle: {
+  checkCircleOuter: {
     width: 72,
     height: 72,
     borderRadius: 36,
-    backgroundColor: "#10B981",
+    overflow: "hidden",
+    marginBottom: Spacing.xl,
+    shadowColor: "rgba(82,153,254,0.35)",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  checkCircleGradient: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
     justifyContent: "center",
     alignItems: "center",
-    marginBottom: Spacing.xl,
   },
   completionTitle: {
     color: BrandColors.primary,
@@ -713,5 +745,19 @@ const styles = StyleSheet.create({
   },
   doneButton: {
     width: "100%",
+    borderRadius: 24,
+    overflow: "hidden",
+    shadowColor: "rgba(82,153,254,0.3)",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  doneButtonGradient: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: Spacing.lg,
+    paddingHorizontal: 32,
   },
 });

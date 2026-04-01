@@ -41,6 +41,7 @@ interface MaintenanceRecord {
   lastServiceDate?: number;
   lastServiceMileage?: number;
   customInputs?: Record<string, unknown>;
+  confirmedHealthyAt?: number;
 }
 
 // ============================================================================
@@ -77,6 +78,7 @@ export function useMaintenanceRecords(
           lastServiceDate: rec.lastServiceDate ?? undefined,
           lastServiceMileage: rec.lastServiceMileage ?? undefined,
           customInputs: rec.customInputs as Record<string, unknown> | undefined,
+          confirmedHealthyAt: rec.confirmedHealthyAt ?? undefined,
         },
         currentOdometer,
         make,
@@ -288,15 +290,42 @@ export function useMergedMaintenance(
     const result: MaintenanceItem[] = [];
 
     for (const type of ALL_MAINTENANCE_TYPES) {
-      // Priority 1: Smartcar data
       const smartcarItem = smartcarByType.get(type);
+      const userItem = userItems.get(type);
+
+      // If user recently reported service or confirmed healthy, their record wins
+      // because Smartcar sensors may not have refreshed yet
+      const userRecord = records?.find((r: MaintenanceRecord) => r.type === type);
+      const userServicedRecently =
+        userRecord?.lastServiceDate &&
+        Date.now() - userRecord.lastServiceDate < 7 * 24 * 60 * 60 * 1000;
+      const userConfirmedHealthy =
+        userRecord?.confirmedHealthyAt &&
+        Date.now() - userRecord.confirmedHealthyAt < 90 * 24 * 60 * 60 * 1000;
+
+      // Priority 1: Recent user service report or confirmed healthy overrides Smartcar
+      if ((userServicedRecently || userConfirmedHealthy) && userItem) {
+        // Force on_time when user explicitly confirmed healthy in check-in
+        if (userConfirmedHealthy && userItem.status !== "on_time") {
+          result.push({
+            ...userItem,
+            status: "on_time",
+            description: "Confirmed in good shape",
+            detail: "On time",
+          });
+        } else {
+          result.push(userItem);
+        }
+        continue;
+      }
+
+      // Priority 2: Smartcar data
       if (smartcarItem) {
         result.push(smartcarItem);
         continue;
       }
 
-      // Priority 2: User-provided record
-      const userItem = userItems.get(type);
+      // Priority 3: User-provided record
       if (userItem) {
         result.push(userItem);
         continue;
@@ -361,7 +390,7 @@ export function useMergedMaintenance(
     }
 
     return result.map(enrichUrgentItem);
-  }, [smartcarByType, userItems, knownIssues, vehicleYear]);
+  }, [smartcarByType, userItems, records, knownIssues, vehicleYear]);
 
   // Expose raw records so the modal can pre-fill from existing data
   const recordsByType = useMemo(() => {

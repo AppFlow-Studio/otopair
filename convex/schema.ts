@@ -2073,6 +2073,7 @@ export default defineSchema({
     lastServiceDate: v.optional(v.float64()),
     lastServiceMileage: v.optional(v.float64()),
     customInputs: v.optional(v.any()),
+    confirmedHealthyAt: v.optional(v.float64()), // Q4b check-in: user confirmed "all good"
     serviceSource: v.optional(v.string()),    // "otopair" | "external" | "unknown"
     confidence: v.optional(v.string()),       // "verified" | "unverified"
     createdAt: v.float64(),

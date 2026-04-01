@@ -17,6 +17,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 
 // 2. Expo & Third-party
 import { StatusBar } from 'expo-status-bar';
@@ -135,7 +136,7 @@ export default function AddVehicleReviewScreen() {
 
       if (result.success) {
         router.replace({
-          pathname: '/car-pre-onboarding',
+          pathname: '/vehicle-added',
           params: {
             flow: 'manual',
             vehicleOwnerId: String(result.vehicleOwnerId),
@@ -263,16 +264,23 @@ export default function AddVehicleReviewScreen() {
             isLoading && styles.buttonDisabled,
           ]}
         >
-          {isConnecting ? (
-            <ActivityIndicator size="small" color="#FFFFFF" />
-          ) : (
-            <>
-              <Link2 size={scale(20)} color="#FFFFFF" strokeWidth={2} />
-              <Text weight="semiBold" size="md" color="#FFFFFF" style={styles.buttonText}>
-                CONNECT MY CAR
-              </Text>
-            </>
-          )}
+          <LinearGradient
+            colors={['#7BB8FF', '#5299FE', '#3B7FEB']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.connectButtonGradient}
+          >
+            {isConnecting ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <>
+                <Link2 size={scale(20)} color="#FFFFFF" strokeWidth={2} />
+                <Text weight="bold" size="md" color="#FFFFFF">
+                  Connect My Car
+                </Text>
+              </>
+            )}
+          </LinearGradient>
         </Pressable>
 
         {/* Add Vehicle (skip Smartcar) */}
@@ -290,8 +298,8 @@ export default function AddVehicleReviewScreen() {
           ) : (
             <>
               <Plus size={scale(20)} color="#5299FE" strokeWidth={2} />
-              <Text weight="semiBold" size="md" color="#5299FE" style={styles.buttonText}>
-                ADD VEHICLE
+              <Text weight="bold" size="md" color="#5299FE">
+                Add Vehicle
               </Text>
             </>
           )}
@@ -439,17 +447,25 @@ const styles = StyleSheet.create({
     gap: scale(12),
   },
   connectButton: {
-    backgroundColor: '#5299FE',
-    borderRadius: moderateScale(30),
-    paddingVertical: scale(16),
+    borderRadius: moderateScale(24),
+    overflow: 'hidden',
+    shadowColor: 'rgba(82,153,254,0.3)',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  connectButtonGradient: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    flexDirection: 'row',
     gap: scale(8),
+    paddingVertical: scale(16),
+    paddingHorizontal: scale(32),
   },
   addButton: {
     backgroundColor: '#FFFFFF',
-    borderRadius: moderateScale(30),
+    borderRadius: moderateScale(24),
     paddingVertical: scale(16),
     alignItems: 'center',
     justifyContent: 'center',

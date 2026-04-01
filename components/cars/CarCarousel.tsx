@@ -1481,9 +1481,8 @@ const CircularCarouselItem = memo(({ item, index, rotation, totalItems }: Carous
           styles.carouselCarImage,
           item.make === 'Lexus' && styles.carouselCarImageLexus,
           item.make === 'Lamborghini' && styles.carouselCarImageLambo,
-          { transform: [{ translateY: scale(30) }] },
         ]}
-        resizeMode="stretch"
+        resizeMode="contain"
         onError={() => setHasImageError(true)}
       />
       
@@ -2069,8 +2068,9 @@ const styles = StyleSheet.create({
   },
   carouselCarImage: {
     width: '100%',
-    height: scale(180),
+    height: '100%',
     zIndex: 1,
+    transform: [{ translateY: scale(15) }],
   },
   carouselCarImageLexus: {
     // No longer needed — dynamic images have consistent sizing

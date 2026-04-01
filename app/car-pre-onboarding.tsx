@@ -307,18 +307,10 @@ export default function CarPreOnboardingScreen() {
       console.warn("[car-pre-onboarding] Failed to save pre-onboarding", err);
     } finally {
       setIsSubmitting(false);
-      if (flow === "manual") {
-        router.replace({
-          pathname: "/vehicle-added",
-          params: {
-            flow: "manual",
-            vehicleOwnerId,
-            fromPreOnboarding: "true",
-          },
-        });
-      } else {
-        router.replace("/(main-tabs)/cars");
-      }
+      router.replace({
+        pathname: "/health-estimating",
+        params: { flow, vehicleOwnerId, fromPreOnboarding: "true" },
+      });
     }
   };
 

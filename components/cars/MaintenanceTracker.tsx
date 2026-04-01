@@ -100,16 +100,16 @@ const STATUS_PRIORITY: Record<MaintenanceStatus, number> = {
 
 const CARD_COLORS: Partial<Record<MaintenanceStatus, { statusColor: string; iconBg: string }>> = {
   overdue: {
-    statusColor: '#C0392B',
-    iconBg: 'rgba(192, 57, 43, 0.07)',
+    statusColor: '#5299FE',
+    iconBg: 'rgba(82, 153, 254, 0.07)',
   },
   needs_attention: {
-    statusColor: '#F5C623',
-    iconBg: 'rgba(245, 198, 35, 0.07)',
+    statusColor: '#5299FE',
+    iconBg: 'rgba(82, 153, 254, 0.07)',
   },
   due_soon: {
-    statusColor: '#F5C623',
-    iconBg: 'rgba(245, 198, 35, 0.07)',
+    statusColor: '#5299FE',
+    iconBg: 'rgba(82, 153, 254, 0.07)',
   },
 };
 
@@ -306,7 +306,7 @@ interface UrgentCardProps {
 }
 
 function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBookNow, onCardPress }: UrgentCardProps) {
-  const colors = CARD_COLORS[item.status] ?? { statusColor: '#F5C623', iconBg: 'rgba(245,198,35,0.07)' };
+  const colors = CARD_COLORS[item.status] ?? { statusColor: '#5299FE', iconBg: 'rgba(82,153,254,0.07)' };
 
   const delta = healthScoreInput
     ? Math.round(computeProjectedHealthScore(healthScoreInput, item.id) - vehicleCondition)
@@ -413,13 +413,13 @@ function HealthySection({ items }: { items: MaintenanceItem[] }) {
             <View key={item.id}>
               <View style={summaryStyles.itemRow}>
                 <View style={summaryStyles.itemIcon}>
-                  {getServiceIcon(item.id, 20, '#34C759')}
+                  {getServiceIcon(item.id, 20, '#5299FE')}
                 </View>
                 <View style={summaryStyles.itemContent}>
                   <Text weight="semiBold" style={summaryStyles.itemName}>{item.serviceName}</Text>
                   <Text style={summaryStyles.itemDesc}>{item.description}</Text>
                 </View>
-                <Ionicons name="checkmark-circle" size={18} color="#34C759" />
+                <Ionicons name="checkmark-circle" size={18} color="#5299FE" />
               </View>
               {index < items.length - 1 && <View style={summaryStyles.separator} />}
             </View>
@@ -700,7 +700,7 @@ const cardStyles = StyleSheet.create({
   },
   bookServiceBtn: {
     flex: 1,
-    backgroundColor: '#2d3435',
+    backgroundColor: '#5299FE',
     paddingVertical: scale(12),
     borderRadius: 100,
     alignItems: 'center',

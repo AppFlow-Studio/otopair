@@ -35,6 +35,7 @@ const VISIBILITY_MATRIX: Record<string, Record<VehicleMode, Visibility>> = {
   Q2: { lease: "asked", owned_new: "asked", owned_active: "asked", owned_endurance: "asked", owned_weekend: "asked" },
   Q3: { lease: "conditional", owned_new: "conditional", owned_active: "conditional", owned_endurance: "conditional", owned_weekend: "conditional" },
   Q4: { lease: "asked", owned_new: "asked", owned_active: "asked", owned_endurance: "asked", owned_weekend: "asked" },
+  Q4b: { lease: "asked", owned_new: "asked", owned_active: "asked", owned_endurance: "asked", owned_weekend: "asked" },
   Q5: { lease: "optional", owned_new: "optional", owned_active: "asked", owned_endurance: "asked", owned_weekend: "optional" },
   Q6: { lease: "skipped", owned_new: "skipped", owned_active: "optional", owned_endurance: "asked", owned_weekend: "asked" },
   Q7: { lease: "asked", owned_new: "skipped", owned_active: "skipped", owned_endurance: "skipped", owned_weekend: "skipped" },
@@ -63,6 +64,7 @@ const ALL_QUESTIONS: CheckinQuestion[] = [
       { value: "oil_change", label: "Oil Change" },
       { value: "brakes", label: "Brakes" },
       { value: "tires", label: "Tires" },
+      { value: "battery", label: "Battery" },
       { value: "inspection", label: "Inspection" },
       { value: "other", label: "Other" },
       { value: "none", label: "None" },
@@ -88,6 +90,19 @@ const ALL_QUESTIONS: CheckinQuestion[] = [
     options: [
       { value: "yes", label: "Yes" },
       { value: "no", label: "No" },
+    ],
+  },
+  {
+    id: "Q4b",
+    label: "How are these looking on your car?",
+    category: "condition",
+    type: "multi_select",
+    options: [
+      { value: "oil_good", label: "Oil — all good" },
+      { value: "brakes_good", label: "Brakes — all good" },
+      { value: "tires_good", label: "Tires — all good" },
+      { value: "battery_good", label: "Battery — all good" },
+      { value: "none", label: "Not sure / Skip" },
     ],
   },
   {
