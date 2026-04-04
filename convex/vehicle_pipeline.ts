@@ -157,8 +157,19 @@ export const processVin = internalAction({
         console.log(`[decode] NHTSA EngineModel "${nhtsaEngineRaw}" is marketing term — ignored`);
       }
 
-      let finalEngineCode = vdb?.engineCode || nhtsaEngineClean || "";
-      const engineCodeSource = vdb?.engineCode ? "vdb" : nhtsaEngineClean ? "nhtsa" : "none";
+      // VDB placeholder codes that aren't real engine codes
+      const VDB_PLACEHOLDER_CODES = new Set([
+        "STDEN", "STD", "STDE", "STDN", "BASE", "STANDARD", "N/A", "NA", "NONE",
+      ]);
+      const vdbCode = vdb?.engineCode && !VDB_PLACEHOLDER_CODES.has(vdb.engineCode.toUpperCase())
+        ? vdb.engineCode
+        : "";
+      if (vdb?.engineCode && !vdbCode) {
+        console.log(`[decode] VDB engine code "${vdb.engineCode}" is a placeholder — ignored`);
+      }
+
+      let finalEngineCode = vdbCode || nhtsaEngineClean || "";
+      const engineCodeSource = vdbCode ? "vdb" : nhtsaEngineClean ? "nhtsa" : "none";
       console.log(`[decode] Engine code after merge: "${finalEngineCode}" (from ${engineCodeSource})`);
 
       // AI normalization (fix NHTSA model/trim/drivetrain mislabeling)
@@ -183,7 +194,7 @@ export const processVin = internalAction({
         if (normalized) {
           if (normalized.model) finalModel = normalized.model;
           if (normalized.trim) finalTrim = normalized.trim;
-          if (normalized.engine_code && !vdb?.engineCode) finalEngineCode = normalized.engine_code;
+          if (normalized.engine_code && !vdbCode) finalEngineCode = normalized.engine_code;
           if (normalized.drivetrain_type) drivetrainType = normalized.drivetrain_type;
         }
       }

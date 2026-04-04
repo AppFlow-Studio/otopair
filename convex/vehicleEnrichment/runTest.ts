@@ -7,7 +7,7 @@ import { internalAction, internalMutation } from "../_generated/server";
 import { internal, api } from "../_generated/api";
 
 // ═══ CHANGE THIS ═══
-const VIN = "3VV5B7AX9RM230023";
+const VIN = "JTMCB3FV4ND089342";
 // ════════════════════
 
 const TEST_CLERK_ID = "user_39FwQkrjpFYGOQ0gkPIk1DEf0FW";

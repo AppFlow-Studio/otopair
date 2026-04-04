@@ -366,6 +366,16 @@ export const getOrCreateTestMechanic = internalMutation({
   },
 });
 
+export const getEvidenceByRun = internalQuery({
+  args: { enrichmentRunId: v.id("enrichment_runs") },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("enrichment_evidence")
+      .withIndex("by_enrichment_run", (q) => q.eq("enrichment_run_id", args.enrichmentRunId))
+      .collect();
+  },
+});
+
 export const getEvidenceCount = internalQuery({
   args: { entityId: v.string() },
   handler: async (ctx, args) => {

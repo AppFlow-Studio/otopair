@@ -28,6 +28,7 @@ import { validateAllOemParts } from "./validation/oemValidation";
 import { BLOCKED_DOMAINS } from "./sourceRegistry";
 import { applyApplicabilityRules } from "./applicabilityRules";
 import { scrapeVehicleSources } from "./scraper";
+import { fetchVDBLaborHours, mapVDBLaborToSlugs } from "../lib/vehicleDatabases";
 import type { Id } from "../_generated/dataModel";
 
 // ─── Constants ─────────────────────────────────────────────────────
@@ -37,6 +38,7 @@ const POLL_INTERVAL_MS = 1 * 60 * 1000;
 
 const MAKES_WITH_BRAKE_PAD_SENSORS = new Set([
   "BMW", "Mercedes-Benz", "Porsche", "Audi", "Mini", "Rolls-Royce",
+  "Lexus", "Volvo", "Jaguar", "Land Rover", "Maserati", "Alfa Romeo", "Genesis",
 ]);
 
 // ─── Field Parsing (copied from pipelineBatch.ts — same logic) ────
@@ -243,22 +245,22 @@ async function calculateV3FillRate(
     filled += transFilled;
   }
 
-  // Drivetrain config (conditional fields)
+  // Drivetrain config — always count drivetrain_type, conditionally count fluids
   const dt = await ctx.runQuery(internal.vehicleEnrichment.v3queries.getDrivetrainConfig, { vehicleConfigId });
-  let dtTotal = 0;
-  let dtFilled = 0;
+  let dtTotal = 1; // drivetrain_type itself always counts
+  let dtFilled = dt?.drivetrain_type ? 1 : 0;
   if (dt?.has_differential) {
-    dtTotal += 1;
+    dtTotal += 1; // diff_fluid_type expected
     if (dt?.diff_fluid_type) dtFilled += 1;
   }
   if (dt?.has_transfer_case) {
-    dtTotal += 1;
+    dtTotal += 1; // tc_fluid_type expected
     if (dt?.tc_fluid_type) dtFilled += 1;
   }
   total += dtTotal;
   filled += dtFilled;
 
-  // Trim specs (7 key fields)
+  // Trim specs (9 key fields)
   const trim = await ctx.runQuery(internal.vehicleEnrichment.v3queries.getTrimSpecs, { vehicleConfigId });
   const trimFields = [
     trim?.tire_size_front ?? trim?.front_tire_size,
@@ -268,6 +270,8 @@ async function calculateV3FillRate(
     trim?.lug_nut_torque_ft_lbs,
     trim?.battery_group,
     trim?.battery_cca,
+    trim?.battery_type,
+    trim?.battery_location,
   ];
   const trimTotal = trimFields.length;
   const trimFilled = trimFields.filter((v: unknown) => v != null).length;
@@ -288,20 +292,23 @@ async function calculateV3FillRate(
   total += expectedParts;
   filled += partsFilled;
 
-  // Service intervals
+  // Service intervals — use total service count as denominator (not just rows that exist)
+  const allServices = await ctx.runQuery(internal.vehicleEnrichment.v3queries.getAllServices, {});
+  const applicableServices = allServices.filter((s: any) => s.is_active !== false);
+  const expectedIntervals = applicableServices.length;
   const intervals = await ctx.runQuery(internal.vehicleEnrichment.v3queries.getServiceIntervals, { vehicleConfigId });
   const intervalsFilled = intervals.filter(
     (si: any) => si.interval_miles != null || si.interval_months != null
       || si.status === "cbs_driven" || si.status === "not_applicable"
   ).length;
-  total += intervals.length;
-  filled += intervalsFilled;
+  total += expectedIntervals;
+  filled += Math.min(intervalsFilled, expectedIntervals);
 
-  // Labor times
+  // Labor times — use same expected count
   const laborTimes = await ctx.runQuery(internal.vehicleEnrichment.v3queries.getLaborTimes, { vehicleConfigId });
   const laborFilled = laborTimes.filter((lt: any) => lt.book_hours != null).length;
-  total += laborTimes.length;
-  filled += laborFilled;
+  total += expectedIntervals; // same service count as denominator
+  filled += Math.min(laborFilled, expectedIntervals);
 
   // Part prices — count priced parts vs total parts
   const pricedParts = await ctx.runQuery(internal.vehicleEnrichment.v3queries.getPricedPartCount, { vehicleConfigId });
@@ -309,7 +316,7 @@ async function calculateV3FillRate(
   filled += pricedParts;
 
   const rate = total > 0 ? Math.round((filled / total) * 100) : 0;
-  const breakdown = `engine=${engineFilled}/${engineTotal}, trans=${transFilled}/${transTotal}, dt=${dtFilled}/${dtTotal}, trim=${trimFilled}/${trimTotal}, vc=${vcFields.filter((v: unknown) => v != null).length}/2, parts=${partsFilled}/${expectedParts}, intervals=${intervalsFilled}/${intervals.length}, labor=${laborFilled}/${laborTimes.length}, prices=${pricedParts}/${fitments.length}`;
+  const breakdown = `engine=${engineFilled}/${engineTotal}, trans=${transFilled}/${transTotal}, dt=${dtFilled}/${dtTotal}, trim=${trimFilled}/${trimTotal}, vc=${vcFields.filter((v: unknown) => v != null).length}/2, parts=${partsFilled}/${expectedParts}, intervals=${intervalsFilled}/${expectedIntervals}, labor=${laborFilled}/${expectedIntervals}, prices=${pricedParts}/${fitments.length}`;
 
   return { rate, breakdown };
 }
@@ -604,20 +611,32 @@ async function writeNormalizedData(
   }
 
   // NOW upsert drivetrain_config with the resolved value
+  // Consistency: null out fluid types when the component doesn't exist
+  const hasDiff = resolvedDrivetrain !== "FWD";
+  const hasTC = resolvedDrivetrain === "AWD" || resolvedDrivetrain === "4WD";
   await ctx.runMutation(internal.vehicleEnrichment.v3mutations.upsertDrivetrainConfig, {
     vehicle_config_id: vehicleConfigId,
     drivetrain_type: resolvedDrivetrain,
-    has_differential: resolvedDrivetrain !== "FWD",
-    diff_fluid_type: diffFluid,
-    has_transfer_case: resolvedDrivetrain === "AWD" || resolvedDrivetrain === "4WD",
-    tc_fluid_type: tcFluid,
+    has_differential: hasDiff,
+    diff_fluid_type: hasDiff ? diffFluid : undefined,
+    has_transfer_case: hasTC,
+    tc_fluid_type: hasTC ? tcFluid : undefined,
   });
 
   // D. Trim specs — typed coercion
+  const frontTire = asString(fields.front_tire_size?.value);
+  const rearTire = asString(fields.rear_tire_size?.value);
+
+  // Auto-compute is_staggered: true when front and rear tire sizes differ
+  let isStaggered: boolean | undefined;
+  if (frontTire && rearTire) {
+    isStaggered = frontTire.trim().toLowerCase() !== rearTire.trim().toLowerCase();
+  }
+
   await ctx.runMutation(internal.vehicleEnrichment.v3mutations.upsertTrimSpecs, {
     vehicle_config_id: vehicleConfigId,
-    front_tire_size: asString(fields.front_tire_size?.value),
-    rear_tire_size: asString(fields.rear_tire_size?.value),
+    front_tire_size: frontTire,
+    rear_tire_size: rearTire,
     tire_pressure_front: asNumber(fields.tire_pressure_front_psi?.value),
     tire_pressure_rear: asNumber(fields.tire_pressure_rear_psi?.value),
     lug_nut_torque_ft_lbs: asNumber(fields.lug_nut_torque_ft_lbs?.value),
@@ -625,6 +644,9 @@ async function writeNormalizedData(
     rear_wiper_size_in: asString(fields.rear_wiper_size?.value),
     battery_group: asString(fields.battery_group?.value),
     battery_cca: asNumber(fields.battery_cca?.value),
+    battery_type: asString(fields.battery_type?.value),
+    battery_location: asString(fields.battery_location?.value),
+    is_staggered: isStaggered,
   });
 
   // E. Vehicle config fields — typed coercion
@@ -799,33 +821,55 @@ export const enrichVehicleBatchV3 = internalAction({
     let configKey = buildEngineKey(vehicle);
     console.log(`[v8] Starting enrichment for ${configKey}`);
 
-    // STEP 0: Cache check — does a vehicle_config already exist and is complete?
+    // STEP 0: Cache + concurrency check
     const existingConfig = await ctx.runQuery(
       internal.vehicleEnrichment.v3queries.getVehicleConfigByKey,
       { configKey },
     );
-    if (existingConfig && (existingConfig.enrichment_status === "complete" || existingConfig.enrichment_status === "verified")) {
-      const STALE_MS = 180 * 24 * 60 * 60 * 1000; // 180 days
-      const lastEnriched = existingConfig.last_enriched_at;
-      if (!lastEnriched || (Date.now() - lastEnriched) > STALE_MS) {
-        console.log(`[v8] Cache stale (>180 days), scheduling validation for ${configKey}`);
-        await ctx.scheduler.runAfter(
-          0,
-          internal.vehicleEnrichment.cacheValidation.validateCachedConfig,
-          { vehicle_config_id: existingConfig._id },
-        );
-        await ctx.runMutation(
-          internal.vehicleEnrichment.v3mutations.attachVehicleConfig,
-          { vehicle_id: args.vehicleId, vehicle_config_id: existingConfig._id },
-        );
-        return { status: "cache_hit_validating" as const, configId: existingConfig._id };
-      } else {
-        console.log(`[v8] Cache hit for ${configKey} (status=${existingConfig.enrichment_status})`);
-        await ctx.runMutation(
-          internal.vehicleEnrichment.v3mutations.attachVehicleConfig,
-          { vehicle_id: args.vehicleId, vehicle_config_id: existingConfig._id },
-        );
-        return { status: "cache_hit" as const, configId: existingConfig._id };
+    if (existingConfig) {
+      const status = existingConfig.enrichment_status;
+
+      // Already enriching — don't start a second run
+      const IN_PROGRESS = new Set(["enriching", "scraping", "batch1", "batch2", "started"]);
+      if (IN_PROGRESS.has(status)) {
+        // Check if it's been stuck for >4 hours (safety valve)
+        const STUCK_MS = 4 * 60 * 60 * 1000;
+        const runAge = Date.now() - (existingConfig.last_enriched_at ?? existingConfig._creationTime);
+        if (runAge < STUCK_MS) {
+          console.log(`[v8] Enrichment already in progress for ${configKey} (status=${status}), skipping`);
+          await ctx.runMutation(
+            internal.vehicleEnrichment.v3mutations.attachVehicleConfig,
+            { vehicle_id: args.vehicleId, vehicle_config_id: existingConfig._id },
+          );
+          return { status: "already_enriching" as const, configId: existingConfig._id };
+        }
+        console.log(`[v8] Stale in-progress run for ${configKey} (${Math.round(runAge / 3600000)}h old), re-enriching`);
+      }
+
+      // Complete/verified — use cache unless stale
+      if (status === "complete" || status === "verified") {
+        const STALE_MS = 180 * 24 * 60 * 60 * 1000; // 180 days
+        const lastEnriched = existingConfig.last_enriched_at;
+        if (!lastEnriched || (Date.now() - lastEnriched) > STALE_MS) {
+          console.log(`[v8] Cache stale (>180 days), scheduling validation for ${configKey}`);
+          await ctx.scheduler.runAfter(
+            0,
+            internal.vehicleEnrichment.cacheValidation.validateCachedConfig,
+            { vehicle_config_id: existingConfig._id },
+          );
+          await ctx.runMutation(
+            internal.vehicleEnrichment.v3mutations.attachVehicleConfig,
+            { vehicle_id: args.vehicleId, vehicle_config_id: existingConfig._id },
+          );
+          return { status: "cache_hit_validating" as const, configId: existingConfig._id };
+        } else {
+          console.log(`[v8] Cache hit for ${configKey} (status=${status})`);
+          await ctx.runMutation(
+            internal.vehicleEnrichment.v3mutations.attachVehicleConfig,
+            { vehicle_id: args.vehicleId, vehicle_config_id: existingConfig._id },
+          );
+          return { status: "cache_hit" as const, configId: existingConfig._id };
+        }
       }
     }
 
@@ -955,12 +999,46 @@ export const enrichVehicleBatchV3 = internalAction({
     // If drivetrain is unknown, skip this. _pollBatch1V3 will create it after
     // Batch 1B resolves the drivetrain.
     if (nhtsDrivetrain) {
+      const hasDiffNhtsa = nhtsDrivetrain !== "FWD";
+      const hasTCNhtsa = nhtsDrivetrain === "AWD" || nhtsDrivetrain === "4WD";
       await ctx.runMutation(internal.vehicleEnrichment.v3mutations.upsertDrivetrainConfig, {
         vehicle_config_id: vehicleConfigId,
         drivetrain_type: nhtsDrivetrain,
-        has_differential: nhtsDrivetrain !== "FWD",
-        has_transfer_case: nhtsDrivetrain === "AWD" || nhtsDrivetrain === "4WD",
+        has_differential: hasDiffNhtsa,
+        diff_fluid_type: undefined, // populated later by Batch 1 enrichment
+        has_transfer_case: hasTCNhtsa,
+        tc_fluid_type: undefined,   // populated later by Batch 1 enrichment
       });
+    }
+
+    // STEP 6b: VDB Repair Estimates — structured labor hours per service
+    // Only uses time_required_hours. Cost data and mileage intervals are ignored.
+    // Source priority: VDB (0.90) > training_data (0.75).
+    // upsertLaborTime only overwrites training_data, so VDB data sticks.
+    try {
+      const vdbLabor = await fetchVDBLaborHours(vehicleDoc.vin);
+      if (vdbLabor) {
+        const laborBySlug = mapVDBLaborToSlugs(vdbLabor);
+        let vdbLaborCount = 0;
+        for (const [slug, hours] of laborBySlug) {
+          const svc = await ctx.runQuery(
+            internal.vehicleEnrichment.v3queries.getServiceBySlug,
+            { slug },
+          );
+          if (!svc) continue;
+          await ctx.runMutation(internal.vehicleEnrichment.v3mutations.upsertLaborTime, {
+            vehicle_config_id: vehicleConfigId,
+            service_id: svc._id,
+            book_hours: hours,
+            source: "vdb_repair_estimates",
+            confidence: 0.90,
+          });
+          vdbLaborCount++;
+        }
+        console.log(`[v8] VDB labor: ${vdbLaborCount} services matched from ${vdbLabor.size} labor types`);
+      }
+    } catch (e) {
+      console.warn("[v8] VDB repair estimates failed (non-fatal):", e);
     }
 
     // STEP 7: FireCrawl scrape — parts catalog + owner's manual
@@ -1001,7 +1079,18 @@ export const enrichVehicleBatchV3 = internalAction({
       console.log(`[v8-debug]   first 200 chars: ${req.userPrompt.substring(0, 200)}`);
     }
 
-    const batchId = await submitBatch(batch1Requests);
+    let batchId: string;
+    try {
+      batchId = await submitBatch(batch1Requests);
+    } catch (e) {
+      console.error(`[v8] Batch 1 submission FAILED:`, e);
+      await ctx.runMutation(internal.vehicleEnrichment.v3mutations.updateEnrichmentRun, {
+        run_id: runId,
+        status: "failed",
+        errors: [`batch1_submission_failed: ${e}`],
+      });
+      return { status: "error" as const, reason: "batch1_submission_failed" };
+    }
 
     console.log(`[v8] Batch [1A, 1B] submitted (batchId=${batchId}), scheduling poll`);
 
@@ -1083,14 +1172,29 @@ export const _pollBatch1V3 = internalAction({
       return;
     }
 
+    // Fix #3: Detect errored/expired batch requests
+    if (r1a.error) {
+      console.error(`[v8/_pollBatch1] batch1a ${r1a.error} — aborting`);
+      await ctx.runMutation(internal.vehicleEnrichment.v3mutations.updateEnrichmentRun, {
+        run_id: args.runId,
+        status: "failed",
+        errors: [`batch1a_${r1a.error}`],
+      });
+      return;
+    }
+
+    if (r1b?.error) {
+      console.warn(`[v8/_pollBatch1] batch1b ${r1b.error} — continuing with batch1a only`);
+    }
+
     const callLog: CallLogEntry[] = [
       ...args.callLog,
       { call: "batch1a", tokensIn: r1a.usage.tokensIn, tokensOut: r1a.usage.tokensOut, webSearches: 0, durationMs: 0 },
-      ...(r1b ? [{ call: "batch1b", tokensIn: r1b.usage.tokensIn, tokensOut: r1b.usage.tokensOut, webSearches: r1b.usage.webSearches, durationMs: 0 }] : []),
+      ...(r1b && !r1b.error ? [{ call: "batch1b", tokensIn: r1b.usage.tokensIn, tokensOut: r1b.usage.tokensOut, webSearches: r1b.usage.webSearches, durationMs: 0 }] : []),
     ];
 
     const fields1a = parseBatch1a(r1a.data);
-    const fields1b = r1b ? parseBatch1b(r1b.data) : {};
+    const fields1b = r1b && !r1b.error ? parseBatch1b(r1b.data) : {};
     let fields = mergeBatch1(fields1a, fields1b);
 
     const vehicle: VehicleInput = {
@@ -1127,17 +1231,28 @@ export const _pollBatch1V3 = internalAction({
       total_web_searches: callLog.reduce((s, c) => s + c.webSearches, 0),
     });
 
-    const batch2Id = await submitBatch([
-      {
-        customId: "batch2",
-        system: BATCH_2_SYSTEM,
-        userPrompt: buildBatch2Prompt(vehicle, nullFields, oemParts),
-        maxTokens: 16384,
-        temperature: 0,
-        maxSearchUses: 1,
-        blockedDomains: BLOCKED_DOMAINS,
-      },
-    ]);
+    let batch2Id: string;
+    try {
+      batch2Id = await submitBatch([
+        {
+          customId: "batch2",
+          system: BATCH_2_SYSTEM,
+          userPrompt: buildBatch2Prompt(vehicle, nullFields, oemParts),
+          maxTokens: 16384,
+          temperature: 0,
+          maxSearchUses: 1,
+          blockedDomains: BLOCKED_DOMAINS,
+        },
+      ]);
+    } catch (e) {
+      console.error(`[v8] Batch 2 submission FAILED:`, e);
+      await ctx.runMutation(internal.vehicleEnrichment.v3mutations.updateEnrichmentRun, {
+        run_id: args.runId,
+        status: "failed",
+        errors: [`batch2_submission_failed: ${e}`],
+      });
+      return;
+    }
 
     await ctx.scheduler.runAfter(
       POLL_INTERVAL_MS,
@@ -1200,15 +1315,21 @@ export const _pollBatch2V3 = internalAction({
     const results = await getBatchResults(args.batchId);
     const r2 = results["batch2"];
 
+    // Fix #3: Detect errored/expired batch2 request
+    if (r2?.error) {
+      console.error(`[v8/_pollBatch2] batch2 ${r2.error} — continuing with batch1 data only`);
+      // Don't abort — we still have batch1 data, just skip gap fill
+    }
+
     const callLog: CallLogEntry[] = [
       ...args.callLog,
-      ...(r2 ? [{ call: "batch2", tokensIn: r2.usage.tokensIn, tokensOut: r2.usage.tokensOut, webSearches: r2.usage.webSearches, durationMs: 0 }] : []),
+      ...(r2 && !r2.error ? [{ call: "batch2", tokensIn: r2.usage.tokensIn, tokensOut: r2.usage.tokensOut, webSearches: r2.usage.webSearches, durationMs: 0 }] : []),
     ];
 
     let allFields: Record<string, FieldResult> = { ...args.batch1Fields };
     let services: ServicePricingResult[] = [];
 
-    if (r2) {
+    if (r2 && !r2.error) {
       // Gap fill — only fill nulls
       const parsed = parseBatch2(r2.data, args.nullFields);
       const gapFields = parsed.gapFields;
@@ -1326,6 +1447,30 @@ export const _pollBatch2V3 = internalAction({
     console.log(`[v8] Fill rate: ${fillRate}% (flat: ${flatFillRate}%)`);
     console.log(`[v8] Breakdown: ${breakdown}`);
 
+    // Compute weighted average confidence from all evidence rows for this run
+    const allEvidence = await ctx.runQuery(
+      internal.vehicleEnrichment.v3queries.getEvidenceByRun,
+      { enrichmentRunId: args.runId },
+    );
+    let confidenceAvg: number | undefined;
+    if (allEvidence.length > 0) {
+      const SOURCE_WEIGHTS: Record<string, number> = {
+        mechanic: 1.0,
+        web_search: 0.9,
+        training_data: 0.75,
+      };
+      let weightedSum = 0;
+      let weightSum = 0;
+      for (const ev of allEvidence) {
+        const conf = ev.confidence ?? 0;
+        const weight = SOURCE_WEIGHTS[ev.source_type ?? ""] ?? 0.8;
+        weightedSum += conf * weight;
+        weightSum += weight;
+      }
+      confidenceAvg = weightSum > 0 ? weightedSum / weightSum : 0;
+      console.log(`[v8] Confidence avg: ${confidenceAvg.toFixed(3)} from ${allEvidence.length} evidence rows`);
+    }
+
     // Update enrichment run
     await ctx.runMutation(internal.vehicleEnrichment.v3mutations.updateEnrichmentRun, {
       run_id: args.runId,
@@ -1366,6 +1511,15 @@ export const _pollBatch2V3 = internalAction({
       fill_rate: fillRate,
       enrichment_version: "v8",
     });
+
+    // Write confidence_avg + last_enriched_at to vehicle_config
+    if (confidenceAvg !== undefined) {
+      await ctx.runMutation(internal.vehicleEnrichment.v3mutations.patchVehicleConfig, {
+        vehicle_config_id: args.vehicleConfigId,
+        confidence_avg: confidenceAvg,
+        last_enriched_at: Date.now(),
+      });
+    }
 
     // Attach to vehicle
     await ctx.runMutation(

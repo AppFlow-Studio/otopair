@@ -49,6 +49,141 @@ export async function advancedVinDecode(vin: string): Promise<any | null> {
   }
 }
 
+// ─── VDB Repair Estimates API ────────────────────────────────────────────────
+// Returns labor hours per service type for a vehicle via /repair-estimates/{vin}.
+// We ONLY extract type + time_required_hours. Cost data is ignored.
+// Mileage interval structure is flattened — enrichment handles intervals separately.
+
+export async function fetchVDBLaborHours(vin: string): Promise<Map<string, number> | null> {
+  const apiKey = process.env.VEHICLE_DATABASES_API_KEY;
+  if (!apiKey) {
+    console.log("[vdb-repair] No API key, skipping repair estimates");
+    return null;
+  }
+
+  try {
+    // Correct endpoint: /repair-estimates/{vin}
+    const url = `${VDB_BASE}/repair-estimates/${vin}`;
+    console.log(`[vdb-repair] Fetching: ${url}`);
+
+    const response = await fetch(url, {
+      headers: { "x-AuthKey": apiKey },
+    });
+
+    if (!response.ok) {
+      console.log(`[vdb-repair] API error: ${response.status}`);
+      return null;
+    }
+
+    const json = await response.json();
+
+    if (json.status !== "success" || !json.data) {
+      console.log(`[vdb-repair] API returned status=${json.status}, no data for ${vin}`);
+      return null;
+    }
+
+    // VDB nests labor inside mileage groups — we ignore the mileage structure
+    // entirely and just extract every unique labor type + hours.
+    const rawBlocks = json.data.data;
+    if (!Array.isArray(rawBlocks) || rawBlocks.length === 0) {
+      console.log(`[vdb-repair] No data for ${vin}. keys: ${Object.keys(json.data).join(", ")}`);
+      console.log(`[vdb-repair] Raw sample: ${JSON.stringify(json).slice(0, 1500)}`);
+      return null;
+    }
+
+    // Flatten all labor items across the entire response.
+    // Only extract type + time_required_hours. Ignore cost, mileage, everything else.
+    const laborByType = new Map<string, number>();
+
+    for (const block of rawBlocks) {
+      const itemSets = Array.isArray(block.items) ? block.items : [block.items];
+      for (const itemSet of itemSets) {
+        const laborItems = itemSet?.labor;
+        if (!Array.isArray(laborItems)) continue;
+
+        for (const l of laborItems) {
+          const hours = l.time_required_hours;
+          if (hours == null || hours <= 0) continue;
+          const type = l.type as string;
+          if (!type) continue;
+          if (!laborByType.has(type)) {
+            laborByType.set(type, hours);
+          }
+        }
+      }
+    }
+
+    console.log(`[vdb-repair] Got ${laborByType.size} unique labor types for ${vin}`);
+    return laborByType;
+  } catch (err) {
+    console.log(`[vdb-repair] Failed: ${err}`);
+    return null;
+  }
+}
+
+/**
+ * Maps VDB labor type strings to Otopair service slugs.
+ * VDB types use "Action - Component" format (e.g. "Change - Engine oil").
+ * Returns null for services we don't track or inspections we don't charge for.
+ */
+const VDB_TO_SERVICE_SLUG: Record<string, string> = {
+  // Oil & filters
+  "Change - Engine oil": "oil_change",
+  "Replace - Oil filter": "oil_change", // bundled with oil change
+  "Replace - Cabin air filter": "filter_replacement",
+  "Replace - Engine air filter": "filter_replacement",
+  // Brakes
+  "Flush/replace - Brake fluid": "brake_fluid_flush",
+  "Replace - Front brake pads": "brake_pad_replacement",
+  "Replace - Rear brake pads": "brake_pad_replacement",
+  "Replace - Front brake rotors": "rotor_replacement",
+  "Replace - Rear brake rotors": "rotor_replacement",
+  // Cooling
+  "Flush/replace - Coolant": "coolant_flush",
+  "Replace - Coolant": "coolant_flush",
+  // Transmission
+  "Change - Transmission fluid": "transmission_service",
+  "Flush/replace - Transmission fluid": "transmission_service",
+  // Tires & wheels
+  "Rotate/adjust air pressure - Wheels & tires": "tire_rotation",
+  "Balance - Tires": "tire_balance",
+  // Spark plugs
+  "Replace - Spark plugs": "spark_plugs",
+  // Battery
+  "Inspect - Battery": "battery_test",
+  "Replace - Battery": "battery_replacement",
+  // Power steering
+  "Flush/replace - Power steering fluid": "power_steering_flush",
+  "Check level - Power steering fluid": "power_steering_flush",
+  // Differential
+  "Change - Rear differential fluid": "differential_service",
+  "Check level - Rear differential fluid": "differential_service",
+  "Change - Front differential fluid": "differential_service",
+  // Timing belt
+  "Replace - Timing belt": "timing_belt",
+  // Fuel
+  "Clean - Fuel injection system": "fuel_system_cleaning",
+};
+
+/**
+ * Maps raw VDB labor type strings to Otopair service slugs.
+ * Returns a Map<serviceSlug, hours>.
+ */
+export function mapVDBLaborToSlugs(
+  laborByType: Map<string, number>,
+): Map<string, number> {
+  const laborBySlug = new Map<string, number>();
+
+  for (const [type, hours] of laborByType) {
+    const slug = VDB_TO_SERVICE_SLUG[type];
+    if (!slug) continue;
+    if (laborBySlug.has(slug)) continue; // first match wins
+    laborBySlug.set(slug, hours);
+  }
+
+  return laborBySlug;
+}
+
 export function extractVDBFields(data: any) {
   const specs = data.specifications || [];
 

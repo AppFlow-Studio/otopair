@@ -137,7 +137,15 @@ export async function updateSourceScores(
       }
 
       await ctx.db.patch(existingSource._id, patch);
+    } else {
+      // Domain has evidence but no source_registry entry.
+      // Log it so we can add it to the registry manually or via seeding.
+      const accuracy = totalNew > 0 ? stats.agreements / totalNew : 0;
+      console.log(
+        `[sourceScoring] Unregistered domain: ${domain} — ` +
+        `${stats.agreements}/${totalNew} agreed (${Math.round(accuracy * 100)}% accuracy). ` +
+        `Add to source_registry to enable auto-scoring.`
+      );
     }
-    // If domain not in source_registry, skip — it's not a tracked source
   }
 }
