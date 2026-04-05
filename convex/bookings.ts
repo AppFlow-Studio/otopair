@@ -223,6 +223,10 @@ export const getByUserIdWithDetails = query({
           currentStage,
           delayMinutes,
           liveStage: liveStage ?? undefined,
+          shopRating: shop?.rating ?? 0,
+          shopIsVerified: shop?.is_verified ?? false,
+          shopLat: shop?.lat,
+          shopLng: shop?.lng,
         };
       }),
     );

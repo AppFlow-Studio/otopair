@@ -7,8 +7,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useSharedValue } from "react-native-reanimated";
 import { useIsFocused } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
+import { ArrowLeft } from "lucide-react-native";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
 import * as DocumentPicker from "expo-document-picker";
 import { WebView } from "react-native-webview";
@@ -92,6 +93,7 @@ export default function CarsHomeScreen() {
   const insets = useSafeAreaInsets();
   const isFocused = useIsFocused();
   const router = useRouter();
+  const params = useLocalSearchParams<{ openStepper?: string }>();
   const [refreshing, setRefreshing] = useState(false);
   const [activeVehicleIndex, setActiveVehicleIndex] = useState(0);
   const scrollViewRef = useRef<ScrollView>(null);
@@ -574,8 +576,16 @@ export default function CarsHomeScreen() {
   // Use cached image_url from Convex, or fetch from API and save it
   useEffect(() => {
     if (!listVehicles?.length) return;
+    const TARGET_VIN = "1FMUK8KHXSGD02351"; // temp: override Ford card with Tundra blueprint image for white-bg test
+    const TEST_URL = "https://vhr.nyc3.cdn.digitaloceanspaces.com/vehiclemedia/Colors/2026/toyota/tundra-2wd/1794-edition-crewmax-5.5'-bed-(gs)-rear-wheel-drive-automatic/blueprint.jpg";
     listVehicles.forEach((r: any) => {
       if (!r.vin || vehicleImageUrls[r.vin]) return;
+
+      if (r.vin === TARGET_VIN) {
+        setVehicleImageUrls((prev) => ({ ...prev, [r.vin]: TEST_URL }));
+        saveVehicleImageUrl({ vin: r.vin, image_url: TEST_URL });
+        return;
+      }
 
       // Use cached URL from Convex if it's from our current provider
       const cachedUrl = r.vehicle?.image_url;
@@ -614,10 +624,8 @@ export default function CarsHomeScreen() {
       const o = r.ownership;
       const meta = v ? (v as { metadata?: { make?: string; model?: string; color?: string } }).metadata : undefined;
       const paintColor = meta?.color;
-      // TODO: re-enable once car images have transparent backgrounds
-      // const gradient = (paintColor && COLOR_GRADIENTS[paintColor])
-      //   || DEFAULT_GRADIENTS[i % DEFAULT_GRADIENTS.length];
-      const gradient = ["#FFFFFF", "#FFFFFF", "#FFFFFF", "#FFFFFF"];
+      const gradient = (paintColor && COLOR_GRADIENTS[paintColor])
+        || DEFAULT_GRADIENTS[i % DEFAULT_GRADIENTS.length];
       const displayMake = titleCase(meta?.make || o?.nickname?.split(" ")[1] || "Vehicle");
       const displayModel = titleCase(meta?.model || o?.nickname?.split(" ").slice(2).join(" ") || r.vin.slice(-6));
       paired.push({
@@ -815,6 +823,20 @@ export default function CarsHomeScreen() {
       setHealthPageReady(true);
     });
   }, [mainPageSlideX, mainPageFade, healthPageSlideX, healthPageFade, pageSlideX, pageFade]);
+
+  // Auto-open stepper when navigated from Home's "Finish Setup" button
+  const openStepperFired = useRef(false);
+  useEffect(() => {
+    if (
+      params.openStepper === 'true' &&
+      !openStepperFired.current &&
+      activeOwnershipId &&
+      isFocused
+    ) {
+      openStepperFired.current = true;
+      openStepperDirectly();
+    }
+  }, [params.openStepper, activeOwnershipId, isFocused, openStepperDirectly]);
 
   // Maintenance input modal state
   const [maintenanceModalVisible, setMaintenanceModalVisible] = useState(false);
@@ -1378,10 +1400,10 @@ export default function CarsHomeScreen() {
                   } else {
                     closeHealthSheet();
                   }
-                }} hitSlop={12} style={healthSheetStyles.fullPageCloseBtn}>
-                  <Ionicons name="chevron-back" size={scale(22)} color="#6B7280" />
+                }} hitSlop={12} style={({ pressed }) => [healthSheetStyles.fullPageBackBtn, pressed && { opacity: 0.6 }]}>
+                  <ArrowLeft size={scale(24)} color="#141C24" strokeWidth={2} />
                 </Pressable>
-                <View style={{ width: scale(36) }} />
+                <View style={{ width: scale(40) }} />
               </View>
             ) : (
               <View style={{ paddingTop: Platform.OS === "ios" ? scale(70) : scale(50) }} />
@@ -1402,6 +1424,7 @@ export default function CarsHomeScreen() {
                   vehicleModel={activeVehicle?.model ?? ''}
                   vehicleYear={activeVehicle?.year ?? 0}
                   skipIntro
+                  onBack={closeHealthSheet}
                   onComplete={() => {
                     console.log('[CarInfoStepper] onComplete fired — SHEET instance');
                     setLocalOnboardingDone(true);
@@ -1840,6 +1863,12 @@ const healthSheetStyles = StyleSheet.create({
     backgroundColor: "rgba(0,0,0,0.06)",
     alignItems: "center",
     justifyContent: "center",
+  },
+  fullPageBackBtn: {
+    width: scale(40),
+    height: scale(40),
+    justifyContent: "center",
+    alignItems: "flex-start",
   },
   introCard: {
     alignItems: "center",

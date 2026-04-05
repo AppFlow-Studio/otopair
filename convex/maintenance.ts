@@ -33,6 +33,29 @@ export const getRecordsByVehicle = query({
 });
 
 /**
+ * QUERY: getRecordsByMultipleVehicles
+ * Returns all maintenance records for a list of vehicleOwnerIds, grouped by id.
+ */
+export const getRecordsByMultipleVehicles = query({
+  args: {
+    vehicleOwnerIds: v.array(v.id("vehicle_owners")),
+  },
+  handler: async (ctx, args) => {
+    const results: Record<string, any[]> = {};
+    await Promise.all(
+      args.vehicleOwnerIds.map(async (id) => {
+        const records = await ctx.db
+          .query("maintenance_records")
+          .withIndex("by_vehicle_owner", (q) => q.eq("vehicleOwnerId", id))
+          .collect();
+        results[id] = records;
+      })
+    );
+    return results;
+  },
+});
+
+/**
  * MUTATION: upsertRecord
  * Insert or update a maintenance record for a given vehicleOwnerId + type.
  * If a record already exists for that vehicle+type, update it; otherwise insert.

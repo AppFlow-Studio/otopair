@@ -41,10 +41,15 @@ export async function fetchVehicleImageUrl(
       : makes.map((m) => `${BASE_URL}/${year}/${encodeURIComponent(m)}/${encodeURIComponent(model)}`);
 
     for (const url of urls) {
+      console.log("[vehicleImage] GET", url);
       const response = await fetch(url, { headers: { "x-authkey": API_KEY } });
+      console.log("[vehicleImage] status", response.status, "ok?", response.ok);
       if (!response.ok) continue;
 
       const json = await response.json();
+      console.log("[vehicleImage] api status:", json.status, "images keys:", Object.keys(json.data?.images ?? {}));
+      console.log("[vehicleImage] colors[] length:", (json.data?.images?.colors ?? []).length, "exterior[] length:", (json.data?.images?.exterior ?? []).length);
+      console.log("[vehicleImage] colors sample:", JSON.stringify((json.data?.images?.colors ?? []).slice(0, 5)));
       if (json.status !== "success") continue;
 
       // Color images have no white background — always preferred

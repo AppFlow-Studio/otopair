@@ -921,6 +921,7 @@ export default defineSchema({
     knownIssues: v.optional(v.any()),             // string[] e.g. ["check_engine", "weird_noise"]
     preOnboardingComplete: v.optional(v.boolean()), // Pre-step gate before CarInfoStepper
     onboardingComplete: v.optional(v.boolean()),  // Phase 1 → Phase 2 gate
+    setupCardDismissed: v.optional(v.boolean()), // User pressed "Done" on Finish Car Setup card
     // Maintenance Intelligence: modifier inputs
     usage_pattern: v.optional(v.string()),        // "city" | "highway" | "mixed"
     vehicle_age_years: v.optional(v.float64()),

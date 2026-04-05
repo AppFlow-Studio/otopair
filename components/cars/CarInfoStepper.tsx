@@ -41,6 +41,7 @@ import ReAnimated, {
   Layout,
 } from "react-native-reanimated";
 
+import { ArrowLeft } from "lucide-react-native";
 import { Text } from "@/components/shared-ui";
 import { BrakesIcon, TireIcon, OilIcon, BatteryIcon, WarningIcon } from "@/components/cars/ServiceIcons";
 import SquircleRing from "@/components/cars/SquircleRing";
@@ -91,6 +92,7 @@ interface CarInfoStepperProps {
   vehicleYear: number;
   onComplete: () => void;
   skipIntro?: boolean;
+  onBack?: () => void;
 }
 
 type Phase = "intro" | "stepping";
@@ -481,10 +483,12 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
   vehicleYear,
   onComplete,
   skipIntro = false,
+  onBack,
 }: CarInfoStepperProps, ref) {
   console.log('[CarInfoStepper] rendering — vehicleOwnerId:', vehicleOwnerId);
   const insets = useSafeAreaInsets();
   const saveField = useMutation(api.vehicles.saveOnboardingField);
+  const markComplete = useMutation(api.vehicle_owners.markOnboardingComplete);
 
   // ── Phase & step state ──────────────────────────────────────
   const [phase, setPhase] = useState<Phase>(skipIntro ? "stepping" : "intro");
@@ -648,6 +652,8 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
           await saveField({ vehicleOwnerId, field: cardId, value: answers });
         }
       }
+      // Ensure onboardingComplete is set even if not all questions were answered ("Finish for now")
+      await markComplete({ vehicleOwnerId });
       onComplete();
     } catch (err) {
       console.error("[CarInfoStepper] Save failed:", err);
@@ -655,7 +661,7 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
     } finally {
       setSaving(false);
     }
-  }, [vehicleOwnerId, serviceAnswers, saveField, onComplete]);
+  }, [vehicleOwnerId, serviceAnswers, saveField, markComplete, onComplete]);
 
   // ── All-done state ──────────────────────────────────────────
   const allDone = completedCards.size === ALL_CARD_IDS.length;
@@ -965,6 +971,16 @@ const s = StyleSheet.create({
   },
   steppingHeader: {
     marginBottom: scale(8),
+  },
+  backButton: {
+    position: "absolute",
+    top: scale(4),
+    left: scale(20),
+    width: scale(40),
+    height: scale(40),
+    justifyContent: "center",
+    alignItems: "flex-start",
+    zIndex: 10,
   },
   steppingTitle: {
     fontSize: moderateScale(24),

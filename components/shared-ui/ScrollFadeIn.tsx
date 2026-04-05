@@ -64,54 +64,57 @@ export function ScrollFadeIn({
   const viewRef = useRef<View>(null);
   const lastScrollCheck = useRef(0);
   const isCurrentlyVisible = useRef(false);
-  
+  const initialCheckDone = useRef(false);
+  const intervalRef = useRef<ReturnType<typeof setInterval>>();
+
   // Animation values
   const opacity = useSharedValue(0);
   const translateY = useSharedValue(translateYAmount);
 
-  // Check visibility and animate accordingly
-  const checkVisibility = () => {
-    if (!viewRef.current) return;
-    
+  const reveal = () => {
+    isCurrentlyVisible.current = true;
+    if (intervalRef.current) clearInterval(intervalRef.current);
+    opacity.value = withTiming(1, { duration, easing: Easing.out(Easing.cubic) });
+    translateY.value = withTiming(0, { duration, easing: Easing.out(Easing.cubic) });
+  };
+
+  // On-load check: generous — show if 30%+ is already on screen
+  const checkInitialVisibility = () => {
+    if (isCurrentlyVisible.current || !viewRef.current) return;
     viewRef.current.measureInWindow((x, y, width, height) => {
-      if (y === undefined) return;
-      
-      // Element is visible when it's 70% up the screen
-      const isVisible = y < SCREEN_HEIGHT * 0.70 && y > -height;
-      
-      // Only animate if visibility state changed
-      if (isVisible && !isCurrentlyVisible.current) {
-        // Fade in
-        isCurrentlyVisible.current = true;
-        opacity.value = withTiming(1, { duration, easing: Easing.out(Easing.cubic) });
-        translateY.value = withTiming(0, { duration, easing: Easing.out(Easing.cubic) });
-      } else if (!isVisible && isCurrentlyVisible.current) {
-        // Fade out (reset for next time)
-        isCurrentlyVisible.current = false;
-        opacity.value = withTiming(0, { duration: duration * 0.5, easing: Easing.in(Easing.cubic) });
-        translateY.value = withTiming(translateYAmount, { duration: duration * 0.5, easing: Easing.in(Easing.cubic) });
-      }
+      if (y === undefined || isCurrentlyVisible.current) return;
+      const visibleHeight = Math.min(y + height, SCREEN_HEIGHT) - Math.max(y, 0);
+      const visibleRatio = height > 0 ? visibleHeight / height : 0;
+      if (visibleRatio >= 0.3) reveal();
     });
   };
 
-  // Initial visibility check
+  // Scroll check: stricter — element top must reach 70% of screen
+  const checkScrollVisibility = () => {
+    if (isCurrentlyVisible.current || !viewRef.current) return;
+    viewRef.current.measureInWindow((x, y, width, height) => {
+      if (y === undefined || isCurrentlyVisible.current) return;
+      if (y < SCREEN_HEIGHT * 0.70 && y > -height) reveal();
+    });
+  };
+
+  // Initial visibility checks — layout may not be ready on the first attempt
   useEffect(() => {
-    const timer = setTimeout(checkVisibility, 50);
-    return () => clearTimeout(timer);
+    const timers = [50, 200, 500].map((delay) => setTimeout(checkInitialVisibility, delay));
+    return () => timers.forEach(clearTimeout);
   }, []);
 
   // Set up scroll listener using an interval
   useEffect(() => {
-    const interval = setInterval(() => {
+    intervalRef.current = setInterval(() => {
       const currentScroll = scrollY.value;
-      // Check if scroll has changed
       if (Math.abs(currentScroll - lastScrollCheck.current) > 20) {
         lastScrollCheck.current = currentScroll;
-        checkVisibility();
+        checkScrollVisibility();
       }
     }, 80);
-    
-    return () => clearInterval(interval);
+
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
   }, [scrollY, translateYAmount, duration]);
 
   const animatedStyle = useAnimatedStyle(() => ({
