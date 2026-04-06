@@ -18,9 +18,19 @@ export const getVehicleConfigByKey = internalQuery({
 export const getMakeByName = internalQuery({
   args: { name: v.string() },
   handler: async (ctx, args) => {
-    return await ctx.db
+    // Try exact match first (fast path)
+    const exact = await ctx.db
       .query("makes")
       .withIndex("by_name", (q) => q.eq("name", args.name))
+      .first();
+    if (exact) return exact;
+
+    // Fall back to case-insensitive slug match.
+    // VIN decoders return "MERCEDES-BENZ" but seeded makes use "Mercedes-Benz".
+    const slug = args.name.toLowerCase().replace(/\s+/g, "-");
+    return await ctx.db
+      .query("makes")
+      .withIndex("by_slug", (q) => q.eq("slug", slug))
       .first();
   },
 });
@@ -394,5 +404,175 @@ export const getEvidenceForEntity = internalQuery({
       .query("enrichment_evidence")
       .withIndex("by_entity_field", (q) => q.eq("entity_id", args.entityId))
       .collect();
+  },
+});
+
+// ─── Chassis grouping (Task 22) ─────────────────────────────────────
+
+/**
+ * Find a completed vehicle_config with a matching chassis code.
+ * Used to determine if we can skip Tier 2 enrichment and clone data instead.
+ * Excludes the current config (targetConfigId) from results.
+ */
+/**
+ * Find the best chassis match for cloning — any enrichment status, highest fill_rate wins.
+ * This enables "merge-and-continue": clone whatever data exists from the best sibling,
+ * then continue to full enrichment to fill gaps. After completion, backfill siblings.
+ */
+export const findBestChassisMatch = internalQuery({
+  args: {
+    chassis_code: v.string(),
+    target_config_id: v.id("vehicle_configs"),
+  },
+  handler: async (ctx, args) => {
+    // Get all configs with this chassis code (any status)
+    const all = await ctx.db
+      .query("vehicle_configs")
+      .withIndex("by_chassis_code", (q) =>
+        q.eq("chassis_code", args.chassis_code)
+      )
+      .collect();
+
+    // Exclude ourselves, sort by fill_rate descending
+    const candidates = all
+      .filter((c) => c._id !== args.target_config_id)
+      .sort((a, b) => (b.fill_rate ?? 0) - (a.fill_rate ?? 0));
+
+    return candidates[0] ?? null;
+  },
+});
+
+/**
+ * Find ALL sibling configs with the same chassis code (for post-enrichment backfill).
+ */
+export const findChassisGroupSiblings = internalQuery({
+  args: {
+    chassis_code: v.string(),
+    exclude_config_id: v.id("vehicle_configs"),
+  },
+  handler: async (ctx, args) => {
+    const all = await ctx.db
+      .query("vehicle_configs")
+      .withIndex("by_chassis_code", (q) =>
+        q.eq("chassis_code", args.chassis_code)
+      )
+      .collect();
+
+    return all.filter((c) => c._id !== args.exclude_config_id);
+  },
+});
+
+// ─── Task 25: Diagnose fill gaps ──────────────────────────────────────
+/**
+ * Returns a structured breakdown of what's missing from a vehicle config.
+ * Used by the partial enrichment action to build targeted prompts.
+ */
+export const diagnoseFillGaps = internalQuery({
+  args: { vehicle_config_id: v.id("vehicle_configs") },
+  handler: async (ctx, args) => {
+    const config = await ctx.db.get(args.vehicle_config_id);
+    if (!config) return null;
+
+    // Engine gaps
+    const engine = config.engine_id ? await ctx.db.get(config.engine_id) : null;
+    const engineFields: Record<string, boolean> = {
+      oil_viscosity: !!(engine as any)?.oil_viscosity,
+      oil_capacity_qts: !!(engine as any)?.oil_capacity_qts,
+      coolant_type: !!(engine as any)?.coolant_type,
+      coolant_capacity_qts: !!(engine as any)?.coolant_capacity_qts,
+      timing_system: !!(engine as any)?.timing_system,
+      fuel_injection: !!(engine as any)?.fuel_injection,
+      aspiration: !!(engine as any)?.aspiration,
+      spark_plug_quantity: !!(engine as any)?.spark_plug_quantity,
+    };
+    const missingEngine = Object.entries(engineFields).filter(([, v]) => !v).map(([k]) => k);
+
+    // Trim spec gaps
+    const trim = await ctx.db
+      .query("trim_specs")
+      .withIndex("by_vehicle_config", (q) => q.eq("vehicle_config_id", args.vehicle_config_id))
+      .first();
+    const trimFields: Record<string, boolean> = {
+      front_tire_size: !!((trim as any)?.tire_size_front ?? (trim as any)?.front_tire_size),
+      rear_tire_size: !!((trim as any)?.tire_size_rear ?? (trim as any)?.rear_tire_size),
+      tire_pressure_front: !!((trim as any)?.recommended_tire_pressure_front_psi ?? (trim as any)?.tire_pressure_front),
+      tire_pressure_rear: !!((trim as any)?.recommended_tire_pressure_rear_psi ?? (trim as any)?.tire_pressure_rear),
+      lug_nut_torque: !!(trim as any)?.lug_nut_torque_ft_lbs,
+      battery_group: !!(trim as any)?.battery_group,
+      battery_cca: !!(trim as any)?.battery_cca,
+      battery_type: !!(trim as any)?.battery_type,
+      battery_location: !!(trim as any)?.battery_location,
+    };
+    const missingTrim = Object.entries(trimFields).filter(([, v]) => !v).map(([k]) => k);
+
+    // Config-level gaps
+    const missingConfig: string[] = [];
+    if (!config.brake_fluid_type) missingConfig.push("brake_fluid_type");
+    if (config.has_brake_pad_sensor == null) missingConfig.push("has_brake_pad_sensor");
+
+    // Service intervals
+    const allServices = await ctx.db.query("services").collect();
+    const intervals = await ctx.db
+      .query("service_intervals")
+      .withIndex("by_vehicle_config", (q) => q.eq("vehicle_config_id", args.vehicle_config_id))
+      .collect();
+    const intervalServiceIds = new Set(intervals.map((i) => i.service_id.toString()));
+    const missingIntervals = allServices
+      .filter((s) => !intervalServiceIds.has(s._id.toString()))
+      .map((s) => s.slug);
+
+    // Labor times
+    const laborTimes = await ctx.db
+      .query("labor_times")
+      .withIndex("by_vehicle_config", (q) => q.eq("vehicle_config_id", args.vehicle_config_id))
+      .collect();
+    const laborServiceIds = new Set(laborTimes.map((l) => l.service_id.toString()));
+    const missingLabor = allServices
+      .filter((s) => !laborServiceIds.has(s._id.toString()))
+      .map((s) => s.slug);
+
+    // Part fitments
+    const fitments = await ctx.db
+      .query("part_fitments")
+      .withIndex("by_vehicle_config", (q) => q.eq("vehicle_config_id", args.vehicle_config_id))
+      .collect();
+
+    // Part prices
+    const partIds = fitments.map((f) => f.part_id);
+    let pricedCount = 0;
+    for (const pid of partIds) {
+      const price = await ctx.db
+        .query("part_prices")
+        .withIndex("by_part", (q) => q.eq("part_id", pid))
+        .first();
+      if (price) pricedCount++;
+    }
+    const missingPrices = fitments.length - pricedCount;
+
+    return {
+      vehicle: `${config.year} ${config.trim_name}`,
+      fill_rate: config.fill_rate,
+      gaps: {
+        engine: missingEngine,
+        trim: missingTrim,
+        config: missingConfig,
+        service_intervals: missingIntervals,
+        labor_times: missingLabor,
+        part_fitments: fitments.length,
+        missing_prices: missingPrices,
+      },
+      summary: {
+        total_gaps: missingEngine.length + missingTrim.length + missingConfig.length +
+          missingIntervals.length + missingLabor.length + missingPrices,
+        categories_with_gaps: [
+          missingEngine.length > 0 ? "engine" : null,
+          missingTrim.length > 0 ? "trim" : null,
+          missingConfig.length > 0 ? "config" : null,
+          missingIntervals.length > 0 ? "intervals" : null,
+          missingLabor.length > 0 ? "labor" : null,
+          missingPrices > 0 ? "prices" : null,
+        ].filter(Boolean),
+      },
+    };
   },
 });

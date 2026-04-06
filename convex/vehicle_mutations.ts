@@ -165,15 +165,26 @@ export const createTestUser = internalMutation({
 export const upsertMake = internalMutation({
   args: { name: v.string() },
   handler: async (ctx, args) => {
-    const existing = await ctx.db
+    // Try exact match first
+    const exact = await ctx.db
       .query("makes")
       .withIndex("by_name", (q) => q.eq("name", args.name))
       .first();
+    if (exact) return exact._id;
 
-    if (existing) return existing._id;
+    // Fall back to case-insensitive slug match.
+    // VIN decoders return "MERCEDES-BENZ" but seeded makes use "Mercedes-Benz".
+    const slug = args.name.toLowerCase().replace(/\s+/g, "-");
+    const bySlug = await ctx.db
+      .query("makes")
+      .withIndex("by_slug", (q) => q.eq("slug", slug))
+      .first();
+    if (bySlug) return bySlug._id;
 
+    // Only create if truly new — include slug so future lookups work
     return await ctx.db.insert("makes", {
       name: args.name,
+      slug,
       logo_url: "",
     });
   },

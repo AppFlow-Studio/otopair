@@ -462,12 +462,58 @@ http.route({
   }),
 });
 
+// ---- POST /mcp/action/run — execute any internal action by function path ----
+// Body: { "functionPath": "vehicleEnrichment/v3pipeline:enrichVehicleBatchV3", "args": { ... } }
+http.route({
+  path: "/mcp/action/run",
+  method: "POST",
+  handler: httpAction(async (ctx, request) => {
+    if (!checkMcpAuth(request)) return unauthorized();
+    try {
+      const { functionPath, args } = (await request.json()) as { functionPath: string; args?: any };
+      if (!functionPath) return new Response(JSON.stringify({ error: "Missing 'functionPath'" }), { status: 400, headers: corsHeaders });
+
+      // Resolve the function reference from the internal API tree
+      // Path format: "module/file:exportName" e.g. "vehicleEnrichment/v3pipeline:enrichVehicleBatchV3"
+      const [modulePath, exportName] = functionPath.includes(":")
+        ? functionPath.split(":")
+        : [functionPath, "default"];
+
+      const segments = modulePath.split("/");
+      let ref: any = internal;
+      for (const seg of segments) {
+        ref = ref?.[seg];
+        if (!ref) {
+          return new Response(
+            JSON.stringify({ error: `Function not found: ${functionPath} (failed at segment '${seg}')` }),
+            { status: 404, headers: corsHeaders },
+          );
+        }
+      }
+
+      const fn = ref[exportName];
+      if (!fn) {
+        return new Response(
+          JSON.stringify({ error: `Export '${exportName}' not found in module '${modulePath}'` }),
+          { status: 404, headers: corsHeaders },
+        );
+      }
+
+      const result = await ctx.runAction(fn, args ?? {});
+      return new Response(JSON.stringify(result ?? { status: "ok" }, null, 2), { headers: corsHeaders });
+    } catch (e: any) {
+      return new Response(JSON.stringify({ error: e.message }), { status: 500, headers: corsHeaders });
+    }
+  }),
+});
+
 // ---- CORS OPTIONS for all /mcp/* routes ----
 const mcpPaths = [
   "/mcp/schema", "/mcp/table/read", "/mcp/table/count", "/mcp/table/stats",
   "/mcp/doc", "/mcp/table/query",
   "/mcp/doc/insert", "/mcp/doc/update", "/mcp/doc/replace", "/mcp/doc/delete",
   "/mcp/table/bulk-insert", "/mcp/doc/bulk-delete",
+  "/mcp/action/run",
 ];
 for (const path of mcpPaths) {
   http.route({ path, method: "OPTIONS", handler: httpAction(async () => corsOptions()) });

@@ -85,6 +85,9 @@ export const patchVehicleConfig = internalMutation({
     confidence_avg: v.optional(v.float64()),
     last_enriched_at: v.optional(v.float64()),
     last_verified_at: v.optional(v.float64()),
+    // Chassis grouping (Task 22)
+    chassis_code: v.optional(v.string()),
+    cloned_from_config_id: v.optional(v.id("vehicle_configs")),
   },
   handler: async (ctx, args) => {
     const { vehicle_config_id, ...fields } = args;
@@ -694,5 +697,535 @@ export const addSourceRegistry = internalMutation({
       return existing._id;
     }
     return await ctx.db.insert("source_registry", args);
+  },
+});
+
+// ============================================================================
+// 16. cloneFromChassisMatch — clone enrichment data from a source config
+//     Used when a chassis code match is found during Task 22 chassis grouping.
+//     Clones: service_intervals, labor_times, part_fitments, drivetrain_config,
+//     trim_specs, engine specs, and transmission specs.
+// ============================================================================
+
+export const cloneFromChassisMatch = internalMutation({
+  args: {
+    source_config_id: v.id("vehicle_configs"),
+    target_config_id: v.id("vehicle_configs"),
+    chassis_code: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    let clonedServiceIntervals = 0;
+    let clonedLaborTimes = 0;
+    let clonedPartFitments = 0;
+
+    // 1. Clone service_intervals
+    const sourceIntervals = await ctx.db
+      .query("service_intervals")
+      .withIndex("by_vehicle_config", (q) =>
+        q.eq("vehicle_config_id", args.source_config_id)
+      )
+      .collect();
+
+    for (const si of sourceIntervals) {
+      const existing = await ctx.db
+        .query("service_intervals")
+        .withIndex("by_config_service", (q) =>
+          q
+            .eq("vehicle_config_id", args.target_config_id)
+            .eq("service_id", si.service_id)
+        )
+        .first();
+      if (!existing) {
+        await ctx.db.insert("service_intervals", {
+          vehicle_config_id: args.target_config_id,
+          service_id: si.service_id,
+          interval_miles: si.interval_miles,
+          interval_months: si.interval_months,
+          status: si.status,
+          display_string: si.display_string,
+          confidence: Math.max((si.confidence ?? 0) - 0.03, 0.70), // slight confidence reduction for cloned data
+          data_quality: "chassis_clone",
+          source_count: 1,
+          mechanic_verified: false,
+          created_at: now,
+        });
+        clonedServiceIntervals++;
+      }
+    }
+
+    // 2. Clone labor_times
+    const sourceLabor = await ctx.db
+      .query("labor_times")
+      .withIndex("by_vehicle_config", (q) =>
+        q.eq("vehicle_config_id", args.source_config_id)
+      )
+      .collect();
+
+    for (const lt of sourceLabor) {
+      const existing = await ctx.db
+        .query("labor_times")
+        .withIndex("by_vehicle_config", (q) =>
+          q
+            .eq("vehicle_config_id", args.target_config_id)
+            .eq("service_id", lt.service_id)
+        )
+        .first();
+      if (!existing) {
+        await ctx.db.insert("labor_times", {
+          vehicle_config_id: args.target_config_id,
+          service_id: lt.service_id,
+          book_hours: lt.book_hours,
+          empirical_sample_size: lt.empirical_sample_size ?? 0,
+          empirical_hours: lt.empirical_hours,
+          empirical_p25: lt.empirical_p25,
+          empirical_p75: lt.empirical_p75,
+          source: "chassis_clone",
+          data_quality: "chassis_clone",
+          confidence: Math.max((lt.confidence ?? 0) - 0.03, 0.70),
+          engine_family: lt.engine_family,
+          created_at: now,
+        });
+        clonedLaborTimes++;
+      }
+    }
+
+    // 3. Clone part_fitments (reuse existing oem_parts, just create new fitments)
+    const sourceFitments = await ctx.db
+      .query("part_fitments")
+      .withIndex("by_vehicle_config", (q) =>
+        q.eq("vehicle_config_id", args.source_config_id)
+      )
+      .collect();
+
+    for (const pf of sourceFitments) {
+      const existing = await ctx.db
+        .query("part_fitments")
+        .withIndex("by_config_service", (q) =>
+          q
+            .eq("vehicle_config_id", args.target_config_id)
+            .eq("service_type", pf.service_type)
+        )
+        .filter((q) => q.eq(q.field("part_id"), pf.part_id))
+        .first();
+      if (!existing) {
+        await ctx.db.insert("part_fitments", {
+          part_id: pf.part_id,
+          vehicle_config_id: args.target_config_id,
+          service_type: pf.service_type,
+          quantity_needed: pf.quantity_needed,
+          position: pf.position,
+          confidence: Math.max((pf.confidence ?? 0) - 0.03, 0.70),
+          source_count: 1,
+          first_confirmed_at: now,
+          last_confirmed_at: now,
+          mechanic_verified: false,
+          created_at: now,
+        });
+        clonedPartFitments++;
+      }
+    }
+
+    // 4. Clone drivetrain_config
+    const sourceDrivetrain = await ctx.db
+      .query("drivetrain_configs")
+      .withIndex("by_vehicle_config", (q) =>
+        q.eq("vehicle_config_id", args.source_config_id)
+      )
+      .first();
+
+    if (sourceDrivetrain) {
+      const existingDT = await ctx.db
+        .query("drivetrain_configs")
+        .withIndex("by_vehicle_config", (q) =>
+          q.eq("vehicle_config_id", args.target_config_id)
+        )
+        .first();
+      if (!existingDT) {
+        await ctx.db.insert("drivetrain_configs", {
+          vehicle_config_id: args.target_config_id,
+          drivetrain_type: sourceDrivetrain.drivetrain_type,
+          has_differential: sourceDrivetrain.has_differential,
+          diff_fluid_type: sourceDrivetrain.diff_fluid_type,
+          diff_fluid_capacity_qts: sourceDrivetrain.diff_fluid_capacity_qts,
+          lsd_additive_required: sourceDrivetrain.lsd_additive_required,
+          has_transfer_case: sourceDrivetrain.has_transfer_case,
+          tc_fluid_type: sourceDrivetrain.tc_fluid_type,
+          tc_fluid_capacity_qts: sourceDrivetrain.tc_fluid_capacity_qts,
+          created_at: now,
+        });
+      }
+    }
+
+    // 5. Clone trim_specs
+    const sourceTrim = await ctx.db
+      .query("trim_specs")
+      .withIndex("by_vehicle_config", (q) =>
+        q.eq("vehicle_config_id", args.source_config_id)
+      )
+      .first();
+
+    if (sourceTrim) {
+      const existingTrim = await ctx.db
+        .query("trim_specs")
+        .withIndex("by_vehicle_config", (q) =>
+          q.eq("vehicle_config_id", args.target_config_id)
+        )
+        .first();
+      if (!existingTrim) {
+        // Clone all spec fields except _id, _creationTime, vehicle_config_id
+        const { _id, _creationTime, vehicle_config_id, created_at, ...specFields } = sourceTrim;
+        await ctx.db.insert("trim_specs", {
+          ...specFields,
+          vehicle_config_id: args.target_config_id,
+          created_at: now,
+        });
+      }
+    }
+
+    // 6. Tag target config as cloned — do NOT mark complete or set fill_rate.
+    //    The pipeline will continue to Tier 2 to fill gaps, and set final status/fill_rate itself.
+    await ctx.db.patch(args.target_config_id, {
+      chassis_code: args.chassis_code,
+      cloned_from_config_id: args.source_config_id,
+    });
+
+    console.log(
+      `[chassis-clone] Cloned from ${args.source_config_id} → ${args.target_config_id} ` +
+      `(${args.chassis_code}): ${clonedServiceIntervals} intervals, ${clonedLaborTimes} labor, ${clonedPartFitments} fitments`
+    );
+
+    return {
+      clonedServiceIntervals,
+      clonedLaborTimes,
+      clonedPartFitments,
+    };
+  },
+});
+
+// ─── #17: Chassis backfill ─────────────────────────────────────────────
+/**
+ * After a config finishes enrichment, push any newly discovered data back
+ * to sibling configs that share the same chassis code. This makes the whole
+ * chassis group smarter over time — a 2021 model's forum data + a 2026
+ * model's OEM part numbers combine into fuller coverage for everyone.
+ *
+ * Only fills MISSING fields on siblings — never overwrites existing data.
+ */
+export const backfillChassisSiblings = internalMutation({
+  args: {
+    source_config_id: v.id("vehicle_configs"),
+    sibling_config_ids: v.array(v.id("vehicle_configs")),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    let totalBackfilled = 0;
+
+    // Get source data
+    const sourceIntervals = await ctx.db
+      .query("service_intervals")
+      .withIndex("by_vehicle_config", (q) =>
+        q.eq("vehicle_config_id", args.source_config_id)
+      )
+      .collect();
+
+    const sourceLabor = await ctx.db
+      .query("labor_times")
+      .withIndex("by_vehicle_config", (q) =>
+        q.eq("vehicle_config_id", args.source_config_id)
+      )
+      .collect();
+
+    const sourceFitments = await ctx.db
+      .query("part_fitments")
+      .withIndex("by_vehicle_config", (q) =>
+        q.eq("vehicle_config_id", args.source_config_id)
+      )
+      .collect();
+
+    for (const siblingId of args.sibling_config_ids) {
+      let siblingBackfilled = 0;
+
+      // Backfill service_intervals
+      for (const si of sourceIntervals) {
+        const existing = await ctx.db
+          .query("service_intervals")
+          .withIndex("by_config_service", (q) =>
+            q.eq("vehicle_config_id", siblingId).eq("service_id", si.service_id)
+          )
+          .first();
+        if (!existing) {
+          await ctx.db.insert("service_intervals", {
+            vehicle_config_id: siblingId,
+            service_id: si.service_id,
+            interval_miles: si.interval_miles,
+            interval_months: si.interval_months,
+            status: si.status,
+            display_string: si.display_string,
+            data_quality: "chassis_backfill",
+            confidence: Math.max((si.confidence ?? 0) - 0.03, 0.70),
+            source_count: 1,
+            mechanic_verified: false,
+            created_at: now,
+          });
+          siblingBackfilled++;
+        }
+      }
+
+      // Backfill labor_times
+      for (const lt of sourceLabor) {
+        const existing = await ctx.db
+          .query("labor_times")
+          .withIndex("by_vehicle_config", (q) =>
+            q.eq("vehicle_config_id", siblingId).eq("service_id", lt.service_id)
+          )
+          .first();
+        if (!existing) {
+          await ctx.db.insert("labor_times", {
+            vehicle_config_id: siblingId,
+            service_id: lt.service_id,
+            book_hours: lt.book_hours,
+            empirical_sample_size: lt.empirical_sample_size ?? 0,
+            empirical_hours: lt.empirical_hours,
+            empirical_p25: lt.empirical_p25,
+            empirical_p75: lt.empirical_p75,
+            source: lt.source,
+            data_quality: "chassis_backfill",
+            confidence: Math.max((lt.confidence ?? 0) - 0.03, 0.70),
+            engine_family: lt.engine_family,
+            created_at: now,
+          });
+          siblingBackfilled++;
+        }
+      }
+
+      // Backfill part_fitments
+      for (const pf of sourceFitments) {
+        const existing = await ctx.db
+          .query("part_fitments")
+          .withIndex("by_config_service", (q) =>
+            q.eq("vehicle_config_id", siblingId).eq("service_type", pf.service_type)
+          )
+          .filter((q) => q.eq(q.field("part_id"), pf.part_id))
+          .first();
+        if (!existing) {
+          await ctx.db.insert("part_fitments", {
+            part_id: pf.part_id,
+            vehicle_config_id: siblingId,
+            service_type: pf.service_type,
+            quantity_needed: pf.quantity_needed,
+            position: pf.position,
+            confidence: Math.max((pf.confidence ?? 0) - 0.03, 0.70),
+            source_count: 1,
+            first_confirmed_at: now,
+            last_confirmed_at: now,
+            mechanic_verified: false,
+            created_at: now,
+          });
+          siblingBackfilled++;
+        }
+      }
+
+      if (siblingBackfilled > 0) {
+        console.log(`[chassis-backfill] Pushed ${siblingBackfilled} records → sibling ${siblingId}`);
+        totalBackfilled += siblingBackfilled;
+      }
+    }
+
+    return { totalBackfilled, siblingsUpdated: args.sibling_config_ids.length };
+  },
+});
+
+// ─── #18: 23-Service Default Fallback (Task 21) ───────────────────────
+/**
+ * After enrichment completes, check which of the 23 services are missing
+ * from service_intervals for this config. For each applicable missing service,
+ * insert a default record so no vehicle ever ships with gaps.
+ *
+ * Applicability rules:
+ *   - requires_ice_engine: skip for EVs (drivetrain check)
+ *   - requires_timing_belt: skip for chain engines
+ *   - requires_differential: skip for FWD
+ *   - requires_hydraulic_ps: skip for electric power steering
+ *   - requires_rotatable_tires: skip for staggered setups (different front/rear sizes)
+ *   - requires_state_inspection / requires_emissions_test: region-dependent, include as on_demand
+ *   - is_labor_only services with no interval: always insert as "on_demand"
+ */
+
+// Default intervals for services that have predictable schedules (miles).
+// These are conservative industry-standard defaults when OEM data is missing.
+const SERVICE_DEFAULTS: Record<string, { miles?: number; months?: number }> = {
+  oil_change: { miles: 7500, months: 12 },
+  filter_replacement: { miles: 20000, months: 24 },
+  spark_plugs: { miles: 60000, months: 60 },
+  timing_belt: { miles: 90000, months: 84 },
+  coolant_flush: { miles: 60000, months: 60 },
+  transmission_service: { miles: 60000, months: 60 },
+  tire_rotation: { miles: 7500, months: 6 },
+  brake_pad_replacement: { miles: 40000, months: 48 },
+  rotor_replacement: { miles: 70000, months: 72 },
+  brake_fluid_flush: { miles: 30000, months: 36 },
+  battery_replacement: { miles: 60000, months: 48 },
+  power_steering_flush: { miles: 60000, months: 60 },
+  differential_service: { miles: 50000, months: 60 },
+  fuel_system_cleaning: { miles: 60000, months: 60 },
+  tire_replacement: { miles: 50000, months: 60 },
+  serpentine_belt: { miles: 60000, months: 72 },
+};
+
+export const ensureAllServiceIntervals = internalMutation({
+  args: {
+    vehicle_config_id: v.id("vehicle_configs"),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+
+    // Get vehicle config for applicability checks
+    const config = await ctx.db.get(args.vehicle_config_id);
+    if (!config) return { added: 0, skipped: 0 };
+
+    const drivetrain = (config.drivetrain ?? "").toUpperCase();
+    const isFWD = drivetrain === "FWD";
+
+    // Get engine to check timing system
+    let timingSystem = "";
+    if (config.engine_id) {
+      const engine = await ctx.db.get(config.engine_id);
+      timingSystem = ((engine as any)?.timing_system ?? "").toLowerCase();
+    }
+
+    // Check for staggered tires (different front/rear = no rotation)
+    let hasStaggeredTires = false;
+    const trimSpec = await ctx.db
+      .query("trim_specs")
+      .withIndex("by_vehicle_config", (q) => q.eq("vehicle_config_id", args.vehicle_config_id))
+      .first();
+    if (trimSpec) {
+      const ft = (trimSpec as any).front_tire_size ?? "";
+      const rt = (trimSpec as any).rear_tire_size ?? "";
+      if (ft && rt && ft !== rt) hasStaggeredTires = true;
+    }
+
+    // Get all 23 services
+    const allServices = await ctx.db.query("services").collect();
+
+    // Get existing service_intervals for this config
+    const existingIntervals = await ctx.db
+      .query("service_intervals")
+      .withIndex("by_vehicle_config", (q) => q.eq("vehicle_config_id", args.vehicle_config_id))
+      .collect();
+    const existingServiceIds = new Set(existingIntervals.map((si) => si.service_id.toString()));
+
+    let added = 0;
+    let skipped = 0;
+
+    for (const svc of allServices) {
+      // Already has an interval — skip
+      if (existingServiceIds.has(svc._id.toString())) continue;
+
+      // Applicability checks
+      if (svc.requires_timing_belt && timingSystem.includes("chain")) {
+        skipped++;
+        continue;
+      }
+      if (svc.requires_differential && isFWD) {
+        skipped++;
+        continue;
+      }
+      if (svc.requires_rotatable_tires && hasStaggeredTires) {
+        skipped++;
+        continue;
+      }
+
+      // Determine status and interval
+      const defaults = SERVICE_DEFAULTS[svc.slug];
+      const isOnDemand = svc.is_labor_only && !defaults;
+
+      await ctx.db.insert("service_intervals", {
+        vehicle_config_id: args.vehicle_config_id,
+        service_id: svc._id,
+        interval_miles: defaults?.miles,
+        interval_months: defaults?.months,
+        status: isOnDemand ? "on_demand" : "scheduled",
+        display_string: isOnDemand ? "As needed" : undefined,
+        confidence: 0.50, // low confidence — these are fallback defaults
+        data_quality: "default_fallback",
+        source_count: 0,
+        mechanic_verified: false,
+        created_at: now,
+      });
+      added++;
+    }
+
+    console.log(
+      `[fallback] Config ${args.vehicle_config_id}: added ${added} default intervals, skipped ${skipped} non-applicable`
+    );
+    return { added, skipped };
+  },
+});
+
+// ─── #19: Patch helpers for partial enrichment (Task 25) ──────────────
+
+export const patchEngine = internalMutation({
+  args: {
+    engine_id: v.id("engines"),
+    oil_viscosity: v.optional(v.string()),
+    oil_capacity_qts: v.optional(v.float64()),
+    coolant_type: v.optional(v.string()),
+    coolant_capacity_qts: v.optional(v.float64()),
+    timing_system: v.optional(v.string()),
+    fuel_injection: v.optional(v.string()),
+    aspiration: v.optional(v.string()),
+    spark_plug_quantity: v.optional(v.float64()),
+    spark_plug_gap_mm: v.optional(v.float64()),
+  },
+  handler: async (ctx, args) => {
+    const { engine_id, ...fields } = args;
+    // Only patch fields that are actually provided (non-undefined)
+    const updates: Record<string, any> = {};
+    for (const [key, val] of Object.entries(fields)) {
+      if (val !== undefined) updates[key] = val;
+    }
+    if (Object.keys(updates).length > 0) {
+      await ctx.db.patch(engine_id, updates);
+    }
+  },
+});
+
+export const patchTrimSpecs = internalMutation({
+  args: {
+    vehicle_config_id: v.id("vehicle_configs"),
+    front_tire_size: v.optional(v.string()),
+    rear_tire_size: v.optional(v.string()),
+    recommended_tire_pressure_front_psi: v.optional(v.float64()),
+    recommended_tire_pressure_rear_psi: v.optional(v.float64()),
+    lug_nut_torque_ft_lbs: v.optional(v.float64()),
+    battery_group: v.optional(v.string()),
+    battery_cca: v.optional(v.float64()),
+    battery_type: v.optional(v.string()),
+    battery_location: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const { vehicle_config_id, ...fields } = args;
+    const updates: Record<string, any> = {};
+    for (const [key, val] of Object.entries(fields)) {
+      if (val !== undefined) updates[key] = val;
+    }
+    if (Object.keys(updates).length === 0) return;
+
+    const existing = await ctx.db
+      .query("trim_specs")
+      .withIndex("by_vehicle_config", (q) => q.eq("vehicle_config_id", vehicle_config_id))
+      .first();
+
+    if (existing) {
+      await ctx.db.patch(existing._id, updates);
+    } else {
+      await ctx.db.insert("trim_specs", {
+        vehicle_config_id,
+        ...updates,
+        created_at: Date.now(),
+      } as any);
+    }
   },
 });

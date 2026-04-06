@@ -29,6 +29,7 @@ import { BLOCKED_DOMAINS } from "./sourceRegistry";
 import { applyApplicabilityRules } from "./applicabilityRules";
 import { scrapeVehicleSources } from "./scraper";
 import { fetchVDBLaborHours, mapVDBLaborToSlugs } from "../lib/vehicleDatabases";
+import { lookupChassisCode } from "./utils/chassisLookup";
 import type { Id } from "../_generated/dataModel";
 
 // ─── Constants ─────────────────────────────────────────────────────
@@ -1041,6 +1042,66 @@ export const enrichVehicleBatchV3 = internalAction({
       console.warn("[v8] VDB repair estimates failed (non-fatal):", e);
     }
 
+    // STEP 6c: Chassis code lookup + merge-and-continue (Task 22 v2)
+    // Ask Haiku to identify the OEM chassis/generation code (e.g. "G30", "W206").
+    // If ANY vehicle_config with the same chassis_code exists (even partial),
+    // clone its data as a head start, then CONTINUE to full enrichment to fill gaps.
+    // After enrichment completes, backfill siblings with newly discovered fields.
+    try {
+      const chassisResult = await lookupChassisCode(
+        args.year,
+        args.make,
+        args.model,
+        args.trim,
+      );
+
+      if (chassisResult.chassisCode) {
+        // Patch the chassis code onto the vehicle_config
+        await ctx.runMutation(internal.vehicleEnrichment.v3mutations.patchVehicleConfig, {
+          vehicle_config_id: vehicleConfigId,
+          chassis_code: chassisResult.chassisCode,
+        });
+
+        // Find the best sibling config with the same chassis code (any status, highest fill_rate)
+        const chassisMatch = await ctx.runQuery(
+          internal.vehicleEnrichment.v3queries.findBestChassisMatch,
+          {
+            chassis_code: chassisResult.chassisCode,
+            target_config_id: vehicleConfigId,
+          },
+        );
+
+        if (chassisMatch) {
+          console.log(
+            `[v8] Chassis sibling found: ${chassisResult.chassisCode} → config ${chassisMatch._id} ` +
+            `(${chassisMatch.fill_rate ?? 0}% fill, ${chassisMatch.enrichment_status}). Merging as head start.`
+          );
+
+          // Clone whatever data the sibling has — pipeline will fill gaps in Tier 2
+          const cloneResult = await ctx.runMutation(
+            internal.vehicleEnrichment.v3mutations.cloneFromChassisMatch,
+            {
+              source_config_id: chassisMatch._id,
+              target_config_id: vehicleConfigId,
+              chassis_code: chassisResult.chassisCode,
+            },
+          );
+
+          console.log(
+            `[v8] Chassis merge done — ${cloneResult.clonedServiceIntervals} intervals, ` +
+            `${cloneResult.clonedLaborTimes} labor, ${cloneResult.clonedPartFitments} fitments. ` +
+            `Continuing to full enrichment to fill gaps.`
+          );
+        } else {
+          console.log(`[v8] Chassis code ${chassisResult.chassisCode} — first in group, proceeding to full enrichment`);
+        }
+      } else {
+        console.log(`[v8] Chassis code lookup returned null — proceeding to full enrichment`);
+      }
+    } catch (e) {
+      console.warn("[v8] Chassis lookup failed (non-fatal, continuing to full enrichment):", e);
+    }
+
     // STEP 7: FireCrawl scrape — parts catalog + owner's manual
     const sources = await scrapeVehicleSources(ctx, vehicle);
 
@@ -1535,6 +1596,81 @@ export const _pollBatch2V3 = internalAction({
       );
     } catch (e) {
       console.warn("[v8] Source scoring failed (non-fatal):", e);
+    }
+
+    // Post-enrichment: trigger source discovery if this make has < 3 registered sources.
+    // Runs async (scheduled) so it doesn't block the completion path.
+    try {
+      const existingSources = await ctx.runQuery(
+        internal.vehicleEnrichment.v3queries.getSourcesForMake,
+        { make_id: args.makeId },
+      );
+      if (existingSources.length < 3) {
+        console.log(
+          `[v8] Source discovery: ${args.make} has ${existingSources.length} sources — scheduling discovery`
+        );
+        await ctx.scheduler.runAfter(
+          5_000, // 5s delay to let the completion settle
+          internal.vehicleEnrichment.sourceDiscovery.discoverSourcesForMake,
+          {
+            make_id: args.makeId,
+            make_name: args.make,
+            test_year: args.year,
+            test_model: args.model,
+            test_trim: args.trim,
+          },
+        );
+      }
+    } catch (e) {
+      console.warn("[v8] Source discovery trigger failed (non-fatal):", e);
+    }
+
+    // Post-enrichment: chassis backfill — push newly discovered data to sibling configs
+    // that share the same chassis code. This makes the whole chassis group smarter over time.
+    try {
+      const freshConfig = await ctx.runQuery(
+        internal.vehicleEnrichment.v3queries.getVehicleConfigById,
+        { vehicleConfigId: args.vehicleConfigId },
+      );
+      if (freshConfig?.chassis_code) {
+        const siblings = await ctx.runQuery(
+          internal.vehicleEnrichment.v3queries.findChassisGroupSiblings,
+          {
+            chassis_code: freshConfig.chassis_code,
+            exclude_config_id: args.vehicleConfigId,
+          },
+        );
+        if (siblings.length > 0) {
+          const backfillResult = await ctx.runMutation(
+            internal.vehicleEnrichment.v3mutations.backfillChassisSiblings,
+            {
+              source_config_id: args.vehicleConfigId,
+              sibling_config_ids: siblings.map((s: any) => s._id),
+            },
+          );
+          console.log(
+            `[v8] Chassis backfill: pushed ${backfillResult.totalBackfilled} records to ${siblings.length} sibling(s) (${freshConfig.chassis_code})`
+          );
+        }
+      }
+    } catch (e) {
+      console.warn("[v8] Chassis backfill failed (non-fatal):", e);
+    }
+
+    // Post-enrichment: ensure all 23 services have at least a default interval (Task 21).
+    // Only fills MISSING services — never overwrites enriched data.
+    try {
+      const fallbackResult = await ctx.runMutation(
+        internal.vehicleEnrichment.v3mutations.ensureAllServiceIntervals,
+        { vehicle_config_id: args.vehicleConfigId },
+      );
+      if (fallbackResult.added > 0) {
+        console.log(
+          `[v8] Service fallback: added ${fallbackResult.added} defaults, skipped ${fallbackResult.skipped} non-applicable`
+        );
+      }
+    } catch (e) {
+      console.warn("[v8] Service fallback failed (non-fatal):", e);
     }
 
     console.log(

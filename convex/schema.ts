@@ -211,6 +211,13 @@ export default defineSchema({
    * The atomic unit of enrichment. One config = one unique
    * (year, make, model, trim, engine, transmission, drivetrain) combination.
    * All enrichment data (parts, intervals, labor) attaches to this entity.
+   *
+   * CHASSIS GROUPING (Task 22):
+   *   chassis_code — OEM generation/platform code (e.g. "G30", "W206", "A90").
+   *   Resolved via Haiku web search after Tier 1 VIN decode.
+   *   If a completed config with the same chassis_code exists, Tier 2 is
+   *   skipped and service data is cloned from the existing config.
+   *   cloned_from_config_id tracks provenance when data was cloned.
    */
   vehicle_configs: defineTable({
     config_key: v.string(),
@@ -236,12 +243,18 @@ export default defineSchema({
     enrichment_version: v.optional(v.string()),
     verification_count: v.float64(),
     created_at: v.float64(),
+    // ── Chassis grouping (Task 22) ──────────────────────────────
+    /** OEM chassis/generation code, e.g. "G30", "W206", "T235" */
+    chassis_code: v.optional(v.string()),
+    /** Source config when data was cloned via chassis match */
+    cloned_from_config_id: v.optional(v.id("vehicle_configs")),
   })
     .index("by_config_key", ["config_key"])
     .index("by_engine", ["engine_id"])
     .index("by_make_model_year", ["make_id", "model_id", "year"])
     .index("by_enrichment_status", ["enrichment_status"])
-    .index("by_fill_rate", ["fill_rate"]),
+    .index("by_fill_rate", ["fill_rate"])
+    .index("by_chassis_code", ["chassis_code", "enrichment_status"]),
 
   /**
    * TABLE: drivetrain_configs
@@ -620,6 +633,62 @@ export default defineSchema({
     .index("by_cache_key", ["cache_key"])
     .index("by_expires_at", ["expires_at"])
     .index("by_make_year", ["make_id", "year"]),
+
+  /**
+   * TABLE: vin_queue
+   *
+   * DESCRIPTION:
+   * VINs discovered from marketplace scrapes (CarGurus, Cars.com, AutoTrader).
+   * Each row = one VIN waiting to be enriched. Deduped against `vehicles.by_vin`.
+   *
+   * LIFECYCLE: pending → enriching → complete | failed | skipped
+   */
+  vin_queue: defineTable({
+    vin: v.string(),
+    source: v.string(),                        // "cargurus" | "carscom" | "autotrader"
+    source_url: v.optional(v.string()),        // listing URL
+    year: v.float64(),
+    make: v.string(),
+    model: v.string(),
+    trim: v.optional(v.string()),
+    price: v.optional(v.float64()),
+    mileage: v.optional(v.float64()),
+    location: v.optional(v.string()),          // city/state from listing
+    status: v.string(),                        // "pending" | "enriching" | "complete" | "failed" | "skipped"
+    skip_reason: v.optional(v.string()),       // why it was skipped (duplicate, year < 2018, etc.)
+    error: v.optional(v.string()),             // enrichment error message
+    vehicle_config_id: v.optional(v.id("vehicle_configs")), // linked after enrichment
+    queued_at: v.float64(),
+    processed_at: v.optional(v.float64()),
+  })
+    .index("by_vin", ["vin"])
+    .index("by_status", ["status"])
+    .index("by_source_status", ["source", "status"])
+    .index("by_year", ["year"]),
+
+  /**
+   * TABLE: scrape_jobs
+   *
+   * DESCRIPTION:
+   * Audit trail for each marketplace scrape run. Tracks what was searched,
+   * how many listings/VINs were found, and how many were new.
+   */
+  scrape_jobs: defineTable({
+    source: v.string(),                        // "cargurus" | "carscom" | "autotrader"
+    search_params: v.string(),                 // JSON stringified search criteria
+    status: v.string(),                        // "running" | "complete" | "failed"
+    listings_found: v.float64(),
+    vins_extracted: v.float64(),
+    new_vins: v.float64(),                     // how many were actually new (not dupes)
+    errors: v.array(v.string()),
+    started_at: v.float64(),
+    completed_at: v.optional(v.float64()),
+    duration_ms: v.optional(v.float64()),
+    created_at: v.float64(),
+  })
+    .index("by_source", ["source"])
+    .index("by_status", ["status"])
+    .index("by_created_at", ["created_at"]),
 
   // ============================================================================
   // CORE APP TABLES
