@@ -178,10 +178,9 @@ const TIRE_PRESSURE_SOURCES: Source[] = [
 // ============================================================================
 
 export const WELCOME_SUGGESTIONS = [
-  { id: "brake", text: "Hearing Something", subtitle: "Diagnose Issue", value: "brake noise" },
-  { id: "check_engine", text: "Check Engine Light", subtitle: "Check the code", value: "check engine light" },
-  { id: "oil", text: "Schedule Services", subtitle: "For my vehicle", value: "schedule oil change" },
-  { id: "new_vehicle", text: "New Vehicle", subtitle: "Register Vehicle", value: "register new vehicle" },
+  { id: "oil", text: "Schedule Services for my Vehicle", value: "Schedule Services for my Vehicle" },
+  { id: "vague", text: "Something Feels Off", value: "Something Feels Off" },
+  { id: "check_engine", text: "Warning Light is On", value: "Warning Light is On" },
 ];
 
 export const PRIORITY_SUGGESTIONS = [

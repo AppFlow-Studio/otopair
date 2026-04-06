@@ -55,6 +55,17 @@ import { router } from 'expo-router';
 // 5. Responsive utilities
 import { scale, verticalScale, moderateScale, isTablet } from '@/utils/responsive';
 
+// 6. Native iOS 26 liquid glass (optional)
+let LiquidGlassView: React.ComponentType<any> | null = null;
+let isLiquidGlassEnabled = false;
+try {
+  const lg = require('@callstack/liquid-glass');
+  LiquidGlassView = lg.LiquidGlassView;
+  isLiquidGlassEnabled = !!lg.isLiquidGlassSupported;
+} catch {
+  // Not available — fall back to plain style
+}
+
 // ============================================================================
 // TYPES
 // ============================================================================
@@ -1526,6 +1537,15 @@ export function CarCarousel({
   // Vehicle Health Modal state
   const [showHealthModal, setShowHealthModal] = useState(false);
 
+  // Sliding glass indicator position
+  const glassTranslateX = useSharedValue(0);
+  useEffect(() => {
+    glassTranslateX.value = withSpring(activeIndex * (scale(48) + Spacing.sm), { damping: 18, stiffness: 200 });
+  }, [activeIndex]);
+  const slidingGlassStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: glassTranslateX.value }],
+  }));
+
   // Bottom sheet animation values
   const sheetTranslateY = useRef(new Animated.Value(scale(300))).current;
   const backdropOpacity = useRef(new Animated.Value(0)).current;
@@ -1774,17 +1794,26 @@ export function CarCarousel({
       {/* Thumbnail Selector with Activity Rings */}
       <View style={styles.thumbnailRow}>
         <View style={styles.thumbnailSelector}>
+          {/* Sliding glass indicator behind active thumbnail */}
+          {isLiquidGlassEnabled && LiquidGlassView && (
+            <ReAnimated.View
+              style={[styles.slidingGlassWrapper, slidingGlassStyle]}
+            >
+              <LiquidGlassView interactive effect="clear" style={styles.slidingGlassPill} />
+            </ReAnimated.View>
+          )}
+
           {sortedVehicles.map((vehicle, index) => {
             const imageSource = vehicle.imageSource || FALLBACK_VEHICLE_IMAGE;
             const isActive = index === activeIndex;
-            
+
             return (
               <Pressable
                 key={vehicle.id}
                 onPress={() => rotateToIndex(index)}
                 style={[
                   styles.thumbnailButton,
-                  isActive && styles.thumbnailButtonActive,
+                  !isLiquidGlassEnabled && isActive && styles.thumbnailButtonActive,
                 ]}
               >
                 <Image
@@ -1795,10 +1824,8 @@ export function CarCarousel({
               </Pressable>
             );
           })}
-          
-          <Pressable style={styles.addCarButton}
-          onPress={() => router.push('/add-vehicle')}
-          >
+
+          <Pressable style={styles.addCarButton} onPress={() => router.push('/add-vehicle')}>
             <Plus size={scale(18)} color="#000000" />
           </Pressable>
         </View>
@@ -2148,6 +2175,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.sm,
+    position: 'relative',
+  },
+  slidingGlassWrapper: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    width: scale(48),
+    height: scale(48),
+    zIndex: 0,
+  },
+  slidingGlassPill: {
+    width: scale(48),
+    height: scale(48),
+    borderRadius: scale(24),
   },
   thumbnailButton: {
     width: scale(48),

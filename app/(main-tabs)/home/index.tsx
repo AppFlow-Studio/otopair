@@ -25,6 +25,17 @@ import { useMutation, useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 
+// Native iOS 26 liquid glass (optional)
+let LiquidGlassView: React.ComponentType<any> | null = null;
+let isLiquidGlassEnabled = false;
+try {
+  const lg = require("@callstack/liquid-glass");
+  LiquidGlassView = lg.LiquidGlassView;
+  isLiquidGlassEnabled = !!lg.isLiquidGlassSupported;
+} catch {
+  // Not available — fall back to BlurView style
+}
+
 // 5. Flow-specific components
 import { ActionCardsCarousel } from '@/components/home/ActionCardsCarousel';
 import { AddFirstVehicleCard } from '@/components/home/AddFirstVehicleCard';
@@ -352,39 +363,54 @@ export default function HomeScreen() {
               onPress={() => setShowLoyaltyCard(true)}
               style={({ pressed }) => [styles.goldTierBadge, pressed && styles.goldTierBadgePressed]}
             >
-              <View style={styles.glassContainer}>
-                <BlurView intensity={10} tint="dark" style={styles.glassBlur}>
-                  <View style={styles.glassOverlay} />
-                  <LinearGradient
-                    colors={['rgba(255,255,255,0.25)', 'rgba(255,255,255,0.05)']}
-                    start={{ x: 0.5, y: 0 }}
-                    end={{ x: 0.5, y: 0.5 }}
-                    style={styles.glassGloss}
-                  />
-                  <Trophy size={22} color="#FFFFFF" fill="none" strokeWidth={2} />
-                </BlurView>
-              </View>
+              {isLiquidGlassEnabled && LiquidGlassView ? (
+                <LiquidGlassView interactive effect="clear" style={styles.liquidGlassIcon}>
+                  <Trophy size={22} color="#000000" fill="none" strokeWidth={2} />
+                </LiquidGlassView>
+              ) : (
+                <View style={styles.glassContainer}>
+                  <BlurView intensity={10} tint="dark" style={styles.glassBlur}>
+                    <View style={styles.glassOverlay} />
+                    <LinearGradient
+                      colors={['rgba(255,255,255,0.25)', 'rgba(255,255,255,0.05)']}
+                      start={{ x: 0.5, y: 0 }}
+                      end={{ x: 0.5, y: 0.5 }}
+                      style={styles.glassGloss}
+                    />
+                    <Trophy size={22} color="#000000" fill="none" strokeWidth={2} />
+                  </BlurView>
+                </View>
+              )}
             </Pressable>
 
             {/* Notification Bell */}
             <Pressable
               style={({ pressed }) => [styles.bellButton, pressed && styles.bellButtonPressed]}
             >
-              <View style={styles.glassContainer}>
-                <BlurView intensity={10} tint="dark" style={styles.glassBlur}>
-                  <View style={styles.glassOverlay} />
-                  <LinearGradient
-                    colors={['rgba(255,255,255,0.25)', 'rgba(255,255,255,0.05)']}
-                    start={{ x: 0.5, y: 0 }}
-                    end={{ x: 0.5, y: 0.5 }}
-                    style={styles.glassGloss}
-                  />
+              {isLiquidGlassEnabled && LiquidGlassView ? (
+                <LiquidGlassView interactive effect="clear" style={styles.liquidGlassIcon}>
                   <View style={styles.bellIconContainer}>
-                    <Bell size={22} color="#FFFFFF" fill="none" strokeWidth={2} />
+                    <Bell size={22} color="#000000" fill="none" strokeWidth={2} />
                     <View style={styles.bellDot} />
                   </View>
-                </BlurView>
-              </View>
+                </LiquidGlassView>
+              ) : (
+                <View style={styles.glassContainer}>
+                  <BlurView intensity={10} tint="dark" style={styles.glassBlur}>
+                    <View style={styles.glassOverlay} />
+                    <LinearGradient
+                      colors={['rgba(255,255,255,0.25)', 'rgba(255,255,255,0.05)']}
+                      start={{ x: 0.5, y: 0 }}
+                      end={{ x: 0.5, y: 0.5 }}
+                      style={styles.glassGloss}
+                    />
+                    <View style={styles.bellIconContainer}>
+                      <Bell size={22} color="#000000" fill="none" strokeWidth={2} />
+                      <View style={styles.bellDot} />
+                    </View>
+                  </BlurView>
+                </View>
+              )}
             </Pressable>
           </View>
         </View>
@@ -579,6 +605,13 @@ const styles = StyleSheet.create({
   },
   bellButtonPressed: {
     opacity: 0.7,
+  },
+  liquidGlassIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   glassContainer: {
     width: 40,

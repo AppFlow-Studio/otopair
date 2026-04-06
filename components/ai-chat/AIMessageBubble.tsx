@@ -402,36 +402,37 @@ export function AIMessageBubble({
           </View>
         )}
 
-        {/* Sources (AI only) */}
+        {/* Sources (AI only) — temporarily hidden
         {showContent && message.sources && message.sources.length > 0 && !isStreaming && (
           <AISources sources={message.sources} />
         )}
+        */}
 
         {/* Action Buttons (AI only, when not streaming) */}
         {showContent && !isStreaming && (
           <View style={styles.actionsContainer}>
             <View style={styles.actionButtons}>
-              <ActionButton 
-                icon={<Copy size={14} color="#9CA3AF" />} 
+              <ActionButton
+                icon={<Copy size={14} color="#9CA3AF" />}
                 activeIcon={<Check size={14} color={BrandColors.secondary} />}
                 isActive={isCopied}
-                onPress={handleCopy} 
+                onPress={handleCopy}
               />
-              <ActionButton 
-                icon={<Volume2 size={14} color="#9CA3AF" />} 
-                onPress={onSpeak} 
+              <ActionButton
+                icon={<Volume2 size={14} color="#9CA3AF" />}
+                onPress={onSpeak}
               />
-              <ActionButton 
-                icon={<ThumbsUp size={14} color="#9CA3AF" />} 
+              <ActionButton
+                icon={<ThumbsUp size={14} color="#9CA3AF" />}
                 activeIcon={<ThumbsUp size={14} color={BrandColors.secondary} fill={BrandColors.secondary} />}
                 isActive={feedback === 'like'}
-                onPress={handleLike} 
+                onPress={handleLike}
               />
-              <ActionButton 
-                icon={<ThumbsDown size={14} color="#9CA3AF" />} 
+              <ActionButton
+                icon={<ThumbsDown size={14} color="#9CA3AF" />}
                 activeIcon={<ThumbsDown size={14} color={BrandColors.secondary} fill={BrandColors.secondary} />}
                 isActive={feedback === 'dislike'}
-                onPress={handleDislike} 
+                onPress={handleDislike}
               />
             </View>
           </View>

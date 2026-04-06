@@ -27,9 +27,22 @@ import { View, ScrollView, StyleSheet, Pressable, Alert, Platform, KeyboardAvoid
 
 // 2. Expo & Third-party
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { LinearGradient } from "expo-linear-gradient";
 import Animated, { useAnimatedStyle, useSharedValue, withTiming, withDelay, Easing } from "react-native-reanimated";
 import { useRouter } from "expo-router";
-import { AlignLeft, SquarePen } from "lucide-react-native";
+import { AlignLeft, SquarePen, Ellipsis, Sparkles, History, CarFront, Zap } from "lucide-react-native";
+
+// Liquid Glass (iOS 26+)
+let LiquidGlassView: React.ComponentType<any> | null = null;
+let isLiquidGlassEnabled = false;
+try {
+  const lg = require("@callstack/liquid-glass");
+  LiquidGlassView = lg.LiquidGlassView;
+  isLiquidGlassEnabled = !!lg.isLiquidGlassSupported;
+  console.log("[LiquidGlass] supported:", lg.isLiquidGlassSupported, "view:", !!LiquidGlassView);
+} catch (e) {
+  console.log("[LiquidGlass] import failed:", e);
+}
 import * as Clipboard from "expo-clipboard";
 import * as Speech from "expo-speech";
 
@@ -55,6 +68,7 @@ import {
   type QuickReply,
   type ServiceOption,
   type SelectedTimeSlot,
+  type VehicleCard,
 } from "@/components/ai-chat";
 
 // 5. Constants, hooks, types, stores
@@ -62,6 +76,8 @@ import { BrandColors, Spacing, FontFamily } from "@/constants/theme";
 import { useAIChatStore } from "@/stores/useAIChatStore";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useVoiceRecording } from "@/hooks/useVoiceRecording";
+import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromConvex";
+import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 import { createInitialState, processUserMessage, WELCOME_SUGGESTIONS } from "@/services/ai/scenarioEngine";
 import type { ConversationState, ChatMessage, AIMechanic, SelectedService } from "@/services/ai/types";
 
@@ -83,6 +99,7 @@ export default function AIChatScreen() {
 
   // Calculate bottom padding to account for the native tab bar
   const bottomPadding = Math.max(insets.bottom, TAB_BAR_HEIGHT);
+  const HEADER_HEIGHT = insets.top + Spacing.md * 2 + 40;
 
   // Welcome screen state (from Zustand store)
   const hasSeenWelcome = useAIChatStore((state) => state.hasSeenWelcome);
@@ -103,6 +120,53 @@ export default function AIChatScreen() {
 
   // Conversation state (using scenario engine)
   const [state, setState] = useState<ConversationState>(createInitialState);
+
+  // User data for greeting
+  const { user: convexUser } = useUserFromConvex();
+  const userFirstName = convexUser?.first_name || "User";
+
+  // Vehicle data for greeting screen
+  const { vehicles: rawVehicles } = useVehicleOwnershipFromConvex();
+  const [selectedVehicleVin, setSelectedVehicleVin] = useState<string | null>(null);
+
+  const LOCAL_VEHICLE_IMAGES: Record<string, any> = {
+    tiguan: require("@/assets/images/tiguan.png"),
+    explorer: require("@/assets/images/explorer.png"),
+    es: require("@/assets/images/lexus.png"),
+  };
+
+  const greetingVehicles: VehicleCard[] = React.useMemo(() => {
+    if (!rawVehicles || rawVehicles.length === 0) return [];
+    return rawVehicles.map((r: any) => {
+      const v = r.vehicle;
+      const o = r.ownership;
+      const meta = v?.metadata as { make?: string; model?: string } | undefined;
+      const make = meta?.make || o?.nickname?.split(" ")[1] || "Vehicle";
+      const model = meta?.model || o?.nickname?.split(" ").slice(2).join(" ") || "";
+      const cachedUrl = v?.image_url;
+      const imageUrl = cachedUrl && (cachedUrl.includes("vehicledatabases.com") || cachedUrl.includes("vhr.nyc3.cdn"))
+        ? cachedUrl
+        : null;
+      const modelLower = model.toLowerCase();
+      const localImage = LOCAL_VEHICLE_IMAGES[modelLower] || null;
+      return {
+        vin: r.vin,
+        year: v?.year ?? 0,
+        make: make.charAt(0).toUpperCase() + make.slice(1).toLowerCase(),
+        model: model.charAt(0).toUpperCase() + model.slice(1).toLowerCase(),
+        imageUrl,
+        localImage,
+      };
+    });
+  }, [rawVehicles]);
+
+  // Auto-select primary vehicle
+  React.useEffect(() => {
+    if (!selectedVehicleVin && greetingVehicles.length > 0) {
+      const primary = rawVehicles?.find((r: any) => r.ownership?.is_primary);
+      setSelectedVehicleVin(primary?.vin ?? greetingVehicles[0].vin);
+    }
+  }, [greetingVehicles, selectedVehicleVin, rawVehicles]);
 
   // Local UI state
   const [inputValue, setInputValue] = useState("");
@@ -700,6 +764,55 @@ export default function AIChatScreen() {
     [loadConversation]
   );
 
+  // Model selector
+  const [selectedModel, setSelectedModel] = useState<'pro' | 'flash'>('flash');
+
+  // Oto pill expanding menu
+  const [showOtoMenu, setShowOtoMenu] = useState(false);
+  const menuExpand = useSharedValue(0);
+
+  const toggleOtoMenu = useCallback(() => {
+    const next = !showOtoMenu;
+    setShowOtoMenu(next);
+    menuExpand.value = withTiming(next ? 1 : 0, { duration: 280, easing: Easing.bezier(0.25, 0.1, 0.25, 1) });
+  }, [showOtoMenu, menuExpand]);
+
+  const closeOtoMenu = useCallback(() => {
+    setShowOtoMenu(false);
+    menuExpand.value = withTiming(0, { duration: 220, easing: Easing.bezier(0.25, 0.1, 0.25, 1) });
+    setShowRightMenu(false);
+    rightMenuExpand.value = withTiming(0, { duration: 220, easing: Easing.bezier(0.25, 0.1, 0.25, 1) });
+  }, [menuExpand, rightMenuExpand]);
+
+  const expandedMenuStyle = useAnimatedStyle(() => ({
+    height: menuExpand.value * 155,
+    width: menuExpand.value * 240,
+    opacity: menuExpand.value,
+    overflow: "hidden" as const,
+  }));
+
+  // Right pill expanding menu
+  const [showRightMenu, setShowRightMenu] = useState(false);
+  const rightMenuExpand = useSharedValue(0);
+
+  const toggleRightMenu = useCallback(() => {
+    const next = !showRightMenu;
+    setShowRightMenu(next);
+    rightMenuExpand.value = withTiming(next ? 1 : 0, { duration: 280, easing: Easing.bezier(0.25, 0.1, 0.25, 1) });
+  }, [showRightMenu, rightMenuExpand]);
+
+  const closeRightMenu = useCallback(() => {
+    setShowRightMenu(false);
+    rightMenuExpand.value = withTiming(0, { duration: 220, easing: Easing.bezier(0.25, 0.1, 0.25, 1) });
+  }, [rightMenuExpand]);
+
+  const rightExpandedStyle = useAnimatedStyle(() => ({
+    height: rightMenuExpand.value * 88,
+    width: rightMenuExpand.value * 160,
+    opacity: rightMenuExpand.value,
+    overflow: "hidden" as const,
+  }));
+
   // Determine if we should show chat greeting (no messages yet)
   const showChatGreeting = state.messages.length === 0;
 
@@ -709,47 +822,220 @@ export default function AIChatScreen() {
   }
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={styles.container}>
       {/* Background Gradient */}
-      <View style={styles.backgroundGradient} />
+      <LinearGradient
+        colors={['#9ECAE9', '#d4e8f5', '#eef4f9', '#f7fafb']}
+        locations={[0, 0.3, 0.55, 1]}
+        style={StyleSheet.absoluteFillObject}
+      />
 
-      {/* Header */}
-      <View style={styles.header}>
-        <Pressable
-          onPress={() => setShowHistory(true)}
-          style={({ pressed }) => [styles.headerIcon, pressed && styles.headerIconPressed]}
-        >
-          <AlignLeft size={22} color={BrandColors.primary} />
-        </Pressable>
+      {/* Header — absolutely positioned, floats above scroll */}
+      {(showOtoMenu || showRightMenu) && <Pressable style={styles.otoMenuOverlay} onPress={closeOtoMenu} />}
+      <View style={[styles.headerFloating, { paddingTop: insets.top }, (showOtoMenu || showRightMenu) && { zIndex: 100 }]}>
+        {/* Left: Hamburger circle */}
+        <View style={styles.headerSide}>
+          {isLiquidGlassEnabled && LiquidGlassView ? (
+            <Pressable onPress={() => setShowHistory(true)}>
+              <LiquidGlassView interactive effect="regular" style={styles.glassIconPill}>
+                <AlignLeft size={20} color="#000000" />
+              </LiquidGlassView>
+            </Pressable>
+          ) : (
+            <Pressable
+              onPress={() => setShowHistory(true)}
+              style={({ pressed }) => [styles.headerIcon, pressed && styles.headerIconPressed]}
+            >
+              <AlignLeft size={22} color="#000000" />
+            </Pressable>
+          )}
+        </View>
 
-        <Text style={styles.headerTitle} size="lg" weight="semiBold">
-          OtoPair AI
-        </Text>
+        {/* Center: Oto model selector */}
+        <View style={styles.headerCenter}>
+          {isLiquidGlassEnabled && LiquidGlassView ? (
+            <Pressable onPress={toggleOtoMenu}>
+              <LiquidGlassView interactive effect="regular" style={styles.glassCenterPill}>
+                <View style={styles.glassExpandableRow}>
+                  <Text style={styles.glassTitleText} size="md" weight="semiBold">
+                    {selectedModel === 'pro' ? 'Oto Pro' : 'Oto'}
+                  </Text>
+                </View>
+                <Animated.View style={expandedMenuStyle}>
+                  <View style={styles.otoExpandedDivider} />
+                  <Pressable
+                    onPress={() => { setSelectedModel('pro'); closeOtoMenu(); }}
+                    style={({ pressed }) => [styles.modelOptionItem, pressed && { opacity: 0.6 }]}
+                  >
+                    <View style={styles.modelOptionRow}>
+                      <Sparkles size={18} color="#000000" style={{ marginTop: 2 }} />
+                      <View style={styles.modelOptionTextContainer}>
+                        <View style={styles.modelOptionTitleRow}>
+                          <Text size="sm" weight="semiBold" style={styles.otoMenuItemText}>Oto Pro</Text>
+                          {selectedModel === 'pro' && <View style={styles.modelSelectedDot} />}
+                        </View>
+                        <Text size="xs" weight="regular" style={styles.modelOptionDescription}>
+                          Maximum quality and reasoning. Prioritizes depth over speed.
+                        </Text>
+                      </View>
+                    </View>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => { setSelectedModel('flash'); closeOtoMenu(); }}
+                    style={({ pressed }) => [styles.modelOptionItem, pressed && { opacity: 0.6 }]}
+                  >
+                    <View style={styles.modelOptionRow}>
+                      <Zap size={18} color="#000000" style={{ marginTop: 2 }} />
+                      <View style={styles.modelOptionTextContainer}>
+                        <View style={styles.modelOptionTitleRow}>
+                          <Text size="sm" weight="semiBold" style={styles.otoMenuItemText}>Oto Flash</Text>
+                          {selectedModel === 'flash' && <View style={styles.modelSelectedDot} />}
+                        </View>
+                        <Text size="xs" weight="regular" style={styles.modelOptionDescription}>
+                          Fast, everyday responses. Great for quick questions and tasks.
+                        </Text>
+                      </View>
+                    </View>
+                  </Pressable>
+                </Animated.View>
+              </LiquidGlassView>
+            </Pressable>
+          ) : (
+            <Pressable onPress={toggleOtoMenu}>
+              <Text style={styles.headerTitle} size="lg" weight="semiBold">
+                {selectedModel === 'pro' ? 'Oto Pro' : 'Oto'}
+              </Text>
+            </Pressable>
+          )}
+        </View>
 
-        <Pressable
-          onPress={startNewChat}
-          style={({ pressed }) => [styles.headerIcon, pressed && styles.headerIconPressed]}
-        >
-          <SquarePen size={20} color={BrandColors.primary} />
-        </Pressable>
+        {/* Right: Compose pill */}
+        <View style={styles.headerSideRight}>
+          {isLiquidGlassEnabled && LiquidGlassView ? (
+            <Pressable onPress={startNewChat} onLongPress={toggleRightMenu}>
+              <LiquidGlassView interactive effect="regular" style={styles.glassRightExpandablePill}>
+                <View style={styles.glassExpandableRow}>
+                  <SquarePen size={18} color="#000000" />
+                </View>
+                <Animated.View style={rightExpandedStyle}>
+                  <View style={styles.otoExpandedDivider} />
+                  <Pressable
+                    onPress={() => { closeRightMenu(); startNewChat(); }}
+                    style={({ pressed }) => [styles.otoExpandedItem, pressed && { opacity: 0.6 }]}
+                  >
+                    <SquarePen size={16} color="#000000" />
+                    <Text size="sm" weight="medium" style={styles.otoMenuItemText}>
+                      New Chat
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => { closeRightMenu(); }}
+                    style={({ pressed }) => [styles.otoExpandedItem, pressed && { opacity: 0.6 }]}
+                  >
+                    <CarFront size={16} color="#000000" />
+                    <Text size="sm" weight="medium" style={styles.otoMenuItemText}>
+                      Change Vehicle
+                    </Text>
+                  </Pressable>
+                </Animated.View>
+              </LiquidGlassView>
+            </Pressable>
+          ) : (
+            <Pressable
+              onPress={startNewChat}
+              style={({ pressed }) => [styles.headerIcon, pressed && styles.headerIconPressed]}
+            >
+              <SquarePen size={20} color="#000000" />
+            </Pressable>
+          )}
+        </View>
       </View>
 
       {/* Main Content */}
       <KeyboardAvoidingView
-        style={styles.content}
+        style={[styles.content, showChatGreeting && { overflow: 'visible' }]}
         behavior={Platform.OS === "ios" ? "padding" : undefined}
         keyboardVerticalOffset={0}
       >
         {/* Chat Area */}
         <ScrollView
           ref={scrollViewRef}
-          style={styles.chatContainer}
-          contentContainerStyle={[styles.chatContent, showChatGreeting && styles.chatContentCentered]}
+          style={[styles.chatContainer, showChatGreeting && styles.chatContainerGreeting]}
+          contentContainerStyle={[
+            styles.chatContent,
+            showChatGreeting ? styles.chatContentCentered : { paddingTop: HEADER_HEIGHT },
+          ]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
+          scrollEnabled={!showChatGreeting}
         >
           {showChatGreeting ? (
-            <AIGreeting suggestions={WELCOME_SUGGESTIONS} onSuggestionPress={handleSuggestionPress} />
+            <AIGreeting
+              userName={userFirstName}
+              suggestions={WELCOME_SUGGESTIONS}
+              onSuggestionPress={handleSuggestionPress}
+              vehicles={greetingVehicles}
+              selectedVehicleVin={selectedVehicleVin}
+              onVehicleSelect={setSelectedVehicleVin}
+              onVehicleConfirm={(vin) => {
+                setSelectedVehicleVin(vin);
+                const vehicle = greetingVehicles.find((v) => v.vin === vin);
+                if (vehicle) {
+                  setTimeout(() => {
+                    setIsProcessing(true);
+                    const { newState: ns, response } = processUserMessage(state, vehicle.model);
+                    setState((prev) => ({
+                      ...prev,
+                      messages: ns.messages,
+                      currentStage: ns.currentStage,
+                      currentScenario: ns.currentScenario,
+                      selectedPriority: ns.selectedPriority,
+                      selectedShop: ns.selectedShop,
+                      selectedTime: ns.selectedTime,
+                    }));
+                    setTimeout(() => {
+                      const aiMsg: ChatMessage = {
+                        id: `ai_${Date.now()}`,
+                        role: "assistant",
+                        content: response.message,
+                        timestamp: new Date().toISOString(),
+                        reasoning: response.reasoning,
+                        sources: response.sources,
+                        quickReplies: response.quickReplies,
+                        sections: response.sections,
+                        shops: response.shops,
+                        showServicePicker: response.showServicePicker,
+                        stage: response.nextStage,
+                        isStreaming: true,
+                      };
+                      setState((prev) => {
+                        const updated = {
+                          ...prev,
+                          messages: [...prev.messages, aiMsg],
+                          suggestions: response.suggestions,
+                          currentStage: response.nextStage,
+                        };
+                        queueMicrotask(() => saveCurrentConversation(updated));
+                        return updated;
+                      });
+                      setTimeout(() => {
+                        setState((prev) => {
+                          const final = {
+                            ...prev,
+                            messages: prev.messages.map((m) =>
+                              m.id === aiMsg.id ? { ...m, isStreaming: false } : m
+                            ),
+                          };
+                          setTimeout(() => saveCurrentConversation(final), 0);
+                          return final;
+                        });
+                        setIsProcessing(false);
+                      }, response.message.length * 30);
+                    }, 1500);
+                  }, 800);
+                }
+              }}
+            />
           ) : (
             <>
               {state.messages.map((message) => (
@@ -784,19 +1070,18 @@ export default function AIChatScreen() {
                   <AITypingIndicator />
                 </View>
               )}
+              {/* Suggestions directly under AI message */}
+              {state.suggestions.length > 0 && !isProcessing && !isAttachmentOpen && (
+                <PromptSuggestions
+                  stage={state.currentStage}
+                  suggestions={state.suggestions}
+                  onSelect={handleSuggestionPress}
+                  disabled={isProcessing}
+                />
+              )}
             </>
           )}
         </ScrollView>
-
-        {/* Suggestions above input (only when in conversation) */}
-        {!showChatGreeting && state.suggestions.length > 0 && !isProcessing && !isAttachmentOpen && (
-          <PromptSuggestions
-            stage={state.currentStage}
-            suggestions={state.suggestions}
-            onSelect={handleSuggestionPress}
-            disabled={isProcessing}
-          />
-        )}
 
         {/* Selected Images Preview - above input */}
         <AISelectedImages
@@ -811,7 +1096,6 @@ export default function AIChatScreen() {
             onChangeText={setInputValue}
             onSend={handleSend}
             isLoading={isProcessing}
-            disabled={isProcessing}
             onFocus={handleInputFocus}
             onMicPressIn={handleMicPressIn}
             onMicPressOut={handleMicPressOut}
@@ -848,6 +1132,8 @@ export default function AIChatScreen() {
         visible={toastVisible}
         onDismiss={() => setToastVisible(false)}
       />
+
+      {/* (Expanding menu is now inline inside the header pill) */}
     </View>
   );
 }
@@ -859,13 +1145,6 @@ export default function AIChatScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#E8ECF0",
-  },
-  backgroundGradient: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "#E8ECF0",
-    // Linear gradient effect with opacity layers
-    opacity: 1,
   },
   header: {
     flexDirection: "row",
@@ -873,6 +1152,30 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.md,
+  },
+  headerFloating: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    zIndex: 10,
+  },
+  headerSide: {
+    width: 50,
+    alignItems: "flex-start",
+  },
+  headerSideRight: {
+    width: 50,
+    alignItems: "flex-end",
+  },
+  headerCenter: {
+    flex: 1,
+    alignItems: "center",
   },
   headerIcon: {
     width: 40,
@@ -884,10 +1187,88 @@ const styles = StyleSheet.create({
     opacity: 0.6,
   },
   headerTitle: {
-    flex: 1,
-    color: BrandColors.primary,
+    color: "#000000",
     fontFamily: FontFamily.semiBold,
     textAlign: "center",
+  },
+  // Liquid glass header styles
+  glassTitleText: {
+    color: "#000000",
+    fontFamily: FontFamily.semiBold,
+  },
+  glassIconPill: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  glassCenterPill: {
+    borderRadius: 22,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    alignItems: "center",
+  },
+  glassRightExpandablePill: {
+    borderRadius: 22,
+    paddingHorizontal: 10,
+    paddingVertical: 10,
+    alignSelf: "flex-end",
+    alignItems: "flex-end",
+  },
+  // Expanding menus
+  otoMenuOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 99,
+  },
+  glassExpandableRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  otoExpandedDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: "rgba(0, 0, 0, 0.15)",
+    marginTop: 10,
+    marginBottom: 2,
+  },
+  otoExpandedItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 8,
+    gap: 10,
+  },
+  otoMenuItemText: {
+    color: "#000000",
+  },
+  // Model selector options
+  modelOptionItem: {
+    paddingVertical: 10,
+    paddingHorizontal: 2,
+  },
+  modelOptionRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+  },
+  modelOptionTextContainer: {
+    flex: 1,
+    gap: 2,
+  },
+  modelOptionTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  modelOptionDescription: {
+    color: "rgba(0, 0, 0, 0.45)",
+    lineHeight: 16,
+  },
+  modelSelectedDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#007AFF",
   },
   content: {
     flex: 1,
@@ -895,12 +1276,18 @@ const styles = StyleSheet.create({
   chatContainer: {
     flex: 1,
   },
+  chatContainerGreeting: {
+    overflow: 'visible',
+  },
   chatContent: {
     flexGrow: 1,
     paddingVertical: Spacing.md,
   },
   chatContentCentered: {
-    justifyContent: "center",
+    justifyContent: 'center',
+  },
+  chatContentGreeting: {
+    flexGrow: 0,
   },
   carouselContainer: {
     marginBottom: Spacing.md,

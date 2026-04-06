@@ -576,14 +576,15 @@ export default function CarsHomeScreen() {
   // Use cached image_url from Convex, or fetch from API and save it
   useEffect(() => {
     if (!listVehicles?.length) return;
-    const TARGET_VIN = "1FMUK8KHXSGD02351"; // temp: override Ford card with Tundra blueprint image for white-bg test
-    const TEST_URL = "https://vhr.nyc3.cdn.digitaloceanspaces.com/vehiclemedia/Colors/2026/toyota/tundra-2wd/1794-edition-crewmax-5.5'-bed-(gs)-rear-wheel-drive-automatic/blueprint.jpg";
+    const TARGET_VIN = "1FMUK8KHXSGD02351"; // temp: force Ford back to exterior[] front-angle shot
     listVehicles.forEach((r: any) => {
       if (!r.vin || vehicleImageUrls[r.vin]) return;
 
       if (r.vin === TARGET_VIN) {
-        setVehicleImageUrls((prev) => ({ ...prev, [r.vin]: TEST_URL }));
-        saveVehicleImageUrl({ vin: r.vin, image_url: TEST_URL });
+        // temp: restore original Ford exterior image
+        const originalUrl = "https://vhr.nyc3.cdn.digitaloceanspaces.com/vehiclemedia/gallery/2025/ford/explorer/st-line-four-wheel-drive/ext-925d7ee283.jpg";
+        setVehicleImageUrls((prev) => ({ ...prev, [r.vin]: originalUrl }));
+        saveVehicleImageUrl({ vin: r.vin, image_url: originalUrl });
         return;
       }
 
@@ -624,8 +625,10 @@ export default function CarsHomeScreen() {
       const o = r.ownership;
       const meta = v ? (v as { metadata?: { make?: string; model?: string; color?: string } }).metadata : undefined;
       const paintColor = meta?.color;
-      const gradient = (paintColor && COLOR_GRADIENTS[paintColor])
-        || DEFAULT_GRADIENTS[i % DEFAULT_GRADIENTS.length];
+      // TODO: re-enable once car images have transparent backgrounds
+      // const gradient = (paintColor && COLOR_GRADIENTS[paintColor])
+      //   || DEFAULT_GRADIENTS[i % DEFAULT_GRADIENTS.length];
+      const gradient = ["#FFFFFF", "#FFFFFF", "#FFFFFF", "#FFFFFF"];
       const displayMake = titleCase(meta?.make || o?.nickname?.split(" ")[1] || "Vehicle");
       const displayModel = titleCase(meta?.model || o?.nickname?.split(" ").slice(2).join(" ") || r.vin.slice(-6));
       paired.push({
