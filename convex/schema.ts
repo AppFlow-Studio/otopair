@@ -1,128 +1,97 @@
-/**
- * schema.ts - Convex Database Schema
- *
- * DESCRIPTION:
- * Central schema definition for the entire Convex database. This file defines
- * all tables, their fields, types, relationships, and indexes. It serves as the
- * single source of truth for the database structure.
- *
- * ARCHITECTURE:
- * - Vehicle Identity: makes → models → generations → vehicle_configs
- * - Legacy stubs: trims, chassis_variants, enriched_engine_configs (FK-referenced)
- * - Engine/Transmission: independent entities shared across vehicle_configs
- * - Parts: oem_parts → part_fitments → part_prices (normalized, evidence-based)
- * - Services: services (with applicability rules), service_intervals, labor_times
- * - Evidence: enrichment_evidence, enrichment_runs, mechanic_verifications
- * - Sources: source_registry, blocked_domains, scrape_cache
- * - Core app: bookings, users, shops, mechanics, payments
- * - Analytics: analytics_events, conversion_funnels
- * - Rewards: user_reward_wallets, ownership_credit_transactions, vehicle_tiers
- *
- * OWNER: Backend Team
- */
+// =============================================================================
+// Otopair Unified Schema — temurbek deployment
+// Merges: ahmad (v4 maintenance pipeline), daniel (shop/booking ops), waleed (enrichment engine)
+// Generated: 2026-04-09
+// Tables: 73 (83 total across deployments − 10 deprecated)
+// =============================================================================
+//
+// WINNER KEY:
+//   [W] = Waleed's expanded schema adopted
+//   [D] = Daniel's expanded schema adopted
+//   [A] = Ahmad's expanded schema adopted
+//   [I] = Identical across deployments
+//   [U-x] = Unique to deployment x
+//   [M] = Manual merge of fields from multiple deployments
+//
+// DEPRECATED TABLES NOT INCLUDED (10):
+//   engine_specs, transmission_specs, engine_part_fitments,
+//   transmission_part_fitments, trim_part_fitments, vehicle_specs,
+//   ai_enrichment_logs, manual_review_queue, enriched_engine_configs,
+//   service_insights
+//
+// INDEX STRATEGY: Union of ALL indexes across all deployments.
+// =============================================================================
 
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
 
 export default defineSchema({
-  // ============================================================================
-  // LAYER 1: VEHICLE IDENTITY
-  // ============================================================================
 
-  /**
-   * TABLE: makes
-   *
-   * DESCRIPTION:
-   * Vehicle manufacturer reference data. Top-level in vehicle hierarchy.
-   *
-   * INDEXES:
-   *   - by_name: Lookup by manufacturer name
-   *   - by_slug: Lookup by URL-friendly slug
-   */
+  // ===== CORE VEHICLE REFERENCE =====
+
+  // [W] 9 fields (A/D had 3)
   makes: defineTable({
-    // Original fields
     name: v.string(),
-    logo: v.optional(v.id("cdn_assets")),
+    logo: v.optional(v.string()),
     logo_url: v.optional(v.string()),
-    // Added fields
     slug: v.optional(v.string()),
     country: v.optional(v.string()),
     oem_part_pattern: v.optional(v.string()),
     oem_part_pattern_alt: v.optional(v.string()),
     parent_group: v.optional(v.string()),
-    created_at: v.optional(v.float64()),
+    created_at: v.optional(v.number()),
   })
     .index("by_name", ["name"])
     .index("by_slug", ["slug"]),
 
-  /**
-   * TABLE: models
-   * Vehicle model information. Second level in hierarchy.
-   */
+  // [W] 5 fields (A/D had 2)
   models: defineTable({
     make_id: v.id("makes"),
     name: v.string(),
-    // Added fields
     slug: v.optional(v.string()),
     category: v.optional(v.string()),
-    created_at: v.optional(v.float64()),
-  }).index("by_make_id", ["make_id"]),
+    created_at: v.optional(v.number()),
+  })
+    .index("by_make_id", ["make_id"]),
 
-  /**
-   * TABLE: trims (LEGACY stub — FK-referenced by vehicles, engines, transmissions, etc.)
-   */
+  // [U-W] Vehicle model generations
+  generations: defineTable({
+    model_id: v.id("models"),
+    name: v.string(),
+    start_year: v.optional(v.number()),
+    end_year: v.optional(v.number()),
+    platform: v.optional(v.string()),
+    body_class: v.optional(v.string()),
+    steering_type: v.optional(v.string()),
+    parking_brake_type: v.optional(v.string()),
+    has_rear_wiper: v.optional(v.boolean()),
+    cabin_filter_access: v.optional(v.string()),
+    created_at: v.optional(v.number()),
+  })
+    .index("by_model", ["model_id"])
+    .index("by_years", ["start_year"]),
+
+  // [M] Ahmad has steering_type; migrate to generations long-term
   trims: defineTable({
     model_id: v.id("models"),
     name: v.string(),
-    year_end: v.float64(),
-    year_start: v.float64(),
-  }).index("by_model_id", ["model_id"]),
-
-  /**
-   * TABLE: chassis_variants (LEGACY stub — FK-referenced by vehicles)
-   */
-  chassis_variants: defineTable({
-    trim_id: v.id("trims"),
-    drivetrain_type: v.string(),
-    notes: v.optional(v.string()),
-    created_at: v.float64(),
-    confidence_score: v.optional(v.float64()),
+    year_start: v.optional(v.number()),
+    year_end: v.optional(v.number()),
+    steering_type: v.optional(v.string()),
   })
-    .index("by_trim", ["trim_id"])
-    .index("by_trim_drivetrain", ["trim_id", "drivetrain_type"]),
+    .index("by_model_id", ["model_id"]),
 
-  /**
-   * TABLE: enriched_engine_configs (minimal stub — FK-referenced by vehicles)
-   */
-  enriched_engine_configs: defineTable({
-    engineConfig: v.string(),
-  }).index("by_engine_config", ["engineConfig"]),
-
-  /**
-   * TABLE: engines
-   *
-   * DESCRIPTION:
-   * Mechanical facts intrinsic to an engine. Includes fluid specs that are
-   * engine-determined. Engines are independent entities shared across
-   * vehicle_configs.
-   *
-   * INDEXES:
-   *   - by_trim_id: Legacy lookup by trim
-   *   - by_engine_code: Lookup by OEM engine code
-   *   - by_engine_family: Lookup by engine family
-   *   - by_make: Get all engines for a make
-   */
+  // [W] 24 fields (A had 6, D had 5). Absorbs deprecated engine_specs.
   engines: defineTable({
-    // Original fields
-    trim_id: v.id("trims"),
-    cylinders: v.float64(),
-    displacement_liters: v.string(),
-    engine_code: v.string(),
-    fuel_type: v.string(),
-    // Added fields
+    trim_id: v.optional(v.id("trims")),
+    cylinders: v.optional(v.number()),
+    displacement_liters: v.optional(v.union(v.string(), v.number())),
+    engine_code: v.optional(v.string()),
+    fuel_type: v.optional(v.string()),
+    timing_type: v.optional(v.string()),
     engine_family: v.optional(v.string()),
     make_id: v.optional(v.id("makes")),
-    displacement_l: v.optional(v.float64()),
+    displacement_l: v.optional(v.number()),
     configuration: v.optional(v.string()),
     aspiration: v.optional(v.string()),
     fuel_injection: v.optional(v.string()),
@@ -130,47 +99,35 @@ export default defineSchema({
     has_serpentine_belt: v.optional(v.boolean()),
     oil_viscosity: v.optional(v.string()),
     oil_spec_standard: v.optional(v.string()),
-    oil_capacity_qts: v.optional(v.float64()),
+    oil_capacity_qts: v.optional(v.number()),
     coolant_type: v.optional(v.string()),
-    coolant_capacity_qts: v.optional(v.float64()),
-    spark_plug_quantity: v.optional(v.float64()),
-    spark_plug_gap_mm: v.optional(v.float64()),
-    timing_idler_count: v.optional(v.float64()),
+    coolant_capacity_qts: v.optional(v.number()),
+    spark_plug_quantity: v.optional(v.number()),
+    spark_plug_gap_mm: v.optional(v.number()),
+    timing_idler_count: v.optional(v.number()),
     water_pump_timing_driven: v.optional(v.boolean()),
     data_quality: v.optional(v.string()),
-    created_at: v.optional(v.float64()),
+    created_at: v.optional(v.number()),
   })
     .index("by_trim_id", ["trim_id"])
     .index("by_engine_code", ["engine_code"])
     .index("by_engine_family", ["engine_family"])
     .index("by_make", ["make_id"]),
 
-  /**
-   * TABLE: transmissions
-   *
-   * DESCRIPTION:
-   * Transmission specs including fluid and service information.
-   * Independent entities shared across vehicle_configs.
-   *
-   * INDEXES:
-   *   - by_trim: Legacy lookup by trim
-   *   - by_trim_type: Legacy combined lookup
-   */
+  // [W] 16 fields (A/D had 6). Absorbs deprecated transmission_specs.
   transmissions: defineTable({
-    // Original fields
-    trim_id: v.id("trims"),
-    transmission_type: v.string(),
+    trim_id: v.optional(v.id("trims")),
+    transmission_type: v.optional(v.string()),
     code: v.optional(v.string()),
     notes: v.optional(v.string()),
-    created_at: v.float64(),
-    confidence_score: v.optional(v.float64()),
-    // Added fields
+    created_at: v.optional(v.number()),
+    confidence_score: v.optional(v.number()),
     type: v.optional(v.string()),
-    speeds: v.optional(v.float64()),
+    speeds: v.optional(v.number()),
     make_id: v.optional(v.id("makes")),
     manufacturer: v.optional(v.string()),
     fluid_type: v.optional(v.string()),
-    fluid_capacity_drain_fill_qts: v.optional(v.float64()),
+    fluid_capacity_drain_fill_qts: v.optional(v.number()),
     is_lifetime_fill: v.optional(v.boolean()),
     has_serviceable_filter: v.optional(v.boolean()),
     service_method: v.optional(v.string()),
@@ -179,131 +136,89 @@ export default defineSchema({
     .index("by_trim", ["trim_id"])
     .index("by_trim_type", ["trim_id", "transmission_type"]),
 
-  // ============================================================================
-  // LAYER 1b: GENERATIONS & VEHICLE CONFIGS
-  // ============================================================================
-
-  /**
-   * TABLE: generations
-   *
-   * Platform-level facts true for every vehicle in this generation.
-   * Makes → Models → Generations → Vehicle Configs
-   */
-  generations: defineTable({
-    model_id: v.id("models"),
-    name: v.string(),
-    start_year: v.float64(),
-    end_year: v.optional(v.float64()),
-    platform: v.optional(v.string()),
-    body_class: v.string(),
-    steering_type: v.string(),
-    parking_brake_type: v.string(),
-    has_rear_wiper: v.boolean(),
-    cabin_filter_access: v.optional(v.string()),
-    created_at: v.float64(),
+  // [I] Identical across all deployments
+  chassis_variants: defineTable({
+    trim_id: v.id("trims"),
+    drivetrain_type: v.string(),
+    notes: v.optional(v.string()),
+    created_at: v.optional(v.number()),
+    confidence_score: v.optional(v.number()),
   })
-    .index("by_model", ["model_id"])
-    .index("by_years", ["model_id", "start_year", "end_year"]),
+    .index("by_trim", ["trim_id"])
+    .index("by_trim_drivetrain", ["trim_id", "drivetrain_type"]),
 
-  /**
-   * TABLE: vehicle_configs
-   *
-   * The atomic unit of enrichment. One config = one unique
-   * (year, make, model, trim, engine, transmission, drivetrain) combination.
-   * All enrichment data (parts, intervals, labor) attaches to this entity.
-   *
-   * CHASSIS GROUPING (Task 22):
-   *   chassis_code — OEM generation/platform code (e.g. "G30", "W206", "A90").
-   *   Resolved via Haiku web search after Tier 1 VIN decode.
-   *   If a completed config with the same chassis_code exists, Tier 2 is
-   *   skipped and service data is cloned from the existing config.
-   *   cloned_from_config_id tracks provenance when data was cloned.
-   */
+  // [U-W] Canonical vehicle config — THE new join key
   vehicle_configs: defineTable({
     config_key: v.string(),
-    year: v.float64(),
+    year: v.number(),
     make_id: v.id("makes"),
     model_id: v.id("models"),
     generation_id: v.optional(v.id("generations")),
-    trim_name: v.string(),
-    trim_slug: v.string(),
-    engine_id: v.id("engines"),
+    trim_name: v.optional(v.string()),
+    trim_slug: v.optional(v.string()),
+    engine_id: v.optional(v.id("engines")),
     transmission_id: v.optional(v.id("transmissions")),
-    drivetrain: v.string(),
+    drivetrain: v.optional(v.string()),
     has_brake_pad_sensor: v.optional(v.boolean()),
     brake_fluid_type: v.optional(v.string()),
-    brake_fluid_capacity_oz: v.optional(v.float64()),
+    brake_fluid_capacity_oz: v.optional(v.number()),
     ps_fluid_type: v.optional(v.string()),
-    ps_fluid_capacity_oz: v.optional(v.float64()),
-    enrichment_status: v.string(),
-    fill_rate: v.float64(),
-    confidence_avg: v.optional(v.float64()),
-    last_enriched_at: v.optional(v.float64()),
-    last_verified_at: v.optional(v.float64()),
+    ps_fluid_capacity_oz: v.optional(v.number()),
+    enrichment_status: v.optional(v.string()),
+    fill_rate: v.optional(v.number()),
+    confidence_avg: v.optional(v.number()),
+    last_enriched_at: v.optional(v.number()),
+    last_verified_at: v.optional(v.number()),
     enrichment_version: v.optional(v.string()),
-    verification_count: v.float64(),
-    created_at: v.float64(),
-    // ── Chassis grouping (Task 22) ──────────────────────────────
-    /** OEM chassis/generation code, e.g. "G30", "W206", "T235" */
+    verification_count: v.optional(v.number()),
     chassis_code: v.optional(v.string()),
-    /** Source config when data was cloned via chassis match */
     cloned_from_config_id: v.optional(v.id("vehicle_configs")),
+    created_at: v.optional(v.number()),
   })
     .index("by_config_key", ["config_key"])
     .index("by_engine", ["engine_id"])
     .index("by_make_model_year", ["make_id", "model_id", "year"])
     .index("by_enrichment_status", ["enrichment_status"])
     .index("by_fill_rate", ["fill_rate"])
-    .index("by_chassis_code", ["chassis_code", "enrichment_status"]),
+    .index("by_chassis_code", ["chassis_code"]),
 
-  /**
-   * TABLE: drivetrain_configs
-   *
-   * Per-vehicle-config drivetrain specifications including differential
-   * and transfer case fluid data. 1:1 with vehicle_configs.
-   */
+  // [U-W] Differential/transfer case specs
   drivetrain_configs: defineTable({
     vehicle_config_id: v.id("vehicle_configs"),
-    drivetrain_type: v.string(),
-    has_differential: v.boolean(),
+    drivetrain_type: v.optional(v.string()),
+    has_differential: v.optional(v.boolean()),
     diff_fluid_type: v.optional(v.string()),
-    diff_fluid_capacity_qts: v.optional(v.float64()),
+    diff_fluid_capacity_qts: v.optional(v.number()),
     lsd_additive_required: v.optional(v.boolean()),
-    has_transfer_case: v.boolean(),
+    has_transfer_case: v.optional(v.boolean()),
     tc_fluid_type: v.optional(v.string()),
-    tc_fluid_capacity_qts: v.optional(v.float64()),
+    tc_fluid_capacity_qts: v.optional(v.number()),
     data_quality: v.optional(v.string()),
-    created_at: v.float64(),
-  }).index("by_vehicle_config", ["vehicle_config_id"]),
+    created_at: v.optional(v.number()),
+  })
+    .index("by_vehicle_config", ["vehicle_config_id"]),
 
-  /**
-   * TABLE: trim_specs
-   *
-   * Physical specs that vary by trim within the same generation.
-   * Covers tires, wheels, wipers, battery.
-   */
+  // [W] 21 fields (A/D had 12)
   trim_specs: defineTable({
-    // Original fields (optional for v3 records that use vehicle_config_id)
-    trim_id: v.optional(v.id("trims")),
+    trim_id: v.id("trims"),
     tire_size_front: v.optional(v.string()),
     tire_size_rear: v.optional(v.string()),
-    recommended_tire_pressure_front_psi: v.optional(v.float64()),
-    recommended_tire_pressure_rear_psi: v.optional(v.float64()),
-    lug_nut_torque_ft_lbs: v.optional(v.float64()),
-    wiper_blade_driver_size_in: v.optional(v.float64()),
-    wiper_blade_passenger_size_in: v.optional(v.float64()),
-    wiper_blade_rear_size_in: v.optional(v.float64()),
+    recommended_tire_pressure_front_psi: v.optional(v.number()),
+    recommended_tire_pressure_rear_psi: v.optional(v.number()),
+    lug_nut_torque_ft_lbs: v.optional(v.number()),
+    wiper_blade_driver_size_in: v.optional(v.number()),
+    wiper_blade_passenger_size_in: v.optional(v.number()),
+    wiper_blade_rear_size_in: v.optional(v.number()),
     parking_brake_type: v.optional(v.string()),
-    confidence_score: v.optional(v.float64()),
-    created_at: v.float64(),
-    // Added fields
+    confidence_score: v.optional(v.number()),
+    created_at: v.optional(v.number()),
     vehicle_config_id: v.optional(v.id("vehicle_configs")),
     is_staggered: v.optional(v.boolean()),
     tire_directional: v.optional(v.boolean()),
     is_run_flat: v.optional(v.boolean()),
     alignment_type: v.optional(v.string()),
     battery_group: v.optional(v.string()),
-    battery_cca: v.optional(v.float64()),
+    battery_cca: v.optional(v.number()),
     battery_type: v.optional(v.string()),
     battery_location: v.optional(v.string()),
     data_quality: v.optional(v.string()),
@@ -311,33 +226,24 @@ export default defineSchema({
     .index("by_trim", ["trim_id"])
     .index("by_vehicle_config", ["vehicle_config_id"]),
 
-  // ============================================================================
-  // LAYER 2: PARTS
-  // ============================================================================
+  // ===== PARTS & FITMENTS =====
 
-  /**
-   * TABLE: oem_parts
-   *
-   * Every OEM part number as a first-class entity with supersession chain,
-   * fitment rules, and pricing. Parts are shared across vehicle configs.
-   */
+  // [W] 15 fields (A/D had 5). Replaces deprecated *_part_fitments tables.
   oem_parts: defineTable({
-    // Original fields
     oem_part_number: v.string(),
-    name: v.optional(v.string()),
+    name: v.string(),
     category: v.optional(v.string()),
     notes: v.optional(v.string()),
-    created_at: v.float64(),
-    // Added fields
+    created_at: v.optional(v.number()),
     part_number_formatted: v.optional(v.string()),
     make_id: v.optional(v.id("makes")),
     subcategory: v.optional(v.string()),
     is_current: v.optional(v.boolean()),
     superseded_by: v.optional(v.string()),
     supersedes: v.optional(v.string()),
-    first_seen_at: v.optional(v.float64()),
-    last_confirmed_at: v.optional(v.float64()),
-    source_count: v.optional(v.float64()),
+    first_seen_at: v.optional(v.number()),
+    last_confirmed_at: v.optional(v.number()),
+    source_count: v.optional(v.number()),
     data_quality: v.optional(v.string()),
   })
     .index("by_part_number", ["oem_part_number"])
@@ -345,68 +251,207 @@ export default defineSchema({
     .index("by_subcategory", ["subcategory"])
     .index("by_make_category", ["make_id", "category"]),
 
-  /**
-   * TABLE: part_fitments
-   *
-   * Which parts fit which vehicle configs, for what service, in what quantity.
-   * Unified fitment table replacing engine/transmission/trim-specific fitments.
-   */
+  // [U-W] Unified part-to-vehicle-config fitment
   part_fitments: defineTable({
     part_id: v.id("oem_parts"),
     vehicle_config_id: v.id("vehicle_configs"),
-    service_type: v.string(),
-    quantity_needed: v.float64(),
+    service_type: v.optional(v.string()),
+    quantity_needed: v.optional(v.number()),
     position: v.optional(v.string()),
-    confidence: v.optional(v.float64()),
-    source_count: v.optional(v.float64()),
-    first_confirmed_at: v.optional(v.float64()),
-    last_confirmed_at: v.optional(v.float64()),
+    confidence: v.optional(v.number()),
+    source_count: v.optional(v.number()),
+    first_confirmed_at: v.optional(v.number()),
+    last_confirmed_at: v.optional(v.number()),
     mechanic_verified: v.optional(v.boolean()),
     data_quality: v.optional(v.string()),
-    created_at: v.float64(),
+    created_at: v.optional(v.number()),
   })
     .index("by_vehicle_config", ["vehicle_config_id"])
     .index("by_part", ["part_id"])
     .index("by_config_service", ["vehicle_config_id", "service_type"]),
 
-  /**
-   * TABLE: part_prices
-   *
-   * One row per part per source. Monthly overwrite — no time-series history.
-   */
+  // [U-W] Scraped OEM part pricing
   part_prices: defineTable({
     part_id: v.id("oem_parts"),
-    price: v.float64(),
-    price_type: v.string(),
+    price: v.number(),
+    price_type: v.optional(v.string()),
     source_url: v.optional(v.string()),
-    source_domain: v.string(),
-    refreshed_at: v.float64(),
-    created_at: v.float64(),
+    source_domain: v.optional(v.string()),
+    refreshed_at: v.optional(v.number()),
+    created_at: v.optional(v.number()),
   })
     .index("by_part", ["part_id"])
     .index("by_part_source", ["part_id", "source_domain"]),
 
-  // ============================================================================
-  // LAYER 3: SERVICES
-  // ============================================================================
+  // ===== ENRICHMENT PIPELINE (all Waleed unique) =====
 
-  /**
-   * TABLE: services
-   *
-   * Master list of services offered on the platform with applicability rules.
-   * Price is not stored; computed at booking time.
-   */
+  enrichment_evidence: defineTable({
+    entity_type: v.string(),
+    entity_id: v.string(),
+    field_name: v.string(),
+    observed_value: v.optional(v.any()),
+    observed_type: v.optional(v.string()),
+    source_url: v.optional(v.string()),
+    source_domain: v.optional(v.string()),
+    source_type: v.optional(v.string()),
+    confidence: v.optional(v.number()),
+    enrichment_run_id: v.optional(v.id("enrichment_runs")),
+    observed_at: v.optional(v.number()),
+    is_latest: v.optional(v.boolean()),
+    created_at: v.optional(v.number()),
+  })
+    .index("by_entity", ["entity_type", "entity_id"])
+    .index("by_entity_field", ["entity_type", "entity_id", "field_name"])
+    .index("by_source_domain", ["source_domain"])
+    .index("by_enrichment_run", ["enrichment_run_id"]),
+
+  enrichment_runs: defineTable({
+    vehicle_config_id: v.id("vehicle_configs"),
+    version: v.optional(v.string()),
+    trigger: v.optional(v.string()),
+    status: v.string(),
+    total_tokens_in: v.optional(v.number()),
+    total_tokens_out: v.optional(v.number()),
+    total_web_searches: v.optional(v.number()),
+    total_firecrawl_credits: v.optional(v.number()),
+    estimated_cost_usd: v.optional(v.number()),
+    started_at: v.optional(v.number()),
+    completed_at: v.optional(v.number()),
+    duration_ms: v.optional(v.number()),
+    fields_filled: v.optional(v.number()),
+    fields_total: v.optional(v.number()),
+    fill_rate: v.optional(v.number()),
+    fields_changed: v.optional(v.array(v.string())),
+    errors: v.optional(v.array(v.string())),
+    batch_ids: v.optional(v.array(v.string())),
+    scrape_cache_hit: v.optional(v.boolean()),
+    created_at: v.optional(v.number()),
+  })
+    .index("by_vehicle_config", ["vehicle_config_id"])
+    .index("by_status", ["status"])
+    .index("by_created_at", ["created_at"]),
+
+  source_registry: defineTable({
+    make_id: v.optional(v.id("makes")),
+    source_type: v.string(),
+    domain: v.string(),
+    url_template: v.optional(v.string()),
+    slug_fn_type: v.optional(v.string()),
+    part_slug_map: v.optional(v.any()),
+    manual_queries: v.optional(v.any()),
+    reliability_score: v.optional(v.number()),
+    total_observations: v.optional(v.number()),
+    accuracy_rate: v.optional(v.number()),
+    is_blocked: v.optional(v.boolean()),
+    block_reason: v.optional(v.string()),
+    last_scraped_at: v.optional(v.number()),
+    last_scrape_success: v.optional(v.boolean()),
+    created_at: v.optional(v.number()),
+  })
+    .index("by_make", ["make_id"])
+    .index("by_domain", ["domain"])
+    .index("by_blocked", ["is_blocked"]),
+
+  blocked_domains: defineTable({
+    domain: v.string(),
+    reason: v.optional(v.string()),
+    blocked_at: v.optional(v.number()),
+    blocked_by: v.optional(v.string()),
+    accuracy_at_block: v.optional(v.number()),
+    created_at: v.optional(v.number()),
+  })
+    .index("by_domain", ["domain"]),
+
+  scrape_cache: defineTable({
+    cache_key: v.string(),
+    url: v.optional(v.string()),
+    domain: v.optional(v.string()),
+    source_type: v.optional(v.string()),
+    make_id: v.optional(v.id("makes")),
+    model_id: v.optional(v.id("models")),
+    year: v.optional(v.number()),
+    markdown: v.optional(v.string()),
+    markdown_length: v.optional(v.number()),
+    scraped_at: v.optional(v.number()),
+    expires_at: v.optional(v.number()),
+    ttl_days: v.optional(v.number()),
+    scrape_success: v.optional(v.boolean()),
+    http_status: v.optional(v.number()),
+    created_at: v.optional(v.number()),
+  })
+    .index("by_cache_key", ["cache_key"])
+    .index("by_expires_at", ["expires_at"])
+    .index("by_make_year", ["make_id", "year"]),
+
+  scrape_jobs: defineTable({
+    source: v.string(),
+    search_params: v.optional(v.any()),
+    status: v.string(),
+    listings_found: v.optional(v.number()),
+    vins_extracted: v.optional(v.number()),
+    new_vins: v.optional(v.number()),
+    errors: v.optional(v.array(v.string())),
+    started_at: v.optional(v.number()),
+    completed_at: v.optional(v.number()),
+    duration_ms: v.optional(v.number()),
+    created_at: v.optional(v.number()),
+  })
+    .index("by_source", ["source"])
+    .index("by_status", ["status"])
+    .index("by_created_at", ["created_at"]),
+
+  mechanic_verifications: defineTable({
+    mechanic_id: v.id("mechanics"),
+    vehicle_config_id: v.id("vehicle_configs"),
+    job_id: v.optional(v.string()),
+    service_id: v.optional(v.id("services")),
+    verifications: v.optional(v.any()),
+    actual_labor_hours: v.optional(v.number()),
+    parts_used_correct: v.optional(v.boolean()),
+    overall_accuracy: v.optional(v.number()),
+    verified_at: v.optional(v.number()),
+    created_at: v.optional(v.number()),
+  })
+    .index("by_vehicle_config", ["vehicle_config_id"])
+    .index("by_mechanic", ["mechanic_id"])
+    .index("by_job", ["job_id"])
+    .index("by_service", ["service_id"]),
+
+  vin_queue: defineTable({
+    vin: v.string(),
+    source: v.optional(v.string()),
+    source_url: v.optional(v.string()),
+    year: v.optional(v.number()),
+    make: v.optional(v.string()),
+    model: v.optional(v.string()),
+    trim: v.optional(v.string()),
+    price: v.optional(v.number()),
+    mileage: v.optional(v.number()),
+    location: v.optional(v.string()),
+    status: v.string(),
+    skip_reason: v.optional(v.string()),
+    error: v.optional(v.string()),
+    vehicle_config_id: v.optional(v.id("vehicle_configs")),
+    queued_at: v.optional(v.number()),
+    processed_at: v.optional(v.number()),
+  })
+    .index("by_vin", ["vin"])
+    .index("by_status", ["status"])
+    .index("by_source_status", ["source", "status"])
+    .index("by_year", ["year"]),
+
+  // ===== SERVICES =====
+
+  // [W] 19 fields with applicability flags (A/D had 8, no indexes)
   services: defineTable({
-    // Original fields
-    default_labor_hours: v.float64(),
-    description: v.string(),
-    display_order: v.float64(),
-    has_options: v.boolean(),
-    is_labor_only: v.boolean(),
     name: v.string(),
-    service_category_id: v.id("service_categories"),
-    slug: v.string(),
-    // Added fields
+    slug: v.optional(v.string()),
+    description: v.optional(v.string()),
+    service_category_id: v.optional(v.id("service_categories")),
+    display_order: v.optional(v.number()),
+    default_labor_hours: v.optional(v.number()),
+    has_options: v.optional(v.boolean()),
+    is_labor_only: v.optional(v.boolean()),
     requires_parts: v.optional(v.boolean()),
     requires_fluids: v.optional(v.boolean()),
     requires_ice_engine: v.optional(v.boolean()),
@@ -416,346 +461,604 @@ export default defineSchema({
     requires_rotatable_tires: v.optional(v.boolean()),
     requires_state_inspection: v.optional(v.boolean()),
     requires_emissions_test: v.optional(v.boolean()),
-    min_model_year: v.optional(v.float64()),
-    created_at: v.optional(v.float64()),
+    min_model_year: v.optional(v.number()),
+    created_at: v.optional(v.number()),
   })
     .index("by_slug", ["slug"])
     .index("by_category", ["service_category_id"]),
 
-  /**
-   * TABLE: service_intervals
-   *
-   * Per vehicle config, per service: when is this service due?
-   */
+  // [I]
+  service_categories: defineTable({
+    name: v.string(),
+    icon_name: v.optional(v.string()),
+    display_order: v.optional(v.number()),
+  }),
+
+  // [I]
+  service_options: defineTable({
+    service_id: v.id("services"),
+    option_label: v.string(),
+    option_type: v.optional(v.string()),
+    labor_hours: v.optional(v.number()),
+    parts_cost_low: v.optional(v.number()),
+    parts_cost_high: v.optional(v.number()),
+    state_fee: v.optional(v.number()),
+    display_order: v.optional(v.number()),
+  })
+    .index("by_service_id", ["service_id"]),
+
+  // [A] 17 fields (D had 7, W doesn't have this table)
+  // Bridge table: long-term migrate to service_intervals + labor_times
+  service_vehicle_specs: defineTable({
+    engine_id: v.id("engines"),
+    service_id: v.id("services"),
+    confidence_score: v.optional(v.number()),
+    labor_hours: v.optional(v.number()),
+    parts_cost_low: v.optional(v.number()),
+    parts_cost_high: v.optional(v.number()),
+    tech_notes: v.optional(v.string()),
+    oem_interval_miles: v.optional(v.number()),
+    oem_interval_months: v.optional(v.number()),
+    oem_interval_note: v.optional(v.string()),
+    parts_required: v.optional(v.any()),
+    estimated_labor_hours: v.optional(v.number()),
+    labor_notes: v.optional(v.string()),
+    is_applicable: v.optional(v.boolean()),
+    exclusion_reason: v.optional(v.string()),
+    data_source: v.optional(v.string()),
+    last_enriched_at: v.optional(v.number()),
+    vehicle_config_id: v.optional(v.id("vehicle_configs")),
+  })
+    .index("by_engine_id", ["engine_id"])
+    .index("by_service_id", ["service_id"])
+    .index("by_engine_and_service", ["engine_id", "service_id"]),
+
+  // [U-W] OEM service intervals per vehicle config
   service_intervals: defineTable({
     vehicle_config_id: v.id("vehicle_configs"),
     service_id: v.id("services"),
-    interval_miles: v.optional(v.float64()),
-    interval_months: v.optional(v.float64()),
-    status: v.string(),
+    interval_miles: v.optional(v.number()),
+    interval_months: v.optional(v.number()),
+    status: v.optional(v.string()),
     display_string: v.optional(v.string()),
-    confidence: v.optional(v.float64()),
-    source_count: v.optional(v.float64()),
+    confidence: v.optional(v.number()),
+    source_count: v.optional(v.number()),
     mechanic_verified: v.optional(v.boolean()),
     data_quality: v.optional(v.string()),
-    created_at: v.float64(),
+    created_at: v.optional(v.number()),
   })
     .index("by_vehicle_config", ["vehicle_config_id"])
     .index("by_config_service", ["vehicle_config_id", "service_id"]),
 
-  /**
-   * TABLE: labor_times
-   *
-   * One number per service per vehicle config. All-inclusive — already accounts
-   * for all vehicle-specific complexity.
-   */
+  // [U-W] Book hours and empirical labor data
   labor_times: defineTable({
     vehicle_config_id: v.optional(v.id("vehicle_configs")),
     engine_family: v.optional(v.string()),
     service_id: v.id("services"),
-    book_hours: v.float64(),
-    empirical_hours: v.optional(v.float64()),
-    empirical_sample_size: v.float64(),
-    empirical_p25: v.optional(v.float64()),
-    empirical_p75: v.optional(v.float64()),
-    source: v.string(),
-    confidence: v.optional(v.float64()),
+    book_hours: v.optional(v.number()),
+    empirical_hours: v.optional(v.number()),
+    empirical_sample_size: v.optional(v.number()),
+    empirical_p25: v.optional(v.number()),
+    empirical_p75: v.optional(v.number()),
+    source: v.optional(v.string()),
+    confidence: v.optional(v.number()),
     data_quality: v.optional(v.string()),
-    created_at: v.float64(),
-  })
-    .index("by_vehicle_config", ["vehicle_config_id", "service_id"])
-    .index("by_engine_family", ["engine_family", "service_id"]),
-
-  // ============================================================================
-  // LAYER 4: EVIDENCE & VERIFICATION
-  // ============================================================================
-
-  /**
-   * TABLE: enrichment_evidence
-   *
-   * Every observation from every source for every field. Append-only.
-   * Supports multi-source consensus computation.
-   */
-  enrichment_evidence: defineTable({
-    entity_type: v.string(),
-    entity_id: v.string(),
-    field_name: v.string(),
-    observed_value: v.string(),
-    observed_type: v.string(),
-    source_url: v.optional(v.string()),
-    source_domain: v.optional(v.string()),
-    source_type: v.string(),
-    confidence: v.float64(),
-    enrichment_run_id: v.optional(v.id("enrichment_runs")),
-    observed_at: v.float64(),
-    is_latest: v.boolean(),
-    created_at: v.float64(),
-  })
-    .index("by_entity", ["entity_type", "entity_id", "field_name"])
-    .index("by_entity_field", ["entity_id", "field_name"])
-    .index("by_source_domain", ["source_domain"])
-    .index("by_enrichment_run", ["enrichment_run_id"]),
-
-  /**
-   * TABLE: enrichment_runs
-   *
-   * Audit trail for every enrichment execution. Tracks costs, timing,
-   * field coverage, and errors.
-   */
-  enrichment_runs: defineTable({
-    vehicle_config_id: v.optional(v.id("vehicle_configs")),
-    version: v.string(),
-    trigger: v.string(),
-    status: v.string(),
-    total_tokens_in: v.optional(v.float64()),
-    total_tokens_out: v.optional(v.float64()),
-    total_web_searches: v.optional(v.float64()),
-    total_firecrawl_credits: v.optional(v.float64()),
-    estimated_cost_usd: v.optional(v.float64()),
-    started_at: v.float64(),
-    completed_at: v.optional(v.float64()),
-    duration_ms: v.optional(v.float64()),
-    fields_filled: v.optional(v.float64()),
-    fields_total: v.optional(v.float64()),
-    fill_rate: v.optional(v.float64()),
-    fields_changed: v.optional(v.array(v.string())),
-    errors: v.optional(v.array(v.string())),
-    batch_ids: v.optional(v.any()),
-    scrape_cache_hit: v.optional(v.boolean()),
-    created_at: v.float64(),
+    created_at: v.optional(v.number()),
   })
     .index("by_vehicle_config", ["vehicle_config_id"])
-    .index("by_status", ["status"])
-    .index("by_created_at", ["created_at"]),
+    .index("by_engine_family", ["engine_family"]),
 
-  /**
-   * TABLE: mechanic_verifications
-   *
-   * Feedback from mechanics after completing jobs. Ground truth that feeds
-   * back into the knowledge graph via evidence and consensus updates.
-   */
-  mechanic_verifications: defineTable({
-    mechanic_id: v.id("mechanics"),
-    vehicle_config_id: v.id("vehicle_configs"),
-    job_id: v.optional(v.id("job_actuals")),
-    service_id: v.id("services"),
-    verifications: v.array(
-      v.object({
-        field_name: v.string(),
-        our_value: v.string(),
-        status: v.string(),
-        corrected_value: v.optional(v.string()),
-        notes: v.optional(v.string()),
-      })
-    ),
-    actual_labor_hours: v.optional(v.float64()),
-    parts_used_correct: v.optional(v.boolean()),
-    overall_accuracy: v.string(),
-    verified_at: v.float64(),
-    created_at: v.float64(),
-  })
-    .index("by_vehicle_config", ["vehicle_config_id"])
-    .index("by_mechanic", ["mechanic_id"])
-    .index("by_job", ["job_id"])
-    .index("by_service", ["service_id"]),
+  // ===== VEHICLES & OWNERSHIP =====
 
-  // ============================================================================
-  // LAYER 5: SOURCE MANAGEMENT
-  // ============================================================================
-
-  /**
-   * TABLE: source_registry
-   *
-   * Data-driven source management. Self-healing: when accuracy_rate drops
-   * below threshold, source is auto-blocked.
-   */
-  source_registry: defineTable({
-    make_id: v.id("makes"),
-    source_type: v.string(),
-    domain: v.string(),
-    url_template: v.string(),
-    slug_fn_type: v.string(),
-    part_slug_map: v.optional(v.any()),
-    manual_queries: v.optional(v.array(v.string())),
-    reliability_score: v.optional(v.float64()),
-    total_observations: v.optional(v.float64()),
-    accuracy_rate: v.optional(v.float64()),
-    is_blocked: v.boolean(),
-    block_reason: v.optional(v.string()),
-    last_scraped_at: v.optional(v.float64()),
-    last_scrape_success: v.optional(v.boolean()),
-    created_at: v.float64(),
-  })
-    .index("by_make", ["make_id"])
-    .index("by_domain", ["domain"])
-    .index("by_blocked", ["is_blocked"]),
-
-  /**
-   * TABLE: blocked_domains
-   *
-   * Auto-maintained blocklist of unreliable data sources.
-   */
-  blocked_domains: defineTable({
-    domain: v.string(),
-    reason: v.string(),
-    blocked_at: v.float64(),
-    blocked_by: v.string(),
-    accuracy_at_block: v.optional(v.float64()),
-    created_at: v.float64(),
-  }).index("by_domain", ["domain"]),
-
-  // ============================================================================
-  // LAYER 6: SCRAPE CACHE
-  // ============================================================================
-
-  /**
-   * TABLE: scrape_cache
-   *
-   * Caches scraped page content by URL with TTL-based expiration.
-   */
-  scrape_cache: defineTable({
-    cache_key: v.string(),
-    url: v.string(),
-    domain: v.string(),
-    source_type: v.string(),
-    make_id: v.optional(v.id("makes")),
-    model_id: v.optional(v.id("models")),
-    year: v.optional(v.float64()),
-    markdown: v.string(),
-    markdown_length: v.float64(),
-    scraped_at: v.float64(),
-    expires_at: v.float64(),
-    ttl_days: v.float64(),
-    scrape_success: v.boolean(),
-    http_status: v.optional(v.float64()),
-    created_at: v.float64(),
-  })
-    .index("by_cache_key", ["cache_key"])
-    .index("by_expires_at", ["expires_at"])
-    .index("by_make_year", ["make_id", "year"]),
-
-  /**
-   * TABLE: vin_queue
-   *
-   * DESCRIPTION:
-   * VINs discovered from marketplace scrapes (CarGurus, Cars.com, AutoTrader).
-   * Each row = one VIN waiting to be enriched. Deduped against `vehicles.by_vin`.
-   *
-   * LIFECYCLE: pending → enriching → complete | failed | skipped
-   */
-  vin_queue: defineTable({
+  // [W] 12 fields — adds vehicle_config_id (A/D had 10)
+  vehicles: defineTable({
     vin: v.string(),
-    source: v.string(),                        // "cargurus" | "carscom" | "autotrader"
-    source_url: v.optional(v.string()),        // listing URL
-    year: v.float64(),
-    make: v.string(),
-    model: v.string(),
-    trim: v.optional(v.string()),
-    price: v.optional(v.float64()),
-    mileage: v.optional(v.float64()),
-    location: v.optional(v.string()),          // city/state from listing
-    status: v.string(),                        // "pending" | "enriching" | "complete" | "failed" | "skipped"
-    skip_reason: v.optional(v.string()),       // why it was skipped (duplicate, year < 2018, etc.)
-    error: v.optional(v.string()),             // enrichment error message
-    vehicle_config_id: v.optional(v.id("vehicle_configs")), // linked after enrichment
-    queued_at: v.float64(),
-    processed_at: v.optional(v.float64()),
+    trim_id: v.optional(v.id("trims")),
+    engine_id: v.optional(v.id("engines")),
+    transmission_id: v.optional(v.id("transmissions")),
+    chassis_id: v.optional(v.id("chassis_variants")),
+    year: v.optional(v.number()),
+    metadata: v.optional(v.any()),
+    image_url: v.optional(v.string()),
+    enriched_engine_config_id: v.optional(v.string()),
+    vehicle_config_id: v.optional(v.id("vehicle_configs")),
+    created_at: v.optional(v.number()),
+    updated_at: v.optional(v.number()),
   })
     .index("by_vin", ["vin"])
-    .index("by_status", ["status"])
-    .index("by_source_status", ["source", "status"])
-    .index("by_year", ["year"]),
+    .index("by_engine_id", ["engine_id"])
+    .index("by_trim_id", ["trim_id"])
+    .index("by_transmission", ["transmission_id"])
+    .index("by_chassis", ["chassis_id"])
+    .index("by_vehicle_config", ["vehicle_config_id"]),
 
-  /**
-   * TABLE: scrape_jobs
-   *
-   * DESCRIPTION:
-   * Audit trail for each marketplace scrape run. Tracks what was searched,
-   * how many listings/VINs were found, and how many were new.
-   */
-  scrape_jobs: defineTable({
-    source: v.string(),                        // "cargurus" | "carscom" | "autotrader"
-    search_params: v.string(),                 // JSON stringified search criteria
-    status: v.string(),                        // "running" | "complete" | "failed"
-    listings_found: v.float64(),
-    vins_extracted: v.float64(),
-    new_vins: v.float64(),                     // how many were actually new (not dupes)
-    errors: v.array(v.string()),
-    started_at: v.float64(),
-    completed_at: v.optional(v.float64()),
-    duration_ms: v.optional(v.float64()),
-    created_at: v.float64(),
-  })
-    .index("by_source", ["source"])
-    .index("by_status", ["status"])
-    .index("by_created_at", ["created_at"]),
-
-  // ============================================================================
-  // CORE APP TABLES
-  // ============================================================================
-
-  /**
-   * TABLE: bookings
-   *
-   * DESCRIPTION:
-   * Stores confirmed service bookings for vehicles at shops.
-   * Central record linking users, vehicles, shops, mechanics, and services.
-   *
-   * FIELDS:
-   *   - user_id: References the user who made the booking
-   *   - vin: Canonical VIN (uppercase normalized) linking to vehicles table
-   *   - service_ids: Array of service type IDs for this appointment
-   *   - shop_id: The shop where service will be performed
-   *   - mechanic_id: (optional) Specific mechanic assigned to the job
-   *   - time_slot_id: The chosen appointment time slot (one slot per appointment)
-   *   - scheduled_date: Date of service (YYYY-MM-DD format)
-   *   - scheduled_time: Time of service (HH:MM format)
-   *   - labor_cost: Total estimated labor cost (all services) in dollars
-   *   - parts_cost: Total estimated parts cost (all services) in dollars
-   *   - total_cost: Full amount customer pays (labor_cost + parts_cost + taxes_and_fees + platform_fee)
-   *   - estimated_labor_minutes: Total estimated time for all services (minutes)
-   *   - status: Current booking state (e.g., "confirmed", "completed", "cancelled")
-   *   - live_stage: When status is "in_progress", current Live Tracker stage
-   *   - created_at: Unix timestamp when booking was created
-   *   - updated_at: Unix timestamp of last modification
-   *
-   * INDEXES:
-   *   - by_user_id: Query all bookings for a user
-   *   - by_shop_id: Query all bookings at a shop
-   *   - by_status: Query bookings by status (for filtering)
-   *   - by_scheduled_date: Query bookings on specific dates
-   *   - by_user_and_status: Combined queries for user's specific-status bookings
-   *   - by_shop_and_date: Query bookings at shop on specific date
-   *   - by_shop_and_status: Query shop's bookings by status
-   *   - by_created_at: Chronological ordering of bookings
-   *
-   * RELATIONSHIPS:
-   *   FK → users(user_id)
-   *   FK → vehicles(vin) via canonical VIN lookup
-   *   FK → shops(shop_id)
-   *   FK → mechanics(mechanic_id)
-   *   FK → time_slots(time_slot_id)
-   *   Has-one → payments (via booking_id)
-   *   Has-one → job_actuals (via booking_id)
-   *   Has-one → reviews (via booking_id)
-   */
-  bookings: defineTable({
-    labor_cost: v.float64(),
-    live_stage: v.optional(v.string()),
-    mechanic_id: v.optional(v.id("mechanics")),
-    parts_cost: v.float64(),
-    scheduled_date: v.string(),
-    scheduled_time: v.string(),
-    service_ids: v.optional(v.array(v.id("services"))),
-    estimated_labor_minutes: v.optional(v.float64()),
-    shop_id: v.id("shops"),
-    status: v.string(),
-    time_slot_id: v.id("time_slots"),
-    total_cost: v.float64(),
-    user_id: v.id("users"),
+  // [A] 47 fields — powers v4 maintenance pipeline (D/W had 15)
+  vehicle_owners: defineTable({
     vin: v.string(),
-    created_at: v.float64(),
-    updated_at: v.float64(),
+    user_id: v.id("users"),
+    status: v.string(),
+    nickname: v.optional(v.string()),
+    is_primary: v.optional(v.boolean()),
+    mileage: v.optional(v.number()),
+    added_at: v.optional(v.number()),
+    removed_at: v.optional(v.number()),
+    smartcarVehicleId: v.optional(v.string()),
+    connectionStatus: v.optional(v.string()),
+    connectedAt: v.optional(v.number()),
+    ownershipType: v.optional(v.string()),
+    ownedSinceNew: v.optional(v.boolean()),
+    mileageAtPurchase: v.optional(v.number()),
+    ownershipDuration: v.optional(v.string()),
+    annualMileageBand: v.optional(v.string()),
+    usagePattern: v.optional(v.string()),
+    lastServiceWhen: v.optional(v.string()),
+    lastServiceWhat: v.optional(v.string()),
+    serviceLocationPreference: v.optional(v.string()),
+    garageRole: v.optional(v.string()),
+    avgMonthlyDriving: v.optional(v.string()),
+    drivingConditions: v.optional(v.string()),
+    knownIssues: v.optional(v.any()),
+    preOnboardingComplete: v.optional(v.boolean()),
+    onboardingComplete: v.optional(v.boolean()),
+    setupCardDismissed: v.optional(v.boolean()),
+    usage_pattern: v.optional(v.string()),
+    vehicle_age_years: v.optional(v.number()),
+    mileage_tier: v.optional(v.string()),
+    prev_usage_intensity: v.optional(v.string()),
+    history_confidence: v.optional(v.string()),
+    owner_segment: v.optional(v.string()),
+    segment_classified_at: v.optional(v.number()),
+    annual_mileage_rate: v.optional(v.number()),
+    prev_owner_annual_rate: v.optional(v.number()),
+    active_classification_id: v.optional(v.id("vehicle_classifications")),
+    vehicle_mode: v.optional(v.string()),
+    last_checkin_at: v.optional(v.number()),
+    next_checkin_due: v.optional(v.number()),
+    health_score: v.optional(v.number()),
+    health_score_is_estimated: v.optional(v.boolean()),
+    ownership_plan: v.optional(v.string()),
+    lease_ending_soon: v.optional(v.boolean()),
+    lease_mileage_pace: v.optional(v.string()),
+  })
+    .index("by_vin", ["vin"])
+    .index("by_user_id", ["user_id"])
+    .index("by_vin_user", ["vin", "user_id"])
+    .index("by_user_status", ["user_id", "status"])
+    .index("by_smartcar_vehicle_id", ["smartcarVehicleId"]),
+
+  // [I]
+  odometer_history: defineTable({
+    vehicleOwnerId: v.id("vehicle_owners"),
+    distance: v.number(),
+    unit: v.string(),
+    recordedAt: v.number(),
+  })
+    .index("by_vehicle_and_date", ["vehicleOwnerId", "recordedAt"]),
+
+  // [I]
+  smartcar_connections: defineTable({
+    vehicleOwnerId: v.id("vehicle_owners"),
+    smartcarVehicleId: v.string(),
+    accessToken: v.string(),
+    refreshToken: v.string(),
+    tokenExpiresAt: v.number(),
+    connectedAt: v.number(),
+    lastSyncedAt: v.optional(v.number()),
+    permissions: v.optional(v.any()),
+    status: v.string(),
+  })
+    .index("by_vehicle_owner", ["vehicleOwnerId"])
+    .index("by_smartcar_vehicle_id", ["smartcarVehicleId"])
+    .index("by_status", ["status"]),
+
+  // [I] Daniel/Waleed
+  vehicle_tiers: defineTable({
+    vin: v.string(),
+    user_id: v.id("users"),
+    tier: v.string(),
+    spend_12mo: v.optional(v.number()),
+    created_at: v.optional(v.number()),
+    updated_at: v.optional(v.number()),
+  })
+    .index("by_vin_user", ["vin", "user_id"])
+    .index("by_user_id", ["user_id"]),
+
+  // ===== MAINTENANCE PIPELINE (Ahmad) =====
+
+  // [U-A] Health score composite modifier weights
+  composite_modifier_weights: defineTable({
+    category_name: v.string(),
+    dcm_weight: v.optional(v.number()),
+    vam_weight: v.optional(v.number()),
+    mtm_weight: v.optional(v.number()),
+    pum_weight: v.optional(v.number()),
+    hcm_weight: v.optional(v.number()),
+    is_fixed: v.optional(v.boolean()),
+  })
+    .index("by_category", ["category_name"]),
+
+  // [U-A] Quarterly check-in data
+  vehicle_checkins: defineTable({
+    vehicle_owner_id: v.id("vehicle_owners"),
+    mode_at_checkin: v.optional(v.string()),
+    questions_shown: v.optional(v.any()),
+    answers: v.optional(v.any()),
+    mileage_reported: v.optional(v.number()),
+    mileage_projected: v.optional(v.number()),
+    velocity_delta: v.optional(v.number()),
+    services_reported: v.optional(v.any()),
+    services_through_otopair: v.optional(v.any()),
+    warning_lights: v.optional(v.any()),
+    symptoms_text: v.optional(v.string()),
+    mode_transition_triggered: v.optional(v.boolean()),
+    new_mode: v.optional(v.string()),
+    new_classification_id: v.optional(v.id("vehicle_classifications")),
+    engine_recalc_completed_at: v.optional(v.number()),
+    started_at: v.optional(v.number()),
+    completed_at: v.optional(v.number()),
+    status: v.optional(v.string()),
+    next_checkin_due: v.optional(v.number()),
+  })
+    .index("by_vehicle_owner", ["vehicle_owner_id"])
+    .index("by_status", ["status"])
+    .index("by_next_due", ["next_checkin_due"])
+    .index("by_vehicle_owner_completed", ["vehicle_owner_id", "completed_at"]),
+
+  // [U-A] Vehicle mode/segment classification pipeline
+  vehicle_classifications: defineTable({
+    vehicle_owner_id: v.id("vehicle_owners"),
+    vehicle_mode: v.string(),
+    owner_segment: v.optional(v.string()),
+    driving_condition_modifier: v.optional(v.number()),
+    vehicle_age_modifier: v.optional(v.number()),
+    mileage_tier_modifier: v.optional(v.number()),
+    previous_usage_modifier: v.optional(v.number()),
+    history_confidence_modifier: v.optional(v.number()),
+    composite_routine: v.optional(v.number()),
+    composite_tires: v.optional(v.number()),
+    composite_brakes: v.optional(v.number()),
+    composite_battery: v.optional(v.number()),
+    composite_fluids: v.optional(v.number()),
+    composite_diagnostics: v.optional(v.number()),
+    annual_mileage_estimated: v.optional(v.number()),
+    velocity_confidence: v.optional(v.string()),
+    status: v.optional(v.string()),
+    computed_at: v.optional(v.number()),
+    triggered_by: v.optional(v.string()),
+    superseded_at: v.optional(v.number()),
+    superseded_by: v.optional(v.id("vehicle_classifications")),
+  })
+    .index("by_vehicle_owner", ["vehicle_owner_id"])
+    .index("by_vehicle_owner_active", ["vehicle_owner_id", "status"])
+    .index("by_computed_at", ["computed_at"]),
+
+  // [U-A] Onboarding-derived driving profiles
+  vehicle_driving_profiles: defineTable({
+    vehicle_owner_id: v.id("vehicle_owners"),
+    onboarding_path: v.optional(v.string()),
+    onboarding_completed_at: v.optional(v.number()),
+    mileage_at_purchase: v.optional(v.number()),
+    ownership_duration: v.optional(v.string()),
+    current_mileage: v.optional(v.number()),
+    annual_mileage_band: v.optional(v.string()),
+    usage_pattern: v.optional(v.string()),
+    last_service_when: v.optional(v.string()),
+    last_service_what: v.optional(v.string()),
+    where_serviced: v.optional(v.string()),
+    current_concerns: v.optional(v.any()),
+    garage_role: v.optional(v.string()),
+    source: v.optional(v.string()),
+    created_at: v.optional(v.number()),
+    updated_at: v.optional(v.number()),
+  })
+    .index("by_vehicle_owner", ["vehicle_owner_id"]),
+
+  // [U-A] Per-service urgency/state for each vehicle owner
+  vehicle_service_states: defineTable({
+    vehicle_owner_id: v.id("vehicle_owners"),
+    service_id: v.id("services"),
+    is_applicable: v.optional(v.boolean()),
+    exclusion_reason: v.optional(v.string()),
+    adjusted_interval_miles: v.optional(v.number()),
+    adjusted_interval_months: v.optional(v.number()),
+    composite_modifier: v.optional(v.number()),
+    due_at_mileage: v.optional(v.number()),
+    due_at_date: v.optional(v.number()),
+    trigger_type: v.optional(v.string()),
+    last_service_mileage: v.optional(v.number()),
+    last_service_date: v.optional(v.number()),
+    last_service_booking_id: v.optional(v.id("bookings")),
+    last_service_source: v.optional(v.string()),
+    urgency: v.optional(v.string()),
+    urgency_score: v.optional(v.number()),
+    quick_read_flag: v.optional(v.string()),
+    quick_read_urgency: v.optional(v.string()),
+    phase_visit: v.optional(v.number()),
+    is_surfaced: v.optional(v.boolean()),
+    calculated_at: v.optional(v.number()),
+  })
+    .index("by_vehicle_owner", ["vehicle_owner_id"])
+    .index("by_vehicle_service", ["vehicle_owner_id", "service_id"])
+    .index("by_urgency", ["urgency"])
+    .index("by_surfaced", ["is_surfaced"]),
+
+  // [A] 10 fields (D/W had 7)
+  maintenance_records: defineTable({
+    vehicleOwnerId: v.id("vehicle_owners"),
+    type: v.string(),
+    lastServiceDate: v.optional(v.string()),
+    lastServiceMileage: v.optional(v.number()),
+    customInputs: v.optional(v.any()),
+    confirmedHealthyAt: v.optional(v.number()),
+    serviceSource: v.optional(v.string()),
+    confidence: v.optional(v.number()),
+    createdAt: v.optional(v.number()),
+    updatedAt: v.optional(v.number()),
+  })
+    .index("by_vehicle_owner", ["vehicleOwnerId"])
+    .index("by_vehicle_and_type", ["vehicleOwnerId", "type"]),
+
+  // [I]
+  vehicle_health_snapshots: defineTable({
+    vehicleOwnerId: v.id("vehicle_owners"),
+    snapshotType: v.string(),
+    data: v.any(),
+    source: v.optional(v.string()),
+    recordedAt: v.number(),
+    createdAt: v.number(),
+  })
+    .index("by_vehicle_owner", ["vehicleOwnerId"])
+    .index("by_vehicle_and_type", ["vehicleOwnerId", "snapshotType"]),
+
+  // ===== USERS & AUTH =====
+
+  // [D] 25 fields (A had 15, W had 22)
+  users: defineTable({
+    clerkUserId: v.string(),
+    email: v.optional(v.string()),
+    emailConfirmed: v.optional(v.boolean()),
+    first_name: v.optional(v.string()),
+    last_name: v.optional(v.string()),
+    username: v.optional(v.string()),
+    phone: v.optional(v.string()),
+    phoneVerified: v.optional(v.boolean()),
+    profile_photo_url: v.optional(v.string()),
+    profile_photo_storage_id: v.optional(v.string()),
+    auth_provider: v.optional(v.string()),
+    onboardingCompleted: v.optional(v.boolean()),
+    tellUsAboutCompleted: v.optional(v.boolean()),
+    user_intentions: v.optional(v.any()),
+    language: v.optional(v.string()),
+    units: v.optional(v.string()),
+    role: v.optional(v.string()),
+    stripe_customer_id: v.optional(v.string()),
+    push_token: v.optional(v.string()),
+    isPendingDeletion: v.optional(v.boolean()),
+    deletionRequestedAt: v.optional(v.number()),
+    deletionSurveyResponse: v.optional(v.string()),
+    deletionSurveySkipped: v.optional(v.boolean()),
+    createdAt: v.optional(v.number()),
+    lastUpdated: v.optional(v.number()),
+  })
+    .index("by_clerkUserId", ["clerkUserId"])
+    .index("by_isPendingDeletion", ["isPendingDeletion"])
+    .index("by_email", ["email"]),
+
+  // [I] Daniel/Waleed
+  user_settings_preferences: defineTable({
+    user_id: v.id("users"),
+    notification_preferences: v.optional(v.any()),
+    language: v.optional(v.string()),
+    units: v.optional(v.string()),
+    last_updated: v.optional(v.number()),
+  })
+    .index("by_user_id", ["user_id"]),
+
+  // [U-D] User mechanic favorites/hidden
+  user_mechanic_preferences: defineTable({
+    user_id: v.id("users"),
+    mechanic_id: v.id("mechanics"),
+    is_favorite: v.optional(v.boolean()),
+    is_hidden: v.optional(v.boolean()),
+    updated_at: v.optional(v.number()),
+  })
+    .index("by_user_id", ["user_id"])
+    .index("by_user_mechanic", ["user_id", "mechanic_id"]),
+
+  // [I] Daniel/Waleed
+  user_contribution_claims: defineTable({
+    user_id: v.id("users"),
+    action_type: v.string(),
+    reference_id: v.optional(v.string()),
+    created_at: v.optional(v.number()),
+  })
+    .index("by_user_id", ["user_id"])
+    .index("by_user_action", ["user_id", "action_type"]),
+
+  // [I] Daniel/Waleed
+  user_reward_wallets: defineTable({
+    user_id: v.id("users"),
+    balance: v.number(),
+    auto_apply_to_booking: v.optional(v.boolean()),
+    miles_safe: v.optional(v.number()),
+    created_at: v.optional(v.number()),
+    updated_at: v.optional(v.number()),
+  })
+    .index("by_user_id", ["user_id"]),
+
+  // [I]
+  onboarding_questions_answers: defineTable({
+    user_id: v.id("users"),
+    questions_and_answers: v.optional(v.any()),
+    user_intentions: v.optional(v.any()),
+    car_knowledge_level: v.optional(v.string()),
+    last_updated: v.optional(v.number()),
+  })
+    .index("by_user_id", ["user_id"]),
+
+  // ===== SHOPS & SCHEDULING =====
+
+  // [D] 21 fields (A/W had 14, no indexes)
+  shops: defineTable({
+    name: v.string(),
+    slug: v.optional(v.string()),
+    address: v.optional(v.string()),
+    city: v.optional(v.string()),
+    state: v.optional(v.string()),
+    zip: v.optional(v.string()),
+    phone: v.optional(v.string()),
+    lat: v.optional(v.number()),
+    lng: v.optional(v.number()),
+    labor_rate: v.optional(v.number()),
+    rating: v.optional(v.number()),
+    review_count: v.optional(v.number()),
+    is_active: v.optional(v.boolean()),
+    is_verified: v.optional(v.boolean()),
+    owner_user_id: v.optional(v.id("users")),
+    description: v.optional(v.string()),
+    logo: v.optional(v.string()),
+    stripe_connect_account_id: v.optional(v.string()),
+    onboarding_complete: v.optional(v.boolean()),
+    email: v.optional(v.string()),
+    website: v.optional(v.string()),
+  })
+    .index("by_slug", ["slug"])
+    .index("by_owner_user_id", ["owner_user_id"]),
+
+  // [I]
+  shops_hours: defineTable({
+    shop_id: v.id("shops"),
+    day_of_week: v.number(),
+    day_name: v.string(),
+    open_time: v.optional(v.string()),
+    close_time: v.optional(v.string()),
+    is_closed: v.optional(v.boolean()),
+  })
+    .index("by_shop_id", ["shop_id"]),
+
+  // [I]
+  shop_services: defineTable({
+    shop_id: v.id("shops"),
+    service_id: v.id("services"),
+    is_offered: v.boolean(),
+  })
+    .index("by_shop_id", ["shop_id"])
+    .index("by_service_id", ["service_id"])
+    .index("by_shop_and_service", ["shop_id", "service_id"]),
+
+  // [I]
+  shop_portfolio: defineTable({
+    shop_id: v.id("shops"),
+    content_id: v.string(),
+    display_order: v.optional(v.number()),
+  })
+    .index("by_shop_id", ["shop_id"]),
+
+  // [U-D] Shop staff roles, permissions, deletion tracking
+  shop_users: defineTable({
+    user_id: v.id("users"),
+    shop_id: v.id("shops"),
+    role: v.string(),
+    mechanic_id: v.optional(v.id("mechanics")),
+    permissions: v.optional(v.any()),
+    is_active: v.optional(v.boolean()),
+    invited_at: v.optional(v.number()),
+    accepted_at: v.optional(v.number()),
+    created_at: v.optional(v.number()),
+    updated_at: v.optional(v.number()),
+    isPendingDeletion: v.optional(v.boolean()),
+    deletionRequestedAt: v.optional(v.number()),
+    deletionSurveyReason: v.optional(v.string()),
+    deletionSurveyResponse: v.optional(v.string()),
+    deletionSurveyImprovement: v.optional(v.string()),
+  })
+    .index("by_user_id", ["user_id"])
+    .index("by_shop_id", ["shop_id"])
+    .index("by_user_and_shop", ["user_id", "shop_id"])
+    .index("by_shop_and_role", ["shop_id", "role"]),
+
+  // [U-D] Invite mechanics/staff to join a shop
+  shop_invitations: defineTable({
+    shop_id: v.id("shops"),
+    invited_by: v.optional(v.id("users")),
+    email: v.string(),
+    role: v.string(),
+    mechanic_id: v.optional(v.id("mechanics")),
+    clerk_invitation_id: v.optional(v.string()),
+    status: v.string(),
+    token: v.optional(v.string()),
+    expires_at: v.optional(v.number()),
+    accepted_at: v.optional(v.number()),
+    created_at: v.optional(v.number()),
+  })
+    .index("by_shop_id", ["shop_id"])
+    .index("by_email", ["email"])
+    .index("by_token", ["token"])
+    .index("by_status", ["status"])
+    .index("by_clerk_invitation_id", ["clerk_invitation_id"]),
+
+  // [U-D] Block time types for shop scheduling
+  block_time_types: defineTable({
+    shop_id: v.id("shops"),
+    title: v.string(),
+  })
+    .index("by_shop_id", ["shop_id"]),
+
+  // [I]
+  mechanics: defineTable({
+    shop_id: v.id("shops"),
+    first_name: v.string(),
+    last_name: v.string(),
+    title: v.optional(v.string()),
+    photo: v.optional(v.string()),
+    rating: v.optional(v.number()),
+    review_count: v.optional(v.number()),
+    is_active: v.optional(v.boolean()),
+  })
+    .index("by_shop_id", ["shop_id"])
+    .index("by_is_active", ["is_active"]),
+
+  // [D] 8 fields (A/W had 6)
+  time_slots: defineTable({
+    shop_id: v.id("shops"),
+    mechanic_id: v.id("mechanics"),
+    date: v.string(),
+    start_time: v.string(),
+    end_time: v.string(),
+    is_available: v.boolean(),
+    note: v.optional(v.string()),
+    title: v.optional(v.string()),
+  })
+    .index("by_shop_id", ["shop_id"])
+    .index("by_mechanic_id", ["mechanic_id"])
+    .index("by_shop_and_date", ["shop_id", "date"])
+    .index("by_availability", ["is_available"]),
+
+  // ===== BOOKINGS & PAYMENTS =====
+
+  // [D] 21 fields with reschedule tracking (A/W had 16)
+  bookings: defineTable({
+    user_id: v.id("users"),
+    shop_id: v.id("shops"),
+    mechanic_id: v.optional(v.id("mechanics")),
+    vin: v.string(),
+    service_ids: v.array(v.id("services")),
+    time_slot_id: v.optional(v.id("time_slots")),
+    scheduled_date: v.optional(v.string()),
+    scheduled_time: v.optional(v.string()),
+    status: v.string(),
+    live_stage: v.optional(v.string()),
+    labor_cost: v.optional(v.number()),
+    parts_cost: v.optional(v.number()),
+    total_cost: v.optional(v.number()),
+    estimated_labor_minutes: v.optional(v.number()),
+    created_at: v.optional(v.number()),
+    updated_at: v.optional(v.number()),
+    previous_scheduled_date: v.optional(v.string()),
+    previous_scheduled_time: v.optional(v.string()),
+    previous_mechanic_id: v.optional(v.id("mechanics")),
+    previous_status: v.optional(v.string()),
+    reschedule_proposed_at: v.optional(v.number()),
   })
     .index("by_user_id", ["user_id"])
     .index("by_shop_id", ["shop_id"])
@@ -766,188 +1069,31 @@ export default defineSchema({
     .index("by_shop_and_status", ["shop_id", "status"])
     .index("by_created_at", ["created_at"]),
 
-  /**
-   * TABLE: users
-   *
-   * DESCRIPTION:
-   * Platform users (vehicle owners seeking maintenance services).
-   * Primary authentication via Clerk (third-party auth provider).
-   *
-   * INDEXES:
-   *   - by_clerkUserId: Auth lookup by external ID
-   *   - by_isPendingDeletion: Find users requesting deletion
-   */
-  users: defineTable({
-    auth_provider: v.optional(v.string()),
-    clerkUserId: v.string(),
-    createdAt: v.float64(),
-    email: v.optional(v.string()),
-    emailConfirmed: v.optional(v.boolean()),
-    first_name: v.optional(v.string()),
-    last_name: v.optional(v.string()),
-    lastUpdated: v.optional(v.float64()),
-    onboardingCompleted: v.boolean(),
-    phone: v.optional(v.string()),
-    phoneVerified: v.optional(v.boolean()),
-    profile_photo_url: v.optional(v.union(v.string(), v.null())),
-    profile_photo_storage_id: v.optional(v.union(v.string(), v.null())),
-    tellUsAboutCompleted: v.optional(v.boolean()),
-    user_intentions: v.optional(v.array(v.string())),
-    username: v.optional(v.string()),
-    language: v.optional(v.string()),
-    units: v.optional(v.string()),
-    deletionRequestedAt: v.optional(v.float64()),
-    isPendingDeletion: v.optional(v.boolean()),
-    deletionSurveyResponse: v.optional(v.string()),
-    deletionSurveySkipped: v.optional(v.boolean()),
-  }).index("by_clerkUserId", ["clerkUserId"])
-    .index("by_isPendingDeletion", ["isPendingDeletion"]),
-
-  /**
-   * TABLE: shops
-   *
-   * DESCRIPTION:
-   * Stores automotive service shops/repair facilities.
-   */
-  shops: defineTable({
-    address: v.string(),
-    city: v.string(),
-    is_active: v.boolean(),
-    is_verified: v.boolean(),
-    labor_rate: v.float64(),
-    lat: v.float64(),
-    lng: v.float64(),
-    name: v.string(),
-    phone: v.string(),
-    rating: v.float64(),
-    review_count: v.float64(),
-    slug: v.string(),
-    state: v.string(),
-    zip: v.string(),
-  }),
-
-  /**
-   * TABLE: mechanics
-   *
-   * DESCRIPTION:
-   * Stores individual mechanic/technician information.
-   * Each mechanic is employed at a specific shop.
-   *
-   * INDEXES:
-   *   - by_shop_id: Get all mechanics at a shop
-   *   - by_is_active: Filter for active mechanics
-   */
-  mechanics: defineTable({
-    first_name: v.string(),
-    is_active: v.boolean(),
-    last_name: v.string(),
-    photo: v.optional(v.id("cdn_assets")),
-    rating: v.float64(),
-    review_count: v.float64(),
-    shop_id: v.id("shops"),
-    title: v.optional(v.string()),
-  })
-    .index("by_shop_id", ["shop_id"])
-    .index("by_is_active", ["is_active"]),
-
-  /**
-   * TABLE: time_slots
-   *
-   * DESCRIPTION:
-   * Available appointment time slots at shops. Each mechanic is treated as an
-   * individual bay with their own calendar.
-   *
-   * INDEXES:
-   *   - by_shop_id: Get slots for a shop
-   *   - by_mechanic_id: Get slots for a mechanic (per-bay calendar)
-   *   - by_shop_and_date: Get slots for shop on specific date
-   *   - by_availability: Filter available slots by date
-   */
-  time_slots: defineTable({
-    date: v.string(),
-    end_time: v.string(),
-    is_available: v.boolean(),
-    mechanic_id: v.optional(v.id("mechanics")),
-    shop_id: v.id("shops"),
-    start_time: v.string(),
-  })
-    .index("by_shop_id", ["shop_id"])
-    .index("by_mechanic_id", ["mechanic_id"])
-    .index("by_shop_and_date", ["shop_id", "date"])
-    .index("by_availability", ["is_available", "date"]),
-
-  /**
-   * TABLE: shops_hours
-   *
-   * DESCRIPTION:
-   * Stores operating hours for shops (by day of week).
-   */
-  shops_hours: defineTable({
-    close_time: v.optional(v.string()),
-    day_name: v.string(),
-    day_of_week: v.float64(),
-    is_closed: v.boolean(),
-    open_time: v.optional(v.string()),
-    shop_id: v.id("shops"),
-  }).index("by_shop_id", ["shop_id"]),
-
-  /**
-   * TABLE: reviews
-   *
-   * DESCRIPTION:
-   * Stores customer reviews for services and shops.
-   *
-   * INDEXES:
-   *   - by_booking_id: Get review for specific booking
-   *   - by_shop_id: Get all reviews for a shop
-   *   - by_mechanic_id: Get all reviews for a mechanic
-   *   - by_user_id: Get all reviews from a user
-   *   - by_rating: Filter reviews by rating
-   */
-  reviews: defineTable({
+  // [I]
+  booking_status_history: defineTable({
     booking_id: v.id("bookings"),
-    comment: v.string(),
-    mechanic_id: v.optional(v.id("mechanics")),
-    rating: v.float64(),
-    shop_id: v.id("shops"),
-    user_id: v.id("users"),
-    created_at: v.float64(),
+    old_status: v.optional(v.string()),
+    new_status: v.string(),
+    changed_by: v.optional(v.string()),
+    reason: v.optional(v.string()),
+    changed_at: v.number(),
   })
     .index("by_booking_id", ["booking_id"])
-    .index("by_shop_id", ["shop_id"])
-    .index("by_mechanic_id", ["mechanic_id"])
-    .index("by_user_id", ["user_id"])
-    .index("by_rating", ["rating"]),
+    .index("by_changed_at", ["changed_at"]),
 
-  // ============================================================================
-  // PAYMENT TRACKING
-  // ============================================================================
-
-  /**
-   * TABLE: payments
-   *
-   * DESCRIPTION:
-   * Payment records for completed bookings.
-   *
-   * INDEXES:
-   *   - by_booking_id: Get payment for booking
-   *   - by_user_id: Get all payments by user
-   *   - by_status: Filter payments by status
-   *   - by_idempotency_key: Prevent duplicate payments
-   *   - by_created_at: Chronological ordering
-   */
+  // [I]
   payments: defineTable({
     booking_id: v.id("bookings"),
     user_id: v.id("users"),
     shop_id: v.id("shops"),
-    amount: v.float64(),
-    payment_method: v.string(),
+    amount: v.number(),
+    payment_method: v.optional(v.string()),
     status: v.string(),
     transaction_id: v.optional(v.string()),
     stripe_payment_intent_id: v.optional(v.string()),
     idempotency_key: v.optional(v.string()),
-    created_at: v.float64(),
-    updated_at: v.float64(),
+    created_at: v.optional(v.number()),
+    updated_at: v.optional(v.number()),
   })
     .index("by_booking_id", ["booking_id"])
     .index("by_user_id", ["user_id"])
@@ -955,26 +1101,26 @@ export default defineSchema({
     .index("by_idempotency_key", ["idempotency_key"])
     .index("by_created_at", ["created_at"]),
 
-  /**
-   * TABLE: transactions
-   *
-   * DESCRIPTION:
-   * User-facing transaction history for the Transactions screen.
-   *
-   * INDEXES:
-   *   - by_user_id: All transactions for a user
-   *   - by_user_id_created_at: Chronological list for user
-   *   - by_user_id_type: Filter by user + transaction_type
-   *   - by_user_id_type_created_at: Combined filter + sort
-   *   - by_payment_id: Link to payments table
-   */
+  // [I]
+  payment_status_history: defineTable({
+    payment_id: v.id("payments"),
+    old_status: v.optional(v.string()),
+    new_status: v.string(),
+    error_code: v.optional(v.string()),
+    error_message: v.optional(v.string()),
+    changed_at: v.number(),
+  })
+    .index("by_payment_id", ["payment_id"])
+    .index("by_changed_at", ["changed_at"]),
+
+  // [I]
   transactions: defineTable({
     user_id: v.id("users"),
-    created_at: v.float64(),
+    created_at: v.number(),
     description: v.string(),
     sub_description: v.optional(v.string()),
-    amount: v.float64(),
-    currency: v.string(),
+    amount: v.number(),
+    currency: v.optional(v.string()),
     status: v.string(),
     transaction_type: v.string(),
     shop_id: v.optional(v.id("shops")),
@@ -988,206 +1134,162 @@ export default defineSchema({
     .index("by_user_id_type_created_at", ["user_id", "transaction_type", "created_at"])
     .index("by_payment_id", ["payment_id"]),
 
-  /**
-   * TABLE: payment_status_history
-   *
-   * DESCRIPTION:
-   * Append-only audit log of payment status changes.
-   */
-  payment_status_history: defineTable({
-    payment_id: v.id("payments"),
-    old_status: v.optional(v.string()),
-    new_status: v.string(),
-    error_code: v.optional(v.string()),
-    error_message: v.optional(v.string()),
-    changed_at: v.float64(),
+  // [I] Daniel/Waleed
+  ownership_credit_transactions: defineTable({
+    user_id: v.id("users"),
+    amount: v.number(),
+    type: v.string(),
+    description: v.optional(v.string()),
+    reference_id: v.optional(v.string()),
+    expires_at: v.optional(v.number()),
+    created_at: v.optional(v.number()),
   })
-    .index("by_payment_id", ["payment_id"])
-    .index("by_changed_at", ["changed_at"]),
+    .index("by_user_id", ["user_id"])
+    .index("by_user_id_created_at", ["user_id", "created_at"]),
 
-  /**
-   * TABLE: booking_status_history
-   *
-   * DESCRIPTION:
-   * Append-only audit log of booking status changes.
-   */
-  booking_status_history: defineTable({
+  // [I] Daniel/Waleed
+  reward_deals: defineTable({
+    title: v.string(),
+    description: v.optional(v.string()),
+    credit_amount: v.number(),
+    price: v.optional(v.number()),
+    is_special: v.optional(v.boolean()),
+    service_id: v.optional(v.id("services")),
+    display_order: v.optional(v.number()),
+    created_at: v.optional(v.number()),
+  })
+    .index("by_display_order", ["display_order"]),
+
+  // ===== REVIEWS & FEEDBACK =====
+
+  // [I]
+  reviews: defineTable({
     booking_id: v.id("bookings"),
-    old_status: v.optional(v.string()),
-    new_status: v.string(),
-    changed_by: v.optional(v.id("users")),
-    reason: v.optional(v.string()),
-    changed_at: v.float64(),
+    user_id: v.id("users"),
+    shop_id: v.id("shops"),
+    mechanic_id: v.optional(v.id("mechanics")),
+    rating: v.number(),
+    comment: v.optional(v.string()),
+    created_at: v.optional(v.number()),
   })
     .index("by_booking_id", ["booking_id"])
-    .index("by_changed_at", ["changed_at"]),
-
-  // ============================================================================
-  // VEHICLES & OWNERSHIP
-  // ============================================================================
-
-  /**
-   * TABLE: vehicles
-   *
-   * DESCRIPTION:
-   * Canonical vehicle catalog - one record per VIN.
-   * Vehicle ownership is tracked in vehicle_owners table.
-   * Links to vehicle_configs for enriched vehicle data.
-   *
-   * INDEXES:
-   *   - by_vin: Primary lookup by VIN (unique)
-   *   - by_engine_id: Find all vehicles with specific engine
-   *   - by_vehicle_config: Find all vehicles with specific config
-   *   - by_transmission: Find all vehicles with specific transmission
-   */
-  vehicles: defineTable({
-    vin: v.string(),
-    trim_id: v.optional(v.id("trims")),
-    engine_id: v.optional(v.id("engines")),
-    transmission_id: v.optional(v.id("transmissions")),
-    chassis_id: v.optional(v.id("chassis_variants")),
-    year: v.optional(v.float64()),
-    metadata: v.optional(v.any()),
-    image_url: v.optional(v.string()),
-    enriched_engine_config_id: v.optional(v.id("enriched_engine_configs")),
-    created_at: v.float64(),
-    updated_at: v.float64(),
-    // Added field
-    vehicle_config_id: v.optional(v.id("vehicle_configs")),
-  })
-    .index("by_vin", ["vin"])
-    .index("by_engine_id", ["engine_id"])
-    .index("by_vehicle_config", ["vehicle_config_id"])
-    .index("by_transmission", ["transmission_id"]),
-
-  /**
-   * TABLE: vehicle_owners
-   *
-   * DESCRIPTION:
-   * Tracks ownership relationships between users and vehicles.
-   * One record per user-vehicle pair. Supports vehicle removal (soft delete).
-   *
-   * INDEXES:
-   *   - by_vin: Get all owners of a vehicle
-   *   - by_user_id: Get all vehicles owned by user
-   *   - by_vin_user: Combined lookup for specific ownership
-   *   - by_user_status: Get user's active/removed vehicles
-   *   - by_smartcar_vehicle_id: Lookup by Smartcar vehicle ID (webhook path)
-   */
-  vehicle_owners: defineTable({
-    vin: v.string(),
-    user_id: v.id("users"),
-    status: v.string(),
-    nickname: v.optional(v.string()),
-    is_primary: v.optional(v.boolean()),
-    mileage: v.optional(v.float64()),
-    added_at: v.float64(),
-    removed_at: v.optional(v.float64()),
-    smartcarVehicleId: v.optional(v.string()),
-    connectionStatus: v.optional(v.string()),
-    connectedAt: v.optional(v.float64()),
-    avgMonthlyDriving: v.optional(v.string()),
-    drivingConditions: v.optional(v.string()),
-    knownIssues: v.optional(v.any()),
-    onboardingComplete: v.optional(v.boolean()),
-  })
-    .index("by_vin", ["vin"])
+    .index("by_shop_id", ["shop_id"])
+    .index("by_mechanic_id", ["mechanic_id"])
     .index("by_user_id", ["user_id"])
-    .index("by_vin_user", ["vin", "user_id"])
-    .index("by_user_status", ["user_id", "status"])
-    .index("by_smartcar_vehicle_id", ["smartcarVehicleId"]),
+    .index("by_rating", ["rating"]),
 
-  // ============================================================================
-  // AI CONVERSATIONS
-  // ============================================================================
+  // [I]
+  spec_confirmations: defineTable({
+    user_id: v.id("users"),
+    engine_id: v.id("engines"),
+    service_id: v.id("services"),
+    booking_id: v.optional(v.id("bookings")),
+    confirmed_accurate: v.boolean(),
+    feedback: v.optional(v.string()),
+    confirmed_at: v.number(),
+  })
+    .index("by_engine_id", ["engine_id"])
+    .index("by_user_id", ["user_id"])
+    .index("by_booking_id", ["booking_id"])
+    .index("by_confirmed_at", ["confirmed_at"]),
 
-  /**
-   * TABLE: ai_conversations
-   *
-   * DESCRIPTION:
-   * Conversation sessions with AI chat assistant.
-   *
-   * INDEXES:
-   *   - by_user_id: Get conversations for user
-   *   - by_session_id: Lookup by session (unique)
-   *   - by_booking_id: Get conversation that led to booking
-   *   - by_started_at: Chronological ordering
-   */
+  // [I]
+  spec_variances: defineTable({
+    engine_id: v.id("engines"),
+    service_id: v.id("services"),
+    job_actual_id: v.id("job_actuals"),
+    predicted_labor_hours: v.optional(v.number()),
+    actual_labor_hours: v.optional(v.number()),
+    predicted_parts_cost: v.optional(v.number()),
+    actual_parts_cost: v.optional(v.number()),
+    variance_percentage: v.optional(v.number()),
+    flagged_for_review: v.optional(v.boolean()),
+    reviewed_at: v.optional(v.number()),
+    notes: v.optional(v.string()),
+    created_at: v.optional(v.number()),
+  })
+    .index("by_engine_id", ["engine_id"])
+    .index("by_service_id", ["service_id"])
+    .index("by_flagged", ["flagged_for_review"])
+    .index("by_variance", ["variance_percentage"])
+    .index("by_job_actual_id", ["job_actual_id"])
+    .index("by_created_at", ["created_at"]),
+
+  // [I]
+  follow_ups: defineTable({
+    user_id: v.id("users"),
+    vin: v.string(),
+    booking_id: v.optional(v.id("bookings")),
+    service_id: v.optional(v.id("services")),
+    follow_up_type: v.string(),
+    scheduled_for: v.number(),
+    status: v.string(),
+    message: v.optional(v.string()),
+    created_at: v.optional(v.number()),
+    sent_at: v.optional(v.number()),
+  })
+    .index("by_user_id", ["user_id"])
+    .index("by_vin", ["vin"])
+    .index("by_status_and_scheduled", ["status", "scheduled_for"])
+    .index("by_booking_id", ["booking_id"]),
+
+  // [I]
+  job_actuals: defineTable({
+    booking_id: v.id("bookings"),
+    mechanic_id: v.id("mechanics"),
+    actual_labor_minutes: v.optional(v.number()),
+    actual_parts_cost: v.optional(v.number()),
+    started_at: v.optional(v.number()),
+    completed_at_ms: v.optional(v.number()),
+    logged_at_ms: v.optional(v.number()),
+    created_at: v.optional(v.number()),
+    updated_at: v.optional(v.number()),
+    difficulty_rating: v.optional(v.number()),
+    parts_used: v.optional(v.any()),
+    technician_notes: v.optional(v.string()),
+  })
+    .index("by_booking_id", ["booking_id"])
+    .index("by_mechanic_id", ["mechanic_id"])
+    .index("by_created_at", ["created_at"]),
+
+  // ===== AI & ANALYTICS =====
+
+  // [I]
   ai_conversations: defineTable({
     user_id: v.id("users"),
-    started_at: v.float64(),
-    ended_at: v.optional(v.float64()),
+    started_at: v.number(),
+    ended_at: v.optional(v.number()),
     scenario_detected: v.optional(v.string()),
-    led_to_booking: v.boolean(),
+    led_to_booking: v.optional(v.boolean()),
     booking_id: v.optional(v.id("bookings")),
-    message_count: v.float64(),
-    session_id: v.string(),
+    message_count: v.optional(v.number()),
+    session_id: v.optional(v.string()),
   })
     .index("by_user_id", ["user_id"])
     .index("by_session_id", ["session_id"])
     .index("by_booking_id", ["booking_id"])
     .index("by_started_at", ["started_at"]),
 
-  /**
-   * TABLE: ai_messages
-   *
-   * DESCRIPTION:
-   * Individual messages in AI conversation sessions.
-   *
-   * INDEXES:
-   *   - by_conversation_id: Get all messages in conversation
-   *   - by_role: Filter messages by role
-   *   - by_timestamp: Chronological ordering
-   */
+  // [I]
   ai_messages: defineTable({
     conversation_id: v.id("ai_conversations"),
     role: v.string(),
     content: v.string(),
-    timestamp: v.float64(),
-    confidence_score: v.optional(v.float64()),
-    metadata: v.optional(
-      v.object({
-        service_suggestions: v.optional(v.array(v.id("services"))),
-        shop_suggestions: v.optional(v.array(v.id("shops"))),
-        intent_detected: v.optional(v.string()),
-      })
-    ),
+    timestamp: v.number(),
+    confidence_score: v.optional(v.number()),
+    metadata: v.optional(v.any()),
   })
     .index("by_conversation_id", ["conversation_id"])
     .index("by_role", ["role"])
     .index("by_timestamp", ["timestamp"]),
 
-  // ============================================================================
-  // ANALYTICS & CONVERSION TRACKING
-  // ============================================================================
-
-  /**
-   * TABLE: analytics_events
-   *
-   * DESCRIPTION:
-   * Platform event tracking for analytics and funnel optimization.
-   *
-   * INDEXES:
-   *   - by_user_id: Get events for user
-   *   - by_event_type: Filter by event type
-   *   - by_event_category: Filter by category
-   *   - by_timestamp: Chronological ordering
-   *   - by_session_id: Group events by session
-   */
+  // [I]
   analytics_events: defineTable({
     user_id: v.optional(v.id("users")),
     event_type: v.string(),
-    event_category: v.string(),
-    event_data: v.optional(
-      v.object({
-        booking_id: v.optional(v.id("bookings")),
-        shop_id: v.optional(v.id("shops")),
-        service_id: v.optional(v.id("services")),
-        screen_name: v.optional(v.string()),
-        custom_properties: v.optional(v.any()),
-      })
-    ),
-    timestamp: v.float64(),
+    event_category: v.optional(v.string()),
+    event_data: v.optional(v.any()),
+    timestamp: v.number(),
     session_id: v.optional(v.string()),
   })
     .index("by_user_id", ["user_id"])
@@ -1196,28 +1298,15 @@ export default defineSchema({
     .index("by_timestamp", ["timestamp"])
     .index("by_session_id", ["session_id"]),
 
-  /**
-   * TABLE: conversion_funnels
-   *
-   * DESCRIPTION:
-   * Tracks user progression through conversion funnels.
-   *
-   * INDEXES:
-   *   - by_user_id: Get user's funnels
-   *   - by_funnel_type: Filter by funnel type
-   *   - by_booking_id: Get funnel for booking
-   *   - by_stage: Filter by stage
-   *   - by_completed: Get completed/incomplete funnels
-   *   - by_entered_at: Chronological ordering
-   */
+  // [I]
   conversion_funnels: defineTable({
     user_id: v.id("users"),
     funnel_type: v.string(),
     stage: v.string(),
     booking_id: v.optional(v.id("bookings")),
-    entered_at: v.float64(),
-    exited_at: v.optional(v.float64()),
-    completed: v.boolean(),
+    entered_at: v.number(),
+    exited_at: v.optional(v.number()),
+    completed: v.optional(v.boolean()),
     drop_off_reason: v.optional(v.string()),
   })
     .index("by_user_id", ["user_id"])
@@ -1227,424 +1316,24 @@ export default defineSchema({
     .index("by_completed", ["completed"])
     .index("by_entered_at", ["entered_at"]),
 
-  // ============================================================================
-  // FOLLOW-UPS & MAINTENANCE
-  // ============================================================================
-
-  /**
-   * TABLE: follow_ups
-   *
-   * DESCRIPTION:
-   * Maintenance reminders and follow-up notifications for users.
-   *
-   * INDEXES:
-   *   - by_user_id: Get reminders for user
-   *   - by_vin: Get reminders for vehicle
-   *   - by_status_and_scheduled: Get pending reminders to send
-   *   - by_booking_id: Get reminders related to booking
-   */
-  follow_ups: defineTable({
-    user_id: v.id("users"),
-    vin: v.string(),
-    booking_id: v.optional(v.id("bookings")),
-    service_id: v.id("services"),
-    follow_up_type: v.string(),
-    scheduled_for: v.float64(),
-    status: v.string(),
-    message: v.string(),
-    created_at: v.float64(),
-    sent_at: v.optional(v.float64()),
-  })
-    .index("by_user_id", ["user_id"])
-    .index("by_vin", ["vin"])
-    .index("by_status_and_scheduled", ["status", "scheduled_for"])
-    .index("by_booking_id", ["booking_id"]),
-
-  // ============================================================================
-  // CDN & SHOP PORTFOLIO
-  // ============================================================================
-
-  /**
-   * TABLE: cdn_assets
-   *
-   * DESCRIPTION:
-   * Stores CDN/content URLs for reusable media (portfolio images, logos, etc.).
-   */
+  // [I]
   cdn_assets: defineTable({
     url: v.string(),
     type: v.optional(v.string()),
     caption: v.optional(v.string()),
   }),
 
-  /**
-   * TABLE: shop_portfolio
-   *
-   * DESCRIPTION:
-   * Links shops to CDN assets for portfolio/gallery display.
-   */
-  shop_portfolio: defineTable({
-    shop_id: v.id("shops"),
-    content_id: v.id("cdn_assets"),
-    display_order: v.float64(),
-  }).index("by_shop_id", ["shop_id"]),
-
-  /**
-   * TABLE: shop_services
-   *
-   * DESCRIPTION:
-   * Junction table mapping services offered at specific shops.
-   *
-   * INDEXES:
-   *   - by_shop_id: Get all services offered at a shop
-   *   - by_service_id: Get all shops offering a service
-   *   - by_shop_and_service: Combined lookup
-   */
-  shop_services: defineTable({
-    is_offered: v.boolean(),
-    service_id: v.id("services"),
-    shop_id: v.id("shops"),
-  })
-    .index("by_shop_id", ["shop_id"])
-    .index("by_service_id", ["service_id"])
-    .index("by_shop_and_service", ["shop_id", "service_id"]),
-
-  /**
-   * TABLE: service_options
-   *
-   * DESCRIPTION:
-   * Defines optional variations for services (e.g., synthetic vs regular oil).
-   */
-  service_options: defineTable({
-    display_order: v.float64(),
-    labor_hours: v.float64(),
-    option_label: v.string(),
-    option_type: v.string(),
-    parts_cost_high: v.float64(),
-    parts_cost_low: v.float64(),
-    service_id: v.id("services"),
-    state_fee: v.optional(v.float64()),
-  }).index("by_service_id", ["service_id"]),
-
-  /**
-   * TABLE: service_categories
-   *
-   * DESCRIPTION:
-   * Groups services into logical categories for UI organization.
-   */
-  service_categories: defineTable({
-    display_order: v.float64(),
-    icon_name: v.string(),
-    name: v.string(),
-  }),
-
-  /**
-   * TABLE: onboarding_questions_answers
-   *
-   * DESCRIPTION:
-   * Unified table per user for onboarding Q&A. One row per user.
-   */
-  onboarding_questions_answers: defineTable({
-    user_id: v.id("users"),
-    questions_and_answers: v.array(
-      v.object({
-        question: v.string(),
-        answer: v.string(),
-      }),
-    ),
-    user_intentions: v.optional(
-      v.object({
-        question: v.string(),
-        intentions: v.array(v.string()),
-      }),
-    ),
-    car_knowledge_level: v.optional(v.float64()),
-    last_updated: v.float64(),
-  }).index("by_user_id", ["user_id"]),
-
-  // ============================================================================
-  // SMARTCAR & VEHICLE DATA
-  // ============================================================================
-
-  /**
-   * TABLE: smartcar_connections
-   * Stores Smartcar OAuth tokens separately from vehicle_owners.
-   * FK → vehicle_owners(vehicleOwnerId)
-   */
-  smartcar_connections: defineTable({
-    vehicleOwnerId: v.id("vehicle_owners"),
-    smartcarVehicleId: v.string(),
-    accessToken: v.string(),
-    refreshToken: v.string(),
-    tokenExpiresAt: v.float64(),
-    connectedAt: v.float64(),
-    lastSyncedAt: v.optional(v.float64()),
-    permissions: v.optional(v.array(v.string())),
-    status: v.string(),
-  })
-    .index("by_vehicle_owner", ["vehicleOwnerId"])
-    .index("by_smartcar_vehicle_id", ["smartcarVehicleId"])
-    .index("by_status", ["status"]),
-
-  /**
-   * TABLE: user_settings_preferences
-   *
-   * DESCRIPTION:
-   * Stores user-specific app preferences and settings.
-   */
-  user_settings_preferences: defineTable({
-    user_id: v.id("users"),
-    notification_preferences: v.object({
-      offers: v.boolean(),
-      rewards: v.boolean(),
-      pass: v.boolean(),
-      bookings: v.boolean(),
-      other: v.boolean(),
-    }),
-    language: v.optional(v.string()),
-    units: v.optional(v.string()),
-    last_updated: v.float64(),
-  }).index("by_user_id", ["user_id"]),
-
-  /**
-   * TABLE: vehicle_health_snapshots
-   * Stores historical data points from Smartcar webhooks.
-   * FK → vehicle_owners(vehicleOwnerId)
-   */
-  vehicle_health_snapshots: defineTable({
-    vehicleOwnerId: v.id("vehicle_owners"),
-    snapshotType: v.string(),
-    data: v.any(),
-    source: v.string(),
-    recordedAt: v.float64(),
-    createdAt: v.float64(),
-  })
-    .index("by_vehicle_owner", ["vehicleOwnerId"])
-    .index("by_vehicle_and_type", ["vehicleOwnerId", "snapshotType"]),
-
-  /**
-   * TABLE: client_logs
-   * Stores client-side logs forwarded from console.
-   */
+  // [I] Daniel/Waleed
   client_logs: defineTable({
     level: v.string(),
     message: v.string(),
     stack: v.optional(v.string()),
     metadata: v.optional(v.any()),
-    timestamp: v.float64(),
-    user_id: v.optional(v.id("users")),
+    timestamp: v.number(),
+    user_id: v.optional(v.string()),
     session_id: v.optional(v.string()),
   })
     .index("by_level", ["level"])
     .index("by_timestamp", ["timestamp"])
     .index("by_user_id", ["user_id"]),
-
-  // ============================================================================
-  // OTOPAIR REWARDS PROGRAM
-  // ============================================================================
-
-  /**
-   * TABLE: user_reward_wallets
-   * One row per user. Tracks Ownership Credit balance and redemption preference.
-   */
-  user_reward_wallets: defineTable({
-    user_id: v.id("users"),
-    balance: v.float64(),
-    auto_apply_to_booking: v.boolean(),
-    miles_safe: v.optional(v.float64()),
-    created_at: v.float64(),
-    updated_at: v.float64(),
-  }).index("by_user_id", ["user_id"]),
-
-  /**
-   * TABLE: ownership_credit_transactions
-   * Audit trail for credit earnings and redemptions.
-   */
-  ownership_credit_transactions: defineTable({
-    user_id: v.id("users"),
-    amount: v.float64(),
-    type: v.string(),
-    description: v.string(),
-    reference_id: v.optional(v.string()),
-    expires_at: v.optional(v.float64()),
-    created_at: v.float64(),
-  })
-    .index("by_user_id", ["user_id"])
-    .index("by_user_id_created_at", ["user_id", "created_at"]),
-
-  /**
-   * TABLE: reward_deals
-   * Suggested deals with credit rewards.
-   */
-  reward_deals: defineTable({
-    title: v.string(),
-    description: v.string(),
-    credit_amount: v.float64(),
-    price: v.float64(),
-    is_special: v.boolean(),
-    service_id: v.optional(v.id("services")),
-    display_order: v.float64(),
-    created_at: v.float64(),
-  }).index("by_display_order", ["display_order"]),
-
-  /**
-   * TABLE: user_contribution_claims
-   * Tracks which contribution rewards user has claimed.
-   */
-  user_contribution_claims: defineTable({
-    user_id: v.id("users"),
-    action_type: v.string(),
-    reference_id: v.optional(v.string()),
-    created_at: v.float64(),
-  })
-    .index("by_user_id", ["user_id"])
-    .index("by_user_action", ["user_id", "action_type"]),
-
-  /**
-   * TABLE: vehicle_tiers
-   * Per-vehicle tier status based on 12-month spend.
-   */
-  vehicle_tiers: defineTable({
-    vin: v.string(),
-    user_id: v.id("users"),
-    tier: v.string(),
-    spend_12mo: v.float64(),
-    created_at: v.float64(),
-    updated_at: v.float64(),
-  })
-    .index("by_vin_user", ["vin", "user_id"])
-    .index("by_user_id", ["user_id"]),
-
-  // ============================================================================
-  // VEHICLE MAINTENANCE HISTORY
-  // ============================================================================
-
-  /**
-   * TABLE: odometer_history
-   * Logs odometer readings over time for trip stats.
-   */
-  odometer_history: defineTable({
-    vehicleOwnerId: v.id("vehicle_owners"),
-    distance: v.float64(),
-    unit: v.string(),
-    recordedAt: v.float64(),
-  })
-    .index("by_vehicle_and_date", ["vehicleOwnerId", "recordedAt"]),
-
-  /**
-   * TABLE: maintenance_records
-   * User-provided maintenance data for items Smartcar doesn't cover.
-   */
-  maintenance_records: defineTable({
-    vehicleOwnerId: v.id("vehicle_owners"),
-    type: v.string(),
-    lastServiceDate: v.optional(v.float64()),
-    lastServiceMileage: v.optional(v.float64()),
-    customInputs: v.optional(v.any()),
-    createdAt: v.float64(),
-    updatedAt: v.float64(),
-  })
-    .index("by_vehicle_owner", ["vehicleOwnerId"])
-    .index("by_vehicle_and_type", ["vehicleOwnerId", "type"]),
-
-  // ============================================================================
-  // QUALITY ASSURANCE & VARIANCE TRACKING
-  // ============================================================================
-
-  /**
-   * TABLE: job_actuals
-   *
-   * DESCRIPTION:
-   * Records actual job performance data after service completion.
-   * Compares estimated vs actual labor/parts costs for continuous improvement.
-   * Single record per completed booking.
-   *
-   * INDEXES:
-   *   - by_booking_id: Get actuals for specific booking
-   *   - by_mechanic_id: Get all jobs completed by a mechanic
-   *   - by_created_at: Chronological ordering
-   */
-  job_actuals: defineTable({
-    actual_labor_minutes: v.float64(),
-    actual_parts_cost: v.float64(),
-    booking_id: v.id("bookings"),
-    started_at: v.float64(),
-    completed_at_ms: v.optional(v.float64()),
-    logged_at_ms: v.optional(v.float64()),
-    created_at: v.float64(),
-    updated_at: v.float64(),
-    difficulty_rating: v.float64(),
-    mechanic_id: v.id("mechanics"),
-    parts_used: v.array(
-      v.object({
-        cost: v.float64(),
-        oem_number: v.string(),
-        part_name: v.string(),
-      })
-    ),
-    technician_notes: v.string(),
-  })
-    .index("by_booking_id", ["booking_id"])
-    .index("by_mechanic_id", ["mechanic_id"])
-    .index("by_created_at", ["created_at"]),
-
-  /**
-   * TABLE: spec_variances
-   *
-   * DESCRIPTION:
-   * Tracks differences between predicted and actual job specifications.
-   *
-   * INDEXES:
-   *   - by_engine_id: Get variances for engine
-   *   - by_service_id: Get variances for service
-   *   - by_flagged: Get variances flagged for review
-   *   - by_variance: Sort by variance percentage
-   *   - by_job_actual_id: Get variance for specific job
-   *   - by_created_at: Chronological ordering
-   */
-  spec_variances: defineTable({
-    engine_id: v.id("engines"),
-    service_id: v.id("services"),
-    job_actual_id: v.id("job_actuals"),
-    predicted_labor_hours: v.float64(),
-    actual_labor_hours: v.float64(),
-    predicted_parts_cost: v.float64(),
-    actual_parts_cost: v.float64(),
-    variance_percentage: v.float64(),
-    flagged_for_review: v.boolean(),
-    reviewed_at: v.optional(v.float64()),
-    notes: v.optional(v.string()),
-    created_at: v.float64(),
-  })
-    .index("by_engine_id", ["engine_id"])
-    .index("by_service_id", ["service_id"])
-    .index("by_flagged", ["flagged_for_review"])
-    .index("by_variance", ["variance_percentage"])
-    .index("by_job_actual_id", ["job_actual_id"])
-    .index("by_created_at", ["created_at"]),
-
-  /**
-   * TABLE: spec_confirmations
-   *
-   * DESCRIPTION:
-   * User confirmations of vehicle spec accuracy after service.
-   *
-   * INDEXES:
-   *   - by_engine_id: Get confirmations for engine
-   *   - by_user_id: Get confirmations from user
-   *   - by_booking_id: Get confirmation for booking
-   *   - by_confirmed_at: Chronological ordering
-   */
-  spec_confirmations: defineTable({
-    user_id: v.id("users"),
-    engine_id: v.id("engines"),
-    service_id: v.id("services"),
-    booking_id: v.id("bookings"),
-    confirmed_accurate: v.boolean(),
-    feedback: v.optional(v.string()),
-    confirmed_at: v.float64(),
-  })
-    .index("by_engine_id", ["engine_id"])
-    .index("by_user_id", ["user_id"])
-    .index("by_booking_id", ["booking_id"])
-    .index("by_confirmed_at", ["confirmed_at"]),
 });
