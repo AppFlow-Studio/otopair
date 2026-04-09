@@ -33,6 +33,16 @@ export interface Service {
   default_labor_hours?: number;
   /** Default parts estimate in dollars (for price formula) */
   default_parts_estimate?: number;
+  /** Whether this service has user-selectable options (e.g. axle position, quantity) */
+  has_options?: boolean;
+}
+
+/** A selected service option with pricing details */
+export interface ServiceOptionSelection {
+  optionId: string;
+  labor_hours: number;
+  parts_cost_avg: number;
+  state_fee?: number;
 }
 
 /** User's current location for map and shop discovery */
@@ -56,6 +66,7 @@ export type BookingStatus = "pending" | "confirmed" | "in_progress" | "completed
 export type BookingStage =
   | "discovery"
   | "service_selection"
+  | "service_options"
   | "mechanic_selection"
   | "booking_details"
   | "payment"

@@ -17,6 +17,26 @@ export const list = query({
   },
 });
 
+export const getByServiceIds = query({
+  args: { serviceIds: v.array(v.id("services")) },
+  handler: async (ctx, args) => {
+    const result = [];
+    for (const serviceId of args.serviceIds) {
+      const options = await ctx.db
+        .query("service_options")
+        .withIndex("by_service_id", (q) => q.eq("service_id", serviceId))
+        .collect();
+      if (options.length > 0) {
+        result.push({
+          serviceId,
+          options: options.sort((a, b) => a.display_order - b.display_order),
+        });
+      }
+    }
+    return result;
+  },
+});
+
 export const getById = query({
   args: { id: v.id("service_options") },
   handler: async (ctx, args) => {

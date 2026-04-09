@@ -19,12 +19,7 @@ import { BlurView } from "expo-blur";
 import { useNavigation, useRouter } from "expo-router";
 import { ChevronLeft } from "lucide-react-native";
 import MapView from "react-native-maps";
-import Animated, {
-  Extrapolation,
-  interpolate,
-  SharedValue,
-  useAnimatedStyle,
-} from "react-native-reanimated";
+import Animated, { Extrapolation, interpolate, SharedValue, useAnimatedStyle } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 4. Flow-specific components
@@ -45,6 +40,7 @@ import { AVAILABLE_NOW_FILTER, SHOP_FILTER_OPTIONS, TOP_RATED_FILTER } from "@/c
 import { BorderRadius, Spacing } from "@/constants/theme";
 import type { FilterOption } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
+import { usePendingNavigationStore } from "@/stores/usePendingNavigationStore";
 import { useShopStore } from "@/stores/useShopStore";
 
 // ============================================================================
@@ -229,6 +225,17 @@ export default function BookingsScreen() {
     }
   }, [router]);
 
+  // Add vehicle from car selection: back (dismiss modal) then navigate to cars from home
+  const setPendingNavigateToCars = usePendingNavigationStore((s) => s.setPendingNavigateToCars);
+  const handleAddVehicle = useCallback(() => {
+    setPendingNavigateToCars(true);
+    if (router.canGoBack()) {
+      router.back();
+    } else {
+      router.replace("/(main-tabs)/home");
+    }
+  }, [router, setPendingNavigateToCars]);
+
   // ═══════════════ ANIMATED STYLES ═══════════════
   // Fade out and slide left when sheet is fully expanded (same as map controls)
   const backButtonAnimatedStyle = useAnimatedStyle(() => {
@@ -237,20 +244,10 @@ export default function BookingsScreen() {
     }
 
     // Start fading at index 2.5, fully hidden at index 3
-    const opacity = interpolate(
-      indexForMap.value,
-      [2.5, 3],
-      [1, 0],
-      Extrapolation.CLAMP
-    );
+    const opacity = interpolate(indexForMap.value, [2.5, 3], [1, 0], Extrapolation.CLAMP);
 
     // Slide left (opposite of map controls which slide right)
-    const translateX = interpolate(
-      indexForMap.value,
-      [2.5, 3],
-      [0, -60],
-      Extrapolation.CLAMP
-    );
+    const translateX = interpolate(indexForMap.value, [2.5, 3], [0, -60], Extrapolation.CLAMP);
 
     return {
       opacity,
@@ -324,6 +321,7 @@ export default function BookingsScreen() {
         shopPreviewKey={shopPreviewRequestKey}
         onShopChange={handleShopChange}
         onShopClose={handleShopClose}
+        onAddVehicle={handleAddVehicle}
       />
     </View>
   );

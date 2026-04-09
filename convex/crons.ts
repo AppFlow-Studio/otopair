@@ -10,4 +10,28 @@ crons.daily(
   internal.cleanup.cleanupExpiredAccounts
 );
 
+// ─── Marketplace VIN Discovery Pipeline ─────────────────────────
+
+// Scrape CarGurus for VINs — runs twice daily (8 AM and 6 PM UTC)
+crons.daily(
+  "marketplace-scrape-cargurus-morning",
+  { hourUTC: 8, minuteUTC: 0 },
+  internal.vehicleEnrichment.marketplaceScraper.runScheduledScrape,
+  { source: "cargurus" }
+);
+
+crons.daily(
+  "marketplace-scrape-cargurus-evening",
+  { hourUTC: 18, minuteUTC: 0 },
+  internal.vehicleEnrichment.marketplaceScraper.runScheduledScrape,
+  { source: "carscom" }
+);
+
+// Process VIN queue every 30 minutes — pick up pending VINs and trigger enrichment
+crons.interval(
+  "process-vin-queue",
+  { minutes: 30 },
+  internal.vehicleEnrichment.marketplaceScraper.processVinQueue,
+);
+
 export default crons;

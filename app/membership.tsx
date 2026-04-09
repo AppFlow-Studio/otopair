@@ -33,6 +33,7 @@ import {
   Building2,
   Calendar,
   Check,
+  ChevronDown,
   ChevronRight,
   CreditCard,
   FileText,
@@ -52,11 +53,18 @@ import { useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 
 // 3. Shared UI
-import { FadeInStagger, ScrollDrivenGradientBackground, Text } from '@/components/shared-ui';
+import { FadeInStagger, ScrollDrivenGradientBackground, Text } from "@/components/shared-ui";
 
 // 4. Constants & Hooks
 import { Spacing } from "@/constants/theme";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
+import { useVehicleStore } from "@/stores/useVehicleStore";
+import {
+  GarageCarSelectionSheet,
+  type GarageCarSheetRef,
+} from "@/components/rewards/GarageCarSelectionSheet";
+
+const FLIP_DURATION = 400;
 
 // ============================================================================
 // CONSTANTS
@@ -74,7 +82,7 @@ const EARN_REWARDS = [
   {
     id: "1",
     title: "Leave a Verified Review",
-    subtitle: "+$5 Credit",
+    subtitle: "+$3 Credit",
     iconBg: "#F3F4F6",
     iconColor: "#1F2937",
     icon: "review" as const,
@@ -83,7 +91,7 @@ const EARN_REWARDS = [
   {
     id: "2",
     title: "Upload Service Records",
-    subtitle: "+$10 Credit",
+    subtitle: "+$5 Credit",
     iconBg: "#F3F4F6",
     iconColor: "#1F2937",
     icon: "upload" as const,
@@ -93,7 +101,7 @@ const EARN_REWARDS = [
   {
     id: "3",
     title: "Refer a Friend",
-    subtitle: "+$25 Credit",
+    subtitle: "+$15 Credit",
     iconBg: "#F3F4F6",
     iconColor: "#1F2937",
     icon: "refer" as const,
@@ -110,10 +118,22 @@ export default function MembershipPage() {
   const router = useRouter();
   const { userId } = useUserFromConvex();
 
+  const [viewMode, setViewMode] = useState<"pooled" | "individual">("pooled");
+  const [selectedVehicleVinForIndividual, setSelectedVehicleVinForIndividual] = useState<string | null>(null);
+
   const wallet = useQuery(api.rewards.getWallet, userId ? { userId } : "skip");
   const stats = useQuery(api.rewards.getMembershipStats, userId ? { userId } : "skip");
+  const perVehicleStats = useQuery(
+    api.rewards.getMembershipStatsByVehicle,
+    userId && selectedVehicleVinForIndividual ? { userId, vin: selectedVehicleVinForIndividual } : "skip"
+  );
   const tierInfo = useQuery(api.rewards.getPrimaryVehicleTier, userId ? { userId } : "skip");
+  const vehicleTiers = useQuery(api.rewards.getVehicleTiersByUser, userId ? { userId } : "skip");
   const suggestedDeals = useQuery(api.rewards.getSuggestedDeals, {});
+
+  const vehicles = useVehicleStore((s) => s.vehicles);
+  const vehicleIds = useVehicleStore((s) => s.vehicleIds);
+  const vehicleCount = vehicleIds.length;
 
   const ensureWallet = useMutation(api.rewards.ensureWallet);
   const updateRedemptionPreference = useMutation(api.rewards.updateRedemptionPreference);
@@ -123,12 +143,16 @@ export default function MembershipPage() {
     if (userId && wallet === null) ensureWallet({ userId }).catch(() => {});
   }, [userId, wallet, ensureWallet]);
 
-  const balance = wallet?.balance ?? 0;
-  const milesSafe = stats?.milesSafe ?? 23000;
-  const servicesCount = stats?.services ?? 6;
-  const shopsCount = stats?.shops ?? 3;
-  const tierLabel =
-    tierInfo?.tier === "elite" ? "ELITE MEMBER" : tierInfo?.tier === "preferred" ? "PREFERRED MEMBER" : "DRIVER";
+  const isIndividual = viewMode === "individual" && selectedVehicleVinForIndividual != null;
+  const walletBalance = wallet?.balance ?? 0;
+  const balance = isIndividual ? (perVehicleStats?.creditEarned ?? 0) : walletBalance;
+  const milesSafe = isIndividual ? (perVehicleStats?.milesSafe ?? 0) : (stats?.milesSafe ?? 0);
+  const servicesCount = isIndividual ? (perVehicleStats?.services ?? 0) : (stats?.services ?? 0);
+  const shopsCount = isIndividual ? (perVehicleStats?.shops ?? 0) : (stats?.shops ?? 0);
+
+  // Tier label for badge (short form: PREFERRED, ELITE, DRIVER)
+  const getTierLabel = (tier: "driver" | "preferred" | "elite") =>
+    tier === "elite" ? "ELITE" : tier === "preferred" ? "PREFERRED" : "DRIVER";
   const deals = (suggestedDeals ?? []).map((d) => ({
     id: d._id,
     title: d.title,
@@ -145,6 +169,29 @@ export default function MembershipPage() {
 
   // Elite bottom sheet state
   const [showEliteSheet, setShowEliteSheet] = useState(false);
+  /** When set, Driver Status modal shows this tier (from garage status badge tap) */
+  const [statusModalTier, setStatusModalTier] = useState<"driver" | "preferred" | "elite" | null>(null);
+
+  // Badge card-flip animation (rotateY: 0 = pooled/MY GARAGE, 180 = individual/tier)
+  const badgeFlipAnim = useRef(new Animated.Value(0)).current;
+  // Cross-fade for balance and stats when switching views
+  const contentOpacity = useRef(new Animated.Value(1)).current;
+
+  const tierByVin = React.useMemo(() => {
+    const map: Record<string, "driver" | "preferred" | "elite"> = {};
+    (vehicleTiers ?? []).forEach((t) => {
+      map[t.vin] = t.tier;
+    });
+    return map;
+  }, [vehicleTiers]);
+
+  const selectedVehicleTier =
+    selectedVehicleVinForIndividual != null
+      ? (tierByVin[selectedVehicleVinForIndividual] ?? "driver")
+      : (tierInfo?.tier ?? "driver");
+
+  // My Garage car selection sheet (rewards context)
+  const garageSheetRef = useRef<GarageCarSheetRef | null>(null);
 
   // Bottom sheet animation values
   const sheetTranslateY = useRef(new Animated.Value(SHEET_HEIGHT)).current;
@@ -162,20 +209,20 @@ export default function MembershipPage() {
   const handleUploadShare = async () => {
     try {
       await Share.share({
-        message: 'Check out my service records on Otopair!',
+        message: "Check out my service records on Otopair!",
       });
     } catch (error) {
-      console.log('Error sharing:', error);
+      console.log("Error sharing:", error);
     }
   };
 
   const handleReferFriend = async () => {
     try {
       await Share.share({
-        message: 'Join me on Otopair and get $25 credit! Download the app here: https://otopair.com',
+        message: "Join me on Otopair and get $25 credit! Download the app here: https://otopair.com",
       });
     } catch (error) {
-      console.log('Error sharing:', error);
+      console.log("Error sharing:", error);
     }
   };
 
@@ -219,8 +266,9 @@ export default function MembershipPage() {
     });
   };
 
-  // Elite sheet functions
-  const openEliteSheet = () => {
+  // Elite / Driver Status sheet – opens from garage status badge with specific tier
+  const openEliteSheetWithTier = (tier: "driver" | "preferred" | "elite") => {
+    setStatusModalTier(tier);
     setShowEliteSheet(true);
     eliteSheetTranslateY.setValue(SHEET_HEIGHT);
     eliteBackdropOpacity.setValue(0);
@@ -255,7 +303,58 @@ export default function MembershipPage() {
       }),
     ]).start(() => {
       setShowEliteSheet(false);
+      setStatusModalTier(null);
     });
+  };
+
+  const isFirstRender = useRef(true);
+  useEffect(() => {
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+    contentOpacity.setValue(0);
+    Animated.timing(contentOpacity, {
+      toValue: 1,
+      duration: FLIP_DURATION,
+      easing: Easing.inOut(Easing.ease),
+      useNativeDriver: true,
+    }).start();
+  }, [viewMode, selectedVehicleVinForIndividual]);
+
+  // Badge tap: pooled → open sheet; individual → snap back to pooled (no sheet)
+  const handleBadgePress = () => {
+    if (viewMode === "pooled") {
+      garageSheetRef.current?.present();
+    } else {
+      // Individual → Pooled: flip 180→0 (tier rotates out, MY GARAGE rotates in)
+      setViewMode("pooled");
+      setSelectedVehicleVinForIndividual(null);
+      Animated.timing(badgeFlipAnim, {
+        toValue: 0,
+        duration: FLIP_DURATION,
+        easing: Easing.inOut(Easing.ease),
+        useNativeDriver: true,
+      }).start();
+    }
+  };
+
+  // When user selects a car from bottom sheet → switch to individual view with flip (sheet dismisses itself)
+  const handleCarSelectedFromSheet = (vin: string) => {
+    setSelectedVehicleVinForIndividual(vin);
+    setViewMode("individual");
+    // Pooled → Individual: flip 0→180 (MY GARAGE rotates out, tier rotates in)
+    Animated.timing(badgeFlipAnim, {
+      toValue: 180,
+      duration: FLIP_DURATION,
+      easing: Easing.inOut(Easing.ease),
+      useNativeDriver: true,
+    }).start();
+  };
+
+  // Status badge tap inside sheet → open Driver Status modal (keep existing behavior)
+  const handleGarageStatusBadgePress = (tier: "driver" | "preferred" | "elite") => {
+    openEliteSheetWithTier(tier);
   };
 
   return (
@@ -274,292 +373,351 @@ export default function MembershipPage() {
           >
             {/* Staggered fade-in for page sections */}
             <FadeInStagger staggerDelay={100} duration={800}>
-            {/* Back Button */}
-            <Pressable
-              onPress={handleBack}
-              style={({ pressed }) => [styles.backButton, pressed && styles.backButtonPressed]}
-              hitSlop={12}
-            >
-              <ArrowLeft size={24} color="#1F2937" strokeWidth={2} />
-            </Pressable>
-
-            {/* Tier Badge */}
-            <View style={styles.badgeContainer}>
+              {/* Back Button */}
               <Pressable
-                onPress={openEliteSheet}
-                style={({ pressed }) => [styles.eliteBadge, pressed && { opacity: 0.7 }]}
+                onPress={handleBack}
+                style={({ pressed }) => [styles.backButton, pressed && styles.backButtonPressed]}
+                hitSlop={12}
               >
-                {/* Verification badge with spiky circle shape */}
-                <BadgeCheck size={14} color="#FFFFFF" fill="#5299FE" strokeWidth={2} />
-                <Text weight="bold" size="xs" color="#5299FE" style={styles.badgeText}>
-                  {tierLabel}
-                </Text>
+                <ArrowLeft size={24} color="#1F2937" strokeWidth={2} />
               </Pressable>
-            </View>
 
-            {/* Credit Balance */}
-            <View style={styles.balanceContainer}>
-              <Text weight="bold" style={styles.balanceAmount}>
-                ${balance.toFixed(2)}
-              </Text>
-              <Text weight="medium" size="md" color="#6B7280">
-                Ownership Credit Balance
-              </Text>
-            </View>
-
-            {/* Action Buttons Row */}
-            <View style={styles.actionButtonsRow}>
-              {/* Add Car - Primary */}
-              <View style={styles.actionButtonWrapper}>
+              {/* Flip Badge: MY GARAGE ▾ (pooled) ↔ PREFERRED ▾ (individual) */}
+              <View style={styles.badgeContainer}>
                 <Pressable
-                  onPress={() => router.push('/add-vehicle')}
-                  style={({ pressed }) => [
-                    styles.actionButton,
-                    styles.actionButtonPrimary,
-                    pressed && styles.actionButtonPressed,
-                  ]}
+                  onPress={handleBadgePress}
+                  style={({ pressed }) => [styles.badgePressable, pressed && { opacity: 0.7 }]}
                 >
-                  <Plus size={28} color="#FFFFFF" strokeWidth={2.5} />
+                  <View style={styles.badgeFlipContainer}>
+                    {/* Sizing spacer: hug container to current visible label */}
+                    <View style={styles.badgeSizer} collapsable={false}>
+                      <BadgeCheck size={14} color="transparent" strokeWidth={2} />
+                      <Text weight="bold" size="xs" color="transparent" style={styles.badgeText}>
+                        {viewMode === "pooled" ? "MY GARAGE" : getTierLabel(selectedVehicleTier)}
+                      </Text>
+                      <ChevronDown size={12} color="transparent" style={styles.badgeChevron} />
+                    </View>
+                    {/* Front face (rotateY 0): MY GARAGE ▾ */}
+                    <Animated.View
+                      style={[
+                        styles.badgeFace,
+                        {
+                          backfaceVisibility: "hidden",
+                          transform: [
+                            { perspective: 400 },
+                            {
+                              rotateY: badgeFlipAnim.interpolate({
+                                inputRange: [0, 180],
+                                outputRange: ["0deg", "180deg"],
+                              }),
+                            },
+                          ],
+                        },
+                      ]}
+                    >
+                      <BadgeCheck size={14} color="#FFFFFF" fill="#5299FE" strokeWidth={2} />
+                      <Text weight="bold" size="xs" color="#5299FE" style={styles.badgeText}>
+                        MY GARAGE
+                      </Text>
+                      <ChevronDown size={12} color="#5299FE" style={styles.badgeChevron} />
+                    </Animated.View>
+                    {/* Back face (rotateY 180): Tier ▾ */}
+                    <Animated.View
+                      style={[
+                        styles.badgeFace,
+                        styles.badgeFaceBack,
+                        {
+                          backfaceVisibility: "hidden",
+                          transform: [
+                            { perspective: 400 },
+                            {
+                              rotateY: badgeFlipAnim.interpolate({
+                                inputRange: [0, 180],
+                                outputRange: ["180deg", "360deg"],
+                              }),
+                            },
+                          ],
+                        },
+                      ]}
+                    >
+                      <BadgeCheck size={14} color="#FFFFFF" fill="#5299FE" strokeWidth={2} />
+                      <Text weight="bold" size="xs" color="#5299FE" style={styles.badgeText}>
+                        {getTierLabel(selectedVehicleTier)}
+                      </Text>
+                      <ChevronDown size={12} color="#5299FE" style={styles.badgeChevron} />
+                    </Animated.View>
+                  </View>
                 </Pressable>
-                <Text weight="semiBold" size="sm" color="#5299FE" style={styles.actionLabel}>
-                  Add Car
-                </Text>
               </View>
 
-              {/* History */}
-              <View style={styles.actionButtonWrapper}>
-                <Pressable
-                  onPress={() => router.push("/transactions")}
-                  style={({ pressed }) => [
-                    styles.actionButton,
-                    styles.actionButtonSecondary,
-                    pressed && styles.actionButtonPressed,
-                  ]}
-                >
-                  <History size={26} color="#1F2937" strokeWidth={1.5} />
-                </Pressable>
-                <Text weight="medium" size="sm" color="#1F2937" style={styles.actionLabel}>
-                  History
+              {/* Credit Balance — cross-fades when switching pooled ↔ individual */}
+              <Animated.View style={[styles.balanceContainer, { opacity: contentOpacity }]}>
+                <Text weight="bold" style={styles.balanceAmount}>
+                  ${balance.toFixed(2)}
                 </Text>
+                <Text weight="medium" size="md" color="#6B7280">
+                  {isIndividual ? "Credit earned for this vehicle" : "Ownership Credit Balance"}
+                </Text>
+                {viewMode === "pooled" && vehicleCount > 1 && (
+                  <Text weight="medium" size="sm" color="#9CA3AF" style={styles.balanceSubtext}>
+                    across {vehicleCount} vehicles
+                  </Text>
+                )}
+              </Animated.View>
+
+              {/* Action Buttons Row */}
+              <View style={styles.actionButtonsRow}>
+                {/* Add Car - Primary */}
+                <View style={styles.actionButtonWrapper}>
+                  <Pressable
+                    onPress={() => router.replace("/(main-tabs)/cars")}
+                    style={({ pressed }) => [
+                      styles.actionButton,
+                      styles.actionButtonPrimary,
+                      pressed && styles.actionButtonPressed,
+                    ]}
+                  >
+                    <Plus size={28} color="#FFFFFF" strokeWidth={2.5} />
+                  </Pressable>
+                  <Text weight="semiBold" size="sm" color="#5299FE" style={styles.actionLabel}>
+                    Add Car
+                  </Text>
+                </View>
+
+                {/* History */}
+                <View style={styles.actionButtonWrapper}>
+                  <Pressable
+                    onPress={() => router.push("/transactions")}
+                    style={({ pressed }) => [
+                      styles.actionButton,
+                      styles.actionButtonSecondary,
+                      pressed && styles.actionButtonPressed,
+                    ]}
+                  >
+                    <History size={26} color="#1F2937" strokeWidth={1.5} />
+                  </Pressable>
+                  <Text weight="medium" size="sm" color="#1F2937" style={styles.actionLabel}>
+                    History
+                  </Text>
+                </View>
+
+                {/* Redeem */}
+                <View style={styles.actionButtonWrapper}>
+                  <Pressable
+                    onPress={openRedeemSheet}
+                    style={({ pressed }) => [
+                      styles.actionButton,
+                      styles.actionButtonSecondary,
+                      pressed && styles.actionButtonPressed,
+                    ]}
+                  >
+                    <Gift size={26} color="#1F2937" strokeWidth={1.5} />
+                  </Pressable>
+                  <Text weight="medium" size="sm" color="#1F2937" style={styles.actionLabel}>
+                    Redeem
+                  </Text>
+                </View>
               </View>
 
-              {/* Redeem */}
-              <View style={styles.actionButtonWrapper}>
-                <Pressable
-                  onPress={openRedeemSheet}
-                  style={({ pressed }) => [
-                    styles.actionButton,
-                    styles.actionButtonSecondary,
-                    pressed && styles.actionButtonPressed,
-                  ]}
-                >
-                  <Gift size={26} color="#1F2937" strokeWidth={1.5} />
-                </Pressable>
-                <Text weight="medium" size="sm" color="#1F2937" style={styles.actionLabel}>
-                  Redeem
-                </Text>
-              </View>
-            </View>
+              {/* Stats Row — cross-fades when switching pooled ↔ individual */}
+              <Animated.View style={[styles.statsRow, { opacity: contentOpacity }]}>
+                {/* Miles Safe */}
+                <View style={styles.statItem}>
+                  <Text weight="bold" style={styles.statNumber}>
+                    {milesSafe >= 1000 ? `${Math.round(milesSafe / 1000)}k` : milesSafe}
+                  </Text>
+                  <Text weight="semiBold" size="xs" color="#6B7280" style={styles.statLabel}>
+                    MILES SAFE
+                  </Text>
+                </View>
 
-            {/* Stats Row */}
-            <View style={styles.statsRow}>
-              {/* Miles Safe */}
-              <View style={styles.statItem}>
-                <Text weight="bold" style={styles.statNumber}>
-                  {milesSafe >= 1000 ? `${Math.round(milesSafe / 1000)}k` : milesSafe}
-                </Text>
-                <Text weight="semiBold" size="xs" color="#6B7280" style={styles.statLabel}>
-                  MILES SAFE
-                </Text>
-              </View>
+                {/* Divider */}
+                <View style={styles.statDivider} />
 
-              {/* Divider */}
-              <View style={styles.statDivider} />
+                {/* Services */}
+                <View style={styles.statItem}>
+                  <Text weight="bold" style={styles.statNumber}>
+                    {servicesCount}
+                  </Text>
+                  <Text weight="semiBold" size="xs" color="#6B7280" style={styles.statLabel}>
+                    SERVICES
+                  </Text>
+                </View>
 
-              {/* Services */}
-              <View style={styles.statItem}>
-                <Text weight="bold" style={styles.statNumber}>
-                  {servicesCount}
-                </Text>
-                <Text weight="semiBold" size="xs" color="#6B7280" style={styles.statLabel}>
-                  SERVICES
-                </Text>
-              </View>
+                {/* Divider */}
+                <View style={styles.statDivider} />
 
-              {/* Divider */}
-              <View style={styles.statDivider} />
+                {/* Shops */}
+                <View style={styles.statItem}>
+                  <Text weight="bold" style={styles.statNumber}>
+                    {shopsCount}
+                  </Text>
+                  <Text weight="semiBold" size="xs" color="#6B7280" style={styles.statLabel}>
+                    SHOPS
+                  </Text>
+                </View>
+              </Animated.View>
 
-              {/* Shops */}
-              <View style={styles.statItem}>
-                <Text weight="bold" style={styles.statNumber}>
-                  {shopsCount}
-                </Text>
-                <Text weight="semiBold" size="xs" color="#6B7280" style={styles.statLabel}>
-                  SHOPS
-                </Text>
-              </View>
-            </View>
-
-            {/* ═══════════════════════════════════════════════════════════════════
+              {/* ═══════════════════════════════════════════════════════════════════
                 MIDDLE SECTION: Suggested Deals
             ═══════════════════════════════════════════════════════════════════ */}
 
-            {/* Suggested Deals Section */}
-            <View style={styles.suggestedDealsSection}>
-              {/* Section Header */}
-              <View style={styles.sectionHeader}>
-                <Text weight="bold" size="lg" color="#1F2937">
-                  Suggested Deals
-                </Text>
-                <Pressable
-                  style={({ pressed }) => pressed && { opacity: 0.7 }}
-                  onPress={() => router.push("/suggested-deals")}
-                >
-                  <Text weight="semiBold" size="md" color="#5299FE">
-                    View all
+              {/* Suggested Deals Section */}
+              <View style={styles.suggestedDealsSection}>
+                {/* Section Header */}
+                <View style={styles.sectionHeader}>
+                  <Text weight="bold" size="lg" color="#1F2937">
+                    Suggested Deals
                   </Text>
-                </Pressable>
-              </View>
+                  <Pressable
+                    style={({ pressed }) => pressed && { opacity: 0.7 }}
+                    onPress={() => router.push("/suggested-deals")}
+                  >
+                    <Text weight="semiBold" size="md" color="#5299FE">
+                      View all
+                    </Text>
+                  </Pressable>
+                </View>
 
-              {/* Horizontal Scrolling Cards */}
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.dealsScrollContent}
-              >
-                {deals.map((deal) => (
-                  <View key={deal.id} style={styles.dealCard}>
-                    {/* Image Placeholder */}
-                    <View style={styles.dealImageContainer}>
-                      {/* Placeholder - blank for now */}
-                      <View style={styles.dealImagePlaceholder} />
+                {/* Horizontal Scrolling Cards */}
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.dealsScrollContent}
+                >
+                  {deals.map((deal) => (
+                    <View key={deal.id} style={styles.dealCard}>
+                      {/* Image Placeholder */}
+                      <View style={styles.dealImageContainer}>
+                        {/* Placeholder - blank for now */}
+                        <View style={styles.dealImagePlaceholder} />
 
-                      {/* Special Badge */}
-                      {deal.isSpecial && (
-                        <View style={styles.specialBadge}>
-                          <Star size={12} color="#F59E0B" fill="#F59E0B" />
-                          <Text weight="semiBold" size="xs" color="#1F2937">
-                            Special
-                          </Text>
+                        {/* Special Badge */}
+                        {deal.isSpecial && (
+                          <View style={styles.specialBadge}>
+                            <Star size={12} color="#F59E0B" fill="#F59E0B" />
+                            <Text weight="semiBold" size="xs" color="#1F2937">
+                              Special
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+
+                      {/* Card Content */}
+                      <View style={styles.dealContent}>
+                        {/* Service Title */}
+                        <Text weight="bold" size="lg" color="#1F2937" numberOfLines={1}>
+                          {deal.title}
+                        </Text>
+
+                        {/* Description */}
+                        <Text size="sm" color="#6B7280" numberOfLines={1} style={styles.dealDescription}>
+                          {deal.description}
+                        </Text>
+
+                        {/* Bottom Row: Credit & Book Button */}
+                        <View style={styles.dealBottomRow}>
+                          {/* Credit Badge */}
+                          <View style={styles.creditBadge}>
+                            <Text weight="semiBold" size="xs" color="#22C55E">
+                              + ${deal.credit} Credit
+                            </Text>
+                          </View>
+
+                          {/* Book Button */}
+                          <Pressable
+                            onPress={() => router.push("/(main-tabs)/home")}
+                            style={({ pressed }) => [styles.bookButton, pressed && styles.bookButtonPressed]}
+                          >
+                            <Text weight="semiBold" size="xs" color="#FFFFFF">
+                              Book ${deal.price}
+                            </Text>
+                          </Pressable>
                         </View>
-                      )}
-                    </View>
-
-                    {/* Card Content */}
-                    <View style={styles.dealContent}>
-                      {/* Service Title */}
-                      <Text weight="bold" size="lg" color="#1F2937" numberOfLines={1}>
-                        {deal.title}
-                      </Text>
-
-                      {/* Description */}
-                      <Text size="sm" color="#6B7280" numberOfLines={1} style={styles.dealDescription}>
-                        {deal.description}
-                      </Text>
-
-                      {/* Bottom Row: Credit & Book Button */}
-                      <View style={styles.dealBottomRow}>
-                        {/* Credit Badge */}
-                        <View style={styles.creditBadge}>
-                          <Text weight="semiBold" size="xs" color="#22C55E">
-                            + ${deal.credit} Credit
-                          </Text>
-                        </View>
-
-                        {/* Book Button */}
-                        <Pressable
-                          onPress={() => router.push("/(main-tabs)/home")}
-                          style={({ pressed }) => [styles.bookButton, pressed && styles.bookButtonPressed]}
-                        >
-                          <Text weight="semiBold" size="xs" color="#FFFFFF">
-                            Book ${deal.price}
-                          </Text>
-                        </Pressable>
                       </View>
                     </View>
-                  </View>
-                ))}
-              </ScrollView>
-            </View>
+                  ))}
+                </ScrollView>
+              </View>
 
-            {/* ═══════════════════════════════════════════════════════════════════
+              {/* ═══════════════════════════════════════════════════════════════════
                 BOTTOM SECTION: Earn Rewards
             ═══════════════════════════════════════════════════════════════════ */}
 
-            {/* Earn Rewards Section */}
-            <View style={styles.earnRewardsSection}>
-              {/* Section Header */}
-              <Text weight="bold" size="lg" color="#1F2937" style={styles.earnRewardsTitle}>
-                Earn Rewards
-              </Text>
+              {/* Earn Rewards Section */}
+              <View style={styles.earnRewardsSection}>
+                {/* Section Header */}
+                <Text weight="bold" size="lg" color="#1F2937" style={styles.earnRewardsTitle}>
+                  Earn Rewards
+                </Text>
 
-              {/* Rewards List */}
-              <View style={styles.rewardsList}>
-                {EARN_REWARDS.map((reward, index) => (
-                  <View key={reward.id}>
-                    <Pressable
-                      onPress={() => {
-                        if (reward.icon === "review") router.push("/(main-tabs)/bookings");
-                        else if (reward.icon === "refer") router.push("/refer-a-friend");
-                        else if (reward.icon === "upload")
-                          router.push({
-                            pathname: "/coming-soon",
-                            params: { serviceType: "upload", serviceName: "Upload Service Records" },
-                          });
-                      }}
-                      style={({ pressed }) => [
-                        styles.rewardRow,
-                        index === 0 && styles.rewardRowFirst,
-                        index === EARN_REWARDS.length - 1 && styles.rewardRowLast,
-                        pressed && styles.rewardRowPressed,
-                      ]}
-                    >
-                      {/* Icon */}
-                      <View style={[styles.rewardIcon, { backgroundColor: reward.iconBg }]}>
-                        {reward.icon === "review" && <PenSquare size={20} color={reward.iconColor} strokeWidth={2} />}
-                        {reward.icon === "upload" && <FileText size={20} color={reward.iconColor} strokeWidth={2} />}
-                        {reward.icon === "refer" && <UserPlus size={20} color={reward.iconColor} strokeWidth={2} />}
-                      </View>
-
-                      {/* Text Content */}
-                      <View style={styles.rewardTextContent}>
-                        <Text weight="semiBold" size="md" color="#1F2937">
-                          {reward.title}
-                        </Text>
-                        <Text weight="bold" size="sm" color="#5299FE">
-                          {reward.subtitle}
-                        </Text>
-                      </View>
-
-                      {/* Right Side: Button or Chevron */}
-                      {reward.hasButton ? (
-                        <Pressable
-                          onPress={() =>
+                {/* Rewards List */}
+                <View style={styles.rewardsList}>
+                  {EARN_REWARDS.map((reward, index) => (
+                    <View key={reward.id}>
+                      <Pressable
+                        onPress={() => {
+                          if (reward.icon === "review") router.push("/(main-tabs)/bookings");
+                          else if (reward.icon === "refer") router.push("/refer-a-friend");
+                          else if (reward.icon === "upload")
                             router.push({
                               pathname: "/coming-soon",
                               params: { serviceType: "upload", serviceName: "Upload Service Records" },
-                            })
-                          }
-                          style={({ pressed }) => [styles.uploadButton, pressed && styles.uploadButtonPressed]}
-                        >
-                          <Text weight="semiBold" size="sm" color="#FFFFFF">
-                            {reward.buttonText}
+                            });
+                        }}
+                        style={({ pressed }) => [
+                          styles.rewardRow,
+                          index === 0 && styles.rewardRowFirst,
+                          index === EARN_REWARDS.length - 1 && styles.rewardRowLast,
+                          pressed && styles.rewardRowPressed,
+                        ]}
+                      >
+                        {/* Icon */}
+                        <View style={[styles.rewardIcon, { backgroundColor: reward.iconBg }]}>
+                          {reward.icon === "review" && <PenSquare size={20} color={reward.iconColor} strokeWidth={2} />}
+                          {reward.icon === "upload" && <FileText size={20} color={reward.iconColor} strokeWidth={2} />}
+                          {reward.icon === "refer" && <UserPlus size={20} color={reward.iconColor} strokeWidth={2} />}
+                        </View>
+
+                        {/* Text Content */}
+                        <View style={styles.rewardTextContent}>
+                          <Text weight="semiBold" size="md" color="#1F2937">
+                            {reward.title}
                           </Text>
-                        </Pressable>
-                      ) : (
-                        <ChevronRight size={20} color="#9CA3AF" strokeWidth={2} />
+                          <Text weight="bold" size="sm" color="#5299FE">
+                            {reward.subtitle}
+                          </Text>
+                        </View>
+
+                        {/* Right Side: Button or Chevron */}
+                        {reward.hasButton ? (
+                          <Pressable
+                            onPress={() =>
+                              router.push({
+                                pathname: "/coming-soon",
+                                params: { serviceType: "upload", serviceName: "Upload Service Records" },
+                              })
+                            }
+                            style={({ pressed }) => [styles.uploadButton, pressed && styles.uploadButtonPressed]}
+                          >
+                            <Text weight="semiBold" size="sm" color="#FFFFFF">
+                              {reward.buttonText}
+                            </Text>
+                          </Pressable>
+                        ) : (
+                          <ChevronRight size={20} color="#9CA3AF" strokeWidth={2} />
+                        )}
+                      </Pressable>
+                      {/* Divider - not on last item */}
+                      {index < EARN_REWARDS.length - 1 && (
+                        <View style={styles.rewardDividerContainer}>
+                          <View style={styles.rewardDivider} />
+                        </View>
                       )}
-                    </Pressable>
-                    {/* Divider - not on last item */}
-                    {index < EARN_REWARDS.length - 1 && (
-                      <View style={styles.rewardDividerContainer}>
-                        <View style={styles.rewardDivider} />
-                      </View>
-                    )}
-                  </View>
-                ))}
+                    </View>
+                  ))}
+                </View>
               </View>
-            </View>
             </FadeInStagger>
           </ReAnimated.ScrollView>
 
@@ -591,7 +749,7 @@ export default function MembershipPage() {
 
                 {/* Balance Amount */}
                 <Text weight="bold" style={redeemStyles.sheetBalanceAmount}>
-                  ${balance.toFixed(2)}
+                  ${walletBalance.toFixed(2)}
                 </Text>
 
                 {/* Subtitle */}
@@ -703,7 +861,7 @@ export default function MembershipPage() {
                       setIsRedeeming(false);
                     }
                   }}
-                  disabled={isRedeeming || (selectedRedeemOption === "giftcard" && balance <= 0)}
+                  disabled={isRedeeming || (selectedRedeemOption === "giftcard" && walletBalance <= 0)}
                 >
                   {isRedeeming ? (
                     <ActivityIndicator size="small" color="#FFFFFF" />
@@ -753,7 +911,7 @@ export default function MembershipPage() {
                   <BadgeCheck size={32} color="#FFFFFF" fill="#5299FE" strokeWidth={2} />
                 </View>
 
-                {tierInfo?.tier === "elite" ? (
+                {(statusModalTier ?? tierInfo?.tier) === "elite" ? (
                   <>
                     <Text weight="bold" size="2xl" color="#1F2937" style={eliteStyles.title}>
                       Elite Status
@@ -785,10 +943,18 @@ export default function MembershipPage() {
                     <View style={eliteStyles.benefitsList}>
                       <View style={eliteStyles.benefitRow}>
                         <View style={eliteStyles.benefitIcon}>
+                          <Wrench size={18} color="#5299FE" strokeWidth={1.5} />
+                        </View>
+                        <Text size="md" color="#1F2937">
+                          ~2% earn rate on Ownership Credit
+                        </Text>
+                      </View>
+                      <View style={eliteStyles.benefitRow}>
+                        <View style={eliteStyles.benefitIcon}>
                           <Building2 size={18} color="#5299FE" strokeWidth={1.5} />
                         </View>
                         <Text size="md" color="#1F2937">
-                          Priority booking with trusted shops
+                          $60–$100 credit target per year
                         </Text>
                       </View>
                       <View style={eliteStyles.benefitRow}>
@@ -796,15 +962,7 @@ export default function MembershipPage() {
                           <Zap size={18} color="#5299FE" strokeWidth={1.5} />
                         </View>
                         <Text size="md" color="#1F2937">
-                          Faster dispute resolution
-                        </Text>
-                      </View>
-                      <View style={eliteStyles.benefitRow}>
-                        <View style={eliteStyles.benefitIcon}>
-                          <Wrench size={18} color="#5299FE" strokeWidth={1.5} />
-                        </View>
-                        <Text size="md" color="#1F2937">
-                          Waived diagnostics when applicable
+                          Non-expiring Ownership Credits
                         </Text>
                       </View>
                       <View style={eliteStyles.benefitRow}>
@@ -812,12 +970,12 @@ export default function MembershipPage() {
                           <Headphones size={18} color="#5299FE" strokeWidth={1.5} />
                         </View>
                         <Text size="md" color="#1F2937">
-                          Concierge support when issues arise
+                          Concierge support and priority booking
                         </Text>
                       </View>
                     </View>
                   </>
-                ) : tierInfo?.tier === "preferred" ? (
+                ) : (statusModalTier ?? tierInfo?.tier) === "preferred" ? (
                   <>
                     <Text weight="bold" size="2xl" color="#1F2937" style={eliteStyles.title}>
                       Preferred Status
@@ -849,18 +1007,18 @@ export default function MembershipPage() {
                     <View style={eliteStyles.benefitsList}>
                       <View style={eliteStyles.benefitRow}>
                         <View style={eliteStyles.benefitIcon}>
-                          <Building2 size={18} color="#5299FE" strokeWidth={1.5} />
+                          <Wrench size={18} color="#5299FE" strokeWidth={1.5} />
                         </View>
                         <Text size="md" color="#1F2937">
-                          Soft priority on booking
+                          ~1.5% earn rate on Ownership Credit
                         </Text>
                       </View>
                       <View style={eliteStyles.benefitRow}>
                         <View style={eliteStyles.benefitIcon}>
-                          <Wrench size={18} color="#5299FE" strokeWidth={1.5} />
+                          <Building2 size={18} color="#5299FE" strokeWidth={1.5} />
                         </View>
                         <Text size="md" color="#1F2937">
-                          Diagnostics covered or reduced
+                          $40–$75 credit target per year
                         </Text>
                       </View>
                       <View style={eliteStyles.benefitRow}>
@@ -868,7 +1026,15 @@ export default function MembershipPage() {
                           <Zap size={18} color="#5299FE" strokeWidth={1.5} />
                         </View>
                         <Text size="md" color="#1F2937">
-                          ~3% earn rate on Ownership Credit
+                          Diagnostics covered or reduced
+                        </Text>
+                      </View>
+                      <View style={eliteStyles.benefitRow}>
+                        <View style={eliteStyles.benefitIcon}>
+                          <Building2 size={18} color="#5299FE" strokeWidth={1.5} />
+                        </View>
+                        <Text size="md" color="#1F2937">
+                          Soft priority on booking
                         </Text>
                       </View>
                     </View>
@@ -899,7 +1065,7 @@ export default function MembershipPage() {
                             <Wrench size={18} color="#5299FE" strokeWidth={1.5} />
                           </View>
                           <Text size="md" color="#1F2937">
-                            ~1.5% earn rate on Ownership Credit
+                            ~1% earn rate on Ownership Credit
                           </Text>
                         </View>
                         <View style={eliteStyles.benefitRow}>
@@ -907,7 +1073,7 @@ export default function MembershipPage() {
                             <Building2 size={18} color="#5299FE" strokeWidth={1.5} />
                           </View>
                           <Text size="md" color="#1F2937">
-                            $50–$75 credit target per year
+                            $20–$40 credit target per year
                           </Text>
                         </View>
                         <View style={eliteStyles.benefitRow}>
@@ -949,6 +1115,14 @@ export default function MembershipPage() {
               </View>
             </Animated.View>
           </Modal>
+
+          {/* My Garage car selection sheet – opened when MY GARAGE ▾ tapped (pooled view) */}
+          <GarageCarSelectionSheet
+            innerRef={garageSheetRef}
+            onStatusBadgePress={handleGarageStatusBadgePress}
+            onCarSelected={handleCarSelectedFromSheet}
+            onClose={() => {}}
+          />
         </View>
       )}
     </ScrollDrivenGradientBackground>
@@ -1050,27 +1224,55 @@ const styles = StyleSheet.create({
     backgroundColor: "#FF3B30",
   },
 
-  // Elite Badge
+  // Flip Badge (MY GARAGE ▾ ↔ PREFERRED ▾)
   badgeContainer: {
     alignItems: "center",
     marginBottom: Spacing.xl,
   },
-  eliteBadge: {
+  badgePressable: {
+    alignSelf: "center",
+  },
+  badgeFlipContainer: {
+    alignSelf: "center",
+    alignItems: "center",
+    justifyContent: "center",
+    minHeight: 36,
+  },
+  badgeSizer: {
     flexDirection: "row",
     alignItems: "center",
-    backgroundColor: "#EBF4FF",
-    paddingHorizontal: Spacing.sm + 2,
+    paddingHorizontal: Spacing.sm + 4,
     paddingVertical: Spacing.xs,
-    borderRadius: 16,
-    gap: Spacing.xs - 1,
+    gap: Spacing.xs,
+    opacity: 0,
+  },
+  badgeFace: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#EBF4FF",
+    paddingHorizontal: Spacing.sm + 4,
+    paddingVertical: Spacing.xs,
+    borderRadius: 18,
+    gap: Spacing.xs,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.05,
     shadowRadius: 2,
     elevation: 1,
   },
+  badgeFaceBack: {
+    left: 0,
+    right: 0,
+  },
   badgeText: {
     letterSpacing: 1,
+  },
+  badgeChevron: {
+    marginLeft: 2,
   },
 
   // Balance
@@ -1083,6 +1285,9 @@ const styles = StyleSheet.create({
     lineHeight: 60,
     color: "#1F2937",
     marginBottom: Spacing.xs,
+  },
+  balanceSubtext: {
+    marginTop: 4,
   },
 
   // Action Buttons
