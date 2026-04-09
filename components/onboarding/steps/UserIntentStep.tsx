@@ -32,6 +32,7 @@ import {
     FooterButton,
     BackButton,
     FadeFooterContainer,
+    FinishLater,
 } from '@/components/shared-ui';
 import { useState, useEffect } from 'react';
 import {
@@ -181,6 +182,7 @@ export function UserIntentStep({ onNext, onBack, progress }: UserIntentStepProps
                     filled={progress.filled}
                     leftElement={<BackButton onBack={onBack} alwaysShow />}
                 />
+                <FinishLater />
 
                 <ScrollView
                     style={styles.scrollView}
@@ -237,6 +239,7 @@ export function UserIntentStep({ onNext, onBack, progress }: UserIntentStepProps
                         size={buttonSize}
                         paddingVertical={buttonPaddingVertical}
                         variant="primary"
+                        disabled={selectedIntents.length === 0}
                     />
                 </FadeFooterContainer>
             </View>

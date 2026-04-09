@@ -12,7 +12,7 @@ import { useRouter } from 'expo-router';
 import { Bell, MoveRight, Star, Trophy } from 'lucide-react-native';
 
 // 3. Shared UI
-import { Button, ScrollDrivenGradientBackground, ScrollFadeIn, Text } from '@/components/shared-ui';
+import { Button, BrandColors, ScrollDrivenGradientBackground, Text } from "@/components/shared-ui";
 
 // 4. Stores & Hooks
 import { useAuthStore } from '@/stores/useAuthStore';
@@ -137,8 +137,8 @@ export default function HomeScreen() {
     (async () => {
       // Request location permission
       const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        setLocationName('Location unavailable');
+      if (status !== "granted") {
+        setLocationName("Location unavailable");
         return;
       }
 
@@ -152,12 +152,10 @@ export default function HomeScreen() {
           longitude: location.coords.longitude,
         });
         if (address) {
-          setLocationName(
-            `${address.city || address.subregion || 'Unknown'}, ${address.region || ''}`,
-          );
+          setLocationName(`${address.city || address.subregion || "Unknown"}, ${address.region || ""}`);
         }
       } catch (error) {
-        setLocationName('Unknown location');
+        setLocationName("Unknown location");
       }
     })();
   }, []);
@@ -264,17 +262,29 @@ export default function HomeScreen() {
   );
 
   const handleSearch = (query: string) => {
-    console.log('Search submitted:', query);
+    console.log("Search submitted:", query);
     // TODO: Implement search functionality
   };
 
   const handleMapPress = () => {
-    router.push('/home/map');
+    router.push("/home/map");
   };
 
+  // When returning from map modal with "Add vehicle" tapped: navigate to cars tab
+  const pendingNavigateToCars = usePendingNavigationStore((s) => s.pendingNavigateToCars);
+  const setPendingNavigateToCars = usePendingNavigationStore((s) => s.setPendingNavigateToCars);
+  useFocusEffect(
+    useCallback(() => {
+      if (pendingNavigateToCars) {
+        setPendingNavigateToCars(false);
+        router.navigate("/(main-tabs)/cars");
+      }
+    }, [pendingNavigateToCars, setPendingNavigateToCars, router])
+  );
+
   const handleAppointmentPress = () => {
-    // Navigate to bookings tab to see appointment details
-    router.push('/bookings');
+    console.log("Appointment pressed");
+    // TODO: Navigate to appointment details
   };
 
   // Dynamic visible card IDs — matches the order in ActionCardsCarousel
@@ -294,65 +304,101 @@ export default function HomeScreen() {
   // Custom margins for content below carousel based on active card
   const getCardMargin = (cardIndex: number): number => {
     const cardType = getCardTypeAtIndex(cardIndex);
-    
+
     switch (cardType) {
-      case 'appointment': // Upcoming Appointment - NavigationETABar shows, so no extra margin needed
+      case "appointment": // Upcoming Appointment - NavigationETABar shows, so no extra margin needed
         return 10;
-      case 'resume': // Resume Booking
+      case "resume": // Resume Booking
         return -100;
-      case 'account': // Finish Account Setup
+      case "account": // Finish Account Setup
         return -70;
-      case 'car': // Finish Car Setup
+      case "car": // Finish Car Setup
         return -10;
       default:
         return 0;
     }
   };
 
-  // Welcome screen - shows on app open
-  // if (showWelcome) {
-  //   return (
-  //     <View style={styles.welcomeContainer}>
-  //       <View style={styles.welcomeContent}>
-  //         <OtoPairIcon />
-  //         <Text weight="semiBold" size="2xl" style={styles.welcomeTitle}>
-  //           Otopair
-  //         </Text>
-  //         <Button variant="secondary" onPress={() => setShowWelcome(false)}>
-  //           Let's Check Your Car Now <MoveRight size={16} color="#fff" />
-  //         </Button>
-  //       </View>
-  //     </View>
-  //   );
-  // }
-
   return (
-    <ScrollDrivenGradientBackground colors={['#5BA3D9', '#8FC4E8', '#d9e8f5']}>
-      {(scrollHandler, scrollY) => (
-    <View style={styles.container}>
-      {/* Full Page Scroll */}
+    <ScrollDrivenGradientBackground colors={["#5BA3D9", "#8FC4E8", "#d9e8f5"]}>
+      {(scrollHandler) => (
+        <View style={styles.container}>
+          {/* Full Page Scroll */}
           <Animated.ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 12 }]}
-        showsVerticalScrollIndicator={false}
-        scrollEnabled={!isCardSwiping}
+            style={styles.scrollView}
+            contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 12 }]}
+            showsVerticalScrollIndicator={false}
+            scrollEnabled={!isCardSwiping}
             onScroll={scrollHandler}
             scrollEventThrottle={16}
-      >
-        {/* Header */}
-        <View style={styles.header}>
-          {/* Location */}
-          <View style={styles.locationSection}>
-            <View style={{ marginTop: -8, marginLeft: 8 }}>
-              <HomeLogo size={68} />
+          >
+            {/* Header */}
+            <View style={styles.header}>
+              {/* Location */}
+              <View style={styles.locationSection}>
+                <View style={{ marginTop: -8, marginLeft: 8 }}>
+                  <HomeLogo size={68} />
+                </View>
+                <View style={styles.locationText}>
+                  <Text size="xl" color="#FFFFFF" weight="bold">
+                    Otopair
+                  </Text>
+                  <Text weight="semiBold" size="sm" color="#FFFFFF">
+                    {locationName}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Right Side - Gold Tier & Bell */}
+              <View style={styles.headerRight}>
+                {/* Gold Tier Badge - Clickable */}
+                <Pressable
+                  onPress={() => setShowLoyaltyCard(true)}
+                  style={({ pressed }) => [styles.goldTierBadge, pressed && styles.goldTierBadgePressed]}
+                >
+                  <View style={styles.glassContainer}>
+                    <BlurView intensity={10} tint="dark" style={styles.glassBlur}>
+                      <View style={styles.glassOverlay} />
+                      <LinearGradient
+                        colors={["rgba(255,255,255,0.25)", "rgba(255,255,255,0.05)"]}
+                        start={{ x: 0.5, y: 0 }}
+                        end={{ x: 0.5, y: 0.5 }}
+                        style={styles.glassGloss}
+                      />
+                      <Trophy size={22} color="#FFFFFF" fill="none" strokeWidth={2} />
+                    </BlurView>
+                  </View>
+                </Pressable>
+
+                {/* Notification Bell */}
+                <Pressable style={({ pressed }) => [styles.bellButton, pressed && styles.bellButtonPressed]}>
+                  <View style={styles.glassContainer}>
+                    <BlurView intensity={10} tint="dark" style={styles.glassBlur}>
+                      <View style={styles.glassOverlay} />
+                      <LinearGradient
+                        colors={["rgba(255,255,255,0.25)", "rgba(255,255,255,0.05)"]}
+                        start={{ x: 0.5, y: 0 }}
+                        end={{ x: 0.5, y: 0.5 }}
+                        style={styles.glassGloss}
+                      />
+                      <View style={styles.bellIconContainer}>
+                        <Bell size={22} color="#FFFFFF" fill="none" strokeWidth={2} />
+                        <View style={styles.bellDot} />
+                      </View>
+                    </BlurView>
+                  </View>
+                </Pressable>
+              </View>
             </View>
-            <View style={styles.locationText}>
-              <Text size="xl" color="#FFFFFF" weight="bold">
-                Otopair
-              </Text>
-              <Text weight="semiBold" size="sm" color="#FFFFFF">
-                {locationName}
-              </Text>
+
+            {/* Search Bar */}
+            <View style={styles.searchContainer}>
+              <MechanicSearchBar
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                onSubmit={handleSearch}
+                onMapPress={handleMapPress}
+              />
             </View>
           </View>
 
@@ -415,15 +461,8 @@ export default function HomeScreen() {
           </View>
         </View>
 
-        {/* Search Bar */}
-        <View style={styles.searchContainer}>
-          <MechanicSearchBar
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            onSubmit={handleSearch}
-            onMapPress={handleMapPress}
-          />
-        </View>
+              {/* More Services Section */}
+              <MoreServicesSection />
 
         {/* Content Area */}
         <View style={styles.content}>
@@ -485,6 +524,23 @@ export default function HomeScreen() {
                 destinationName={upcomingBooking.shopName}
               />
             </View>
+          </Animated.ScrollView>
+
+          {/* Loyalty Card Overlay */}
+          {showLoyaltyCard && (
+            <LoyaltyCard
+              totalPoints={1240}
+              currentTier="Gold Member"
+              currentPoints={240}
+              pointsToNextTier={260}
+              nextTier="Platinum"
+              maxPoints={500}
+              onClose={() => setShowLoyaltyCard(false)}
+              onViewFullPage={() => {
+                setShowLoyaltyCard(false);
+                router.push("/membership");
+              }}
+            />
           )}
 
           {/* Vehicle Maintenance - with dynamic margin based on active card */}
@@ -518,26 +574,27 @@ export default function HomeScreen() {
             <SuggestionsSection />
           </ScrollFadeIn>
 
-        </View>
-          </Animated.ScrollView>
+              <View style={styles.sheetBody}>
+                <Text style={styles.sheetBodyText}>
+                  Your account was scheduled for deletion, but has now been automatically reactivated since you logged
+                  back in.
+                </Text>
+                <Text style={styles.sheetBodyText}>Your data is safe and your account is fully restored.</Text>
+              </View>
 
-      {/* Loyalty Card Overlay */}
-      {showLoyaltyCard && (
-        <LoyaltyCard
-          totalPoints={1240}
-          currentTier="Gold Member"
-          currentPoints={240}
-          pointsToNextTier={260}
-          nextTier="Platinum"
-          maxPoints={500}
-          onClose={() => setShowLoyaltyCard(false)}
-          onViewFullPage={() => {
-            setShowLoyaltyCard(false);
-            router.push('/membership');
-          }}
-        />
-      )}
-    </View>
+              <View style={styles.sheetActions}>
+                <Pressable
+                  style={({ pressed }) => [styles.sheetPrimaryButton, pressed && styles.sheetPressed]}
+                  onPress={() => sheetRef.current?.dismiss()}
+                >
+                  <Text weight="semiBold" color="#FFF" style={styles.sheetPrimaryButtonText}>
+                    Great!
+                  </Text>
+                </Pressable>
+              </View>
+            </BottomSheetScrollView>
+          </BottomSheetModal>
+        </View>
       )}
     </ScrollDrivenGradientBackground>
   );
@@ -547,16 +604,16 @@ const styles = StyleSheet.create({
   // Welcome screen styles
   welcomeContainer: {
     flex: 1,
-    backgroundColor: '#E8ECF0',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#E8ECF0",
+    justifyContent: "center",
+    alignItems: "center",
   },
   welcomeContent: {
-    alignItems: 'center',
+    alignItems: "center",
     gap: 16,
   },
   welcomeTitle: {
-    color: '#141C24',
+    color: "#141C24",
     letterSpacing: 0.5,
   },
   // Main home screen styles
@@ -570,16 +627,16 @@ const styles = StyleSheet.create({
     paddingBottom: 150,
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingRight: 16,
     paddingLeft: 0,
     marginBottom: 16,
   },
   locationSection: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 2,
     flex: 1,
     paddingLeft: 0,
@@ -589,13 +646,13 @@ const styles = StyleSheet.create({
     marginTop: -7,
   },
   headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
   },
   goldTierBadge: {
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   goldTierBadgePressed: {
     opacity: 0.7,
@@ -617,33 +674,33 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    overflow: 'hidden',
+    overflow: "hidden",
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.5)',
+    borderColor: "rgba(255,255,255,0.5)",
   },
   glassBlur: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   glassOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: "rgba(255,255,255,0.12)",
   },
   glassGloss: {
     ...StyleSheet.absoluteFillObject,
   },
   bellIconContainer: {
-    position: 'relative',
+    position: "relative",
   },
   bellDot: {
-    position: 'absolute',
+    position: "absolute",
     top: 1,
     right: 1,
     width: 7,
     height: 7,
     borderRadius: 3.5,
-    backgroundColor: '#FF3B30',
+    backgroundColor: "#FF3B30",
   },
   searchContainer: {
     paddingHorizontal: 16,
@@ -658,5 +715,61 @@ const styles = StyleSheet.create({
   },
   etaBarContainer: {
     marginTop: -72,
+  },
+  sheetBackground: {
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+  },
+  sheetHandle: {
+    backgroundColor: "#E5E5EA",
+    width: 44,
+  },
+  sheetContentContainer: {
+    paddingHorizontal: 24,
+    paddingTop: 8,
+  },
+  sheetTitleWrap: {
+    marginTop: 12,
+    marginBottom: 20,
+    alignItems: "center",
+  },
+  sheetTitle: {
+    fontSize: 24,
+    lineHeight: 30,
+    color: "#1d1d1f",
+    fontWeight: "700",
+  },
+  sheetBody: {
+    gap: 12,
+  },
+  sheetBodyText: {
+    fontSize: 17,
+    lineHeight: 25,
+    color: "#1d1d1f",
+    textAlign: "center",
+  },
+  sheetActions: {
+    marginTop: 28,
+    gap: 12,
+  },
+  sheetPrimaryButton: {
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: BrandColors.secondary,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: BrandColors.secondary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  sheetPrimaryButtonText: {
+    fontSize: 17,
+  },
+  sheetPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.99 }],
   },
 });

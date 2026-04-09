@@ -71,6 +71,8 @@ export interface SelectedServiceInfo {
   default_labor_hours?: number;
   /** Parts cost in dollars */
   default_parts_estimate?: number;
+  /** State fee from selected option (e.g. inspection fee) */
+  state_fee?: number;
 }
 
 interface ShopCardProps {
@@ -267,10 +269,10 @@ export const ShopCard = memo(function ShopCard({
 
     const totalPrice = hasFormulaParams
       ? selectedServices.reduce(
-          (sum, s) => sum + laborRate! * (s.default_labor_hours ?? 0) + (s.default_parts_estimate ?? 0),
+          (sum, s) => sum + laborRate! * (s.default_labor_hours ?? 0) + (s.default_parts_estimate ?? 0) + (s.state_fee ?? 0),
           0,
         )
-      : selectedServices.reduce((sum, s) => sum + s.price, 0);
+      : selectedServices.reduce((sum, s) => sum + s.price + (s.state_fee ?? 0), 0);
 
     const firstName = selectedServices[0].name;
     const firstDisplay = firstName.charAt(0).toUpperCase() + firstName.slice(1).toLowerCase();

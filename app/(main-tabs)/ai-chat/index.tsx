@@ -86,7 +86,8 @@ import type { ConversationState, ChatMessage, AIMechanic, SelectedService } from
 // ============================================================================
 
 // Default tab bar height fallback (standard iOS/Android tab bar is ~49-83px)
-const TAB_BAR_HEIGHT = 80;
+// Increased on Android to account for the new floating tab bar height + its bottom offset
+const TAB_BAR_HEIGHT = Platform.OS === 'android' ? 100 : 80;
 
 // ============================================================================
 // MAIN COMPONENT
@@ -574,17 +575,18 @@ export default function AIChatScreen() {
 
       // If no services selected, add a default service based on scenario type
       if (state.selectedServices.length === 0) {
-        switch (state.currentScenario) {
+        const scenario = state.currentScenario as string;
+        switch (scenario) {
           case "brake_noise":
             toggleServiceSelection("svc_brake_pads");
             break;
-          case "check_engine_light":
+          case "check_engine":
             toggleServiceSelection("svc_engine_diagnostic");
             break;
           case "tire_pressure":
             toggleServiceSelection("svc_tire_rotation");
             break;
-          case "battery_warning":
+          case "vague_issue":
             toggleServiceSelection("svc_electrical_check");
             break;
           case "oil_change":
@@ -595,7 +597,7 @@ export default function AIChatScreen() {
       }
 
       // Select the mechanic (use the mechanic's actual ID from mock data)
-      selectMechanic(mechanic.id);
+      selectMechanic(mechanic.id.toString());
 
       // Set the scheduled appointment from the time slot
       const currentYear = new Date().getFullYear();

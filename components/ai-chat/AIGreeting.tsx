@@ -408,7 +408,7 @@ const styles = StyleSheet.create({
   },
   // Suggestions
   suggestionsContainer: {
-    paddingBottom: Spacing.xs,
+    paddingBottom: Platform.OS === 'android' ? Spacing.md : Spacing.xs,
   },
   suggestionsScroll: {
     paddingHorizontal: Spacing.lg,

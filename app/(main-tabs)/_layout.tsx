@@ -1,5 +1,8 @@
 import { Icon, Label, NativeTabs } from "expo-router/unstable-native-tabs";
+import { Tabs } from "expo-router";
 import React from "react";
+import { Platform } from "react-native";
+import { TabBar } from "@/components/navigation/TabBar";
 import { useBookingsFromConvex } from "@/hooks/useBookingsFromConvex";
 import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromConvex";
 
@@ -11,6 +14,61 @@ function HydrateBookingData() {
 }
 
 export default function TabLayout() {
+  const isIOS26OrNewer =
+    Platform.OS === "ios" && parseInt(String(Platform.Version), 10) >= 26;
+
+  // Use custom tab bar for Android and iOS <= 25.
+  if (!isIOS26OrNewer) {
+    return (
+      <>
+        <HydrateBookingData />
+        <Tabs
+          tabBar={(props) => <TabBar {...props} />}
+          screenOptions={{
+            headerShown: false,
+          }}
+        >
+          <Tabs.Screen
+            name="home"
+            options={{
+              title: 'Home',
+            }}
+          />
+          <Tabs.Screen
+            name="bookings"
+            options={{
+              title: 'Bookings',
+            }}
+          />
+          <Tabs.Screen
+            name="cars"
+            options={{
+              title: 'My Cars',
+            }}
+          />
+          <Tabs.Screen
+            name="settings"
+            options={{
+              title: 'Settings',
+            }}
+          />
+          <Tabs.Screen
+            name="ai-chat"
+            options={{
+              title: 'AI Chat',
+            }}
+          />
+          <Tabs.Screen
+            name="index"
+            options={{
+              href: null,
+            }}
+          />
+        </Tabs>
+      </>
+    );
+  }
+
   return (
     <>
       <HydrateBookingData />

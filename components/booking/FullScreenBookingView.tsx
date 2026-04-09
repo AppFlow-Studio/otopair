@@ -148,8 +148,10 @@ export function FullScreenBookingView({ onClose }: FullScreenBookingViewProps) {
     }
 
     if (isPaymentStage) {
-      // Add platform fee to total
-      const totalWithFee = selectedTotal + 4.79;
+      // Service fee: 7% of service subtotal, $4.99 minimum
+      // TODO: When subscriptions are wired, waive service fee for Preferred/Elite subscribers
+      const serviceFee = selectedTotal > 0 ? Math.max(selectedTotal * 0.07, 4.99) : 0;
+      const totalWithFee = selectedTotal + serviceFee;
       return (
         <View style={[styles.footer, { paddingBottom: footerBottomPadding }]}>
           <PrimaryButton style={styles.paymentButton} onPress={handlePaymentConfirmed} fullWidth>

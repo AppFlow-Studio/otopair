@@ -137,7 +137,7 @@ export const getByUserIdWithDetails = query({
           serviceIds.map(async (id) => {
             const svc = await ctx.db.get(id);
             return svc?.name ?? "";
-          }),
+          })
         ).then((a) => a.filter(Boolean));
 
         const vehicle = await ctx.db
@@ -228,7 +228,7 @@ export const getByUserIdWithDetails = query({
           shopLat: shop?.lat,
           shopLng: shop?.lng,
         };
-      }),
+      })
     );
 
     return results;
@@ -487,7 +487,7 @@ export const createBatch = mutation({
         labor_cost: v.float64(),
         parts_cost: v.float64(),
         labor_hours: v.optional(v.float64()),
-      }),
+      })
     ),
     taxes_and_fees: v.optional(v.float64()),
     platform_fee: v.optional(v.float64()),

@@ -9,70 +9,28 @@
  */
 
 // 1. React & React Native
-import React from 'react';
-import { Dimensions, Pressable, StyleSheet, View } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import ReAnimated from 'react-native-reanimated';
+import React from "react";
+import { Dimensions, Pressable, StyleSheet, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import ReAnimated from "react-native-reanimated";
 
 // 2. Expo & Third-party
-import { useRouter } from 'expo-router';
-import { ArrowLeft, Star } from 'lucide-react-native';
+import { useRouter } from "expo-router";
+import { ArrowLeft, Star } from "lucide-react-native";
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
 
 // 3. Shared UI
-import { ScrollDrivenGradientBackground, Text } from '@/components/shared-ui';
+import { ScrollDrivenGradientBackground, Text } from "@/components/shared-ui";
 
 // 4. Constants
-import { Spacing } from '@/constants/theme';
+import { Spacing } from "@/constants/theme";
 
 // ============================================================================
 // CONSTANTS
 // ============================================================================
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
-
-// All suggested deals data (5 total)
-const ALL_DEALS = [
-  {
-    id: '1',
-    title: 'Synthetic Oil Change',
-    description: 'Full synthetic + Filter + Fluids',
-    credit: 15,
-    price: 69,
-    isSpecial: true,
-  },
-  {
-    id: '2',
-    title: 'Tire Rotation',
-    description: 'Rotate all 4 tires + Inspection',
-    credit: 10,
-    price: 29,
-    isSpecial: false,
-  },
-  {
-    id: '3',
-    title: 'Brake Inspection',
-    description: 'Full brake system check',
-    credit: 12,
-    price: 49,
-    isSpecial: true,
-  },
-  {
-    id: '4',
-    title: 'AC System Service',
-    description: 'Recharge + Leak check + Filter',
-    credit: 20,
-    price: 89,
-    isSpecial: false,
-  },
-  {
-    id: '5',
-    title: 'Full Detail Package',
-    description: 'Interior + Exterior + Engine bay',
-    credit: 25,
-    price: 149,
-    isSpecial: true,
-  },
-];
+const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
 // ============================================================================
 // COMPONENT
@@ -81,18 +39,30 @@ const ALL_DEALS = [
 export default function SuggestedDealsPage() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const allDeals = useQuery(api.rewards.getAllDeals, {});
+  const deals = (allDeals ?? []).map((d) => ({
+    id: d._id,
+    title: d.title,
+    description: d.description,
+    credit: d.credit_amount,
+    price: d.price,
+    isSpecial: d.is_special,
+  }));
 
   const handleBack = () => {
     router.back();
   };
 
   return (
-    <ScrollDrivenGradientBackground colors={['#5BA3D9', '#8FC4E8', '#d9e8f5']}>
+    <ScrollDrivenGradientBackground colors={["#5BA3D9", "#8FC4E8", "#d9e8f5"]}>
       {(scrollHandler) => (
         <View style={styles.container}>
           <ReAnimated.ScrollView
             style={styles.scrollView}
-            contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 24 }]}
+            contentContainerStyle={[
+              styles.scrollContent,
+              { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 24 },
+            ]}
             showsVerticalScrollIndicator={false}
             onScroll={scrollHandler}
             scrollEventThrottle={16}
@@ -112,12 +82,12 @@ export default function SuggestedDealsPage() {
               <View style={styles.headerSpacer} />
             </View>
 
-            {ALL_DEALS.map((deal) => (
+            {deals.map((deal) => (
               <View key={deal.id} style={styles.dealCard}>
                 {/* Image Placeholder */}
                 <View style={styles.dealImageContainer}>
                   <View style={styles.dealImagePlaceholder} />
-                  
+
                   {/* Special Badge */}
                   {deal.isSpecial && (
                     <View style={styles.specialBadge}>
@@ -152,10 +122,8 @@ export default function SuggestedDealsPage() {
 
                     {/* Book Button */}
                     <Pressable
-                      style={({ pressed }) => [
-                        styles.bookButton,
-                        pressed && styles.bookButtonPressed,
-                      ]}
+                      onPress={() => router.push("/(main-tabs)/home")}
+                      style={({ pressed }) => [styles.bookButton, pressed && styles.bookButtonPressed]}
                     >
                       <Text weight="semiBold" size="xs" color="#FFFFFF">
                         Book ${deal.price}
@@ -181,16 +149,16 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     marginBottom: Spacing.lg,
   },
   backButton: {
     width: 40,
     height: 40,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   backButtonPressed: {
     opacity: 0.7,
@@ -206,37 +174,37 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
   },
   dealCard: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: "#FFFFFF",
     borderRadius: 16,
-    overflow: 'hidden',
-    shadowColor: '#000',
+    overflow: "hidden",
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.06,
     shadowRadius: 8,
     elevation: 2,
   },
   dealImageContainer: {
-    width: '100%',
+    width: "100%",
     height: 140,
-    position: 'relative',
+    position: "relative",
   },
   dealImagePlaceholder: {
-    width: '100%',
-    height: '100%',
-    backgroundColor: '#E5E7EB',
+    width: "100%",
+    height: "100%",
+    backgroundColor: "#E5E7EB",
   },
   specialBadge: {
-    position: 'absolute',
+    position: "absolute",
     top: Spacing.sm,
     left: Spacing.sm,
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: "#FFFFFF",
     paddingHorizontal: Spacing.sm,
     paddingVertical: Spacing.xs,
     borderRadius: 8,
     gap: 4,
-    shadowColor: '#000',
+    shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.1,
     shadowRadius: 2,
@@ -249,20 +217,20 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.sm,
   },
   dealBottomRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   creditBadge: {
-    backgroundColor: '#ECFDF5',
+    backgroundColor: "#ECFDF5",
     paddingHorizontal: Spacing.sm,
     paddingVertical: Spacing.xs,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: '#D1FAE5',
+    borderColor: "#D1FAE5",
   },
   bookButton: {
-    backgroundColor: '#1F2937',
+    backgroundColor: "#1F2937",
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.xs + 2,
     borderRadius: 16,
@@ -271,4 +239,3 @@ const styles = StyleSheet.create({
     opacity: 0.8,
   },
 });
-
