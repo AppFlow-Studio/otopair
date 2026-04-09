@@ -129,7 +129,7 @@ export function FinishAccountSetupCard({
     { id: "account", label: "Create Account", icon: GradientPlusCircle },
     { id: "personalize", label: "About You", icon: UserCircleIcon },
     { id: "car", label: "Add Car", icon: CarIcon },
-    { id: "payment", label: "Payments", icon: BankIcon },
+    { id: "payment", label: "Payment Method", icon: BankIcon },
   ];
 
   return (
@@ -165,7 +165,8 @@ export function FinishAccountSetupCard({
             const isComplete =
               (step.id === "account" && isCreateAccountComplete) ||
               (step.id === "personalize" && isTellUsAboutYourselfComplete) ||
-              (step.id === "car" && hasCarRegistered);
+              (step.id === "car" && hasCarRegistered) ||
+              step.id === "payment";
             
             return (
               <Pressable

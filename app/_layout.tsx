@@ -297,7 +297,13 @@ export default function RootLayout() {
               >
                 <Stack.Screen name="index" />
                 <Stack.Screen name="(onboarding)" />
-                <Stack.Screen name="(main-tabs)" />
+                <Stack.Screen
+                  name="(main-tabs)"
+                  options={{
+                    animation: "fade",
+                    animationDuration: 300,
+                  }}
+                />
                 <Stack.Screen name="(tell-us-about)" />
                 <Stack.Screen
                   name="coming-soon"
@@ -310,6 +316,20 @@ export default function RootLayout() {
                 <Stack.Screen name="add-car-info" />
                 <Stack.Screen
                   name="vehicle-added"
+                  options={{
+                    animation: "fade",
+                    animationDuration: 300,
+                  }}
+                />
+                <Stack.Screen
+                  name="car-pre-onboarding"
+                  options={{
+                    animation: "fade_from_bottom",
+                    animationDuration: 280,
+                  }}
+                />
+                <Stack.Screen
+                  name="health-estimating"
                   options={{
                     animation: "fade",
                     animationDuration: 300,

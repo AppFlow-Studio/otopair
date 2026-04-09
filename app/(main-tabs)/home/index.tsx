@@ -1,83 +1,137 @@
 // 1. React & React Native
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Image, Pressable, StyleSheet, View } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
-import Animated from "react-native-reanimated";
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Image, Pressable, StyleSheet, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import Animated from 'react-native-reanimated';
 
 // 2. Expo & Third-party
-import { BlurView } from "expo-blur";
-import { LinearGradient } from "expo-linear-gradient";
-import * as Location from "expo-location";
-import { useFocusEffect, useRouter } from "expo-router";
-import {
-  BottomSheetBackdrop,
-  BottomSheetModal,
-  BottomSheetScrollView,
-  type BottomSheetBackdropProps,
-} from "@gorhom/bottom-sheet";
-import { Bell, MoveRight, Star, Trophy } from "lucide-react-native";
-import { useQuery } from "convex/react";
-import { api } from "@/convex/_generated/api";
+import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
+import * as Location from 'expo-location';
+import { useRouter } from 'expo-router';
+import { Bell, MoveRight, Star, Trophy } from 'lucide-react-native';
 
 // 3. Shared UI
 import { Button, BrandColors, ScrollDrivenGradientBackground, Text } from "@/components/shared-ui";
 
-// 4. Stores
-import { useAuthStore } from "@/stores/useAuthStore";
-import { usePendingNavigationStore } from "@/stores/usePendingNavigationStore";
+// 4. Stores & Hooks
+import { useAuthStore } from '@/stores/useAuthStore';
+import { useBookingStore } from '@/stores/useBookingStore';
+import { useShallow } from 'zustand/react/shallow';
+import { useVehicleOwnershipFromConvex } from '@/hooks/useVehicleOwnershipFromConvex';
+import { fetchVehicleImageUrl } from '@/utils/vehicleImage';
+import { computeMaintenanceStatus, MAINTENANCE_LABELS } from '@/utils/maintenanceStatus';
+import { useMutation, useQuery } from 'convex/react';
+import { api } from '@/convex/_generated/api';
+import type { Id } from '@/convex/_generated/dataModel';
 
-// 6. Flow-specific components
-import { ActionCardsCarousel } from "@/components/home/ActionCardsCarousel";
-import { AddFirstVehicleCard } from "@/components/home/AddFirstVehicleCard";
-import { LoyaltyCard } from "@/components/home/LoyaltyCard";
-import { MechanicSearchBar } from "@/components/home/MechanicSearchBar";
-import { NavigationETABar } from "@/components/home/NavigationETABar";
-import { ServiceBundlesSection } from "@/components/home/ServiceBundlesSection";
-import { MoreServicesSection } from "@/components/home/MoreServicesSection";
-import { SuggestionsSection } from "@/components/home/SuggestionsSection";
-import { VehicleMaintenanceCard } from "@/components/home/VehicleMaintenanceCard";
-import { HomeLogo } from "@/components/icons/home-logo";
-import { OtoPairIcon } from "@/components/icons/oto-pair";
+// Native iOS 26 liquid glass (optional)
+let LiquidGlassView: React.ComponentType<any> | null = null;
+let isLiquidGlassEnabled = false;
+try {
+  const lg = require("@callstack/liquid-glass");
+  LiquidGlassView = lg.LiquidGlassView;
+  isLiquidGlassEnabled = !!lg.isLiquidGlassSupported;
+} catch {
+  // Not available — fall back to BlurView style
+}
+
+// 5. Flow-specific components
+import { ActionCardsCarousel } from '@/components/home/ActionCardsCarousel';
+import { AddFirstVehicleCard } from '@/components/home/AddFirstVehicleCard';
+import { LoyaltyCard } from '@/components/home/LoyaltyCard';
+import { MechanicSearchBar } from '@/components/home/MechanicSearchBar';
+import { NavigationETABar } from '@/components/home/NavigationETABar';
+import { ServiceBundlesSection } from '@/components/home/ServiceBundlesSection';
+import { MoreServicesSection } from '@/components/home/MoreServicesSection';
+import { SuggestionsSection } from '@/components/home/SuggestionsSection';
+import { VehicleMaintenanceCard } from '@/components/home/VehicleMaintenanceCard';
+import { HomeLogo } from '@/components/icons/home-logo';
+import { OtoPairIcon } from '@/components/icons/oto-pair';
+
+function formatBookingDate(dateStr: string): string {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const date = new Date(y, m - 1, d);
+  return date.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+}
+
+function formatBookingTime(timeStr: string): string {
+  const [h, m] = timeStr.split(':').map(Number);
+  const suffix = h >= 12 ? 'PM' : 'AM';
+  const hour12 = h % 12 || 12;
+  return `${hour12}:${m.toString().padStart(2, '0')} ${suffix}`;
+}
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { isNewUser, shouldShowReactivationSheet, setShouldShowReactivationSheet } = useAuthStore();
-  const myVehicles = useQuery(api.vehicles.getMyVehicles);
-  const hasVehicles = myVehicles != null && myVehicles.length > 0;
+  const { isNewUser } = useAuthStore();
+  const { vehicles: listVehicles, hasVehicles } = useVehicleOwnershipFromConvex();
   const [showWelcome, setShowWelcome] = useState(true);
-  const [searchQuery, setSearchQuery] = useState("");
-  const [locationName, setLocationName] = useState("Loading...");
+  const [searchQuery, setSearchQuery] = useState('');
+  const [locationName, setLocationName] = useState('Loading...');
+  const [vehicleImageUrls, setVehicleImageUrls] = useState<Record<string, string>>({});
+  const fetchedVinsRef = useRef<Set<string>>(new Set());
+  const saveVehicleImageUrl = useMutation(api.vehicles.saveVehicleImageUrl);
+  const dismissSetupCard = useMutation(api.vehicle_owners.dismissSetupCard);
   const [showLoyaltyCard, setShowLoyaltyCard] = useState(false);
   const [isCardSwiping, setIsCardSwiping] = useState(false);
   const [activeCardIndex, setActiveCardIndex] = useState(0);
-  const [showAccountSetup, setShowAccountSetup] = useState(true);
-  const [showCarSetup, setShowCarSetup] = useState(true);
-  const sheetRef = useRef<BottomSheetModal>(null);
-  const hasPresentedReactivationRef = useRef(false);
-  const snapPoints = useMemo(() => ["42%"], []);
+  const [accountSetupDismissed, setAccountSetupDismissed] = useState(false);
+  const [carSetupDismissed, setCarSetupDismissed] = useState(false);
 
-  const renderBackdrop = useCallback(
-    (props: BottomSheetBackdropProps) => (
-      <BottomSheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} opacity={0.5} />
-    ),
-    []
+  // ── Data for action cards ──
+  const me = useQuery(api.users.getMe);
+  const allBookings = useQuery(
+    api.bookings.getByUserIdWithDetails,
+    me?._id ? { userId: me._id } : "skip"
+  );
+  const { selectedServiceIds, availableServices } = useBookingStore(
+    useShallow((s) => ({ selectedServiceIds: s.selectedServiceIds, availableServices: s.availableServices }))
   );
 
-  useEffect(() => {
-    if (shouldShowReactivationSheet && showWelcome) {
-      setShowWelcome(false);
-    }
-  }, [shouldShowReactivationSheet, showWelcome]);
+  // Upcoming appointment: next future booking that's pending or confirmed
+  const upcomingBooking = useMemo(() => {
+    if (!allBookings) return null;
+    const today = new Date().toISOString().split('T')[0];
+    return allBookings
+      .filter((b: any) => (b.status === 'pending' || b.status === 'confirmed') && b.scheduled_date >= today)
+      .sort((a: any, b: any) => a.scheduled_date.localeCompare(b.scheduled_date) || a.scheduled_time.localeCompare(b.scheduled_time))
+      [0] ?? null;
+  }, [allBookings]);
 
-  useEffect(() => {
-    if (!shouldShowReactivationSheet || showWelcome || hasPresentedReactivationRef.current) return;
-    hasPresentedReactivationRef.current = true;
-    requestAnimationFrame(() => {
-      sheetRef.current?.present();
-      setShouldShowReactivationSheet(false);
-    });
-  }, [shouldShowReactivationSheet, showWelcome, setShouldShowReactivationSheet]);
+  // Resume booking: user has services selected in an incomplete flow
+  const hasResumeBooking = selectedServiceIds.length > 0;
+  const resumeServicesPreview = useMemo(() => {
+    if (!hasResumeBooking) return '';
+    const names = availableServices
+      .filter((s: any) => selectedServiceIds.includes(s.id))
+      .map((s: any) => s.name);
+    const joined = names.join(', ');
+    return joined.length > 25 ? joined.slice(0, 22) + '...' : joined;
+  }, [selectedServiceIds, availableServices]);
+
+  // Account setup: hide when all checkable steps are done
+  const isAccountSetupComplete = !!(me?.onboardingCompleted && me?.tellUsAboutCompleted && hasVehicles);
+  const showAccountSetup = !isAccountSetupComplete && !accountSetupDismissed;
+
+  // Car setup: prefer incomplete vehicles, then completed-but-not-acknowledged
+  const carSetupVehicle = (listVehicles ?? []).find(
+    (r: any) => r.ownership && r.ownership.onboardingComplete !== true
+  ) ?? (listVehicles ?? []).find(
+    (r: any) => r.ownership && r.ownership.onboardingComplete === true && !r.ownership.setupCardDismissed
+  );
+  const isCarSetupDone = !!carSetupVehicle?.ownership?.onboardingComplete;
+  const showCarSetup = !!carSetupVehicle && !carSetupDismissed;
+
+  // Checklist state for FinishCarSetupCard
+  const carSetupChecklist = useMemo(() => {
+    const o = carSetupVehicle?.ownership;
+    return [
+      { id: 'vin', label: 'Add your Car with your VIN number', completed: !!o },
+      { id: 'mileage', label: 'Answer Questions about your Service History', completed: !!o?.onboardingComplete },
+    ];
+  }, [carSetupVehicle]);
 
   useEffect(() => {
     (async () => {
@@ -106,6 +160,107 @@ export default function HomeScreen() {
     })();
   }, []);
 
+  useEffect(() => {
+    if (!listVehicles?.length) return;
+    let cancelled = false;
+    listVehicles.forEach((r: any) => {
+      if (!r.vin || fetchedVinsRef.current.has(r.vin)) return;
+      fetchedVinsRef.current.add(r.vin);
+
+      const cachedUrl = r.vehicle?.image_url;
+      if (cachedUrl && (cachedUrl.includes("vehicledatabases.com") || cachedUrl.includes("vhr.nyc3.cdn"))) {
+        setVehicleImageUrls((prev) => ({ ...prev, [r.vin]: cachedUrl }));
+        return;
+      }
+      const v = r.vehicle;
+      const meta = v?.metadata as { make?: string; model?: string; color?: string } | undefined;
+      const color = meta?.color ?? r.ownership?.color ?? "";
+      fetchVehicleImageUrl(meta?.make ?? "", meta?.model ?? "", v?.year, r.vin, color).then((url) => {
+        if (cancelled || !url) return;
+        setVehicleImageUrls((prev) => ({ ...prev, [r.vin]: url }));
+        saveVehicleImageUrl({ vin: r.vin, image_url: url });
+      });
+    });
+    return () => { cancelled = true; };
+  }, [listVehicles]);
+
+  // ── Maintenance records for ALL vehicles ──
+  const allOwnershipIds = useMemo(
+    () => (listVehicles ?? []).map((r: any) => r.ownership?._id).filter(Boolean) as Id<"vehicle_owners">[],
+    [listVehicles]
+  );
+  const allMaintenanceRecords = useQuery(
+    api.maintenance.getRecordsByMultipleVehicles,
+    allOwnershipIds.length > 0 ? { vehicleOwnerIds: allOwnershipIds } : "skip"
+  );
+
+  // ── Vehicle data with maintenance (no image dep — avoids cascading recomputation) ──
+  const vehicleBaseData = useMemo(() => {
+    if (!listVehicles?.length) return [];
+    const seen = new Set<string>();
+    return listVehicles
+      .filter((r: any) => {
+        if (seen.has(r.vin)) return false;
+        seen.add(r.vin);
+        return true;
+      })
+      .map((r: any) => {
+        const v = r.vehicle;
+        const o = r.ownership;
+        const meta = v?.metadata as { make?: string; model?: string } | undefined;
+        const titleCase = (s: string) => s.toLowerCase().split(' ').map((w: string) => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+        const make = meta?.make ? titleCase(meta.make) : "";
+        const model = meta?.model ? titleCase(meta.model) : "";
+        const rawName = make && model ? `${make}\n${model}` : o?.nickname ?? "My Vehicle";
+        const displayName = rawName.split('\n').map((part: string) => titleCase(part)).join('\n');
+
+        const ownershipId = o?._id as string | undefined;
+        const records = ownershipId && allMaintenanceRecords ? (allMaintenanceRecords[ownershipId] ?? []) : [];
+        const isOnboardingComplete = o?.onboardingComplete === true;
+        const odometer: number | null = isOnboardingComplete ? (o?.mileage ?? null) : null;
+        const knownIssues = o?.knownIssues as string[] | undefined;
+
+        const urgentItems: { id: string; serviceName: string; dueText: string; isOverdue: boolean }[] = [];
+        for (const rec of records) {
+          const result = computeMaintenanceStatus(
+            {
+              type: rec.type,
+              lastServiceDate: rec.lastServiceDate ?? undefined,
+              lastServiceMileage: rec.lastServiceMileage ?? undefined,
+              customInputs: rec.customInputs as Record<string, unknown> | undefined,
+              confirmedHealthyAt: rec.confirmedHealthyAt ?? undefined,
+            },
+            odometer,
+            make,
+            undefined,
+            o?.drivingConditions as string | undefined,
+            o?.avgMonthlyDriving as string | undefined,
+            knownIssues
+          );
+          if (result.status === "overdue" || result.status === "due_soon" || result.status === "needs_attention") {
+            urgentItems.push({
+              id: `${rec.type}-${ownershipId}`,
+              serviceName: MAINTENANCE_LABELS[rec.type as keyof typeof MAINTENANCE_LABELS] || rec.type,
+              dueText: result.status === "overdue" ? "Overdue" : result.status === "due_soon" ? "Due soon" : "Needs attention",
+              isOverdue: result.status === "overdue",
+            });
+          }
+          if (urgentItems.length >= 3) break;
+        }
+
+        const items = urgentItems.length > 0
+          ? urgentItems
+          : [{ id: "healthy", serviceName: "All systems healthy", dueText: "No action needed", isOverdue: false }];
+        return { id: r.vin, name: displayName, vin: r.vin, maintenanceItems: items };
+      });
+  }, [listVehicles, allMaintenanceRecords]);
+
+  // Merge image URLs separately — cheap, only re-maps when images arrive
+  const mappedVehicles = useMemo(
+    () => vehicleBaseData.map((v) => ({ ...v, imageUrl: vehicleImageUrls[v.vin] ?? "" })),
+    [vehicleBaseData, vehicleImageUrls]
+  );
+
   const handleSearch = (query: string) => {
     console.log("Search submitted:", query);
     // TODO: Implement search functionality
@@ -132,37 +287,18 @@ export default function HomeScreen() {
     // TODO: Navigate to appointment details
   };
 
-  // Helper function to get the card type at a given index based on user status
-  const getCardTypeAtIndex = (index: number): "appointment" | "resume" | "account" | "car" | null => {
-    if (isNewUser && showAccountSetup) {
-      // New user order: account, appointment, resume, car
-      switch (index) {
-        case 0:
-          return "account";
-        case 1:
-          return "appointment";
-        case 2:
-          return "resume";
-        case 3:
-          return "car";
-        default:
-          return null;
-      }
-    } else {
-      // Existing user order: appointment, resume, account, car
-      switch (index) {
-        case 0:
-          return "appointment";
-        case 1:
-          return "resume";
-        case 2:
-          return "account";
-        case 3:
-          return "car";
-        default:
-          return null;
-      }
-    }
+  // Dynamic visible card IDs — matches the order in ActionCardsCarousel
+  const visibleCardIds = useMemo(() => {
+    return [
+      showAccountSetup ? 'account' : null,
+      upcomingBooking ? 'appointment' : null,
+      hasResumeBooking ? 'resume' : null,
+      showCarSetup ? 'car' : null,
+    ].filter(Boolean) as ('account' | 'appointment' | 'resume' | 'car')[];
+  }, [showAccountSetup, upcomingBooking, hasResumeBooking, showCarSetup]);
+
+  const getCardTypeAtIndex = (index: number): 'appointment' | 'resume' | 'account' | 'car' | null => {
+    return visibleCardIds[index] ?? null;
   };
 
   // Custom margins for content below carousel based on active card
@@ -264,74 +400,129 @@ export default function HomeScreen() {
                 onMapPress={handleMapPress}
               />
             </View>
+          </View>
 
-            {/* Content Area */}
-            <View style={styles.content}>
-              {/* Action Cards Carousel */}
-              <View style={styles.carouselContainer}>
-                <ActionCardsCarousel
-                  // Upcoming Appointment
-                  appointmentBusinessName={"Premium\nAuto Care"}
-                  appointmentMechanicName="John Rodriguez"
-                  appointmentRating={4.8}
-                  appointmentIsVerified={true}
-                  appointmentDate="August 12, 2025"
-                  appointmentTimeSlot="12:30 PM - 1:00 PM"
-                  appointmentLateMinutes={30}
-                  onAppointmentPress={handleAppointmentPress}
-                  // Resume Booking
-                  showResumeBooking={true}
-                  resumeMechanicsAvailable={3}
-                  resumeServicesPreview="Oil Change, Fluid Ch..."
-                  // Account Setup
-                  showAccountSetup={showAccountSetup}
-                  onAccountSetupDismiss={() => setShowAccountSetup(false)}
-                  // Car Setup
-                  showCarSetup={showCarSetup}
-                  onCarSetupDismiss={() => setShowCarSetup(false)}
-                  // Carousel callback
-                  onCardChange={(index) => setActiveCardIndex(index)}
-                  // User status - determines card order
-                  isNewUser={isNewUser}
-                />
-              </View>
-
-              {/* Navigation ETA Bar - Only show when on Upcoming Appointment card */}
-              {getCardTypeAtIndex(activeCardIndex) === "appointment" && (
-                <View style={styles.etaBarContainer}>
-                  <NavigationETABar
-                    etaMinutes={20}
-                    destinationLatitude={37.7749}
-                    destinationLongitude={-122.4194}
-                    destinationName="Premium Auto Care"
-                  />
+          {/* Right Side - Gold Tier & Bell */}
+          <View style={styles.headerRight}>
+            {/* Gold Tier Badge - Clickable */}
+            <Pressable
+              onPress={() => setShowLoyaltyCard(true)}
+              style={({ pressed }) => [styles.goldTierBadge, pressed && styles.goldTierBadgePressed]}
+            >
+              {isLiquidGlassEnabled && LiquidGlassView ? (
+                <LiquidGlassView interactive effect="clear" style={styles.liquidGlassIcon}>
+                  <Trophy size={22} color="#000000" fill="none" strokeWidth={2} />
+                </LiquidGlassView>
+              ) : (
+                <View style={styles.glassContainer}>
+                  <BlurView intensity={10} tint="dark" style={styles.glassBlur}>
+                    <View style={styles.glassOverlay} />
+                    <LinearGradient
+                      colors={['rgba(255,255,255,0.25)', 'rgba(255,255,255,0.05)']}
+                      start={{ x: 0.5, y: 0 }}
+                      end={{ x: 0.5, y: 0.5 }}
+                      style={styles.glassGloss}
+                    />
+                    <Trophy size={22} color="#000000" fill="none" strokeWidth={2} />
+                  </BlurView>
                 </View>
               )}
+            </Pressable>
 
-              {/* Vehicle Maintenance - with dynamic margin based on active card */}
-              <View style={{ marginTop: getCardMargin(activeCardIndex) }}>
-                {hasVehicles ? (
-                  <VehicleMaintenanceCard
-                    onBookNow={(vehicleId, serviceId) => {
-                      console.log(`Booking service ${serviceId} for vehicle ${vehicleId}`);
-                      // TODO: Navigate to booking flow
-                    }}
-                    onSwipeStart={() => setIsCardSwiping(true)}
-                    onSwipeEnd={() => setIsCardSwiping(false)}
-                  />
-                ) : (
-                  <AddFirstVehicleCard showAccountSetup={showAccountSetup} />
-                )}
-              </View>
+            {/* Notification Bell */}
+            <Pressable
+              style={({ pressed }) => [styles.bellButton, pressed && styles.bellButtonPressed]}
+            >
+              {isLiquidGlassEnabled && LiquidGlassView ? (
+                <LiquidGlassView interactive effect="clear" style={styles.liquidGlassIcon}>
+                  <View style={styles.bellIconContainer}>
+                    <Bell size={22} color="#000000" fill="none" strokeWidth={2} />
+                    <View style={styles.bellDot} />
+                  </View>
+                </LiquidGlassView>
+              ) : (
+                <View style={styles.glassContainer}>
+                  <BlurView intensity={10} tint="dark" style={styles.glassBlur}>
+                    <View style={styles.glassOverlay} />
+                    <LinearGradient
+                      colors={['rgba(255,255,255,0.25)', 'rgba(255,255,255,0.05)']}
+                      start={{ x: 0.5, y: 0 }}
+                      end={{ x: 0.5, y: 0.5 }}
+                      style={styles.glassGloss}
+                    />
+                    <View style={styles.bellIconContainer}>
+                      <Bell size={22} color="#000000" fill="none" strokeWidth={2} />
+                      <View style={styles.bellDot} />
+                    </View>
+                  </BlurView>
+                </View>
+              )}
+            </Pressable>
+          </View>
+        </View>
 
               {/* More Services Section */}
               <MoreServicesSection />
 
-              {/* Service Bundles Section */}
-              <ServiceBundlesSection />
+        {/* Content Area */}
+        <View style={styles.content}>
+          {/* Action Cards Carousel */}
+          {visibleCardIds.length > 0 && <View style={styles.carouselContainer}>
+            <ActionCardsCarousel
+              // Upcoming Appointment
+              showAppointment={!!upcomingBooking}
+              appointmentBusinessName={upcomingBooking?.shopName ?? ''}
+              appointmentMechanicName={upcomingBooking?.mechanicName ?? ''}
+              appointmentRating={upcomingBooking?.shopRating ?? 0}
+              appointmentIsVerified={upcomingBooking?.shopIsVerified ?? false}
+              appointmentDate={upcomingBooking ? formatBookingDate(upcomingBooking.scheduled_date) : ''}
+              appointmentTimeSlot={upcomingBooking ? formatBookingTime(upcomingBooking.scheduled_time) : ''}
+              appointmentLateMinutes={upcomingBooking?.delayMinutes}
+              onAppointmentPress={handleAppointmentPress}
+              // Resume Booking
+              showResumeBooking={hasResumeBooking}
+              resumeServicesPreview={resumeServicesPreview}
+              onResumePress={() => router.push('/home/map?openServices=true')}
+              // Account Setup
+              showAccountSetup={showAccountSetup}
+              onAccountSetupDismiss={() => setAccountSetupDismissed(true)}
+              // Car Setup
+              showCarSetup={showCarSetup}
+              carSetupChecklist={carSetupChecklist}
+              isCarSetupDone={isCarSetupDone}
+              onCarSetupPress={() => {
+                const o = carSetupVehicle?.ownership;
+                if (isCarSetupDone) {
+                  // All done — dismiss permanently
+                  if (o?._id) dismissSetupCard({ vehicleOwnerId: o._id });
+                  setCarSetupDismissed(true);
+                  return;
+                }
+                if (!o) {
+                  router.push('/add-vehicle');
+                } else if (!o.preOnboardingComplete) {
+                  router.push({ pathname: '/car-pre-onboarding', params: { vehicleOwnerId: o._id } });
+                } else {
+                  router.push({ pathname: '/(main-tabs)/cars', params: { openStepper: 'true' } });
+                }
+              }}
+              onCarSetupDismiss={() => setCarSetupDismissed(true)}
+              // Carousel callback
+              onCardChange={(index) => setActiveCardIndex(index)}
+              // User status - determines card order
+              isNewUser={isNewUser}
+            />
+          </View>}
 
-              {/* Suggestions Section */}
-              <SuggestionsSection />
+          {/* Navigation ETA Bar - Only show when on Upcoming Appointment card */}
+          {getCardTypeAtIndex(activeCardIndex) === 'appointment' && upcomingBooking && (
+            <View style={styles.etaBarContainer}>
+              <NavigationETABar
+                etaMinutes={20}
+                destinationLatitude={upcomingBooking.shopLat ?? 0}
+                destinationLongitude={upcomingBooking.shopLng ?? 0}
+                destinationName={upcomingBooking.shopName}
+              />
             </View>
           </Animated.ScrollView>
 
@@ -352,22 +543,36 @@ export default function HomeScreen() {
             />
           )}
 
-          <BottomSheetModal
-            ref={sheetRef}
-            snapPoints={snapPoints}
-            backdropComponent={renderBackdrop}
-            enableDynamicSizing={false}
-            enableContentPanningGesture={false}
-            handleIndicatorStyle={styles.sheetHandle}
-            backgroundStyle={styles.sheetBackground}
-          >
-            <BottomSheetScrollView
-              showsVerticalScrollIndicator={false}
-              contentContainerStyle={[styles.sheetContentContainer, { paddingBottom: insets.bottom + 24 }]}
-            >
-              <View style={styles.sheetTitleWrap}>
-                <Text style={styles.sheetTitle}>Welcome back!</Text>
-              </View>
+          {/* Vehicle Maintenance - with dynamic margin based on active card */}
+          <ScrollFadeIn scrollY={scrollY} style={{ marginTop: visibleCardIds.length > 0 ? getCardMargin(activeCardIndex) : 0 }}>
+            {hasVehicles ? (
+              <VehicleMaintenanceCard
+                vehicles={mappedVehicles.length > 0 ? mappedVehicles : undefined}
+                onBookNow={(vehicleId, serviceId) => {
+                  router.push('/home/map?openServices=true');
+                }}
+                onSwipeStart={() => setIsCardSwiping(true)}
+                onSwipeEnd={() => setIsCardSwiping(false)}
+              />
+            ) : (
+              <AddFirstVehicleCard showAccountSetup={showAccountSetup} />
+            )}
+          </ScrollFadeIn>
+
+          {/* More Services Section */}
+          <ScrollFadeIn scrollY={scrollY}>
+            <MoreServicesSection />
+          </ScrollFadeIn>
+
+          {/* Service Bundles Section */}
+          <ScrollFadeIn scrollY={scrollY}>
+            <ServiceBundlesSection />
+          </ScrollFadeIn>
+
+          {/* Suggestions Section */}
+          <ScrollFadeIn scrollY={scrollY}>
+            <SuggestionsSection />
+          </ScrollFadeIn>
 
               <View style={styles.sheetBody}>
                 <Text style={styles.sheetBodyText}>
@@ -457,6 +662,13 @@ const styles = StyleSheet.create({
   },
   bellButtonPressed: {
     opacity: 0.7,
+  },
+  liquidGlassIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   glassContainer: {
     width: 40,

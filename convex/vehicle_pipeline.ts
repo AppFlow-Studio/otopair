@@ -479,6 +479,30 @@ export const enrichVehicleSpecs = internalAction({
             specs: specs.engine_specs,
             confidenceScore,
           });
+
+          // Store timing_type on engines table
+          const timingType = specs.engine_specs.timing_type;
+          if (timingType && timingType !== "N/A") {
+            await ctx.runMutation(internal.vehicle_mutations.patchEngine, {
+              engineId: args.engineId,
+              timingType,
+            });
+          }
+
+          // Store steering_type on trims table (per spec: timing→engines, steering→trims)
+          const steeringType = specs.engine_specs.steering_type;
+          if (steeringType && steeringType !== "N/A") {
+            const engine = await ctx.runQuery(
+              internal.vehicle_mutations.getEngine,
+              { engineId: args.engineId }
+            );
+            if (engine) {
+              await ctx.runMutation(internal.vehicle_mutations.patchTrim, {
+                trimId: engine.trim_id,
+                steeringType,
+              });
+            }
+          }
         }
         if (specs.vehicle_attributes) {
           vehicleAttributes = { ...vehicleAttributes, ...specs.vehicle_attributes };
@@ -959,10 +983,15 @@ export const confirmVehicleForUser = action({
       engine_id: args.engineId,
       transmission_id: args.transmissionId,
       year: args.year,
+      metadata: {
+        make: args.make,
+        model: args.model,
+        color: args.color || "",
+      },
     });
 
     // Link vehicle to user
-    await ctx.runMutation(api.vehicles.addOwner, {
+    const vehicleOwnerId = await ctx.runMutation(api.vehicles.addOwner, {
       vin,
       userId: user._id,
       nickname: `${args.year} ${args.make} ${args.model}`,
@@ -983,7 +1012,7 @@ export const confirmVehicleForUser = action({
       });
     }
 
-    return { success: true as const };
+    return { success: true as const, vehicleOwnerId };
   },
 });
 

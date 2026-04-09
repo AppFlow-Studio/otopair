@@ -52,6 +52,7 @@ import SharedElementModal, { LayoutInfo } from './SharedElementModal';
 
 // 5. Constants, hooks, types
 import { BorderRadius, Colors, Shadows, Spacing } from '@/constants/theme';
+import { scale, moderateScale } from '@/utils/responsive';
 
 // ============================================================================
 // TYPES
@@ -355,17 +356,17 @@ export function LoyaltyPoints({
 
 const styles = StyleSheet.create({
   container: {
-    marginTop: 24,
+    marginTop: scale(24),
     paddingHorizontal: Spacing.md,
   },
   sectionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    marginBottom: scale(12),
   },
   cardOuter: {
-    borderRadius: 16,
+    borderRadius: moderateScale(16),
     overflow: 'hidden',
     position: 'relative',
     // Frosted glass border
@@ -380,7 +381,7 @@ const styles = StyleSheet.create({
   },
   blurContainer: {
     ...StyleSheet.absoluteFillObject,
-    borderRadius: 16,
+    borderRadius: moderateScale(16),
   },
   whiteOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -389,7 +390,7 @@ const styles = StyleSheet.create({
   collapsibleCard: {
     overflow: 'hidden',
     backgroundColor: 'transparent',
-    borderRadius: 16,
+    borderRadius: moderateScale(16),
   },
   cardPressed: {
     opacity: 0.9,
@@ -402,28 +403,28 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingHorizontal: scale(12),
+    paddingVertical: scale(10),
   },
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: scale(8),
     flex: 1,
   },
   pointsBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#EBF4FF',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 20,
-    gap: 6,
+    paddingHorizontal: scale(12),
+    paddingVertical: scale(6),
+    borderRadius: moderateScale(20),
+    gap: scale(6),
   },
   // Expanded modal content styles
   summaryCard: {
     backgroundColor: '#f0f7ff',
-    borderRadius: 16,
+    borderRadius: moderateScale(16),
     padding: Spacing.lg,
     marginBottom: Spacing.lg,
   },
@@ -434,29 +435,29 @@ const styles = StyleSheet.create({
   },
   summaryItem: {
     alignItems: 'center',
-    gap: 4,
+    gap: scale(4),
   },
   summaryDivider: {
     width: 1,
-    height: 60,
+    height: scale(60),
     backgroundColor: '#D1D5DB',
   },
   tierSection: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
+    gap: scale(16),
     marginBottom: Spacing.lg,
     paddingVertical: Spacing.md,
   },
   tierBadge: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: scale(56),
+    height: scale(56),
+    borderRadius: scale(28),
     justifyContent: 'center',
     alignItems: 'center',
   },
   tierInfo: {
-    gap: 4,
+    gap: scale(4),
   },
   progressSection: {
     marginBottom: Spacing.xl,
@@ -465,15 +466,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: scale(12),
   },
   progressBarContainer: {
-    height: 50,
+    height: scale(50),
     position: 'relative',
   },
   progressTrack: {
     position: 'absolute',
-    top: 8,
+    top: scale(8),
     left: 0,
     right: 0,
     height: 4,
@@ -482,7 +483,7 @@ const styles = StyleSheet.create({
   },
   progressFill: {
     position: 'absolute',
-    top: 8,
+    top: scale(8),
     left: 0,
     height: 4,
     backgroundColor: '#5299FE',
@@ -491,13 +492,13 @@ const styles = StyleSheet.create({
   milestoneMarker: {
     position: 'absolute',
     top: 0,
-    marginLeft: -8,
+    marginLeft: scale(-8),
     alignItems: 'center',
   },
   milestoneDot: {
-    width: 16,
-    height: 16,
-    borderRadius: 8,
+    width: scale(16),
+    height: scale(16),
+    borderRadius: scale(8),
     backgroundColor: '#FFFFFF',
     borderWidth: 2,
     borderColor: '#5299FE',
@@ -508,46 +509,46 @@ const styles = StyleSheet.create({
     borderWidth: 2,
   },
   milestoneLabel: {
-    marginTop: 4,
+    marginTop: scale(4),
   },
   rewardsSection: {
     marginBottom: Spacing.lg,
   },
   rewardsList: {
     marginTop: Spacing.md,
-    gap: 12,
+    gap: scale(12),
   },
   rewardItem: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#f9fafc',
     padding: Spacing.md,
-    borderRadius: 12,
-    gap: 12,
+    borderRadius: moderateScale(12),
+    gap: scale(12),
   },
   rewardIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: scale(40),
+    height: scale(40),
+    borderRadius: scale(20),
     backgroundColor: '#EBF4FF',
     alignItems: 'center',
     justifyContent: 'center',
   },
   rewardInfo: {
     flex: 1,
-    gap: 2,
+    gap: scale(2),
   },
   redeemButton: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 6,
+    paddingHorizontal: scale(12),
+    paddingVertical: scale(6),
+    borderRadius: moderateScale(6),
     borderWidth: 1,
     borderColor: '#5299FE',
   },
   ctaButton: {
     backgroundColor: '#5299FE',
     paddingVertical: Spacing.md,
-    borderRadius: 12,
+    borderRadius: moderateScale(12),
     alignItems: 'center',
     marginTop: Spacing.md,
   },

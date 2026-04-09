@@ -57,6 +57,7 @@ import { Text } from '@/components/shared-ui';
 
 // 4. Constants, hooks, types
 import { BorderRadius, BrandColors, Colors, Spacing } from '@/constants/theme';
+import { scale, moderateScale } from '@/utils/responsive';
 
 // ============================================================================
 // TYPES
@@ -363,10 +364,10 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.sm,
   },
   titleSection: {
-    gap: 4,
+    gap: scale(4),
   },
   title: {
-    lineHeight: 36,
+    lineHeight: moderateScale(36),
   },
   contentContainer: {
     width: '100%',
@@ -388,7 +389,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     left: '15%',
     right: '15%',
-    height: 30,
+    height: scale(30),
     backgroundColor: 'transparent',
     borderRadius: 100,
     shadowColor: '#000',
@@ -407,7 +408,7 @@ const styles = StyleSheet.create({
   // Details overlay
   detailsOverlay: {
     ...StyleSheet.absoluteFillObject,
-    borderRadius: 20,
+    borderRadius: moderateScale(20),
     overflow: 'hidden',
   },
   blurView: {
@@ -423,7 +424,7 @@ const styles = StyleSheet.create({
   },
   detailItem: {
     alignItems: 'center',
-    gap: 4,
+    gap: scale(4),
   },
   detailLabel: {
     textTransform: 'uppercase',
@@ -432,10 +433,10 @@ const styles = StyleSheet.create({
   valueRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: scale(8),
   },
   editButton: {
-    padding: 4,
+    padding: scale(4),
   },
   editButtonPressed: {
     opacity: 0.6,
@@ -445,7 +446,7 @@ const styles = StyleSheet.create({
     backgroundColor: BrandColors.secondary,
     paddingVertical: Spacing.md,
     paddingHorizontal: Spacing.xl,
-    borderRadius: 12,
+    borderRadius: moderateScale(12),
     alignSelf: 'stretch',
     marginHorizontal: Spacing.lg,
     marginTop: Spacing.md,

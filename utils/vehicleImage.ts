@@ -1,57 +1,136 @@
 /**
- * Vehicle Image URL Builder
+ * Vehicle Image Fetcher
  *
- * Constructs IMAGIN.studio CDN URLs for dynamic vehicle images.
- * The API uses machine learning to fuzzy-match make/model names,
- * so exact casing or naming conventions are not required.
+ * Fetches vehicle images from the VehicleDatabases.com API.
+ * Supports VIN-based lookups (preferred) and Year/Make/Model fallback.
+ * Prefers color renders (no white background) over exterior images.
+ * When a specific color is provided, matches that color first.
  *
- * Images have a 7-day TTL on the CDN. A weekly rotating cache key
- * is appended to ensure images are regenerated before expiry.
- *
- * Docs: https://docs.imagin.studio/guides/getting-images
+ * Docs: https://vehicledatabases.com/vehicle-image-api
  */
 
-const IMAGIN_CUSTOMER = "us-appflowstudio";
-const IMAGIN_BASE = "https://cdn.imagin.studio/getImage";
+import { useEffect, useState } from "react";
+
+const BASE_URL = "https://api.vehicledatabases.com/vehicle-media/v2";
+const API_KEY = process.env.EXPO_PUBLIC_VEHICLE_DB_API_KEY ?? "";
 
 /**
- * Build an IMAGIN.studio image URL for a vehicle.
+ * Fetch a vehicle image URL, optionally matching the user's selected color.
  *
- * @param make   - Vehicle manufacturer (e.g. "Volkswagen", "TOYOTA")
- * @param model  - Model family (e.g. "Tiguan", "Corolla")
- * @param year   - Optional model year (e.g. 2024)
- * @returns      - Full CDN image URL
+ * @param make  - Vehicle manufacturer (e.g. "Toyota")
+ * @param model - Model name (e.g. "Corolla")
+ * @param year  - Optional model year (e.g. 2024)
+ * @param vin   - Optional 17-char VIN (used for more accurate lookup)
+ * @param color - Optional color id (e.g. "black", "midnight-silver")
+ * @returns     - Image URL string, or null if not found
  */
-export function getVehicleImageUrl(
+export async function fetchVehicleImageUrl(
   make: string,
   model: string,
-  year?: number
-): string {
-  // Weekly rotating cache key to refresh CDN images before 7-day TTL expires
-  const weekNum = Math.floor(Date.now() / (7 * 24 * 60 * 60 * 1000));
+  year?: number,
+  vin?: string,
+  color?: string
+): Promise<string | null> {
+  try {
+    const normalizedVin = (vin ?? "").toUpperCase().trim();
+    const makes = normalizeMakes(make);
 
-  const params = new URLSearchParams({
-    customer: IMAGIN_CUSTOMER,
-    make: sanitize(make),
-    modelFamily: sanitize(model),
-    zoomType: "relative",
-    width: "1600",
-    angle: "01",
-    _v: String(weekNum),
-  });
+    // Try VIN first, then each make variant with YMM
+    const urls: string[] = normalizedVin.length === 17
+      ? [`${BASE_URL}/${normalizedVin}`, ...makes.map((m) => `${BASE_URL}/${year}/${encodeURIComponent(m)}/${encodeURIComponent(model)}`)]
+      : makes.map((m) => `${BASE_URL}/${year}/${encodeURIComponent(m)}/${encodeURIComponent(model)}`);
 
-  if (year && year > 1900) {
-    params.set("modelYear", String(year));
+    for (const url of urls) {
+      console.log("[vehicleImage] GET", url);
+      const response = await fetch(url, { headers: { "x-authkey": API_KEY } });
+      console.log("[vehicleImage] status", response.status, "ok?", response.ok);
+      if (!response.ok) continue;
+
+      const json = await response.json();
+      console.log("[vehicleImage] api status:", json.status, "images keys:", Object.keys(json.data?.images ?? {}));
+      console.log("[vehicleImage] colors[] length:", (json.data?.images?.colors ?? []).length, "exterior[] length:", (json.data?.images?.exterior ?? []).length);
+      console.log("[vehicleImage] colors sample:", JSON.stringify((json.data?.images?.colors ?? []).slice(0, 5)));
+      if (json.status !== "success") continue;
+
+      // Color images have no white background — always preferred
+      const colorImages: string[] = json.data?.images?.colors ?? [];
+
+      // 1. Try color-specific match if user specified a color
+      if (color) {
+        const colorMatch = findColorImage(colorImages, color);
+        if (colorMatch) return colorMatch;
+      }
+
+      // 2. Prefer any color image (no white background)
+      if (colorImages.length > 0) return colorImages[0];
+
+      // 3. Fall back to exterior (white background) only if no color images
+      const exterior: string[] = json.data?.images?.exterior ?? [];
+      const evoxFront = exterior.find(
+        (u) => u.includes("3231303031") || u.includes("6130313031")
+      );
+      const isHashNaming = !exterior.some((u) => /ext-\d{10}\.jpg$/.test(u));
+      const picked = evoxFront ?? ((isHashNaming && exterior[3]) || exterior[0]) ?? null;
+      return picked;
+    }
+
+    return null;
+  } catch {
+    return null;
   }
-
-  return `${IMAGIN_BASE}?${params.toString()}`;
 }
 
-/** Lowercase, trim, and replace spaces/special chars with hyphens */
-function sanitize(value: string): string {
-  return value
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-|-$/g, "");
+/**
+ * Match a user-selected color id (e.g. "black") to an API color image URL
+ * (e.g. ".../deep-black-pearl.jpg") using keyword matching.
+ */
+function findColorImage(colorUrls: string[], userColor: string): string | null {
+  if (!userColor || !colorUrls.length) return null;
+
+  const keywords = userColor.toLowerCase().split(/[-_\s]+/);
+
+  // Try matching ALL keywords first (most specific, e.g. "midnight-silver" → both must match)
+  const allMatch = colorUrls.find((url) => {
+    const filename = url.split("/").pop()?.toLowerCase() ?? "";
+    return keywords.every((kw) => filename.includes(kw));
+  });
+  if (allMatch) return allMatch;
+
+  // Fall back to matching the primary keyword (e.g. "black" in "deep-black-pearl")
+  const primary = keywords[0];
+  return colorUrls.find((url) => {
+    const filename = url.split("/").pop()?.toLowerCase() ?? "";
+    return filename.includes(primary);
+  }) ?? null;
+}
+
+/** Returns make name variants to try (handles "Volkswagen" ↔ "VW", etc.) */
+function normalizeMakes(make: string): string[] {
+  const m = make.trim();
+  const lower = m.toLowerCase();
+  if (lower === "volkswagen") return ["Volkswagen", "VW"];
+  if (lower === "vw") return ["VW", "Volkswagen"];
+  return [m];
+}
+
+/**
+ * React hook that fetches and returns a vehicle image URL.
+ * Returns null while loading or if no image is found.
+ */
+export function useVehicleImage(
+  make: string,
+  model: string,
+  year?: number,
+  vin?: string,
+  color?: string
+): string | null {
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!make || !model) return;
+    setImageUrl(null);
+    fetchVehicleImageUrl(make, model, year, vin, color).then(setImageUrl);
+  }, [make, model, year, vin, color]);
+
+  return imageUrl;
 }

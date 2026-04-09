@@ -52,6 +52,9 @@ export const FontFamily = {
   extraBold: "Urbanist-ExtraBold",
   light: "Urbanist-Light",
   italic: "Urbanist-Italic",
+  serif: "SourceSerif4-Regular",
+  serifSemiBold: "SourceSerif4-SemiBold",
+  serifBold: "SourceSerif4-Bold",
 } as const;
 
 export const FontSize = {

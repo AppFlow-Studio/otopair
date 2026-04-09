@@ -44,7 +44,8 @@ import Animated, {
   Extrapolate,
   Easing,
 } from 'react-native-reanimated';
-import { Plus, Mic, ArrowUp } from 'lucide-react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Plus, Mic, ArrowUp, X } from 'lucide-react-native';
 
 // 3. Shared UI
 import { Text } from '@/components/shared-ui';
@@ -258,7 +259,7 @@ export function AIInputBox({
   onChangeText,
   onSend,
   isLoading = false,
-  placeholder = 'Ask anything',
+  placeholder = 'Ask Oto',
   disabled = false,
   onFocus: onFocusProp,
   onMicPressIn,
@@ -354,16 +355,48 @@ export function AIInputBox({
     transform: [{ rotate: `${plusRotation.value}deg` }],
   }));
 
-  return (
-    <View style={styles.container}>
-      <View style={[
-        styles.inputCard, 
-        isFocused && styles.inputCardFocused,
-        showRecordingUI && styles.inputCardRecording,
-      ]}>
-        <View style={styles.inputRow}>
-          {/* Left side - Plus button or Recording indicator */}
-          {!showRecordingUI ? (
+  const inputCardContent = (
+    <View style={[
+      styles.inputCardInner,
+      showRecordingUI && styles.inputCardRecording,
+    ]}>
+      <View style={[styles.inputRow, isFocused && !showRecordingUI && styles.inputRowFocused]}>
+        {/* Recording indicator (replaces input when recording) */}
+        {showRecordingUI ? (
+          <View style={styles.recordingIndicator}>
+            {isTranscribing ? (
+              <TranscribingIndicator />
+            ) : (
+              <View style={styles.recordingLeft}>
+                <CompactWaveform meteringValue={meteringValue} />
+                <Text style={styles.releaseText} numberOfLines={1}>
+                  {transcript || 'Release to send'}
+                </Text>
+              </View>
+            )}
+          </View>
+        ) : (
+          <TextInput
+            ref={inputRef}
+            style={[styles.textInput, { height: inputHeight }]}
+            value={value}
+            onChangeText={onChangeText}
+            placeholder={placeholder}
+            placeholderTextColor="#9CA3AF"
+            multiline
+            scrollEnabled
+            maxLength={4000}
+            editable={!isLoading && !disabled}
+            onContentSizeChange={handleContentSizeChange}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
+          />
+        )}
+
+        {/* Right side buttons */}
+        <View style={styles.rightButtonsRow}>
+          {/* Plus / Add button */}
+          {!showRecordingUI && (
             <Pressable
               style={({ pressed }) => [
                 styles.plusBtn,
@@ -375,43 +408,10 @@ export function AIInputBox({
                 <Plus size={20} color={isAttachmentOpen ? BrandColors.secondary : "#9CA3AF"} strokeWidth={2} />
               </Animated.View>
             </Pressable>
-          ) : (
-            <View style={styles.recordingIndicator}>
-              {isTranscribing ? (
-                <TranscribingIndicator />
-              ) : (
-                <View style={styles.recordingLeft}>
-                  <CompactWaveform meteringValue={meteringValue} />
-                  <Text style={styles.releaseText} numberOfLines={1}>
-                    {transcript || 'Release to send'}
-                  </Text>
-                </View>
-              )}
-            </View>
           )}
 
-          {/* Center - Text Input (hidden when recording) */}
-          {!showRecordingUI && (
-            <TextInput
-              ref={inputRef}
-              style={[styles.textInput, { height: inputHeight }]}
-              value={value}
-              onChangeText={onChangeText}
-              placeholder={placeholder}
-              placeholderTextColor="#9CA3AF"
-              multiline
-              scrollEnabled
-              maxLength={4000}
-              editable={!isLoading && !disabled}
-              onContentSizeChange={handleContentSizeChange}
-              onFocus={handleFocus}
-              onBlur={handleBlur}
-            />
-          )}
-
-          {/* Right side buttons */}
           <View style={styles.rightButtons}>
-            {/* Mic button - always visible when no text */}
+            {/* Mic button */}
             <Animated.View style={[
               styles.buttonWrapper, 
               !showRecordingUI && micButtonAnimatedStyle
@@ -435,7 +435,7 @@ export function AIInputBox({
               </Pressable>
             </Animated.View>
 
-            {/* Send button - shown when text exists */}
+            {/* Send button */}
             {!showRecordingUI && (
               <Animated.View style={[styles.buttonWrapper, sendButtonAnimatedStyle]}>
                 <Pressable
@@ -448,8 +448,43 @@ export function AIInputBox({
               </Animated.View>
             )}
           </View>
+
+          {/* X dismiss button - shown when focused */}
+          {isFocused && !showRecordingUI && (
+            <Pressable
+              onPress={() => {
+                Keyboard.dismiss();
+              }}
+              style={({ pressed }) => [
+                styles.dismissBtn,
+                pressed && { opacity: 0.6 },
+              ]}
+              hitSlop={8}
+            >
+              <X size={18} color="#9CA3AF" strokeWidth={2} />
+            </Pressable>
+          )}
         </View>
       </View>
+    </View>
+  );
+
+  const showGradient = isFocused && !showRecordingUI;
+
+  return (
+    <View style={styles.container}>
+      <LinearGradient
+        colors={showGradient ? ['#74B4E0', '#74B4E0'] : ['transparent', 'transparent']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={[
+          styles.gradientBorder,
+          !showGradient && !showRecordingUI && styles.inputCardUnfocused,
+          showRecordingUI && styles.inputCardRecording,
+        ]}
+      >
+        {inputCardContent}
+      </LinearGradient>
     </View>
   );
 }
@@ -464,27 +499,33 @@ const styles = StyleSheet.create({
     paddingBottom: Spacing.sm,
     paddingTop: Spacing.xs,
   },
-  inputCard: {
-    backgroundColor: '#F3F4F6',
-    borderRadius: 24,
-    borderWidth: 1,
-    borderColor: 'transparent',
+  gradientBorder: {
+    borderRadius: 28,
+    padding: 2,
   },
-  inputCardFocused: {
-    backgroundColor: '#F9FAFB',
-    borderColor: '#E5E7EB',
+  inputCardUnfocused: {
+    backgroundColor: '#F3F4F6',
+  },
+  inputCardInner: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 26,
+    overflow: 'hidden',
   },
   inputCardRecording: {
     backgroundColor: '#EEF2FF',
     borderColor: BrandColors.secondary,
     borderWidth: 1.5,
+    borderRadius: 28,
   },
   inputRow: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
-    paddingVertical: 8,
-    paddingHorizontal: 8,
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 10,
     minHeight: 48,
+  },
+  inputRowFocused: {
+    minHeight: 72,
   },
   plusBtn: {
     width: 32,
@@ -505,11 +546,25 @@ const styles = StyleSheet.create({
     lineHeight: LINE_HEIGHT,
     paddingVertical: 6,
     paddingHorizontal: 8,
+    textAlignVertical: 'center',
+  },
+  rightButtonsRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 6,
   },
   rightButtons: {
     width: 32,
     height: 32,
     position: 'relative',
+  },
+  dismissBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F3F4F6',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   buttonWrapper: {
     position: 'absolute',
