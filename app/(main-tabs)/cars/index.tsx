@@ -595,18 +595,18 @@ export default function CarsHomeScreen() {
         return;
       }
 
-      // Otherwise fetch from API and save to Convex
-      const v = r.vehicle;
-      const meta = v?.metadata as { make?: string; model?: string; color?: string } | undefined;
-      const make = meta?.make ?? "";
-      const model = meta?.model ?? "";
-      const color = meta?.color ?? r.ownership?.color ?? "";
-      fetchVehicleImageUrl(make, model, v?.year, r.vin, color).then((url) => {
-        if (url) {
-          setVehicleImageUrls((prev) => ({ ...prev, [r.vin]: url }));
-          saveVehicleImageUrl({ vin: r.vin, image_url: url });
-        }
-      });
+      // TODO: re-enable once API credits are available
+      // const v = r.vehicle;
+      // const meta = v?.metadata as { make?: string; model?: string; color?: string } | undefined;
+      // const make = meta?.make ?? "";
+      // const model = meta?.model ?? "";
+      // const color = meta?.color ?? r.ownership?.color ?? "";
+      // fetchVehicleImageUrl(make, model, v?.year, r.vin, color).then((url) => {
+      //   if (url) {
+      //     setVehicleImageUrls((prev) => ({ ...prev, [r.vin]: url }));
+      //     saveVehicleImageUrl({ vin: r.vin, image_url: url });
+      //   }
+      // });
     });
   }, [listVehicles]);
 

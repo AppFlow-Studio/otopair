@@ -23,7 +23,8 @@
 
 // 1. React & React Native
 import React from "react";
-import { View, Pressable, StyleSheet, Platform } from "react-native";
+import { View, Pressable, StyleSheet } from "react-native";
+import * as Haptics from "expo-haptics";
 
 // 2. Expo & Third-party
 import Animated, { FadeInUp, useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
@@ -95,11 +96,16 @@ function SuggestionCard({
   }));
 
   const handlePressIn = () => {
-    scale.value = withSpring(0.98, { damping: 15, stiffness: 400 });
+    scale.value = withSpring(0.97, { damping: 15, stiffness: 400 });
   };
 
   const handlePressOut = () => {
     scale.value = withSpring(1, { damping: 15, stiffness: 400 });
+  };
+
+  const handlePress = () => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    onPress();
   };
 
   const label = suggestion.subtitle
@@ -110,7 +116,7 @@ function SuggestionCard({
     return (
       <Animated.View style={animatedStyle}>
         <Pressable
-          onPress={onPress}
+          onPress={handlePress}
           onPressIn={handlePressIn}
           onPressOut={handlePressOut}
           disabled={disabled}
@@ -135,7 +141,7 @@ function SuggestionCard({
   return (
     <Animated.View style={animatedStyle}>
       <Pressable
-        onPress={onPress}
+        onPress={handlePress}
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
         disabled={disabled}
@@ -242,32 +248,35 @@ export const DEFAULT_SUGGESTIONS: Record<ConversationStage, Suggestion[]> = {
 const styles = StyleSheet.create({
   container: {
     paddingTop: Spacing.xs,
-    paddingBottom: Platform.OS === 'android' ? Spacing.md : Spacing.xs,
-    paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.sm,
-    gap: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    gap: Spacing.sm,
+    marginTop: Spacing.sm,
     alignItems: 'stretch',
   },
   card: {
     backgroundColor: "rgba(255, 255, 255, 0.55)",
-    borderRadius: BorderRadius.full,
+    borderRadius: 12,
     paddingVertical: Spacing.md,
     paddingHorizontal: Spacing.xl,
+    borderWidth: 1,
+    borderColor: "rgba(0,0,0,0.06)",
   },
   glassCard: {
-    borderRadius: BorderRadius.full,
+    borderRadius: 12,
     paddingVertical: Spacing.md,
     paddingHorizontal: Spacing.xl,
   },
   cardPressed: {
     backgroundColor: "rgba(255, 255, 255, 0.85)",
+    opacity: 0.85,
   },
   cardDisabled: {
     opacity: 0.4,
   },
   cardText: {
     color: "#1A202C",
-    fontSize: 15,
+    fontSize: 14,
     fontFamily: FontFamily.medium,
     lineHeight: 20,
     textAlign: 'center',

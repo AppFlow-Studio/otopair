@@ -23,14 +23,17 @@
 
 // 1. React & React Native
 import React, { useEffect, useState, useRef, useCallback } from "react";
-import { View, ScrollView, StyleSheet, Pressable, Alert, Platform, KeyboardAvoidingView, Keyboard } from "react-native";
+import { View, ScrollView, StyleSheet, Pressable, Alert, Platform, Keyboard, useWindowDimensions, Dimensions } from "react-native";
 
 // 2. Expo & Third-party
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
-import Animated, { useAnimatedStyle, useSharedValue, withTiming, withDelay, Easing } from "react-native-reanimated";
+import Animated, { useAnimatedStyle, useSharedValue, withTiming, withSpring, Easing, interpolate, runOnJS } from "react-native-reanimated";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import * as Haptics from "expo-haptics";
 import { useRouter } from "expo-router";
-import { AlignLeft, SquarePen, Ellipsis, Sparkles, History, CarFront, Zap } from "lucide-react-native";
+import { AlignLeft, SquarePen, Ellipsis, Sparkles, History, CarFront, Zap, ChevronDown } from "lucide-react-native";
+import { MenuView } from "@react-native-menu/menu";
 
 // Liquid Glass (iOS 26+)
 let LiquidGlassView: React.ComponentType<any> | null = null;
@@ -52,6 +55,7 @@ import { Text } from "@/components/shared-ui";
 // 4. Flow-specific components
 import {
   AIGreeting,
+  AIContextBar,
   AIMessageBubble,
   AIInputBox,
   AITypingIndicator,
@@ -89,12 +93,18 @@ import type { ConversationState, ChatMessage, AIMechanic, SelectedService } from
 // Increased on Android to account for the new floating tab bar height + its bottom offset
 const TAB_BAR_HEIGHT = Platform.OS === 'android' ? 100 : 80;
 
+// Drawer sidebar constants
+const DRAWER_TRANSLATE = Dimensions.get('window').width * 0.78;
+const DRAWER_SCALE = 0.92;
+const DRAWER_RADIUS = 40;
+
 // ============================================================================
 // MAIN COMPONENT
 // ============================================================================
 
 export default function AIChatScreen() {
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const router = useRouter();
   const scrollViewRef = useRef<ScrollView>(null);
 
@@ -178,6 +188,10 @@ export default function AIChatScreen() {
   const [toastMessage, setToastMessage] = useState("");
   const [toastVisible, setToastVisible] = useState(false);
   
+  // Car selection state — input bar hidden until car confirmed
+  const [isCarConfirmed, setIsCarConfirmed] = useState(false);
+  const [selectedVehicle, setSelectedVehicle] = useState<VehicleCard | null>(null);
+
   // Attachment panel state
   const [isAttachmentOpen, setIsAttachmentOpen] = useState(false);
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
@@ -199,50 +213,30 @@ export default function AIChatScreen() {
     cancelRecording,
   } = useVoiceRecording();
 
-  // Animated bottom padding for smooth keyboard transitions
-  const animatedBottomPadding = useSharedValue(bottomPadding);
+  // Track keyboard height + visibility (plain View, no KAV or Animated.View)
+  const [keyboardHeight, setKeyboardHeight] = useState(0);
 
-  // Track keyboard visibility with smooth animation
   useEffect(() => {
-    const showSub = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow", (e) => {
-      setIsKeyboardVisible(true);
-      // Close attachment panel when keyboard opens
-      setIsAttachmentOpen(false);
-      // Animate to 0 when keyboard shows (keyboard pushes content up)
-      animatedBottomPadding.value = withTiming(Spacing.xs, {
-        duration: Platform.OS === "ios" ? e.duration : 250,
-        easing: Easing.out(Easing.cubic),
-      });
-    });
-    const hideSub = Keyboard.addListener(Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide", (e) => {
-      setIsKeyboardVisible(false);
-      // Animate back to tab bar height when keyboard hides
-      animatedBottomPadding.value = withTiming(bottomPadding, {
-        duration: Platform.OS === "ios" ? e.duration : 250,
-        easing: Easing.out(Easing.cubic),
-      });
-    });
+    const showSub = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow",
+      (e) => {
+        setKeyboardHeight(e.endCoordinates.height);
+        setIsKeyboardVisible(true);
+        if (isAttachmentOpen) setIsAttachmentOpen(false);
+      },
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide",
+      () => {
+        setKeyboardHeight(0);
+        setIsKeyboardVisible(false);
+      },
+    );
     return () => {
       showSub.remove();
       hideSub.remove();
     };
-  }, [bottomPadding]);
-
-  // Animated style for input container
-  const inputContainerAnimatedStyle = useAnimatedStyle(() => ({
-    paddingBottom: animatedBottomPadding.value,
-  }));
-
-  // Reduce bottom padding when attachment panel is open
-  useEffect(() => {
-    if (isAttachmentOpen && !isKeyboardVisible) {
-      // Panel opening - remove padding immediately (panel handles tab bar spacing)
-      animatedBottomPadding.value = 0;
-    } else if (!isKeyboardVisible) {
-      // Panel closing - restore padding immediately (no animation to avoid gap)
-      animatedBottomPadding.value = bottomPadding;
-    }
-  }, [isAttachmentOpen, isKeyboardVisible, bottomPadding]);
+  }, [isAttachmentOpen]);
 
   const handleWelcomeContinue = () => {
     setHasSeenWelcome(true);
@@ -751,6 +745,8 @@ export default function AIChatScreen() {
     setState(createInitialState());
     setInputValue("");
     setIsProcessing(false);
+    setIsCarConfirmed(false);
+    setSelectedVehicle(null);
   }, [startNewConversation]);
 
   // Handle selecting a conversation from history
@@ -769,50 +765,91 @@ export default function AIChatScreen() {
   // Model selector
   const [selectedModel, setSelectedModel] = useState<'pro' | 'flash'>('flash');
 
-  // Oto pill expanding menu
-  const [showOtoMenu, setShowOtoMenu] = useState(false);
-  const menuExpand = useSharedValue(0);
+  // Drawer sidebar
+  const drawerProgress = useSharedValue(0);
+  const SCREEN_W = Dimensions.get('window').width;
 
-  const toggleOtoMenu = useCallback(() => {
-    const next = !showOtoMenu;
-    setShowOtoMenu(next);
-    menuExpand.value = withTiming(next ? 1 : 0, { duration: 280, easing: Easing.bezier(0.25, 0.1, 0.25, 1) });
-  }, [showOtoMenu, menuExpand]);
+  const handleDrawerOpen = useCallback(() => {
+    setShowHistory(true);
+    Keyboard.dismiss();
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }, []);
 
-  const closeOtoMenu = useCallback(() => {
-    setShowOtoMenu(false);
-    menuExpand.value = withTiming(0, { duration: 220, easing: Easing.bezier(0.25, 0.1, 0.25, 1) });
-    setShowRightMenu(false);
-    rightMenuExpand.value = withTiming(0, { duration: 220, easing: Easing.bezier(0.25, 0.1, 0.25, 1) });
-  }, [menuExpand, rightMenuExpand]);
+  const handleDrawerClose = useCallback(() => {
+    setShowHistory(false);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  }, []);
 
-  const expandedMenuStyle = useAnimatedStyle(() => ({
-    height: menuExpand.value * 155,
-    width: menuExpand.value * 240,
-    opacity: menuExpand.value,
-    overflow: "hidden" as const,
+  const toggleDrawer = useCallback(() => {
+    const isOpen = drawerProgress.value > 0.5;
+    drawerProgress.value = withTiming(isOpen ? 0 : 1, { duration: 250, easing: Easing.out(Easing.cubic) });
+    if (isOpen) handleDrawerClose();
+    else handleDrawerOpen();
+  }, [handleDrawerOpen, handleDrawerClose]);
+
+  const openGesture = Gesture.Pan()
+    .activeOffsetX(10)
+    .failOffsetY([-15, 15])
+    .hitSlop({ left: 0, right: -(SCREEN_W - 40), top: 0, bottom: 0 })
+    .onUpdate((e) => {
+      'worklet';
+      const progress = Math.max(0, Math.min(1, e.translationX / DRAWER_TRANSLATE));
+      drawerProgress.value = progress;
+    })
+    .onEnd((e) => {
+      'worklet';
+      const shouldOpen = drawerProgress.value > 0.3 || e.velocityX > 500;
+      drawerProgress.value = withTiming(shouldOpen ? 1 : 0, { duration: 250, easing: Easing.out(Easing.cubic) });
+      if (shouldOpen) runOnJS(handleDrawerOpen)();
+      else runOnJS(handleDrawerClose)();
+    });
+
+  const closeGesture = Gesture.Pan()
+    .activeOffsetX(-10)
+    .failOffsetY([-15, 15])
+    .onUpdate((e) => {
+      'worklet';
+      const progress = Math.max(0, 1 + e.translationX / DRAWER_TRANSLATE);
+      drawerProgress.value = progress;
+    })
+    .onEnd((e) => {
+      'worklet';
+      const shouldClose = drawerProgress.value < 0.7 || e.velocityX < -500;
+      drawerProgress.value = withTiming(shouldClose ? 0 : 1, { duration: 250, easing: Easing.out(Easing.cubic) });
+      if (shouldClose) runOnJS(handleDrawerClose)();
+    });
+
+  const chatCardStyle = useAnimatedStyle(() => {
+    const translateX = interpolate(drawerProgress.value, [0, 1], [0, DRAWER_TRANSLATE]);
+    const borderRadius = interpolate(drawerProgress.value, [0, 1], [0, DRAWER_RADIUS]);
+    return {
+      transform: [{ translateX }],
+      borderRadius,
+      overflow: drawerProgress.value > 0 ? 'hidden' as const : 'visible' as const,
+      shadowColor: '#000',
+      shadowOffset: { width: -5, height: 0 },
+      shadowRadius: 15,
+      shadowOpacity: interpolate(drawerProgress.value, [0, 1], [0, 0.25]),
+    };
+  });
+
+  const closeDrawer = useCallback(() => {
+    drawerProgress.value = withTiming(0, { duration: 250, easing: Easing.out(Easing.cubic) });
+    handleDrawerClose();
+  }, [handleDrawerClose]);
+
+  // Gradient always visible (same background for greeting + chat)
+  const gradientFadeStyle = { opacity: 1 };
+
+  // Fade content (not background) when drawer opens
+  const contentFadeStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(drawerProgress.value, [0, 1], [1, 0.35]),
   }));
 
-  // Right pill expanding menu
-  const [showRightMenu, setShowRightMenu] = useState(false);
-  const rightMenuExpand = useSharedValue(0);
-
-  const toggleRightMenu = useCallback(() => {
-    const next = !showRightMenu;
-    setShowRightMenu(next);
-    rightMenuExpand.value = withTiming(next ? 1 : 0, { duration: 280, easing: Easing.bezier(0.25, 0.1, 0.25, 1) });
-  }, [showRightMenu, rightMenuExpand]);
-
-  const closeRightMenu = useCallback(() => {
-    setShowRightMenu(false);
-    rightMenuExpand.value = withTiming(0, { duration: 220, easing: Easing.bezier(0.25, 0.1, 0.25, 1) });
-  }, [rightMenuExpand]);
-
-  const rightExpandedStyle = useAnimatedStyle(() => ({
-    height: rightMenuExpand.value * 88,
-    width: rightMenuExpand.value * 160,
-    opacity: rightMenuExpand.value,
-    overflow: "hidden" as const,
+  // Oto pill press scale
+  const pillScale = useSharedValue(1);
+  const pillScaleStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: pillScale.value }],
   }));
 
   // Determine if we should show chat greeting (no messages yet)
@@ -824,28 +861,64 @@ export default function AIChatScreen() {
   }
 
   return (
-    <View style={styles.container}>
-      {/* Background Gradient */}
+    <View style={styles.drawerRoot}>
+      {/* Sidebar gradient — covers full screen behind everything */}
       <LinearGradient
-        colors={['#9ECAE9', '#d4e8f5', '#eef4f9', '#f7fafb']}
-        locations={[0, 0.3, 0.55, 1]}
+        colors={['#EDEDED', '#EDEDED']}
+        locations={[0, 1]}
         style={StyleSheet.absoluteFillObject}
       />
 
+      {/* Base layer: Sidebar (always rendered, visible when chat card slides right) */}
+      <View style={StyleSheet.absoluteFill}>
+        <AIChatHistory
+          onClose={closeDrawer}
+          conversations={conversations}
+          onSelectConversation={(id) => {
+            handleSelectConversation(id);
+            closeDrawer();
+          }}
+          paddingTop={insets.top}
+        />
+      </View>
+
+      {/* Chat card — slides right to reveal sidebar */}
+      <GestureDetector gesture={showHistory ? closeGesture : openGesture}>
+        <Animated.View style={[styles.container, chatCardStyle]}>
+
+      {/* Tap overlay to close drawer when open */}
+      {showHistory && (
+        <Pressable
+          style={[StyleSheet.absoluteFill, { zIndex: 100 }]}
+          onPress={closeDrawer}
+        />
+      )}
+
+      {/* Background Gradient — fades out when messages exist, revealing white root */}
+      <Animated.View style={[StyleSheet.absoluteFillObject, gradientFadeStyle]} pointerEvents="none">
+        <LinearGradient
+          colors={['#FFFFFF', '#FFFFFF']}
+          locations={[0, 1]}
+          style={StyleSheet.absoluteFillObject}
+        />
+      </Animated.View>
+
+      {/* Content wrapper — fades when drawer opens, background stays full opacity */}
+      <Animated.View style={[{ flex: 1 }, contentFadeStyle]}>
+
       {/* Header — absolutely positioned, floats above scroll */}
-      {(showOtoMenu || showRightMenu) && <Pressable style={styles.otoMenuOverlay} onPress={closeOtoMenu} />}
-      <View style={[styles.headerFloating, { paddingTop: insets.top }, (showOtoMenu || showRightMenu) && { zIndex: 100 }]}>
+      <Animated.View style={[styles.headerFloating, { paddingTop: insets.top }]}>
         {/* Left: Hamburger circle */}
         <View style={styles.headerSide}>
           {isLiquidGlassEnabled && LiquidGlassView ? (
-            <Pressable onPress={() => setShowHistory(true)}>
+            <Pressable onPress={toggleDrawer}>
               <LiquidGlassView interactive effect="regular" style={styles.glassIconPill}>
                 <AlignLeft size={20} color="#000000" />
               </LiquidGlassView>
             </Pressable>
           ) : (
             <Pressable
-              onPress={() => setShowHistory(true)}
+              onPress={toggleDrawer}
               style={({ pressed }) => [styles.headerIcon, pressed && styles.headerIconPressed]}
             >
               <AlignLeft size={22} color="#000000" />
@@ -853,111 +926,108 @@ export default function AIChatScreen() {
           )}
         </View>
 
-        {/* Center: Oto model selector */}
+        {/* Center: Oto model selector (native UIMenu) */}
         <View style={styles.headerCenter}>
-          {isLiquidGlassEnabled && LiquidGlassView ? (
-            <Pressable onPress={toggleOtoMenu}>
-              <LiquidGlassView interactive effect="regular" style={styles.glassCenterPill}>
-                <View style={styles.glassExpandableRow}>
+          <MenuView
+            onPressAction={({ nativeEvent }) => {
+              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+              if (nativeEvent.event === 'pro') setSelectedModel('pro');
+              else if (nativeEvent.event === 'flash') setSelectedModel('flash');
+            }}
+            actions={[
+              {
+                id: 'pro',
+                title: 'Oto Pro',
+                subtitle: 'Maximum quality and reasoning. Prioritizes depth over speed.',
+                image: 'sparkles',
+                state: selectedModel === 'pro' ? 'on' : 'off',
+              },
+              {
+                id: 'flash',
+                title: 'Oto Flash',
+                subtitle: 'Fast, everyday responses. Great for quick questions and tasks.',
+                image: 'bolt.fill',
+                state: selectedModel === 'flash' ? 'on' : 'off',
+              },
+            ]}
+          >
+            {isLiquidGlassEnabled && LiquidGlassView ? (
+              <Animated.View style={pillScaleStyle}>
+                <Pressable
+                  onPressIn={() => { pillScale.value = withSpring(0.96); }}
+                  onPressOut={() => { pillScale.value = withSpring(1); }}
+                >
+                  <LiquidGlassView interactive effect="regular" style={styles.glassCenterPill}>
+                    <View style={styles.pillContent}>
+                      <Text style={styles.glassTitleText} size="md" weight="semiBold">
+                        {selectedModel === 'pro' ? 'Oto Pro' : 'Oto'}
+                      </Text>
+                      <ChevronDown size={12} color="rgba(0,0,0,0.3)" />
+                    </View>
+                  </LiquidGlassView>
+                </Pressable>
+              </Animated.View>
+            ) : (
+              <View style={styles.modelSelectorButton}>
+                <View style={styles.pillContent}>
                   <Text style={styles.glassTitleText} size="md" weight="semiBold">
                     {selectedModel === 'pro' ? 'Oto Pro' : 'Oto'}
                   </Text>
+                  <ChevronDown size={12} color="rgba(0,0,0,0.3)" />
                 </View>
-                <Animated.View style={expandedMenuStyle}>
-                  <View style={styles.otoExpandedDivider} />
-                  <Pressable
-                    onPress={() => { setSelectedModel('pro'); closeOtoMenu(); }}
-                    style={({ pressed }) => [styles.modelOptionItem, pressed && { opacity: 0.6 }]}
-                  >
-                    <View style={styles.modelOptionRow}>
-                      <Sparkles size={18} color="#000000" style={{ marginTop: 2 }} />
-                      <View style={styles.modelOptionTextContainer}>
-                        <View style={styles.modelOptionTitleRow}>
-                          <Text size="sm" weight="semiBold" style={styles.otoMenuItemText}>Oto Pro</Text>
-                          {selectedModel === 'pro' && <View style={styles.modelSelectedDot} />}
-                        </View>
-                        <Text size="xs" weight="regular" style={styles.modelOptionDescription}>
-                          Maximum quality and reasoning. Prioritizes depth over speed.
-                        </Text>
-                      </View>
-                    </View>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => { setSelectedModel('flash'); closeOtoMenu(); }}
-                    style={({ pressed }) => [styles.modelOptionItem, pressed && { opacity: 0.6 }]}
-                  >
-                    <View style={styles.modelOptionRow}>
-                      <Zap size={18} color="#000000" style={{ marginTop: 2 }} />
-                      <View style={styles.modelOptionTextContainer}>
-                        <View style={styles.modelOptionTitleRow}>
-                          <Text size="sm" weight="semiBold" style={styles.otoMenuItemText}>Oto Flash</Text>
-                          {selectedModel === 'flash' && <View style={styles.modelSelectedDot} />}
-                        </View>
-                        <Text size="xs" weight="regular" style={styles.modelOptionDescription}>
-                          Fast, everyday responses. Great for quick questions and tasks.
-                        </Text>
-                      </View>
-                    </View>
-                  </Pressable>
-                </Animated.View>
-              </LiquidGlassView>
-            </Pressable>
-          ) : (
-            <Pressable onPress={toggleOtoMenu}>
-              <Text style={styles.headerTitle} size="lg" weight="semiBold">
-                {selectedModel === 'pro' ? 'Oto Pro' : 'Oto'}
-              </Text>
-            </Pressable>
-          )}
+              </View>
+            )}
+          </MenuView>
         </View>
 
-        {/* Right: Compose pill */}
+        {/* Right: Compose pill (native UIMenu) */}
         <View style={styles.headerSideRight}>
-          {isLiquidGlassEnabled && LiquidGlassView ? (
-            <Pressable onPress={startNewChat} onLongPress={toggleRightMenu}>
-              <LiquidGlassView interactive effect="regular" style={styles.glassRightExpandablePill}>
-                <View style={styles.glassExpandableRow}>
-                  <SquarePen size={18} color="#000000" />
-                </View>
-                <Animated.View style={rightExpandedStyle}>
-                  <View style={styles.otoExpandedDivider} />
-                  <Pressable
-                    onPress={() => { closeRightMenu(); startNewChat(); }}
-                    style={({ pressed }) => [styles.otoExpandedItem, pressed && { opacity: 0.6 }]}
-                  >
-                    <SquarePen size={16} color="#000000" />
-                    <Text size="sm" weight="medium" style={styles.otoMenuItemText}>
-                      New Chat
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => { closeRightMenu(); }}
-                    style={({ pressed }) => [styles.otoExpandedItem, pressed && { opacity: 0.6 }]}
-                  >
-                    <CarFront size={16} color="#000000" />
-                    <Text size="sm" weight="medium" style={styles.otoMenuItemText}>
-                      Change Vehicle
-                    </Text>
-                  </Pressable>
-                </Animated.View>
+          <MenuView
+            onPressAction={({ nativeEvent }) => {
+              if (nativeEvent.event === 'new_chat') startNewChat();
+              if (nativeEvent.event === 'change_vehicle') startNewChat();
+            }}
+            actions={[
+              {
+                id: 'new_chat',
+                title: 'New Chat',
+                image: 'square.and.pencil',
+              },
+              {
+                id: 'change_vehicle',
+                title: 'Change Vehicle',
+                image: 'car.fill',
+              },
+            ]}
+          >
+            {isLiquidGlassEnabled && LiquidGlassView ? (
+              <LiquidGlassView interactive effect="regular" style={styles.glassIconPill}>
+                <SquarePen size={18} color="#000000" />
               </LiquidGlassView>
-            </Pressable>
-          ) : (
-            <Pressable
-              onPress={startNewChat}
-              style={({ pressed }) => [styles.headerIcon, pressed && styles.headerIconPressed]}
-            >
-              <SquarePen size={20} color="#000000" />
-            </Pressable>
-          )}
+            ) : (
+              <View style={styles.headerIcon}>
+                <SquarePen size={20} color="#000000" />
+              </View>
+            )}
+          </MenuView>
         </View>
-      </View>
+      </Animated.View>
+
+      {/* Context bar — shows selected vehicle during chat */}
+      {!showChatGreeting && selectedVehicle && (
+        <AIContextBar
+          vehicle={selectedVehicle}
+          onChangeVehicle={startNewChat}
+          top={HEADER_HEIGHT + 8}
+        />
+      )}
 
       {/* Main Content */}
-      <KeyboardAvoidingView
-        style={[styles.content, showChatGreeting && { overflow: 'visible' }]}
-        behavior={Platform.OS === "ios" ? "padding" : undefined}
-        keyboardVerticalOffset={0}
+      <View
+        style={[
+          { flex: 1 },
+          showChatGreeting && { overflow: 'visible' },
+        ]}
       >
         {/* Chat Area */}
         <ScrollView
@@ -965,7 +1035,7 @@ export default function AIChatScreen() {
           style={[styles.chatContainer, showChatGreeting && styles.chatContainerGreeting]}
           contentContainerStyle={[
             styles.chatContent,
-            showChatGreeting ? styles.chatContentCentered : { paddingTop: HEADER_HEIGHT },
+            showChatGreeting ? styles.chatContentCentered : { paddingTop: HEADER_HEIGHT + 16 + (selectedVehicle ? 52 : 0), paddingBottom: (keyboardHeight > 0 ? keyboardHeight + 8 : bottomPadding + 8) + 70 },
           ]}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
@@ -979,13 +1049,16 @@ export default function AIChatScreen() {
               vehicles={greetingVehicles}
               selectedVehicleVin={selectedVehicleVin}
               onVehicleSelect={setSelectedVehicleVin}
-              onVehicleConfirm={(vin) => {
+              keyboardVisible={isKeyboardVisible && isCarConfirmed}
+              onVehicleConfirm={(vin, vehicle) => {
                 setSelectedVehicleVin(vin);
-                const vehicle = greetingVehicles.find((v) => v.vin === vin);
+                setIsCarConfirmed(true);
+                if (vehicle) setSelectedVehicle(vehicle);
                 if (vehicle) {
                   setTimeout(() => {
                     setIsProcessing(true);
-                    const { newState: ns, response } = processUserMessage(state, vehicle.model);
+                    const vehicleLabel = `${vehicle.year} ${vehicle.make} ${vehicle.model}`;
+                    const { newState: ns, response } = processUserMessage(state, vehicleLabel);
                     setState((prev) => ({
                       ...prev,
                       messages: ns.messages,
@@ -1085,14 +1158,20 @@ export default function AIChatScreen() {
           )}
         </ScrollView>
 
-        {/* Selected Images Preview - above input */}
-        <AISelectedImages
-          images={selectedImages}
-          onRemove={handleRemoveImage}
-        />
+      </View>
 
-        {/* Input Area with smooth keyboard animation */}
-        <Animated.View style={inputContainerAnimatedStyle}>
+      {/* Input area — absolutely positioned above keyboard */}
+      {!showChatGreeting && (
+        <View style={{
+          position: 'absolute',
+          left: 0,
+          right: 0,
+          bottom: keyboardHeight > 0 ? keyboardHeight + 8 : bottomPadding + 8,
+        }}>
+          <AISelectedImages
+            images={selectedImages}
+            onRemove={handleRemoveImage}
+          />
           <AIInputBox
             value={inputValue}
             onChangeText={setInputValue}
@@ -1109,24 +1188,16 @@ export default function AIChatScreen() {
             onToggleAttachment={handleToggleAttachment}
             hasImages={selectedImages.length > 0}
           />
-        </Animated.View>
-
-        {/* Attachment Panel (Discord-style) - below input, pushes everything up */}
-        <AIAttachmentPanel
-          visible={isAttachmentOpen}
-          onClose={() => setIsAttachmentOpen(false)}
-          selectedImages={selectedImages}
-          onToggleImage={handleToggleImage}
-        />
-      </KeyboardAvoidingView>
-
-      {/* Chat History Sidebar */}
-      <AIChatHistory
-        visible={showHistory}
-        onClose={() => setShowHistory(false)}
-        conversations={conversations}
-        onSelectConversation={handleSelectConversation}
-      />
+          {isAttachmentOpen && (
+            <AIAttachmentPanel
+              visible={isAttachmentOpen}
+              onClose={() => setIsAttachmentOpen(false)}
+              selectedImages={selectedImages}
+              onToggleImage={handleToggleImage}
+            />
+          )}
+        </View>
+      )}
 
       {/* Toast Notification */}
       <AIToast
@@ -1135,7 +1206,9 @@ export default function AIChatScreen() {
         onDismiss={() => setToastVisible(false)}
       />
 
-      {/* (Expanding menu is now inline inside the header pill) */}
+      </Animated.View>
+        </Animated.View>
+      </GestureDetector>
     </View>
   );
 }
@@ -1145,8 +1218,13 @@ export default function AIChatScreen() {
 // ============================================================================
 
 const styles = StyleSheet.create({
+  drawerRoot: {
+    flex: 1,
+    backgroundColor: 'transparent',
+  },
   container: {
     flex: 1,
+    backgroundColor: '#FFFFFF',
   },
   header: {
     flexDirection: "row",
@@ -1209,7 +1287,19 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     paddingHorizontal: 14,
     paddingVertical: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowRadius: 3,
+    shadowOpacity: 0.08,
+  },
+  pillContent: {
+    flexDirection: "row",
     alignItems: "center",
+    gap: 4,
+  },
+  modelSelectorButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
   },
   glassRightExpandablePill: {
     borderRadius: 22,
@@ -1242,35 +1332,6 @@ const styles = StyleSheet.create({
   },
   otoMenuItemText: {
     color: "#000000",
-  },
-  // Model selector options
-  modelOptionItem: {
-    paddingVertical: 10,
-    paddingHorizontal: 2,
-  },
-  modelOptionRow: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 10,
-  },
-  modelOptionTextContainer: {
-    flex: 1,
-    gap: 2,
-  },
-  modelOptionTitleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 8,
-  },
-  modelOptionDescription: {
-    color: "rgba(0, 0, 0, 0.45)",
-    lineHeight: 16,
-  },
-  modelSelectedDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: "#007AFF",
   },
   content: {
     flex: 1,

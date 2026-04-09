@@ -1,38 +1,32 @@
 /**
  * AIGreeting
  *
- * PURPOSE: Displays ChatGPT-style greeting with vehicle selection and suggestion chips
+ * PURPOSE: Luxury showroom greeting with vehicle carousel, parallax, text crossfade, and pagination
  *
  * USED IN: app/(main-tabs)/ai-chat/index.tsx (shown when no messages exist)
- *
- * PROPS:
- *   - userName (string): User's name to display in greeting (default: "User")
- *   - suggestions (Suggestion[]): Array of suggestion objects to display
- *   - onSuggestionPress ((text: string) => void): Callback when a suggestion is pressed
- *   - vehicles (VehicleCard[]): Array of user's vehicles to display for selection
- *   - selectedVehicleVin (string | null): Currently selected vehicle VIN
- *   - onVehicleSelect ((vin: string) => void): Callback when a vehicle is selected
- *   - onVehicleConfirm ((vin: string) => void): Callback when user confirms vehicle with "Choose"
  *
  * OWNER: Waleed Mansour
  */
 
 // 1. React & React Native
-import React, { useState, useCallback } from 'react';
-import { View, StyleSheet, Pressable, Dimensions, Platform } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, StyleSheet, Pressable, Dimensions } from 'react-native';
+import * as Haptics from 'expo-haptics';
 
 // 2. Expo & Third-party
 import Animated, {
   FadeIn,
-  FadeOut,
-  FadeInRight,
   useAnimatedStyle,
   useSharedValue,
   withSpring,
+  withTiming,
+  withSequence,
+  withDelay,
   interpolate,
   Extrapolation,
-  useAnimatedScrollHandler,
+  type SharedValue,
 } from 'react-native-reanimated';
+import Carousel from 'react-native-reanimated-carousel';
 import { Image } from 'expo-image';
 import { Car } from 'lucide-react-native';
 
@@ -46,13 +40,6 @@ import { BrandColors, BorderRadius, Spacing, FontFamily } from '@/constants/them
 // TYPES
 // ============================================================================
 
-interface Suggestion {
-  id: string;
-  text: string;
-  subtitle?: string;
-  value?: string;
-}
-
 export interface VehicleCard {
   vin: string;
   year: number;
@@ -64,75 +51,46 @@ export interface VehicleCard {
 
 interface AIGreetingProps {
   userName?: string;
-  suggestions: Suggestion[];
+  suggestions: { id: string; text: string; subtitle?: string; value?: string }[];
   onSuggestionPress: (text: string) => void;
   vehicles?: VehicleCard[];
   selectedVehicleVin?: string | null;
   onVehicleSelect?: (vin: string) => void;
-  onVehicleConfirm?: (vin: string) => void;
+  onVehicleConfirm?: (vin: string, vehicle: VehicleCard) => void;
+  keyboardVisible?: boolean;
 }
 
 // ============================================================================
-// CHATGPT-STYLE HORIZONTAL SUGGESTIONS
-// ============================================================================
-
-const HORIZONTAL_SUGGESTIONS: Suggestion[] = [
-  { id: 'brake', text: 'Fix', subtitle: 'brake noise' },
-  { id: 'engine', text: 'Check', subtitle: 'engine light' },
-  { id: 'oil', text: 'Schedule', subtitle: 'a service' },
-  { id: 'vague', text: 'Not sure', subtitle: "what's wrong" },
-];
-
-const MOCK_VEHICLES: VehicleCard[] = [
-  { vin: 'mock_1', year: 2025, make: 'Lexus', model: 'ES', imageUrl: null, localImage: require('@/assets/images/lexus.png') },
-  { vin: 'mock_2', year: 2022, make: 'Honda', model: 'Civic', imageUrl: null },
-  { vin: 'mock_3', year: 2024, make: 'BMW', model: '330i', imageUrl: null },
-  { vin: 'mock_4', year: 2021, make: 'Ford', model: 'Mustang', imageUrl: null },
-  { vin: 'mock_5', year: 2023, make: 'Tesla', model: 'Model 3', imageUrl: null },
-  { vin: 'mock_6', year: 2022, make: 'Audi', model: 'A4', imageUrl: null },
-  { vin: 'mock_7', year: 2024, make: 'Mercedes', model: 'C300', imageUrl: null },
-];
-
-// ============================================================================
-// VEHICLE CARD COMPONENT
+// CONSTANTS
 // ============================================================================
 
 const SCREEN_WIDTH = Dimensions.get('window').width;
-const CARD_WIDTH = SCREEN_WIDTH * 0.7;
-const CARD_GAP = Spacing.md;
-const SNAP_INTERVAL = CARD_WIDTH + CARD_GAP;
+
+const MOCK_VEHICLES: VehicleCard[] = [
+  { vin: 'mock_1', year: 2025, make: 'Lexus', model: 'ES', imageUrl: null, localImage: require('@/assets/images/lexus.png') },
+  { vin: 'mock_2', year: 2021, make: 'Ford', model: 'Explorer', imageUrl: null, localImage: require('@/assets/images/explorer.png') },
+];
+
+// ============================================================================
+// VEHICLE CARD (image + shadow only — text is rendered separately for crossfade)
+// ============================================================================
 
 function VehicleCardItem({
   vehicle,
   onPress,
   confirmed,
-  index,
-  scrollX,
+  pulseScale,
 }: {
   vehicle: VehicleCard;
   onPress: () => void;
   confirmed: boolean;
-  index: number;
-  scrollX: { value: number };
+  pulseScale: SharedValue<number>;
 }) {
   const pressScale = useSharedValue(1);
 
-  const animatedStyle = useAnimatedStyle(() => {
-    const inputRange = [
-      (index - 1) * SNAP_INTERVAL,
-      index * SNAP_INTERVAL,
-      (index + 1) * SNAP_INTERVAL,
-    ];
-    const cardScale = interpolate(
-      scrollX.value,
-      inputRange,
-      [0.75, 1.12, 0.75],
-      Extrapolation.CLAMP,
-    );
-    return {
-      transform: [{ scale: cardScale * pressScale.value }],
-    };
-  });
+  const pressStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: pressScale.value * pulseScale.value }],
+  }));
 
   const handlePressIn = () => {
     pressScale.value = withSpring(0.97, { damping: 15, stiffness: 400 });
@@ -143,100 +101,63 @@ function VehicleCardItem({
   };
 
   return (
-    <Animated.View
-      entering={FadeInRight.delay(600 + index * 200).duration(500).springify().damping(16).stiffness(80)}
-    >
-      <Animated.View style={animatedStyle}>
-        <Pressable
-          onPress={confirmed ? undefined : onPress}
-          onPressIn={confirmed ? undefined : handlePressIn}
-          onPressOut={confirmed ? undefined : handlePressOut}
-          style={styles.vehicleCard}
-        >
-          {vehicle.localImage ? (
-            <Image
-              source={vehicle.localImage}
-              style={styles.vehicleImage}
-              contentFit="contain"
-              transition={200}
-            />
-          ) : vehicle.imageUrl ? (
-            <Image
-              source={{ uri: vehicle.imageUrl }}
-              style={styles.vehicleImage}
-              contentFit="contain"
-              transition={200}
-            />
-          ) : (
-            <View style={styles.vehicleImagePlaceholder}>
-              <Car size={40} color="#9CA3AF" />
-            </View>
-          )}
-          <Text style={styles.vehicleYear} numberOfLines={1}>
-            {vehicle.year} {vehicle.make}
-          </Text>
-          <Text
-            style={styles.vehicleModel}
-            weight="bold"
-            numberOfLines={1}
-          >
-            {vehicle.model}
-          </Text>
-        </Pressable>
-      </Animated.View>
+    <Animated.View style={pressStyle}>
+      <Pressable
+        onPress={confirmed ? undefined : onPress}
+        onPressIn={confirmed ? undefined : handlePressIn}
+        onPressOut={confirmed ? undefined : handlePressOut}
+        style={styles.vehicleCard}
+      >
+        {vehicle.localImage ? (
+          <Image
+            source={vehicle.localImage}
+            style={styles.vehicleImage}
+            contentFit="contain"
+            transition={0}
+            placeholder={null}
+            cachePolicy="memory-disk"
+            recyclingKey={vehicle.vin}
+          />
+        ) : vehicle.imageUrl ? (
+          <Image
+            source={{ uri: vehicle.imageUrl }}
+            style={styles.vehicleImage}
+            contentFit="contain"
+            transition={0}
+            placeholder={null}
+            cachePolicy="memory-disk"
+            recyclingKey={vehicle.vin}
+          />
+        ) : (
+          <View style={styles.vehicleImagePlaceholder}>
+            <Car size={64} color="#9CA3AF" />
+          </View>
+        )}
+        {/* Grounding shadow */}
+        <View style={styles.groundShadow} />
+      </Pressable>
     </Animated.View>
   );
 }
 
 // ============================================================================
-// SUGGESTION CHIP COMPONENT
+// PAGINATION DOT
 // ============================================================================
 
-function SuggestionChip({
-  suggestion,
-  onPress,
-  index,
-}: {
-  suggestion: Suggestion;
-  onPress: () => void;
-  index: number;
-}) {
-  const scale = useSharedValue(1);
+function PaginationDot({ index, activeIndex }: { index: number; activeIndex: number }) {
+  const isActive = index === activeIndex;
+  const dotWidth = useSharedValue(isActive ? 18 : 6);
 
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: scale.value }],
+  useEffect(() => {
+    dotWidth.value = withSpring(isActive ? 18 : 6, { damping: 15, stiffness: 200 });
+  }, [isActive]);
+
+  const dotStyle = useAnimatedStyle(() => ({
+    width: dotWidth.value,
+    backgroundColor: isActive ? BrandColors.primary : 'rgba(0,0,0,0.12)',
   }));
 
-  const handlePressIn = () => {
-    scale.value = withSpring(0.97, { damping: 15, stiffness: 400 });
-  };
-
-  const handlePressOut = () => {
-    scale.value = withSpring(1, { damping: 15, stiffness: 400 });
-  };
-
-  return (
-    <Animated.View style={animatedStyle}>
-      <Pressable
-        onPress={onPress}
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
-        style={({ pressed }) => [
-          styles.suggestionChip,
-          pressed && styles.suggestionChipPressed,
-        ]}
-      >
-        <Text style={styles.suggestionTitle} weight="semiBold">
-          {suggestion.text}
-        </Text>
-        {suggestion.subtitle && (
-          <Text style={styles.suggestionSubtitle}>
-            {suggestion.subtitle}
-          </Text>
-        )}
-      </Pressable>
-    </Animated.View>
-  );
+  return <Animated.View style={[styles.dot, dotStyle]} />;
 }
 
 // ============================================================================
@@ -251,85 +172,176 @@ export function AIGreeting({
   selectedVehicleVin = null,
   onVehicleSelect,
   onVehicleConfirm,
+  keyboardVisible = false,
 }: AIGreetingProps) {
-  const displaySuggestions = suggestions.length > 0 ? suggestions : HORIZONTAL_SUGGESTIONS;
   const allVehicles = React.useMemo(() => [...vehicles, ...MOCK_VEHICLES], [vehicles]);
   const hasVehicles = allVehicles.length > 0;
-  const [confirmed, setConfirmed] = useState(false);
-  const scrollX = useSharedValue(0);
-  const onScroll = useAnimatedScrollHandler({
-    onScroll: (event) => {
-      scrollX.value = event.contentOffset.x;
-    },
-  });
+  const isSingleCar = allVehicles.length === 1;
+  const [tappedVin, setTappedVin] = useState<string | null>(null);
+  const [activeIndex, setActiveIndex] = useState(0);
+
+  // Pulse scale for tap-to-confirm animation
+  const pulseScale = useSharedValue(1);
+
+  // Text crossfade — fades out/in when swiping between cars
+  const textOpacity = useSharedValue(1);
+  const [displayIndex, setDisplayIndex] = useState(0);
+
+  useEffect(() => {
+    if (activeIndex === displayIndex) return;
+    // Fade out, swap text, fade in
+    textOpacity.value = withSequence(
+      withTiming(0, { duration: 150 }),
+      withDelay(50, withTiming(1, { duration: 150 })),
+    );
+    // Update displayed text mid-fade
+    const timer = setTimeout(() => setDisplayIndex(activeIndex), 170);
+    return () => clearTimeout(timer);
+  }, [activeIndex]);
+
+  const textFadeStyle = useAnimatedStyle(() => ({
+    opacity: textOpacity.value,
+  }));
+
+  // Greeting + dots fade/translate for tap-to-confirm
+  const greetingOpacity = useSharedValue(1);
+  const greetingTranslateY = useSharedValue(0);
+  const dotsOpacity = useSharedValue(1);
+
+  const greetingAnimStyle = useAnimatedStyle(() => ({
+    opacity: greetingOpacity.value,
+    transform: [{ translateY: greetingTranslateY.value }],
+  }));
+
+  const dotsAnimStyle = useAnimatedStyle(() => ({
+    opacity: dotsOpacity.value,
+  }));
+
+  const displayedVehicle = allVehicles[displayIndex] || allVehicles[0];
+
+  const handleCarTap = (vehicle: VehicleCard) => {
+    if (tappedVin) return;
+
+    // 1. Haptic
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+
+    // 2. Car pulse
+    pulseScale.value = withSequence(
+      withSpring(1.03, { damping: 8 }),
+      withSpring(1, { damping: 12 }),
+    );
+
+    // 3. Greeting fade out + translate up
+    greetingOpacity.value = withTiming(0, { duration: 200 });
+    greetingTranslateY.value = withTiming(-10, { duration: 200 });
+
+    // 4. Dots fade out
+    dotsOpacity.value = withTiming(0, { duration: 150 });
+
+    // 5. Set state and call callbacks
+    setTappedVin(vehicle.vin);
+    onVehicleSelect?.(vehicle.vin);
+    onVehicleConfirm?.(vehicle.vin, vehicle);
+  };
 
   return (
     <View style={styles.container}>
-      {/* Greeting + Vehicle Selection — centered */}
+      {/* Greeting text */}
       <View style={styles.greetingContainer}>
-        {!confirmed && (
-          <Animated.View
-            entering={FadeIn.delay(100).duration(500)}
-            exiting={FadeOut.duration(300)}
-          >
+        <Animated.View style={greetingAnimStyle}>
+          <Animated.View entering={FadeIn.delay(100).duration(500)}>
             <Text style={styles.greeting} weight="semiBold">
               Hello, {userName}
             </Text>
           </Animated.View>
-        )}
 
-        {/* Subtitle — only before confirmation */}
-        {!confirmed && (
-          <Animated.View
-            key="default-subtitle"
-            entering={FadeIn.delay(300).duration(500)}
-            exiting={FadeOut.duration(300)}
-          >
+          <Animated.View entering={FadeIn.delay(300).duration(500)}>
             <Text style={styles.subtitle}>
               {hasVehicles
-                ? 'Which car can I help with today?'
+                ? (tappedVin ? 'Getting things ready...' : 'Which car can I help with today?')
                 : 'What can I help you with today?'}
             </Text>
           </Animated.View>
-        )}
-
+        </Animated.View>
       </View>
 
-      {/* Vehicle Cards — outside greetingContainer so scroll isn't clipped */}
-      {hasVehicles && !confirmed && (
-        <Animated.View
-          exiting={FadeOut.duration(300)}
-          style={styles.vehiclesSection}
-        >
-          <Animated.ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            style={{ overflow: 'visible' }}
-            contentContainerStyle={styles.vehiclesScroll}
-            snapToInterval={SNAP_INTERVAL}
-            decelerationRate="fast"
-            onScroll={onScroll}
-            scrollEventThrottle={16}
-          >
-            {allVehicles.map((vehicle, index) => (
+      {/* Vehicle Carousel or Single Car */}
+      {hasVehicles && (
+        <View style={styles.vehiclesSection}>
+          {isSingleCar ? (
+            // Single car — no carousel, centered
+            <View style={styles.singleCarContainer}>
               <VehicleCardItem
-                key={vehicle.vin}
-                vehicle={vehicle}
-                onPress={() => {
-                  onVehicleSelect?.(vehicle.vin);
-                  setConfirmed(true);
-                  onVehicleConfirm?.(vehicle.vin);
-                }}
-                confirmed={false}
-                index={index}
-                scrollX={scrollX}
+                vehicle={allVehicles[0]}
+                onPress={() => handleCarTap(allVehicles[0])}
+                confirmed={!!tappedVin}
+                pulseScale={pulseScale}
               />
-            ))}
-          </Animated.ScrollView>
-        </Animated.View>
-      )}
+            </View>
+          ) : (
+            // Multi-car carousel with parallax
+            <Carousel
+              width={SCREEN_WIDTH}
+              height={180}
+              data={allVehicles}
+              loop={false}
+              snapEnabled={true}
+              pagingEnabled={true}
+              autoPlay={false}
+              style={{ overflow: 'visible' }}
+              onSnapToItem={(index) => setActiveIndex(index)}
+              customAnimation={(value: number) => {
+                'worklet';
+                const s = interpolate(
+                  value,
+                  [-1, -0.5, 0, 0.5, 1],
+                  [0.82, 0.88, 1, 0.88, 0.82],
+                  Extrapolation.CLAMP,
+                );
+                const o = interpolate(
+                  value,
+                  [-1, -0.5, 0, 0.5, 1],
+                  [0.4, 0.6, 1, 0.6, 0.4],
+                  Extrapolation.CLAMP,
+                );
+                const parallax = interpolate(value, [-1, 0, 1], [-15, 0, 15], Extrapolation.CLAMP);
+                const tx = value * SCREEN_WIDTH + parallax;
+                return {
+                  transform: [{ translateX: tx }, { scale: s }],
+                  opacity: o,
+                };
+              }}
+              renderItem={({ item: vehicle }) => (
+                <VehicleCardItem
+                  vehicle={vehicle}
+                  onPress={() => handleCarTap(vehicle)}
+                  confirmed={!!tappedVin}
+                  pulseScale={pulseScale}
+                />
+              )}
+            />
+          )}
 
-      {/* Suggestions removed — they now appear in the chat view after AI responds */}
+          {/* Year/Make + Model text — crossfades independently */}
+          <Animated.View style={[styles.vehicleTextContainer, textFadeStyle]}>
+            <Text style={styles.vehicleYear} numberOfLines={1}>
+              {displayedVehicle.year} {displayedVehicle.make}
+            </Text>
+            <Text style={styles.vehicleModel} weight="bold" numberOfLines={1}>
+              {displayedVehicle.model}
+            </Text>
+          </Animated.View>
+
+          {/* Pagination dots */}
+          {!isSingleCar && (
+            <Animated.View style={[styles.dotsRow, dotsAnimStyle]}>
+              {allVehicles.map((_, i) => (
+                <PaginationDot key={i} index={i} activeIndex={activeIndex} />
+              ))}
+            </Animated.View>
+          )}
+        </View>
+      )}
     </View>
   );
 }
@@ -350,91 +362,82 @@ const styles = StyleSheet.create({
     overflow: 'visible',
   },
   greeting: {
-    fontSize: 38,
-    lineHeight: 48,
+    fontSize: 24,
+    lineHeight: 32,
     color: '#000000',
     textAlign: 'center',
   },
   subtitle: {
-    fontSize: 17,
-    lineHeight: 24,
-    color: '#000000',
+    fontSize: 15,
+    lineHeight: 22,
+    color: 'rgba(0,0,0,0.45)',
     textAlign: 'center',
     marginTop: Spacing.sm,
     fontFamily: FontFamily.regular,
   },
-  // Vehicle cards
+  // Vehicle section
   vehiclesSection: {
     marginTop: Spacing['5xl'],
-    marginBottom: Spacing.xl,
     overflow: 'visible',
   },
-  vehiclesScroll: {
-    paddingHorizontal: Spacing.lg,
-    gap: CARD_GAP,
-    overflow: 'visible',
-    paddingVertical: Spacing.lg,
-  },
-  vehicleCard: {
-    width: CARD_WIDTH,
+  singleCarContainer: {
     alignItems: 'center',
   },
+  vehicleCard: {
+    width: SCREEN_WIDTH,
+    alignItems: 'center',
+    paddingHorizontal: SCREEN_WIDTH * 0.15,
+  },
   vehicleImage: {
-    width: '100%',
+    width: 180,
     height: 120,
-    marginBottom: Spacing.md,
   },
   vehicleImagePlaceholder: {
-    width: '100%',
+    width: 180,
     height: 120,
-    marginBottom: Spacing.md,
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: 'rgba(0, 0, 0, 0.03)',
     borderRadius: BorderRadius.lg,
   },
+  groundShadow: {
+    width: 108,
+    height: 12,
+    borderRadius: 999,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+    transform: [{ scaleY: 0.15 }],
+    alignSelf: 'center',
+    marginTop: -4,
+  },
+  // Vehicle text — rendered outside carousel for crossfade
+  vehicleTextContainer: {
+    alignItems: 'center',
+    marginTop: Spacing.sm,
+  },
   vehicleYear: {
-    fontSize: 14,
-    color: '#6B7280',
+    fontSize: 13,
+    color: 'rgba(0,0,0,0.4)',
     fontFamily: FontFamily.regular,
     textAlign: 'center',
-    marginBottom: 2,
+    marginBottom: Spacing.sm,
+    letterSpacing: 0.5,
   },
   vehicleModel: {
-    fontSize: 22,
+    fontSize: 20,
     color: '#000000',
     fontFamily: FontFamily.bold,
     textAlign: 'center',
   },
-  // Suggestions
-  suggestionsContainer: {
-    paddingBottom: Platform.OS === 'android' ? Spacing.md : Spacing.xs,
+  // Pagination
+  dotsRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 16,
   },
-  suggestionsScroll: {
-    paddingHorizontal: Spacing.lg,
-    gap: Spacing.sm,
-  },
-  suggestionChip: {
-    backgroundColor: 'rgba(255, 255, 255, 0.6)',
-    borderRadius: BorderRadius.xl,
-    paddingVertical: Spacing.md,
-    paddingHorizontal: Spacing.lg,
-    borderWidth: 0,
-    minWidth: 120,
-  },
-  suggestionChipPressed: {
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
-  },
-  suggestionTitle: {
-    color: '#000000',
-    fontSize: 15,
-    fontFamily: FontFamily.semiBold,
-    lineHeight: 20,
-  },
-  suggestionSubtitle: {
-    color: '#000000',
-    fontSize: 14,
-    fontFamily: FontFamily.regular,
-    lineHeight: 18,
+  dot: {
+    height: 6,
+    borderRadius: 3,
   },
 });

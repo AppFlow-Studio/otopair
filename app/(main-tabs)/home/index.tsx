@@ -206,14 +206,15 @@ export default function HomeScreen() {
         setVehicleImageUrls((prev) => ({ ...prev, [r.vin]: cachedUrl }));
         return;
       }
-      const v = r.vehicle;
-      const meta = v?.metadata as { make?: string; model?: string; color?: string } | undefined;
-      const color = meta?.color ?? r.ownership?.color ?? "";
-      fetchVehicleImageUrl(meta?.make ?? "", meta?.model ?? "", v?.year, r.vin, color).then((url) => {
-        if (cancelled || !url) return;
-        setVehicleImageUrls((prev) => ({ ...prev, [r.vin]: url }));
-        saveVehicleImageUrl({ vin: r.vin, image_url: url });
-      });
+      // TODO: re-enable once API credits are available
+      // const v = r.vehicle;
+      // const meta = v?.metadata as { make?: string; model?: string; color?: string } | undefined;
+      // const color = meta?.color ?? r.ownership?.color ?? "";
+      // fetchVehicleImageUrl(meta?.make ?? "", meta?.model ?? "", v?.year, r.vin, color).then((url) => {
+      //   if (cancelled || !url) return;
+      //   setVehicleImageUrls((prev) => ({ ...prev, [r.vin]: url }));
+      //   saveVehicleImageUrl({ vin: r.vin, image_url: url });
+      // });
     });
     return () => { cancelled = true; };
   }, [listVehicles]);

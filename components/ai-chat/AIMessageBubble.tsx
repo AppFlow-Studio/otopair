@@ -190,16 +190,21 @@ function ActionButton({
     }
   }, [isActive]);
 
+  const pressOpacity = useSharedValue(1);
+
   const handlePressIn = () => {
     scale.value = withTiming(0.9, { duration: 80 });
+    pressOpacity.value = withTiming(0.5, { duration: 80 });
   };
 
   const handlePressOut = () => {
     scale.value = withTiming(1, { duration: 80 });
+    pressOpacity.value = withTiming(1, { duration: 80 });
   };
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
+    opacity: pressOpacity.value,
   }));
 
   const bgStyle = useAnimatedStyle(() => ({
@@ -413,24 +418,24 @@ export function AIMessageBubble({
           <View style={styles.actionsContainer}>
             <View style={styles.actionButtons}>
               <ActionButton
-                icon={<Copy size={14} color="#9CA3AF" />}
-                activeIcon={<Check size={14} color={BrandColors.secondary} />}
+                icon={<Copy size={18} color="rgba(0,0,0,0.25)" />}
+                activeIcon={<Check size={20} color={BrandColors.secondary} />}
                 isActive={isCopied}
                 onPress={handleCopy}
               />
               <ActionButton
-                icon={<Volume2 size={14} color="#9CA3AF" />}
+                icon={<Volume2 size={18} color="rgba(0,0,0,0.25)" />}
                 onPress={onSpeak}
               />
               <ActionButton
-                icon={<ThumbsUp size={14} color="#9CA3AF" />}
-                activeIcon={<ThumbsUp size={14} color={BrandColors.secondary} fill={BrandColors.secondary} />}
+                icon={<ThumbsUp size={18} color="rgba(0,0,0,0.25)" />}
+                activeIcon={<ThumbsUp size={20} color={BrandColors.secondary} fill={BrandColors.secondary} />}
                 isActive={feedback === 'like'}
                 onPress={handleLike}
               />
               <ActionButton
-                icon={<ThumbsDown size={14} color="#9CA3AF" />}
-                activeIcon={<ThumbsDown size={14} color={BrandColors.secondary} fill={BrandColors.secondary} />}
+                icon={<ThumbsDown size={18} color="rgba(0,0,0,0.25)" />}
+                activeIcon={<ThumbsDown size={20} color={BrandColors.secondary} fill={BrandColors.secondary} />}
                 isActive={feedback === 'dislike'}
                 onPress={handleDislike}
               />
@@ -470,7 +475,9 @@ const styles = StyleSheet.create({
   // User message - pill style bubble
   userBubble: {
     backgroundColor: BrandColors.secondary,
-    borderRadius: BorderRadius.full,
+    borderRadius: 18,
+    borderBottomRightRadius: 4,
+    borderTopRightRadius: 14,
     paddingVertical: Spacing.sm + 2,
     paddingHorizontal: Spacing.lg,
     maxWidth: '80%',
@@ -490,7 +497,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   messageText: {
-    color: BrandColors.primary,
+    color: 'rgba(0,0,0,0.8)',
     lineHeight: 22,
     fontSize: 15,
     fontFamily: FontFamily.regular,
@@ -551,11 +558,11 @@ const styles = StyleSheet.create({
   },
   actionButtons: {
     flexDirection: 'row',
-    gap: Spacing.xs,
+    gap: 12,
   },
   actionBtn: {
-    width: 28,
-    height: 28,
+    width: 32,
+    height: 32,
     justifyContent: 'center',
     alignItems: 'center',
     borderRadius: BorderRadius.sm,
