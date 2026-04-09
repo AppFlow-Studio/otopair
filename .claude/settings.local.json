@@ -16,7 +16,9 @@
       "Bash(npx convex run seed:seed)",
       "mcp__505f5015-f542-42df-98c9-c0cdfedc73e3__documents_search",
       "Bash(ls -la /c/Users/manso/Desktop/otopair-1/convex/*.ts)",
-      "mcp__505f5015-f542-42df-98c9-c0cdfedc73e3__documents_list"
+      "mcp__505f5015-f542-42df-98c9-c0cdfedc73e3__documents_list",
+      "Bash(node scripts/migrate-to-temurbek.js --dry-run)",
+      "Bash(node scripts/migrate-to-temurbek.js)"
     ]
   }
 }
