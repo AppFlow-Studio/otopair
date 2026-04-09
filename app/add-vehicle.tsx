@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // 2. Expo & Third-party
 import { StatusBar } from 'expo-status-bar';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { ArrowLeft, QrCode, Edit3 } from 'lucide-react-native';
 import { useAction } from 'convex/react';
@@ -23,6 +24,7 @@ import { useAction } from 'convex/react';
 import { Text } from '@/components/shared-ui';
 import { Spacing } from '@/constants/theme';
 import { api } from '@/convex/_generated/api';
+import { scale, verticalScale, moderateScale } from '@/utils/responsive';
 
 // ============================================================================
 // COMPONENT
@@ -168,17 +170,17 @@ export default function AddVehicleScreen() {
         onPress={handleBack}
         style={({ pressed }) => [
           styles.backButton,
-          { top: insets.top + 12 },
+          { top: insets.top + scale(12) },
           pressed && styles.backButtonPressed,
         ]}
-        hitSlop={12}
+        hitSlop={scale(12)}
       >
-        <ArrowLeft size={24} color="#000000" strokeWidth={2} />
+        <ArrowLeft size={scale(24)} color="#000000" strokeWidth={2} />
       </Pressable>
 
       {/* Title - Overlaid on image (hidden when keyboard is up) */}
       {!keyboardVisible && (
-        <View style={[styles.titleContainer, { top: insets.top + 40 }]}>
+        <View style={[styles.titleContainer, { top: insets.top + scale(40) }]}>
           <Text weight="bold" size="2xl" color="#333333" style={styles.title}>
             ADD YOUR VEHICLE
           </Text>
@@ -202,10 +204,10 @@ export default function AddVehicleScreen() {
       <Animated.View style={[
         styles.connectorLine,
         {
-          top: Animated.add(doorDotTop, 12),
-          left: doorDotLeft - 6,
-          height: Animated.subtract(Animated.subtract(vinBadgeTop, doorDotTop), 10),
-          transform: [{ rotate: '1deg' }, { translateX: 15 }],
+          top: Animated.add(doorDotTop, scale(12)),
+          left: doorDotLeft - scale(6),
+          height: Animated.subtract(Animated.subtract(vinBadgeTop, doorDotTop), scale(10)),
+          transform: [{ rotate: '1deg' }, { translateX: scale(15) }],
         }
       ]} />
 
@@ -213,10 +215,10 @@ export default function AddVehicleScreen() {
       <Animated.View style={[
         styles.connectorLine,
         {
-          top: Animated.add(windshieldDotTop, 12),
-          left: windshieldDotLeft + 18.5,
-          height: Animated.subtract(Animated.subtract(vinBadgeTop, windshieldDotTop), 5),
-          transform: [{ rotate: '1deg' }, { translateX: -10 }],
+          top: Animated.add(windshieldDotTop, scale(12)),
+          left: windshieldDotLeft + scale(18.5),
+          height: Animated.subtract(Animated.subtract(vinBadgeTop, windshieldDotTop), scale(5)),
+          transform: [{ rotate: '1deg' }, { translateX: scale(-10) }],
         }
       ]} />
 
@@ -231,7 +233,7 @@ export default function AddVehicleScreen() {
       <Animated.View style={[
         styles.bottomButtonsContainer, 
         { 
-          paddingBottom: keyboardVisible ? 20 : insets.bottom + 20,
+          paddingBottom: keyboardVisible ? scale(20) : insets.bottom + scale(20),
           bottom: keyboardHeight,
         }
       ]}>
@@ -273,13 +275,20 @@ export default function AddVehicleScreen() {
               isDecoding && styles.buttonDisabled,
             ]}
           >
-            {isDecoding ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
-            ) : (
-              <Text weight="semiBold" size="md" color="#FFFFFF" style={styles.scanVinButtonText}>
-                DECODE VIN
-              </Text>
-            )}
+            <LinearGradient
+              colors={['#7BB8FF', '#5299FE', '#3B7FEB']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.scanVinButtonGradient}
+            >
+              {isDecoding ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Text weight="bold" size="md" color="#FFFFFF">
+                  Decode VIN
+                </Text>
+              )}
+            </LinearGradient>
           </Pressable>
         ) : (
           <Pressable
@@ -289,10 +298,17 @@ export default function AddVehicleScreen() {
               pressed && styles.scanVinButtonPressed,
             ]}
           >
-            <QrCode size={20} color="#FFFFFF" strokeWidth={2} />
-            <Text weight="semiBold" size="md" color="#FFFFFF" style={styles.scanVinButtonText}>
-              SCAN VIN
-            </Text>
+            <LinearGradient
+              colors={['#7BB8FF', '#5299FE', '#3B7FEB']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={styles.scanVinButtonGradient}
+            >
+              <QrCode size={scale(20)} color="#FFFFFF" strokeWidth={2} />
+              <Text weight="bold" size="md" color="#FFFFFF">
+                Scan VIN
+              </Text>
+            </LinearGradient>
           </Pressable>
         )}
 
@@ -304,7 +320,7 @@ export default function AddVehicleScreen() {
             pressed && styles.manualEntryButtonPressed,
           ]}
         >
-          <Edit3 size={16} color="#5299FE" strokeWidth={2} />
+          <Edit3 size={scale(16)} color="#5299FE" strokeWidth={2} />
           <Text weight="semiBold" size="sm" color="#5299FE" style={styles.manualEntryText}>
             Enter car information manually
           </Text>
@@ -352,26 +368,26 @@ const styles = StyleSheet.create({
   title: {
     textAlign: 'center',
     marginBottom: Spacing.sm,
-    letterSpacing: 1,
+    letterSpacing: scale(1),
   },
   description: {
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: moderateScale(20),
   },
   redDot: {
     position: 'absolute',
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    width: scale(20),
+    height: scale(20),
+    borderRadius: moderateScale(10),
     backgroundColor: 'rgba(255, 82, 82, 0.3)',
     justifyContent: 'center',
     alignItems: 'center',
     zIndex: 15,
   },
   redDotInner: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
+    width: scale(12),
+    height: scale(12),
+    borderRadius: moderateScale(6),
     backgroundColor: '#FF5252',
   },
   connectorLine: {
@@ -383,15 +399,15 @@ const styles = StyleSheet.create({
   vinBadge: {
     position: 'absolute',
     alignSelf: 'center',
-    left: SCREEN_WIDTH * 0.5 - 90,
+    left: SCREEN_WIDTH * 0.5 - scale(90),
     backgroundColor: '#1a1a1a',
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 6,
+    paddingHorizontal: scale(16),
+    paddingVertical: scale(8),
+    borderRadius: moderateScale(6),
     zIndex: 15,
   },
   vinBadgeText: {
-    letterSpacing: 1,
+    letterSpacing: scale(1),
   },
   bottomButtonsContainer: {
     position: 'absolute',
@@ -399,15 +415,15 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     paddingHorizontal: Spacing.lg,
-    gap: 12,
+    gap: scale(12),
     zIndex: 20,
   },
   vinInput: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 30,
-    paddingVertical: 16,
-    paddingHorizontal: 20,
-    fontSize: 16,
+    borderRadius: moderateScale(30),
+    paddingVertical: scale(16),
+    paddingHorizontal: scale(20),
+    fontSize: moderateScale(16),
     fontWeight: '500',
     color: '#333333',
     textAlign: 'center',
@@ -418,26 +434,32 @@ const styles = StyleSheet.create({
     elevation: 3,
   },
   scanVinButton: {
-    backgroundColor: '#5299FE',
-    borderRadius: 30,
-    paddingVertical: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexDirection: 'row',
-    gap: 8,
+    borderRadius: moderateScale(24),
+    overflow: 'hidden',
+    shadowColor: 'rgba(82,153,254,0.3)',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 12,
+    elevation: 4,
   },
   scanVinButtonPressed: {
-    opacity: 0.8,
+    opacity: 0.85,
+    transform: [{ scale: 0.98 }],
   },
-  scanVinButtonText: {
-    letterSpacing: 0.5,
+  scanVinButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: scale(8),
+    paddingVertical: scale(16),
+    paddingHorizontal: scale(32),
   },
   manualEntryButton: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
-    gap: 8,
+    paddingVertical: scale(12),
+    gap: scale(8),
   },
   manualEntryButtonPressed: {
     opacity: 0.7,
@@ -447,9 +469,9 @@ const styles = StyleSheet.create({
   },
   errorBanner: {
     backgroundColor: '#FFF0F0',
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
+    borderRadius: moderateScale(12),
+    paddingVertical: scale(10),
+    paddingHorizontal: scale(16),
   },
   errorText: {
     textAlign: 'center',

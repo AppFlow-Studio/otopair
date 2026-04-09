@@ -33,13 +33,14 @@ import { BottomSheetModal, BottomSheetBackdrop, BottomSheetFlatList } from "@gor
 import LottieView from "lottie-react-native";
 
 // 3. Convex & hooks
-import { useAction, useMutation } from "convex/react";
+import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 
 // 4. Shared UI
 import { Text } from "@/components/shared-ui";
-import { getVehicleImageUrl } from "@/utils/vehicleImage";
+import { useVehicleImage } from "@/utils/vehicleImage";
+import { scale, verticalScale, moderateScale } from '@/utils/responsive';
 
 // 5. Constants
 import { Spacing, BorderRadius, FontFamily } from "@/constants/theme";
@@ -254,8 +255,6 @@ export default function ReviewVehicleDetailsScreen() {
   const { userId } = useUserFromConvex();
   const addOwner = useMutation(api.vehicles.addOwner);
   const upsertVehicle = useMutation(api.vehicles.upsertVehicle);
-  const generateVehicleImage = useAction(api.imagin.generateVehicleImage);
-
   // Check if this is manual entry mode (no VIN provided)
   const isManualEntry = manual === "true";
 
@@ -273,6 +272,8 @@ export default function ReviewVehicleDetailsScreen() {
   const [isLoadingComplete, setIsLoadingComplete] = useState(false);
   const [showCarImageAfterAnimation, setShowCarImageAfterAnimation] = useState(false);
   const hasAnimationPlayedRef = useRef(false);
+
+  const carImageUrl = useVehicleImage(brand, model, year ? parseInt(year, 10) : undefined, undefined, selectedColor);
 
   // Refs
   const pickerSheetRef = useRef<BottomSheetModal>(null);
@@ -390,21 +391,11 @@ export default function ReviewVehicleDetailsScreen() {
       });
       createdOwnershipId = String(ownershipId);
 
-      // Generate watermark-free vehicle image (fire-and-forget, don't block navigation)
-      if (brand && model) {
-        generateVehicleImage({
-          vin: normalizedVin,
-          make: brand,
-          model: model,
-          year: year ? parseFloat(year) : undefined,
-          paintDescription: selectedColor || undefined,
-        }).catch((e: any) => console.warn("Vehicle image generation failed", e));
-      }
     } catch (e) {
       console.warn("Convex add vehicle failed", e);
     }
     router.push({
-      pathname: "/car-pre-onboarding",
+      pathname: "/vehicle-added",
       params: {
         flow: "manual",
         vehicleOwnerId: createdOwnershipId ?? "",
@@ -487,7 +478,7 @@ export default function ReviewVehicleDetailsScreen() {
               <Text size="md" color="#000000">
                 {item}
               </Text>
-              {brand === item && <Check size={20} color={ACCENT_COLOR} strokeWidth={3} />}
+              {brand === item && <Check size={scale(20)} color={ACCENT_COLOR} strokeWidth={3} />}
             </Pressable>
           );
 
@@ -500,7 +491,7 @@ export default function ReviewVehicleDetailsScreen() {
               <Text size="md" color="#000000">
                 {item}
               </Text>
-              {model === item && <Check size={20} color={ACCENT_COLOR} strokeWidth={3} />}
+              {model === item && <Check size={scale(20)} color={ACCENT_COLOR} strokeWidth={3} />}
             </Pressable>
           );
 
@@ -513,7 +504,7 @@ export default function ReviewVehicleDetailsScreen() {
               <Text size="md" color="#000000">
                 {item}
               </Text>
-              {year === item && <Check size={20} color={ACCENT_COLOR} strokeWidth={3} />}
+              {year === item && <Check size={scale(20)} color={ACCENT_COLOR} strokeWidth={3} />}
             </Pressable>
           );
 
@@ -535,7 +526,7 @@ export default function ReviewVehicleDetailsScreen() {
                   {item.label}
                 </Text>
               </View>
-              {selectedColor === item.id && <Check size={20} color={ACCENT_COLOR} strokeWidth={3} />}
+              {selectedColor === item.id && <Check size={scale(20)} color={ACCENT_COLOR} strokeWidth={3} />}
             </Pressable>
           );
 
@@ -548,13 +539,13 @@ export default function ReviewVehicleDetailsScreen() {
             >
               <View style={styles.pickerItemLeft}>
                 <View style={styles.pickerIconContainer}>
-                  <IconComponent size={20} color="#666666" />
+                  <IconComponent size={scale(20)} color="#666666" />
                 </View>
                 <Text size="md" color="#000000">
                   {item.label}
                 </Text>
               </View>
-              {bodyStyle === item.id && <Check size={20} color={ACCENT_COLOR} strokeWidth={3} />}
+              {bodyStyle === item.id && <Check size={scale(20)} color={ACCENT_COLOR} strokeWidth={3} />}
             </Pressable>
           );
 
@@ -567,7 +558,7 @@ export default function ReviewVehicleDetailsScreen() {
               <Text size="md" color="#000000">
                 {item}
               </Text>
-              {trim === item && <Check size={20} color={ACCENT_COLOR} strokeWidth={3} />}
+              {trim === item && <Check size={scale(20)} color={ACCENT_COLOR} strokeWidth={3} />}
             </Pressable>
           );
 
@@ -580,7 +571,7 @@ export default function ReviewVehicleDetailsScreen() {
               <Text size="md" color="#000000">
                 {item}
               </Text>
-              {drivetrain === item && <Check size={20} color={ACCENT_COLOR} strokeWidth={3} />}
+              {drivetrain === item && <Check size={scale(20)} color={ACCENT_COLOR} strokeWidth={3} />}
             </Pressable>
           );
 
@@ -646,7 +637,7 @@ export default function ReviewVehicleDetailsScreen() {
             style={({ pressed }) => [styles.backButton, pressed && styles.buttonPressed]}
             hitSlop={12}
           >
-            <ArrowLeft size={24} color="#000000" strokeWidth={2} />
+            <ArrowLeft size={scale(24)} color="#000000" strokeWidth={2} />
           </Pressable>
           <Text weight="bold" size="xl" color="#000000" style={styles.headerTitle}>
             {isManualEntry ? "Add Vehicle Details" : "Review Vehicle Details"}
@@ -661,8 +652,8 @@ export default function ReviewVehicleDetailsScreen() {
             {(!isManualEntry || showCarImageAfterAnimation) && (
               <Image
                 source={
-                  brand && model
-                    ? { uri: getVehicleImageUrl(brand, model, year ? parseInt(year, 10) : undefined) }
+                  carImageUrl
+                    ? { uri: carImageUrl }
                     : require("@/assets/images/lexus.png")
                 }
                 style={styles.carImage}
@@ -704,7 +695,7 @@ export default function ReviewVehicleDetailsScreen() {
                 <Text weight="bold" size="lg" color={brand || model ? "#000000" : "#CCCCCC"}>
                   {brand && model ? `${brand} ${model}` : brand || "Select brand"}
                 </Text>
-                {isEditing && <ChevronDown size={16} color="#999999" style={styles.chevron} />}
+                {isEditing && <ChevronDown size={scale(16)} color="#999999" style={styles.chevron} />}
               </View>
             </Pressable>
 
@@ -720,7 +711,7 @@ export default function ReviewVehicleDetailsScreen() {
                 <Text weight="bold" size="lg" color={year ? "#000000" : "#CCCCCC"}>
                   {year || "Select year"}
                 </Text>
-                {isEditing && <ChevronDown size={16} color="#999999" style={styles.chevron} />}
+                {isEditing && <ChevronDown size={scale(16)} color="#999999" style={styles.chevron} />}
               </View>
             </Pressable>
 
@@ -745,7 +736,7 @@ export default function ReviewVehicleDetailsScreen() {
                     Select color
                   </Text>
                 )}
-                {isEditing && <ChevronDown size={16} color="#999999" style={styles.chevron} />}
+                {isEditing && <ChevronDown size={scale(16)} color="#999999" style={styles.chevron} />}
               </View>
             </Pressable>
 
@@ -761,7 +752,7 @@ export default function ReviewVehicleDetailsScreen() {
                 <Text weight="bold" size="lg" color={currentBodyStyle ? "#000000" : "#CCCCCC"}>
                   {currentBodyStyle ? currentBodyStyle.label : "Select style"}
                 </Text>
-                {isEditing && <ChevronDown size={16} color="#999999" style={styles.chevron} />}
+                {isEditing && <ChevronDown size={scale(16)} color="#999999" style={styles.chevron} />}
               </View>
             </Pressable>
           </View>
@@ -825,7 +816,7 @@ export default function ReviewVehicleDetailsScreen() {
                   <Text weight="semiBold" size="md" color={model ? "#000000" : "#CCCCCC"}>
                     {model || "Select model"}
                   </Text>
-                  {isEditing && <ChevronDown size={16} color="#999999" />}
+                  {isEditing && <ChevronDown size={scale(16)} color="#999999" />}
                 </View>
               </Pressable>
               <View style={styles.divider} />
@@ -841,7 +832,7 @@ export default function ReviewVehicleDetailsScreen() {
               <Text weight="semiBold" size="md" color={trim ? "#000000" : "#CCCCCC"}>
                 {trim || "Select trim"}
               </Text>
-              {isEditing && <ChevronDown size={16} color="#999999" />}
+              {isEditing && <ChevronDown size={scale(16)} color="#999999" />}
             </View>
           </Pressable>
           <View style={styles.divider} />
@@ -855,7 +846,7 @@ export default function ReviewVehicleDetailsScreen() {
               <Text weight="semiBold" size="md" color={drivetrain ? "#000000" : "#CCCCCC"}>
                 {drivetrain || "Select drivetrain"}
               </Text>
-              {isEditing && <ChevronDown size={16} color="#999999" />}
+              {isEditing && <ChevronDown size={scale(16)} color="#999999" />}
             </View>
           </Pressable>
         </View>
@@ -907,7 +898,7 @@ export default function ReviewVehicleDetailsScreen() {
               onPress={() => pickerSheetRef.current?.dismiss()}
               style={({ pressed }) => [styles.sheetCloseButton, pressed && styles.buttonPressed]}
             >
-              <X size={24} color="#000000" />
+              <X size={scale(24)} color="#000000" />
             </Pressable>
           </View>
 
@@ -949,8 +940,8 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.xs,
   },
   backButton: {
-    width: 40,
-    height: 40,
+    width: scale(40),
+    height: scale(40),
     justifyContent: "center",
     alignItems: "center",
   },
@@ -963,7 +954,7 @@ const styles = StyleSheet.create({
     marginLeft: Spacing.xs,
   },
   headerSpacer: {
-    width: 40,
+    width: scale(40),
   },
   scrollView: {
     flex: 1,
@@ -981,11 +972,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     position: "relative",
-    minHeight: 180 + Spacing.lg * 2, // Same height as when image is present
+    minHeight: scale(180) + Spacing.lg * 2, // Same height as when image is present
   },
   carImage: {
-    width: SCREEN_WIDTH - 64,
-    height: 180,
+    width: SCREEN_WIDTH - scale(64),
+    height: scale(180),
   },
   loadingOverlay: {
     ...StyleSheet.absoluteFillObject,
@@ -995,16 +986,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   lottieAnimation: {
-    width: 200,
-    height: 100,
+    width: scale(200),
+    height: scale(100),
   },
   extractedBadge: {
     position: "absolute",
-    bottom: 12,
-    right: 12,
+    bottom: scale(12),
+    right: scale(12),
     backgroundColor: "#FFFFFF",
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingHorizontal: scale(12),
+    paddingVertical: scale(6),
     borderRadius: BorderRadius.md,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
@@ -1061,14 +1052,14 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
   },
   colorDot: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    width: scale(20),
+    height: scale(20),
+    borderRadius: scale(10),
     borderWidth: 1,
     borderColor: "#E0E0E0",
   },
   chevron: {
-    marginLeft: 4,
+    marginLeft: scale(4),
   },
   // Details Section
   detailsSection: {
@@ -1112,7 +1103,7 @@ const styles = StyleSheet.create({
   mileageInput: {
     flex: 1,
     fontFamily: FontFamily.regular,
-    fontSize: 16,
+    fontSize: moderateScale(16),
     color: "#000000",
     paddingVertical: Spacing.md,
   },
@@ -1179,15 +1170,15 @@ const styles = StyleSheet.create({
   // Bottom Sheet Styles
   sheetBackground: {
     backgroundColor: "#FFFFFF",
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    borderTopLeftRadius: moderateScale(24),
+    borderTopRightRadius: moderateScale(24),
   },
   sheetWrapper: {
     flex: 1,
   },
   sheetHandle: {
     backgroundColor: "#E0E0E0",
-    width: 40,
+    width: scale(40),
   },
   sheetHeader: {
     flexDirection: "row",
@@ -1199,21 +1190,21 @@ const styles = StyleSheet.create({
     borderBottomColor: "#F0F0F0",
   },
   sheetHeaderSpacer: {
-    width: 40,
+    width: scale(40),
   },
   sheetTitle: {
     textAlign: "center",
     flex: 1,
   },
   sheetCloseButton: {
-    width: 40,
-    height: 40,
+    width: scale(40),
+    height: scale(40),
     justifyContent: "center",
     alignItems: "center",
   },
   sheetContent: {
     paddingHorizontal: Spacing.lg,
-    paddingBottom: 150,
+    paddingBottom: scale(150),
   },
   flatListContainer: {
     flex: 1,
@@ -1235,17 +1226,17 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
   },
   pickerColorDot: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: scale(24),
+    height: scale(24),
+    borderRadius: scale(12),
   },
   pickerColorDotBorder: {
     borderWidth: 1,
     borderColor: "#E0E0E0",
   },
   pickerIconContainer: {
-    width: 32,
-    height: 32,
+    width: scale(32),
+    height: scale(32),
     borderRadius: BorderRadius.md,
     backgroundColor: "#F5F5F5",
     justifyContent: "center",

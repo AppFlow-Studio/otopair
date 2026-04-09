@@ -16,7 +16,6 @@ import {
   Dimensions,
   Image,
   ImageSourcePropType,
-  InteractionManager,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -39,8 +38,10 @@ import ReAnimated, {
   useAnimatedStyle,
   useSharedValue,
   withSpring,
+  withTiming,
   runOnJS,
   SharedValue,
+  Easing as REasing,
 } from 'react-native-reanimated';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 
@@ -50,6 +51,20 @@ import { Text } from '@/components/shared-ui';
 // 4. Constants
 import { BrandColors, Colors, Spacing } from '@/constants/theme';
 import { router } from 'expo-router';
+
+// 5. Responsive utilities
+import { scale, verticalScale, moderateScale, isTablet } from '@/utils/responsive';
+
+// 6. Native iOS 26 liquid glass (optional)
+let LiquidGlassView: React.ComponentType<any> | null = null;
+let isLiquidGlassEnabled = false;
+try {
+  const lg = require('@callstack/liquid-glass');
+  LiquidGlassView = lg.LiquidGlassView;
+  isLiquidGlassEnabled = !!lg.isLiquidGlassSupported;
+} catch {
+  // Not available — fall back to plain style
+}
 
 // ============================================================================
 // TYPES
@@ -86,6 +101,10 @@ interface CarCarouselProps {
   showHealthRing?: boolean;
   /** Pre-computed unified health score (0–100) from utils/healthScore.ts */
   healthScore?: number;
+  /** True when showing the pipeline estimate (pre-onboarding done, CarInfoStepper not done) */
+  isEstimatedScore?: boolean;
+  /** Called when the user taps to resume the Quick Read from the estimated modal */
+  onResumeCheckin?: () => void;
 }
 
 // ============================================================================
@@ -93,8 +112,8 @@ interface CarCarouselProps {
 // ============================================================================
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
-const CAR_CARD_WIDTH = 320;
-const CAR_CARD_HEIGHT = 240;
+const CAR_CARD_WIDTH = Math.min(scale(320), 420);
+const CAR_CARD_HEIGHT = scale(240);
 const RADIUS = SCREEN_WIDTH * 0.5;
 
 // Fallback image used only when no dynamic imageSource is available
@@ -149,6 +168,8 @@ interface VehicleHealthModalProps {
   servicePercentage: number;
   maintenanceItems?: import("@/components/cars/MaintenanceTracker").MaintenanceItem[];
   currentMileage?: number;
+  isEstimated?: boolean;
+  onResumeCheckin?: () => void;
 }
 
 const VehicleHealthModal = ({
@@ -160,9 +181,14 @@ const VehicleHealthModal = ({
   servicePercentage,
   maintenanceItems: realItems,
   currentMileage: realMileage,
+  isEstimated,
+  onResumeCheckin,
 }: VehicleHealthModalProps) => {
   const slideAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
+  const ringScaleAnim = useRef(new Animated.Value(1)).current;
+  const ringGlowAnim = useRef(new Animated.Value(0)).current;
+  const ringPulseAnim = useRef(new Animated.Value(1)).current;
   
   // Animated ring values for staggered animation
   const [animatedHealth, setAnimatedHealth] = useState(0);
@@ -250,7 +276,7 @@ const VehicleHealthModal = ({
     {
       name: 'Maintenance',
       subtitle: 'More services completed = higher score',
-      color: maintenanceScore >= 75 ? '#30D158' : maintenanceScore >= 60 ? '#FFD60A' : '#FF3B5C',
+      color: maintenanceScore >= 75 ? '#30D158' : maintenanceScore >= 60 ? '#FFEA00' : '#FF3B5C',
       percentage: maintenanceScore,
       displayValue: `${maintenanceCompleted}/${maintenanceTotal}`,
       // Weighted impact: (75 - score) × 0.7 weight
@@ -259,7 +285,7 @@ const VehicleHealthModal = ({
     {
       name: 'Usage & Wear',
       subtitle: 'Lower mileage = higher score',
-      color: usageScore >= 75 ? '#30D158' : usageScore >= 60 ? '#FFD60A' : '#FF3B5C',
+      color: usageScore >= 75 ? '#30D158' : usageScore >= 60 ? '#FFEA00' : '#FF3B5C',
       percentage: usageScore,
       displayValue: formatMileage(vehicleMileage),
       // Weighted impact: (75 - score) × 0.3 weight
@@ -282,8 +308,11 @@ const VehicleHealthModal = ({
       setProgressHealth(0);
       setProgressMaintenance(0);
       setProgressService(0);
+      ringScaleAnim.setValue(1);
+      ringGlowAnim.setValue(0);
+      ringPulseAnim.setValue(1);
 
-      // Open modal animation
+      // Open modal + glow + pulse all at once
       Animated.parallel([
         Animated.spring(slideAnim, {
           toValue: 0,
@@ -296,9 +325,17 @@ const VehicleHealthModal = ({
           duration: 300,
           useNativeDriver: true,
         }),
+        Animated.timing(ringGlowAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
       ]).start();
 
-      // Staggered ring animations: green first (0ms), yellow (200ms), red (400ms)
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(ringPulseAnim, { toValue: 1.08, duration: 1500, useNativeDriver: true }),
+          Animated.timing(ringPulseAnim, { toValue: 1, duration: 1500, useNativeDriver: true }),
+        ]),
+      ).start();
+
+      // Staggered ring animations
       const animateRing = (
         setter: (val: number) => void,
         target: number,
@@ -312,15 +349,13 @@ const VehicleHealthModal = ({
 
           const interval = setInterval(() => {
             currentStep++;
-            const progress = 1 - Math.pow(1 - currentStep / steps, 3); // easeOut
+            const progress = 1 - Math.pow(1 - currentStep / steps, 3);
             setter(progress * target);
             if (currentStep >= steps) clearInterval(interval);
           }, stepDuration);
         }, delay);
       };
 
-      // Overall condition first, then maintenance, then usage
-      // Uses the same values as the metrics: calculatedCondition, maintenanceScore, usageScore
       animateRing(setAnimatedService, calculatedCondition, 0);
       animateRing(setProgressService, calculatedCondition, 0);
       animateRing(setAnimatedHealth, maintenanceScore, 200);
@@ -346,9 +381,9 @@ const VehicleHealthModal = ({
   }, [visible, calculatedCondition, maintenanceScore, usageScore]);
 
   // Single large ring configuration
-  const modalRingSize = 180;
-  const ringStrokeWidth = 12;
-  const ringRadius = (modalRingSize / 2) - (ringStrokeWidth / 2) - 8;
+  const modalRingSize = scale(180);
+  const ringStrokeWidth = scale(12);
+  const ringRadius = (modalRingSize / 2) - (ringStrokeWidth / 2) - scale(8);
   const circumference = 2 * Math.PI * ringRadius;
   const center = modalRingSize / 2;
   
@@ -359,7 +394,7 @@ const VehicleHealthModal = ({
   // Determine ring color based on calculated condition
   const getRingColor = () => {
     if (calculatedCondition >= 75) return '#30D158'; // Green
-    if (calculatedCondition >= 60) return '#FFD60A'; // Yellow
+    if (calculatedCondition >= 60) return '#FFEA00'; // Yellow
     return '#FF3B5C'; // Red
   };
   
@@ -367,47 +402,35 @@ const VehicleHealthModal = ({
 
   const renderRings = () => (
     <View style={modalStyles.ringsContainer}>
-      <Svg width={modalRingSize} height={modalRingSize}>
-        <Defs>
-          <SvgLinearGradient id="mainRingGradient" x1="0%" y1="0%" x2="100%" y2="100%">
-            <Stop offset="0%" stopColor={ringColor} />
-            <Stop offset="100%" stopColor={ringColor} />
-          </SvgLinearGradient>
-        </Defs>
+      <Animated.View style={[modalStyles.ringGlow, {
+        backgroundColor: ringColor,
+        opacity: Animated.multiply(ringGlowAnim, new Animated.Value(0.12)),
+        transform: [{ scale: ringPulseAnim }],
+      }]} />
+      <Animated.View style={[modalStyles.ringGlowInner, {
+        backgroundColor: ringColor,
+        opacity: Animated.multiply(ringGlowAnim, new Animated.Value(0.06)),
+        transform: [{ scale: ringPulseAnim }],
+      }]} />
+      <Animated.View style={{ transform: [{ scale: ringScaleAnim }] }}>
+        <Svg width={modalRingSize} height={modalRingSize}>
+          <Defs>
+            <SvgLinearGradient id="mainRingGradient" x1="0%" y1="0%" x2="100%" y2="100%">
+              <Stop offset="0%" stopColor={ringColor} />
+              <Stop offset="50%" stopColor={ringColor} stopOpacity={0.9} />
+              <Stop offset="100%" stopColor={ringColor} stopOpacity={0.8} />
+            </SvgLinearGradient>
+          </Defs>
 
-        {/* Track (background ring) */}
-        <Circle
-          cx={center}
-          cy={center}
-          r={ringRadius}
-          stroke="rgba(48, 209, 88, 0.15)"
-          strokeWidth={ringStrokeWidth}
-          fill="none"
-        />
-        
-        {/* Progress ring */}
-        <Circle
-          cx={center}
-          cy={center}
-          r={ringRadius}
-          stroke={ringColor}
-          strokeWidth={ringStrokeWidth}
-          fill="none"
-          strokeDasharray={circumference}
-          strokeDashoffset={strokeDashoffset}
-          strokeLinecap="round"
-          rotation={-90}
-          origin={`${center}, ${center}`}
-        />
-      </Svg>
+          <Circle cx={center} cy={center} r={ringRadius} stroke={ringColor} strokeWidth={ringStrokeWidth} fill="none" opacity={0.15} />
+          <Circle cx={center} cy={center} r={ringRadius} stroke="url(#mainRingGradient)" strokeWidth={ringStrokeWidth} fill="none" strokeDasharray={circumference} strokeDashoffset={strokeDashoffset} strokeLinecap="round" rotation={-90} origin={`${center}, ${center}`} />
+          <Circle cx={center} cy={center} r={ringRadius} stroke={ringColor} strokeWidth={ringStrokeWidth + 4} fill="none" strokeDasharray={circumference} strokeDashoffset={strokeDashoffset} strokeLinecap="round" rotation={-90} origin={`${center}, ${center}`} opacity={0.2} />
+        </Svg>
+      </Animated.View>
       
-      {/* Centered percentage text */}
       <View style={modalStyles.ringCenterContent}>
-        <View style={modalStyles.percentageRow}>
-          <Text style={modalStyles.percentageText}>{Math.round(overallPercentage)}</Text>
-          <Text style={modalStyles.percentageSymbol}>%</Text>
-        </View>
-        <Text style={modalStyles.optimizedText}>OPTIMIZED</Text>
+        <Text style={modalStyles.percentageText}>{Math.round(overallPercentage)}</Text>
+        <Text style={modalStyles.ringSubLabel}>out of 100</Text>
       </View>
     </View>
   );
@@ -488,46 +511,63 @@ const VehicleHealthModal = ({
               <Text style={modalStyles.headerSubtitle}>{vehicleName} • Premium Package</Text>
             </View>
             <Pressable style={modalStyles.closeButton} onPress={onClose}>
-              <X size={18} color="#666" />
+              <X size={scale(18)} color="#666" />
             </Pressable>
           </View>
 
           <View style={modalStyles.headerSeparator} />
 
-          {/* Scrollable content */}
+          {isEstimated ? (
+            /* ── Simplified estimated view ── */
+            <View style={modalStyles.scrollContent}>
+              {renderRings()}
+
+              <Text style={modalStyles.estimatedLabel}>Estimated Score</Text>
+              <Text style={modalStyles.estimatedSubtitle}>
+                Based on your vehicle's age, mileage, and driving habits.
+              </Text>
+
+              <Pressable
+                style={({ pressed }) => [modalStyles.resumeCheckinButton, pressed && { opacity: 0.85 }]}
+                onPress={() => { onClose(); setTimeout(() => onResumeCheckin?.(), 350); }}
+              >
+                <Text style={modalStyles.resumeCheckinText}>
+                  Get my complete score
+                </Text>
+              </Pressable>
+            </View>
+          ) : (
+            /* ── Full breakdown view ── */
+            <>
           <ScrollView 
             style={modalStyles.scrollView}
             contentContainerStyle={modalStyles.scrollContent}
             showsVerticalScrollIndicator={false}
             bounces={true}
           >
-            {/* Large rings display */}
             {renderRings()}
 
-            {/* What Affects Your Score */}
             <View style={modalStyles.breakdownSection}>
               <View style={modalStyles.sectionTitleRow}>
                 <Text style={modalStyles.sectionTitle}>WHAT AFFECTS YOUR SCORE</Text>
                 <Pressable 
                   onPress={() => setShowInfoModal(true)}
-                  hitSlop={10}
+                  hitSlop={scale(10)}
                   style={modalStyles.infoButton}
                 >
-                  <Info size={16} color="#888" />
+                  <Info size={scale(16)} color="#888" />
                 </Pressable>
               </View>
               
-              {/* Overall Vehicle Condition - first */}
               {renderBreakdownRow(
                 metrics[0].color,
                 metrics[0].name,
                 metrics[0].subtitle,
                 metrics[0].percentage,
-                progressService, // Uses the calculated condition animation
+                progressService,
                 metrics[0].displayValue,
                 metrics[0].scoreImpact
               )}
-              {/* Maintenance */}
               {renderBreakdownRow(
                 metrics[1].color,
                 metrics[1].name,
@@ -537,7 +577,6 @@ const VehicleHealthModal = ({
                 metrics[1].displayValue,
                 metrics[1].scoreImpact
               )}
-              {/* Usage & Wear */}
               {renderBreakdownRow(
                 metrics[2].color,
                 metrics[2].name,
@@ -549,7 +588,6 @@ const VehicleHealthModal = ({
               )}
             </View>
 
-            {/* How to Improve Your Score - Glassy Style */}
             {needsAttention && (
               <View style={modalStyles.attentionCardOuter}>
                 <BlurView intensity={20} tint="light" style={modalStyles.attentionBlur}>
@@ -557,7 +595,6 @@ const VehicleHealthModal = ({
                     colors={['rgba(82, 153, 254, 0.12)', 'rgba(82, 153, 254, 0.06)']}
                     style={StyleSheet.absoluteFill}
                   />
-                  {/* Glossy top highlight */}
                   <LinearGradient
                     colors={['rgba(255, 255, 255, 0.5)', 'rgba(255, 255, 255, 0)']}
                     locations={[0, 0.5]}
@@ -580,12 +617,11 @@ const VehicleHealthModal = ({
                         ]}
                         onPress={() => toggleServiceSelection(index)}
                       >
-                        {/* Checkbox */}
                         <View style={[
                           modalStyles.checkbox,
                           isSelected && modalStyles.checkboxSelected
                         ]}>
-                          {isSelected && <Check size={14} color="#fff" strokeWidth={3} />}
+                          {isSelected && <Check size={scale(14)} color="#fff" strokeWidth={3} />}
                         </View>
                         
                         <View style={modalStyles.serviceItemLeft}>
@@ -617,7 +653,6 @@ const VehicleHealthModal = ({
                     );
                   })}
                   
-                  {/* Total potential improvement */}
                   <View style={modalStyles.totalImprovementRow}>
                     <Text style={modalStyles.totalImprovementLabel}>Complete all to gain</Text>
                     <Text style={modalStyles.totalImprovementValue}>
@@ -628,11 +663,9 @@ const VehicleHealthModal = ({
               </View>
             )}
 
-            {/* Bottom padding for sticky button */}
-            <View style={{ height: 20 }} />
+            <View style={{ height: scale(20) }} />
           </ScrollView>
           
-          {/* Schedule Service Button - Sticky & Glassy */}
           <View style={modalStyles.scheduleButtonContainer}>
             <Pressable style={modalStyles.scheduleButton}>
               <BlurView intensity={80} tint="dark" style={modalStyles.scheduleButtonBlur}>
@@ -642,7 +675,6 @@ const VehicleHealthModal = ({
                     : ['rgba(40, 40, 40, 0.9)', 'rgba(20, 20, 20, 0.95)']}
                   style={StyleSheet.absoluteFill}
                 />
-                {/* Glossy top highlight */}
                 <LinearGradient
                   colors={['rgba(255, 255, 255, 0.15)', 'rgba(255, 255, 255, 0)']}
                   locations={[0, 0.5]}
@@ -657,10 +689,12 @@ const VehicleHealthModal = ({
                       ? '1 service selected'
                       : `${selectedServices.size} services selected`}
                 </Text>
-                <Calendar size={20} color="#fff" />
+                <Calendar size={scale(20)} color="#fff" />
               </View>
             </Pressable>
           </View>
+            </>
+          )}
         </Animated.View>
 
         {/* Info Modal - Explains the formula */}
@@ -678,7 +712,7 @@ const VehicleHealthModal = ({
               <View style={modalStyles.infoModalHeader}>
                 <Text style={modalStyles.infoModalTitle}>How We Calculate Your Score</Text>
                 <Pressable onPress={() => setShowInfoModal(false)}>
-                  <X size={20} color="#666" />
+                  <X size={scale(20)} color="#666" />
                 </Pressable>
               </View>
               
@@ -741,8 +775,8 @@ const modalStyles = StyleSheet.create({
     left: 0,
     right: 0,
     backgroundColor: '#fff',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
+    borderTopLeftRadius: moderateScale(24),
+    borderTopRightRadius: moderateScale(24),
     maxHeight: SCREEN_HEIGHT * 0.85,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
@@ -752,12 +786,12 @@ const modalStyles = StyleSheet.create({
   },
   dragHandleContainer: {
     alignItems: 'center',
-    paddingTop: 12,
-    paddingBottom: 8,
+    paddingTop: scale(12),
+    paddingBottom: scale(8),
   },
   dragHandle: {
-    width: 40,
-    height: 4,
+    width: scale(40),
+    height: scale(4),
     backgroundColor: 'rgba(0, 0, 0, 0.15)',
     borderRadius: 2,
   },
@@ -765,39 +799,39 @@ const modalStyles = StyleSheet.create({
     maxHeight: SCREEN_HEIGHT * 0.55,
   },
   scrollContent: {
-    paddingHorizontal: 24,
-    paddingBottom: 20,
+    paddingHorizontal: scale(24),
+    paddingBottom: scale(20),
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 24,
-    paddingTop: 20,
-    paddingBottom: 16,
+    paddingHorizontal: scale(24),
+    paddingTop: scale(20),
+    paddingBottom: scale(16),
   },
   headerTitleContainer: {
     flex: 1,
     alignItems: 'center',
   },
   headerTitle: {
-    fontSize: 20,
+    fontSize: moderateScale(20),
     fontFamily: 'Urbanist-SemiBold',
     color: '#1a1a1a',
   },
   headerSubtitle: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: 'Urbanist-Regular',
     color: '#666',
-    marginTop: 2,
+    marginTop: scale(2),
   },
   closeButton: {
     position: 'absolute',
-    right: 20,
-    top: 20,
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    right: scale(20),
+    top: scale(20),
+    width: scale(32),
+    height: scale(32),
+    borderRadius: moderateScale(16),
     backgroundColor: 'rgba(0, 0, 0, 0.06)',
     alignItems: 'center',
     justifyContent: 'center',
@@ -805,47 +839,51 @@ const modalStyles = StyleSheet.create({
   headerSeparator: {
     height: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.08)',
-    marginHorizontal: 24,
+    marginHorizontal: scale(24),
   },
   ringsContainer: {
     alignItems: 'center',
     justifyContent: 'center',
-    marginVertical: 20,
+    alignSelf: 'center',
+    marginVertical: scale(20),
     position: 'relative',
+    width: Math.min(scale(200), 260),
+    height: Math.min(scale(200), 260),
+  },
+  ringGlow: {
+    position: 'absolute',
+    width: Math.min(scale(220), 280),
+    height: Math.min(scale(220), 280),
+    borderRadius: Math.min(scale(220), 280) / 2,
+  },
+  ringGlowInner: {
+    position: 'absolute',
+    width: Math.min(scale(170), 220),
+    height: Math.min(scale(170), 220),
+    borderRadius: Math.min(scale(170), 220) / 2,
   },
   ringCenterContent: {
     position: 'absolute',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  percentageRow: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-  },
   percentageText: {
-    fontSize: 48,
+    fontSize: moderateScale(42),
     fontFamily: 'Urbanist-Bold',
-    color: '#1a1a1a',
-    lineHeight: 52,
+    color: '#1F2937',
+    lineHeight: moderateScale(46),
   },
-  percentageSymbol: {
-    fontSize: 24,
-    fontFamily: 'Urbanist-Bold',
-    color: '#1a1a1a',
-    marginTop: 6,
-  },
-  optimizedText: {
-    fontSize: 12,
+  ringSubLabel: {
+    fontSize: moderateScale(12),
     fontFamily: 'Urbanist-SemiBold',
     color: '#9CA3AF',
-    letterSpacing: 1.5,
-    marginTop: 2,
+    marginTop: scale(-2),
   },
   breakdownSection: {
-    marginTop: 16,
+    marginTop: scale(16),
   },
   sectionTitle: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: 'Urbanist-SemiBold',
     color: '#888',
     letterSpacing: 1,
@@ -854,15 +892,15 @@ const modalStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 16,
+    marginBottom: scale(16),
   },
   infoButton: {
-    padding: 4,
+    padding: scale(4),
   },
   breakdownRow: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    paddingVertical: 16,
+    paddingVertical: scale(16),
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(0, 0, 0, 0.06)',
   },
@@ -872,11 +910,11 @@ const modalStyles = StyleSheet.create({
     flex: 1,
   },
   colorDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    marginRight: 12,
-    marginTop: 4,
+    width: scale(12),
+    height: scale(12),
+    borderRadius: moderateScale(6),
+    marginRight: scale(12),
+    marginTop: scale(4),
   },
   breakdownTextContainer: {
     flex: 1,
@@ -885,27 +923,27 @@ const modalStyles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 4,
+    marginBottom: scale(4),
   },
   breakdownName: {
-    fontSize: 15,
+    fontSize: moderateScale(15),
     fontFamily: 'Urbanist-SemiBold',
     color: '#1a1a1a',
   },
   breakdownSubtitle: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: 'Urbanist-Regular',
     color: '#888',
-    marginBottom: 8,
-    lineHeight: 16,
+    marginBottom: scale(8),
+    lineHeight: moderateScale(16),
   },
   progressBarRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: scale(10),
   },
   progressBarContainer: {
-    height: 6,
+    height: scale(6),
     backgroundColor: 'rgba(0, 0, 0, 0.08)',
     borderRadius: 3,
     overflow: 'hidden',
@@ -916,22 +954,22 @@ const modalStyles = StyleSheet.create({
     borderRadius: 3,
   },
   breakdownPercentage: {
-    fontSize: 15,
+    fontSize: moderateScale(15),
     fontFamily: 'Urbanist-SemiBold',
     color: '#1a1a1a',
   },
   scoreImpactBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
+    paddingHorizontal: scale(8),
+    paddingVertical: scale(4),
+    borderRadius: moderateScale(6),
   },
   scoreImpactText: {
-    fontSize: 11,
+    fontSize: moderateScale(11),
     fontFamily: 'Urbanist-Bold',
   },
   attentionCardOuter: {
-    marginTop: 24,
-    borderRadius: 16,
+    marginTop: scale(24),
+    borderRadius: moderateScale(16),
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.5)',
@@ -952,38 +990,38 @@ const modalStyles = StyleSheet.create({
     height: '40%',
   },
   attentionContent: {
-    padding: 16,
+    padding: scale(16),
   },
   attentionHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
+    marginBottom: scale(12),
   },
   attentionTitle: {
-    fontSize: 15,
+    fontSize: moderateScale(15),
     fontFamily: 'Urbanist-SemiBold',
     color: '#FF3B5C',
   },
   serviceItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
+    paddingVertical: scale(12),
     borderTopWidth: 1,
     borderTopColor: 'rgba(0, 0, 0, 0.06)',
-    gap: 12,
+    gap: scale(12),
   },
   serviceItemSelected: {
     backgroundColor: 'rgba(82, 153, 254, 0.08)',
-    marginHorizontal: -16,
-    paddingHorizontal: 16,
-    borderRadius: 12,
+    marginHorizontal: scale(-16),
+    paddingHorizontal: scale(16),
+    borderRadius: moderateScale(12),
     borderTopWidth: 0,
-    marginTop: 4,
+    marginTop: scale(4),
   },
   checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 6,
+    width: scale(24),
+    height: scale(24),
+    borderRadius: moderateScale(6),
     borderWidth: 2,
     borderColor: 'rgba(0, 0, 0, 0.2)',
     alignItems: 'center',
@@ -998,20 +1036,20 @@ const modalStyles = StyleSheet.create({
     flex: 1,
   },
   serviceName: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: 'Urbanist-Medium',
     color: '#1a1a1a',
   },
   serviceDue: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: 'Urbanist-Regular',
     color: '#666',
-    marginTop: 2,
+    marginTop: scale(2),
   },
   statusBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 8,
+    paddingHorizontal: scale(10),
+    paddingVertical: scale(4),
+    borderRadius: moderateScale(8),
   },
   overdueBadge: {
     backgroundColor: 'rgba(255, 59, 92, 0.12)',
@@ -1020,7 +1058,7 @@ const modalStyles = StyleSheet.create({
     backgroundColor: 'rgba(255, 214, 10, 0.2)',
   },
   statusText: {
-    fontSize: 10,
+    fontSize: moderateScale(10),
     fontFamily: 'Urbanist-Bold',
     letterSpacing: 0.5,
   },
@@ -1033,30 +1071,30 @@ const modalStyles = StyleSheet.create({
   serviceNameRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    marginBottom: 2,
+    gap: scale(8),
+    marginBottom: scale(2),
   },
   actionDescription: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: 'Urbanist-Regular',
     color: '#5299FE',
-    marginTop: 4,
+    marginTop: scale(4),
   },
   scoreImpactBadgeLarge: {
     backgroundColor: 'rgba(48, 209, 88, 0.15)',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: 10,
+    paddingHorizontal: scale(12),
+    paddingVertical: scale(8),
+    borderRadius: moderateScale(10),
     alignItems: 'center',
-    minWidth: 50,
+    minWidth: scale(50),
   },
   scoreImpactTextLarge: {
-    fontSize: 18,
+    fontSize: moderateScale(18),
     fontFamily: 'Urbanist-Bold',
     color: '#30D158',
   },
   scoreImpactLabel: {
-    fontSize: 10,
+    fontSize: moderateScale(10),
     fontFamily: 'Urbanist-Medium',
     color: '#30D158',
   },
@@ -1064,29 +1102,66 @@ const modalStyles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: 16,
-    paddingTop: 12,
+    marginTop: scale(16),
+    paddingTop: scale(12),
     borderTopWidth: 1,
     borderTopColor: 'rgba(0, 0, 0, 0.08)',
   },
   totalImprovementLabel: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: 'Urbanist-Medium',
     color: '#666',
   },
   totalImprovementValue: {
-    fontSize: 16,
+    fontSize: moderateScale(16),
     fontFamily: 'Urbanist-Bold',
     color: '#30D158',
   },
   scheduleButtonContainer: {
-    paddingHorizontal: 24,
-    paddingBottom: 20,
-    paddingTop: 8,
+    paddingHorizontal: scale(24),
+    paddingBottom: scale(20),
+    paddingTop: scale(8),
     backgroundColor: '#fff',
   },
+  estimatedLabel: {
+    fontSize: moderateScale(13),
+    fontFamily: 'Urbanist-SemiBold',
+    color: '#9CA3AF',
+    letterSpacing: 1,
+    textAlign: 'center',
+    textTransform: 'uppercase',
+    marginTop: scale(-4),
+  },
+  estimatedSubtitle: {
+    fontSize: moderateScale(14),
+    fontFamily: 'Urbanist-Regular',
+    color: '#6B7280',
+    textAlign: 'center',
+    lineHeight: moderateScale(20),
+    marginTop: scale(8),
+    paddingHorizontal: scale(8),
+  },
+  resumeCheckinButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: scale(8),
+    backgroundColor: '#5299FE',
+    borderRadius: moderateScale(25),
+    paddingVertical: scale(16),
+    paddingHorizontal: scale(24),
+    marginTop: scale(24),
+    width: '100%',
+  },
+  resumeCheckinText: {
+    fontSize: moderateScale(15),
+    fontFamily: 'Urbanist-SemiBold',
+    color: '#FFFFFF',
+    textAlign: 'center',
+    flex: 1,
+  },
   scheduleButton: {
-    borderRadius: 25,
+    borderRadius: moderateScale(25),
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.1)',
@@ -1110,11 +1185,11 @@ const modalStyles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 10,
-    paddingVertical: 16,
+    gap: scale(10),
+    paddingVertical: scale(16),
   },
   scheduleButtonText: {
-    fontSize: 16,
+    fontSize: moderateScale(16),
     fontFamily: 'Urbanist-SemiBold',
     color: '#fff',
   },
@@ -1124,13 +1199,13 @@ const modalStyles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 24,
+    padding: scale(24),
   },
   infoModalContent: {
     backgroundColor: '#fff',
-    borderRadius: 20,
+    borderRadius: moderateScale(20),
     width: '100%',
-    maxWidth: 340,
+    maxWidth: scale(340),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.25,
@@ -1141,70 +1216,70 @@ const modalStyles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 20,
-    paddingBottom: 16,
+    padding: scale(20),
+    paddingBottom: scale(16),
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(0, 0, 0, 0.08)',
   },
   infoModalTitle: {
-    fontSize: 18,
+    fontSize: moderateScale(18),
     fontFamily: 'Urbanist-Bold',
     color: '#1a1a1a',
   },
   infoModalBody: {
-    padding: 20,
+    padding: scale(20),
   },
   infoFormulaTitle: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: 'Urbanist-SemiBold',
     color: '#888',
     letterSpacing: 1,
-    marginBottom: 8,
+    marginBottom: scale(8),
   },
   formulaBox: {
     backgroundColor: 'rgba(82, 153, 254, 0.1)',
-    borderRadius: 12,
-    padding: 16,
-    marginBottom: 20,
+    borderRadius: moderateScale(12),
+    padding: scale(16),
+    marginBottom: scale(20),
   },
   formulaText: {
-    fontSize: 15,
+    fontSize: moderateScale(15),
     fontFamily: 'Urbanist-Bold',
     color: '#5299FE',
     textAlign: 'center',
   },
   infoSection: {
-    marginBottom: 16,
+    marginBottom: scale(16),
   },
   infoLabel: {
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontFamily: 'Urbanist-SemiBold',
     color: '#1a1a1a',
-    marginBottom: 4,
+    marginBottom: scale(4),
   },
   infoDescription: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: 'Urbanist-Regular',
     color: '#666',
-    lineHeight: 20,
+    lineHeight: moderateScale(20),
   },
   infoExample: {
     backgroundColor: 'rgba(48, 209, 88, 0.1)',
-    borderRadius: 12,
-    padding: 16,
-    marginTop: 8,
+    borderRadius: moderateScale(12),
+    padding: scale(16),
+    marginTop: scale(8),
   },
   infoExampleTitle: {
-    fontSize: 12,
+    fontSize: moderateScale(12),
     fontFamily: 'Urbanist-SemiBold',
     color: '#30D158',
-    marginBottom: 8,
+    marginBottom: scale(8),
   },
   infoExampleText: {
-    fontSize: 13,
+    fontSize: moderateScale(13),
     fontFamily: 'Urbanist-Medium',
     color: '#1a1a1a',
-    lineHeight: 22,
+    lineHeight: moderateScale(22),
   },
 });
 
@@ -1222,7 +1297,7 @@ interface ActivityRingsProps {
 
 const ActivityRings = ({ 
   healthPercentage, 
-  size = 72,
+  size = scale(72),
   onPress,
 }: ActivityRingsProps) => {
   const [animatedHealth, setAnimatedHealth] = useState(0);
@@ -1244,7 +1319,7 @@ const ActivityRings = ({
     return () => clearInterval(interval);
   }, [healthPercentage]);
 
-  const strokeWidth = 8;
+  const strokeWidth = scale(8);
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
   const strokeDashoffset = circumference * (1 - animatedHealth / 100);
@@ -1253,7 +1328,7 @@ const ActivityRings = ({
   // Color based on health percentage
   const getColor = () => {
     if (healthPercentage >= 75) return '#30D158'; // Green
-    if (healthPercentage >= 60) return '#FFD60A'; // Yellow
+    if (healthPercentage >= 60) return '#FFEA00'; // Yellow
     return '#FF3B30'; // Red
   };
   const ringColor = getColor();
@@ -1336,7 +1411,7 @@ const activityRingStyles = StyleSheet.create({
     justifyContent: 'center',
   },
   percentageText: {
-    fontSize: 16,
+    fontSize: moderateScale(16),
     fontFamily: 'Urbanist-Bold',
   },
 });
@@ -1353,7 +1428,8 @@ interface CarouselItemProps {
 }
 
 const CircularCarouselItem = memo(({ item, index, rotation, totalItems }: CarouselItemProps) => {
-  const imageSource = item.imageSource || FALLBACK_VEHICLE_IMAGE;
+  const [hasImageError, setHasImageError] = useState(false);
+  const imageSource = hasImageError ? FALLBACK_VEHICLE_IMAGE : (item.imageSource || FALLBACK_VEHICLE_IMAGE);
 
   const animatedStyle = useAnimatedStyle(() => {
     const anglePerItem = (2 * Math.PI) / totalItems;
@@ -1416,21 +1492,12 @@ const CircularCarouselItem = memo(({ item, index, rotation, totalItems }: Carous
           styles.carouselCarImage,
           item.make === 'Lexus' && styles.carouselCarImageLexus,
           item.make === 'Lamborghini' && styles.carouselCarImageLambo,
-          { transform: [{ translateY: 155 }] },
         ]}
         resizeMode="contain"
+        onError={() => setHasImageError(true)}
       />
       
-      {/* Simple Reflection */}
-      <Image
-        source={imageSource}
-        style={[
-          styles.carouselReflection,
-          item.make === 'Lexus' && styles.carouselReflectionLexus,
-          item.make === 'Lamborghini' && styles.carouselReflectionLambo
-        ]}
-        resizeMode="contain"
-      />
+      {/* Reflection removed — car images have white backgrounds */}
     </ReAnimated.View>
   );
 });
@@ -1449,6 +1516,8 @@ export function CarCarousel({
   currentMileage,
   showHealthRing = true,
   healthScore: parentHealthScore,
+  isEstimatedScore,
+  onResumeCheckin,
 }: CarCarouselProps) {
   // Trust parent ordering to keep indices consistent across screens.
   const sortedVehicles = useMemo(() => vehicles, [vehicles]);
@@ -1457,6 +1526,7 @@ export function CarCarousel({
   const rotation = useSharedValue(0);
   const anglePerItem = sortedVehicles.length > 0 ? (2 * Math.PI) / sortedVehicles.length : 0;
   const lastUpdatedIndex = useSharedValue(0);
+  const isUserAnimating = useRef(false);
 
   // Bottom sheet state
   const [showBottomSheet, setShowBottomSheet] = useState(false);
@@ -1467,16 +1537,25 @@ export function CarCarousel({
   // Vehicle Health Modal state
   const [showHealthModal, setShowHealthModal] = useState(false);
 
+  // Sliding glass indicator position
+  const glassTranslateX = useSharedValue(0);
+  useEffect(() => {
+    glassTranslateX.value = withSpring(activeIndex * (scale(48) + Spacing.sm), { damping: 18, stiffness: 200 });
+  }, [activeIndex]);
+  const slidingGlassStyle = useAnimatedStyle(() => ({
+    transform: [{ translateX: glassTranslateX.value }],
+  }));
+
   // Bottom sheet animation values
-  const sheetTranslateY = useRef(new Animated.Value(300)).current;
+  const sheetTranslateY = useRef(new Animated.Value(scale(300))).current;
   const backdropOpacity = useRef(new Animated.Value(0)).current;
-  const sheetHeight = useRef(new Animated.Value(280)).current;
+  const sheetHeight = useRef(new Animated.Value(scale(280))).current;
 
   const SHEET_HEIGHTS = {
-    main: 280,
-    modelYear: 200,
-    mileage: 200,
-    nextService: 320,
+    main: scale(280),
+    modelYear: scale(200),
+    mileage: scale(200),
+    nextService: scale(320),
   };
 
   const activeVehicle = sortedVehicles[activeIndex];
@@ -1493,7 +1572,9 @@ export function CarCarousel({
       setActiveIndex(nextIndex);
       onActiveIndexChange?.(nextIndex);
     }
-    rotation.value = -nextIndex * anglePerItem;
+    if (!isUserAnimating.current) {
+      rotation.value = -nextIndex * anglePerItem;
+    }
     lastUpdatedIndex.value = nextIndex;
   }, [sortedVehicles.length, activeIndex, anglePerItem, onActiveIndexChange, rotation, lastUpdatedIndex]);
 
@@ -1519,14 +1600,14 @@ export function CarCarousel({
   };
   const usageScoreForRing = getMileageScoreForRing(vehicleMileage);
 
-  // Deferred state update - waits for ALL animations to complete before updating
-  const deferredStateUpdate = useCallback((newIndex: number) => {
-    // Wait for animations to complete, then update state
-    InteractionManager.runAfterInteractions(() => {
-      setActiveIndex(newIndex);
-      onActiveIndexChange?.(newIndex);
-    });
+  const setAnimatingTrue = useCallback(() => { isUserAnimating.current = true; }, []);
+  const finishAnimation = useCallback((newIndex: number) => {
+    isUserAnimating.current = false;
+    setActiveIndex(newIndex);
+    onActiveIndexChange?.(newIndex);
   }, [onActiveIndexChange]);
+
+  const SETTLE_EASING = REasing.bezier(0.16, 1, 0.3, 1);
 
   // Pan gesture for rotating carousel
   const lastTranslationX = useSharedValue(0);
@@ -1536,40 +1617,40 @@ export function CarCarousel({
       lastTranslationX.value = 0;
     })
     .onUpdate((e) => {
-      // Only update rotation - NO state updates during drag
       const delta = e.translationX - lastTranslationX.value;
-      rotation.value -= delta * 0.008; // Reversed: swipe right = car goes right
+      rotation.value -= delta * 0.008;
       lastTranslationX.value = e.translationX;
       
-      // Track index in shared value only - no JS bridge calls
       const currentRotationInSteps = Math.round(rotation.value / anglePerItem);
       const currentClosestIndex = (((-currentRotationInSteps % sortedVehicles.length) + sortedVehicles.length) % sortedVehicles.length);
       lastUpdatedIndex.value = currentClosestIndex;
     })
     .onEnd((e) => {
-      const velocity = e.velocityX * -0.0005; // Reversed to match swipe direction
+      const velocity = e.velocityX * -0.0005;
       const targetRotation = rotation.value + velocity;
       const nearestIndex = Math.round(targetRotation / anglePerItem);
       const snappedRotation = nearestIndex * anglePerItem;
 
-      // Start spring animation FIRST - less bouncy
-      rotation.value = withSpring(snappedRotation, {
-        damping: 28,
-        stiffness: 120,
-      });
-
-      // Then update state after animation starts
       const normalizedIndex = (((-nearestIndex % sortedVehicles.length) + sortedVehicles.length) % sortedVehicles.length);
       lastUpdatedIndex.value = normalizedIndex;
-      runOnJS(deferredStateUpdate)(normalizedIndex);
+      runOnJS(setAnimatingTrue)();
+
+      rotation.value = withTiming(snappedRotation, {
+        duration: 350,
+        easing: SETTLE_EASING,
+      }, (finished) => {
+        'worklet';
+        if (finished) {
+          runOnJS(finishAnimation)(normalizedIndex);
+        }
+      });
     });
 
   // Rotate to specific index
   const rotateToIndex = useCallback((targetIndex: number) => {
-    // Update shared value immediately for gesture tracking
     lastUpdatedIndex.value = targetIndex;
+    isUserAnimating.current = true;
     
-    // Calculate and start animation FIRST
     const currentRotationInSteps = Math.round(rotation.value / anglePerItem);
     const currentIndex = (((-currentRotationInSteps % sortedVehicles.length) + sortedVehicles.length) % sortedVehicles.length);
     
@@ -1583,28 +1664,25 @@ export function CarCarousel({
 
     const targetRotation = rotation.value - (indexDiff * anglePerItem);
     
-    // Start animation FIRST - smooth with minimal bounce
-    rotation.value = withSpring(targetRotation, {
-      damping: 28,
-      stiffness: 120,
+    rotation.value = withTiming(targetRotation, {
+      duration: 400,
+      easing: SETTLE_EASING,
+    }, (finished) => {
+      'worklet';
+      if (finished) {
+        runOnJS(finishAnimation)(targetIndex);
+      }
     });
     
-    // Close bottom sheet immediately if needed
     if (showBottomSheet) {
       closeBottomSheet();
     }
-    
-    // Wait for animation to complete before updating state
-    InteractionManager.runAfterInteractions(() => {
-      setActiveIndex(targetIndex);
-      onActiveIndexChange?.(targetIndex);
-    });
-  }, [anglePerItem, sortedVehicles.length, showBottomSheet, onActiveIndexChange]);
+  }, [anglePerItem, sortedVehicles.length, showBottomSheet, finishAnimation, SETTLE_EASING]);
 
   // Bottom sheet functions
   const openBottomSheet = () => {
     setShowBottomSheet(true);
-    sheetTranslateY.setValue(300);
+    sheetTranslateY.setValue(scale(300));
     backdropOpacity.setValue(0);
     
     Animated.parallel([
@@ -1625,7 +1703,7 @@ export function CarCarousel({
   const closeBottomSheet = () => {
     Animated.parallel([
       Animated.timing(sheetTranslateY, {
-        toValue: 300,
+        toValue: scale(300),
         duration: 250,
         easing: Easing.bezier(0.25, 0.1, 0.25, 1),
         useNativeDriver: false,
@@ -1706,7 +1784,7 @@ export function CarCarousel({
         </Text>
         {activeVehicle?.connectionStatus === 'connected' && (
           <View style={styles.connectedBadge}>
-            <Check size={12} color="#FFFFFF" strokeWidth={3} />
+            <Check size={scale(12)} color="#FFFFFF" strokeWidth={3} />
             <Text style={styles.connectedBadgeText}>Connected</Text>
           </View>
         )}
@@ -1716,17 +1794,26 @@ export function CarCarousel({
       {/* Thumbnail Selector with Activity Rings */}
       <View style={styles.thumbnailRow}>
         <View style={styles.thumbnailSelector}>
+          {/* Sliding glass indicator behind active thumbnail */}
+          {isLiquidGlassEnabled && LiquidGlassView && (
+            <ReAnimated.View
+              style={[styles.slidingGlassWrapper, slidingGlassStyle]}
+            >
+              <LiquidGlassView interactive effect="clear" style={styles.slidingGlassPill} />
+            </ReAnimated.View>
+          )}
+
           {sortedVehicles.map((vehicle, index) => {
             const imageSource = vehicle.imageSource || FALLBACK_VEHICLE_IMAGE;
             const isActive = index === activeIndex;
-            
+
             return (
               <Pressable
                 key={vehicle.id}
                 onPress={() => rotateToIndex(index)}
                 style={[
                   styles.thumbnailButton,
-                  isActive && styles.thumbnailButtonActive,
+                  !isLiquidGlassEnabled && isActive && styles.thumbnailButtonActive,
                 ]}
               >
                 <Image
@@ -1737,11 +1824,9 @@ export function CarCarousel({
               </Pressable>
             );
           })}
-          
-          <Pressable style={styles.addCarButton}
-          onPress={() => router.push('/add-vehicle')}
-          >
-            <Plus size={18} color="#000000" />
+
+          <Pressable style={styles.addCarButton} onPress={() => router.push('/add-vehicle')}>
+            <Plus size={scale(18)} color="#000000" />
           </Pressable>
         </View>
 
@@ -1751,7 +1836,7 @@ export function CarCarousel({
             healthPercentage={overallCondition}
             maintenancePercentage={maintenanceScoreForRing}
             servicePercentage={usageScoreForRing}
-            size={72}
+            size={scale(72)}
             onPress={() => setShowHealthModal(true)}
           />
         )}
@@ -1760,13 +1845,13 @@ export function CarCarousel({
       {/* Separator */}
       <View style={[
         styles.separatorContainer,
-        { width: (sortedVehicles.length * 48) + ((sortedVehicles.length - 1) * Spacing.sm) }
+        { width: (sortedVehicles.length * scale(48)) + ((sortedVehicles.length - 1) * Spacing.sm) }
       ]}>
         <View style={styles.separator} />
         <View 
           style={[
             styles.separatorIndicator, 
-            { left: activeIndex * (48 + Spacing.sm) }
+            { left: activeIndex * (scale(48) + Spacing.sm) }
           ]} 
         />
       </View>
@@ -1781,7 +1866,7 @@ export function CarCarousel({
         <KeyboardAvoidingView 
           style={styles.modalContainer}
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          keyboardVerticalOffset={40}
+          keyboardVerticalOffset={scale(40)}
         >
           <Animated.View 
             style={[styles.backdrop, { opacity: backdropOpacity }]}
@@ -1800,12 +1885,12 @@ export function CarCarousel({
           >
             {sheetMode !== 'main' && (
               <Pressable style={styles.backButton} onPress={handleBackToMain}>
-                <ChevronLeft size={24} color="#6B7280" />
+                <ChevronLeft size={scale(24)} color="#6B7280" />
               </Pressable>
             )}
 
             <Pressable style={styles.closeButton} onPress={closeBottomSheet}>
-              <X size={24} color="#6B7280" />
+              <X size={scale(24)} color="#6B7280" />
             </Pressable>
 
             {/* Main View */}
@@ -1838,7 +1923,7 @@ export function CarCarousel({
                         <Text weight="bold" size="lg" color={Colors.light.text}>
                           {detailItem.value}
                         </Text>
-                        <ChevronRight size={18} color="#9CA3AF" />
+                        <ChevronRight size={scale(18)} color="#9CA3AF" />
                       </View>
                     </Pressable>
                   ))}
@@ -1909,7 +1994,7 @@ export function CarCarousel({
                     onPress={handleBackToMain}
                   >
                     <View style={[styles.serviceOptionIcon, { backgroundColor: '#EBF5FF' }]}>
-                      <Calendar size={20} color={BrandColors.secondary} />
+                      <Calendar size={scale(20)} color={BrandColors.secondary} />
                     </View>
                     <Text weight="medium" size="md" color={Colors.light.text}>Reschedule</Text>
                   </Pressable>
@@ -1919,7 +2004,7 @@ export function CarCarousel({
                     onPress={handleBackToMain}
                   >
                     <View style={[styles.serviceOptionIcon, { backgroundColor: '#FEE2E2' }]}>
-                      <XCircle size={20} color="#EF4444" />
+                      <XCircle size={scale(20)} color="#EF4444" />
                     </View>
                     <Text weight="medium" size="md" color={Colors.light.text}>Cancel</Text>
                   </Pressable>
@@ -1929,7 +2014,7 @@ export function CarCarousel({
                     onPress={handleBackToMain}
                   >
                     <View style={[styles.serviceOptionIcon, { backgroundColor: '#D1FAE5' }]}>
-                      <Check size={20} color="#10B981" />
+                      <Check size={scale(20)} color="#10B981" />
                     </View>
                     <Text weight="medium" size="md" color={Colors.light.text}>Mark as Done</Text>
                   </Pressable>
@@ -1950,6 +2035,8 @@ export function CarCarousel({
         servicePercentage={usageScoreForRing}
         maintenanceItems={maintenanceItems}
         currentMileage={vehicleMileage}
+        isEstimated={isEstimatedScore}
+        onResumeCheckin={onResumeCheckin}
       />
     </View>
   );
@@ -1963,10 +2050,10 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
-  
+
   // 3D Carousel Styles
   carouselContainer: {
-    height: SCREEN_HEIGHT * 0.28,
+    height: SCREEN_HEIGHT * 0.24,
     alignItems: 'center',
     justifyContent: 'flex-end',
     position: 'relative',
@@ -1990,26 +2077,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   logoContainerLexus: {
-    top: -280,
+    top: verticalScale(-280),
   },
   logoContainerLambo: {
-    top: -240,
+    top: verticalScale(-240),
   },
   carouselLogo: {
     opacity: 0.08,
   },
   carouselLogoLexus: {
-    width: 280,
-    height: 280,
+    width: scale(280),
+    height: scale(280),
   },
   carouselLogoLambo: {
-    width: 240,
-    height: 240,
+    width: scale(240),
+    height: scale(240),
   },
   carouselCarImage: {
-    width: '140%',
-    height: 260,
+    width: '100%',
+    height: '100%',
     zIndex: 1,
+    transform: [{ translateY: scale(15) }],
   },
   carouselCarImageLexus: {
     // No longer needed — dynamic images have consistent sizing
@@ -2018,40 +2106,40 @@ const styles = StyleSheet.create({
     // No longer needed — dynamic images have consistent sizing
   },
   carouselReflection: {
-    width: '140%',
-    height: 240,
+    width: '100%',
+    height: scale(180),
     transform: [{ scaleY: -1 }],
     opacity: 0.03,
-    marginTop: -40,
+    marginTop: scale(-165),
   },
   carouselReflectionLexus: {
     // No longer needed
   },
   carouselReflectionLambo: {
     width: '130%',
-    height: 260,
+    height: scale(260),
     opacity: 0.04,
-    marginTop: -50,
+    marginTop: scale(-175),
     transform: [{ scaleY: -1 }, { translateY: 40 }],
   },
-  
+
   // Active Car Info
   activeCarInfo: {
     alignItems: 'center',
-    marginTop: 20,
+    marginTop: scale(8),
   },
   heroCarName: {
     color: '#000000',
-    fontSize: 24,
+    fontSize: moderateScale(24),
     fontWeight: '700',
   },
   heroCarNameLight: {
     color: '#ffffff',
   },
   heroCarMeta: {
-    marginTop: 4,
+    marginTop: scale(4),
     color: '#000000',
-    fontSize: 14,
+    fontSize: moderateScale(14),
     fontWeight: '700',
   },
   heroCarMetaLight: {
@@ -2060,21 +2148,21 @@ const styles = StyleSheet.create({
   connectedBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    marginTop: 6,
+    gap: scale(4),
+    marginTop: scale(6),
     backgroundColor: '#34C759',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
+    paddingHorizontal: scale(10),
+    paddingVertical: scale(4),
+    borderRadius: moderateScale(12),
     alignSelf: 'center',
   },
   connectedBadgeText: {
     color: '#FFFFFF',
-    fontSize: 11,
+    fontSize: moderateScale(11),
     fontWeight: '700',
     letterSpacing: 0.3,
   },
-  
+
   // Thumbnail Row
   thumbnailRow: {
     flexDirection: 'row',
@@ -2087,31 +2175,45 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.sm,
+    position: 'relative',
+  },
+  slidingGlassWrapper: {
+    position: 'absolute',
+    left: 0,
+    top: 0,
+    width: scale(48),
+    height: scale(48),
+    zIndex: 0,
+  },
+  slidingGlassPill: {
+    width: scale(48),
+    height: scale(48),
+    borderRadius: scale(24),
   },
   thumbnailButton: {
-    width: 48,
-    height: 48,
-    borderRadius: 10,
+    width: scale(48),
+    height: scale(48),
+    borderRadius: moderateScale(10),
     backgroundColor: 'transparent',
     justifyContent: 'center',
     alignItems: 'center',
   },
   thumbnailButtonActive: {},
   thumbnailImage: {
-    width: 36,
-    height: 36,
+    width: scale(36),
+    height: scale(36),
   },
   addCarButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: scale(36),
+    height: scale(36),
+    borderRadius: scale(18),
     backgroundColor: 'transparent',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
     borderColor: '#000000',
   },
-  
+
   // Separator
   separatorContainer: {
     position: 'absolute',
@@ -2125,20 +2227,20 @@ const styles = StyleSheet.create({
   separatorIndicator: {
     position: 'absolute',
     top: -1,
-    width: 48,
+    width: scale(48),
     height: 3,
     backgroundColor: BrandColors.secondary,
     borderRadius: 1.5,
   },
-  
-  
+
+
   // Modal Styles
   modalContainer: {
     flex: 1,
     justifyContent: 'flex-end',
     alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingBottom: 24,
+    paddingHorizontal: scale(10),
+    paddingBottom: scale(24),
   },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
@@ -2146,12 +2248,12 @@ const styles = StyleSheet.create({
   },
   bottomSheet: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 50,
+    borderRadius: moderateScale(50),
     width: '100%',
     paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.lg,
     paddingTop: Spacing.xs,
-    marginBottom: 10,
+    marginBottom: scale(10),
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.15,
@@ -2162,21 +2264,21 @@ const styles = StyleSheet.create({
     position: 'absolute',
     top: Spacing.md,
     left: Spacing.lg,
-    padding: 8,
+    padding: scale(8),
   },
   closeButton: {
     position: 'absolute',
     top: Spacing.md,
     right: Spacing.lg,
-    padding: 8,
+    padding: scale(8),
   },
   sheetContent: {
     alignItems: 'center',
-    paddingTop: 40,
+    paddingTop: scale(40),
   },
   sheetLogo: {
-    width: 80,
-    height: 90,
+    width: scale(80),
+    height: scale(90),
     marginBottom: Spacing.sm,
     marginTop: Spacing.xs,
   },
@@ -2191,7 +2293,7 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.sm,
     paddingHorizontal: Spacing.md,
     backgroundColor: '#F9FAFB',
-    borderRadius: 12,
+    borderRadius: moderateScale(12),
   },
   detailItemPressed: {
     backgroundColor: '#F3F4F6',
@@ -2199,12 +2301,12 @@ const styles = StyleSheet.create({
   detailLabel: {
     textTransform: 'uppercase',
     letterSpacing: 1.5,
-    fontSize: 11,
+    fontSize: moderateScale(11),
   },
   valueRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: scale(8),
   },
   sheetTitle: {
     marginBottom: Spacing.lg,
@@ -2213,10 +2315,10 @@ const styles = StyleSheet.create({
   textInput: {
     width: '100%',
     backgroundColor: '#F9FAFB',
-    borderRadius: 12,
+    borderRadius: moderateScale(12),
     paddingHorizontal: Spacing.lg,
     paddingVertical: Spacing.md,
-    fontSize: 18,
+    fontSize: moderateScale(18),
     fontWeight: '600',
     color: Colors.light.text,
     marginBottom: Spacing.lg,
@@ -2224,7 +2326,7 @@ const styles = StyleSheet.create({
   saveButton: {
     width: '100%',
     backgroundColor: BrandColors.secondary,
-    borderRadius: 12,
+    borderRadius: moderateScale(12),
     paddingVertical: Spacing.md,
     alignItems: 'center',
   },
@@ -2239,7 +2341,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: '#F9FAFB',
-    borderRadius: 12,
+    borderRadius: moderateScale(12),
     paddingVertical: Spacing.md,
     paddingHorizontal: Spacing.lg,
     gap: Spacing.md,
@@ -2248,9 +2350,9 @@ const styles = StyleSheet.create({
     backgroundColor: '#F3F4F6',
   },
   serviceOptionIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: scale(40),
+    height: scale(40),
+    borderRadius: scale(20),
     justifyContent: 'center',
     alignItems: 'center',
   },

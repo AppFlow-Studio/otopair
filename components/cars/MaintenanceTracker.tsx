@@ -24,18 +24,34 @@
 
 // 1. React & React Native
 import React, { useEffect, useState } from 'react';
-import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
 
 // 2. Expo & Third-party
 import { BlurView } from 'expo-blur';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Circle } from 'react-native-svg';
+import Animated, {
+  Easing as REasing,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withRepeat,
+  withSequence,
+  withSpring,
+  withTiming,
+} from 'react-native-reanimated';
 
 // 3. Shared UI
-import { Button, Text } from '@/components/shared-ui';
+import { Text } from '@/components/shared-ui';
+import { OilIcon, BrakesIcon, TireIcon, BatteryIcon, WarningIcon } from '@/components/cars/ServiceIcons';
 
-// 4. Constants, hooks, types
-import { BorderRadius, Colors, Shadows, Spacing } from '@/constants/theme';
+// 4. Local components
+import MaintenanceDetailView from '@/components/cars/MaintenanceDetailView';
+
+// 5. Constants, hooks, types
+import { computeProjectedHealthScore, type HealthScoreInput } from '@/utils/healthScore';
+import { scale, moderateScale } from '@/utils/responsive';
 
 // ============================================================================
 // TYPES
@@ -50,11 +66,16 @@ export interface MaintenanceItem {
   // e.g. "Mar 2025", "Aug 2025", "Unknown"
   detail: string;
   status: MaintenanceStatus;
+  lastService?: string;
+  urgency?: string;
+  impacts?: Array<{ label: string; severity: 'high' | 'medium' | 'low' }>;
+  recommendation?: string;
 }
 
 interface MaintenanceTrackerProps {
   items: MaintenanceItem[];
   vehicleCondition?: number;
+  healthScoreInput?: HealthScoreInput;
   onBookNow?: (id: string) => void;
   onAddInfo?: (id: string) => void;
   onEditPressed?: () => void;
@@ -73,52 +94,35 @@ const STATUS_PRIORITY: Record<MaintenanceStatus, number> = {
   unknown: 4,
 };
 
-const STATUS_CONFIG: Record<
-  MaintenanceStatus,
-  {
-    label: string;
-    badgeBg: string;
-    badgeText: string;
-    iconBg: string;
-    iconColor: string;
-  }
-> = {
-  on_time: {
-    label: 'On Time',
-    badgeBg: '#DCFCE7',
-    badgeText: '#15803D',
-    iconBg: '#DCFCE7',
-    iconColor: '#22C55E',
+// ============================================================================
+// CARD COLOR MAPPING
+// ============================================================================
+
+const CARD_COLORS: Partial<Record<MaintenanceStatus, { statusColor: string; iconBg: string }>> = {
+  overdue: {
+    statusColor: '#5299FE',
+    iconBg: 'rgba(82, 153, 254, 0.07)',
   },
   needs_attention: {
-    label: 'Needs Attention',
-    badgeBg: '#FEF3C7',
-    badgeText: '#B45309',
-    iconBg: '#FEF3C7',
-    iconColor: '#F59E0B',
+    statusColor: '#5299FE',
+    iconBg: 'rgba(82, 153, 254, 0.07)',
   },
   due_soon: {
-    label: 'Due Soon',
-    badgeBg: '#FDEAD7',
-    badgeText: '#f89829',
-    iconBg: '#FFEDD5',
-    iconColor: '#FDBA74',
-  },
-  overdue: {
-    label: 'Overdue',
-    badgeBg: '#FEE2E2',
-    badgeText: '#B91C1C',
-    iconBg: '#FEE2E2',
-    iconColor: '#DC2626',
-  },
-  unknown: {
-    label: 'Unknown',
-    badgeBg: '#E5E7EB',
-    badgeText: '#4B5563',
-    iconBg: '#E5E7EB',
-    iconColor: '#6B7280',
+    statusColor: '#5299FE',
+    iconBg: 'rgba(82, 153, 254, 0.07)',
   },
 };
+
+function getServiceIcon(itemId: string, size: number, color: string) {
+  const type = itemId.replace(/^(unknown-|user-|smartcar-)/, '');
+  switch (type) {
+    case 'oil': return <OilIcon size={size} color={color} />;
+    case 'brakes': return <BrakesIcon size={size} color={color} />;
+    case 'tires': return <TireIcon size={size} color={color} />;
+    case 'battery': return <BatteryIcon size={size} color={color} />;
+    default: return <WarningIcon size={size} color={color} />;
+  }
+}
 
 // ============================================================================
 // VEHICLE HEALTH RING COMPONENT (Apple Fitness Style)
@@ -166,7 +170,7 @@ function VehicleHealthRing({ percentage, size = 64 }: VehicleHealthRingProps) {
   // Determine ring color based on percentage
   const getRingColor = () => {
     if (percentage >= 80) return '#22C55E'; // Green
-    if (percentage >= 60) return '#FBBF24'; // Yellow/Orange
+    if (percentage >= 60) return '#F5C623'; // Yellow
     if (percentage >= 40) return '#F97316'; // Orange
     return '#EF4444'; // Red
   };
@@ -224,283 +228,347 @@ const ringStyles = StyleSheet.create({
 });
 
 // ============================================================================
-// COMPONENT
+// GROUP LABELS
 // ============================================================================
 
-export function MaintenanceTracker({ items, vehicleCondition, onBookNow, onAddInfo, onEditPressed }: MaintenanceTrackerProps) {
-  // Sort items by status priority: overdue → due_soon → on_time → unknown
-  const sortedItems = [...items].sort(
-    (a, b) => STATUS_PRIORITY[a.status] - STATUS_PRIORITY[b.status]
-  );
+function OverdueLabel() {
+  const pulseStyle = useAnimatedStyle(() => ({
+    opacity: withRepeat(
+      withSequence(
+        withTiming(0.5, { duration: 1000 }),
+        withTiming(1, { duration: 1000 }),
+      ),
+      -1,
+    ),
+    transform: [
+      {
+        scale: withRepeat(
+          withSequence(
+            withTiming(1.4, { duration: 1000 }),
+            withTiming(1, { duration: 1000 }),
+          ),
+          -1,
+        ),
+      },
+    ],
+  }));
 
   return (
-    <View style={styles.container}>
-      {/* Section Header */}
-      <View style={styles.headerRow}>
-        <Text weight="semiBold" size="lg" color={Colors.light.text}>
-          Maintenance Tracker
-        </Text>
-        {onEditPressed && (
-          <Pressable onPress={onEditPressed} style={({ pressed }) => [styles.editHeaderButton, pressed && { opacity: 0.6 }]}>
-            <Ionicons name="options-outline" size={22} color="#6B7280" />
-          </Pressable>
-        )}
-      </View>
-      
+    <View style={groupLabelStyles.row}>
+      <Animated.View style={[groupLabelStyles.overdueDot, pulseStyle]} />
+      <Text weight="bold" style={groupLabelStyles.overdueText}>OVERDUE</Text>
+    </View>
+  );
+}
 
-      {/* Empty state */}
-      {items.length === 0 ? (
-        <View style={styles.emptyState}>
-          <Text weight="medium" size="md" color="#6B7280">
-            No maintenance items yet.
-          </Text>
-          <Text size="sm" color="#9CA3AF">
-            We&apos;ll show your services here once you add them.
-          </Text>
-        </View>
-      ) : (
-        sortedItems.map((item) => {
-          const config = STATUS_CONFIG[item.status];
-          const isUnknown = item.status === 'unknown';
+function NeedsAttentionLabel() {
+  const pulseStyle = useAnimatedStyle(() => ({
+    opacity: withRepeat(
+      withSequence(
+        withTiming(0.5, { duration: 1000 }),
+        withTiming(1, { duration: 1000 }),
+      ),
+      -1,
+    ),
+    transform: [
+      {
+        scale: withRepeat(
+          withSequence(
+            withTiming(1.4, { duration: 1000 }),
+            withTiming(1, { duration: 1000 }),
+          ),
+          -1,
+        ),
+      },
+    ],
+  }));
 
-          const handlePrimaryPress = () => {
-            if (isUnknown) {
-              onAddInfo?.(item.id);
-            } else if (item.status === 'on_time') {
-              Alert.alert('Reminder Set!');
-            } else {
-              onBookNow?.(item.id);
-            }
-          };
+  return (
+    <View style={groupLabelStyles.row}>
+      <Animated.View style={[groupLabelStyles.needsAttentionDot, pulseStyle]} />
+      <Text weight="bold" style={groupLabelStyles.needsAttentionText}>NEEDS ATTENTION</Text>
+    </View>
+  );
+}
 
-          return (
-            <View key={item.id} style={styles.cardOuter}>
-              {/* Frosted glass blur layer */}
-              <BlurView intensity={22} tint="light" style={styles.blurContainer}>
-                {/* White overlay for frosted effect */}
-                <View style={styles.whiteOverlay} />
-              </BlurView>
-              <View style={styles.card}>
-                  {/* Two-column layout: Left content + Right actions */}
-                  <View style={styles.cardRow}>
-                {/* Left Column: Title + Detail section */}
-                <View style={styles.leftColumn}>
-                  {/* Title */}
-                  <Text weight="semiBold" size="xl" color={Colors.light.text}>
-                    {item.serviceName}
-                  </Text>
+// ============================================================================
+// URGENT CARD COMPONENT
+// ============================================================================
 
-                  {/* Detail row: Status Icon + Description + Detail */}
-                  <View style={styles.detailSection}>
-                    {item.status !== 'unknown' && <StatusIcon key={item.id} itemId={item.id} status={item.status} size={20} />}
-                    <View style={styles.detailTextContainer}>
-                      <Text size="sm" color={Colors.light.text}>
-                        {item.description}
-                      </Text>
-                      <Text weight="semiBold" size="sm" color={Colors.light.text}>
-                        {item.detail}
-                      </Text>
-                    </View>
-                  </View>
-                </View>
+interface UrgentCardProps {
+  item: MaintenanceItem;
+  entryDelay: number;
+  vehicleCondition: number;
+  healthScoreInput?: HealthScoreInput;
+  onBookNow?: (id: string) => void;
+  onAddInfo?: (id: string) => void;
+  onCardPress?: (item: MaintenanceItem) => void;
+}
 
-                {/* Right Column: Badge + Buttons stacked */}
-                <View style={styles.rightColumn}>
-                  <View style={[styles.badge, { backgroundColor: config.badgeBg }]}>
-                    <Text weight="semiBold" size="xs" color={config.badgeText}>
-                      {config.label}
-                    </Text>
-                  </View>
+function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBookNow, onCardPress }: UrgentCardProps) {
+  const colors = CARD_COLORS[item.status] ?? { statusColor: '#5299FE', iconBg: 'rgba(82,153,254,0.07)' };
 
-                  {isUnknown ? (
-                    <Button
-                      variant="ghost"
-                      onPress={handlePrimaryPress}
-                      style={styles.outlinedButton}
-                    >
-                      <Text weight="medium" size="sm" color={Colors.light.text}>
-                        Add Info
-                      </Text>
-                    </Button>
-                  ) : item.status === 'on_time' ? (
-                    <Button
-                      variant="ghost"
-                      onPress={handlePrimaryPress}
-                      style={styles.remindButton}
-                    >
-                      <Text weight="semiBold" size="sm" color="#1a1a1a">
-                        Remind me
-                      </Text>
-                    </Button>
-                  ) : (
-                    <Button
-                      variant="primary"
-                      onPress={handlePrimaryPress}
-                      style={styles.primaryButton}
-                    >
-                      <Text weight="semiBold" size="sm" color="#FFFFFF">
-                        Book Now
-                      </Text>
-                    </Button>
-                  )}
-                </View>
-              </View>
+  const delta = healthScoreInput
+    ? Math.round(computeProjectedHealthScore(healthScoreInput, item.id) - vehicleCondition)
+    : 0;
+
+  const cardScale = useSharedValue(1);
+
+  const entryOpacity = useSharedValue(0);
+  const entryTranslateY = useSharedValue(18);
+  useEffect(() => {
+    entryOpacity.value = withDelay(
+      entryDelay,
+      withTiming(1, { duration: 550, easing: REasing.bezier(0.16, 1, 0.3, 1) }),
+    );
+    entryTranslateY.value = withDelay(
+      entryDelay,
+      withTiming(0, { duration: 550, easing: REasing.bezier(0.16, 1, 0.3, 1) }),
+    );
+  }, []);
+  const entryStyle = useAnimatedStyle(() => ({
+    opacity: entryOpacity.value,
+    transform: [{ translateY: entryTranslateY.value }, { scale: cardScale.value }],
+  }));
+
+  return (
+    <Pressable
+      onPressIn={() => { cardScale.value = withSpring(0.98, { damping: 20, stiffness: 300 }); }}
+      onPressOut={() => { cardScale.value = withSpring(1, { damping: 20, stiffness: 300 }); }}
+      onPress={() => onCardPress ? onCardPress(item) : onBookNow?.(item.id)}
+    >
+      <Animated.View style={[cardStyles.container, entryStyle]}>
+        <View style={cardStyles.topRow}>
+          <View style={[cardStyles.iconContainer, { backgroundColor: colors.iconBg }]}>
+            {getServiceIcon(item.id, 24, colors.statusColor)}
+          </View>
+          <View style={cardStyles.textColumn}>
+            <Text weight="bold" style={cardStyles.title}>{item.serviceName}</Text>
+            <Text style={cardStyles.subtitle}>{item.description}</Text>
+          </View>
+          {delta > 0 && (
+            <View style={cardStyles.scoreColumn}>
+              <View style={cardStyles.scoreRow}>
+                <Text style={cardStyles.scoreNumber}>+{delta}</Text>
+                <Text style={cardStyles.scorePercent}>%</Text>
               </View>
             </View>
-          );
-        })
+          )}
+        </View>
+        <View style={cardStyles.buttonRow}>
+          <Pressable
+            style={({ pressed }) => [cardStyles.bookServiceBtn, pressed && { opacity: 0.85 }]}
+            onPress={() => onBookNow?.(item.id)}
+          >
+            <Text weight="semiBold" style={cardStyles.bookServiceText}>Book Service</Text>
+          </Pressable>
+          <Pressable
+            style={({ pressed }) => [cardStyles.viewDetailsBtn, pressed && { opacity: 0.85 }]}
+            onPress={() => onCardPress?.(item)}
+          >
+            <Text weight="semiBold" style={cardStyles.viewDetailsText}>View Details</Text>
+          </Pressable>
+        </View>
+      </Animated.View>
+    </Pressable>
+  );
+}
+
+// ============================================================================
+// HEALTHY ITEMS SECTION (expandable)
+// ============================================================================
+
+function HealthySection({ items }: { items: MaintenanceItem[] }) {
+  const [expanded, setExpanded] = useState(false);
+  const chevronRotation = useSharedValue(0);
+
+  if (items.length === 0) return null;
+
+  const toggle = () => {
+    setExpanded(prev => !prev);
+    chevronRotation.value = withTiming(expanded ? 0 : 1, { duration: 200 });
+  };
+
+  const chevronStyle = useAnimatedStyle(() => ({
+    transform: [{ rotate: `${chevronRotation.value * 90}deg` }],
+  }));
+
+  return (
+    <View>
+      <Pressable onPress={toggle} style={({ pressed }) => pressed && { opacity: 0.7 }}>
+        <View style={summaryStyles.headerRow}>
+          <View style={summaryStyles.dot} />
+          <Text weight="semiBold" style={summaryStyles.headerText}>
+            {items.length} {items.length === 1 ? 'item' : 'items'} healthy
+          </Text>
+          <Animated.View style={chevronStyle}>
+            <Ionicons name="chevron-forward" size={16} color="#C7C7CC" />
+          </Animated.View>
+        </View>
+      </Pressable>
+
+      {expanded && (
+        <View style={summaryStyles.card}>
+          {items.map((item, index) => (
+            <View key={item.id}>
+              <View style={summaryStyles.itemRow}>
+                <View style={summaryStyles.itemIcon}>
+                  {getServiceIcon(item.id, 20, '#5299FE')}
+                </View>
+                <View style={summaryStyles.itemContent}>
+                  <Text weight="semiBold" style={summaryStyles.itemName}>{item.serviceName}</Text>
+                  <Text style={summaryStyles.itemDesc}>{item.description}</Text>
+                </View>
+                <Ionicons name="checkmark-circle" size={18} color="#5299FE" />
+              </View>
+              {index < items.length - 1 && <View style={summaryStyles.separator} />}
+            </View>
+          ))}
+        </View>
       )}
     </View>
   );
 }
 
-// Small helper component for status icon (circular progress indicators with animation)
-function StatusIcon({ 
-  status, 
-  size = 20,
-  itemId,
-}: { 
-  status: MaintenanceStatus; 
-  size?: number;
-  itemId: string;
-}) {
-  const config = STATUS_CONFIG[status];
-  const strokeWidth = 3;
-  const radius = (size - strokeWidth) / 2;
-  const circumference = 2 * Math.PI * radius;
-  const center = size / 2;
+// ============================================================================
+// COMPONENT
+// ============================================================================
 
-  // Animation progress state (0 to 1)
-  const [animationProgress, setAnimationProgress] = useState(0);
+export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, onBookNow, onAddInfo, onEditPressed }: MaintenanceTrackerProps) {
+  const [selectedItem, setSelectedItem] = useState<MaintenanceItem | null>(null);
+  const [modalVisible, setModalVisible] = useState(false);
 
-  // Animate when component mounts - use itemId to ensure each icon animates independently
-  useEffect(() => {
-    // Only animate for due_soon, needs_attention, and on_time statuses
-    if (status !== 'due_soon' && status !== 'needs_attention' && status !== 'on_time') {
-      return;
-    }
+  const handleCardPress = (item: MaintenanceItem) => {
+    setSelectedItem(item);
+    setModalVisible(true);
+  };
 
-    // Reset animation progress
-    setAnimationProgress(0);
+  const handleModalClosed = () => {
+    setModalVisible(false);
+    setSelectedItem(null);
+  };
 
-    let intervalId: ReturnType<typeof setInterval> | null = null;
+  const overdueItems = items
+    .filter(i => i.status === 'overdue')
+    .sort((a, b) => STATUS_PRIORITY[a.status] - STATUS_PRIORITY[b.status]);
 
-    // Small delay before starting animation
-    const delayMs = 200;
-    const startDelay = setTimeout(() => {
-      const duration = 800; // ms
-      const steps = 30; // number of animation frames
-      const stepDuration = duration / steps;
-      let currentStep = 0;
+  const urgentItems = items
+    .filter(i => i.status === 'due_soon' || i.status === 'needs_attention')
+    .sort((a, b) => STATUS_PRIORITY[a.status] - STATUS_PRIORITY[b.status]);
 
-      intervalId = setInterval(() => {
-        currentStep++;
-        // Ease-out animation curve
-        const progress = 1 - Math.pow(1 - currentStep / steps, 3);
-        setAnimationProgress(progress);
+  const healthyItems = items
+    .filter(i => i.status === 'on_time' || i.status === 'unknown')
+    .sort((a, b) => STATUS_PRIORITY[a.status] - STATUS_PRIORITY[b.status]);
 
-        if (currentStep >= steps) {
-          if (intervalId) clearInterval(intervalId);
-        }
-      }, stepDuration);
-    }, delayMs);
+  const overdueBaseDelay = 0;
+  const urgentBaseDelay = overdueItems.length * 80 + 150;
 
-    // Cleanup function
-    return () => {
-      clearTimeout(startDelay);
-      if (intervalId) clearInterval(intervalId);
-    };
-  }, [status, itemId]);
-
-  // Needs attention: solid amber circle with warning icon
-  if (status === 'needs_attention') {
-    return (
-      <View style={[styles.statusIconContainer, { width: size, height: size }]}>
-        <View
-          style={[
-            styles.overdueCircle,
-            {
-              width: size,
-              height: size,
-              borderRadius: size / 2,
-              backgroundColor: config.badgeBg,
-            },
-          ]}
-        >
-          <Ionicons name="warning" size={size * 0.55} color={config.badgeText} />
-        </View>
-      </View>
-    );
-  }
-
-  // Overdue: solid circle with alert icon
-  if (status === 'overdue') {
-    return (
-      <View style={[styles.statusIconContainer, { width: size, height: size }]}>
-        <View
-          style={[
-            styles.overdueCircle,
-            {
-              width: size,
-              height: size,
-              borderRadius: size / 2,
-              backgroundColor: config.badgeBg,
-            },
-          ]}
-        >
-          <Ionicons name="alert" size={size * 0.55} color={config.badgeText} />
-        </View>
-      </View>
-    );
-  }
-
-  // Unknown: grey empty circle
-  if (status === 'unknown') {
-    return (
-      <View style={[styles.statusIconContainer, { width: size, height: size }]}>
-        <Svg width={size} height={size}>
-          <Circle
-            cx={center}
-            cy={center}
-            r={radius}
-            stroke={config.iconColor}
-            strokeWidth={strokeWidth}
-            fill="none"
-            strokeDasharray="3 3"
-          />
-        </Svg>
-      </View>
-    );
-  }
-
-  // Due soon / on time: animated partial arc
-  const targetProgress = 0.6;
-  // Calculate current strokeDashoffset based on animation progress
-  // Start from full circumference (empty) and animate to target
-  const currentProgress = targetProgress * animationProgress;
-  const strokeDashoffset = circumference * (1 - currentProgress);
 
   return (
-    <View style={[styles.statusIconContainer, { width: size, height: size }]}>
-      <Svg width={size} height={size}>
-        {/* Animated progress arc */}
-        <Circle
-          cx={center}
-          cy={center}
-          r={radius}
-          stroke={config.iconColor}
-          strokeWidth={strokeWidth}
-          fill="none"
-          strokeDasharray={circumference}
-          strokeDashoffset={strokeDashoffset}
-          strokeLinecap="round"
-          rotation={-90}
-          origin={`${center}, ${center}`}
+    <View style={styles.container}>
+      {/* Section Header */}
+      <View style={styles.headerRow}>
+        <Text weight="bold" color="#0F172A" style={{ fontSize: moderateScale(22) }}>
+          Maintenance Tracker
+        </Text>
+        {onEditPressed && (
+          <Pressable onPress={onEditPressed} style={({ pressed }) => [styles.editHeaderButton, pressed && { opacity: 0.7 }]}>
+            <BlurView intensity={40} tint="light" style={StyleSheet.absoluteFill} />
+            <LinearGradient
+              colors={['rgba(255,255,255,0.35)', 'rgba(255,255,255,0.25)']}
+              style={StyleSheet.absoluteFill}
+            />
+            <LinearGradient
+              colors={['rgba(255,255,255,0.55)', 'rgba(255,255,255,0.15)', 'rgba(255,255,255,0)']}
+              locations={[0, 0.35, 0.7]}
+              style={styles.editButtonGloss}
+            />
+            <Text weight="bold" style={styles.editHeaderButtonText}>Update Info</Text>
+          </Pressable>
+        )}
+      </View>
+
+      {/* Empty state */}
+      {items.length === 0 ? (
+        <View style={styles.emptyState}>
+          <Text weight="medium" size="md" color="#829BAD">
+            No maintenance items yet.
+          </Text>
+          <Text size="sm" color="#829BAD" style={{ opacity: 0.7 }}>
+            We&apos;ll show your services here once you add them.
+          </Text>
+        </View>
+      ) : (
+        <>
+          {/* Overdue items */}
+          {overdueItems.length > 0 && (
+            <>
+              <OverdueLabel />
+              <View style={styles.urgentGroup}>
+                {overdueItems.map((item, index) => (
+                  <UrgentCard
+                    key={item.id}
+                    item={item}
+                    entryDelay={overdueBaseDelay + index * 80}
+                    vehicleCondition={vehicleCondition ?? 0}
+                    healthScoreInput={healthScoreInput}
+                    onBookNow={onBookNow}
+                    onAddInfo={onAddInfo}
+                    onCardPress={handleCardPress}
+                  />
+                ))}
+              </View>
+            </>
+          )}
+
+          {/* Needs attention / due soon items */}
+          {urgentItems.length > 0 && (
+            <>
+              <NeedsAttentionLabel />
+              <View style={styles.urgentGroup}>
+                {urgentItems.map((item, index) => (
+                  <UrgentCard
+                    key={item.id}
+                    item={item}
+                    entryDelay={urgentBaseDelay + index * 80}
+                    vehicleCondition={vehicleCondition ?? 0}
+                    healthScoreInput={healthScoreInput}
+                    onBookNow={onBookNow}
+                    onAddInfo={onAddInfo}
+                    onCardPress={handleCardPress}
+                  />
+                ))}
+              </View>
+            </>
+          )}
+
+          {/* Healthy items (expandable) */}
+          <HealthySection items={healthyItems} />
+        </>
+      )}
+
+      {/* Detail modal for urgent cards */}
+      {selectedItem && (
+        <MaintenanceDetailView
+          item={selectedItem}
+          visible={modalVisible}
+          currentHealthScore={vehicleCondition ?? 0}
+          projectedHealthScore={
+            healthScoreInput
+              ? computeProjectedHealthScore(healthScoreInput, selectedItem.id)
+              : (vehicleCondition ?? 0) + 8
+          }
+          onClose={handleModalClosed}
+          onBookService={() => {
+            handleModalClosed();
+            onBookNow?.(selectedItem.id);
+          }}
         />
-      </Svg>
+      )}
     </View>
   );
 }
+
 
 // ============================================================================
 // STYLES
@@ -508,21 +576,22 @@ function StatusIcon({
 
 const styles = StyleSheet.create({
   container: {
-    marginTop: 24,
-    paddingHorizontal: Spacing.md,
+    marginTop: scale(24),
   },
   headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 12,
+    marginBottom: scale(12),
+    paddingHorizontal: scale(20),
   },
   emptyState: {
-    paddingVertical: 24,
-    paddingHorizontal: 16,
-    borderRadius: 16,
+    paddingVertical: scale(24),
+    paddingHorizontal: scale(16),
+    borderRadius: moderateScale(16),
     alignItems: 'center',
-    gap: 4,
+    gap: scale(4),
+    backgroundColor: 'rgba(255,255,255,0.65)',
     shadowColor: 'rgba(0, 0, 0, 0.1)',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 1,
@@ -530,115 +599,240 @@ const styles = StyleSheet.create({
     elevation: 4,
     overflow: 'hidden',
   },
-  cardOuter: {
-    marginBottom: 12,
-    borderRadius: 16,
-    overflow: 'hidden',
-    position: 'relative',
-    // Frosted glass border
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.5)',
-    // Soft diffused shadow
-    shadowColor: 'rgba(0, 0, 0, 0.06)',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 1,
-    shadowRadius: 8,
-    elevation: 2,
-  },
-  blurContainer: {
-    ...StyleSheet.absoluteFillObject,
-    borderRadius: 16,
-  },
-  whiteOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(255, 255, 255, 0.38)',
-  },
-  card: {
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    overflow: 'hidden',
-    backgroundColor: 'transparent',
-    borderRadius: 16,
-  },
-  cardRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-  },
-  leftColumn: {
-    flex: 1,
-    justifyContent: 'flex-start',
-    gap: 6,
-  },
-  rightColumn: {
-    alignItems: 'flex-end',
-    justifyContent: 'flex-start',
-    gap: 10,
-  },
-  badge: {
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: 999,
-  },
-  detailSection: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  detailTextContainer: {
-    flex: 1,
-    gap: 2,
-  },
-  statusIconContainer: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  overdueCircle: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  primaryButton: {
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    borderRadius: 14,
-    minWidth: 100,
-    backgroundColor: 'rgba(20, 28, 36, 0.9)',
-    shadowColor: 'rgba(0, 0, 0, 0.2)',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 1,
-    shadowRadius: 8,
-  },
-  outlinedButton: {
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    borderRadius: 14,
-    minWidth: 90,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.8)',
-    backgroundColor: 'rgba(255, 255, 255, 0.4)',
+  urgentGroup: {
+    paddingHorizontal: scale(20),
+    gap: scale(12),
   },
   editHeaderButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: 'rgba(0,0,0,0.06)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(5),
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    borderRadius: moderateScale(15),
+    paddingVertical: scale(7),
+    paddingHorizontal: scale(14),
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.6)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  editButtonGloss: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: '100%',
+    borderRadius: moderateScale(14),
+  },
+  editHeaderButtonText: {
+    color: '#5299FE',
+    fontSize: moderateScale(13),
+    zIndex: 1,
+  },
+});
+
+// ============================================================================
+// CARD STYLES
+// ============================================================================
+
+const cardStyles = StyleSheet.create({
+  container: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: moderateScale(24),
+    padding: scale(20),
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+    borderWidth: 0.5,
+    borderColor: 'rgba(0,0,0,0.05)',
+  },
+  topRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(14),
+  },
+  iconContainer: {
+    width: scale(46),
+    height: scale(46),
+    borderRadius: moderateScale(16),
     alignItems: 'center',
     justifyContent: 'center',
   },
-  remindButton: {
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    borderRadius: 14,
-    minWidth: 100,
-    borderWidth: 1,
-    borderColor: 'rgba(0, 0, 0, 0.1)',
-    backgroundColor: 'rgba(255, 255, 255, 0.9)',
+  textColumn: {
+    flex: 1,
+  },
+  title: {
+    fontSize: moderateScale(16),
+    color: '#2d3435',
+  },
+  subtitle: {
+    fontSize: moderateScale(12),
+    color: '#757c7d',
+    marginTop: 1,
+  },
+  scoreColumn: {
+    alignItems: 'flex-end',
+  },
+  scoreRow: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+  },
+  scoreNumber: {
+    fontSize: moderateScale(20),
+    fontWeight: '300',
+    color: '#34C759',
+  },
+  scorePercent: {
+    fontSize: moderateScale(13),
+    fontWeight: '300',
+    color: '#34C759',
+  },
+  buttonRow: {
+    flexDirection: 'row',
+    gap: scale(8),
+    marginTop: scale(16),
+  },
+  bookServiceBtn: {
+    flex: 1,
+    backgroundColor: '#5299FE',
+    paddingVertical: scale(12),
+    borderRadius: 100,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  bookServiceText: {
+    fontSize: moderateScale(14),
+    color: '#FFFFFF',
+  },
+  viewDetailsBtn: {
+    paddingVertical: scale(12),
+    paddingHorizontal: scale(22),
+    backgroundColor: '#E4E9EA',
+    borderRadius: 100,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  viewDetailsText: {
+    fontSize: moderateScale(14),
+    color: '#2d3435',
+  },
+});
+
+// ============================================================================
+// GROUP LABEL STYLES
+// ============================================================================
+
+const groupLabelStyles = StyleSheet.create({
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(6),
+    paddingLeft: scale(20),
+    marginTop: scale(16),
+    marginBottom: scale(8),
+  },
+  overdueDot: {
+    width: scale(8),
+    height: scale(8),
+    borderRadius: moderateScale(4),
+    backgroundColor: '#EF4444',
+  },
+  overdueText: {
+    fontSize: moderateScale(11),
+    color: '#EF4444',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+  needsAttentionDot: {
+    width: scale(8),
+    height: scale(8),
+    borderRadius: moderateScale(4),
+    backgroundColor: '#F5C623',
+  },
+  needsAttentionText: {
+    fontSize: moderateScale(11),
+    color: '#B8A300',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+});
+
+// ============================================================================
+// HEALTHY SUMMARY STYLES
+// ============================================================================
+
+const summaryStyles = StyleSheet.create({
+  headerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(10),
+    paddingVertical: scale(14),
+    paddingHorizontal: scale(24),
+    marginTop: scale(8),
+  },
+  dot: {
+    width: scale(8),
+    height: scale(8),
+    borderRadius: moderateScale(4),
+    backgroundColor: '#34C759',
+  },
+  headerText: {
+    flex: 1,
+    fontSize: moderateScale(15),
+    color: '#2d3435',
+  },
+  card: {
+    marginHorizontal: scale(20),
+    marginTop: scale(4),
+    backgroundColor: '#FFFFFF',
+    borderRadius: moderateScale(20),
+    paddingVertical: scale(6),
+    paddingHorizontal: scale(16),
+    shadowColor: '#000',
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 2,
+    borderWidth: 0.5,
+    borderColor: 'rgba(0,0,0,0.05)',
+  },
+  itemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(12),
+    paddingVertical: scale(12),
+  },
+  itemIcon: {
+    width: scale(36),
+    height: scale(36),
+    borderRadius: moderateScale(12),
+    backgroundColor: 'rgba(52, 199, 89, 0.07)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  itemContent: {
+    flex: 1,
+  },
+  itemName: {
+    fontSize: moderateScale(14),
+    color: '#2d3435',
+  },
+  itemDesc: {
+    fontSize: moderateScale(11),
+    color: '#757c7d',
+    marginTop: 1,
+  },
+  separator: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(0,0,0,0.06)',
+    marginLeft: scale(48),
   },
 });
 
 export default MaintenanceTracker;
-
-

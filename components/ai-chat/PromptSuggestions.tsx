@@ -23,16 +23,28 @@
 
 // 1. React & React Native
 import React from "react";
-import { View, ScrollView, Pressable, StyleSheet, Platform } from "react-native";
+import { View, Pressable, StyleSheet } from "react-native";
 
 // 2. Expo & Third-party
-import Animated, { useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
+import Animated, { FadeInUp, useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
 
 // 3. Shared UI (design system)
 import { Text } from "@/components/shared-ui";
 
 // 4. Constants, hooks, types
 import { BrandColors, BorderRadius, Spacing, FontFamily } from "@/constants/theme";
+
+// 5. Native iOS 26 liquid glass (optional)
+let LiquidGlassView: React.ComponentType<any> | null = null;
+let isLiquidGlassEnabled = false;
+try {
+  const lg = require("@callstack/liquid-glass");
+  LiquidGlassView = lg.LiquidGlassView;
+  isLiquidGlassEnabled = !!lg.isLiquidGlassSupported;
+  console.log("[PromptSuggestions] LiquidGlass supported:", isLiquidGlassEnabled, "view:", !!LiquidGlassView);
+} catch (e) {
+  console.log("[PromptSuggestions] LiquidGlass import failed:", e);
+}
 
 // ============================================================================
 // TYPES
@@ -64,10 +76,10 @@ interface PromptSuggestionsProps {
 }
 
 // ============================================================================
-// ANIMATED PILL COMPONENT
+// SUGGESTION CARD COMPONENT
 // ============================================================================
 
-function SuggestionPill({
+function SuggestionCard({
   suggestion,
   onPress,
   disabled,
@@ -83,12 +95,42 @@ function SuggestionPill({
   }));
 
   const handlePressIn = () => {
-    scale.value = withSpring(0.95, { damping: 15, stiffness: 400 });
+    scale.value = withSpring(0.98, { damping: 15, stiffness: 400 });
   };
 
   const handlePressOut = () => {
     scale.value = withSpring(1, { damping: 15, stiffness: 400 });
   };
+
+  const label = suggestion.subtitle
+    ? `${suggestion.text} ${suggestion.subtitle}`
+    : suggestion.text;
+
+  if (isLiquidGlassEnabled && LiquidGlassView) {
+    return (
+      <Animated.View style={animatedStyle}>
+        <Pressable
+          onPress={onPress}
+          onPressIn={handlePressIn}
+          onPressOut={handlePressOut}
+          disabled={disabled}
+        >
+          <LiquidGlassView
+            interactive
+            effect="regular"
+            style={[
+              styles.glassCard,
+              disabled && styles.cardDisabled,
+            ]}
+          >
+            <Text style={styles.cardText} weight="medium">
+              {label}
+            </Text>
+          </LiquidGlassView>
+        </Pressable>
+      </Animated.View>
+    );
+  }
 
   return (
     <Animated.View style={animatedStyle}>
@@ -97,10 +139,14 @@ function SuggestionPill({
         onPressIn={handlePressIn}
         onPressOut={handlePressOut}
         disabled={disabled}
-        style={({ pressed }) => [styles.pill, pressed && styles.pillPressed, disabled && styles.pillDisabled]}
+        style={({ pressed }) => [
+          styles.card,
+          pressed && styles.cardPressed,
+          disabled && styles.cardDisabled,
+        ]}
       >
-        <Text style={styles.pillText} size="sm" weight="medium">
-          {suggestion.text}
+        <Text style={styles.cardText} weight="medium">
+          {label}
         </Text>
       </Pressable>
     </Animated.View>
@@ -116,23 +162,30 @@ export function PromptSuggestions({ stage, suggestions, onSelect, disabled = fal
     return null;
   }
 
+  const filtered = suggestions.filter((s) => s.id !== 'new_vehicle');
+  const reordered = [
+    ...filtered.filter((s) => s.id === 'oil'),
+    ...filtered.filter((s) => s.id !== 'oil'),
+  ];
+
   return (
     <View style={styles.container}>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.scrollContent}
-        keyboardShouldPersistTaps="handled"
-      >
-        {suggestions.map((suggestion) => (
-          <SuggestionPill
-            key={suggestion.id}
+      {reordered.map((suggestion, index) => (
+        <Animated.View
+          key={suggestion.id}
+          entering={FadeInUp.delay(index * 350)
+            .springify()
+            .damping(14)
+            .stiffness(70)
+            .mass(1)}
+        >
+          <SuggestionCard
             suggestion={suggestion}
             onPress={() => onSelect(suggestion)}
             disabled={disabled}
           />
-        ))}
-      </ScrollView>
+        </Animated.View>
+      ))}
     </View>
   );
 }
@@ -188,29 +241,33 @@ export const DEFAULT_SUGGESTIONS: Record<ConversationStage, Suggestion[]> = {
 
 const styles = StyleSheet.create({
   container: {
-    paddingTop: Spacing.xs,
-    paddingBottom: Platform.OS === 'android' ? Spacing.md : Spacing.xs,
-  },
-  scrollContent: {
     paddingHorizontal: Spacing.lg,
-    gap: Spacing.sm,
-    flexDirection: "row",
+    paddingBottom: Spacing.sm,
+    gap: Spacing.md,
+    alignItems: 'stretch',
   },
-  pill: {
-    backgroundColor: "rgba(255, 255, 255, 0.6)", // Semi-transparent, faded white
+  card: {
+    backgroundColor: "rgba(255, 255, 255, 0.55)",
     borderRadius: BorderRadius.full,
-    paddingVertical: Spacing.sm + 2,
-    paddingHorizontal: Spacing.lg,
-    // No shadow for cleaner, more faded look
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.xl,
   },
-  pillPressed: {
-    backgroundColor: "rgba(255, 255, 255, 0.9)",
+  glassCard: {
+    borderRadius: BorderRadius.full,
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.xl,
   },
-  pillDisabled: {
+  cardPressed: {
+    backgroundColor: "rgba(255, 255, 255, 0.85)",
+  },
+  cardDisabled: {
     opacity: 0.4,
   },
-  pillText: {
-    color: "#4A5568", // Softer, muted dark gray
+  cardText: {
+    color: "#1A202C",
+    fontSize: 15,
     fontFamily: FontFamily.medium,
+    lineHeight: 20,
+    textAlign: 'center',
   },
 });

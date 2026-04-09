@@ -563,6 +563,18 @@ export const upsertServiceVehicleSpec = internalMutation({
     isApplicable: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
+    const now = Date.now();
+    const oemFields = {
+      oem_interval_miles: args.oemIntervalMiles,
+      oem_interval_months: args.oemIntervalMonths,
+      oem_interval_note: args.oemIntervalNote,
+      parts_required: args.partsRequired,
+      is_applicable: args.isApplicable,
+      exclusion_reason: args.exclusionReason,
+      data_source: "ai_enrichment" as const,
+      last_enriched_at: now,
+    };
+
     const existing = await ctx.db
       .query("service_vehicle_specs")
       .withIndex("by_engine_and_service", (q) => q.eq("engine_id", args.engineId).eq("service_id", args.serviceId))

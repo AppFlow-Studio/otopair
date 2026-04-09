@@ -27,7 +27,7 @@ import { Pressable, StyleSheet, View } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
-import { ArrowRight, Square, X } from 'lucide-react-native';
+import { ArrowRight, Check, Square, X } from 'lucide-react-native';
 
 // 3. Shared UI
 import { Text } from '@/components/shared-ui';
@@ -44,14 +44,15 @@ interface ChecklistItem {
 
 interface FinishCarSetupCardProps {
   checklist?: ChecklistItem[];
+  isComplete?: boolean;
   onPress?: () => void;
   onDismiss?: () => void;
 }
 
 // Default checklist items
 const DEFAULT_CHECKLIST: ChecklistItem[] = [
-  { id: 'vin', label: 'Add your VIN number', completed: false },
-  { id: 'mileage', label: 'Enter last known mileage', completed: false },
+  { id: 'vin', label: 'Add your Car with your VIN number', completed: false },
+  { id: 'mileage', label: 'Answer Questions about your Service History', completed: false },
 ];
 
 // ============================================================================
@@ -60,6 +61,7 @@ const DEFAULT_CHECKLIST: ChecklistItem[] = [
 
 export function FinishCarSetupCard({
   checklist = DEFAULT_CHECKLIST,
+  isComplete = false,
   onPress,
   onDismiss,
 }: FinishCarSetupCardProps) {
@@ -132,9 +134,13 @@ export function FinishCarSetupCard({
           {checklist.map((item) => (
             <View key={item.id} style={styles.checklistItem}>
               <View style={styles.checkbox}>
-                <Square size={18} color="#D1D5DB" />
+                {item.completed ? (
+                  <Check size={18} color="#5299FE" strokeWidth={3} />
+                ) : (
+                  <Square size={18} color="#D1D5DB" />
+                )}
               </View>
-              <Text size="sm" color="#374151">
+              <Text size="sm" color={item.completed ? '#5299FE' : '#374151'}>
                 {item.label}
               </Text>
             </View>
@@ -150,9 +156,9 @@ export function FinishCarSetupCard({
           ]}
         >
           <Text weight="semiBold" size="md" color="#FFFFFF">
-            Finish Setup
+            {isComplete ? 'Done' : 'Finish Setup'}
           </Text>
-          <ArrowRight size={18} color="#FFFFFF" />
+          {!isComplete && <ArrowRight size={18} color="#FFFFFF" />}
         </Pressable>
         </View>
       </View>

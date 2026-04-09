@@ -41,12 +41,13 @@ export const MAINTENANCE_LABELS: Record<MaintenanceType, string> = {
   battery: "Battery",
 };
 
-/** All maintenance types in display order */
+/** All maintenance types in display order.
+ *  Inspection is excluded — it only appears when a record exists
+ *  (e.g. from autoCompleteNewVehicleOnboarding or manual entry). */
 export const ALL_MAINTENANCE_TYPES: MaintenanceType[] = [
   "oil",
   "brakes",
   "tires",
-  "inspection",
   "battery",
 ];
 
@@ -58,6 +59,18 @@ export const SMARTCAR_ID_TO_TYPE: Record<string, MaintenanceType> = {
   "smartcar-oil": "oil",
   "smartcar-tires": "tires",
 };
+
+// ============================================================================
+// CONFIRMED HEALTHY (from quarterly check-in Q4b)
+// ============================================================================
+
+const CONFIRMED_HEALTHY_TTL_MS = 90 * 24 * 60 * 60 * 1000; // 90 days
+
+function isConfirmedHealthy(record: MaintenanceRecord, now: number): boolean {
+  const confirmedAt = record.confirmedHealthyAt;
+  if (!confirmedAt) return false;
+  return (now - confirmedAt) < CONFIRMED_HEALTHY_TTL_MS;
+}
 
 // ============================================================================
 // MONTHLY DRIVING AVERAGE
@@ -255,6 +268,7 @@ interface MaintenanceRecord {
   lastServiceDate?: number; // Unix timestamp
   lastServiceMileage?: number;
   customInputs?: Record<string, unknown>;
+  confirmedHealthyAt?: number;
 }
 
 interface StatusResult {
@@ -331,8 +345,22 @@ function computeOilStatus(
 ): StatusResult {
   const result = computeHybridStatus("oil", record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving);
 
+  // Confirmed healthy (Q4b) overrides both interval and warning-light escalation
+  // because the user explicitly said "all good" in the same check-in that asks about lights
+  if (isConfirmedHealthy(record, now)) {
+    return { status: "on_time", percentUsed: 0, description: "Confirmed in good shape", detail: "On time" };
+  }
+
   if (knownIssues?.includes("oil_pressure")) {
     return escalateForWarningLight(result, "Oil pressure warning light active — service urgently needed");
+  }
+
+  if (result.status === "unknown") {
+    const recency = record.customInputs?.recency as string | undefined;
+    if (recency === "not_sure") {
+      return { status: "due_soon", percentUsed: 50, description: "Oil change history uncertain — service recommended", detail: "Check soon" };
+    }
+    return { status: "due_soon", percentUsed: 50, description: "No oil change data — service recommended", detail: "Check soon" };
   }
 
   return result;
@@ -446,6 +474,10 @@ function computeTireStatus(
   avgMonthlyDriving?: string,
   knownIssues?: string[]
 ): StatusResult {
+  if (isConfirmedHealthy(record, now)) {
+    return { status: "on_time", percentUsed: 0, description: "Confirmed in good shape", detail: "On time" };
+  }
+
   const result = computeTireStatusCore(record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving);
 
   if (knownIssues?.includes("tpms")) {
@@ -525,17 +557,22 @@ function computeTireStatusCore(
     }
   }
 
+  // Confirmed healthy via check-in → on_time (tire pressure safety checks above still take priority)
+  if (isConfirmedHealthy(record, now)) {
+    return { status: "on_time", percentUsed: 0, description: "Confirmed in good shape", detail: "On time" };
+  }
+
   // Quick Read fields
   const tireReplaced = record.customInputs?.tireReplaced as string | undefined;
   const tireRepaired = record.customInputs?.tireRepaired as string | undefined;
 
-  // Quick Read: user doesn't know tire status → unknown
+  // Quick Read: user doesn't know tire status — flag for attention
   if (tireReplaced === "dont_know" && !record.lastServiceDate && !record.lastServiceMileage && !tp) {
     return {
-      status: "unknown",
-      percentUsed: 0,
-      description: "Tire replacement history unknown",
-      detail: "Unknown",
+      status: "due_soon",
+      percentUsed: 50,
+      description: "Tire condition uncertain — inspection recommended",
+      detail: "Check soon",
     };
   }
 
@@ -551,10 +588,10 @@ function computeTireStatusCore(
 
   // Fall through to interval-based check (tire replacement age/mileage)
   if (!record.lastServiceDate && !record.lastServiceMileage) {
-    if (tp) {
-      return { status: "unknown", percentUsed: 0, description: "No tire data", detail: "Unknown" };
+    if (tireReplaced === "replaced") {
+      return { status: "on_time", percentUsed: 10, description: "Tires replaced — no service date on file", detail: "On time" };
     }
-    return { status: "unknown", percentUsed: 0, description: "No tire data", detail: "Unknown" };
+    return { status: "on_time", percentUsed: 0, description: "No tire concerns reported", detail: "On time" };
   }
 
   // Tire age: flag at 4 years (48 months) for inspection, overdue at 6 years (72 months)
@@ -613,6 +650,11 @@ function computeBrakeStatus(
   avgMonthlyDriving?: string,
   knownIssues?: string[]
 ): StatusResult {
+  // Confirmed healthy overrides both interval and warning-light escalation
+  if (isConfirmedHealthy(record, now)) {
+    return { status: "on_time", percentUsed: 0, description: "Confirmed in good shape", detail: "On time" };
+  }
+
   const result = computeBrakeStatusCore(record, currentOdometer, make, now, drivingConditions, avgMonthlyDriving);
 
   if (knownIssues?.includes("abs")) {
@@ -632,7 +674,7 @@ function computeBrakeStatusCore(
 ): StatusResult {
   // Legacy field OR Quick Read brakeFeel → unified symptom flags
   const brakeFeel = record.customInputs?.brakeFeel as string | undefined;
-  const squeaking = record.customInputs?.squeaking === true || brakeFeel === "squeak";
+  const squeaking = record.customInputs?.squeaking === true || brakeFeel === "squeak" || brakeFeel === "noise";
   const softSlow = brakeFeel === "soft_slow";
   const hasSymptom = squeaking || softSlow;
 
@@ -692,9 +734,14 @@ function computeBrakeStatusCore(
     };
   }
 
-  // No symptoms, no interval data
+  // No symptoms, confirmed healthy via check-in → on_time
+  if (!hasSymptom && isConfirmedHealthy(record, now)) {
+    return { status: "on_time", percentUsed: 0, description: "Confirmed in good shape", detail: "On time" };
+  }
+
+  // No symptoms, no interval data — user reported brakes are fine
   if (!hasIntervalData) {
-    return { status: "unknown", percentUsed: 0, description: "No brake service history", detail: "Unknown" };
+    return { status: "on_time", percentUsed: 0, description: "Brakes feel fine — no concerns reported", detail: "On time" };
   }
 
   // Return the hybrid result
@@ -707,6 +754,11 @@ function computeBatteryStatus(
   now: number,
   knownIssues?: string[]
 ): StatusResult {
+  // Confirmed healthy overrides both interval and warning-light escalation
+  if (isConfirmedHealthy(record, now)) {
+    return { status: "on_time", percentUsed: 0, description: "Confirmed in good shape", detail: "On time" };
+  }
+
   const hasWarningLight = knownIssues?.includes("battery_charging") === true;
 
   if (!record.lastServiceDate) {
@@ -718,7 +770,14 @@ function computeBatteryStatus(
         detail: "Warning light",
       };
     }
-    return { status: "unknown", percentUsed: 0, description: "No battery data", detail: "Unknown" };
+    const batteryReplaced = record.customInputs?.batteryReplaced as string | undefined;
+    if (batteryReplaced === "yes") {
+      return { status: "on_time", percentUsed: 10, description: "Battery replaced — no date on file", detail: "On time" };
+    }
+    if (batteryReplaced === "not_sure") {
+      return { status: "due_soon", percentUsed: 50, description: "Battery status uncertain — consider having it tested", detail: "Check soon" };
+    }
+    return { status: "on_time", percentUsed: 0, description: "No battery concerns reported", detail: "On time" };
   }
 
   const msSince = now - record.lastServiceDate;

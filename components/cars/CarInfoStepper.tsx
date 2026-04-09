@@ -2,58 +2,88 @@
  * CarInfoStepper — Quick Read Flow
  *
  * PURPOSE: Post-onboarding vehicle condition check. Captures brake health,
- *          tire status, and warning light data in 5–8 taps (~30s). Branching
- *          logic adds conditional follow-up questions based on answers.
+ *          tire status, oil recency, battery status, and warning light data
+ *          via a 2×2 service grid + question overlay.
  *
  * PHASES:
  *   "intro"    — marketing card (benefits + Get Started CTA)
- *   "stepping"  — 5–8 step form with progress bar, Back/Next, carousel-like slides
+ *   "stepping"  — service grid with question overlay per service
  *
  * USED IN: app/(main-tabs)/cars/index.tsx
  *
  * OWNER: Ahmad Hamoudeh
  */
 
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useImperativeHandle, useRef, useState, forwardRef } from "react";
 import {
   Animated,
   Dimensions,
   Easing,
   Keyboard,
-  LayoutAnimation,
-  Platform,
   Pressable,
   StyleSheet,
-  UIManager,
   View,
 } from "react-native";
 import { useMutation } from "convex/react";
-import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LinearGradient } from "expo-linear-gradient";
+import { Ionicons } from "@expo/vector-icons";
+import LottieView from "lottie-react-native";
+import ReAnimated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+  withTiming,
+  withSequence,
+  withDelay,
+  interpolateColor,
+  Easing as REasing,
+  Layout,
+} from "react-native-reanimated";
 
+import { ArrowLeft } from "lucide-react-native";
 import { Text } from "@/components/shared-ui";
-import { Spacing } from "@/constants/theme";
+import { BrakesIcon, TireIcon, OilIcon, BatteryIcon, WarningIcon } from "@/components/cars/ServiceIcons";
+import SquircleRing from "@/components/cars/SquircleRing";
+import QuestionOverlay from "@/components/cars/QuestionOverlay";
+import type { QuestionDef } from "@/components/cars/QuestionOverlay";
+
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
+import { scale, verticalScale, moderateScale } from '@/utils/responsive';
 
-// Enable LayoutAnimation on Android
-if (
-  Platform.OS === "android" &&
-  UIManager.setLayoutAnimationEnabledExperimental
-) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
 
 // ============================================================================
 // CONSTANTS
 // ============================================================================
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
-const DEFAULT_CARD_WIDTH = SCREEN_WIDTH - 80;
+const DEFAULT_CARD_WIDTH = SCREEN_WIDTH - scale(80);
+
+const GRID_H_PAD = scale(16);
+const GRID_GAP = scale(14);
+const GRID_CONTENT_W = SCREEN_WIDTH - scale(48) - GRID_H_PAD * 2;
+const CARD_W = Math.floor((GRID_CONTENT_W - GRID_GAP) / 2);
+const CARD_H = scale(163);
+const CARD_RX = moderateScale(22);
+const CARD_RING_INSET = 4;
+const CARD_INNER_W = CARD_W - CARD_RING_INSET * 2;
+const CARD_INNER_H = CARD_H - CARD_RING_INSET * 2;
+
+const WIDE_CARD_W = GRID_CONTENT_W;
+const WIDE_CARD_H = scale(150);
+const WIDE_INNER_W = WIDE_CARD_W - CARD_RING_INSET * 2;
+const WIDE_INNER_H = WIDE_CARD_H - CARD_RING_INSET * 2;
+
 
 // ============================================================================
 // TYPES
 // ============================================================================
+
+export interface CarInfoStepperHandle {
+  isExpanded: () => boolean;
+  goBack: () => void;
+}
 
 interface CarInfoStepperProps {
   vehicleOwnerId: Id<"vehicle_owners">;
@@ -61,38 +91,43 @@ interface CarInfoStepperProps {
   vehicleModel: string;
   vehicleYear: number;
   onComplete: () => void;
+  skipIntro?: boolean;
+  onBack?: () => void;
 }
 
 type Phase = "intro" | "stepping";
 
-type StepId =
-  | "brakeLastDone"
-  | "brakeFeel"
-  | "brakeAction"
-  | "tireReplaced"
-  | "tireReplacedWhen"
-  | "tireRepaired"
-  | "warningLight"
-  | "warningLightType";
+type StepId = "serviceGrid";
 
-type BrakeLastDone = "within_6m" | "6m_to_1y" | "over_1y" | "never_on_this_car" | "dont_know";
-type BrakeFeel = "normal" | "squeak" | "soft_slow" | "not_noticed";
-type BrakeAction = "waiting_quote" | "not_scheduled" | "no_not_yet";
-type TireReplaced = "yes_new" | "original" | "dont_know";
-type TireReplacedWhen = "within_6m" | "6m_to_1y" | "1_to_2y" | "over_2y";
-type TireRepaired = "yes" | "no" | "not_sure";
-type WarningLight = "no_all_clear" | "check_engine" | "different_light" | "not_sure";
-type WarningLightType = "tpms" | "battery_charging" | "temperature" | "oil_pressure" | "abs" | "airbag_srs" | "transmission" | "not_sure_which";
+type ServiceCardId = "brakes" | "tires" | "oil" | "battery" | "warningLights";
+
+const SERVICE_CARD_IMAGES: Partial<Record<ServiceCardId, any>> = {
+  brakes:  require("@/assets/images/services/newIcons/brakesicon.png"),
+  tires:   require("@/assets/images/services/newIcons/tiresicon.png"),
+  oil:     require("@/assets/images/services/newIcons/oilchangeicon.png"),
+  battery: require("@/assets/images/services/newIcons/batteryicon.png"),
+};
+
+const SERVICE_CARDS: Record<ServiceCardId, { label: string; icon: string; color: string }> = {
+  brakes:        { label: "Brakes",         icon: "disc-outline",             color: "#5299FE" },
+  tires:         { label: "Tires",          icon: "ellipse-outline",          color: "#5299FE" },
+  oil:           { label: "Oil",            icon: "water-outline",            color: "#5299FE" },
+  battery:       { label: "Battery",        icon: "battery-charging-outline", color: "#5299FE" },
+  warningLights: { label: "Warning Lights", icon: "warning-outline",          color: "#5299FE" },
+};
+
+const SERVICE_ICON_COMPONENTS: Record<ServiceCardId, React.FC<{ size?: number; color?: string }>> = {
+  brakes: BrakesIcon,
+  tires: TireIcon,
+  oil: OilIcon,
+  battery: BatteryIcon,
+  warningLights: WarningIcon,
+};
+
+const ALL_CARD_IDS: ServiceCardId[] = ["brakes", "tires", "oil", "battery", "warningLights"];
 
 const STEP_META: Record<StepId, { title: string; subtitle: string }> = {
-  brakeLastDone:     { title: "Brakes", subtitle: "Helps us estimate brake pad life from your history." },
-  brakeFeel:         { title: "Brakes", subtitle: "Symptoms help separate normal wear from other issues." },
-  brakeAction:       { title: "Brakes", subtitle: "Let\u2019s help you get this handled." },
-  tireReplaced:      { title: "Tires", subtitle: "Helps us estimate tread life accurately." },
-  tireReplacedWhen:  { title: "Tires", subtitle: "We\u2019ll project when replacements may be needed." },
-  tireRepaired:      { title: "Tires", subtitle: "A repaired tire has a different lifespan than an intact one." },
-  warningLight:      { title: "Warning Lights", subtitle: "Active warnings change what we recommend first." },
-  warningLightType:  { title: "Warning Lights", subtitle: "Helps us route to the right diagnostic." },
+  serviceGrid: { title: "Service History", subtitle: "Tap each item to tell us what you know." },
 };
 
 const WARNING_LIGHT_TYPE_OPTIONS = [
@@ -106,56 +141,405 @@ const WARNING_LIGHT_TYPE_OPTIONS = [
   { id: "not_sure_which" as const, label: "I\u2019m not sure which one", icon: "help-circle-outline" as const },
 ];
 
-const LAYOUT_ANIM_CONFIG = LayoutAnimation.create(
-  200,
-  LayoutAnimation.Types.easeInEaseOut,
-  LayoutAnimation.Properties.scaleY,
-);
+// ============================================================================
+// DECLARATIVE QUESTION DATA
+// ============================================================================
+
+const SERVICE_QUESTIONS: Record<ServiceCardId, QuestionDef[]> = {
+  brakes: [
+    {
+      key: "recency",
+      text: "When were your brakes last serviced?",
+      options: [
+        { id: "recently", label: "Recently" },
+        { id: "few_months", label: "A few months ago" },
+        { id: "over_6mo", label: "Over 6 months ago" },
+        { id: "not_sure", label: "I\u2019m not sure" },
+      ],
+      triggerFollowUp: "not_sure",
+    },
+    {
+      key: "feel",
+      text: "How do your brakes feel?",
+      options: [
+        { id: "fine", label: "Fine" },
+        { id: "noise", label: "They make noise" },
+        { id: "soft_slow", label: "They feel soft or slow" },
+      ],
+    },
+  ],
+  tires: [
+    {
+      key: "recency",
+      text: "When were your tires last replaced?",
+      options: [
+        { id: "recently", label: "Recently" },
+        { id: "few_months", label: "A few months ago" },
+        { id: "over_6mo", label: "Over 6 months ago" },
+        { id: "not_sure", label: "I\u2019m not sure" },
+      ],
+      triggerFollowUp: "not_sure",
+    },
+    {
+      key: "original",
+      text: "Are these the original tires?",
+      options: [
+        { id: "yes", label: "Yes" },
+        { id: "no", label: "No" },
+        { id: "not_sure", label: "Not sure" },
+      ],
+    },
+  ],
+  oil: [
+    {
+      key: "recency",
+      text: "Know when your last oil change was?",
+      options: [
+        { id: "recently", label: "Recently" },
+        { id: "few_months", label: "A few months ago" },
+        { id: "over_6mo", label: "Over 6 months ago" },
+        { id: "not_sure", label: "Not sure" },
+      ],
+    },
+  ],
+  battery: [
+    {
+      key: "recency",
+      text: "When was your battery last replaced?",
+      options: [
+        { id: "recently", label: "Recently" },
+        { id: "few_months", label: "A few months ago" },
+        { id: "over_6mo", label: "Over 6 months ago" },
+        { id: "not_sure", label: "I\u2019m not sure" },
+      ],
+      triggerFollowUp: "not_sure",
+    },
+    {
+      key: "replaced",
+      text: "Has your battery ever been replaced?",
+      options: [
+        { id: "yes", label: "Yes" },
+        { id: "no", label: "No" },
+        { id: "not_sure", label: "Not sure" },
+      ],
+    },
+  ],
+  warningLights: [
+    {
+      key: "status",
+      text: "Any dashboard warning lights on right now?",
+      options: [
+        { id: "no_all_clear", label: "No, all clear" },
+        { id: "check_engine", label: "Yes, check engine" },
+        { id: "other", label: "Yes, something else" },
+        { id: "not_sure", label: "Not sure" },
+      ],
+      triggerFollowUp: "other",
+    },
+    {
+      key: "lightTypes",
+      text: "Which warning lights are on?",
+      multiSelect: true,
+      options: WARNING_LIGHT_TYPE_OPTIONS.map((o) => ({ id: o.id, label: o.label, icon: o.icon })),
+    },
+  ],
+};
+
+
+// ============================================================================
+// CardGridItem (with completion animation)
+// ============================================================================
+
+function CardGridItem({ cardId, isDone, isJustCompleted, progress, onPress, isWide }: {
+  cardId: ServiceCardId;
+  isDone: boolean;
+  isJustCompleted: boolean;
+  progress: number;
+  onPress: () => void;
+  isWide?: boolean;
+}) {
+  const pressScale = useSharedValue(1);
+  const card = SERVICE_CARDS[cardId];
+  const IconComponent = SERVICE_ICON_COMPONENTS[cardId];
+  const isCompleted = isDone || isJustCompleted;
+
+  const outerW = isWide ? WIDE_CARD_W : CARD_W;
+  const outerH = isWide ? WIDE_CARD_H : CARD_H;
+  const innerW = isWide ? WIDE_INNER_W : CARD_INNER_W;
+  const innerH = isWide ? WIDE_INNER_H : CARD_INNER_H;
+
+  const completionAnim = useSharedValue(isDone ? 1 : 0);
+  const pulseScale = useSharedValue(1);
+  const glowShadowOpacity = useSharedValue(isDone ? 0.32 : 0);
+  const glowShadowRadius = useSharedValue(isDone ? 18 : 0);
+  const burstScale = useSharedValue(1);
+  const burstOpacity = useSharedValue(0);
+  const checkScale = useSharedValue(isDone ? 1 : 0);
+  const checkRotation = useSharedValue(isDone ? 0 : -15);
+
+  useEffect(() => {
+    if (!isJustCompleted) return;
+
+    completionAnim.value = withTiming(1, {
+      duration: 800,
+      easing: REasing.bezier(0.16, 1, 0.3, 1),
+    });
+
+    pulseScale.value = withSequence(
+      withTiming(1.06, { duration: 250 }),
+      withTiming(1, { duration: 500, easing: REasing.bezier(0.16, 1, 0.3, 1) }),
+    );
+
+    glowShadowOpacity.value = withSequence(
+      withTiming(0.45, { duration: 250 }),
+      withTiming(0.32, { duration: 600 }),
+    );
+    glowShadowRadius.value = withSequence(
+      withTiming(28, { duration: 250 }),
+      withTiming(18, { duration: 600 }),
+    );
+
+    burstOpacity.value = withSequence(
+      withTiming(0.3, { duration: 10 }),
+      withTiming(0, { duration: 600 }),
+    );
+    burstScale.value = withTiming(1.3, { duration: 600 });
+
+    checkScale.value = withDelay(400, withSpring(1, { damping: 12, stiffness: 180 }));
+    checkRotation.value = withDelay(400, withSpring(0, { damping: 12, stiffness: 180 }));
+  }, [isJustCompleted]);
+
+  const pressStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: pressScale.value }],
+  }));
+
+  const glowWrapperStyle = useAnimatedStyle(() => ({
+    shadowColor: "#5299FE",
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: glowShadowOpacity.value,
+    shadowRadius: glowShadowRadius.value,
+  }));
+
+  const pulseAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: pulseScale.value }],
+  }));
+
+  const gradientOverlayStyle = useAnimatedStyle(() => ({
+    opacity: completionAnim.value,
+  }));
+
+  const burstAnimStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: burstScale.value }],
+    opacity: burstOpacity.value,
+  }));
+
+  const checkmarkAnimStyle = useAnimatedStyle(() => ({
+    transform: [
+      { scale: checkScale.value },
+      { rotate: `${checkRotation.value}deg` },
+    ],
+  }));
+
+  const labelColor = isCompleted ? "#FFFFFF" : "#33475B";
+
+  return (
+    <ReAnimated.View
+      layout={Layout.springify().damping(50)}
+      style={{ alignItems: "center" }}
+    >
+      <ReAnimated.View style={pressStyle}>
+        <Pressable
+          disabled={isCompleted}
+          onPressIn={() => { pressScale.value = withSpring(0.96, { damping: 20, stiffness: 300 }); }}
+          onPressOut={() => { pressScale.value = withSpring(1, { damping: 20, stiffness: 300 }); }}
+          onPress={onPress}
+        >
+          <ReAnimated.View style={glowWrapperStyle}>
+            <ReAnimated.View style={pulseAnimStyle}>
+              <View style={{ width: outerW, height: outerH, alignItems: "center", justifyContent: "center" }}>
+                <SquircleRing width={outerW} height={outerH} rx={CARD_RX} progress={progress} isDone={isCompleted} />
+
+                {/* Default glass card */}
+                <View style={[s.card, { width: innerW, height: innerH, borderRadius: CARD_RX, flexDirection: "column" }]}>
+                  <View style={{ flex: 1, alignItems: "center", justifyContent: "center", marginTop: isWide ? 0 : scale(25) }}>
+                    <IconComponent size={isWide ? scale(46) : scale(42)} />
+                  </View>
+                  <View style={{ paddingBottom: isWide ? scale(12) : scale(14), marginTop: isWide ? scale(-6) : 0, alignItems: "center" }}>
+                    <Text
+                      weight="semiBold"
+                      size="sm"
+                      color={labelColor}
+                      style={{ fontSize: moderateScale(17), textAlign: "center" }}
+                    >
+                      {card.label}
+                    </Text>
+                    {isWide && (
+                      <Text
+                        weight="medium"
+                        size="xs"
+                        color={labelColor}
+                        style={{ fontSize: moderateScale(11.5), opacity: isCompleted ? 0.7 : 0.55, marginTop: scale(2), textAlign: "center" }}
+                      >
+                        Any dashboard warnings on?
+                      </Text>
+                    )}
+                  </View>
+                </View>
+
+                {/* Gradient overlay (fades in on completion) */}
+                <ReAnimated.View style={[s.cardGradientOverlay, { width: innerW, height: innerH, borderRadius: CARD_RX }, gradientOverlayStyle]}>
+                  <LinearGradient
+                    colors={["#5299FE", "#70B7FF"]}
+                    start={{ x: 0.5, y: 0 }}
+                    end={{ x: 0.5, y: 1 }}
+                    style={{ width: innerW, height: innerH, alignItems: "center", justifyContent: "center", borderRadius: CARD_RX, flexDirection: "column" }}
+                  >
+                    <View style={{ flex: 1, alignItems: "center", justifyContent: "center", marginTop: isWide ? 0 : scale(25) }}>
+                      <IconComponent size={isWide ? scale(46) : scale(42)} color="#FFFFFF" />
+                    </View>
+                    <View style={{ paddingBottom: isWide ? scale(12) : scale(14), marginTop: isWide ? scale(-6) : 0, alignItems: "center" }}>
+                      <Text
+                        weight="semiBold"
+                        size="sm"
+                        color="#FFFFFF"
+                        style={{ fontSize: moderateScale(17), textAlign: "center" }}
+                      >
+                        {card.label}
+                      </Text>
+                      {isWide && (
+                        <Text
+                          weight="medium"
+                          size="xs"
+                          color="#FFFFFF"
+                          style={{ fontSize: moderateScale(11.5), opacity: 0.7, marginTop: scale(2), textAlign: "center" }}
+                        >
+                          Any dashboard warnings on?
+                        </Text>
+                      )}
+                    </View>
+                  </LinearGradient>
+                </ReAnimated.View>
+
+                {/* Ring burst */}
+                <ReAnimated.View style={[{
+                  position: "absolute",
+                  top: CARD_RING_INSET, left: CARD_RING_INSET,
+                  width: innerW, height: innerH,
+                  borderRadius: CARD_RX,
+                  borderWidth: 2, borderColor: "#5299FE",
+                }, burstAnimStyle]} />
+
+                {/* Checkmark badge */}
+                <ReAnimated.View style={[s.checkBadge, checkmarkAnimStyle]}>
+                  <Ionicons name="checkmark-sharp" size={scale(14)} color="#5299FE" />
+                </ReAnimated.View>
+              </View>
+            </ReAnimated.View>
+          </ReAnimated.View>
+        </Pressable>
+      </ReAnimated.View>
+    </ReAnimated.View>
+  );
+}
+
+
+// ============================================================================
+// FooterDot (animated background color)
+// ============================================================================
+
+function FooterDot({ isDone }: { isDone: boolean }) {
+  const bg = useSharedValue(isDone ? 1 : 0);
+
+  useEffect(() => {
+    bg.value = withTiming(isDone ? 1 : 0, { duration: 350 });
+  }, [isDone]);
+
+  const animStyle = useAnimatedStyle(() => ({
+    backgroundColor: interpolateColor(
+      bg.value,
+      [0, 1],
+      ["rgba(82,153,254,0.13)", "#5299FE"],
+    ),
+    shadowOpacity: bg.value,
+    shadowRadius: bg.value * 8,
+  }));
+
+  return (
+    <ReAnimated.View
+      style={[s.dot, s.dotShadowBase, animStyle]}
+    />
+  );
+}
+
 
 // ============================================================================
 // COMPONENT
 // ============================================================================
 
-export default function CarInfoStepper({
+const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(function CarInfoStepper({
   vehicleOwnerId,
   vehicleMake,
   vehicleModel,
   vehicleYear,
   onComplete,
-}: CarInfoStepperProps) {
+  skipIntro = false,
+  onBack,
+}: CarInfoStepperProps, ref) {
+  console.log('[CarInfoStepper] rendering — vehicleOwnerId:', vehicleOwnerId);
+  const insets = useSafeAreaInsets();
   const saveField = useMutation(api.vehicles.saveOnboardingField);
+  const markComplete = useMutation(api.vehicle_owners.markOnboardingComplete);
 
   // ── Phase & step state ──────────────────────────────────────
-  const [phase, setPhase] = useState<Phase>("intro");
+  const [phase, setPhase] = useState<Phase>(skipIntro ? "stepping" : "intro");
   const [step, setStep] = useState(0);
   const [saving, setSaving] = useState(false);
+
+  // ── Mount fade-in (when entering stepping directly) ────────
+  const mountHeaderFade = useRef(new Animated.Value(skipIntro ? 0 : 1)).current;
+  const mountGridFade = useRef(new Animated.Value(skipIntro ? 0 : 1)).current;
+  const mountFooterFade = useRef(new Animated.Value(skipIntro ? 0 : 1)).current;
+
+  useEffect(() => {
+    if (!skipIntro) return;
+    Animated.stagger(180, [
+      Animated.timing(mountHeaderFade, { toValue: 1, duration: 500, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+      Animated.timing(mountGridFade, { toValue: 1, duration: 500, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+      Animated.timing(mountFooterFade, { toValue: 1, duration: 500, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+    ]).start();
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Slide animation ─────────────────────────────────────────
   const slideX = useRef(new Animated.Value(0)).current;
   const isAnimating = useRef(false);
   const [cardWidth, setCardWidth] = useState(DEFAULT_CARD_WIDTH);
 
-  // ── Quick Read form state ───────────────────────────────────
-  const [brakeLastDone, setBrakeLastDone] = useState<BrakeLastDone | null>(null);
-  const [brakeFeel, setBrakeFeel] = useState<BrakeFeel | null>(null);
-  const [brakeAction, setBrakeAction] = useState<BrakeAction | null>(null);
-  const [tireReplaced, setTireReplaced] = useState<TireReplaced | null>(null);
-  const [tireReplacedWhen, setTireReplacedWhen] = useState<TireReplacedWhen | null>(null);
-  const [tireRepaired, setTireRepaired] = useState<TireRepaired | null>(null);
-  const [warningLight, setWarningLight] = useState<WarningLight | null>(null);
-  const [warningLightTypes, setWarningLightTypes] = useState<WarningLightType[]>([]);
+  // ── Grid / overlay state ──────────────────────────────────
+  const [activeCard, setActiveCard] = useState<ServiceCardId | null>(null);
+  const [completedCards, setCompletedCards] = useState<Set<ServiceCardId>>(new Set());
+  const [justCompletedId, setJustCompletedId] = useState<ServiceCardId | null>(null);
+  const [serviceAnswers, setServiceAnswers] = useState<
+    Partial<Record<ServiceCardId, Record<string, string | string[]>>>
+  >({});
+  const [serviceQuestionIndex, setServiceQuestionIndex] = useState<
+    Partial<Record<ServiceCardId, number>>
+  >({});
+  const [serviceProgress, setServiceProgress] = useState<
+    Partial<Record<ServiceCardId, number>>
+  >({});
 
-  // ── Dynamic step list (branching logic) ─────────────────────
-  const steps: StepId[] = (() => {
-    const ordered: StepId[] = ["brakeLastDone", "brakeFeel"];
-    if (brakeFeel === "soft_slow") ordered.push("brakeAction");
-    ordered.push("tireReplaced");
-    if (tireReplaced === "yes_new") ordered.push("tireReplacedWhen");
-    ordered.push("tireRepaired", "warningLight");
-    if (warningLight === "different_light") ordered.push("warningLightType");
-    return ordered;
-  })();
+  // ── Finalize completion after animation ─────────────────────
+  useEffect(() => {
+    if (!justCompletedId) return;
+    const timer = setTimeout(() => {
+      setCompletedCards(prev => new Set(prev).add(justCompletedId));
+      setJustCompletedId(null);
+    }, 900);
+    return () => clearTimeout(timer);
+  }, [justCompletedId]);
 
+  // ── Steps (no branching) ────────────────────────────────────
+  const steps: StepId[] = ["serviceGrid"];
   const totalSteps = steps.length;
 
   // ── Slide helper (two-phase: quick exit → swap → smooth enter) ──
@@ -169,23 +553,19 @@ export default function CarInfoStepper({
       isAnimating.current = true;
       Keyboard.dismiss();
 
-      const exitTo = direction === "forward" ? -cardWidth : cardWidth;
-      const enterFrom = direction === "forward" ? cardWidth : -cardWidth;
+      const exitTo = direction === "forward" ? cardWidth : -cardWidth;
+      const enterFrom = direction === "forward" ? -cardWidth : cardWidth;
 
-      // Phase 1: slide current content out (fast)
       Animated.timing(slideX, {
         toValue: exitTo,
         duration: 120,
         easing: Easing.in(Easing.cubic),
         useNativeDriver: true,
       }).start(() => {
-        // Swap content
-        LayoutAnimation.configureNext(LAYOUT_ANIM_CONFIG);
+        slideX.setValue(enterFrom);
         if (newPhase !== null) setPhase(newPhase);
         if (newStep !== null) setStep(newStep);
 
-        // Phase 2: slide new content in (slightly slower for deceleration feel)
-        slideX.setValue(enterFrom);
         Animated.timing(slideX, {
           toValue: 0,
           duration: 180,
@@ -204,17 +584,10 @@ export default function CarInfoStepper({
 
   const canGoNext = useCallback((): boolean => {
     switch (currentStepId) {
-      case "brakeLastDone":    return brakeLastDone !== null;
-      case "brakeFeel":        return brakeFeel !== null;
-      case "brakeAction":      return brakeAction !== null;
-      case "tireReplaced":     return tireReplaced !== null;
-      case "tireReplacedWhen": return tireReplacedWhen !== null;
-      case "tireRepaired":     return tireRepaired !== null;
-      case "warningLight":     return warningLight !== null;
-      case "warningLightType": return warningLightTypes.length > 0;
+      case "serviceGrid": return completedCards.size === ALL_CARD_IDS.length;
       default: return false;
     }
-  }, [currentStepId, brakeLastDone, brakeFeel, brakeAction, tireReplaced, tireReplacedWhen, tireRepaired, warningLight, warningLightTypes]);
+  }, [currentStepId, completedCards]);
 
   const handleGetStarted = useCallback(() => {
     animateSlide("forward", "stepping", 0);
@@ -236,231 +609,129 @@ export default function CarInfoStepper({
     animateSlide("back", "intro", 0);
   }, [animateSlide]);
 
+  // ── Card tap → open overlay ────────────────────────────────
+  const handleCardTap = useCallback((cardId: ServiceCardId) => {
+    setActiveCard(cardId);
+  }, []);
+
+  // ── Overlay callbacks ──────────────────────────────────────
+  const handleOverlayAnswer = useCallback((
+    answers: Record<string, string | string[]>,
+    questionIndex: number,
+    progress: number,
+  ) => {
+    if (!activeCard) return;
+    setServiceAnswers(prev => ({ ...prev, [activeCard]: answers }));
+    setServiceQuestionIndex(prev => ({ ...prev, [activeCard]: questionIndex }));
+    setServiceProgress(prev => ({ ...prev, [activeCard]: progress }));
+  }, [activeCard]);
+
+  const handleOverlayComplete = useCallback(() => {
+    if (!activeCard) return;
+    setServiceProgress(prev => ({ ...prev, [activeCard]: 1 }));
+    setJustCompletedId(activeCard);
+    setActiveCard(null);
+  }, [activeCard]);
+
+  const handleOverlayDismiss = useCallback(() => {
+    setActiveCard(null);
+  }, []);
+
+  useImperativeHandle(ref, () => ({
+    isExpanded: () => !!activeCard,
+    goBack: () => { if (activeCard) handleOverlayDismiss(); },
+  }), [activeCard, handleOverlayDismiss]);
+
   // ── Complete handler ────────────────────────────────────────
   const handleComplete = useCallback(async () => {
     setSaving(true);
-    onComplete();
     try {
-      await saveField({
-        vehicleOwnerId,
-        field: "brakes",
-        value: {
-          lastDone: brakeLastDone,
-          feel: brakeFeel,
-          actionStatus: brakeAction ?? undefined,
-        },
-      });
-      await saveField({
-        vehicleOwnerId,
-        field: "tires",
-        value: {
-          replaced: tireReplaced,
-          replacedWhen: tireReplacedWhen ?? undefined,
-          repaired: tireRepaired,
-        },
-      });
-      await saveField({
-        vehicleOwnerId,
-        field: "warningLights",
-        value: {
-          status: warningLight,
-          lightTypes: warningLightTypes.length > 0 ? warningLightTypes : undefined,
-        },
-      });
+      for (const cardId of ALL_CARD_IDS) {
+        const answers = serviceAnswers[cardId];
+        if (answers && Object.keys(answers).length > 0) {
+          await saveField({ vehicleOwnerId, field: cardId, value: answers });
+        }
+      }
+      // Ensure onboardingComplete is set even if not all questions were answered ("Finish for now")
+      await markComplete({ vehicleOwnerId });
+      onComplete();
     } catch (err) {
       console.error("[CarInfoStepper] Save failed:", err);
+      onComplete();
     } finally {
       setSaving(false);
     }
-  }, [
-    vehicleOwnerId, brakeLastDone, brakeFeel, brakeAction,
-    tireReplaced, tireReplacedWhen, tireRepaired,
-    warningLight, warningLightTypes,
-    saveField, onComplete,
-  ]);
+  }, [vehicleOwnerId, serviceAnswers, saveField, markComplete, onComplete]);
 
-  // ── Render step content ──────────────────────────────────────
-  const renderStepContent = (stepId: StepId) => {
-    switch (stepId) {
-      case "brakeLastDone":
-        return (
-          <View style={s.fieldGroup}>
-            <Text weight="semiBold" size="md" color="#1F2937">When were your brakes last done?</Text>
-            <View style={s.chipColumn}>
-              {([
-                { id: "within_6m" as const, label: "Within the last 6 months" },
-                { id: "6m_to_1y" as const, label: "6 months to a year ago" },
-                { id: "over_1y" as const, label: "Over a year ago" },
-                { id: "never_on_this_car" as const, label: "I\u2019ve never had them done on this car" },
-                { id: "dont_know" as const, label: "I don\u2019t know" },
-              ]).map((opt) => (
-                <Pressable key={opt.id} style={[s.optionCard, brakeLastDone === opt.id && s.optionCardActive]} onPress={() => setBrakeLastDone(opt.id)}>
-                  <Text weight={brakeLastDone === opt.id ? "bold" : "semiBold"} size="md" color={brakeLastDone === opt.id ? "#1E40AF" : "#1F2937"}>{opt.label}</Text>
-                  {brakeLastDone === opt.id && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
-                </Pressable>
-              ))}
-            </View>
-          </View>
-        );
+  // ── All-done state ──────────────────────────────────────────
+  const allDone = completedCards.size === ALL_CARD_IDS.length;
+  const allDoneTriggered = useRef(false);
+  const lottieOpacity = useSharedValue(0);
+  const lottieTranslateY = useSharedValue(-20);
+  const gridOpacity = useSharedValue(1);
 
-      case "brakeFeel":
-        return (
-          <View style={s.fieldGroup}>
-            <Text weight="semiBold" size="md" color="#1F2937">How do your brakes feel right now?</Text>
-            <View style={s.chipColumn}>
-              {([
-                { id: "normal" as const, label: "They feel normal" },
-                { id: "squeak" as const, label: "They squeak or make noise" },
-                { id: "soft_slow" as const, label: "They feel soft or take longer to stop" },
-                { id: "not_noticed" as const, label: "I haven\u2019t noticed anything either way" },
-              ]).map((opt) => {
-                const isNormal = opt.id === "normal" && brakeFeel === opt.id;
-                return (
-                  <Pressable key={opt.id} style={[s.optionCard, brakeFeel === opt.id && s.optionCardActive, isNormal && s.optionCardGood]} onPress={() => setBrakeFeel(opt.id)}>
-                    <Text weight={brakeFeel === opt.id ? "bold" : "semiBold"} size="md" color={brakeFeel === opt.id ? (isNormal ? "#166534" : "#1E40AF") : "#1F2937"}>{opt.label}</Text>
-                    {brakeFeel === opt.id && <Ionicons name="checkmark-circle" size={22} color={isNormal ? "#22C55E" : "#5299FE"} />}
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
-        );
-
-      case "brakeAction":
-        return (
-          <View style={s.fieldGroup}>
-            <Text weight="semiBold" size="md" color="#1F2937">Have you had them looked at yet?</Text>
-            <View style={s.chipColumn}>
-              {([
-                { id: "waiting_quote" as const, label: "Yes, waiting on a quote" },
-                { id: "not_scheduled" as const, label: "Yes, but haven\u2019t scheduled yet" },
-                { id: "no_not_yet" as const, label: "No, not yet" },
-              ]).map((opt) => (
-                <Pressable key={opt.id} style={[s.optionCard, brakeAction === opt.id && s.optionCardActive]} onPress={() => setBrakeAction(opt.id)}>
-                  <Text weight={brakeAction === opt.id ? "bold" : "semiBold"} size="md" color={brakeAction === opt.id ? "#1E40AF" : "#1F2937"}>{opt.label}</Text>
-                  {brakeAction === opt.id && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
-                </Pressable>
-              ))}
-            </View>
-          </View>
-        );
-
-      case "tireReplaced":
-        return (
-          <View style={s.fieldGroup}>
-            <Text weight="semiBold" size="md" color="#1F2937">Have your tires been replaced on this car?</Text>
-            <View style={s.chipColumn}>
-              {([
-                { id: "yes_new" as const, label: "Yes, I put new tires on" },
-                { id: "original" as const, label: "No, they\u2019re the original tires" },
-                { id: "dont_know" as const, label: "I don\u2019t know (I bought it this way)" },
-              ]).map((opt) => (
-                <Pressable key={opt.id} style={[s.optionCard, tireReplaced === opt.id && s.optionCardActive]} onPress={() => setTireReplaced(opt.id)}>
-                  <Text weight={tireReplaced === opt.id ? "bold" : "semiBold"} size="md" color={tireReplaced === opt.id ? "#1E40AF" : "#1F2937"}>{opt.label}</Text>
-                  {tireReplaced === opt.id && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
-                </Pressable>
-              ))}
-            </View>
-          </View>
-        );
-
-      case "tireReplacedWhen":
-        return (
-          <View style={s.fieldGroup}>
-            <Text weight="semiBold" size="md" color="#1F2937">Roughly when?</Text>
-            <View style={s.chipColumn}>
-              {([
-                { id: "within_6m" as const, label: "Within the last 6 months" },
-                { id: "6m_to_1y" as const, label: "6 months to a year ago" },
-                { id: "1_to_2y" as const, label: "1 to 2 years ago" },
-                { id: "over_2y" as const, label: "Over 2 years ago" },
-              ]).map((opt) => (
-                <Pressable key={opt.id} style={[s.optionCard, tireReplacedWhen === opt.id && s.optionCardActive]} onPress={() => setTireReplacedWhen(opt.id)}>
-                  <Text weight={tireReplacedWhen === opt.id ? "bold" : "semiBold"} size="md" color={tireReplacedWhen === opt.id ? "#1E40AF" : "#1F2937"}>{opt.label}</Text>
-                  {tireReplacedWhen === opt.id && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
-                </Pressable>
-              ))}
-            </View>
-          </View>
-        );
-
-      case "tireRepaired":
-        return (
-          <View style={s.fieldGroup}>
-            <Text weight="semiBold" size="md" color="#1F2937">Have any of your tires been repaired? (Patched, plugged, etc.)</Text>
-            <View style={s.chipColumn}>
-              {([
-                { id: "yes" as const, label: "Yes" },
-                { id: "no" as const, label: "No" },
-                { id: "not_sure" as const, label: "I\u2019m not sure" },
-              ]).map((opt) => {
-                const isNo = opt.id === "no" && tireRepaired === opt.id;
-                return (
-                  <Pressable key={opt.id} style={[s.optionCard, tireRepaired === opt.id && s.optionCardActive, isNo && s.optionCardGood]} onPress={() => setTireRepaired(opt.id)}>
-                    <Text weight={tireRepaired === opt.id ? "bold" : "semiBold"} size="md" color={tireRepaired === opt.id ? (isNo ? "#166534" : "#1E40AF") : "#1F2937"}>{opt.label}</Text>
-                    {tireRepaired === opt.id && <Ionicons name="checkmark-circle" size={22} color={isNo ? "#22C55E" : "#5299FE"} />}
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
-        );
-
-      case "warningLight":
-        return (
-          <View style={s.fieldGroup}>
-            <Text weight="semiBold" size="md" color="#1F2937">Is your car showing any dashboard warning lights right now?</Text>
-            <View style={s.chipColumn}>
-              {([
-                { id: "no_all_clear" as const, label: "No, all clear" },
-                { id: "check_engine" as const, label: "Yes, check engine light" },
-                { id: "different_light" as const, label: "Yes, a different warning light" },
-                { id: "not_sure" as const, label: "There might be, I\u2019m not sure" },
-              ]).map((opt) => {
-                const isClear = opt.id === "no_all_clear" && warningLight === opt.id;
-                return (
-                  <Pressable key={opt.id} style={[s.optionCard, warningLight === opt.id && s.optionCardActive, isClear && s.optionCardGood]} onPress={() => setWarningLight(opt.id)}>
-                    <Text weight={warningLight === opt.id ? "bold" : "semiBold"} size="md" color={warningLight === opt.id ? (isClear ? "#166534" : "#1E40AF") : "#1F2937"}>{opt.label}</Text>
-                    {warningLight === opt.id && <Ionicons name="checkmark-circle" size={22} color={isClear ? "#22C55E" : "#5299FE"} />}
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
-        );
-
-      case "warningLightType":
-        return (
-          <View style={s.fieldGroup}>
-            <Text weight="semiBold" size="md" color="#1F2937">Which ones? Select all that apply.</Text>
-            <View style={s.chipColumn}>
-              {WARNING_LIGHT_TYPE_OPTIONS.map((opt) => {
-                const selected = warningLightTypes.includes(opt.id);
-                return (
-                  <Pressable
-                    key={opt.id}
-                    style={[s.optionCard, selected && s.optionCardActive]}
-                    onPress={() => {
-                      setWarningLightTypes((prev) =>
-                        prev.includes(opt.id) ? prev.filter((id) => id !== opt.id) : [...prev, opt.id]
-                      );
-                    }}
-                  >
-                    <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-                      <Ionicons name={opt.icon} size={20} color={selected ? "#5299FE" : "#6B7280"} />
-                      <Text weight={selected ? "bold" : "semiBold"} size="md" color={selected ? "#1E40AF" : "#1F2937"}>{opt.label}</Text>
-                    </View>
-                    {selected && <Ionicons name="checkmark-circle" size={22} color="#5299FE" />}
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
-        );
-
-      default:
-        return null;
+  useEffect(() => {
+    if (allDone && !allDoneTriggered.current) {
+      allDoneTriggered.current = true;
+      // Fade out the grid cards
+      gridOpacity.value = withTiming(0, { duration: 500, easing: REasing.out(REasing.ease) });
+      // Then fade in the lottie + text after cards are gone
+      lottieOpacity.value = withDelay(300, withTiming(1, { duration: 500 }));
+      lottieTranslateY.value = withDelay(300, withTiming(0, { duration: 500, easing: REasing.out(REasing.ease) }));
     }
+  }, [allDone]);
+
+  const lottieStyle = useAnimatedStyle(() => ({
+    opacity: lottieOpacity.value,
+    transform: [{ translateY: lottieTranslateY.value }],
+  }));
+
+  const gridFadeStyle = useAnimatedStyle(() => ({
+    opacity: gridOpacity.value,
+  }));
+
+  // ── Render the service grid ─────────────────────────────────
+  const renderServiceGrid = () => {
+    const squareCards: ServiceCardId[] = ["brakes", "tires", "oil", "battery"];
+    return (
+      <View style={{ flex: 1 }}>
+        {allDone && (
+          <ReAnimated.View style={[{ alignItems: "center", justifyContent: "center", gap: scale(8), flex: 1 }, lottieStyle]}>
+            <LottieView
+              source={require("@/assets/animations/success.json")}
+              autoPlay
+              loop={false}
+              style={{ width: scale(140), height: scale(140) }}
+            />
+            <Text weight="bold" size="xl" color="#0F172A">You&apos;re all set!</Text>
+            <Text weight="medium" size="md" color="#829BAD">Your vehicle health score is ready.</Text>
+          </ReAnimated.View>
+        )}
+        {!allDone && <ReAnimated.View style={[s.cardGrid, { flex: 1 }, gridFadeStyle]}>
+          <View style={s.cardGridSquares}>
+            {squareCards.map(cardId => (
+              <CardGridItem
+                key={cardId}
+                cardId={cardId}
+                isDone={completedCards.has(cardId)}
+                isJustCompleted={justCompletedId === cardId}
+                progress={serviceProgress[cardId] ?? (completedCards.has(cardId) ? 1 : 0)}
+                onPress={() => handleCardTap(cardId)}
+              />
+            ))}
+          </View>
+          <CardGridItem
+            key="warningLights"
+            cardId="warningLights"
+            isDone={completedCards.has("warningLights")}
+            isJustCompleted={justCompletedId === "warningLights"}
+            progress={serviceProgress["warningLights"] ?? (completedCards.has("warningLights") ? 1 : 0)}
+            onPress={() => handleCardTap("warningLights")}
+            isWide
+          />
+        </ReAnimated.View>}
+      </View>
+    );
   };
 
   // ── Render intro content ────────────────────────────────────
@@ -469,27 +740,34 @@ export default function CarInfoStepper({
   const renderIntro = () => (
     <View style={s.introContent}>
       <View style={s.iconContainer}>
-        <Ionicons name="pulse-outline" size={32} color="#5299FE" />
+        <Ionicons name="pulse-outline" size={scale(32)} color="#5299FE" />
       </View>
-      <Text weight="bold" size="lg" color="#1F2937" style={s.introTitle}>
+      <Text weight="bold" size="lg" color="#0F172A" style={s.introTitle}>
         Let&apos;s get a quick read on your {displayName}
       </Text>
-      <Text weight="medium" size="sm" color="#6B7280" style={s.introSubtitle}>
-        Three quick checks to understand your vehicle&apos;s current condition.
+      <Text weight="medium" size="sm" color="#829BAD" style={s.introSubtitle}>
+        A few quick checks to understand your vehicle&apos;s current condition.
       </Text>
       <View style={s.benefitsList}>
         {["Brake health assessment", "Tire life estimation", "Warning light detection"].map((b) => (
           <View key={b} style={s.benefitRow}>
-            <Ionicons name="checkmark-circle" size={16} color="#22C55E" />
-            <Text weight="medium" size="sm" color="#374151">{b}</Text>
+            <Ionicons name="checkmark-circle" size={scale(16)} color="#5299FE" />
+            <Text weight="medium" size="sm" color="#0F172A">{b}</Text>
           </View>
         ))}
       </View>
       <Pressable style={({ pressed }) => [s.ctaButton, pressed && s.ctaButtonPressed]} onPress={handleGetStarted}>
-        <Text weight="bold" size="md" color="#FFFFFF">Get Started</Text>
-        <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
+        <LinearGradient
+          colors={['#7BB8FF', '#5299FE', '#3B7FEB']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={s.ctaButtonGradient}
+        >
+          <Text weight="bold" size="md" color="#FFFFFF">Get Started</Text>
+          <Ionicons name="arrow-forward" size={scale(18)} color="#FFFFFF" />
+        </LinearGradient>
       </Pressable>
-      <Text weight="medium" size="xs" color="#9CA3AF" style={{ marginTop: 10 }}>Takes about 30 seconds</Text>
+      <Text weight="medium" size="xs" color="#829BAD" style={{ marginTop: scale(10), opacity: 0.7 }}>Takes about 30 seconds</Text>
     </View>
   );
 
@@ -499,49 +777,96 @@ export default function CarInfoStepper({
     const isLast = forStep === totalSteps - 1;
     const meta = STEP_META[stepId];
     return (
-      <View>
-        <View style={s.stepHeader}>
-          <View style={{ flex: 1 }}>
-            <View style={s.progressContainer}>
-              <View style={s.progressTrack}>
-                <View style={[s.progressFill, { width: `${((forStep + 1) / totalSteps) * 100}%` }]} />
-              </View>
-              <Text weight="medium" size="xs" color="#9CA3AF">{forStep + 1} of {totalSteps}</Text>
+      <View style={{ flex: 1 }}>
+        <LinearGradient
+          colors={['#D0E7F4', '#DFEDF6', '#EBF2F8', '#F3F7FA', '#FAFCFD', '#FFFFFF']}
+          locations={[0, 0.18, 0.35, 0.5, 0.7, 1]}
+          start={{ x: 0.5, y: 0 }}
+          end={{ x: 0.5, y: 1 }}
+          style={{ position: 'absolute', top: verticalScale(-150), left: 0, right: 0, bottom: 0 }}
+        />
+        <View style={s.steppingPage}>
+          {/* Header */}
+          <Animated.View style={[s.steppingHeader, { opacity: mountHeaderFade }]}>
+            <Text weight="bold" size="xl" color="#0F172A" style={s.steppingTitle}>
+              {meta.title}
+            </Text>
+            <Text weight="medium" size="sm" color="#829BAD" style={s.steppingSubtitle}>
+              {meta.subtitle}
+            </Text>
+          </Animated.View>
+
+          {/* Grid */}
+          <Animated.View style={[s.steppingBody, { opacity: mountGridFade }]}>
+            {renderServiceGrid()}
+          </Animated.View>
+
+          {/* Footer */}
+          <Animated.View style={[s.steppingFooter, { paddingBottom: insets.bottom + scale(24), opacity: mountFooterFade }]}>
+            {/* Progress dots */}
+            <View style={s.dotsRow}>
+              {ALL_CARD_IDS.map((id) => (
+                <FooterDot key={id} isDone={completedCards.has(id)} />
+              ))}
+              <Text weight="semiBold" size="xs" color="#829BAD" style={s.dotsCounter}>
+                {completedCards.size} of 5
+              </Text>
             </View>
-            <Text weight="bold" size="lg" color="#1F2937" style={{ marginTop: 12 }}>{meta.title}</Text>
-            <Text weight="medium" size="sm" color="#6B7280" style={{ marginTop: 2 }}>{meta.subtitle}</Text>
-          </View>
-          <Pressable onPress={handleDismiss} hitSlop={12} style={s.closeButton}>
-            <Ionicons name="close" size={20} color="#9CA3AF" />
-          </Pressable>
-        </View>
 
-        <View style={s.stepBody}>
-          {renderStepContent(stepId)}
-        </View>
-
-        <View style={s.footer}>
-          <View style={s.footerButtons}>
-            {forStep > 0 ? (
-              <Pressable style={({ pressed }) => [s.backButton, pressed && { opacity: 0.7 }]} onPress={handleBack}>
-                <Ionicons name="arrow-back" size={18} color="#6B7280" />
-                <Text weight="semiBold" size="md" color="#6B7280">Back</Text>
-              </Pressable>
-            ) : (
-              <View style={{ width: 80 }} />
-            )}
+            {/* Complete button */}
             <Pressable
-              style={({ pressed }) => [s.nextButton, !canGoNext() && s.nextButtonDisabled, pressed && canGoNext() && s.nextButtonPressed]}
               onPress={isLast ? handleComplete : handleNext}
               disabled={!canGoNext() || saving}
+              style={({ pressed }) => [
+                s.completeButton,
+                !canGoNext() && s.completeButtonDisabled,
+                pressed && canGoNext() && { opacity: 0.9 },
+              ]}
             >
-              <Text weight="bold" size="md" color="#FFFFFF">
-                {saving ? "Saving..." : isLast ? "Complete" : "Next"}
-              </Text>
-              {!isLast && !saving && <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />}
+              <LinearGradient
+                colors={['#7BB8FF', '#5299FE', '#3B7FEB']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={s.completeButtonGradient}
+              >
+                <Text weight="bold" size="md" color="#FFFFFF" style={{ fontSize: moderateScale(17) }}>
+                  {saving ? "Saving..." : isLast ? "Complete" : "Next"}
+                </Text>
+              </LinearGradient>
             </Pressable>
-          </View>
+
+            {/* Finish for now */}
+            {!canGoNext() && (
+              <Pressable
+                style={({ pressed }) => [s.finishForNowButton, pressed && { opacity: 0.7 }]}
+                onPress={handleComplete}
+                disabled={saving}
+              >
+                <Text weight="medium" size="sm" color="#829BAD" style={{ fontSize: moderateScale(14), textDecorationLine: "underline" }}>
+                  Finish for now
+                </Text>
+              </Pressable>
+            )}
+          </Animated.View>
         </View>
+
+        {/* Question overlay */}
+        {activeCard && (() => {
+          const HeroIcon = SERVICE_ICON_COMPONENTS[activeCard];
+          return (
+            <QuestionOverlay
+              serviceId={activeCard}
+              serviceName={SERVICE_CARDS[activeCard].label}
+              heroIcon={<HeroIcon size={scale(40)} color="#FFFFFF" />}
+              questions={SERVICE_QUESTIONS[activeCard]}
+              initialQuestionIndex={serviceQuestionIndex[activeCard] ?? 0}
+              initialAnswers={serviceAnswers[activeCard] ?? {}}
+              onAnswerUpdate={handleOverlayAnswer}
+              onComplete={handleOverlayComplete}
+              onDismiss={handleOverlayDismiss}
+            />
+          );
+        })()}
       </View>
     );
   };
@@ -556,24 +881,20 @@ export default function CarInfoStepper({
 
   return (
     <View style={s.container}>
-      <LinearGradient
-        colors={["#F0F4FF", "#FFFFFF"]}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 0, y: 1 }}
-        style={s.card}
+      <View
+        style={s.pageContent}
+        onLayout={(e) => setCardWidth(e.nativeEvent.layout.width)}
       >
-        <View
-          style={s.slideClip}
-          onLayout={(e) => setCardWidth(e.nativeEvent.layout.width)}
-        >
-          <Animated.View style={{ transform: [{ translateX: slideX }] }}>
-            {renderForPhase(phase, step)}
-          </Animated.View>
-        </View>
-      </LinearGradient>
+        <Animated.View style={[{ flex: 1 }, { transform: [{ translateX: slideX }] }]}>
+          {renderForPhase(phase, step)}
+        </Animated.View>
+      </View>
+
     </View>
   );
-}
+});
+
+export default CarInfoStepper;
 
 // ============================================================================
 // STYLES
@@ -581,18 +902,10 @@ export default function CarInfoStepper({
 
 const s = StyleSheet.create({
   container: {
-    paddingHorizontal: 16,
-    marginTop: 8,
-    marginBottom: 16,
+    flex: 1,
   },
-  card: {
-    borderRadius: 24,
-    padding: 24,
-    borderWidth: 1,
-    borderColor: "rgba(82, 153, 254, 0.15)",
-  },
-  slideClip: {
-    overflow: "hidden",
+  pageContent: {
+    flex: 1,
   },
 
   // ── Intro ──
@@ -600,147 +913,188 @@ const s = StyleSheet.create({
     alignItems: "center",
   },
   iconContainer: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
+    width: scale(56),
+    height: scale(56),
+    borderRadius: moderateScale(28),
     backgroundColor: "rgba(82, 153, 254, 0.1)",
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: 16,
+    marginBottom: scale(16),
   },
   introTitle: {
     textAlign: "center",
-    marginBottom: 8,
+    marginBottom: scale(8),
   },
   introSubtitle: {
     textAlign: "center",
-    lineHeight: 20,
-    marginBottom: 20,
-    paddingHorizontal: 8,
+    lineHeight: moderateScale(20),
+    marginBottom: scale(20),
+    paddingHorizontal: scale(8),
   },
   benefitsList: {
     alignSelf: "stretch",
-    gap: 10,
-    marginBottom: 24,
-    paddingLeft: 8,
+    gap: scale(10),
+    marginBottom: scale(24),
+    paddingHorizontal: scale(8),
   },
   benefitRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: scale(8),
   },
   ctaButton: {
+    borderRadius: moderateScale(24),
+    width: "100%",
+    overflow: "hidden",
+    shadowColor: "rgba(82,153,254,0.3)",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  ctaButtonGradient: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 8,
-    backgroundColor: "#5299FE",
-    borderRadius: 24,
-    paddingVertical: 14,
-    paddingHorizontal: 32,
-    width: "100%",
+    gap: scale(8),
+    paddingVertical: scale(14),
+    paddingHorizontal: scale(32),
   },
   ctaButtonPressed: {
     opacity: 0.9,
   },
 
-  // ── Stepping ──
-  stepHeader: {
-    flexDirection: "row",
-    alignItems: "flex-start",
-    marginBottom: 16,
-  },
-  closeButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: "rgba(0,0,0,0.06)",
-    alignItems: "center",
-    justifyContent: "center",
-    marginLeft: 8,
-    marginTop: 2,
-  },
-  progressContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 10,
-  },
-  progressTrack: {
+  // ── Stepping (full-page layout) ──
+  steppingPage: {
     flex: 1,
-    height: 4,
-    backgroundColor: "#F3F4F6",
-    borderRadius: 2,
-    overflow: "hidden",
+    paddingHorizontal: scale(24),
   },
-  progressFill: {
-    height: "100%",
-    backgroundColor: "#5299FE",
-    borderRadius: 2,
-  },
-  stepBody: {
-    marginBottom: 16,
-  },
-
-  // ── Footer ──
-  footer: {
-    alignItems: "center",
-  },
-  footerButtons: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    width: "100%",
-    gap: 12,
+  steppingHeader: {
+    marginBottom: scale(8),
   },
   backButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingVertical: Spacing.md,
-    paddingHorizontal: 16,
+    position: "absolute",
+    top: scale(4),
+    left: scale(20),
+    width: scale(40),
+    height: scale(40),
+    justifyContent: "center",
+    alignItems: "flex-start",
+    zIndex: 10,
   },
-  nextButton: {
+  steppingTitle: {
+    fontSize: moderateScale(24),
+    letterSpacing: -0.3,
+  },
+  steppingSubtitle: {
+    fontSize: moderateScale(15),
+    marginTop: scale(4),
+  },
+  steppingBody: {
     flex: 1,
+    marginTop: 0,
+  },
+  steppingFooter: {
+    paddingTop: scale(16),
+    gap: scale(12),
+    alignItems: "center",
+  },
+
+  // ── Card grid ──
+  cardGrid: {
+    justifyContent: "center",
+    alignItems: "center",
+    gap: GRID_GAP,
+    paddingHorizontal: GRID_H_PAD,
+    marginTop: 0,
+  },
+  cardGridSquares: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "center",
+    gap: GRID_GAP,
+  },
+  card: {
+    backgroundColor: "rgba(255,255,255,0.85)",
+    borderWidth: 1.5,
+    borderColor: "rgba(255,255,255,0.9)",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.05,
+    shadowRadius: 28,
+    elevation: 4,
+  },
+  cardGradientOverlay: {
+    position: "absolute",
+    top: CARD_RING_INSET,
+    left: CARD_RING_INSET,
+    overflow: "hidden",
+  },
+  checkBadge: {
+    position: "absolute",
+    bottom: scale(2),
+    right: scale(2),
+    width: scale(24),
+    height: scale(24),
+    borderRadius: moderateScale(12),
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 4,
+    borderWidth: 2,
+    borderColor: "rgba(82,153,254,0.12)",
+  },
+
+  // ── Progress dots ──
+  dotsRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
-    backgroundColor: "#5299FE",
-    borderRadius: 24,
-    paddingVertical: Spacing.md,
+    gap: scale(8),
+    marginBottom: scale(4),
   },
-  nextButtonDisabled: {
-    opacity: 0.4,
+  dot: {
+    width: scale(10),
+    height: scale(10),
+    borderRadius: moderateScale(5),
   },
-  nextButtonPressed: {
-    opacity: 0.9,
+  dotShadowBase: {
+    shadowColor: "rgba(82,153,254,0.35)",
+    shadowOffset: { width: 0, height: 0 },
+    elevation: 3,
   },
-  // ── Form fields ──
-  fieldGroup: {
-    gap: 10,
+  dotsCounter: {
+    fontSize: moderateScale(13),
+    marginLeft: scale(4),
   },
-  chipColumn: {
-    gap: 10,
+
+  // ── Complete button ──
+  completeButton: {
+    width: "100%",
+    borderRadius: moderateScale(24),
+    overflow: "hidden",
+    shadowColor: "rgba(82,153,254,0.3)",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 12,
+    elevation: 4,
   },
-  optionCard: {
-    flexDirection: "row",
+  completeButtonDisabled: {
+    opacity: 0.5,
+  },
+  completeButtonGradient: {
+    paddingVertical: scale(14),
     alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    borderRadius: 16,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1.5,
-    borderColor: "#E5E7EB",
+    justifyContent: "center",
   },
-  optionCardActive: {
-    backgroundColor: "rgba(82, 153, 254, 0.08)",
-    borderColor: "#5299FE",
-    borderWidth: 2,
-  },
-  optionCardGood: {
-    backgroundColor: "rgba(34, 197, 94, 0.08)",
-    borderColor: "#22C55E",
-    borderWidth: 2,
+  finishForNowButton: {
+    paddingVertical: scale(8),
+    paddingHorizontal: scale(16),
   },
 });

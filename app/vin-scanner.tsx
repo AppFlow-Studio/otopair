@@ -23,6 +23,7 @@ import { useAction } from 'convex/react';
 // 3. App imports
 import { Text } from '@/components/shared-ui';
 import { Spacing } from '@/constants/theme';
+import { scale, verticalScale, moderateScale } from '@/utils/responsive';
 import { api } from '@/convex/_generated/api';
 
 // ============================================================================
@@ -165,7 +166,7 @@ export default function VinScannerScreen() {
               pressed && styles.closeButtonPressed,
             ]}
           >
-            <X size={28} color="#FFFFFF" strokeWidth={2} />
+            <X size={scale(28)} color="#FFFFFF" strokeWidth={2} />
           </Pressable>
 
           {/* Torch Button */}
@@ -177,7 +178,7 @@ export default function VinScannerScreen() {
               pressed && styles.torchButtonPressed,
             ]}
           >
-            <Flashlight size={24} color="#FFFFFF" strokeWidth={2} />
+            <Flashlight size={scale(24)} color="#FFFFFF" strokeWidth={2} />
           </Pressable>
         </View>
 
@@ -195,7 +196,7 @@ export default function VinScannerScreen() {
         </View>
 
         {/* Bottom Section */}
-        <View style={[styles.overlaySection, styles.overlayBottom, { paddingBottom: insets.bottom + 40 }]}>
+        <View style={[styles.overlaySection, styles.overlayBottom, { paddingBottom: insets.bottom + scale(40) }]}>
           {isDecoding ? (
             <>
               <ActivityIndicator size="large" color="#5B7FFF" style={{ marginBottom: Spacing.md }} />
@@ -237,7 +238,7 @@ export default function VinScannerScreen() {
 // ============================================================================
 
 const SCANNER_WIDTH = SCREEN_WIDTH * 0.85;
-const SCANNER_HEIGHT = 120;
+const SCANNER_HEIGHT = scale(120);
 
 const styles = StyleSheet.create({
   container: {
@@ -277,8 +278,8 @@ const styles = StyleSheet.create({
   },
   corner: {
     position: 'absolute',
-    width: 24,
-    height: 24,
+    width: scale(24),
+    height: scale(24),
     borderColor: '#5B7FFF',
     borderWidth: 3,
   },
@@ -287,33 +288,33 @@ const styles = StyleSheet.create({
     left: 0,
     borderRightWidth: 0,
     borderBottomWidth: 0,
-    borderTopLeftRadius: 8,
+    borderTopLeftRadius: moderateScale(8),
   },
   cornerTopRight: {
     top: 0,
     right: 0,
     borderLeftWidth: 0,
     borderBottomWidth: 0,
-    borderTopRightRadius: 8,
+    borderTopRightRadius: moderateScale(8),
   },
   cornerBottomLeft: {
     bottom: 0,
     left: 0,
     borderRightWidth: 0,
     borderTopWidth: 0,
-    borderBottomLeftRadius: 8,
+    borderBottomLeftRadius: moderateScale(8),
   },
   cornerBottomRight: {
     bottom: 0,
     right: 0,
     borderLeftWidth: 0,
     borderTopWidth: 0,
-    borderBottomRightRadius: 8,
+    borderBottomRightRadius: moderateScale(8),
   },
   closeButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: scale(44),
+    height: scale(44),
+    borderRadius: scale(22),
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     justifyContent: 'center',
     alignItems: 'center',
@@ -323,9 +324,9 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   torchButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: scale(44),
+    height: scale(44),
+    borderRadius: scale(22),
     backgroundColor: 'rgba(255, 255, 255, 0.2)',
     justifyContent: 'center',
     alignItems: 'center',
@@ -343,7 +344,7 @@ const styles = StyleSheet.create({
   },
   instructionText: {
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: moderateScale(20),
   },
   permissionContainer: {
     flex: 1,
@@ -363,7 +364,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     paddingVertical: Spacing.md,
     paddingHorizontal: Spacing.xl,
-    borderRadius: 30,
+    borderRadius: moderateScale(30),
     marginBottom: Spacing.md,
   },
   permissionButtonPressed: {

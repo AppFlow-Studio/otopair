@@ -17,6 +17,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { LinearGradient } from 'expo-linear-gradient';
 
 // 2. Expo & Third-party
 import { StatusBar } from 'expo-status-bar';
@@ -30,6 +31,7 @@ import { Spacing } from '@/constants/theme';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
 import { useSmartcar } from '@/hooks/useSmartCar';
+import { scale, verticalScale, moderateScale } from '@/utils/responsive';
 
 // ============================================================================
 // COMPONENT
@@ -59,7 +61,6 @@ export default function AddVehicleReviewScreen() {
   const [selectedColor, setSelectedColor] = useState('');
 
   const confirmVehicle = useAction(api.vehicle_pipeline.confirmVehicleForUser);
-  const generateVehicleImage = useAction(api.imagin.generateVehicleImage);
   const { connect, isConnecting, error: smartcarError } = useSmartcar();
 
   const CAR_COLORS = [
@@ -130,20 +131,12 @@ export default function AddVehicleReviewScreen() {
         displacement: params.displacement || '',
         cylinders: parseFloat(params.cylinders || '0'),
         fuelType: params.fuelType || 'Gasoline',
+        color: selectedColor || undefined,
       });
 
       if (result.success) {
-        if (params.make && params.model && params.vin) {
-          generateVehicleImage({
-            vin: params.vin,
-            make: params.make,
-            model: params.model,
-            year: parseFloat(params.year || "0") || undefined,
-            paintDescription: selectedColor || undefined,
-          }).catch((e: any) => console.warn("Vehicle image generation failed", e));
-        }
         router.replace({
-          pathname: '/car-pre-onboarding',
+          pathname: '/vehicle-added',
           params: {
             flow: 'manual',
             vehicleOwnerId: String(result.vehicleOwnerId),
@@ -171,16 +164,16 @@ export default function AddVehicleReviewScreen() {
         onPress={handleBack}
         style={({ pressed }) => [
           styles.backButton,
-          { top: insets.top + 12 },
+          { top: insets.top + scale(12) },
           pressed && styles.backButtonPressed,
         ]}
         hitSlop={12}
       >
-        <ArrowLeft size={24} color="#000000" strokeWidth={2} />
+        <ArrowLeft size={scale(24)} color="#000000" strokeWidth={2} />
       </Pressable>
 
       {/* Title */}
-      <View style={[styles.titleContainer, { top: insets.top + 60 }]}>
+      <View style={[styles.titleContainer, { top: insets.top + scale(60) }]}>
         <Text weight="bold" size="2xl" color="#333333" style={styles.title}>
           VEHICLE DETECTED
         </Text>
@@ -192,7 +185,7 @@ export default function AddVehicleReviewScreen() {
       {/* Vehicle Card */}
       <View style={styles.vehicleCard}>
         <View style={styles.vehicleIconContainer}>
-          <Car size={32} color="#5299FE" strokeWidth={1.5} />
+          <Car size={scale(32)} color="#5299FE" strokeWidth={1.5} />
         </View>
         <Text weight="bold" size="xl" color="#333333" style={styles.vehicleYear}>
           {params.year}
@@ -260,7 +253,7 @@ export default function AddVehicleReviewScreen() {
       ) : null}
 
       {/* Bottom Buttons */}
-      <View style={[styles.bottomContainer, { paddingBottom: insets.bottom + 20 }]}>
+      <View style={[styles.bottomContainer, { paddingBottom: insets.bottom + scale(20) }]}>
         {/* Connect My Car */}
         <Pressable
           onPress={handleConnectCar}
@@ -271,16 +264,23 @@ export default function AddVehicleReviewScreen() {
             isLoading && styles.buttonDisabled,
           ]}
         >
-          {isConnecting ? (
-            <ActivityIndicator size="small" color="#FFFFFF" />
-          ) : (
-            <>
-              <Link2 size={20} color="#FFFFFF" strokeWidth={2} />
-              <Text weight="semiBold" size="md" color="#FFFFFF" style={styles.buttonText}>
-                CONNECT MY CAR
-              </Text>
-            </>
-          )}
+          <LinearGradient
+            colors={['#7BB8FF', '#5299FE', '#3B7FEB']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.connectButtonGradient}
+          >
+            {isConnecting ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <>
+                <Link2 size={scale(20)} color="#FFFFFF" strokeWidth={2} />
+                <Text weight="bold" size="md" color="#FFFFFF">
+                  Connect My Car
+                </Text>
+              </>
+            )}
+          </LinearGradient>
         </Pressable>
 
         {/* Add Vehicle (skip Smartcar) */}
@@ -297,9 +297,9 @@ export default function AddVehicleReviewScreen() {
             <ActivityIndicator size="small" color="#5299FE" />
           ) : (
             <>
-              <Plus size={20} color="#5299FE" strokeWidth={2} />
-              <Text weight="semiBold" size="md" color="#5299FE" style={styles.buttonText}>
-                ADD VEHICLE
+              <Plus size={scale(20)} color="#5299FE" strokeWidth={2} />
+              <Text weight="bold" size="md" color="#5299FE">
+                Add Vehicle
               </Text>
             </>
           )}
@@ -339,19 +339,19 @@ const styles = StyleSheet.create({
   },
   title: {
     textAlign: 'center',
-    marginBottom: 4,
+    marginBottom: scale(4),
     letterSpacing: 1,
   },
   subtitle: {
     textAlign: 'center',
   },
   vehicleCard: {
-    marginTop: 200,
+    marginTop: verticalScale(200),
     marginHorizontal: Spacing.lg,
     backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    paddingVertical: 28,
-    paddingHorizontal: 24,
+    borderRadius: moderateScale(20),
+    paddingVertical: scale(28),
+    paddingHorizontal: scale(24),
     alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
@@ -360,48 +360,48 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   vehicleIconContainer: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: scale(64),
+    height: scale(64),
+    borderRadius: scale(32),
     backgroundColor: '#EEF4FF',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 16,
+    marginBottom: scale(16),
   },
   vehicleYear: {
-    marginBottom: 2,
+    marginBottom: scale(2),
   },
   vehicleName: {
-    marginBottom: 4,
+    marginBottom: scale(4),
   },
   vehicleTrim: {
-    marginBottom: 16,
+    marginBottom: scale(16),
   },
   vinBadge: {
     backgroundColor: '#1a1a1a',
-    paddingHorizontal: 16,
-    paddingVertical: 6,
-    borderRadius: 6,
+    paddingHorizontal: scale(16),
+    paddingVertical: scale(6),
+    borderRadius: moderateScale(6),
   },
   vinText: {
     letterSpacing: 1,
   },
   colorSection: {
-    marginTop: 20,
+    marginTop: scale(20),
     marginHorizontal: Spacing.lg,
     alignItems: 'center',
   },
   colorLabel: {
-    marginBottom: 12,
+    marginBottom: scale(12),
   },
   colorRow: {
-    gap: 10,
-    paddingHorizontal: 4,
+    gap: scale(10),
+    paddingHorizontal: scale(4),
   },
   colorSwatch: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: scale(36),
+    height: scale(36),
+    borderRadius: scale(18),
   },
   colorSwatchWhite: {
     borderWidth: 1,
@@ -412,28 +412,28 @@ const styles = StyleSheet.create({
     borderColor: '#5299FE',
   },
   colorName: {
-    marginTop: 8,
+    marginTop: scale(8),
   },
   connectSection: {
-    marginTop: 28,
+    marginTop: scale(28),
     marginHorizontal: Spacing.lg,
     alignItems: 'center',
   },
   connectTitle: {
-    marginBottom: 8,
+    marginBottom: scale(8),
     textAlign: 'center',
   },
   connectDescription: {
     textAlign: 'center',
-    lineHeight: 20,
+    lineHeight: moderateScale(20),
   },
   errorContainer: {
-    marginTop: 16,
+    marginTop: scale(16),
     marginHorizontal: Spacing.lg,
     backgroundColor: '#FFF0F0',
-    borderRadius: 12,
-    paddingVertical: 10,
-    paddingHorizontal: 16,
+    borderRadius: moderateScale(12),
+    paddingVertical: scale(10),
+    paddingHorizontal: scale(16),
   },
   errorText: {
     textAlign: 'center',
@@ -444,25 +444,33 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     paddingHorizontal: Spacing.lg,
-    gap: 12,
+    gap: scale(12),
   },
   connectButton: {
-    backgroundColor: '#5299FE',
-    borderRadius: 30,
-    paddingVertical: 16,
+    borderRadius: moderateScale(24),
+    overflow: 'hidden',
+    shadowColor: 'rgba(82,153,254,0.3)',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 1,
+    shadowRadius: 12,
+    elevation: 4,
+  },
+  connectButtonGradient: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    flexDirection: 'row',
-    gap: 8,
+    gap: scale(8),
+    paddingVertical: scale(16),
+    paddingHorizontal: scale(32),
   },
   addButton: {
     backgroundColor: '#FFFFFF',
-    borderRadius: 30,
-    paddingVertical: 16,
+    borderRadius: moderateScale(24),
+    paddingVertical: scale(16),
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
-    gap: 8,
+    gap: scale(8),
     borderWidth: 1.5,
     borderColor: '#5299FE',
   },
