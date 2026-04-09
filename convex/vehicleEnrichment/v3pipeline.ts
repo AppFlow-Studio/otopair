@@ -28,6 +28,7 @@ import { validateAllOemParts } from "./validation/oemValidation";
 import { BLOCKED_DOMAINS } from "./sourceRegistry";
 import { applyApplicabilityRules } from "./applicabilityRules";
 import { scrapeVehicleSources } from "./scraper";
+import { sanitizeString, sanitizeNumber, sanitizePartNumber, sanitizeUrl } from "./contentSanitization";
 import { fetchVDBLaborHours, mapVDBLaborToSlugs } from "../lib/vehicleDatabases";
 import { lookupChassisCode } from "./utils/chassisLookup";
 import type { Id } from "../_generated/dataModel";
@@ -482,20 +483,13 @@ function slugify(s: string): string {
 }
 
 function asNumber(val: unknown): number | undefined {
-  if (val === null || val === undefined) return undefined;
-  if (typeof val === "number" && val !== 0) return val;
-  if (typeof val === "string") {
-    const n = parseFloat(val);
-    if (!isNaN(n) && n !== 0) return n;
-  }
-  return undefined;
+  // Task 17: Content sanitization — strips HTML, markdown, units, preamble
+  return sanitizeNumber(val);
 }
 
 function asString(val: unknown): string | undefined {
-  if (val === null || val === undefined) return undefined;
-  if (typeof val === "string" && val.length > 0) return val;
-  if (typeof val === "number" && val !== 0) return String(val);
-  return undefined;
+  // Task 17: Content sanitization — strips HTML, markdown, normalizes whitespace
+  return sanitizeString(val);
 }
 
 function asBoolean(val: unknown): boolean | undefined {
@@ -665,13 +659,14 @@ async function writeNormalizedData(
     const conf = fields[fieldKey]?.confidence;
     const src = fields[fieldKey]?.source_url;
 
-    // Coerce to string — BMW 11-digit part numbers may parse as numbers
-    const val = rawVal != null ? String(rawVal) : null;
+    // Task 17: Sanitize part numbers — strip HTML/markdown, validate against OEM patterns
+    const rawStr = rawVal != null ? String(rawVal) : null;
+    const val = rawStr != null ? sanitizePartNumber(rawStr, make) : null;
 
-    console.log(`[v8-parts] ${fieldKey}: value=${rawVal} (type=${typeof rawVal}), confidence=${conf}, source=${src}`);
+    console.log(`[v8-parts] ${fieldKey}: raw=${rawVal} (type=${typeof rawVal}), sanitized=${val}, confidence=${conf}, source=${src}`);
 
     if (val == null || val.length === 0) {
-      console.log(`[v8-parts] SKIPPED ${fieldKey}: reason=null_or_empty`);
+      console.log(`[v8-parts] SKIPPED ${fieldKey}: reason=${rawStr ? "failed_sanitization" : "null_or_empty"}`);
       continue;
     }
 
@@ -744,14 +739,17 @@ async function writeNormalizedData(
   for (const k of V4_FIELD_KEYS) {
     const f = fields[k];
     if (!f || f.value == null) continue;
+    // Task 17: Sanitize evidence values and URLs before storage
+    const sanitizedValue = sanitizeString(f.value) ?? String(f.value);
+    const sanitizedSourceUrl = sanitizeUrl(f.source_url);
     evidenceRows.push({
       entity_type: getEntityType(k),
       entity_id: String(vehicleConfigId),
       field_name: k,
-      observed_value: String(f.value),
+      observed_value: sanitizedValue,
       observed_type: typeof f.value === "number" ? "number" : typeof f.value === "boolean" ? "boolean" : "string",
-      source_url: f.source_url ?? undefined,
-      source_domain: extractDomain(f.source_url),
+      source_url: sanitizedSourceUrl,
+      source_domain: extractDomain(sanitizedSourceUrl),
       source_type: f.source_type ?? "training_data",
       confidence: f.confidence ?? 0.5,
       enrichment_run_id: runId,
@@ -1671,6 +1669,20 @@ export const _pollBatch2V3 = internalAction({
       }
     } catch (e) {
       console.warn("[v8] Service fallback failed (non-fatal):", e);
+    }
+
+    // Post-enrichment: adversarial self-verification (Task 26).
+    // Challenges suspicious values (outlier capacities, mismatched specs) with a second
+    // Haiku pass. Runs async so it doesn't block the completion path.
+    try {
+      await ctx.scheduler.runAfter(
+        10_000, // 10s delay to let writes settle
+        internal.vehicleEnrichment.adversarialVerification.runAdversarialVerification,
+        { vehicle_config_id: args.vehicleConfigId },
+      );
+      console.log("[v8] Adversarial verification scheduled");
+    } catch (e) {
+      console.warn("[v8] Adversarial verification trigger failed (non-fatal):", e);
     }
 
     console.log(
