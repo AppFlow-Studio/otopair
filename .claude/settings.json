@@ -1,0 +1,27 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx convex run \"ai_enrichment_logs:getByEngineId\" \"{\"\"engineId\"\":\"\"j9709r5srb05tyqf1prkvzc4rn824y5k\"\"}\")",
+      "Read(//c/Users/manso/.claude/projects/c--Users-manso-Desktop-otopair-1/abedaf64-3cf5-4c22-98b8-a46016f402dd/tool-results/**)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:kirillzyusko.github.io)",
+      "Bash(npx expo install react-native-keyboard-controller)",
+      "Bash(npx convex run --help)",
+      "Bash(npx convex run seed:seedVehiclesForUser '{\"\"clerkUserId\"\": \"\"user_39FwQkrjpFYGOQ0gkPIk1DEf0FW\"\"}')",
+      "Bash(npx convex run --push seed:seedVehiclesForUser '{\"\"clerkUserId\"\": \"\"user_39FwQkrjpFYGOQ0gkPIk1DEf0FW\"\"}')",
+      "Bash(npx convex run vehicleEnrichment/queries:debugGetByEngineKey '{\"\"engineKey\"\": \"\"2020_bmw_5_series_n63b44o2\"\"}')",
+      "Bash(npx convex run --no-push vehicleEnrichment/queries:debugGetByEngineKey '{\"\"engineKey\"\":\"\"2020_bmw_5_series_n63b44o2\"\"}')",
+      "Bash(npx convex run vehicleEnrichment/queries:debugGetByEngineKey \"{\"\"engineKey\"\":\"\"2020_bmw_5_series_n63b44o2\"\"}\")",
+      "Bash(npx convex run vehicleEnrichment/queries:debugGetByEngineKey '{\"\"engineKey\"\":\"\"2020_bmw_5_series_n63b44o2\"\"}')",
+      "Bash(echo \"EXIT: $?\")",
+      "Bash(npx convex dev --once)",
+      "Bash(npx convex run --no-push vehicleEnrichment/pipelineTest:runV3Test)",
+      "Bash(npx convex run --no-push vehicleEnrichment/queries:debugGetByEngineKey '{\"\"engineKey\"\": \"\"2020_bmw_5_series_n63b44o2\"\"}')",
+      "Bash(npx convex run --no-push vehicleEnrichment/pipelineTest:diagnoseCall1B)",
+      "Bash(python3 -c \":*)",
+      "Bash(node -e \":*)",
+      "Bash(node --input-type=module -e \":*)",
+      "Bash(npx convex deploy --cmd 'npm run build')"
+    ]
+  }
+}

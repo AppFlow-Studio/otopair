@@ -14,14 +14,12 @@
 import { View, ActivityIndicator, StyleSheet } from "react-native";
 import { Redirect } from "expo-router";
 import { useAuth } from "@clerk/clerk-expo";
-import { useQuery } from "convex/react";
-import { api } from "@/convex/_generated/api";
 import { BrandColors } from "@/constants/theme";
 
 export default function Index() {
   const { isSignedIn, isLoaded } = useAuth();
-  const me = useQuery(api.users.getMe);
-  // Wait for Clerk to load
+
+  // Wait for Clerk to load (includes token-cache hydration)
   if (!isLoaded) {
     return (
       <View style={styles.loading}>
@@ -35,27 +33,9 @@ export default function Index() {
     return <Redirect href="/(onboarding)" />;
   }
 
-  // Signed in but Convex user not loaded yet (query still loading)
-  if (me === undefined) {
-    return (
-      <View style={styles.loading}>
-        <ActivityIndicator size="large" color={BrandColors.white} />
-      </View>
-    );
-  }
-
-  // Signed in but no Convex user yet → go to home (layout ensures user in background; no welcome loop)
-  if (me === null) {
-    return <Redirect href="/(main-tabs)/home" />;
-  }
-
-  // Signed in + onboarding complete → go to home
-  if (me.onboardingCompleted) {
-    return <Redirect href="/(main-tabs)/home" />;
-  }
-
-  // Signed in + onboarding NOT complete → resume onboarding
-  return <Redirect href="/(onboarding)" />;
+  // Signed in → go straight to home. No Convex wait, no onboarding redirect = no signup flash.
+  // Home/FinishAccountSetupCard handles incomplete onboarding via in-app flow.
+  return <Redirect href="/(main-tabs)/home" />;
 }
 
 const styles = StyleSheet.create({

@@ -39,6 +39,7 @@ import { useCallback } from "react";
 export const BOOKING_STAGES: BookingStage[] = [
   "discovery",
   "service_selection",
+  "service_options",
   "mechanic_selection",
   "booking_details",
   "payment",

@@ -65,7 +65,7 @@ export function useReferralCode(profile: ReferralProfile) {
 
 export function buildReferralShareMessage(displayCode: string): string {
   return (
-    `Join Otopair and get 250 points for your first booking!\n\n` +
+    `Join Otopair and get $15 credit for your first booking!\n\n` +
     `Use my referral code: ${displayCode}\n`
   );
 }

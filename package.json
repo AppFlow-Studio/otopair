@@ -11,6 +11,7 @@
     "lint": "expo lint"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.78.0",
     "@callstack/liquid-glass": "^0.6.1",
     "@clerk/clerk-expo": "^2.19.21",
     "@expo-google-fonts/urbanist": "^0.4.2",
@@ -28,8 +29,8 @@
     "@zxcvbn-ts/language-common": "^3.0.4",
     "convex": "^1.31.6",
     "credit-card-type": "^10.1.0",
-    "expo-auth-session": "^7.0.10",
     "expo": "~54.0.33",
+    "expo-auth-session": "^7.0.10",
     "expo-av": "~16.0.8",
     "expo-blur": "~15.0.8",
     "expo-calendar": "~15.0.8",
@@ -65,6 +66,7 @@
     "react-native-country-picker-modal": "^2.0.0",
     "react-native-deck-swiper": "^2.0.19",
     "react-native-gesture-handler": "~2.28.0",
+    "react-native-keyboard-controller": "1.18.5",
     "react-native-maps": "1.20.1",
     "react-native-month-year-picker": "^1.9.0",
     "react-native-payment-icons": "^1.0.11",

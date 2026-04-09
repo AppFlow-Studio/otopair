@@ -113,7 +113,12 @@ export function useCreateBookingConvex() {
       const scheduledTimeVal = scheduledAppointment?.time ? displayTimeToHHMM(scheduledAppointment.time) : "09:00";
 
       const TAXES_AND_FEES = 5.0;
-      const PLATFORM_FEE = 4.79;
+      // Service fee: 7% of service subtotal, $4.99 minimum, no cap
+      // TODO: When subscriptions are wired, waive service fee for Preferred/Elite subscribers
+      const SERVICE_FEE_RATE = 0.07;
+      const SERVICE_FEE_MINIMUM = 4.99;
+      const servicesSubtotal = services.reduce((sum, s) => sum + s.labor_cost + s.parts_cost, 0);
+      const PLATFORM_FEE = servicesSubtotal > 0 ? Math.max(servicesSubtotal * SERVICE_FEE_RATE, SERVICE_FEE_MINIMUM) : 0;
 
       const bookingIds = await createBatch({
         user_id: userId,

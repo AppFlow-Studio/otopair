@@ -17,7 +17,7 @@ import { Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native
 import { BottomSheetFlatList } from "@gorhom/bottom-sheet";
 import { Car, ChevronLeft, Search } from "lucide-react-native";
 import { useRouter } from "expo-router";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+
 
 // 3. Shared UI (design system)
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
@@ -49,8 +49,6 @@ import type { Mechanic } from "@/stores/types/store.types";
 // CONSTANTS
 // ============================================================================
 
-const DEFAULT_FOOTER_INSET = 100; // Fallback padding when footer height isn't measured yet
-
 // ============================================================================
 // TYPES
 // ============================================================================
@@ -63,8 +61,6 @@ interface MechanicSelectionContentProps {
   onSelectMechanic?: () => void;
   /** Called when user taps the car icon to open car selection */
   onCarSelect?: () => void;
-  /** Height of the sticky footer so the list can pad accordingly */
-  footerInset?: number;
   /** Called when the mechanic search input gains focus */
   onSearchFocus?: () => void;
 }
@@ -119,16 +115,10 @@ function groupMechanicsByShop(mechanics: Mechanic[], shopIdToLaborRate?: Map<str
 export function MechanicSelectionContent({
   onSelectMechanic,
   onCarSelect,
-  footerInset = 0,
   onSearchFocus,
 }: MechanicSelectionContentProps) {
   // ═══════════════ HOOKS ═══════════════
   const router = useRouter();
-  const insets = useSafeAreaInsets();
-  const bottomSpacerHeight = useMemo(
-    () => Math.max(footerInset, DEFAULT_FOOTER_INSET) + insets.bottom + Spacing.lg,
-    [footerInset, insets.bottom],
-  );
 
   // ═══════════════ STATE ═══════════════
   const [showAvailabilityModal, setShowAvailabilityModal] = React.useState(false);
@@ -138,7 +128,6 @@ export function MechanicSelectionContent({
   // ═══════════════ BOOKING STORE ═══════════════
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
   const availableServices = useBookingStore((state) => state.availableServices);
-  const prevBookingStage = useBookingStore((state) => state.prevBookingStage);
   const setBookingTypeAndProceed = useBookingStore((state) => state.setBookingTypeAndProceed);
   const setScheduledAppointment = useBookingStore((state) => state.setScheduledAppointment);
   const setBookingStage = useBookingStore((state) => state.setBookingStage);
@@ -146,6 +135,7 @@ export function MechanicSelectionContent({
   const selectedMechanicSlot = useBookingStore((state) => state.selectedMechanicSlot);
   const setSelectedMechanicSlot = useBookingStore((state) => state.setSelectedMechanicSlot);
   const getSelectedServicesTotal = useBookingStore((state) => state.getSelectedServicesTotal);
+  const selectedServiceOptions = useBookingStore((state) => state.selectedServiceOptions);
   const userLocation = useBookingStore((state) => state.userLocation);
 
   // Memoize selected services to prevent re-renders
@@ -263,29 +253,44 @@ export function MechanicSelectionContent({
     };
   }, [selectedMechanicSlot]);
 
-  // Create SelectedServiceInfo array for ShopCard (engine-specific labor/parts when available)
+  // Create SelectedServiceInfo array for ShopCard
+  // Priority: option-specific → engine-specific → service defaults
   const selectedServicesForCard: SelectedServiceInfo[] = useMemo(() => {
     return selectedServices.map((service) => {
+      const optionSel = selectedServiceOptions[service.id];
       const spec = engineSpecs[service.id];
-      const laborHours = spec?.labor_hours ?? service.default_labor_hours;
-      const partsEstimate = spec?.parts_cost_avg ?? service.default_parts_estimate;
+      const laborHours = optionSel?.labor_hours ?? spec?.labor_hours ?? service.default_labor_hours;
+      const partsEstimate = optionSel?.parts_cost_avg ?? spec?.parts_cost_avg ?? service.default_parts_estimate;
       return {
         id: service.id,
         name: service.name,
         price: service.price,
         default_labor_hours: laborHours,
         default_parts_estimate: partsEstimate,
+        state_fee: optionSel?.state_fee,
       };
     });
-  }, [selectedServices, engineSpecs]);
+  }, [selectedServices, engineSpecs, selectedServiceOptions]);
 
   // ═══════════════ EFFECTS ═══════════════
+  // Go back — to service_options if any selected service has options, else service_selection
+  const handleGoBack = useCallback(() => {
+    const anyHasOptions = availableServices.some(
+      (svc) => selectedServiceIds.includes(svc.id) && svc.has_options === true,
+    );
+    if (anyHasOptions) {
+      setBookingStage("service_options", "backward");
+    } else {
+      setBookingStage("service_selection", "backward");
+    }
+  }, [availableServices, selectedServiceIds, setBookingStage]);
+
   // Go back to service selection if all services are removed
   useEffect(() => {
     if (selectedServiceIds.length === 0) {
-      prevBookingStage();
+      setBookingStage("service_selection", "backward");
     }
-  }, [selectedServiceIds.length, prevBookingStage]);
+  }, [selectedServiceIds.length, setBookingStage]);
 
   // Note: We intentionally do NOT clear selectedMechanicSlot on unmount
   // because the component unmounts when navigating to payment, and we need
@@ -436,7 +441,7 @@ export function MechanicSelectionContent({
     <View style={styles.container}>
       {/* Header - Fixed at top */}
       <View style={styles.header}>
-        <Pressable style={styles.backButton} onPress={prevBookingStage} hitSlop={8}>
+        <Pressable style={styles.backButton} onPress={handleGoBack} hitSlop={8}>
           <ChevronLeft size={24} color={BrandColors.primary} />
         </Pressable>
         <Text size="xl" weight="bold" color={BrandColors.primary}>
@@ -473,7 +478,7 @@ export function MechanicSelectionContent({
         maxToRenderPerBatch={5}
         windowSize={5}
         initialNumToRender={3}
-        ListFooterComponent={<View style={{ height: bottomSpacerHeight }} />}
+        enableFooterMarginAdjustment
         ListHeaderComponent={
           <View>
             {/* Filter Chips */}

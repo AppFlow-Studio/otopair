@@ -1,6 +1,6 @@
 # OTOPAIR Rewards Program
 
-**Purpose:** Document the rewards system per OTOPAIR Rewards Program Framework V2.  
+**Purpose:** Document the rewards system per OTOPAIR Revenue & Rewards Model v2.0.
 **Source:** [convex/rewards.ts](../convex/rewards.ts), [convex/schema.ts](../convex/schema.ts), [app/membership.tsx](../app/membership.tsx).
 
 ---
@@ -16,23 +16,37 @@ Tiers and credits never merge: tier determines earn rate; credits are the spenda
 
 ---
 
-## 2. Ownership Credit
+## 2. Consumer Service Fee
 
-- **Unit:** Dollars, not points.
-- **Earn rate by tier:** Driver 1.5%, Preferred 3%, Elite 5% of `booking.total_cost`.
-- **Expiry:** 6 months (MVP).
-- **Primary earn:** Completing maintenance/diagnostics/repairs through Otopair-trusted shops.
-- **Contribution earn:** Review $5, Upload records $10, Referral $25 (both parties; cap 5 referrals).
+- **Rate:** 7% of completed service total.
+- **Minimum:** $4.99 per booking.
+- **Maximum:** No cap.
+- **When charged:** After service completed and confirmed by shop.
+- **Shown to user as:** "Otopair Service Fee — 7%"
+- **Waiver:** Waived for Preferred and Elite subscribers.
+- **Credits earned on:** Service cost only, never on the fee.
+- **Payment processor:** Stripe — 2.9% + $0.30 on full transaction.
+- **Net margin:** ~3.8% of service cost after Stripe.
 
 ---
 
-## 3. Tier structure
+## 3. Ownership Credit
+
+- **Unit:** Dollars, not points.
+- **Earn rate by tier:** Driver 1%, Preferred 1.5%, Elite 2% of `booking.total_cost`.
+- **Expiry:** 6 months for Driver/Preferred. Non-expiring for Elite.
+- **Primary earn:** Completing maintenance/diagnostics/repairs through Otopair-trusted shops.
+- **Contribution earn:** Review $3, Upload records $5, Referral $15 (both parties; cap 5 referrals).
+
+---
+
+## 4. Tier structure
 
 | Tier      | Spend threshold (12‑mo) | Earn rate |
 | --------- | ----------------------- | --------- |
-| Driver    | Default                 | 1.5%      |
-| Preferred | ~$750                   | 3%        |
-| Elite     | ~$1,500                 | 5%        |
+| Driver    | Default                 | 1%        |
+| Preferred | ~$750                   | 1.5%      |
+| Elite     | ~$1,500                 | 2%        |
 
 - **Per-vehicle:** Tier is stored in `vehicle_tiers(vin, user_id)`. Each car has its own tier.
 - **Auto-upgrade:** When a booking completes, `addCreditForCompletedBooking` recomputes 12‑month spend for that vehicle and updates tier if thresholds are crossed.
@@ -40,7 +54,17 @@ Tiers and credits never merge: tier determines earn rate; credits are the spenda
 
 ---
 
-## 4. Tables
+## 5. Credit targets by tier
+
+| Tier      | Target/year |
+| --------- | ----------- |
+| Driver    | $20–$40     |
+| Preferred | $40–$75     |
+| Elite     | $60–$100    |
+
+---
+
+## 6. Tables
 
 | Table                         | Purpose                                                                                                   |
 | ----------------------------- | --------------------------------------------------------------------------------------------------------- |
@@ -52,7 +76,7 @@ Tiers and credits never merge: tier determines earn rate; credits are the spenda
 
 ---
 
-## 5. API (rewards.ts)
+## 7. API (rewards.ts)
 
 ### Queries
 
@@ -78,7 +102,7 @@ Tiers and credits never merge: tier determines earn rate; credits are the spenda
 
 ---
 
-## 6. Booking → Credit flow
+## 8. Booking → Credit flow
 
 1. Booking completes (`updateStatus` or `submitJobActuals`).
 2. Scheduler runs `internal.rewards.addCreditForCompletedBooking(bookingId)`.
@@ -86,21 +110,21 @@ Tiers and credits never merge: tier determines earn rate; credits are the spenda
 
 ---
 
-## 7. Contribution hooks
+## 9. Contribution hooks
 
 **Contribution hooks** are the integration points where we must call `claimContributionReward` when the user completes an action:
 
-| Action   | Credit     | Hook location                        | Status                      |
-| -------- | ---------- | ------------------------------------ | --------------------------- |
-| Review   | $5         | `reviews.submit` — after insert      | Not wired                   |
-| Upload   | $10        | Upload service records flow          | Flow not built              |
-| Referral | $25 (both) | When referee completes first service | Referrer tracking not built |
+| Action   | Credit      | Hook location                        | Status                      |
+| -------- | ----------- | ------------------------------------ | --------------------------- |
+| Review   | $3          | `reviews.submit` — after insert      | Not wired                   |
+| Upload   | $5          | Upload service records flow          | Flow not built              |
+| Referral | $15 (both)  | When referee completes first service | Referrer tracking not built |
 
 The mutation exists; it needs to be invoked from these flows.
 
 ---
 
-## 8. UI
+## 10. UI
 
 - **Membership:** `app/membership.tsx` — balance, tier badge, tier modal (Driver/Preferred/Elite), suggested deals, History (`/transactions`), Refer a Friend (`/refer-a-friend`), Add Car.
 - **Suggested deals:** `app/suggested-deals.tsx` — `getAllDeals`.
@@ -108,9 +132,11 @@ The mutation exists; it needs to be invoked from these flows.
 
 ---
 
-## 9. Not implemented (V1+)
+## 11. Not implemented (V1+)
 
 - Subscription path (Preferred $9.99/mo, Elite $24.99/mo)
+- Fee waiver for subscribers (logic exists as TODO comments)
 - Tier benefits (diagnostics coverage, booking priority, price lock, concierge)
-- Organic graduation messaging (“You’ve earned Preferred organically…”)
+- Organic graduation messaging ("You've earned Preferred organically…")
 - Context switcher updating tier when switching vehicles in membership view
+- Contribution credit cap per user based on fee revenue (risk mitigation for low-spend users)
