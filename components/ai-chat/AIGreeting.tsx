@@ -19,7 +19,7 @@
 
 // 1. React & React Native
 import React, { useState, useCallback } from 'react';
-import { View, StyleSheet, Pressable, Dimensions } from 'react-native';
+import { View, StyleSheet, Pressable, Dimensions, Platform } from 'react-native';
 
 // 2. Expo & Third-party
 import Animated, {
@@ -408,7 +408,7 @@ const styles = StyleSheet.create({
   },
   // Suggestions
   suggestionsContainer: {
-    paddingBottom: Spacing.xs,
+    paddingBottom: Platform.OS === 'android' ? Spacing.md : Spacing.xs,
   },
   suggestionsScroll: {
     paddingHorizontal: Spacing.lg,

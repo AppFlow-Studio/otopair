@@ -265,14 +265,14 @@ export default function AboutOtopairScreen() {
               <View style={styles.showcaseServiceRow}>
                 <View style={styles.showcaseFeeRow}>
                   <Text size="sm" weight="regular" color="#6B7280">
-                    Platform Fee
+                    Otopair Service Fee — 7%
                   </Text>
                   <View style={styles.showcaseInfoButton}>
                     <Info size={14} color="#9CA3AF" />
                   </View>
                 </View>
                 <Text size="sm" weight="medium" color="#6B7280">
-                  $4.79
+                  $4.99
                 </Text>
               </View>
 
@@ -290,7 +290,7 @@ export default function AboutOtopairScreen() {
                   </View>
                 </View>
                 <Text size="2xl" weight="bold" color={BrandColors.secondary}>
-                  $69.79
+                  $74.99
                 </Text>
               </View>
             </View>
@@ -298,36 +298,36 @@ export default function AboutOtopairScreen() {
 
           <View style={styles.featureCard}>
             <Text weight="bold" size="lg" color="#111318" style={styles.featureTitle}>
-              Points that unlock real rewards
+              Credits that unlock real savings
             </Text>
             <Text size="sm" color="#616E89" style={styles.featureBody}>
-              Earn points on every service. Redeem them for discounts, free washes, or maintenance
-              credits.
+              Earn dollar credits on every service. Redeem them for your next booking or as a gift
+              card.
             </Text>
             <View style={styles.rewardsCard}>
               <View style={styles.rewardsHeader}>
                 <Text weight="bold" size="xs" color="#9CA3AF">
-                  GOLD TIER
+                  OWNERSHIP CREDIT
                 </Text>
                 <Text weight="bold" size="sm" color={BrandColors.secondary}>
-                  840 / 1000 pts
+                  $12.40
                 </Text>
               </View>
               <View style={styles.rewardsTrack}>
                 <View style={styles.rewardsFill} />
               </View>
               <Text size="xs" color="#9CA3AF" style={styles.rewardsFootnote}>
-                160 pts to next reward
+                Earn 1% on every service
               </Text>
             </View>
           </View>
 
           <View style={styles.featureCard}>
             <Text weight="bold" size="lg" color="#111318" style={styles.featureTitle}>
-              Invite friends. You both get points.
+              Invite friends. You both earn credit.
             </Text>
             <Text size="sm" color="#616E89" style={styles.featureBody}>
-              Share your unique code. When they book their first service, you each earn 250 points.
+              Share your unique code. When they book their first service, you each earn $15 credit.
             </Text>
             <View style={styles.inviteRow}>
               <View style={styles.inviteCode}>
@@ -579,10 +579,10 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   comingSoonCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.4)',
+    backgroundColor: 'rgba(255, 255, 255, 0.72)',
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.3)',
+    borderColor: 'rgba(255, 255, 255, 0.6)',
     padding: 20,
     alignItems: 'center',
     gap: 6,

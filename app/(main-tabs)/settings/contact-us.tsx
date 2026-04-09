@@ -5,6 +5,14 @@
  *          Includes a success state and a topic selection bottom sheet.
  *
  * USED IN: app/(main-tabs)/settings/index.tsx
+ *
+ * PROPS: None (accessed via router)
+ *
+ * EXAMPLE:
+ *   <ContactUsScreen />
+ *
+ * OWNER: Daniel Chelala
+ * TICKET: OTO-XXX
  */
 
 import React, { useCallback, useMemo, useRef, useState } from 'react';

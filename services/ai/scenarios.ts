@@ -263,7 +263,7 @@ const BRAKE_NOISE_SCENARIO: Scenario = {
           state.selectedShop?.name || "Selected Location"
         }\n📅 **Time:** ${state.selectedTime?.displayText || "Selected Time"}\n💰 **Estimate:** ${
           state.selectedShop?.price || "$79"
-        } + $4.99 platform fee\n\nWould you like me to confirm this booking?`,
+        } + 7% service fee\n\nWould you like me to confirm this booking?`,
         quickReplies: CONFIRMATION_REPLIES,
         nextStage: "confirmation",
         suggestions: CONFIRMATION_SUGGESTIONS,
@@ -339,7 +339,7 @@ const CHECK_ENGINE_SCENARIO: Scenario = {
           state.selectedShop?.name || "Selected Location"
         }\n📅 **Time:** ${
           state.selectedTime?.displayText || "Selected Time"
-        }\n💰 **Estimate:** $89 diagnostic + $4.99 platform fee\n\nConfirm booking?`,
+        }\n💰 **Estimate:** $89 diagnostic + 7% service fee\n\nConfirm booking?`,
         quickReplies: CONFIRMATION_REPLIES,
         nextStage: "confirmation",
         suggestions: CONFIRMATION_SUGGESTIONS,
@@ -429,7 +429,7 @@ const OIL_CHANGE_SCENARIO: Scenario = {
             state.selectedShop?.name || "Selected Location"
           }\n📅 **Time:** ${state.selectedTime?.displayText || "Selected Time"}\n💰 **Estimate:** $${totalPrice}-${
             totalPrice + 50
-          } + $4.99 platform fee\n\nConfirm?`,
+          } + 7% service fee\n\nConfirm?`,
           quickReplies: CONFIRMATION_REPLIES,
           nextStage: "confirmation",
           suggestions: CONFIRMATION_SUGGESTIONS,
@@ -507,7 +507,7 @@ const TIRE_PRESSURE_SCENARIO: Scenario = {
           state.selectedShop?.name || "Selected Location"
         }\n📅 **Time:** ${
           state.selectedTime?.displayText || "Selected Time"
-        }\n💰 **Estimate:** $25-$45 + $4.99 platform fee\n\nBook it?`,
+        }\n💰 **Estimate:** $25-$45 + 7% service fee\n\nBook it?`,
         quickReplies: CONFIRMATION_REPLIES,
         nextStage: "confirmation",
         suggestions: CONFIRMATION_SUGGESTIONS,
@@ -585,7 +585,7 @@ const VAGUE_ISSUE_SCENARIO: Scenario = {
           state.selectedShop?.name || "Selected Location"
         }\n📅 **Time:** ${
           state.selectedTime?.displayText || "Selected Time"
-        }\n💰 **Estimate:** $49-$99 + $4.99 platform fee\n\nConfirm?`,
+        }\n💰 **Estimate:** $49-$99 + 7% service fee\n\nConfirm?`,
         quickReplies: CONFIRMATION_REPLIES,
         nextStage: "confirmation",
         suggestions: CONFIRMATION_SUGGESTIONS,
@@ -662,7 +662,7 @@ const NEW_VEHICLE_SCENARIO: Scenario = {
           state.selectedShop?.name || "Selected Location"
         }\n📅 **Time:** ${
           state.selectedTime?.displayText || "Selected Time"
-        }\n💰 **Estimate:** $75-$125 + $4.99 platform fee\n\nConfirm?`,
+        }\n💰 **Estimate:** $75-$125 + 7% service fee\n\nConfirm?`,
         quickReplies: CONFIRMATION_REPLIES,
         nextStage: "confirmation",
         suggestions: CONFIRMATION_SUGGESTIONS,
@@ -715,7 +715,7 @@ const DIRECT_BOOKING_SCENARIO: Scenario = {
       getMessage: (state, userInput) => ({
         message: `Ready to book:\n\n📍 **Location:** ${state.selectedShop?.name || "Selected Location"}\n📅 **Time:** ${
           state.selectedTime?.displayText || "Selected Time"
-        }\n💰 **Platform fee:** $4.99\n\nConfirm booking?`,
+        }\n💰 **Service fee:** 7% (min $4.99)\n\nConfirm booking?`,
         quickReplies: CONFIRMATION_REPLIES,
         nextStage: "confirmation",
         suggestions: CONFIRMATION_SUGGESTIONS,

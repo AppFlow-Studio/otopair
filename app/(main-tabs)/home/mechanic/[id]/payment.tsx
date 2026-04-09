@@ -14,7 +14,7 @@
 
 // 1. React & React Native
 import React, { useCallback, useMemo, useState } from "react";
-import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Image, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Expo & Third-party
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -23,7 +23,7 @@ import { Calendar, Car, ChevronRight, FileText, Info, Lock, Star } from "lucide-
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 3. Shared UI (design system)
-import { BrandColors, Spacing, Text } from "@/components/shared-ui";
+import { BrandColors, ErrorOccurredModal, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Flow-specific components
 import { BookingPageHeader } from "@/components/booking/pages";
@@ -42,7 +42,10 @@ import { useVehicleStore } from "@/stores/useVehicleStore";
 // CONSTANTS
 // ============================================================================
 
-const PLATFORM_FEE = 4.79;
+// Service fee: 7% of service subtotal, $4.99 minimum, no cap
+// TODO: When subscriptions are wired, waive service fee for Preferred/Elite subscribers
+const SERVICE_FEE_RATE = 0.07;
+const SERVICE_FEE_MINIMUM = 4.99;
 const TAXES_AND_FEES = 5.0;
 
 // ============================================================================
@@ -64,6 +67,8 @@ export default function PaymentScreen() {
   const { createBookingConvex } = useCreateBookingConvex();
   const bookingType = useBookingStore((state) => state.bookingType);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorModalVisible, setErrorModalVisible] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string>("");
   const setBookingStage = useBookingStore((state) => state.setBookingStage);
   const skippedBookingDetails = useBookingStore((state) => state.skippedBookingDetails);
 
@@ -92,7 +97,7 @@ export default function PaymentScreen() {
 
   const selectedServices = useMemo(
     () => availableServices.filter((service) => selectedServiceIds.includes(service.id)),
-    [availableServices, selectedServiceIds],
+    [availableServices, selectedServiceIds]
   );
 
   // Shop-specific only: labor_rate × default_labor_hours + default_parts_estimate (no default rate)
@@ -104,20 +109,21 @@ export default function PaymentScreen() {
     const rate = laborRate ?? 0;
     const servicesTotal = selectedServices.reduce(
       (total, service) => total + rate * (service.default_labor_hours ?? 0) + (service.default_parts_estimate ?? 0),
-      0,
+      0
     );
     const laborHours = selectedServices.reduce((sum, s) => sum + (s.default_labor_hours ?? 0), 0);
     const laborCost = laborHours * rate;
     const partsCost = Math.max(0, servicesTotal - laborCost);
+    const serviceFee = servicesTotal > 0 ? Math.max(servicesTotal * SERVICE_FEE_RATE, SERVICE_FEE_MINIMUM) : 0;
 
     return {
       laborHours,
       laborCost: Math.max(0, laborCost),
       partsCost: Math.max(0, partsCost),
       taxesAndFees: TAXES_AND_FEES,
-      platformFee: PLATFORM_FEE,
+      platformFee: serviceFee,
       subtotal: servicesTotal,
-      total: servicesTotal + TAXES_AND_FEES + PLATFORM_FEE,
+      total: servicesTotal + TAXES_AND_FEES + serviceFee,
     };
   }, [selectedServices, laborRate]);
 
@@ -125,7 +131,7 @@ export default function PaymentScreen() {
   const getServiceLineTotal = useCallback(
     (service: (typeof selectedServices)[0]) =>
       (laborRate ?? 0) * (service.default_labor_hours ?? 0) + (service.default_parts_estimate ?? 0),
-    [laborRate],
+    [laborRate]
   );
 
   // Parts breakdown: each part listed and labelled as (Part)
@@ -133,9 +139,9 @@ export default function PaymentScreen() {
     () =>
       getPartsBreakdown(
         selectedServices.map((s) => s.name),
-        breakdown.partsCost,
+        breakdown.partsCost
       ),
-    [selectedServices, breakdown.partsCost],
+    [selectedServices, breakdown.partsCost]
   );
 
   // Format vehicle display
@@ -169,7 +175,8 @@ export default function PaymentScreen() {
       router.push(`/home/mechanic/${id}/confirmation`);
     } catch (error: unknown) {
       console.error("Failed to create booking:", error);
-      Alert.alert("Booking Failed", error instanceof Error ? error.message : "Something went wrong. Please try again.");
+      setErrorMessage(error instanceof Error ? error.message : "Something went wrong. Please try again.");
+      setErrorModalVisible(true);
     } finally {
       setIsSubmitting(false);
     }
@@ -330,11 +337,11 @@ export default function PaymentScreen() {
             </View>
           </View>
 
-          {/* Platform Fee */}
+          {/* Otopair Service Fee */}
           <View style={styles.serviceRow}>
             <View style={styles.feeRow}>
               <Text size="sm" weight="regular" color="#6B7280">
-                Platform Fee
+                Otopair Service Fee — 7%
               </Text>
               <TouchableOpacity style={styles.infoButton} activeOpacity={0.7}>
                 <Info size={14} color="#9CA3AF" />
@@ -465,6 +472,17 @@ export default function PaymentScreen() {
           </View>
         </TouchableOpacity>
       </View>
+
+      <ErrorOccurredModal
+        visible={errorModalVisible}
+        title="Booking Failed"
+        message={errorMessage}
+        onClose={() => setErrorModalVisible(false)}
+        onRetry={() => {
+          setErrorModalVisible(false);
+          handleConfirmPayment();
+        }}
+      />
     </View>
   );
 }

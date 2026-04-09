@@ -1,4 +1,5 @@
 import { action, internalMutation, mutation } from "./_generated/server";
+import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
 
 /**
@@ -163,7 +164,11 @@ export const claimSeedDataForCurrentUser = mutation({
         | "follow_ups"
         | "ai_conversations"
         | "conversion_funnels"
-        | "spec_confirmations",
+        | "spec_confirmations"
+        | "user_reward_wallets"
+        | "ownership_credit_transactions"
+        | "user_contribution_claims"
+        | "vehicle_tiers"
     ) => {
       const rows = await ctx.db.query(table).collect();
       for (const row of rows) {
@@ -179,6 +184,33 @@ export const claimSeedDataForCurrentUser = mutation({
     await reassign("ai_conversations");
     await reassign("conversion_funnels");
     await reassign("spec_confirmations");
+    await reassign("user_reward_wallets");
+    await reassign("ownership_credit_transactions");
+    await reassign("user_contribution_claims");
+    await reassign("vehicle_tiers");
+
+    // Give claimed user a reward wallet with demo balance if none exists
+    const wallet = await ctx.db
+      .query("user_reward_wallets")
+      .withIndex("by_user_id", (q) => q.eq("user_id", currentId))
+      .unique();
+    if (!wallet) {
+      const now = Date.now();
+      await ctx.db.insert("user_reward_wallets", {
+        user_id: currentId,
+        balance: 32.75,
+        auto_apply_to_booking: true,
+        created_at: now,
+        updated_at: now,
+      });
+      await ctx.db.insert("ownership_credit_transactions", {
+        user_id: currentId,
+        amount: 32.75,
+        type: "earn_service",
+        description: "Maintenance rewards",
+        created_at: now,
+      });
+    }
 
     const analyticsRows = await ctx.db.query("analytics_events").collect();
     for (const row of analyticsRows) {
@@ -296,7 +328,67 @@ export const seedAll = action({
     await ctx.runMutation(api.seed.seed);
     await ctx.runMutation(internal.seed.seedVehicleIntelligenceDemoData);
     const result = await ctx.runMutation(api.seed.seedTimeSlots);
+    await ctx.runMutation(api.seed.seedRewardDeals);
     return { success: true, ...result };
+  },
+});
+
+/**
+ * Seeds reward_deals for OTOPAIR Rewards Program. Idempotent - skips if deals exist.
+ */
+export const seedRewardDeals = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const existing = await ctx.db.query("reward_deals").first();
+    if (existing) return { skipped: true };
+
+    const now = Date.now();
+    const deals = [
+      {
+        title: "Synthetic Oil Change",
+        description: "Full synthetic + Filter + Fluids",
+        credit_amount: 15,
+        price: 69,
+        is_special: true,
+        display_order: 0,
+      },
+      {
+        title: "Tire Rotation",
+        description: "Rotate all 4 tires + Inspection",
+        credit_amount: 10,
+        price: 29,
+        is_special: false,
+        display_order: 1,
+      },
+      {
+        title: "Brake Inspection",
+        description: "Full brake system check",
+        credit_amount: 12,
+        price: 49,
+        is_special: true,
+        display_order: 2,
+      },
+      {
+        title: "AC System Service",
+        description: "Recharge + Leak check + Filter",
+        credit_amount: 20,
+        price: 89,
+        is_special: false,
+        display_order: 3,
+      },
+      {
+        title: "Full Detail Package",
+        description: "Interior + Exterior + Engine bay",
+        credit_amount: 25,
+        price: 149,
+        is_special: true,
+        display_order: 4,
+      },
+    ];
+    for (const d of deals) {
+      await ctx.db.insert("reward_deals", { ...d, created_at: now });
+    }
+    return { skipped: false, count: deals.length };
   },
 });
 
@@ -489,91 +581,459 @@ export const seed = mutation({
 
     // --- Service Categories ---
     const maintenanceId = await ctx.db.insert("service_categories", {
-      name: "Maintenance",
+      name: "Routine Maintenance",
       icon_name: "wrench",
       display_order: 1,
     });
 
-    const brakesId = await ctx.db.insert("service_categories", {
-      name: "Brakes",
-      icon_name: "disc",
+    const tiresWheelsId = await ctx.db.insert("service_categories", {
+      name: "Tires & Wheels",
+      icon_name: "circle",
       display_order: 2,
     });
 
-    // --- Services ---
+    const brakesId = await ctx.db.insert("service_categories", {
+      name: "Brakes",
+      icon_name: "octagon",
+      display_order: 3,
+    });
+
+    const diagnosticsId = await ctx.db.insert("service_categories", {
+      name: "Diagnostics & Electrical",
+      icon_name: "zap",
+      display_order: 4,
+    });
+
+    const complianceId = await ctx.db.insert("service_categories", {
+      name: "Compliance",
+      icon_name: "clipboard",
+      display_order: 5,
+    });
+
+    // --- Services: Routine Maintenance ---
     const oilChangeId = await ctx.db.insert("services", {
       name: "Oil Change",
       slug: "oil-change",
-      description: "Full synthetic oil change with filter replacement",
+      description: "Engine oil and filter replacement",
       service_category_id: maintenanceId,
-      default_labor_hours: 0.5,
+      default_labor_hours: 0.4,
       is_labor_only: false,
-      has_options: true,
+      has_options: false,
       display_order: 1,
     });
 
-    const brakePadsId = await ctx.db.insert("services", {
-      name: "Brake Pad Replacement",
-      slug: "brake-pads",
-      description: "Replace front or rear brake pads",
-      service_category_id: brakesId,
-      default_labor_hours: 1.5,
+    const filterReplacementId = await ctx.db.insert("services", {
+      name: "Filter Replacement",
+      slug: "filter-replacement",
+      description: "Engine and/or cabin air filter replacement",
+      service_category_id: maintenanceId,
+      default_labor_hours: 0.25,
       is_labor_only: false,
       has_options: true,
       display_order: 2,
     });
 
+    const wiperBladeId = await ctx.db.insert("services", {
+      name: "Wiper Blade Replacement",
+      slug: "wiper-blade-replacement",
+      description: "Windshield wiper blade replacement",
+      service_category_id: maintenanceId,
+      default_labor_hours: 0.15,
+      is_labor_only: false,
+      has_options: false,
+      display_order: 3,
+    });
+
+    const sparkPlugId = await ctx.db.insert("services", {
+      name: "Spark Plug Replacement",
+      slug: "spark-plug-replacement",
+      description: "Spark plug replacement",
+      service_category_id: maintenanceId,
+      default_labor_hours: 0.8,
+      is_labor_only: false,
+      has_options: false,
+      display_order: 5,
+    });
+
+    const serpentineBeltId = await ctx.db.insert("services", {
+      name: "Serpentine Belt Replacement",
+      slug: "serpentine-belt-replacement",
+      description: "Serpentine drive belt replacement",
+      service_category_id: maintenanceId,
+      default_labor_hours: 0.5,
+      is_labor_only: false,
+      has_options: false,
+      display_order: 6,
+    });
+
+    const batteryReplacementId = await ctx.db.insert("services", {
+      name: "Battery Replacement",
+      slug: "battery-replacement",
+      description: "Replace battery with OEM battery",
+      service_category_id: maintenanceId,
+      default_labor_hours: 0.3,
+      is_labor_only: false,
+      has_options: false,
+      display_order: 1,
+    });
+
+    const batteryTestId = await ctx.db.insert("services", {
+      name: "Battery Test",
+      slug: "battery-test",
+      description: "Load test battery and charging system",
+      service_category_id: maintenanceId,
+      default_labor_hours: 0.2,
+      is_labor_only: true,
+      has_options: false,
+      display_order: 2,
+    });
+
+    const coolantFlushId = await ctx.db.insert("services", {
+      name: "Coolant Flush",
+      slug: "coolant-flush",
+      description: "Flush and replace engine coolant",
+      service_category_id: maintenanceId,
+      default_labor_hours: 0.8,
+      is_labor_only: false,
+      has_options: false,
+      display_order: 1,
+    });
+
+    const transmissionFluidId = await ctx.db.insert("services", {
+      name: "Transmission Fluid Service",
+      slug: "transmission-fluid-service",
+      description: "Replace transmission fluid",
+      service_category_id: maintenanceId,
+      default_labor_hours: 1,
+      is_labor_only: false,
+      has_options: false,
+      display_order: 2,
+    });
+
+    // --- Services: Tires & Wheels ---
     const tireRotationId = await ctx.db.insert("services", {
       name: "Tire Rotation",
       slug: "tire-rotation",
       description: "Rotate tires for even wear",
-      service_category_id: maintenanceId,
-      default_labor_hours: 0.5,
+      service_category_id: tiresWheelsId,
+      default_labor_hours: 0.3,
+      is_labor_only: true,
+      has_options: false,
+      display_order: 1,
+    });
+
+    const wheelBalancingId = await ctx.db.insert("services", {
+      name: "Wheel Balancing",
+      slug: "wheel-balancing",
+      description: "Balance wheels to eliminate vibration",
+      service_category_id: tiresWheelsId,
+      default_labor_hours: 0.6,
+      is_labor_only: false,
+      has_options: true,
+      display_order: 2,
+    });
+
+    const wheelAlignmentId = await ctx.db.insert("services", {
+      name: "Wheel Alignment",
+      slug: "wheel-alignment",
+      description: "Adjust wheel angles for proper alignment",
+      service_category_id: tiresWheelsId,
+      default_labor_hours: 1,
       is_labor_only: true,
       has_options: false,
       display_order: 3,
     });
 
-    // --- Service Options ---
+    const tireReplacementId = await ctx.db.insert("services", {
+      name: "Tire Replacement",
+      slug: "tire-replacement",
+      description: "Replace tires with new OEM tires",
+      service_category_id: tiresWheelsId,
+      default_labor_hours: 1.2,
+      is_labor_only: false,
+      has_options: true,
+      display_order: 4,
+    });
+
+    const tireInstallationId = await ctx.db.insert("services", {
+      name: "Tire Installation",
+      slug: "tire-installation",
+      description: "Mount and balance customer-provided tires",
+      service_category_id: tiresWheelsId,
+      default_labor_hours: 1,
+      is_labor_only: false,
+      has_options: false,
+      display_order: 5,
+    });
+
+    const tpmsSensorId = await ctx.db.insert("services", {
+      name: "TPMS Sensor Calibration",
+      slug: "tpms-sensor-calibration",
+      description: "Reset and calibrate tire pressure monitoring sensors",
+      service_category_id: tiresWheelsId,
+      default_labor_hours: 0.2,
+      is_labor_only: true,
+      has_options: false,
+      display_order: 6,
+    });
+
+    // --- Services: Brakes ---
+    const brakePadsId = await ctx.db.insert("services", {
+      name: "Brake Pad Replacement",
+      slug: "brake-pad-replacement",
+      description: "Replace brake pads with OEM parts",
+      service_category_id: brakesId,
+      default_labor_hours: 0.8,
+      is_labor_only: false,
+      has_options: true,
+      display_order: 1,
+    });
+
+    const brakeRotorId = await ctx.db.insert("services", {
+      name: "Brake Rotor Replacement",
+      slug: "brake-rotor-replacement",
+      description: "Replace brake rotors and pads with OEM parts",
+      service_category_id: brakesId,
+      default_labor_hours: 1.2,
+      is_labor_only: false,
+      has_options: true,
+      display_order: 2,
+    });
+
+    const brakeFluidId = await ctx.db.insert("services", {
+      name: "Brake Fluid Flush",
+      slug: "brake-fluid-flush",
+      description: "Flush and replace brake fluid",
+      service_category_id: brakesId,
+      default_labor_hours: 0.5,
+      is_labor_only: false,
+      has_options: false,
+      display_order: 3,
+    });
+
+    // --- Services: Diagnostics & Electrical ---
+    const generalDiagnosticId = await ctx.db.insert("services", {
+      name: "General Diagnostic",
+      slug: "general-diagnostic",
+      description: "Diagnose unusual vehicle behavior or symptoms",
+      service_category_id: diagnosticsId,
+      default_labor_hours: 0.5,
+      is_labor_only: true,
+      has_options: false,
+      display_order: 1,
+    });
+
+    const checkEngineLightId = await ctx.db.insert("services", {
+      name: "Check Engine Light",
+      slug: "check-engine-light",
+      description: "Diagnose check engine light codes and causes",
+      service_category_id: diagnosticsId,
+      default_labor_hours: 0.5,
+      is_labor_only: true,
+      has_options: false,
+      display_order: 2,
+    });
+
+    const brakeInspectionId = await ctx.db.insert("services", {
+      name: "Brake System Inspection",
+      slug: "brake-system-inspection",
+      description: "Inspect brake pads, rotors, and brake system",
+      service_category_id: diagnosticsId,
+      default_labor_hours: 0.3,
+      is_labor_only: true,
+      has_options: false,
+      display_order: 3,
+    });
+
+    // --- Services: Compliance ---
+    const nyInspectionId = await ctx.db.insert("services", {
+      name: "NY State Inspection",
+      slug: "ny-state-inspection",
+      description: "New York State vehicle safety and emissions inspection",
+      service_category_id: complianceId,
+      default_labor_hours: 0.5,
+      is_labor_only: true,
+      has_options: true,
+      display_order: 1,
+    });
+
+    // --- Service Options: Brake Pad Replacement (axle_position) ---
     await ctx.db.insert("service_options", {
-      service_id: oilChangeId,
-      option_type: "oil_type",
-      option_label: "Full Synthetic",
-      parts_cost_low: 35,
-      parts_cost_high: 55,
-      labor_hours: 0.5,
+      service_id: brakePadsId,
+      option_type: "axle_position",
+      option_label: "Front only",
+      parts_cost_low: 75,
+      parts_cost_high: 95,
+      labor_hours: 0.8,
       display_order: 1,
     });
 
     await ctx.db.insert("service_options", {
-      service_id: oilChangeId,
-      option_type: "oil_type",
-      option_label: "Conventional",
-      parts_cost_low: 20,
-      parts_cost_high: 35,
-      labor_hours: 0.5,
+      service_id: brakePadsId,
+      option_type: "axle_position",
+      option_label: "Rear only",
+      parts_cost_low: 55,
+      parts_cost_high: 75,
+      labor_hours: 0.8,
       display_order: 2,
     });
 
     await ctx.db.insert("service_options", {
       service_id: brakePadsId,
-      option_type: "position",
-      option_label: "Front Brake Pads",
-      parts_cost_low: 40,
-      parts_cost_high: 80,
+      option_type: "axle_position",
+      option_label: "Both (front + rear)",
+      parts_cost_low: 130,
+      parts_cost_high: 170,
       labor_hours: 1.5,
+      display_order: 3,
+    });
+
+    // --- Service Options: Brake Rotor Replacement (axle_position) ---
+    await ctx.db.insert("service_options", {
+      service_id: brakeRotorId,
+      option_type: "axle_position",
+      option_label: "Front only",
+      parts_cost_low: 200,
+      parts_cost_high: 260,
+      labor_hours: 1.2,
       display_order: 1,
     });
 
     await ctx.db.insert("service_options", {
-      service_id: brakePadsId,
-      option_type: "position",
-      option_label: "Rear Brake Pads",
-      parts_cost_low: 35,
-      parts_cost_high: 70,
-      labor_hours: 1.5,
+      service_id: brakeRotorId,
+      option_type: "axle_position",
+      option_label: "Rear only",
+      parts_cost_low: 170,
+      parts_cost_high: 220,
+      labor_hours: 1.2,
       display_order: 2,
     });
+
+    await ctx.db.insert("service_options", {
+      service_id: brakeRotorId,
+      option_type: "axle_position",
+      option_label: "Both",
+      parts_cost_low: 370,
+      parts_cost_high: 480,
+      labor_hours: 2.2,
+      display_order: 3,
+    });
+
+    // --- Service Options: Filter Replacement (filter_type) ---
+    await ctx.db.insert("service_options", {
+      service_id: filterReplacementId,
+      option_type: "filter_type",
+      option_label: "Engine air filter only",
+      parts_cost_low: 15,
+      parts_cost_high: 30,
+      labor_hours: 0.15,
+      display_order: 1,
+    });
+
+    await ctx.db.insert("service_options", {
+      service_id: filterReplacementId,
+      option_type: "filter_type",
+      option_label: "Cabin air filter only",
+      parts_cost_low: 15,
+      parts_cost_high: 25,
+      labor_hours: 0.25,
+      display_order: 2,
+    });
+
+    await ctx.db.insert("service_options", {
+      service_id: filterReplacementId,
+      option_type: "filter_type",
+      option_label: "Both",
+      parts_cost_low: 25,
+      parts_cost_high: 50,
+      labor_hours: 0.35,
+      display_order: 3,
+    });
+
+    // --- Service Options: Tire Replacement (quantity) ---
+    await ctx.db.insert("service_options", {
+      service_id: tireReplacementId,
+      option_type: "quantity",
+      option_label: "Single tire",
+      parts_cost_low: 120,
+      parts_cost_high: 200,
+      labor_hours: 0.3,
+      display_order: 1,
+    });
+
+    await ctx.db.insert("service_options", {
+      service_id: tireReplacementId,
+      option_type: "quantity",
+      option_label: "Pair (2 tires)",
+      parts_cost_low: 240,
+      parts_cost_high: 400,
+      labor_hours: 0.6,
+      display_order: 2,
+    });
+
+    await ctx.db.insert("service_options", {
+      service_id: tireReplacementId,
+      option_type: "quantity",
+      option_label: "Full set (4 tires)",
+      parts_cost_low: 480,
+      parts_cost_high: 800,
+      labor_hours: 1.2,
+      display_order: 3,
+    });
+
+    // --- Service Options: Wheel Balancing (quantity) ---
+    await ctx.db.insert("service_options", {
+      service_id: wheelBalancingId,
+      option_type: "quantity",
+      option_label: "Single wheel",
+      parts_cost_low: 2,
+      parts_cost_high: 4,
+      labor_hours: 0.15,
+      display_order: 1,
+    });
+
+    await ctx.db.insert("service_options", {
+      service_id: wheelBalancingId,
+      option_type: "quantity",
+      option_label: "Pair (2 wheels)",
+      parts_cost_low: 4,
+      parts_cost_high: 6,
+      labor_hours: 0.3,
+      display_order: 2,
+    });
+
+    await ctx.db.insert("service_options", {
+      service_id: wheelBalancingId,
+      option_type: "quantity",
+      option_label: "Full set (4 wheels)",
+      parts_cost_low: 8,
+      parts_cost_high: 12,
+      labor_hours: 0.6,
+      display_order: 3,
+    });
+
+    // --- Service Options: NY State Inspection (inspection_scope) ---
+    await ctx.db.insert("service_options", {
+      service_id: nyInspectionId,
+      option_type: "inspection_scope",
+      option_label: "Safety + Emissions",
+      parts_cost_low: 0,
+      parts_cost_high: 0,
+      labor_hours: 0.5,
+      state_fee: 37,
+      display_order: 1,
+    });
+
+    await ctx.db.insert("service_options", {
+      service_id: nyInspectionId,
+      option_type: "inspection_scope",
+      option_label: "Safety only",
+      parts_cost_low: 0,
+      parts_cost_high: 0,
+      labor_hours: 0.3,
+      display_order: 2,
+    });
+
 
     // --- Service Vehicle Specs ---
     await ctx.db.insert("service_vehicle_specs", {
@@ -827,9 +1287,7 @@ export const seed = mutation({
     // --- Onboarding Q&A (unified table) ---
     await ctx.db.insert("onboarding_questions_answers", {
       user_id: userId,
-      questions_and_answers: [
-        { question: "How often do you service your car?", answer: "Every 3 months" },
-      ],
+      questions_and_answers: [{ question: "How often do you service your car?", answer: "Every 3 months" }],
       last_updated: now,
     });
 
@@ -1207,7 +1665,7 @@ export const seedVehicleIntelligenceDemoData = internalMutation({
 
     const ensureEngine = async (trim_id: any) => {
       const existing = (await ctx.db.query("engines").collect()).find(
-        (e) => e.trim_id === trim_id && e.engine_code === "A25A-FKS",
+        (e) => e.trim_id === trim_id && e.engine_code === "A25A-FKS"
       );
       if (existing) return existing;
       const id = await ctx.db.insert("engines", {
@@ -1427,7 +1885,7 @@ export const seedVehicleIntelligenceDemoData = internalMutation({
 
     const ensureVehicle = async (
       vin: string,
-      fields: { trim_id: any; engine_id: any; transmission_id: any; chassis_id: any; year: number },
+      fields: { trim_id: any; engine_id: any; transmission_id: any; chassis_id: any; year: number }
     ) => {
       const normalized = vin.toUpperCase().trim();
       const existing = await ctx.db
@@ -1453,7 +1911,7 @@ export const seedVehicleIntelligenceDemoData = internalMutation({
     // --- Hierarchy ---
     const make = await ensureMake(
       "Toyota",
-      "https://upload.wikimedia.org/wikipedia/commons/9/9d/Toyota_carridge_logo.svg",
+      "https://upload.wikimedia.org/wikipedia/commons/9/9d/Toyota_carridge_logo.svg"
     );
     const model = await ensureModel(make._id, "Camry");
     const trim = await ensureTrim(model._id, "LE", 2018, 2024);
@@ -1521,6 +1979,753 @@ export const seedVehicleIntelligenceDemoData = internalMutation({
 /** John Doe account: clerkUserId user_38uSI8ArZJ0HMY9AwvQLOZiIo53 */
 const JOHN_DOE_CLERK_USER_ID = "user_38uSI8ArZJ0HMY9AwvQLOZiIo53";
 
+const SEED_CAR_CLERK_USER_ID = "user_39FwQkrjpFYGOQ0gkPIk1DEf0FW";
+
+/**
+ * Seeds car data for user_39FwQkrjpFYGOQ0gkPIk1DEf0FW.
+ * User must already exist (sign in first). Adds 2 vehicles, vehicle_owners, vehicle_tiers, user_reward_wallets.
+ * Run: npx convex run seed:seedCarsForUser39FwQkrjp
+ */
+export const seedCarsForUser39FwQkrjp = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", SEED_CAR_CLERK_USER_ID))
+      .unique();
+    if (!user) throw new Error(`User ${SEED_CAR_CLERK_USER_ID} not found. Sign in first to create the user.`);
+
+    const owners = await ctx.db
+      .query("vehicle_owners")
+      .withIndex("by_user_id", (q) => q.eq("user_id", user!._id))
+      .collect();
+    if (owners.length > 0) {
+      const now = Date.now();
+      const wallet = await ctx.db
+        .query("user_reward_wallets")
+        .withIndex("by_user_id", (q) => q.eq("user_id", user!._id))
+        .unique();
+      if (wallet) {
+        await ctx.db.patch(wallet._id, { balance: 47.5, updated_at: now });
+      } else {
+        await ctx.db.insert("user_reward_wallets", {
+          user_id: user!._id,
+          balance: 47.5,
+          auto_apply_to_booking: true,
+          created_at: now,
+          updated_at: now,
+        });
+      }
+      return { success: true, message: "User already has vehicles", vehicleCount: owners.length };
+    }
+
+    const engines = await ctx.db.query("engines").collect();
+    const engine = engines.find((e) => e.engine_code === "A25A-FKS");
+    if (!engine) throw new Error("Engine A25A-FKS not found. Seed vehicle data first (run full seed).");
+
+    const now = Date.now();
+
+    // 2018 Toyota Camry LE
+    const vin1 = "4T1B11HK5JU123457";
+    const existingV1 = await ctx.db
+      .query("vehicles")
+      .withIndex("by_vin", (q) => q.eq("vin", vin1))
+      .unique();
+    if (!existingV1) {
+      await ctx.db.insert("vehicles", {
+        vin: vin1,
+        engine_id: engine._id,
+        year: 2018,
+        created_at: now,
+        updated_at: now,
+      });
+    }
+    await ctx.db.insert("vehicle_owners", {
+      vin: vin1,
+      user_id: user!._id,
+      status: "active",
+      nickname: "My Camry",
+      is_primary: true,
+      mileage: 72000,
+      added_at: now,
+    });
+
+    // 2020 Honda Accord (use same engine for simplicity - in prod would look up Honda engine)
+    const vin2 = "1HGCV1F15LA012345";
+    const existingV2 = await ctx.db
+      .query("vehicles")
+      .withIndex("by_vin", (q) => q.eq("vin", vin2))
+      .unique();
+    if (!existingV2) {
+      await ctx.db.insert("vehicles", {
+        vin: vin2,
+        engine_id: engine._id,
+        year: 2020,
+        created_at: now,
+        updated_at: now,
+      });
+    }
+    await ctx.db.insert("vehicle_owners", {
+      vin: vin2,
+      user_id: user!._id,
+      status: "active",
+      nickname: "Honda Accord",
+      is_primary: false,
+      mileage: 45000,
+      added_at: now,
+    });
+
+    // vehicle_tiers for rewards (Driver default)
+    for (const vin of [vin1, vin2]) {
+      const existing = await ctx.db
+        .query("vehicle_tiers")
+        .withIndex("by_vin_user", (q) => q.eq("vin", vin).eq("user_id", user!._id))
+        .unique();
+      if (!existing) {
+        await ctx.db.insert("vehicle_tiers", {
+          vin,
+          user_id: user!._id,
+          tier: vin === vin1 ? "preferred" : "driver",
+          spend_12mo: vin === vin1 ? 850 : 0,
+          created_at: now,
+          updated_at: now,
+        });
+      }
+    }
+
+    // user_reward_wallets for membership balance ($47.50)
+    const wallet = await ctx.db
+      .query("user_reward_wallets")
+      .withIndex("by_user_id", (q) => q.eq("user_id", user!._id))
+      .unique();
+    if (!wallet) {
+      await ctx.db.insert("user_reward_wallets", {
+        user_id: user!._id,
+        balance: 47.5,
+        auto_apply_to_booking: true,
+        created_at: now,
+        updated_at: now,
+      });
+    } else {
+      await ctx.db.patch(wallet._id, { balance: 47.5, updated_at: now });
+    }
+
+    return { success: true, vehicleCount: 2, userId: user!._id };
+  },
+});
+
+/**
+ * Seeds ALL data for user_39FwQkrjpFYGOQ0gkPIk1DEf0FW.
+ * User must already exist (sign in first). Does NOT create the user.
+ * Seeds: vehicles, vehicle_owners, vehicle_tiers, completed bookings for BOTH cars,
+ * ownership_credit_transactions, user_reward_wallets.
+ * Requires: seed:seed first (engines, shops, services, mechanics).
+ * Run: npx convex run seed:seedAllDataForUser39FwQkrjp
+ */
+export const seedAllDataForUser39FwQkrjp = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", SEED_CAR_CLERK_USER_ID))
+      .unique();
+    if (!user) throw new Error(`User ${SEED_CAR_CLERK_USER_ID} not found. Sign in first to create the user.`);
+
+    const engines = await ctx.db.query("engines").collect();
+    const engine = engines.find((e) => e.engine_code === "A25A-FKS");
+    if (!engine) throw new Error("Engines missing. Run seed:seed first.");
+
+    const shops = await ctx.db.query("shops").collect();
+    const services = await ctx.db.query("services").collect();
+    const mechanics = await ctx.db.query("mechanics").collect();
+    const oilChange = services.find((s) => s.slug === "oil-change");
+    const brakePads = services.find((s) => s.slug === "brake-pads");
+    const tireRotation = services.find((s) => s.slug === "tire-rotation");
+    if (!shops.length || !mechanics.length || !oilChange)
+      throw new Error("Shops, services, or mechanics missing. Run seed:seed first.");
+
+    const shop1 = shops[0];
+    const shop2 = shops[1] ?? shop1;
+    const mech1 = mechanics.find((m) => m.shop_id === shop1._id) ?? mechanics[0];
+    const mech2 = mechanics.find((m) => m.shop_id === shop2._id) ?? mech1;
+
+    const now = Date.now();
+    const vin1 = "4T1B11HK5JU123457";
+    const vin2 = "1HGCV1F15LA012345";
+
+    const existingOwners = await ctx.db
+      .query("vehicle_owners")
+      .withIndex("by_user_id", (q) => q.eq("user_id", user._id))
+      .collect();
+
+    if (existingOwners.length === 0) {
+      for (const v of [vin1, vin2]) {
+        const existingV = await ctx.db
+          .query("vehicles")
+          .withIndex("by_vin", (q) => q.eq("vin", v))
+          .unique();
+        if (!existingV) {
+          await ctx.db.insert("vehicles", {
+            vin: v,
+            engine_id: engine._id,
+            year: v === vin1 ? 2018 : 2020,
+            created_at: now,
+            updated_at: now,
+          });
+        }
+      }
+      await ctx.db.insert("vehicle_owners", {
+        vin: vin1,
+        user_id: user._id,
+        status: "active",
+        nickname: "My Camry",
+        is_primary: true,
+        mileage: 72000,
+        added_at: now,
+      });
+      await ctx.db.insert("vehicle_owners", {
+        vin: vin2,
+        user_id: user._id,
+        status: "active",
+        nickname: "Honda Accord",
+        is_primary: false,
+        mileage: 45000,
+        added_at: now,
+      });
+      for (const vin of [vin1, vin2]) {
+        const existing = await ctx.db
+          .query("vehicle_tiers")
+          .withIndex("by_vin_user", (q) => q.eq("vin", vin).eq("user_id", user._id))
+          .unique();
+        if (!existing) {
+          await ctx.db.insert("vehicle_tiers", {
+            vin,
+            user_id: user._id,
+            tier: vin === vin1 ? "preferred" : "driver",
+            spend_12mo: vin === vin1 ? 850 : 0,
+            created_at: now,
+            updated_at: now,
+          });
+        }
+      }
+    }
+
+    const owners = await ctx.db
+      .query("vehicle_owners")
+      .withIndex("by_user_id", (q) => q.eq("user_id", user._id))
+      .collect();
+    const primaryVin = owners.find((o) => o.is_primary)?.vin ?? owners[0].vin;
+
+    const earnRates: Record<string, number> = { driver: 0.015, preferred: 0.03, elite: 0.05 };
+    let totalCredit = 0;
+    let created = 0;
+
+    const svcBrake = brakePads ?? oilChange;
+    const svcTire = tireRotation ?? oilChange;
+    const bookingsToCreate: {
+      vin: string;
+      daysAgo: number;
+      service: typeof oilChange;
+      shop: typeof shop1;
+      mechanic: typeof mech1;
+      labor: number;
+      parts: number;
+    }[] = [
+      { vin: vin1, daysAgo: 14, service: oilChange, shop: shop1, mechanic: mech1, labor: 47.5, parts: 45 },
+      { vin: vin1, daysAgo: 30, service: svcBrake, shop: shop1, mechanic: mech2, labor: 95, parts: 60 },
+      { vin: vin1, daysAgo: 60, service: oilChange, shop: shop2, mechanic: mech2, labor: 42.5, parts: 40 },
+      { vin: vin2, daysAgo: 45, service: svcTire, shop: shop1, mechanic: mech1, labor: 47.5, parts: 0 },
+      { vin: vin2, daysAgo: 75, service: oilChange, shop: shop2, mechanic: mech2, labor: 42.5, parts: 40 },
+    ];
+
+    for (const { vin, daysAgo, service, shop, mechanic, labor, parts } of bookingsToCreate) {
+      const date = new Date(now);
+      date.setDate(date.getDate() - daysAgo);
+      const dateStr = date.toISOString().split("T")[0];
+      const createdAt = now - daysAgo * 24 * 60 * 60 * 1000;
+      const totalCost = labor + parts;
+
+      const timeSlotId = await ctx.db.insert("time_slots", {
+        shop_id: shop._id,
+        mechanic_id: mechanic._id,
+        date: dateStr,
+        start_time: "10:00",
+        end_time: "11:00",
+        is_available: false,
+      });
+
+      const bookingId = await ctx.db.insert("bookings", {
+        user_id: user._id,
+        vin,
+        shop_id: shop._id,
+        mechanic_id: mechanic._id,
+        service_ids: [service._id],
+        time_slot_id: timeSlotId,
+        scheduled_date: dateStr,
+        scheduled_time: "10:00",
+        labor_cost: labor,
+        parts_cost: parts,
+        total_cost: totalCost,
+        status: "completed",
+        created_at: createdAt,
+        updated_at: createdAt,
+      });
+
+      await ctx.db.insert("booking_status_history", {
+        booking_id: bookingId,
+        old_status: "confirmed",
+        new_status: "completed",
+        changed_by: user._id,
+        reason: "seeded_past",
+        changed_at: createdAt,
+      });
+
+      const paymentId = await ctx.db.insert("payments", {
+        booking_id: bookingId,
+        user_id: user._id,
+        shop_id: shop._id,
+        amount: totalCost,
+        payment_method: "card",
+        status: "completed",
+        transaction_id: `txn_u39_all_${created}`,
+        stripe_payment_intent_id: `pi_u39_all_${created}`,
+        idempotency_key: `u39_all_${created}`,
+        created_at: createdAt,
+        updated_at: createdAt,
+      });
+
+      await ctx.db.insert("payment_status_history", {
+        payment_id: paymentId,
+        old_status: "processing",
+        new_status: "completed",
+        error_code: undefined,
+        error_message: undefined,
+        changed_at: createdAt,
+      });
+
+      await ctx.db.insert("transactions", {
+        user_id: user._id,
+        created_at: createdAt,
+        description: shop.name,
+        sub_description: `${service.name}`,
+        amount: -totalCost,
+        currency: "USD",
+        status: "completed",
+        transaction_type: "charge",
+        shop_id: shop._id,
+        booking_id: bookingId,
+        payment_id: paymentId,
+        icon_type: "wrench",
+      });
+
+      const completedAt = createdAt + 45 * 60 * 1000;
+      await ctx.db.insert("job_actuals", {
+        booking_id: bookingId,
+        mechanic_id: mechanic._id,
+        actual_labor_minutes: 45,
+        actual_parts_cost: parts,
+        started_at: createdAt,
+        completed_at_ms: completedAt,
+        logged_at_ms: completedAt,
+        created_at: completedAt,
+        updated_at: completedAt,
+        difficulty_rating: 2,
+        parts_used: [{ part_name: "Service parts", oem_number: "N/A", cost: parts }],
+        technician_notes: "Completed as requested.",
+      });
+
+      await ctx.db.insert("reviews", {
+        booking_id: bookingId,
+        shop_id: shop._id,
+        user_id: user._id,
+        mechanic_id: mechanic._id,
+        rating: 5,
+        comment: "Great service, would book again.",
+        created_at: completedAt,
+      });
+
+      const vt = await ctx.db
+        .query("vehicle_tiers")
+        .withIndex("by_vin_user", (q) => q.eq("vin", vin).eq("user_id", user._id))
+        .unique();
+      const tier = (vt?.tier ?? "driver") as "driver" | "preferred" | "elite";
+      const rate = earnRates[tier] ?? 0.015;
+      const creditAmount = Math.round(totalCost * rate * 100) / 100;
+      const existingTx = await ctx.db
+        .query("ownership_credit_transactions")
+        .withIndex("by_user_id", (q) => q.eq("user_id", user._id))
+        .filter((q) =>
+          q.and(q.eq(q.field("type"), "earn_service"), q.eq(q.field("reference_id"), bookingId.toString()))
+        )
+        .first();
+      if (!existingTx && creditAmount > 0) {
+        await ctx.db.insert("ownership_credit_transactions", {
+          user_id: user._id,
+          amount: creditAmount,
+          type: "earn_service",
+          description: "Maintenance rewards",
+          reference_id: bookingId.toString(),
+          expires_at: completedAt + 180 * 24 * 60 * 60 * 1000,
+          created_at: completedAt,
+        });
+        totalCredit += creditAmount;
+      }
+      created++;
+    }
+
+    const MILES_SAFE = 23000;
+    const wallet = await ctx.db
+      .query("user_reward_wallets")
+      .withIndex("by_user_id", (q) => q.eq("user_id", user._id))
+      .unique();
+    const transactions = await ctx.db
+      .query("ownership_credit_transactions")
+      .withIndex("by_user_id", (q) => q.eq("user_id", user._id))
+      .filter((q) => q.eq(q.field("type"), "earn_service"))
+      .collect();
+    const computedBalance = transactions.reduce((sum, t) => sum + (t.amount > 0 ? t.amount : 0), 0);
+
+    if (wallet) {
+      await ctx.db.patch(wallet._id, {
+        balance: computedBalance,
+        miles_safe: MILES_SAFE,
+        updated_at: now,
+      });
+    } else {
+      await ctx.db.insert("user_reward_wallets", {
+        user_id: user._id,
+        balance: computedBalance,
+        auto_apply_to_booking: true,
+        miles_safe: MILES_SAFE,
+        created_at: now,
+        updated_at: now,
+      });
+    }
+
+    return {
+      success: true,
+      bookingsCreated: created,
+      balance: computedBalance,
+      milesSafe: MILES_SAFE,
+      vehicleCount: 2,
+    };
+  },
+});
+
+/**
+ * Seeds services (completed bookings), shops, and miles_safe for user_39FwQkrjpFYGOQ0gkPIk1DEf0FW.
+ * Creates 4 past completed bookings so membership shows: 4 services, 2 shops, 23k miles safe.
+ * Requires: shops, services, mechanics from full seed. Run: npx convex run seed:seed first if needed.
+ * User must already exist.
+ * Run: npx convex run seed:seedServicesShopsMilesSafeForUser39FwQkrjp
+ */
+export const seedServicesShopsMilesSafeForUser39FwQkrjp = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", SEED_CAR_CLERK_USER_ID))
+      .unique();
+    if (!user) throw new Error(`User ${SEED_CAR_CLERK_USER_ID} not found. Sign in first to create the user.`);
+
+    const owners = await ctx.db
+      .query("vehicle_owners")
+      .withIndex("by_user_id", (q) => q.eq("user_id", user._id))
+      .collect();
+    const vin = owners.length > 0 ? (owners.find((o) => o.is_primary)?.vin ?? owners[0].vin) : null;
+    if (!vin) throw new Error("User has no vehicles. Run seed:seedCarsForUser39FwQkrjp first.");
+
+    const shops = await ctx.db.query("shops").collect();
+    const mechanics = await ctx.db.query("mechanics").collect();
+    const services = await ctx.db.query("services").collect();
+    const oilChange = services.find((s) => s.slug === "oil-change");
+    const brakePads = services.find((s) => s.slug === "brake-pads");
+    const tireRotation = services.find((s) => s.slug === "tire-rotation");
+    if (!shops.length || !mechanics.length || !oilChange)
+      throw new Error("Shops, mechanics, or Oil Change service missing. Run seed:seed first.");
+
+    const shop1 = shops[0];
+    const shop2 = shops[1] ?? shop1;
+    const mech1 = mechanics.find((m) => m.shop_id === shop1._id) ?? mechanics[0];
+    const mech2 = mechanics.find((m) => m.shop_id === shop2._id) ?? mech1;
+
+    const pastBookings = [
+      { daysAgo: 14, service: oilChange, shop: shop1, mechanic: mech1, labor: 47.5, parts: 45 },
+      { daysAgo: 30, service: brakePads, shop: shop1, mechanic: mech2, labor: 95, parts: 60 },
+      { daysAgo: 60, service: oilChange, shop: shop2, mechanic: mech2, labor: 42.5, parts: 40 },
+      { daysAgo: 90, service: tireRotation, shop: shop1, mechanic: mech1, labor: 47.5, parts: 0 },
+    ];
+
+    const now = Date.now();
+    let created = 0;
+
+    for (const { daysAgo, service, shop, mechanic, labor, parts } of pastBookings) {
+      const date = new Date(now);
+      date.setDate(date.getDate() - daysAgo);
+      const dateStr = date.toISOString().split("T")[0];
+      const createdAt = now - daysAgo * 24 * 60 * 60 * 1000;
+      const totalCost = labor + parts;
+
+      const timeSlotId = await ctx.db.insert("time_slots", {
+        shop_id: shop._id,
+        mechanic_id: mechanic._id,
+        date: dateStr,
+        start_time: "10:00",
+        end_time: "11:00",
+        is_available: false,
+      });
+
+      const bookingId = await ctx.db.insert("bookings", {
+        user_id: user._id,
+        vin,
+        shop_id: shop._id,
+        mechanic_id: mechanic._id,
+        service_ids: [service._id],
+        time_slot_id: timeSlotId,
+        scheduled_date: dateStr,
+        scheduled_time: "10:00",
+        labor_cost: labor,
+        parts_cost: parts,
+        total_cost: totalCost,
+        status: "completed",
+        created_at: createdAt,
+        updated_at: createdAt,
+      });
+
+      await ctx.db.insert("booking_status_history", {
+        booking_id: bookingId,
+        old_status: "confirmed",
+        new_status: "completed",
+        changed_by: user._id,
+        reason: "seeded_past",
+        changed_at: createdAt,
+      });
+
+      const paymentId = await ctx.db.insert("payments", {
+        booking_id: bookingId,
+        user_id: user._id,
+        shop_id: shop._id,
+        amount: totalCost,
+        payment_method: "card",
+        status: "completed",
+        transaction_id: `txn_u39_past_${created}`,
+        stripe_payment_intent_id: `pi_u39_past_${created}`,
+        idempotency_key: `u39_past_${created}`,
+        created_at: createdAt,
+        updated_at: createdAt,
+      });
+
+      await ctx.db.insert("payment_status_history", {
+        payment_id: paymentId,
+        old_status: "processing",
+        new_status: "completed",
+        error_code: undefined,
+        error_message: undefined,
+        changed_at: createdAt,
+      });
+
+      await ctx.db.insert("transactions", {
+        user_id: user._id,
+        created_at: createdAt,
+        description: shop.name,
+        sub_description: `${service.name}`,
+        amount: -totalCost,
+        currency: "USD",
+        status: "completed",
+        transaction_type: "charge",
+        shop_id: shop._id,
+        booking_id: bookingId,
+        payment_id: paymentId,
+        icon_type: "wrench",
+      });
+
+      const completedAt = createdAt + 45 * 60 * 1000;
+      await ctx.db.insert("job_actuals", {
+        booking_id: bookingId,
+        mechanic_id: mechanic._id,
+        actual_labor_minutes: 45,
+        actual_parts_cost: parts,
+        started_at: createdAt,
+        completed_at_ms: completedAt,
+        logged_at_ms: completedAt,
+        created_at: completedAt,
+        updated_at: completedAt,
+        difficulty_rating: 2,
+        parts_used: [{ part_name: "Service parts", oem_number: "N/A", cost: parts }],
+        technician_notes: "Completed as requested.",
+      });
+
+      await ctx.db.insert("reviews", {
+        booking_id: bookingId,
+        shop_id: shop._id,
+        user_id: user._id,
+        mechanic_id: mechanic._id,
+        rating: 5,
+        comment: "Great service, would book again.",
+        created_at: completedAt,
+      });
+
+      const vt = await ctx.db
+        .query("vehicle_tiers")
+        .withIndex("by_vin_user", (q) => q.eq("vin", vin).eq("user_id", user._id))
+        .unique();
+      const tier = (vt?.tier ?? "driver") as "driver" | "preferred" | "elite";
+      const earnRates: Record<string, number> = {
+        driver: 0.015,
+        preferred: 0.03,
+        elite: 0.05,
+      };
+      const rate = earnRates[tier] ?? 0.015;
+      const creditAmount = Math.round(totalCost * rate * 100) / 100;
+      const existingTx = await ctx.db
+        .query("ownership_credit_transactions")
+        .withIndex("by_user_id", (q) => q.eq("user_id", user._id))
+        .filter((q) =>
+          q.and(q.eq(q.field("type"), "earn_service"), q.eq(q.field("reference_id"), bookingId.toString()))
+        )
+        .first();
+      if (!existingTx && creditAmount > 0) {
+        await ctx.db.insert("ownership_credit_transactions", {
+          user_id: user._id,
+          amount: creditAmount,
+          type: "earn_service",
+          description: "Maintenance rewards",
+          reference_id: bookingId.toString(),
+          expires_at: completedAt + 180 * 24 * 60 * 60 * 1000,
+          created_at: completedAt,
+        });
+      }
+
+      created++;
+    }
+
+    const MILES_SAFE = 23000;
+    const wallet = await ctx.db
+      .query("user_reward_wallets")
+      .withIndex("by_user_id", (q) => q.eq("user_id", user._id))
+      .unique();
+    if (wallet) {
+      await ctx.db.patch(wallet._id, { miles_safe: MILES_SAFE, updated_at: now });
+    } else {
+      await ctx.db.insert("user_reward_wallets", {
+        user_id: user._id,
+        balance: 47.5,
+        auto_apply_to_booking: true,
+        miles_safe: MILES_SAFE,
+        created_at: now,
+        updated_at: now,
+      });
+    }
+
+    return {
+      success: true,
+      pastBookingsCreated: created,
+      milesSafe: MILES_SAFE,
+      services: created,
+      shops: Math.min(2, shops.length),
+    };
+  },
+});
+
+/**
+ * Backfills ownership_credit_transactions for completed bookings so per-vehicle credit shows.
+ * Run after seedServicesShopsMilesSafeForUser39FwQkrjp if individual view shows $0 credit.
+ * Run: npx convex run seed:backfillCreditTransactionsForUser39FwQkrjp
+ */
+export const backfillCreditTransactionsForUser39FwQkrjp = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", SEED_CAR_CLERK_USER_ID))
+      .unique();
+    if (!user) throw new Error("User not found.");
+
+    const bookings = await ctx.db
+      .query("bookings")
+      .withIndex("by_user_id", (q) => q.eq("user_id", user._id))
+      .filter((q) => q.eq(q.field("status"), "completed"))
+      .collect();
+    const earnRates: Record<string, number> = { driver: 0.015, preferred: 0.03, elite: 0.05 };
+    let inserted = 0;
+    let walletCredit = 0;
+    for (const b of bookings) {
+      const existing = await ctx.db
+        .query("ownership_credit_transactions")
+        .withIndex("by_user_id", (q) => q.eq("user_id", user._id))
+        .filter((q) => q.and(q.eq(q.field("type"), "earn_service"), q.eq(q.field("reference_id"), b._id.toString())))
+        .first();
+      if (existing) continue;
+      const vt = await ctx.db
+        .query("vehicle_tiers")
+        .withIndex("by_vin_user", (q) => q.eq("vin", b.vin).eq("user_id", user._id))
+        .unique();
+      const tier = (vt?.tier ?? "driver") as "driver" | "preferred" | "elite";
+      const rate = earnRates[tier] ?? 0.015;
+      const creditAmount = Math.round(b.total_cost * rate * 100) / 100;
+      if (creditAmount <= 0) continue;
+      await ctx.db.insert("ownership_credit_transactions", {
+        user_id: user._id,
+        amount: creditAmount,
+        type: "earn_service",
+        description: "Maintenance rewards",
+        reference_id: b._id.toString(),
+        expires_at: b.updated_at + 180 * 24 * 60 * 60 * 1000,
+        created_at: b.updated_at,
+      });
+      walletCredit += creditAmount;
+      inserted++;
+    }
+    if (inserted > 0) {
+      const wallet = await ctx.db
+        .query("user_reward_wallets")
+        .withIndex("by_user_id", (q) => q.eq("user_id", user._id))
+        .unique();
+      if (wallet) {
+        await ctx.db.patch(wallet._id, {
+          balance: wallet.balance + walletCredit,
+          updated_at: Date.now(),
+        });
+      }
+    }
+    return { inserted, walletCreditAdded: walletCredit };
+  },
+});
+
+/**
+ * Sets credit balance to $47.50 for user_39FwQkrjpFYGOQ0gkPIk1DEf0FW.
+ * Use when balance shows $0 (e.g. ensureWallet ran before seed).
+ * Run: npx convex run seed:setBalance47ForUser39FwQkrjp
+ */
+export const setBalance47ForUser39FwQkrjp = mutation({
+  args: {},
+  handler: async (ctx) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", SEED_CAR_CLERK_USER_ID))
+      .unique();
+    if (!user) throw new Error(`User ${SEED_CAR_CLERK_USER_ID} not found. Run seed:seedCarsForUser39FwQkrjp first.`);
+
+    const now = Date.now();
+    const wallet = await ctx.db
+      .query("user_reward_wallets")
+      .withIndex("by_user_id", (q) => q.eq("user_id", user._id))
+      .unique();
+    if (!wallet) {
+      await ctx.db.insert("user_reward_wallets", {
+        user_id: user._id,
+        balance: 47.5,
+        auto_apply_to_booking: true,
+        created_at: now,
+        updated_at: now,
+      });
+      return { success: true, action: "created", balance: 47.5 };
+    }
+    await ctx.db.patch(wallet._id, { balance: 47.5, updated_at: now });
+    return { success: true, action: "updated", balance: 47.5 };
+  },
+});
+
 /**
  * Seeds past (completed) bookings for the John Doe account so the History tab
  * shows data. Run: npx convex run seed:seedPastBookingsForJohnDoe
@@ -1534,7 +2739,7 @@ export const seedPastBookingsForJohnDoe = mutation({
       .unique();
     if (!user) {
       throw new Error(
-        `User with clerkUserId ${JOHN_DOE_CLERK_USER_ID} (John Doe) not found. Ensure the account exists.`,
+        `User with clerkUserId ${JOHN_DOE_CLERK_USER_ID} (John Doe) not found. Ensure the account exists.`
       );
     }
 
@@ -1711,7 +2916,7 @@ export const seedLiveBookingForJohnDoe = mutation({
       .unique();
     if (!user) {
       throw new Error(
-        `User with clerkUserId ${JOHN_DOE_CLERK_USER_ID} (John Doe) not found. Ensure the account exists.`,
+        `User with clerkUserId ${JOHN_DOE_CLERK_USER_ID} (John Doe) not found. Ensure the account exists.`
       );
     }
 
@@ -1854,7 +3059,7 @@ export const seedTransactionsForJohnDoe = mutation({
       .unique();
     if (!user) {
       throw new Error(
-        `User with clerkUserId ${JOHN_DOE_CLERK_USER_ID} (John Doe) not found. Ensure the account exists.`,
+        `User with clerkUserId ${JOHN_DOE_CLERK_USER_ID} (John Doe) not found. Ensure the account exists.`
       );
     }
 
@@ -1899,5 +3104,73 @@ export const seedTransactionsForJohnDoe = mutation({
     });
 
     return { success: true, transactionsCreated: 3 };
+  },
+});
+
+/**
+ * seedVehiclesForUser — Add 10 unique vehicles to any user by Clerk ID.
+ */
+export const seedVehiclesForUser = mutation({
+  args: { clerkUserId: v.string() },
+  handler: async (ctx, args) => {
+    const user = await ctx.db
+      .query("users")
+      .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", args.clerkUserId))
+      .unique();
+    if (!user) throw new Error(`User not found for clerkUserId: ${args.clerkUserId}`);
+
+    const VEHICLES = [
+      { vin: "1HGCV1F34LA012345", year: 2020, make: "Honda", model: "Accord", mileage: 34200, nickname: "2020 Honda Accord" },
+      { vin: "5YJSA1E26MF123456", year: 2021, make: "Tesla", model: "Model 3", mileage: 18700, nickname: "2021 Tesla Model 3" },
+      { vin: "WBA8E9C50JA789012", year: 2018, make: "BMW", model: "330i", mileage: 56800, nickname: "2018 BMW 330i" },
+      { vin: "1G1YY22G965234567", year: 2022, make: "Chevrolet", model: "Corvette", mileage: 8300, nickname: "2022 Chevrolet Corvette" },
+      { vin: "WVWZZZ3CZWE345678", year: 2023, make: "Volkswagen", model: "Tiguan", mileage: 12100, nickname: "2023 Volkswagen Tiguan" },
+      { vin: "JN1TBNT30Z0456789", year: 2019, make: "Nissan", model: "Altima", mileage: 47600, nickname: "2019 Nissan Altima" },
+      { vin: "2T1BURHE5JC567890", year: 2024, make: "Toyota", model: "Corolla", mileage: 3200, nickname: "2024 Toyota Corolla" },
+      { vin: "3FA6P0H76HR678901", year: 2017, make: "Ford", model: "Fusion", mileage: 82400, nickname: "2017 Ford Fusion" },
+      { vin: "KNAE35L14N5789012", year: 2022, make: "Kia", model: "EV6", mileage: 15800, nickname: "2022 Kia EV6" },
+      { vin: "19UUB2F34LA890123", year: 2020, make: "Acura", model: "TLX", mileage: 29500, nickname: "2020 Acura TLX" },
+    ];
+
+    const now = Date.now();
+    let created = 0;
+
+    for (const v of VEHICLES) {
+      const existing = await ctx.db
+        .query("vehicles")
+        .withIndex("by_vin", (q) => q.eq("vin", v.vin))
+        .unique();
+
+      if (!existing) {
+        await ctx.db.insert("vehicles", {
+          vin: v.vin,
+          year: v.year,
+          metadata: { make: v.make, model: v.model },
+          created_at: now,
+          updated_at: now,
+        });
+      }
+
+      const ownershipExists = await ctx.db
+        .query("vehicle_owners")
+        .withIndex("by_vin_user", (q) => q.eq("vin", v.vin).eq("user_id", user._id))
+        .unique();
+
+      if (!ownershipExists) {
+        await ctx.db.insert("vehicle_owners", {
+          vin: v.vin,
+          user_id: user._id,
+          status: "active",
+          nickname: v.nickname,
+          is_primary: false,
+          mileage: v.mileage,
+          added_at: now,
+          connectionStatus: "unconnected",
+        });
+        created++;
+      }
+    }
+
+    return { success: true, vehiclesCreated: created, userId: user._id };
   },
 });

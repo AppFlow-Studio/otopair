@@ -74,6 +74,110 @@ export const patchTrim = internalMutation({
   },
 });
 
+/**
+ * Get engine with trim (year_start, year_end) and model (name) for validation.
+ */
+export const getEngineWithTrimModel = internalQuery({
+  args: { engineId: v.id("engines") },
+  handler: async (ctx, args) => {
+    const engine = await ctx.db.get(args.engineId);
+    if (!engine) return null;
+    const trim = await ctx.db.get(engine.trim_id);
+    if (!trim) return { engine, trim: null, model: null };
+    const model = await ctx.db.get(trim.model_id);
+    if (!model) return { engine, trim, model: null };
+    return { engine, trim, model };
+  },
+});
+
+const OEM_PART_COLUMNS = [
+  "oil_filter_oem",
+  "oil_drain_plug_gasket_oem",
+  "engine_air_filter_oem",
+  "cabin_air_filter_oem",
+  "front_brake_pad_oem",
+  "rear_brake_pad_oem",
+  "front_brake_rotor_oem",
+  "rear_brake_rotor_oem",
+  "spark_plug_oem",
+  "serpentine_belt_oem",
+] as const;
+
+/**
+ * Find engines that already have this part number (in vehicle_specs or engine_part_fitments).
+ * Returns { engine_id, model_name, year_start, year_end } for year-mismatch detection.
+ */
+export const getOtherEnginesWithPartNumber = internalQuery({
+  args: {
+    partNumber: v.string(),
+    excludeEngineId: v.id("engines"),
+  },
+  handler: async (ctx, args) => {
+    const normalizedPart = args.partNumber.trim().toUpperCase();
+    if (!normalizedPart || normalizedPart === "N/A") return [];
+
+    const results: { engine_id: typeof args.excludeEngineId; model_name: string; year_start: number; year_end: number }[] = [];
+
+    // Check engine_part_fitments via oem_parts
+    const part = await ctx.db
+      .query("oem_parts")
+      .withIndex("by_part_number", (q) => q.eq("oem_part_number", normalizedPart))
+      .unique();
+    if (part) {
+      const fitments = await ctx.db
+        .query("engine_part_fitments")
+        .withIndex("by_part", (q) => q.eq("part_id", part._id))
+        .collect();
+      for (const f of fitments) {
+        if (f.engine_id === args.excludeEngineId) continue;
+        const engine = await ctx.db.get(f.engine_id);
+        if (!engine) continue;
+        const trim = await ctx.db.get(engine.trim_id);
+        if (!trim) continue;
+        const model = await ctx.db.get(trim.model_id);
+        if (!model) continue;
+        results.push({
+          engine_id: f.engine_id,
+          model_name: model.name,
+          year_start: trim.year_start,
+          year_end: trim.year_end,
+        });
+      }
+    }
+
+    // Check vehicle_specs (parts stored as flat columns)
+    const allVehicleSpecs = await ctx.db.query("vehicle_specs").collect();
+    const seen = new Set(results.map((r) => r.engine_id));
+
+    for (const vs of allVehicleSpecs) {
+      if (vs.engine_id === args.excludeEngineId) continue;
+      if (seen.has(vs.engine_id)) continue;
+
+      for (const col of OEM_PART_COLUMNS) {
+        const val = (vs as any)[col];
+        if (val && String(val).trim().toUpperCase() === normalizedPart) {
+          const engine = await ctx.db.get(vs.engine_id);
+          if (!engine) continue;
+          const trim = await ctx.db.get(engine.trim_id);
+          if (!trim) continue;
+          const model = await ctx.db.get(trim.model_id);
+          if (!model) continue;
+          results.push({
+            engine_id: vs.engine_id,
+            model_name: model.name,
+            year_start: trim.year_start,
+            year_end: trim.year_end,
+          });
+          seen.add(vs.engine_id);
+          break;
+        }
+      }
+    }
+
+    return results;
+  },
+});
+
 export const getUserByClerkId = internalQuery({
   args: { clerkUserId: v.string() },
   handler: async (ctx, args) => {
@@ -84,6 +188,19 @@ export const getUserByClerkId = internalQuery({
   },
 });
 
+export const createTestUser = internalMutation({
+  args: { clerkUserId: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db.insert("users", {
+      clerkUserId: args.clerkUserId,
+      first_name: "Test",
+      last_name: "User",
+      email: "test@otopair.com",
+      role: "car_owner",
+    });
+  },
+});
+
 // ============================================
 // UPSERT MUTATIONS (Stage 2)
 // ============================================
@@ -91,15 +208,26 @@ export const getUserByClerkId = internalQuery({
 export const upsertMake = internalMutation({
   args: { name: v.string() },
   handler: async (ctx, args) => {
-    const existing = await ctx.db
+    // Try exact match first
+    const exact = await ctx.db
       .query("makes")
       .withIndex("by_name", (q) => q.eq("name", args.name))
       .first();
+    if (exact) return exact._id;
 
-    if (existing) return existing._id;
+    // Fall back to case-insensitive slug match.
+    // VIN decoders return "MERCEDES-BENZ" but seeded makes use "Mercedes-Benz".
+    const slug = args.name.toLowerCase().replace(/\s+/g, "-");
+    const bySlug = await ctx.db
+      .query("makes")
+      .withIndex("by_slug", (q) => q.eq("slug", slug))
+      .first();
+    if (bySlug) return bySlug._id;
 
+    // Only create if truly new — include slug so future lookups work
     return await ctx.db.insert("makes", {
       name: args.name,
+      slug,
       logo_url: "",
     });
   },
@@ -180,6 +308,103 @@ export const upsertEngine = internalMutation({
   },
 });
 
+/** Update an engine's engine_code (e.g. after AI infers it from model+trim+year). */
+export const updateEngineCode = internalMutation({
+  args: {
+    engineId: v.id("engines"),
+    engineCode: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const engine = await ctx.db.get(args.engineId);
+    if (!engine) return;
+    await ctx.db.patch(args.engineId, { engine_code: args.engineCode });
+  },
+});
+
+/**
+ * Get engines by engine_code (for sibling cross-reference in gap fill).
+ */
+export const getEnginesByCode = internalQuery({
+  args: { engineCode: v.string() },
+  handler: async (ctx, args) => {
+    if (!args.engineCode?.trim()) return [];
+    return await ctx.db
+      .query("engines")
+      .withIndex("by_engine_code", (q) => q.eq("engine_code", args.engineCode.trim()))
+      .collect();
+  },
+});
+
+/**
+ * Get engines for a trim (for single-option engine code inference).
+ */
+export const getEnginesByTrim = internalQuery({
+  args: { trimId: v.id("trims") },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("engines")
+      .withIndex("by_trim_id", (q) => q.eq("trim_id", args.trimId))
+      .collect();
+  },
+});
+
+const VEHICLE_ATTRIBUTE_KEYS = [
+  "power_steering_type",
+  "timing_system",
+  "has_turbocharger",
+  "fuel_injection_type",
+  "transmission_type",
+  "drivetrain_type",
+] as const;
+
+/**
+ * Update vehicle attributes on engine_specs (power steering, timing, etc.).
+ */
+export const updateEngineAttributes = internalMutation({
+  args: {
+    engineId: v.id("engines"),
+    attributes: v.object({
+      power_steering_type: v.optional(v.union(v.string(), v.null())),
+      timing_system: v.optional(v.union(v.string(), v.null())),
+      has_turbocharger: v.optional(v.union(v.boolean(), v.null())),
+      fuel_injection_type: v.optional(v.union(v.string(), v.null())),
+      transmission_type: v.optional(v.union(v.string(), v.null())),
+      drivetrain_type: v.optional(v.union(v.string(), v.null())),
+    }),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("engine_specs")
+      .withIndex("by_engine", (q) => q.eq("engine_id", args.engineId))
+      .first();
+    if (!existing) return;
+    const patch: Record<string, any> = {};
+    for (const k of VEHICLE_ATTRIBUTE_KEYS) {
+      if (args.attributes[k] !== undefined) patch[k] = args.attributes[k];
+    }
+    if (Object.keys(patch).length) await ctx.db.patch(existing._id, patch);
+  },
+});
+
+/**
+ * Partial update of vehicle_specs (for gap fill).
+ */
+export const updateVehicleSpecs = internalMutation({
+  args: {
+    engineId: v.id("engines"),
+    updates: v.any(),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("vehicle_specs")
+      .withIndex("by_engine_id", (q) => q.eq("engine_id", args.engineId))
+      .first();
+    if (!existing) return;
+    const patch = args.updates as Record<string, any>;
+    if (Object.keys(patch).length) await ctx.db.patch(existing._id, patch);
+  },
+});
+
 // ============================================
 // SPECS STORAGE MUTATIONS (Stage 3)
 // ============================================
@@ -192,7 +417,7 @@ export const storeEngineSpecs = internalMutation({
   },
   handler: async (ctx, args) => {
     const s = args.specs;
-    await ctx.db.insert("engine_specs", {
+    const base: Record<string, any> = {
       engine_id: args.engineId,
       oil_viscosity: s.oil_viscosity || "N/A",
       oil_capacity_qts: parseFloat(s.oil_capacity_qts) || 0,
@@ -206,9 +431,32 @@ export const storeEngineSpecs = internalMutation({
       transmission_fluid_interval: s.transmission_fluid_interval || undefined,
       engine_air_filter_interval: s.engine_air_filter_interval || undefined,
       cabin_air_filter_interval: s.cabin_air_filter_interval || undefined,
+      brake_fluid_interval: s.brake_fluid_interval || undefined,
+      coolant_interval: s.coolant_interval || undefined,
       confidence_score: args.confidenceScore,
       created_at: Date.now(),
-    });
+    };
+    // Structured intervals + vehicle attributes (pass-through from Call 1A)
+    const optionalNum = (v: any) => (v != null && v !== "" ? parseFloat(v) : undefined);
+    const optionalStr = (v: any) => (v != null && v !== "" ? v : undefined);
+    const intervalKeys = [
+      "oil_change_interval_miles", "oil_change_interval_months", "oil_change_interval_status",
+      "coolant_interval_miles", "coolant_interval_months", "coolant_interval_status",
+      "brake_fluid_interval_miles", "brake_fluid_interval_months", "brake_fluid_interval_status",
+      "tire_rotation_interval_miles", "tire_rotation_interval_months", "tire_rotation_interval_status",
+      "engine_air_filter_interval_miles", "engine_air_filter_interval_months", "engine_air_filter_interval_status",
+      "cabin_air_filter_interval_miles", "cabin_air_filter_interval_months", "cabin_air_filter_interval_status",
+      "spark_plug_interval_miles", "spark_plug_interval_months", "spark_plug_interval_status",
+      "serpentine_belt_interval_miles", "serpentine_belt_interval_months", "serpentine_belt_interval_status",
+      "transmission_fluid_interval_miles", "transmission_fluid_interval_months", "transmission_fluid_interval_status",
+      "transmission_fluid_severe_interval_miles", "transmission_fluid_severe_note",
+    ];
+    for (const k of intervalKeys) {
+      if (s[k] != null && s[k] !== "") {
+        base[k] = k.includes("_miles") || k.includes("_months") ? optionalNum(s[k]) : s[k];
+      }
+    }
+    await ctx.db.insert("engine_specs", base);
   },
 });
 
@@ -297,6 +545,36 @@ export const listAllServices = internalQuery({
 });
 
 /**
+ * Get vehicle_specs (OEM part numbers) for an engine. Used by pricing prompt.
+ */
+export const getVehicleSpecs = internalQuery({
+  args: { engineId: v.id("engines") },
+  handler: async (ctx, args) => {
+    const row = await ctx.db
+      .query("vehicle_specs")
+      .withIndex("by_engine_id", (q) => q.eq("engine_id", args.engineId))
+      .first();
+    if (!row) return null;
+    return {
+      oil_filter_oem: row.oil_filter_oem,
+      oil_drain_plug_gasket_oem: row.oil_drain_plug_gasket_oem,
+      engine_air_filter_oem: row.engine_air_filter_oem,
+      cabin_air_filter_oem: row.cabin_air_filter_oem,
+      front_brake_pad_oem: row.front_brake_pad_oem,
+      rear_brake_pad_oem: row.rear_brake_pad_oem,
+      front_brake_rotor_oem: row.front_brake_rotor_oem,
+      rear_brake_rotor_oem: row.rear_brake_rotor_oem,
+      spark_plug_oem: row.spark_plug_oem,
+      spark_plug_quantity: row.spark_plug_quantity,
+      spark_plug_gap_mm: row.spark_plug_gap_mm,
+      serpentine_belt_oem: row.serpentine_belt_oem,
+      battery_group: row.battery_group,
+      battery_cca: row.battery_cca,
+    };
+  },
+});
+
+/**
  * Count service_vehicle_specs rows for a given engine_id.
  * Used for the re-enrichment guard so we skip pricing if already populated.
  */
@@ -329,7 +607,7 @@ export const upsertServiceVehicleSpec = internalMutation({
     oemIntervalMonths: v.optional(v.float64()),
     oemIntervalNote: v.optional(v.string()),
     partsRequired: v.optional(v.string()),
-    isApplicable: v.boolean(),
+    isApplicable: v.optional(v.boolean()),
     exclusionReason: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -350,29 +628,26 @@ export const upsertServiceVehicleSpec = internalMutation({
       .withIndex("by_engine_and_service", (q) => q.eq("engine_id", args.engineId).eq("service_id", args.serviceId))
       .first();
 
-    if (existing) {
-      if (args.confidenceScore >= existing.confidence_score) {
-        await ctx.db.patch(existing._id, {
-          labor_hours: args.laborHours,
-          parts_cost_low: args.partsCostLow,
-          parts_cost_high: args.partsCostHigh,
-          confidence_score: args.confidenceScore,
-          tech_notes: args.techNotes,
-          ...oemFields,
-        });
-      }
-      return existing._id;
-    }
-
-    return await ctx.db.insert("service_vehicle_specs", {
-      engine_id: args.engineId,
-      service_id: args.serviceId,
+    const payload = {
       labor_hours: args.laborHours,
       parts_cost_low: args.partsCostLow,
       parts_cost_high: args.partsCostHigh,
       confidence_score: args.confidenceScore,
       tech_notes: args.techNotes,
       ...oemFields,
+    };
+
+    if (existing) {
+      if (args.confidenceScore >= existing.confidence_score) {
+        await ctx.db.patch(existing._id, payload);
+      }
+      return existing._id;
+    }
+
+    return await ctx.db.insert("service_vehicle_specs", {
+      ...payload,
+      engine_id: args.engineId,
+      service_id: args.serviceId,
     });
   },
 });

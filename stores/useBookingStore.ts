@@ -24,6 +24,7 @@ import type {
   ScheduledAppointment,
   Service,
   ServiceCategory,
+  ServiceOptionSelection,
   UserLocation,
 } from "./types/store.types";
 
@@ -102,6 +103,8 @@ interface BookingState {
   skippedBookingDetails: boolean;
   /** Selected slot in mechanic selection screen (before booking) */
   selectedMechanicSlot: SelectedMechanicSlot | null;
+  /** Selected service option per service (maps service_id → option selection with pricing) */
+  selectedServiceOptions: Record<string, ServiceOptionSelection>;
 
   // ═══════════════ BOOKING STATE ═══════════════
   /** All bookings indexed by ID */
@@ -166,6 +169,10 @@ interface BookingState {
   setSelectedMechanicSlot: (slot: SelectedMechanicSlot | null) => void;
   /** Clear selected mechanic slot */
   clearSelectedMechanicSlot: () => void;
+  /** Set selected service option for a service (with pricing details) */
+  setSelectedServiceOption: (serviceId: string, option: ServiceOptionSelection) => void;
+  /** Clear all selected service options */
+  clearSelectedServiceOptions: () => void;
   /** Reset booking flow to initial state */
   resetBookingFlow: () => void;
 
@@ -339,6 +346,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   scheduledAppointment: null,
   skippedBookingDetails: false,
   selectedMechanicSlot: null,
+  selectedServiceOptions: {},
   bookings: {},
   bookingIds: [],
   draftBooking: null,
@@ -451,6 +459,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       const stages: BookingStage[] = [
         "discovery",
         "service_selection",
+        "service_options",
         "mechanic_selection",
         "booking_details",
         "payment",
@@ -466,6 +475,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       const stages: BookingStage[] = [
         "discovery",
         "service_selection",
+        "service_options",
         "mechanic_selection",
         "booking_details",
         "payment",
@@ -509,6 +519,17 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       selectedMechanicSlot: null,
     }),
 
+  setSelectedServiceOption: (serviceId, option) =>
+    set((state) => ({
+      selectedServiceOptions: {
+        ...state.selectedServiceOptions,
+        [serviceId]: option,
+      },
+    })),
+
+  clearSelectedServiceOptions: () =>
+    set({ selectedServiceOptions: {} }),
+
   resetBookingFlow: () =>
     set({
       bookingStage: "discovery",
@@ -522,6 +543,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       scheduledAppointment: null,
       skippedBookingDetails: false,
       selectedMechanicSlot: null,
+      selectedServiceOptions: {},
       draftBooking: null,
     }),
 

@@ -76,6 +76,9 @@ interface OnboardingData {
 
   // User intentions for using app
   userIntentions: string[] | null;
+  heardAboutOtopair: string | null;
+  visitReason: string | null;
+  zipCode: string | null;
 
   // Permissions Step
   pushNotificationsGranted: boolean;
@@ -118,6 +121,10 @@ interface OnboardingData {
   shopPriorities: string[] | null;
   communicationPreference: string | null;
   additionalPreferences: string | null;
+
+  // App Preferences
+  language: string | null;
+  units: string | null;
 
   // Beginner Oil Change Step
   lastOilChange:
@@ -243,6 +250,9 @@ const INITIAL_DATA: OnboardingData = {
   membershipTier: null,
   points: 0,
   userIntentions: null,
+  heardAboutOtopair: null,
+  visitReason: null,
+  zipCode: null,
   pushNotificationsGranted: false,
   pushNotificationStatus: null,
   locationGranted: false,
@@ -279,6 +289,8 @@ const INITIAL_DATA: OnboardingData = {
   shopPriorities: null,
   communicationPreference: null,
   additionalPreferences: null,
+  language: "English",
+  units: "mi",
 
   authProvider: null,
   emailConfirmed: false,

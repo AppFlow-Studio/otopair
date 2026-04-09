@@ -1,5 +1,5 @@
 // 1. React & React Native
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated from 'react-native-reanimated';
@@ -8,21 +8,28 @@ import Animated from 'react-native-reanimated';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
+import {
+  BottomSheetBackdrop,
+  BottomSheetModal,
+  BottomSheetScrollView,
+  type BottomSheetBackdropProps,
+} from "@gorhom/bottom-sheet";
 import { Bell, MoveRight, Star, Trophy } from 'lucide-react-native';
+import { useMutation, useQuery } from 'convex/react';
+import { api } from '@/convex/_generated/api';
 
 // 3. Shared UI
-import { Button, ScrollDrivenGradientBackground, ScrollFadeIn, Text } from '@/components/shared-ui';
+import { Button, BrandColors, ScrollDrivenGradientBackground, Text } from "@/components/shared-ui";
 
 // 4. Stores & Hooks
 import { useAuthStore } from '@/stores/useAuthStore';
 import { useBookingStore } from '@/stores/useBookingStore';
+import { usePendingNavigationStore } from "@/stores/usePendingNavigationStore";
 import { useShallow } from 'zustand/react/shallow';
 import { useVehicleOwnershipFromConvex } from '@/hooks/useVehicleOwnershipFromConvex';
 import { fetchVehicleImageUrl } from '@/utils/vehicleImage';
 import { computeMaintenanceStatus, MAINTENANCE_LABELS } from '@/utils/maintenanceStatus';
-import { useMutation, useQuery } from 'convex/react';
-import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 
 // Native iOS 26 liquid glass (optional)
@@ -36,18 +43,18 @@ try {
   // Not available — fall back to BlurView style
 }
 
-// 5. Flow-specific components
-import { ActionCardsCarousel } from '@/components/home/ActionCardsCarousel';
-import { AddFirstVehicleCard } from '@/components/home/AddFirstVehicleCard';
-import { LoyaltyCard } from '@/components/home/LoyaltyCard';
-import { MechanicSearchBar } from '@/components/home/MechanicSearchBar';
-import { NavigationETABar } from '@/components/home/NavigationETABar';
-import { ServiceBundlesSection } from '@/components/home/ServiceBundlesSection';
-import { MoreServicesSection } from '@/components/home/MoreServicesSection';
-import { SuggestionsSection } from '@/components/home/SuggestionsSection';
-import { VehicleMaintenanceCard } from '@/components/home/VehicleMaintenanceCard';
-import { HomeLogo } from '@/components/icons/home-logo';
-import { OtoPairIcon } from '@/components/icons/oto-pair';
+// 6. Flow-specific components
+import { ActionCardsCarousel } from "@/components/home/ActionCardsCarousel";
+import { AddFirstVehicleCard } from "@/components/home/AddFirstVehicleCard";
+import { LoyaltyCard } from "@/components/home/LoyaltyCard";
+import { MechanicSearchBar } from "@/components/home/MechanicSearchBar";
+import { NavigationETABar } from "@/components/home/NavigationETABar";
+import { ServiceBundlesSection } from "@/components/home/ServiceBundlesSection";
+import { MoreServicesSection } from "@/components/home/MoreServicesSection";
+import { SuggestionsSection } from "@/components/home/SuggestionsSection";
+import { VehicleMaintenanceCard } from "@/components/home/VehicleMaintenanceCard";
+import { HomeLogo } from "@/components/icons/home-logo";
+import { OtoPairIcon } from "@/components/icons/oto-pair";
 
 function formatBookingDate(dateStr: string): string {
   const [y, m, d] = dateStr.split('-').map(Number);
@@ -65,7 +72,7 @@ function formatBookingTime(timeStr: string): string {
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { isNewUser } = useAuthStore();
+  const { isNewUser, shouldShowReactivationSheet, setShouldShowReactivationSheet } = useAuthStore();
   const { vehicles: listVehicles, hasVehicles } = useVehicleOwnershipFromConvex();
   const [showWelcome, setShowWelcome] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -79,6 +86,33 @@ export default function HomeScreen() {
   const [activeCardIndex, setActiveCardIndex] = useState(0);
   const [accountSetupDismissed, setAccountSetupDismissed] = useState(false);
   const [carSetupDismissed, setCarSetupDismissed] = useState(false);
+
+  // Reactivation bottom sheet (from temur-dev)
+  const sheetRef = useRef<BottomSheetModal>(null);
+  const hasPresentedReactivationRef = useRef(false);
+  const snapPoints = useMemo(() => ["42%"], []);
+
+  const renderBackdrop = useCallback(
+    (props: BottomSheetBackdropProps) => (
+      <BottomSheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} opacity={0.5} />
+    ),
+    []
+  );
+
+  useEffect(() => {
+    if (shouldShowReactivationSheet && showWelcome) {
+      setShowWelcome(false);
+    }
+  }, [shouldShowReactivationSheet, showWelcome]);
+
+  useEffect(() => {
+    if (!shouldShowReactivationSheet || showWelcome || hasPresentedReactivationRef.current) return;
+    hasPresentedReactivationRef.current = true;
+    requestAnimationFrame(() => {
+      sheetRef.current?.present();
+      setShouldShowReactivationSheet(false);
+    });
+  }, [shouldShowReactivationSheet, showWelcome, setShouldShowReactivationSheet]);
 
   // ── Data for action cards ──
   const me = useQuery(api.users.getMe);
@@ -137,8 +171,8 @@ export default function HomeScreen() {
     (async () => {
       // Request location permission
       const { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        setLocationName('Location unavailable');
+      if (status !== "granted") {
+        setLocationName("Location unavailable");
         return;
       }
 
@@ -152,12 +186,10 @@ export default function HomeScreen() {
           longitude: location.coords.longitude,
         });
         if (address) {
-          setLocationName(
-            `${address.city || address.subregion || 'Unknown'}, ${address.region || ''}`,
-          );
+          setLocationName(`${address.city || address.subregion || "Unknown"}, ${address.region || ""}`);
         }
       } catch (error) {
-        setLocationName('Unknown location');
+        setLocationName("Unknown location");
       }
     })();
   }, []);
@@ -264,17 +296,29 @@ export default function HomeScreen() {
   );
 
   const handleSearch = (query: string) => {
-    console.log('Search submitted:', query);
+    console.log("Search submitted:", query);
     // TODO: Implement search functionality
   };
 
   const handleMapPress = () => {
-    router.push('/home/map');
+    router.push("/home/map");
   };
 
+  // When returning from map modal with "Add vehicle" tapped: navigate to cars tab
+  const pendingNavigateToCars = usePendingNavigationStore((s) => s.pendingNavigateToCars);
+  const setPendingNavigateToCars = usePendingNavigationStore((s) => s.setPendingNavigateToCars);
+  useFocusEffect(
+    useCallback(() => {
+      if (pendingNavigateToCars) {
+        setPendingNavigateToCars(false);
+        router.navigate("/(main-tabs)/cars");
+      }
+    }, [pendingNavigateToCars, setPendingNavigateToCars, router])
+  );
+
   const handleAppointmentPress = () => {
-    // Navigate to bookings tab to see appointment details
-    router.push('/bookings');
+    console.log("Appointment pressed");
+    // TODO: Navigate to appointment details
   };
 
   // Dynamic visible card IDs — matches the order in ActionCardsCarousel
@@ -294,250 +338,264 @@ export default function HomeScreen() {
   // Custom margins for content below carousel based on active card
   const getCardMargin = (cardIndex: number): number => {
     const cardType = getCardTypeAtIndex(cardIndex);
-    
+
     switch (cardType) {
-      case 'appointment': // Upcoming Appointment - NavigationETABar shows, so no extra margin needed
+      case "appointment": // Upcoming Appointment - NavigationETABar shows, so no extra margin needed
         return 10;
-      case 'resume': // Resume Booking
+      case "resume": // Resume Booking
         return -100;
-      case 'account': // Finish Account Setup
+      case "account": // Finish Account Setup
         return -70;
-      case 'car': // Finish Car Setup
+      case "car": // Finish Car Setup
         return -10;
       default:
         return 0;
     }
   };
 
-  // Welcome screen - shows on app open
-  // if (showWelcome) {
-  //   return (
-  //     <View style={styles.welcomeContainer}>
-  //       <View style={styles.welcomeContent}>
-  //         <OtoPairIcon />
-  //         <Text weight="semiBold" size="2xl" style={styles.welcomeTitle}>
-  //           Otopair
-  //         </Text>
-  //         <Button variant="secondary" onPress={() => setShowWelcome(false)}>
-  //           Let's Check Your Car Now <MoveRight size={16} color="#fff" />
-  //         </Button>
-  //       </View>
-  //     </View>
-  //   );
-  // }
-
   return (
-    <ScrollDrivenGradientBackground colors={['#5BA3D9', '#8FC4E8', '#d9e8f5']}>
-      {(scrollHandler, scrollY) => (
-    <View style={styles.container}>
-      {/* Full Page Scroll */}
+    <ScrollDrivenGradientBackground colors={["#5BA3D9", "#8FC4E8", "#d9e8f5"]}>
+      {(scrollHandler) => (
+        <View style={styles.container}>
+          {/* Full Page Scroll */}
           <Animated.ScrollView
-        style={styles.scrollView}
-        contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 12 }]}
-        showsVerticalScrollIndicator={false}
-        scrollEnabled={!isCardSwiping}
+            style={styles.scrollView}
+            contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 12 }]}
+            showsVerticalScrollIndicator={false}
+            scrollEnabled={!isCardSwiping}
             onScroll={scrollHandler}
             scrollEventThrottle={16}
-      >
-        {/* Header */}
-        <View style={styles.header}>
-          {/* Location */}
-          <View style={styles.locationSection}>
-            <View style={{ marginTop: -8, marginLeft: 8 }}>
-              <HomeLogo size={68} />
-            </View>
-            <View style={styles.locationText}>
-              <Text size="xl" color="#FFFFFF" weight="bold">
-                Otopair
-              </Text>
-              <Text weight="semiBold" size="sm" color="#FFFFFF">
-                {locationName}
-              </Text>
-            </View>
-          </View>
-
-          {/* Right Side - Gold Tier & Bell */}
-          <View style={styles.headerRight}>
-            {/* Gold Tier Badge - Clickable */}
-            <Pressable
-              onPress={() => setShowLoyaltyCard(true)}
-              style={({ pressed }) => [styles.goldTierBadge, pressed && styles.goldTierBadgePressed]}
-            >
-              {isLiquidGlassEnabled && LiquidGlassView ? (
-                <LiquidGlassView interactive effect="clear" style={styles.liquidGlassIcon}>
-                  <Trophy size={22} color="#000000" fill="none" strokeWidth={2} />
-                </LiquidGlassView>
-              ) : (
-                <View style={styles.glassContainer}>
-                  <BlurView intensity={10} tint="dark" style={styles.glassBlur}>
-                    <View style={styles.glassOverlay} />
-                    <LinearGradient
-                      colors={['rgba(255,255,255,0.25)', 'rgba(255,255,255,0.05)']}
-                      start={{ x: 0.5, y: 0 }}
-                      end={{ x: 0.5, y: 0.5 }}
-                      style={styles.glassGloss}
-                    />
-                    <Trophy size={22} color="#000000" fill="none" strokeWidth={2} />
-                  </BlurView>
+          >
+            {/* Header */}
+            <View style={styles.header}>
+              {/* Location */}
+              <View style={styles.locationSection}>
+                <View style={{ marginTop: -8, marginLeft: 8 }}>
+                  <HomeLogo size={68} />
                 </View>
-              )}
-            </Pressable>
+                <View style={styles.locationText}>
+                  <Text size="xl" color="#FFFFFF" weight="bold">
+                    Otopair
+                  </Text>
+                  <Text weight="semiBold" size="sm" color="#FFFFFF">
+                    {locationName}
+                  </Text>
+                </View>
+              </View>
 
-            {/* Notification Bell */}
-            <Pressable
-              style={({ pressed }) => [styles.bellButton, pressed && styles.bellButtonPressed]}
-            >
-              {isLiquidGlassEnabled && LiquidGlassView ? (
-                <LiquidGlassView interactive effect="clear" style={styles.liquidGlassIcon}>
-                  <View style={styles.bellIconContainer}>
-                    <Bell size={22} color="#000000" fill="none" strokeWidth={2} />
-                    <View style={styles.bellDot} />
-                  </View>
-                </LiquidGlassView>
-              ) : (
-                <View style={styles.glassContainer}>
-                  <BlurView intensity={10} tint="dark" style={styles.glassBlur}>
-                    <View style={styles.glassOverlay} />
-                    <LinearGradient
-                      colors={['rgba(255,255,255,0.25)', 'rgba(255,255,255,0.05)']}
-                      start={{ x: 0.5, y: 0 }}
-                      end={{ x: 0.5, y: 0.5 }}
-                      style={styles.glassGloss}
-                    />
-                    <View style={styles.bellIconContainer}>
-                      <Bell size={22} color="#000000" fill="none" strokeWidth={2} />
-                      <View style={styles.bellDot} />
+              {/* Right Side - Gold Tier & Bell */}
+              <View style={styles.headerRight}>
+                {/* Gold Tier Badge - Clickable */}
+                <Pressable
+                  onPress={() => setShowLoyaltyCard(true)}
+                  style={({ pressed }) => [styles.goldTierBadge, pressed && styles.goldTierBadgePressed]}
+                >
+                  {isLiquidGlassEnabled && LiquidGlassView ? (
+                    <LiquidGlassView interactive effect="clear" style={styles.liquidGlassIcon}>
+                      <Trophy size={22} color="#000000" fill="none" strokeWidth={2} />
+                    </LiquidGlassView>
+                  ) : (
+                    <View style={styles.glassContainer}>
+                      <BlurView intensity={10} tint="dark" style={styles.glassBlur}>
+                        <View style={styles.glassOverlay} />
+                        <LinearGradient
+                          colors={['rgba(255,255,255,0.25)', 'rgba(255,255,255,0.05)']}
+                          start={{ x: 0.5, y: 0 }}
+                          end={{ x: 0.5, y: 0.5 }}
+                          style={styles.glassGloss}
+                        />
+                        <Trophy size={22} color="#000000" fill="none" strokeWidth={2} />
+                      </BlurView>
                     </View>
-                  </BlurView>
-                </View>
-              )}
-            </Pressable>
-          </View>
-        </View>
+                  )}
+                </Pressable>
 
-        {/* Search Bar */}
-        <View style={styles.searchContainer}>
-          <MechanicSearchBar
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-            onSubmit={handleSearch}
-            onMapPress={handleMapPress}
-          />
-        </View>
+                {/* Notification Bell */}
+                <Pressable
+                  style={({ pressed }) => [styles.bellButton, pressed && styles.bellButtonPressed]}
+                >
+                  {isLiquidGlassEnabled && LiquidGlassView ? (
+                    <LiquidGlassView interactive effect="clear" style={styles.liquidGlassIcon}>
+                      <View style={styles.bellIconContainer}>
+                        <Bell size={22} color="#000000" fill="none" strokeWidth={2} />
+                        <View style={styles.bellDot} />
+                      </View>
+                    </LiquidGlassView>
+                  ) : (
+                    <View style={styles.glassContainer}>
+                      <BlurView intensity={10} tint="dark" style={styles.glassBlur}>
+                        <View style={styles.glassOverlay} />
+                        <LinearGradient
+                          colors={['rgba(255,255,255,0.25)', 'rgba(255,255,255,0.05)']}
+                          start={{ x: 0.5, y: 0 }}
+                          end={{ x: 0.5, y: 0.5 }}
+                          style={styles.glassGloss}
+                        />
+                        <View style={styles.bellIconContainer}>
+                          <Bell size={22} color="#000000" fill="none" strokeWidth={2} />
+                          <View style={styles.bellDot} />
+                        </View>
+                      </BlurView>
+                    </View>
+                  )}
+                </Pressable>
+              </View>
+            </View>
 
-        {/* Content Area */}
-        <View style={styles.content}>
-          {/* Action Cards Carousel */}
-          {visibleCardIds.length > 0 && <View style={styles.carouselContainer}>
-            <ActionCardsCarousel
-              // Upcoming Appointment
-              showAppointment={!!upcomingBooking}
-              appointmentBusinessName={upcomingBooking?.shopName ?? ''}
-              appointmentMechanicName={upcomingBooking?.mechanicName ?? ''}
-              appointmentRating={upcomingBooking?.shopRating ?? 0}
-              appointmentIsVerified={upcomingBooking?.shopIsVerified ?? false}
-              appointmentDate={upcomingBooking ? formatBookingDate(upcomingBooking.scheduled_date) : ''}
-              appointmentTimeSlot={upcomingBooking ? formatBookingTime(upcomingBooking.scheduled_time) : ''}
-              appointmentLateMinutes={upcomingBooking?.delayMinutes}
-              onAppointmentPress={handleAppointmentPress}
-              // Resume Booking
-              showResumeBooking={hasResumeBooking}
-              resumeServicesPreview={resumeServicesPreview}
-              onResumePress={() => router.push('/home/map?openServices=true')}
-              // Account Setup
-              showAccountSetup={showAccountSetup}
-              onAccountSetupDismiss={() => setAccountSetupDismissed(true)}
-              // Car Setup
-              showCarSetup={showCarSetup}
-              carSetupChecklist={carSetupChecklist}
-              isCarSetupDone={isCarSetupDone}
-              onCarSetupPress={() => {
-                const o = carSetupVehicle?.ownership;
-                if (isCarSetupDone) {
-                  // All done — dismiss permanently
-                  if (o?._id) dismissSetupCard({ vehicleOwnerId: o._id });
-                  setCarSetupDismissed(true);
-                  return;
-                }
-                if (!o) {
-                  router.push('/add-vehicle');
-                } else if (!o.preOnboardingComplete) {
-                  router.push({ pathname: '/car-pre-onboarding', params: { vehicleOwnerId: o._id } });
-                } else {
-                  router.push({ pathname: '/(main-tabs)/cars', params: { openStepper: 'true' } });
-                }
-              }}
-              onCarSetupDismiss={() => setCarSetupDismissed(true)}
-              // Carousel callback
-              onCardChange={(index) => setActiveCardIndex(index)}
-              // User status - determines card order
-              isNewUser={isNewUser}
-            />
-          </View>}
-
-          {/* Navigation ETA Bar - Only show when on Upcoming Appointment card */}
-          {getCardTypeAtIndex(activeCardIndex) === 'appointment' && upcomingBooking && (
-            <View style={styles.etaBarContainer}>
-              <NavigationETABar
-                etaMinutes={20}
-                destinationLatitude={upcomingBooking.shopLat ?? 0}
-                destinationLongitude={upcomingBooking.shopLng ?? 0}
-                destinationName={upcomingBooking.shopName}
+            {/* Search Bar */}
+            <View style={styles.searchContainer}>
+              <MechanicSearchBar
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                onSubmit={handleSearch}
+                onMapPress={handleMapPress}
               />
             </View>
-          )}
 
-          {/* Vehicle Maintenance - with dynamic margin based on active card */}
-          <ScrollFadeIn scrollY={scrollY} style={{ marginTop: visibleCardIds.length > 0 ? getCardMargin(activeCardIndex) : 0 }}>
-            {hasVehicles ? (
-              <VehicleMaintenanceCard
-                vehicles={mappedVehicles.length > 0 ? mappedVehicles : undefined}
-                onBookNow={(vehicleId, serviceId) => {
-                  router.push('/home/map?openServices=true');
-                }}
-                onSwipeStart={() => setIsCardSwiping(true)}
-                onSwipeEnd={() => setIsCardSwiping(false)}
-              />
-            ) : (
-              <AddFirstVehicleCard showAccountSetup={showAccountSetup} />
-            )}
-          </ScrollFadeIn>
+            {/* Content Area */}
+            <View style={styles.content}>
+              {/* Action Cards Carousel */}
+              {visibleCardIds.length > 0 && <View style={styles.carouselContainer}>
+                <ActionCardsCarousel
+                  // Upcoming Appointment
+                  showAppointment={!!upcomingBooking}
+                  appointmentBusinessName={upcomingBooking?.shopName ?? ''}
+                  appointmentMechanicName={upcomingBooking?.mechanicName ?? ''}
+                  appointmentRating={upcomingBooking?.shopRating ?? 0}
+                  appointmentIsVerified={upcomingBooking?.shopIsVerified ?? false}
+                  appointmentDate={upcomingBooking ? formatBookingDate(upcomingBooking.scheduled_date) : ''}
+                  appointmentTimeSlot={upcomingBooking ? formatBookingTime(upcomingBooking.scheduled_time) : ''}
+                  appointmentLateMinutes={upcomingBooking?.delayMinutes}
+                  onAppointmentPress={handleAppointmentPress}
+                  // Resume Booking
+                  showResumeBooking={hasResumeBooking}
+                  resumeServicesPreview={resumeServicesPreview}
+                  onResumePress={() => router.push('/home/map?openServices=true')}
+                  // Account Setup
+                  showAccountSetup={showAccountSetup}
+                  onAccountSetupDismiss={() => setAccountSetupDismissed(true)}
+                  // Car Setup
+                  showCarSetup={showCarSetup}
+                  carSetupChecklist={carSetupChecklist}
+                  isCarSetupDone={isCarSetupDone}
+                  onCarSetupPress={() => {
+                    const o = carSetupVehicle?.ownership;
+                    if (isCarSetupDone) {
+                      // All done — dismiss permanently
+                      if (o?._id) dismissSetupCard({ vehicleOwnerId: o._id });
+                      setCarSetupDismissed(true);
+                      return;
+                    }
+                    if (!o) {
+                      router.push('/add-vehicle');
+                    } else if (!o.preOnboardingComplete) {
+                      router.push({ pathname: '/car-pre-onboarding', params: { vehicleOwnerId: o._id } });
+                    } else {
+                      router.push({ pathname: '/(main-tabs)/cars', params: { openStepper: 'true' } });
+                    }
+                  }}
+                  onCarSetupDismiss={() => setCarSetupDismissed(true)}
+                  // Carousel callback
+                  onCardChange={(index) => setActiveCardIndex(index)}
+                  // User status - determines card order
+                  isNewUser={isNewUser}
+                />
+              </View>}
 
-          {/* More Services Section */}
-          <ScrollFadeIn scrollY={scrollY}>
-            <MoreServicesSection />
-          </ScrollFadeIn>
+              {/* Navigation ETA Bar - Only show when on Upcoming Appointment card */}
+              {getCardTypeAtIndex(activeCardIndex) === 'appointment' && upcomingBooking && (
+                <View style={styles.etaBarContainer}>
+                  <NavigationETABar
+                    etaMinutes={20}
+                    destinationLatitude={upcomingBooking.shopLat ?? 0}
+                    destinationLongitude={upcomingBooking.shopLng ?? 0}
+                    destinationName={upcomingBooking.shopName}
+                  />
+                </View>
+              )}
 
-          {/* Service Bundles Section */}
-          <ScrollFadeIn scrollY={scrollY}>
-            <ServiceBundlesSection />
-          </ScrollFadeIn>
+              {/* Vehicle Maintenance - with dynamic margin based on active card */}
+              <View style={{ marginTop: visibleCardIds.length > 0 ? getCardMargin(activeCardIndex) : 0 }}>
+                {hasVehicles ? (
+                  <VehicleMaintenanceCard
+                    vehicles={mappedVehicles.length > 0 ? mappedVehicles : undefined}
+                    onBookNow={(vehicleId, serviceId) => {
+                      router.push('/home/map?openServices=true');
+                    }}
+                    onSwipeStart={() => setIsCardSwiping(true)}
+                    onSwipeEnd={() => setIsCardSwiping(false)}
+                  />
+                ) : (
+                  <AddFirstVehicleCard showAccountSetup={showAccountSetup} />
+                )}
+              </View>
 
-          {/* Suggestions Section */}
-          <ScrollFadeIn scrollY={scrollY}>
-            <SuggestionsSection />
-          </ScrollFadeIn>
+              {/* More Services Section */}
+              <MoreServicesSection />
 
-        </View>
+              {/* Service Bundles Section */}
+              <ServiceBundlesSection />
+
+              {/* Suggestions Section */}
+              <SuggestionsSection />
+            </View>
           </Animated.ScrollView>
 
-      {/* Loyalty Card Overlay */}
-      {showLoyaltyCard && (
-        <LoyaltyCard
-          totalPoints={1240}
-          currentTier="Gold Member"
-          currentPoints={240}
-          pointsToNextTier={260}
-          nextTier="Platinum"
-          maxPoints={500}
-          onClose={() => setShowLoyaltyCard(false)}
-          onViewFullPage={() => {
-            setShowLoyaltyCard(false);
-            router.push('/membership');
-          }}
-        />
-      )}
-    </View>
+          {/* Loyalty Card Overlay */}
+          {showLoyaltyCard && (
+            <LoyaltyCard
+              totalPoints={1240}
+              currentTier="Gold Member"
+              currentPoints={240}
+              pointsToNextTier={260}
+              nextTier="Platinum"
+              maxPoints={500}
+              onClose={() => setShowLoyaltyCard(false)}
+              onViewFullPage={() => {
+                setShowLoyaltyCard(false);
+                router.push("/membership");
+              }}
+            />
+          )}
+
+          <BottomSheetModal
+            ref={sheetRef}
+            snapPoints={snapPoints}
+            backdropComponent={renderBackdrop}
+            enableDynamicSizing={false}
+            enableContentPanningGesture={false}
+            handleIndicatorStyle={styles.sheetHandle}
+            backgroundStyle={styles.sheetBackground}
+          >
+            <BottomSheetScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={[styles.sheetContentContainer, { paddingBottom: insets.bottom + 24 }]}
+            >
+              <View style={styles.sheetTitleWrap}>
+                <Text style={styles.sheetTitle}>Welcome back!</Text>
+              </View>
+
+              <View style={styles.sheetBody}>
+                <Text style={styles.sheetBodyText}>
+                  Your account was scheduled for deletion, but has now been automatically reactivated since you logged
+                  back in.
+                </Text>
+                <Text style={styles.sheetBodyText}>Your data is safe and your account is fully restored.</Text>
+              </View>
+
+              <View style={styles.sheetActions}>
+                <Pressable
+                  style={({ pressed }) => [styles.sheetPrimaryButton, pressed && styles.sheetPressed]}
+                  onPress={() => sheetRef.current?.dismiss()}
+                >
+                  <Text weight="semiBold" color="#FFF" style={styles.sheetPrimaryButtonText}>
+                    Great!
+                  </Text>
+                </Pressable>
+              </View>
+            </BottomSheetScrollView>
+          </BottomSheetModal>
+        </View>
       )}
     </ScrollDrivenGradientBackground>
   );
@@ -547,16 +605,16 @@ const styles = StyleSheet.create({
   // Welcome screen styles
   welcomeContainer: {
     flex: 1,
-    backgroundColor: '#E8ECF0',
-    justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: "#E8ECF0",
+    justifyContent: "center",
+    alignItems: "center",
   },
   welcomeContent: {
-    alignItems: 'center',
+    alignItems: "center",
     gap: 16,
   },
   welcomeTitle: {
-    color: '#141C24',
+    color: "#141C24",
     letterSpacing: 0.5,
   },
   // Main home screen styles
@@ -570,16 +628,16 @@ const styles = StyleSheet.create({
     paddingBottom: 150,
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingRight: 16,
     paddingLeft: 0,
     marginBottom: 16,
   },
   locationSection: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 2,
     flex: 1,
     paddingLeft: 0,
@@ -589,13 +647,13 @@ const styles = StyleSheet.create({
     marginTop: -7,
   },
   headerRight: {
-    flexDirection: 'row',
-    alignItems: 'center',
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
   },
   goldTierBadge: {
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
   },
   goldTierBadgePressed: {
     opacity: 0.7,
@@ -617,33 +675,33 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    overflow: 'hidden',
+    overflow: "hidden",
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.5)',
+    borderColor: "rgba(255,255,255,0.5)",
   },
   glassBlur: {
     flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
+    justifyContent: "center",
+    alignItems: "center",
   },
   glassOverlay: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(255,255,255,0.12)',
+    backgroundColor: "rgba(255,255,255,0.12)",
   },
   glassGloss: {
     ...StyleSheet.absoluteFillObject,
   },
   bellIconContainer: {
-    position: 'relative',
+    position: "relative",
   },
   bellDot: {
-    position: 'absolute',
+    position: "absolute",
     top: 1,
     right: 1,
     width: 7,
     height: 7,
     borderRadius: 3.5,
-    backgroundColor: '#FF3B30',
+    backgroundColor: "#FF3B30",
   },
   searchContainer: {
     paddingHorizontal: 16,
@@ -658,5 +716,61 @@ const styles = StyleSheet.create({
   },
   etaBarContainer: {
     marginTop: -72,
+  },
+  sheetBackground: {
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+  },
+  sheetHandle: {
+    backgroundColor: "#E5E5EA",
+    width: 44,
+  },
+  sheetContentContainer: {
+    paddingHorizontal: 24,
+    paddingTop: 8,
+  },
+  sheetTitleWrap: {
+    marginTop: 12,
+    marginBottom: 20,
+    alignItems: "center",
+  },
+  sheetTitle: {
+    fontSize: 24,
+    lineHeight: 30,
+    color: "#1d1d1f",
+    fontWeight: "700",
+  },
+  sheetBody: {
+    gap: 12,
+  },
+  sheetBodyText: {
+    fontSize: 17,
+    lineHeight: 25,
+    color: "#1d1d1f",
+    textAlign: "center",
+  },
+  sheetActions: {
+    marginTop: 28,
+    gap: 12,
+  },
+  sheetPrimaryButton: {
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: BrandColors.secondary,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: BrandColors.secondary,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  sheetPrimaryButtonText: {
+    fontSize: 17,
+  },
+  sheetPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.99 }],
   },
 });

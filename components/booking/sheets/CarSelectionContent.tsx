@@ -13,12 +13,7 @@
 
 // 1. React & React Native
 import React, { useCallback } from "react";
-import {
-  ScrollView,
-  StyleSheet,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
 import { Plus, X } from "lucide-react-native";
@@ -59,9 +54,7 @@ export function CarSelectionContent({ onClose, onAddVehicle }: CarSelectionConte
   const selectVehicle = useVehicleStore((state) => state.selectVehicle);
 
   // ═══════════════ COMPUTED ═══════════════
-  const vehiclesList = vehicleIds
-    .map((id) => vehicles[id])
-    .filter((v): v is Vehicle => Boolean(v));
+  const vehiclesList = vehicleIds.map((id) => vehicles[id]).filter((v): v is Vehicle => Boolean(v));
 
   // ═══════════════ HANDLERS ═══════════════
   const handleSelect = useCallback(
@@ -99,6 +92,7 @@ export function CarSelectionContent({ onClose, onAddVehicle }: CarSelectionConte
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={vehiclesList.length > MAX_VISIBLE_ROWS}
         scrollEnabled={vehiclesList.length > MAX_VISIBLE_ROWS}
+        keyboardShouldPersistTaps="handled"
       >
         {vehiclesList.map((vehicle) => (
           <CarSelectionCard
@@ -115,6 +109,7 @@ export function CarSelectionContent({ onClose, onAddVehicle }: CarSelectionConte
           style={styles.addVehicleRow}
           onPress={onAddVehicle}
           activeOpacity={0.7}
+          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
         >
           <Plus size={20} color="#9CA3AF" />
           <Text size="md" weight="medium" color="#9CA3AF">

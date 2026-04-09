@@ -3,30 +3,43 @@ import { ClerkProvider, useAuth } from "@clerk/clerk-expo";
 import { tokenCache } from "@clerk/clerk-expo/token-cache";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { DarkTheme, DefaultTheme, ThemeProvider } from "@react-navigation/native";
-import { Stack } from "expo-router";
+import { Stack, type ErrorBoundaryProps } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
+import { KeyboardProvider } from "react-native-keyboard-controller";
 
 import { ConvexReactClient } from "convex/react";
 import { ConvexProviderWithClerk } from "convex/react-clerk";
 
+import { ErrorBoundary as AppErrorBoundary, ErrorModalHost, errorBus } from "@/lib/error-ui";
 import { useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
 
 import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useAppFonts } from "@/hooks/use-fonts";
+import { useConsoleToConvex } from "@/hooks/useConsoleToConvex";
 import { useEnsureConvexUser } from "@/hooks/useEnsureConvexUser";
 import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromConvex";
 import { useAuthStore } from "@/stores/useAuthStore";
 
-// Prevent the splash screen from auto-hiding before asset loading is complete.
-SplashScreen.preventAutoHideAsync();
+SplashScreen.preventAutoHideAsync().catch(() => {});
+
+// Global error handler: log to Convex + show modal
+if (typeof global !== "undefined") {
+  const ErrorUtils = (global as any).ErrorUtils;
+  if (ErrorUtils?.setGlobalHandler) {
+    ErrorUtils.setGlobalHandler((error: unknown) => {
+      console.error(error);
+      errorBus.set({ visible: true, error });
+    });
+  }
+}
 
 export const unstable_settings = {
-  anchor: "(tabs)",
+  anchor: "(main-tabs)",
   initialRouteName: "index",
 };
 
@@ -34,11 +47,17 @@ const convex = new ConvexReactClient(process.env.EXPO_PUBLIC_CONVEX_URL!, {
   unsavedChangesWarning: false,
 });
 
+function ConsoleToConvexLogger() {
+  useConsoleToConvex();
+  return null;
+}
+
 function ConvexClerkProvider({ children }: { children: ReactNode }) {
   // Convex expects the Clerk useAuth hook that matches the provider
   const auth = useAuth();
   return (
     <ConvexProviderWithClerk client={convex} useAuth={() => auth}>
+      <ConsoleToConvexLogger />
       {children}
     </ConvexProviderWithClerk>
   );
@@ -82,7 +101,9 @@ function EnsureConvexUserRecord() {
       .then(() => {
         if (!cancelled) {
           lastUserRef.current = userId;
-          console.log("Ensured Convex user via RootLayout", { clerkUserId: userId });
+          console.log("Ensured Convex user via RootLayout", {
+            clerkUserId: userId,
+          });
         }
       })
       .catch((error) => {
@@ -103,6 +124,30 @@ function EnsureConvexUserRecord() {
   return null;
 }
 
+/**
+ * Gates app navigation until Clerk has hydrated from token cache.
+ * Keeps splash visible until auth state is known so signed-in users
+ * go straight to home without flashing welcome/signup/login.
+ */
+function AuthGate({ children }: { children: ReactNode }) {
+  const { isLoaded } = useAuth();
+
+  useEffect(() => {
+    if (isLoaded) {
+      SplashScreen.hideAsync().catch((err) => {
+        console.error("SplashScreen.hideAsync failed", err);
+      });
+    }
+  }, [isLoaded]);
+
+  // Don't render navigation until Clerk has checked stored token
+  if (!isLoaded) {
+    return null;
+  }
+
+  return <>{children}</>;
+}
+
 /** Keep the local auth store in sync with Clerk session state */
 function SyncAuthStoreWithClerk() {
   const { isSignedIn, isLoaded } = useAuth();
@@ -115,6 +160,15 @@ function SyncAuthStoreWithClerk() {
 
   return null;
 }
+
+function RootErrorBoundary({ error }: ErrorBoundaryProps) {
+  useEffect(() => {
+    errorBus.set({ visible: true, error });
+  }, [error]);
+  return null;
+}
+
+export { RootErrorBoundary as ErrorBoundary };
 
 /**
  * Refresh Smartcar data once on cold start for all connected vehicles.
@@ -130,9 +184,7 @@ function SmartcarColdStartRefresh() {
     if (!vehicles || vehicles.length === 0) return;
 
     // Find connected vehicles
-    const connected = vehicles.filter(
-      (v: any) => v.connectionStatus === "connected" && v.ownership?._id
-    );
+    const connected = vehicles.filter((v: any) => v.connectionStatus === "connected" && v.ownership?._id);
 
     console.log(
       `[ColdStart] vehicles=${vehicles.length}, connected=${connected.length}, statuses=${vehicles.map((v: any) => v.connectionStatus).join(",")}`
@@ -146,8 +198,8 @@ function SmartcarColdStartRefresh() {
     for (const v of connected) {
       const ownerId = (v as any).ownership._id;
       console.log(`[ColdStart] Refreshing vehicle owner=${ownerId}`);
-      fetchVehicleData({ vehicleOwnerId: ownerId }).catch(
-        (err: any) => console.warn("[ColdStart] Smartcar refresh failed:", err)
+      fetchVehicleData({ vehicleOwnerId: ownerId }).catch((err: any) =>
+        console.warn("[ColdStart] Smartcar refresh failed:", err)
       );
     }
   }, [vehicles, fetchVehicleData]);
@@ -159,21 +211,76 @@ export default function RootLayout() {
   const colorScheme = useColorScheme();
   const [fontsLoaded, fontError] = useAppFonts();
 
-  useEffect(() => {
-    if (fontsLoaded || fontError) {
-      SplashScreen.hideAsync();
-    }
-  }, [fontsLoaded, fontError]);
-
-  // Don't render anything until fonts are loaded
+  // Don't render anything until fonts are loaded (splash stays visible)
   if (!fontsLoaded && !fontError) {
     return null;
   }
 
   return (
     <ClerkProvider publishableKey={process.env.EXPO_PUBLIC_CLERK_PUBLISHABLE_KEY!} tokenCache={tokenCache}>
-      <ConvexClerkProvider>
-        <EnsureConvexUserRecord />
+      <AuthGate>
+        <ConvexClerkProvider>
+          <AppErrorBoundary>
+            <EnsureConvexUserRecord />
+            <SyncAuthStoreWithClerk />
+            <ErrorModalHost />
+            <KeyboardProvider>
+            <GestureHandlerRootView style={{ flex: 1 }}>
+              <BottomSheetModalProvider>
+                <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>
+                  <Stack
+                    screenOptions={{
+                      headerShown: false,
+                      animation: "ios_from_right",
+                      animationDuration: 350,
+                      gestureEnabled: true,
+                      gestureDirection: "horizontal",
+                    }}
+                  >
+                    <Stack.Screen name="index" options={{ headerShown: false }} />
+                    <Stack.Screen name="(onboarding)" options={{ headerShown: false }} />
+                    <Stack.Screen name="(main-tabs)" options={{ headerShown: false }} />
+                    <Stack.Screen name="(tell-us-about)" options={{ headerShown: false }} />
+                    <Stack.Screen
+                      name="coming-soon"
+                      options={{
+                        animation: "fade_from_bottom",
+                        animationDuration: 200,
+                      }}
+                    />
+                    <Stack.Screen name="add-vehicle" options={{ headerShown: false }} />
+                    <Stack.Screen name="add-car-info" options={{ headerShown: false }} />
+                    <Stack.Screen
+                      name="vehicle-added"
+                      options={{
+                        animation: "fade",
+                        animationDuration: 300,
+                      }}
+                    />
+                    <Stack.Screen name="vin-scanner" options={{ headerShown: false }} />
+                    <Stack.Screen name="add-vehicle-review" options={{ headerShown: false }} />
+                    <Stack.Screen name="payments" options={{ headerShown: false }} />
+                    <Stack.Screen name="add-payment" options={{ headerShown: false }} />
+                    {/* <Stack.Screen name="payment-methods" options={{ headerShown: false }} /> */}
+                    <Stack.Screen
+                      name="modal"
+                      options={{
+                        presentation: "modal",
+                        animation: "slide_from_bottom",
+                      }}
+                    />
+                    <Stack.Screen name="membership" options={{ headerShown: false }} />
+                    <Stack.Screen name="suggested-deals" options={{ headerShown: false }} />
+                    <Stack.Screen name="transactions" options={{ headerShown: false }} />
+                    <Stack.Screen name="refer-a-friend" options={{ headerShown: false }} />
+                  </Stack>
+                  <StatusBar style="auto" />
+                </ThemeProvider>
+              </BottomSheetModalProvider>
+            </GestureHandlerRootView>
+            </KeyboardProvider>
+          </AppErrorBoundary>
+          {/* <EnsureConvexUserRecord />
         <SyncAuthStoreWithClerk />
         <SmartcarColdStartRefresh />
         <GestureHandlerRootView style={{ flex: 1 }}>
@@ -245,8 +352,9 @@ export default function RootLayout() {
               <StatusBar style="auto" />
             </ThemeProvider>
           </BottomSheetModalProvider>
-        </GestureHandlerRootView>
-      </ConvexClerkProvider>
+        </GestureHandlerRootView> */}
+        </ConvexClerkProvider>
+      </AuthGate>
     </ClerkProvider>
   );
 }

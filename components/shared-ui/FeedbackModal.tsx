@@ -1,17 +1,21 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  InteractionManager,
+  Keyboard,
   KeyboardAvoidingView,
+  Modal,
   Platform,
   Pressable,
   StyleSheet,
   TextInput,
+  TouchableWithoutFeedback,
   View,
 } from 'react-native';
-import { BottomSheetModal } from '@gorhom/bottom-sheet';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { X } from 'lucide-react-native';
 
 import { BrandColors } from '@/constants/theme';
-import { AppBottomSheetModal } from './AppBottomSheetModal';
 import { Button } from './Button';
 import { Text } from './Text';
 
@@ -34,10 +38,37 @@ export function FeedbackModal({
   placeholder = 'Enter your feedback here',
   title = 'Give Us Feedback',
 }: FeedbackModalProps) {
+  const insets = useSafeAreaInsets();
+  const inputRef = useRef<TextInput>(null);
   const [feedback, setFeedback] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [didSucceed, setDidSucceed] = useState(false);
-  const sheetRef = useRef<BottomSheetModal>(null);
+
+  // Force KAV remount on Android when keyboard hides to fix height not resetting.
+  // We debounce to avoid reacting to the hide event caused by the remount itself.
+  const [kavKey, setKavKey] = useState(0);
+  const remountTimer = useRef<any>(null);
+  useEffect(() => {
+    if (Platform.OS !== 'android' || !visible) return;
+    const sub = Keyboard.addListener('keyboardDidHide', () => {
+      if (remountTimer.current) clearTimeout(remountTimer.current);
+      remountTimer.current = setTimeout(() => {
+        setKavKey((k) => k + 1);
+      }, 100);
+    });
+    const showSub = Keyboard.addListener('keyboardDidShow', () => {
+      // Cancel any pending remount if the keyboard comes back up
+      if (remountTimer.current) {
+        clearTimeout(remountTimer.current);
+        remountTimer.current = null;
+      }
+    });
+    return () => {
+      sub.remove();
+      showSub.remove();
+      if (remountTimer.current) clearTimeout(remountTimer.current);
+    };
+  }, [visible]);
 
   const canSubmit = useMemo(() => feedback.trim().length > 0 && !isSubmitting && !didSucceed, [
     feedback,
@@ -50,14 +81,7 @@ export function FeedbackModal({
       setFeedback('');
       setIsSubmitting(false);
       setDidSucceed(false);
-    }
-  }, [visible]);
-
-  useEffect(() => {
-    if (visible) {
-      sheetRef.current?.present();
-    } else {
-      sheetRef.current?.dismiss();
+      setKavKey(0);
     }
   }, [visible]);
 
@@ -88,74 +112,159 @@ export function FeedbackModal({
   }, [feedback, isSubmitting, onClose, onSubmit]);
 
   return (
-    <AppBottomSheetModal ref={sheetRef} title={title} onClose={onClose} snapPoints={['80%', '90%']} initialIndex={1} >
+    <Modal
+      transparent
+      visible={visible}
+      animationType="fade"
+      statusBarTranslucent
+      onShow={() => {
+        // Simple command to focus and trigger keyboard after 150ms
+        setTimeout(() => {
+          inputRef.current?.focus();
+        }, 150);
+      }}
+    >
+      {/* Full-screen background layer (independent of KeyboardAvoidingView) */}
+      <View style={styles.fullScreenBackdrop} pointerEvents="none" />
+
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.kb}
+        key={kavKey}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.keyboardView}
       >
-        <View style={styles.content}>
-          <Text weight="medium" size="sm" color="#374151" style={styles.label}>
-            Feedback
-          </Text>
+        {/* Backdrop touch target - tap to close */}
+        <TouchableWithoutFeedback onPress={onClose}>
+          <View style={styles.backdrop} />
+        </TouchableWithoutFeedback>
 
-          <TextInput
-            value={feedback}
-            onChangeText={setFeedback}
-            placeholder={placeholder}
-            placeholderTextColor="#9CA3AF"
-            style={styles.input}
-            multiline
-            autoFocus
-            textAlignVertical="top"
-          />
+        {/* Modal Card */}
+        <View style={[styles.card, { marginBottom: insets.bottom + 8 }]}>
+          {/* Handle */}
+          <View style={styles.handleRow}>
+            <View style={styles.handle} />
+          </View>
 
-          {didSucceed ? (
-            <View style={styles.successRow}>
-              <Text weight="medium" size="sm" color="#16A34A">
-                Thanks! Your feedback was sent.
-              </Text>
-            </View>
-          ) : null}
-
-          <View style={styles.actionsRow}>
-            <Button
-              variant="ghost"
-              fullWidth
-              style={[styles.actionButton, styles.cancelButton]}
-              textColor="#111827"
-              onPress={onClose}
-              disabled={isSubmitting}
-            >
-              Cancel
-            </Button>
-
-            <Pressable
-              style={[styles.submitWrap, !canSubmit && styles.submitWrapDisabled]}
-              onPress={handleSubmit}
-              disabled={!canSubmit}
-            >
-              {isSubmitting ? (
-                <ActivityIndicator color="#FFF" />
-              ) : (
-                <Text weight="semiBold" size="md" color="#FFF">
-                  Submit
-                </Text>
-              )}
+          {/* Header */}
+          <View style={styles.header}>
+            <Pressable onPress={onClose} style={styles.closeButton} hitSlop={10}>
+              <X size={20} color="#111827" />
             </Pressable>
+            <Text weight="bold" size="lg" color="#111827" style={styles.headerTitle}>
+              {title}
+            </Text>
+            <View style={{ width: 40 }} />
+          </View>
+
+          {/* Content */}
+          <View style={styles.content}>
+            <Text weight="medium" size="sm" color="#374151" style={styles.label}>
+              Feedback
+            </Text>
+
+            <TextInput
+              ref={inputRef}
+              value={feedback}
+              onChangeText={setFeedback}
+              placeholder={placeholder}
+              placeholderTextColor="#9CA3AF"
+              style={styles.input}
+              multiline
+              autoFocus={kavKey === 0}
+              textAlignVertical="top"
+            />
+
+            {didSucceed ? (
+              <View style={styles.successRow}>
+                <Text weight="medium" size="sm" color="#16A34A">
+                  Thanks! Your feedback was sent.
+                </Text>
+              </View>
+            ) : null}
+
+            <View style={styles.actionsRow}>
+              <Button
+                variant="ghost"
+                fullWidth
+                style={[styles.actionButton, styles.cancelButton]}
+                textColor="#111827"
+                onPress={onClose}
+                disabled={isSubmitting}
+              >
+                Cancel
+              </Button>
+
+              <Pressable
+                style={[styles.submitWrap, !canSubmit && styles.submitWrapDisabled]}
+                onPress={handleSubmit}
+                disabled={!canSubmit}
+              >
+                {isSubmitting ? (
+                  <ActivityIndicator color="#FFF" />
+                ) : (
+                  <Text weight="semiBold" size="md" color="#FFF">
+                    Submit
+                  </Text>
+                )}
+              </Pressable>
+            </View>
           </View>
         </View>
       </KeyboardAvoidingView>
-    </AppBottomSheetModal>
+    </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  kb: {
-    width: '100%',
+  keyboardView: {
+    flex: 1,
+    justifyContent: 'flex-end',
+  },
+  fullScreenBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+  },
+  backdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  card: {
+    marginHorizontal: 10,
+    backgroundColor: '#E8ECF0',
+    borderRadius: 28,
+    overflow: 'hidden',
+  },
+  handleRow: {
+    alignItems: 'center',
+    paddingTop: 10,
+    paddingBottom: 6,
+  },
+  handle: {
+    width: 40,
+    height: 4,
+    backgroundColor: '#6B7280',
+    borderRadius: 2,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 24,
+    paddingBottom: 16,
+  },
+  closeButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: {
+    flex: 1,
+    textAlign: 'center',
   },
   content: {
-    width: '100%',
-    paddingTop: 4,
+    paddingHorizontal: 24,
+    paddingBottom: 24,
   },
   label: {
     marginBottom: 8,
@@ -197,4 +306,3 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
 });
-

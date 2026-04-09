@@ -23,7 +23,7 @@
 
 // 1. React & React Native
 import React from "react";
-import { View, Pressable, StyleSheet } from "react-native";
+import { View, Pressable, StyleSheet, Platform } from "react-native";
 
 // 2. Expo & Third-party
 import Animated, { FadeInUp, useAnimatedStyle, useSharedValue, withSpring } from "react-native-reanimated";
@@ -241,6 +241,8 @@ export const DEFAULT_SUGGESTIONS: Record<ConversationStage, Suggestion[]> = {
 
 const styles = StyleSheet.create({
   container: {
+    paddingTop: Spacing.xs,
+    paddingBottom: Platform.OS === 'android' ? Spacing.md : Spacing.xs,
     paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.sm,
     gap: Spacing.md,
