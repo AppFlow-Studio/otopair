@@ -18,7 +18,6 @@ import type * as cdn_assets from "../cdn_assets.js";
 import type * as chassis_variants from "../chassis_variants.js";
 import type * as checkin from "../checkin.js";
 import type * as cleanup from "../cleanup.js";
-import type * as clearAllTables from "../clearAllTables.js";
 import type * as client_logs from "../client_logs.js";
 import type * as conversion_funnels from "../conversion_funnels.js";
 import type * as crons from "../crons.js";
@@ -155,7 +154,6 @@ declare const fullApi: ApiFromModules<{
   chassis_variants: typeof chassis_variants;
   checkin: typeof checkin;
   cleanup: typeof cleanup;
-  clearAllTables: typeof clearAllTables;
   client_logs: typeof client_logs;
   conversion_funnels: typeof conversion_funnels;
   crons: typeof crons;
