@@ -3,6 +3,12 @@ import { internal } from "./_generated/api";
 
 const crons = cronJobs();
 
+crons.daily(
+  "mark-estimated-health-scores",
+  { hourUTC: 6, minuteUTC: 0 },
+  internal.checkin.markEstimatedHealthScores
+);
+
 // Run account cleanup every day at 2:00 AM
 crons.daily(
   "cleanup-expired-accounts",

@@ -147,21 +147,24 @@ export const clearCacheByEngineKey = internalMutation({
   args: { engineKey: v.string() },
   handler: async (ctx, args) => {
     const existing = await ctx.db
-      .query("enriched_engine_configs")
-      .withIndex("by_engine_config", (q) => q.eq("engineConfig", args.engineKey))
+      .query("vehicle_configs")
+      .withIndex("by_config_key", (q) => q.eq("config_key", args.engineKey))
       .first();
 
     if (!existing) return { deleted: false, id: null };
 
     const linked = await ctx.db
       .query("vehicles")
-      .withIndex("by_enriched_config", (q) =>
-        q.eq("enriched_engine_config_id", existing._id),
+      .withIndex("by_vehicle_config", (q) =>
+        q.eq("vehicle_config_id", existing._id),
       )
       .collect();
 
     for (const v of linked) {
-      await ctx.db.patch(v._id, { enriched_engine_config_id: undefined });
+      await ctx.db.patch(v._id, {
+        vehicle_config_id: undefined,
+        enriched_engine_config_id: undefined,
+      });
     }
 
     await ctx.db.delete(existing._id);

@@ -952,13 +952,7 @@ export const enrichVehicleBatchV3 = internalAction({
       configKey = possibleDupe.config_key;
     }
 
-    // STEP 4: Create enrichment run (vehicle_config_id not yet known)
-    const runId = await ctx.runMutation(
-      internal.vehicleEnrichment.v3mutations.createEnrichmentRun,
-      { vehicle_config_id: existingConfig?._id, version: "v8", trigger: "new_vehicle" },
-    );
-
-    // STEP 5: Upsert vehicle_config
+    // STEP 4: Upsert vehicle_config
     // Do NOT default drivetrain to "FWD" here — NHTSA often returns null.
     // The real drivetrain value comes from Batch 1B. Use "unknown" as placeholder.
     // Priority: args.drivetrain (from processVin) > vPicData (from getIdentity) > "unknown"
@@ -987,10 +981,14 @@ export const enrichVehicleBatchV3 = internalAction({
       },
     );
 
-    // Link enrichment run to the vehicle_config now that we have the ID
+    // STEP 5: Create enrichment run (now that vehicle_config_id is known)
+    const runId = await ctx.runMutation(
+      internal.vehicleEnrichment.v3mutations.createEnrichmentRun,
+      { vehicle_config_id: vehicleConfigId, version: "v8", trigger: "new_vehicle" },
+    );
+
     await ctx.runMutation(internal.vehicleEnrichment.v3mutations.updateEnrichmentRun, {
       run_id: runId,
-      vehicle_config_id: vehicleConfigId,
       status: "scraping",
     });
 

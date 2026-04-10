@@ -73,6 +73,7 @@ import { useRecentlyBookedMechanicIdsFromConvex } from "@/hooks/useRecentlyBooke
 import { useRecentlyBookedShopIdsFromConvex } from "@/hooks/useRecentlyBookedShopIdsFromConvex";
 import { useServiceOptionsForSelected } from "@/hooks/useServiceOptionsForSelected";
 import { useServiceVehicleSpecsForEngine } from "@/hooks/useServiceVehicleSpecsForEngine";
+import { useSmartPricing } from "@/hooks/useSmartPricing";
 import type { ServiceCategory } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
@@ -258,6 +259,8 @@ export function ServiceBottomSheet({
   const selectedVehicle = useVehicleStore((state) => state.getSelectedVehicle());
   const vehicleCount = useVehicleStore((state) => state.vehicleIds.length);
   const engineSpecs = useServiceVehicleSpecsForEngine(selectedVehicle?.engineId, selectedServiceIds);
+  const allServiceIds = useMemo(() => availableServices.map((s) => s.id), [availableServices]);
+  const smartPricing = useSmartPricing(selectedVehicle?.engineId, allServiceIds);
 
   // Compute service name for mechanic selection footer
   const mechanicFooterServiceName = useMemo(() => {
@@ -1105,11 +1108,33 @@ export function ServiceBottomSheet({
                   </Text>
                 )}
               </View>
-              {suggestion.type === "service" && (
-                <Text size="md" weight="bold" color={BrandColors.secondary}>
-                  ${suggestion.service.price}
-                </Text>
-              )}
+              {suggestion.type === "service" && (() => {
+                const sp = smartPricing[suggestion.service.id];
+                if (sp?.hasEngineData && sp.result.tier !== "contact") {
+                  return (
+                    <View style={{ alignItems: "flex-end" }}>
+                      <Text size="md" weight="bold" color={BrandColors.secondary}>
+                        {sp.formatted}
+                      </Text>
+                      <Text size="xs" weight="medium" color="#9CA3AF">
+                        {sp.result.label}
+                      </Text>
+                    </View>
+                  );
+                }
+                if (sp?.hasEngineData && sp.result.tier === "contact") {
+                  return (
+                    <Text size="xs" weight="medium" color="#9CA3AF">
+                      Contact for Quote
+                    </Text>
+                  );
+                }
+                return (
+                  <Text size="md" weight="bold" color={BrandColors.secondary}>
+                    ${suggestion.service.price}
+                  </Text>
+                );
+              })()}
             </TouchableOpacity>
           ))}
         </View>

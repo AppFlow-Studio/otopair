@@ -479,6 +479,30 @@ export const enrichVehicleSpecs = internalAction({
             specs: specs.engine_specs,
             confidenceScore,
           });
+
+          // Store timing_type on engines table
+          const timingType = specs.engine_specs.timing_type;
+          if (timingType && timingType !== "N/A") {
+            await ctx.runMutation(internal.vehicle_mutations.patchEngine, {
+              engineId: args.engineId,
+              timingType,
+            });
+          }
+
+          // Store steering_type on trims table (per spec: timing→engines, steering→trims)
+          const steeringType = specs.engine_specs.steering_type;
+          if (steeringType && steeringType !== "N/A") {
+            const engine = await ctx.runQuery(
+              internal.vehicle_mutations.getEngine,
+              { engineId: args.engineId }
+            );
+            if (engine) {
+              await ctx.runMutation(internal.vehicle_mutations.patchTrim, {
+                trimId: engine.trim_id,
+                steeringType,
+              });
+            }
+          }
         }
         if (specs.vehicle_attributes) {
           vehicleAttributes = { ...vehicleAttributes, ...specs.vehicle_attributes };
@@ -699,64 +723,64 @@ export const enrichVehicleSpecs = internalAction({
         const pricingPrompt = `You are an automotive service pricing specialist.
 
           Vehicle: ${vehicleDesc}
-          
+
           Known specs (use these):
           - Oil viscosity: ${oilViscosity}
           - Oil capacity (qts): ${oilCapacityQts}
           - Engine: ${args.displacement}L ${args.cylinders}-cyl ${args.fuelType}
           - Engine code: ${effectiveEngineCode}
-          
+
           VEHICLE ATTRIBUTES (use to mark N/A services):
           ${attrLines.length ? attrLines.join("\n") : "  (none)"}
-          
+
           KNOWN OEM PART NUMBERS (search for actual MSRP/dealer retail when pricing — use parts_cost_high as the quote buffer):
           ${knownParts || "  (none available — estimate from vehicle class)"}
-          
+
           Services to price (include ALL of them):
           ${serviceList}
-          
+
           SERVICE APPLICABILITY — Mark is_applicable: false when:
           - Power steering flush → electric power steering
           - Differential service → FWD (no rear differential)
           - Timing belt replacement → timing chain
           For N/A services: labor_hours=0, parts_cost=0, tech_notes="NOT APPLICABLE: <reason>".
-          
+
           GOAL
           For EACH service slug, return labor_hours and parts_cost_low/high for THIS vehicle.
           Use web research. Prefer primary/commercial sources over opinions.
-          
+
           ALLOWED SOURCE TYPES
           - Dealer parts sites / OEM parts catalogs (pricing references)
           - Major parts retailers (pricing references)
           - Reputable shop menus/quotes/estimates (labor references)
           - Publicly visible labor-time references (if available)
-          
+
           NOT ALLOWED
           - RepairPal
-          - Forums as a primary source (forums may only sanity-check; never “verify”)
-          
+          - Forums as a primary source (forums may only sanity-check; never "verify")
+
           CRITICAL RULES
           1) LABOR-ONLY services: parts_cost_low=0, parts_cost_high=0, parts_list=[]
           2) Do NOT invent OEM part numbers. If unconfirmed, omit part numbers.
           3) If exact trim data is missing, use the fallback ladder and widen ranges.
-          
+
           FALLBACK LADDER
           1) Exact vehicle/trim
           2) Same generation/platform
           3) Same engine code (M176) in closest Mercedes model
           4) Generic luxury performance car estimate
           When using fallback, widen ranges and state fallback in tech_notes.
-          
+
           PER-SERVICE LIMITS (must follow)
           - tech_notes: max 120 characters
           - sources: max 2 items
           - parts_list: max 4 items
-          
+
           CONFIDENCE SCORING (evidence-based)
           - 0.90+ = labor AND parts both supported by sources (2 sources total is fine)
           - 0.70–0.89 = one of labor/parts supported, other inferred via fallback ladder
           - <=0.69 = mostly inferred/estimated (must say why in tech_notes)
-          
+
           EXAMPLE FORMAT (placeholders only; do not reuse values)
           [
             {
@@ -775,7 +799,7 @@ export const enrichVehicleSpecs = internalAction({
               "sources": []
             }
           ]
-          
+
           RETURN ONLY valid JSON array (no extra text). Each element:
           [
             {
@@ -848,7 +872,14 @@ export const enrichVehicleSpecs = internalAction({
             partsCostHigh,
             confidenceScore: isApplicable ? itemConfidence : 0.90,
             techNotes,
-            ...(item.is_applicable === false && { isApplicable: false }),
+            oemIntervalMiles: item.oem_interval_miles ?? undefined,
+            oemIntervalMonths: item.oem_interval_months ?? undefined,
+            oemIntervalNote: item.oem_interval_note ?? undefined,
+            partsRequired: item.parts_required
+              ? JSON.stringify(item.parts_required)
+              : undefined,
+            isApplicable: item.is_applicable !== false ? undefined : false,
+            exclusionReason: item.exclusion_reason ?? item.not_applicable_reason ?? undefined,
           });
 
           await ctx.runMutation(internal.vehicle_mutations.logServiceEnrichment, {
@@ -934,6 +965,7 @@ export const confirmVehicleForUser = action({
     displacement: v.string(),
     cylinders: v.float64(),
     fuelType: v.string(),
+    color: v.optional(v.string()),
     drivetrain: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -959,10 +991,15 @@ export const confirmVehicleForUser = action({
       engine_id: args.engineId,
       transmission_id: args.transmissionId,
       year: args.year,
+      metadata: {
+        make: args.make,
+        model: args.model,
+        color: args.color || "",
+      },
     });
 
     // Link vehicle to user
-    await ctx.runMutation(api.vehicles.addOwner, {
+    const vehicleOwnerId = await ctx.runMutation(api.vehicles.addOwner, {
       vin,
       userId: user._id,
       nickname: `${args.year} ${args.make} ${args.model}`,
@@ -983,7 +1020,7 @@ export const confirmVehicleForUser = action({
       });
     }
 
-    return { success: true as const };
+    return { success: true as const, vehicleOwnerId };
   },
 });
 

@@ -43,10 +43,13 @@ export function useCreateBookingConvex() {
   const scheduledDate = scheduledAppointment?.date;
   const scheduledTimeHHMM = scheduledAppointment?.time ? displayTimeToHHMM(scheduledAppointment.time) : null;
 
+  // Skip query for mock shop IDs (e.g. "1", "2") — only call Convex with real IDs
+  const isConvexShopId = effectiveShopId != null && effectiveShopId.length > 10;
+
   // Slots for exact date+time (may be multiple mechanics); we'll pick the one matching selected mechanic
   const slotsForShopAndTime = useQuery(
     api.time_slots.getAvailableByShopAndDateTime,
-    effectiveShopId && scheduledDate && scheduledTimeHHMM
+    isConvexShopId && scheduledDate && scheduledTimeHHMM
       ? {
           shopId: effectiveShopId as Id<"shops">,
           date: scheduledDate,

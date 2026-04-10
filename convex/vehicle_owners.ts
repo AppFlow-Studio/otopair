@@ -1,4 +1,4 @@
-import { query } from "./_generated/server";
+import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 
 /**
@@ -142,5 +142,27 @@ export const getOwnerCount = query({
       .collect();
     
     return ownerships.filter((o) => o.status === "active").length;
+  },
+});
+
+// MUTATIONS
+
+/**
+ * Dismiss the "Finish Car Setup" card for a vehicle ownership
+ */
+export const dismissSetupCard = mutation({
+  args: { vehicleOwnerId: v.id("vehicle_owners") },
+  handler: async (ctx, { vehicleOwnerId }) => {
+    await ctx.db.patch(vehicleOwnerId, { setupCardDismissed: true });
+  },
+});
+
+/**
+ * Mark onboarding as complete (used by "Finish for now" in CarInfoStepper)
+ */
+export const markOnboardingComplete = mutation({
+  args: { vehicleOwnerId: v.id("vehicle_owners") },
+  handler: async (ctx, { vehicleOwnerId }) => {
+    await ctx.db.patch(vehicleOwnerId, { onboardingComplete: true });
   },
 });

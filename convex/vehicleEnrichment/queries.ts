@@ -7,53 +7,57 @@
 import { v } from "convex/values";
 import { internalQuery, query } from "../_generated/server";
 
-/** Look up enriched data by normalized engine config key. */
+/** Look up vehicle_config by config key. */
 export const getByEngineKey = internalQuery({
   args: { engineKey: v.string() },
   handler: async (ctx, args) => {
     return await ctx.db
-      .query("enriched_engine_configs")
-      .withIndex("by_engine_config", (q) => q.eq("engineConfig", args.engineKey))
+      .query("vehicle_configs")
+      .withIndex("by_config_key", (q) => q.eq("config_key", args.engineKey))
       .first();
   },
 });
 
-/** Find all enriched records sharing an engine code (for sibling lookup). */
+/** Find all vehicle_configs sharing an engine (for sibling lookup). */
 export const getByEngineCode = internalQuery({
   args: { engineCode: v.string() },
   handler: async (ctx, args) => {
+    const engine = await ctx.db
+      .query("engines")
+      .withIndex("by_engine_code", (q) => q.eq("engine_code", args.engineCode))
+      .first();
+    if (!engine) return [];
     return await ctx.db
-      .query("enriched_engine_configs")
-      .withIndex("by_engine_code", (q) => q.eq("engineCode", args.engineCode))
+      .query("vehicle_configs")
+      .withIndex("by_engine", (q) => q.eq("engine_id", engine._id))
       .collect();
   },
 });
 
-/** Join vehicle → enriched data via the enrichedEngineConfigId foreign key. */
+/** Join vehicle → vehicle_config via vehicle_config_id. */
 export const getForVehicle = internalQuery({
   args: { vehicleId: v.id("vehicles") },
   handler: async (ctx, args) => {
     const vehicle = await ctx.db.get(args.vehicleId);
-    if (!vehicle?.enriched_engine_config_id) return null;
-
-    return await ctx.db.get(vehicle.enriched_engine_config_id);
+    if (!vehicle?.vehicle_config_id) return null;
+    return await ctx.db.get(vehicle.vehicle_config_id);
   },
 });
 
-/** [TEST] Public query to inspect enriched data by engine key. Remove after testing. */
+/** [TEST] Public query to inspect vehicle_config by config key. */
 export const debugGetByEngineKey = query({
   args: { engineKey: v.string() },
   handler: async (ctx, args) => {
     return await ctx.db
-      .query("enriched_engine_configs")
-      .withIndex("by_engine_config", (q) => q.eq("engineConfig", args.engineKey))
+      .query("vehicle_configs")
+      .withIndex("by_config_key", (q) => q.eq("config_key", args.engineKey))
       .first();
   },
 });
 
-/** [TEST] Public delete for cleanup. Remove after testing. */
+/** [TEST] Fetch a vehicle_config by ID. */
 export const debugDeleteEnriched = query({
-  args: { id: v.id("enriched_engine_configs") },
+  args: { id: v.id("vehicle_configs") },
   handler: async (ctx, args) => {
     return await ctx.db.get(args.id);
   },

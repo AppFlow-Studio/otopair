@@ -77,7 +77,7 @@ export const getByEngineAndService = query({
 
 /**
  * Lookup labor/parts specs for an engine + multiple services (car-specific pricing).
- * Returns map of serviceId -> { labor_hours, parts_cost_avg } for pricing formula.
+ * Returns map of serviceId -> specs including confidence for Smart Pricing.
  *
  * Falls through to v3 labor_times when no legacy service_vehicle_specs exist,
  * so VDB repair estimates and empirical data flow into the pricing formula.
@@ -88,7 +88,16 @@ export const getSpecsForEngineAndServices = query({
     serviceIds: v.array(v.id("services")),
   },
   handler: async (ctx, args) => {
-    const specs: Record<string, { labor_hours: number; parts_cost_avg: number }> = {};
+    const specs: Record<
+      string,
+      {
+        labor_hours: number;
+        parts_cost_avg: number;
+        parts_cost_low: number;
+        parts_cost_high: number;
+        confidence_score: number;
+      }
+    > = {};
 
     // Resolve vehicle_config_id once for all fallback lookups
     let vehicleConfigId: string | null = null;
@@ -103,6 +112,9 @@ export const getSpecsForEngineAndServices = query({
         specs[serviceId] = {
           labor_hours: doc.labor_hours,
           parts_cost_avg: (doc.parts_cost_low + doc.parts_cost_high) / 2,
+          parts_cost_low: doc.parts_cost_low,
+          parts_cost_high: doc.parts_cost_high,
+          confidence_score: doc.confidence_score,
         };
         continue;
       }
