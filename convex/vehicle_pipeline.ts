@@ -731,10 +731,10 @@ export const enrichVehicleSpecs = internalAction({
           - Engine code: ${effectiveEngineCode}
 
           VEHICLE ATTRIBUTES (use to mark N/A services):
-          ${attrLines.length ? attrLines.join(“\n”) : “  (none)”}
+          ${attrLines.length ? attrLines.join("\n") : "  (none)"}
 
           KNOWN OEM PART NUMBERS (search for actual MSRP/dealer retail when pricing — use parts_cost_high as the quote buffer):
-          ${knownParts || “  (none available — estimate from vehicle class)”}
+          ${knownParts || "  (none available — estimate from vehicle class)"}
 
           Services to price (include ALL of them):
           ${serviceList}
@@ -743,7 +743,7 @@ export const enrichVehicleSpecs = internalAction({
           - Power steering flush → electric power steering
           - Differential service → FWD (no rear differential)
           - Timing belt replacement → timing chain
-          For N/A services: labor_hours=0, parts_cost=0, tech_notes=”NOT APPLICABLE: <reason>”.
+          For N/A services: labor_hours=0, parts_cost=0, tech_notes="NOT APPLICABLE: <reason>".
 
           GOAL
           For EACH service slug, return labor_hours and parts_cost_low/high for THIS vehicle.
@@ -757,7 +757,7 @@ export const enrichVehicleSpecs = internalAction({
 
           NOT ALLOWED
           - RepairPal
-          - Forums as a primary source (forums may only sanity-check; never “verify”)
+          - Forums as a primary source (forums may only sanity-check; never "verify")
 
           CRITICAL RULES
           1) LABOR-ONLY services: parts_cost_low=0, parts_cost_high=0, parts_list=[]
@@ -784,35 +784,35 @@ export const enrichVehicleSpecs = internalAction({
           EXAMPLE FORMAT (placeholders only; do not reuse values)
           [
             {
-              “slug”: “oil-change”,
-              “is_applicable”: true,
-              “not_applicable_reason”: null,
-              “labor_hours”: 0,
-              “parts_cost_low”: 0,
-              “parts_cost_high”: 0,
-              “confidence_score”: 0,
-              “parts_list”: [
-                { “item”: “engine oil”, “qty”: 0, “price_low”: 0, “price_high”: 0 },
-                { “item”: “oil filter”, “qty”: 0, “price_low”: 0, “price_high”: 0 }
+              "slug": "oil-change",
+              "is_applicable": true,
+              "not_applicable_reason": null,
+              "labor_hours": 0,
+              "parts_cost_low": 0,
+              "parts_cost_high": 0,
+              "confidence_score": 0,
+              "parts_list": [
+                { "item": "engine oil", "qty": 0, "price_low": 0, "price_high": 0 },
+                { "item": "oil filter", "qty": 0, "price_low": 0, "price_high": 0 }
               ],
-              “tech_notes”: “”,
-              “sources”: []
+              "tech_notes": "",
+              "sources": []
             }
           ]
 
           RETURN ONLY valid JSON array (no extra text). Each element:
           [
             {
-              “slug”: string,
-              “is_applicable”: true | false,
-              “not_applicable_reason”: string | null,
-              “labor_hours”: number,
-              “parts_cost_low”: number,
-              “parts_cost_high”: number,
-              “confidence_score”: number,
-              “parts_list”: Array<{ “item”: string, “qty”: number, “price_low”: number, “price_high”: number }>,
-              “tech_notes”: string,
-              “sources”: string[]
+              "slug": string,
+              "is_applicable": true | false,
+              "not_applicable_reason": string | null,
+              "labor_hours": number,
+              "parts_cost_low": number,
+              "parts_cost_high": number,
+              "confidence_score": number,
+              "parts_list": Array<{ "item": string, "qty": number, "price_low": number, "price_high": number }>,
+              "tech_notes": string,
+              "sources": string[]
             }
           ]`;
 
@@ -820,14 +820,14 @@ export const enrichVehicleSpecs = internalAction({
         await delay(15_000);
 
         const pricingResponse = await fetchAnthropicWithRetry(anthropicKey, {
-          model: “claude-sonnet-4-5-20250929”,
+          model: "claude-sonnet-4-5-20250929",
           max_tokens: 16000,
           temperature: 0.1,
-          messages: [{ role: “user”, content: pricingPrompt }],
+          messages: [{ role: "user", content: pricingPrompt }],
           tools: [
             {
-              type: “web_search_20250305”,
-              name: “web_search”,
+              type: "web_search_20250305",
+              name: "web_search",
               max_uses: 5,
             },
           ],

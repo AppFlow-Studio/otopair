@@ -743,7 +743,7 @@ export default defineSchema({
     annual_mileage_band: v.optional(v.string()),
     usage_pattern: v.optional(v.string()),
     last_service_when: v.optional(v.string()),
-    last_service_what: v.optional(v.string()),
+    last_service_what: v.optional(v.union(v.string(), v.array(v.string()))),
     where_serviced: v.optional(v.string()),
     current_concerns: v.optional(v.any()),
     garage_role: v.optional(v.string()),
@@ -786,7 +786,7 @@ export default defineSchema({
   maintenance_records: defineTable({
     vehicleOwnerId: v.id("vehicle_owners"),
     type: v.string(),
-    lastServiceDate: v.optional(v.string()),
+    lastServiceDate: v.optional(v.union(v.string(), v.number())),
     lastServiceMileage: v.optional(v.number()),
     customInputs: v.optional(v.any()),
     confirmedHealthyAt: v.optional(v.number()),
@@ -891,7 +891,7 @@ export default defineSchema({
     user_id: v.id("users"),
     questions_and_answers: v.optional(v.any()),
     user_intentions: v.optional(v.any()),
-    car_knowledge_level: v.optional(v.string()),
+    car_knowledge_level: v.optional(v.union(v.string(), v.number())),
     last_updated: v.optional(v.number()),
   })
     .index("by_user_id", ["user_id"]),

@@ -42,10 +42,7 @@ try {
   const lg = require("@callstack/liquid-glass");
   LiquidGlassView = lg.LiquidGlassView;
   isLiquidGlassEnabled = !!lg.isLiquidGlassSupported;
-  console.log("[LiquidGlass] supported:", lg.isLiquidGlassSupported, "view:", !!LiquidGlassView);
-} catch (e) {
-  console.log("[LiquidGlass] import failed:", e);
-}
+} catch (e) {}
 import * as Clipboard from "expo-clipboard";
 import * as Speech from "expo-speech";
 
@@ -765,6 +762,52 @@ export default function AIChatScreen() {
   // Model selector
   const [selectedModel, setSelectedModel] = useState<'pro' | 'flash'>('flash');
 
+  // Oto pill expanding menu (LiquidGlass path)
+  const [showOtoMenu, setShowOtoMenu] = useState(false);
+  const menuExpand = useSharedValue(0);
+
+  const toggleOtoMenu = useCallback(() => {
+    const next = !showOtoMenu;
+    setShowOtoMenu(next);
+    menuExpand.value = withTiming(next ? 1 : 0, { duration: 280, easing: Easing.bezier(0.25, 0.1, 0.25, 1) });
+  }, [showOtoMenu, menuExpand]);
+
+  const closeOtoMenu = useCallback(() => {
+    setShowOtoMenu(false);
+    menuExpand.value = withTiming(0, { duration: 220, easing: Easing.bezier(0.25, 0.1, 0.25, 1) });
+    setShowRightMenu(false);
+    rightMenuExpand.value = withTiming(0, { duration: 220, easing: Easing.bezier(0.25, 0.1, 0.25, 1) });
+  }, [menuExpand]);
+
+  const expandedMenuStyle = useAnimatedStyle(() => ({
+    height: menuExpand.value * 155,
+    width: menuExpand.value * 240,
+    opacity: menuExpand.value,
+    overflow: "hidden" as const,
+  }));
+
+  // Right pill expanding menu (LiquidGlass path)
+  const [showRightMenu, setShowRightMenu] = useState(false);
+  const rightMenuExpand = useSharedValue(0);
+
+  const toggleRightMenu = useCallback(() => {
+    const next = !showRightMenu;
+    setShowRightMenu(next);
+    rightMenuExpand.value = withTiming(next ? 1 : 0, { duration: 280, easing: Easing.bezier(0.25, 0.1, 0.25, 1) });
+  }, [showRightMenu, rightMenuExpand]);
+
+  const closeRightMenu = useCallback(() => {
+    setShowRightMenu(false);
+    rightMenuExpand.value = withTiming(0, { duration: 220, easing: Easing.bezier(0.25, 0.1, 0.25, 1) });
+  }, [rightMenuExpand]);
+
+  const rightExpandedStyle = useAnimatedStyle(() => ({
+    height: rightMenuExpand.value * 88,
+    width: rightMenuExpand.value * 160,
+    opacity: rightMenuExpand.value,
+    overflow: "hidden" as const,
+  }));
+
   // Drawer sidebar
   const drawerProgress = useSharedValue(0);
   const SCREEN_W = Dimensions.get('window').width;
@@ -846,12 +889,6 @@ export default function AIChatScreen() {
     opacity: interpolate(drawerProgress.value, [0, 1], [1, 0.35]),
   }));
 
-  // Oto pill press scale
-  const pillScale = useSharedValue(1);
-  const pillScaleStyle = useAnimatedStyle(() => ({
-    transform: [{ scale: pillScale.value }],
-  }));
-
   // Determine if we should show chat greeting (no messages yet)
   const showChatGreeting = state.messages.length === 0;
 
@@ -907,7 +944,8 @@ export default function AIChatScreen() {
       <Animated.View style={[{ flex: 1 }, contentFadeStyle]}>
 
       {/* Header — absolutely positioned, floats above scroll */}
-      <Animated.View style={[styles.headerFloating, { paddingTop: insets.top }]}>
+      {(showOtoMenu || showRightMenu) && <Pressable style={styles.otoMenuOverlay} onPress={closeOtoMenu} />}
+      <Animated.View style={[styles.headerFloating, { paddingTop: insets.top }, (showOtoMenu || showRightMenu) && { zIndex: 100 }]}>
         {/* Left: Hamburger circle */}
         <View style={styles.headerSide}>
           {isLiquidGlassEnabled && LiquidGlassView ? (
@@ -926,48 +964,79 @@ export default function AIChatScreen() {
           )}
         </View>
 
-        {/* Center: Oto model selector (native UIMenu) */}
+        {/* Center: Oto model selector */}
         <View style={styles.headerCenter}>
-          <MenuView
-            onPressAction={({ nativeEvent }) => {
-              Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-              if (nativeEvent.event === 'pro') setSelectedModel('pro');
-              else if (nativeEvent.event === 'flash') setSelectedModel('flash');
-            }}
-            actions={[
-              {
-                id: 'pro',
-                title: 'Oto Pro',
-                subtitle: 'Maximum quality and reasoning. Prioritizes depth over speed.',
-                image: 'sparkles',
-                state: selectedModel === 'pro' ? 'on' : 'off',
-              },
-              {
-                id: 'flash',
-                title: 'Oto Flash',
-                subtitle: 'Fast, everyday responses. Great for quick questions and tasks.',
-                image: 'bolt.fill',
-                state: selectedModel === 'flash' ? 'on' : 'off',
-              },
-            ]}
-          >
-            {isLiquidGlassEnabled && LiquidGlassView ? (
-              <Animated.View style={pillScaleStyle}>
-                <Pressable
-                  onPressIn={() => { pillScale.value = withSpring(0.96); }}
-                  onPressOut={() => { pillScale.value = withSpring(1); }}
-                >
-                  <LiquidGlassView interactive effect="regular" style={styles.glassCenterPill}>
-                    <View style={styles.pillContent}>
-                      <Text style={styles.glassTitleText} size="md" weight="semiBold">
-                        {selectedModel === 'pro' ? 'Oto Pro' : 'Oto'}
-                      </Text>
-                      <ChevronDown size={12} color="rgba(0,0,0,0.3)" />
+          {isLiquidGlassEnabled && LiquidGlassView ? (
+            <Pressable onPress={toggleOtoMenu}>
+              <LiquidGlassView interactive effect="regular" style={styles.glassCenterPill}>
+                <View style={styles.glassExpandableRow}>
+                  <Text style={styles.glassTitleText} size="md" weight="semiBold">
+                    {selectedModel === 'pro' ? 'Oto Pro' : 'Oto'}
+                  </Text>
+                </View>
+                <Animated.View style={expandedMenuStyle}>
+                  <View style={styles.otoExpandedDivider} />
+                  <Pressable
+                    onPress={() => { setSelectedModel('pro'); closeOtoMenu(); }}
+                    style={({ pressed }) => [styles.modelOptionItem, pressed && { opacity: 0.6 }]}
+                  >
+                    <View style={styles.modelOptionRow}>
+                      <Sparkles size={18} color="#000000" style={{ marginTop: 2 }} />
+                      <View style={styles.modelOptionTextContainer}>
+                        <View style={styles.modelOptionTitleRow}>
+                          <Text size="sm" weight="semiBold" style={styles.otoMenuItemText}>Oto Pro</Text>
+                          {selectedModel === 'pro' && <View style={styles.modelSelectedDot} />}
+                        </View>
+                        <Text size="xs" weight="regular" style={styles.modelOptionDescription}>
+                          Maximum quality and reasoning. Prioritizes depth over speed.
+                        </Text>
+                      </View>
                     </View>
-                  </LiquidGlassView>
-                </Pressable>
-              </Animated.View>
-            ) : (
+                  </Pressable>
+                  <Pressable
+                    onPress={() => { setSelectedModel('flash'); closeOtoMenu(); }}
+                    style={({ pressed }) => [styles.modelOptionItem, pressed && { opacity: 0.6 }]}
+                  >
+                    <View style={styles.modelOptionRow}>
+                      <Zap size={18} color="#000000" style={{ marginTop: 2 }} />
+                      <View style={styles.modelOptionTextContainer}>
+                        <View style={styles.modelOptionTitleRow}>
+                          <Text size="sm" weight="semiBold" style={styles.otoMenuItemText}>Oto Flash</Text>
+                          {selectedModel === 'flash' && <View style={styles.modelSelectedDot} />}
+                        </View>
+                        <Text size="xs" weight="regular" style={styles.modelOptionDescription}>
+                          Fast, everyday responses. Great for quick questions and tasks.
+                        </Text>
+                      </View>
+                    </View>
+                  </Pressable>
+                </Animated.View>
+              </LiquidGlassView>
+            </Pressable>
+          ) : (
+            <MenuView
+              onPressAction={({ nativeEvent }) => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                if (nativeEvent.event === 'pro') setSelectedModel('pro');
+                else if (nativeEvent.event === 'flash') setSelectedModel('flash');
+              }}
+              actions={[
+                {
+                  id: 'pro',
+                  title: 'Oto Pro',
+                  subtitle: 'Maximum quality and reasoning. Prioritizes depth over speed.',
+                  image: 'sparkles',
+                  state: selectedModel === 'pro' ? 'on' : 'off',
+                },
+                {
+                  id: 'flash',
+                  title: 'Oto Flash',
+                  subtitle: 'Fast, everyday responses. Great for quick questions and tasks.',
+                  image: 'bolt.fill',
+                  state: selectedModel === 'flash' ? 'on' : 'off',
+                },
+              ]}
+            >
               <View style={styles.modelSelectorButton}>
                 <View style={styles.pillContent}>
                   <Text style={styles.glassTitleText} size="md" weight="semiBold">
@@ -976,40 +1045,65 @@ export default function AIChatScreen() {
                   <ChevronDown size={12} color="rgba(0,0,0,0.3)" />
                 </View>
               </View>
-            )}
-          </MenuView>
+            </MenuView>
+          )}
         </View>
 
-        {/* Right: Compose pill (native UIMenu) */}
+        {/* Right: Compose pill */}
         <View style={styles.headerSideRight}>
-          <MenuView
-            onPressAction={({ nativeEvent }) => {
-              if (nativeEvent.event === 'new_chat') startNewChat();
-              if (nativeEvent.event === 'change_vehicle') startNewChat();
-            }}
-            actions={[
-              {
-                id: 'new_chat',
-                title: 'New Chat',
-                image: 'square.and.pencil',
-              },
-              {
-                id: 'change_vehicle',
-                title: 'Change Vehicle',
-                image: 'car.fill',
-              },
-            ]}
-          >
-            {isLiquidGlassEnabled && LiquidGlassView ? (
-              <LiquidGlassView interactive effect="regular" style={styles.glassIconPill}>
-                <SquarePen size={18} color="#000000" />
+          {isLiquidGlassEnabled && LiquidGlassView ? (
+            <Pressable onPress={startNewChat} onLongPress={toggleRightMenu}>
+              <LiquidGlassView interactive effect="regular" style={styles.glassRightExpandablePill}>
+                <View style={styles.glassExpandableRow}>
+                  <SquarePen size={18} color="#000000" />
+                </View>
+                <Animated.View style={rightExpandedStyle}>
+                  <View style={styles.otoExpandedDivider} />
+                  <Pressable
+                    onPress={() => { closeRightMenu(); startNewChat(); }}
+                    style={({ pressed }) => [styles.otoExpandedItem, pressed && { opacity: 0.6 }]}
+                  >
+                    <SquarePen size={16} color="#000000" />
+                    <Text size="sm" weight="medium" style={styles.otoMenuItemText}>
+                      New Chat
+                    </Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => { closeRightMenu(); }}
+                    style={({ pressed }) => [styles.otoExpandedItem, pressed && { opacity: 0.6 }]}
+                  >
+                    <CarFront size={16} color="#000000" />
+                    <Text size="sm" weight="medium" style={styles.otoMenuItemText}>
+                      Change Vehicle
+                    </Text>
+                  </Pressable>
+                </Animated.View>
               </LiquidGlassView>
-            ) : (
+            </Pressable>
+          ) : (
+            <MenuView
+              onPressAction={({ nativeEvent }) => {
+                if (nativeEvent.event === 'new_chat') startNewChat();
+                if (nativeEvent.event === 'change_vehicle') startNewChat();
+              }}
+              actions={[
+                {
+                  id: 'new_chat',
+                  title: 'New Chat',
+                  image: 'square.and.pencil',
+                },
+                {
+                  id: 'change_vehicle',
+                  title: 'Change Vehicle',
+                  image: 'car.fill',
+                },
+              ]}
+            >
               <View style={styles.headerIcon}>
                 <SquarePen size={20} color="#000000" />
               </View>
-            )}
-          </MenuView>
+            </MenuView>
+          )}
         </View>
       </Animated.View>
 
@@ -1287,10 +1381,6 @@ const styles = StyleSheet.create({
     borderRadius: 22,
     paddingHorizontal: 14,
     paddingVertical: 8,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowRadius: 3,
-    shadowOpacity: 0.08,
   },
   pillContent: {
     flexDirection: "row",
@@ -1332,6 +1422,34 @@ const styles = StyleSheet.create({
   },
   otoMenuItemText: {
     color: "#000000",
+  },
+  modelOptionItem: {
+    paddingVertical: 10,
+    paddingHorizontal: 2,
+  },
+  modelOptionRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 10,
+  },
+  modelOptionTextContainer: {
+    flex: 1,
+    gap: 2,
+  },
+  modelOptionTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  modelOptionDescription: {
+    color: "rgba(0, 0, 0, 0.45)",
+    lineHeight: 16,
+  },
+  modelSelectedDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#007AFF",
   },
   content: {
     flex: 1,

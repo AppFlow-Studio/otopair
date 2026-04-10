@@ -184,9 +184,20 @@ export const upsertTrimSpecs = internalMutation({
       )
       .first();
 
+    // Resolve trim_id: vehicle_config → engine → trim_id
+    const config = await ctx.db.get(args.vehicle_config_id);
+    let trimId = config?.engine_id
+      ? (await ctx.db.get(config.engine_id))?.trim_id
+      : undefined;
+    if (!trimId && !existing) {
+      console.warn(`[upsertTrimSpecs] No trim_id found for config ${args.vehicle_config_id}, skipping insert`);
+      return null;
+    }
+
     // Map v3 arg names → schema field names
     const patch: Record<string, unknown> = {
       vehicle_config_id: args.vehicle_config_id,
+      ...(trimId ? { trim_id: trimId } : {}),
     };
     // Tires: v3 names → legacy schema names
     if (args.front_tire_size !== undefined) patch.tire_size_front = args.front_tire_size;
@@ -587,7 +598,7 @@ export const addEvidenceBatch = internalMutation({
 
 export const createEnrichmentRun = internalMutation({
   args: {
-    vehicle_config_id: v.optional(v.id("vehicle_configs")),
+    vehicle_config_id: v.id("vehicle_configs"),
     version: v.string(),
     trigger: v.string(),
   },
@@ -625,7 +636,7 @@ export const updateEnrichmentRun = internalMutation({
     fill_rate: v.optional(v.float64()),
     fields_changed: v.optional(v.array(v.string())),
     errors: v.optional(v.array(v.string())),
-    batch_ids: v.optional(v.string()),
+    batch_ids: v.optional(v.array(v.string())),
     scrape_cache_hit: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {

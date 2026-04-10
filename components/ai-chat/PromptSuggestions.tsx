@@ -42,10 +42,7 @@ try {
   const lg = require("@callstack/liquid-glass");
   LiquidGlassView = lg.LiquidGlassView;
   isLiquidGlassEnabled = !!lg.isLiquidGlassSupported;
-  console.log("[PromptSuggestions] LiquidGlass supported:", isLiquidGlassEnabled, "view:", !!LiquidGlassView);
-} catch (e) {
-  console.log("[PromptSuggestions] LiquidGlass import failed:", e);
-}
+} catch (e) {}
 
 // ============================================================================
 // TYPES
