@@ -84,6 +84,11 @@ export default defineSchema({
     vin: v.string(), // canonical VIN reference
     created_at: v.float64(),
     updated_at: v.float64(),
+    // Reschedule fields — store original values so they can be reverted if customer declines
+    previous_scheduled_date: v.optional(v.string()),
+    previous_scheduled_time: v.optional(v.string()),
+    previous_mechanic_id: v.optional(v.id("mechanics")),
+    reschedule_proposed_at: v.optional(v.float64()),
   })
     .index("by_user_id", ["user_id"])
     .index("by_shop_id", ["shop_id"])
@@ -586,18 +591,71 @@ export default defineSchema({
     address: v.string(),
     city: v.string(),
     is_active: v.boolean(),
-    is_verified: v.boolean(),
-    labor_rate: v.float64(),
-    lat: v.float64(),
-    lng: v.float64(),
+    is_verified: v.optional(v.boolean()),
+    labor_rate: v.optional(v.float64()),
+    lat: v.optional(v.float64()),
+    lng: v.optional(v.float64()),
     name: v.string(),
     phone: v.string(),
-    rating: v.float64(),
-    review_count: v.float64(),
+    rating: v.optional(v.float64()),
+    review_count: v.optional(v.float64()),
     slug: v.string(),
     state: v.string(),
     zip: v.string(),
-  }),
+    // Portal additions (ticket 2.1)
+    owner_user_id: v.optional(v.id("users")),
+    description: v.optional(v.string()),
+    logo: v.optional(v.id("cdn_assets")),
+    stripe_connect_account_id: v.optional(v.string()),
+    onboarding_complete: v.optional(v.boolean()),
+    email: v.optional(v.string()),
+    website: v.optional(v.string()),
+  })
+    .index("by_slug", ["slug"])
+    .index("by_owner_user_id", ["owner_user_id"]),
+
+  // Portal tables (ticket 2.1)
+
+  shop_users: defineTable({
+    user_id: v.id("users"),
+    shop_id: v.id("shops"),
+    role: v.string(), // "owner" | "manager" | "mechanic"
+    mechanic_id: v.optional(v.id("mechanics")),
+    permissions: v.optional(v.array(v.string())),
+    is_active: v.boolean(),
+    invited_at: v.float64(),
+    accepted_at: v.optional(v.float64()),
+    created_at: v.float64(),
+    updated_at: v.float64(),
+    isPendingDeletion: v.optional(v.boolean()),
+    deletionRequestedAt: v.optional(v.float64()),
+    deletionSurveyReason: v.optional(v.string()),
+    deletionSurveyResponse: v.optional(v.string()),
+    deletionSurveyImprovement: v.optional(v.string()), // follows deletionSurveyResponse intentionally
+  })
+    .index("by_user_id", ["user_id"])
+    .index("by_shop_id", ["shop_id"])
+    .index("by_user_and_shop", ["user_id", "shop_id"])
+    .index("by_shop_and_role", ["shop_id", "role"]),
+
+  shop_invitations: defineTable({
+    shop_id: v.id("shops"),
+    invited_by: v.id("users"),
+    email: v.string(),
+    role: v.string(), // "manager" | "mechanic"
+    mechanic_id: v.optional(v.id("mechanics")),
+    clerk_invitation_id: v.optional(v.string()),
+    status: v.string(), // "pending" | "accepted" | "expired" | "revoked"
+    token: v.string(),
+    expires_at: v.float64(),
+    accepted_at: v.optional(v.float64()),
+    created_at: v.float64(),
+  })
+    .index("by_shop_id", ["shop_id"])
+    .index("by_email", ["email"])
+    .index("by_token", ["token"])
+    .index("by_status", ["status"])
+    .index("by_clerk_invitation_id", ["clerk_invitation_id"]),
 
   /**
    * TABLE: cdn_assets
@@ -702,13 +760,20 @@ export default defineSchema({
    *   FK → mechanics(mechanic_id)
    *   Becomes-reference → bookings (via time_slot_id)
    */
+  block_time_types: defineTable({
+    shop_id: v.id("shops"),
+    title: v.string(),
+  }).index("by_shop_id", ["shop_id"]),
+
   time_slots: defineTable({
     date: v.string(),
     end_time: v.string(),
     is_available: v.boolean(),
     mechanic_id: v.optional(v.id("mechanics")),
+    note: v.optional(v.string()),
     shop_id: v.id("shops"),
     start_time: v.string(),
+    title: v.optional(v.string()),
   })
     .index("by_shop_id", ["shop_id"])
     .index("by_mechanic_id", ["mechanic_id"])
@@ -948,8 +1013,13 @@ export default defineSchema({
     isPendingDeletion: v.optional(v.boolean()),
     deletionSurveyResponse: v.optional(v.string()),
     deletionSurveySkipped: v.optional(v.boolean()),
+    // Portal additions (ticket 2.1)
+    role: v.optional(v.string()), // "user" | "shop_owner" | "shop_manager" | "shop_mechanic" | "admin"
+    stripe_customer_id: v.optional(v.string()),
+    push_token: v.optional(v.string()),
   }).index("by_clerkUserId", ["clerkUserId"])
-    .index("by_isPendingDeletion", ["isPendingDeletion"]),
+    .index("by_isPendingDeletion", ["isPendingDeletion"])
+    .index("by_email", ["email"]),
 
   // ============================================================================
   // OEM PARTS & NORMALIZATION
