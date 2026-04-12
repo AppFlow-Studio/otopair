@@ -287,8 +287,16 @@ export const updateProfile = mutation({
     if (args.emailConfirmed !== undefined) updates.emailConfirmed = args.emailConfirmed;
     if (args.first_name !== undefined) updates.first_name = args.first_name;
     if (args.last_name !== undefined) updates.last_name = args.last_name;
-    if (args.profile_photo_url !== undefined) updates.profile_photo_url = args.profile_photo_url;
-    if (args.profile_photo_storage_id !== undefined) updates.profile_photo_storage_id = args.profile_photo_storage_id;
+    if (args.profile_photo_url !== undefined) {
+      updates.profile_photo_url =
+        args.profile_photo_url === null ? undefined : args.profile_photo_url;
+    }
+    if (args.profile_photo_storage_id !== undefined) {
+      updates.profile_photo_storage_id =
+        args.profile_photo_storage_id === null
+          ? undefined
+          : args.profile_photo_storage_id;
+    }
     if (args.tellUsAboutCompleted !== undefined) updates.tellUsAboutCompleted = args.tellUsAboutCompleted;
     if (args.language !== undefined) updates.language = args.language;
     if (args.units !== undefined) updates.units = args.units;

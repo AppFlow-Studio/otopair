@@ -4,8 +4,10 @@ import { v } from "convex/values";
 /**
  * specs.ts - Subsystem specification & intelligence access layer
  *
- * Manages engine, transmission, and trim specs plus consolidated vehicle
- * intelligence packs that include fitments and confidence scoring.
+ * Engine specs now live directly on the `engines` table (unified schema).
+ * Transmission specs now live directly on the `transmissions` table.
+ * Trim specs remain in `trim_specs` (unchanged).
+ * Fitments use the unified `part_fitments` table.
  */
 
 const assertConfidence = (value: number) => {
@@ -30,58 +32,27 @@ export const upsertEngineSpecs = mutation({
   args: {
     engine_id: v.id("engines"),
     oil_viscosity: v.optional(v.string()),
-    oil_capacity_qts: v.optional(v.float64()),
+    oil_capacity_qts: v.optional(v.number()),
     coolant_type: v.optional(v.string()),
-    coolant_capacity_qts: v.optional(v.float64()),
-    brake_fluid_type: v.optional(v.string()),
-    oil_change_interval: v.optional(v.string()),
-    cabin_air_filter_interval: v.optional(v.string()),
-    engine_air_filter_interval: v.optional(v.string()),
-    spark_plug_interval: v.optional(v.string()),
-    serpentine_belt_interval: v.optional(v.string()),
-    brake_fluid_interval: v.optional(v.string()),
-    coolant_interval: v.optional(v.string()),
-    transmission_fluid_interval: v.optional(v.string()),
-    tire_rotation_interval: v.optional(v.string()),
-    confidence_score: v.float64(),
+    coolant_capacity_qts: v.optional(v.number()),
+    confidence_score: v.number(),
   },
   handler: async (ctx, args) => {
     assertConfidence(args.confidence_score);
 
-    const existing = await ctx.db
-      .query("engine_specs")
-      .withIndex("by_engine", (q) => q.eq("engine_id", args.engine_id))
-      .unique();
+    const engine = await ctx.db.get(args.engine_id);
+    if (!engine) throw new Error("Engine not found");
 
     const payload = omitUndefined({
       oil_viscosity: args.oil_viscosity,
       oil_capacity_qts: args.oil_capacity_qts,
       coolant_type: args.coolant_type,
       coolant_capacity_qts: args.coolant_capacity_qts,
-      brake_fluid_type: args.brake_fluid_type,
-      oil_change_interval: args.oil_change_interval,
-      cabin_air_filter_interval: args.cabin_air_filter_interval,
-      engine_air_filter_interval: args.engine_air_filter_interval,
-      spark_plug_interval: args.spark_plug_interval,
-      serpentine_belt_interval: args.serpentine_belt_interval,
-      brake_fluid_interval: args.brake_fluid_interval,
-      coolant_interval: args.coolant_interval,
-      transmission_fluid_interval: args.transmission_fluid_interval,
-      tire_rotation_interval: args.tire_rotation_interval,
-      confidence_score: args.confidence_score,
+      data_quality: args.confidence_score >= 0.8 ? "high" : args.confidence_score >= 0.5 ? "medium" : "low",
     });
 
-    if (existing) {
-      await ctx.db.patch(existing._id, payload);
-      return await ctx.db.get(existing._id);
-    }
-
-    const specId = await ctx.db.insert("engine_specs", {
-      ...payload,
-      engine_id: args.engine_id,
-      created_at: Date.now(),
-    });
-    return await ctx.db.get(specId);
+    await ctx.db.patch(args.engine_id, payload);
+    return await ctx.db.get(args.engine_id);
   },
 });
 
@@ -89,36 +60,25 @@ export const upsertTransmissionSpecs = mutation({
   args: {
     transmission_id: v.id("transmissions"),
     transmission_fluid_type: v.optional(v.string()),
-    transmission_fluid_capacity_qts: v.optional(v.float64()),
+    transmission_fluid_capacity_qts: v.optional(v.number()),
     maintenance_interval: v.optional(v.string()),
-    confidence_score: v.float64(),
+    confidence_score: v.number(),
   },
   handler: async (ctx, args) => {
     assertConfidence(args.confidence_score);
 
-    const existing = await ctx.db
-      .query("transmission_specs")
-      .withIndex("by_transmission", (q) => q.eq("transmission_id", args.transmission_id))
-      .unique();
+    const transmission = await ctx.db.get(args.transmission_id);
+    if (!transmission) throw new Error("Transmission not found");
 
     const payload = omitUndefined({
-      transmission_fluid_type: args.transmission_fluid_type,
-      transmission_fluid_capacity_qts: args.transmission_fluid_capacity_qts,
-      maintenance_interval: args.maintenance_interval,
-      confidence_score: args.confidence_score,
+      fluid_type: args.transmission_fluid_type,
+      fluid_capacity_drain_fill_qts: args.transmission_fluid_capacity_qts,
+      service_method: args.maintenance_interval,
+      data_quality: args.confidence_score >= 0.8 ? "high" : args.confidence_score >= 0.5 ? "medium" : "low",
     });
 
-    if (existing) {
-      await ctx.db.patch(existing._id, payload);
-      return await ctx.db.get(existing._id);
-    }
-
-    const specId = await ctx.db.insert("transmission_specs", {
-      ...payload,
-      transmission_id: args.transmission_id,
-      created_at: Date.now(),
-    });
-    return await ctx.db.get(specId);
+    await ctx.db.patch(args.transmission_id, payload);
+    return await ctx.db.get(args.transmission_id);
   },
 });
 
@@ -127,14 +87,14 @@ export const upsertTrimSpecs = mutation({
     trim_id: v.id("trims"),
     tire_size_front: v.optional(v.string()),
     tire_size_rear: v.optional(v.string()),
-    recommended_tire_pressure_front_psi: v.optional(v.float64()),
-    recommended_tire_pressure_rear_psi: v.optional(v.float64()),
-    lug_nut_torque_ft_lbs: v.optional(v.float64()),
-    wiper_blade_driver_size_in: v.optional(v.float64()),
-    wiper_blade_passenger_size_in: v.optional(v.float64()),
-    wiper_blade_rear_size_in: v.optional(v.float64()),
+    recommended_tire_pressure_front_psi: v.optional(v.number()),
+    recommended_tire_pressure_rear_psi: v.optional(v.number()),
+    lug_nut_torque_ft_lbs: v.optional(v.number()),
+    wiper_blade_driver_size_in: v.optional(v.number()),
+    wiper_blade_passenger_size_in: v.optional(v.number()),
+    wiper_blade_rear_size_in: v.optional(v.number()),
     parking_brake_type: v.optional(v.string()),
-    confidence_score: v.float64(),
+    confidence_score: v.number(),
   },
   handler: async (ctx, args) => {
     assertConfidence(args.confidence_score);
@@ -178,20 +138,33 @@ export const upsertTrimSpecs = mutation({
 export const getEngineSpecs = query({
   args: { engine_id: v.id("engines") },
   handler: async (ctx, args) => {
-    return await ctx.db
-      .query("engine_specs")
-      .withIndex("by_engine", (q) => q.eq("engine_id", args.engine_id))
-      .unique();
+    const engine = await ctx.db.get(args.engine_id);
+    if (!engine) return null;
+    return {
+      _id: engine._id,
+      engine_id: engine._id,
+      oil_viscosity: engine.oil_viscosity ?? null,
+      oil_capacity_qts: engine.oil_capacity_qts ?? null,
+      coolant_type: engine.coolant_type ?? null,
+      coolant_capacity_qts: engine.coolant_capacity_qts ?? null,
+      confidence_score: engine.data_quality === "high" ? 0.9 : engine.data_quality === "medium" ? 0.7 : 0.5,
+    };
   },
 });
 
 export const getTransmissionSpecs = query({
   args: { transmission_id: v.id("transmissions") },
   handler: async (ctx, args) => {
-    return await ctx.db
-      .query("transmission_specs")
-      .withIndex("by_transmission", (q) => q.eq("transmission_id", args.transmission_id))
-      .unique();
+    const t = await ctx.db.get(args.transmission_id);
+    if (!t) return null;
+    return {
+      _id: t._id,
+      transmission_id: t._id,
+      transmission_fluid_type: t.fluid_type ?? null,
+      transmission_fluid_capacity_qts: t.fluid_capacity_drain_fill_qts ?? null,
+      maintenance_interval: t.service_method ?? null,
+      confidence_score: t.data_quality === "high" ? 0.9 : t.data_quality === "medium" ? 0.7 : 0.5,
+    };
   },
 });
 
@@ -225,40 +198,6 @@ const collectConfidence = (
   entries.push({ table, id: id as string, confidence_score: confidence });
 };
 
-const buildPartsMap = (fitmentGroups: any[][]) => {
-  const partsById: Record<string, any> = {};
-  for (const group of fitmentGroups) {
-    for (const item of group) {
-      if (item.part) {
-        partsById[item.part._id] = item.part;
-      }
-    }
-  }
-  return partsById;
-};
-
-const fetchFitmentsWithParts = async (
-  ctx: any,
-  table: "engine_part_fitments" | "transmission_part_fitments" | "trim_part_fitments",
-  indexName: string,
-  field: string,
-  value: any,
-) => {
-  const fitments = await ctx.db
-    .query(table)
-    .withIndex(indexName, (q: any) => q.eq(field, value))
-    .collect();
-
-  const expanded = await Promise.all(
-    fitments.map(async (f: any) => {
-      const part = await ctx.db.get(f.part_id);
-      return { ...f, part };
-    }),
-  );
-
-  return expanded;
-};
-
 export const getFullVehicleSpecPack = query({
   args: { vin: v.string() },
   handler: async (ctx, args) => {
@@ -280,65 +219,48 @@ export const getFullVehicleSpecPack = query({
       vehicle.chassis_id ? ctx.db.get(vehicle.chassis_id) : null,
     ]);
 
-    const [engineSpecs, transmissionSpecs, trimSpecs] = await Promise.all([
-      vehicle.engine_id
-        ? ctx.db
-            .query("engine_specs")
-            .withIndex("by_engine", (q) => q.eq("engine_id", vehicle.engine_id))
-            .unique()
-        : null,
-      vehicle.transmission_id
-        ? ctx.db
-            .query("transmission_specs")
-            .withIndex("by_transmission", (q) => q.eq("transmission_id", vehicle.transmission_id))
-            .unique()
-        : null,
-      vehicle.trim_id
-        ? ctx.db
-            .query("trim_specs")
-            .withIndex("by_trim", (q) => q.eq("trim_id", vehicle.trim_id))
-            .unique()
-        : null,
-    ]);
+    const trimSpecs = vehicle.trim_id
+      ? await ctx.db
+          .query("trim_specs")
+          .withIndex("by_trim", (q) => q.eq("trim_id", vehicle.trim_id!))
+          .unique()
+      : null;
 
-    const [engineFitments, transmissionFitments, trimFitments] = await Promise.all([
-      vehicle.engine_id
-        ? fetchFitmentsWithParts(ctx, "engine_part_fitments", "by_engine", "engine_id", vehicle.engine_id)
-        : [],
-      vehicle.transmission_id
-        ? fetchFitmentsWithParts(
-            ctx,
-            "transmission_part_fitments",
-            "by_transmission",
-            "transmission_id",
-            vehicle.transmission_id,
-          )
-        : [],
-      vehicle.trim_id ? fetchFitmentsWithParts(ctx, "trim_part_fitments", "by_trim", "trim_id", vehicle.trim_id) : [],
-    ]);
+    // Fitments from unified part_fitments table (keyed by vehicle_config_id)
+    const fitments = vehicle.vehicle_config_id
+      ? await ctx.db
+          .query("part_fitments")
+          .withIndex("by_vehicle_config", (q) => q.eq("vehicle_config_id", vehicle.vehicle_config_id!))
+          .collect()
+      : [];
+
+    const expandedFitments = await Promise.all(
+      fitments.map(async (f) => {
+        const part = await ctx.db.get(f.part_id);
+        return { ...f, part };
+      }),
+    );
 
     const confidenceEntries: ConfidenceEntry[] = [];
-    collectConfidence(confidenceEntries, "engine_specs", engineSpecs?._id, engineSpecs?.confidence_score);
-    collectConfidence(
-      confidenceEntries,
-      "transmission_specs",
-      transmissionSpecs?._id,
-      transmissionSpecs?.confidence_score,
-    );
+
+    // Engine spec confidence (from data_quality field)
+    if (engine) {
+      const engineConfidence = engine.data_quality === "high" ? 0.9 : engine.data_quality === "medium" ? 0.7 : 0.5;
+      collectConfidence(confidenceEntries, "engines", engine._id, engineConfidence);
+    }
+
+    // Transmission spec confidence
+    if (transmission) {
+      const transConfidence = transmission.data_quality === "high" ? 0.9 : transmission.data_quality === "medium" ? 0.7 : 0.5;
+      collectConfidence(confidenceEntries, "transmissions", transmission._id, transConfidence);
+    }
+
     collectConfidence(confidenceEntries, "trim_specs", trimSpecs?._id, trimSpecs?.confidence_score);
-
-    engineFitments.forEach((f: any) =>
-      collectConfidence(confidenceEntries, "engine_part_fitments", f._id, f.confidence_score),
-    );
-    transmissionFitments.forEach((f: any) =>
-      collectConfidence(confidenceEntries, "transmission_part_fitments", f._id, f.confidence_score),
-    );
-    trimFitments.forEach((f: any) =>
-      collectConfidence(confidenceEntries, "trim_part_fitments", f._id, f.confidence_score),
-    );
-
-    collectConfidence(confidenceEntries, "transmissions", transmission?._id, transmission?.confidence_score);
     collectConfidence(confidenceEntries, "chassis_variants", chassis_variant?._id, chassis_variant?.confidence_score);
+
+    expandedFitments.forEach((f) =>
+      collectConfidence(confidenceEntries, "part_fitments", f._id, f.confidence),
+    );
 
     const overall =
       confidenceEntries.length > 0 ? Math.min(...confidenceEntries.map((entry) => entry.confidence_score)) : null;
@@ -348,7 +270,10 @@ export const getFullVehicleSpecPack = query({
         ? confidenceEntries.reduce((min, entry) => (entry.confidence_score < min.confidence_score ? entry : min))
         : null;
 
-    const partsById = buildPartsMap([engineFitments, transmissionFitments, trimFitments]);
+    const partsById: Record<string, any> = {};
+    for (const f of expandedFitments) {
+      if (f.part) partsById[f.part._id] = f.part;
+    }
 
     return {
       vehicle,
@@ -357,14 +282,28 @@ export const getFullVehicleSpecPack = query({
       transmission,
       chassis_variant,
       specs: {
-        engine: engineSpecs,
-        transmission: transmissionSpecs,
+        engine: engine
+          ? {
+              _id: engine._id,
+              engine_id: engine._id,
+              oil_viscosity: engine.oil_viscosity ?? null,
+              oil_capacity_qts: engine.oil_capacity_qts ?? null,
+              coolant_type: engine.coolant_type ?? null,
+              coolant_capacity_qts: engine.coolant_capacity_qts ?? null,
+            }
+          : null,
+        transmission: transmission
+          ? {
+              _id: transmission._id,
+              transmission_id: transmission._id,
+              transmission_fluid_type: transmission.fluid_type ?? null,
+              transmission_fluid_capacity_qts: transmission.fluid_capacity_drain_fill_qts ?? null,
+            }
+          : null,
         trim: trimSpecs,
       },
       fitments: {
-        engine: engineFitments,
-        transmission: transmissionFitments,
-        trim: trimFitments,
+        all: expandedFitments,
       },
       partsById,
       confidence: {

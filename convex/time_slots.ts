@@ -33,7 +33,7 @@ export const getByShopAndDate = query({
       )
       .collect();
     if (args.mechanicId !== undefined) {
-      return slots.filter((s) => s.mechanic_id === undefined || s.mechanic_id === args.mechanicId);
+      return slots.filter((s) => s.mechanic_id === args.mechanicId);
     }
     return slots;
   },
@@ -91,7 +91,7 @@ export const getNextAvailableByShop = query({
         if (!s.is_available) return false;
         if (s.date < today) return false;
         if (args.mechanicId !== undefined) {
-          return s.mechanic_id === undefined || s.mechanic_id === args.mechanicId;
+          return s.mechanic_id === args.mechanicId;
         }
         return true;
       })
@@ -192,7 +192,7 @@ export const getAvailabilityByShopAndMonth = query({
     const inRange = slots.filter((s) => {
       if (s.date < startStr || s.date > endStr) return false;
       if (args.mechanicId !== undefined) {
-        return s.mechanic_id === undefined || s.mechanic_id === args.mechanicId;
+        return s.mechanic_id === args.mechanicId;
       }
       return true;
     });

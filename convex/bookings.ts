@@ -658,7 +658,10 @@ export const updateStatus = mutation({
     // When booking is freed (cancelled, no_show, completed), release the time slot so it shows available on the mechanics side
     const slotReleasingStatuses = ["cancelled", "no_show", "completed"];
     if (slotReleasingStatuses.includes(args.newStatus) && booking.time_slot_id) {
-      await ctx.db.patch(booking.time_slot_id, { is_available: true });
+      const slot = await ctx.db.get(booking.time_slot_id);
+      if (slot) {
+        await ctx.db.patch(booking.time_slot_id, { is_available: true });
+      }
     }
 
     // Log status change to history (async, non-blocking)

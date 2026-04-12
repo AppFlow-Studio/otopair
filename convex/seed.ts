@@ -1,7 +1,6 @@
 import { action, internalMutation, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
-import { v } from "convex/values";
 
 /**
  * Seed creates a demo user with clerkUserId "seed-demo-user-2". When you sign in with the
@@ -25,9 +24,6 @@ const TABLES_TO_CLEAR = [
   "conversion_funnels",
   "spec_variances",
   "spec_confirmations",
-  "manual_review_queue",
-  "ai_enrichment_logs",
-  "service_insights",
   "shop_portfolio",
   "shop_services",
   "time_slots",
@@ -39,12 +35,7 @@ const TABLES_TO_CLEAR = [
   "service_options",
   "services",
   "service_categories",
-  "vehicle_specs",
-  "engine_part_fitments",
-  "transmission_part_fitments",
-  "trim_part_fitments",
-  "engine_specs",
-  "transmission_specs",
+  "part_fitments",
   "trim_specs",
   "oem_parts",
   "chassis_variants",
@@ -406,15 +397,8 @@ export const claimSeedDataForCurrentUser = mutation({
       if (row.changed_by === seedId) await ctx.db.patch(row._id, { changed_by: currentId });
     }
 
-    const enrichRows = await ctx.db.query("ai_enrichment_logs").collect();
-    for (const row of enrichRows) {
-      if (row.reviewed_by === seedId) await ctx.db.patch(row._id, { reviewed_by: currentId });
-    }
-
-    const reviewQueueRows = await ctx.db.query("manual_review_queue").collect();
-    for (const row of reviewQueueRows) {
-      if (row.assigned_to === seedId) await ctx.db.patch(row._id, { assigned_to: currentId });
-    }
+    // ai_enrichment_logs and manual_review_queue are deprecated — now enrichment_runs
+    // enrichment_runs has no user-assignable fields, so no patching needed here
 
     await ctx.db.delete(seedId);
     return { claimed: true };
@@ -684,110 +668,34 @@ export const seed = mutation({
       fuel_type: "Gasoline",
     });
 
-    // --- Engine Specs (oil, fluids, maintenance intervals) ---
-    await ctx.db.insert("engine_specs", {
-      engine_id: engineLeId,
+    // --- Engine Specs (patched directly onto engines table) ---
+    await ctx.db.patch(engineLeId, {
       oil_viscosity: "0W-20",
       oil_capacity_qts: 4.8,
       coolant_type: "Toyota Super Long Life",
       coolant_capacity_qts: 9.2,
-      brake_fluid_type: "DOT 3",
-      oil_change_interval: "10,000 miles / 12 months",
-      cabin_air_filter_interval: "15,000 miles",
-      engine_air_filter_interval: "15,000 miles",
-      tire_rotation_interval: "5,000 miles",
-      confidence_score: 0.93,
-      created_at: now,
+      data_quality: "high",
     });
 
-    await ctx.db.insert("engine_specs", {
-      engine_id: engineSeId,
+    await ctx.db.patch(engineSeId, {
       oil_viscosity: "0W-20",
       oil_capacity_qts: 4.8,
       coolant_type: "Toyota Super Long Life",
       coolant_capacity_qts: 9.2,
-      brake_fluid_type: "DOT 3",
-      oil_change_interval: "10,000 miles / 12 months",
-      tire_rotation_interval: "5,000 miles",
-      confidence_score: 0.93,
-      created_at: now,
+      data_quality: "high",
     });
 
-    await ctx.db.insert("engine_specs", {
-      engine_id: engineAccordId,
+    await ctx.db.patch(engineAccordId, {
       oil_viscosity: "0W-20",
       oil_capacity_qts: 3.7,
       coolant_type: "Honda Type 2",
-      brake_fluid_type: "DOT 3",
-      oil_change_interval: "7,500 miles / 12 months",
-      tire_rotation_interval: "7,500 miles",
-      confidence_score: 0.9,
-      created_at: now,
+      data_quality: "high",
     });
 
     // --- Vehicle Specs (OEM part numbers for job_actuals suggested parts) ---
-    await ctx.db.insert("vehicle_specs", {
-      engine_id: engineLeId,
-      oil_viscocity: "0W-20",
-      oil_capacity_qts: "4.8",
-      oil_filter_oem: "90915-YZZD4",
-      oil_drain_plug_gasket_oem: "90430-12031",
-      front_brake_pad_oem: "04465-06200",
-      rear_brake_pad_oem: "04466-06210",
-      front_brake_rotor_oem: "43512-06820",
-      rear_brake_rotor_oem: "42431-06930",
-      parking_brake_type: "Drum-in-hat",
-      battery_group: "35",
-      battery_cca: 550,
-      engine_air_filter_oem: "17801-0H050",
-      cabin_air_filter_oem: "87139-07010",
-      spark_plug_oem: "90919-01253",
-      spark_plug_quantity: 4,
-      spark_plug_gap_mm: 1.0,
-      serpentine_belt_oem: "90916-02536",
-    });
-
-    await ctx.db.insert("vehicle_specs", {
-      engine_id: engineSeId,
-      oil_viscocity: "0W-20",
-      oil_capacity_qts: "4.8",
-      oil_filter_oem: "90915-YZZD4",
-      oil_drain_plug_gasket_oem: "90430-12031",
-      front_brake_pad_oem: "04465-06200",
-      rear_brake_pad_oem: "04466-06210",
-      front_brake_rotor_oem: "43512-06820",
-      rear_brake_rotor_oem: "42431-06930",
-      parking_brake_type: "Drum-in-hat",
-      battery_group: "35",
-      battery_cca: 550,
-      engine_air_filter_oem: "17801-0H050",
-      cabin_air_filter_oem: "87139-07010",
-      spark_plug_oem: "90919-01253",
-      spark_plug_quantity: 4,
-      spark_plug_gap_mm: 1.0,
-      serpentine_belt_oem: "90916-02536",
-    });
-
-    await ctx.db.insert("vehicle_specs", {
-      engine_id: engineAccordId,
-      oil_viscocity: "0W-20",
-      oil_capacity_qts: "3.7",
-      oil_filter_oem: "15400-PLM-A02",
-      oil_drain_plug_gasket_oem: "94109-12000",
-      front_brake_pad_oem: "45022-TVA-A00",
-      rear_brake_pad_oem: "43022-TVA-A00",
-      front_brake_rotor_oem: "45251-TVA-A00",
-      rear_brake_rotor_oem: "43251-TVA-A00",
-      parking_brake_type: "Electric",
-      battery_group: "51R",
-      battery_cca: 500,
-      engine_air_filter_oem: "17220-5PC-A00",
-      cabin_air_filter_oem: "80292-S5A-A01",
-      spark_plug_oem: "98079-56805",
-      spark_plug_quantity: 4,
-      spark_plug_gap_mm: 0.9,
-      serpentine_belt_oem: "38920-P5R-A01",
-    });
+    // These now go into service_vehicle_specs keyed by engine_id + service_id.
+    // For seed purposes we insert a generic spec row per engine.
+    // (The full OEM part data is managed via oem_parts + part_fitments in the enrichment pipeline.)
 
     // --- Service Categories ---
     const maintenanceId = await ctx.db.insert("service_categories", {
@@ -1285,28 +1193,6 @@ export const seed = mutation({
       is_labor_only: false,
       has_options: false,
       display_order: 4,
-    });
-
-    const batteryReplacementId = await ctx.db.insert("services", {
-      name: "Battery Replacement",
-      slug: "battery-replacement",
-      description: "Replace battery with OEM-spec unit and terminal clean",
-      service_category_id: maintenanceId,
-      default_labor_hours: 0.5,
-      is_labor_only: false,
-      has_options: false,
-      display_order: 5,
-    });
-
-    const wheelAlignmentId = await ctx.db.insert("services", {
-      name: "Wheel Alignment",
-      slug: "wheel-alignment",
-      description: "Four-wheel alignment check and adjustment with printed report",
-      service_category_id: maintenanceId,
-      default_labor_hours: 1.0,
-      is_labor_only: true,
-      has_options: false,
-      display_order: 6,
     });
 
     await ctx.db.insert("service_vehicle_specs", {
@@ -2118,46 +2004,40 @@ export const seed = mutation({
       drop_off_reason: undefined,
     });
 
-    // --- Service Insights ---
-    await ctx.db.insert("service_insights", {
-      engine_id: engineLeId,
-      service_id: oilChangeId,
-      avg_actual_labor_hours: 0.5,
-      avg_actual_parts_cost: 42,
-      completed_jobs_count: 10,
-      confidence_level: 0.9,
-      estimated_labor_hours: 0.5,
-      labor_variance: 0.02,
-    });
+    // --- Labor Times (replaces deprecated service_insights) ---
+    // Find or create vehicle_config for this engine
+    const configsForLabor = await ctx.db
+      .query("vehicle_configs")
+      .withIndex("by_engine", (q) => q.eq("engine_id", engineLeId))
+      .collect();
+    const laborConfigId = configsForLabor[0]?._id;
+    if (laborConfigId) {
+      await ctx.db.insert("labor_times", {
+        vehicle_config_id: laborConfigId,
+        service_id: oilChangeId,
+        book_hours: 0.5,
+        empirical_hours: 0.5,
+        empirical_sample_size: 10,
+        source: "seed",
+        confidence: 0.9,
+        data_quality: "high",
+        created_at: now,
+      });
+    }
 
-    // --- AI Enrichment Logs + Manual Review Queue ---
-    const enrichLogId = await ctx.db.insert("ai_enrichment_logs", {
-      engine_id: engineLeId,
-      service_id: oilChangeId,
-      source: "openai",
-      confidence_score: 0.65,
-      enriched_data: {
-        labor_hours: 0.6,
-        parts_cost_low: 35,
-        parts_cost_high: 55,
-        tech_notes: "Standard synthetic oil change",
-      },
-      created_at: now,
-      review_status: "pending",
-      reviewed_by: undefined,
-    });
-
-    await ctx.db.insert("manual_review_queue", {
-      engine_id: engineLeId,
-      service_id: oilChangeId,
-      enrichment_log_id: enrichLogId,
-      priority: "medium",
-      reason: "low_confidence",
-      status: "pending",
-      assigned_to: undefined,
-      created_at: now,
-      resolved_at: undefined,
-    });
+    // --- Enrichment Runs (replaces deprecated ai_enrichment_logs + manual_review_queue) ---
+    if (laborConfigId) {
+      await ctx.db.insert("enrichment_runs", {
+        vehicle_config_id: laborConfigId,
+        version: "1.0",
+        trigger: "seed",
+        status: "pending",
+        total_tokens_in: 0,
+        total_tokens_out: 0,
+        fill_rate: 0.65,
+        created_at: now,
+      });
+    }
 
     // --- Spec Variances ---
     await ctx.db.insert("spec_variances", {
@@ -2205,10 +2085,10 @@ export const seedLearningPipelineDemo = mutation({
       await ctx.db.delete(b._id);
     }
 
-    // Clean service_insights so each demo run starts fresh
-    const allInsights = await ctx.db.query("service_insights").collect();
-    for (const si of allInsights) {
-      await ctx.db.delete(si._id);
+    // Clean labor_times so each demo run starts fresh (replaces deprecated service_insights)
+    const allLaborTimes = await ctx.db.query("labor_times").collect();
+    for (const lt of allLaborTimes) {
+      await ctx.db.delete(lt._id);
     }
 
     // 2. Look up existing entities
@@ -2424,58 +2304,28 @@ export const seedVehicleIntelligenceDemoData = internalMutation({
     };
 
     const ensureEngineSpecs = async (engine_id: any) => {
-      const existing = await ctx.db
-        .query("engine_specs")
-        .withIndex("by_engine", (q) => q.eq("engine_id", engine_id))
-        .unique();
-      const payload = {
+      // Patch spec fields directly onto engines table (engine_specs deprecated)
+      await ctx.db.patch(engine_id, {
         oil_viscosity: "0W-20",
         oil_capacity_qts: 4.8,
         coolant_type: "Toyota Super Long Life",
         coolant_capacity_qts: 9.2,
-        brake_fluid_type: "DOT 3",
-        oil_change_interval: "10,000 miles / 12 months",
-        cabin_air_filter_interval: "15,000 miles",
-        engine_air_filter_interval: "15,000 miles",
-        spark_plug_interval: "120,000 miles",
-        serpentine_belt_interval: "90,000 miles",
-        transmission_fluid_interval: "60,000 miles (inspect)",
-        tire_rotation_interval: "5,000 miles",
-        confidence_score: 0.93,
-      };
-      if (existing) {
-        await ctx.db.patch(existing._id, payload);
-        return (await ctx.db.get(existing._id))!;
-      }
-      const id = await ctx.db.insert("engine_specs", {
-        ...payload,
-        engine_id,
-        created_at: now,
+        spark_plug_quantity: 4,
+        spark_plug_gap_mm: 1.1,
+        data_quality: "high",
       });
-      return (await ctx.db.get(id))!;
+      return (await ctx.db.get(engine_id))!;
     };
 
     const ensureTransmissionSpecs = async (transmission_id: any) => {
-      const existing = await ctx.db
-        .query("transmission_specs")
-        .withIndex("by_transmission", (q) => q.eq("transmission_id", transmission_id))
-        .unique();
-      const payload = {
-        transmission_fluid_type: "Toyota WS ATF",
-        transmission_fluid_capacity_qts: 7.6,
-        maintenance_interval: "Inspect every 60,000 miles; service at 120,000 miles",
+      // Patch spec fields directly onto transmissions table (transmission_specs deprecated)
+      await ctx.db.patch(transmission_id, {
+        fluid_type: "Toyota WS ATF",
+        fluid_capacity_drain_fill_qts: 7.6,
         confidence_score: 0.9,
-      };
-      if (existing) {
-        await ctx.db.patch(existing._id, payload);
-        return (await ctx.db.get(existing._id))!;
-      }
-      const id = await ctx.db.insert("transmission_specs", {
-        ...payload,
-        transmission_id,
-        created_at: now,
+        data_quality: "high",
       });
-      return (await ctx.db.get(id))!;
+      return (await ctx.db.get(transmission_id))!;
     };
 
     const ensureTrimSpecs = async (trim_id: any) => {
@@ -2506,57 +2356,34 @@ export const seedVehicleIntelligenceDemoData = internalMutation({
       return (await ctx.db.get(id))!;
     };
 
-    const ensureEngineFitment = async (engine_id: any, role: string, part_id: any, extras: any) => {
+    // Unified fitment function — all fitments go into part_fitments keyed by vehicle_config_id
+    const ensurePartFitment = async (
+      vehicleConfigId: any,
+      serviceType: string,
+      partId: any,
+      extras: { quantity_needed?: number; confidence?: number; position?: string }
+    ) => {
       const existing = await ctx.db
-        .query("engine_part_fitments")
-        .withIndex("by_engine_role", (q) => q.eq("engine_id", engine_id).eq("role", role))
-        .unique();
+        .query("part_fitments")
+        .withIndex("by_config_service", (q) =>
+          q.eq("vehicle_config_id", vehicleConfigId).eq("service_type", serviceType)
+        )
+        .first();
       const payload = {
-        part_id,
-        role,
+        part_id: partId,
+        service_type: serviceType,
+        quantity_needed: extras.quantity_needed ?? 1,
+        confidence: extras.confidence ?? 0.9,
+        position: extras.position,
+        data_quality: "high" as const,
         created_at: existing ? existing.created_at : now,
-        ...extras,
       };
       if (existing) {
         await ctx.db.patch(existing._id, payload);
         return (await ctx.db.get(existing._id))!;
       }
-      const id = await ctx.db.insert("engine_part_fitments", {
-        engine_id,
-        ...payload,
-      });
-      return (await ctx.db.get(id))!;
-    };
-
-    const ensureTransmissionFitment = async (transmission_id: any, role: string, part_id: any, extras: any) => {
-      const existing = await ctx.db
-        .query("transmission_part_fitments")
-        .withIndex("by_transmission_role", (q) => q.eq("transmission_id", transmission_id).eq("role", role))
-        .unique();
-      const payload = { part_id, role, created_at: existing ? existing.created_at : now, ...extras };
-      if (existing) {
-        await ctx.db.patch(existing._id, payload);
-        return (await ctx.db.get(existing._id))!;
-      }
-      const id = await ctx.db.insert("transmission_part_fitments", {
-        transmission_id,
-        ...payload,
-      });
-      return (await ctx.db.get(id))!;
-    };
-
-    const ensureTrimFitment = async (trim_id: any, role: string, part_id: any, extras: any) => {
-      const existing = await ctx.db
-        .query("trim_part_fitments")
-        .withIndex("by_trim_role", (q) => q.eq("trim_id", trim_id).eq("role", role))
-        .unique();
-      const payload = { part_id, role, created_at: existing ? existing.created_at : now, ...extras };
-      if (existing) {
-        await ctx.db.patch(existing._id, payload);
-        return (await ctx.db.get(existing._id))!;
-      }
-      const id = await ctx.db.insert("trim_part_fitments", {
-        trim_id,
+      const id = await ctx.db.insert("part_fitments", {
+        vehicle_config_id: vehicleConfigId,
         ...payload,
       });
       return (await ctx.db.get(id))!;
@@ -2564,7 +2391,7 @@ export const seedVehicleIntelligenceDemoData = internalMutation({
 
     const ensureVehicle = async (
       vin: string,
-      fields: { trim_id: any; engine_id: any; transmission_id: any; chassis_id: any; year: number }
+      fields: { trim_id: any; engine_id: any; transmission_id: any; chassis_id: any; year: number; vehicle_config_id?: any }
     ) => {
       const normalized = vin.toUpperCase().trim();
       const rows = await ctx.db
@@ -2615,28 +2442,48 @@ export const seedVehicleIntelligenceDemoData = internalMutation({
     await ensureTransmissionSpecs(transmission._id);
     await ensureTrimSpecs(trim._id);
 
-    // --- Fitments ---
-    await ensureEngineFitment(engine._id, "oil_filter", oilFilter._id, {
-      quantity: 1,
-      confidence_score: 0.92,
-    });
-    await ensureEngineFitment(engine._id, "engine_air_filter", engineAirFilter._id, {
-      quantity: 1,
-      confidence_score: 0.9,
-    });
-    await ensureEngineFitment(engine._id, "cabin_air_filter", cabinAirFilter._id, {
-      quantity: 1,
-      confidence_score: 0.9,
-    });
+    // --- Vehicle Config (needed for part_fitments) ---
+    const configKey = `Toyota_Camry_LE_2018_${engine.engine_code ?? "2AR-FE"}`;
+    let vehicleConfig = await ctx.db
+      .query("vehicle_configs")
+      .withIndex("by_config_key", (q) => q.eq("config_key", configKey))
+      .unique();
+    if (!vehicleConfig) {
+      const vcId = await ctx.db.insert("vehicle_configs", {
+        config_key: configKey,
+        year: 2018,
+        make_id: make._id,
+        model_id: model._id,
+        trim_name: "LE",
+        engine_id: engine._id,
+        transmission_id: transmission._id,
+        enrichment_status: "seeded",
+        fill_rate: 1.0,
+        created_at: now,
+      });
+      vehicleConfig = (await ctx.db.get(vcId))!;
+    }
 
-    await ensureTransmissionFitment(transmission._id, "transmission_filter", atfFilter._id, {
-      quantity: 1,
-      confidence_score: 0.9,
+    // --- Fitments (unified part_fitments table) ---
+    await ensurePartFitment(vehicleConfig._id, "oil_filter", oilFilter._id, {
+      quantity_needed: 1,
+      confidence: 0.92,
     });
-
-    await ensureTrimFitment(trim._id, "battery", battery._id, {
-      quantity: 1,
-      confidence_score: 0.9,
+    await ensurePartFitment(vehicleConfig._id, "engine_air_filter", engineAirFilter._id, {
+      quantity_needed: 1,
+      confidence: 0.9,
+    });
+    await ensurePartFitment(vehicleConfig._id, "cabin_air_filter", cabinAirFilter._id, {
+      quantity_needed: 1,
+      confidence: 0.9,
+    });
+    await ensurePartFitment(vehicleConfig._id, "transmission_filter", atfFilter._id, {
+      quantity_needed: 1,
+      confidence: 0.9,
+    });
+    await ensurePartFitment(vehicleConfig._id, "battery", battery._id, {
+      quantity_needed: 1,
+      confidence: 0.9,
     });
 
     // --- Demo vehicle with VIN ---
@@ -2646,6 +2493,7 @@ export const seedVehicleIntelligenceDemoData = internalMutation({
       engine_id: engine._id,
       transmission_id: transmission._id,
       chassis_id: chassis._id,
+      vehicle_config_id: vehicleConfig._id,
       year: 2018,
     });
 
