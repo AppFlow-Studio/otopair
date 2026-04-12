@@ -51,6 +51,9 @@ Otopair Developer Guide_files/
 .cursor
 .cursor/
 
+# Claude local worktrees
+.claude/worktrees/
+
 #Package Lock
 package-lock.json
 
