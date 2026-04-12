@@ -1,786 +1,1682 @@
-/**
- * bookings.ts - Service Booking Management
- *
- * DESCRIPTION:
- * Central booking management API for the platform.
- * Handles creating, querying, and managing confirmed service bookings.
- * Bookings link users, vehicles, shops, mechanics, and services together.
- *
- * TABLE: bookings
- *   - Stores service appointment requests and confirmed appointments
- *   - One record per booking (user + vehicle + shop + services + time)
- *   - Status progresses: pending (user submitted) → confirmed (shop accepts) → completed/cancelled
- *   - VIN normalized to uppercase for consistency
- *   - Time slot becomes unavailable when user confirms appointment (pending); shop can then accept or cancel
- *
- * KEY ENTITIES:
- *   - bookings: Main booking records
- *   - vehicles: Vehicle catalog (by canonical VIN)
- *   - vehicle_owners: User-vehicle ownership relationships
- *   - time_slots: Available appointment slots
- *   - booking_status_history: Audit log of status changes
- *   - analytics_events: Booking event tracking
- *   - conversion_funnels: User funnel completion
- *
- * RELATIONSHIPS:
- *   - Requires active vehicle ownership (status="active")
- *   - Reserves time slot (marks unavailable)
- *   - Creates analytics event on creation
- *   - Completes conversion funnel if provided
- *
- * OWNER: Booking Team
- */
-
-import { query, mutation } from "./_generated/server";
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { mutation, query, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
-import { internal } from "./_generated/api";
+import {
+  addMinutesToHHMM,
+  getBookingEndTime,
+  overlapsBlockedSlot,
+  overlapsMechanicBooking,
+} from "../lib/schedule-overlap";
 
-/** Live Tracker stage slugs stored on bookings when status is in_progress */
-export const LIVE_STAGE_SLUGS = ["booking_confirmed", "service_in_progress", "vehicle_ready"] as const;
-export type LiveStageSlug = (typeof LIVE_STAGE_SLUGS)[number];
+/** Format "HH:MM" -> "10:00 AM" */
+function formatTime(hhmm: string): string {
+  const [h, m] = hhmm.split(":").map(Number);
+  const ampm = h >= 12 ? "PM" : "AM";
+  const hour = h % 12 || 12;
+  return `${hour}:${String(m).padStart(2, "0")} ${ampm}`;
+}
 
-/** Display title for each live stage (for currentStage in UI) */
-export const LIVE_STAGE_TITLES: Record<string, string> = {
-  booking_confirmed: "Booking Confirmed",
-  service_in_progress: "Service in Progress",
-  vehicle_ready: "Your vehicle is ready",
-};
+function toCanonicalVin(vin: string): string {
+  return vin.trim().toUpperCase();
+}
 
-/** Progress percent when no job_actuals elapsed time (stage-based fallback) */
-const LIVE_STAGE_PROGRESS: Record<string, number> = {
-  booking_confirmed: 25,
-  service_in_progress: 50,
-  vehicle_ready: 90,
-};
+function addMinutes(hhmm: string, minutesToAdd: number): string {
+  const [h, m] = hhmm.split(":").map(Number);
+  const total = h * 60 + m + minutesToAdd;
+  const hours = Math.floor(total / 60) % 24;
+  const minutes = total % 60;
+  return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
+}
+
+const RESERVED_PENDING_CUSTOMER_TITLE = "Reserved pending customer approval";
+
+async function getCurrentUser(ctx: any) {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) throw new Error("Not authenticated");
+
+  const user = await ctx.db
+    .query("users")
+    .withIndex("by_clerkUserId", (q: any) => q.eq("clerkUserId", identity.subject))
+    .unique();
+
+  if (!user) throw new Error("User not found");
+  return user;
+}
+
+/** Non-throwing variant for queries that should return null when auth is not ready. */
+async function getCurrentUserOrNull(ctx: any) {
+  const identity = await ctx.auth.getUserIdentity();
+  if (!identity) return null;
+
+  const user = await ctx.db
+    .query("users")
+    .withIndex("by_clerkUserId", (q: any) => q.eq("clerkUserId", identity.subject))
+    .unique();
+
+  return user ?? null;
+}
+
+async function requireShopStaff(ctx: any, userId: any, shopId: any) {
+  const shopUser = await ctx.db
+    .query("shop_users")
+    .withIndex("by_user_and_shop", (q: any) =>
+      q.eq("user_id", userId).eq("shop_id", shopId)
+    )
+    .first();
+
+  if (shopUser && shopUser.is_active) {
+    return shopUser;
+  }
+
+  // Fallback: legacy owners may exist on shops.owner_user_id without a shop_users row.
+  const ownedShop = await ctx.db
+    .query("shops")
+    .withIndex("by_owner_user_id", (q: any) => q.eq("owner_user_id", userId))
+    .filter((q: any) => q.eq(q.field("_id"), shopId))
+    .first();
+
+  if (ownedShop) {
+    return {
+      user_id: userId,
+      shop_id: shopId,
+      role: "owner",
+      is_active: true,
+    };
+  }
+
+  throw new Error("Not authorized for this shop");
+}
+
+async function getPrimaryAuthorizedShop(ctx: any, userId: any) {
+  const activeMembership = await ctx.db
+    .query("shop_users")
+    .withIndex("by_user_id", (q: any) => q.eq("user_id", userId))
+    .filter((q: any) => q.eq(q.field("is_active"), true))
+    .first();
+
+  if (activeMembership) {
+    return { shopId: activeMembership.shop_id, role: activeMembership.role };
+  }
+
+  const ownedShop = await ctx.db
+    .query("shops")
+    .withIndex("by_owner_user_id", (q: any) => q.eq("owner_user_id", userId))
+    .first();
+
+  if (ownedShop) {
+    return { shopId: ownedShop._id, role: "owner" };
+  }
+
+  return null;
+}
+
+async function resolveVehicleLabel(
+  ctx: any,
+  vin: string
+): Promise<{ full: string; short: string }> {
+  const vehicle = await ctx.db
+    .query("vehicles")
+    .withIndex("by_vin", (q: any) => q.eq("vin", vin))
+    .first();
+
+  if (!vehicle) return { full: vin, short: vin };
+
+  let makeName = "";
+  let modelName = "";
+
+  if (vehicle.trim_id) {
+    const trim = await ctx.db.get(vehicle.trim_id);
+    if (trim) {
+      const model = await ctx.db.get(trim.model_id);
+      if (model) {
+        modelName = model.name;
+        const make = await ctx.db.get(model.make_id);
+        if (make) makeName = make.name;
+      }
+    }
+  }
+
+  if (!makeName && vehicle.metadata?.make) makeName = String(vehicle.metadata.make);
+  if (!modelName && vehicle.metadata?.model) modelName = String(vehicle.metadata.model);
+
+  const full = [vehicle.year, makeName, modelName].filter(Boolean).join(" ") || vin;
+  const makeAbbr = makeName ? `${makeName[0]}.` : "";
+  const short = [vehicle.year, makeAbbr, modelName].filter(Boolean).join(" ") || vin;
+  return { full, short };
+}
+
+async function resolveServiceNames(ctx: any, serviceIds?: Array<any>) {
+  if (!serviceIds || serviceIds.length === 0) return [] as string[];
+  const names = await Promise.all(
+    serviceIds.map(async (serviceId) => {
+      const service = await ctx.db.get(serviceId);
+      return service?.name ?? "Unknown Service";
+    })
+  );
+  return names;
+}
+
+function getTodayString() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function getDateOffsetString(offsetDays: number) {
+  const date = new Date();
+  date.setUTCDate(date.getUTCDate() + offsetDays);
+  return date.toISOString().slice(0, 10);
+}
+
+function compareBookingsBySchedule(a: any, b: any) {
+  const dateCompare = a.scheduled_date.localeCompare(b.scheduled_date);
+  if (dateCompare !== 0) return dateCompare;
+  return a.scheduled_time.localeCompare(b.scheduled_time);
+}
+
+function formatCustomerName(customer: any) {
+  return (
+    `${customer?.first_name ?? ""} ${customer?.last_name ?? ""}`.trim() ||
+    customer?.email ||
+    "Unknown"
+  );
+}
+
+async function getMechanicMembershipForUser(ctx: any, userId: any, shopId: any) {
+  const membership = await ctx.db
+    .query("shop_users")
+    .withIndex("by_user_and_shop", (q: any) =>
+      q.eq("user_id", userId).eq("shop_id", shopId)
+    )
+    .first();
+
+  if (!membership || !membership.is_active || !membership.mechanic_id) {
+    return null;
+  }
+
+  const mechanic = await ctx.db.get(membership.mechanic_id);
+  if (!mechanic || !mechanic.is_active) {
+    return null;
+  }
+
+  return { membership, mechanic };
+}
+
+async function mapBookingListItem(ctx: any, booking: any) {
+  const customer = await ctx.db.get(booking.user_id);
+  const vehicleLabels = await resolveVehicleLabel(ctx, booking.vin);
+  const serviceNames = await resolveServiceNames(ctx, booking.service_ids);
+  const mechanic = booking.mechanic_id
+    ? await ctx.db.get(booking.mechanic_id)
+    : null;
+
+  return {
+    _id: booking._id,
+    _creationTime: booking._creationTime,
+    status: booking.status,
+    scheduledDate: booking.scheduled_date,
+    scheduledTime: booking.scheduled_time,
+    customerName: formatCustomerName(customer),
+    customerEmail: customer?.email ?? "",
+    vehicle: vehicleLabels.full,
+    vehicleShort: vehicleLabels.short,
+    serviceNames,
+    laborCost: booking.labor_cost,
+    partsCost: booking.parts_cost,
+    totalCost: booking.total_cost,
+    estimatedLaborMinutes: booking.estimated_labor_minutes ?? null,
+    mechanicId: booking.mechanic_id ?? null,
+    mechanicName: mechanic
+      ? `${mechanic.first_name} ${mechanic.last_name}`.trim()
+      : null,
+  };
+}
+
+async function mapMechanicDashboardJob(ctx: any, booking: any) {
+  const customer = await ctx.db.get(booking.user_id);
+  const vehicleLabels = await resolveVehicleLabel(ctx, booking.vin);
+  const serviceNames = await resolveServiceNames(ctx, booking.service_ids);
+
+  const customerFirstName =
+    customer?.first_name?.trim() ||
+    customer?.email?.split("@")[0] ||
+    "Customer";
+  const customerLastInitial = customer?.last_name?.trim()
+    ? `${customer.last_name.trim()[0]}.`
+    : "";
+
+  return {
+    _id: booking._id,
+    status: booking.status,
+    liveStage: booking.live_stage ?? null,
+    scheduledDate: booking.scheduled_date,
+    scheduledTime: booking.scheduled_time,
+    customerName: formatCustomerName(customer),
+    customerDisplayName: [customerFirstName, customerLastInitial]
+      .filter(Boolean)
+      .join(" "),
+    vehicle: vehicleLabels.full,
+    vehicleShort: vehicleLabels.short,
+    serviceNames,
+    estimatedLaborMinutes: booking.estimated_labor_minutes ?? null,
+    totalCost: booking.total_cost,
+  };
+}
+
+async function getOrCreateSlot(
+  ctx: any,
+  shopId: any,
+  mechanicId: any,
+  date: string,
+  startTime: string,
+  durationMinutes: number
+) {
+  const endTime = addMinutes(startTime, durationMinutes);
+  const slots = await ctx.db
+    .query("time_slots")
+    .withIndex("by_shop_and_date", (q: any) => q.eq("shop_id", shopId).eq("date", date))
+    .collect();
+
+  const existing = slots.find(
+    (slot: any) =>
+      slot.start_time === startTime &&
+      slot.end_time === endTime &&
+      (slot.mechanic_id ?? null) === (mechanicId ?? null)
+  );
+
+  if (existing) {
+    if (existing.is_available || existing.title !== undefined || existing.note !== undefined) {
+      await ctx.db.patch(existing._id, {
+        is_available: false,
+        note: undefined,
+        title: undefined,
+      });
+    }
+    return existing._id;
+  }
+
+  return await ctx.db.insert("time_slots", {
+    date,
+    end_time: endTime,
+    is_available: false,
+    mechanic_id: mechanicId,
+    shop_id: shopId,
+    start_time: startTime,
+  });
+}
+
+async function findExactSlot(
+  ctx: any,
+  shopId: any,
+  mechanicId: any,
+  date: string,
+  startTime: string,
+  durationMinutes: number
+) {
+  const endTime = addMinutes(startTime, durationMinutes);
+  const slots = await ctx.db
+    .query("time_slots")
+    .withIndex("by_shop_and_date", (q: any) => q.eq("shop_id", shopId).eq("date", date))
+    .collect();
+
+  return (
+    slots.find(
+      (slot: any) =>
+        slot.start_time === startTime &&
+        slot.end_time === endTime &&
+        (slot.mechanic_id ?? null) === (mechanicId ?? null)
+    ) ?? null
+  );
+}
+
+async function reservePendingCustomerSlot(
+  ctx: any,
+  shopId: any,
+  mechanicId: any,
+  date: string,
+  startTime: string,
+  durationMinutes: number,
+  preferredSlotId?: any
+) {
+  const endTime = addMinutes(startTime, durationMinutes);
+  const slot =
+    (preferredSlotId ? await ctx.db.get(preferredSlotId) : null) ??
+    (await findExactSlot(ctx, shopId, mechanicId, date, startTime, durationMinutes));
+
+  if (slot) {
+    await ctx.db.patch(slot._id, {
+      is_available: false,
+      note: undefined,
+      title: RESERVED_PENDING_CUSTOMER_TITLE,
+    });
+    return slot._id;
+  }
+
+  return await ctx.db.insert("time_slots", {
+    date,
+    end_time: endTime,
+    is_available: false,
+    mechanic_id: mechanicId,
+    note: undefined,
+    shop_id: shopId,
+    start_time: startTime,
+    title: RESERVED_PENDING_CUSTOMER_TITLE,
+  });
+}
+
+async function releaseBookingSlot(ctx: any, slotId: any) {
+  const slot = await ctx.db.get(slotId);
+  if (!slot) return;
+
+  await ctx.db.patch(slotId, {
+    is_available: true,
+    note: undefined,
+    title: undefined,
+  });
+}
+
+async function logBookingStatusChange(
+  ctx: any,
+  bookingId: any,
+  oldStatus: string | undefined,
+  newStatus: string,
+  changedBy: any,
+  reason?: string
+) {
+  await ctx.db.insert("booking_status_history", {
+    booking_id: bookingId,
+    old_status: oldStatus,
+    new_status: newStatus,
+    changed_by: changedBy,
+    reason,
+    changed_at: Date.now(),
+  });
+}
 
 /**
- * QUERY: list
- * Returns all bookings in the system.
- * Use with caution - consider filtering in production.
+ * Returns all pending bookings for a shop (status "pending" or
+ * "pending_shop_acceptance") for the Pending dashboard card.
  */
-export const list = query({
-  args: {},
-  handler: async (ctx) => {
-    return await ctx.db.query("bookings").collect();
+export const getPendingJobsByShop = query({
+  args: { shopId: v.id("shops") },
+  handler: async (ctx, args) => {
+    const allPending = await Promise.all([
+      ctx.db
+        .query("bookings")
+        .withIndex("by_shop_and_status", (q) =>
+          q.eq("shop_id", args.shopId).eq("status", "pending")
+        )
+        .order("desc")
+        .collect(),
+      ctx.db
+        .query("bookings")
+        .withIndex("by_shop_and_status", (q) =>
+          q.eq("shop_id", args.shopId).eq("status", "pending_shop_acceptance")
+        )
+        .order("desc")
+        .collect(),
+    ]);
+
+    const bookings = [...allPending[0], ...allPending[1]].sort(
+      (a, b) => b.created_at - a.created_at
+    );
+
+    return await Promise.all(
+      bookings.map(async (booking) => {
+        const user = await ctx.db.get(booking.user_id);
+        const firstName = user?.first_name ?? "";
+        const lastName = user?.last_name ?? "";
+        const customerName =
+          `${firstName} ${lastName}`.trim() || user?.email || "Unknown";
+
+        const vehicleLabel = await resolveVehicleLabel(ctx, booking.vin);
+
+        let serviceName = "";
+        if (booking.service_ids && booking.service_ids.length > 0) {
+          const svc = await ctx.db.get(booking.service_ids[0]);
+          if (svc) serviceName = svc.name;
+          if (booking.service_ids.length > 1)
+            serviceName += ` +${booking.service_ids.length - 1}`;
+        }
+
+        const createdAt = booking.created_at;
+        const seconds = Math.floor((Date.now() - createdAt) / 1000);
+        let ago = "just now";
+        if (seconds >= 86400) ago = `${Math.floor(seconds / 86400)}d ago`;
+        else if (seconds >= 3600) ago = `${Math.floor(seconds / 3600)}h ago`;
+        else if (seconds >= 60) ago = `${Math.floor(seconds / 60)}m ago`;
+
+        return {
+          _id: booking._id,
+          customerName,
+          vehicle: vehicleLabel.full,
+          service: serviceName,
+          ago,
+          scheduledTime: booking.scheduled_time ? formatTime(booking.scheduled_time) : "",
+          estimatedMinutes: booking.estimated_labor_minutes ?? null,
+        };
+      })
+    );
   },
 });
 
 /**
- * QUERY: getById
- * Fetch a specific booking by ID.
- *
- * ARGS:
- *   - id: Booking ID
- *
- * RETURNS: Booking record or null if not found
+ * Returns a map of mechanic_id → active job count for the Team Status card.
+ * Used to show real "On a Job" / "Available" status per team member.
  */
-export const getById = query({
-  args: { id: v.id("bookings") },
+export const getMechanicStatuses = query({
+  args: { shopId: v.id("shops") },
   handler: async (ctx, args) => {
-    return await ctx.db.get(args.id);
-  },
-});
-
-/**
- * QUERY: getByUserId
- * Get all bookings for a specific user.
- * Used to show user's booking history.
- *
- * ARGS:
- *   - userId: User ID
- *
- * RETURNS: Array of bookings
- */
-export const getByUserId = query({
-  args: { userId: v.id("users") },
-  handler: async (ctx, args) => {
-    return await ctx.db
+    const active = await ctx.db
       .query("bookings")
-      .withIndex("by_user_id", (q) => q.eq("user_id", args.userId))
+      .withIndex("by_shop_and_status", (q) =>
+        q.eq("shop_id", args.shopId).eq("status", "in_progress")
+      )
       .collect();
+    const counts: Record<string, number> = {};
+    for (const b of active) {
+      if (b.mechanic_id) {
+        counts[b.mechanic_id] = (counts[b.mechanic_id] ?? 0) + 1;
+      }
+    }
+    return counts;
   },
 });
 
 /**
- * QUERY: getByUserIdWithDetails
- * Get all bookings for a user with shop, mechanic, vehicle, and service names resolved.
- * Used by My Bookings screen for Live Tracker, Upcoming, and History.
- *
- * ARGS:
- *   - userId: User ID
- *
- * RETURNS: Array of booking rows with display fields (shopName, shopPhone, mechanicName, vehicleDisplay, licensePlate, serviceNames, progressPercent?, currentStage?, delayMinutes?)
+ * Returns all in_progress bookings for a shop, with joined customer, vehicle,
+ * service, and mechanic data for the Active Jobs dashboard card.
  */
-export const getByUserIdWithDetails = query({
-  args: { userId: v.id("users") },
+export const getActiveJobsByShop = query({
+  args: { shopId: v.id("shops") },
   handler: async (ctx, args) => {
     const bookings = await ctx.db
       .query("bookings")
-      .withIndex("by_user_id", (q) => q.eq("user_id", args.userId))
+      .withIndex("by_shop_and_status", (q) =>
+        q.eq("shop_id", args.shopId).eq("status", "in_progress")
+      )
+      .order("desc")
       .collect();
 
-    const results = await Promise.all(
+    return await Promise.all(
       bookings.map(async (booking) => {
-        const shop = await ctx.db.get(booking.shop_id);
-        const mechanic = booking.mechanic_id ? await ctx.db.get(booking.mechanic_id) : null;
-        const shopName = shop?.name ?? "Unknown Shop";
-        const shopPhone = shop?.phone ?? "";
-        const mechanicName = mechanic ? `${mechanic.first_name} ${mechanic.last_name}` : shopName;
-        let mechanicImageUrl: string | undefined;
-        if (mechanic?.photo) {
-          const photoAsset = await ctx.db.get(mechanic.photo);
-          mechanicImageUrl = photoAsset?.url;
+        const user = await ctx.db.get(booking.user_id);
+        const firstName = user?.first_name ?? "";
+        const lastName = user?.last_name ?? "";
+        const customerName =
+          `${firstName} ${lastName}`.trim() || user?.email || "Unknown";
+
+        const vehicleLabel = await resolveVehicleLabel(ctx, booking.vin);
+
+        let serviceName = "";
+        if (booking.service_ids && booking.service_ids.length > 0) {
+          const svc = await ctx.db.get(booking.service_ids[0]);
+          if (svc) serviceName = svc.name;
+          if (booking.service_ids.length > 1)
+            serviceName += ` +${booking.service_ids.length - 1}`;
         }
 
-        const serviceIds = booking.service_ids ?? [];
-        const serviceNames = await Promise.all(
-          serviceIds.map(async (id) => {
-            const svc = await ctx.db.get(id);
-            return svc?.name ?? "";
-          })
-        ).then((a) => a.filter(Boolean));
-
-        const vehicle = await ctx.db
-          .query("vehicles")
-          .withIndex("by_vin", (q) => q.eq("vin", booking.vin))
-          .unique();
-        let vehicleDisplay = "Unknown Vehicle";
-        let licensePlate = booking.vin.slice(-4);
-        let makeLogoUrl: string | undefined;
-        if (vehicle) {
-          const parts: string[] = [];
-          if (vehicle.trim_id) {
-            const trim = await ctx.db.get(vehicle.trim_id);
-            if (trim) {
-              const model = await ctx.db.get(trim.model_id);
-              if (model) {
-                const make = await ctx.db.get(model.make_id);
-                if (make) {
-                  parts.push(make.name);
-                  if (make.logo) {
-                    const logoAsset = await ctx.db.get(make.logo);
-                    makeLogoUrl = logoAsset?.url;
-                  }
-                }
-                parts.push(model.name);
-              }
-              parts.push(trim.name);
-            }
-          }
-          if (vehicle.year != null) parts.push(String(vehicle.year));
-          if (parts.length > 0) vehicleDisplay = parts.join(" ");
-        }
-
-        let progressPercent: number | undefined;
-        let currentStage: string | undefined;
-        let delayMinutes: number | undefined;
-        const liveStage = booking.live_stage;
-        if (booking.status === "in_progress") {
-          const jobActual = await ctx.db
-            .query("job_actuals")
-            .withIndex("by_booking_id", (q) => q.eq("booking_id", booking._id))
-            .unique();
-          const estimatedMinutes = booking.estimated_labor_minutes ?? 60;
-          // Use stored live_stage for currentStage when set; else infer from job_actual
-          if (liveStage && LIVE_STAGE_TITLES[liveStage]) {
-            currentStage = LIVE_STAGE_TITLES[liveStage];
-          } else if (jobActual) {
-            currentStage = "Service in Progress";
-          } else {
-            currentStage = "Car checked in";
-          }
-          // Progress: from job_actuals elapsed when available, else from live_stage
-          if (jobActual) {
-            const elapsedMs = Date.now() - jobActual.started_at * 1000;
-            const totalMs = estimatedMinutes * 60 * 1000;
-            progressPercent = Math.min(100, Math.round((elapsedMs / totalMs) * 100));
-            const scheduledStartMs = new Date(`${booking.scheduled_date}T${booking.scheduled_time}`).getTime();
-            const lateMs = Date.now() - scheduledStartMs;
-            if (lateMs > 0) delayMinutes = Math.round(lateMs / 60000);
-          } else {
-            progressPercent = (liveStage && LIVE_STAGE_PROGRESS[liveStage]) ?? 25;
-          }
+        let mechanicName: string | null = null;
+        if (booking.mechanic_id) {
+          const mech = await ctx.db.get(booking.mechanic_id);
+          if (mech) mechanicName = `${mech.first_name} ${mech.last_name[0]}.`.trim();
         }
 
         return {
           _id: booking._id,
-          status: booking.status,
-          scheduled_date: booking.scheduled_date,
-          scheduled_time: booking.scheduled_time,
-          total_cost: booking.total_cost,
-          shop_id: booking.shop_id,
-          mechanic_id: booking.mechanic_id,
-          vin: booking.vin,
-          shopName,
-          shopPhone,
+          customerName,
+          vehicle: vehicleLabel.full,
+          service: serviceName,
+          liveStage: booking.live_stage ?? null,
           mechanicName,
-          mechanicImageUrl,
-          vehicleDisplay,
-          licensePlate,
-          makeLogoUrl,
-          serviceNames,
-          progressPercent,
-          currentStage,
-          delayMinutes,
-          liveStage: liveStage ?? undefined,
-          shopRating: shop?.rating ?? 0,
-          shopIsVerified: shop?.is_verified ?? false,
-          shopLat: shop?.lat,
-          shopLng: shop?.lng,
         };
       })
     );
-
-    return results;
   },
 });
 
 /**
- * QUERY: getRecentlyBookedShopIdsByUserId
- * Get unique shop IDs the user has booked at, ordered by most recent booking first.
- * Used to show "Recently booked" in booking flow search.
- *
- * ARGS:
- *   - userId: User ID
- *   - limit: Max number of shop IDs to return (default 5)
- *
- * RETURNS: Array of shop IDs (most recently booked first)
+ * Returns all confirmed bookings scheduled for today for a shop, with joined
+ * customer, vehicle, and service data for the Today's Bookings dashboard card.
  */
-export const getRecentlyBookedShopIdsByUserId = query({
-  args: {
-    userId: v.id("users"),
-    limit: v.optional(v.number()),
-  },
-  handler: async (ctx, args) => {
-    const limit = args.limit ?? 5;
-    const bookings = await ctx.db
-      .query("bookings")
-      .withIndex("by_user_id", (q) => q.eq("user_id", args.userId))
-      .collect();
-    // Sort by most recent booking first
-    bookings.sort((a, b) => b.created_at - a.created_at);
-    const seen = new Set<string>();
-    const shopIds: string[] = [];
-    for (const b of bookings) {
-      const id = b.shop_id;
-      if (!seen.has(id)) {
-        seen.add(id);
-        shopIds.push(id);
-        if (shopIds.length >= limit) break;
-      }
-    }
-    return shopIds;
-  },
-});
-
-/**
- * QUERY: getRecentlyBookedMechanicIdsByUserId
- * Get unique mechanic IDs the user has booked with, ordered by most recent booking first.
- * Only includes bookings that have mechanic_id set.
- *
- * ARGS:
- *   - userId: User ID
- *   - limit: Max number of mechanic IDs to return (default 5)
- *
- * RETURNS: Array of mechanic IDs (most recently booked first)
- */
-export const getRecentlyBookedMechanicIdsByUserId = query({
-  args: {
-    userId: v.id("users"),
-    limit: v.optional(v.number()),
-  },
-  handler: async (ctx, args) => {
-    const limit = args.limit ?? 5;
-    const bookings = await ctx.db
-      .query("bookings")
-      .withIndex("by_user_id", (q) => q.eq("user_id", args.userId))
-      .collect();
-    bookings.sort((a, b) => b.created_at - a.created_at);
-    const seen = new Set<string>();
-    const mechanicIds: string[] = [];
-    for (const b of bookings) {
-      const mid = b.mechanic_id;
-      if (mid && !seen.has(mid)) {
-        seen.add(mid);
-        mechanicIds.push(mid);
-        if (mechanicIds.length >= limit) break;
-      }
-    }
-    return mechanicIds;
-  },
-});
-
-/**
- * QUERY: getByShopId
- * Get all bookings for a specific shop.
- * Used by shops to view their upcoming appointments.
- *
- * ARGS:
- *   - shopId: Shop ID
- *
- * RETURNS: Array of bookings at shop
- */
-export const getByShopId = query({
+export const getTodaysBookingsByShop = query({
   args: { shopId: v.id("shops") },
   handler: async (ctx, args) => {
-    return await ctx.db
+    const today = new Date().toISOString().split("T")[0];
+
+    const bookings = await ctx.db
       .query("bookings")
-      .withIndex("by_shop_id", (q) => q.eq("shop_id", args.shopId))
+      .withIndex("by_shop_and_date", (q) =>
+        q.eq("shop_id", args.shopId).eq("scheduled_date", today)
+      )
+      .filter((q) => q.eq(q.field("status"), "confirmed"))
       .collect();
+
+    bookings.sort((a, b) => a.scheduled_time.localeCompare(b.scheduled_time));
+
+    return await Promise.all(
+      bookings.map(async (booking) => {
+        const user = await ctx.db.get(booking.user_id);
+        const firstName = user?.first_name ?? "";
+        const lastName = user?.last_name ?? "";
+        const fullName =
+          `${firstName} ${lastName}`.trim() || user?.email || "Unknown";
+        const initials =
+          `${firstName[0] ?? ""}${lastName[0] ?? ""}`.toUpperCase() || "?";
+
+        const vehicleLabel = await resolveVehicleLabel(ctx, booking.vin);
+
+        let serviceName = "";
+        if (booking.service_ids && booking.service_ids.length > 0) {
+          const svc = await ctx.db.get(booking.service_ids[0]);
+          if (svc) serviceName = svc.name;
+          if (booking.service_ids.length > 1)
+            serviceName += ` +${booking.service_ids.length - 1}`;
+        }
+
+        return {
+          _id: booking._id,
+          customerName: fullName,
+          initials,
+          vehicle: vehicleLabel.full,
+          service: serviceName,
+          scheduledTime: formatTime(booking.scheduled_time),
+          totalCost: booking.total_cost ?? 0,
+        };
+      })
+    );
   },
 });
 
 /**
- * MUTATION: create
- * Create a new service booking.
- *
- * VALIDATION:
- *   1. Vehicle with given VIN must exist
- *   2. User must own vehicle (active ownership)
- *   3. Time slot must be available
- *
- * SIDE EFFECTS:
- *   1. Marks time slot as unavailable
- *   2. Creates booking record
- *   3. Tracks analytics event
- *   4. Completes conversion funnel (if provided)
- *
- * ARGS:
- *   - user_id: User making booking
- *   - vin: Vehicle VIN (normalized to uppercase)
- *   - shop_id: Shop providing service
- *   - mechanic_id: (optional) Specific mechanic assigned
- *   - service_id: Service being booked
- *   - time_slot_id: Chosen time slot
- *   - scheduled_date: Date in YYYY-MM-DD format
- *   - scheduled_time: Time in HH:MM format
- *   - labor_cost: Estimated labor cost ($)
- *   - parts_cost: Estimated parts cost ($)
- *   - total_cost: Sum of labor + parts
- *   - session_id: (optional) Client session for analytics
- *   - funnel_id: (optional) Conversion funnel to complete
- *
- * RETURNS: Booking ID
- *
- * THROWS:
- *   - "Vehicle not found": VIN doesn't exist
- *   - "User does not own this vehicle": User lacks active ownership
- *   - "This time slot is no longer available": Slot is reserved
+ * Returns completed-job summary for today: count + collected revenue.
+ * Used by the "Completed Today" dashboard card as a complement to the
+ * Executive Summary Bar (which shows scheduled/total numbers).
  */
+export const getCompletedTodayByShop = query({
+  args: { shopId: v.id("shops") },
+  handler: async (ctx, args) => {
+    const today = new Date().toISOString().split("T")[0];
+    const bookings = await ctx.db
+      .query("bookings")
+      .withIndex("by_shop_and_date", (q) =>
+        q.eq("shop_id", args.shopId).eq("scheduled_date", today)
+      )
+      .filter((q) => q.eq(q.field("status"), "completed"))
+      .collect();
+    const count = bookings.length;
+    const revenue = bookings.reduce((sum, b) => sum + (b.total_cost ?? 0), 0);
+    return { count, revenue };
+  },
+});
+
+/** Convenience query for shop staff creating and managing jobs. */
+export const getMyShopJobContext = query({
+  args: {},
+  handler: async (ctx) => {
+    const user = await getCurrentUserOrNull(ctx);
+    if (!user) return null;
+
+    const primary = await getPrimaryAuthorizedShop(ctx, user._id);
+    if (!primary) return null;
+
+    const shop: any = await ctx.db.get(primary.shopId);
+    if (!shop) return null;
+
+    const allMechanics = await ctx.db
+      .query("mechanics")
+      .withIndex("by_shop_id", (q: any) => q.eq("shop_id", shop._id))
+      .collect();
+
+    // Only include mechanics linked to an accepted shop_user with a mechanic role
+    const mechanicShopUsers = await ctx.db
+      .query("shop_users")
+      .withIndex("by_shop_id", (q: any) => q.eq("shop_id", shop._id))
+      .filter((q: any) =>
+        q.and(
+          q.eq(q.field("is_active"), true),
+          q.neq(q.field("mechanic_id"), undefined),
+          q.neq(q.field("accepted_at"), undefined),
+          q.or(
+            q.eq(q.field("role"), "shop_mechanic"),
+            q.eq(q.field("role"), "mechanic")
+          )
+        )
+      )
+      .collect();
+
+    const acceptedMechanicIds = new Set(
+      mechanicShopUsers.map((su: any) => su.mechanic_id as string)
+    );
+
+    const mechanics = allMechanics.filter((m: any) => acceptedMechanicIds.has(m._id));
+
+    const offered = await ctx.db
+      .query("shop_services")
+      .withIndex("by_shop_id", (q: any) => q.eq("shop_id", shop._id))
+      .filter((q: any) => q.eq(q.field("is_offered"), true))
+      .collect();
+
+    const services = await Promise.all(
+      offered.map(async (entry: any) => {
+        const service: any = await ctx.db.get(entry.service_id);
+        return service
+          ? {
+              _id: service._id,
+              name: service.name,
+              isLaborOnly: service.is_labor_only,
+              defaultLaborHours: service.default_labor_hours,
+            }
+          : null;
+      })
+    );
+
+    return {
+      shopId: shop._id,
+      shopName: shop.name,
+      userRole: primary.role,
+      mechanics: mechanics.map((m: any) => ({
+        _id: m._id,
+        name: `${m.first_name} ${m.last_name}`.trim(),
+        isActive: m.is_active,
+      })),
+      services: services.filter(Boolean),
+    };
+  },
+});
+
+/** List jobs/bookings for the signed-in staff user's primary shop. */
+export const listForMyShop = query({
+  args: { status: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUserOrNull(ctx);
+    if (!user) return [];
+
+    const primary = await getPrimaryAuthorizedShop(ctx, user._id);
+    if (!primary) return [];
+    const shopId = primary.shopId;
+
+    let bookings = await ctx.db
+      .query("bookings")
+      .withIndex("by_shop_id", (q) => q.eq("shop_id", shopId))
+      .collect();
+
+    if (args.status) {
+      bookings = bookings.filter((b) => b.status === args.status);
+    }
+
+    bookings.sort(compareBookingsBySchedule);
+
+    return await Promise.all(bookings.map((booking) => mapBookingListItem(ctx, booking)));
+  },
+});
+
+/** List only the signed-in mechanic's jobs/bookings for their primary shop. */
+export const listForMyMechanic = query({
+  args: { status: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUserOrNull(ctx);
+    if (!user) return [];
+
+    const primary = await getPrimaryAuthorizedShop(ctx, user._id);
+    if (!primary) return [];
+
+    const mechanicContext = await getMechanicMembershipForUser(
+      ctx,
+      user._id,
+      primary.shopId
+    );
+    if (!mechanicContext) return [];
+
+    let bookings = await ctx.db
+      .query("bookings")
+      .withIndex("by_shop_id", (q) => q.eq("shop_id", primary.shopId))
+      .collect();
+
+    bookings = bookings.filter(
+      (booking) => String(booking.mechanic_id ?? "") === String(mechanicContext.mechanic._id)
+    );
+
+    if (args.status) {
+      bookings = bookings.filter((booking) => booking.status === args.status);
+    }
+
+    bookings.sort(compareBookingsBySchedule);
+
+    return await Promise.all(bookings.map((booking) => mapBookingListItem(ctx, booking)));
+  },
+});
+
+/** Mechanic-focused dashboard data for the signed-in mechanic's primary shop. */
+export const getMyMechanicDashboard = query({
+  args: {},
+  handler: async (ctx) => {
+    const user = await getCurrentUserOrNull(ctx);
+    if (!user) return null;
+
+    const primary = await getPrimaryAuthorizedShop(ctx, user._id);
+    if (!primary) return null;
+
+    const mechanicContext = await getMechanicMembershipForUser(
+      ctx,
+      user._id,
+      primary.shopId
+    );
+    if (!mechanicContext) return null;
+
+    const shop = await ctx.db.get(primary.shopId);
+    if (!shop) return null;
+
+    const mechanicId = mechanicContext.mechanic._id;
+    const today = getTodayString();
+    const weekStart = getDateOffsetString(-6);
+    const upcomingDates = Array.from({ length: 7 }, (_, index) =>
+      getDateOffsetString(index + 1)
+    );
+
+    const todaysJobsRaw = await ctx.db
+      .query("bookings")
+      .withIndex("by_shop_and_date", (q: any) =>
+        q.eq("shop_id", primary.shopId).eq("scheduled_date", today)
+      )
+      .collect();
+
+    const todaysJobs = todaysJobsRaw
+      .filter(
+        (booking: any) =>
+          String(booking.mechanic_id ?? "") === String(mechanicId) &&
+          booking.status !== "cancelled"
+      )
+      .sort(compareBookingsBySchedule);
+
+    const upcomingJobsRaw = (
+      await Promise.all(
+        upcomingDates.map((date) =>
+          ctx.db
+            .query("bookings")
+            .withIndex("by_shop_and_date", (q: any) =>
+              q.eq("shop_id", primary.shopId).eq("scheduled_date", date)
+            )
+            .collect()
+        )
+      )
+    ).flat();
+
+    const upcomingJobs = upcomingJobsRaw
+      .filter(
+        (booking: any) =>
+          booking.status === "confirmed" &&
+          String(booking.mechanic_id ?? "") === String(mechanicId)
+      )
+      .sort(compareBookingsBySchedule);
+
+    const completedJobs = await ctx.db
+      .query("bookings")
+      .withIndex("by_shop_and_status", (q: any) =>
+        q.eq("shop_id", primary.shopId).eq("status", "completed")
+      )
+      .collect();
+
+    const myCompletedJobs = completedJobs
+      .filter(
+        (booking: any) => String(booking.mechanic_id ?? "") === String(mechanicId)
+      )
+      .sort(compareBookingsBySchedule);
+
+    const actuals = await ctx.db
+      .query("job_actuals")
+      .withIndex("by_mechanic_id", (q: any) => q.eq("mechanic_id", mechanicId))
+      .collect();
+    const actualBookingIds = new Set(actuals.map((actual: any) => String(actual.booking_id)));
+
+    const needsActuals = myCompletedJobs.filter(
+      (booking: any) => !actualBookingIds.has(String(booking._id))
+    );
+
+    const weekCompletedCount = myCompletedJobs.filter(
+      (booking: any) =>
+        booking.scheduled_date >= weekStart && booking.scheduled_date <= today
+    ).length;
+
+    return {
+      shopId: primary.shopId,
+      shopName: shop.name,
+      role: primary.role,
+      mechanicId,
+      mechanicName: `${mechanicContext.mechanic.first_name} ${mechanicContext.mechanic.last_name}`.trim(),
+      firstName:
+        user.first_name ??
+        mechanicContext.mechanic.first_name ??
+        mechanicContext.mechanic.last_name,
+      todaysJobs: await Promise.all(
+        todaysJobs.map((booking: any) => mapMechanicDashboardJob(ctx, booking))
+      ),
+      upcomingJobs: await Promise.all(
+        upcomingJobs.map((booking: any) => mapMechanicDashboardJob(ctx, booking))
+      ),
+      needsActuals: await Promise.all(
+        needsActuals.map((booking: any) => mapMechanicDashboardJob(ctx, booking))
+      ),
+      stats: {
+        todayCount: todaysJobs.length,
+        weekCompletedCount,
+        rating: mechanicContext.mechanic.rating ?? 0,
+        reviewCount: mechanicContext.mechanic.review_count ?? 0,
+      },
+    };
+  },
+});
+
+/** Detailed booking view for status transitions + assignment. */
+export const getJobDetail = query({
+  args: { bookingId: v.id("bookings") },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUser(ctx);
+    const booking = await ctx.db.get(args.bookingId);
+    if (!booking) return null;
+
+    await requireShopStaff(ctx, user._id, booking.shop_id);
+
+    const customer = await ctx.db.get(booking.user_id);
+    const vehicleLabels = await resolveVehicleLabel(ctx, booking.vin);
+    const serviceNames = await resolveServiceNames(ctx, booking.service_ids);
+    const mechanic = booking.mechanic_id
+      ? await ctx.db.get(booking.mechanic_id)
+      : null;
+
+    const history = await ctx.db
+      .query("booking_status_history")
+      .withIndex("by_booking_id", (q: any) => q.eq("booking_id", booking._id))
+      .collect();
+
+    history.sort((a: any, b: any) => b.changed_at - a.changed_at);
+
+    // Resolve previous mechanic name if a reschedule is pending
+    let previousMechanicName: string | null = null;
+    if (booking.previous_mechanic_id) {
+      const prevMech = await ctx.db.get(booking.previous_mechanic_id);
+      if (prevMech) previousMechanicName = `${prevMech.first_name} ${prevMech.last_name}`.trim();
+    }
+
+    return {
+      _id: booking._id,
+      _creationTime: booking._creationTime,
+      shopId: booking.shop_id,
+      status: booking.status,
+      liveStage: booking.live_stage ?? null,
+      scheduledDate: booking.scheduled_date,
+      scheduledTime: booking.scheduled_time,
+      laborCost: booking.labor_cost,
+      partsCost: booking.parts_cost,
+      totalCost: booking.total_cost,
+      estimatedLaborMinutes: booking.estimated_labor_minutes ?? null,
+      vin: booking.vin,
+      serviceIds: booking.service_ids ?? [],
+      mechanicId: booking.mechanic_id ?? null,
+      customerName:
+        `${customer?.first_name ?? ""} ${customer?.last_name ?? ""}`.trim() ||
+        customer?.email ||
+        "Unknown",
+      customerEmail: customer?.email ?? "",
+      vehicle: vehicleLabels.full,
+      vehicleShort: vehicleLabels.short,
+      serviceNames,
+      mechanicName: mechanic
+        ? `${mechanic.first_name} ${mechanic.last_name}`.trim()
+        : null,
+      history,
+      // Reschedule fields
+      previousScheduledDate: booking.previous_scheduled_date ?? null,
+      previousScheduledTime: booking.previous_scheduled_time ?? null,
+      previousMechanicId: booking.previous_mechanic_id ?? null,
+      previousMechanicName,
+      rescheduleProposedAt: booking.reschedule_proposed_at ?? null,
+    };
+  },
+});
+
+/** Job CRUD: create (shop-initiated). */
 export const create = mutation({
   args: {
-    user_id: v.id("users"),
+    shopId: v.id("shops"),
+    customerEmail: v.string(),
+    customerFirstName: v.optional(v.string()),
+    customerLastName: v.optional(v.string()),
     vin: v.string(),
-    shop_id: v.id("shops"),
-    mechanic_id: v.optional(v.id("mechanics")),
-    service_id: v.id("services"),
-    time_slot_id: v.id("time_slots"),
-    scheduled_date: v.string(),
-    scheduled_time: v.string(),
-    labor_cost: v.float64(),
-    parts_cost: v.float64(),
-    total_cost: v.float64(),
-    session_id: v.optional(v.string()),
-    funnel_id: v.optional(v.id("conversion_funnels")),
+    vehicleYear: v.optional(v.float64()),
+    vehicleMake: v.optional(v.string()),
+    vehicleModel: v.optional(v.string()),
+    scheduledDate: v.string(),
+    scheduledTime: v.string(),
+    serviceIds: v.array(v.id("services")),
+    mechanicId: v.optional(v.id("mechanics")),
+    laborCost: v.float64(),
+    partsCost: v.float64(),
+    estimatedLaborMinutes: v.optional(v.float64()),
+    status: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const normalizedVin = args.vin.toUpperCase().trim();
+    const user = await getCurrentUser(ctx);
+    await requireShopStaff(ctx, user._id, args.shopId);
 
-    // Validate vehicle exists
-    const vehicle = await ctx.db
-      .query("vehicles")
-      .withIndex("by_vin", (q) => q.eq("vin", normalizedVin))
-      .unique();
-    if (!vehicle) {
-      throw new Error(`Vehicle not found: ${args.vin}`);
-    }
-
-    // Validate user owns this vehicle (active ownership)
-    const ownership = await ctx.db
-      .query("vehicle_owners")
-      .withIndex("by_vin_user", (q) => q.eq("vin", normalizedVin).eq("user_id", args.user_id))
-      .unique();
-    if (!ownership || ownership.status !== "active") {
-      throw new Error("User does not own this vehicle");
-    }
-
-    // Verify the slot is still available (no pending/confirmed booking on it)
-    const slot = await ctx.db.get(args.time_slot_id);
-    if (!slot || !slot.is_available) {
-      throw new Error("This time slot is no longer available.");
-    }
-
-    // Mark slot unavailable until booking is freed (cancelled/no_show/completed via updateStatus)
-    await ctx.db.patch(args.time_slot_id, { is_available: false });
-
-    const { session_id, funnel_id, service_id, ...bookingData } = args;
     const now = Date.now();
+    const canonicalVin = toCanonicalVin(args.vin);
+
+    let customer = await ctx.db
+      .query("users")
+      .withIndex("by_email", (q: any) => q.eq("email", args.customerEmail))
+      .first();
+
+    if (!customer) {
+      const randomSuffix = Math.random().toString(36).slice(2, 8);
+      const customerId = await ctx.db.insert("users", {
+        clerkUserId: `shop-created-${now}-${randomSuffix}`,
+        createdAt: now,
+        onboardingCompleted: false,
+        email: args.customerEmail,
+        first_name: args.customerFirstName,
+        last_name: args.customerLastName,
+      });
+      customer = await ctx.db.get(customerId);
+    }
+
+    if (!customer) throw new Error("Could not create customer");
+
+    const existingVehicle = await ctx.db
+      .query("vehicles")
+      .withIndex("by_vin", (q: any) => q.eq("vin", canonicalVin))
+      .first();
+
+    if (!existingVehicle) {
+      await ctx.db.insert("vehicles", {
+        vin: canonicalVin,
+        year: args.vehicleYear,
+        metadata: {
+          make: args.vehicleMake,
+          model: args.vehicleModel,
+        },
+        created_at: now,
+        updated_at: now,
+      });
+    }
+
+    const ownerLink = await ctx.db
+      .query("vehicle_owners")
+      .withIndex("by_vin_user", (q: any) =>
+        q.eq("vin", canonicalVin).eq("user_id", customer!._id)
+      )
+      .first();
+
+    if (!ownerLink) {
+      await ctx.db.insert("vehicle_owners", {
+        vin: canonicalVin,
+        user_id: customer._id,
+        status: "active",
+        is_primary: true,
+        added_at: now,
+      });
+    }
+
+    const estimatedMinutes = args.estimatedLaborMinutes ?? 60;
+    const timeSlotId = await getOrCreateSlot(
+      ctx,
+      args.shopId,
+      args.mechanicId ?? undefined,
+      args.scheduledDate,
+      args.scheduledTime,
+      estimatedMinutes
+    );
+
+    const status = args.status ?? "pending_shop_acceptance";
+    const totalCost = args.laborCost + args.partsCost;
+
     const bookingId = await ctx.db.insert("bookings", {
-      ...bookingData,
-      vin: normalizedVin,
-      service_ids: [service_id],
-      status: "pending",
+      labor_cost: args.laborCost,
+      parts_cost: args.partsCost,
+      total_cost: totalCost,
+      estimated_labor_minutes: args.estimatedLaborMinutes,
+      mechanic_id: args.mechanicId,
+      scheduled_date: args.scheduledDate,
+      scheduled_time: args.scheduledTime,
+      service_ids: args.serviceIds,
+      shop_id: args.shopId,
+      status,
+      time_slot_id: timeSlotId,
+      user_id: customer._id,
+      vin: canonicalVin,
       created_at: now,
       updated_at: now,
     });
 
-    await ctx.db.insert("booking_status_history", {
-      booking_id: bookingId,
-      new_status: "pending",
-      changed_at: now,
-    });
-
-    // Track analytics event
-    await ctx.db.insert("analytics_events", {
-      user_id: args.user_id,
-      event_type: "booking_created",
-      event_category: "booking",
-      event_data: {
-        booking_id: bookingId,
-        shop_id: args.shop_id,
-        service_id: args.service_id,
-      },
-      timestamp: Date.now(),
-      session_id,
-    });
-
-    // Complete conversion funnel if provided
-    if (funnel_id) {
-      await ctx.db.patch(funnel_id, {
-        completed: true,
-        exited_at: Date.now(),
-        booking_id: bookingId,
-        stage: "completed",
-      });
-    }
+    await logBookingStatusChange(
+      ctx,
+      bookingId,
+      undefined,
+      status,
+      user._id,
+      "job_created_by_shop"
+    );
 
     return bookingId;
   },
 });
 
-/**
- * MUTATION: createBatch
- * Create one booking for an appointment (one time slot) with multiple services.
- * Total cost and estimated time are aggregated; one row per appointment.
- *
- * ARGS:
- *   - user_id, vin, shop_id, mechanic_id?, time_slot_id, scheduled_date, scheduled_time
- *   - services: Array of { service_id, labor_cost, parts_cost, labor_hours? }
- *   - taxes_and_fees: (optional) Taxes & fees to include in total_cost
- *   - platform_fee: (optional) Platform fee to include in total_cost
- *   - session_id, funnel_id: optional
- *
- * RETURNS: Single-element array [bookingId]
- */
-export const createBatch = mutation({
+/** Job CRUD: update details (including mechanic assignment). */
+export const update = mutation({
   args: {
-    user_id: v.id("users"),
-    vin: v.string(),
-    shop_id: v.id("shops"),
-    mechanic_id: v.optional(v.id("mechanics")),
-    time_slot_id: v.id("time_slots"),
-    scheduled_date: v.string(),
-    scheduled_time: v.string(),
-    services: v.array(
-      v.object({
-        service_id: v.id("services"),
-        labor_cost: v.float64(),
-        parts_cost: v.float64(),
-        labor_hours: v.optional(v.float64()),
-      })
-    ),
-    taxes_and_fees: v.optional(v.float64()),
-    platform_fee: v.optional(v.float64()),
-    session_id: v.optional(v.string()),
-    funnel_id: v.optional(v.id("conversion_funnels")),
+    bookingId: v.id("bookings"),
+    scheduledDate: v.optional(v.string()),
+    scheduledTime: v.optional(v.string()),
+    serviceIds: v.optional(v.array(v.id("services"))),
+    mechanicId: v.optional(v.union(v.id("mechanics"), v.null())),
+    laborCost: v.optional(v.float64()),
+    partsCost: v.optional(v.float64()),
+    estimatedLaborMinutes: v.optional(v.float64()),
   },
   handler: async (ctx, args) => {
-    if (args.services.length === 0) {
-      throw new Error("At least one service is required");
+    const user = await getCurrentUser(ctx);
+    const booking = await ctx.db.get(args.bookingId);
+    if (!booking) throw new Error("Booking not found");
+
+    await requireShopStaff(ctx, user._id, booking.shop_id);
+
+    const patch: any = { updated_at: Date.now() };
+
+    if (args.serviceIds) patch.service_ids = args.serviceIds;
+    if (args.mechanicId !== undefined) {
+      patch.mechanic_id = args.mechanicId === null ? undefined : args.mechanicId;
+    }
+    if (args.estimatedLaborMinutes !== undefined)
+      patch.estimated_labor_minutes = args.estimatedLaborMinutes;
+
+    const laborCost = args.laborCost ?? booking.labor_cost;
+    const partsCost = args.partsCost ?? booking.parts_cost;
+    if (args.laborCost !== undefined) patch.labor_cost = args.laborCost;
+    if (args.partsCost !== undefined) patch.parts_cost = args.partsCost;
+    if (args.laborCost !== undefined || args.partsCost !== undefined) {
+      patch.total_cost = laborCost + partsCost;
     }
 
-    const normalizedVin = args.vin.toUpperCase().trim();
+    if (args.scheduledDate || args.scheduledTime || args.mechanicId !== undefined) {
+      const newDate = args.scheduledDate ?? booking.scheduled_date;
+      const newTime = args.scheduledTime ?? booking.scheduled_time;
+      const newMechanic =
+        args.mechanicId === undefined
+          ? booking.mechanic_id
+          : args.mechanicId === null
+            ? undefined
+            : args.mechanicId;
+      const durationMinutes =
+        args.estimatedLaborMinutes ?? booking.estimated_labor_minutes ?? 60;
 
-    // Validate vehicle exists
-    const vehicle = await ctx.db
-      .query("vehicles")
-      .withIndex("by_vin", (q) => q.eq("vin", normalizedVin))
-      .unique();
-    if (!vehicle) {
-      throw new Error(`Vehicle not found: ${args.vin}`);
+      if (newMechanic) {
+        const allBookings = await ctx.db
+          .query("bookings")
+          .withIndex("by_shop_id", (q: any) => q.eq("shop_id", booking.shop_id))
+          .collect();
+
+        const hasBookingConflict = overlapsMechanicBooking(
+          String(newMechanic),
+          newDate,
+          newTime,
+          getBookingEndTime(newTime, durationMinutes),
+          allBookings.map((b: any) => ({
+            _id: String(b._id),
+            scheduledDate: b.scheduled_date,
+            scheduledTime: b.scheduled_time,
+            estimatedMinutes: b.estimated_labor_minutes ?? 60,
+            status: b.status,
+            mechanicId: b.mechanic_id ?? null,
+          })),
+          String(args.bookingId)
+        );
+
+        if (hasBookingConflict) {
+          throw new Error(
+            "Cannot assign this mechanic because that time is already booked."
+          );
+        }
+
+        const allSlots = await ctx.db
+          .query("time_slots")
+          .withIndex("by_shop_id", (q: any) => q.eq("shop_id", booking.shop_id))
+          .collect();
+        const bookingSlotIds = new Set(allBookings.map((b: any) => String(b.time_slot_id)));
+        const blockedSlots = allSlots
+          .filter((slot: any) => !slot.is_available && !bookingSlotIds.has(String(slot._id)))
+          .map((slot: any) => ({
+            _id: String(slot._id),
+            date: slot.date,
+            startTime: slot.start_time,
+            endTime: slot.end_time,
+            mechanicId: slot.mechanic_id ?? null,
+          }));
+
+        const hasBlockedConflict = overlapsBlockedSlot(
+          String(newMechanic),
+          newDate,
+          newTime,
+          getBookingEndTime(newTime, durationMinutes),
+          blockedSlots
+        );
+
+        if (hasBlockedConflict) {
+          throw new Error(
+            "Cannot assign this mechanic because that time is blocked."
+          );
+        }
+      }
+
+      const slotId = await getOrCreateSlot(
+        ctx,
+        booking.shop_id,
+        newMechanic,
+        newDate,
+        newTime,
+        durationMinutes
+      );
+      patch.time_slot_id = slotId;
+      patch.scheduled_date = newDate;
+      patch.scheduled_time = newTime;
+
+      if (String(slotId) !== String(booking.time_slot_id)) {
+        await releaseBookingSlot(ctx, booking.time_slot_id);
+      }
     }
 
-    // Validate user owns this vehicle
-    const ownership = await ctx.db
-      .query("vehicle_owners")
-      .withIndex("by_vin_user", (q) => q.eq("vin", normalizedVin).eq("user_id", args.user_id))
-      .unique();
-    if (!ownership || ownership.status !== "active") {
-      throw new Error("User does not own this vehicle");
-    }
-
-    // Verify slot is still available (no pending/confirmed booking on it)
-    const slot = await ctx.db.get(args.time_slot_id);
-    if (!slot || !slot.is_available) {
-      throw new Error("This time slot is no longer available.");
-    }
-
-    // Mark slot unavailable until booking is freed (cancelled/no_show/completed via updateStatus)
-    await ctx.db.patch(args.time_slot_id, { is_available: false });
-
-    const labor_cost = args.services.reduce((sum, s) => sum + s.labor_cost, 0);
-    const parts_cost = args.services.reduce((sum, s) => sum + s.parts_cost, 0);
-    const taxes_and_fees = args.taxes_and_fees ?? 0;
-    const platform_fee = args.platform_fee ?? 0;
-    const total_cost = labor_cost + parts_cost + taxes_and_fees + platform_fee;
-    const estimated_labor_minutes = args.services.reduce((sum, s) => sum + (s.labor_hours ?? 0) * 60, 0);
-
-    const now = Date.now();
-    const firstServiceId = args.services[0].service_id;
-
-    const bookingId = await ctx.db.insert("bookings", {
-      user_id: args.user_id,
-      vin: normalizedVin,
-      shop_id: args.shop_id,
-      mechanic_id: args.mechanic_id,
-      service_ids: args.services.map((s) => s.service_id),
-      time_slot_id: args.time_slot_id,
-      scheduled_date: args.scheduled_date,
-      scheduled_time: args.scheduled_time,
-      labor_cost,
-      parts_cost,
-      total_cost,
-      estimated_labor_minutes: estimated_labor_minutes > 0 ? estimated_labor_minutes : undefined,
-      status: "pending",
-      created_at: now,
-      updated_at: now,
-    });
-
-    await ctx.db.insert("booking_status_history", {
-      booking_id: bookingId,
-      new_status: "pending",
-      changed_at: now,
-    });
-
-    await ctx.db.insert("analytics_events", {
-      user_id: args.user_id,
-      event_type: "booking_created",
-      event_category: "booking",
-      event_data: {
-        booking_id: bookingId,
-        shop_id: args.shop_id,
-        service_id: firstServiceId,
-      },
-      timestamp: Date.now(),
-      session_id: args.session_id,
-    });
-
-    if (args.funnel_id) {
-      await ctx.db.patch(args.funnel_id, {
-        completed: true,
-        exited_at: Date.now(),
-        booking_id: bookingId,
-        stage: "completed",
-      });
-    }
-
-    return [bookingId];
+    await ctx.db.patch(args.bookingId, patch);
+    return args.bookingId;
   },
 });
 
-/**
- * MUTATION: updateStatus
- * Update booking status with FSM validation.
- *
- * VALIDATION:
- *   1. Booking must exist
- *   2. Status transition must be valid (FSM rules)
- *   3. Cannot transition from terminal states
- *
- * SIDE EFFECTS:
- *   1. Updates booking status
- *   2. If new status is cancelled | no_show | completed, sets the booking's time_slot is_available = true (releases slot for mechanics)
- *   3. Logs change to booking_status_history (async)
- *
- * ARGS:
- *   - bookingId: Booking to update
- *   - newStatus: New status to transition to
- *   - changed_by: (optional) User ID who initiated change
- *   - reason: (optional) Reason for status change
- *
- * RETURNS:
- *   {
- *     success: true,
- *     oldStatus: string,
- *     newStatus: string
- *   }
- *
- * THROWS:
- *   - "Booking not found": Invalid booking ID
- *   - Invalid status transition error from FSM
- *   - "Cannot transition from terminal state": From completed/cancelled
- */
-export const updateStatus = mutation({
+/** Job CRUD: accept pending booking — moves it to confirmed state. */
+export const accept = mutation({
+  args: { bookingId: v.id("bookings") },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUser(ctx);
+    const booking = await ctx.db.get(args.bookingId);
+    if (!booking) throw new Error("Booking not found");
+
+    await requireShopStaff(ctx, user._id, booking.shop_id);
+
+    const pendingStates = ["pending", "pending_shop_acceptance"];
+    if (!pendingStates.includes(booking.status)) {
+      throw new Error("Only pending jobs can be accepted");
+    }
+
+    await ctx.db.patch(booking._id, {
+      status: "confirmed",
+      live_stage: "confirmed",
+      updated_at: Date.now(),
+    });
+    await logBookingStatusChange(
+      ctx,
+      booking._id,
+      booking.status,
+      "confirmed",
+      user._id,
+      "accepted_by_shop"
+    );
+
+    return booking._id;
+  },
+});
+
+/** Job CRUD: start confirmed booking — moves it to in_progress. */
+export const start = mutation({
+  args: { bookingId: v.id("bookings") },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUser(ctx);
+    const booking = await ctx.db.get(args.bookingId);
+    if (!booking) throw new Error("Booking not found");
+
+    await requireShopStaff(ctx, user._id, booking.shop_id);
+
+    if (booking.status !== "confirmed") {
+      throw new Error("Only confirmed jobs can be started");
+    }
+
+    await ctx.db.patch(booking._id, {
+      status: "in_progress",
+      live_stage: "service_in_progress",
+      updated_at: Date.now(),
+    });
+    await logBookingStatusChange(
+      ctx,
+      booking._id,
+      booking.status,
+      "in_progress",
+      user._id,
+      "started_by_shop"
+    );
+
+    return booking._id;
+  },
+});
+
+/** Job CRUD: mark booking completed. */
+export const complete = mutation({
+  args: { bookingId: v.id("bookings") },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUser(ctx);
+    const booking = await ctx.db.get(args.bookingId);
+    if (!booking) throw new Error("Booking not found");
+
+    await requireShopStaff(ctx, user._id, booking.shop_id);
+
+    await ctx.db.patch(booking._id, {
+      status: "completed",
+      live_stage: "vehicle_ready",
+      updated_at: Date.now(),
+    });
+    await logBookingStatusChange(
+      ctx,
+      booking._id,
+      booking.status,
+      "completed",
+      user._id,
+      "completed_by_shop"
+    );
+
+    return booking._id;
+  },
+});
+
+/** Job CRUD: cancel booking (owner-side cancellation/decline path). */
+export const cancel = mutation({
   args: {
     bookingId: v.id("bookings"),
-    newStatus: v.string(),
-    changed_by: v.optional(v.id("users")),
     reason: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    // Get current booking
+    const user = await getCurrentUser(ctx);
     const booking = await ctx.db.get(args.bookingId);
     if (!booking) throw new Error("Booking not found");
 
-    // Validate status transition using FSM
-    const { validateTransition, isTerminal } = await import("./booking_status_history");
-    const error = validateTransition(booking.status, args.newStatus);
-    if (error) throw new Error(error);
+    await requireShopStaff(ctx, user._id, booking.shop_id);
 
-    // Prevent transitions from terminal states
-    if (isTerminal(booking.status)) {
-      throw new Error(`Cannot transition from terminal state: ${booking.status}`);
-    }
-
-    // Patch booking with new status; set or clear live_stage for Live Tracker
-    const now = Date.now();
-    const patch: { status: string; updated_at: number; live_stage?: string } = {
-      status: args.newStatus,
-      updated_at: now,
-    };
-    if (args.newStatus === "in_progress") {
-      patch.live_stage = "service_in_progress";
-    } else if (["cancelled", "no_show", "completed"].includes(args.newStatus)) {
-      patch.live_stage = undefined;
-    }
-    await ctx.db.patch(args.bookingId, patch);
-
-    // When booking is freed (cancelled, no_show, completed), release the time slot so it shows available on the mechanics side
-    const slotReleasingStatuses = ["cancelled", "no_show", "completed"];
-    if (slotReleasingStatuses.includes(args.newStatus) && booking.time_slot_id) {
-      const slot = await ctx.db.get(booking.time_slot_id);
-      if (slot) {
-        await ctx.db.patch(booking.time_slot_id, { is_available: true });
-      }
-    }
-
-    // Log status change to history (async, non-blocking)
-    await ctx.scheduler.runAfter(0, internal.booking_status_history.log, {
-      booking_id: args.bookingId,
-      old_status: booking.status,
-      new_status: args.newStatus,
-      changed_by: args.changed_by,
-      reason: args.reason,
+    await ctx.db.patch(booking._id, {
+      status: "cancelled",
+      updated_at: Date.now(),
     });
+    await logBookingStatusChange(
+      ctx,
+      booking._id,
+      booking.status,
+      "cancelled",
+      user._id,
+      args.reason ?? "cancelled_by_shop"
+    );
 
-    // On booking completion: create maintenance records from booked services,
-    // then trigger the pipeline so intervals/urgency recalculate with new anchors.
-    if (args.newStatus === "completed" && booking.vin) {
-      const vehicleOwner = await ctx.db
-        .query("vehicle_owners")
-        .withIndex("by_vin_user", (q) =>
-          q.eq("vin", booking.vin).eq("user_id", booking.user_id)
-        )
-        .first();
-      if (vehicleOwner?.preOnboardingComplete) {
-        const SLUG_TO_TYPE: Record<string, string> = {
-          "oil-change": "oil",
-          "brake-pads": "brakes", "brake-rotors": "brakes",
-          "tire-replacement": "tires", "tire-rotation": "tires",
-          "tire-balance": "tires", "wheel-alignment": "tires",
-          "battery-replacement": "battery", "battery-test": "battery",
-          "brake-fluid-flush": "fluids", "coolant-flush": "fluids",
-          "transmission-fluid": "fluids", "power-steering-flush": "fluids",
-          "engine-air-filter": "filters", "cabin-air-filter": "filters",
-          "wiper-blades": "wipers",
-          "spark-plugs": "engine_parts", "serpentine-belt": "engine_parts",
-          "check-engine-diagnostic": "diagnostics", "general-diagnostic": "diagnostics",
-          "state-inspection": "inspection", "emissions-test": "inspection",
-        };
-
-        const serviceIds = (booking as any).service_ids as string[] | undefined;
-        if (serviceIds?.length) {
-          const typesUpdated = new Set<string>();
-          for (const sid of serviceIds) {
-            const svc = await ctx.db.get(sid as any);
-            if (!svc) continue;
-            const recType = SLUG_TO_TYPE[(svc as any).slug];
-            if (!recType || typesUpdated.has(recType)) continue;
-            typesUpdated.add(recType);
-
-            const existing = await ctx.db
-              .query("maintenance_records")
-              .withIndex("by_vehicle_and_type", (q) =>
-                q.eq("vehicleOwnerId", vehicleOwner._id).eq("type", recType)
-              )
-              .unique();
-
-            const data = {
-              lastServiceDate: now,
-              lastServiceMileage: vehicleOwner.mileage as number | undefined,
-              serviceSource: "otopair" as const,
-              confidence: "verified" as const,
-              updatedAt: now,
-            };
-
-            if (existing) {
-              await ctx.db.patch(existing._id, data);
-            } else {
-              await ctx.db.insert("maintenance_records", {
-                vehicleOwnerId: vehicleOwner._id,
-                type: recType,
-                ...data,
-                createdAt: now,
-              });
-            }
-          }
-        }
-
-        await ctx.scheduler.runAfter(
-          0,
-          internal.maintenance_pipeline.runPipeline,
-          { vehicleOwnerId: vehicleOwner._id, triggeredBy: "booking_completed" }
-        );
-      }
-    }
-
-    // Award ownership credit when booking completes (OTOPAIR Rewards)
-    if (args.newStatus === "completed") {
-      await ctx.scheduler.runAfter(0, internal.rewards.addCreditForCompletedBooking, {
-        bookingId: args.bookingId,
-      });
-    }
-
-    return { success: true, oldStatus: booking.status, newStatus: args.newStatus };
+    return booking._id;
   },
 });
 
 /**
- * MUTATION: updateLiveStage
- * Update the Live Tracker stage for an in_progress booking.
- * Used when mechanic/shop advances the stage (e.g. "vehicle_ready").
- *
- * ARGS:
- *   - bookingId: Booking to update
- *   - liveStage: "booking_confirmed" | "service_in_progress" | "vehicle_ready"
- *
- * THROWS: "Booking not found" | "Booking is not in progress" | "Invalid live stage"
+ * Propose a reschedule — shop drags an event to a new time/mechanic.
+ * Sets status to pending_customer_acceptance and stores original values for revert.
  */
-export const updateLiveStage = mutation({
+export const proposeReschedule = mutation({
   args: {
     bookingId: v.id("bookings"),
-    liveStage: v.union(v.literal("booking_confirmed"), v.literal("service_in_progress"), v.literal("vehicle_ready")),
+    newScheduledDate: v.string(),
+    newScheduledTime: v.string(),
+    newMechanicId: v.optional(v.id("mechanics")),
   },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUser(ctx);
+    const booking = await ctx.db.get(args.bookingId);
+    if (!booking) throw new Error("Booking not found");
+
+    await requireShopStaff(ctx, user._id, booking.shop_id);
+
+    const allowed = ["pending", "pending_shop_acceptance", "confirmed", "pending_customer_acceptance"];
+    if (!allowed.includes(booking.status)) {
+      throw new Error("Cannot reschedule a booking with status: " + booking.status);
+    }
+
+    // Check for overlap with other bookings at the target time/mechanic
+    const targetMechanicId = args.newMechanicId !== undefined ? args.newMechanicId : booking.mechanic_id;
+    const newEnd = getBookingEndTime(
+      args.newScheduledTime,
+      booking.estimated_labor_minutes
+    );
+    const allBookings = await ctx.db
+      .query("bookings")
+      .withIndex("by_shop_id", (q: any) => q.eq("shop_id", booking.shop_id))
+      .collect();
+    const conflicting = allBookings.filter((b: any) => {
+      if (String(b._id) === String(args.bookingId)) return false;
+      if (b.scheduled_date !== args.newScheduledDate) return false;
+      if (b.status === "cancelled" || b.status === "declined") return false;
+      if (targetMechanicId && String(b.mechanic_id) !== String(targetMechanicId)) return false;
+      const bEnd = getBookingEndTime(
+        b.scheduled_time,
+        b.estimated_labor_minutes
+      );
+      return b.scheduled_time < newEnd && bEnd > args.newScheduledTime;
+    });
+    if (conflicting.length > 0) {
+      throw new Error("Cannot reschedule: the new time overlaps an existing booking");
+    }
+
+    const durationMinutes = booking.estimated_labor_minutes ?? 60;
+    const originalDate =
+      booking.status === "pending_customer_acceptance"
+        ? (booking.previous_scheduled_date ?? booking.scheduled_date)
+        : booking.scheduled_date;
+    const originalTime =
+      booking.status === "pending_customer_acceptance"
+        ? (booking.previous_scheduled_time ?? booking.scheduled_time)
+        : booking.scheduled_time;
+    const originalMechanicId =
+      booking.status === "pending_customer_acceptance"
+        ? (booking.previous_mechanic_id ?? booking.mechanic_id)
+        : booking.mechanic_id;
+
+    const targetSlotId = await getOrCreateSlot(
+      ctx,
+      booking.shop_id,
+      targetMechanicId ?? undefined,
+      args.newScheduledDate,
+      args.newScheduledTime,
+      durationMinutes
+    );
+
+    const patch: any = {
+      scheduled_date: args.newScheduledDate,
+      scheduled_time: args.newScheduledTime,
+      time_slot_id: targetSlotId,
+      reschedule_proposed_at: Date.now(),
+      status: "pending_customer_acceptance",
+      updated_at: Date.now(),
+    };
+
+    if (args.newMechanicId !== undefined) {
+      patch.mechanic_id = args.newMechanicId;
+    }
+
+    // Only save previous_* fields if this is the first reschedule proposal.
+    // If already pending_customer_acceptance, keep original previous_* values
+    // so revert goes back to the true original, not an intermediate proposal.
+    if (booking.status !== "pending_customer_acceptance") {
+      patch.previous_scheduled_date = booking.scheduled_date;
+      patch.previous_scheduled_time = booking.scheduled_time;
+      patch.previous_mechanic_id = booking.mechanic_id;
+      patch.previous_status = booking.status;
+    }
+
+    await ctx.db.patch(booking._id, patch);
+
+    if (booking.status === "pending_customer_acceptance") {
+      if (String(booking.time_slot_id) !== String(targetSlotId)) {
+        await releaseBookingSlot(ctx, booking.time_slot_id);
+      }
+      await reservePendingCustomerSlot(
+        ctx,
+        booking.shop_id,
+        originalMechanicId ?? undefined,
+        originalDate,
+        originalTime,
+        durationMinutes
+      );
+    } else {
+      await reservePendingCustomerSlot(
+        ctx,
+        booking.shop_id,
+        booking.mechanic_id ?? undefined,
+        booking.scheduled_date,
+        booking.scheduled_time,
+        durationMinutes,
+        booking.time_slot_id
+      );
+    }
+
+    await logBookingStatusChange(
+      ctx,
+      booking._id,
+      booking.status,
+      "pending_customer_acceptance",
+      user._id,
+      "reschedule_proposed_by_shop"
+    );
+
+    // TODO: Trigger push notification / email to customer about the proposed reschedule.
+
+    return booking._id;
+  },
+});
+
+/** Customer approves a proposed reschedule. */
+export const customerApproveReschedule = mutation({
+  args: { bookingId: v.id("bookings") },
   handler: async (ctx, args) => {
     const booking = await ctx.db.get(args.bookingId);
     if (!booking) throw new Error("Booking not found");
-    if (booking.status !== "in_progress") {
-      throw new Error("Booking is not in progress");
+
+    if (booking.status !== "pending_customer_acceptance") {
+      throw new Error("Booking is not pending customer acceptance");
     }
-    await ctx.db.patch(args.bookingId, {
-      live_stage: args.liveStage,
+
+    const durationMinutes = booking.estimated_labor_minutes ?? 60;
+    const originalDate = booking.previous_scheduled_date ?? booking.scheduled_date;
+    const originalTime = booking.previous_scheduled_time ?? booking.scheduled_time;
+    const originalMechanicId = booking.previous_mechanic_id ?? booking.mechanic_id;
+
+    await ctx.db.patch(booking._id, {
+      status: "confirmed",
+      previous_scheduled_date: undefined,
+      previous_scheduled_time: undefined,
+      previous_mechanic_id: undefined,
+      previous_status: undefined,
+      reschedule_proposed_at: undefined,
       updated_at: Date.now(),
     });
-    return { success: true, liveStage: args.liveStage };
+
+    const reservedOriginalSlot = await findExactSlot(
+      ctx,
+      booking.shop_id,
+      originalMechanicId ?? undefined,
+      originalDate,
+      originalTime,
+      durationMinutes
+    );
+    if (reservedOriginalSlot) {
+      await releaseBookingSlot(ctx, reservedOriginalSlot._id);
+    }
+
+    await logBookingStatusChange(
+      ctx,
+      booking._id,
+      "pending_customer_acceptance",
+      "confirmed",
+      booking.user_id,
+      "customer_approved_reschedule"
+    );
+
+    // TODO: Notify the shop that the customer approved the reschedule.
+
+    return booking._id;
+  },
+});
+
+/** Shop cancels a proposed reschedule — reverts to original values. */
+export const shopCancelReschedule = mutation({
+  args: { bookingId: v.id("bookings") },
+  handler: async (ctx, args) => {
+    const booking = await ctx.db.get(args.bookingId);
+    if (!booking) throw new Error("Booking not found");
+
+    if (booking.status !== "pending_customer_acceptance") {
+      throw new Error("Booking is not pending customer acceptance");
+    }
+
+    const durationMinutes = booking.estimated_labor_minutes ?? 60;
+    const originalDate = booking.previous_scheduled_date ?? booking.scheduled_date;
+    const originalTime = booking.previous_scheduled_time ?? booking.scheduled_time;
+    const originalMechanicId = booking.previous_mechanic_id ?? booking.mechanic_id;
+    const originalStatus = booking.previous_status ?? "confirmed";
+    const originalSlotId = await getOrCreateSlot(
+      ctx,
+      booking.shop_id,
+      originalMechanicId ?? undefined,
+      originalDate,
+      originalTime,
+      durationMinutes
+    );
+
+    await ctx.db.patch(booking._id, {
+      status: originalStatus,
+      scheduled_date: originalDate,
+      scheduled_time: originalTime,
+      mechanic_id: originalMechanicId,
+      time_slot_id: originalSlotId,
+      previous_scheduled_date: undefined,
+      previous_scheduled_time: undefined,
+      previous_mechanic_id: undefined,
+      previous_status: undefined,
+      reschedule_proposed_at: undefined,
+      updated_at: Date.now(),
+    });
+
+    if (String(booking.time_slot_id) !== String(originalSlotId)) {
+      await releaseBookingSlot(ctx, booking.time_slot_id);
+    }
+
+    await logBookingStatusChange(
+      ctx,
+      booking._id,
+      "pending_customer_acceptance",
+      originalStatus,
+      booking.user_id,
+      "shop_cancelled_reschedule"
+    );
+
+    return booking._id;
+  },
+});
+
+/** Customer declines a proposed reschedule — reverts to original values. */
+export const customerDeclineReschedule = mutation({
+  args: { bookingId: v.id("bookings") },
+  handler: async (ctx, args) => {
+    const booking = await ctx.db.get(args.bookingId);
+    if (!booking) throw new Error("Booking not found");
+
+    if (booking.status !== "pending_customer_acceptance") {
+      throw new Error("Booking is not pending customer acceptance");
+    }
+
+    const durationMinutes = booking.estimated_labor_minutes ?? 60;
+    const originalDate = booking.previous_scheduled_date ?? booking.scheduled_date;
+    const originalTime = booking.previous_scheduled_time ?? booking.scheduled_time;
+    const originalMechanicId = booking.previous_mechanic_id ?? booking.mechanic_id;
+    const originalStatus = booking.previous_status ?? "confirmed";
+    const originalSlotId = await getOrCreateSlot(
+      ctx,
+      booking.shop_id,
+      originalMechanicId ?? undefined,
+      originalDate,
+      originalTime,
+      durationMinutes
+    );
+
+    await ctx.db.patch(booking._id, {
+      status: originalStatus,
+      scheduled_date: originalDate,
+      scheduled_time: originalTime,
+      mechanic_id: originalMechanicId,
+      time_slot_id: originalSlotId,
+      previous_scheduled_date: undefined,
+      previous_scheduled_time: undefined,
+      previous_mechanic_id: undefined,
+      previous_status: undefined,
+      reschedule_proposed_at: undefined,
+      updated_at: Date.now(),
+    });
+
+    if (String(booking.time_slot_id) !== String(originalSlotId)) {
+      await releaseBookingSlot(ctx, booking.time_slot_id);
+    }
+
+    await logBookingStatusChange(
+      ctx,
+      booking._id,
+      "pending_customer_acceptance",
+      originalStatus,
+      booking.user_id,
+      "customer_declined_reschedule"
+    );
+
+    // TODO: Notify the shop that the customer declined and the booking has been reverted.
+
+    return booking._id;
+  },
+});
+
+/**
+ * Internal mutation: revert expired pending_customer_acceptance bookings.
+ * Called by a cron job every 15 minutes.
+ */
+export const revertExpiredReschedules = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const cutoff = Date.now() - 24 * 60 * 60 * 1000;
+
+    const expired = await ctx.db
+      .query("bookings")
+      .withIndex("by_status", (q) => q.eq("status", "pending_customer_acceptance"))
+      .filter((q: any) =>
+        q.and(
+          q.neq(q.field("reschedule_proposed_at"), undefined),
+          q.lte(q.field("reschedule_proposed_at"), cutoff)
+        )
+      )
+      .collect();
+
+    for (const booking of expired) {
+      const durationMinutes = booking.estimated_labor_minutes ?? 60;
+      const originalDate = booking.previous_scheduled_date ?? booking.scheduled_date;
+      const originalTime = booking.previous_scheduled_time ?? booking.scheduled_time;
+      const originalMechanicId = booking.previous_mechanic_id ?? booking.mechanic_id;
+      const originalStatus = booking.previous_status ?? "confirmed";
+      const originalSlotId = await getOrCreateSlot(
+        ctx,
+        booking.shop_id,
+        originalMechanicId ?? undefined,
+        originalDate,
+        originalTime,
+        durationMinutes
+      );
+
+      await ctx.db.patch(booking._id, {
+        status: originalStatus,
+        scheduled_date: originalDate,
+        scheduled_time: originalTime,
+        mechanic_id: originalMechanicId,
+        time_slot_id: originalSlotId,
+        previous_scheduled_date: undefined,
+        previous_scheduled_time: undefined,
+        previous_mechanic_id: undefined,
+        previous_status: undefined,
+        reschedule_proposed_at: undefined,
+        updated_at: Date.now(),
+      });
+
+      if (String(booking.time_slot_id) !== String(originalSlotId)) {
+        await releaseBookingSlot(ctx, booking.time_slot_id);
+      }
+
+      await logBookingStatusChange(
+        ctx,
+        booking._id,
+        "pending_customer_acceptance",
+        originalStatus,
+        booking.user_id,
+        "reschedule_auto_reverted_24h"
+      );
+
+      // TODO: Notify both the shop and customer that the reschedule expired.
+    }
+
+    return expired.length;
   },
 });
