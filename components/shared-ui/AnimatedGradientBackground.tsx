@@ -28,6 +28,7 @@ import Animated, {
     interpolate,
     runOnJS,
     useAnimatedReaction,
+    useSharedValue,
     type SharedValue,
 } from 'react-native-reanimated';
 import { BrandColors } from '@/constants/theme';
@@ -126,6 +127,11 @@ export function AnimatedGradientBackground({
         };
     });
 
+    const prevSX = useSharedValue(-1);
+    const prevSY = useSharedValue(-1);
+    const prevEX = useSharedValue(-1);
+    const prevEY = useSharedValue(-1);
+
     const updatePositions = useCallback((p: number, fromIdx: number, toIdx: number) => {
         const fromConfig = SHARED_GRADIENT_CONFIGS[fromIdx];
         const toConfig = SHARED_GRADIENT_CONFIGS[toIdx];
@@ -146,7 +152,25 @@ export function AnimatedGradientBackground({
             return { p: progress.value, fromIdx, toIdx };
         },
         (state) => {
-            runOnJS(updatePositions)(state.p, state.fromIdx, state.toIdx);
+            const fromConfig = SHARED_GRADIENT_CONFIGS[state.fromIdx];
+            const toConfig = SHARED_GRADIENT_CONFIGS[state.toIdx];
+            const nextSX = interpolate(state.p, [0, 1], [fromConfig.startX, toConfig.startX]);
+            const nextSY = interpolate(state.p, [0, 1], [fromConfig.startY, toConfig.startY]);
+            const nextEX = interpolate(state.p, [0, 1], [fromConfig.endX, toConfig.endX]);
+            const nextEY = interpolate(state.p, [0, 1], [fromConfig.endY, toConfig.endY]);
+            const threshold = 0.001;
+            if (
+                Math.abs(nextSX - prevSX.value) > threshold ||
+                Math.abs(nextSY - prevSY.value) > threshold ||
+                Math.abs(nextEX - prevEX.value) > threshold ||
+                Math.abs(nextEY - prevEY.value) > threshold
+            ) {
+                prevSX.value = nextSX;
+                prevSY.value = nextSY;
+                prevEX.value = nextEX;
+                prevEY.value = nextEY;
+                runOnJS(updatePositions)(state.p, state.fromIdx, state.toIdx);
+            }
         },
         [safeFrom, safeTo, fromIndexSV, toIndexSV]
     );

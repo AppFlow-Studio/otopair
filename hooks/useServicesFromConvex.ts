@@ -37,6 +37,7 @@ function mapConvexServiceToStore(doc: {
   description: string;
   default_labor_hours: number;
   default_parts_estimate?: number;
+  has_options?: boolean;
   serviceCategory?: { name?: string } | null;
 }): Service {
   const category = mapCategoryNameToKey(doc.serviceCategory?.name);
@@ -49,6 +50,7 @@ function mapConvexServiceToStore(doc: {
     category,
     default_labor_hours: doc.default_labor_hours,
     default_parts_estimate,
+    has_options: doc.has_options,
   };
 }
 
@@ -70,6 +72,7 @@ export function useServicesFromConvex() {
           description: string;
           default_labor_hours: number;
           default_parts_estimate?: number;
+          has_options?: boolean;
           serviceCategory?: { name?: string } | null;
         },
       ),

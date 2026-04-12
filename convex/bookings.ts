@@ -223,6 +223,10 @@ export const getByUserIdWithDetails = query({
           currentStage,
           delayMinutes,
           liveStage: liveStage ?? undefined,
+          shopRating: shop?.rating ?? 0,
+          shopIsVerified: shop?.is_verified ?? false,
+          shopLat: shop?.lat,
+          shopLng: shop?.lng,
         };
       })
     );
@@ -665,6 +669,77 @@ export const updateStatus = mutation({
       changed_by: args.changed_by,
       reason: args.reason,
     });
+
+    // On booking completion: create maintenance records from booked services,
+    // then trigger the pipeline so intervals/urgency recalculate with new anchors.
+    if (args.newStatus === "completed" && booking.vin) {
+      const vehicleOwner = await ctx.db
+        .query("vehicle_owners")
+        .withIndex("by_vin_user", (q) =>
+          q.eq("vin", booking.vin).eq("user_id", booking.user_id)
+        )
+        .first();
+      if (vehicleOwner?.preOnboardingComplete) {
+        const SLUG_TO_TYPE: Record<string, string> = {
+          "oil-change": "oil",
+          "brake-pads": "brakes", "brake-rotors": "brakes",
+          "tire-replacement": "tires", "tire-rotation": "tires",
+          "tire-balance": "tires", "wheel-alignment": "tires",
+          "battery-replacement": "battery", "battery-test": "battery",
+          "brake-fluid-flush": "fluids", "coolant-flush": "fluids",
+          "transmission-fluid": "fluids", "power-steering-flush": "fluids",
+          "engine-air-filter": "filters", "cabin-air-filter": "filters",
+          "wiper-blades": "wipers",
+          "spark-plugs": "engine_parts", "serpentine-belt": "engine_parts",
+          "check-engine-diagnostic": "diagnostics", "general-diagnostic": "diagnostics",
+          "state-inspection": "inspection", "emissions-test": "inspection",
+        };
+
+        const serviceIds = (booking as any).service_ids as string[] | undefined;
+        if (serviceIds?.length) {
+          const typesUpdated = new Set<string>();
+          for (const sid of serviceIds) {
+            const svc = await ctx.db.get(sid as any);
+            if (!svc) continue;
+            const recType = SLUG_TO_TYPE[(svc as any).slug];
+            if (!recType || typesUpdated.has(recType)) continue;
+            typesUpdated.add(recType);
+
+            const existing = await ctx.db
+              .query("maintenance_records")
+              .withIndex("by_vehicle_and_type", (q) =>
+                q.eq("vehicleOwnerId", vehicleOwner._id).eq("type", recType)
+              )
+              .unique();
+
+            const data = {
+              lastServiceDate: now,
+              lastServiceMileage: vehicleOwner.mileage as number | undefined,
+              serviceSource: "otopair" as const,
+              confidence: "verified" as const,
+              updatedAt: now,
+            };
+
+            if (existing) {
+              await ctx.db.patch(existing._id, data);
+            } else {
+              await ctx.db.insert("maintenance_records", {
+                vehicleOwnerId: vehicleOwner._id,
+                type: recType,
+                ...data,
+                createdAt: now,
+              });
+            }
+          }
+        }
+
+        await ctx.scheduler.runAfter(
+          0,
+          internal.maintenance_pipeline.runPipeline,
+          { vehicleOwnerId: vehicleOwner._id, triggeredBy: "booking_completed" }
+        );
+      }
+    }
 
     // Award ownership credit when booking completes (OTOPAIR Rewards)
     if (args.newStatus === "completed") {

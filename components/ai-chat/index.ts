@@ -28,7 +28,8 @@
 // CORE COMPONENTS
 // ============================================================================
 
-export { AIGreeting } from "./AIGreeting";
+export { AIGreeting, type VehicleCard } from "./AIGreeting";
+export { AIContextBar } from "./AIContextBar";
 export { AIMessageBubble, type AIMessage } from "./AIMessageBubble";
 export { AIInputBox } from "./AIInputBox";
 export { AITypingIndicator } from "./AITypingIndicator";

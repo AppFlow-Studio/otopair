@@ -2,7 +2,7 @@
 
 **Reference:** [REFERENCE.md](./REFERENCE.md) — database schema (46 tables), access layers, API surface, implementation status, and code examples. Includes **Live Tracker** (bookings.live_stage, getByUserIdWithDetails, updateLiveStage), **mechanics.photo** → cdn_assets, and **seed** (seedPastBookingsForJohnDoe, seedLiveBookingForJohnDoe).
 
-**Add Vehicle Pipeline:** [ADD_VEHICLE_PIPELINE.md](./ADD_VEHICLE_PIPELINE.md) — NHTSA VIN decode, Smartcar OAuth, and Anthropic Claude AI enrichment. Documents how adding a car populates makes/models/trims/engines, engine_specs, vehicle_specs, trim_specs, and service_vehicle_specs.
+**Vehicle Pipeline:** [VEHICLE_PIPELINE_GUIDE.md](./VEHICLE_PIPELINE_GUIDE.md) — NHTSA decode, AI enrichment, schema, gap fill, validation, and all pipeline details in one doc.
 
 <<<<<<< HEAD
 **Checklist:** [CHECKLIST.md](./CHECKLIST.md) — what's done, half-implemented, and not implemented (backend, add vehicle, booking flow, rewards).

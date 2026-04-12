@@ -280,7 +280,32 @@ export const submitJobActuals = mutation({
 
     const engineId = vehicle.engine_id;
     const actualLaborHours = jobActual.actual_labor_minutes / 60;
-    const estimatedLaborHours = service.default_labor_hours;
+
+    // Best available labor estimate: labor_times (VDB/empirical) → service_vehicle_specs → service default
+    let estimatedLaborHours = service.default_labor_hours;
+    if (vehicle.vehicle_config_id) {
+      const labor = await ctx.db
+        .query("labor_times")
+        .withIndex("by_vehicle_config", (q) =>
+          q.eq("vehicle_config_id", vehicle.vehicle_config_id!).eq("service_id", sid)
+        )
+        .first();
+      if (labor) {
+        const MIN_SAMPLES = 3;
+        const useEmpirical =
+          labor.empirical_hours != null &&
+          labor.empirical_sample_size >= MIN_SAMPLES;
+        estimatedLaborHours = useEmpirical ? labor.empirical_hours! : labor.book_hours;
+      }
+    }
+    if (estimatedLaborHours === service.default_labor_hours && engineId) {
+      // Try legacy service_vehicle_specs as secondary fallback
+      const svs = await ctx.db.query("service_vehicle_specs").collect();
+      const svsMatch = svs.find((r) => r.service_id === sid && r.engine_id === engineId);
+      if (svsMatch) {
+        estimatedLaborHours = svsMatch.labor_hours;
+      }
+    }
 
     // Track analytics event for job completion
     await ctx.db.insert("analytics_events", {
@@ -329,6 +354,31 @@ export const submitJobActuals = mutation({
         labor_variance: laborVariance,
         confidence_level: confidence,
       });
+    }
+
+    // --- Empirical labor feedback into labor_times ---
+    // Updates running average so getQuotableLaborTime automatically switches
+    // to empirical data once sample_size ≥ 3.
+    if (vehicle.vehicle_config_id) {
+      const laborRecord = await ctx.db
+        .query("labor_times")
+        .withIndex("by_vehicle_config", (q) =>
+          q.eq("vehicle_config_id", vehicle.vehicle_config_id!).eq("service_id", sid)
+        )
+        .first();
+      if (laborRecord) {
+        const oldCount = laborRecord.empirical_sample_size ?? 0;
+        const oldAvg = laborRecord.empirical_hours ?? 0;
+        const newCount = oldCount + 1;
+        const newAvg = oldCount > 0
+          ? (oldAvg * oldCount + actualLaborHours) / newCount
+          : actualLaborHours;
+
+        await ctx.db.patch(laborRecord._id, {
+          empirical_hours: newAvg,
+          empirical_sample_size: newCount,
+        });
+      }
     }
 
     // Bump service_vehicle_specs confidence_score

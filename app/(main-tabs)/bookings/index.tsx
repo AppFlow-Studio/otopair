@@ -18,15 +18,17 @@ import { ScrollDrivenGradientBackground, Text } from "@/components/shared-ui";
 import { useMyBookingsWithDetails } from "@/hooks/useMyBookingsWithDetails";
 import { Calendar, Search, SlidersHorizontal } from "lucide-react-native";
 import React, { useCallback, useState } from "react";
-import { Linking, Pressable, RefreshControl, StyleSheet, TextInput, View } from "react-native";
+import { Linking, Platform, Pressable, RefreshControl, StyleSheet, TextInput, View } from "react-native";
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import SegmentedControl from "@react-native-segmented-control/segmented-control";
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
 type TabType = "liveTracker" | "upcoming" | "history";
+const TAB_ORDER: TabType[] = ["liveTracker", "upcoming", "history"];
 
 // ============================================================================
 // COMPONENT
@@ -103,31 +105,15 @@ export default function BookingsScreen() {
             </View>
 
             {/* Tab Switcher */}
-            <View style={styles.tabContainer}>
-              <Pressable
-                onPress={() => setActiveTab("liveTracker")}
-                style={[styles.tab, activeTab === "liveTracker" && styles.activeTab]}
-              >
-                <Text weight="semiBold" size="sm" color={activeTab === "liveTracker" ? "#1F2937" : "#6B7280"}>
-                  Live Tracker
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={() => setActiveTab("upcoming")}
-                style={[styles.tab, activeTab === "upcoming" && styles.activeTab]}
-              >
-                <Text weight="semiBold" size="sm" color={activeTab === "upcoming" ? "#1F2937" : "#6B7280"}>
-                  Upcoming
-                </Text>
-              </Pressable>
-              <Pressable
-                onPress={() => setActiveTab("history")}
-                style={[styles.tab, activeTab === "history" && styles.activeTab]}
-              >
-                <Text weight="semiBold" size="sm" color={activeTab === "history" ? "#1F2937" : "#6B7280"}>
-                  History
-                </Text>
-              </Pressable>
+            <View style={styles.segmentedWrapper}>
+              <SegmentedControl
+                values={["Live Tracker", "Upcoming", "History"]}
+                selectedIndex={TAB_ORDER.indexOf(activeTab)}
+                onChange={(event) => {
+                  setActiveTab(TAB_ORDER[event.nativeEvent.selectedSegmentIndex]);
+                }}
+                style={styles.segmentedControl}
+              />
             </View>
 
             {/* Search Bar - Only for History */}
@@ -227,33 +213,11 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
     alignItems: "center",
   },
-  tabContainer: {
-    flexDirection: "row",
+  segmentedWrapper: {
     marginHorizontal: 20,
-    // backgroundColor: "#dde2ee",
-    // borderRadius: 25,
-    // padding: 4,
-    // borderWidth: 1,
-    // borderColor: "#D1D5DB",
-    backgroundColor: "rgba(255, 255, 255, 0.3)",
-    borderRadius: 25,
-    padding: 4,
-    borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.5)",
   },
-  tab: {
-    flex: 1,
-    paddingVertical: 12,
-    alignItems: "center",
-    borderRadius: 22,
-  },
-  activeTab: {
-    backgroundColor: "#FFFFFF",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
+  segmentedControl: {
+    height: 44,
   },
   searchRow: {
     flexDirection: "row",

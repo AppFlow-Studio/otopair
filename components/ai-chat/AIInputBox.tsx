@@ -44,7 +44,16 @@ import Animated, {
   Extrapolate,
   Easing,
 } from 'react-native-reanimated';
-import { Plus, Mic, ArrowUp } from 'lucide-react-native';
+import { Plus, Mic, ArrowUp, X } from 'lucide-react-native';
+
+// Native iOS 26 liquid glass (optional)
+let LiquidGlassView: React.ComponentType<any> | null = null;
+let isLiquidGlassEnabled = false;
+try {
+  const lg = require("@callstack/liquid-glass");
+  LiquidGlassView = lg.LiquidGlassView;
+  isLiquidGlassEnabled = !!lg.isLiquidGlassSupported;
+} catch (e) {}
 
 // 3. Shared UI
 import { Text } from '@/components/shared-ui';
@@ -77,6 +86,8 @@ interface AIInputBoxProps {
   onToggleAttachment?: () => void;
   /** Whether there are images selected (enables send without text) */
   hasImages?: boolean;
+  /** InputAccessoryView ID for keyboard docking */
+  inputAccessoryViewID?: string;
 }
 
 // ============================================================================
@@ -258,7 +269,7 @@ export function AIInputBox({
   onChangeText,
   onSend,
   isLoading = false,
-  placeholder = 'Ask anything',
+  placeholder = 'Ask Oto',
   disabled = false,
   onFocus: onFocusProp,
   onMicPressIn,
@@ -270,6 +281,7 @@ export function AIInputBox({
   isAttachmentOpen = false,
   onToggleAttachment,
   hasImages = false,
+  inputAccessoryViewID,
 }: AIInputBoxProps) {
   const showRecordingUI = isRecording || isTranscribing;
   const inputRef = useRef<TextInput>(null);
@@ -354,16 +366,49 @@ export function AIInputBox({
     transform: [{ rotate: `${plusRotation.value}deg` }],
   }));
 
-  return (
-    <View style={styles.container}>
-      <View style={[
-        styles.inputCard, 
-        isFocused && styles.inputCardFocused,
-        showRecordingUI && styles.inputCardRecording,
-      ]}>
-        <View style={styles.inputRow}>
-          {/* Left side - Plus button or Recording indicator */}
-          {!showRecordingUI ? (
+  const inputCardContent = (
+    <View style={[
+      styles.inputCardInner,
+      showRecordingUI && styles.inputCardRecording,
+    ]}>
+      <View style={[styles.inputRow, isFocused && !showRecordingUI && styles.inputRowFocused]}>
+        {/* Recording indicator (replaces input when recording) */}
+        {showRecordingUI ? (
+          <View style={styles.recordingIndicator}>
+            {isTranscribing ? (
+              <TranscribingIndicator />
+            ) : (
+              <View style={styles.recordingLeft}>
+                <CompactWaveform meteringValue={meteringValue} />
+                <Text style={styles.releaseText} numberOfLines={1}>
+                  {transcript || 'Release to send'}
+                </Text>
+              </View>
+            )}
+          </View>
+        ) : (
+          <TextInput
+            ref={inputRef}
+            style={[styles.textInput, { height: inputHeight }]}
+            value={value}
+            onChangeText={onChangeText}
+            placeholder={placeholder}
+            placeholderTextColor="#9CA3AF"
+            multiline
+            scrollEnabled
+            maxLength={4000}
+            editable={!isLoading && !disabled}
+            onContentSizeChange={handleContentSizeChange}
+            onFocus={handleFocus}
+            onBlur={handleBlur}
+            inputAccessoryViewID={inputAccessoryViewID}
+          />
+        )}
+
+        {/* Right side buttons */}
+        <View style={styles.rightButtonsRow}>
+          {/* Plus / Add button */}
+          {!showRecordingUI && (
             <Pressable
               style={({ pressed }) => [
                 styles.plusBtn,
@@ -372,48 +417,15 @@ export function AIInputBox({
               onPress={onToggleAttachment}
             >
               <Animated.View style={plusButtonAnimatedStyle}>
-                <Plus size={20} color={isAttachmentOpen ? BrandColors.secondary : "#9CA3AF"} strokeWidth={2} />
+                <Plus size={20} color={isAttachmentOpen ? BrandColors.secondary : (hasText ? "rgba(0,0,0,0.6)" : "rgba(0,0,0,0.4)")} strokeWidth={2} />
               </Animated.View>
             </Pressable>
-          ) : (
-            <View style={styles.recordingIndicator}>
-              {isTranscribing ? (
-                <TranscribingIndicator />
-              ) : (
-                <View style={styles.recordingLeft}>
-                  <CompactWaveform meteringValue={meteringValue} />
-                  <Text style={styles.releaseText} numberOfLines={1}>
-                    {transcript || 'Release to send'}
-                  </Text>
-                </View>
-              )}
-            </View>
           )}
 
-          {/* Center - Text Input (hidden when recording) */}
-          {!showRecordingUI && (
-            <TextInput
-              ref={inputRef}
-              style={[styles.textInput, { height: inputHeight }]}
-              value={value}
-              onChangeText={onChangeText}
-              placeholder={placeholder}
-              placeholderTextColor="#9CA3AF"
-              multiline
-              scrollEnabled
-              maxLength={4000}
-              editable={!isLoading && !disabled}
-              onContentSizeChange={handleContentSizeChange}
-              onFocus={handleFocus}
-              onBlur={handleBlur}
-            />
-          )}
-
-          {/* Right side buttons */}
           <View style={styles.rightButtons}>
-            {/* Mic button - always visible when no text */}
+            {/* Mic button */}
             <Animated.View style={[
-              styles.buttonWrapper, 
+              styles.buttonWrapper,
               !showRecordingUI && micButtonAnimatedStyle
             ]}>
               <Pressable
@@ -430,12 +442,12 @@ export function AIInputBox({
                 {showRecordingUI ? (
                   <ArrowUp size={16} color={BrandColors.white} strokeWidth={2.5} />
                 ) : (
-                  <Mic size={18} color="#9CA3AF" strokeWidth={2} />
+                  <Mic size={18} color={hasText ? "rgba(0,0,0,0.6)" : "rgba(0,0,0,0.4)"} strokeWidth={2} />
                 )}
               </Pressable>
             </Animated.View>
 
-            {/* Send button - shown when text exists */}
+            {/* Send button */}
             {!showRecordingUI && (
               <Animated.View style={[styles.buttonWrapper, sendButtonAnimatedStyle]}>
                 <Pressable
@@ -448,7 +460,45 @@ export function AIInputBox({
               </Animated.View>
             )}
           </View>
+
+          {/* X dismiss button - shown when focused AND has text */}
+          {isFocused && hasText && !showRecordingUI && (
+            <Pressable
+              onPress={() => {
+                Keyboard.dismiss();
+              }}
+              style={({ pressed }) => [
+                styles.dismissBtn,
+                pressed && { opacity: 0.6 },
+              ]}
+              hitSlop={8}
+            >
+              <X size={18} color="#9CA3AF" strokeWidth={2} />
+            </Pressable>
+          )}
         </View>
+      </View>
+    </View>
+  );
+
+  if (isLiquidGlassEnabled && LiquidGlassView) {
+    return (
+      <View style={styles.container}>
+        <LiquidGlassView interactive effect="regular" style={styles.glassCard}>
+          {inputCardContent}
+        </LiquidGlassView>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.container}>
+      <View style={[
+        styles.inputCardOuter,
+        showRecordingUI && styles.inputCardRecording,
+        isFocused && !showRecordingUI && styles.inputCardOuterFocused,
+      ]}>
+        {inputCardContent}
       </View>
     </View>
   );
@@ -461,30 +511,37 @@ export function AIInputBox({
 const styles = StyleSheet.create({
   container: {
     paddingHorizontal: Spacing.md,
-    paddingBottom: Spacing.sm,
     paddingTop: Spacing.xs,
   },
-  inputCard: {
-    backgroundColor: '#F3F4F6',
+  glassCard: {
     borderRadius: 24,
-    borderWidth: 1,
-    borderColor: 'transparent',
   },
-  inputCardFocused: {
-    backgroundColor: '#F9FAFB',
-    borderColor: '#E5E7EB',
+  inputCardOuter: {
+    borderRadius: 24,
+    backgroundColor: 'rgba(255,255,255,0.85)',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.06)',
+  },
+  inputCardOuterFocused: {
+    backgroundColor: 'rgba(255,255,255,0.95)',
+    borderColor: 'rgba(0,0,0,0.08)',
+  },
+  inputCardInner: {
   },
   inputCardRecording: {
     backgroundColor: '#EEF2FF',
     borderColor: BrandColors.secondary,
     borderWidth: 1.5,
+    borderRadius: 28,
   },
   inputRow: {
     flexDirection: 'row',
-    alignItems: 'flex-end',
-    paddingVertical: 8,
-    paddingHorizontal: 8,
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 10,
     minHeight: 48,
+  },
+  inputRowFocused: {
   },
   plusBtn: {
     width: 32,
@@ -505,11 +562,25 @@ const styles = StyleSheet.create({
     lineHeight: LINE_HEIGHT,
     paddingVertical: 6,
     paddingHorizontal: 8,
+    textAlignVertical: 'center',
+  },
+  rightButtonsRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    gap: 6,
   },
   rightButtons: {
     width: 32,
     height: 32,
     position: 'relative',
+  },
+  dismissBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#F3F4F6',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   buttonWrapper: {
     position: 'absolute',

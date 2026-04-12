@@ -1,5 +1,5 @@
-import { internalMutation, internalAction } from "./_generated/server";
-import { internal } from "./_generated/api";
+import { internalMutation, internalAction, internalQuery } from "./_generated/server";
+import { api, internal } from "./_generated/api";
 import { v } from "convex/values";
 
 /**
@@ -76,3 +76,123 @@ export const cleanupExpiredAccounts = internalAction({
     }
   },
 });
+
+// ─── Task 24: Duplicate Makes Cleanup ──────────────────────────────────
+/**
+ * Re-point all references from a duplicate make to the canonical (seeded) make,
+ * then delete the duplicate. Affects: models, engines, transmissions,
+ * vehicle_configs, oem_parts, source_registry, scrape_cache.
+ */
+export const mergeDuplicateMake = internalMutation({
+  args: {
+    duplicate_id: v.id("makes"),
+    canonical_id: v.id("makes"),
+  },
+  handler: async (ctx, args) => {
+    let repointed = 0;
+
+    // 1. models
+    for (const doc of await ctx.db.query("models").withIndex("by_make_id", (q) => q.eq("make_id", args.duplicate_id)).collect()) {
+      await ctx.db.patch(doc._id, { make_id: args.canonical_id });
+      repointed++;
+    }
+
+    // 2. engines (make_id is optional)
+    for (const doc of await ctx.db.query("engines").collect()) {
+      if (doc.make_id === args.duplicate_id) {
+        await ctx.db.patch(doc._id, { make_id: args.canonical_id });
+        repointed++;
+      }
+    }
+
+    // 3. transmissions (make_id is optional — no index, scan)
+    for (const doc of await ctx.db.query("transmissions").collect()) {
+      if ((doc as any).make_id === args.duplicate_id) {
+        await ctx.db.patch(doc._id, { make_id: args.canonical_id });
+        repointed++;
+      }
+    }
+
+    // 4. vehicle_configs
+    for (const doc of await ctx.db.query("vehicle_configs").collect()) {
+      if (doc.make_id === args.duplicate_id) {
+        await ctx.db.patch(doc._id, { make_id: args.canonical_id });
+        repointed++;
+      }
+    }
+
+    // 5. oem_parts (make_id is optional)
+    for (const doc of await ctx.db.query("oem_parts").collect()) {
+      if ((doc as any).make_id === args.duplicate_id) {
+        await ctx.db.patch(doc._id, { make_id: args.canonical_id });
+        repointed++;
+      }
+    }
+
+    // 6. source_registry
+    for (const doc of await ctx.db.query("source_registry").collect()) {
+      if (doc.make_id === args.duplicate_id) {
+        await ctx.db.patch(doc._id, { make_id: args.canonical_id });
+        repointed++;
+      }
+    }
+
+    // 7. scrape_cache (make_id is optional)
+    for (const doc of await ctx.db.query("scrape_cache").collect()) {
+      if ((doc as any).make_id === args.duplicate_id) {
+        await ctx.db.patch(doc._id, { make_id: args.canonical_id });
+        repointed++;
+      }
+    }
+
+    // Delete the duplicate make
+    await ctx.db.delete(args.duplicate_id);
+
+    console.log(`[cleanup] Merged make ${args.duplicate_id} → ${args.canonical_id}: ${repointed} references re-pointed`);
+    return { repointed };
+  },
+});
+
+/**
+ * Action to merge all known duplicate makes. Run once after deploy.
+ */
+export const mergeAllDuplicateMakes = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    // Find duplicates by scanning for makes without a slug (pipeline-created)
+    // and matching them to seeded makes by slug derivation
+    const allMakes: any[] = await ctx.runQuery(internal.cleanup.listAllMakes, {});
+
+    const seeded = allMakes.filter((m: any) => m.slug);
+    const duplicates = allMakes.filter((m: any) => !m.slug);
+
+    let totalRepointed = 0;
+
+    for (const dup of duplicates) {
+      const slug = dup.name.toLowerCase().replace(/\s+/g, "-");
+      const canonical = seeded.find((s: any) => s.slug === slug);
+
+      if (canonical) {
+        console.log(`[cleanup] Merging "${dup.name}" (${dup._id}) → "${canonical.name}" (${canonical._id})`);
+        const result = await ctx.runMutation(internal.cleanup.mergeDuplicateMake, {
+          duplicate_id: dup._id,
+          canonical_id: canonical._id,
+        });
+        totalRepointed += result.repointed;
+      } else {
+        console.warn(`[cleanup] No canonical match for "${dup.name}" — skipping`);
+      }
+    }
+
+    console.log(`[cleanup] Done: merged ${duplicates.length} duplicate makes, ${totalRepointed} total references re-pointed`);
+    return { mergedCount: duplicates.length, totalRepointed };
+  },
+});
+
+export const listAllMakes = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db.query("makes").collect();
+  },
+});
+

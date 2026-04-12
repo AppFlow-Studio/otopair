@@ -1124,7 +1124,18 @@ export const updateMileage = internalMutation({
   handler: async (ctx, args) => {
     const vo = await ctx.db.get(args.vehicleOwnerId);
     if (!vo) return;
+
+    const prevMileage = vo.mileage ?? 0;
     await ctx.db.patch(args.vehicleOwnerId, { mileage: args.mileage });
+
+    // Trigger maintenance pipeline recalculation when mileage changes significantly (500+ mi)
+    if (vo.preOnboardingComplete && Math.abs(args.mileage - prevMileage) >= 500) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.maintenance_pipeline.runPipeline,
+        { vehicleOwnerId: args.vehicleOwnerId, triggeredBy: "mileage_update" }
+      );
+    }
   },
 });
 

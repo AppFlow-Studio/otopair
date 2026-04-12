@@ -12,7 +12,7 @@
  *   - onLogin (() => void): Callback to navigate to login screen
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@clerk/clerk-expo";
 import * as WebBrowser from "expo-web-browser";
 import { BrandColors, FontFamily, FontSize, Spacing, Text, BorderRadius } from "@/components/shared-ui";
@@ -47,6 +47,7 @@ interface SignupStepProps {
 export function SignupStep({ onNext, onBack, onEmailSignup, onLogin }: SignupStepProps) {
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
+  const { isSignedIn, isLoaded } = useAuth();
   const { updateData } = useOnboardingStore();
   const ensureConvexUser = useEnsureConvexUser();
   const { setIsNewUser, setIsAuthenticated } = useAuthStore();
@@ -55,6 +56,15 @@ export function SignupStep({ onNext, onBack, onEmailSignup, onLogin }: SignupSte
 
   const { startSSOFlow: startGoogleSSO } = useSSO();
   const { startSSOFlow: startAppleSSO } = useSSO();
+
+  // Already signed in → redirect to home (index may have sent here if me was loading)
+  useEffect(() => {
+    if (isLoaded && isSignedIn) {
+      setIsNewUser(false);
+      setIsAuthenticated(true);
+      router.replace("/(main-tabs)/home");
+    }
+  }, [isLoaded, isSignedIn, setIsAuthenticated, setIsNewUser]);
 
   const dynamicStyles = {
     container: { paddingTop: insets.top + Spacing.lg },

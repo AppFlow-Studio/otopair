@@ -18,7 +18,7 @@
 - [x] Services/shops: services.ts, service_categories.ts, service_options.ts, shop_services.ts, shops.ts, mechanics.ts, shops_hours.ts, time_slots.ts, service_vehicle_specs.ts, service_insights.ts, cdn_assets.ts, shop_portfolio.ts
 - [x] User/infra: users.ts (getOrCreateMe), onboarding_questions_answers only (Q&A in app; see [ONBOARDING_QA.md](./ONBOARDING_QA.md))
 <<<<<<< HEAD
-- [x] **Rewards:** rewards.ts — wallet, deals, credit history, membership stats, tier; addCreditForCompletedBooking (on booking completion); spend thresholds ($750 Preferred, $1,500 Elite); claimContributionReward (review $5, upload $10, referral $25 cap 5). transactions.ts for History screen.
+- [x] **Rewards:** rewards.ts — wallet, deals, credit history, membership stats, tier; addCreditForCompletedBooking (on booking completion); spend thresholds ($750 Preferred, $1,500 Elite); claimContributionReward (review $3, upload $5, referral $15 cap 5). transactions.ts for History screen.
 =======
 >>>>>>> origin/daniel-dev
 - [x] Catalog: makes.ts, models.ts, trims.ts, engines.ts (list/getById/getBy\*)
@@ -40,16 +40,16 @@
 
 ### Done
 
-- [x] **Booking → credit** – When booking completes (updateStatus or submitJobActuals), scheduler runs addCreditForCompletedBooking; credits user wallet by tier rate (1.5% / 3% / 5%)
+- [x] **Booking → credit** – When booking completes (updateStatus or submitJobActuals), scheduler runs addCreditForCompletedBooking; credits user wallet by tier rate (1% / 1.5% / 2%)
 - [x] **Spend thresholds** – Per-vehicle tier auto-upgrade: $750 → Preferred, $1,500 → Elite (12-month rolling spend)
 - [x] **Membership UI** – app/membership.tsx: balance, tier modal (Driver/Preferred/Elite), suggested deals, History, Refer a Friend, Add Car
 - [x] **Wallet & tier** – getWallet, getPrimaryVehicleTier, getMembershipStats, getCreditHistory, transactions.listForUser
-- [x] **Contribution mutation** – claimContributionReward (review $5, upload $10, referral $25; referral cap 5)
+- [x] **Contribution mutation** – claimContributionReward (review $3, upload $5, referral $15; referral cap 5)
 - [x] **Suggested deals** – app/suggested-deals.tsx with getAllDeals
 
 ### Half-implemented
 
-- [ ] **Contribution hooks** – claimContributionReward exists but not called from: reviews.submit (review $5), upload flow (upload $10), referral completion (referral $25 both parties)
+- [ ] **Contribution hooks** – claimContributionReward exists but not called from: reviews.submit (review $3), upload flow (upload $5), referral completion (referral $15 both parties)
 
 ### Not implemented
 

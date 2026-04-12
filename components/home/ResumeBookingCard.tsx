@@ -39,7 +39,7 @@ import { Text } from '@/components/shared-ui';
 // ============================================================================
 
 interface ResumeBookingCardProps {
-  mechanicsAvailable: number;
+  mechanicsAvailable?: number;
   servicesPreview: string;
   onPress?: () => void;
   onDismiss?: () => void;
@@ -117,9 +117,11 @@ export function ResumeBookingCard({
         <View style={styles.bottomSection}>
           {/* Left - Info */}
           <View style={styles.infoSection}>
-            <Text weight="semiBold" size="sm" color="#5299FE">
-              {mechanicsAvailable} Mechanics Available
-            </Text>
+            {mechanicsAvailable != null && (
+              <Text weight="semiBold" size="sm" color="#5299FE">
+                {mechanicsAvailable} Mechanics Available
+              </Text>
+            )}
             <Text size="sm" color="#6B7280" numberOfLines={1}>
               {servicesPreview}
             </Text>

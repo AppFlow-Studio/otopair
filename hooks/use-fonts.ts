@@ -1,16 +1,12 @@
 import { useFonts } from 'expo-font';
+import {
+    SourceSerif4_400Regular,
+    SourceSerif4_600SemiBold,
+    SourceSerif4_700Bold,
+} from '@expo-google-fonts/source-serif-4';
 
 /**
- * Load Urbanist font family for the app.
- * 
- * @example
- * ```tsx
- * const [fontsLoaded, fontError] = useAppFonts();
- * 
- * if (!fontsLoaded && !fontError) {
- *   return null; // Or a loading component
- * }
- * ```
+ * Load Urbanist + Source Serif 4 font families for the app.
  */
 export function useAppFonts() {
     return useFonts({
@@ -21,5 +17,8 @@ export function useAppFonts() {
         'Urbanist-Bold': require('../assets/fonts/Urbanist-Bold.ttf'),
         'Urbanist-ExtraBold': require('../assets/fonts/Urbanist-ExtraBold.ttf'),
         'Urbanist-Italic': require('../assets/fonts/Urbanist-Italic.ttf'),
+        'SourceSerif4-Regular': SourceSerif4_400Regular,
+        'SourceSerif4-SemiBold': SourceSerif4_600SemiBold,
+        'SourceSerif4-Bold': SourceSerif4_700Bold,
     });
 }

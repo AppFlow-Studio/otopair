@@ -51,12 +51,13 @@ import { UpcomingAppointmentCard } from './UpcomingAppointmentCard';
 
 interface ActionCardsCarouselProps {
   // Upcoming Appointment
-  appointmentBusinessName: string;
-  appointmentMechanicName: string;
-  appointmentRating: number;
+  showAppointment?: boolean;
+  appointmentBusinessName?: string;
+  appointmentMechanicName?: string;
+  appointmentRating?: number;
   appointmentIsVerified?: boolean;
-  appointmentDate: string;
-  appointmentTimeSlot: string;
+  appointmentDate?: string;
+  appointmentTimeSlot?: string;
   appointmentLateMinutes?: number;
   onAppointmentPress?: () => void;
 
@@ -73,6 +74,8 @@ interface ActionCardsCarouselProps {
 
   // Finish Car Setup
   showCarSetup?: boolean;
+  isCarSetupDone?: boolean;
+  carSetupChecklist?: { id: string; label: string; completed: boolean }[];
   onCarSetupPress?: () => void;
   onCarSetupDismiss?: () => void;
 
@@ -93,19 +96,20 @@ const CARD_GAP = 0; // No gap to prevent peeking
 
 export function ActionCardsCarousel({
   // Upcoming Appointment
-  appointmentBusinessName,
-  appointmentMechanicName,
-  appointmentRating,
-  appointmentIsVerified = true,
-  appointmentDate,
-  appointmentTimeSlot,
+  showAppointment = false,
+  appointmentBusinessName = '',
+  appointmentMechanicName = '',
+  appointmentRating = 0,
+  appointmentIsVerified = false,
+  appointmentDate = '',
+  appointmentTimeSlot = '',
   appointmentLateMinutes,
   onAppointmentPress,
 
   // Resume Booking
-  showResumeBooking = true,
-  resumeMechanicsAvailable = 3,
-  resumeServicesPreview = 'Oil Change, Fluid Ch...',
+  showResumeBooking = false,
+  resumeMechanicsAvailable,
+  resumeServicesPreview = '',
   onResumePress,
 
   // Finish Account Setup
@@ -115,6 +119,8 @@ export function ActionCardsCarousel({
 
   // Finish Car Setup
   showCarSetup = true,
+  isCarSetupDone = false,
+  carSetupChecklist,
   onCarSetupPress,
   onCarSetupDismiss,
 
@@ -128,14 +134,12 @@ export function ActionCardsCarousel({
   const [activeIndex, setActiveIndex] = useState(0);
 
   // Build array of visible cards - account setup first when visible, then appointment, resume, car
-  const allCards = [
+  const cards = [
     { id: 'account', visible: showAccountSetup },
-    { id: 'appointment', visible: true },
+    { id: 'appointment', visible: showAppointment },
     { id: 'resume', visible: showResumeBooking },
     { id: 'car', visible: showCarSetup },
   ].filter((card) => card.visible);
-
-  const cards = allCards;
 
   // Scroll to first card on mount or when card list changes
   useEffect(() => {
@@ -148,7 +152,9 @@ export function ActionCardsCarousel({
       onCardChange?.(0);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showAccountSetup, showResumeBooking, showCarSetup]);
+  }, [showAccountSetup, showAppointment, showResumeBooking, showCarSetup]);
+
+  if (cards.length === 0) return null;
 
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const contentOffsetX = event.nativeEvent.contentOffset.x;
@@ -200,6 +206,8 @@ export function ActionCardsCarousel({
         return (
           <View key={cardId} style={[styles.cardContainer, styles.lastCard]}>
             <FinishCarSetupCard
+              checklist={carSetupChecklist}
+              isComplete={isCarSetupDone}
               onPress={onCarSetupPress}
               onDismiss={onCarSetupDismiss}
             />

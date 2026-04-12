@@ -18,13 +18,12 @@ import { ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 3. Shared UI (design system)
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Constants, hooks, types, stores
-import { BorderRadius, getSheetContentPadding } from "@/constants/theme";
+import { BorderRadius } from "@/constants/theme";
 import type { Service, ServiceCategory } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
 
@@ -43,8 +42,6 @@ interface ServiceSelectionContentProps {
 
 export function ServiceSelectionContent({ onCategorySelect }: ServiceSelectionContentProps) {
   // ═══════════════ HOOKS ═══════════════
-  const insets = useSafeAreaInsets();
-  const contentPadding = getSheetContentPadding(true, insets.bottom);
 
   // ═══════════════ STATE-EFFECT: Local State ═══════════════
   const [selectedCategory, setSelectedCategory] = useState<ServiceCategory>("basic_maintenance");
@@ -142,11 +139,12 @@ export function ServiceSelectionContent({ onCategorySelect }: ServiceSelectionCo
         </ScrollView>
       </View>
 
-      {/* Service List - Scrollable content with bottom padding for footer */}
+      {/* Service List - Scrollable content with spacer for footer clearance */}
       <BottomSheetScrollView
         style={styles.scrollView}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: contentPadding }]}
+        contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        enableFooterMarginAdjustment
       >
         {filteredServices.map(renderServiceItem)}
 
@@ -157,6 +155,7 @@ export function ServiceSelectionContent({ onCategorySelect }: ServiceSelectionCo
             </Text>
           </View>
         )}
+
       </BottomSheetScrollView>
     </View>
   );

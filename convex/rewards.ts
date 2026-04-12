@@ -105,6 +105,86 @@ export const getMembershipStats = query({
 });
 
 /**
+ * Get per-vehicle stats for membership page (individual view).
+ * Credit earned = sum of earn_service transactions from bookings for this vin.
+ * Services = count of completed bookings for this vin.
+ * Shops = unique shops from those bookings.
+ * Miles safe = pooled miles_safe split proportionally by services ratio (MVP).
+ */
+export const getMembershipStatsByVehicle = query({
+  args: { userId: v.id("users"), vin: v.string() },
+  handler: async (ctx, args) => {
+    const completedBookings = await ctx.db
+      .query("bookings")
+      .withIndex("by_user_id", (q) => q.eq("user_id", args.userId))
+      .filter((q) => q.and(q.eq(q.field("vin"), args.vin), q.eq(q.field("status"), "completed")))
+      .collect();
+
+    const servicesCount = completedBookings.length;
+    const uniqueShops = new Set(completedBookings.map((b) => b.shop_id.toString()));
+    const bookingIds = new Set(completedBookings.map((b) => b._id.toString()));
+
+    let creditEarned = 0;
+    const transactions = await ctx.db
+      .query("ownership_credit_transactions")
+      .withIndex("by_user_id", (q) => q.eq("user_id", args.userId))
+      .filter((q) => q.eq(q.field("type"), "earn_service"))
+      .collect();
+    for (const tx of transactions) {
+      if (tx.reference_id && tx.amount > 0 && bookingIds.has(tx.reference_id)) {
+        creditEarned += tx.amount;
+      }
+    }
+
+    const wallet = await ctx.db
+      .query("user_reward_wallets")
+      .withIndex("by_user_id", (q) => q.eq("user_id", args.userId))
+      .unique();
+    const pooledMilesSafe = wallet?.miles_safe ?? 0;
+    const totalServices = await ctx.db
+      .query("bookings")
+      .withIndex("by_user_id", (q) => q.eq("user_id", args.userId))
+      .filter((q) => q.eq(q.field("status"), "completed"))
+      .collect();
+    const totalCount = totalServices.length;
+    const milesSafe = totalCount > 0 ? Math.round((pooledMilesSafe * servicesCount) / totalCount) : 0;
+
+    return {
+      creditEarned,
+      milesSafe,
+      services: servicesCount,
+      shops: uniqueShops.size,
+    };
+  },
+});
+
+/**
+ * Get tier for each vehicle owned by user (for My Garage / car selection with status badges).
+ */
+export const getVehicleTiersByUser = query({
+  args: { userId: v.id("users") },
+  handler: async (ctx, args) => {
+    const ownerships = await ctx.db
+      .query("vehicle_owners")
+      .withIndex("by_user_status", (q) => q.eq("user_id", args.userId).eq("status", "active"))
+      .collect();
+
+    const result: { vin: string; tier: "driver" | "preferred" | "elite" }[] = [];
+    for (const o of ownerships) {
+      const vt = await ctx.db
+        .query("vehicle_tiers")
+        .withIndex("by_vin_user", (q) => q.eq("vin", o.vin).eq("user_id", args.userId))
+        .unique();
+      result.push({
+        vin: o.vin,
+        tier: (vt?.tier ?? "driver") as "driver" | "preferred" | "elite",
+      });
+    }
+    return result;
+  },
+});
+
+/**
  * Get primary vehicle tier for user (for "ELITE MEMBER" badge, etc.).
  */
 export const getPrimaryVehicleTier = query({
@@ -195,11 +275,11 @@ export const addCreditForCompletedBooking = internalMutation({
     const tier = (vt?.tier ?? "driver") as "driver" | "preferred" | "elite";
 
     const earnRates: Record<string, number> = {
-      driver: 0.015,
-      preferred: 0.03,
-      elite: 0.05,
+      driver: 0.01,
+      preferred: 0.015,
+      elite: 0.02,
     };
-    const rate = earnRates[tier] ?? 0.015;
+    const rate = earnRates[tier] ?? 0.01;
     const creditAmount = Math.round(totalCost * rate * 100) / 100;
     if (creditAmount <= 0) return null;
 
@@ -231,7 +311,8 @@ export const addCreditForCompletedBooking = internalMutation({
       type: "earn_service",
       description: "Maintenance rewards",
       reference_id: args.bookingId.toString(),
-      expires_at: now + 180 * 24 * 60 * 60 * 1000, // 6 months
+      // Elite credits never expire; Driver/Preferred expire in 6 months
+      ...(tier === "elite" ? {} : { expires_at: now + 180 * 24 * 60 * 60 * 1000 }),
       created_at: now,
     });
 
@@ -448,7 +529,7 @@ export const redeemSelected = mutation({
 });
 
 /**
- * Claim contribution reward (review $5, upload $10, referral $25).
+ * Claim contribution reward (review $3, upload $5, referral $15).
  * Call when user completes the action.
  */
 export const claimContributionReward = mutation({
@@ -459,9 +540,9 @@ export const claimContributionReward = mutation({
   },
   handler: async (ctx, args) => {
     const amounts: Record<string, number> = {
-      review: 5,
-      upload: 10,
-      referral: 25,
+      review: 3,
+      upload: 5,
+      referral: 15,
     };
     const amount = amounts[args.actionType];
 
@@ -529,7 +610,9 @@ export const claimContributionReward = mutation({
       type: `earn_${args.actionType}`,
       description: desc,
       reference_id: args.referenceId,
-      expires_at: now + 180 * 24 * 60 * 60 * 1000, // 6 months
+      // Contribution credits expire in 6 months for all tiers
+      // (Elite non-expiring applies to earn_service credits in addCreditForCompletedBooking)
+      expires_at: now + 180 * 24 * 60 * 60 * 1000,
       created_at: now,
     });
 

@@ -58,6 +58,7 @@ import Svg, { Circle, Line, Path, Text as SvgText } from "react-native-svg";
 
 // ─── Shared UI ──────────────────────────────────────────────────────────────
 import { Text } from "@/components/shared-ui";
+import { scale, moderateScale } from '@/utils/responsive';
 
 // ─── Types ──────────────────────────────────────────────────────────────────
 import type {
@@ -68,7 +69,7 @@ import type {
 } from "@/hooks/useSmartcarData";
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
-const PAGE_WIDTH = SCREEN_WIDTH - 32; // 16px margin each side
+const PAGE_WIDTH = SCREEN_WIDTH - scale(32); // 16px margin each side
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // TYPES
@@ -966,43 +967,43 @@ export default function VehicleStatsCard({
 
 const styles = StyleSheet.create({
   container: {
-    marginHorizontal: 16,
-    marginTop: 12,
-    borderRadius: 20,
+    marginHorizontal: scale(16),
+    marginTop: scale(12),
+    borderRadius: moderateScale(20),
     overflow: "hidden",
   },
   blurContainer: {
-    paddingTop: 16,
-    paddingBottom: 12,
+    paddingTop: scale(16),
+    paddingBottom: scale(12),
     backgroundColor: "rgba(255,255,255,0.55)",
-    borderRadius: 20,
+    borderRadius: moderateScale(20),
     overflow: "hidden",
   },
   header: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 6,
-    paddingHorizontal: 16,
+    marginBottom: scale(6),
+    paddingHorizontal: scale(16),
   },
   headerLeft: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: scale(8),
   },
   headerTitle: { color: "#1a1a1a" },
   onlineBadge: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 3,
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: 8,
+    gap: scale(3),
+    paddingHorizontal: scale(6),
+    paddingVertical: scale(3),
+    borderRadius: moderateScale(8),
   },
   refreshButton: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
+    width: scale(32),
+    height: scale(32),
+    borderRadius: moderateScale(16),
     backgroundColor: "rgba(255,255,255,0.5)",
     justifyContent: "center",
     alignItems: "center",
@@ -1011,36 +1012,36 @@ const styles = StyleSheet.create({
 
   // Swipeable pages
   flatListStyle: { flexGrow: 0 },
-  pageContainer: { paddingHorizontal: 16, paddingBottom: 6 },
+  pageContainer: { paddingHorizontal: scale(16), paddingBottom: scale(6) },
   pageLabel: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-    marginBottom: 10,
+    gap: scale(4),
+    marginBottom: scale(10),
   },
-  pageLabelText: { color: "rgba(0,0,0,0.35)", textTransform: "uppercase", fontSize: 10, letterSpacing: 0.5 },
+  pageLabelText: { color: "rgba(0,0,0,0.35)", textTransform: "uppercase", fontSize: moderateScale(10), letterSpacing: 0.5 },
 
   // Dots
   dotsRow: {
     flexDirection: "row",
     justifyContent: "center",
     alignItems: "center",
-    gap: 6,
-    paddingVertical: 8,
+    gap: scale(6),
+    paddingVertical: scale(8),
   },
-  dot: { width: 6, height: 6, borderRadius: 3 },
-  dotActive: { backgroundColor: "#007AFF", width: 18, borderRadius: 4 },
+  dot: { width: scale(6), height: scale(6), borderRadius: moderateScale(3) },
+  dotActive: { backgroundColor: "#007AFF", width: scale(18), borderRadius: moderateScale(4) },
   dotInactive: { backgroundColor: "rgba(0,0,0,0.15)" },
 
   // Fuel gauge wrapper
   fuelGaugeWrapper: {
     backgroundColor: "rgba(255,255,255,0.6)",
-    borderRadius: 16,
-    paddingTop: 8,
-    paddingHorizontal: 8,
-    paddingBottom: 14,
+    borderRadius: moderateScale(16),
+    paddingTop: scale(8),
+    paddingHorizontal: scale(8),
+    paddingBottom: scale(14),
     alignItems: "center",
-    marginBottom: 10,
+    marginBottom: scale(10),
   },
 
   // 3-column stat row under fuel gauge
@@ -1049,133 +1050,133 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-evenly",
     width: "100%",
-    marginTop: 8,
+    marginTop: scale(8),
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: "rgba(0,0,0,0.08)",
-    paddingTop: 12,
+    paddingTop: scale(12),
   },
   fuelStatCol: { flex: 1, alignItems: "center" },
-  fuelStatValue: { color: "#1a1a1a", fontSize: 17 },
-  fuelStatLabel: { color: "rgba(0,0,0,0.35)", marginTop: 3 },
+  fuelStatValue: { color: "#1a1a1a", fontSize: moderateScale(17) },
+  fuelStatLabel: { color: "rgba(0,0,0,0.35)", marginTop: scale(3) },
   fuelStatDivider: {
     width: StyleSheet.hairlineWidth,
-    height: 32,
+    height: scale(32),
     backgroundColor: "rgba(0,0,0,0.1)",
   },
 
   // Trip stats
   tripContainer: {
     backgroundColor: "rgba(255,255,255,0.6)",
-    borderRadius: 16,
-    padding: 14,
+    borderRadius: moderateScale(16),
+    padding: scale(14),
   },
   tripRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-around",
-    marginTop: 8,
+    marginTop: scale(8),
   },
-  tripStatBox: { alignItems: "center", minWidth: 60 },
+  tripStatBox: { alignItems: "center", minWidth: scale(60) },
   tripStatValue: { color: "#1a1a1a" },
-  tripStatLabel: { color: "rgba(0,0,0,0.35)", marginTop: 2 },
+  tripStatLabel: { color: "rgba(0,0,0,0.35)", marginTop: scale(2) },
 
   // Oil tile
   oilTile: {
     backgroundColor: "rgba(255,255,255,0.6)",
-    borderRadius: 16,
-    padding: 14,
-    marginBottom: 10,
+    borderRadius: moderateScale(16),
+    padding: scale(14),
+    marginBottom: scale(10),
   },
-  oilTileRow: { flexDirection: "row", alignItems: "center", gap: 14 },
+  oilTileRow: { flexDirection: "row", alignItems: "center", gap: scale(14) },
   oilTileInfo: { flex: 1 },
-  oilValue: { color: "#1a1a1a", marginBottom: 2 },
-  oilLabelRow: { flexDirection: "row", alignItems: "center", gap: 4 },
+  oilValue: { color: "#1a1a1a", marginBottom: scale(2) },
+  oilLabelRow: { flexDirection: "row", alignItems: "center", gap: scale(4) },
 
   // Tire section
   tireSection: {
     backgroundColor: "rgba(255,255,255,0.6)",
-    borderRadius: 16,
-    padding: 12,
-    marginBottom: 10,
+    borderRadius: moderateScale(16),
+    padding: scale(12),
+    marginBottom: scale(10),
   },
-  tireGrid: { width: "100%", marginTop: 8, gap: 6 },
-  tireRow: { flexDirection: "row", justifyContent: "center", gap: 10 },
+  tireGrid: { width: "100%", marginTop: scale(8), gap: scale(6) },
+  tireRow: { flexDirection: "row", justifyContent: "center", gap: scale(10) },
   tireTile: {
-    width: 70,
+    width: scale(70),
     backgroundColor: "rgba(0,0,0,0.04)",
-    borderRadius: 10,
-    paddingVertical: 8,
-    paddingHorizontal: 6,
+    borderRadius: moderateScale(10),
+    paddingVertical: scale(8),
+    paddingHorizontal: scale(6),
     alignItems: "center",
   },
-  tireTileLabel: { color: "rgba(0,0,0,0.35)", fontSize: 10, marginBottom: 2 },
-  tireTileValue: { fontSize: 15 },
+  tireTileLabel: { color: "rgba(0,0,0,0.35)", fontSize: moderateScale(10), marginBottom: scale(2) },
+  tireTileValue: { fontSize: moderateScale(15) },
 
   // Subsections
-  subsection: { marginTop: 10 },
+  subsection: { marginTop: scale(10) },
   subsectionHeader: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 4,
-    marginBottom: 8,
+    gap: scale(4),
+    marginBottom: scale(8),
   },
   sectionBadge: { marginLeft: "auto", color: "rgba(0,0,0,0.3)" },
   tileLabel: { color: "rgba(0,0,0,0.45)" },
-  tapHint: { marginLeft: "auto", color: "#007AFF", fontSize: 10 },
-  noDataText: { color: "rgba(0,0,0,0.3)", marginTop: 8 },
+  tapHint: { marginLeft: "auto", color: "#007AFF", fontSize: moderateScale(10) },
+  noDataText: { color: "rgba(0,0,0,0.3)", marginTop: scale(8) },
 
   // Lock Status
   lockCard: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "rgba(255,255,255,0.6)",
-    borderRadius: 14,
-    padding: 12,
-    gap: 12,
+    borderRadius: moderateScale(14),
+    padding: scale(12),
+    gap: scale(12),
   },
-  lockIconCircle: { width: 44, height: 44, borderRadius: 22, justifyContent: "center", alignItems: "center" },
+  lockIconCircle: { width: scale(44), height: scale(44), borderRadius: scale(22), justifyContent: "center", alignItems: "center" },
   lockInfo: { flex: 1 },
-  lockDetail: { color: "rgba(0,0,0,0.45)", marginTop: 2 },
-  doorGrid: { flexDirection: "row", flexWrap: "wrap", gap: 6, marginTop: 8 },
+  lockDetail: { color: "rgba(0,0,0,0.45)", marginTop: scale(2) },
+  doorGrid: { flexDirection: "row", flexWrap: "wrap", gap: scale(6), marginTop: scale(8) },
   doorChip: {
     flexDirection: "row",
     alignItems: "center",
     backgroundColor: "rgba(255,255,255,0.6)",
-    borderRadius: 8,
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    gap: 4,
+    borderRadius: moderateScale(8),
+    paddingVertical: scale(4),
+    paddingHorizontal: scale(8),
+    gap: scale(4),
   },
-  doorDot: { width: 6, height: 6, borderRadius: 3 },
-  doorChipText: { color: "rgba(0,0,0,0.5)", fontSize: 11 },
+  doorDot: { width: scale(6), height: scale(6), borderRadius: moderateScale(3) },
+  doorChipText: { color: "rgba(0,0,0,0.5)", fontSize: moderateScale(11) },
 
   // Location
-  mapContainer: { borderRadius: 14, overflow: "hidden", height: 150 },
+  mapContainer: { borderRadius: moderateScale(14), overflow: "hidden", height: scale(150) },
   miniMap: { flex: 1 },
 
   // Next service prediction
   predictionCard: {
     backgroundColor: "rgba(255,255,255,0.6)",
-    borderRadius: 14,
-    padding: 14,
+    borderRadius: moderateScale(14),
+    padding: scale(14),
     borderLeftWidth: 3,
   },
-  predictionSub: { color: "rgba(0,0,0,0.45)", marginTop: 2 },
-  predictionDate: { color: "rgba(0,0,0,0.35)", marginTop: 4 },
+  predictionSub: { color: "rgba(0,0,0,0.45)", marginTop: scale(2) },
+  predictionDate: { color: "rgba(0,0,0,0.35)", marginTop: scale(4) },
 
   // Synced
   syncedRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 6,
-    paddingVertical: 6,
-    paddingHorizontal: 16,
+    gap: scale(6),
+    paddingVertical: scale(6),
+    paddingHorizontal: scale(16),
   },
   syncedDot: {
-    width: 7,
-    height: 7,
-    borderRadius: 3.5,
+    width: scale(7),
+    height: scale(7),
+    borderRadius: scale(3.5),
     backgroundColor: "#34C759",
   },
   syncedText: { color: "rgba(0,0,0,0.35)" },
