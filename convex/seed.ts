@@ -1,6 +1,10 @@
 import { action, internalMutation, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import { api, internal } from "./_generated/api";
+import {
+  rebuildAllAvailability,
+  syncShopAvailabilityWindow,
+} from "./lib/timeSlotAvailability";
 
 /**
  * Seed creates a demo user with clerkUserId "seed-demo-user-2". When you sign in with the
@@ -408,6 +412,14 @@ export const claimSeedDataForCurrentUser = mutation({
 export const seedTimeSlots = mutation({
   args: {},
   handler: async (ctx) => {
+    const result = await rebuildAllAvailability(ctx, { days: 35 });
+    return {
+      success: true,
+      slotsCreated: result.created,
+      slotsDeleted: result.deleted,
+    };
+    /*
+
     // 1. Delete all existing time_slots
     const existingSlots = await ctx.db.query("time_slots").collect();
     for (const slot of existingSlots) {
@@ -483,6 +495,7 @@ export const seedTimeSlots = mutation({
     }
 
     return { success: true, slotsCreated: totalCreated };
+    */
   },
 });
 
@@ -3707,5 +3720,454 @@ export const seedVehiclesForUser = mutation({
     }
 
     return { success: true, vehiclesCreated: created, userId: user._id };
+  },
+});
+
+function dashboardMinutesToTime(minutes: number): string {
+  const clamped = Math.max(0, Math.min(1439, Math.round(minutes)));
+  const hours = Math.floor(clamped / 60);
+  const mins = clamped % 60;
+  return `${String(hours).padStart(2, "0")}:${String(mins).padStart(2, "0")}`;
+}
+
+function dashboardAddMinutesToTime(hhmm: string, deltaMinutes: number): string {
+  const [hours, mins] = hhmm.split(":").map(Number);
+  return dashboardMinutesToTime(hours * 60 + mins + deltaMinutes);
+}
+
+export const seedDashboardBookings = mutation({
+  args: {
+    shopId: v.id("shops"),
+    clearExisting: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const shop = await ctx.db.get(args.shopId);
+    if (!shop) throw new Error(`Shop ${args.shopId} not found.`);
+
+    const now = Date.now();
+    const today = new Date(now).toISOString().split("T")[0];
+
+    if (args.clearExisting ?? false) {
+      const existingBookings = await ctx.db
+        .query("bookings")
+        .withIndex("by_shop_id", (q) => q.eq("shop_id", args.shopId))
+        .collect();
+      const bookingIds = new Set(existingBookings.map((booking) => String(booking._id)));
+
+      const history = await ctx.db.query("booking_status_history").collect();
+      for (const row of history) {
+        if (bookingIds.has(String(row.booking_id))) {
+          await ctx.db.delete(row._id);
+        }
+      }
+
+      for (const booking of existingBookings) {
+        await ctx.db.delete(booking._id);
+      }
+
+      const existingSlots = await ctx.db
+        .query("time_slots")
+        .withIndex("by_shop_id", (q) => q.eq("shop_id", args.shopId))
+        .collect();
+      for (const slot of existingSlots) {
+        await ctx.db.delete(slot._id);
+      }
+
+      const blockTypes = await ctx.db
+        .query("block_time_types")
+        .withIndex("by_shop_id", (q) => q.eq("shop_id", args.shopId))
+        .collect();
+      for (const type of blockTypes) {
+        await ctx.db.delete(type._id);
+      }
+    }
+
+    const ensureService = async (slug: string, name: string, categoryName: string) => {
+      const services = await ctx.db.query("services").collect();
+      const existingService = services.find((service) => service.slug === slug);
+      let serviceId: any;
+
+      if (existingService) {
+        serviceId = existingService._id;
+      } else {
+        const categories = await ctx.db.query("service_categories").collect();
+        const existingCategory = categories.find((category) => category.name === categoryName);
+        const categoryId =
+          existingCategory?._id ??
+          (await ctx.db.insert("service_categories", {
+            name: categoryName,
+            icon_name: "wrench",
+            display_order: 99,
+          }));
+
+        serviceId = await ctx.db.insert("services", {
+          name,
+          slug,
+          description: name,
+          service_category_id: categoryId,
+          default_labor_hours: 1,
+          is_labor_only: false,
+          has_options: false,
+          display_order: 99,
+        });
+      }
+
+      const existingShopService = await ctx.db
+        .query("shop_services")
+        .withIndex("by_shop_and_service", (q: any) =>
+          q.eq("shop_id", args.shopId).eq("service_id", serviceId)
+        )
+        .first();
+      if (!existingShopService) {
+        await ctx.db.insert("shop_services", {
+          shop_id: args.shopId,
+          service_id: serviceId,
+          is_offered: true,
+        });
+      }
+
+      return serviceId;
+    };
+
+    const oilChangeId = await ensureService("oil-change", "Oil Change", "Maintenance");
+    const brakePadsId = await ensureService(
+      "brake-pads",
+      "Brake Pad Replacement",
+      "Brakes"
+    );
+    const tireRotationId = await ensureService(
+      "tire-rotation",
+      "Tire Rotation",
+      "Maintenance"
+    );
+    const alignmentId = await ensureService(
+      "wheel-alignment",
+      "Wheel Alignment",
+      "Maintenance"
+    );
+    const acServiceId = await ensureService(
+      "ac-service",
+      "AC System Service",
+      "Maintenance"
+    );
+
+    let mechanics = await ctx.db
+      .query("mechanics")
+      .withIndex("by_shop_id", (q) => q.eq("shop_id", args.shopId))
+      .filter((q) => q.eq(q.field("is_active"), true))
+      .collect();
+
+    if (mechanics.length === 0) {
+      const fallbackMechanicId = await ctx.db.insert("mechanics", {
+        shop_id: args.shopId,
+        first_name: "Demo",
+        last_name: "Technician",
+        title: "Lead Tech",
+        is_active: true,
+        rating: 0,
+        review_count: 0,
+      });
+      mechanics = (await ctx.db
+        .query("mechanics")
+        .withIndex("by_shop_id", (q) => q.eq("shop_id", args.shopId))
+        .collect()).filter((mechanic) => mechanic.is_active);
+
+      const ownerMembership = shop.owner_user_id
+        ? await ctx.db
+            .query("shop_users")
+            .withIndex("by_user_and_shop", (q) =>
+              q.eq("user_id", shop.owner_user_id!).eq("shop_id", args.shopId)
+            )
+            .first()
+        : null;
+      if (ownerMembership && !ownerMembership.mechanic_id) {
+        await ctx.db.patch(ownerMembership._id, {
+          mechanic_id: fallbackMechanicId,
+          role: ownerMembership.role ?? "shop_owner",
+          updated_at: now,
+        });
+      }
+    }
+
+    const demoVehicles = [
+      {
+        clerkId: "seed-dashboard-user-1",
+        firstName: "James",
+        lastName: "Sullivan",
+        vin: "SEED1VIN000001",
+        year: 2018,
+        make: "Ford",
+        model: "F-150",
+      },
+      {
+        clerkId: "seed-dashboard-user-2",
+        firstName: "Maria",
+        lastName: "Rodriguez",
+        vin: "SEED1VIN000002",
+        year: 2021,
+        make: "Toyota",
+        model: "RAV4",
+      },
+      {
+        clerkId: "seed-dashboard-user-3",
+        firstName: "Alex",
+        lastName: "Lee",
+        vin: "SEED1VIN000003",
+        year: 2015,
+        make: "Honda",
+        model: "Civic",
+      },
+      {
+        clerkId: "seed-dashboard-user-4",
+        firstName: "Jordan",
+        lastName: "Park",
+        vin: "SEED1VIN000004",
+        year: 2020,
+        make: "Chevy",
+        model: "Silverado",
+      },
+      {
+        clerkId: "seed-dashboard-user-5",
+        firstName: "Casey",
+        lastName: "Morgan",
+        vin: "SEED1VIN000005",
+        year: 2019,
+        make: "Subaru",
+        model: "Outback",
+      },
+      {
+        clerkId: "seed-dashboard-user-6",
+        firstName: "Taylor",
+        lastName: "Brooks",
+        vin: "SEED1VIN000006",
+        year: 2022,
+        make: "Jeep",
+        model: "Wrangler",
+      },
+      {
+        clerkId: "seed-dashboard-user-7",
+        firstName: "Riley",
+        lastName: "Quinn",
+        vin: "SEED1VIN000007",
+        year: 2017,
+        make: "BMW",
+        model: "X5",
+      },
+    ];
+
+    const userIds: any[] = [];
+    for (const vehicle of demoVehicles) {
+      const existingUser = await ctx.db
+        .query("users")
+        .withIndex("by_clerkUserId", (q) => q.eq("clerkUserId", vehicle.clerkId))
+        .first();
+
+      const userId =
+        existingUser?._id ??
+        (await ctx.db.insert("users", {
+          clerkUserId: vehicle.clerkId,
+          onboardingCompleted: true,
+          createdAt: now,
+          email: `${vehicle.firstName.toLowerCase()}.${vehicle.lastName.toLowerCase()}@demo.otopair.com`,
+          first_name: vehicle.firstName,
+          last_name: vehicle.lastName,
+        }));
+
+      userIds.push(userId);
+
+      const existingVehicle = await ctx.db
+        .query("vehicles")
+        .withIndex("by_vin", (q) => q.eq("vin", vehicle.vin))
+        .unique();
+      if (!existingVehicle) {
+        await ctx.db.insert("vehicles", {
+          vin: vehicle.vin,
+          year: vehicle.year,
+          created_at: now,
+          updated_at: now,
+          metadata: { make: vehicle.make, model: vehicle.model },
+        });
+      }
+
+      const ownership = await ctx.db
+        .query("vehicle_owners")
+        .withIndex("by_vin_user", (q) => q.eq("vin", vehicle.vin).eq("user_id", userId))
+        .first();
+      if (!ownership) {
+        await ctx.db.insert("vehicle_owners", {
+          vin: vehicle.vin,
+          user_id: userId,
+          status: "active",
+          is_primary: true,
+          added_at: now,
+        });
+      }
+    }
+
+    const createBooking = async ({
+      userIdx,
+      vinIdx,
+      serviceId,
+      mechanicId,
+      scheduledTime,
+      status,
+      laborCost,
+      partsCost,
+      estimatedMinutes,
+      key,
+    }: {
+      userIdx: number;
+      vinIdx: number;
+      serviceId: any;
+      mechanicId: any;
+      scheduledTime: string;
+      status: string;
+      laborCost: number;
+      partsCost: number;
+      estimatedMinutes?: number;
+      key: string;
+    }) => {
+      const endTime = dashboardAddMinutesToTime(scheduledTime, estimatedMinutes ?? 60);
+      const timeSlotId = await ctx.db.insert("time_slots", {
+        shop_id: args.shopId,
+        mechanic_id: mechanicId,
+        date: today,
+        start_time: scheduledTime,
+        end_time: endTime,
+        is_available: false,
+      });
+
+      const bookingId = await ctx.db.insert("bookings", {
+        user_id: userIds[userIdx],
+        vin: demoVehicles[vinIdx].vin,
+        shop_id: args.shopId,
+        mechanic_id: mechanicId,
+        service_ids: [serviceId],
+        time_slot_id: timeSlotId,
+        scheduled_date: today,
+        scheduled_time: scheduledTime,
+        labor_cost: laborCost,
+        parts_cost: partsCost,
+        total_cost: laborCost + partsCost,
+        estimated_labor_minutes: estimatedMinutes,
+        status,
+        created_at: now,
+        updated_at: now,
+      });
+
+      await ctx.db.insert("booking_status_history", {
+        booking_id: bookingId,
+        old_status: "confirmed",
+        new_status: status,
+        reason: `seed_dashboard_${key}`,
+        changed_at: now,
+      });
+
+      return bookingId;
+    };
+
+    const slotData = [
+      {
+        userIdx: 0,
+        vinIdx: 0,
+        serviceId: oilChangeId,
+        mechanicId: mechanics[0 % mechanics.length]._id,
+        scheduledTime: "08:00",
+        status: "completed",
+        laborCost: 47.5,
+        partsCost: 45,
+        estimatedMinutes: 45,
+        key: "completed_1",
+      },
+      {
+        userIdx: 1,
+        vinIdx: 1,
+        serviceId: tireRotationId,
+        mechanicId: mechanics[1 % mechanics.length]._id,
+        scheduledTime: "09:00",
+        status: "completed",
+        laborCost: 30,
+        partsCost: 0,
+        estimatedMinutes: 30,
+        key: "completed_2",
+      },
+      {
+        userIdx: 2,
+        vinIdx: 2,
+        serviceId: brakePadsId,
+        mechanicId: mechanics[0 % mechanics.length]._id,
+        scheduledTime: "11:00",
+        status: "confirmed",
+        laborCost: 95,
+        partsCost: 70,
+        estimatedMinutes: 90,
+        key: "confirmed_1",
+      },
+      {
+        userIdx: 3,
+        vinIdx: 3,
+        serviceId: alignmentId,
+        mechanicId: mechanics[1 % mechanics.length]._id,
+        scheduledTime: "13:00",
+        status: "confirmed",
+        laborCost: 89,
+        partsCost: 0,
+        estimatedMinutes: 60,
+        key: "confirmed_2",
+      },
+      {
+        userIdx: 4,
+        vinIdx: 4,
+        serviceId: oilChangeId,
+        mechanicId: mechanics[0 % mechanics.length]._id,
+        scheduledTime: "14:30",
+        status: "confirmed",
+        laborCost: 47.5,
+        partsCost: 45,
+        estimatedMinutes: 45,
+        key: "confirmed_3",
+      },
+      {
+        userIdx: 5,
+        vinIdx: 5,
+        serviceId: brakePadsId,
+        mechanicId: mechanics[1 % mechanics.length]._id,
+        scheduledTime: "15:30",
+        status: "pending",
+        laborCost: 95,
+        partsCost: 60,
+        estimatedMinutes: 90,
+        key: "pending_1",
+      },
+      {
+        userIdx: 6,
+        vinIdx: 6,
+        serviceId: acServiceId,
+        mechanicId: mechanics[0 % mechanics.length]._id,
+        scheduledTime: "17:00",
+        status: "pending",
+        laborCost: 95,
+        partsCost: 35,
+        estimatedMinutes: 120,
+        key: "pending_2",
+      },
+    ];
+
+    for (const booking of slotData) {
+      await createBooking(booking);
+    }
+
+    await syncShopAvailabilityWindow(ctx, { shopId: args.shopId });
+
+    return {
+      success: true,
+      shopId: args.shopId,
+      date: today,
+      created: {
+        completed: 2,
+        confirmed: 3,
+        pending: 2,
+      },
+    };
   },
 });

@@ -40,4 +40,10 @@ crons.interval(
   internal.vehicleEnrichment.marketplaceScraper.processVinQueue,
 );
 
+crons.interval(
+  "revert-expired-booking-reschedules",
+  { minutes: 15 },
+  internal.bookings.revertExpiredReschedules,
+);
+
 export default crons;
