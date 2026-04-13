@@ -61,9 +61,9 @@ export const getPrefillData = query({
     const mechanic = booking.mechanic_id ? await ctx.db.get(booking.mechanic_id) : null;
     const mechanicName = mechanic ? `${mechanic.first_name} ${mechanic.last_name}` : "Unassigned";
 
-    // Vehicle specs for suggested parts
-    const allSpecs = await ctx.db.query("vehicle_specs").collect();
-    const specs = allSpecs.find((s) => s.engine_id === engine._id);
+    // Vehicle specs for suggested parts (from service_vehicle_specs)
+    const allSpecs = await ctx.db.query("service_vehicle_specs").collect();
+    const specs = allSpecs.find((s: any) => s.engine_id === engine._id);
 
     const suggestedParts: {
       part_name: string;
@@ -319,42 +319,6 @@ export const submitJobActuals = mutation({
       },
       timestamp: Date.now(),
     });
-
-    // Find or create service_insights
-    const allInsights = await ctx.db.query("service_insights").collect();
-    const existing = allInsights.find((r) => r.service_id === sid && r.engine_id === engineId);
-
-    if (existing) {
-      const oldCount = existing.completed_jobs_count;
-      const newCount = oldCount + 1;
-      const newAvgLabor = (existing.avg_actual_labor_hours * oldCount + actualLaborHours) / newCount;
-      const newAvgParts = (existing.avg_actual_parts_cost * oldCount + args.actual_parts_cost) / newCount;
-      const laborVariance = estimatedLaborHours > 0 ? (newAvgLabor - estimatedLaborHours) / estimatedLaborHours : 0;
-      const confidence = Math.min(1.0, 0.5 + 0.15 * Math.log(newCount));
-
-      await ctx.db.patch(existing._id, {
-        avg_actual_labor_hours: newAvgLabor,
-        avg_actual_parts_cost: newAvgParts,
-        completed_jobs_count: newCount,
-        labor_variance: laborVariance,
-        confidence_level: confidence,
-      });
-    } else {
-      const laborVariance =
-        estimatedLaborHours > 0 ? (actualLaborHours - estimatedLaborHours) / estimatedLaborHours : 0;
-      const confidence = Math.min(1.0, 0.5 + 0.15 * Math.log(1));
-
-      await ctx.db.insert("service_insights", {
-        service_id: sid,
-        engine_id: engineId,
-        estimated_labor_hours: estimatedLaborHours,
-        avg_actual_labor_hours: actualLaborHours,
-        avg_actual_parts_cost: args.actual_parts_cost,
-        completed_jobs_count: 1,
-        labor_variance: laborVariance,
-        confidence_level: confidence,
-      });
-    }
 
     // --- Empirical labor feedback into labor_times ---
     // Updates running average so getQuotableLaborTime automatically switches

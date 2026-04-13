@@ -1,10 +1,18 @@
 import { query } from "./_generated/server";
 import { v } from "convex/values";
 
+function sortSlotsBySchedule<T extends { date: string; start_time: string }>(slots: T[]) {
+  return [...slots].sort((a, b) => {
+    const dateCompare = a.date.localeCompare(b.date);
+    if (dateCompare !== 0) return dateCompare;
+    return a.start_time.localeCompare(b.start_time);
+  });
+}
+
 export const list = query({
   args: {},
   handler: async (ctx) => {
-    return await ctx.db.query("time_slots").collect();
+    return sortSlotsBySchedule(await ctx.db.query("time_slots").collect());
   },
 });
 
@@ -24,45 +32,49 @@ export const getByShopAndDate = query({
   handler: async (ctx, args) => {
     const slots = await ctx.db
       .query("time_slots")
-      .filter((q) =>
-        q.and(
-          q.eq(q.field("shop_id"), args.shopId),
-          q.eq(q.field("date"), args.date),
-          q.eq(q.field("is_available"), true),
-        ),
+      .withIndex("by_shop_and_date", (q) =>
+        q.eq("shop_id", args.shopId).eq("date", args.date)
       )
       .collect();
-    if (args.mechanicId !== undefined) {
-      return slots.filter((s) => s.mechanic_id === undefined || s.mechanic_id === args.mechanicId);
-    }
-    return slots;
+
+    const filtered = slots.filter((slot) => {
+      if (!slot.is_available) return false;
+      if (args.mechanicId !== undefined) {
+        return slot.mechanic_id === args.mechanicId;
+      }
+      return true;
+    });
+
+    return sortSlotsBySchedule(filtered);
   },
 });
 
 export const getAvailableByShopId = query({
   args: { shopId: v.id("shops") },
   handler: async (ctx, args) => {
-    return await ctx.db
+    const slots = await ctx.db
       .query("time_slots")
-      .filter((q) => q.and(q.eq(q.field("shop_id"), args.shopId), q.eq(q.field("is_available"), true)))
+      .withIndex("by_shop_id", (q) => q.eq("shop_id", args.shopId))
       .collect();
+    return sortSlotsBySchedule(slots.filter((slot) => slot.is_available));
   },
 });
 
 export const getAvailableByShopAndDateTime = query({
   args: { shopId: v.id("shops"), date: v.string(), startTime: v.string() },
   handler: async (ctx, args) => {
-    return await ctx.db
+    const slots = await ctx.db
       .query("time_slots")
-      .filter((q) =>
-        q.and(
-          q.eq(q.field("shop_id"), args.shopId),
-          q.eq(q.field("date"), args.date),
-          q.eq(q.field("start_time"), args.startTime),
-          q.eq(q.field("is_available"), true),
-        ),
+      .withIndex("by_shop_and_date", (q) =>
+        q.eq("shop_id", args.shopId).eq("date", args.date)
       )
       .collect();
+
+    return sortSlotsBySchedule(
+      slots.filter(
+        (slot) => slot.is_available && slot.start_time === args.startTime
+      )
+    );
   },
 });
 
@@ -79,40 +91,35 @@ export const getNextAvailableByShop = query({
   },
   handler: async (ctx, args) => {
     const limit = args.limit ?? 12;
-    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    const today = new Date().toISOString().slice(0, 10);
 
     const slots = await ctx.db
       .query("time_slots")
       .withIndex("by_shop_id", (q) => q.eq("shop_id", args.shopId))
       .collect();
 
-    const filtered = slots
-      .filter((s) => {
-        if (!s.is_available) return false;
-        if (s.date < today) return false;
+    const filtered = sortSlotsBySchedule(
+      slots.filter((slot) => {
+        if (!slot.is_available) return false;
+        if (slot.date < today) return false;
         if (args.mechanicId !== undefined) {
-          return s.mechanic_id === undefined || s.mechanic_id === args.mechanicId;
+          return slot.mechanic_id === args.mechanicId;
         }
         return true;
       })
-      .sort((a, b) => {
-        const d = a.date.localeCompare(b.date);
-        if (d !== 0) return d;
-        return a.start_time.localeCompare(b.start_time);
-      });
+    );
 
     if (args.mechanicId !== undefined) {
       return filtered.slice(0, limit);
     }
 
-    // "Any" selected: deduplicate by (date, start_time), keep first slot per distinct time
     const seen = new Set<string>();
     const distinct: typeof filtered = [];
-    for (const s of filtered) {
-      const key = `${s.date}-${s.start_time}`;
+    for (const slot of filtered) {
+      const key = `${slot.date}-${slot.start_time}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      distinct.push(s);
+      distinct.push(slot);
       if (distinct.length >= limit) break;
     }
     return distinct;
@@ -122,7 +129,6 @@ export const getNextAvailableByShop = query({
 /**
  * Next N available slots per mechanic for a shop.
  * Returns one list of slots per mechanic so each mechanic card can show their own time slots.
- * Used by ShopDetails "Available Mechanics & Bays" to show slots for Mike, Sarah, etc.
  */
 export const getNextAvailableByShopPerMechanic = query({
   args: {
@@ -131,7 +137,7 @@ export const getNextAvailableByShopPerMechanic = query({
   },
   handler: async (ctx, args) => {
     const limitPerMechanic = args.limitPerMechanic ?? 12;
-    const today = new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+    const today = new Date().toISOString().slice(0, 10);
 
     const mechanics = await ctx.db
       .query("mechanics")
@@ -139,43 +145,34 @@ export const getNextAvailableByShopPerMechanic = query({
       .filter((q) => q.eq(q.field("is_active"), true))
       .collect();
 
-    const allSlots = await ctx.db
+    const slots = await ctx.db
       .query("time_slots")
       .withIndex("by_shop_id", (q) => q.eq("shop_id", args.shopId))
       .collect();
 
-    const result: { mechanicId: (typeof mechanics)[0]["_id"]; slots: typeof allSlots }[] = [];
-
-    for (const mechanic of mechanics) {
-      const mechanicSlots = allSlots
-        .filter((s) => {
-          if (!s.is_available) return false;
-          if (s.date < today) return false;
-          return s.mechanic_id === mechanic._id;
-        })
-        .sort((a, b) => {
-          const d = a.date.localeCompare(b.date);
-          if (d !== 0) return d;
-          return a.start_time.localeCompare(b.start_time);
-        })
-        .slice(0, limitPerMechanic);
-      result.push({ mechanicId: mechanic._id, slots: mechanicSlots });
-    }
-
-    return result;
+    return mechanics.map((mechanic) => ({
+      mechanicId: mechanic._id,
+      slots: sortSlotsBySchedule(
+        slots.filter(
+          (slot) =>
+            slot.is_available &&
+            slot.date >= today &&
+            slot.mechanic_id === mechanic._id
+        )
+      ).slice(0, limitPerMechanic),
+    }));
   },
 });
 
 /**
  * Calendar availability for a shop (and optional mechanic) for a given month.
  * Returns which dates have at least one available slot vs which have slots but all booked.
- * Used by AvailabilityModal "All Availability" calendar highlighting.
  */
 export const getAvailabilityByShopAndMonth = query({
   args: {
     shopId: v.id("shops"),
     year: v.number(),
-    month: v.number(), // 0-indexed (0 = January)
+    month: v.number(),
     mechanicId: v.optional(v.id("mechanics")),
   },
   handler: async (ctx, args) => {
@@ -189,10 +186,10 @@ export const getAvailabilityByShopAndMonth = query({
       .withIndex("by_shop_id", (q) => q.eq("shop_id", args.shopId))
       .collect();
 
-    const inRange = slots.filter((s) => {
-      if (s.date < startStr || s.date > endStr) return false;
+    const inRange = slots.filter((slot) => {
+      if (slot.date < startStr || slot.date > endStr) return false;
       if (args.mechanicId !== undefined) {
-        return s.mechanic_id === undefined || s.mechanic_id === args.mechanicId;
+        return slot.mechanic_id === args.mechanicId;
       }
       return true;
     });
@@ -200,11 +197,11 @@ export const getAvailabilityByShopAndMonth = query({
     const availableDates = new Set<string>();
     const bookedDates = new Set<string>();
 
-    for (const s of inRange) {
-      if (s.is_available) {
-        availableDates.add(s.date);
+    for (const slot of inRange) {
+      if (slot.is_available) {
+        availableDates.add(slot.date);
       } else {
-        bookedDates.add(s.date);
+        bookedDates.add(slot.date);
       }
     }
 

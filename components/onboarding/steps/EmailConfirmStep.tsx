@@ -47,7 +47,6 @@ export function EmailConfirmStep({ onNext, onBack, progress }: EmailConfirmStepP
 
     const dynamicStyles = {
         container: { paddingTop: insets.top + Spacing.lg },
-        bottomContainer: { paddingBottom: insets.bottom + Spacing.lg },
     };
 
     const isCompact = height < 720;
@@ -119,37 +118,36 @@ export function EmailConfirmStep({ onNext, onBack, progress }: EmailConfirmStepP
                             <Text style={styles.emailText}>{data.email || 'No email set'}</Text>
                         </View>
                     )}
-                </View>
 
-                <View style={[styles.bottomContainer, dynamicStyles.bottomContainer]}>
-                    {isEditing ? (
-                        <FooterButton
-                            label="Save & Continue"
-                            onPress={handleSaveEdit}
-                            disabled={editEmail.trim().length === 0}
-                            size={buttonSize}
-                            paddingVertical={buttonPaddingVertical}
-                            variant="primary"
-                        />
-                    ) : (
-                        <>
+                    <View style={styles.actionsContainer}>
+                        {isEditing ? (
                             <FooterButton
-                                label="Yes, this is correct"
-                                onPress={handleConfirm}
+                                label="Save & Continue"
+                                onPress={handleSaveEdit}
+                                disabled={editEmail.trim().length === 0}
                                 size={buttonSize}
                                 paddingVertical={buttonPaddingVertical}
                                 variant="primary"
                             />
-                            <View style={styles.buttonSpacer} />
-                            <FooterButton
-                                label="Edit email"
-                                onPress={handleEdit}
-                                size={buttonSize}
-                                paddingVertical={buttonPaddingVertical}
-                                variant="secondary"
-                            />
-                        </>
-                    )}
+                        ) : (
+                            <>
+                                <FooterButton
+                                    label="Yes, this is correct"
+                                    onPress={handleConfirm}
+                                    size={buttonSize}
+                                    paddingVertical={buttonPaddingVertical}
+                                    variant="primary"
+                                />
+                                <FooterButton
+                                    label="Edit email"
+                                    onPress={handleEdit}
+                                    size={buttonSize}
+                                    paddingVertical={buttonPaddingVertical}
+                                    variant="secondary"
+                                />
+                            </>
+                        )}
+                    </View>
                 </View>
             </View>
         </KeyboardAvoidingView>
@@ -164,6 +162,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
         justifyContent: 'center',
         paddingHorizontal: Spacing['2xl'],
+        gap: Spacing.lg,
     },
     iconContainer: {
         marginBottom: Spacing['3xl'],
@@ -216,12 +215,8 @@ const styles = StyleSheet.create({
         borderWidth: 1,
         borderColor: 'rgba(255, 255, 255, 0.2)',
     },
-    bottomContainer: {
-        paddingTop: Spacing.sm,
-        paddingHorizontal: Spacing['2xl'],
-        backgroundColor: 'transparent',
-    },
-    buttonSpacer: {
-        height: Spacing.md,
+    actionsContainer: {
+        width: '100%',
+        gap: Spacing.lg,
     },
 });

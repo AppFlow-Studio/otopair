@@ -2,10 +2,10 @@ import { mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 
 /**
- * fitments.ts - Engine/Transmission/Trim fitment access layer
+ * fitments.ts - Unified part fitment access layer
  *
- * Manages role-based fitments between vehicle variants and OEM parts.
- * Enforces required confidence_score (0.0–1.0) on all writes.
+ * All fitments now use the unified `part_fitments` table keyed by vehicle_config_id.
+ * Replaces the old engine_part_fitments, transmission_part_fitments, trim_part_fitments tables.
  */
 
 const ROLE_ALLOWLIST = [
@@ -29,11 +29,11 @@ const ROLE_ALLOWLIST = [
 
 type FitmentRole = (typeof ROLE_ALLOWLIST)[number];
 
-const assertValidRole = (role: string): asserts role is FitmentRole => {
+function assertValidRole(role: string): asserts role is FitmentRole {
   if (!ROLE_ALLOWLIST.includes(role as FitmentRole)) {
     throw new Error(`Invalid fitment role: ${role}`);
   }
-};
+}
 
 const assertConfidence = (value: number) => {
   if (Number.isNaN(value) || value < 0 || value > 1) {
@@ -41,12 +41,12 @@ const assertConfidence = (value: number) => {
   }
 };
 
-const omitUndefined = (record: Record<string, any>) => {
-  const result: Record<string, any> = {};
+const omitUndefined = <T extends Record<string, any>>(record: T): T => {
+  const result = {} as any;
   for (const [key, value] of Object.entries(record)) {
     if (value !== undefined) result[key] = value;
   }
-  return result;
+  return result as T;
 };
 
 const attachPart = async (ctx: { db: any }, fitment: any) => {
@@ -55,7 +55,83 @@ const attachPart = async (ctx: { db: any }, fitment: any) => {
 };
 
 // -----------------------------------------------------------------------------
-// Engine fitments
+// Upsert fitment (unified)
+// -----------------------------------------------------------------------------
+
+export const upsertPartFitment = mutation({
+  args: {
+    vehicle_config_id: v.id("vehicle_configs"),
+    part_id: v.id("oem_parts"),
+    service_type: v.string(),
+    quantity_needed: v.optional(v.number()),
+    position: v.optional(v.string()),
+    confidence: v.number(),
+    notes: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    assertValidRole(args.service_type);
+    assertConfidence(args.confidence);
+
+    const part = await ctx.db.get(args.part_id);
+    if (!part) throw new Error("Referenced OEM part not found");
+
+    const existing = await ctx.db
+      .query("part_fitments")
+      .withIndex("by_config_service", (q) =>
+        q.eq("vehicle_config_id", args.vehicle_config_id).eq("service_type", args.service_type)
+      )
+      .unique();
+
+    const payload = omitUndefined({
+      part_id: args.part_id,
+      service_type: args.service_type,
+      quantity_needed: args.quantity_needed,
+      position: args.position,
+      confidence: args.confidence,
+    });
+
+    if (existing) {
+      await ctx.db.patch(existing._id, payload);
+      return await ctx.db.get(existing._id);
+    }
+
+    const fitmentId = await ctx.db.insert("part_fitments", {
+      ...payload,
+      vehicle_config_id: args.vehicle_config_id,
+      created_at: Date.now(),
+    });
+    return await ctx.db.get(fitmentId);
+  },
+});
+
+// -----------------------------------------------------------------------------
+// List fitments for a vehicle config
+// -----------------------------------------------------------------------------
+
+export const listFitments = query({
+  args: { vehicle_config_id: v.id("vehicle_configs") },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("part_fitments")
+      .withIndex("by_vehicle_config", (q) => q.eq("vehicle_config_id", args.vehicle_config_id))
+      .collect();
+  },
+});
+
+export const listFitmentsExpanded = query({
+  args: { vehicle_config_id: v.id("vehicle_configs") },
+  handler: async (ctx, args) => {
+    const fitments = await ctx.db
+      .query("part_fitments")
+      .withIndex("by_vehicle_config", (q) => q.eq("vehicle_config_id", args.vehicle_config_id))
+      .collect();
+    return await Promise.all(fitments.map((f) => attachPart(ctx, f)));
+  },
+});
+
+// -----------------------------------------------------------------------------
+// Legacy-compatible aliases (engine/transmission/trim fitments)
+// These resolve the vehicle_config_id from the component ID, then query part_fitments.
 // -----------------------------------------------------------------------------
 
 export const upsertEnginePartFitment = mutation({
@@ -63,10 +139,10 @@ export const upsertEnginePartFitment = mutation({
     engine_id: v.id("engines"),
     part_id: v.id("oem_parts"),
     role: v.string(),
-    quantity: v.optional(v.float64()),
-    spark_plug_gap_mm: v.optional(v.float64()),
+    quantity: v.optional(v.number()),
+    spark_plug_gap_mm: v.optional(v.number()),
     notes: v.optional(v.string()),
-    confidence_score: v.float64(),
+    confidence_score: v.number(),
   },
   handler: async (ctx, args) => {
     assertValidRole(args.role);
@@ -75,18 +151,29 @@ export const upsertEnginePartFitment = mutation({
     const part = await ctx.db.get(args.part_id);
     if (!part) throw new Error("Referenced OEM part not found");
 
+    // Find vehicle_config that uses this engine
+    const config = await ctx.db
+      .query("vehicle_configs")
+      .withIndex("by_engine", (q) => q.eq("engine_id", args.engine_id))
+      .first();
+
+    if (!config) {
+      throw new Error(`No vehicle_config found for engine ${args.engine_id}`);
+    }
+
     const existing = await ctx.db
-      .query("engine_part_fitments")
-      .withIndex("by_engine_role", (q) => q.eq("engine_id", args.engine_id).eq("role", args.role))
+      .query("part_fitments")
+      .withIndex("by_config_service", (q) =>
+        q.eq("vehicle_config_id", config._id).eq("service_type", args.role)
+      )
       .unique();
 
     const payload = omitUndefined({
       part_id: args.part_id,
-      role: args.role,
-      quantity: args.quantity,
-      spark_plug_gap_mm: args.spark_plug_gap_mm,
-      notes: args.notes,
-      confidence_score: args.confidence_score,
+      service_type: args.role,
+      quantity_needed: args.quantity,
+      position: args.spark_plug_gap_mm ? `gap_mm:${args.spark_plug_gap_mm}` : undefined,
+      confidence: args.confidence_score,
     });
 
     if (existing) {
@@ -94,9 +181,9 @@ export const upsertEnginePartFitment = mutation({
       return await ctx.db.get(existing._id);
     }
 
-    const fitmentId = await ctx.db.insert("engine_part_fitments", {
+    const fitmentId = await ctx.db.insert("part_fitments", {
       ...payload,
-      engine_id: args.engine_id,
+      vehicle_config_id: config._id,
       created_at: Date.now(),
     });
     return await ctx.db.get(fitmentId);
@@ -106,9 +193,14 @@ export const upsertEnginePartFitment = mutation({
 export const listEngineFitments = query({
   args: { engine_id: v.id("engines") },
   handler: async (ctx, args) => {
-    return await ctx.db
-      .query("engine_part_fitments")
+    const config = await ctx.db
+      .query("vehicle_configs")
       .withIndex("by_engine", (q) => q.eq("engine_id", args.engine_id))
+      .first();
+    if (!config) return [];
+    return await ctx.db
+      .query("part_fitments")
+      .withIndex("by_vehicle_config", (q) => q.eq("vehicle_config_id", config._id))
       .collect();
   },
 });
@@ -116,26 +208,27 @@ export const listEngineFitments = query({
 export const listEngineFitmentsExpanded = query({
   args: { engine_id: v.id("engines") },
   handler: async (ctx, args) => {
-    const fitments = await ctx.db
-      .query("engine_part_fitments")
+    const config = await ctx.db
+      .query("vehicle_configs")
       .withIndex("by_engine", (q) => q.eq("engine_id", args.engine_id))
+      .first();
+    if (!config) return [];
+    const fitments = await ctx.db
+      .query("part_fitments")
+      .withIndex("by_vehicle_config", (q) => q.eq("vehicle_config_id", config._id))
       .collect();
     return await Promise.all(fitments.map((f) => attachPart(ctx, f)));
   },
 });
-
-// -----------------------------------------------------------------------------
-// Transmission fitments
-// -----------------------------------------------------------------------------
 
 export const upsertTransmissionPartFitment = mutation({
   args: {
     transmission_id: v.id("transmissions"),
     part_id: v.id("oem_parts"),
     role: v.string(),
-    quantity: v.optional(v.float64()),
+    quantity: v.optional(v.number()),
     notes: v.optional(v.string()),
-    confidence_score: v.float64(),
+    confidence_score: v.number(),
   },
   handler: async (ctx, args) => {
     assertValidRole(args.role);
@@ -144,19 +237,26 @@ export const upsertTransmissionPartFitment = mutation({
     const part = await ctx.db.get(args.part_id);
     if (!part) throw new Error("Referenced OEM part not found");
 
+    // Find vehicle_config via engine → vehicle_configs
+    const configs = await ctx.db.query("vehicle_configs").collect();
+    const config = configs.find((c: any) => c.transmission_id === args.transmission_id);
+
+    if (!config) {
+      throw new Error(`No vehicle_config found for transmission ${args.transmission_id}`);
+    }
+
     const existing = await ctx.db
-      .query("transmission_part_fitments")
-      .withIndex("by_transmission_role", (q) =>
-        q.eq("transmission_id", args.transmission_id).eq("role", args.role)
+      .query("part_fitments")
+      .withIndex("by_config_service", (q) =>
+        q.eq("vehicle_config_id", config._id).eq("service_type", args.role)
       )
       .unique();
 
     const payload = omitUndefined({
       part_id: args.part_id,
-      role: args.role,
-      quantity: args.quantity,
-      notes: args.notes,
-      confidence_score: args.confidence_score,
+      service_type: args.role,
+      quantity_needed: args.quantity,
+      confidence: args.confidence_score,
     });
 
     if (existing) {
@@ -164,9 +264,9 @@ export const upsertTransmissionPartFitment = mutation({
       return await ctx.db.get(existing._id);
     }
 
-    const fitmentId = await ctx.db.insert("transmission_part_fitments", {
+    const fitmentId = await ctx.db.insert("part_fitments", {
       ...payload,
-      transmission_id: args.transmission_id,
+      vehicle_config_id: config._id,
       created_at: Date.now(),
     });
     return await ctx.db.get(fitmentId);
@@ -176,9 +276,12 @@ export const upsertTransmissionPartFitment = mutation({
 export const listTransmissionFitments = query({
   args: { transmission_id: v.id("transmissions") },
   handler: async (ctx, args) => {
+    const configs = await ctx.db.query("vehicle_configs").collect();
+    const config = configs.find((c: any) => c.transmission_id === args.transmission_id);
+    if (!config) return [];
     return await ctx.db
-      .query("transmission_part_fitments")
-      .withIndex("by_transmission", (q) => q.eq("transmission_id", args.transmission_id))
+      .query("part_fitments")
+      .withIndex("by_vehicle_config", (q) => q.eq("vehicle_config_id", config._id))
       .collect();
   },
 });
@@ -186,27 +289,26 @@ export const listTransmissionFitments = query({
 export const listTransmissionFitmentsExpanded = query({
   args: { transmission_id: v.id("transmissions") },
   handler: async (ctx, args) => {
+    const configs = await ctx.db.query("vehicle_configs").collect();
+    const config = configs.find((c: any) => c.transmission_id === args.transmission_id);
+    if (!config) return [];
     const fitments = await ctx.db
-      .query("transmission_part_fitments")
-      .withIndex("by_transmission", (q) => q.eq("transmission_id", args.transmission_id))
+      .query("part_fitments")
+      .withIndex("by_vehicle_config", (q) => q.eq("vehicle_config_id", config._id))
       .collect();
     return await Promise.all(fitments.map((f) => attachPart(ctx, f)));
   },
 });
-
-// -----------------------------------------------------------------------------
-// Trim fitments
-// -----------------------------------------------------------------------------
 
 export const upsertTrimPartFitment = mutation({
   args: {
     trim_id: v.id("trims"),
     part_id: v.id("oem_parts"),
     role: v.string(),
-    quantity: v.optional(v.float64()),
-    wiper_size_in: v.optional(v.float64()),
+    quantity: v.optional(v.number()),
+    wiper_size_in: v.optional(v.number()),
     notes: v.optional(v.string()),
-    confidence_score: v.float64(),
+    confidence_score: v.number(),
   },
   handler: async (ctx, args) => {
     assertValidRole(args.role);
@@ -215,18 +317,30 @@ export const upsertTrimPartFitment = mutation({
     const part = await ctx.db.get(args.part_id);
     if (!part) throw new Error("Referenced OEM part not found");
 
+    // Find vehicle_config via trim name match
+    const configs = await ctx.db.query("vehicle_configs").collect();
+    const trim = await ctx.db.get(args.trim_id);
+    const config = trim
+      ? configs.find((c: any) => c.trim_name === trim.name && c.model_id === trim.model_id)
+      : null;
+
+    if (!config) {
+      throw new Error(`No vehicle_config found for trim ${args.trim_id}`);
+    }
+
     const existing = await ctx.db
-      .query("trim_part_fitments")
-      .withIndex("by_trim_role", (q) => q.eq("trim_id", args.trim_id).eq("role", args.role))
+      .query("part_fitments")
+      .withIndex("by_config_service", (q) =>
+        q.eq("vehicle_config_id", config._id).eq("service_type", args.role)
+      )
       .unique();
 
     const payload = omitUndefined({
       part_id: args.part_id,
-      role: args.role,
-      quantity: args.quantity,
-      wiper_size_in: args.wiper_size_in,
-      notes: args.notes,
-      confidence_score: args.confidence_score,
+      service_type: args.role,
+      quantity_needed: args.quantity,
+      position: args.wiper_size_in ? `size_in:${args.wiper_size_in}` : undefined,
+      confidence: args.confidence_score,
     });
 
     if (existing) {
@@ -234,9 +348,9 @@ export const upsertTrimPartFitment = mutation({
       return await ctx.db.get(existing._id);
     }
 
-    const fitmentId = await ctx.db.insert("trim_part_fitments", {
+    const fitmentId = await ctx.db.insert("part_fitments", {
       ...payload,
-      trim_id: args.trim_id,
+      vehicle_config_id: config._id,
       created_at: Date.now(),
     });
     return await ctx.db.get(fitmentId);
@@ -246,9 +360,15 @@ export const upsertTrimPartFitment = mutation({
 export const listTrimFitments = query({
   args: { trim_id: v.id("trims") },
   handler: async (ctx, args) => {
+    const configs = await ctx.db.query("vehicle_configs").collect();
+    const trim = await ctx.db.get(args.trim_id);
+    const config = trim
+      ? configs.find((c: any) => c.trim_name === trim.name && c.model_id === trim.model_id)
+      : null;
+    if (!config) return [];
     return await ctx.db
-      .query("trim_part_fitments")
-      .withIndex("by_trim", (q) => q.eq("trim_id", args.trim_id))
+      .query("part_fitments")
+      .withIndex("by_vehicle_config", (q) => q.eq("vehicle_config_id", config._id))
       .collect();
   },
 });
@@ -256,9 +376,15 @@ export const listTrimFitments = query({
 export const listTrimFitmentsExpanded = query({
   args: { trim_id: v.id("trims") },
   handler: async (ctx, args) => {
+    const configs = await ctx.db.query("vehicle_configs").collect();
+    const trim = await ctx.db.get(args.trim_id);
+    const config = trim
+      ? configs.find((c: any) => c.trim_name === trim.name && c.model_id === trim.model_id)
+      : null;
+    if (!config) return [];
     const fitments = await ctx.db
-      .query("trim_part_fitments")
-      .withIndex("by_trim", (q) => q.eq("trim_id", args.trim_id))
+      .query("part_fitments")
+      .withIndex("by_vehicle_config", (q) => q.eq("vehicle_config_id", config._id))
       .collect();
     return await Promise.all(fitments.map((f) => attachPart(ctx, f)));
   },

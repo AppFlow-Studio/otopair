@@ -1,15 +1,23 @@
-import { query, mutation, internalMutation } from "./_generated/server";
+import { query } from "./_generated/server";
 import { v } from "convex/values";
+
+/**
+ * manual_review_queue.ts — rerouted to enrichment_runs table
+ *
+ * The old manual_review_queue table is deprecated. Enrichment runs with
+ * status "pending" serve as the review queue in the new schema.
+ */
 
 export const list = query({
   args: {},
   handler: async (ctx) => {
-    return await ctx.db.query("manual_review_queue").collect();
+    const runs = await ctx.db.query("enrichment_runs").collect();
+    return runs.filter((r) => r.status === "pending" || r.status === "needs_review");
   },
 });
 
 export const getById = query({
-  args: { id: v.id("manual_review_queue") },
+  args: { id: v.id("enrichment_runs") },
   handler: async (ctx, args) => {
     return await ctx.db.get(args.id);
   },
@@ -19,7 +27,7 @@ export const getPending = query({
   args: {},
   handler: async (ctx) => {
     return await ctx.db
-      .query("manual_review_queue")
+      .query("enrichment_runs")
       .withIndex("by_status", (q) => q.eq("status", "pending"))
       .collect();
   },
@@ -32,10 +40,8 @@ export const getByPriorityAndStatus = query({
   },
   handler: async (ctx, args) => {
     return await ctx.db
-      .query("manual_review_queue")
-      .withIndex("by_priority_and_status", (q) =>
-        q.eq("priority", args.priority).eq("status", args.status)
-      )
+      .query("enrichment_runs")
+      .withIndex("by_status", (q) => q.eq("status", args.status))
       .collect();
   },
 });
@@ -43,68 +49,20 @@ export const getByPriorityAndStatus = query({
 export const getByEngineId = query({
   args: { engineId: v.id("engines") },
   handler: async (ctx, args) => {
-    return await ctx.db
-      .query("manual_review_queue")
-      .withIndex("by_engine_id", (q) => q.eq("engine_id", args.engineId))
+    const configs = await ctx.db
+      .query("vehicle_configs")
+      .withIndex("by_engine", (q) => q.eq("engine_id", args.engineId))
       .collect();
+    const configIds = new Set(configs.map((c) => c._id));
+    const runs = await ctx.db.query("enrichment_runs").collect();
+    return runs.filter((r) => configIds.has(r.vehicle_config_id));
   },
 });
 
 export const getAssignedTo = query({
   args: { userId: v.id("users") },
-  handler: async (ctx, args) => {
-    return await ctx.db
-      .query("manual_review_queue")
-      .withIndex("by_assigned_to", (q) => q.eq("assigned_to", args.userId))
-      .collect();
-  },
-});
-
-// Internal mutation called by pipeline code
-export const queueForManualReview = internalMutation({
-  args: {
-    engine_id: v.id("engines"),
-    service_id: v.id("services"),
-    enrichment_log_id: v.id("ai_enrichment_logs"),
-    priority: v.string(),
-    reason: v.string(),
-  },
-  handler: async (ctx, args) => {
-    const queueId = await ctx.db.insert("manual_review_queue", {
-      ...args,
-      status: "pending",
-      created_at: Date.now(),
-    });
-
-    return queueId;
-  },
-});
-
-export const assign = mutation({
-  args: {
-    id: v.id("manual_review_queue"),
-    assigned_to: v.id("users"),
-  },
-  handler: async (ctx, args) => {
-    await ctx.db.patch(args.id, {
-      assigned_to: args.assigned_to,
-      status: "in_review",
-    });
-
-    return await ctx.db.get(args.id);
-  },
-});
-
-export const resolve = mutation({
-  args: {
-    id: v.id("manual_review_queue"),
-  },
-  handler: async (ctx, args) => {
-    await ctx.db.patch(args.id, {
-      status: "resolved",
-      resolved_at: Date.now(),
-    });
-
-    return await ctx.db.get(args.id);
+  handler: async (_ctx, _args) => {
+    // enrichment_runs doesn't have an assigned_to field — return empty
+    return [];
   },
 });

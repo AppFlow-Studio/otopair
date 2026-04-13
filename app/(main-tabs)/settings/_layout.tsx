@@ -17,6 +17,7 @@ export default function SettingsLayout() {
             <Stack.Screen name="faq" />
             <Stack.Screen name="faq-category" />
             <Stack.Screen name="biometric-setup" />
+            <Stack.Screen name="edit-profile" />
             <Stack.Screen name="two-factor-method" />
             <Stack.Screen name="two-factor-verify" />
             <Stack.Screen name="success" />

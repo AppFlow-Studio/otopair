@@ -23,7 +23,7 @@
 
 // 1. React & React Native
 import React, { useEffect, useState, useRef, useCallback } from "react";
-import { View, ScrollView, StyleSheet, Pressable, Alert, Platform, Keyboard, useWindowDimensions, Dimensions } from "react-native";
+import { View, ScrollView, StyleSheet, Pressable, Alert, Platform, Keyboard, useWindowDimensions, Dimensions, UIManager } from "react-native";
 
 // 2. Expo & Third-party
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -86,9 +86,13 @@ import type { ConversationState, ChatMessage, AIMechanic, SelectedService } from
 // CONSTANTS
 // ============================================================================
 
-// Default tab bar height fallback (standard iOS/Android tab bar is ~49-83px)
-// Increased on Android to account for the new floating tab bar height + its bottom offset
-const TAB_BAR_HEIGHT = Platform.OS === 'android' ? 100 : 80;
+// Match tab layout behavior: iOS 26+ uses native tabs with a slightly smaller effective offset.
+const TAB_BAR_HEIGHT =
+  Platform.OS === "ios" && parseInt(String(Platform.Version), 10) >= 26
+    ? 90
+    : 100;
+
+const isMenuViewAvailable = !!UIManager.getViewManagerConfig?.("MenuView");
 
 // Drawer sidebar constants
 const DRAWER_TRANSLATE = Dimensions.get('window').width * 0.78;
@@ -1013,7 +1017,7 @@ export default function AIChatScreen() {
                 </Animated.View>
               </LiquidGlassView>
             </Pressable>
-          ) : (
+          ) : isMenuViewAvailable ? (
             <MenuView
               onPressAction={({ nativeEvent }) => {
                 Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
@@ -1046,6 +1050,21 @@ export default function AIChatScreen() {
                 </View>
               </View>
             </MenuView>
+          ) : (
+            <Pressable
+              onPress={() => {
+                Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+                setSelectedModel((prev) => (prev === 'pro' ? 'flash' : 'pro'));
+              }}
+              style={({ pressed }) => [styles.modelSelectorButton, pressed && styles.headerIconPressed]}
+            >
+              <View style={styles.pillContent}>
+                <Text style={styles.glassTitleText} size="md" weight="semiBold">
+                  {selectedModel === 'pro' ? 'Oto Pro' : 'Oto'}
+                </Text>
+                <ChevronDown size={12} color="rgba(0,0,0,0.3)" />
+              </View>
+            </Pressable>
           )}
         </View>
 
@@ -1080,7 +1099,7 @@ export default function AIChatScreen() {
                 </Animated.View>
               </LiquidGlassView>
             </Pressable>
-          ) : (
+          ) : isMenuViewAvailable ? (
             <MenuView
               onPressAction={({ nativeEvent }) => {
                 if (nativeEvent.event === 'new_chat') startNewChat();
@@ -1103,6 +1122,13 @@ export default function AIChatScreen() {
                 <SquarePen size={20} color="#000000" />
               </View>
             </MenuView>
+          ) : (
+            <Pressable
+              onPress={startNewChat}
+              style={({ pressed }) => [styles.headerIcon, pressed && styles.headerIconPressed]}
+            >
+              <SquarePen size={20} color="#000000" />
+            </Pressable>
           )}
         </View>
       </Animated.View>

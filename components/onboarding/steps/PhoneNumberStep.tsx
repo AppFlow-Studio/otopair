@@ -258,7 +258,6 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
 
   const dynamicStyles = {
     container: { paddingTop: insets.top + Spacing.lg },
-    bottomContainer: { paddingBottom: insets.bottom + Spacing.lg },
   };
 
   const isCompact = height < 720;
@@ -416,23 +415,44 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
             <Text style={styles.subtitle}>We'll send a verification code to secure your account.</Text>
           </View>
 
-          <View style={styles.inputContainer}>
-            <Pressable onPress={() => setShowCountryPicker(true)} style={styles.countryCodeContainer}>
-              <View style={styles.flagContainer}>
-                <Text style={styles.countryCodeText}>{getFlagEmoji(countryCode)}</Text>
-              </View>
-              <Text style={styles.countryCodeNumber}>+{getCallingCode()}</Text>
-            </Pressable>
-            <TextInput
-              style={styles.phoneInput}
-              placeholder="Enter your phone"
-              placeholderTextColor="#9CA3AF"
-              value={phoneNumber}
-              onChangeText={setPhoneNumber}
-              keyboardType="phone-pad"
-              autoComplete="tel"
-              textContentType="telephoneNumber"
-            />
+          <View style={styles.formStack}>
+            <View style={styles.inputContainer}>
+              <Pressable onPress={() => setShowCountryPicker(true)} style={styles.countryCodeContainer}>
+                <View style={styles.flagContainer}>
+                  <Text style={styles.countryCodeText}>{getFlagEmoji(countryCode)}</Text>
+                </View>
+                <Text style={styles.countryCodeNumber}>+{getCallingCode()}</Text>
+              </Pressable>
+              <TextInput
+                style={styles.phoneInput}
+                placeholder="Enter your phone"
+                placeholderTextColor="#9CA3AF"
+                value={phoneNumber}
+                onChangeText={setPhoneNumber}
+                keyboardType="phone-pad"
+                autoComplete="tel"
+                textContentType="telephoneNumber"
+              />
+            </View>
+
+            {prepError ? (
+              <Text style={styles.prepError} accessibilityRole="alert">
+                {prepError}
+              </Text>
+            ) : null}
+
+            <View style={styles.continueButtonContainer}>
+              <FooterButton
+                label="Continue"
+                onPress={handleCreateAccount}
+                disabled={!canCreateAccount || prepLoading}
+                size={buttonSize}
+                paddingVertical={buttonPaddingVertical}
+                variant={canCreateAccount ? "primary" : undefined}
+                backgroundColor={canCreateAccount ? undefined : "#6B7280"}
+                textColor={canCreateAccount ? undefined : BrandColors.white}
+              />
+            </View>
           </View>
         </ScrollView>
 
@@ -522,23 +542,6 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
           </Pressable>
         </Modal>
 
-        <View style={[styles.bottomContainer, dynamicStyles.bottomContainer]}>
-          {prepError ? (
-            <Text style={styles.prepError} accessibilityRole="alert">
-              {prepError}
-            </Text>
-          ) : null}
-          <FooterButton
-            label="Continue"
-            onPress={handleCreateAccount}
-            disabled={!canCreateAccount || prepLoading}
-            size={buttonSize}
-            paddingVertical={buttonPaddingVertical}
-            variant={canCreateAccount ? "primary" : undefined}
-            backgroundColor={canCreateAccount ? undefined : "#6B7280"}
-            textColor={canCreateAccount ? undefined : BrandColors.white}
-          />
-        </View>
       </View>
     </KeyboardAvoidingView>
   );
@@ -572,6 +575,10 @@ const styles = StyleSheet.create({
     opacity: 0.9,
     lineHeight: Spacing["2xl"],
   },
+  formStack: {
+    paddingHorizontal: Spacing["2xl"],
+    gap: Spacing.lg,
+  },
   inputContainer: {
     flexDirection: "row",
     alignItems: "center",
@@ -579,8 +586,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.md,
-    marginBottom: Spacing.lg,
-    marginHorizontal: Spacing["2xl"],
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.2)",
     overflow: "hidden",
@@ -625,15 +630,11 @@ const styles = StyleSheet.create({
     fontSize: FontSize.sm,
     fontFamily: FontFamily.regular,
     color: "#FCA5A5",
-    marginBottom: Spacing.sm,
-    paddingHorizontal: Spacing["2xl"],
+    marginBottom: 0,
+    paddingHorizontal: 0,
     textAlign: "center",
   },
-  bottomContainer: {
-    paddingTop: Spacing.sm,
-    paddingHorizontal: Spacing["2xl"],
-    backgroundColor: "transparent",
-  },
+  continueButtonContainer: { marginTop: 0 },
   bottomSheetBackdrop: {
     flex: 1,
     backgroundColor: "rgba(0, 0, 0, 0.5)",

@@ -62,7 +62,6 @@ export function NameStep({ onNext, onBack, progress }: NameStepProps) {
 
   const dynamicStyles = {
     container: { paddingTop: insets.top + Spacing.lg },
-    bottomContainer: { paddingBottom: insets.bottom + Spacing.lg },
   };
 
   const isCompact = height < 720;
@@ -139,21 +138,21 @@ export function NameStep({ onNext, onBack, progress }: NameStepProps) {
                 textContentType="familyName"
               />
             </View>
+
+            <View style={styles.continueButtonContainer}>
+              <FooterButton
+                label="Continue"
+                onPress={handleContinue}
+                disabled={!canContinue}
+                size={buttonSize}
+                paddingVertical={buttonPaddingVertical}
+                variant={canContinue ? "primary" : undefined}
+                backgroundColor={canContinue ? undefined : "#6B7280"}
+                textColor={canContinue ? undefined : BrandColors.white}
+              />
+            </View>
           </View>
         </ScrollView>
-
-        <View style={[styles.bottomContainer, dynamicStyles.bottomContainer]}>
-          <FooterButton
-            label="Continue"
-            onPress={handleContinue}
-            disabled={!canContinue}
-            size={buttonSize}
-            paddingVertical={buttonPaddingVertical}
-            variant={canContinue ? "primary" : undefined}
-            backgroundColor={canContinue ? undefined : "#6B7280"}
-            textColor={canContinue ? undefined : BrandColors.white}
-          />
-        </View>
       </View>
     </KeyboardAvoidingView>
   );
@@ -188,7 +187,7 @@ const styles = StyleSheet.create({
     lineHeight: Spacing['2xl'],
   },
   inputsContainer: { paddingHorizontal: Spacing["2xl"], gap: Spacing.lg },
-  inputWrapper: { marginBottom: Spacing.md },
+  inputWrapper: { marginBottom: 0 },
   input: {
     backgroundColor: "rgba(255, 255, 255, 0.1)",
     borderRadius: 12,
@@ -208,9 +207,5 @@ const styles = StyleSheet.create({
     marginTop: Spacing.xs,
     paddingHorizontal: Spacing.md,
   },
-  bottomContainer: {
-    paddingTop: Spacing.sm,
-    paddingHorizontal: Spacing["2xl"],
-    backgroundColor: 'transparent',
-  },
+  continueButtonContainer: { marginTop: 0 },
 });

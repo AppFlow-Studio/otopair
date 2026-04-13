@@ -276,29 +276,24 @@ export function LoginStep({ onNext, onBack }: LoginStepProps) {
                 />
               </View>
 
-              <Pressable onPress={() => setShowEmailForm(false)}>
-                <Text style={styles.backToOptionsText}>Back to other options</Text>
-              </Pressable>
+              <View style={styles.emailSubmitContainer}>
+                <FooterButton
+                  label={loading === "email" ? "Logging In..." : "Log In"}
+                  onPress={handleEmailLogin}
+                  disabled={!canSubmitEmail || loading !== null}
+                  size={buttonSize}
+                  paddingVertical={buttonPaddingVertical}
+                  variant={canSubmitEmail ? "primary" : undefined}
+                  backgroundColor={canSubmitEmail ? undefined : "#6B7280"}
+                  textColor={canSubmitEmail ? undefined : BrandColors.white}
+                />
+              </View>
             </View>
           )}
 
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
         </ScrollView>
 
-        {showEmailForm && (
-          <View style={[styles.bottomContainer, dynamicStyles.bottomContainer]}>
-            <FooterButton
-              label={loading === "email" ? "Logging In..." : "Log In"}
-              onPress={handleEmailLogin}
-              disabled={!canSubmitEmail || loading !== null}
-              size={buttonSize}
-              paddingVertical={buttonPaddingVertical}
-              variant={canSubmitEmail ? "primary" : undefined}
-              backgroundColor={canSubmitEmail ? undefined : "#6B7280"}
-              textColor={canSubmitEmail ? undefined : BrandColors.white}
-            />
-          </View>
-        )}
       </View>
     </KeyboardAvoidingView>
   );
@@ -308,8 +303,11 @@ const styles = StyleSheet.create({
   keyboardView: { flex: 1 },
   container: { flex: 1 },
   backButtonRow: {
+    width: "100%",
+    alignItems: "flex-start",
     paddingHorizontal: Spacing["2xl"],
-    paddingBottom: Spacing.sm,
+    paddingTop: Spacing.sm,
+    marginBottom: Spacing.xl,
   },
   scrollView: { flex: 1 },
   scrollContent: {
@@ -382,7 +380,7 @@ const styles = StyleSheet.create({
     color: BrandColors.white,
   },
   inputsContainer: { paddingHorizontal: Spacing["2xl"], gap: Spacing.lg },
-  inputWrapper: { marginBottom: Spacing.md },
+  inputWrapper: { marginBottom: 0 },
   input: {
     backgroundColor: "rgba(255, 255, 255, 0.1)",
     borderRadius: 12,
@@ -394,12 +392,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "rgba(255, 255, 255, 0.2)",
   },
-  backToOptionsText: {
-    fontSize: FontSize.md,
-    fontFamily: FontFamily.semiBold,
-    color: "#60A5FA",
-    textAlign: "center",
-  },
+  emailSubmitContainer: { marginTop: 0 },
   errorText: {
     textAlign: "center",
     color: "#FCA5A5",
@@ -407,10 +400,5 @@ const styles = StyleSheet.create({
     fontFamily: FontFamily.medium,
     marginTop: Spacing.md,
     paddingHorizontal: Spacing["2xl"],
-  },
-  bottomContainer: {
-    paddingTop: Spacing.sm,
-    paddingHorizontal: Spacing["2xl"],
-    backgroundColor: "transparent",
   },
 });

@@ -8,7 +8,7 @@
  * USED IN: app/membership.tsx
  */
 
-import React, { useCallback, useImperativeHandle, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import {
   Animated,
   Dimensions,
@@ -35,7 +35,7 @@ import { BorderRadius, Spacing } from "@/constants/theme";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromConvex";
 import { useVehicleStore } from "@/stores/useVehicleStore";
-import { getVehicleImageUrl } from "@/utils/vehicleImage";
+import { fetchVehicleImageUrl } from "@/utils/vehicleImage";
 import { GarageCarSelectionCard, type VehicleTier } from "./GarageCarSelectionCard";
 
 const SCROLL_THRESHOLD = 4; // 4+ vehicles → scrollable
@@ -73,12 +73,48 @@ export function GarageCarSelectionSheet({
   const [visible, setVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchVisible, setSearchVisible] = useState(false);
+  const [fetchedImageUrls, setFetchedImageUrls] = useState<Record<string, string>>({});
   const searchInputRef = useRef<TextInput>(null);
+  const pendingImageVinsRef = useRef(new Set<string>());
   const sheetTranslateY = useRef(new Animated.Value(SHEET_HEIGHT)).current;
   const backdropOpacity = useRef(new Animated.Value(0)).current;
   const searchTranslateY = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
 
   /* ── Vehicle data ── */
+
+  useEffect(() => {
+    if (!rawVehicles?.length) return;
+
+    let cancelled = false;
+
+    rawVehicles
+      .filter((r: any) => r.vehicle != null)
+      .forEach((r: any) => {
+        const v = r.vehicle;
+        const meta = (v?.metadata as { make?: string; model?: string }) ?? {};
+        const make = meta.make ?? r.ownership?.nickname?.split(" ")[1] ?? "";
+        const model = meta.model ?? r.ownership?.nickname?.split(" ").slice(2).join(" ") ?? "";
+        const year = v?.year ?? new Date().getFullYear();
+        const vin = r.vin;
+
+        if (!vin || v?.image_url || fetchedImageUrls[vin] || !make || !model) return;
+        if (pendingImageVinsRef.current.has(vin)) return;
+
+        pendingImageVinsRef.current.add(vin);
+        fetchVehicleImageUrl(make, model, year, vin)
+          .then((url) => {
+            if (cancelled || !url) return;
+            setFetchedImageUrls((prev) => (prev[vin] ? prev : { ...prev, [vin]: url }));
+          })
+          .finally(() => {
+            pendingImageVinsRef.current.delete(vin);
+          });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [rawVehicles, fetchedImageUrls]);
 
   const vehiclesList = useMemo(() => {
     if (!rawVehicles?.length) return [];
@@ -91,11 +127,9 @@ export function GarageCarSelectionSheet({
         const make = meta.make ?? o?.nickname?.split(" ")[1] ?? "Vehicle";
         const model = meta.model ?? o?.nickname?.split(" ").slice(2).join(" ") ?? r.vin.slice(-6);
         const year = v?.year ?? new Date().getFullYear();
-        const imageSource: ImageSourcePropType | undefined = v?.image_url
-          ? { uri: v.image_url }
-          : make && model
-            ? { uri: getVehicleImageUrl(make, model, year) }
-            : undefined;
+        const fetchedImageUrl = fetchedImageUrls[r.vin];
+        const imageSource: ImageSourcePropType | undefined =
+          v?.image_url || fetchedImageUrl ? { uri: v?.image_url ?? fetchedImageUrl } : undefined;
 
         return {
           id: r.vin,
@@ -108,7 +142,7 @@ export function GarageCarSelectionSheet({
           isDefault: o?.is_primary ?? false,
         };
       });
-  }, [rawVehicles]);
+  }, [rawVehicles, fetchedImageUrls]);
 
   const tierByVin = useMemo(() => {
     const map: Record<string, VehicleTier> = {};
@@ -463,7 +497,7 @@ export function GarageCarSelectionSheet({
               ))}
               {filteredVehicles.length === 0 && searchQuery.trim() !== "" && (
                 <View style={styles.emptySearch}>
-                  <Text size="md" color="#9CA3AF">No vehicles match "{searchQuery}"</Text>
+                  <Text size="md" color="#9CA3AF">{`No vehicles match "${searchQuery}"`}</Text>
                 </View>
               )}
             </KeyboardAwareScrollView>
