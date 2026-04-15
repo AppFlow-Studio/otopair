@@ -169,6 +169,7 @@ export default function VehicleAddedScreen() {
     router.replace('/(main-tabs)/cars');
   };
 
+
   return (
     <View style={styles.container}>
       <StatusBar style="dark" translucent />
@@ -258,6 +259,7 @@ export default function VehicleAddedScreen() {
             </Text>
           </LinearGradient>
         </Pressable>
+
       </Animated.View>
     </View>
   );

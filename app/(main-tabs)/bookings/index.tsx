@@ -13,11 +13,14 @@
  * OWNER: Waleed Mansour
  */
 import { BookingCard, type Booking } from "@/components/bookings/BookingCard";
+import { BookingDetailsSheet, type BookingDetailsSheetRef } from "@/components/bookings/BookingDetailsSheet";
 import { LiveTrackerCard } from "@/components/bookings/LiveTrackerCard";
 import { ScrollDrivenGradientBackground, Text } from "@/components/shared-ui";
 import { useMyBookingsWithDetails } from "@/hooks/useMyBookingsWithDetails";
+import { useBookingStore } from "@/stores/useBookingStore";
+import { useRouter } from "expo-router";
 import { Calendar, Search, SlidersHorizontal } from "lucide-react-native";
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useRef, useState } from "react";
 import { Linking, Platform, Pressable, RefreshControl, StyleSheet, TextInput, View } from "react-native";
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -35,6 +38,7 @@ const TAB_ORDER: TabType[] = ["liveTracker", "upcoming", "history"];
 // ============================================================================
 
 export default function BookingsScreen() {
+  const router = useRouter();
   const insets = useSafeAreaInsets();
   const { liveTracking, upcomingBookings, historyBookings, isLoading } = useMyBookingsWithDetails();
 
@@ -42,6 +46,7 @@ export default function BookingsScreen() {
   const [activeTab, setActiveTab] = useState<TabType>(hasActiveService ? "liveTracker" : "upcoming");
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const detailsSheetRef = useRef<BookingDetailsSheetRef>(null);
 
   const bookings = activeTab === "upcoming" ? upcomingBookings : historyBookings;
 
@@ -58,12 +63,17 @@ export default function BookingsScreen() {
     setTimeout(() => setRefreshing(false), 1500);
   }, []);
 
+  const allBookings = [...upcomingBookings, ...historyBookings];
   const handleViewDetails = (bookingId: string) => {
-    console.log("View details for booking:", bookingId);
+    const booking = allBookings.find((b) => b.id === bookingId);
+    if (booking) {
+      detailsSheetRef.current?.open(booking);
+    }
   };
 
+  const cancelBooking = useBookingStore((s) => s.cancelBooking);
   const handleCancelBooking = (bookingId: string) => {
-    console.log("Cancel booking:", bookingId);
+    cancelBooking(bookingId);
   };
 
   const handleReschedule = (bookingId?: string) => {
@@ -85,6 +95,7 @@ export default function BookingsScreen() {
   }, [liveTracking?.shopPhone]);
 
   return (
+  <>
     <ScrollDrivenGradientBackground colors={["#5BA3D9", "#8FC4E8", "#d9e8f5"]}>
       {(scrollHandler) => (
         <View style={styles.container}>
@@ -195,6 +206,9 @@ export default function BookingsScreen() {
         </View>
       )}
     </ScrollDrivenGradientBackground>
+
+    <BookingDetailsSheet ref={detailsSheetRef} />
+  </>
   );
 }
 

@@ -26,7 +26,7 @@
 
 // 1. React & React Native
 import React, { useState } from 'react';
-import { Image, Pressable, StyleSheet, View } from 'react-native';
+import { Alert, Image, Pressable, StyleSheet, View } from 'react-native';
 
 // 2. Expo & Third-party
 import { useRouter } from 'expo-router';
@@ -71,6 +71,14 @@ interface BookingCardProps {
   onReschedule?: (bookingId: string) => void;
   onDownloadPdf?: (bookingId: string) => void;
   onToggleFavorite?: (bookingId: string) => void;
+}
+
+// ============================================================================
+// HELPERS
+// ============================================================================
+
+function titleCase(str: string): string {
+  return str.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 // ============================================================================
@@ -145,7 +153,14 @@ export function BookingCard({
   };
 
   const handleCancelBooking = () => {
-    onCancelBooking?.(booking.id);
+    Alert.alert(
+      "Cancel Booking",
+      "Are you sure you want to cancel this booking?",
+      [
+        { text: "No", style: "cancel" },
+        { text: "Yes, Cancel", style: "destructive", onPress: () => onCancelBooking?.(booking.id) },
+      ]
+    );
   };
 
   const handleReschedule = () => {
@@ -177,13 +192,11 @@ export function BookingCard({
             </>
           )}
         </View>
-        {variant === 'upcoming' && (
-          <View style={[styles.statusBadge, { backgroundColor: statusConfig.bgColor }]}>
-            <Text weight="semiBold" size="sm" color={statusConfig.textColor}>
-              {statusConfig.label}
-            </Text>
-          </View>
-        )}
+        <View style={[styles.statusBadge, { backgroundColor: statusConfig.bgColor }]}>
+          <Text weight="semiBold" size="sm" color={statusConfig.textColor}>
+            {statusConfig.label}
+          </Text>
+        </View>
       </View>
 
       {/* Car and Mechanic Info Row */}
@@ -207,10 +220,8 @@ export function BookingCard({
               weight="bold"
               size="sm"
               color="#1F2937"
-              numberOfLines={1}
-              ellipsizeMode="tail"
             >
-              {booking.carModel} {booking.carYear}
+              {titleCase(booking.carModel)}
             </Text>
             <Text weight="regular" size="xs" color="#6B7280">
               {booking.licensePlate}
@@ -487,7 +498,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 16,
     borderRadius: 8,
-    backgroundColor: '#1F2937',
+    backgroundColor: '#5299FE',
   },
   iconButton: {
     width: 44,

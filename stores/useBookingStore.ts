@@ -47,6 +47,7 @@ export interface SelectedMechanicSlot {
   scheduledTime?: string;
 }
 import { useMechanicStore } from "./useMechanicStore";
+import { useVehicleStore } from "./useVehicleStore";
 
 // ─────────────────────────────────────────────────────────────
 // STORE STATE INTERFACE
@@ -189,6 +190,8 @@ interface BookingState {
   setServiceCategories: (categories: ServiceCategoryItem[]) => void;
   /** Hydrate bookings from Convex (cache for user's bookings) */
   setBookingsFromConvex: (bookings: Booking[]) => void;
+  /** Cancel a local booking by ID (sets status to "cancelled") */
+  cancelBooking: (id: string) => void;
   /** Get a booking by ID */
   getBookingById: (id: string) => Booking | null;
   /** Get all upcoming bookings (pending or confirmed, future dates) */
@@ -617,6 +620,19 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
     return scheduledAppointment.time;
   },
 
+  cancelBooking: (id) => {
+    set((state) => {
+      const booking = state.bookings[id];
+      if (!booking) return state;
+      return {
+        bookings: {
+          ...state.bookings,
+          [id]: { ...booking, status: "cancelled" as const, updatedAt: new Date().toISOString() },
+        },
+      };
+    });
+  },
+
   getBookingById: (id) => {
     const { bookings } = get();
     return bookings[id] || null;
@@ -668,7 +684,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       id: bookingId,
       userId: "current_user_id", // TODO: Get from auth store
       shopId: String(mechanic.shopId),
-      vehicleId: "default_vehicle_id", // TODO: Get from vehicle store
+      vehicleId: useVehicleStore.getState().selectedVehicleId ?? "default_vehicle_id",
       serviceIds: state.selectedServiceIds,
       status: bookingType === "schedule_later" ? "pending" : "confirmed",
       scheduledDate,

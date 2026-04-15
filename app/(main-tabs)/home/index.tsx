@@ -26,6 +26,7 @@ import { Button, BrandColors, ScrollDrivenGradientBackground, Text } from "@/com
 import { useAuthStore } from '@/stores/useAuthStore';
 import { useBookingStore } from '@/stores/useBookingStore';
 import { usePendingNavigationStore } from "@/stores/usePendingNavigationStore";
+import { useVehicleStore } from "@/stores/useVehicleStore";
 import { useShallow } from 'zustand/react/shallow';
 import { useVehicleOwnershipFromConvex } from '@/hooks/useVehicleOwnershipFromConvex';
 import { fetchVehicleImageUrl } from '@/utils/vehicleImage';
@@ -144,6 +145,11 @@ export default function HomeScreen() {
     const joined = names.join(', ');
     return joined.length > 25 ? joined.slice(0, 22) + '...' : joined;
   }, [selectedServiceIds, availableServices]);
+
+  // Resume booking vehicle context
+  const resumeVehicle = useVehicleStore.getState().getSelectedVehicle();
+  const resumeVehicleName = resumeVehicle ? `${resumeVehicle.make} ${resumeVehicle.model}` : undefined;
+  const resumeVehicleImage = resumeVehicle?.imageSource;
 
   // Account setup: hide when all checkable steps are done
   const isAccountSetupComplete = !!(me?.onboardingCompleted && me?.tellUsAboutCompleted && hasVehicles);
@@ -471,6 +477,8 @@ export default function HomeScreen() {
                   // Resume Booking
                   showResumeBooking={hasResumeBooking}
                   resumeServicesPreview={resumeServicesPreview}
+                  resumeVehicleName={resumeVehicleName}
+                  resumeVehicleImage={resumeVehicleImage}
                   onResumePress={() => router.push('/home/map?openServices=true')}
                   // Account Setup
                   showAccountSetup={showAccountSetup}
@@ -521,6 +529,7 @@ export default function HomeScreen() {
                   <VehicleMaintenanceCard
                     vehicles={mappedVehicles.length > 0 ? mappedVehicles : undefined}
                     onBookNow={(vehicleId, serviceId) => {
+                      useVehicleStore.getState().selectVehicle(vehicleId);
                       router.push('/home/map?openServices=true');
                     }}
                     onSwipeStart={() => setIsCardSwiping(true)}

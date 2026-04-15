@@ -23,7 +23,7 @@
 
 // 1. React & React Native
 import React from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Image, type ImageSourcePropType, Pressable, StyleSheet, View } from 'react-native';
 
 // 2. Expo & Third-party
 import { BlurView } from 'expo-blur';
@@ -41,6 +41,8 @@ import { Text } from '@/components/shared-ui';
 interface ResumeBookingCardProps {
   mechanicsAvailable?: number;
   servicesPreview: string;
+  vehicleName?: string;
+  vehicleImage?: ImageSourcePropType;
   onPress?: () => void;
   onDismiss?: () => void;
 }
@@ -52,6 +54,8 @@ interface ResumeBookingCardProps {
 export function ResumeBookingCard({
   mechanicsAvailable,
   servicesPreview,
+  vehicleName,
+  vehicleImage,
   onPress,
 }: ResumeBookingCardProps) {
   const router = useRouter();
@@ -97,9 +101,13 @@ export function ResumeBookingCard({
         <View style={styles.cardContent} pointerEvents="box-none">
           {/* Top Section */}
           <View style={styles.topSection}>
-          {/* Left - Icon */}
-          <View style={styles.iconContainer}>
-            <Clock size={24} color="#5299FE" />
+          {/* Left - Icon or Vehicle Image */}
+          <View style={[styles.iconContainer, vehicleImage && styles.vehicleImageContainer]}>
+            {vehicleImage ? (
+              <Image source={vehicleImage} style={styles.vehicleImage} resizeMode="contain" />
+            ) : (
+              <Clock size={24} color="#5299FE" />
+            )}
           </View>
 
           {/* Middle - Content */}
@@ -108,7 +116,7 @@ export function ResumeBookingCard({
               Resume Booking Service
             </Text>
             <Text size="sm" color="#6B7280">
-              Pick up where you left off
+              {vehicleName ? `${vehicleName} — Pick up where you left off` : 'Pick up where you left off'}
             </Text>
           </View>
         </View>
@@ -205,6 +213,17 @@ const styles = StyleSheet.create({
     backgroundColor: '#EBF4FF',
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  vehicleImageContainer: {
+    width: 52,
+    height: 52,
+    borderRadius: 12,
+    backgroundColor: '#FFFFFF',
+    overflow: 'hidden',
+  },
+  vehicleImage: {
+    width: 52,
+    height: 52,
   },
   contentSection: {
     flex: 1,
