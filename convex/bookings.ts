@@ -726,6 +726,17 @@ function getDateOffsetString(offsetDays: number) {
   return date.toISOString().slice(0, 10);
 }
 
+function getStartOfCurrentWeekUtcMs() {
+  const now = new Date();
+  const start = new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+  );
+  const diffToMonday = (start.getUTCDay() + 6) % 7;
+  start.setUTCDate(start.getUTCDate() - diffToMonday);
+  start.setUTCHours(0, 0, 0, 0);
+  return start.getTime();
+}
+
 function compareBookingsBySchedule(a: any, b: any) {
   const leftDate = a.scheduled_date ?? "";
   const rightDate = b.scheduled_date ?? "";
@@ -866,6 +877,15 @@ async function resolveServiceNames(ctx: any, serviceIds?: Array<any>) {
   return names;
 }
 
+async function resolveUserPhotoUrl(ctx: any, user: any) {
+  if (!user) return null;
+  if (user.profile_photo_storage_id) {
+    const url = await ctx.storage.getUrl(user.profile_photo_storage_id);
+    if (url) return url;
+  }
+  return user.profile_photo_url ?? null;
+}
+
 async function getMechanicMembershipForUser(ctx: any, userId: any, shopId: any) {
   const membership = await ctx.db
     .query("shop_users")
@@ -926,28 +946,6 @@ async function getBlockingBookingsForShopDate(ctx: any, shopId: any, date: strin
     .collect();
 
   return bookings.filter((booking: any) => !TERMINAL_BOOKING_STATUSES.has(booking.status));
-}
-
-async function findAvailableSlot(
-  ctx: any,
-  shopId: any,
-  date: string,
-  startTime: string,
-  mechanicId?: any
-) {
-  const slots = await ctx.db
-    .query("time_slots")
-    .withIndex("by_shop_and_date", (q: any) => q.eq("shop_id", shopId).eq("date", date))
-    .collect();
-
-  return (
-    slots.find(
-      (slot: any) =>
-        slot.is_available &&
-        slot.start_time === startTime &&
-        (mechanicId ? String(slot.mechanic_id) === String(mechanicId) : true)
-    ) ?? null
-  );
 }
 
 async function findExactSlot(
@@ -1144,7 +1142,6 @@ async function resolveMechanicForWindow(
     startTime,
     durationMinutes,
     preferredMechanicId,
-    currentSlotId,
     excludeBookingId,
   }: {
     shopId: any;
@@ -1152,14 +1149,20 @@ async function resolveMechanicForWindow(
     startTime: string;
     durationMinutes: number;
     preferredMechanicId?: any;
-    currentSlotId?: any;
     excludeBookingId?: string;
   }
 ) {
   await syncShopDateAvailability(ctx, { shopId, date });
-  const currentSlot = currentSlotId ? await ctx.db.get(currentSlotId) : null;
+  const activeMechanics = await getActiveMechanicsForShop(ctx, shopId);
 
   if (preferredMechanicId) {
+    const preferredMechanic = activeMechanics.find(
+      (mechanic: any) => String(mechanic._id) === String(preferredMechanicId)
+    );
+    if (!preferredMechanic) {
+      throw new Error("Requested mechanic is unavailable.");
+    }
+
     await assertMechanicWindowIsFree(ctx, {
       shopId,
       mechanicId: preferredMechanicId,
@@ -1169,37 +1172,10 @@ async function resolveMechanicForWindow(
       excludeBookingId,
     });
 
-    const availableSlot = await findAvailableSlot(
-      ctx,
-      shopId,
-      date,
-      startTime,
-      preferredMechanicId
-    );
-    const isCurrentSlotMatch =
-      currentSlot &&
-      String(currentSlot.mechanic_id) === String(preferredMechanicId) &&
-      currentSlot.date === date &&
-      currentSlot.start_time === startTime;
-
-    if (!availableSlot && !isCurrentSlotMatch) {
-      throw new Error("Requested time is unavailable for that mechanic.");
-    }
-
     return preferredMechanicId;
   }
 
-  const activeMechanics = await getActiveMechanicsForShop(ctx, shopId);
   for (const mechanic of activeMechanics) {
-    const availableSlot = await findAvailableSlot(
-      ctx,
-      shopId,
-      date,
-      startTime,
-      mechanic._id
-    );
-    if (!availableSlot) continue;
-
     try {
       await assertMechanicWindowIsFree(ctx, {
         shopId,
@@ -1729,6 +1705,220 @@ export const getMyShopJobContext = query({
   },
 });
 
+export const getMyOwnerDashboard = query({
+  args: {},
+  handler: async (ctx) => {
+    const user = await getCurrentUserOrNull(ctx);
+    if (!user) return null;
+
+    const primary = await getPrimaryAuthorizedShop(ctx, user._id);
+    if (!primary) return null;
+
+    const shop: any = await ctx.db.get(primary.shopId);
+    if (!shop) return null;
+
+    const today = getTodayString();
+    const startOfWeekMs = getStartOfCurrentWeekUtcMs();
+
+    const todayBookingsRaw = await ctx.db
+      .query("bookings")
+      .withIndex("by_shop_and_date", (q: any) =>
+        q.eq("shop_id", primary.shopId).eq("scheduled_date", today)
+      )
+      .collect();
+
+    const todayBookings = todayBookingsRaw
+      .filter(
+        (booking: any) =>
+          booking.status !== "cancelled" &&
+          booking.status !== "declined" &&
+          booking.status !== "no_show"
+      )
+      .sort(compareBookingsBySchedule);
+
+    const pendingApprovals = (
+      await Promise.all([
+        ctx.db
+          .query("bookings")
+          .withIndex("by_shop_and_status", (q: any) =>
+            q.eq("shop_id", primary.shopId).eq("status", "pending")
+          )
+          .collect(),
+        ctx.db
+          .query("bookings")
+          .withIndex("by_shop_and_status", (q: any) =>
+            q.eq("shop_id", primary.shopId).eq("status", "pending_shop_acceptance")
+          )
+          .collect(),
+      ])
+    )
+      .flat()
+      .sort((a: any, b: any) => (b.created_at ?? 0) - (a.created_at ?? 0));
+
+    const acceptedMechanicShopUsers = await ctx.db
+      .query("shop_users")
+      .withIndex("by_shop_id", (q: any) => q.eq("shop_id", primary.shopId))
+      .filter((q: any) =>
+        q.and(
+          q.eq(q.field("is_active"), true),
+          q.neq(q.field("mechanic_id"), undefined),
+          q.neq(q.field("accepted_at"), undefined),
+          q.or(
+            q.eq(q.field("role"), "shop_mechanic"),
+            q.eq(q.field("role"), "mechanic")
+          )
+        )
+      )
+      .collect();
+
+    const todaySchedule = (
+      await Promise.all(
+        acceptedMechanicShopUsers.map(async (shopUser: any) => {
+          const mechanic = shopUser.mechanic_id
+            ? await ctx.db.get(shopUser.mechanic_id)
+            : null;
+          if (!mechanic || mechanic.is_active === false) return null;
+
+          const linkedUser = shopUser.user_id ? await ctx.db.get(shopUser.user_id) : null;
+          const photoUrl =
+            (await resolveUserPhotoUrl(ctx, linkedUser)) ?? mechanic.photo ?? null;
+
+          const bookings = await Promise.all(
+            todayBookings
+              .filter(
+                (booking: any) =>
+                  String(booking.mechanic_id ?? "") === String(mechanic._id)
+              )
+              .map(async (booking: any) => {
+                const mapped = await mapMechanicDashboardJob(ctx, booking);
+                return {
+                  ...mapped,
+                  scheduledTimeLabel: booking.scheduled_time
+                    ? formatTime(booking.scheduled_time)
+                    : "",
+                  serviceSummary: mapped.serviceNames.join(", "),
+                };
+              })
+          );
+
+          return {
+            mechanicId: mechanic._id,
+            mechanicName: `${mechanic.first_name} ${mechanic.last_name}`.trim(),
+            firstName: mechanic.first_name,
+            lastName: mechanic.last_name,
+            photoUrl,
+            jobsCount: bookings.length,
+            bookings,
+          };
+        })
+      )
+    )
+      .filter(Boolean)
+      .sort((a: any, b: any) => a.mechanicName.localeCompare(b.mechanicName));
+
+    const completedBookings = await ctx.db
+      .query("bookings")
+      .withIndex("by_shop_and_status", (q: any) =>
+        q.eq("shop_id", primary.shopId).eq("status", "completed")
+      )
+      .collect();
+
+    const jobActuals = await ctx.db.query("job_actuals").collect();
+    const actualBookingIds = new Set(jobActuals.map((actual: any) => String(actual.booking_id)));
+
+    const actualsNeededBookings = completedBookings
+      .filter((booking: any) => !actualBookingIds.has(String(booking._id)))
+      .sort((a: any, b: any) => compareBookingsBySchedule(b, a));
+
+    const pendingInvitations = (
+      await ctx.db
+        .query("shop_invitations")
+        .withIndex("by_shop_id", (q: any) => q.eq("shop_id", primary.shopId))
+        .filter((q: any) => q.eq(q.field("status"), "pending"))
+        .collect()
+    ).sort((a: any, b: any) => (b.created_at ?? 0) - (a.created_at ?? 0));
+
+    const completedPayments = await ctx.db
+      .query("payments")
+      .withIndex("by_status", (q: any) => q.eq("status", "completed"))
+      .collect();
+
+    const weekRevenue = completedPayments.reduce((sum: number, payment: any) => {
+      if (String(payment.shop_id ?? "") !== String(primary.shopId)) return sum;
+      if ((payment.created_at ?? 0) < startOfWeekMs) return sum;
+      return sum + (payment.amount ?? 0);
+    }, 0);
+
+    return {
+      shop: {
+        _id: shop._id,
+        name: shop.name,
+        logoUrl: shop.logo ?? null,
+        rating: shop.rating ?? 0,
+        reviewCount: shop.review_count ?? 0,
+      },
+      role: primary.role,
+      stats: {
+        todaysBookingsCount: todayBookings.length,
+        pendingAcceptanceCount: pendingApprovals.length,
+        weekRevenue,
+        rating: shop.rating ?? 0,
+        reviewCount: shop.review_count ?? 0,
+      },
+      todaySchedule,
+      pendingActions: {
+        jobsToAcceptCount: pendingApprovals.length,
+        jobsToAccept: await Promise.all(
+          pendingApprovals.map(async (booking: any) => {
+            const item = await mapBookingListItem(ctx, booking);
+            return {
+              _id: item._id,
+              customerName: item.customerName,
+              vehicle: item.vehicle,
+              serviceSummary: item.serviceNames.join(", "),
+              scheduledDate: item.scheduledDate,
+              scheduledTimeLabel: item.scheduledTime
+                ? formatTime(item.scheduledTime)
+                : "Time TBD",
+            };
+          })
+        ),
+        actualsNeededCount: actualsNeededBookings.length,
+        actualsNeeded: await Promise.all(
+          actualsNeededBookings.map(async (booking: any) => {
+            const item = await mapBookingListItem(ctx, booking);
+            return {
+              _id: item._id,
+              customerName: item.customerName,
+              vehicle: item.vehicle,
+              serviceSummary: item.serviceNames.join(", "),
+              scheduledDate: item.scheduledDate,
+              scheduledTimeLabel: item.scheduledTime
+                ? formatTime(item.scheduledTime)
+                : "Time TBD",
+            };
+          })
+        ),
+        invitesPendingCount: pendingInvitations.length,
+        invitesPending: await Promise.all(
+          pendingInvitations.map(async (invite: any) => {
+            const mechanic = invite.mechanic_id ? await ctx.db.get(invite.mechanic_id) : null;
+            return {
+              _id: invite._id,
+              email: invite.email,
+              role: invite.role,
+              createdAt: invite.created_at ?? 0,
+              mechanicName: mechanic
+                ? `${mechanic.first_name} ${mechanic.last_name}`.trim()
+                : null,
+            };
+          })
+        ),
+      },
+    };
+  },
+});
+
 export const listForMyShop = query({
   args: { status: v.optional(v.string()) },
   handler: async (ctx, args) => {
@@ -2172,7 +2362,6 @@ export const update = mutation({
         startTime: nextTime,
         durationMinutes,
         preferredMechanicId: requestedMechanicId,
-        currentSlotId: booking.time_slot_id,
         excludeBookingId: String(args.bookingId),
       });
 
@@ -2220,7 +2409,7 @@ export const accept = mutation({
     await requireShopStaff(ctx, user._id, booking.shop_id);
 
     if (!["pending", "pending_shop_acceptance"].includes(booking.status)) {
-      throw new Error("Only pending jobs can be accepted");
+      throw new Error("Only pending bookings can be accepted");
     }
 
     return await applyBookingStatusTransition(ctx, {
@@ -2313,6 +2502,7 @@ export const proposeReschedule = mutation({
       throw new Error(`Cannot reschedule a booking with status: ${booking.status}`);
     }
 
+    const currentMechanicId = await getBookingMechanicId(ctx, booking);
     const durationMinutes = booking.estimated_labor_minutes ?? 60;
     const targetMechanicId = await resolveMechanicForWindow(ctx, {
       shopId: booking.shop_id,
@@ -2320,7 +2510,6 @@ export const proposeReschedule = mutation({
       startTime: args.newScheduledTime,
       durationMinutes,
       preferredMechanicId: args.newMechanicId ?? currentMechanicId ?? undefined,
-      currentSlotId: booking.time_slot_id,
       excludeBookingId: String(args.bookingId),
     });
 
