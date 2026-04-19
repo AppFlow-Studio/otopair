@@ -122,8 +122,7 @@ Extract into this exact JSON structure. For NHTSA-provided fields (drivetrain, t
     "drivetrain": { "value": "AWD", "source_url": null, "source_type": "nhtsa", "confidence": 1.0 },
     "turbo": { "value": true, "source_url": null, "source_type": "nhtsa", "confidence": 1.0 },
     "fuel_injection_type": { "value": "direct", "source_url": null, "source_type": "nhtsa", "confidence": 1.0 },
-    "transmission_type": { "value": "automatic", "source_url": null, "source_type": "nhtsa", "confidence": 1.0 },
-    "power_steering_system": { "value": "electric", "source_url": null, "source_type": "training_data", "confidence": 0.75 }
+    "transmission_type": { "value": "automatic", "source_url": null, "source_type": "nhtsa", "confidence": 1.0 }
   },
   "oem_parts": {
     "oil_filter_oem": { "value": "11427583220", "source_url": "https://...", "source_type": "scraped", "confidence": 0.95 },
@@ -156,8 +155,6 @@ Extract into this exact JSON structure. For NHTSA-provided fields (drivetrain, t
   },
   "parking_brake_type": { "value": "electronic", "source_url": null, "source_type": "training_data", "confidence": 0.75 },
   "trim_specs": {
-    "front_tire_size": { "value": "245/45R18", "source_url": "...", "source_type": "scraped", "confidence": 0.9 },
-    "rear_tire_size": { "value": "275/40R18", "source_url": "...", "source_type": "scraped", "confidence": 0.9 },
     "tire_pressure_front_psi": { "value": 35, "source_url": "...", "source_type": "scraped", "confidence": 0.9 },
     "tire_pressure_rear_psi": { "value": 38, "source_url": "...", "source_type": "scraped", "confidence": 0.9 },
     "lug_nut_torque_ft_lbs": { "value": 103, "source_url": "...", "source_type": "scraped", "confidence": 0.9 },

@@ -29,8 +29,9 @@ import { BLOCKED_DOMAINS } from "./sourceRegistry";
 import { applyApplicabilityRules } from "./applicabilityRules";
 import { scrapeVehicleSources } from "./scraper";
 import { sanitizeString, sanitizeNumber, sanitizePartNumber, sanitizeUrl } from "./contentSanitization";
-import { fetchVDBLaborHours, mapVDBLaborToSlugs } from "../lib/vehicleDatabases";
+import { advancedVinDecode, extractVDBFields, fetchVDBRepairData } from "../lib/vehicleDatabases";
 import { lookupChassisCode } from "./utils/chassisLookup";
+import { resolveEngineCode, isNhtsaDescriptor } from "./utils/engineCodeLookup";
 import type { Id } from "../_generated/dataModel";
 
 // ─── Constants ─────────────────────────────────────────────────────
@@ -113,7 +114,6 @@ function parseBatch1a(data: Record<string, any>): Record<string, FieldResult> {
   f.turbo = parseField(attrs.turbo);
   f.fuel_injection_type = parseField(attrs.fuel_injection_type);
   f.transmission_type = parseField(attrs.transmission_type);
-  f.power_steering_system = parseField(attrs.power_steering_system);
 
   // OEM Parts
   const parts = data.oem_parts ?? {};
@@ -134,6 +134,8 @@ function parseBatch1a(data: Record<string, any>): Record<string, FieldResult> {
   const battery = data.battery ?? {};
   f.battery_group = parseField(battery.battery_group);
   f.battery_cca = parseField(battery.battery_cca);
+  f.battery_type = parseField(battery.battery_type);
+  f.battery_location = parseField(battery.battery_location);
   const spark = data.spark_plug ?? {};
   f.spark_plug_quantity = parseField(spark.quantity);
   f.spark_plug_gap = parseField(spark.gap_mm);
@@ -141,8 +143,6 @@ function parseBatch1a(data: Record<string, any>): Record<string, FieldResult> {
 
   // Trim specs
   const trim = data.trim_specs ?? {};
-  f.front_tire_size = parseField(trim.front_tire_size);
-  f.rear_tire_size = parseField(trim.rear_tire_size);
   f.tire_pressure_front_psi = parseField(trim.tire_pressure_front_psi);
   f.tire_pressure_rear_psi = parseField(trim.tire_pressure_rear_psi);
   f.lug_nut_torque_ft_lbs = parseField(trim.lug_nut_torque_ft_lbs);
@@ -265,8 +265,7 @@ async function calculateV3FillRate(
   // Trim specs (9 key fields)
   const trim = await ctx.runQuery(internal.vehicleEnrichment.v3queries.getTrimSpecs, { vehicleConfigId });
   const trimFields = [
-    trim?.tire_size_front ?? trim?.front_tire_size,
-    trim?.tire_size_rear ?? trim?.rear_tire_size,
+    (trim as any)?.tire_options?.length > 0 ? true : null,
     trim?.recommended_tire_pressure_front_psi ?? trim?.tire_pressure_front,
     trim?.recommended_tire_pressure_rear_psi ?? trim?.tire_pressure_rear,
     trim?.lug_nut_torque_ft_lbs,
@@ -534,6 +533,8 @@ async function writeNormalizedData(
   runId: Id<"enrichment_runs">,
   make: string,
   serviceCache: Map<string, Id<"services">>,
+  wheelSizeOptions?: any[],
+  wheelSizeSource?: string,
 ) {
   const now = Date.now();
 
@@ -619,19 +620,13 @@ async function writeNormalizedData(
   });
 
   // D. Trim specs — typed coercion
-  const frontTire = asString(fields.front_tire_size?.value);
-  const rearTire = asString(fields.rear_tire_size?.value);
-
-  // Auto-compute is_staggered: true when front and rear tire sizes differ
-  let isStaggered: boolean | undefined;
-  if (frontTire && rearTire) {
-    isStaggered = frontTire.trim().toLowerCase() !== rearTire.trim().toLowerCase();
-  }
+  // is_staggered: derived from tire_options (any entry with differing front/rear)
+  const isStaggered = wheelSizeOptions
+    ? (wheelSizeOptions as any[]).some((t) => t.size_rear && t.size_rear !== t.size_front)
+    : undefined;
 
   await ctx.runMutation(internal.vehicleEnrichment.v3mutations.upsertTrimSpecs, {
     vehicle_config_id: vehicleConfigId,
-    front_tire_size: frontTire,
-    rear_tire_size: rearTire,
     tire_pressure_front: asNumber(fields.tire_pressure_front_psi?.value),
     tire_pressure_rear: asNumber(fields.tire_pressure_rear_psi?.value),
     lug_nut_torque_ft_lbs: asNumber(fields.lug_nut_torque_ft_lbs?.value),
@@ -642,6 +637,8 @@ async function writeNormalizedData(
     battery_type: asString(fields.battery_type?.value),
     battery_location: asString(fields.battery_location?.value),
     is_staggered: isStaggered,
+    tire_options: wheelSizeOptions ?? undefined,
+    tire_options_source: wheelSizeSource ?? undefined,
   });
 
   // E. Vehicle config fields — typed coercion
@@ -886,6 +883,34 @@ export const enrichVehicleBatchV3 = internalAction({
       console.warn("[v8] Could not read vehicle identity:", e);
     }
 
+    // STEP 1b: Resolve engine code if NHTSA returned a descriptor (e.g. "Nu MPI" → "G4NH")
+    if (isNhtsaDescriptor(args.engineCode)) {
+      console.log(`[v8] Engine code "${args.engineCode}" is a NHTSA descriptor — resolving real OEM code`);
+      const resolved = await resolveEngineCode(
+        args.year, args.make, args.model, args.trim,
+        args.displacement, vPicData?.cylinders ?? 4,
+        vPicData?.fuelType ?? "Gasoline", args.engineCode,
+      );
+      if (resolved.source === "haiku") {
+        console.log(`[v8] Engine code resolved: "${args.engineCode}" → "${resolved.engineCode}"`);
+        vehicle.engineCode = resolved.engineCode;
+        configKey = buildEngineKey(vehicle);
+        // Check if a complete config already exists under the resolved key
+        const resolvedConfig = await ctx.runQuery(
+          internal.vehicleEnrichment.v3queries.getVehicleConfigByKey,
+          { configKey },
+        );
+        if (resolvedConfig && (resolvedConfig.enrichment_status === "complete" || resolvedConfig.enrichment_status === "verified")) {
+          console.log(`[v8] Resolved config already complete (status=${resolvedConfig.enrichment_status}) — attaching`);
+          await ctx.runMutation(
+            internal.vehicleEnrichment.v3mutations.attachVehicleConfig,
+            { vehicle_id: args.vehicleId, vehicle_config_id: resolvedConfig._id },
+          );
+          return { status: "cache_hit" as const, configId: resolvedConfig._id };
+        }
+      }
+    }
+
     // STEP 2: Resolve make + model IDs
     const makeDoc = await ctx.runQuery(
       internal.vehicleEnrichment.v3queries.getMakeByName,
@@ -917,6 +942,10 @@ export const enrichVehicleBatchV3 = internalAction({
       console.error("[v8] Vehicle has no engine_id — aborting");
       return { status: "error" as const, reason: "no_engine_id" };
     }
+
+    // VDB advanced decode — runs once, cached by VIN. Fields used in Step 6b/6e.
+    const vdbRaw = vehicleDoc.vin ? await advancedVinDecode(vehicleDoc.vin) : null;
+    const vdbFields = vdbRaw ? extractVDBFields(vdbRaw) : null;
 
     // STEP 3a: Ensure transmission record exists for ICE vehicles
     let transmissionId = vehicleDoc.transmission_id ?? null;
@@ -1008,16 +1037,33 @@ export const enrichVehicleBatchV3 = internalAction({
       });
     }
 
-    // STEP 6b: VDB Repair Estimates — structured labor hours per service
-    // Only uses time_required_hours. Cost data and mileage intervals are ignored.
-    // Source priority: VDB (0.90) > training_data (0.75).
-    // upsertLaborTime only overwrites training_data, so VDB data sticks.
+    // STEP 6b: VDB Repair Estimates — service intervals + labor hours (confidence 0.88-0.90).
+    // Intervals are derived from VDB mileage schedule (min gap across checkpoints).
+    // AI enrichment runs later and fills gaps; upsertServiceInterval/upsertLaborTime
+    // confidence guards prevent AI from overwriting higher-confidence VDB data.
     try {
-      const vdbLabor = await fetchVDBLaborHours(vehicleDoc.vin);
-      if (vdbLabor) {
-        const laborBySlug = mapVDBLaborToSlugs(vdbLabor);
-        let vdbLaborCount = 0;
-        for (const [slug, hours] of laborBySlug) {
+      const vdbRepair = vehicleDoc.vin ? await fetchVDBRepairData(vehicleDoc.vin) : null;
+      if (vdbRepair) {
+        let intervalCount = 0;
+        for (const { slug, interval_miles } of vdbRepair.intervals) {
+          const svc = await ctx.runQuery(
+            internal.vehicleEnrichment.v3queries.getServiceBySlug,
+            { slug },
+          );
+          if (!svc) continue;
+          await ctx.runMutation(internal.vehicleEnrichment.v3mutations.upsertServiceInterval, {
+            vehicle_config_id: vehicleConfigId,
+            service_id: svc._id,
+            interval_miles,
+            status: "active",
+            confidence: 0.9,
+            data_quality: "vdb_schedule",
+          });
+          intervalCount++;
+        }
+
+        let laborCount = 0;
+        for (const [slug, hours] of vdbRepair.labor) {
           const svc = await ctx.runQuery(
             internal.vehicleEnrichment.v3queries.getServiceBySlug,
             { slug },
@@ -1030,9 +1076,10 @@ export const enrichVehicleBatchV3 = internalAction({
             source: "vdb_repair_estimates",
             confidence: 0.90,
           });
-          vdbLaborCount++;
+          laborCount++;
         }
-        console.log(`[v8] VDB labor: ${vdbLaborCount} services matched from ${vdbLabor.size} labor types`);
+
+        console.log(`[v8] VDB repair: ${intervalCount} intervals, ${laborCount} labor entries`);
       }
     } catch (e) {
       console.warn("[v8] VDB repair estimates failed (non-fatal):", e);
@@ -1096,6 +1143,45 @@ export const enrichVehicleBatchV3 = internalAction({
       }
     } catch (e) {
       console.warn("[v8] Chassis lookup failed (non-fatal, continuing to full enrichment):", e);
+    }
+
+    // STEP 6d: Engine sibling matching — clone engine-bound service data from any config
+    // sharing the same engine_id, regardless of chassis/model. Supplements chassis matching.
+    try {
+      const engineSibling = await ctx.runQuery(
+        internal.vehicleEnrichment.v3queries.findBestEngineSibling,
+        { engine_id: vehicleDoc.engine_id, exclude_config_id: vehicleConfigId },
+      );
+      if (engineSibling) {
+        console.log(
+          `[v8] Engine sibling: ${engineSibling.config_key} (${engineSibling.fill_rate ?? 0}% fill) — cloning engine-bound data`
+        );
+        const cloneResult = await ctx.runMutation(
+          internal.vehicleEnrichment.v3mutations.cloneFromEngineSibling,
+          { source_config_id: engineSibling._id, target_config_id: vehicleConfigId },
+        );
+        console.log(
+          `[v8] Engine clone: ${cloneResult.clonedIntervals} intervals, ${cloneResult.clonedLabor} labor, ${cloneResult.clonedFitments} fitments`
+        );
+      } else {
+        console.log(`[v8] Engine sibling: none found for engine_id=${vehicleDoc.engine_id} — first of this engine`);
+      }
+    } catch (e) {
+      console.warn("[v8] Engine sibling matching failed (non-fatal):", e);
+    }
+
+    // STEP 6e: VDB trim specs — seed battery CCA from advanced decode.
+    // AI enrichment (Batch 1B) will still search for battery fields and can update this.
+    try {
+      if (vdbFields?.cca) {
+        await ctx.runMutation(internal.vehicleEnrichment.v3mutations.upsertTrimSpecs, {
+          vehicle_config_id: vehicleConfigId,
+          battery_cca: vdbFields.cca,
+        });
+        console.log(`[v8] VDB trim: battery_cca=${vdbFields.cca}`);
+      }
+    } catch (e) {
+      console.warn("[v8] VDB trim specs failed (non-fatal):", e);
     }
 
     // STEP 7: FireCrawl scrape — parts catalog + owner's manual
@@ -1169,6 +1255,8 @@ export const enrichVehicleBatchV3 = internalAction({
         makeId: makeDoc._id,
         runId,
         attempt: 1,
+        wheelSizeOptions: sources.wheelSizeResult?.tireOptions as any ?? undefined,
+        wheelSizeSource: sources.wheelSizeResult?.sourceUrl ?? undefined,
       },
     );
 
@@ -1190,6 +1278,25 @@ export const _pollBatch1V3 = internalAction({
     transmissionId: v.optional(v.id("transmissions")),
     makeId: v.id("makes"),
     runId: v.id("enrichment_runs"),
+    wheelSizeOptions: v.optional(v.array(v.object({
+      oem_name: v.optional(v.string()),
+      size_front: v.string(),
+      size_rear: v.optional(v.string()),
+      width_mm: v.optional(v.number()),
+      aspect_ratio: v.optional(v.number()),
+      rim_diameter_in: v.optional(v.number()),
+      width_mm_rear: v.optional(v.number()),
+      aspect_ratio_rear: v.optional(v.number()),
+      rim_diameter_in_rear: v.optional(v.number()),
+      pressure_front_psi: v.optional(v.number()),
+      pressure_rear_psi: v.optional(v.number()),
+      load_index: v.optional(v.number()),
+      speed_rating: v.optional(v.string()),
+      is_run_flat: v.optional(v.boolean()),
+      is_oem_standard: v.optional(v.boolean()),
+      wheel_spec: v.optional(v.string()),
+    }))),
+    wheelSizeSource: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const attempt = args.attempt ?? 1;
@@ -1273,6 +1380,8 @@ export const _pollBatch1V3 = internalAction({
       ctx, fields,
       args.vehicleConfigId, args.engineId, args.transmissionId,
       args.makeId, args.runId, args.make, serviceCache,
+      args.wheelSizeOptions,
+      args.wheelSizeSource,
     );
 
     // Submit Batch 2
@@ -1553,9 +1662,10 @@ export const _pollBatch2V3 = internalAction({
       { vehicleConfigId: args.vehicleConfigId },
     );
 
-    // Update vehicle_config status
+    // Update vehicle_config status — use the actual config_key from DB (may differ from
+    // buildEngineKey(vehicle) if the engine code was resolved from a NHTSA descriptor)
     await ctx.runMutation(internal.vehicleEnrichment.v3mutations.upsertVehicleConfig, {
-      config_key: buildEngineKey(vehicle),
+      config_key: currentVcForFinal?.config_key ?? buildEngineKey(vehicle),
       year: args.year,
       make_id: args.makeId,
       model_id: (await ctx.runQuery(internal.vehicleEnrichment.v3queries.getModelByMakeAndName, { makeId: args.makeId, name: args.model }))?._id ?? args.makeId as any,
@@ -1653,6 +1763,31 @@ export const _pollBatch2V3 = internalAction({
       console.warn("[v8] Chassis backfill failed (non-fatal):", e);
     }
 
+    // Post-enrichment: engine sibling backfill — push newly discovered engine-bound data
+    // to all other vehicle_configs sharing the same engine_id.
+    try {
+      const engineSiblings = await ctx.runQuery(
+        internal.vehicleEnrichment.v3queries.findEngineSiblings,
+        { engine_id: args.engineId, exclude_config_id: args.vehicleConfigId },
+      );
+      if (engineSiblings.length > 0) {
+        const backfillResult = await ctx.runMutation(
+          internal.vehicleEnrichment.v3mutations.backfillEngineSiblings,
+          {
+            source_config_id: args.vehicleConfigId,
+            sibling_config_ids: engineSiblings.map((s: any) => s._id),
+          },
+        );
+        console.log(
+          `[v8] Engine backfill: pushed ${backfillResult.totalBackfilled} records to ${engineSiblings.length} sibling(s)`
+        );
+      } else {
+        console.log(`[v8] Engine backfill: no siblings to push to for engine_id=${args.engineId}`);
+      }
+    } catch (e) {
+      console.warn("[v8] Engine sibling backfill failed (non-fatal):", e);
+    }
+
     // Post-enrichment: ensure all 23 services have at least a default interval (Task 21).
     // Only fills MISSING services — never overwrites enriched data.
     try {
@@ -1667,6 +1802,39 @@ export const _pollBatch2V3 = internalAction({
       }
     } catch (e) {
       console.warn("[v8] Service fallback failed (non-fatal):", e);
+    }
+
+    // Post-enrichment: fill missing labor times from services.default_labor_hours.
+    // Confidence 0.45 — lower than Batch 2 training_data (0.75) so real data always wins.
+    try {
+      const laborFallbackResult = await ctx.runMutation(
+        internal.vehicleEnrichment.v3mutations.ensureAllLaborTimes,
+        { vehicle_config_id: args.vehicleConfigId },
+      );
+      if (laborFallbackResult.added > 0) {
+        console.log(
+          `[v8] Labor fallback: added ${laborFallbackResult.added} defaults, skipped ${laborFallbackResult.skipped} non-applicable/no-default`
+        );
+      }
+    } catch (e) {
+      console.warn("[v8] Labor fallback failed (non-fatal):", e);
+    }
+
+    // Recalculate fill rate now that fallbacks have added all default intervals + labor times.
+    try {
+      const { rate: finalFillRate } = await calculateV3FillRate(
+        ctx, args.vehicleConfigId, args.engineId, args.transmissionId,
+      );
+      if (finalFillRate !== fillRate) {
+        console.log(`[v8] Fill rate updated post-fallback: ${fillRate}% → ${finalFillRate}%`);
+        await ctx.runMutation(internal.vehicleEnrichment.v3mutations.patchVehicleConfig, {
+          vehicle_config_id: args.vehicleConfigId,
+          fill_rate: finalFillRate,
+          enrichment_status: finalFillRate >= 70 ? "complete" : "partial",
+        });
+      }
+    } catch (e) {
+      console.warn("[v8] Post-fallback fill rate recalculation failed (non-fatal):", e);
     }
 
     // Post-enrichment: adversarial self-verification (Task 26).

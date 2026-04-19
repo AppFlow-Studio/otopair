@@ -104,7 +104,6 @@ export interface Call1AResults {
     turbo: FieldResult;
     fuel_injection_type: FieldResult;
     transmission_type: FieldResult;
-    power_steering_system: FieldResult;
   };
 }
 
@@ -131,8 +130,6 @@ export interface Call1BResults {
   };
   parking_brake_type: FieldResult;
   trim_specs: {
-    front_tire_size: FieldResult;
-    rear_tire_size: FieldResult;
     tire_pressure_front_psi: FieldResult;
     tire_pressure_rear_psi: FieldResult;
     lug_nut_torque_ft_lbs: FieldResult;
@@ -250,9 +247,11 @@ export const V4_FIELD_KEYS = [
   "brake_fluid_flush_miles", "brake_fluid_flush_months",
   "serpentine_belt_miles", "serpentine_belt_months",
   "timing_service_miles", "timing_service_months",
-  // Attributes (6)
+  // Attributes (5)
   "timing_system", "drivetrain", "turbo",
-  "fuel_injection_type", "transmission_type", "power_steering_system",
+  "fuel_injection_type", "transmission_type",
+  // Battery details (2)
+  "battery_type", "battery_location",
   // OEM Parts (10)
   "oil_filter_oem", "air_filter_oem", "cabin_filter_oem",
   "spark_plug_oem", "front_brake_pad_oem", "rear_brake_pad_oem",
@@ -261,8 +260,7 @@ export const V4_FIELD_KEYS = [
   // Battery & Electrical (5)
   "battery_group", "battery_cca", "spark_plug_quantity",
   "spark_plug_gap", "parking_brake_type",
-  // Trim (7)
-  "front_tire_size", "rear_tire_size",
+  // Trim (5)
   "tire_pressure_front_psi", "tire_pressure_rear_psi",
   "lug_nut_torque_ft_lbs", "front_wiper_size", "rear_wiper_size",
   // Pricing (6)

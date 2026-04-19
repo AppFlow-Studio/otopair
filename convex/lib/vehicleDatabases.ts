@@ -49,12 +49,27 @@ export async function advancedVinDecode(vin: string): Promise<any | null> {
   }
 }
 
-// ─── VDB Repair Estimates API ────────────────────────────────────────────────
-// Returns labor hours per service type for a vehicle via /repair-estimates/{vin}.
-// We ONLY extract type + time_required_hours. Cost data is ignored.
-// Mileage interval structure is flattened — enrichment handles intervals separately.
+/** Maps VDB raw steering type string to a normalized value. */
+function mapSteeringType(raw: string | null | undefined): "electric" | "hydraulic" | "electro-hydraulic" | null {
+  if (!raw) return null;
+  const lower = raw.toLowerCase();
+  if (lower.includes("elec") && (lower.includes("hyd") || lower.includes("assist"))) return "electro-hydraulic";
+  if (lower.includes("elec")) return "electric";
+  if (lower.includes("pwr") || lower.includes("power") || lower.includes("hyd")) return "hydraulic";
+  return null;
+}
 
-export async function fetchVDBLaborHours(vin: string): Promise<Map<string, number> | null> {
+// ─── VDB Repair Estimates API ────────────────────────────────────────────────
+// Dual-source: VDB provides structured intervals (from mileage schedule), labor
+// hours, and parts cost ranges. AI enrichment fills what VDB doesn't cover.
+
+export interface VDBRepairData {
+  intervals: Array<{ slug: string; interval_miles: number }>;
+  labor: Map<string, number>;     // slug → hours
+  partsCosts: Map<string, { low: number; high: number }>;  // slug → cost range
+}
+
+export async function fetchVDBRepairData(vin: string): Promise<VDBRepairData | null> {
   const apiKey = process.env.VEHICLE_DATABASES_API_KEY;
   if (!apiKey) {
     console.log("[vdb-repair] No API key, skipping repair estimates");
@@ -62,13 +77,10 @@ export async function fetchVDBLaborHours(vin: string): Promise<Map<string, numbe
   }
 
   try {
-    // Correct endpoint: /repair-estimates/{vin}
     const url = `${VDB_BASE}/repair-estimates/${vin}`;
     console.log(`[vdb-repair] Fetching: ${url}`);
 
-    const response = await fetch(url, {
-      headers: { "x-AuthKey": apiKey },
-    });
+    const response = await fetch(url, { headers: { "x-AuthKey": apiKey } });
 
     if (!response.ok) {
       console.log(`[vdb-repair] API error: ${response.status}`);
@@ -78,47 +90,105 @@ export async function fetchVDBLaborHours(vin: string): Promise<Map<string, numbe
     const json = await response.json();
 
     if (json.status !== "success" || !json.data) {
-      console.log(`[vdb-repair] API returned status=${json.status}, no data for ${vin}`);
+      console.log(`[vdb-repair] status=${json.status}, no data for ${vin}`);
       return null;
     }
 
-    // VDB nests labor inside mileage groups — we ignore the mileage structure
-    // entirely and just extract every unique labor type + hours.
     const rawBlocks = json.data.data;
     if (!Array.isArray(rawBlocks) || rawBlocks.length === 0) {
-      console.log(`[vdb-repair] No data for ${vin}. keys: ${Object.keys(json.data).join(", ")}`);
-      console.log(`[vdb-repair] Raw sample: ${JSON.stringify(json).slice(0, 1500)}`);
+      console.log(`[vdb-repair] No data blocks for ${vin}`);
       return null;
     }
 
-    // Flatten all labor items across the entire response.
-    // Only extract type + time_required_hours. Ignore cost, mileage, everything else.
+    // Collect mileages where each VDB service type appears (for interval derivation).
+    const serviceMileages = new Map<string, number[]>();
+    // First-seen labor hours per VDB type.
     const laborByType = new Map<string, number>();
+    // Parts costs per VDB type (all occurrences, for low/high range).
+    const costByType = new Map<string, number[]>();
 
     for (const block of rawBlocks) {
-      const itemSets = Array.isArray(block.items) ? block.items : [block.items];
-      for (const itemSet of itemSets) {
-        const laborItems = itemSet?.labor;
-        if (!Array.isArray(laborItems)) continue;
+      const mileage = block.mileage
+        ? parseInt(String(block.mileage).replace(/,/g, ""))
+        : null;
+      const itemSets = Array.isArray(block.items)
+        ? block.items
+        : block.items
+          ? [block.items]
+          : [];
 
-        for (const l of laborItems) {
-          const hours = l.time_required_hours;
-          if (hours == null || hours <= 0) continue;
-          const type = l.type as string;
-          if (!type) continue;
-          if (!laborByType.has(type)) {
-            laborByType.set(type, hours);
+      for (const itemSet of itemSets) {
+        if (Array.isArray(itemSet?.labor)) {
+          for (const l of itemSet.labor) {
+            const type = l.type as string;
+            if (!type) continue;
+            if (mileage && mileage > 0) {
+              if (!serviceMileages.has(type)) serviceMileages.set(type, []);
+              serviceMileages.get(type)!.push(mileage);
+            }
+            const hrs = l.time_required_hours;
+            if (hrs && hrs > 0 && !laborByType.has(type)) laborByType.set(type, hrs);
+          }
+        }
+        if (Array.isArray(itemSet?.parts)) {
+          for (const p of itemSet.parts) {
+            const type = p.type as string;
+            const cost = p.total_cost;
+            if (!type || cost == null || cost <= 0) continue;
+            if (!costByType.has(type)) costByType.set(type, []);
+            costByType.get(type)!.push(cost);
           }
         }
       }
     }
 
-    console.log(`[vdb-repair] Got ${laborByType.size} unique labor types for ${vin}`);
-    return laborByType;
+    // Derive intervals: need ≥2 mileage checkpoints, min gap ≥5000 miles.
+    const intervalsBySlug = new Map<string, number>();
+    for (const [type, mileages] of serviceMileages) {
+      const slug = VDB_TO_SERVICE_SLUG[type];
+      if (!slug) continue;
+      const sorted = [...new Set(mileages)].sort((a, b) => a - b);
+      if (sorted.length < 2) continue;
+      let minGap = Infinity;
+      for (let i = 1; i < sorted.length; i++) {
+        const gap = sorted[i] - sorted[i - 1];
+        if (gap >= 5000 && gap < minGap) minGap = gap;
+      }
+      if (minGap === Infinity) continue;
+      const existing = intervalsBySlug.get(slug);
+      if (!existing || minGap < existing) intervalsBySlug.set(slug, minGap);
+    }
+    const intervals = [...intervalsBySlug.entries()].map(([slug, interval_miles]) => ({
+      slug,
+      interval_miles,
+    }));
+
+    const labor = mapVDBLaborToSlugs(laborByType);
+
+    const partsCosts = new Map<string, { low: number; high: number }>();
+    for (const [type, costs] of costByType) {
+      const slug = VDB_TO_SERVICE_SLUG[type];
+      if (!slug) continue;
+      const lo = Math.min(...costs);
+      const hi = Math.max(...costs);
+      const prev = partsCosts.get(slug);
+      partsCosts.set(slug, prev
+        ? { low: Math.min(prev.low, lo), high: Math.max(prev.high, hi) }
+        : { low: lo, high: hi });
+    }
+
+    console.log(`[vdb-repair] ${vin}: ${intervals.length} intervals, ${labor.size} labor, ${partsCosts.size} costs`);
+    return { intervals, labor, partsCosts };
   } catch (err) {
     console.log(`[vdb-repair] Failed: ${err}`);
     return null;
   }
+}
+
+/** Thin wrapper for callers that only need labor hours. */
+export async function fetchVDBLaborHours(vin: string): Promise<Map<string, number> | null> {
+  const data = await fetchVDBRepairData(vin);
+  return data?.labor ?? null;
 }
 
 /**
@@ -277,7 +347,7 @@ export function extractVDBFields(data: any) {
       : null,
     brakeType: brakingSpec.type || null,
 
-    // Steering
-    steeringType: steeringSpec?.type || null,
+    // Steering (normalized: "electric" | "hydraulic" | "electro-hydraulic" | null)
+    steeringType: mapSteeringType(steeringSpec?.type),
   };
 }

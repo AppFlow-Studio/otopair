@@ -15,6 +15,7 @@
 import { v } from "convex/values";
 import { action, internalMutation } from "../_generated/server";
 import { internal, api } from "../_generated/api";
+import { scrapeWheelSizeOptions } from "./utils/wheelSizeScraper";
 
 const TEST_CLERK_ID = "user_39FwQkrjpFYGOQ0gkPIk1DEf0FW";
 const POLL_MS = 30_000;
@@ -156,6 +157,83 @@ export const go = action({
       cost_estimate: `$${cost.toFixed(2)}`,
       duration_s: run ? Math.round((run.duration_ms ?? 0) / 1000) : null,
       tokens: run ? { in: run.total_tokens_in, out: run.total_tokens_out, searches: run.total_web_searches } : null,
+    };
+  },
+});
+
+/** Diagnostic: show tire_options for a vehicle_config_id. */
+export const inspectTireOptions = action({
+  args: { configId: v.string() },
+  handler: async (ctx, args) => {
+    const ts = await ctx.runQuery(internal.vehicleEnrichment.v3queries.getTrimSpecs, {
+      vehicleConfigId: args.configId as any,
+    });
+    const opts: any[] = (ts as any)?.tire_options ?? [];
+    return {
+      source: (ts as any)?.tire_options_source ?? null,
+      count: opts.length,
+      oem_count: opts.filter((t: any) => t.is_oem_standard).length,
+
+      options: opts.map((t: any) => ({
+        front: t.size_front,
+        rear: t.size_rear ?? null,
+        width_mm: t.width_mm ?? null,
+        aspect_ratio: t.aspect_ratio ?? null,
+        rim_in: t.rim_diameter_in ?? null,
+        wheel_spec: t.wheel_spec ?? null,
+        oem: t.is_oem_standard,
+        oem_name: t.oem_name ?? null,
+      })),
+    };
+  },
+});
+
+/**
+ * Fetch + save tire options for an existing vehicle without re-running full enrichment.
+ * Usage: npx convex run vehicleEnrichment/runPublic:refreshTireOptions '{"vin":"WBA13BK0XMCF98543"}'
+ */
+export const refreshTireOptions = action({
+  args: { vin: v.string() },
+  handler: async (ctx, args) => {
+    const vin = args.vin.toUpperCase().trim();
+
+    const vehicle = await ctx.runQuery(internal.vehicleEnrichment.v3queries.getVehicleByVin, { vin });
+    if (!vehicle) return { status: "no_vehicle" };
+
+    const configId = (vehicle as any).vehicle_config_id;
+    if (!configId) return { status: "no_config" };
+
+    const labels = await ctx.runQuery(internal.vehicleEnrichment.v3queries.getVehicleLabels, {
+      vehicleConfigId: configId,
+    });
+    if (!labels) return { status: "config_not_found" };
+
+    const { year, make, model, trim, displacement_l } = labels;
+    if (!year || !make || !model) return { status: "missing_vehicle_labels" };
+
+    console.log(`[refreshTires] Fetching wheel-size for ${year} ${make} ${model} ${trim} (${displacement_l ?? "?"}L)`);
+    const wheelResult = await scrapeWheelSizeOptions(year, make, model, trim, displacement_l).catch(() => null);
+
+    if (!wheelResult || wheelResult.tireOptions.length === 0) {
+      return { status: "no_tire_data", tried: `${year} ${make} ${model} ${trim}` };
+    }
+
+    await ctx.runMutation(internal.vehicleEnrichment.v3mutations.upsertTrimSpecs, {
+      vehicle_config_id: configId,
+      tire_options: wheelResult.tireOptions,
+    });
+
+    const oemCount = wheelResult.tireOptions.filter((t) => t.is_oem_standard).length;
+    return {
+      status: "ok",
+      source: wheelResult.sourceUrl,
+      total: wheelResult.tireOptions.length,
+      oem_standard: oemCount,
+      options: wheelResult.tireOptions.map((t) => ({
+        front: t.size_front,
+        rear: t.size_rear ?? null,
+        oem: t.is_oem_standard,
+      })),
     };
   },
 });
