@@ -60,7 +60,13 @@ export interface UserLocation {
 }
 
 /** Booking status options */
-export type BookingStatus = "pending" | "confirmed" | "in_progress" | "completed" | "cancelled";
+export type BookingStatus =
+  | "pending"
+  | "pending_quote"
+  | "confirmed"
+  | "in_progress"
+  | "completed"
+  | "cancelled";
 
 /** Booking flow stages */
 export type BookingStage =

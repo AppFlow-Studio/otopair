@@ -14,14 +14,13 @@
  */
 import { BookingCard, type Booking } from "@/components/bookings/BookingCard";
 import { BookingDetailsSheet, type BookingDetailsSheetRef } from "@/components/bookings/BookingDetailsSheet";
-import { LiveTrackerCard } from "@/components/bookings/LiveTrackerCard";
 import { ScrollDrivenGradientBackground, Text } from "@/components/shared-ui";
 import { useMyBookingsWithDetails } from "@/hooks/useMyBookingsWithDetails";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useRouter } from "expo-router";
 import { Calendar, Search, SlidersHorizontal } from "lucide-react-native";
 import React, { useCallback, useRef, useState } from "react";
-import { Linking, Platform, Pressable, RefreshControl, StyleSheet, TextInput, View } from "react-native";
+import { Platform, Pressable, RefreshControl, StyleSheet, TextInput, View } from "react-native";
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import SegmentedControl from "@react-native-segmented-control/segmented-control";
@@ -40,9 +39,9 @@ const TAB_ORDER: TabType[] = ["liveTracker", "upcoming", "history"];
 export default function BookingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { liveTracking, upcomingBookings, historyBookings, isLoading } = useMyBookingsWithDetails();
+  const { liveBooking, upcomingBookings, historyBookings, isLoading } = useMyBookingsWithDetails();
 
-  const hasActiveService = !!liveTracking;
+  const hasActiveService = !!liveBooking;
   const [activeTab, setActiveTab] = useState<TabType>(hasActiveService ? "liveTracker" : "upcoming");
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -63,7 +62,11 @@ export default function BookingsScreen() {
     setTimeout(() => setRefreshing(false), 1500);
   }, []);
 
-  const allBookings = [...upcomingBookings, ...historyBookings];
+  const allBookings = [
+    ...(liveBooking ? [liveBooking] : []),
+    ...upcomingBookings,
+    ...historyBookings,
+  ];
   const handleViewDetails = (bookingId: string) => {
     const booking = allBookings.find((b) => b.id === bookingId);
     if (booking) {
@@ -72,8 +75,19 @@ export default function BookingsScreen() {
   };
 
   const cancelBooking = useBookingStore((s) => s.cancelBooking);
+  const toggleLiveTracker = useBookingStore((s) => s.toggleLiveTracker);
   const handleCancelBooking = (bookingId: string) => {
     cancelBooking(bookingId);
+  };
+  const handleToggleLiveTracker = (bookingId: string) => {
+    toggleLiveTracker(bookingId);
+    // Zustand updates synchronously — read the new status to pick which tab to land on.
+    const booking = useBookingStore.getState().getBookingById(bookingId);
+    if (booking?.status === "in_progress") {
+      setActiveTab("liveTracker");
+    } else {
+      setActiveTab("upcoming");
+    }
   };
 
   const handleReschedule = (bookingId?: string) => {
@@ -87,12 +101,6 @@ export default function BookingsScreen() {
   const handleToggleFavorite = (bookingId: string) => {
     console.log("Toggle favorite for booking:", bookingId);
   };
-
-  const handleContactShop = useCallback(() => {
-    if (liveTracking?.shopPhone) {
-      Linking.openURL(`tel:${liveTracking.shopPhone}`);
-    }
-  }, [liveTracking?.shopPhone]);
 
   return (
   <>
@@ -153,11 +161,14 @@ export default function BookingsScreen() {
             <View style={styles.content}>
               {activeTab === "liveTracker" ? (
                 // Live Tracker Content
-                hasActiveService && liveTracking ? (
-                  <LiveTrackerCard
-                    tracking={liveTracking}
-                    onReschedule={() => handleReschedule()}
-                    onContactShop={handleContactShop}
+                hasActiveService && liveBooking ? (
+                  <BookingCard
+                    booking={liveBooking}
+                    variant="upcoming"
+                    onViewDetails={handleViewDetails}
+                    onCancelBooking={handleCancelBooking}
+                    onReschedule={handleReschedule}
+                    onToggleLiveTracker={handleToggleLiveTracker}
                   />
                 ) : (
                   <View style={styles.emptyState}>
@@ -184,6 +195,7 @@ export default function BookingsScreen() {
                     onReschedule={handleReschedule}
                     onDownloadPdf={handleDownloadPdf}
                     onToggleFavorite={handleToggleFavorite}
+                    onToggleLiveTracker={handleToggleLiveTracker}
                   />
                 ))
               ) : (

@@ -1,41 +1,78 @@
 /**
  * BookingDetailsSheet
  *
- * PURPOSE: Bottom sheet showing full booking details when "View Details" is pressed.
- *          Matches the floating-card style used in the My Cars screen.
+ * PURPOSE: Flighty-style floating sheet with 3 snap points (peek / mid / full).
+ *          Content crossfades between three distinct views based on the current
+ *          detent index — peek shows a single status strip, mid shows the
+ *          essentials + primary action, full shows timeline + all details.
  *
  * USED IN: app/(main-tabs)/bookings/index.tsx
  *
  * OWNER: Waleed Mansour
  */
 
-import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState } from "react";
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import {
+  Alert,
   Dimensions,
   Image,
-  Modal,
-  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   TouchableOpacity,
   View,
 } from "react-native";
-import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming } from "react-native-reanimated";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import Animated, {
+  Extrapolation,
+  interpolate,
+  runOnJS,
+  useAnimatedReaction,
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withRepeat,
+  withTiming,
+} from "react-native-reanimated";
+import { BlurView } from "expo-blur";
+import { LinearGradient } from "expo-linear-gradient";
 
-import { Calendar, Car, Clock, User, Wrench, X } from "lucide-react-native";
+import { Car, MessageCircle, Phone, User, Wrench, X } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { BrandColors, Spacing, Text } from "@/components/shared-ui";
+import { Text } from "@/components/shared-ui";
 import { BorderRadius } from "@/constants/theme";
+import { useBookingStore } from "@/stores/useBookingStore";
 import type { Booking } from "./BookingCard";
+import { MechanicChatSheet, type MechanicChatSheetRef } from "./MechanicChatSheet";
+import { RescheduleSheet, type RescheduleSheetRef } from "./RescheduleSheet";
 
 // ============================================================================
-// CONSTANTS
+// CONSTANTS (sheet mechanics — frozen)
 // ============================================================================
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
-const SHEET_HEIGHT = SCREEN_HEIGHT * 0.9;
+const { height: SCREEN_HEIGHT } = Dimensions.get("window");
+
+const VISIBLE_MED = SCREEN_HEIGHT * 0.62;
+
+const SIDE_INSET_MAX = 10;
+const CORNER_RADIUS = 46;
+const FLOAT_BOTTOM = 12;
+
+const FLING_VELOCITY = 550;
+const DISMISS_OVERSHOOT = 80;
+
+type BookingStatus = Booking["status"];
+
+const STATUS_CONFIG: Record<BookingStatus, { label: string; bgColor: string; textColor: string }> = {
+  pending: { label: "Pending", bgColor: "#fff6ee", textColor: "#f89829" },
+  pending_quote: { label: "Pending Quote", bgColor: "#FFF8ED", textColor: "#C8972E" },
+  confirmed: { label: "Confirmed", bgColor: "#e8f5e9", textColor: "#4CAF50" },
+  in_progress: { label: "In Progress", bgColor: "#E0E7FF", textColor: "#4F46E5" },
+  completed: { label: "Completed", bgColor: "#f0fcf5", textColor: "#60d17e" },
+  cancelled: { label: "Cancelled", bgColor: "#FEE2E2", textColor: "#DC2626" },
+  delayed: { label: "Delayed", bgColor: "#FEF3C7", textColor: "#D97706" },
+};
 
 // ============================================================================
 // TYPES
@@ -46,18 +83,21 @@ export interface BookingDetailsSheetRef {
   close: () => void;
 }
 
-// ============================================================================
-// STATUS CONFIG
-// ============================================================================
-
-const STATUS_CONFIG: Record<string, { label: string; bgColor: string; textColor: string }> = {
-  pending: { label: "Pending", bgColor: "#fff6ee", textColor: "#f89829" },
-  confirmed: { label: "Confirmed", bgColor: "#e8f5e9", textColor: "#4CAF50" },
-  in_progress: { label: "In Progress", bgColor: "#E0E7FF", textColor: "#4F46E5" },
-  completed: { label: "Completed", bgColor: "#f0fcf5", textColor: "#60d17e" },
-  cancelled: { label: "Cancelled", bgColor: "#FEE2E2", textColor: "#DC2626" },
-  delayed: { label: "Delayed", bgColor: "#FEF3C7", textColor: "#D97706" },
-};
+interface BookingDetailsSheetProps {
+  // TODO(convex): expose mechanic rating
+  mechanicRating?: number;
+  // TODO(convex): expose shop address/hours/rating from shops table
+  shopAddress?: string;
+  shopHoursLabel?: string;
+  shopRating?: { score: number; count: number };
+  // TODO(convex): service description + duration from services table
+  serviceDescription?: string;
+  serviceDurationMinutes?: number;
+  // TODO(convex): vehicle mileage (vehicles table or Smartcar)
+  vehicleMileage?: number;
+  // TODO(convex): stage history (requested/confirmed/in_progress timestamps)
+  statusHistory?: Array<{ stage: BookingStatus; timestamp: number }>;
+}
 
 function titleCase(str: string): string {
   return str.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
@@ -67,333 +107,1095 @@ function titleCase(str: string): string {
 // COMPONENT
 // ============================================================================
 
-export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef>((_props, ref) => {
-  const insets = useSafeAreaInsets();
-  const [visible, setVisible] = useState(false);
-  const [booking, setBooking] = useState<Booking | null>(null);
+export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDetailsSheetProps>(
+  (props, ref) => {
+    const {
+      relativeTime = "Upcoming",
+      mechanicRating,
+      shopAddress,
+      shopHoursLabel,
+      shopRating,
+      serviceDescription,
+      serviceDurationMinutes,
+      vehicleMileage,
+      statusHistory,
+    } = props;
 
-  const backdropOpacity = useSharedValue(0);
-  const translateY = useSharedValue(SHEET_HEIGHT);
+    const insets = useSafeAreaInsets();
+    const [booking, setBooking] = useState<Booking | null>(null);
+    // 0 = mid (default on open), 1 = full. Peek snap is gone — drag below mid dismisses.
+    const [detentJs, setDetentJs] = useState<0 | 1>(0);
 
-  const open = useCallback((b: Booking) => {
-    setBooking(b);
-    setVisible(true);
-  }, []);
+    // Sheet height so that at full snap the sheet spans from below the status bar
+    // all the way down to the screen bottom (full snap touches the edge).
+    const FULL_HEIGHT = useMemo(
+      () => SCREEN_HEIGHT - Math.max(insets.top, 12) - 8,
+      [insets.top],
+    );
 
-  const close = useCallback(() => {
-    backdropOpacity.value = withTiming(0, { duration: 250 });
-    translateY.value = withTiming(SHEET_HEIGHT, { duration: 250 });
-    setTimeout(() => setVisible(false), 300);
-  }, [backdropOpacity, translateY]);
+    const H_MED = VISIBLE_MED;
+    const H_FULL = FULL_HEIGHT;
 
-  useImperativeHandle(ref, () => ({ open, close }));
+    const sheetHeight = useSharedValue(0);
+    const startHeight = useSharedValue(0);
 
-  useEffect(() => {
-    if (visible) {
-      backdropOpacity.value = withTiming(1, { duration: 400 });
-      translateY.value = withTiming(0, { duration: 450 });
-    }
-  }, [visible, backdropOpacity, translateY]);
+    const rescheduleSheetRef = useRef<RescheduleSheetRef>(null);
+    const chatSheetRef = useRef<MechanicChatSheetRef>(null);
 
-  const backdropStyle = useAnimatedStyle(() => ({
-    opacity: backdropOpacity.value,
-  }));
+    const handleRequestReschedule = useCallback(
+      (bookingId: string, date: string, time: string) => {
+        rescheduleSheetRef.current?.open(bookingId, { date, time });
+      },
+      [],
+    );
 
-  const sheetStyle = useAnimatedStyle(() => ({
-    transform: [{ translateY: translateY.value }],
-  }));
+    const handleOpenChat = useCallback(() => {
+      if (!booking) return;
+      chatSheetRef.current?.open({
+        bookingId: booking.id,
+        mechanicName: booking.mechanicName,
+        shopName: booking.shopName,
+        mechanicImage: booking.mechanicImage,
+      });
+    }, [booking]);
 
-  if (!booking) return null;
+    const handleConfirmReschedule = useCallback(
+      (bookingId: string, newDate: string, newTime: string) => {
+        useBookingStore.getState().rescheduleBooking(bookingId, newDate, newTime);
+        // Close the detail sheet so the updated booking is immediately visible in the list.
+        close();
+      },
+      [close],
+    );
 
-  const statusConfig = STATUS_CONFIG[booking.status] ?? STATUS_CONFIG.pending;
+    // Crossfade opacities for the two content layers (mid + full).
+    const midOpacity = useSharedValue(1);
+    const fullOpacity = useSharedValue(0);
+
+    const open = useCallback((b: Booking) => {
+      setBooking(b);
+      setDetentJs(0);
+    }, []);
+
+    const close = useCallback(() => {
+      sheetHeight.value = withTiming(0, { duration: 260 });
+      setTimeout(() => setBooking(null), 280);
+    }, [sheetHeight]);
+
+    useImperativeHandle(ref, () => ({ open, close }));
+
+    // Enter animation: grow from 0 straight to MID when booking is first set.
+    useEffect(() => {
+      if (booking) {
+        sheetHeight.value = 0;
+        midOpacity.value = 1;
+        fullOpacity.value = 0;
+        const id = requestAnimationFrame(() => {
+          sheetHeight.value = withTiming(H_MED, { duration: 420 });
+        });
+        return () => cancelAnimationFrame(id);
+      }
+    }, [booking, H_MED, sheetHeight, midOpacity, fullOpacity]);
+
+    // Derive detent index from sheetHeight and bump JS state on threshold cross.
+    // Only two detents now: 0 = mid, 1 = full.
+    useAnimatedReaction(
+      () => sheetHeight.value,
+      (current, previous) => {
+        if (previous == null) return;
+        const mid12 = (H_MED + H_FULL) / 2;
+        const next = current < mid12 ? 0 : 1;
+        const prev = previous < mid12 ? 0 : 1;
+        if (next !== prev) {
+          runOnJS(setDetentJs)(next as 0 | 1);
+        }
+      },
+      [H_MED, H_FULL],
+    );
+
+    // Crossfade on detent change: fade-out current 150ms, fade-in new 150ms with 50ms overlap.
+    useEffect(() => {
+      const layers = [midOpacity, fullOpacity];
+      layers.forEach((o, i) => {
+        if (i === detentJs) {
+          o.value = withDelay(50, withTiming(1, { duration: 150 }));
+        } else {
+          o.value = withTiming(0, { duration: 150 });
+        }
+      });
+    }, [detentJs, midOpacity, fullOpacity]);
+
+    // Pan gesture: drag handle up to grow, down to shrink/dismiss.
+    const dragGesture = useMemo(
+      () =>
+        Gesture.Pan()
+          .onBegin(() => {
+            startHeight.value = sheetHeight.value;
+          })
+          .onUpdate((e) => {
+            const next = startHeight.value - e.translationY;
+            sheetHeight.value = Math.max(0, Math.min(H_FULL + 20, next));
+          })
+          .onEnd((e) => {
+            const h = sheetHeight.value;
+            const vUp = -e.velocityY;
+
+            // Drag down fast near MED or drag below MED by overshoot → dismiss.
+            if (vUp < -FLING_VELOCITY && h < H_MED + 40) {
+              runOnJS(close)();
+              return;
+            }
+            if (h < H_MED - DISMISS_OVERSHOOT) {
+              runOnJS(close)();
+              return;
+            }
+
+            // Snap targets: only MED and FULL.
+            let target: number;
+            if (vUp > FLING_VELOCITY) {
+              target = H_FULL;
+            } else if (vUp < -FLING_VELOCITY) {
+              target = H_MED;
+            } else {
+              target = Math.abs(H_FULL - h) < Math.abs(H_MED - h) ? H_FULL : H_MED;
+            }
+            sheetHeight.value = withTiming(target, { duration: 280 });
+          }),
+      [H_FULL, H_MED, close, sheetHeight, startHeight],
+    );
+
+    const sheetAnimStyle = useAnimatedStyle(() => {
+      const progress = interpolate(
+        sheetHeight.value,
+        [H_MED, H_FULL],
+        [0, 1],
+        Extrapolation.CLAMP,
+      );
+      const sideInset = interpolate(progress, [0, 1], [SIDE_INSET_MAX, 0], Extrapolation.CLAMP);
+      const bottomInset = interpolate(
+        progress,
+        [0, 0.85, 1],
+        [FLOAT_BOTTOM, FLOAT_BOTTOM, 0],
+        Extrapolation.CLAMP,
+      );
+      const bottomRadius = interpolate(
+        progress,
+        [0.85, 1],
+        [CORNER_RADIUS, 0],
+        Extrapolation.CLAMP,
+      );
+      return {
+        left: sideInset,
+        right: sideInset,
+        bottom: bottomInset,
+        height: sheetHeight.value,
+        borderBottomLeftRadius: bottomRadius,
+        borderBottomRightRadius: bottomRadius,
+      };
+    });
+
+    const innerAnimStyle = useAnimatedStyle(() => {
+      const progress = interpolate(
+        sheetHeight.value,
+        [H_MED, H_FULL],
+        [0, 1],
+        Extrapolation.CLAMP,
+      );
+      const bottomRadius = interpolate(
+        progress,
+        [0.85, 1],
+        [CORNER_RADIUS, 0],
+        Extrapolation.CLAMP,
+      );
+      return {
+        borderBottomLeftRadius: bottomRadius,
+        borderBottomRightRadius: bottomRadius,
+      };
+    });
+
+    const midAnimStyle = useAnimatedStyle(() => ({ opacity: midOpacity.value }));
+    const fullAnimStyle = useAnimatedStyle(() => ({ opacity: fullOpacity.value }));
+
+    // Backdrop blur fades in as the sheet opens, fades out on close.
+    const backdropAnimStyle = useAnimatedStyle(() => {
+      const opacity = interpolate(
+        sheetHeight.value,
+        [0, H_MED],
+        [0, 1],
+        Extrapolation.CLAMP,
+      );
+      return { opacity };
+    });
+
+    if (!booking) return null;
+
+    const statusConfig = STATUS_CONFIG[booking.status] ?? STATUS_CONFIG.pending;
+
+    return (
+      <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
+        {/* Blur backdrop — fades in as sheet opens, tap to dismiss */}
+        <Animated.View style={[StyleSheet.absoluteFill, backdropAnimStyle]} pointerEvents="auto">
+          <Pressable style={StyleSheet.absoluteFill} onPress={close}>
+            <BlurView intensity={28} tint="dark" style={StyleSheet.absoluteFill} />
+            <View style={styles.backdropTint} />
+          </Pressable>
+        </Animated.View>
+
+        <Animated.View style={[styles.sheetShadow, sheetAnimStyle]}>
+          <Animated.View style={[styles.sheetInner, innerAnimStyle]}>
+            {/* Grabber always at top, drag-to-resize */}
+            <GestureDetector gesture={dragGesture}>
+              <View style={styles.dragRegion}>
+                <View style={styles.handle} />
+              </View>
+            </GestureDetector>
+
+            {/* Two stacked content layers, crossfaded on detent change */}
+            <View style={styles.contentStack}>
+              <Animated.View
+                style={[styles.contentLayer, midAnimStyle]}
+                pointerEvents={detentJs === 0 ? "auto" : "none"}
+              >
+                <MidContent
+                  booking={booking}
+                  mechanicRating={mechanicRating}
+                  statusConfig={statusConfig}
+                  onClose={close}
+                  onOpenChat={handleOpenChat}
+                />
+              </Animated.View>
+
+              <Animated.View
+                style={[styles.contentLayer, fullAnimStyle]}
+                pointerEvents={detentJs === 1 ? "auto" : "none"}
+              >
+                <FullContent
+                  booking={booking}
+                  serviceDescription={serviceDescription}
+                  serviceDurationMinutes={serviceDurationMinutes}
+                  vehicleMileage={vehicleMileage}
+                  shopAddress={shopAddress}
+                  shopHoursLabel={shopHoursLabel}
+                  shopRating={shopRating}
+                  statusHistory={statusHistory}
+                  onClose={close}
+                  onRequestReschedule={handleRequestReschedule}
+                  bottomPadding={insets.bottom + 60}
+                />
+              </Animated.View>
+            </View>
+          </Animated.View>
+        </Animated.View>
+
+        {/* Reschedule picker — renders above the sheet when opened */}
+        <RescheduleSheet ref={rescheduleSheetRef} onConfirm={handleConfirmReschedule} />
+
+        {/* Chat thread with the mechanic */}
+        <MechanicChatSheet ref={chatSheetRef} />
+      </View>
+    );
+  },
+);
+
+BookingDetailsSheet.displayName = "BookingDetailsSheet";
+
+// ============================================================================
+// SUB-COMPONENTS
+// ============================================================================
+
+function SheetHeader({ onClose }: { onClose: () => void }) {
+  return (
+    <View style={styles.headerRow}>
+      <Text size="2xl" weight="bold" color="#1A1A1A">
+        Booking Details
+      </Text>
+      <TouchableOpacity onPress={onClose} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+        <X size={22} color="#8E8E93" />
+      </TouchableOpacity>
+    </View>
+  );
+}
+
+interface MidContentProps {
+  booking: Booking;
+  mechanicRating?: number;
+  statusConfig: { label: string; bgColor: string; textColor: string };
+  onClose: () => void;
+  onOpenChat: () => void;
+}
+
+function MidContent({ booking, mechanicRating, statusConfig, onClose, onOpenChat }: MidContentProps) {
+  const primaryActionLabel = "Message Mechanic";
+
+  const handlePrimary = useCallback(() => {
+    onOpenChat();
+  }, [onOpenChat]);
 
   return (
-    <Modal visible={visible} transparent animationType="none" statusBarTranslucent onRequestClose={close}>
-      {/* Backdrop */}
-      <Animated.View style={[styles.backdrop, backdropStyle]}>
-        <Pressable style={StyleSheet.absoluteFill} onPress={close} />
-      </Animated.View>
+    <View style={styles.midContainer}>
+      {/* Top block — pushed to top */}
+      <View>
+        <SheetHeader onClose={onClose} />
 
-      {/* Sheet */}
-      <Animated.View style={[styles.sheet, sheetStyle]}>
-        {/* Handle */}
-        <View style={styles.handle} />
-
-        {/* Header */}
-        <View style={styles.header}>
-          <Text size="xl" weight="semiBold" color="#1F2937">
-            Booking Details
+        <View style={styles.midStatusBlock}>
+          <Text size="xl" weight="semiBold" color="#1A1A1A" style={styles.midStatusLeft}>
+            {booking.date} · {booking.time}
           </Text>
-          <TouchableOpacity onPress={close} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-            <X size={22} color="#6B7280" />
-          </TouchableOpacity>
-        </View>
-
-        {/* Scrollable content */}
-        <ScrollView
-          contentContainerStyle={[styles.content, { paddingBottom: insets.bottom + 24 }]}
-          showsVerticalScrollIndicator={false}
-        >
-          {/* Status Badge */}
-          <View style={[styles.statusBadge, { backgroundColor: statusConfig.bgColor }]}>
+          <View style={[styles.statusPill, { backgroundColor: statusConfig.bgColor }]}>
             <Text weight="semiBold" size="sm" color={statusConfig.textColor}>
               {statusConfig.label}
             </Text>
           </View>
+        </View>
 
-          {/* Services */}
-          <View style={styles.section}>
-            <View style={styles.sectionHeader}>
-              <Wrench size={18} color={BrandColors.secondary} />
-              <Text size="md" weight="bold" color={BrandColors.primary}>
-                Services
+        <MechanicCard booking={booking} mechanicRating={mechanicRating} onMessage={onOpenChat} />
+
+        {/* Details card — Service + Vehicle at a glance */}
+        <View style={styles.detailsCard}>
+          <View style={styles.detailsRow}>
+            <View style={styles.detailsIconBox}>
+              <Wrench size={18} color="#5299FE" />
+            </View>
+            <View style={styles.detailsText}>
+              <Text size="xs" weight="medium" color="#8E8E93">
+                SERVICE
+              </Text>
+              <Text size="md" weight="semiBold" color="#1A1A1A" numberOfLines={1}>
+                {booking.services.length > 1
+                  ? `${booking.services[0]} + ${booking.services.length - 1} more`
+                  : (booking.services[0] ?? "Service")}
               </Text>
             </View>
-            {booking.services.map((service, i) => (
-              <View key={i} style={styles.serviceRow}>
-                <View style={styles.serviceDot} />
-                <Text size="md" weight="medium" color="#374151">
-                  {service}
-                </Text>
-              </View>
-            ))}
           </View>
 
-          {/* Vehicle */}
-          <View style={styles.card}>
-            <View style={styles.cardRow}>
-              <View style={styles.vehicleImageContainer}>
-                {booking.makeLogoUrl?.trim() ? (
-                  <Image source={{ uri: booking.makeLogoUrl }} style={styles.vehicleImage} resizeMode="contain" />
-                ) : (
-                  <Car size={28} color="#9CA3AF" />
-                )}
-              </View>
-              <View style={styles.cardContent}>
-                <Text size="lg" weight="bold" color={BrandColors.primary}>
-                  {titleCase(booking.carModel)}
-                </Text>
-                {booking.carYear ? (
-                  <Text size="sm" weight="regular" color="#6B7280">
-                    {booking.carYear}
-                  </Text>
-                ) : null}
-              </View>
-            </View>
-          </View>
+          <View style={styles.detailsDivider} />
 
-          {/* Mechanic & Shop */}
-          <View style={styles.card}>
-            <View style={styles.cardRow}>
-              <View style={styles.mechanicAvatarContainer}>
-                {booking.mechanicImage ? (
-                  <Image source={{ uri: booking.mechanicImage }} style={styles.mechanicAvatar} />
-                ) : (
-                  <User size={24} color="#9CA3AF" />
-                )}
-              </View>
-              <View style={styles.cardContent}>
-                <Text size="lg" weight="bold" color={BrandColors.primary}>
-                  {booking.mechanicName}
-                </Text>
-                <Text size="sm" weight="regular" color="#6B7280">
-                  {booking.shopName}
-                </Text>
-              </View>
+          <View style={styles.detailsRow}>
+            <View style={styles.detailsIconBox}>
+              <Car size={18} color="#5299FE" />
             </View>
-          </View>
-
-          {/* Date & Time */}
-          <View style={styles.detailsGrid}>
-            <View style={styles.detailItem}>
-              <View style={styles.detailIconContainer}>
-                <Calendar size={18} color={BrandColors.secondary} />
-              </View>
-              <View>
-                <Text size="xs" weight="bold" color="#9CA3AF">
-                  DATE
-                </Text>
-                <Text size="md" weight="semiBold" color={BrandColors.primary}>
-                  {booking.date}
-                </Text>
-              </View>
-            </View>
-            <View style={styles.detailItem}>
-              <View style={styles.detailIconContainer}>
-                <Clock size={18} color={BrandColors.secondary} />
-              </View>
-              <View>
-                <Text size="xs" weight="bold" color="#9CA3AF">
-                  TIME
-                </Text>
-                <Text size="md" weight="semiBold" color={BrandColors.primary}>
-                  {booking.time}
-                </Text>
-              </View>
-            </View>
-          </View>
-
-          {/* Total Cost */}
-          {booking.totalCost != null && (
-            <View style={styles.costCard}>
-              <Text size="sm" weight="medium" color="#6B7280">
-                Total Cost
+            <View style={styles.detailsText}>
+              <Text size="xs" weight="medium" color="#8E8E93">
+                VEHICLE
               </Text>
-              <Text size="2xl" weight="bold" color={BrandColors.primary}>
+              <Text size="md" weight="semiBold" color="#1A1A1A" numberOfLines={1}>
+                {titleCase(booking.carModel)}
+                {booking.carYear ? ` · ${booking.carYear}` : ""}
+              </Text>
+            </View>
+          </View>
+        </View>
+      </View>
+
+      {/* Bottom block — pushed to bottom */}
+      <View style={styles.midBottomBlock}>
+        <TouchableOpacity style={styles.primaryButton} onPress={handlePrimary} activeOpacity={0.85}>
+          <Text size="md" weight="semiBold" color="#FFFFFF">
+            {primaryActionLabel}
+          </Text>
+        </TouchableOpacity>
+
+        <Text size="xs" weight="regular" color="#8E8E93" center style={styles.midHint}>
+          Swipe up for full details
+        </Text>
+      </View>
+    </View>
+  );
+}
+
+function MechanicCard({
+  booking,
+  mechanicRating,
+  onMessage,
+}: {
+  booking: Booking;
+  mechanicRating?: number;
+  onMessage: () => void;
+}) {
+  const handleCall = useCallback(() => {
+    // TODO: call shop when phone number is exposed on Booking
+    console.log("TODO: call shop", booking.id); // eslint-disable-line no-console
+  }, [booking.id]);
+
+  return (
+    <View style={styles.mechanicCard}>
+      <BlurView intensity={40} tint="light" style={StyleSheet.absoluteFill} />
+      <LinearGradient
+        colors={["rgba(255,255,255,0.7)", "rgba(255,255,255,0.55)"]}
+        style={StyleSheet.absoluteFill}
+      />
+      <View style={styles.mechanicCardInner}>
+        <View style={styles.mechanicAvatar}>
+          {booking.mechanicImage ? (
+            <Image source={{ uri: booking.mechanicImage }} style={styles.mechanicAvatarImage} />
+          ) : (
+            <User size={22} color="#9CA3AF" />
+          )}
+        </View>
+        <View style={styles.mechanicBody}>
+          <Text size="md" weight="semiBold" color="#1A1A1A" numberOfLines={1}>
+            {booking.shopName}
+          </Text>
+          <Text size="xs" weight="regular" color="#8E8E93" numberOfLines={1}>
+            {booking.mechanicName}
+            {mechanicRating != null ? ` · ⭐ ${mechanicRating.toFixed(1)}` : ""}
+          </Text>
+        </View>
+        <View style={styles.mechanicActions}>
+          <IconCircleButton onPress={handleCall} icon={<Phone size={16} color="#1A1A1A" />} />
+          <IconCircleButton
+            onPress={onMessage}
+            icon={<MessageCircle size={16} color="#1A1A1A" />}
+          />
+        </View>
+      </View>
+    </View>
+  );
+}
+
+function IconCircleButton({
+  icon,
+  onPress,
+}: {
+  icon: React.ReactNode;
+  onPress: () => void;
+}) {
+  return (
+    <TouchableOpacity style={styles.iconCircle} onPress={onPress} activeOpacity={0.7}>
+      {icon}
+    </TouchableOpacity>
+  );
+}
+
+interface FullContentProps {
+  booking: Booking;
+  serviceDescription?: string;
+  serviceDurationMinutes?: number;
+  vehicleMileage?: number;
+  shopAddress?: string;
+  shopHoursLabel?: string;
+  shopRating?: { score: number; count: number };
+  statusHistory?: Array<{ stage: BookingStatus; timestamp: number }>;
+  onClose: () => void;
+  onRequestReschedule: (bookingId: string, date: string, time: string) => void;
+  bottomPadding: number;
+}
+
+function FullContent({
+  booking,
+  serviceDescription,
+  serviceDurationMinutes,
+  vehicleMileage,
+  shopAddress,
+  shopHoursLabel,
+  shopRating,
+  statusHistory,
+  onClose,
+  onRequestReschedule,
+  bottomPadding,
+}: FullContentProps) {
+  const handleCancel = useCallback(() => {
+    Alert.alert(
+      "Cancel booking?",
+      "This action cannot be undone.",
+      [
+        { text: "Keep booking", style: "cancel" },
+        {
+          text: "Cancel booking",
+          style: "destructive",
+          onPress: () => {
+            useBookingStore.getState().cancelBooking(booking.id);
+            onClose();
+          },
+        },
+      ],
+      { cancelable: true },
+    );
+  }, [booking.id, onClose]);
+
+  const handleReschedule = useCallback(() => {
+    // Pull the raw scheduledDate/scheduledTime from the local store so the
+    // picker initializes on the booking's current slot.
+    const local = useBookingStore.getState().getBookingById(booking.id);
+    onRequestReschedule(booking.id, local?.scheduledDate ?? "", local?.scheduledTime ?? "");
+  }, [booking.id, onRequestReschedule]);
+
+  const handleAddToCalendar = useCallback(() => {
+    // TODO: integrate expo-calendar
+    console.log("TODO: add to calendar", booking.id); // eslint-disable-line no-console
+  }, [booking.id]);
+
+  const primaryService = booking.services[0] ?? "Service";
+
+  return (
+    <View style={styles.fullContainer}>
+      <SheetHeader onClose={onClose} />
+      <ScrollView
+        contentContainerStyle={[styles.fullScroll, { paddingBottom: bottomPadding }]}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* STATUS TIMELINE */}
+        <View style={styles.section}>
+          <SectionHeader label="Status" />
+          <StatusTimeline currentStatus={booking.status} history={statusHistory} />
+        </View>
+
+        {/* SERVICE */}
+        <View style={styles.section}>
+          <SectionHeader label="Service" />
+          <Text size="lg" weight="semiBold" color="#1A1A1A">
+            {primaryService}
+          </Text>
+          {serviceDescription ? (
+            <Text size="sm" weight="regular" color="#3C3C43" style={styles.serviceDescription}>
+              {serviceDescription}
+            </Text>
+          ) : null}
+          {serviceDurationMinutes != null ? (
+            <Text size="xs" weight="regular" color="#8E8E93" style={styles.serviceDuration}>
+              ⏱ ~{serviceDurationMinutes} minutes
+            </Text>
+          ) : null}
+          {booking.services.length > 1 ? (
+            <View style={styles.extraServices}>
+              {booking.services.slice(1).map((s, i) => (
+                <Text key={i} size="sm" weight="regular" color="#3C3C43">
+                  · {s}
+                </Text>
+              ))}
+            </View>
+          ) : null}
+        </View>
+
+        {/* VEHICLE */}
+        <View style={styles.section}>
+          <SectionHeader label="Vehicle" />
+          <View style={styles.vehicleRow}>
+            <View style={styles.vehicleThumb}>
+              {booking.makeLogoUrl?.trim() ? (
+                <Image
+                  source={{ uri: booking.makeLogoUrl }}
+                  style={styles.vehicleThumbImage}
+                  resizeMode="contain"
+                />
+              ) : (
+                <Car size={24} color="#9CA3AF" />
+              )}
+            </View>
+            <View style={styles.vehicleInfo}>
+              <Text size="md" weight="semiBold" color="#1A1A1A">
+                {titleCase(booking.carModel)}
+              </Text>
+              <Text size="xs" weight="regular" color="#8E8E93">
+                {booking.carYear}
+                {vehicleMileage != null ? ` · ${vehicleMileage.toLocaleString()} miles` : ""}
+                {booking.licensePlate ? ` · ${booking.licensePlate}` : ""}
+              </Text>
+            </View>
+          </View>
+        </View>
+
+        {/* SHOP */}
+        <View style={styles.section}>
+          <SectionHeader label="Shop" />
+          <Text size="md" weight="semiBold" color="#1A1A1A">
+            {booking.shopName}
+          </Text>
+          {shopAddress ? (
+            <Text size="sm" weight="regular" color="#3C3C43" style={styles.shopLine}>
+              {shopAddress}
+            </Text>
+          ) : null}
+          {shopHoursLabel ? (
+            <Text size="xs" weight="regular" color="#10B981" style={styles.shopLine}>
+              {shopHoursLabel}
+            </Text>
+          ) : null}
+          {shopRating ? (
+            <Text size="xs" weight="regular" color="#8E8E93" style={styles.shopLine}>
+              ⭐ {shopRating.score.toFixed(1)} ({shopRating.count.toLocaleString()} reviews)
+            </Text>
+          ) : null}
+        </View>
+
+        {/* PAYMENT */}
+        <View style={styles.section}>
+          <SectionHeader label="Payment" />
+          <View style={styles.paymentRow}>
+            <Text size="md" weight="regular" color="#1A1A1A">
+              Estimated total
+            </Text>
+            {booking.totalCost != null && booking.totalCost > 0 ? (
+              <Text size="md" weight="bold" color="#1A1A1A">
                 ${booking.totalCost.toFixed(2)}
               </Text>
-            </View>
-          )}
-        </ScrollView>
-      </Animated.View>
-    </Modal>
-  );
-});
+            ) : (
+              <Text size="md" weight="regular" color="#8E8E93" style={styles.paymentPending}>
+                Pending confirmation
+              </Text>
+            )}
+          </View>
+        </View>
 
-BookingDetailsSheet.displayName = "BookingDetailsSheet";
+        {/* SECONDARY ACTIONS */}
+        <View style={styles.secondaryActions}>
+          <TouchableOpacity style={styles.rescheduleButton} onPress={handleReschedule} activeOpacity={0.85}>
+            <Text size="md" weight="semiBold" color="#FFFFFF">
+              Reschedule
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.outlineButton}
+            onPress={handleAddToCalendar}
+            activeOpacity={0.7}
+          >
+            <Text size="md" weight="medium" color="#1A1A1A">
+              Add to Calendar
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* CANCEL */}
+        <View style={styles.cancelWrapper}>
+          <TouchableOpacity style={styles.cancelButton} onPress={handleCancel} activeOpacity={0.7}>
+            <Text size="md" weight="medium" color="#FF3B30">
+              Cancel Booking
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
+
+function SectionHeader({ label }: { label: string }) {
+  return (
+    <Text size="xs" weight="bold" color="#8E8E93" style={styles.sectionHeaderText}>
+      {label.toUpperCase()}
+    </Text>
+  );
+}
+
+function StatusTimeline({
+  currentStatus,
+  history,
+}: {
+  currentStatus: BookingStatus;
+  history?: Array<{ stage: BookingStatus; timestamp: number }>;
+}) {
+  const pulseOpacity = useSharedValue(0.35);
+  useEffect(() => {
+    pulseOpacity.value = withRepeat(withTiming(1, { duration: 900 }), -1, true);
+  }, [pulseOpacity]);
+  const pulseAnimStyle = useAnimatedStyle(() => ({ opacity: pulseOpacity.value }));
+
+  const stages: BookingStatus[] = ["pending", "confirmed", "in_progress", "completed"];
+  const stageLabels: Record<BookingStatus, string> = {
+    pending: "Requested",
+    confirmed: "Confirmed",
+    in_progress: "In Progress",
+    completed: "Complete",
+    cancelled: "Cancelled",
+    delayed: "Delayed",
+  };
+
+  const currentIdx = stages.indexOf(currentStatus);
+  const isCompletedStatus = currentStatus === "completed";
+
+  function getTimestamp(stage: BookingStatus): string | null {
+    if (!history) return null;
+    const entry = history.find((h) => h.stage === stage);
+    if (!entry) return null;
+    return new Date(entry.timestamp).toLocaleString("en-US", {
+      month: "short",
+      day: "numeric",
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  }
+
+  return (
+    <View style={styles.timeline}>
+      {stages.map((stage, idx) => {
+        const isCompleted = isCompletedStatus || currentIdx > idx;
+        const isCurrent = !isCompletedStatus && currentIdx === idx;
+        const isLast = idx === stages.length - 1;
+        const timestamp = getTimestamp(stage);
+
+        return (
+          <View key={stage} style={styles.timelineRow}>
+            <View style={styles.timelineDotColumn}>
+              <View
+                style={[
+                  styles.timelineDot,
+                  isCompleted && styles.timelineDotCompleted,
+                  isCurrent && styles.timelineDotCurrent,
+                ]}
+              >
+                {isCurrent ? (
+                  <Animated.View style={[styles.timelinePulse, pulseAnimStyle]} />
+                ) : null}
+              </View>
+              {!isLast ? (
+                <View style={[styles.timelineLine, isCompleted && styles.timelineLineCompleted]} />
+              ) : null}
+            </View>
+            <View style={styles.timelineBody}>
+              <Text
+                size="sm"
+                weight={isCurrent ? "semiBold" : "medium"}
+                color={isCompleted || isCurrent ? "#1A1A1A" : "#8E8E93"}
+              >
+                {stageLabels[stage]}
+              </Text>
+              {timestamp ? (
+                <Text size="xs" weight="regular" color="#8E8E93">
+                  {timestamp}
+                </Text>
+              ) : null}
+            </View>
+          </View>
+        );
+      })}
+    </View>
+  );
+}
 
 // ============================================================================
 // STYLES
 // ============================================================================
 
 const styles = StyleSheet.create({
-  backdrop: {
+  backdropTint: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0, 0, 0, 0.45)",
+    backgroundColor: "rgba(0,0,0,0.18)",
   },
-  sheet: {
+  // Sheet chrome (unchanged)
+  sheetShadow: {
     position: "absolute",
-    bottom: SCREEN_HEIGHT * 0.015,
-    left: SCREEN_WIDTH * 0.025,
-    right: SCREEN_WIDTH * 0.025,
-    width: SCREEN_WIDTH * 0.95,
-    height: SHEET_HEIGHT,
     backgroundColor: "#FFFFFF",
-    borderRadius: 40,
-    paddingHorizontal: 24,
-    paddingBottom: Platform.OS === "ios" ? 34 : 24,
+    borderTopLeftRadius: CORNER_RADIUS,
+    borderTopRightRadius: CORNER_RADIUS,
+    borderBottomLeftRadius: CORNER_RADIUS,
+    borderBottomRightRadius: CORNER_RADIUS,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: -4 },
-    shadowOpacity: 0.15,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.12,
     shadowRadius: 24,
     elevation: 12,
   },
-  handle: {
-    width: 40,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: "rgba(0, 0, 0, 0.15)",
-    alignSelf: "center",
-    marginTop: 12,
-    marginBottom: 16,
+  sheetInner: {
+    flex: 1,
+    backgroundColor: "#FFFFFF",
+    borderRadius: CORNER_RADIUS,
+    overflow: "hidden",
   },
-  header: {
+  dragRegion: {
+    paddingHorizontal: 20,
+  },
+  handle: {
+    width: 36,
+    height: 5,
+    borderRadius: 2.5,
+    backgroundColor: "#D1D5DB",
+    alignSelf: "center",
+    marginTop: 8,
+    marginBottom: 8,
+  },
+  statusPill: {
+    paddingHorizontal: 12,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.full,
+  },
+
+  // Content stack + layers
+  contentStack: {
+    flex: 1,
+    position: "relative",
+  },
+  contentLayer: {
+    ...StyleSheet.absoluteFillObject,
+  },
+
+  // Shared header
+  headerRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: Spacing.lg,
+    paddingHorizontal: 20,
+    paddingTop: 8,
+    paddingBottom: 8,
   },
-  content: {
-    paddingTop: Spacing.sm,
-  },
-  statusBadge: {
-    alignSelf: "flex-start",
-    paddingHorizontal: 14,
-    paddingVertical: 6,
-    borderRadius: BorderRadius.full,
-    marginBottom: Spacing.xl,
-  },
-  section: {
-    marginBottom: Spacing.xl,
-  },
-  sectionHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.sm,
-    marginBottom: Spacing.md,
-  },
-  serviceRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.md,
-    paddingVertical: 8,
-  },
-  serviceDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: BrandColors.secondary,
-  },
-  card: {
-    backgroundColor: "#F9FAFB",
-    borderRadius: BorderRadius.xl,
-    padding: Spacing.lg,
-    marginBottom: Spacing.md,
-  },
-  cardRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.md,
-  },
-  cardContent: {
+
+  // Mid content
+  midContainer: {
     flex: 1,
-    gap: 2,
+    paddingHorizontal: 20,
+    paddingBottom:85,
+    justifyContent: "space-between",
   },
-  vehicleImageContainer: {
-    width: 56,
-    height: 56,
-    borderRadius: BorderRadius.lg,
-    backgroundColor: "#FFFFFF",
-    alignItems: "center",
-    justifyContent: "center",
+  midBottomBlock: {
+    gap: 0,
+  },
+  midStatusBlock: {
+    marginTop: 5,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 12,
+  },
+  midStatusLeft: {
+    flex: 1,
+    gap: 4,
+  },
+
+  // Mechanic card (frosted)
+  mechanicCard: {
+    marginTop: 8,
+    borderRadius: 16,
     overflow: "hidden",
+    borderWidth: 1,
+    borderColor: "rgba(0,0,0,0.06)",
   },
-  vehicleImage: {
-    width: 56,
-    height: 56,
+  mechanicCardInner: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    gap: 14,
   },
-  mechanicAvatarContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+  mechanicAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
     backgroundColor: "#E5E7EB",
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
   },
-  mechanicAvatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+  mechanicAvatarImage: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
   },
-  detailsGrid: {
-    flexDirection: "row",
-    gap: Spacing.md,
-    marginBottom: Spacing.xl,
-  },
-  detailItem: {
+  mechanicBody: {
     flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.md,
-    backgroundColor: "#F9FAFB",
-    borderRadius: BorderRadius.xl,
-    padding: Spacing.lg,
+    gap: 2,
   },
-  detailIconContainer: {
+  mechanicActions: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  iconCircle: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: "#EFF6FF",
+    backgroundColor: "#F2F2F7",
     alignItems: "center",
     justifyContent: "center",
   },
-  costCard: {
+
+  // Details card (between mechanic card and primary button)
+  detailsCard: {
+    marginTop: 5,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "rgba(0,0,0,0.06)",
     backgroundColor: "#F9FAFB",
-    borderRadius: BorderRadius.xl,
-    padding: Spacing.lg,
+    paddingVertical: 8,
+  },
+  detailsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    gap: 14,
+  },
+  detailsIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "rgba(82,153,254,0.12)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  detailsText: {
+    flex: 1,
+    gap: 2,
+  },
+  detailsDivider: {
+    height: 1,
+    backgroundColor: "rgba(0,0,0,0.06)",
+    marginHorizontal: 16,
+  },
+
+  // Primary button + hint
+  primaryButton: {
+    marginTop: 24,
+    height: 52,
+    borderRadius: 14,
+    backgroundColor: "#5299FE",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  midHint: {
+    marginTop: 12,
+  },
+
+  // Full content
+  fullContainer: {
+    flex: 1,
+  },
+  fullScroll: {
+    paddingHorizontal: 20,
+    paddingTop: 4,
+  },
+  section: {
+    marginTop: 24,
+  },
+  sectionHeaderText: {
+    marginBottom: 8,
+    letterSpacing: 0.5,
+  },
+  serviceDescription: {
+    marginTop: 6,
+    lineHeight: 20,
+  },
+  serviceDuration: {
+    marginTop: 6,
+  },
+  extraServices: {
+    marginTop: 8,
+    gap: 4,
+  },
+
+  // Timeline
+  timeline: {
+    gap: 0,
+  },
+  timelineRow: {
+    flexDirection: "row",
+    minHeight: 46,
+  },
+  timelineDotColumn: {
+    width: 20,
+    alignItems: "center",
+    paddingTop: 4,
+  },
+  timelineDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    backgroundColor: "#E5E5EA",
+    borderWidth: 2,
+    borderColor: "#E5E5EA",
+  },
+  timelineDotCompleted: {
+    backgroundColor: "#5299FE",
+    borderColor: "#5299FE",
+  },
+  timelineDotCurrent: {
+    backgroundColor: "#5299FE",
+    borderColor: "rgba(82,153,254,0.3)",
+    borderWidth: 4,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+  },
+  timelinePulse: {
+    position: "absolute",
+    top: -6,
+    left: -6,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: "rgba(82,153,254,0.3)",
+  },
+  timelineLine: {
+    width: 2,
+    flex: 1,
+    backgroundColor: "#E5E5EA",
+    marginVertical: 2,
+  },
+  timelineLineCompleted: {
+    backgroundColor: "#5299FE",
+  },
+  timelineBody: {
+    flex: 1,
+    paddingLeft: 12,
+    paddingBottom: 14,
+    gap: 2,
+  },
+
+  // Vehicle section
+  vehicleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  vehicleThumb: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "#F2F2F7",
+    alignItems: "center",
+    justifyContent: "center",
+    overflow: "hidden",
+  },
+  vehicleThumbImage: {
+    width: 48,
+    height: 48,
+  },
+  vehicleInfo: {
+    flex: 1,
+    gap: 2,
+  },
+
+  // Shop section
+  shopLine: {
+    marginTop: 4,
+  },
+
+  // Payment
+  paymentRow: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+  },
+  paymentPending: {
+    fontStyle: "italic",
+  },
+
+  // Secondary actions
+  secondaryActions: {
+    marginTop: 32,
+    gap: 12,
+  },
+  outlineButton: {
+    height: 52,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: "#E5E5EA",
+    backgroundColor: "transparent",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  rescheduleButton: {
+    height: 52,
+    borderRadius: 14,
+    backgroundColor: "#5299FE",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+
+  // Cancel
+  cancelWrapper: {
+    marginTop: 24,
+  },
+  cancelButton: {
+    height: 52,
+    backgroundColor: "transparent",
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

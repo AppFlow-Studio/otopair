@@ -192,6 +192,10 @@ interface BookingState {
   setBookingsFromConvex: (bookings: Booking[]) => void;
   /** Cancel a local booking by ID (sets status to "cancelled") */
   cancelBooking: (id: string) => void;
+  /** Reschedule a local booking's date/time. `date` = YYYY-MM-DD, `time` = "9:00 AM" */
+  rescheduleBooking: (id: string, date: string, time: string) => void;
+  /** Flip a booking between "in_progress" (Live Tracker) and "confirmed" (Upcoming). */
+  toggleLiveTracker: (id: string) => void;
   /** Get a booking by ID */
   getBookingById: (id: string) => Booking | null;
   /** Get all upcoming bookings (pending or confirmed, future dates) */
@@ -435,9 +439,23 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
     }),
 
   setBookingsFromConvex: (bookings) =>
-    set(() => {
+    set((state) => {
+      // Preserve local-only bookings (created outside Convex — e.g. the
+      // tire-flow synthetic booking) so Convex re-syncs don't wipe them.
+      const incomingIds = new Set(bookings.map((b) => b.id));
       const byId: Record<string, Booking> = {};
       const ids: string[] = [];
+      // Local-only entries first (stable order).
+      state.bookingIds.forEach((id) => {
+        if (!incomingIds.has(id)) {
+          const existing = state.bookings[id];
+          if (existing) {
+            byId[id] = existing;
+            ids.push(id);
+          }
+        }
+      });
+      // Then the Convex payload overwrites/adds.
       bookings.forEach((b) => {
         byId[b.id] = b;
         ids.push(b.id);
@@ -630,6 +648,57 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
           [id]: { ...booking, status: "cancelled" as const, updatedAt: new Date().toISOString() },
         },
       };
+    });
+  },
+
+  rescheduleBooking: (id, date, time) => {
+    // TODO(convex): add a rescheduleBooking Convex mutation and call it here so
+    // Convex-sourced bookings in the list also reflect the new date/time.
+    set((state) => {
+      const booking = state.bookings[id];
+      if (!booking) return state;
+      return {
+        bookings: {
+          ...state.bookings,
+          [id]: {
+            ...booking,
+            scheduledDate: date,
+            scheduledTime: time,
+            updatedAt: new Date().toISOString(),
+          },
+        },
+      };
+    });
+  },
+
+  toggleLiveTracker: (id) => {
+    // TODO(convex): mirror this flip with a Convex mutation so Convex bookings
+    // can also be promoted/demoted from the Live Tracker tab.
+    set((state) => {
+      const target = state.bookings[id];
+      if (!target) return state;
+      const now = new Date().toISOString();
+
+      // Flip OFF: currently live → back to confirmed.
+      if (target.status === "in_progress") {
+        return {
+          bookings: {
+            ...state.bookings,
+            [id]: { ...target, status: "confirmed" as const, updatedAt: now },
+          },
+        };
+      }
+
+      // Flip ON: demote any other local booking that's currently live, then promote this one.
+      const next = { ...state.bookings };
+      for (const otherId of state.bookingIds) {
+        const other = next[otherId];
+        if (other && otherId !== id && other.status === "in_progress") {
+          next[otherId] = { ...other, status: "confirmed" as const, updatedAt: now };
+        }
+      }
+      next[id] = { ...target, status: "in_progress" as const, updatedAt: now };
+      return { bookings: next };
     });
   },
 

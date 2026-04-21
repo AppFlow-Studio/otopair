@@ -51,6 +51,36 @@ function extractImageUri(source: unknown): string | undefined {
 }
 
 /** Adapt a local Zustand booking into the BookingCard format */
+function adaptLocalBookingToLiveTracking(
+  booking: StoreBooking,
+  getServiceName: (id: string) => string,
+  getMechanicName: (id: string) => string | undefined,
+  getShopName: (id: string) => string | undefined,
+  vehicle: { year: number; make: string; model: string; imageSource?: unknown } | undefined,
+): LiveTracking {
+  const carYear = vehicle ? String(vehicle.year) : "";
+  const carModel = vehicle ? `${vehicle.make} ${vehicle.model}` : "Vehicle";
+  const makeLogoUrl = vehicle ? extractImageUri(vehicle.imageSource) : undefined;
+  const primaryService = booking.serviceIds[0] ? getServiceName(booking.serviceIds[0]) : "Service";
+  return {
+    id: booking.id,
+    carModel,
+    carYear,
+    licensePlate: "",
+    makeLogoUrl: makeLogoUrl ?? "",
+    mechanicName: getMechanicName(booking.shopId) ?? "Assigned Mechanic",
+    shopName: getShopName(booking.shopId) ?? "Auto Shop",
+    currentStage: "Service in Progress",
+    progressPercent: 45,
+    stages: [
+      { id: "1", title: "Booking Confirmed", description: "Your appointment is set.", status: "completed" },
+      { id: "2", title: "Service in Progress", description: primaryService, status: "current" },
+      { id: "3", title: "Your vehicle is ready", description: "You will be notified when ready.", status: "pending" },
+      { id: "4", title: "Service Completed", description: "Your service is completed", status: "pending" },
+    ],
+  };
+}
+
 function adaptLocalBookingToCard(
   booking: StoreBooking,
   getServiceName: (id: string) => string,
@@ -105,8 +135,10 @@ export function useMyBookingsWithDetails() {
     const upcomingRows = list.filter(isUpcoming);
     const historyRows = list.filter(isHistory);
 
-    const liveTracking: LiveTracking | null =
+    let liveTracking: LiveTracking | null =
       liveRows.length > 0 ? adaptConvexBookingWithDetailsToLiveTracking(liveRows[0]) : null;
+    let liveBooking: BookingCardBooking | null =
+      liveRows.length > 0 ? adaptConvexBookingWithDetailsToCard(liveRows[0]) : null;
 
     const upcomingBookings: BookingCardBooking[] = upcomingRows
       .sort((a, b) => new Date(a.scheduled_date).getTime() - new Date(b.scheduled_date).getTime())
@@ -141,8 +173,36 @@ export function useMyBookingsWithDetails() {
       if (!booking || convexBookingIds.has(id)) continue;
 
       const vehicle = getVehicleById(booking.vehicleId) ?? getSelectedVehicle();
+
+      // Local in_progress booking → surface it as the active Live Tracker
+      // (only if there isn't already a Convex-sourced one).
+      if (booking.status === "in_progress") {
+        if (!liveTracking) {
+          liveTracking = adaptLocalBookingToLiveTracking(
+            booking,
+            getServiceName,
+            getMechanicName,
+            getShopName,
+            vehicle,
+          );
+        }
+        if (!liveBooking) {
+          liveBooking = adaptLocalBookingToCard(
+            booking,
+            getServiceName,
+            getMechanicName,
+            getShopName,
+            vehicle,
+          );
+        }
+        continue;
+      }
+
       const card = adaptLocalBookingToCard(booking, getServiceName, getMechanicName, getShopName, vehicle);
-      const isUpcomingStatus = booking.status === "pending" || booking.status === "confirmed";
+      const isUpcomingStatus =
+        booking.status === "pending" ||
+        booking.status === "pending_quote" ||
+        booking.status === "confirmed";
       const isHistoryStatus = booking.status === "completed" || booking.status === "cancelled";
 
       if (isUpcomingStatus && booking.scheduledDate >= today) {
@@ -158,6 +218,7 @@ export function useMyBookingsWithDetails() {
 
     return {
       liveTracking,
+      liveBooking,
       upcomingBookings,
       historyBookings,
       isLoading: rows === undefined,
