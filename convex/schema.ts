@@ -24,6 +24,16 @@
 
 import { defineSchema, defineTable } from "convex/server";
 import { v } from "convex/values";
+import {
+  postjobReportValidator,
+  prejobReportValidator,
+  vehiclePassportBrakesValidator,
+  vehiclePassportFluidsValidator,
+  vehiclePassportInspectionValidator,
+  vehiclePassportModificationsValidator,
+  vehiclePassportTiresValidator,
+  vehicleUpdateValuesValidator,
+} from "./lib/vehicle_passports";
 
 export default defineSchema({
 
@@ -626,6 +636,24 @@ export default defineSchema({
     .index("by_user_status", ["user_id", "status"])
     .index("by_smartcar_vehicle_id", ["smartcarVehicleId"]),
 
+  vehicle_passports: defineTable({
+    vin: v.string(),
+    mileage: v.optional(v.number()),
+    last_reported_at: v.optional(v.number()),
+    mileage_velocity: v.optional(v.number()),
+    tires: v.optional(vehiclePassportTiresValidator),
+    fluids: v.optional(vehiclePassportFluidsValidator),
+    brakes: v.optional(vehiclePassportBrakesValidator),
+    inspection: v.optional(vehiclePassportInspectionValidator),
+    modifications: v.optional(vehiclePassportModificationsValidator),
+    created_at: v.optional(v.number()),
+    updated_at: v.optional(v.number()),
+    first_shop_confirmed_at: v.optional(v.number()),
+    last_shop_confirmed_at: v.optional(v.number()),
+  })
+    .index("by_vin", ["vin"])
+    .index("by_updated_at", ["updated_at"]),
+
   // [I]
   odometer_history: defineTable({
     vehicleOwnerId: v.id("vehicle_owners"),
@@ -918,12 +946,17 @@ export default defineSchema({
     description: v.optional(v.string()),
     logo: v.optional(v.string()),
     stripe_connect_account_id: v.optional(v.string()),
+    stripe_charges_enabled: v.optional(v.boolean()),
+    stripe_payouts_enabled: v.optional(v.boolean()),
+    stripe_requirements_currently_due: v.optional(v.array(v.string())),
+    stripe_onboarding_completed_at: v.optional(v.number()),
     onboarding_complete: v.optional(v.boolean()),
     email: v.optional(v.string()),
     website: v.optional(v.string()),
   })
     .index("by_slug", ["slug"])
-    .index("by_owner_user_id", ["owner_user_id"]),
+    .index("by_owner_user_id", ["owner_user_id"])
+    .index("by_stripe_connect_account_id", ["stripe_connect_account_id"]),
 
   // [I]
   shops_hours: defineTable({
@@ -1112,6 +1145,18 @@ export default defineSchema({
     .index("by_payment_id", ["payment_id"])
     .index("by_changed_at", ["changed_at"]),
 
+  stripe_webhook_events: defineTable({
+    event_id: v.string(),
+    event_type: v.string(),
+    livemode: v.optional(v.boolean()),
+    stripe_account_id: v.optional(v.string()),
+    received_at: v.number(),
+    processed_at: v.optional(v.number()),
+  })
+    .index("by_event_id", ["event_id"])
+    .index("by_event_type", ["event_type"])
+    .index("by_received_at", ["received_at"]),
+
   // [I]
   transactions: defineTable({
     user_id: v.id("users"),
@@ -1248,6 +1293,15 @@ export default defineSchema({
     technician_notes: v.optional(v.string()),
     finalized_at_ms: v.optional(v.number()),
     finalized_by_user_id: v.optional(v.id("users")),
+    prejob_report: v.optional(prejobReportValidator),
+    completion_mileage: v.optional(v.number()),
+    vehicle_updates: v.optional(vehicleUpdateValuesValidator),
+    parts_accuracy_status: v.optional(v.string()),
+    parts_accuracy_feedback: v.optional(v.string()),
+    additional_observations: v.optional(v.string()),
+    flagged_vehicle_specs: v.optional(v.boolean()),
+    flagged_vehicle_specs_reason: v.optional(v.string()),
+    postjob_report: v.optional(postjobReportValidator),
   })
     .index("by_booking_id", ["booking_id"])
     .index("by_mechanic_id", ["mechanic_id"])
