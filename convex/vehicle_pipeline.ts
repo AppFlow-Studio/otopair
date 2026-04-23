@@ -1020,6 +1020,15 @@ export const confirmVehicleForUser = action({
       });
     }
 
+    // Schedule tire price scraping in parallel with enrichment
+    await ctx.scheduler.runAfter(0, api.tires.scrapeVehicleTires, {
+      year: args.year,
+      make: args.make,
+      model: args.model,
+      trim: args.trim,
+      displacementL: args.displacement ? parseFloat(args.displacement) : undefined,
+    });
+
     return { success: true as const, vehicleOwnerId };
   },
 });

@@ -16,6 +16,7 @@ import { v } from "convex/values";
 import { action, internalMutation } from "../_generated/server";
 import { internal, api } from "../_generated/api";
 import { scrapeWheelSizeOptions } from "./utils/wheelSizeScraper";
+import { buildEngineKey } from "./types";
 
 const TEST_CLERK_ID = "user_39FwQkrjpFYGOQ0gkPIk1DEf0FW";
 const POLL_MS = 30_000;
@@ -239,6 +240,36 @@ export const refreshTireOptions = action({
 });
 
 /** Insert a minimal user row for the test Clerk ID. */
+/** Purge all enrichment data for a VIN and re-run from scratch. */
+export const purgeAndRerun = action({
+  args: { vin: v.string() },
+  handler: async (ctx, args) => {
+    const vin = args.vin.toUpperCase().trim();
+    const decoded = await ctx.runAction(internal.vehicle_pipeline.processVin, { vin });
+    if (!decoded) return { status: "error", reason: "decode_failed" };
+
+    const configKey = buildEngineKey({
+      vehicleId: "" as any,
+      year: decoded.year,
+      make: decoded.make,
+      model: decoded.model,
+      trim: decoded.trim,
+      engineCode: decoded.engineCode,
+      displacement: decoded.displacement ?? "",
+    });
+
+    const config = await ctx.runQuery(internal.vehicleEnrichment.v3queries.getVehicleConfigByKey, { configKey });
+    if (!config) return { status: "error", reason: "no_config_found", configKey };
+
+    await ctx.runMutation(api.vehicleEnrichment.v3mutations.purgeVehicleConfig, {
+      vehicleConfigId: config._id,
+    });
+    console.log(`[purge] Wiped config for ${configKey}, re-running...`);
+
+    return await ctx.runAction(api.vehicleEnrichment.runPublic.go, { vin });
+  },
+});
+
 export const _createTestUser = internalMutation({
   args: {},
   handler: async (ctx) => {

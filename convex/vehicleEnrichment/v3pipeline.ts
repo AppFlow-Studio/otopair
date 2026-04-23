@@ -650,6 +650,41 @@ async function writeNormalizedData(
     ps_fluid_type: psType && psType !== "electric" ? psType : undefined,
   });
 
+  // E2. chassis_specs — dual-write platform-level fields.
+  // Reads chassis_code from vehicle_config (set in Step 6c). No-op if not yet set.
+  // Keeps trim_specs writes above for backward compat during migration.
+  try {
+    const chassisCfg = await ctx.runQuery(
+      internal.vehicleEnrichment.v3queries.getVehicleConfigById,
+      { vehicleConfigId },
+    );
+    if (chassisCfg?.chassis_code) {
+      const frontWiper = parseFloat(asString(fields.front_wiper_size?.value) ?? "") || undefined;
+      const rearWiper  = parseFloat(asString(fields.rear_wiper_size?.value)  ?? "") || undefined;
+      const steeringType = psType === "electric" ? "electric"
+        : psType ? "hydraulic"
+        : undefined;
+      const parkingBrake = asString(fields.parking_brake_type?.value) ?? undefined;
+
+      await ctx.runMutation(internal.vehicleEnrichment.v3mutations.upsertChassisSpecs, {
+        chassis_code: chassisCfg.chassis_code,
+        ...(asNumber(fields.lug_nut_torque_ft_lbs?.value) !== undefined ? { lug_nut_torque_ft_lbs: asNumber(fields.lug_nut_torque_ft_lbs?.value) } : {}),
+        ...(frontWiper ? { wiper_blade_driver_size_in: frontWiper } : {}),
+        ...(rearWiper  ? { wiper_blade_rear_size_in: rearWiper } : {}),
+        ...(asString(fields.battery_group?.value)    ? { battery_group: asString(fields.battery_group?.value)! } : {}),
+        ...(asString(fields.battery_type?.value)     ? { battery_type: asString(fields.battery_type?.value)! } : {}),
+        ...(asString(fields.battery_location?.value) ? { battery_location: asString(fields.battery_location?.value)! } : {}),
+        ...(asString(fields.brake_fluid_type?.value) ? { brake_fluid_type: asString(fields.brake_fluid_type?.value)! } : {}),
+        ...(psType && psType !== "electric" ? { ps_fluid_type: psType } : {}),
+        ...(steeringType ? { steering_type: steeringType } : {}),
+        ...(parkingBrake ? { parking_brake_type: parkingBrake } : {}),
+      });
+      console.log(`[v8] chassis_specs written for ${chassisCfg.chassis_code}`);
+    }
+  } catch (e) {
+    console.warn("[v8] chassis_specs write failed (non-fatal):", e);
+  }
+
   // F. OEM parts + fitments
   for (const [fieldKey, meta] of Object.entries(PART_FIELD_MAP)) {
     const rawVal = fields[fieldKey]?.value;
@@ -1105,6 +1140,17 @@ export const enrichVehicleBatchV3 = internalAction({
           chassis_code: chassisResult.chassisCode,
         });
 
+        // Ensure a chassis_specs record exists for this chassis code.
+        // Seed steering_type from VDB advanced decode if available — AI enrichment
+        // will fill remaining structural fields (parking_brake_type, has_rear_wiper, etc.).
+        await ctx.runMutation(internal.vehicleEnrichment.v3mutations.upsertChassisSpecs, {
+          chassis_code: chassisResult.chassisCode,
+          make_id: makeDoc._id,
+          ...(vdbFields?.steeringType ? { steering_type: vdbFields.steeringType } : {}),
+        });
+        console.log(`[v8] chassis_specs ensured for ${chassisResult.chassisCode}` +
+          (vdbFields?.steeringType ? ` (steering=${vdbFields.steeringType} from VDB)` : ""));
+
         // Find the best sibling config with the same chassis code (any status, highest fill_rate)
         const chassisMatch = await ctx.runQuery(
           internal.vehicleEnrichment.v3queries.findBestChassisMatch,
@@ -1260,6 +1306,21 @@ export const enrichVehicleBatchV3 = internalAction({
       },
     );
 
+    // Schedule tire price scraping in parallel — non-fatal if it fails
+    if (sources.wheelSizeResult?.tireOptions?.length) {
+      try {
+        await ctx.scheduler.runAfter(0, api.tires.scrapeVehicleTires, {
+          year: args.year,
+          make: args.make,
+          model: args.model,
+          trim: args.trim,
+        });
+        console.log(`[v8] Tire scraping scheduled for ${args.year} ${args.make} ${args.model} ${args.trim}`);
+      } catch (e) {
+        console.warn("[v8] Tire scraping schedule failed (non-fatal):", e);
+      }
+    }
+
     return { status: "batch_submitted" as const, configKey, batchId };
   },
 });
@@ -1292,6 +1353,8 @@ export const _pollBatch1V3 = internalAction({
       pressure_rear_psi: v.optional(v.number()),
       load_index: v.optional(v.number()),
       speed_rating: v.optional(v.string()),
+      load_index_rear: v.optional(v.number()),
+      speed_rating_rear: v.optional(v.string()),
       is_run_flat: v.optional(v.boolean()),
       is_oem_standard: v.optional(v.boolean()),
       wheel_spec: v.optional(v.string()),
@@ -1739,6 +1802,7 @@ export const _pollBatch2V3 = internalAction({
         { vehicleConfigId: args.vehicleConfigId },
       );
       if (freshConfig?.chassis_code) {
+        // Push enriched data to sibling vehicle_configs on the same chassis
         const siblings = await ctx.runQuery(
           internal.vehicleEnrichment.v3queries.findChassisGroupSiblings,
           {
@@ -1758,10 +1822,19 @@ export const _pollBatch2V3 = internalAction({
             `[v8] Chassis backfill: pushed ${backfillResult.totalBackfilled} records to ${siblings.length} sibling(s) (${freshConfig.chassis_code})`
           );
         }
+
+        // Also push platform-level specs to chassis_specs (shared across all vehicles on this platform)
+        await ctx.runMutation(internal.vehicleEnrichment.v3mutations.upsertChassisSpecs, {
+          chassis_code: freshConfig.chassis_code,
+          ...(freshConfig.ps_fluid_type ? { ps_fluid_type: freshConfig.ps_fluid_type } : {}),
+          ...(freshConfig.brake_fluid_type ? { brake_fluid_type: freshConfig.brake_fluid_type } : {}),
+        });
+        console.log(`[v8] chassis_specs updated for ${freshConfig.chassis_code}`);
       }
     } catch (e) {
       console.warn("[v8] Chassis backfill failed (non-fatal):", e);
     }
+
 
     // Post-enrichment: engine sibling backfill — push newly discovered engine-bound data
     // to all other vehicle_configs sharing the same engine_id.
@@ -1786,6 +1859,30 @@ export const _pollBatch2V3 = internalAction({
       }
     } catch (e) {
       console.warn("[v8] Engine sibling backfill failed (non-fatal):", e);
+    }
+
+    // Post-enrichment: push AI-discovered structural attributes to chassis_specs.
+    // Reads from the enriched vehicle_config and drivetrain_config to update the
+    // shared chassis_specs record that all vehicles on this platform will inherit.
+    try {
+      const freshConfig = await ctx.runQuery(
+        internal.vehicleEnrichment.v3queries.getVehicleConfig,
+        { vehicleConfigId: args.vehicleConfigId },
+      );
+      if (freshConfig?.chassis_code) {
+        const drivetrainCfg = await ctx.runQuery(
+          internal.vehicleEnrichment.v3queries.getDrivetrainConfig,
+          { vehicleConfigId: args.vehicleConfigId },
+        );
+        await ctx.runMutation(internal.vehicleEnrichment.v3mutations.upsertChassisSpecs, {
+          chassis_code: freshConfig.chassis_code,
+          ...(freshConfig.ps_fluid_type ? { ps_fluid_type: freshConfig.ps_fluid_type } : {}),
+          ...(freshConfig.brake_fluid_type ? { brake_fluid_type: freshConfig.brake_fluid_type } : {}),
+        });
+        console.log(`[v8] chassis_specs backfilled for ${freshConfig.chassis_code}`);
+      }
+    } catch (e) {
+      console.warn("[v8] chassis_specs backfill failed (non-fatal):", e);
     }
 
     // Post-enrichment: ensure all 23 services have at least a default interval (Task 21).

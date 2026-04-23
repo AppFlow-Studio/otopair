@@ -152,6 +152,69 @@ export const upsertDrivetrainConfig = internalMutation({
 });
 
 // ============================================================================
+// 3a. upsertChassisSpecs
+// ============================================================================
+// Single source of truth for platform-stamped specs + structural attributes.
+// Only overwrites existing fields if the incoming value is non-null (merge semantics).
+
+export const upsertChassisSpecs = internalMutation({
+  args: {
+    chassis_code: v.string(),
+    make_id: v.optional(v.id("makes")),
+    // Physical specs
+    brake_fluid_type: v.optional(v.string()),
+    ps_fluid_type: v.optional(v.string()),
+    lug_nut_torque_ft_lbs: v.optional(v.float64()),
+    wiper_blade_driver_size_in: v.optional(v.float64()),
+    wiper_blade_passenger_size_in: v.optional(v.float64()),
+    wiper_blade_rear_size_in: v.optional(v.float64()),
+    battery_group: v.optional(v.string()),
+    battery_location: v.optional(v.string()),
+    battery_type: v.optional(v.string()),
+    has_brake_pad_sensor: v.optional(v.boolean()),
+    // Structural attributes
+    steering_type: v.optional(v.string()),
+    parking_brake_type: v.optional(v.string()),
+    has_rear_wiper: v.optional(v.boolean()),
+    cabin_filter_access: v.optional(v.string()),
+    confidence_score: v.optional(v.float64()),
+    source_url: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("chassis_specs")
+      .withIndex("by_chassis_code", (q) => q.eq("chassis_code", args.chassis_code))
+      .first();
+
+    // Merge: only write fields that are provided (non-undefined).
+    // Existing values are kept unless the new value is explicitly provided.
+    const patch: Record<string, any> = { last_enriched_at: Date.now() };
+    const fields = [
+      "make_id", "brake_fluid_type", "ps_fluid_type", "lug_nut_torque_ft_lbs",
+      "wiper_blade_driver_size_in", "wiper_blade_passenger_size_in", "wiper_blade_rear_size_in",
+      "battery_group", "battery_location", "battery_type", "has_brake_pad_sensor",
+      "steering_type", "parking_brake_type", "has_rear_wiper", "cabin_filter_access",
+      "confidence_score", "source_url",
+    ] as const;
+    for (const f of fields) {
+      if (args[f] !== undefined) patch[f] = args[f];
+    }
+
+    if (existing) {
+      await ctx.db.patch(existing._id, patch);
+      return existing._id;
+    }
+
+    return await ctx.db.insert("chassis_specs", {
+      chassis_code: args.chassis_code,
+      ...patch,
+      data_quality: "ai_enrichment",
+      created_at: Date.now(),
+    });
+  },
+});
+
+// ============================================================================
 // 3. upsertTrimSpecs
 // ============================================================================
 
@@ -186,6 +249,8 @@ export const upsertTrimSpecs = internalMutation({
       pressure_rear_psi: v.optional(v.number()),
       load_index: v.optional(v.number()),
       speed_rating: v.optional(v.string()),
+      load_index_rear: v.optional(v.number()),
+      speed_rating_rear: v.optional(v.string()),
       is_run_flat: v.optional(v.boolean()),
       is_oem_standard: v.optional(v.boolean()),
       wheel_spec: v.optional(v.string()),

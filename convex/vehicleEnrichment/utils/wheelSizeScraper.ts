@@ -41,6 +41,8 @@ export interface TireOption {
   wheel_spec?: string;          // "8Jx19 ET30"
   load_index?: number;
   speed_rating?: string;        // "Y"
+  load_index_rear?: number;
+  speed_rating_rear?: string;   // "Y" — only when staggered
   pressure_front_psi?: number;
   pressure_rear_psi?: number;
   is_oem_standard: boolean;
@@ -161,11 +163,13 @@ function buildTireOptions(wheels: ApiWheel[]): TireOption[] {
         option.rim_diameter_in_rear = rc.rim_diameter_in;
       }
     }
-    if (wheel.front?.rim)                        option.wheel_spec         = wheel.front.rim;
-    if (wheel.front?.load_index)                 option.load_index         = wheel.front.load_index;
-    if (wheel.front?.speed_index)                option.speed_rating       = wheel.front.speed_index;
-    if (wheel.front?.tire_pressure?.psi)         option.pressure_front_psi = wheel.front.tire_pressure.psi;
-    if (wheel.rear?.tire_pressure?.psi)          option.pressure_rear_psi  = wheel.rear.tire_pressure.psi;
+    if (wheel.front?.rim)                        option.wheel_spec          = wheel.front.rim;
+    if (wheel.front?.load_index)                 option.load_index          = wheel.front.load_index;
+    if (wheel.front?.speed_index)                option.speed_rating        = wheel.front.speed_index;
+    if (wheel.front?.tire_pressure?.psi)         option.pressure_front_psi  = wheel.front.tire_pressure.psi;
+    if (rearSize && wheel.rear?.load_index)      option.load_index_rear     = wheel.rear.load_index;
+    if (rearSize && wheel.rear?.speed_index)     option.speed_rating_rear   = wheel.rear.speed_index;
+    if (wheel.rear?.tire_pressure?.psi)          option.pressure_rear_psi   = wheel.rear.tire_pressure.psi;
 
     options.push(option);
   }

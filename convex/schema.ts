@@ -52,7 +52,10 @@ export default defineSchema({
     created_at: v.optional(v.number()),
   }).index("by_make_id", ["make_id"]),
 
-  // [U-W] Vehicle model generations
+  // @deprecated — retired in favour of chassis_specs.
+  // steering_type, parking_brake_type, has_rear_wiper, cabin_filter_access
+  // have all moved to chassis_specs. Table kept in schema until all existing
+  // records are cleared and generation_id FKs are removed from vehicle_configs.
   generations: defineTable({
     model_id: v.id("models"),
     name: v.string(),
@@ -145,11 +148,14 @@ export default defineSchema({
     .index("by_trim", ["trim_id"])
     .index("by_trim_drivetrain", ["trim_id", "drivetrain_type"]),
 
-  // Platform-stamped specs shared across all trims on the same chassis
-  // (brake lines, steering rack, wheel hardpoints, wiper mounts, battery tray)
+  // Platform-stamped specs shared across all trims on the same chassis.
+  // Single source of truth for everything that is identical across every vehicle
+  // on this platform — physical specs AND structural attributes.
+  // (Replaces the unused `generations` table which has been retired.)
   chassis_specs: defineTable({
     chassis_code: v.string(),
     make_id: v.optional(v.id("makes")),
+    // Physical specs
     brake_fluid_type: v.optional(v.string()),
     brake_fluid_capacity_oz: v.optional(v.number()),
     ps_fluid_type: v.optional(v.string()),
@@ -162,6 +168,11 @@ export default defineSchema({
     battery_location: v.optional(v.string()),
     battery_type: v.optional(v.string()),
     has_brake_pad_sensor: v.optional(v.boolean()),
+    // Structural attributes (migrated from deprecated `generations` table)
+    steering_type: v.optional(v.string()),       // "electric" | "hydraulic" | "electro-hydraulic"
+    parking_brake_type: v.optional(v.string()),  // "electronic" | "manual_drum" | "manual_disc"
+    has_rear_wiper: v.optional(v.boolean()),
+    cabin_filter_access: v.optional(v.string()), // e.g. "glove_box" | "dash_pull"
     data_quality: v.optional(v.string()),
     confidence_score: v.optional(v.number()),
     last_enriched_at: v.optional(v.number()),
@@ -253,6 +264,8 @@ export default defineSchema({
           pressure_rear_psi: v.optional(v.number()),
           load_index: v.optional(v.number()),
           speed_rating: v.optional(v.string()),
+          load_index_rear: v.optional(v.number()),
+          speed_rating_rear: v.optional(v.string()),
           is_run_flat: v.optional(v.boolean()),
           is_oem_standard: v.optional(v.boolean()), // true = standard fitment, false = optional
           wheel_spec: v.optional(v.string()), // e.g. "8Jx19 ET30"
@@ -1378,4 +1391,57 @@ export default defineSchema({
     .index("by_level", ["level"])
     .index("by_timestamp", ["timestamp"])
     .index("by_user_id", ["user_id"]),
+
+  // ─── Tire Catalog ─────────────────────────────────────────────────────────
+
+  tire_brands: defineTable({
+    brand: v.string(),
+    tier: v.union(
+      v.literal("elite"),
+      v.literal("select"),
+      v.literal("standard"),
+      v.literal("unlisted"),
+    ),
+    parent_company: v.optional(v.string()),
+    is_sub_brand: v.optional(v.boolean()),
+    // Off-list tracking — auto-flagged when brand hits 3+ appearances across 2+ shops
+    appearance_count: v.optional(v.number()),
+    review_flagged: v.optional(v.boolean()),
+  }).index("by_brand", ["brand"])
+    .index("by_tier", ["tier"]),
+
+  tire_size_cache: defineTable({
+    size: v.string(),         // canonical "245/40R19"
+    scraped_at: v.number(),   // Date.now()
+    total_count: v.number(),  // SimpleTire reported total
+    source_url: v.string(),
+  }).index("by_size", ["size"]),
+
+  tire_models: defineTable({
+    brand: v.string(),
+    model: v.string(),
+    size: v.string(),
+    tier: v.optional(v.union(v.literal("elite"), v.literal("select"), v.literal("standard"), v.literal("unlisted"))),
+    tire_type: v.optional(v.string()),   // "All-Season" | "Summer" | "Winter" | "All-Terrain" | "Performance" | "Touring"
+    load_index: v.optional(v.number()),
+    speed_rating: v.optional(v.string()),
+    part_number: v.optional(v.string()), // manufacturer MPN (from SimpleTire)
+    source_url: v.optional(v.string()),
+  }).index("by_size", ["size"])
+    .index("by_brand", ["brand"])
+    .index("by_tier", ["tier"])
+    .index("by_brand_model_size", ["brand", "model", "size"]),
+
+  tire_pricing: defineTable({
+    tire_model_id: v.id("tire_models"),
+    source: v.string(),            // "simpletire" | "tirerack" | "walmart" | …
+    source_url: v.string(),
+    price_per_tire: v.number(),    // USD, current selling price
+    regular_price: v.optional(v.number()), // pre-sale price (prevPrice from TireRack); use as MSRP proxy
+    has_deal: v.boolean(),         // true = price < regular_price (on sale)
+    in_stock: v.optional(v.boolean()),
+    scraped_at: v.number(),        // Date.now()
+  }).index("by_tire_model", ["tire_model_id"])
+    .index("by_source", ["source"])
+    .index("by_tire_model_source", ["tire_model_id", "source"]),
 });
