@@ -305,7 +305,7 @@ export const getByUserIdWithDetails = query({
             const lateMs = Date.now() - scheduledStartMs;
             if (lateMs > 0) delayMinutes = Math.round(lateMs / 60000);
           } else {
-            progressPercent = (liveStage && LIVE_STAGE_PROGRESS[liveStage]) ?? 25;
+            progressPercent = liveStage ? (LIVE_STAGE_PROGRESS[liveStage] ?? 25) : 25;
           }
         }
 
@@ -371,7 +371,7 @@ export const getRecentlyBookedShopIdsByUserId = query({
     const shopIds: string[] = [];
     for (const b of bookings) {
       const id = b.shop_id;
-      if (!seen.has(id)) {
+      if (id && !seen.has(id)) {
         seen.add(id);
         shopIds.push(id);
         if (shopIds.length >= limit) break;
