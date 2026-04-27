@@ -242,7 +242,10 @@ export default function CarsHomeScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ openStepper?: string }>();
   const [refreshing, setRefreshing] = useState(false);
-  const [activeVehicleIndex, setActiveVehicleIndex] = useState(0);
+  // Active vehicle is tracked by VIN so adding/removing a car (which can
+  // re-sort the list via `isDefault` then VIN) doesn't scramble which car is
+  // selected. The numeric `activeVehicleIndex` is derived from the VIN.
+  const [activeVehicleVin, setActiveVehicleVin] = useState<string | null>(null);
   const scrollViewRef = useRef<ScrollView>(null);
   const scrollOffsetRef = useRef(0);
 
@@ -816,12 +819,30 @@ export default function CarsHomeScreen() {
     };
   }, [listVehicles, vehicleImageUrls]);
 
-  // Clamp active index when list changes
+  // Derive the active index from the VIN anchor. If the anchored VIN isn't in
+  // the list (first load, or active vehicle was removed), fall back to 0.
+  const activeVehicleIndex = useMemo(() => {
+    if (vehicles.length === 0) return 0;
+    const idx = vehicles.findIndex((v) => v.vin === activeVehicleVin);
+    return idx >= 0 ? idx : 0;
+  }, [vehicles, activeVehicleVin]);
+
+  // Seed / heal the VIN anchor when vehicles load or the active vehicle disappears.
   useEffect(() => {
-    if (vehicles.length > 0 && activeVehicleIndex >= vehicles.length) {
-      setActiveVehicleIndex(Math.max(0, vehicles.length - 1));
+    if (vehicles.length === 0) return;
+    if (!activeVehicleVin || !vehicles.some((v) => v.vin === activeVehicleVin)) {
+      setActiveVehicleVin(vehicles[0].vin);
     }
-  }, [vehicles.length, activeVehicleIndex]);
+  }, [vehicles, activeVehicleVin]);
+
+  // Callback for CarCarousel — it speaks in indices, we translate back to VIN.
+  const handleActiveIndexChange = useCallback(
+    (idx: number) => {
+      const vin = vehicles[idx]?.vin;
+      if (vin) setActiveVehicleVin(vin);
+    },
+    [vehicles],
+  );
 
   // Memoize current vehicle and its data
   const activeVehicle = useMemo(() => vehicles[activeVehicleIndex], [vehicles, activeVehicleIndex]);
@@ -1220,7 +1241,7 @@ export default function CarsHomeScreen() {
         <View style={styles.topSection}>
           <CarCarousel
             vehicles={vehicles}
-            onActiveIndexChange={setActiveVehicleIndex}
+            onActiveIndexChange={handleActiveIndexChange}
             onEditMileage={(id) => {
               // TODO: Implement mileage edit flow - open modal or inline edit
             }}

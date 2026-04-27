@@ -102,7 +102,7 @@ export function ResumeBookingCard({
           {/* Top Section */}
           <View style={styles.topSection}>
           {/* Left - Icon or Vehicle Image */}
-          <View style={[styles.iconContainer, vehicleImage && styles.vehicleImageContainer]}>
+          <View style={[styles.iconContainer, vehicleImage ? styles.vehicleImageContainer : null]}>
             {vehicleImage ? (
               <Image source={vehicleImage} style={styles.vehicleImage} resizeMode="contain" />
             ) : (

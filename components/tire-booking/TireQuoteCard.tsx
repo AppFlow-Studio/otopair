@@ -1,14 +1,22 @@
 /**
  * TireQuoteCard
  *
- * PURPOSE: Renders a single shop's tire quote. Layout follows spec §7 —
- *          shop name + trust signals, itemized rows (per-tire × qty + labor
- *          = total), and an availability banner at the bottom. Two variants:
- *          `primary` (large + gold "Best Match" accent) and `secondary`
- *          (muted, appears under "Other Options").
+ * PURPOSE: Renders a single shop's tire quote. Layout follows the original
+ *          spec §7 — shop header with trust signals, itemized rows
+ *          (per-tire price × quantity + labor = total), an availability
+ *          line, and a primary Book CTA. Two variants:
+ *
+ *          - `primary`   — large, gold "Best Match" accent
+ *          - `secondary` — muted, appears under "Other Options"
+ *
+ *          The Book button is intentionally a no-op for now — the accept
+ *          flow (promote booking to confirmed + move to Live Tracker) is
+ *          wired in a later pass.
+ *
+ * USED IN: components/bookings/QuoteListSheet.tsx
  */
 
-import { CheckCircle2 } from "lucide-react-native";
+import { CalendarClock, CheckCircle2 } from "lucide-react-native";
 import React from "react";
 import { StyleSheet, TouchableOpacity, View } from "react-native";
 
@@ -24,9 +32,14 @@ interface Props {
 const BEST_MATCH_ACCENT = "#C8972E";
 const BOOK_BLUE = "#5299FE";
 
+function formatMoney(n: number): string {
+  return `$${n.toLocaleString("en-US", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+}
+
 export function TireQuoteCard({ quote, variant, onBook }: Props) {
   const isPrimary = variant === "primary";
-  const total = quote.total;
+  const perTireLabel = `${formatMoney(quote.perTirePrice)} × ${quote.quantity}`;
+  const tiresSubtotal = quote.perTirePrice * quote.quantity;
 
   return (
     <View style={[styles.card, isPrimary ? styles.cardPrimary : styles.cardSecondary]}>
@@ -38,6 +51,7 @@ export function TireQuoteCard({ quote, variant, onBook }: Props) {
         </View>
       ) : null}
 
+      {/* Shop header */}
       <View style={styles.header}>
         <Text size={isPrimary ? "lg" : "md"} weight="bold" color="#1A1A1A" numberOfLines={1}>
           {quote.shopName}
@@ -60,29 +74,33 @@ export function TireQuoteCard({ quote, variant, onBook }: Props) {
         </Text>
       </View>
 
+      {/* Itemized cost breakdown */}
       <View style={styles.itemBlock}>
-        <ItemRow label="Tire (each)" value={`$${quote.perTirePrice.toFixed(2)}`} />
-        <ItemRow label="Quantity" value={`× ${quote.quantity}`} />
-        <ItemRow label="Installation" value={`$${quote.laborCost.toFixed(2)}`} />
+        <ItemRow label={`Tires (${perTireLabel})`} value={formatMoney(tiresSubtotal)} />
+        <ItemRow label="Installation & labor" value={formatMoney(quote.laborCost)} />
+        <View style={styles.itemDivider} />
         <View style={styles.totalRow}>
           <Text size="md" weight="bold" color="#1A1A1A">
             Total
           </Text>
           <Text size="md" weight="bold" color="#1A1A1A">
-            ${total.toFixed(2)}
+            {formatMoney(quote.total)}
           </Text>
         </View>
       </View>
 
-      <View style={styles.availabilityBanner}>
-        <Text size="sm" weight="semiBold" color="#2E7D32">
-          Available: {quote.availability}
+      {/* Availability */}
+      <View style={styles.availabilityRow}>
+        <CalendarClock size={14} color="#6B7280" strokeWidth={2.2} />
+        <Text size="xs" weight="medium" color="#6B7280">
+          Earliest: {quote.availability}
         </Text>
       </View>
 
+      {/* CTA */}
       <TouchableOpacity style={styles.bookButton} onPress={onBook} activeOpacity={0.85}>
         <Text size="md" weight="semiBold" color="#FFFFFF">
-          Get Quote
+          Book
         </Text>
       </TouchableOpacity>
     </View>
@@ -132,6 +150,8 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
     borderRadius: 6,
   },
+
+  // Shop header
   header: {
     marginBottom: 14,
     gap: 4,
@@ -149,6 +169,8 @@ const styles = StyleSheet.create({
   brandLine: {
     marginTop: 6,
   },
+
+  // Itemized block
   itemBlock: {
     borderTopWidth: 1,
     borderTopColor: "#F0F0F0",
@@ -159,21 +181,31 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
   },
+  itemDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: "#E5E7EB",
+    marginVertical: 4,
+  },
   totalRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    marginTop: 6,
-    paddingTop: 10,
-    borderTopWidth: 1,
-    borderTopColor: "#1A1A1A",
+    alignItems: "center",
   },
-  availabilityBanner: {
+
+  // Availability
+  availabilityRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
     marginTop: 14,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    backgroundColor: "#E8F5E9",
-    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 10,
+    backgroundColor: "#F8F9FA",
+    alignSelf: "flex-start",
   },
+
+  // CTA
   bookButton: {
     marginTop: 14,
     height: 48,

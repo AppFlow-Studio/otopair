@@ -1937,6 +1937,7 @@ export const seed = mutation({
       difficulty_rating: 2,
       parts_used: [{ part_name: "Oil Filter", oem_number: "90915-YZZD4", cost: 12 }],
       technician_notes: "Standard oil change completed.",
+      finalized_at_ms: completedHistoryPrimary.createdAt + 30 * 60 * 1000,
     });
 
     // --- Review ---
@@ -2877,6 +2878,7 @@ export const seedAllDataForUser39FwQkrjp = mutation({
         difficulty_rating: 2,
         parts_used: [{ part_name: "Service parts", oem_number: "N/A", cost: parts }],
         technician_notes: "Completed as requested.",
+        finalized_at_ms: completedAt,
       });
 
       await ctx.db.insert("reviews", {
@@ -3098,6 +3100,7 @@ export const seedServicesShopsMilesSafeForUser39FwQkrjp = mutation({
         difficulty_rating: 2,
         parts_used: [{ part_name: "Service parts", oem_number: "N/A", cost: parts }],
         technician_notes: "Completed as requested.",
+        finalized_at_ms: completedAt,
       });
 
       await ctx.db.insert("reviews", {
@@ -3432,6 +3435,7 @@ export const seedPastBookingsForJohnDoe = mutation({
         difficulty_rating: 2,
         parts_used: [{ part_name: "Service parts", oem_number: "N/A", cost: parts }],
         technician_notes: "Completed as requested.",
+        finalized_at_ms: completedAt,
       });
 
       await ctx.db.insert("reviews", {
@@ -3506,7 +3510,7 @@ export const seedLiveBookingForJohnDoe = mutation({
     const parts = 45;
     const totalCost = labor + parts;
     const estimatedMinutes = 45;
-    const startedAtSeconds = Math.floor(now / 1000) - 600;
+    const startedAtMs = now - 10 * 60 * 1000;
 
     const timeSlotId = await ctx.db.insert("time_slots", {
       shop_id: shop._id,
@@ -3550,7 +3554,7 @@ export const seedLiveBookingForJohnDoe = mutation({
       mechanic_id: mechanic._id,
       actual_labor_minutes: estimatedMinutes,
       actual_parts_cost: parts,
-      started_at: startedAtSeconds,
+      started_at: startedAtMs,
       completed_at_ms: undefined,
       logged_at_ms: undefined,
       created_at: now,
@@ -3735,10 +3739,35 @@ function dashboardAddMinutesToTime(hhmm: string, deltaMinutes: number): string {
   return dashboardMinutesToTime(hours * 60 + mins + deltaMinutes);
 }
 
+function dashboardTimeToMinutes(hhmm: string): number {
+  const [hours, mins] = hhmm.split(":").map(Number);
+  return hours * 60 + mins;
+}
+
+function dashboardIsoDateAtOffset(baseIsoDate: string, offsetDays: number): string {
+  const date = new Date(`${baseIsoDate}T00:00:00.000Z`);
+  date.setUTCDate(date.getUTCDate() + offsetDays);
+  return date.toISOString().split("T")[0];
+}
+
+function dashboardSeedRatio(seed: string): number {
+  let hash = 2166136261;
+  for (let idx = 0; idx < seed.length; idx++) {
+    hash ^= seed.charCodeAt(idx);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0) / 4294967295;
+}
+
+function dashboardPickSeedValue<T>(values: readonly T[], seed: string): T {
+  return values[Math.floor(dashboardSeedRatio(seed) * values.length) % values.length];
+}
+
 export const seedDashboardBookings = mutation({
   args: {
     shopId: v.id("shops"),
     clearExisting: v.optional(v.boolean()),
+    seedDemo: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const shop = await ctx.db.get(args.shopId);
@@ -3756,6 +3785,13 @@ export const seedDashboardBookings = mutation({
 
       const history = await ctx.db.query("booking_status_history").collect();
       for (const row of history) {
+        if (bookingIds.has(String(row.booking_id))) {
+          await ctx.db.delete(row._id);
+        }
+      }
+
+      const jobActuals = await ctx.db.query("job_actuals").collect();
+      for (const row of jobActuals) {
         if (bookingIds.has(String(row.booking_id))) {
           await ctx.db.delete(row._id);
         }
@@ -3780,6 +3816,10 @@ export const seedDashboardBookings = mutation({
       for (const type of blockTypes) {
         await ctx.db.delete(type._id);
       }
+    }
+
+    if ((args.seedDemo ?? true) === false) {
+      return { clearedOnly: true };
     }
 
     const ensureService = async (slug: string, name: string, categoryName: string) => {
@@ -3851,11 +3891,32 @@ export const seedDashboardBookings = mutation({
       "Maintenance"
     );
 
-    let mechanics = await ctx.db
+    const allMechanics = await ctx.db
       .query("mechanics")
       .withIndex("by_shop_id", (q) => q.eq("shop_id", args.shopId))
       .filter((q) => q.eq(q.field("is_active"), true))
       .collect();
+    const mechanicShopUsers = await ctx.db
+      .query("shop_users")
+      .withIndex("by_shop_id", (q) => q.eq("shop_id", args.shopId))
+      .filter((q) =>
+        q.and(
+          q.eq(q.field("is_active"), true),
+          q.neq(q.field("mechanic_id"), undefined),
+          q.neq(q.field("accepted_at"), undefined),
+          q.or(
+            q.eq(q.field("role"), "shop_mechanic"),
+            q.eq(q.field("role"), "mechanic")
+          )
+        )
+      )
+      .collect();
+    const acceptedMechanicIds = new Set(
+      mechanicShopUsers.map((shopUser) => String(shopUser.mechanic_id))
+    );
+    let mechanics = allMechanics.filter((mechanic) =>
+      acceptedMechanicIds.has(String(mechanic._id))
+    );
 
     if (mechanics.length === 0) {
       const fallbackMechanicId = await ctx.db.insert("mechanics", {
@@ -3867,26 +3928,18 @@ export const seedDashboardBookings = mutation({
         rating: 0,
         review_count: 0,
       });
-      mechanics = (await ctx.db
-        .query("mechanics")
-        .withIndex("by_shop_id", (q) => q.eq("shop_id", args.shopId))
-        .collect()).filter((mechanic) => mechanic.is_active);
-
-      const ownerMembership = shop.owner_user_id
-        ? await ctx.db
-            .query("shop_users")
-            .withIndex("by_user_and_shop", (q) =>
-              q.eq("user_id", shop.owner_user_id!).eq("shop_id", args.shopId)
-            )
-            .first()
-        : null;
-      if (ownerMembership && !ownerMembership.mechanic_id) {
-        await ctx.db.patch(ownerMembership._id, {
-          mechanic_id: fallbackMechanicId,
-          role: ownerMembership.role ?? "shop_owner",
-          updated_at: now,
-        });
-      }
+      mechanics = [
+        {
+          _id: fallbackMechanicId,
+          shop_id: args.shopId,
+          first_name: "Demo",
+          last_name: "Technician",
+          title: "Lead Tech",
+          is_active: true,
+          rating: 0,
+          review_count: 0,
+        },
+      ];
     }
 
     const demoVehicles = [
@@ -3955,6 +4008,35 @@ export const seedDashboardBookings = mutation({
       },
     ];
 
+    const passportVehicleIndexes = new Set(
+      demoVehicles
+        .map((vehicle, index) => ({
+          index,
+          ratio: dashboardSeedRatio(`${today}:${vehicle.vin}:passport`),
+        }))
+        .filter((entry) => entry.ratio >= 0.35)
+        .map((entry) => entry.index)
+    );
+    if (passportVehicleIndexes.size === 0) {
+      passportVehicleIndexes.add(0);
+    }
+    if (passportVehicleIndexes.size === demoVehicles.length) {
+      passportVehicleIndexes.delete(demoVehicles.length - 1);
+    }
+
+    for (let vehicleIdx = 0; vehicleIdx < demoVehicles.length; vehicleIdx++) {
+      if (passportVehicleIndexes.has(vehicleIdx) && !(args.clearExisting ?? false)) {
+        continue;
+      }
+      const existingPassports = await ctx.db
+        .query("vehicle_passports")
+        .withIndex("by_vin", (q) => q.eq("vin", demoVehicles[vehicleIdx].vin))
+        .collect();
+      for (const passport of existingPassports) {
+        await ctx.db.delete(passport._id);
+      }
+    }
+
     const userIds: any[] = [];
     for (const vehicle of demoVehicles) {
       const existingUser = await ctx.db
@@ -4009,29 +4091,33 @@ export const seedDashboardBookings = mutation({
       vinIdx,
       serviceId,
       mechanicId,
+      scheduledDate,
       scheduledTime,
       status,
       laborCost,
       partsCost,
       estimatedMinutes,
+      liveStage,
       key,
     }: {
       userIdx: number;
       vinIdx: number;
       serviceId: any;
       mechanicId: any;
+      scheduledDate: string;
       scheduledTime: string;
       status: string;
       laborCost: number;
       partsCost: number;
       estimatedMinutes?: number;
+      liveStage?: string;
       key: string;
     }) => {
       const endTime = dashboardAddMinutesToTime(scheduledTime, estimatedMinutes ?? 60);
       const timeSlotId = await ctx.db.insert("time_slots", {
         shop_id: args.shopId,
         mechanic_id: mechanicId,
-        date: today,
+        date: scheduledDate,
         start_time: scheduledTime,
         end_time: endTime,
         is_available: false,
@@ -4044,20 +4130,21 @@ export const seedDashboardBookings = mutation({
         mechanic_id: mechanicId,
         service_ids: [serviceId],
         time_slot_id: timeSlotId,
-        scheduled_date: today,
+        scheduled_date: scheduledDate,
         scheduled_time: scheduledTime,
         labor_cost: laborCost,
         parts_cost: partsCost,
         total_cost: laborCost + partsCost,
         estimated_labor_minutes: estimatedMinutes,
         status,
+        ...(liveStage ? { live_stage: liveStage } : {}),
         created_at: now,
         updated_at: now,
       });
 
       await ctx.db.insert("booking_status_history", {
         booking_id: bookingId,
-        old_status: "confirmed",
+        old_status: undefined,
         new_status: status,
         reason: `seed_dashboard_${key}`,
         changed_at: now,
@@ -4066,95 +4153,408 @@ export const seedDashboardBookings = mutation({
       return bookingId;
     };
 
-    const slotData = [
+    const shopHours = await ctx.db
+      .query("shops_hours")
+      .withIndex("by_shop_id", (q) => q.eq("shop_id", args.shopId))
+      .collect();
+    const hoursByDay = new Map(
+      shopHours.map((hours) => [hours.day_of_week, hours] as const)
+    );
+
+    const openDates: { date: string; hours: (typeof shopHours)[number] }[] = [];
+    for (let offset = 0; offset <= 21 && openDates.length < 5; offset++) {
+      const date = dashboardIsoDateAtOffset(today, offset);
+      const dayOfWeek = new Date(`${date}T00:00:00.000Z`).getUTCDay();
+      const hours = hoursByDay.get(dayOfWeek);
+      if (!hours || hours.is_closed || !hours.open_time || !hours.close_time) continue;
+      openDates.push({ date, hours });
+    }
+
+    if (openDates.length === 0) {
+      throw new Error(`Shop ${args.shopId} has no operating hours to seed bookings against.`);
+    }
+
+    const serviceOptions = [
       {
-        userIdx: 0,
-        vinIdx: 0,
-        serviceId: oilChangeId,
-        mechanicId: mechanics[0 % mechanics.length]._id,
-        scheduledTime: "08:00",
-        status: "completed",
+        id: oilChangeId,
+        name: "Oil Change",
         laborCost: 47.5,
         partsCost: 45,
         estimatedMinutes: 45,
-        key: "completed_1",
       },
       {
-        userIdx: 1,
-        vinIdx: 1,
-        serviceId: tireRotationId,
-        mechanicId: mechanics[1 % mechanics.length]._id,
-        scheduledTime: "09:00",
-        status: "completed",
-        laborCost: 30,
-        partsCost: 0,
-        estimatedMinutes: 30,
-        key: "completed_2",
-      },
-      {
-        userIdx: 2,
-        vinIdx: 2,
-        serviceId: brakePadsId,
-        mechanicId: mechanics[0 % mechanics.length]._id,
-        scheduledTime: "11:00",
-        status: "confirmed",
+        id: brakePadsId,
+        name: "Brake Pad Replacement",
         laborCost: 95,
         partsCost: 70,
         estimatedMinutes: 90,
-        key: "confirmed_1",
       },
       {
-        userIdx: 3,
-        vinIdx: 3,
-        serviceId: alignmentId,
-        mechanicId: mechanics[1 % mechanics.length]._id,
-        scheduledTime: "13:00",
-        status: "confirmed",
+        id: tireRotationId,
+        name: "Tire Rotation",
+        laborCost: 30,
+        partsCost: 0,
+        estimatedMinutes: 30,
+      },
+      {
+        id: alignmentId,
+        name: "Wheel Alignment",
         laborCost: 89,
         partsCost: 0,
         estimatedMinutes: 60,
-        key: "confirmed_2",
       },
       {
-        userIdx: 4,
-        vinIdx: 4,
-        serviceId: oilChangeId,
-        mechanicId: mechanics[0 % mechanics.length]._id,
-        scheduledTime: "14:30",
-        status: "confirmed",
-        laborCost: 47.5,
-        partsCost: 45,
-        estimatedMinutes: 45,
-        key: "confirmed_3",
-      },
-      {
-        userIdx: 5,
-        vinIdx: 5,
-        serviceId: brakePadsId,
-        mechanicId: mechanics[1 % mechanics.length]._id,
-        scheduledTime: "15:30",
-        status: "pending",
-        laborCost: 95,
-        partsCost: 60,
-        estimatedMinutes: 90,
-        key: "pending_1",
-      },
-      {
-        userIdx: 6,
-        vinIdx: 6,
-        serviceId: acServiceId,
-        mechanicId: mechanics[0 % mechanics.length]._id,
-        scheduledTime: "17:00",
-        status: "pending",
+        id: acServiceId,
+        name: "AC System Service",
         laborCost: 95,
         partsCost: 35,
         estimatedMinutes: 120,
-        key: "pending_2",
       },
     ];
 
-    for (const booking of slotData) {
-      await createBooking(booking);
+    const tireBrands = ["Michelin", "Continental", "Bridgestone", "Goodyear", "Pirelli"];
+    const tireModels = ["Defender 2", "TrueContact Tour", "Alenza AS Ultra", "Assurance MaxLife", "Scorpion AS Plus"];
+    const tireSizes = ["225/65R17", "235/55R18", "245/70R17", "265/70R17", "275/45R20"];
+    const oilViscosities = ["0W-20", "5W-20", "5W-30", "0W-16"];
+    const coolantTypes = ["Toyota Super Long Life", "Motorcraft Yellow", "Honda Type 2", "Dex-Cool", "Subaru Super Coolant"];
+    const brakePadBrands = ["Akebono", "Brembo", "Wagner", "Bosch", "Raybestos"];
+    const historicalNotes = [
+      "Tires wearing evenly; no abnormal vibration noted.",
+      "Customer mentioned occasional cold-start noise; unable to duplicate during visit.",
+      "Front pads still healthy, rear pads should be checked again next service.",
+      "Fluid levels topped off and no active leaks found.",
+      "Aftermarket accessories observed, no interference with service work.",
+    ];
+
+    for (let vehicleIdx = 0; vehicleIdx < demoVehicles.length; vehicleIdx++) {
+      if (!passportVehicleIndexes.has(vehicleIdx)) continue;
+
+      const vehicle = demoVehicles[vehicleIdx];
+      const mileage = 28000 + Math.round(dashboardSeedRatio(`${vehicle.vin}:mileage`) * 92000);
+      const reportedAt = now - (7 + vehicleIdx * 3) * 24 * 60 * 60 * 1000;
+      const tireBrand = dashboardPickSeedValue(tireBrands, `${vehicle.vin}:tire-brand`);
+      const tireModel = dashboardPickSeedValue(tireModels, `${vehicle.vin}:tire-model`);
+      const tireSize = dashboardPickSeedValue(tireSizes, `${vehicle.vin}:tire-size`);
+      const condition = dashboardPickSeedValue(
+        ["good", "fair", "replace_soon"] as const,
+        `${vehicle.vin}:condition`
+      );
+      const modificationsRatio = dashboardSeedRatio(`${vehicle.vin}:mods`);
+      const modificationStatus: "aftermarket_observed" | "none_observed" =
+        modificationsRatio > 0.72 ? "aftermarket_observed" : "none_observed";
+      const passportRecord = {
+        vin: vehicle.vin,
+        mileage,
+        last_reported_at: reportedAt,
+        mileage_velocity: 800 + Math.round(dashboardSeedRatio(`${vehicle.vin}:velocity`) * 850),
+        tires: {
+          brand: tireBrand,
+          model: tireModel,
+          size_front: tireSize,
+          size_rear: tireSize,
+          run_flat: dashboardSeedRatio(`${vehicle.vin}:run-flat`) > 0.7,
+          overall_condition: condition,
+          front_condition: condition,
+          rear_condition: dashboardPickSeedValue(
+            ["good", "fair", "replace_soon"] as const,
+            `${vehicle.vin}:rear-condition`
+          ),
+          last_verified_at: reportedAt,
+        },
+        fluids: {
+          oil_viscosity: dashboardPickSeedValue(oilViscosities, `${vehicle.vin}:oil`),
+          oil_type: "Full synthetic",
+          coolant_type: dashboardPickSeedValue(coolantTypes, `${vehicle.vin}:coolant`),
+          brake_fluid_type: "DOT 4",
+          transmission_fluid_type: "ATF",
+          confirmation_status: "shop_verified",
+        },
+        brakes: {
+          pad_brand: dashboardPickSeedValue(brakePadBrands, `${vehicle.vin}:pads`),
+          front_pad_mm: 5 + Math.round(dashboardSeedRatio(`${vehicle.vin}:front-pad`) * 5),
+          rear_pad_mm: 4 + Math.round(dashboardSeedRatio(`${vehicle.vin}:rear-pad`) * 5),
+          rotor_condition: dashboardPickSeedValue(
+            ["good", "scored", "needs_attention"] as const,
+            `${vehicle.vin}:rotors`
+          ),
+        },
+        inspection: {
+          looks_current: dashboardSeedRatio(`${vehicle.vin}:inspection-current`) > 0.2,
+          expires_at: dashboardIsoDateAtOffset(today, 120 + vehicleIdx * 18),
+          status: dashboardPickSeedValue(
+            ["current", "current", "not_visible"] as const,
+            `${vehicle.vin}:inspection`
+          ),
+        },
+        modifications: {
+          status: modificationStatus,
+          notes:
+            modificationStatus === "aftermarket_observed"
+              ? "Aftermarket wheels noted during prior visit."
+              : null,
+        },
+        created_at: reportedAt - 35 * 24 * 60 * 60 * 1000,
+        updated_at: reportedAt,
+        first_shop_confirmed_at: reportedAt - 35 * 24 * 60 * 60 * 1000,
+        last_shop_confirmed_at: reportedAt,
+      };
+
+      const existingPassport = await ctx.db
+        .query("vehicle_passports")
+        .withIndex("by_vin", (q) => q.eq("vin", vehicle.vin))
+        .unique();
+      if (existingPassport) {
+        await ctx.db.patch(existingPassport._id, passportRecord);
+      } else {
+        await ctx.db.insert("vehicle_passports", passportRecord);
+      }
+
+      const owner = await ctx.db
+        .query("vehicle_owners")
+        .withIndex("by_vin_user", (q) => q.eq("vin", vehicle.vin).eq("user_id", userIds[vehicleIdx]))
+        .first();
+      if (owner) {
+        await ctx.db.patch(owner._id, {
+          mileage,
+          last_checkin_at: reportedAt,
+          annual_mileage_rate: passportRecord.mileage_velocity * 12,
+          usagePattern: dashboardPickSeedValue(
+            ["Daily commuter", "Weekend errands", "Mixed city/highway"],
+            `${vehicle.vin}:usage`
+          ),
+        });
+      }
+
+      const historicalVisitCount = 1 + Math.floor(dashboardSeedRatio(`${vehicle.vin}:visits`) * 3);
+      for (let visitIdx = 0; visitIdx < historicalVisitCount; visitIdx++) {
+        const service = serviceOptions[(vehicleIdx + visitIdx) % serviceOptions.length];
+        const mechanic = mechanics[(vehicleIdx + visitIdx) % mechanics.length];
+        const visitDate = dashboardIsoDateAtOffset(today, -21 - vehicleIdx * 4 - visitIdx * 38);
+        const visitTime = dashboardMinutesToTime(9 * 60 + ((vehicleIdx + visitIdx) % 5) * 60);
+        const visitEndTime = dashboardAddMinutesToTime(visitTime, service.estimatedMinutes);
+        const visitCompletedAt = new Date(`${visitDate}T${visitEndTime}:00.000Z`).getTime();
+        const historicalSlotId = await ctx.db.insert("time_slots", {
+          shop_id: args.shopId,
+          mechanic_id: mechanic._id,
+          date: visitDate,
+          start_time: visitTime,
+          end_time: visitEndTime,
+          is_available: false,
+        });
+        const historicalBookingId = await ctx.db.insert("bookings", {
+          user_id: userIds[vehicleIdx],
+          vin: vehicle.vin,
+          shop_id: args.shopId,
+          mechanic_id: mechanic._id,
+          service_ids: [service.id],
+          time_slot_id: historicalSlotId,
+          scheduled_date: visitDate,
+          scheduled_time: visitTime,
+          labor_cost: service.laborCost,
+          parts_cost: service.partsCost,
+          total_cost: service.laborCost + service.partsCost,
+          estimated_labor_minutes: service.estimatedMinutes,
+          status: "completed",
+          created_at: visitCompletedAt - 2 * 24 * 60 * 60 * 1000,
+          updated_at: visitCompletedAt,
+        });
+        await ctx.db.insert("booking_status_history", {
+          booking_id: historicalBookingId,
+          old_status: undefined,
+          new_status: "completed",
+          reason: `seed_dashboard_passport_history_${vehicleIdx}_${visitIdx}`,
+          changed_at: visitCompletedAt,
+        });
+        await ctx.db.insert("job_actuals", {
+          booking_id: historicalBookingId,
+          mechanic_id: mechanic._id,
+          actual_labor_minutes: service.estimatedMinutes,
+          actual_parts_cost: service.partsCost,
+          started_at: visitCompletedAt - service.estimatedMinutes * 60 * 1000,
+          completed_at_ms: visitCompletedAt,
+          logged_at_ms: visitCompletedAt,
+          created_at: visitCompletedAt,
+          updated_at: visitCompletedAt,
+          difficulty_rating: 2 + Math.floor(dashboardSeedRatio(`${vehicle.vin}:difficulty:${visitIdx}`) * 3),
+          parts_used:
+            service.partsCost > 0
+              ? [
+                  {
+                    part_name: service.name,
+                    brand: dashboardPickSeedValue(
+                      ["OEM", "Denso", "Bosch", "Wagner"],
+                      `${vehicle.vin}:part-brand:${visitIdx}`
+                    ),
+                    oem_number: "SEED-HISTORY",
+                    cost: service.partsCost,
+                  },
+                ]
+              : [],
+          technician_notes: dashboardPickSeedValue(
+            historicalNotes,
+            `${vehicle.vin}:note:${visitIdx}`
+          ),
+          finalized_at_ms: visitCompletedAt,
+        });
+      }
+    }
+
+    const bookingsPerMechanicTarget = 5;
+    const minimumBookingsPerOpenDay = 5;
+    const totalBookingTarget = Math.max(
+      openDates.length * minimumBookingsPerOpenDay,
+      mechanics.length * bookingsPerMechanicTarget
+    );
+    const dayTargets = openDates.map(() => minimumBookingsPerOpenDay);
+    for (
+      let extra = totalBookingTarget - openDates.length * minimumBookingsPerOpenDay, idx = 0;
+      extra > 0;
+      extra--, idx++
+    ) {
+      dayTargets[idx % dayTargets.length] += 1;
+    }
+
+    const remainingBookingsByMechanic = new Map(
+      mechanics.map((mechanic) => [String(mechanic._id), bookingsPerMechanicTarget])
+    );
+    const bookingStatusCounts: Record<string, number> = {};
+    const mechanicDayBookingCounts = new Map<string, number>();
+    let bookingSequence = 0;
+
+    for (let dayIdx = 0; dayIdx < openDates.length; dayIdx++) {
+      const { date, hours } = openDates[dayIdx];
+      const openMinutes = dashboardTimeToMinutes(hours.open_time!);
+      const closeMinutes = dashboardTimeToMinutes(hours.close_time!);
+      const openWindowMinutes = Math.max(0, closeMinutes - openMinutes);
+      const dailyTarget = dayTargets[dayIdx];
+
+      for (let dayBookingIdx = 0; dayBookingIdx < dailyTarget; dayBookingIdx++) {
+        const mechanicOrder = [...mechanics].sort((a, b) => {
+          const remainingA = remainingBookingsByMechanic.get(String(a._id)) ?? 0;
+          const remainingB = remainingBookingsByMechanic.get(String(b._id)) ?? 0;
+          if (remainingA !== remainingB) return remainingB - remainingA;
+          return String(a._id).localeCompare(String(b._id));
+        });
+        const mechanic = mechanicOrder[(dayBookingIdx + dayIdx) % mechanicOrder.length];
+        const mechanicKey = String(mechanic._id);
+        const fittingServices = serviceOptions.filter(
+          (serviceOption) => serviceOption.estimatedMinutes <= openWindowMinutes
+        );
+        const availableServices = fittingServices.length > 0 ? fittingServices : [serviceOptions[0]];
+        const service = availableServices[(bookingSequence + dayIdx) % availableServices.length];
+
+        const mechanicDayKey = `${date}:${mechanicKey}`;
+        const mechanicBookingIndexForDay = mechanicDayBookingCounts.get(mechanicDayKey) ?? 0;
+        mechanicDayBookingCounts.set(mechanicDayKey, mechanicBookingIndexForDay + 1);
+
+        const relativeDayOffset = Math.round(
+          (new Date(`${date}T00:00:00.000Z`).getTime() -
+            new Date(`${today}T00:00:00.000Z`).getTime()) /
+            86400000
+        );
+
+        const statusCycle =
+          relativeDayOffset === 0
+            ? ["in_progress", "confirmed", "pending", "confirmed", "completed"]
+            : relativeDayOffset === 1
+              ? ["confirmed", "pending", "confirmed", "pending"]
+              : ["pending", "confirmed", "pending", "confirmed"];
+        const userIdx = bookingSequence % userIds.length;
+        const vinIdx = (bookingSequence + dayIdx) % demoVehicles.length;
+        let status =
+          statusCycle[(bookingSequence + mechanicBookingIndexForDay) % statusCycle.length];
+        if (status === "completed" && !passportVehicleIndexes.has(vinIdx)) {
+          status = "confirmed";
+        }
+
+        const latestStartMinutes = closeMinutes - service.estimatedMinutes;
+        const validStartMinutes: number[] = [];
+        for (let minute = openMinutes; minute <= latestStartMinutes; minute += 30) {
+          validStartMinutes.push(minute);
+        }
+        if (validStartMinutes.length === 0) {
+          continue;
+        }
+        const startMinutes =
+          validStartMinutes[
+            (mechanicBookingIndexForDay + dayBookingIdx + bookingSequence) % validStartMinutes.length
+          ];
+        const adjustedEstimatedMinutes = Math.min(service.estimatedMinutes, closeMinutes - startMinutes);
+        if (adjustedEstimatedMinutes <= 0) {
+          continue;
+        }
+        if (startMinutes < openMinutes || startMinutes + adjustedEstimatedMinutes > closeMinutes) {
+          throw new Error(
+            `Seeded booking fell outside operating hours for ${date}: ${dashboardMinutesToTime(
+              startMinutes
+            )}-${dashboardMinutesToTime(startMinutes + adjustedEstimatedMinutes)} vs ${
+              hours.open_time
+            }-${hours.close_time}`
+          );
+        }
+
+        const bookingId = await createBooking({
+          userIdx,
+          vinIdx,
+          serviceId: service.id,
+          mechanicId: mechanic._id,
+          scheduledDate: date,
+          scheduledTime: dashboardMinutesToTime(startMinutes),
+          status,
+          laborCost: service.laborCost,
+          partsCost: service.partsCost,
+          estimatedMinutes: adjustedEstimatedMinutes,
+          liveStage: status === "in_progress" ? "service_in_progress" : undefined,
+          key: `${date}_${mechanicKey}_${bookingSequence}`,
+        });
+
+        if (status === "in_progress") {
+          const startedAt = now - Math.min(adjustedEstimatedMinutes, 45) * 60 * 1000;
+          await ctx.db.insert("job_actuals", {
+            booking_id: bookingId,
+            mechanic_id: mechanic._id,
+            started_at: startedAt,
+            created_at: now,
+            updated_at: now,
+            technician_notes: "Service in progress.",
+            parts_used: [],
+          });
+        } else if (status === "completed") {
+          const completedAt = now - 5 * 60 * 1000;
+          const finalizedAt = bookingSequence % 2 === 0 ? completedAt : undefined;
+          await ctx.db.insert("job_actuals", {
+            booking_id: bookingId,
+            mechanic_id: mechanic._id,
+            actual_labor_minutes: adjustedEstimatedMinutes,
+            actual_parts_cost: service.partsCost,
+            started_at: completedAt - adjustedEstimatedMinutes * 60 * 1000,
+            completed_at_ms: completedAt,
+            logged_at_ms: completedAt,
+            created_at: completedAt,
+            updated_at: completedAt,
+            difficulty_rating: 2,
+            parts_used: [
+              {
+                part_name: "Seeded service parts",
+                oem_number: "N/A",
+                cost: service.partsCost,
+              },
+            ],
+            technician_notes:
+              finalizedAt != null
+                ? "Seeded finalized actuals."
+                : "Completed booking awaiting finalized actuals.",
+            finalized_at_ms: finalizedAt,
+          });
+        }
+
+        bookingStatusCounts[status] = (bookingStatusCounts[status] ?? 0) + 1;
+        remainingBookingsByMechanic.set(
+          mechanicKey,
+          Math.max(0, (remainingBookingsByMechanic.get(mechanicKey) ?? 0) - 1)
+        );
+        bookingSequence += 1;
+      }
     }
 
     await syncShopAvailabilityWindow(ctx, { shopId: args.shopId });
@@ -4162,12 +4562,8 @@ export const seedDashboardBookings = mutation({
     return {
       success: true,
       shopId: args.shopId,
-      date: today,
-      created: {
-        completed: 2,
-        confirmed: 3,
-        pending: 2,
-      },
+      dates: openDates.map(({ date }) => date),
+      created: bookingStatusCounts,
     };
   },
 });

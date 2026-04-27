@@ -792,6 +792,7 @@ function StatusTimeline({
   const stages: BookingStatus[] = ["pending", "confirmed", "in_progress", "completed"];
   const stageLabels: Record<BookingStatus, string> = {
     pending: "Requested",
+    pending_quote: "Awaiting Quote",
     confirmed: "Confirmed",
     in_progress: "In Progress",
     completed: "Complete",

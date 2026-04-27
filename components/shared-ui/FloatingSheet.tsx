@@ -70,6 +70,9 @@ interface FloatingSheetProps {
   showBackdrop?: boolean;
   /** Called after the sheet finishes closing. */
   onClose?: () => void;
+  /** Corner radius at small/mid snaps. Defaults to 46. Flattens to 0 near
+   *  the full snap (unchanged behavior). */
+  cornerRadius?: number;
   /** Sheet body content (rendered below the grabber). */
   children?: React.ReactNode;
 }
@@ -79,7 +82,17 @@ interface FloatingSheetProps {
 // ============================================================================
 
 export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
-  ({ snapHeights, initialSnapIndex = 0, showBackdrop = false, onClose, children }, ref) => {
+  (
+    {
+      snapHeights,
+      initialSnapIndex = 0,
+      showBackdrop = false,
+      onClose,
+      cornerRadius = CORNER_RADIUS,
+      children,
+    },
+    ref,
+  ) => {
     const insets = useSafeAreaInsets();
     const [mounted, setMounted] = useState(false);
 
@@ -177,10 +190,32 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
       [H_MIN, H_MAX, snaps, close, sheetHeight, startHeight],
     );
 
+    // With a single snap, there's no "pull up to full" transition to
+    // interpolate through — so the progress range would collapse (H_MIN ===
+    // H_MAX) and pin the sheet to the screen edges with sharp corners. Lock
+    // it to the floating chrome instead.
+    const isSingleSnap = snaps.length === 1;
+
     // Animated sheet chrome — insets + radius respond to how close we are
     // to the max snap. At max, bottom corners flatten and the sheet pins to
     // screen edges (if H_MAX is tall enough).
+    // Single-snap floating bottom — partial home-indicator clearance so the
+    // sheet tucks close to the bottom edge. Full `insets.bottom` felt too
+    // lifted on the requesting sheet; half gives a tight tuck while still
+    // floating visibly above the edge.
+    const singleSnapBottomInset = Math.max(insets.bottom / 2, 4);
+
     const sheetAnimStyle = useAnimatedStyle(() => {
+      if (isSingleSnap) {
+        return {
+          left: SIDE_INSET_MAX,
+          right: SIDE_INSET_MAX,
+          bottom: singleSnapBottomInset,
+          height: sheetHeight.value,
+          borderBottomLeftRadius: cornerRadius,
+          borderBottomRightRadius: cornerRadius,
+        };
+      }
       const progress = interpolate(
         sheetHeight.value,
         [H_MIN, H_MAX],
@@ -197,7 +232,7 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
       const bottomRadius = interpolate(
         progress,
         [0.85, 1],
-        [CORNER_RADIUS, 0],
+        [cornerRadius, 0],
         Extrapolation.CLAMP,
       );
       return {
@@ -211,6 +246,12 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
     });
 
     const innerAnimStyle = useAnimatedStyle(() => {
+      if (isSingleSnap) {
+        return {
+          borderBottomLeftRadius: cornerRadius,
+          borderBottomRightRadius: cornerRadius,
+        };
+      }
       const progress = interpolate(
         sheetHeight.value,
         [H_MIN, H_MAX],
@@ -220,7 +261,7 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
       const bottomRadius = interpolate(
         progress,
         [0.85, 1],
-        [CORNER_RADIUS, 0],
+        [cornerRadius, 0],
         Extrapolation.CLAMP,
       );
       return {
@@ -260,8 +301,21 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
           null
         )}
 
-        <Animated.View style={[styles.sheetShadow, sheetAnimStyle]}>
-          <Animated.View style={[styles.sheetInner, innerAnimStyle]}>
+        <Animated.View
+          style={[
+            styles.sheetShadow,
+            {
+              borderTopLeftRadius: cornerRadius,
+              borderTopRightRadius: cornerRadius,
+              borderBottomLeftRadius: cornerRadius,
+              borderBottomRightRadius: cornerRadius,
+            },
+            sheetAnimStyle,
+          ]}
+        >
+          <Animated.View
+            style={[styles.sheetInner, { borderRadius: cornerRadius }, innerAnimStyle]}
+          >
             <GestureDetector gesture={dragGesture}>
               <View style={styles.dragRegion}>
                 <View style={styles.handle} />

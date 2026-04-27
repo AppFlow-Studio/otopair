@@ -79,6 +79,7 @@ import { useBookingStore } from "@/stores/useBookingStore";
 import { useVoiceRecording } from "@/hooks/useVoiceRecording";
 import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromConvex";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
+import { formatMake } from "@/utils/formatMake";
 import { createInitialState, processUserMessage, WELCOME_SUGGESTIONS } from "@/services/ai/scenarioEngine";
 import type { ConversationState, ChatMessage, AIMechanic, SelectedService } from "@/services/ai/types";
 
@@ -164,7 +165,7 @@ export default function AIChatScreen() {
       return {
         vin: r.vin,
         year: v?.year ?? 0,
-        make: make.charAt(0).toUpperCase() + make.slice(1).toLowerCase(),
+        make: formatMake(make),
         model: model.charAt(0).toUpperCase() + model.slice(1).toLowerCase(),
         imageUrl,
         localImage,

@@ -196,6 +196,8 @@ interface BookingState {
   rescheduleBooking: (id: string, date: string, time: string) => void;
   /** Flip a booking between "in_progress" (Live Tracker) and "confirmed" (Upcoming). */
   toggleLiveTracker: (id: string) => void;
+  /** Flip a booking between pending_quote (Upcoming) and quotes_ready (Quotes). */
+  toggleQuotesReady: (id: string) => void;
   /** Get a booking by ID */
   getBookingById: (id: string) => Booking | null;
   /** Get all upcoming bookings (pending or confirmed, future dates) */
@@ -699,6 +701,24 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       }
       next[id] = { ...target, status: "in_progress" as const, updatedAt: now };
       return { bookings: next };
+    });
+  },
+
+  toggleQuotesReady: (id) => {
+    // Flip a pending_quote booking to quotes_ready (moves it from the
+    // Upcoming tab to the Quotes tab) and back. Mirrors toggleLiveTracker.
+    set((state) => {
+      const target = state.bookings[id];
+      if (!target) return state;
+      const now = new Date().toISOString();
+      const nextStatus =
+        target.status === "quotes_ready" ? "pending_quote" : "quotes_ready";
+      return {
+        bookings: {
+          ...state.bookings,
+          [id]: { ...target, status: nextStatus as const, updatedAt: now },
+        },
+      };
     });
   },
 

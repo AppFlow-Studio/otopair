@@ -8,17 +8,18 @@
  * the Upcoming tab.
  */
 
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
+import * as Haptics from "expo-haptics";
 import {
   Car,
   Check,
   ChevronDown,
   ChevronLeft,
+  Info,
 } from "lucide-react-native";
-import React, { useCallback, useMemo, useRef } from "react";
+import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
-  Alert,
   Dimensions,
   Image,
   ScrollView,
@@ -26,29 +27,33 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import Animated, {
+  Easing,
+  useAnimatedStyle,
+  useSharedValue,
+  withSequence,
+  withTiming,
+} from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
-import { Text } from "@/components/shared-ui";
+import { Chip, Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
-import { TireQuoteCard } from "@/components/tire-booking/TireQuoteCard";
+import { TierInfoSheet, type TierInfoSheetRef } from "@/components/tire-booking/TierInfoSheet";
+import { useCreateTireQuoteRequest } from "@/hooks/useCreateTireQuoteRequest";
 import { VehicleTireSelector3D } from "@/components/tire-booking/VehicleTireSelector3D";
 import {
   DEFAULT_OEM_SIZES,
   MOCK_OEM_SIZES_BY_MAKE,
   TIRE_TIERS,
   TIRE_TYPES,
-  type TireQuote,
   type TireTierId,
+  type TireTierOption,
   type TireTypeId,
 } from "@/constants/tireFlow";
-import { useBookingStore } from "@/stores/useBookingStore";
-import { useShopStore } from "@/stores/useShopStore";
 import { useTireBookingStore, type TirePosition } from "@/stores/useTireBookingStore";
 import { useVehicleStore, type Vehicle } from "@/stores/useVehicleStore";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
-
-const TIRE_INSTALL_SERVICE_ID = "tire_install_from_flow";
 
 // ============================================================================
 // SCREEN
@@ -78,16 +83,12 @@ export default function TireBookingScreen() {
   const tireType = useTireBookingStore((s) => s.tireType);
   const tier = useTireBookingStore((s) => s.tier);
   const selectedTirePositions = useTireBookingStore((s) => s.selectedTirePositions);
-  const isLoading = useTireBookingStore((s) => s.isLoading);
-  const quotes = useTireBookingStore((s) => s.quotes);
   const setTireSize = useTireBookingStore((s) => s.setSize);
   const setType = useTireBookingStore((s) => s.setType);
   const setTier = useTireBookingStore((s) => s.setTier);
   const setVehicleIdOnStore = useTireBookingStore((s) => s.setVehicleId);
   const toggleTirePosition = useTireBookingStore((s) => s.toggleTirePosition);
-  const setTirePositions = useTireBookingStore((s) => s.setTirePositions);
   const fireRequest = useTireBookingStore((s) => s.fireRequest);
-  const acceptQuote = useTireBookingStore((s) => s.acceptQuote);
   const resetTireStore = useTireBookingStore((s) => s.reset);
 
   // OEM sizes for current vehicle
@@ -99,11 +100,12 @@ export default function TireBookingScreen() {
     return DEFAULT_OEM_SIZES;
   }, [selectedVehicle?.make]);
 
-  // Keep tireSize in sync with the current vehicle's sizes.
+  // If the current tireSize doesn't belong to the newly selected vehicle's
+  // OEM list (e.g. user switched cars mid-flow), clear it so the chips show
+  // as nothing-selected instead of lying.
   React.useEffect(() => {
-    if (!sizes.length) return;
-    if (!tireSize || !sizes.includes(tireSize)) {
-      setTireSize(sizes[0]);
+    if (tireSize && !sizes.includes(tireSize)) {
+      setTireSize("");
     }
   }, [sizes, tireSize, setTireSize]);
 
@@ -114,7 +116,18 @@ export default function TireBookingScreen() {
 
   // ── Refs for sheets ────────────────────────────────────────────────────────
   const vehiclePickerRef = useRef<FloatingSheetRef>(null);
-  const resultsSheetRef = useRef<FloatingSheetRef>(null);
+  const tierInfoRef = useRef<TierInfoSheetRef>(null);
+
+  // Submit spinner state — flips true the moment Get Quotes is tapped so the
+  // button shows a spinner while the requesting route mounts (the tire-grid
+  // SVG + sheet open take ~200–400ms). Reset when this screen regains focus
+  // (i.e. the user pressed Go back from requesting).
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  useFocusEffect(
+    useCallback(() => {
+      setIsSubmitting(false);
+    }, []),
+  );
 
   // ── Handlers ───────────────────────────────────────────────────────────────
   const handleBack = useCallback(() => {
@@ -131,46 +144,85 @@ export default function TireBookingScreen() {
     [selectVehicle],
   );
 
-  const handlePreset = useCallback(
-    (preset: "all" | "front" | "rear") => {
-      const map: Record<typeof preset, TirePosition[]> = {
-        all: ["FL", "FR", "RL", "RR"],
-        front: ["FL", "FR"],
-        rear: ["RL", "RR"],
-      };
-      setTirePositions(map[preset]);
+  // Haptic fires here in the parent so the diagram component stays untouched.
+  const handleToggleTire = useCallback(
+    (p: TirePosition) => {
+      Haptics.selectionAsync();
+      toggleTirePosition(p);
     },
-    [setTirePositions],
+    [toggleTirePosition],
   );
+
+  const createTireQuoteRequest = useCreateTireQuoteRequest();
 
   const handleGetQuotes = useCallback(() => {
-    resultsSheetRef.current?.open();
-    void fireRequest();
-  }, [fireRequest]);
+    // Spinner ON first — immediate tactile feedback for the user.
+    setIsSubmitting(true);
+    Haptics.selectionAsync();
 
-  const handleAcceptQuote = useCallback(
-    (quoteId: string) => {
-      const quote = acceptQuote(quoteId);
-      if (!quote) return;
-      synthesizeBooking(quote, selectedVehicleId);
-      resetTireStore();
-      router.replace("/(main-tabs)/bookings");
-    },
-    [acceptQuote, selectedVehicleId, router, resetTireStore],
-  );
+    // Defer the heavy work by one animation frame so React renders the
+    // spinner before the screen transition begins. Otherwise setState gets
+    // batched with the sync router.push and the spinner never paints.
+    requestAnimationFrame(() => {
+      const tierLabel = TIRE_TIERS.find((t) => t.id === tier)?.label ?? "";
+      const typeLabel = TIRE_TYPES.find((t) => t.id === tireType)?.label ?? "";
+      const tierAndType = [tierLabel, typeLabel].filter(Boolean).join(" ");
+      const count = selectedTirePositions.length;
+      const tiresLabel = [
+        count > 0 ? `${count} ${tierAndType || "tires"}` : tierAndType || "Tires",
+        tireSize || undefined,
+      ]
+        .filter(Boolean)
+        .join(" · ");
 
-  const handleCloseResults = useCallback(() => {
-    resultsSheetRef.current?.close();
-  }, []);
+      // Create the quote-stage booking — Convex if signed in + VIN known,
+      // local-only fallback otherwise. Either way the Upcoming card appears
+      // when the user taps View on the requesting sheet.
+      void createTireQuoteRequest({
+        tiresLabel,
+        tireSpecs: {
+          size: tireSize ?? "",
+          type: typeLabel,
+          tier: tierLabel,
+          quantity: count,
+        },
+      });
+
+      // Stream mock shop responses into the tire store for the background
+      // ticking animation (kept while real responses ramp up via the website).
+      void fireRequest();
+      router.push("/(tire-booking)/requesting");
+    });
+  }, [
+    fireRequest,
+    router,
+    tier,
+    tireType,
+    tireSize,
+    selectedTirePositions.length,
+    createTireQuoteRequest,
+  ]);
 
   // ── Derived ────────────────────────────────────────────────────────────────
   const selectedCount = selectedTirePositions.length;
-  const ctaLabel = selectedCount === 0 ? "Select at least one tire" : `Get Quotes (${selectedCount} tires)`;
-  const ctaDisabled = selectedCount === 0;
   const showSizeSection = sizes.length > 1;
+  const sizeChosen = !!tireSize && sizes.includes(tireSize);
 
-  const best = quotes.find((q) => q.isBestMatch) ?? quotes[0];
-  const others = quotes.filter((q) => q !== best);
+  const ctaDisabled =
+    selectedCount === 0 ||
+    !tireType ||
+    !tier ||
+    (showSizeSection && !sizeChosen);
+
+  const ctaLabel = (() => {
+    if (selectedCount === 0) return "Tap a wheel to continue";
+    if (showSizeSection && !sizeChosen) return "Select a tire size";
+    if (!tireType) return "Select a tire type";
+    if (!tier) return "Select a tier";
+    // Pricing is deferred to shop responses (post Apr 23 redesign), so the
+    // enabled CTA is a plain action label rather than a price-range preview.
+    return "Get Quotes";
+  })();
 
   return (
     <View style={styles.screen}>
@@ -219,34 +271,7 @@ export default function TireBookingScreen() {
         <View style={styles.hero}>
           <VehicleTireSelector3D
             selected={selectedTirePositions}
-            onTogglePosition={toggleTirePosition}
-          />
-        </View>
-
-        {/* Preset row */}
-        <View style={styles.presetRow}>
-          <PresetButton
-            label="All 4"
-            active={selectedCount === 4}
-            onPress={() => handlePreset("all")}
-          />
-          <PresetButton
-            label="Front"
-            active={
-              selectedCount === 2 &&
-              selectedTirePositions.includes("FL") &&
-              selectedTirePositions.includes("FR")
-            }
-            onPress={() => handlePreset("front")}
-          />
-          <PresetButton
-            label="Rear"
-            active={
-              selectedCount === 2 &&
-              selectedTirePositions.includes("RL") &&
-              selectedTirePositions.includes("RR")
-            }
-            onPress={() => handlePreset("rear")}
+            onTogglePosition={handleToggleTire}
           />
         </View>
 
@@ -261,21 +286,14 @@ export default function TireBookingScreen() {
               SIZE
             </Text>
             <View style={styles.chipRow}>
-              {sizes.map((size) => {
-                const active = size === tireSize;
-                return (
-                  <TouchableOpacity
-                    key={size}
-                    style={[styles.sizeChip, active && styles.sizeChipActive]}
-                    onPress={() => setTireSize(size)}
-                    activeOpacity={0.85}
-                  >
-                    <Text size="sm" weight="semiBold" color={active ? "#FFFFFF" : "#1A1A1A"}>
-                      {size}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
+              {sizes.map((size) => (
+                <Chip
+                  key={size}
+                  label={size}
+                  selected={size === tireSize}
+                  onPress={() => setTireSize(size)}
+                />
+              ))}
             </View>
           </View>
         ) : null}
@@ -287,11 +305,10 @@ export default function TireBookingScreen() {
           </Text>
           <View style={styles.chipRow}>
             {TIRE_TYPES.map((t) => (
-              <OptionCard
+              <Chip
                 key={t.id}
                 label={t.label}
-                active={t.id === tireType}
-                recommended={t.recommended}
+                selected={t.id === tireType}
                 onPress={() => setType(t.id as TireTypeId)}
               />
             ))}
@@ -303,39 +320,19 @@ export default function TireBookingScreen() {
           <Text size="sm" weight="semiBold" color="#8E8E93" style={styles.sectionLabel}>
             QUALITY TIER
           </Text>
+          <Text size="xs" weight="regular" style={styles.sectionCaption}>
+            How long the tires last before needing replacement
+          </Text>
           <View style={styles.tierList}>
-            {TIRE_TIERS.map((t) => {
-              const active = t.id === tier;
-              return (
-                <TouchableOpacity
-                  key={t.id}
-                  style={[styles.tierCard, active && styles.tierCardActive]}
-                  onPress={() => setTier(t.id as TireTierId)}
-                  activeOpacity={0.85}
-                >
-                  <View style={styles.tierHeader}>
-                    <View style={styles.tierTitleRow}>
-                      <Text size="md" weight="bold" color="#1A1A1A">
-                        {t.label}
-                      </Text>
-                      {t.recommended ? (
-                        <View style={styles.recBadge}>
-                          <Text size="xs" weight="bold" color="#2E7D32">
-                            RECOMMENDED
-                          </Text>
-                        </View>
-                      ) : null}
-                    </View>
-                    <View style={[styles.radio, active && styles.radioActive]}>
-                      {active ? <Check size={12} color="#FFFFFF" /> : null}
-                    </View>
-                  </View>
-                  <Text size="xs" weight="regular" color="#6B7280" style={styles.tierTag}>
-                    {t.priceHintPerTire} · {t.warrantyRange}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
+            {TIRE_TIERS.map((t) => (
+              <TierCard
+                key={t.id}
+                tier={t}
+                selected={t.id === tier}
+                onSelect={() => setTier(t.id as TireTierId)}
+                onInfo={() => tierInfoRef.current?.open(t.id as TireTierId)}
+              />
+            ))}
           </View>
         </View>
       </ScrollView>
@@ -343,14 +340,19 @@ export default function TireBookingScreen() {
       {/* Sticky CTA */}
       <View style={[styles.cta, { paddingBottom: insets.bottom + 12 }]}>
         <TouchableOpacity
-          style={[styles.ctaButton, ctaDisabled && styles.ctaButtonDisabled]}
+          style={[styles.ctaButton, (ctaDisabled || isSubmitting) && styles.ctaButtonDisabled]}
           onPress={handleGetQuotes}
-          disabled={ctaDisabled}
+          disabled={ctaDisabled || isSubmitting}
           activeOpacity={0.85}
         >
-          <Text size="md" weight="semiBold" color="#FFFFFF">
-            {ctaLabel}
-          </Text>
+          <View style={styles.ctaContent}>
+            <Text size="md" weight="semiBold" color="#FFFFFF">
+              {ctaLabel}
+            </Text>
+            {isSubmitting ? (
+              <ActivityIndicator size="small" color="#FFFFFF" style={styles.ctaSpinner} />
+            ) : null}
+          </View>
         </TouchableOpacity>
       </View>
 
@@ -402,222 +404,75 @@ export default function TireBookingScreen() {
         </View>
       </FloatingSheet>
 
-      {/* Results sheet */}
-      <FloatingSheet
-        ref={resultsSheetRef}
-        snapHeights={[SCREEN_HEIGHT * 0.6, SCREEN_HEIGHT * 0.92]}
-      >
-        <View style={styles.resultsContent}>
-          <Text size="lg" weight="bold" color="#1A1A1A" style={styles.sheetTitle}>
-            Your Quotes
-          </Text>
-          {isLoading ? (
-            <View style={styles.loadingCenter}>
-              <ActivityIndicator size="large" color="#5299FE" />
-              <Text size="md" weight="semiBold" color="#1A1A1A" center style={styles.loadingHead}>
-                Finding available tires nearby
-              </Text>
-              <Text size="sm" weight="regular" color="#6B7280" center style={styles.loadingSub}>
-                Checking shops in your area…
-              </Text>
-            </View>
-          ) : quotes.length === 0 ? (
-            <View style={styles.emptyCard}>
-              <Text size="lg" weight="bold" color="#1A1A1A">
-                No shops available nearby
-              </Text>
-              <Text size="sm" weight="regular" color="#6B7280" center style={styles.emptySub}>
-                We'll notify you when a partner shop has your tires in stock.
-              </Text>
-              <TouchableOpacity style={styles.emptyButton} onPress={handleCloseResults} activeOpacity={0.85}>
-                <Text size="md" weight="semiBold" color="#FFFFFF">
-                  Notify me
-                </Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <ScrollView contentContainerStyle={styles.quoteList}>
-              <Text size="sm" weight="semiBold" color="#8E8E93" style={styles.resultsLabel}>
-                BEST MATCH FOR YOU
-              </Text>
-              {best ? (
-                <TireQuoteCard
-                  quote={best}
-                  variant="primary"
-                  onBook={() => handleAcceptQuote(best.id)}
-                />
-              ) : null}
-              {others.length > 0 ? (
-                <>
-                  <Text size="sm" weight="semiBold" color="#8E8E93" style={[styles.resultsLabel, styles.resultsLabelTop]}>
-                    OTHER OPTIONS
-                  </Text>
-                  {others.map((q) => (
-                    <TireQuoteCard
-                      key={q.id}
-                      quote={q}
-                      variant="secondary"
-                      onBook={() => handleAcceptQuote(q.id)}
-                    />
-                  ))}
-                </>
-              ) : null}
-            </ScrollView>
-          )}
-        </View>
-      </FloatingSheet>
+      {/* Results sheet removed — the "request in progress" surface is now
+          the dedicated `(tire-booking)/requesting` route (Lottie background
+          + FloatingSheet). Firm quotes arrive asynchronously via the Quotes
+          tab + notifications; not shown from this screen. */}
+
+      {/* Tier info sheet — opened from the (i) icon on each tier card */}
+      <TierInfoSheet ref={tierInfoRef} />
     </View>
   );
 }
 
 // ============================================================================
-// SUBCOMPONENTS
+// TIER CARD — own shared value so the 150ms scale pulse is per-card
 // ============================================================================
 
-function PresetButton({ label, active, onPress }: { label: string; active: boolean; onPress: () => void }) {
-  return (
-    <TouchableOpacity
-      style={[styles.presetButton, active && styles.presetButtonActive]}
-      onPress={onPress}
-      activeOpacity={0.85}
-    >
-      <Text size="sm" weight="semiBold" color={active ? "#FFFFFF" : "#1A1A1A"}>
-        {label}
-      </Text>
-    </TouchableOpacity>
-  );
-}
-
-function OptionCard({
-  label,
-  active,
-  recommended,
-  onPress,
+function TierCard({
+  tier,
+  selected,
+  onSelect,
+  onInfo,
 }: {
-  label: string;
-  active: boolean;
-  recommended?: boolean;
-  onPress: () => void;
+  tier: TireTierOption;
+  selected: boolean;
+  onSelect: () => void;
+  onInfo: () => void;
 }) {
+  const scale = useSharedValue(1);
+  const animStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  const handlePress = useCallback(() => {
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    scale.value = withSequence(
+      withTiming(0.98, { duration: 150, easing: Easing.out(Easing.cubic) }),
+      withTiming(1, { duration: 150, easing: Easing.out(Easing.cubic) }),
+    );
+    onSelect();
+  }, [onSelect, scale]);
+
   return (
-    <TouchableOpacity
-      style={[styles.optionCard, active && styles.optionCardActive]}
-      onPress={onPress}
-      activeOpacity={0.85}
-    >
-      <Text size="sm" weight="semiBold" color={active ? "#FFFFFF" : "#1A1A1A"} center>
-        {label}
-      </Text>
-      {recommended ? (
-        <View style={[styles.recBadgeSmall, active && styles.recBadgeActive]}>
-          <Text size="xs" weight="bold" color={active ? "#FFFFFF" : "#2E7D32"}>
-            Recommended
-          </Text>
+    <Animated.View style={animStyle}>
+      <TouchableOpacity
+        style={[styles.tierCard, selected && styles.tierCardSelected]}
+        onPress={handlePress}
+        activeOpacity={0.85}
+      >
+        <View style={styles.tierHeader}>
+          <View style={styles.tierLabelRow}>
+            <Text size="sm" weight="semiBold" color="#1A1A1A">
+              {tier.label}
+            </Text>
+            <TouchableOpacity
+              onPress={onInfo}
+              hitSlop={10}
+              style={styles.tierInfoButton}
+              accessibilityRole="button"
+              accessibilityLabel={`Learn more about ${tier.label}`}
+            >
+              <Info size={16} color="#8E8E93" />
+            </TouchableOpacity>
+          </View>
+          <View style={[styles.radio, selected && styles.radioActive]}>
+            {selected ? <Check size={12} color="#FFFFFF" /> : null}
+          </View>
         </View>
-      ) : null}
-    </TouchableOpacity>
+      </TouchableOpacity>
+    </Animated.View>
   );
-}
-
-// ============================================================================
-// BOOKING SYNTHESIS (lifted from old results.tsx)
-// ============================================================================
-
-function pad(n: number): string {
-  return n.toString().padStart(2, "0");
-}
-
-function parseAvailability(label: string): { date: string; time: string } {
-  const now = new Date();
-  const target = new Date(now);
-  const lower = label.toLowerCase();
-
-  if (lower.startsWith("tomorrow")) {
-    target.setDate(now.getDate() + 1);
-  } else {
-    const dayMap: Record<string, number> = {
-      sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6,
-    };
-    const prefix = lower.slice(0, 3);
-    const dow = dayMap[prefix];
-    if (dow != null) {
-      const delta = (dow - now.getDay() + 7) % 7 || 7;
-      target.setDate(now.getDate() + delta);
-    }
-  }
-
-  const dateStr = `${target.getFullYear()}-${pad(target.getMonth() + 1)}-${pad(target.getDate())}`;
-  const timePart = label.includes(",") ? label.split(",").slice(1).join(",").trim() : "10:00 AM";
-  return { date: dateStr, time: timePart };
-}
-
-function synthesizeBooking(quote: TireQuote, vehicleId: string | null) {
-  const { date: scheduledDate, time: scheduledTime } = parseAvailability(quote.availability);
-  const nowIso = new Date().toISOString();
-  const bookingId = `tire_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-
-  useShopStore.setState((prev) => {
-    if (prev.shops[quote.shopId]) return prev;
-    return {
-      shops: {
-        ...prev.shops,
-        [quote.shopId]: {
-          id: quote.shopId,
-          name: quote.shopName,
-          address: "",
-          latitude: 0,
-          longitude: 0,
-          distanceKm: null,
-          rating: quote.shopRating,
-          imageUrl: null,
-          availability: 8,
-          hasAvailableSlots: true,
-          nextAvailableSlot: null,
-          serviceIds: [TIRE_INSTALL_SERVICE_ID],
-        },
-      },
-      shopIds: [...prev.shopIds, quote.shopId],
-    };
-  });
-
-  useBookingStore.setState((prev) => {
-    const existing = prev.availableServices.find((s) => s.id === TIRE_INSTALL_SERVICE_ID);
-    const availableServices = existing
-      ? prev.availableServices
-      : [
-          ...prev.availableServices,
-          {
-            id: TIRE_INSTALL_SERVICE_ID,
-            name: "Tire Installation",
-            description: "Tire set installation, mounting, and balancing.",
-            price: quote.total,
-            category: "tires_wheels" as const,
-          },
-        ];
-
-    return {
-      availableServices,
-      bookings: {
-        ...prev.bookings,
-        [bookingId]: {
-          id: bookingId,
-          userId: "current_user_id",
-          shopId: quote.shopId,
-          vehicleId: vehicleId ?? "default_vehicle_id",
-          serviceIds: [TIRE_INSTALL_SERVICE_ID],
-          status: "pending_quote" as const,
-          scheduledDate,
-          scheduledTime,
-          estimatedDuration: 60,
-          totalPrice: quote.total,
-          notes: `${quote.tireBrand} · ${quote.quantity} tires at ${quote.shopName}`,
-          createdAt: nowIso,
-          updatedAt: nowIso,
-        },
-      },
-      bookingIds: [...prev.bookingIds, bookingId],
-    };
-  });
 }
 
 // ============================================================================
@@ -627,7 +482,7 @@ function synthesizeBooking(quote: TireQuote, vehicleId: string | null) {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: "#FAFAFA",
+    backgroundColor: "#FFFFFF",
   },
   topBar: {
     flexDirection: "row",
@@ -680,28 +535,12 @@ const styles = StyleSheet.create({
     height: 240,
     borderRadius: 20,
     overflow: "hidden",
-    backgroundColor: "#F5F7FB",
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
     marginBottom: 12,
   },
 
-  presetRow: {
-    flexDirection: "row",
-    gap: 10,
-  },
-  presetButton: {
-    flex: 1,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#E8E8E8",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  presetButtonActive: {
-    backgroundColor: "#1A1A1A",
-    borderColor: "#1A1A1A",
-  },
   counter: {
     marginTop: 10,
     marginBottom: 4,
@@ -712,82 +551,48 @@ const styles = StyleSheet.create({
   },
   sectionLabel: {
     letterSpacing: 1,
+  },
+  sectionCaption: {
+    color: "rgba(0,0,0,0.5)",
+    marginTop: 4,
     marginBottom: 10,
   },
   chipRow: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 10,
-  },
-  sizeChip: {
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    borderRadius: 12,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#E8E8E8",
-  },
-  sizeChipActive: {
-    backgroundColor: "#5299FE",
-    borderColor: "#5299FE",
-  },
-
-  optionCard: {
-    flex: 1,
-    minHeight: 72,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    borderRadius: 14,
-    backgroundColor: "#FFFFFF",
-    borderWidth: 1,
-    borderColor: "#E8E8E8",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 4,
-  },
-  optionCardActive: {
-    backgroundColor: "#5299FE",
-    borderColor: "#5299FE",
-  },
-  recBadgeSmall: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-    backgroundColor: "#E8F5E9",
-  },
-  recBadgeActive: {
-    backgroundColor: "rgba(255,255,255,0.2)",
+    gap: 8,
+    marginTop: 10,
   },
 
   tierList: {
     gap: 10,
+    marginTop: 10,
   },
   tierCard: {
     backgroundColor: "#FFFFFF",
-    borderRadius: 14,
-    padding: 14,
+    borderRadius: 16,
+    paddingVertical: 16,
+    paddingHorizontal: 16,
     borderWidth: 1,
-    borderColor: "#E8E8E8",
+    borderColor: "rgba(0,0,0,0.06)",
   },
-  tierCardActive: {
+  tierCardSelected: {
+    borderWidth: 1.5,
     borderColor: "#5299FE",
-    borderWidth: 2,
+    backgroundColor: "rgba(82,153,254,0.04)",
   },
   tierHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
   },
-  tierTitleRow: {
+  tierLabelRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
   },
-  recBadge: {
-    backgroundColor: "#E8F5E9",
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
+  tierInfoButton: {
+    padding: 2,
   },
   radio: {
     width: 22,
@@ -802,10 +607,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#5299FE",
     borderColor: "#5299FE",
   },
-  tierTag: {
-    marginTop: 6,
-  },
-
   cta: {
     position: "absolute",
     left: 0,
@@ -813,7 +614,7 @@ const styles = StyleSheet.create({
     bottom: 0,
     paddingHorizontal: 20,
     paddingTop: 12,
-    backgroundColor: "rgba(250,250,250,0.96)",
+    backgroundColor: "#FFFFFF",
     borderTopWidth: 1,
     borderTopColor: "#F0F0F0",
   },
@@ -824,8 +625,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  ctaContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
+  },
+  ctaSpinner: {
+    marginLeft: 2,
+  },
   ctaButtonDisabled: {
-    opacity: 0.5,
+    opacity: 0.4,
   },
 
   // Sheet shared
@@ -880,53 +689,4 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
 
-  // Results sheet
-  resultsContent: {
-    flex: 1,
-    paddingHorizontal: 20,
-    paddingBottom: 12,
-  },
-  loadingCenter: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 40,
-  },
-  loadingHead: {
-    marginTop: 16,
-  },
-  loadingSub: {
-    marginTop: 6,
-  },
-  emptyCard: {
-    backgroundColor: "#FFFFFF",
-    borderRadius: 16,
-    padding: 24,
-    borderWidth: 1,
-    borderColor: "#E8E8E8",
-    alignItems: "center",
-  },
-  emptySub: {
-    marginTop: 6,
-    marginBottom: 14,
-    textAlign: "center",
-  },
-  emptyButton: {
-    height: 44,
-    paddingHorizontal: 20,
-    borderRadius: 12,
-    backgroundColor: "#5299FE",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  quoteList: {
-    paddingBottom: 24,
-  },
-  resultsLabel: {
-    letterSpacing: 1,
-    marginBottom: 10,
-  },
-  resultsLabelTop: {
-    marginTop: 18,
-  },
 });

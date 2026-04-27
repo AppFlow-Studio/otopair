@@ -39,7 +39,7 @@ import { Text } from '@/components/shared-ui';
 // TYPES
 // ============================================================================
 
-export type BookingStatus = 'pending' | 'pending_quote' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled' | 'delayed';
+export type BookingStatus = 'pending' | 'pending_quote' | 'quotes_ready' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled' | 'delayed';
 
 export interface Booking {
   id: string;
@@ -61,6 +61,9 @@ export interface Booking {
   status: BookingStatus;
   // History-specific
   totalCost?: number;
+  /** Free-form detail. Used by PendingQuoteCard in Upcoming to display the
+   *  tire specs the user requested before any shop has quoted a price. */
+  notes?: string;
 }
 
 interface BookingCardProps {
@@ -97,6 +100,11 @@ const STATUS_CONFIG: Record<BookingStatus, { label: string; bgColor: string; tex
     label: 'Pending Quote',
     bgColor: '#FFF8ED',
     textColor: '#C8972E',
+  },
+  quotes_ready: {
+    label: 'Quotes Ready',
+    bgColor: '#E3F0FF',
+    textColor: '#2F6DCC',
   },
   confirmed: {
     label: 'Confirmed',
@@ -284,14 +292,25 @@ export function BookingCard({
 
       {/* Date/Time or Completion Info */}
       {variant === 'upcoming' ? (
-        <View style={styles.dateTimeContainer}>
-          <Text weight="semiBold" size="sm" color="#5299FE">
-            {booking.date}
-          </Text>
-          <Text weight="semiBold" size="sm" color="#5299FE">
-            {booking.time}
-          </Text>
-        </View>
+        booking.status === 'pending_quote' ? (
+          <View style={styles.dateTimeContainer}>
+            <Text weight="semiBold" size="sm" color="#C8972E">
+              Awaiting quote
+            </Text>
+            <Text weight="regular" size="sm" color="#6B7280">
+              Time TBD
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.dateTimeContainer}>
+            <Text weight="semiBold" size="sm" color="#5299FE">
+              {booking.date}
+            </Text>
+            <Text weight="semiBold" size="sm" color="#5299FE">
+              {booking.time}
+            </Text>
+          </View>
+        )
       ) : (
         <View style={styles.historyInfoContainer}>
           <View style={styles.historyInfoRow}>

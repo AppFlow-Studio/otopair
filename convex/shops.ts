@@ -1,4 +1,4 @@
-import { mutation, query } from "./_generated/server";
+import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import {
   syncMechanicAvailabilityWindow,
@@ -7,16 +7,27 @@ import {
 
 const OWNER_ROLES = new Set(["owner", "shop_owner", "admin"]);
 
+type StripeConnectShopFields = {
+  stripe_charges_enabled?: boolean;
+  stripe_payouts_enabled?: boolean;
+  stripe_requirements_currently_due?: string[];
+  stripe_onboarding_completed_at?: number;
+};
+
 async function getCurrentUser(ctx: any) {
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) return { identity: null, user: null };
 
-  const user = await ctx.db
-    .query("users")
-    .withIndex("by_clerkUserId", (q: any) => q.eq("clerkUserId", identity.subject))
-    .unique();
+  const user = await getUserByClerkUserId(ctx, identity.subject);
 
   return { identity, user };
+}
+
+async function getUserByClerkUserId(ctx: any, clerkUserId: string) {
+  return await ctx.db
+    .query("users")
+    .withIndex("by_clerkUserId", (q: any) => q.eq("clerkUserId", clerkUserId))
+    .unique();
 }
 
 async function getPrimaryShopForUser(ctx: any, userId: any) {
@@ -71,6 +82,99 @@ async function getOrCreateCurrentShopOwner(ctx: any) {
 
   if (!user) throw new Error("User not found");
   return user;
+}
+
+async function getOwnerShopContextByClerkUserId(ctx: any, clerkUserId: string) {
+  const user = await getUserByClerkUserId(ctx, clerkUserId);
+  if (!user) return null;
+
+  const primary = await getPrimaryShopForUser(ctx, user._id);
+  if (!primary?.shop) return null;
+  if (!OWNER_ROLES.has(primary.membershipRole)) {
+    throw new Error("Not authorized");
+  }
+
+  return { user, primary };
+}
+
+function getStripeRequirements(
+  shop: StripeConnectShopFields | null | undefined
+): string[] {
+  return Array.isArray(shop?.stripe_requirements_currently_due)
+    ? shop.stripe_requirements_currently_due
+    : [];
+}
+
+function isStripeConnectReadyForShop(
+  shop: StripeConnectShopFields | null | undefined
+): boolean {
+  return (
+    shop?.stripe_charges_enabled === true &&
+    shop?.stripe_payouts_enabled === true &&
+    getStripeRequirements(shop).length === 0
+  );
+}
+
+function getStripeStatusPatch(args: {
+  shop: StripeConnectShopFields;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  requirementsCurrentlyDue: string[];
+}) {
+  const isReady =
+    args.chargesEnabled &&
+    args.payoutsEnabled &&
+    args.requirementsCurrentlyDue.length === 0;
+
+  return {
+    stripe_charges_enabled: args.chargesEnabled,
+    stripe_payouts_enabled: args.payoutsEnabled,
+    stripe_requirements_currently_due: args.requirementsCurrentlyDue,
+    stripe_onboarding_completed_at: isReady
+      ? args.shop.stripe_onboarding_completed_at ?? Date.now()
+      : args.shop.stripe_onboarding_completed_at,
+  };
+}
+
+async function assertOnboardingCanBeCompleted(ctx: any, shopId: any) {
+  const shop = await ctx.db.get(shopId);
+  if (!shop) throw new Error("Shop not found.");
+  if (!shop.stripe_connect_account_id) {
+    throw new Error("Complete Stripe Connect onboarding before finishing setup.");
+  }
+  if (!isStripeConnectReadyForShop(shop)) {
+    throw new Error(
+      "Stripe still needs more information before payouts can be enabled. Reopen Stripe onboarding and complete every required step."
+    );
+  }
+
+  const hours = await ctx.db
+    .query("shops_hours")
+    .withIndex("by_shop_id", (q: any) => q.eq("shop_id", shopId))
+    .collect();
+  if (hours.length < 7) {
+    throw new Error("Complete your operating hours before finishing setup.");
+  }
+
+  const mechanics = await ctx.db
+    .query("mechanics")
+    .withIndex("by_shop_id", (q: any) => q.eq("shop_id", shopId))
+    .filter((q: any) => q.eq(q.field("is_active"), true))
+    .collect();
+  if (mechanics.length === 0) {
+    throw new Error("Add at least one mechanic before finishing setup.");
+  }
+}
+
+async function finalizeOnboarding(ctx: any, args: { shopId: any; userId: any }) {
+  await ctx.db.patch(args.shopId, { onboarding_complete: true });
+  await ctx.db.patch(args.userId, {
+    onboardingCompleted: true,
+    lastUpdated: Date.now(),
+  });
+  await syncShopAvailabilityWindow(ctx, { shopId: args.shopId });
+
+  return args.shopId;
 }
 
 export const list = query({
@@ -221,6 +325,86 @@ export const getMyPortalAccess = query({
   },
 });
 
+export const getStripeOnboardingContext = internalQuery({
+  args: {
+    clerkUserId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const context = await getOwnerShopContextByClerkUserId(ctx, args.clerkUserId);
+    if (!context) return null;
+
+    return {
+      shopId: context.primary.shop._id,
+      shopName: context.primary.shop.name,
+      ownerEmail: context.user.email ?? null,
+      shopEmail: context.primary.shop.email ?? null,
+      stripeConnectAccountId: context.primary.shop.stripe_connect_account_id ?? null,
+    };
+  },
+});
+
+export const saveStripeConnectAccountId = mutation({
+  args: {
+    stripeConnectAccountId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const user = await getOrCreateCurrentShopOwner(ctx);
+    const primary = await getPrimaryShopForUser(ctx, user._id);
+    if (!primary?.shop) throw new Error("Shop not found.");
+    if (!OWNER_ROLES.has(primary.membershipRole)) {
+      throw new Error("Not authorized");
+    }
+
+    const existing = primary.shop.stripe_connect_account_id;
+    if (existing && existing !== args.stripeConnectAccountId) {
+      throw new Error("This shop is already linked to a different Stripe account.");
+    }
+
+    await ctx.db.patch(primary.shop._id, {
+      stripe_connect_account_id: args.stripeConnectAccountId,
+      stripe_charges_enabled: primary.shop.stripe_charges_enabled ?? false,
+      stripe_payouts_enabled: primary.shop.stripe_payouts_enabled ?? false,
+      stripe_requirements_currently_due:
+        primary.shop.stripe_requirements_currently_due ?? [],
+      onboarding_complete: false,
+    });
+
+    return primary.shop._id;
+  },
+});
+
+export const syncMyStripeConnectStatus = mutation({
+  args: {
+    stripeConnectAccountId: v.string(),
+    stripeChargesEnabled: v.boolean(),
+    stripePayoutsEnabled: v.boolean(),
+    stripeRequirementsCurrentlyDue: v.array(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const user = await getOrCreateCurrentShopOwner(ctx);
+    const primary = await getPrimaryShopForUser(ctx, user._id);
+    if (!primary?.shop) throw new Error("Shop not found.");
+    if (!OWNER_ROLES.has(primary.membershipRole)) {
+      throw new Error("Not authorized");
+    }
+    if (primary.shop.stripe_connect_account_id !== args.stripeConnectAccountId) {
+      throw new Error("Stripe account does not match this shop.");
+    }
+
+    await ctx.db.patch(
+      primary.shop._id,
+      getStripeStatusPatch({
+        shop: primary.shop,
+        chargesEnabled: args.stripeChargesEnabled,
+        payoutsEnabled: args.stripePayoutsEnabled,
+        requirementsCurrentlyDue: args.stripeRequirementsCurrentlyDue,
+      })
+    );
+
+    return primary.shop._id;
+  },
+});
+
 export const getMyOnboardingData = query({
   args: {},
   handler: async (ctx) => {
@@ -315,19 +499,33 @@ export const getMyOnboardingData = query({
           .collect()
       : [];
 
+    const mechanicRoleShopUsers = shopUsers.filter(
+      (row: any) =>
+        row.mechanic_id &&
+        (row.role === "shop_mechanic" || row.role === "mechanic")
+    );
+    const mechanicRolePendingInvitations = pendingInvitations.filter(
+      (row: any) =>
+        row.mechanic_id &&
+        (row.role === "shop_mechanic" || row.role === "mechanic")
+    );
+
     const shopUserByMechanicId = new Map(
-      shopUsers
-        .filter((row: any) => row.mechanic_id)
-        .map((row: any) => [String(row.mechanic_id), String(row._id)])
+      mechanicRoleShopUsers.map((row: any) => [String(row.mechanic_id), String(row._id)])
+    );
+    const shopUserRecordByMechanicId = new Map(
+      mechanicRoleShopUsers.map((row: any) => [String(row.mechanic_id), row])
     );
     const pendingInvitationByMechanicId = new Map(
-      pendingInvitations
-        .filter((row: any) => row.mechanic_id)
-        .map((row: any) => [String(row.mechanic_id), String(row._id)])
+      mechanicRolePendingInvitations.map((row: any) => [
+        String(row.mechanic_id),
+        String(row._id),
+      ])
     );
 
     return {
       userRole: user.role ?? null,
+      ownerEmail: user.email ?? null,
       shop: shop
         ? {
             _id: shop._id,
@@ -341,7 +539,14 @@ export const getMyOnboardingData = query({
             laborRate: shop.labor_rate ?? 150,
             lat: shop.lat ?? null,
             lng: shop.lng ?? null,
+            email: shop.email ?? null,
+            website: shop.website ?? null,
             stripeConnectAccountId: shop.stripe_connect_account_id ?? null,
+            stripeChargesEnabled: shop.stripe_charges_enabled === true,
+            stripePayoutsEnabled: shop.stripe_payouts_enabled === true,
+            stripeRequirementsCurrentlyDue: getStripeRequirements(shop),
+            stripeOnboardingCompletedAt: shop.stripe_onboarding_completed_at ?? null,
+            stripeConnectReady: isStripeConnectReadyForShop(shop),
             onboardingComplete: shop.onboarding_complete === true,
           }
         : null,
@@ -356,21 +561,33 @@ export const getMyOnboardingData = query({
           closeTime: (row.close_time ?? "17:00") as string,
         })),
       serviceCategories,
-      mechanics: mechanics
-        .filter(
-          (mechanic: any) =>
-            shopUserByMechanicId.has(String(mechanic._id)) ||
-            pendingInvitationByMechanicId.has(String(mechanic._id))
-        )
-        .map((mechanic: any) => ({
-          _id: String(mechanic._id),
-          firstName: mechanic.first_name as string,
-          lastName: mechanic.last_name as string,
-          title: (mechanic.title ?? "") as string,
-          shopUserId: shopUserByMechanicId.get(String(mechanic._id)) ?? null,
-          pendingInvitationId:
-            pendingInvitationByMechanicId.get(String(mechanic._id)) ?? null,
-        })),
+      mechanics: await Promise.all(
+        mechanics
+          .filter(
+            (mechanic: any) =>
+              shopUserByMechanicId.has(String(mechanic._id)) ||
+              pendingInvitationByMechanicId.has(String(mechanic._id))
+          )
+          .map(async (mechanic: any) => {
+            const shopUser = shopUserRecordByMechanicId.get(String(mechanic._id));
+            const linkedUser = shopUser?.user_id ? await ctx.db.get(shopUser.user_id) : null;
+            const photoUrl =
+              linkedUser?.profile_photo_storage_id
+                ? await ctx.storage.getUrl(linkedUser.profile_photo_storage_id)
+                : (linkedUser?.profile_photo_url ?? null);
+
+            return {
+              _id: String(mechanic._id),
+              firstName: mechanic.first_name as string,
+              lastName: mechanic.last_name as string,
+              title: (mechanic.title ?? "") as string,
+              shopUserId: shopUserByMechanicId.get(String(mechanic._id)) ?? null,
+              pendingInvitationId:
+                pendingInvitationByMechanicId.get(String(mechanic._id)) ?? null,
+              photoUrl,
+            };
+          })
+      ),
     };
   },
 });
@@ -599,6 +816,137 @@ export const removeOnboardingMechanic = mutation({
   },
 });
 
+export const updateOnboardingMechanicProfilePhoto = mutation({
+  args: {
+    mechanicId: v.id("mechanics"),
+    profilePhotoStorageId: v.union(v.string(), v.null()),
+  },
+  handler: async (ctx, args) => {
+    const user = await getOrCreateCurrentShopOwner(ctx);
+    const primary = await getPrimaryShopForUser(ctx, user._id);
+    if (!primary?.shop) throw new Error("Shop not found.");
+    if (!OWNER_ROLES.has(primary.membershipRole)) {
+      throw new Error("Not authorized");
+    }
+
+    const mechanic = await ctx.db.get(args.mechanicId);
+    if (!mechanic || String(mechanic.shop_id) !== String(primary.shop._id)) {
+      throw new Error("Mechanic not found.");
+    }
+
+    const shopUser = await ctx.db
+      .query("shop_users")
+      .withIndex("by_shop_id", (q: any) => q.eq("shop_id", primary.shop._id))
+      .filter((q: any) =>
+        q.and(
+          q.eq(q.field("is_active"), true),
+          q.eq(q.field("mechanic_id"), args.mechanicId),
+          q.or(
+            q.eq(q.field("role"), "shop_mechanic"),
+            q.eq(q.field("role"), "mechanic")
+          )
+        )
+      )
+      .first();
+
+    if (!shopUser?.user_id) {
+      throw new Error("Profile photo can be added after the mechanic accepts the invitation.");
+    }
+
+    await ctx.db.patch(shopUser.user_id, {
+      profile_photo_storage_id: args.profilePhotoStorageId ?? undefined,
+      profile_photo_url: undefined,
+      lastUpdated: Date.now(),
+    });
+
+    const photoUrl = args.profilePhotoStorageId
+      ? await ctx.storage.getUrl(args.profilePhotoStorageId)
+      : null;
+    return { userId: shopUser.user_id, photoUrl };
+  },
+});
+
+export const saveStripeConnectAccountForClerkUser = internalMutation({
+  args: {
+    clerkUserId: v.string(),
+    stripeConnectAccountId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const context = await getOwnerShopContextByClerkUserId(ctx, args.clerkUserId);
+    if (!context) throw new Error("Shop not found.");
+
+    const existing = context.primary.shop.stripe_connect_account_id;
+    if (existing && existing !== args.stripeConnectAccountId) {
+      throw new Error("This shop is already linked to a different Stripe account.");
+    }
+
+    await ctx.db.patch(context.primary.shop._id, {
+      stripe_connect_account_id: args.stripeConnectAccountId,
+      stripe_charges_enabled: context.primary.shop.stripe_charges_enabled ?? false,
+      stripe_payouts_enabled: context.primary.shop.stripe_payouts_enabled ?? false,
+      stripe_requirements_currently_due:
+        context.primary.shop.stripe_requirements_currently_due ?? [],
+      onboarding_complete: false,
+    });
+
+    return context.primary.shop._id;
+  },
+});
+
+export const syncStripeConnectStatusByAccountId = internalMutation({
+  args: {
+    stripeConnectAccountId: v.string(),
+    stripeChargesEnabled: v.boolean(),
+    stripePayoutsEnabled: v.boolean(),
+    stripeRequirementsCurrentlyDue: v.array(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const shop = await ctx.db
+      .query("shops")
+      .withIndex("by_stripe_connect_account_id", (q: any) =>
+        q.eq("stripe_connect_account_id", args.stripeConnectAccountId)
+      )
+      .first();
+
+    if (!shop) {
+      return { shopId: null, ready: false };
+    }
+
+    const ready =
+      args.stripeChargesEnabled &&
+      args.stripePayoutsEnabled &&
+      args.stripeRequirementsCurrentlyDue.length === 0;
+
+    await ctx.db.patch(
+      shop._id,
+      getStripeStatusPatch({
+        shop,
+        chargesEnabled: args.stripeChargesEnabled,
+        payoutsEnabled: args.stripePayoutsEnabled,
+        requirementsCurrentlyDue: args.stripeRequirementsCurrentlyDue,
+      })
+    );
+
+    return { shopId: shop._id, ready };
+  },
+});
+
+export const completeOnboardingForClerkUser = internalMutation({
+  args: {
+    clerkUserId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const context = await getOwnerShopContextByClerkUserId(ctx, args.clerkUserId);
+    if (!context) throw new Error("Shop not found.");
+
+    await assertOnboardingCanBeCompleted(ctx, context.primary.shop._id);
+    return await finalizeOnboarding(ctx, {
+      shopId: context.primary.shop._id,
+      userId: context.user._id,
+    });
+  },
+});
+
 export const completeOnboarding = mutation({
   args: {},
   handler: async (ctx) => {
@@ -609,31 +957,11 @@ export const completeOnboarding = mutation({
       throw new Error("Not authorized");
     }
 
-    const hours = await ctx.db
-      .query("shops_hours")
-      .withIndex("by_shop_id", (q: any) => q.eq("shop_id", primary.shop._id))
-      .collect();
-    if (hours.length < 7) {
-      throw new Error("Complete your operating hours before finishing setup.");
-    }
-
-    const mechanics = await ctx.db
-      .query("mechanics")
-      .withIndex("by_shop_id", (q: any) => q.eq("shop_id", primary.shop._id))
-      .filter((q: any) => q.eq(q.field("is_active"), true))
-      .collect();
-    if (mechanics.length === 0) {
-      throw new Error("Add at least one mechanic before finishing setup.");
-    }
-
-    await ctx.db.patch(primary.shop._id, { onboarding_complete: true });
-    await ctx.db.patch(user._id, {
-      onboardingCompleted: true,
-      lastUpdated: Date.now(),
+    await assertOnboardingCanBeCompleted(ctx, primary.shop._id);
+    return await finalizeOnboarding(ctx, {
+      shopId: primary.shop._id,
+      userId: user._id,
     });
-    await syncShopAvailabilityWindow(ctx, { shopId: primary.shop._id });
-
-    return primary.shop._id;
   },
 });
 

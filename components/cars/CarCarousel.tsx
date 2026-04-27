@@ -1434,7 +1434,13 @@ const CircularCarouselItem = memo(({ item, index, rotation, totalItems }: Carous
   const animatedStyle = useAnimatedStyle(() => {
     const anglePerItem = (2 * Math.PI) / totalItems;
     const baseAngle = index * anglePerItem;
-    const currentAngle = baseAngle - rotation.value;
+    // `rotation` is set as `-activeIndex * anglePerItem` elsewhere in this file
+    // (see the useEffect re-center and rotateToIndex). For the active item's
+    // `currentAngle` to land at 0 (front), we need `baseAngle + rotation`, not
+    // minus. With 2 items the two forms are equivalent mod 2π, which is why
+    // the original `-` worked in testing; at 3+ items, the wrong item was
+    // rendered at the front — see the fallback-Lexus-as-hero regression.
+    const currentAngle = baseAngle + rotation.value;
 
     // Calculate position on a wider arc (not full circle)
     const x = Math.sin(currentAngle) * RADIUS * 1.2;
@@ -1528,6 +1534,38 @@ export function CarCarousel({
   const lastUpdatedIndex = useSharedValue(0);
   const isUserAnimating = useRef(false);
 
+  // Remember the active vehicle's id (VIN) so list reorders — adding a car,
+  // removing one, or a resort — don't scramble the selection. Updated ONLY
+  // when activeIndex changes (intentional dep omission below) so the next
+  // re-anchor pass can look up the previously-selected id.
+  const activeVehicleIdRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const current = sortedVehicles[activeIndex];
+    if (current) activeVehicleIdRef.current = current.id;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeIndex]);
+
+  // When the vehicle list changes (reorder / add / remove), map the remembered
+  // id back to its new index. Keeps title, hero rotation, and thumbnail
+  // underline in sync.
+  useEffect(() => {
+    if (sortedVehicles.length === 0 || !activeVehicleIdRef.current) return;
+    const newIdx = sortedVehicles.findIndex((v) => v.id === activeVehicleIdRef.current);
+    if (newIdx < 0) {
+      // Active vehicle was removed — fall back to first.
+      setActiveIndex(0);
+      onActiveIndexChange?.(0);
+      return;
+    }
+    setActiveIndex((prev) => {
+      if (newIdx !== prev) {
+        onActiveIndexChange?.(newIdx);
+        return newIdx;
+      }
+      return prev;
+    });
+  }, [sortedVehicles, onActiveIndexChange]);
+
   // Bottom sheet state
   const [showBottomSheet, setShowBottomSheet] = useState(false);
   const [sheetMode, setSheetMode] = useState<'main' | 'modelYear' | 'mileage' | 'nextService'>('main');
@@ -1618,15 +1656,18 @@ export function CarCarousel({
     })
     .onUpdate((e) => {
       const delta = e.translationX - lastTranslationX.value;
-      rotation.value -= delta * 0.008;
+      // Signs flipped alongside CircularCarouselItem's `baseAngle + rotation`
+      // change so the content follows the finger naturally (drag right → the
+      // left-back neighbor comes to front).
+      rotation.value += delta * 0.008;
       lastTranslationX.value = e.translationX;
-      
+
       const currentRotationInSteps = Math.round(rotation.value / anglePerItem);
       const currentClosestIndex = (((-currentRotationInSteps % sortedVehicles.length) + sortedVehicles.length) % sortedVehicles.length);
       lastUpdatedIndex.value = currentClosestIndex;
     })
     .onEnd((e) => {
-      const velocity = e.velocityX * -0.0005;
+      const velocity = e.velocityX * 0.0005;
       const targetRotation = rotation.value + velocity;
       const nearestIndex = Math.round(targetRotation / anglePerItem);
       const snappedRotation = nearestIndex * anglePerItem;

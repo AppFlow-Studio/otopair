@@ -13,13 +13,19 @@
  * OWNER: Waleed Mansour
  */
 import { BookingCard, type Booking } from "@/components/bookings/BookingCard";
+import { PendingQuoteCard } from "@/components/bookings/PendingQuoteCard";
+import { QuoteListSheet, type QuoteListSheetRef } from "@/components/bookings/QuoteListSheet";
 import { BookingDetailsSheet, type BookingDetailsSheetRef } from "@/components/bookings/BookingDetailsSheet";
+import {
+  QuoteRequestConfirmationSheet,
+  type QuoteRequestConfirmationSheetRef,
+} from "@/components/bookings/QuoteRequestConfirmationSheet";
 import { ScrollDrivenGradientBackground, Text } from "@/components/shared-ui";
 import { useMyBookingsWithDetails } from "@/hooks/useMyBookingsWithDetails";
 import { useBookingStore } from "@/stores/useBookingStore";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { Calendar, Search, SlidersHorizontal } from "lucide-react-native";
-import React, { useCallback, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Platform, Pressable, RefreshControl, StyleSheet, TextInput, View } from "react-native";
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -29,8 +35,8 @@ import SegmentedControl from "@react-native-segmented-control/segmented-control"
 // TYPES
 // ============================================================================
 
-type TabType = "liveTracker" | "upcoming" | "history";
-const TAB_ORDER: TabType[] = ["liveTracker", "upcoming", "history"];
+type TabType = "liveTracker" | "upcoming" | "quotes" | "history";
+const TAB_ORDER: TabType[] = ["liveTracker", "upcoming", "quotes", "history"];
 
 // ============================================================================
 // COMPONENT
@@ -39,15 +45,54 @@ const TAB_ORDER: TabType[] = ["liveTracker", "upcoming", "history"];
 export default function BookingsScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { liveBooking, upcomingBookings, historyBookings, isLoading } = useMyBookingsWithDetails();
+  const { liveBooking, upcomingBookings, quoteBookings, historyBookings, isLoading } = useMyBookingsWithDetails();
 
   const hasActiveService = !!liveBooking;
-  const [activeTab, setActiveTab] = useState<TabType>(hasActiveService ? "liveTracker" : "upcoming");
+  const { tab: tabParam, requestSubmitted: requestSubmittedParam } =
+    useLocalSearchParams<{ tab?: string; requestSubmitted?: string }>();
+  const initialTab: TabType = TAB_ORDER.includes(tabParam as TabType)
+    ? (tabParam as TabType)
+    : hasActiveService
+      ? "liveTracker"
+      : "upcoming";
+  const [activeTab, setActiveTab] = useState<TabType>(initialTab);
+  // If we land on the screen again with a new `tab` param (e.g. from the
+  // tire flow completing), switch to the requested tab.
+  useEffect(() => {
+    if (tabParam && TAB_ORDER.includes(tabParam as TabType)) {
+      setActiveTab(tabParam as TabType);
+    }
+  }, [tabParam]);
   const [refreshing, setRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const detailsSheetRef = useRef<BookingDetailsSheetRef>(null);
+  const confirmSheetRef = useRef<QuoteRequestConfirmationSheetRef>(null);
 
-  const bookings = activeTab === "upcoming" ? upcomingBookings : historyBookings;
+  // One-shot: when we arrive here with `requestSubmitted=1` (from the tire
+  // "Requesting" screen's View button), auto-open the confirmation sheet
+  // *after* the Expo Router tab/stack transition settles. Without the delay,
+  // the Modal's slide-up overlaps the route transition and the user lands on
+  // a screen that's already fully open.
+  useEffect(() => {
+    if (requestSubmittedParam !== "1") return;
+    const timer = setTimeout(() => {
+      confirmSheetRef.current?.open();
+      // Strip the param AFTER opening so we don't re-trigger on re-renders.
+      router.setParams({ requestSubmitted: undefined });
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [requestSubmittedParam, router]);
+
+  const handleConfirmSheetViewBooking = useCallback(() => {
+    confirmSheetRef.current?.close();
+  }, []);
+
+  const bookings =
+    activeTab === "upcoming"
+      ? upcomingBookings
+      : activeTab === "quotes"
+        ? quoteBookings
+        : historyBookings;
 
   // Filter bookings based on search query (history tab)
   const filteredBookings = bookings.filter(
@@ -65,6 +110,7 @@ export default function BookingsScreen() {
   const allBookings = [
     ...(liveBooking ? [liveBooking] : []),
     ...upcomingBookings,
+    ...quoteBookings,
     ...historyBookings,
   ];
   const handleViewDetails = (bookingId: string) => {
@@ -76,6 +122,7 @@ export default function BookingsScreen() {
 
   const cancelBooking = useBookingStore((s) => s.cancelBooking);
   const toggleLiveTracker = useBookingStore((s) => s.toggleLiveTracker);
+  const toggleQuotesReady = useBookingStore((s) => s.toggleQuotesReady);
   const handleCancelBooking = (bookingId: string) => {
     cancelBooking(bookingId);
   };
@@ -88,6 +135,17 @@ export default function BookingsScreen() {
     } else {
       setActiveTab("upcoming");
     }
+  };
+
+  const quoteListSheetRef = useRef<QuoteListSheetRef>(null);
+  const handleToggleQuotesReady = (bookingId: string) => {
+    toggleQuotesReady(bookingId);
+    // Follow the card to its new tab — pending_quote → Quotes, and back.
+    const booking = useBookingStore.getState().getBookingById(bookingId);
+    setActiveTab(booking?.status === "quotes_ready" ? "quotes" : "upcoming");
+  };
+  const handleViewQuotes = (bookingId: string) => {
+    quoteListSheetRef.current?.open(bookingId);
   };
 
   const handleReschedule = (bookingId?: string) => {
@@ -126,7 +184,7 @@ export default function BookingsScreen() {
             {/* Tab Switcher */}
             <View style={styles.segmentedWrapper}>
               <SegmentedControl
-                values={["Live Tracker", "Upcoming", "History"]}
+                values={["Live Tracker", "Upcoming", "Quotes", "History"]}
                 selectedIndex={TAB_ORDER.indexOf(activeTab)}
                 onChange={(event) => {
                   setActiveTab(TAB_ORDER[event.nativeEvent.selectedSegmentIndex]);
@@ -184,32 +242,53 @@ export default function BookingsScreen() {
                   </View>
                 )
               ) : filteredBookings.length > 0 ? (
-                // Upcoming or History Content
-                filteredBookings.map((booking) => (
-                  <BookingCard
-                    key={booking.id}
-                    booking={booking}
-                    variant={activeTab}
-                    onViewDetails={handleViewDetails}
-                    onCancelBooking={handleCancelBooking}
-                    onReschedule={handleReschedule}
-                    onDownloadPdf={handleDownloadPdf}
-                    onToggleFavorite={handleToggleFavorite}
-                    onToggleLiveTracker={handleToggleLiveTracker}
-                  />
-                ))
+                // Upcoming or History Content. Pending-quote bookings in
+                // Upcoming get a stripped-down card with only the car + tire
+                // specs + Pending Quote tag; full BookingCard otherwise.
+                filteredBookings.map((booking) =>
+                  booking.status === "pending_quote" || booking.status === "quotes_ready" ? (
+                    // Tire quote-stage bookings use the dedicated PendingQuoteCard
+                    // in both Upcoming (pending_quote) and Quotes (quotes_ready)
+                    // tabs. Status drives the tag + action inside the card.
+                    <PendingQuoteCard
+                      key={booking.id}
+                      booking={booking}
+                      onPress={handleViewDetails}
+                      onToggleQuotesReady={handleToggleQuotesReady}
+                      onViewQuotes={handleViewQuotes}
+                    />
+                  ) : (
+                    <BookingCard
+                      key={booking.id}
+                      booking={booking}
+                      variant={activeTab === "history" ? "history" : "upcoming"}
+                      onViewDetails={handleViewDetails}
+                      onCancelBooking={handleCancelBooking}
+                      onReschedule={handleReschedule}
+                      onDownloadPdf={handleDownloadPdf}
+                      onToggleFavorite={handleToggleFavorite}
+                      onToggleLiveTracker={handleToggleLiveTracker}
+                    />
+                  ),
+                )
               ) : (
                 <View style={styles.emptyState}>
                   <View style={styles.emptyIconContainer}>
                     <Calendar size={48} color="#9CA3AF" strokeWidth={1.5} />
                   </View>
                   <Text weight="semiBold" size="lg" color="#374151" center>
-                    No {activeTab === "upcoming" ? "Upcoming" : "Past"} Bookings
+                    {activeTab === "upcoming"
+                      ? "No Upcoming Bookings"
+                      : activeTab === "quotes"
+                        ? "No Quotes Yet"
+                        : "No Past Bookings"}
                   </Text>
                   <Text weight="regular" size="sm" color="#6B7280" center style={styles.emptyText}>
                     {activeTab === "upcoming"
                       ? "You don't have any upcoming appointments. Book a service to get started!"
-                      : "You haven't completed any bookings yet."}
+                      : activeTab === "quotes"
+                        ? "Shop responses will appear here once quotes come back for one of your Upcoming requests."
+                        : "You haven't completed any bookings yet."}
                   </Text>
                 </View>
               )}
@@ -220,6 +299,13 @@ export default function BookingsScreen() {
     </ScrollDrivenGradientBackground>
 
     <BookingDetailsSheet ref={detailsSheetRef} />
+
+    <QuoteRequestConfirmationSheet
+      ref={confirmSheetRef}
+      onViewBooking={handleConfirmSheetViewBooking}
+    />
+
+    <QuoteListSheet ref={quoteListSheetRef} />
   </>
   );
 }

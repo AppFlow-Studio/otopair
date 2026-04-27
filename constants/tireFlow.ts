@@ -15,7 +15,10 @@
 // ============================================================================
 
 export type TireTypeId = "all-season" | "performance" | "winter";
-export type TireTierId = "elite" | "select" | "standard";
+// NOTE: Tier IDs renamed 2026-04-22 (elite→premium, select→plus). If analytics
+// events or persisted tier values are added later, map old→new explicitly
+// instead of renaming in-place again.
+export type TireTierId = "premium" | "plus" | "standard";
 export type TireQuantity = 2 | 4;
 
 export interface TireTypeOption {
@@ -30,7 +33,6 @@ export interface TireTierOption {
   label: string;
   tagline: string;
   warrantyRange: string;
-  priceHintPerTire: string;
   brandSample: string[];
   recommended?: boolean;
 }
@@ -63,7 +65,6 @@ export const TIRE_TYPES: TireTypeOption[] = [
     label: "All-Season",
     description:
       "The best fit for year-round driving in your area. Balanced grip across wet and dry conditions with no seasonal swap needed.",
-    recommended: true,
   },
   {
     id: "performance",
@@ -85,23 +86,20 @@ export const TIRE_TYPES: TireTypeOption[] = [
 
 export const TIRE_TIERS: TireTierOption[] = [
   {
-    id: "elite",
-    label: "Elite",
+    id: "premium",
+    label: "Premium",
     tagline:
       "Premium tires engineered for the best ride quality, safety, and longevity. The same brands trusted by luxury automakers.",
     warrantyRange: "60K – 80K mi",
-    priceHintPerTire: "$180 – $260 per tire",
     brandSample: ["Michelin", "Continental", "Bridgestone"],
   },
   {
-    id: "select",
-    label: "Select",
+    id: "plus",
+    label: "Plus",
     tagline:
       "Trusted brands with excellent performance and value. Great everyday tires from well-known manufacturers.",
     warrantyRange: "45K – 70K mi",
-    priceHintPerTire: "$110 – $170 per tire",
     brandSample: ["Hankook", "Yokohama", "Cooper"],
-    recommended: true,
   },
   {
     id: "standard",
@@ -109,7 +107,6 @@ export const TIRE_TIERS: TireTierOption[] = [
     tagline:
       "Reliable tires for everyday driving at the most affordable price. Safe and functional for daily commutes.",
     warrantyRange: "30K – 50K mi",
-    priceHintPerTire: "$70 – $110 per tire",
     brandSample: ["Kumho", "Nexen", "Sailun"],
   },
 ];
@@ -140,14 +137,14 @@ export const DEFAULT_OEM_SIZES = ["225/55R17", "235/50R18"];
 // ============================================================================
 
 const BRAND_POOL: Record<TireTierId, Array<{ brand: string; model: string }>> = {
-  elite: [
+  premium: [
     { brand: "Michelin", model: "Defender 2" },
     { brand: "Continental", model: "PureContact LS" },
     { brand: "Bridgestone", model: "Turanza QuietTrack" },
     { brand: "Pirelli", model: "P Zero All Season Plus" },
     { brand: "Goodyear", model: "Assurance WeatherReady" },
   ],
-  select: [
+  plus: [
     { brand: "Hankook", model: "Kinergy GT" },
     { brand: "Yokohama", model: "Avid Ascend GT" },
     { brand: "Cooper", model: "Endeavor Plus" },
@@ -163,13 +160,13 @@ const BRAND_POOL: Record<TireTierId, Array<{ brand: string; model: string }>> = 
   ],
 };
 
-const PRICE_RANGES: Record<TireTierId, [number, number]> = {
-  elite: [185, 258],
-  select: [112, 168],
+export const PRICE_RANGES: Record<TireTierId, [number, number]> = {
+  premium: [185, 258],
+  plus: [112, 168],
   standard: [72, 108],
 };
 
-const SHOP_POOL = [
+export const SHOP_POOL = [
   { id: "shop_ac_wmsbg", name: "AutoCare Express — Williamsburg", rating: 4.9, distance: 0.8, verified: true },
   { id: "shop_metro_tire", name: "Metro Tire Co.", rating: 4.6, distance: 1.4, verified: true },
   { id: "shop_parkslope_auto", name: "Park Slope Auto", rating: 4.4, distance: 2.1, verified: false },

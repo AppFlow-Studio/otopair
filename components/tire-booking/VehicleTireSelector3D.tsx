@@ -1,40 +1,72 @@
 /**
  * VehicleTireSelector3D
  *
- * 2D top-down SVG car with 4 tappable tire circles at the corners. The
- * file name is a historical artifact — we briefly attempted a real 3D
- * renderer (three.js / filament) and reverted. Keeping the name stable so
- * imports elsewhere don't need to change.
+ * Hero component for the tire-booking page. Renders the premium top-down
+ * car photo (`assets/images/tire-picker-car.png`) inside an aspect-locked
+ * frame and overlays 4 tappable tire circles at the four wheel corners.
  *
- * PROPS: `selected` (TirePosition[]) + `onTogglePosition` callback.
+ * File name is a historical artifact — we briefly tried a real 3D renderer
+ * (three.js / filament) before settling on the photo + overlay approach.
  */
 
 import React from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import {
+  Image,
+  Pressable,
+  StyleSheet,
+  View,
+} from "react-native";
 import Animated, {
   useAnimatedStyle,
   useSharedValue,
   withSpring,
 } from "react-native-reanimated";
-import Svg, { Defs, LinearGradient, Rect, Stop } from "react-native-svg";
+import Svg, { Path } from "react-native-svg";
 
 import type { TirePosition } from "@/stores/useTireBookingStore";
 
 // ============================================================================
-// LAYOUT / GEOMETRY
+// TIRE ICON — user-supplied SVG tire graphic (tread shape). Rendered at the
+// tap-target size and tinted by selection state.
 // ============================================================================
 
-// The SVG is drawn in a normalized 200×360 viewBox (portrait, top-down car).
-// Tire centers are in the SAME coordinate space and then converted to
-// percentages so the tires scale with whatever the container ends up being.
-const VIEWBOX_W = 200;
-const VIEWBOX_H = 360;
+// Outer silhouette (base layer) — draws the full tire shape
+const TIRE_PATH_OUTER =
+  "M46.99,7.4c-0.03-0.56-0.12-1.11-0.28-1.65C45.77,2.37,42.65,0,39.13,0h-1.75c-0.01,0-0.01,0-0.02,0c0,0,0,0-0.01,0h-5.34c0,0,0,0-0.01,0h-6.2c-0.01,0-0.01,0-0.01,0c-0.01,0-0.01,0-0.02,0h-0.9c-2.75,0-5.25,1.4-6.7,3.74c-0.39,0.62-0.69,1.3-0.89,2.02c0,0.01-0.01,0.03-0.01,0.05C17.12,6.34,17.04,6.88,17,7.4c-0.01,0.16-0.01,0.32-0.01,0.49v48.23c0,0.51,0.05,1.01,0.14,1.49c0.07,0.37,0.17,0.74,0.29,1.09c0.1,0.27,0.22,0.51,0.34,0.77c0.01,0.04,0.03,0.08,0.06,0.13c1.31,2.66,4.03,4.4,7.05,4.4h14.26c3.04,0,5.76-1.75,7.06-4.43c0.01-0.02,0.03-0.05,0.04-0.08c0.12-0.26,0.25-0.51,0.34-0.79c0.13-0.35,0.23-0.72,0.29-1.08c0.1-0.49,0.15-0.99,0.15-1.5V7.89C47.01,7.72,47,7.56,46.99,7.4z M24.82,4.66h-0.45c-0.54,0-0.97,0.44-0.97,0.97c0,0.54,0.43,0.97,0.97,0.97h0.45v4.66h-0.45c-0.54,0-0.97,0.43-0.97,0.97c0,0.53,0.43,0.97,0.97,0.97h0.45v4.65h-0.45c-0.54,0-0.97,0.44-0.97,0.97c0,0.54,0.43,0.97,0.97,0.97h0.45v4.65h-0.45c-0.54,0-0.97,0.43-0.97,0.97c0,0.53,0.43,0.97,0.97,0.97h0.45v4.65h-0.45c-0.54,0-0.97,0.43-0.97,0.97c0,0.53,0.43,0.97,0.97,0.97h0.45v4.65h-0.45c-0.54,0-0.97,0.44-0.97,0.97c0,0.54,0.43,0.97,0.97,0.97h0.45v4.66h-0.45c-0.54,0-0.97,0.43-0.97,0.97c0,0.53,0.43,0.97,0.97,0.97h0.45v4.64h-0.45c-0.54,0-0.97,0.43-0.97,0.97c0,0.54,0.43,0.97,0.97,0.97h0.45v4.65h-0.45c-0.54,0-0.97,0.44-0.97,0.97c0,0.54,0.43,0.97,0.97,0.97h0.45v2.73c-2.04-0.02-3.87-1.09-4.94-2.75l3.14-3.21c0.37-0.38,0.36-0.99-0.02-1.37c-0.38-0.37-0.99-0.36-1.37,0.02l-2.56,2.61c-0.01-0.04-0.03-0.07-0.03-0.11c-0.08-0.37-0.11-0.75-0.11-1.13v-4.39l4.1-4.17c0.37-0.38,0.36-0.99-0.02-1.37c-0.38-0.37-0.99-0.37-1.37,0.01l-2.71,2.77v-5.78l4.1-4.17c0.37-0.38,0.36-1-0.02-1.37c-0.38-0.38-0.99-0.37-1.37,0.01l-2.71,2.76v-5.77l4.1-4.18c0.37-0.39,0.36-1-0.02-1.37c-0.38-0.38-0.99-0.37-1.37,0.01l-2.71,2.77v-5.79l4.1-4.17c0.37-0.38,0.36-0.99-0.02-1.37c-0.38-0.37-0.99-0.37-1.37,0.02l-2.71,2.76v-5.78l4.1-4.18c0.37-0.38,0.36-0.99-0.02-1.37c-0.38-0.37-0.99-0.37-1.37,0.01l-2.71,2.77V9.01l4.1-4.18c0.37-0.38,0.36-1-0.02-1.37c-0.38-0.38-0.99-0.37-1.37,0.01L19.3,5.86c0.14-0.38,0.3-0.75,0.52-1.1c1.08-1.75,2.95-2.8,5-2.81V4.66z M31.03,62.06h-4.27v-2.73h0.95c0.54,0,0.97-0.43,0.97-0.97c0-0.53-0.43-0.97-0.97-0.97h-0.95v-4.65h0.95c0.54,0,0.97-0.43,0.97-0.97c0-0.54-0.43-0.97-0.97-0.97h-0.95v-4.64h0.95c0.54,0,0.97-0.44,0.97-0.97c0-0.54-0.43-0.97-0.97-0.97h-0.95v-4.66h0.95c0.54,0,0.97-0.43,0.97-0.97c0-0.53-0.43-0.97-0.97-0.97h-0.95v-4.65h0.95c0.54,0,0.97-0.44,0.97-0.97c0-0.54-0.43-0.97-0.97-0.97h-0.95v-4.65h0.95c0.54,0,0.97-0.44,0.97-0.97c0-0.54-0.43-0.97-0.97-0.97h-0.95v-4.65h0.95c0.54,0,0.97-0.43,0.97-0.97c0-0.53-0.43-0.97-0.97-0.97h-0.95V13.2h0.95c0.54,0,0.97-0.44,0.97-0.97c0-0.54-0.43-0.97-0.97-0.97h-0.95V6.6h0.95c0.54,0,0.97-0.43,0.97-0.97c0-0.53-0.43-0.97-0.97-0.97h-0.95V1.94h4.27V62.06z M36.39,4.66h-0.68c-0.53,0-0.96,0.44-0.96,0.97c0,0.54,0.43,0.97,0.96,0.97h0.68v4.66h-0.68c-0.53,0-0.96,0.43-0.96,0.97c0,0.53,0.43,0.97,0.96,0.97h0.68v4.65h-0.68c-0.53,0-0.96,0.44-0.96,0.97c0,0.54,0.43,0.97,0.96,0.97h0.68v4.65h-0.68c-0.53,0-0.96,0.43-0.96,0.97c0,0.53,0.43,0.97,0.96,0.97h0.68v4.65h-0.68c-0.53,0-0.96,0.43-0.96,0.97c0,0.53,0.43,0.97,0.96,0.97h0.68v4.65h-0.68c-0.53,0-0.96,0.44-0.96,0.97c0,0.54,0.43,0.97,0.96,0.97h0.68v4.66h-0.68c-0.53,0-0.96,0.43-0.96,0.97c0,0.53,0.43,0.97,0.96,0.97h0.68v4.64h-0.68c-0.53,0-0.96,0.43-0.96,0.97c0,0.54,0.43,0.97,0.96,0.97h0.68v4.65h-0.68c-0.53,0-0.96,0.44-0.96,0.97c0,0.54,0.43,0.97,0.96,0.97h0.68v2.73h-3.42V1.94h3.42V4.66z M45.07,14.79l-2.72-2.78c-0.37-0.38-0.99-0.38-1.37-0.01c-0.38,0.38-0.39,0.99-0.01,1.37l4.1,4.19v5.77l-2.72-2.76c-0.37-0.39-0.99-0.39-1.37-0.02c-0.38,0.38-0.39,0.99-0.01,1.37l4.1,4.18v5.78l-2.72-2.77c-0.37-0.38-0.99-0.39-1.37-0.01c-0.38,0.37-0.39,0.98-0.01,1.37l4.1,4.18v5.78l-2.72-2.77c-0.37-0.38-0.99-0.39-1.37-0.01c-0.38,0.37-0.39,0.99-0.01,1.37l4.1,4.17v5.78l-2.72-2.77c-0.37-0.38-0.99-0.38-1.37-0.01c-0.38,0.38-0.39,0.99-0.01,1.37l4.1,4.18v4.38c0,0.38-0.04,0.76-0.11,1.14c-0.01,0.03-0.02,0.07-0.03,0.11l-2.57-2.62c-0.37-0.38-0.99-0.39-1.37-0.02c-0.38,0.38-0.39,0.99-0.01,1.37l3.14,3.21c-1.08,1.68-2.94,2.75-4.99,2.75h-0.8v-2.73h0.73c0.54,0,0.97-0.43,0.97-0.97c0-0.53-0.43-0.97-0.97-0.97h-0.73v-4.65h0.73c0.54,0,0.97-0.43,0.97-0.97c0-0.54-0.43-0.97-0.97-0.97h-0.73v-4.64h0.73c0.54,0,0.97-0.44,0.97-0.97c0-0.54-0.43-0.97-0.97-0.97h-0.73v-4.66h0.73c0.54,0,0.97-0.43,0.97-0.97c0-0.53-0.43-0.97-0.97-0.97h-0.73v-4.65h0.73c0.54,0,0.97-0.44,0.97-0.97c0-0.54-0.43-0.97-0.97-0.97h-0.73v-4.65h0.73c0.54,0,0.97-0.44,0.97-0.97c0-0.54-0.43-0.97-0.97-0.97h-0.73v-4.65h0.73c0.54,0,0.97-0.43,0.97-0.97c0-0.53-0.43-0.97-0.97-0.97h-0.73V13.2h0.73c0.54,0,0.97-0.44,0.97-0.97c0-0.54-0.43-0.97-0.97-0.97h-0.73V6.6h0.73c0.54,0,0.97-0.43,0.97-0.97c0-0.53-0.43-0.97-0.97-0.97h-0.73V1.94h0.8c2.5,0,4.71,1.59,5.56,3.92l-2.34-2.39c-0.37-0.38-0.99-0.39-1.37-0.01c-0.38,0.37-0.39,0.99-0.01,1.37l4.1,4.18V14.79z";
 
-const TIRE_CENTERS: Record<TirePosition, { cx: number; cy: number }> = {
-  FL: { cx: 28, cy: 78 },
-  FR: { cx: 172, cy: 78 },
-  RL: { cx: 28, cy: 282 },
-  RR: { cx: 172, cy: 282 },
+// Interior detail layer — the tread / groove fills that sit on top
+const TIRE_PATH_INNER =
+  "M23.4 5.63c0 .54.43.97.97.97h.45v4.66h-.45c-.54 0-.97.43-.97.97 0 .53.43.97.97.97h.45v4.65h-.45c-.54 0-.97.44-.97.97 0 .54.43.97.97.97h.45v4.65h-.45c-.54 0-.97.43-.97.97 0 .53.43.97.97.97h.45v4.65h-.45c-.54 0-.97.43-.97.97 0 .53.43.97.97.97h.45v4.65h-.45c-.54 0-.97.44-.97.97 0 .54.43.97.97.97h.45v4.66h-.45c-.54 0-.97.43-.97.97 0 .53.43.97.97.97h.45v4.64h-.45c-.54 0-.97.43-.97.97 0 .54.43.97.97.97h.45v4.65h-.45c-.54 0-.97.44-.97.97 0 .54.43.97.97.97h.45v2.73c-2.04-.02-3.87-1.09-4.94-2.75l3.14-3.21c.37-.38.36-.99-.02-1.37-.38-.37-.99-.36-1.37.02l-2.56 2.61c-.01-.04-.03-.07-.03-.11-.08-.37-.11-.75-.11-1.13v-4.39l4.1-4.17c.37-.38.36-.99-.02-1.37-.38-.37-.99-.37-1.37.01l-2.71 2.77v-5.78l4.1-4.17c.37-.38.36-1-.02-1.37-.38-.38-.99-.37-1.37.01l-2.71 2.76v-5.77l4.1-4.18c.37-.39.36-1-.02-1.37-.38-.38-.99-.37-1.37.01l-2.71 2.77v-5.79l4.1-4.17c.37-.38.36-.99-.02-1.37-.38-.37-.99-.37-1.37.02l-2.71 2.76v-5.78l4.1-4.18c.37-.38.36-.99-.02-1.37-.38-.37-.99-.37-1.37.01l-2.71 2.77V9.01l4.1-4.18c.37-.38.36-1-.02-1.37-.38-.38-.99-.37-1.37.01L19.3 5.86c.14-.38.3-.75.52-1.1 1.08-1.75 2.95-2.8 5-2.81v2.71h-.45C23.83 4.66 23.4 5.1 23.4 5.63zM31.03 1.94v60.12h-4.27v-2.73h.95c.54 0 .97-.43.97-.97 0-.53-.43-.97-.97-.97h-.95v-4.65h.95c.54 0 .97-.43.97-.97 0-.54-.43-.97-.97-.97h-.95v-4.64h.95c.54 0 .97-.44.97-.97 0-.54-.43-.97-.97-.97h-.95v-4.66h.95c.54 0 .97-.43.97-.97 0-.53-.43-.97-.97-.97h-.95v-4.65h.95c.54 0 .97-.44.97-.97 0-.54-.43-.97-.97-.97h-.95v-4.65h.95c.54 0 .97-.44.97-.97 0-.54-.43-.97-.97-.97h-.95v-4.65h.95c.54 0 .97-.43.97-.97 0-.53-.43-.97-.97-.97h-.95V13.2h.95c.54 0 .97-.44.97-.97 0-.54-.43-.97-.97-.97h-.95V6.6h.95c.54 0 .97-.43.97-.97 0-.53-.43-.97-.97-.97h-.95V1.94H31.03zM34.75 5.63c0 .54.43.97.96.97h.68v4.66h-.68c-.53 0-.96.43-.96.97 0 .53.43.97.96.97h.68v4.65h-.68c-.53 0-.96.44-.96.97 0 .54.43.97.96.97h.68v4.65h-.68c-.53 0-.96.43-.96.97 0 .53.43.97.96.97h.68v4.65h-.68c-.53 0-.96.43-.96.97 0 .53.43.97.96.97h.68v4.65h-.68c-.53 0-.96.44-.96.97 0 .54.43.97.96.97h.68v4.66h-.68c-.53 0-.96.43-.96.97 0 .53.43.97.96.97h.68v4.64h-.68c-.53 0-.96.43-.96.97 0 .54.43.97.96.97h.68v4.65h-.68c-.53 0-.96.44-.96.97 0 .54.43.97.96.97h.68v2.73h-3.42V1.94h3.42v2.72h-.68C35.18 4.66 34.75 5.1 34.75 5.63zM40.98 12c-.38.38-.39.99-.01 1.37l4.1 4.19v5.77l-2.72-2.76c-.37-.39-.99-.39-1.37-.02-.38.38-.39.99-.01 1.37l4.1 4.18v5.78l-2.72-2.77c-.37-.38-.99-.39-1.37-.01-.38.37-.39.98-.01 1.37l4.1 4.18v5.78l-2.72-2.77c-.37-.38-.99-.39-1.37-.01-.38.37-.39.99-.01 1.37l4.1 4.17v5.78l-2.72-2.77c-.37-.38-.99-.38-1.37-.01-.38.38-.39.99-.01 1.37l4.1 4.18v4.38c0 .38-.04.76-.11 1.14-.01.03-.02.07-.03.11l-2.57-2.62c-.37-.38-.99-.39-1.37-.02-.38.38-.39.99-.01 1.37l3.14 3.21c-1.08 1.68-2.94 2.75-4.99 2.75h-.8v-2.73h.73c.54 0 .97-.43.97-.97 0-.53-.43-.97-.97-.97h-.73v-4.65h.73c.54 0 .97-.43.97-.97 0-.54-.43-.97-.97-.97h-.73v-4.64h.73c.54 0 .97-.44.97-.97 0-.54-.43-.97-.97-.97h-.73v-4.66h.73c.54 0 .97-.43.97-.97 0-.53-.43-.97-.97-.97h-.73v-4.65h.73c.54 0 .97-.44.97-.97 0-.54-.43-.97-.97-.97h-.73v-4.65h.73c.54 0 .97-.44.97-.97 0-.54-.43-.97-.97-.97h-.73v-4.65h.73c.54 0 .97-.43.97-.97 0-.53-.43-.97-.97-.97h-.73V13.2h.73c.54 0 .97-.44.97-.97 0-.54-.43-.97-.97-.97h-.73V6.6h.73c.54 0 .97-.43.97-.97 0-.53-.43-.97-.97-.97h-.73V1.94h.8c2.5 0 4.71 1.59 5.56 3.92l-2.34-2.39c-.37-.38-.99-.39-1.37-.01-.38.37-.39.99-.01 1.37l4.1 4.18v5.78l-2.72-2.78C41.98 11.63 41.36 11.63 40.98 12z";
+
+// Two-tone tire colors — outer is darker (the rubber silhouette), inner is
+// the tread detail color on top. Selected = two shades of OtoPair blue.
+const TIRE_IDLE_OUTER = "#1A1A1A";
+const TIRE_IDLE_INNER = "#37424C";
+const TIRE_SELECTED_OUTER = "#2E5EAD";
+const TIRE_SELECTED_INNER = "#5299FE";
+
+function TireIcon({ isSelected, size }: { isSelected: boolean; size: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 64 64">
+      <Path d={TIRE_PATH_OUTER} fill={isSelected ? TIRE_SELECTED_OUTER : TIRE_IDLE_OUTER} />
+      <Path d={TIRE_PATH_INNER} fill={isSelected ? TIRE_SELECTED_INNER : TIRE_IDLE_INNER} />
+    </Svg>
+  );
+}
+
+// ============================================================================
+// LAYOUT — tire positions as % of the car-frame (hits the wheel-arch corners
+// on the hero photo). Tweaked by eye against the source image (1024×1536).
+// ============================================================================
+
+// Tire tap targets sit OUTSIDE the car frame — flanking the car at the four
+// corners. Percentages are relative to the 110×165 carFrame, so negatives
+// put a ring to the left of the frame and >100 puts it to the right.
+const TIRE_CENTERS: Record<TirePosition, { leftPct: number; topPct: number }> = {
+  FL: { leftPct: -30, topPct: 22 },
+  FR: { leftPct: 130, topPct: 22 },
+  RL: { leftPct: -30, topPct: 78 },
+  RR: { leftPct: 130, topPct: 78 },
 };
 
 // ============================================================================
@@ -49,68 +81,30 @@ interface Props {
 export function VehicleTireSelector3D({ selected, onTogglePosition }: Props) {
   return (
     <View style={styles.container}>
-      {/* Car illustration (SVG background) */}
-      <View style={StyleSheet.absoluteFill}>
-        <Svg
-          width="100%"
-          height="100%"
-          viewBox={`0 0 ${VIEWBOX_W} ${VIEWBOX_H}`}
-          preserveAspectRatio="xMidYMid meet"
-        >
-          <Defs>
-            <LinearGradient id="bodyGradient" x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0" stopColor="#3B4756" />
-              <Stop offset="1" stopColor="#2C3640" />
-            </LinearGradient>
-            <LinearGradient id="glassGradient" x1="0" y1="0" x2="0" y2="1">
-              <Stop offset="0" stopColor="#1B2836" />
-              <Stop offset="1" stopColor="#0D1620" />
-            </LinearGradient>
-          </Defs>
-
-          {/* Car body — rounded rect fills the center */}
-          <Rect
-            x={38}
-            y={20}
-            width={124}
-            height={320}
-            rx={40}
-            ry={40}
-            fill="url(#bodyGradient)"
-          />
-
-          {/* Hood highlight */}
-          <Rect x={56} y={32} width={88} height={40} rx={12} fill="#46525F" opacity={0.45} />
-
-          {/* Windshield */}
-          <Rect x={52} y={96} width={96} height={70} rx={10} fill="url(#glassGradient)" />
-
-          {/* Roof */}
-          <Rect x={60} y={176} width={80} height={28} rx={8} fill="#1F2A36" />
-
-          {/* Rear window */}
-          <Rect x={52} y={214} width={96} height={60} rx={10} fill="url(#glassGradient)" />
-
-          {/* Trunk hint */}
-          <Rect x={56} y={286} width={88} height={32} rx={10} fill="#46525F" opacity={0.45} />
-        </Svg>
-      </View>
-
-      {/* Tappable tires as positioned overlays so touch is rock-solid. */}
-      {(Object.keys(TIRE_CENTERS) as TirePosition[]).map((pos) => (
-        <Tire
-          key={pos}
-          position={pos}
-          isSelected={selected.includes(pos)}
-          onPress={() => onTogglePosition(pos)}
+      {/* Car frame with explicit 2:3 dimensions. Image is sized the same so
+          resizeMode can't surprise us, tires are positioned as %s of the frame. */}
+      <View style={styles.carFrame}>
+        <Image
+          source={require("@/assets/images/tire-picker-car-removebg-preview.png")}
+          style={styles.carImage}
+          resizeMode="contain"
         />
-      ))}
+
+        {(Object.keys(TIRE_CENTERS) as TirePosition[]).map((pos) => (
+          <Tire
+            key={pos}
+            position={pos}
+            isSelected={selected.includes(pos)}
+            onPress={() => onTogglePosition(pos)}
+          />
+        ))}
+      </View>
     </View>
   );
 }
 
 // ============================================================================
-// TIRE — individual pressable at a percentage-positioned corner
+// TIRE — individual pressable, positioned as a % of the car frame
 // ============================================================================
 
 function Tire({
@@ -122,14 +116,11 @@ function Tire({
   isSelected: boolean;
   onPress: () => void;
 }) {
-  const { cx, cy } = TIRE_CENTERS[position];
-  const leftPct = (cx / VIEWBOX_W) * 100;
-  const topPct = (cy / VIEWBOX_H) * 100;
-
+  const { leftPct, topPct } = TIRE_CENTERS[position];
   const scale = useSharedValue(1);
 
   React.useEffect(() => {
-    scale.value = withSpring(isSelected ? 1.15 : 1, { damping: 9, stiffness: 220 });
+    scale.value = withSpring(isSelected ? 1.15 : 1, { damping: 22, stiffness: 240 });
   }, [isSelected, scale]);
 
   const animStyle = useAnimatedStyle(() => ({
@@ -145,14 +136,8 @@ function Tire({
       pointerEvents="box-none"
     >
       <Pressable hitSlop={10} onPress={onPress} style={styles.tireHitArea}>
-        <Animated.View
-          style={[
-            styles.tireCircle,
-            isSelected ? styles.tireCircleSelected : styles.tireCircleIdle,
-            animStyle,
-          ]}
-        >
-          <View style={[styles.tireHub, isSelected && styles.tireHubSelected]} />
+        <Animated.View style={animStyle}>
+          <TireIcon isSelected={isSelected} size={TIRE_SIZE} />
         </Animated.View>
       </Pressable>
     </View>
@@ -163,15 +148,29 @@ function Tire({
 // STYLES
 // ============================================================================
 
-const TIRE_SIZE = 56;
-const TIRE_HIT_SIZE = 76;
+const TIRE_SIZE = 64;
+const TIRE_HIT_SIZE = 84;
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: "#F5F7FB",
+    backgroundColor: "#FFFFFF",
     borderRadius: 20,
     overflow: "hidden",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  carFrame: {
+    width: 160,
+    height: 240,
+    position: "relative",
+  },
+  carImage: {
+    width: 160,
+    height: 240,
+    position: "absolute",
+    top: 0,
+    left: 0,
   },
   tireWrap: {
     position: "absolute",
@@ -187,35 +186,5 @@ const styles = StyleSheet.create({
     height: TIRE_HIT_SIZE,
     alignItems: "center",
     justifyContent: "center",
-  },
-  tireCircle: {
-    width: TIRE_SIZE,
-    height: TIRE_SIZE,
-    borderRadius: TIRE_SIZE / 2,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 3,
-  },
-  tireCircleIdle: {
-    backgroundColor: "#1A1A1A",
-    borderColor: "#3C3C43",
-  },
-  tireCircleSelected: {
-    backgroundColor: "#5299FE",
-    borderColor: "#FFFFFF",
-    shadowColor: "#5299FE",
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.6,
-    shadowRadius: 10,
-    elevation: 6,
-  },
-  tireHub: {
-    width: TIRE_SIZE * 0.4,
-    height: TIRE_SIZE * 0.4,
-    borderRadius: (TIRE_SIZE * 0.4) / 2,
-    backgroundColor: "#BFC3C9",
-  },
-  tireHubSelected: {
-    backgroundColor: "#FFFFFF",
   },
 });

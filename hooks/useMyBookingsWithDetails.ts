@@ -28,6 +28,10 @@ import type { Booking as StoreBooking } from "@/stores/types/store.types";
 function isUpcoming(row: ConvexBookingWithDetails): boolean {
   if (row.status === "completed" || row.status === "cancelled") return false;
   if (row.status === "in_progress") return false;
+  // Tire quote-stage bookings have no scheduled_date yet — they belong in
+  // Upcoming until shops respond + the user accepts a quote.
+  if (row.status === "pending_quote") return true;
+  if (row.status === "quotes_ready") return true;
   const today = new Date().toISOString().slice(0, 10);
   return row.scheduled_date >= today;
 }
@@ -38,6 +42,7 @@ function isLive(row: ConvexBookingWithDetails): boolean {
 
 function isHistory(row: ConvexBookingWithDetails): boolean {
   if (row.status === "completed" || row.status === "cancelled") return true;
+  if (row.status === "pending_quote" || row.status === "quotes_ready") return false;
   const today = new Date().toISOString().slice(0, 10);
   return row.scheduled_date < today;
 }
@@ -89,11 +94,17 @@ function adaptLocalBookingToCard(
   vehicle: { year: number; make: string; model: string; imageSource?: unknown } | undefined,
 ): BookingCardBooking {
   const serviceNames = booking.serviceIds.map(getServiceName);
-  const [scheduledYear, scheduledMonth, scheduledDay] = booking.scheduledDate.split("-").map(Number);
-  const dateObj = new Date(scheduledYear, scheduledMonth - 1, scheduledDay);
-  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const formattedDate = `${dayNames[dateObj.getDay()]}, ${monthNames[dateObj.getMonth()]} ${dateObj.getDate()}`;
+
+  // `scheduledDate` is "" for pending_quote bookings (date is TBD). Only
+  // format when we actually have a real ISO date to avoid NaN output.
+  let formattedDate = "";
+  if (booking.scheduledDate) {
+    const [scheduledYear, scheduledMonth, scheduledDay] = booking.scheduledDate.split("-").map(Number);
+    const dateObj = new Date(scheduledYear, scheduledMonth - 1, scheduledDay);
+    const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+    const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    formattedDate = `${dayNames[dateObj.getDay()]}, ${monthNames[dateObj.getMonth()]} ${dateObj.getDate()}`;
+  }
 
   const carYear = vehicle ? String(vehicle.year) : "";
   const carModel = vehicle ? `${vehicle.make} ${vehicle.model}` : "Vehicle";
@@ -112,6 +123,7 @@ function adaptLocalBookingToCard(
     time: booking.scheduledTime,
     status: booking.status,
     totalCost: booking.totalPrice,
+    notes: booking.notes,
   };
 }
 
@@ -140,12 +152,31 @@ export function useMyBookingsWithDetails() {
     let liveBooking: BookingCardBooking | null =
       liveRows.length > 0 ? adaptConvexBookingWithDetailsToCard(liveRows[0]) : null;
 
-    const upcomingBookings: BookingCardBooking[] = upcomingRows
-      .sort((a, b) => new Date(a.scheduled_date).getTime() - new Date(b.scheduled_date).getTime())
+    // Per the Apr 23 redesign: pending_quote → Upcoming (waiting for shops);
+    // quotes_ready → Quotes (shops responded, user picks one).
+    const upcomingOnly = upcomingRows.filter(
+      (r: ConvexBookingWithDetails) => r.status !== "quotes_ready",
+    );
+    const quotesReadyOnly = upcomingRows.filter(
+      (r: ConvexBookingWithDetails) => r.status === "quotes_ready",
+    );
+
+    const upcomingBookings: BookingCardBooking[] = upcomingOnly
+      .sort((a: ConvexBookingWithDetails, b: ConvexBookingWithDetails) =>
+        (a.scheduled_date ?? "").localeCompare(b.scheduled_date ?? ""),
+      )
+      .map(adaptConvexBookingWithDetailsToCard);
+
+    const quoteBookings: BookingCardBooking[] = quotesReadyOnly
+      .sort((a: ConvexBookingWithDetails, b: ConvexBookingWithDetails) =>
+        (b.scheduled_date ?? "").localeCompare(a.scheduled_date ?? ""),
+      )
       .map(adaptConvexBookingWithDetailsToCard);
 
     const historyBookings: BookingCardBooking[] = historyRows
-      .sort((a, b) => new Date(b.scheduled_date).getTime() - new Date(a.scheduled_date).getTime())
+      .sort((a: ConvexBookingWithDetails, b: ConvexBookingWithDetails) =>
+        new Date(b.scheduled_date).getTime() - new Date(a.scheduled_date).getTime(),
+      )
       .map(adaptConvexBookingWithDetailsToCard);
 
     // --- Local (Zustand) bookings ---
@@ -165,7 +196,7 @@ export function useMyBookingsWithDetails() {
       return shop?.name;
     };
 
-    const convexBookingIds = new Set(list.map((r) => r._id));
+    const convexBookingIds = new Set(list.map((r: ConvexBookingWithDetails) => r._id));
     const today = new Date().toISOString().slice(0, 10);
 
     for (const id of localBookingIds) {
@@ -200,12 +231,18 @@ export function useMyBookingsWithDetails() {
 
       const card = adaptLocalBookingToCard(booking, getServiceName, getMechanicName, getShopName, vehicle);
       const isUpcomingStatus =
-        booking.status === "pending" ||
-        booking.status === "pending_quote" ||
-        booking.status === "confirmed";
+        booking.status === "pending" || booking.status === "confirmed";
       const isHistoryStatus = booking.status === "completed" || booking.status === "cancelled";
 
-      if (isUpcomingStatus && booking.scheduledDate >= today) {
+      if (booking.status === "pending_quote") {
+        // Per the Apr 23 redesign: pending-quote bookings live in Upcoming
+        // until shop responses arrive.
+        upcomingBookings.push(card);
+      } else if (booking.status === "quotes_ready") {
+        // Quotes-ready bookings live in the Quotes tab (user toggled the
+        // Move to Quotes switch on the Pending Quote card in Upcoming).
+        quoteBookings.push(card);
+      } else if (isUpcomingStatus && booking.scheduledDate >= today) {
         upcomingBookings.push(card);
       } else if (isHistoryStatus || booking.scheduledDate < today) {
         historyBookings.push(card);
@@ -214,12 +251,14 @@ export function useMyBookingsWithDetails() {
 
     // Re-sort after merging local bookings
     upcomingBookings.sort((a, b) => a.date.localeCompare(b.date));
+    quoteBookings.sort((a, b) => b.date.localeCompare(a.date));
     historyBookings.sort((a, b) => b.date.localeCompare(a.date));
 
     return {
       liveTracking,
       liveBooking,
       upcomingBookings,
+      quoteBookings,
       historyBookings,
       isLoading: rows === undefined,
     };

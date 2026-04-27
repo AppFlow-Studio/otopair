@@ -63,6 +63,7 @@ export interface UserLocation {
 export type BookingStatus =
   | "pending"
   | "pending_quote"
+  | "quotes_ready"
   | "confirmed"
   | "in_progress"
   | "completed"

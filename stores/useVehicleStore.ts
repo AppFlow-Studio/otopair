@@ -15,6 +15,8 @@
 import { create } from "zustand";
 import { ImageSourcePropType } from "react-native";
 
+import { formatMake } from "@/utils/formatMake";
+
 // ─────────────────────────────────────────────────────────────
 // TYPES
 // ─────────────────────────────────────────────────────────────
@@ -139,7 +141,7 @@ export const useVehicleStore = create<VehicleState>()((set, get) => ({
         id: vin,
         vin,
         year,
-        make: meta?.make ?? "Vehicle",
+        make: meta?.make ? formatMake(meta.make) : "Vehicle",
         model: meta?.model ?? "",
         mileage: r.ownership?.mileage,
         isDefault: r.ownership?.is_primary ?? ids.length === 0,
