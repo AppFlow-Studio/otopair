@@ -22,7 +22,7 @@
 
 // 1. React & React Native
 import React, { useState } from "react";
-import { Image, Pressable, StyleSheet, View } from "react-native";
+import { Image, Pressable, StyleSheet, Switch, View } from "react-native";
 
 // 2. Expo & Third-party
 import { Car, Check, ChevronDown, ChevronUp, Clock, Phone, User } from "lucide-react-native";
@@ -66,13 +66,15 @@ interface LiveTrackerCardProps {
   tracking: LiveTracking;
   onReschedule?: () => void;
   onContactShop?: () => void;
+  /** Called when the Live Tracker toggle is flipped off. Implementer demotes the booking. */
+  onToggleLiveTracker?: (bookingId: string) => void;
 }
 
 // ============================================================================
 // COMPONENT
 // ============================================================================
 
-export function LiveTrackerCard({ tracking, onReschedule, onContactShop }: LiveTrackerCardProps) {
+export function LiveTrackerCard({ tracking, onReschedule, onContactShop, onToggleLiveTracker }: LiveTrackerCardProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [carImageError, setCarImageError] = useState(false);
   const showCarPlaceholder = !tracking.makeLogoUrl?.trim() || carImageError;
@@ -158,6 +160,25 @@ export function LiveTrackerCard({ tracking, onReschedule, onContactShop }: LiveT
           </View>
         </View>
       </View>
+
+      {/* Live Tracker toggle — flip off to move back to Upcoming */}
+      {onToggleLiveTracker ? (
+        <View style={styles.liveToggleRow}>
+          <View style={styles.liveToggleLabel}>
+            <View style={styles.liveDotActive} />
+            <Text weight="semiBold" size="sm" color="#5299FE">
+              Live Tracker On
+            </Text>
+          </View>
+          <Switch
+            value={true}
+            onValueChange={() => onToggleLiveTracker(tracking.id)}
+            trackColor={{ false: "#E5E5EA", true: "#5299FE" }}
+            thumbColor="#FFFFFF"
+            ios_backgroundColor="#E5E5EA"
+          />
+        </View>
+      ) : null}
 
       {/* Progress Section */}
       <View style={styles.progressSection}>
@@ -314,6 +335,25 @@ const styles = StyleSheet.create({
   },
   mechanicDetails: {
     gap: 2,
+  },
+  liveToggleRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    marginBottom: 12,
+  },
+  liveToggleLabel: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  liveDotActive: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#5299FE",
   },
   progressSection: {
     marginBottom: 16,

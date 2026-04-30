@@ -15,6 +15,8 @@
 import { create } from "zustand";
 import { ImageSourcePropType } from "react-native";
 
+import { formatMake } from "@/utils/formatMake";
+
 // ─────────────────────────────────────────────────────────────
 // TYPES
 // ─────────────────────────────────────────────────────────────
@@ -71,7 +73,7 @@ interface VehicleState {
 /** Shape from api.vehicles.listVehiclesByUser (subset of fields we use) */
 interface ConvexVehicleOwnership {
   vin: string;
-  vehicle: { year?: number; metadata?: unknown; engine_id?: string } | null;
+  vehicle: { year?: number; metadata?: unknown; engine_id?: string; image_url?: string } | null;
   ownership?: { is_primary?: boolean; mileage?: number; nickname?: string };
 }
 
@@ -134,24 +136,29 @@ export const useVehicleStore = create<VehicleState>()((set, get) => ({
       const vin = r.vin.toUpperCase().trim();
       const year = r.vehicle?.year ?? new Date().getFullYear();
       const meta = r.vehicle?.metadata as { make?: string; model?: string } | undefined;
+      const imageUrl = r.vehicle?.image_url;
       const v: Vehicle = {
         id: vin,
         vin,
         year,
-        make: meta?.make ?? "Vehicle",
+        make: meta?.make ? formatMake(meta.make) : "Vehicle",
         model: meta?.model ?? "",
         mileage: r.ownership?.mileage,
         isDefault: r.ownership?.is_primary ?? ids.length === 0,
         engineId: r.vehicle?.engine_id as string | undefined,
+        imageSource: imageUrl ? { uri: imageUrl } : undefined,
       };
       vehiclesRecord[vin] = v;
       ids.push(vin);
     });
     const primary = data.find((r) => r.ownership?.is_primary) ?? data[0];
+    const currentSelected = get().selectedVehicleId;
+    // Only set selectedVehicleId if not already set (preserve user's selection during booking)
+    const keepSelection = currentSelected != null && ids.includes(currentSelected);
     set({
       vehicles: vehiclesRecord,
       vehicleIds: ids,
-      selectedVehicleId: primary ? primary.vin.toUpperCase().trim() : (ids[0] ?? null),
+      selectedVehicleId: keepSelection ? currentSelected : (primary ? primary.vin.toUpperCase().trim() : (ids[0] ?? null)),
     });
   },
 }));

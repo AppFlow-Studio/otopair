@@ -80,15 +80,15 @@ export default function TabLayout() {
 
         <NativeTabs.Trigger name="bookings">
           <Icon sf="calendar" drawable="custom_settings_drawable" />
-          <Label>{"Book"}</Label>
+          <Label>{"Bookings"}</Label>
         </NativeTabs.Trigger>
         <NativeTabs.Trigger name="cars">
           <Icon sf="car" drawable="custom_settings_drawable" />
           <Label>{"Cars"}</Label>
         </NativeTabs.Trigger>
         <NativeTabs.Trigger name="settings">
-          <Icon sf="person" drawable="custom_settings_drawable" />
-          <Label>{"Profile"}</Label>
+          <Icon sf="gearshape" drawable="custom_settings_drawable" />
+          <Label>{"Settings"}</Label>
         </NativeTabs.Trigger>
 
         <NativeTabs.Trigger name="ai-chat">

@@ -11,7 +11,7 @@
 
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo } from "react";
-import { Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
+import { Image, Pressable, ScrollView, StyleSheet, TextInput, View } from "react-native";
 
 // 2. Third-party libraries
 import { BottomSheetFlatList } from "@gorhom/bottom-sheet";
@@ -447,9 +447,13 @@ export function MechanicSelectionContent({
         <Text size="xl" weight="bold" color={BrandColors.primary}>
           Choose Mechanic
         </Text>
-        {/* Car selection button */}
+        {/* Car selection button — shows selected vehicle thumbnail when available */}
         <Pressable style={styles.carButton} onPress={onCarSelect} hitSlop={8}>
-          <Car size={20} color={BrandColors.primary} />
+          {selectedVehicle?.imageSource ? (
+            <Image source={selectedVehicle.imageSource} style={styles.carButtonImage} resizeMode="contain" />
+          ) : (
+            <Car size={20} color={BrandColors.primary} />
+          )}
         </Pressable>
       </View>
 
@@ -560,6 +564,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#F3F4F6",
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
+  },
+  carButtonImage: {
+    width: 32,
+    height: 32,
   },
   searchContainer: {
     flexDirection: "row",

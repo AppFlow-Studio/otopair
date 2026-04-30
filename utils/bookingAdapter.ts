@@ -40,6 +40,13 @@ export interface ConvexBookingWithDetails {
   delayMinutes?: number;
   /** Stored live stage when status is in_progress: booking_confirmed | service_in_progress | vehicle_ready */
   liveStage?: string;
+  /** Populated for tire-quote bookings only (status pending_quote / quotes_ready). */
+  tire_specs?: {
+    size: string;
+    type: string;
+    tier: string;
+    quantity: number;
+  };
 }
 
 interface BookingAdapterParams {
@@ -94,6 +101,8 @@ export function adaptBookingForCard({
   // BookingCard has "delayed" which store doesn't have, so map it appropriately
   const statusMap: Record<StoreBooking["status"], BookingCardBooking["status"]> = {
     pending: "pending",
+    pending_quote: "pending_quote",
+    quotes_ready: "quotes_ready",
     confirmed: "confirmed",
     in_progress: "in_progress",
     completed: "completed",
@@ -144,6 +153,15 @@ export function adaptConvexBookingWithDetailsToCard(row: ConvexBookingWithDetail
   const status = row.status as BookingCardBooking["status"];
   const displayStatus = status === "in_progress" && (row.delayMinutes ?? 0) > 0 ? "delayed" : status;
 
+  // For tire-quote bookings, synthesize the same notes string the local
+  // PendingQuoteCard parser expects ("4 Premium All-Season · 225/45R18").
+  let notes: string | undefined;
+  if (row.tire_specs) {
+    const { quantity, tier, type, size } = row.tire_specs;
+    const head = [String(quantity), tier, type].filter(Boolean).join(" ");
+    notes = [head || "Tires", size].filter(Boolean).join(" · ");
+  }
+
   return {
     id: row._id,
     services: row.serviceNames,
@@ -158,6 +176,7 @@ export function adaptConvexBookingWithDetailsToCard(row: ConvexBookingWithDetail
     time: row.scheduled_time,
     status: displayStatus as BookingCardBooking["status"],
     totalCost: row.status === "completed" ? row.total_cost : undefined,
+    notes,
   };
 }
 

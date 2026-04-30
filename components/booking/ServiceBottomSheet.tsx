@@ -25,6 +25,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Dimensions,
+  Image,
   Keyboard,
   LayoutChangeEvent,
   ScrollView,
@@ -207,6 +208,9 @@ export function ServiceBottomSheet({
   // Track the previous snap index before showing shop preview
   const previousShopSnapIndexRef = useRef(SERVICE_SNAP_COUNT - 1);
   const showShopPreviewRef = useRef(showShopPreview);
+
+  // Track whether sheet is at expanded snap (to allow inner scroll)
+  const [isAtExpandedSnap, setIsAtExpandedSnap] = useState(false);
 
   // ═══════════════ CAR SELECTION STATE ═══════════════
   const [showCarPreview, setShowCarPreview] = useState(false);
@@ -418,6 +422,10 @@ export function ServiceBottomSheet({
           runOnJS(updatePreviousCarIndex)(rounded);
         }
       }
+      // Track expanded snap for enabling inner scroll
+      const expandedIndex = showCarPreviewSV.value === 1 ? SERVICE_SNAP_COUNT : SERVICE_SNAP_COUNT - 1;
+      const atExpanded = Math.round(v) >= expandedIndex;
+      runOnJS(setIsAtExpandedSnap)(atExpanded);
     }
   );
 
@@ -1332,7 +1340,7 @@ export function ServiceBottomSheet({
       enableDynamicSizing={false}
       enablePanDownToClose={false}
       enableOverDrag={!isSearchMode && !showShopPreview && !showCarPreview}
-      enableContentPanningGesture={!isSearchMode && !showShopPreview && !showCarPreview}
+      enableContentPanningGesture={!isSearchMode && !showShopPreview && !showCarPreview && !isAtExpandedSnap}
       enableHandlePanningGesture={!isSearchMode && !showShopPreview && !showCarPreview}
       backgroundStyle={styles.bottomSheetBackground}
       handleIndicatorStyle={styles.handleIndicator}
@@ -1356,7 +1364,11 @@ export function ServiceBottomSheet({
                 style={styles.carToggleButton}
                 hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               >
-                <Car size={20} color={BrandColors.primary} />
+                {selectedVehicle?.imageSource ? (
+                  <Image source={selectedVehicle.imageSource} style={styles.carToggleImage} resizeMode="contain" />
+                ) : (
+                  <Car size={20} color={BrandColors.primary} />
+                )}
               </TouchableOpacity>
 
               {/* X button: always visible in search mode, conditional in browse mode */}
@@ -1501,6 +1513,12 @@ const styles = StyleSheet.create({
     backgroundColor: "#F3F4F6",
     alignItems: "center",
     justifyContent: "center",
+    overflow: "hidden",
+  },
+  carToggleImage: {
+    width: 36,
+    height: 36,
+    borderRadius: BorderRadius.lg,
   },
   closeButton: {
     padding: Spacing.xs,

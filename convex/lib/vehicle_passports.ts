@@ -108,6 +108,7 @@ export const prejobReportValidator = v.object({
 
 export const vehicleUpdateValuesValidator = v.object({
   oil_viscosity: v.optional(nullableStringValidator),
+  oil_capacity_qts: v.optional(nullableNumberValidator),
   oil_type: v.optional(nullableStringValidator),
   coolant_type: v.optional(nullableStringValidator),
   brake_fluid_type: v.optional(nullableStringValidator),

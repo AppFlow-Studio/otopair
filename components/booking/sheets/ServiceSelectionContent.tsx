@@ -144,7 +144,6 @@ export function ServiceSelectionContent({ onCategorySelect }: ServiceSelectionCo
         style={styles.scrollView}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
-        enableFooterMarginAdjustment
       >
         {filteredServices.map(renderServiceItem)}
 
@@ -193,6 +192,7 @@ const styles = StyleSheet.create({
   scrollContent: {
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.md,
+    paddingBottom: 100,
     gap: Spacing.md,
   },
   serviceItem: {

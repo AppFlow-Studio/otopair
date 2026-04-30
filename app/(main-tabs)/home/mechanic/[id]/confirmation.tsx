@@ -19,7 +19,7 @@ import { Alert, Image, Platform, StyleSheet, TouchableOpacity, View } from "reac
 // 2. Expo & Third-party
 import * as Calendar from "expo-calendar";
 import * as Linking from "expo-linking";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { Check, Gift, Navigation, Phone, Star } from "lucide-react-native";
 import Animated, {
   Easing,
@@ -43,6 +43,7 @@ import type { Id } from "@/convex/_generated/dataModel";
 import { BorderRadius, Shadows } from "@/constants/theme";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
+import { useShopStore } from "@/stores/useShopStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { openMapsForAddress, openPhone } from "@/utils/linking";
 
@@ -188,36 +189,73 @@ export default function ConfirmationScreen() {
   // ═══════════════ HOOKS ═══════════════
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { id: bookingId } = useLocalSearchParams<{ id: string }>();
 
   // ═══════════════ STORES ═══════════════
   const selectedMechanicId = useBookingStore((state) => state.selectedMechanicId);
   const selectedMechanicSlot = useBookingStore((state) => state.selectedMechanicSlot);
   const scheduledAppointment = useBookingStore((state) => state.scheduledAppointment);
   const resetBookingFlow = useBookingStore((state) => state.resetBookingFlow);
+  const getBookingById = useBookingStore((state) => state.getBookingById);
+  const availableServices = useBookingStore((state) => state.availableServices);
   const getMechanicById = useMechanicStore((state) => state.getMechanicById);
+  const getMechanicsByShopId = useMechanicStore((state) => state.getMechanicsByShopId);
   const getSelectedVehicle = useVehicleStore((state) => state.getSelectedVehicle);
+  const getShopById = useShopStore((state) => state.getShopById);
+
+  // Look up local booking by route param (fallback when booking flow is reset)
+  const localBooking = useMemo(() => {
+    if (!bookingId) return null;
+    return getBookingById(bookingId);
+  }, [bookingId, getBookingById]);
 
   // ═══════════════ COMPUTED ═══════════════
   const mechanic = useMemo(() => {
-    if (!selectedMechanicId) return null;
-    return getMechanicById(selectedMechanicId);
-  }, [selectedMechanicId, getMechanicById]);
+    // Try active flow state first
+    if (selectedMechanicId) return getMechanicById(selectedMechanicId) ?? null;
+    // Fallback: look up mechanic from local booking's shop
+    if (localBooking?.shopId) {
+      const mechanics = getMechanicsByShopId(localBooking.shopId);
+      if (mechanics.length > 0) return mechanics[0];
+    }
+    return null;
+  }, [selectedMechanicId, getMechanicById, localBooking, getMechanicsByShopId]);
 
   // Shop from DB (for address, phone, name)
-  const shopId = selectedMechanicSlot?.shopId ?? (mechanic?.shopId as Id<"shops"> | undefined);
-  const shop = useQuery(api.shops.getById, shopId ? { id: shopId as Id<"shops"> } : "skip");
+  // Only query Convex if shopId looks like a real Convex ID (not a mock like "1", "2")
+  const rawShopId = selectedMechanicSlot?.shopId ?? localBooking?.shopId ?? (mechanic?.shopId as string | undefined);
+  const isConvexId = rawShopId && rawShopId.length > 10;
+  const shop = useQuery(api.shops.getById, isConvexId ? { id: rawShopId as Id<"shops"> } : "skip");
 
-  const selectedVehicle = getSelectedVehicle();
+  // Fallback to local shop store for mock IDs
+  const localShop = useMemo(() => {
+    if (shop) return null; // Convex shop found, no need for local
+    if (!rawShopId) return null;
+    return getShopById(rawShopId);
+  }, [shop, rawShopId, getShopById]);
+
+  const getVehicleById = useVehicleStore((state) => state.getVehicleById);
+
+  // Try selected vehicle first, then look up by booking's vehicleId
+  const selectedVehicle = useMemo(() => {
+    const active = getSelectedVehicle();
+    if (active) return active;
+    if (localBooking?.vehicleId) return getVehicleById(localBooking.vehicleId);
+    return undefined;
+  }, [getSelectedVehicle, localBooking, getVehicleById]);
 
   const fullAddress = useMemo(() => {
-    if (!shop) return "";
-    return [shop.address, shop.city, shop.state, shop.zip].filter(Boolean).join(", ");
-  }, [shop]);
+    if (shop) return [shop.address, shop.city, shop.state, shop.zip].filter(Boolean).join(", ");
+    if (localShop?.address) return localShop.address;
+    return "";
+  }, [shop, localShop]);
 
   // Format date with day name (e.g., "Fri, Oct 24")
   const formattedDate = useMemo(() => {
-    if (scheduledAppointment?.date) {
-      const date = new Date(scheduledAppointment.date);
+    const dateStr = scheduledAppointment?.date ?? localBooking?.scheduledDate;
+    if (dateStr) {
+      const [year, month, day] = dateStr.split("-").map(Number);
+      const date = new Date(year, month - 1, day);
       const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
       const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
       return `${dayNames[date.getDay()]}, ${monthNames[date.getMonth()]} ${date.getDate()}`;
@@ -227,28 +265,34 @@ export default function ConfirmationScreen() {
     const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
     return `${dayNames[futureDate.getDay()]}, ${monthNames[futureDate.getMonth()]} ${futureDate.getDate()}`;
-  }, [scheduledAppointment]);
+  }, [scheduledAppointment, localBooking]);
 
   // Format time (e.g., "10:00 AM")
   const formattedTime = useMemo(() => {
-    if (scheduledAppointment?.time) {
-      return scheduledAppointment.time;
-    }
+    if (scheduledAppointment?.time) return scheduledAppointment.time;
+    if (localBooking?.scheduledTime) return localBooking.scheduledTime;
     return "1:00 PM";
-  }, [scheduledAppointment]);
+  }, [scheduledAppointment, localBooking]);
 
   // Format vehicle display
   const vehicleDisplay = selectedVehicle
     ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}`
     : "No vehicle selected";
 
-  const shopLocation = fullAddress || mechanic?.shopName || "Shop Location";
+  const shopLocation = fullAddress || shop?.name || localShop?.name || mechanic?.shopName || "Shop Location";
 
   // ═══════════════ HANDLERS ═══════════════
+  // If we're viewing a past booking (local booking exists, flow already reset), just go back
+  const isViewingPastBooking = !!localBooking && !selectedMechanicId;
+
   const handleBackToHome = useCallback(() => {
-    router.dismissTo("/home");
-    resetBookingFlow();
-  }, [resetBookingFlow, router]);
+    if (isViewingPastBooking) {
+      router.back();
+    } else {
+      router.dismissTo("/home");
+      resetBookingFlow();
+    }
+  }, [isViewingPastBooking, resetBookingFlow, router]);
 
   const handleDirections = useCallback(() => {
     if (fullAddress) openMapsForAddress(fullAddress);
@@ -259,9 +303,9 @@ export default function ConfirmationScreen() {
   }, [shop?.phone]);
 
   const handleAddToCalendar = useCallback(async () => {
-    const shopName = shop?.name ?? mechanic?.shopName ?? "Shop";
-    const dateStr = scheduledAppointment?.date;
-    const timeStr = scheduledAppointment?.time ?? "2:00 PM";
+    const shopName = shop?.name ?? localShop?.name ?? mechanic?.shopName ?? "Shop";
+    const dateStr = scheduledAppointment?.date ?? localBooking?.scheduledDate;
+    const timeStr = scheduledAppointment?.time ?? localBooking?.scheduledTime ?? "2:00 PM";
     if (!dateStr) {
       Alert.alert("No date", "Appointment date is missing.");
       return;
@@ -305,7 +349,7 @@ export default function ConfirmationScreen() {
       }
       Alert.alert("Error", "Could not add to calendar. Please try again.");
     }
-  }, [shop?.name, mechanic?.shopName, scheduledAppointment?.date, scheduledAppointment?.time, fullAddress]);
+  }, [shop?.name, localShop?.name, mechanic?.shopName, scheduledAppointment?.date, scheduledAppointment?.time, localBooking, fullAddress]);
 
   // ═══════════════ RENDER ═══════════════
   return (
