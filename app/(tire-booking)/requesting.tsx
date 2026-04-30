@@ -26,7 +26,8 @@ import { useRouter } from "expo-router";
 
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { QuoteRequestStatus } from "@/components/tire-booking/QuoteRequestStatus";
-import { TireGridBackground } from "@/components/tire-booking/TireGridBackground";
+// import { TireGridBackground } from "@/components/tire-booking/TireGridBackground";
+import { RequestingMapBackground } from "@/components/tire-booking/RequestingMapBackground";
 
 const { width: SCREEN_W, height: SCREEN_HEIGHT } = Dimensions.get("window");
 const SHEET_HEIGHT = Math.round(SCREEN_HEIGHT * 0.52);
@@ -62,9 +63,11 @@ export default function TireRequestingScreen() {
 
   return (
     <View style={styles.screen}>
-      {/* Isometric tire-grid background — seamlessly looping, matches the
-          Claude Design handoff spec (10s drift top-right → bottom-left). */}
-      <TireGridBackground width={SCREEN_W} height={SCREEN_HEIGHT} />
+      {/* Apple Maps backdrop centered on the user, with 5 OtoPair logo
+          pins fading in one-by-one over ~6 seconds. The previous
+          isometric tire-grid background is parked on disk for revert. */}
+      {/* <TireGridBackground width={SCREEN_W} height={SCREEN_HEIGHT} /> */}
+      <RequestingMapBackground width={SCREEN_W} height={SCREEN_HEIGHT} />
 
       {/* Bottom sheet hosting the status body. */}
       <FloatingSheet
