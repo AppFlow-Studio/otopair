@@ -26,6 +26,7 @@ import { Button, BrandColors, ScrollDrivenGradientBackground, Text } from "@/com
 import { useAuthStore } from '@/stores/useAuthStore';
 import { useBookingStore } from '@/stores/useBookingStore';
 import { usePendingNavigationStore } from "@/stores/usePendingNavigationStore";
+import { useVehicleStore } from "@/stores/useVehicleStore";
 import { useShallow } from 'zustand/react/shallow';
 import { useVehicleOwnershipFromConvex } from '@/hooks/useVehicleOwnershipFromConvex';
 import { fetchVehicleImageUrl } from '@/utils/vehicleImage';
@@ -46,6 +47,11 @@ try {
 // 6. Flow-specific components
 import { ActionCardsCarousel } from "@/components/home/ActionCardsCarousel";
 import { AddFirstVehicleCard } from "@/components/home/AddFirstVehicleCard";
+import {
+  FinishCarSetupPickerSheet,
+  type FinishCarSetupPickerSheetRef,
+  type IncompleteVehicleRow,
+} from "@/components/home/FinishCarSetupPickerSheet";
 import { LoyaltyCard } from "@/components/home/LoyaltyCard";
 import { MechanicSearchBar } from "@/components/home/MechanicSearchBar";
 import { NavigationETABar } from "@/components/home/NavigationETABar";
@@ -145,18 +151,47 @@ export default function HomeScreen() {
     return joined.length > 25 ? joined.slice(0, 22) + '...' : joined;
   }, [selectedServiceIds, availableServices]);
 
+  // Resume booking vehicle context — subscribed reads so the card refreshes
+  // when the user switches vehicle or Convex re-syncs mid-booking.
+  const resumeVehicle = useVehicleStore((s) =>
+    s.selectedVehicleId ? s.vehicles[s.selectedVehicleId] : undefined,
+  );
+  const resumeVehicleName = resumeVehicle ? `${resumeVehicle.make} ${resumeVehicle.model}` : undefined;
+  const resumeVehicleImage = resumeVehicle?.imageSource;
+
   // Account setup: hide when all checkable steps are done
   const isAccountSetupComplete = !!(me?.onboardingCompleted && me?.tellUsAboutCompleted && hasVehicles);
   const showAccountSetup = !isAccountSetupComplete && !accountSetupDismissed;
 
-  // Car setup: prefer incomplete vehicles, then completed-but-not-acknowledged
-  const carSetupVehicle = (listVehicles ?? []).find(
-    (r: any) => r.ownership && r.ownership.onboardingComplete !== true
-  ) ?? (listVehicles ?? []).find(
+  // Car setup: prefer incomplete vehicles, then completed-but-not-acknowledged.
+  // `incompleteVehicles` is the full list of not-yet-onboarded cars so we can
+  // show a picker when there are multiple; `carSetupVehicle` remains the
+  // single representative used for the card's checklist state.
+  const incompleteVehicles = useMemo(
+    () => (listVehicles ?? []).filter((r: any) => r.ownership && r.ownership.onboardingComplete !== true),
+    [listVehicles],
+  );
+  const carSetupVehicle = incompleteVehicles[0] ?? (listVehicles ?? []).find(
     (r: any) => r.ownership && r.ownership.onboardingComplete === true && !r.ownership.setupCardDismissed
   );
   const isCarSetupDone = !!carSetupVehicle?.ownership?.onboardingComplete;
   const showCarSetup = !!carSetupVehicle && !carSetupDismissed;
+
+  // Rows for the picker sheet, adapted from the Convex shape.
+  const pickerVehicles = useMemo<IncompleteVehicleRow[]>(
+    () =>
+      incompleteVehicles.map((r: any) => ({
+        ownershipId: String(r.ownership?._id ?? r.vin),
+        vin: r.vin,
+        year: r.vehicle?.year ?? 0,
+        make: (r.vehicle?.metadata?.make as string | undefined) ?? "Vehicle",
+        model: (r.vehicle?.metadata?.model as string | undefined) ?? "",
+        imageUrl: (r.vehicle?.image_url as string | null | undefined) ?? null,
+        preOnboardingComplete: !!r.ownership?.preOnboardingComplete,
+      })),
+    [incompleteVehicles],
+  );
+  const pickerSheetRef = useRef<FinishCarSetupPickerSheetRef>(null);
 
   // Checklist state for FinishCarSetupCard
   const carSetupChecklist = useMemo(() => {
@@ -355,6 +390,7 @@ export default function HomeScreen() {
   };
 
   return (
+    <>
     <ScrollDrivenGradientBackground colors={["#5BA3D9", "#8FC4E8", "#d9e8f5"]}>
       {(scrollHandler) => (
         <View style={styles.container}>
@@ -471,6 +507,8 @@ export default function HomeScreen() {
                   // Resume Booking
                   showResumeBooking={hasResumeBooking}
                   resumeServicesPreview={resumeServicesPreview}
+                  resumeVehicleName={resumeVehicleName}
+                  resumeVehicleImage={resumeVehicleImage}
                   onResumePress={() => router.push('/home/map?openServices=true')}
                   // Account Setup
                   showAccountSetup={showAccountSetup}
@@ -485,6 +523,11 @@ export default function HomeScreen() {
                       // All done — dismiss permanently
                       if (o?._id) dismissSetupCard({ vehicleOwnerId: o._id });
                       setCarSetupDismissed(true);
+                      return;
+                    }
+                    // More than one car still to onboard → let the user choose.
+                    if (incompleteVehicles.length > 1) {
+                      pickerSheetRef.current?.open();
                       return;
                     }
                     if (!o) {
@@ -521,6 +564,7 @@ export default function HomeScreen() {
                   <VehicleMaintenanceCard
                     vehicles={mappedVehicles.length > 0 ? mappedVehicles : undefined}
                     onBookNow={(vehicleId, serviceId) => {
+                      useVehicleStore.getState().selectVehicle(vehicleId);
                       router.push('/home/map?openServices=true');
                     }}
                     onSwipeStart={() => setIsCardSwiping(true)}
@@ -599,6 +643,22 @@ export default function HomeScreen() {
         </View>
       )}
     </ScrollDrivenGradientBackground>
+
+    <FinishCarSetupPickerSheet
+      ref={pickerSheetRef}
+      vehicles={pickerVehicles}
+      onSelect={(v) => {
+        if (!v.preOnboardingComplete) {
+          router.push({ pathname: '/car-pre-onboarding', params: { vehicleOwnerId: v.ownershipId } });
+        } else {
+          router.push({
+            pathname: '/(main-tabs)/cars',
+            params: { openStepper: 'true', vehicleOwnerId: v.ownershipId },
+          });
+        }
+      }}
+    />
+    </>
   );
 }
 

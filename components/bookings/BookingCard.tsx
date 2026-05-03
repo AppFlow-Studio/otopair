@@ -26,7 +26,7 @@
 
 // 1. React & React Native
 import React, { useState } from 'react';
-import { Image, Pressable, StyleSheet, View } from 'react-native';
+import { Alert, Image, Pressable, StyleSheet, Switch, View } from 'react-native';
 
 // 2. Expo & Third-party
 import { useRouter } from 'expo-router';
@@ -39,7 +39,7 @@ import { Text } from '@/components/shared-ui';
 // TYPES
 // ============================================================================
 
-export type BookingStatus = 'pending' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled' | 'delayed';
+export type BookingStatus = 'pending' | 'pending_quote' | 'quotes_ready' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled' | 'delayed';
 
 export interface Booking {
   id: string;
@@ -61,6 +61,9 @@ export interface Booking {
   status: BookingStatus;
   // History-specific
   totalCost?: number;
+  /** Free-form detail. Used by PendingQuoteCard in Upcoming to display the
+   *  tire specs the user requested before any shop has quoted a price. */
+  notes?: string;
 }
 
 interface BookingCardProps {
@@ -71,6 +74,16 @@ interface BookingCardProps {
   onReschedule?: (bookingId: string) => void;
   onDownloadPdf?: (bookingId: string) => void;
   onToggleFavorite?: (bookingId: string) => void;
+  /** Called when the Live Tracker toggle is flipped. Implementer flips the status. */
+  onToggleLiveTracker?: (bookingId: string) => void;
+}
+
+// ============================================================================
+// HELPERS
+// ============================================================================
+
+function titleCase(str: string): string {
+  return str.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
 // ============================================================================
@@ -82,6 +95,16 @@ const STATUS_CONFIG: Record<BookingStatus, { label: string; bgColor: string; tex
     label: 'Pending',
     bgColor: '#fff6ee',
     textColor: '#f89829',
+  },
+  pending_quote: {
+    label: 'Pending Quote',
+    bgColor: '#FFF8ED',
+    textColor: '#C8972E',
+  },
+  quotes_ready: {
+    label: 'Quotes Ready',
+    bgColor: '#E3F0FF',
+    textColor: '#2F6DCC',
   },
   confirmed: {
     label: 'Confirmed',
@@ -114,15 +137,22 @@ const STATUS_CONFIG: Record<BookingStatus, { label: string; bgColor: string; tex
 // COMPONENT
 // ============================================================================
 
-export function BookingCard({ 
-  booking, 
+export function BookingCard({
+  booking,
   variant,
   onViewDetails,
   onCancelBooking,
   onReschedule,
   onDownloadPdf,
   onToggleFavorite,
+  onToggleLiveTracker,
 }: BookingCardProps) {
+  const isLive = booking.status === 'in_progress';
+  // Show the Live Tracker toggle on any non-final upcoming-like status.
+  const canToggleLive =
+    variant === 'upcoming' &&
+    booking.status !== 'completed' &&
+    booking.status !== 'cancelled';
   const router = useRouter();
   const statusConfig = STATUS_CONFIG[booking.status];
   const [carImageError, setCarImageError] = useState(false);
@@ -145,7 +175,14 @@ export function BookingCard({
   };
 
   const handleCancelBooking = () => {
-    onCancelBooking?.(booking.id);
+    Alert.alert(
+      "Cancel Booking",
+      "Are you sure you want to cancel this booking?",
+      [
+        { text: "No", style: "cancel" },
+        { text: "Yes, Cancel", style: "destructive", onPress: () => onCancelBooking?.(booking.id) },
+      ]
+    );
   };
 
   const handleReschedule = () => {
@@ -177,13 +214,11 @@ export function BookingCard({
             </>
           )}
         </View>
-        {variant === 'upcoming' && (
-          <View style={[styles.statusBadge, { backgroundColor: statusConfig.bgColor }]}>
-            <Text weight="semiBold" size="sm" color={statusConfig.textColor}>
-              {statusConfig.label}
-            </Text>
-          </View>
-        )}
+        <View style={[styles.statusBadge, { backgroundColor: statusConfig.bgColor }]}>
+          <Text weight="semiBold" size="sm" color={statusConfig.textColor}>
+            {statusConfig.label}
+          </Text>
+        </View>
       </View>
 
       {/* Car and Mechanic Info Row */}
@@ -207,10 +242,8 @@ export function BookingCard({
               weight="bold"
               size="sm"
               color="#1F2937"
-              numberOfLines={1}
-              ellipsizeMode="tail"
             >
-              {booking.carModel} {booking.carYear}
+              {titleCase(booking.carModel)}
             </Text>
             <Text weight="regular" size="xs" color="#6B7280">
               {booking.licensePlate}
@@ -238,16 +271,46 @@ export function BookingCard({
         </View>
       </View>
 
+      {/* Live Tracker toggle — upcoming variant only */}
+      {canToggleLive && onToggleLiveTracker ? (
+        <View style={styles.liveToggleRow}>
+          <View style={styles.liveToggleLabel}>
+            <View style={[styles.liveDot, isLive && styles.liveDotActive]} />
+            <Text weight="semiBold" size="sm" color={isLive ? '#5299FE' : '#6B7280'}>
+              {isLive ? 'Live Tracker On' : 'Move to Live Tracker'}
+            </Text>
+          </View>
+          <Switch
+            value={isLive}
+            onValueChange={() => onToggleLiveTracker(booking.id)}
+            trackColor={{ false: '#E5E5EA', true: '#5299FE' }}
+            thumbColor="#FFFFFF"
+            ios_backgroundColor="#E5E5EA"
+          />
+        </View>
+      ) : null}
+
       {/* Date/Time or Completion Info */}
       {variant === 'upcoming' ? (
-        <View style={styles.dateTimeContainer}>
-          <Text weight="semiBold" size="sm" color="#5299FE">
-            {booking.date}
-          </Text>
-          <Text weight="semiBold" size="sm" color="#5299FE">
-            {booking.time}
-          </Text>
-        </View>
+        booking.status === 'pending_quote' ? (
+          <View style={styles.dateTimeContainer}>
+            <Text weight="semiBold" size="sm" color="#C8972E">
+              Awaiting quote
+            </Text>
+            <Text weight="regular" size="sm" color="#6B7280">
+              Time TBD
+            </Text>
+          </View>
+        ) : (
+          <View style={styles.dateTimeContainer}>
+            <Text weight="semiBold" size="sm" color="#5299FE">
+              {booking.date}
+            </Text>
+            <Text weight="semiBold" size="sm" color="#5299FE">
+              {booking.time}
+            </Text>
+          </View>
+        )
       ) : (
         <View style={styles.historyInfoContainer}>
           <View style={styles.historyInfoRow}>
@@ -436,6 +499,28 @@ const styles = StyleSheet.create({
   mechanicDetails: {
     gap: 2,
   },
+  liveToggleRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 4,
+    marginBottom: 8,
+  },
+  liveToggleLabel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  liveDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#D1D5DB',
+  },
+  liveDotActive: {
+    backgroundColor: '#5299FE',
+  },
   dateTimeContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -487,7 +572,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     paddingHorizontal: 16,
     borderRadius: 8,
-    backgroundColor: '#1F2937',
+    backgroundColor: '#5299FE',
   },
   iconButton: {
     width: 44,

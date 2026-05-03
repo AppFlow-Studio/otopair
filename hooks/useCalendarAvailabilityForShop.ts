@@ -19,14 +19,17 @@ export function useCalendarAvailabilityForShop(
   month: number,
   mechanicId: string | null | undefined,
 ) {
+  // Skip query for mock IDs (e.g. "1", "2") — only call Convex with real IDs
+  const isRealShopId = shopId != null && shopId.length > 10;
+  const isRealMechanicId = mechanicId != null && mechanicId.length > 10;
   const result = useQuery(
     api.time_slots.getAvailabilityByShopAndMonth,
-    shopId
+    isRealShopId
       ? {
           shopId: shopId as Id<"shops">,
           year,
           month,
-          mechanicId: mechanicId === undefined || mechanicId === null ? undefined : (mechanicId as Id<"mechanics">),
+          mechanicId: isRealMechanicId ? (mechanicId as Id<"mechanics">) : undefined,
         }
       : "skip",
   );

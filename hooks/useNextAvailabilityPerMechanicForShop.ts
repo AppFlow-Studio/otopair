@@ -21,9 +21,10 @@ export function useNextAvailabilityPerMechanicForShop(
   shopId: string | null,
   limitPerMechanic: number = DEFAULT_LIMIT_PER_MECHANIC,
 ) {
+  const isRealShopId = shopId != null && shopId.length > 10;
   const convexResult = useQuery(
     api.time_slots.getNextAvailableByShopPerMechanic,
-    shopId
+    isRealShopId
       ? {
           shopId: shopId as Id<"shops">,
           limitPerMechanic,
