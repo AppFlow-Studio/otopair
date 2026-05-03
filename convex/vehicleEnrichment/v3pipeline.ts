@@ -29,7 +29,16 @@ import { BLOCKED_DOMAINS } from "./sourceRegistry";
 import { applyApplicabilityRules } from "./applicabilityRules";
 import { scrapeVehicleSources } from "./scraper";
 import { sanitizeString, sanitizeNumber, sanitizePartNumber, sanitizeUrl } from "./contentSanitization";
-import { advancedVinDecode, extractVDBFields, fetchVDBRepairData } from "../lib/vehicleDatabases";
+import {
+  advancedVinDecode,
+  assessAvailablePackages,
+  extractVDBFields,
+  fetchVDBRepairRaw,
+  applyVDBMappingResult,
+  buildVDBMappingPrompt,
+  parseVDBMappingResponse,
+} from "../lib/vehicleDatabases";
+import { MODEL_HAIKU } from "./utils/batchClient";
 import { lookupChassisCode } from "./utils/chassisLookup";
 import { resolveEngineCode, isNhtsaDescriptor } from "./utils/engineCodeLookup";
 import type { Id } from "../_generated/dataModel";
@@ -119,7 +128,7 @@ function parseBatch1a(data: Record<string, any>): Record<string, FieldResult> {
   const parts = data.oem_parts ?? {};
   for (const k of ["oil_filter_oem", "air_filter_oem", "cabin_filter_oem", "spark_plug_oem",
     "front_brake_pad_oem", "rear_brake_pad_oem", "drain_plug_gasket_oem",
-    "serpentine_belt_oem", "timing_belt_oem", "wiper_blade_set_oem",
+    "serpentine_belt_oem", "timing_belt_oem", "wiper_blade_set_oem", "wiper_blade_rear_oem",
     "rotor_front_oem", "rotor_rear_oem", "battery_oem", "coolant_oem"]) {
     f[k] = parseField(parts[k]);
   }
@@ -150,6 +159,49 @@ function parseBatch1a(data: Record<string, any>): Record<string, FieldResult> {
   f.rear_wiper_size = parseField(trim.rear_wiper_size);
 
   return f;
+}
+
+/**
+ * Parse the optional top-level `packages` block from a Batch 1 response.
+ *
+ * Shape (when present):
+ *   data.packages = {
+ *     "<package_code>": { oem_parts: { <part_field>: { value, source_url, source_type, confidence }, ... } },
+ *     ...
+ *   }
+ *
+ * Returns Map<package_code, Record<part_field_key, FieldResult>>.
+ * Empty map if the response has no packages block or no recognized package codes.
+ */
+function parsePackageParts(data: Record<string, any>): Map<string, Record<string, FieldResult>> {
+  const out = new Map<string, Record<string, FieldResult>>();
+  const packagesBlock = data?.packages;
+  if (!packagesBlock || typeof packagesBlock !== "object") return out;
+
+  // The same OEM part field set used at the top level — package overrides only apply to these.
+  const partKeys = [
+    "oil_filter_oem", "air_filter_oem", "cabin_filter_oem", "spark_plug_oem",
+    "front_brake_pad_oem", "rear_brake_pad_oem", "drain_plug_gasket_oem",
+    "serpentine_belt_oem", "timing_belt_oem", "wiper_blade_set_oem", "wiper_blade_rear_oem",
+    "rotor_front_oem", "rotor_rear_oem", "battery_oem", "coolant_oem",
+  ];
+
+  for (const [code, body] of Object.entries(packagesBlock)) {
+    if (!body || typeof body !== "object") continue;
+    const parts = (body as any).oem_parts ?? {};
+    const fields: Record<string, FieldResult> = {};
+    let any = false;
+    for (const k of partKeys) {
+      const parsed = parseField(parts[k]);
+      // Only carry through fields with a real value — null overrides aren't meaningful here.
+      if (parsed.value != null) {
+        fields[k] = parsed;
+        any = true;
+      }
+    }
+    if (any) out.set(code, fields);
+  }
+  return out;
 }
 
 function parseBatch1b(data: Record<string, any>): Record<string, FieldResult> {
@@ -449,7 +501,9 @@ const PART_FIELD_MAP: Record<string, {
   rotor_rear_oem: { name: "Rear Brake Rotor", category: "rotor", subcategory: "rear_rotor", serviceSlug: "rotor_replacement", position: "rear" },
   serpentine_belt_oem: { name: "Serpentine Belt", category: "belt", subcategory: "serpentine_belt", serviceSlug: null },
   timing_belt_oem: { name: "Timing Belt", category: "timing", subcategory: "timing_belt", serviceSlug: "timing_belt" },
-  wiper_blade_set_oem: { name: "Wiper Blade Set", category: "wiper", subcategory: "wiper_blade_set", serviceSlug: null },
+  // Front wipers ship as a set (driver + passenger as one part). Rear wiper is its own part.
+  wiper_blade_set_oem: { name: "Wiper Blade Set (Front)", category: "wiper", subcategory: "wiper_blade_front_set", serviceSlug: "wiper_blade_replacement", position: "front" },
+  wiper_blade_rear_oem: { name: "Wiper Blade (Rear)", category: "wiper", subcategory: "wiper_blade_rear", serviceSlug: "wiper_blade_replacement", position: "rear" },
   battery_oem: { name: "Battery", category: "electrical", subcategory: "battery", serviceSlug: "battery_replacement" },
   coolant_oem: { name: "Coolant", category: "cooling", subcategory: "coolant", serviceSlug: "coolant_flush" },
 };
@@ -535,6 +589,8 @@ async function writeNormalizedData(
   serviceCache: Map<string, Id<"services">>,
   wheelSizeOptions?: any[],
   wheelSizeSource?: string,
+  /** Package-specific OEM parts: Map<package_code, Record<part_field_key, FieldResult>>. */
+  packageParts?: Map<string, Record<string, FieldResult>>,
 ) {
   const now = Date.now();
 
@@ -726,6 +782,49 @@ async function writeNormalizedData(
     });
   }
 
+  // F2. Package-specific OEM parts + fitments.
+  // Same PART_FIELD_MAP, but each fitment row carries package_code so booking-time
+  // lookup can filter to only the packages the owner has confirmed.
+  if (packageParts && packageParts.size > 0) {
+    for (const [packageCode, pkgFields] of packageParts) {
+      for (const [fieldKey, meta] of Object.entries(PART_FIELD_MAP)) {
+        const rawVal = pkgFields[fieldKey]?.value;
+        if (rawVal == null) continue;
+
+        const rawStr = String(rawVal);
+        const val = sanitizePartNumber(rawStr, make);
+        if (val == null || val.length === 0) {
+          console.log(`[v8-packages] SKIPPED ${packageCode}/${fieldKey}: failed sanitization (raw=${rawStr})`);
+          continue;
+        }
+
+        let qty = 1;
+        if (meta.subcategory === "spark_plug") {
+          qty = asNumber(fields.spark_plug_quantity?.value) ?? 1;
+        } else if (meta.subcategory === "front_rotor" || meta.subcategory === "rear_rotor") {
+          qty = 2;
+        }
+
+        console.log(`[v8-packages] Writing ${packageCode}/${meta.subcategory}: ${val}`);
+
+        await ctx.runMutation(internal.vehicleEnrichment.v3mutations.upsertPartAndFitment, {
+          oem_part_number: val,
+          name: meta.name,
+          category: meta.category,
+          subcategory: meta.subcategory,
+          make_id: makeId,
+          vehicle_config_id: vehicleConfigId,
+          service_type: meta.serviceSlug ?? meta.subcategory,
+          quantity_needed: qty,
+          position: meta.position,
+          package_code: packageCode,
+          confidence: pkgFields[fieldKey]?.confidence ?? 0.7,
+          source_domain: extractDomain(pkgFields[fieldKey]?.source_url),
+        });
+      }
+    }
+  }
+
   // G. Service intervals
   const intervalPrefixes = Object.keys(INTERVAL_TO_SERVICE);
   for (const prefix of intervalPrefixes) {
@@ -837,6 +936,10 @@ export const enrichVehicleBatchV3 = internalAction({
     engineCode: v.string(),
     displacement: v.string(),
     drivetrain: v.optional(v.string()),
+    // NHTSA-only base key passed in from confirmVehicleForUser. Stored on the
+    // vehicle_configs row in STAGE 4 so future VIN decodes can dedup against
+    // it BEFORE Haiku engine code resolution. See vehicleEnrichment/types.ts.
+    nhtsaVinKey: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const startTime = Date.now();
@@ -918,18 +1021,23 @@ export const enrichVehicleBatchV3 = internalAction({
       console.warn("[v8] Could not read vehicle identity:", e);
     }
 
-    // STEP 1b: Resolve engine code if NHTSA returned a descriptor (e.g. "Nu MPI" → "G4NH")
+    // STEP 1b: Resolve engine code if NHTSA returned a descriptor / VDB returned
+    // a placeholder / processVin fell back to a synthetic code like "3.6l_3.6cyl".
+    // (isNhtsaDescriptor catches all three.) Persist the resolved code back to
+    // the engines table after STEP 3 below, so sibling-matching uses it.
+    let resolvedEngineCodeForPersist: string | null = null;
     if (isNhtsaDescriptor(args.engineCode)) {
-      console.log(`[v8] Engine code "${args.engineCode}" is a NHTSA descriptor — resolving real OEM code`);
+      console.log(`[v8] Engine code "${args.engineCode}" is a placeholder — resolving real OEM code`);
       const resolved = await resolveEngineCode(
         args.year, args.make, args.model, args.trim,
         args.displacement, vPicData?.cylinders ?? 4,
         vPicData?.fuelType ?? "Gasoline", args.engineCode,
       );
-      if (resolved.source === "haiku") {
+      if (resolved.source === "haiku" && !isNhtsaDescriptor(resolved.engineCode)) {
         console.log(`[v8] Engine code resolved: "${args.engineCode}" → "${resolved.engineCode}"`);
         vehicle.engineCode = resolved.engineCode;
         configKey = buildEngineKey(vehicle);
+        resolvedEngineCodeForPersist = resolved.engineCode;
         // Check if a complete config already exists under the resolved key
         const resolvedConfig = await ctx.runQuery(
           internal.vehicleEnrichment.v3queries.getVehicleConfigByKey,
@@ -943,6 +1051,8 @@ export const enrichVehicleBatchV3 = internalAction({
           );
           return { status: "cache_hit" as const, configId: resolvedConfig._id };
         }
+      } else if (resolved.source === "unknown") {
+        console.log(`[v8] Engine code resolution returned unknown — keeping placeholder "${args.engineCode}"`);
       }
     }
 
@@ -978,9 +1088,42 @@ export const enrichVehicleBatchV3 = internalAction({
       return { status: "error" as const, reason: "no_engine_id" };
     }
 
+    // v9.6: persist Haiku-resolved engine code back to the engines table so
+    // by_engine_code sibling matching uses the real OEM code from now on.
+    if (resolvedEngineCodeForPersist) {
+      try {
+        await ctx.runMutation(
+          internal.vehicleEnrichment.v3mutations.patchEngineCode,
+          { engine_id: vehicleDoc.engine_id, engine_code: resolvedEngineCodeForPersist },
+        );
+        console.log(`[v8] Persisted resolved engine code "${resolvedEngineCodeForPersist}" to engines.engine_code`);
+      } catch (e) {
+        console.warn("[v8] patchEngineCode failed (non-fatal):", e);
+      }
+    }
+
     // VDB advanced decode — runs once, cached by VIN. Fields used in Step 6b/6e.
     const vdbRaw = vehicleDoc.vin ? await advancedVinDecode(vehicleDoc.vin) : null;
     const vdbFields = vdbRaw ? extractVDBFields(vdbRaw) : null;
+
+    // Package detection — flags packages available for this trim that affect 1+ of
+    // the 23 services. Stored on vehicle_configs.packages_available (after the upsert
+    // below) and passed into Batch 1 so Claude can return package-specific part numbers.
+    // See docs/PACKAGE_AWARE_PARTS.md.
+    const detectedPackages = vdbRaw
+      ? assessAvailablePackages({
+          vdbRaw,
+          make: args.make,
+          model: args.model,
+          trim: args.trim,
+          year: args.year,
+        })
+      : [];
+    if (detectedPackages.length > 0) {
+      console.log(
+        `[v8-packages] Detected ${detectedPackages.length} service-impacting package(s): ${detectedPackages.map((p) => p.code).join(", ")}`,
+      );
+    }
 
     // STEP 3a: Ensure transmission record exists for ICE vehicles
     let transmissionId = vehicleDoc.transmission_id ?? null;
@@ -1031,6 +1174,7 @@ export const enrichVehicleBatchV3 = internalAction({
       internal.vehicleEnrichment.v3mutations.upsertVehicleConfig,
       {
         config_key: configKey,
+        nhtsa_vin_key: args.nhtsaVinKey,
         year: args.year,
         make_id: makeDoc._id,
         model_id: modelDoc._id,
@@ -1044,6 +1188,16 @@ export const enrichVehicleBatchV3 = internalAction({
         enrichment_version: "v8",
       },
     );
+
+    // STEP 4b: Persist detected packages (if any) onto the vehicle_config row.
+    // patchVehicleConfig is a no-op when packages_available is undefined, so this
+    // is safe to call unconditionally.
+    if (detectedPackages.length > 0) {
+      await ctx.runMutation(internal.vehicleEnrichment.v3mutations.patchVehicleConfig, {
+        vehicle_config_id: vehicleConfigId,
+        packages_available: detectedPackages,
+      });
+    }
 
     // STEP 5: Create enrichment run (now that vehicle_config_id is known)
     const runId = await ctx.runMutation(
@@ -1072,52 +1226,17 @@ export const enrichVehicleBatchV3 = internalAction({
       });
     }
 
-    // STEP 6b: VDB Repair Estimates — service intervals + labor hours (confidence 0.88-0.90).
-    // Intervals are derived from VDB mileage schedule (min gap across checkpoints).
-    // AI enrichment runs later and fills gaps; upsertServiceInterval/upsertLaborTime
-    // confidence guards prevent AI from overwriting higher-confidence VDB data.
+    // STEP 6b: VDB Repair Estimates — fetch raw blocks ONLY. The action→slug
+    // mapping happens via Haiku as a 1C request piggybacked on Batch 1A/1B (see
+    // STEP 8). Mapping result + raw blocks → intervals/labor in _pollBatch1V3.
+    let vdbRepairRaw: { blocks: any[]; actions: string[] } | null = null;
     try {
-      const vdbRepair = vehicleDoc.vin ? await fetchVDBRepairData(vehicleDoc.vin) : null;
-      if (vdbRepair) {
-        let intervalCount = 0;
-        for (const { slug, interval_miles } of vdbRepair.intervals) {
-          const svc = await ctx.runQuery(
-            internal.vehicleEnrichment.v3queries.getServiceBySlug,
-            { slug },
-          );
-          if (!svc) continue;
-          await ctx.runMutation(internal.vehicleEnrichment.v3mutations.upsertServiceInterval, {
-            vehicle_config_id: vehicleConfigId,
-            service_id: svc._id,
-            interval_miles,
-            status: "active",
-            confidence: 0.9,
-            data_quality: "vdb_schedule",
-          });
-          intervalCount++;
-        }
-
-        let laborCount = 0;
-        for (const [slug, hours] of vdbRepair.labor) {
-          const svc = await ctx.runQuery(
-            internal.vehicleEnrichment.v3queries.getServiceBySlug,
-            { slug },
-          );
-          if (!svc) continue;
-          await ctx.runMutation(internal.vehicleEnrichment.v3mutations.upsertLaborTime, {
-            vehicle_config_id: vehicleConfigId,
-            service_id: svc._id,
-            book_hours: hours,
-            source: "vdb_repair_estimates",
-            confidence: 0.90,
-          });
-          laborCount++;
-        }
-
-        console.log(`[v8] VDB repair: ${intervalCount} intervals, ${laborCount} labor entries`);
+      vdbRepairRaw = vehicleDoc.vin ? await fetchVDBRepairRaw(vehicleDoc.vin) : null;
+      if (vdbRepairRaw) {
+        console.log(`[v8] VDB repair: fetched ${vdbRepairRaw.blocks.length} blocks, ${vdbRepairRaw.actions.length} unique actions`);
       }
     } catch (e) {
-      console.warn("[v8] VDB repair estimates failed (non-fatal):", e);
+      console.warn("[v8] VDB repair fetch failed (non-fatal):", e);
     }
 
     // STEP 6c: Chassis code lookup + merge-and-continue (Task 22 v2)
@@ -1239,11 +1358,20 @@ export const enrichVehicleBatchV3 = internalAction({
       status: "batch1",
     });
 
-    const batch1Requests = [
+    const batch1Requests: Array<{
+      customId: string;
+      system: string;
+      userPrompt: string;
+      maxTokens: number;
+      temperature: number;
+      maxSearchUses: number;
+      blockedDomains?: string[];
+      model?: string;
+    }> = [
       {
         customId: "batch1a",
         system: BATCH_1_SYSTEM,
-        userPrompt: buildBatch1Prompt(vehicle, vPicData, sources.partsMarkdown, sources.manualMarkdown),
+        userPrompt: buildBatch1Prompt(vehicle, vPicData, sources.partsMarkdown, sources.manualMarkdown, detectedPackages),
         maxTokens: 8192,
         temperature: 0,
         maxSearchUses: 0,
@@ -1258,6 +1386,25 @@ export const enrichVehicleBatchV3 = internalAction({
         blockedDomains: BLOCKED_DOMAINS,
       },
     ];
+
+    // v9.8: piggyback the VDB action→slug mapping on Batch 1 as a 1C Haiku request.
+    // No web search, structured-extraction only. Result is parsed in _pollBatch1V3
+    // and applied to the raw VDB blocks to produce intervals + labor.
+    if (vdbRepairRaw && vdbRepairRaw.actions.length > 0) {
+      const mapping = buildVDBMappingPrompt(vdbRepairRaw.actions, {
+        year: args.year, make: args.make, model: args.model, trim: args.trim,
+      });
+      batch1Requests.push({
+        customId: "batch1c",
+        system: mapping.system,
+        userPrompt: mapping.userPrompt,
+        maxTokens: 4096,
+        temperature: 0,
+        maxSearchUses: 0,
+        model: MODEL_HAIKU,
+      });
+      console.log(`[v8] Batch 1C (VDB mapping) added: ${vdbRepairRaw.actions.length} actions to map`);
+    }
 
     for (const req of batch1Requests) {
       console.log(`[v8-debug] Batch request ${req.customId}:`);
@@ -1303,6 +1450,8 @@ export const enrichVehicleBatchV3 = internalAction({
         attempt: 1,
         wheelSizeOptions: sources.wheelSizeResult?.tireOptions as any ?? undefined,
         wheelSizeSource: sources.wheelSizeResult?.sourceUrl ?? undefined,
+        vdbRepairBlocks: vdbRepairRaw?.blocks ?? undefined,
+        vdbRepairActions: vdbRepairRaw?.actions ?? undefined,
       },
     );
 
@@ -1360,6 +1509,8 @@ export const _pollBatch1V3 = internalAction({
       wheel_spec: v.optional(v.string()),
     }))),
     wheelSizeSource: v.optional(v.string()),
+    vdbRepairBlocks: v.optional(v.array(v.any())),
+    vdbRepairActions: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
     const attempt = args.attempt ?? 1;
@@ -1384,10 +1535,67 @@ export const _pollBatch1V3 = internalAction({
       return;
     }
 
-    // Parse Batch 1A + 1B
+    // Parse Batch 1A + 1B (+ optional 1C VDB mapping)
     const results = await getBatchResults(args.batchId);
     const r1a = results["batch1a"];
     const r1b = results["batch1b"];
+    const r1c = results["batch1c"];
+
+    // v9.8: Apply VDB action→slug mapping from 1C, then write intervals + labor.
+    // Confidence 0.9 ensures Batch 2 fallback never overwrites this.
+    if (r1c && !r1c.error && args.vdbRepairBlocks && args.vdbRepairActions) {
+      try {
+        const actionMap = parseVDBMappingResponse(
+          r1c.data,
+          args.vdbRepairActions,
+        );
+        const vdbResult = applyVDBMappingResult(
+          args.vdbRepairBlocks as any[],
+          actionMap,
+        );
+        let intervalCount = 0;
+        for (const { slug, interval_miles } of vdbResult.intervals) {
+          const svc = await ctx.runQuery(
+            internal.vehicleEnrichment.v3queries.getServiceBySlug,
+            { slug },
+          );
+          if (!svc) continue;
+          await ctx.runMutation(internal.vehicleEnrichment.v3mutations.upsertServiceInterval, {
+            vehicle_config_id: args.vehicleConfigId,
+            service_id: svc._id,
+            interval_miles,
+            status: "active",
+            confidence: 0.9,
+            data_quality: "vdb_schedule",
+          });
+          intervalCount++;
+        }
+        let laborCount = 0;
+        for (const [slug, hours] of vdbResult.labor) {
+          const svc = await ctx.runQuery(
+            internal.vehicleEnrichment.v3queries.getServiceBySlug,
+            { slug },
+          );
+          if (!svc) continue;
+          await ctx.runMutation(internal.vehicleEnrichment.v3mutations.upsertLaborTime, {
+            vehicle_config_id: args.vehicleConfigId,
+            service_id: svc._id,
+            book_hours: hours,
+            source: "vdb_repair_estimates",
+            confidence: 0.9,
+          });
+          laborCount++;
+        }
+        console.log(
+          `[v8/_pollBatch1] VDB mapping applied: ${intervalCount} intervals, ${laborCount} labor entries ` +
+          `(${actionMap.size} actions mapped)`,
+        );
+      } catch (e) {
+        console.warn("[v8/_pollBatch1] VDB mapping apply failed (non-fatal):", e);
+      }
+    } else if (r1c?.error) {
+      console.warn(`[v8/_pollBatch1] batch1c (VDB mapping) ${r1c.error} — skipping VDB writes`);
+    }
 
     if (!r1a) {
       console.error("[v8/_pollBatch1] No batch1a result — aborting");
@@ -1424,6 +1632,15 @@ export const _pollBatch1V3 = internalAction({
     const fields1b = r1b && !r1b.error ? parseBatch1b(r1b.data) : {};
     let fields = mergeBatch1(fields1a, fields1b);
 
+    // Package-specific OEM parts (only present when assessAvailablePackages
+    // detected packages and Claude returned a top-level "packages" block).
+    const packageParts = parsePackageParts(r1a.data);
+    if (packageParts.size > 0) {
+      console.log(
+        `[v8/_pollBatch1] Package-specific parts returned for: ${[...packageParts.keys()].join(", ")}`,
+      );
+    }
+
     const vehicle: VehicleInput = {
       vehicleId: args.vehicleId,
       year: args.year, make: args.make, model: args.model,
@@ -1445,6 +1662,7 @@ export const _pollBatch1V3 = internalAction({
       args.makeId, args.runId, args.make, serviceCache,
       args.wheelSizeOptions,
       args.wheelSizeSource,
+      packageParts,
     );
 
     // Submit Batch 2
@@ -1866,7 +2084,7 @@ export const _pollBatch2V3 = internalAction({
     // shared chassis_specs record that all vehicles on this platform will inherit.
     try {
       const freshConfig = await ctx.runQuery(
-        internal.vehicleEnrichment.v3queries.getVehicleConfig,
+        internal.vehicleEnrichment.v3queries.getVehicleConfigById,
         { vehicleConfigId: args.vehicleConfigId },
       );
       if (freshConfig?.chassis_code) {

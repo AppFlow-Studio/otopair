@@ -185,6 +185,11 @@ export default defineSchema({
   // [U-W] Canonical vehicle config — THE new join key
   vehicle_configs: defineTable({
     config_key: v.string(),
+    // NHTSA-only base key — built from raw vPIC fields BEFORE engine code resolution.
+    // Format: `{year}_{make}_{model}_{trim}_{displacementL}l_{cylinders}cyl_{fuel}`
+    // Used by confirmVehicleForUser for instant cache hits without waiting on Haiku
+    // engine code resolution (e.g. "1.4 TSI" → "EA211"). See docs/ENRICHMENT_PIPELINE_HANDOFF.md.
+    nhtsa_vin_key: v.optional(v.string()),
     year: v.number(),
     make_id: v.id("makes"),
     model_id: v.id("models"),
@@ -208,9 +213,25 @@ export default defineSchema({
     verification_count: v.optional(v.number()),
     chassis_code: v.optional(v.string()),
     cloned_from_config_id: v.optional(v.id("vehicle_configs")),
+    // Packages this trim *can* ship with that affect 1+ of the 23 services.
+    // Detection-only — does NOT mean a specific VIN has the package.
+    // Used at booking time to compute which questions to ask the user.
+    // See docs/PACKAGE_AWARE_PARTS.md.
+    packages_available: v.optional(
+      v.array(
+        v.object({
+          code: v.string(),                       // e.g. "m_performance"
+          label: v.string(),                      // e.g. "M Performance Brake Package"
+          services_affected: v.array(v.string()), // e.g. ["brake_pad_replacement", "brake_rotor_replacement"]
+          detected_from: v.string(),              // "vdb_optional_options" | "vdb_standard_options" | "claude_inference" | "rules_table"
+          confidence: v.optional(v.number()),
+        }),
+      ),
+    ),
     created_at: v.optional(v.number()),
   })
     .index("by_config_key", ["config_key"])
+    .index("by_nhtsa_vin_key", ["nhtsa_vin_key"])
     .index("by_engine", ["engine_id"])
     .index("by_make_model_year", ["make_id", "model_id", "year"])
     .index("by_enrichment_status", ["enrichment_status"])
@@ -326,6 +347,10 @@ export default defineSchema({
     service_type: v.optional(v.string()),
     quantity_needed: v.optional(v.number()),
     position: v.optional(v.string()),
+    // null/undefined = base/default fitment (applies when no package overrides it).
+    // When set, this fitment only applies if the owner has confirmed this package
+    // in vehicle_owner_specs.confirmed_packages.
+    package_code: v.optional(v.string()),
     confidence: v.optional(v.number()),
     source_count: v.optional(v.number()),
     first_confirmed_at: v.optional(v.number()),
@@ -336,7 +361,8 @@ export default defineSchema({
   })
     .index("by_vehicle_config", ["vehicle_config_id"])
     .index("by_part", ["part_id"])
-    .index("by_config_service", ["vehicle_config_id", "service_type"]),
+    .index("by_config_service", ["vehicle_config_id", "service_type"])
+    .index("by_config_service_package", ["vehicle_config_id", "service_type", "package_code"]),
 
   // [U-W] Scraped OEM part pricing
   part_prices: defineTable({
@@ -691,6 +717,61 @@ export default defineSchema({
     .index("by_vin_user", ["vin", "user_id"])
     .index("by_user_status", ["user_id", "status"])
     .index("by_smartcar_vehicle_id", ["smartcarVehicleId"]),
+
+  // [U-W] Owner-specific hardware facts about THIS car.
+  // Resolves which package-tagged part_fitments apply at booking time.
+  // See docs/PACKAGE_AWARE_PARTS.md.
+  // Lifecycle:
+  //   - Row created lazily on first user answer (no row = all packages "pending").
+  //   - confirmed_packages = user said "yes, my car has this package".
+  //   - denied_packages    = user said "no" — permanent, never re-asked.
+  //   - pending = vehicle_configs.packages_available − confirmed − denied (computed, not stored).
+  vehicle_owner_specs: defineTable({
+    vehicle_owner_id: v.id("vehicle_owners"),
+
+    // Package answers — accumulated over time as the user requests services.
+    confirmed_packages: v.optional(v.array(v.string())),
+    denied_packages: v.optional(v.array(v.string())),
+
+    // Tire setup actually on the car (not the OEM default — what's mounted right now).
+    tire_setup: v.optional(
+      v.object({
+        front: v.optional(
+          v.object({
+            brand: v.optional(v.string()),
+            model: v.optional(v.string()),
+            size: v.optional(v.string()),
+            confirmed_at: v.optional(v.number()),
+            source: v.optional(v.string()), // "user" | "scan" | "inferred_from_oem"
+          }),
+        ),
+        rear: v.optional(
+          v.object({
+            brand: v.optional(v.string()),
+            model: v.optional(v.string()),
+            size: v.optional(v.string()),
+            confirmed_at: v.optional(v.number()),
+            source: v.optional(v.string()),
+          }),
+        ),
+      }),
+    ),
+
+    // Aftermarket / non-package modifications the user has told us about.
+    modifications: v.optional(
+      v.array(
+        v.object({
+          type: v.string(), // "exhaust" | "intake" | "suspension" | "brakes" | "wheels" | "other"
+          brand: v.optional(v.string()),
+          note: v.optional(v.string()),
+          added_at: v.optional(v.number()),
+        }),
+      ),
+    ),
+
+    last_updated_at: v.optional(v.number()),
+    created_at: v.optional(v.number()),
+  }).index("by_vehicle_owner", ["vehicle_owner_id"]),
 
   // [I]
   odometer_history: defineTable({

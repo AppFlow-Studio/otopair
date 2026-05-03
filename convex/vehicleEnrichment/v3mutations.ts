@@ -9,6 +9,7 @@ import { updateSourceScores } from "../services/sourceScoring";
 export const upsertVehicleConfig = internalMutation({
   args: {
     config_key: v.string(),
+    nhtsa_vin_key: v.optional(v.string()),
     year: v.float64(),
     make_id: v.id("makes"),
     model_id: v.id("models"),
@@ -29,7 +30,7 @@ export const upsertVehicleConfig = internalMutation({
       .first();
 
     if (existing) {
-      await ctx.db.patch(existing._id, {
+      const patch: Record<string, unknown> = {
         year: args.year,
         make_id: args.make_id,
         model_id: args.model_id,
@@ -43,12 +44,20 @@ export const upsertVehicleConfig = internalMutation({
         fill_rate: args.fill_rate,
         enrichment_version: args.enrichment_version,
         last_enriched_at: Date.now(),
-      });
+      };
+      // Only set nhtsa_vin_key if not already populated — first writer wins so
+      // the original NHTSA fingerprint stays stable even if a later enrichment
+      // run computes a slightly different one (shouldn't happen, but safe).
+      if (args.nhtsa_vin_key && !existing.nhtsa_vin_key) {
+        patch.nhtsa_vin_key = args.nhtsa_vin_key;
+      }
+      await ctx.db.patch(existing._id, patch);
       return existing._id;
     }
 
     return await ctx.db.insert("vehicle_configs", {
       config_key: args.config_key,
+      nhtsa_vin_key: args.nhtsa_vin_key,
       year: args.year,
       make_id: args.make_id,
       model_id: args.model_id,
@@ -88,6 +97,18 @@ export const patchVehicleConfig = internalMutation({
     // Chassis grouping (Task 22)
     chassis_code: v.optional(v.string()),
     cloned_from_config_id: v.optional(v.id("vehicle_configs")),
+    // Package detection (see docs/PACKAGE_AWARE_PARTS.md)
+    packages_available: v.optional(
+      v.array(
+        v.object({
+          code: v.string(),
+          label: v.string(),
+          services_affected: v.array(v.string()),
+          detected_from: v.string(),
+          confidence: v.optional(v.number()),
+        }),
+      ),
+    ),
   },
   handler: async (ctx, args) => {
     const { vehicle_config_id, ...fields } = args;
@@ -398,12 +419,15 @@ export const upsertPartAndFitment = internalMutation({
     service_type: v.string(),
     quantity_needed: v.float64(),
     position: v.optional(v.string()),
+    // Package this fitment is scoped to (see docs/PACKAGE_AWARE_PARTS.md).
+    // null/undefined = base/default fitment.
+    package_code: v.optional(v.string()),
     confidence: v.float64(),
     source_domain: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
-    console.log(`[v8-parts] upsertPartAndFitment: ${args.oem_part_number} (${args.subcategory}) for ${args.service_type}`);
+    console.log(`[v8-parts] upsertPartAndFitment: ${args.oem_part_number} (${args.subcategory}) for ${args.service_type}${args.package_code ? ` [package=${args.package_code}]` : ""}`);
 
     // Upsert OEM part
     let part = await ctx.db
@@ -441,8 +465,9 @@ export const upsertPartAndFitment = internalMutation({
       });
     }
 
-    // Upsert fitment
-    const existingFitment = await ctx.db
+    // Upsert fitment — match on (config, service, part, package_code) so a
+    // package-specific row doesn't collide with the base/default row.
+    const candidateFitments = await ctx.db
       .query("part_fitments")
       .withIndex("by_config_service", (q) =>
         q
@@ -450,7 +475,11 @@ export const upsertPartAndFitment = internalMutation({
           .eq("service_type", args.service_type)
       )
       .filter((q) => q.eq(q.field("part_id"), partId))
-      .first();
+      .collect();
+
+    const existingFitment = candidateFitments.find(
+      (f) => (f.package_code ?? null) === (args.package_code ?? null),
+    );
 
     let fitmentId;
     if (existingFitment) {
@@ -467,6 +496,7 @@ export const upsertPartAndFitment = internalMutation({
         service_type: args.service_type,
         quantity_needed: args.quantity_needed,
         position: args.position,
+        package_code: args.package_code,
         confidence: args.confidence,
         source_count: 1,
         first_confirmed_at: now,
@@ -1768,5 +1798,24 @@ export const backfillEngineSiblings = internalMutation({
     }
 
     return { totalBackfilled, siblingsUpdated: args.sibling_config_ids.length };
+  },
+});
+
+
+// ============================================================================
+// v9.6 — Persist Haiku-resolved engine code back to the engines table.
+// Without this, processVin's synthetic fallback ("3.6l_3.6cyl") stays in the
+// engines.engine_code column forever, blocking by_engine_code sibling matching.
+// ============================================================================
+
+export const patchEngineCode = internalMutation({
+  args: {
+    engine_id: v.id("engines"),
+    engine_code: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.engine_id, {
+      engine_code: args.engine_code,
+    });
   },
 });

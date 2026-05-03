@@ -15,6 +15,23 @@ export const getVehicleConfigByKey = internalQuery({
   },
 });
 
+/**
+ * Look up a cached vehicle_config by its NHTSA-only base key.
+ *
+ * This is the fast-path dedup used by confirmVehicleForUser BEFORE Haiku
+ * engine code resolution. If a config already exists for this NHTSA fingerprint
+ * we can skip the entire enrichment pipeline.
+ */
+export const getVehicleConfigByNhtsaVinKey = internalQuery({
+  args: { nhtsaVinKey: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("vehicle_configs")
+      .withIndex("by_nhtsa_vin_key", (q) => q.eq("nhtsa_vin_key", args.nhtsaVinKey))
+      .first();
+  },
+});
+
 export const getMakeByName = internalQuery({
   args: { name: v.string() },
   handler: async (ctx, args) => {

@@ -22,16 +22,47 @@ function getClient(): Anthropic {
 }
 
 /**
- * Returns true if the string looks like a raw NHTSA descriptor rather than
- * a real OEM engine code.
+ * Returns true if the string is a placeholder rather than a real OEM engine code.
  *
- * NHTSA descriptors contain spaces ("Nu MPI", "EcoBoost 2.3L") or are generic
- * labels. Real OEM codes are compact alphanumeric strings ("G4NH", "B58", "L83").
+ * Real OEM codes are compact alphanumeric strings with optional dashes
+ * ("G4NH", "B58B30M1", "L83", "EJ257"). Anything else is a placeholder we
+ * need Haiku to resolve.
+ *
+ * Catches:
+ *   - empty / "unknown" / "n/a"
+ *   - NHTSA descriptors with spaces ("Nu MPI", "EcoBoost 2.3L") or > 14 chars
+ *   - VDB placeholders ("STDEN")
+ *   - synthetic fallback codes from processVin ("3.6l_3.6cyl", "2.0l_4cyl")
+ *   - any code containing underscores (real OEM codes never use _)
+ *   - codes that are purely numeric or start with a digit followed by "l"
+ *     (those are displacement-derived synthetics, not real codes)
  */
 export function isNhtsaDescriptor(engineCode: string): boolean {
-  if (!engineCode || engineCode === "unknown") return true;
-  // Real codes: no spaces, ≤12 chars, alphanumeric + optional dash
-  return /\s/.test(engineCode) || engineCode.length > 14;
+  if (!engineCode) return true;
+  const trimmed = engineCode.trim();
+  if (!trimmed) return true;
+  const lower = trimmed.toLowerCase();
+
+  // Generic placeholders
+  if (lower === "unknown" || lower === "n/a" || lower === "none" || lower === "null") return true;
+
+  // Known VDB placeholder values
+  if (lower === "stden") return true;
+
+  // NHTSA descriptors with spaces or absurd length
+  if (/\s/.test(trimmed) || trimmed.length > 14) return true;
+
+  // Synthetic codes from processVin fallback ("3.6l_3.6cyl", "2.0l_4cyl")
+  if (/^\d+(?:\.\d+)?l[_-]\d+(?:\.\d+)?cyl$/i.test(trimmed)) return true;
+
+  // Real OEM codes never have underscores. Anything with _ is a synthetic.
+  if (trimmed.includes("_")) return true;
+
+  // Pattern that starts with displacement-and-l (like "3.6L" or "20l")
+  // — those are descriptors, not codes.
+  if (/^\d+(?:\.\d+)?l$/i.test(trimmed)) return true;
+
+  return false;
 }
 
 const SYSTEM = `You are an automotive engineering expert. Given a vehicle description, return ONLY the OEM engine code.
