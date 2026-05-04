@@ -738,25 +738,28 @@ export default function CarsHomeScreen() {
         return;
       }
 
-      // Use cached URL from Convex if it's from our current provider
+      // If Convex already has ANY image_url for this VIN, reuse it. Don't
+      // restrict by domain — once the API has been called and saved, we
+      // never want to call it again (vehicle DB credits are precious).
       const cachedUrl = r.vehicle?.image_url;
-      if (cachedUrl && (cachedUrl.includes("vehicledatabases.com") || cachedUrl.includes("vhr.nyc3.cdn"))) {
+      if (cachedUrl) {
         setVehicleImageUrls((prev) => ({ ...prev, [r.vin]: cachedUrl }));
         return;
       }
 
-      // TODO: re-enable once API credits are available
-      // const v = r.vehicle;
-      // const meta = v?.metadata as { make?: string; model?: string; color?: string } | undefined;
-      // const make = meta?.make ?? "";
-      // const model = meta?.model ?? "";
-      // const color = meta?.color ?? r.ownership?.color ?? "";
-      // fetchVehicleImageUrl(make, model, v?.year, r.vin, color).then((url) => {
-      //   if (url) {
-      //     setVehicleImageUrls((prev) => ({ ...prev, [r.vin]: url }));
-      //     saveVehicleImageUrl({ vin: r.vin, image_url: url });
-      //   }
-      // });
+      // No cached URL → fetch the API exactly once, then persist via
+      // saveVehicleImageUrl so subsequent loads short-circuit above.
+      const v = r.vehicle;
+      const meta = v?.metadata as { make?: string; model?: string; color?: string } | undefined;
+      const make = meta?.make ?? "";
+      const model = meta?.model ?? "";
+      const color = meta?.color ?? r.ownership?.color ?? "";
+      if (!make || !model) return;
+      fetchVehicleImageUrl(make, model, v?.year, r.vin, color).then((url) => {
+        if (!url) return;
+        setVehicleImageUrls((prev) => ({ ...prev, [r.vin]: url }));
+        saveVehicleImageUrl({ vin: r.vin, image_url: url });
+      });
     });
   }, [listVehicles]);
 

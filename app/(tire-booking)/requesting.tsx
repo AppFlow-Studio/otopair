@@ -19,7 +19,7 @@
  * history for the original block).
  */
 
-import React, { useEffect, useRef } from "react";
+import React, { useCallback, useEffect, useRef } from "react";
 import { Dimensions, StyleSheet, View } from "react-native";
 
 import { useRouter } from "expo-router";
@@ -28,6 +28,9 @@ import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/Flo
 import { QuoteRequestStatus } from "@/components/tire-booking/QuoteRequestStatus";
 // import { TireGridBackground } from "@/components/tire-booking/TireGridBackground";
 import { RequestingMapBackground } from "@/components/tire-booking/RequestingMapBackground";
+import { TIRE_TIERS, TIRE_TYPES } from "@/constants/tireFlow";
+import { useCreateTireQuoteRequest } from "@/hooks/useCreateTireQuoteRequest";
+import { useTireBookingStore } from "@/stores/useTireBookingStore";
 
 const { width: SCREEN_W, height: SCREEN_HEIGHT } = Dimensions.get("window");
 const SHEET_HEIGHT = Math.round(SCREEN_HEIGHT * 0.52);
@@ -35,6 +38,12 @@ const SHEET_HEIGHT = Math.round(SCREEN_HEIGHT * 0.52);
 export default function TireRequestingScreen() {
   const router = useRouter();
   const sheetRef = useRef<FloatingSheetRef>(null);
+
+  const createTireQuoteRequest = useCreateTireQuoteRequest();
+  const tireSize = useTireBookingStore((s) => s.tireSize);
+  const tireType = useTireBookingStore((s) => s.tireType);
+  const tier = useTireBookingStore((s) => s.tier);
+  const selectedTirePositions = useTireBookingStore((s) => s.selectedTirePositions);
 
   // Open the sheet as soon as the route mounts.
   useEffect(() => {
@@ -52,14 +61,45 @@ export default function TireRequestingScreen() {
     sheetRef.current?.close();
   };
 
-  const handleViewUpcoming = () => {
+  const handleViewUpcoming = useCallback(() => {
+    // Confirm tap (or 8s auto-fire) — this is when the booking record is
+    // actually written. Get Quotes only opens the requesting sheet; tapping
+    // Go back leaves no trace on the Upcoming tab.
+    const tierLabel = TIRE_TIERS.find((t) => t.id === tier)?.label ?? "";
+    const typeLabel = TIRE_TYPES.find((t) => t.id === tireType)?.label ?? "";
+    const tierAndType = [tierLabel, typeLabel].filter(Boolean).join(" ");
+    const count = selectedTirePositions.length;
+    const tiresLabel = [
+      count > 0 ? `${count} ${tierAndType || "tires"}` : tierAndType || "Tires",
+      tireSize || undefined,
+    ]
+      .filter(Boolean)
+      .join(" · ");
+
+    void createTireQuoteRequest({
+      tiresLabel,
+      tireSpecs: {
+        size: tireSize ?? "",
+        type: typeLabel,
+        tier: tierLabel,
+        quantity: count,
+      },
+    });
+
     // `requestSubmitted` triggers the one-shot confirmation sheet on the
     // Upcoming tab. Consumed + cleared on arrival.
     router.replace({
       pathname: "/(main-tabs)/bookings",
-      params: { tab: "upcoming", requestSubmitted: "1" },
+      params: { tab: "bookings", requestSubmitted: "1" },
     });
-  };
+  }, [
+    createTireQuoteRequest,
+    router,
+    selectedTirePositions.length,
+    tier,
+    tireSize,
+    tireType,
+  ]);
 
   return (
     <View style={styles.screen}>

@@ -61,6 +61,7 @@ import {
   CircleDollarSign,
   Users,
   Trash2,
+  Clock,
 } from "lucide-react-native";
 import { CarIcon } from "phosphor-react-native";
 import Animated, {
@@ -670,6 +671,11 @@ export default function SettingsHomeScreen() {
                           params: { serviceName: "Saved Addresses" },
                         } as any)
                       }
+                    />
+                    <SettingsListItem
+                      icon={<Clock size={20} color="#1F2937" />}
+                      label="Booking History"
+                      onPress={() => router.push("/settings/booking-history")}
                       isLast
                     />
                   </View>

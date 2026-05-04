@@ -173,7 +173,7 @@ export const processMechanicVerification = internalMutation({
     if (args.actual_labor_hours !== undefined) {
       const existingLaborTime = await ctx.db
         .query("labor_times")
-        .withIndex("by_vehicle_config", (q) =>
+        .withIndex("by_vehicle_config_and_service", (q) =>
           q
             .eq("vehicle_config_id", args.vehicle_config_id)
             .eq("service_id", args.service_id)

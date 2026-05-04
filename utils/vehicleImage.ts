@@ -42,7 +42,11 @@ export async function fetchVehicleImageUrl(
 
     for (const url of urls) {
       console.log("[vehicleImage] GET", url);
-      const response = await fetch(url, { headers: { "x-authkey": API_KEY } });
+      // Header casing matches the working convex caller in
+      // `convex/lib/vehicleDatabases.ts`. The API gateway has been
+      // observed to 403 on lowercased "x-authkey" despite RFC saying
+      // header names are case-insensitive — keep this capitalized.
+      const response = await fetch(url, { headers: { "x-AuthKey": API_KEY } });
       console.log("[vehicleImage] status", response.status, "ok?", response.ok);
       if (!response.ok) continue;
 

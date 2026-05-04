@@ -20,12 +20,14 @@
  */
 
 import React from "react";
-import { Image, Pressable, StyleSheet, Switch, View } from "react-native";
+import { Alert, Image, Pressable, StyleSheet, View } from "react-native";
 
 import { ArrowRight, Car } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
-import type { Booking } from "@/components/bookings/BookingCard";
+import { type Booking } from "@/components/bookings/BookingCard";
+import { BookingProgressBar } from "@/components/bookings/BookingProgressBar";
+import { getBookingStageView } from "@/utils/bookingStages";
 
 // ============================================================================
 // HELPERS
@@ -60,28 +62,36 @@ function parseTireSpecs(notes: string | undefined): {
 interface Props {
   booking: Booking;
   onPress?: (bookingId: string) => void;
-  /** Flip pending_quote ↔ quotes_ready — called from the Switch toggle. */
-  onToggleQuotesReady?: (bookingId: string) => void;
   /** Open the quote list sheet. Called from the "View quotes" button. */
   onViewQuotes?: (bookingId: string) => void;
+  /** Soft-deletes the booking by flipping its status to "cancelled".
+   *  Triggered by the "Cancel Request" button. */
+  onCancel?: (bookingId: string) => void;
 }
 
 export function PendingQuoteCard({
   booking,
   onPress,
-  onToggleQuotesReady,
   onViewQuotes,
+  onCancel,
 }: Props) {
   const vehicleLabel =
     booking.carModel && booking.carModel !== "Vehicle" ? booking.carModel : "Vehicle";
   const specs = parseTireSpecs(booking.notes);
   const isReady = booking.status === "quotes_ready";
+  const stageView = getBookingStageView(booking.status, booking.liveStage);
 
   return (
     <Pressable
       style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
       onPress={() => onPress?.(booking.id)}
     >
+      {/* Quote-stage progress bar — see utils/bookingStages.ts. */}
+      <BookingProgressBar
+        stages={stageView.stages}
+        currentIndex={stageView.currentIndex}
+      />
+
       {/* Header: vehicle + status tag */}
       <View style={styles.header}>
         <View style={styles.thumb}>
@@ -133,10 +143,20 @@ export function PendingQuoteCard({
 
       {/* Mode-specific footer/action */}
       {isReady ? (
-        <>
-          <Text size="xs" weight="regular" color="#8E8E93" style={styles.footer}>
-            Quotes are in · pick the best fit
-          </Text>
+        <View style={styles.actionRow}>
+          {onCancel && booking.status !== "cancelled" ? (
+            <Pressable
+              onPress={(e) => {
+                e.stopPropagation?.();
+                handleCancel();
+              }}
+              style={({ pressed }) => [styles.cancelOutlineButton, pressed && styles.viewButtonPressed]}
+            >
+              <Text size="sm" weight="semiBold" color="#DC2626">
+                Cancel Request
+              </Text>
+            </Pressable>
+          ) : null}
           <Pressable
             onPress={(e) => {
               e.stopPropagation?.();
@@ -149,28 +169,44 @@ export function PendingQuoteCard({
             </Text>
             <ArrowRight size={16} color="#FFFFFF" strokeWidth={2.4} />
           </Pressable>
-        </>
+        </View>
       ) : (
-        <View style={styles.toggleRow}>
-          <View style={styles.toggleText}>
-            <Text size="sm" weight="semiBold" color="#1A1A1A">
-              Move to Quotes
-            </Text>
-            <Text size="xs" weight="regular" color="#8E8E93">
-              Simulate that shops responded with prices
-            </Text>
-          </View>
-          <Switch
-            value={false}
-            onValueChange={() => onToggleQuotesReady?.(booking.id)}
-            trackColor={{ false: "#E5E7EB", true: "#5299FE" }}
-            thumbColor="#FFFFFF"
-            ios_backgroundColor="#E5E7EB"
-          />
+        <View style={styles.actionRow}>
+          <Text size="xs" weight="regular" color="#8E8E93" style={styles.pendingFooter}>
+            Waiting for shops to respond…
+          </Text>
+          {onCancel && booking.status !== "cancelled" ? (
+            <Pressable
+              onPress={(e) => {
+                e.stopPropagation?.();
+                handleCancel();
+              }}
+              style={({ pressed }) => [styles.cancelOutlineButton, pressed && styles.viewButtonPressed]}
+            >
+              <Text size="sm" weight="semiBold" color="#DC2626">
+                Cancel Request
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
       )}
     </Pressable>
   );
+
+  function handleCancel() {
+    Alert.alert(
+      "Cancel Request",
+      "Stop waiting for shop quotes? You can submit a new request later.",
+      [
+        { text: "Keep Waiting", style: "cancel" },
+        {
+          text: "Cancel Request",
+          style: "destructive",
+          onPress: () => onCancel?.(booking.id),
+        },
+      ],
+    );
+  }
 }
 
 // ============================================================================
@@ -210,6 +246,7 @@ const styles = StyleSheet.create({
   cardPressed: {
     opacity: 0.94,
   },
+
 
   // Header
   header: {
@@ -274,30 +311,18 @@ const styles = StyleSheet.create({
     textAlign: "right",
   },
 
-  // Pending-state footer
-  footer: {
-    marginTop: 16,
-  },
-
-  // Pending toggle row
-  toggleRow: {
+  // Action / status row at the bottom of the card
+  actionRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-    marginTop: 16,
-    paddingTop: 14,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "#E5E7EB",
-  },
-  toggleText: {
-    flex: 1,
-    gap: 2,
-  },
-
-  // Ready-state action button
-  viewButton: {
+    gap: 10,
     marginTop: 14,
+  },
+  pendingFooter: {
+    flex: 1,
+  },
+  viewButton: {
+    flex: 1,
     height: 48,
     borderRadius: 12,
     backgroundColor: "#5299FE",
@@ -305,6 +330,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
+  },
+  cancelOutlineButton: {
+    height: 48,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#FECACA",
+    backgroundColor: "#FEF2F2",
+    alignItems: "center",
+    justifyContent: "center",
   },
   viewButtonPressed: {
     opacity: 0.9,

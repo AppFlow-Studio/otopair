@@ -3,7 +3,7 @@
  *
  * PURPOSE: Transforms store Booking format to BookingCard format
  *          Handles data transformation between store types and UI component types.
- *          Also adapts Convex getByUserIdWithDetails rows to BookingCard and LiveTrackerCard.
+ *          Also adapts Convex getByUserIdWithDetails rows to BookingCard.
  *
  * USED IN: app/(main-tabs)/bookings/index.tsx
  *
@@ -12,9 +12,18 @@
 
 import type { Booking as StoreBooking, Service } from "@/stores/types/store.types";
 import type { Booking as BookingCardBooking } from "@/components/bookings/BookingCard";
-import type { LiveTracking, ServiceStage } from "@/components/bookings/LiveTrackerCard";
 import type { Mechanic } from "@/stores/types/store.types";
 import type { Shop } from "@/stores/types/store.types";
+import { hhmmToDisplayTime } from "@/utils/timeSlotUtils";
+
+/** Convert "14:00" → "2:00 PM"; pass through anything that already
+ *  contains AM/PM. Empty/undefined returns "". */
+function formatBookingTime(raw: string | undefined | null): string {
+  if (!raw) return "";
+  if (/AM|PM/i.test(raw)) return raw;
+  if (!/^\d{1,2}:\d{2}$/.test(raw)) return raw;
+  return hhmmToDisplayTime(raw);
+}
 
 // ============================================================================
 // TYPES
@@ -23,6 +32,8 @@ import type { Shop } from "@/stores/types/store.types";
 /** Shape returned by Convex api.bookings.getByUserIdWithDetails */
 export interface ConvexBookingWithDetails {
   _id: string;
+  /** Epoch ms when the booking row was inserted. Convex auto-populates. */
+  _creationTime?: number;
   status: string;
   scheduled_date: string;
   scheduled_time: string;
@@ -32,8 +43,15 @@ export interface ConvexBookingWithDetails {
   mechanicName: string;
   mechanicImageUrl?: string;
   vehicleDisplay: string;
+  /** VIN — used to match a booking to a chip-selected vehicle without
+   *  relying on `vehicleDisplay` parsing (which can include trim names
+   *  the chip filter doesn't know about). */
+  vin?: string;
   licensePlate: string;
   makeLogoUrl?: string;
+  /** Hero image of the vehicle (cached from VehicleDB). Preferred over
+   *  `makeLogoUrl` for card thumbnails. */
+  vehicleImageUrl?: string;
   serviceNames: string[];
   progressPercent?: number;
   currentStage?: string;
@@ -88,14 +106,21 @@ export function adaptBookingForCard({
     })
     .filter((name): name is string => !!name);
 
-  // Format date string (e.g., "Tuesday, Sep 10")
-  const bookingDate = new Date(storeBooking.scheduledDate);
+  // Format date string (e.g., "Tuesday, Sep 10").
+  // `new Date("YYYY-MM-DD")` parses as UTC midnight, which renders as
+  // the previous day in any timezone west of UTC. Construct from
+  // numeric parts so the date is interpreted in local time. Empty
+  // `scheduledDate` (tire quote-stage bookings) → empty string.
   const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const weekday = weekdays[bookingDate.getDay()];
-  const month = months[bookingDate.getMonth()];
-  const day = bookingDate.getDate();
-  const formattedDate = `${weekday}, ${month} ${day}`;
+  let formattedDate = "";
+  if (storeBooking.scheduledDate) {
+    const [sy, sm, sd] = storeBooking.scheduledDate.split("-").map(Number);
+    if (sy && sm && sd) {
+      const bookingDate = new Date(sy, sm - 1, sd);
+      formattedDate = `${weekdays[bookingDate.getDay()]}, ${months[bookingDate.getMonth()]} ${bookingDate.getDate()}`;
+    }
+  }
 
   // Convert store BookingStatus to BookingCard BookingStatus
   // BookingCard has "delayed" which store doesn't have, so map it appropriately
@@ -120,7 +145,7 @@ export function adaptBookingForCard({
     shopName: shop?.name || mechanic?.shopName || "Unknown Shop",
     mechanicImage: mechanic?.photoUrl || undefined,
     date: formattedDate,
-    time: storeBooking.scheduledTime,
+    time: formatBookingTime(storeBooking.scheduledTime),
     status: (statusMap[storeBooking.status] as BookingCardBooking["status"]) || "pending",
     totalCost: storeBooking.status === "completed" ? storeBooking.totalPrice : undefined,
   };
@@ -129,11 +154,19 @@ export function adaptBookingForCard({
 }
 
 /** Format date for display (e.g., "Tuesday, Sep 10") */
-function formatBookingDate(isoDate: string): string {
-  const d = new Date(isoDate);
+function formatBookingDate(isoDate: string | undefined | null): string {
+  // Tire quote-stage bookings have no `scheduled_date` yet — return an
+  // empty string so callers can render "Time TBD" themselves.
+  if (!isoDate) return "";
+  // Parse YYYY-MM-DD as a local date. `new Date("YYYY-MM-DD")` is
+  // interpreted as UTC midnight by the JS engine, which displays as
+  // the previous day in any timezone west of UTC.
+  const [y, m, d] = isoDate.split("-").map(Number);
+  if (!y || !m || !d) return "";
+  const date = new Date(y, m - 1, d);
   const weekdays = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  return `${weekdays[d.getDay()]}, ${months[d.getMonth()]} ${d.getDate()}`;
+  return `${weekdays[date.getDay()]}, ${months[date.getMonth()]} ${date.getDate()}`;
 }
 
 /** Parse vehicleDisplay into carModel + carYear (e.g. "BMW M5 2019" -> model "BMW M5", year "2019") */
@@ -168,80 +201,27 @@ export function adaptConvexBookingWithDetailsToCard(row: ConvexBookingWithDetail
     carModel,
     carYear,
     licensePlate: row.licensePlate,
-    makeLogoUrl: row.makeLogoUrl,
+    // Prefer the cached vehicle hero image over the brand logo so the
+    // booking thumbnail shows the actual car. `makeLogoUrl` stays as a
+    // fallback for vehicles without a fetched image yet.
+    makeLogoUrl: row.vehicleImageUrl ?? row.makeLogoUrl,
     mechanicName: row.mechanicName,
     shopName: row.shopName,
     mechanicImage: row.mechanicImageUrl,
     date: formatBookingDate(row.scheduled_date),
-    time: row.scheduled_time,
+    time: formatBookingTime(row.scheduled_time),
     status: displayStatus as BookingCardBooking["status"],
     totalCost: row.status === "completed" ? row.total_cost : undefined,
     notes,
+    createdAt: row._creationTime,
+    vin: row.vin,
+    liveStage: row.liveStage,
   };
 }
 
-/** Canonical Live Tracker stage definitions (slug matches booking.live_stage) */
-const LIVE_STAGE_DEFINITIONS: { id: string; slug: string; title: string; description: string }[] = [
-  { id: "1", slug: "booking_confirmed", title: "Booking Confirmed", description: "Your appointment is set." },
-  {
-    id: "2",
-    slug: "service_in_progress",
-    title: "Service in Progress",
-    description: "Currently working on your vehicle.",
-  },
-  { id: "3", slug: "vehicle_ready", title: "Your vehicle is ready", description: "You will be notified when ready." },
-  { id: "4", slug: "service_completed", title: "Service Completed", description: "Your service is completed" },
-];
-
-/**
- * Build Live Tracker stages from stored live_stage (and optional progressPercent fallback).
- * When liveStage is set, completed/current/pending are derived from stage order; otherwise falls back to progress-based heuristic.
- */
-export function stagesFromLiveStage(liveStage: string | undefined, progressPercent: number = 25): ServiceStage[] {
-  const currentIndex = liveStage ? LIVE_STAGE_DEFINITIONS.findIndex((s) => s.slug === liveStage) : -1;
-  if (currentIndex >= 0) {
-    return LIVE_STAGE_DEFINITIONS.map((def, i) => ({
-      id: def.id,
-      title: def.title,
-      description: def.description,
-      status:
-        i < currentIndex ? ("completed" as const) : i === currentIndex ? ("current" as const) : ("pending" as const),
-    }));
-  }
-  // Fallback: no stored stage (e.g. legacy or job_actual–only)
-  return [
-    { id: "1", title: "Booking Confirmed", description: "Your appointment is set.", status: "completed" },
-    {
-      id: "2",
-      title: "Service in Progress",
-      description: "Currently working on your vehicle.",
-      status: progressPercent < 100 ? "current" : "completed",
-    },
-    { id: "3", title: "Your vehicle is ready", description: "You will be notified when ready.", status: "pending" },
-    { id: "4", title: "Service Completed", description: "Your service is completed", status: "pending" },
-  ];
-}
-
-/**
- * Converts Convex getByUserIdWithDetails row (in_progress) to LiveTrackerCard format.
- * Uses stored liveStage when present for stage list and currentStage from query.
- */
-export function adaptConvexBookingWithDetailsToLiveTracking(row: ConvexBookingWithDetails): LiveTracking {
-  const { carModel, carYear } = parseVehicleDisplay(row.vehicleDisplay);
-  const progressPercent = row.progressPercent ?? 25;
-  return {
-    id: row._id,
-    carModel,
-    carYear,
-    licensePlate: row.licensePlate,
-    makeLogoUrl: row.makeLogoUrl,
-    mechanicName: row.mechanicName,
-    shopName: row.shopName,
-    mechanicImage: row.mechanicImageUrl,
-    shopPhone: row.shopPhone,
-    currentStage: row.currentStage ?? "Car checked in",
-    progressPercent,
-    delayMinutes: row.delayMinutes,
-    stages: stagesFromLiveStage(row.liveStage, progressPercent),
-  };
-}
+// Removed in the May 2 redesign: `LIVE_STAGE_DEFINITIONS`,
+// `stagesFromLiveStage`, and `adaptConvexBookingWithDetailsToLiveTracking`.
+// The per-card progress bar (`utils/bookingStages.ts` +
+// `components/bookings/BookingProgressBar.tsx`) replaces them. The
+// canonical `live_stage` slug list still lives in `convex/bookings.ts`
+// (`LIVE_STAGE_TITLES` / `LIVE_STAGE_PROGRESS`).

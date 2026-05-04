@@ -39,7 +39,6 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Chip, Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { TierInfoSheet, type TierInfoSheetRef } from "@/components/tire-booking/TierInfoSheet";
-import { useCreateTireQuoteRequest } from "@/hooks/useCreateTireQuoteRequest";
 import { VehicleTireSelector3D } from "@/components/tire-booking/VehicleTireSelector3D";
 import {
   DEFAULT_OEM_SIZES,
@@ -153,8 +152,6 @@ export default function TireBookingScreen() {
     [toggleTirePosition],
   );
 
-  const createTireQuoteRequest = useCreateTireQuoteRequest();
-
   const handleGetQuotes = useCallback(() => {
     // Spinner ON first — immediate tactile feedback for the user.
     setIsSubmitting(true);
@@ -164,44 +161,14 @@ export default function TireBookingScreen() {
     // spinner before the screen transition begins. Otherwise setState gets
     // batched with the sync router.push and the spinner never paints.
     requestAnimationFrame(() => {
-      const tierLabel = TIRE_TIERS.find((t) => t.id === tier)?.label ?? "";
-      const typeLabel = TIRE_TYPES.find((t) => t.id === tireType)?.label ?? "";
-      const tierAndType = [tierLabel, typeLabel].filter(Boolean).join(" ");
-      const count = selectedTirePositions.length;
-      const tiresLabel = [
-        count > 0 ? `${count} ${tierAndType || "tires"}` : tierAndType || "Tires",
-        tireSize || undefined,
-      ]
-        .filter(Boolean)
-        .join(" · ");
-
-      // Create the quote-stage booking — Convex if signed in + VIN known,
-      // local-only fallback otherwise. Either way the Upcoming card appears
-      // when the user taps View on the requesting sheet.
-      void createTireQuoteRequest({
-        tiresLabel,
-        tireSpecs: {
-          size: tireSize ?? "",
-          type: typeLabel,
-          tier: tierLabel,
-          quantity: count,
-        },
-      });
-
       // Stream mock shop responses into the tire store for the background
       // ticking animation (kept while real responses ramp up via the website).
+      // The booking record itself is NOT created here — that happens when
+      // the user taps Confirm on the requesting sheet.
       void fireRequest();
       router.push("/(tire-booking)/requesting");
     });
-  }, [
-    fireRequest,
-    router,
-    tier,
-    tireType,
-    tireSize,
-    selectedTirePositions.length,
-    createTireQuoteRequest,
-  ]);
+  }, [fireRequest, router]);
 
   // ── Derived ────────────────────────────────────────────────────────────────
   const selectedCount = selectedTirePositions.length;

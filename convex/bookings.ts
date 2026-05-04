@@ -308,6 +308,7 @@ export const getByUserIdWithDetails = query({
 
         return {
           _id: booking._id,
+          _creationTime: booking._creationTime,
           status: booking.status,
           scheduled_date: booking.scheduled_date,
           scheduled_time: booking.scheduled_time,
@@ -322,6 +323,10 @@ export const getByUserIdWithDetails = query({
           vehicleDisplay,
           licensePlate,
           makeLogoUrl,
+          /** Hero image of the vehicle itself (cached from VehicleDB).
+           *  The card thumbnail prefers this; falls back to the brand
+           *  logo (`makeLogoUrl`) when no hero image is available. */
+          vehicleImageUrl: vehicle?.image_url,
           serviceNames,
           progressPercent,
           currentStage,
@@ -337,6 +342,62 @@ export const getByUserIdWithDetails = query({
     );
 
     return results;
+  },
+});
+
+/**
+ * MUTATION: deleteBooking
+ * Hard-deletes a booking row. Wired to the testing-only trash button on the
+ * My Bookings cards so dev/staging users can clear out test data without
+ * having to wait for completion or cascade through the proper lifecycle.
+ * NOT intended for production user-facing flows — those should soft-delete
+ * via the cancellation path.
+ */
+export const deleteBooking = mutation({
+  args: { bookingId: v.id("bookings") },
+  handler: async (ctx, args) => {
+    // Idempotent — if the row was already deleted (e.g. duplicate fire from
+    // React strict-mode double-invoke or a stale UI re-tap), silently no-op
+    // instead of throwing "Delete on nonexistent document ID".
+    const existing = await ctx.db.get(args.bookingId);
+    if (!existing) return;
+    await ctx.db.delete(args.bookingId);
+  },
+});
+
+/**
+ * MUTATION: cancelBooking
+ * Soft-deletes a booking by flipping `status` to "cancelled". Used by the
+ * "Cancel Appointment" / "Cancel Request" buttons on the My Bookings
+ * cards. Cancelled bookings remain in Convex and surface in the user's
+ * Booking History. Logs a status_history row for the audit trail.
+ *
+ * Idempotent — re-cancelling an already-cancelled booking is a no-op.
+ */
+export const cancelBooking = mutation({
+  args: {
+    bookingId: v.id("bookings"),
+    /** Optional free-form reason. Defaults to "user_cancelled". */
+    reason: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db.get(args.bookingId);
+    if (!existing) return;
+    if (existing.status === "cancelled") return;
+    const now = Date.now();
+    const previousStatus = existing.status;
+    await ctx.db.patch(args.bookingId, {
+      status: "cancelled",
+      updated_at: now,
+    });
+    await logBookingStatusChange(
+      ctx,
+      args.bookingId,
+      previousStatus,
+      "cancelled",
+      existing.user_id,
+      args.reason ?? "user_cancelled",
+    );
   },
 });
 

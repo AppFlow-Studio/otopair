@@ -556,6 +556,7 @@ export default defineSchema({
     created_at: v.optional(v.number()),
   })
     .index("by_vehicle_config", ["vehicle_config_id"])
+    .index("by_vehicle_config_and_service", ["vehicle_config_id", "service_id"])
     .index("by_engine_family", ["engine_family"]),
 
   // ===== VEHICLES & OWNERSHIP =====

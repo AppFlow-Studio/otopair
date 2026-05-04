@@ -26,7 +26,7 @@
 
 // 1. React & React Native
 import React, { useState } from 'react';
-import { Alert, Image, Pressable, StyleSheet, Switch, View } from 'react-native';
+import { Alert, Image, Pressable, StyleSheet, View } from 'react-native';
 
 // 2. Expo & Third-party
 import { useRouter } from 'expo-router';
@@ -34,6 +34,8 @@ import { Car, FileText, Star, User } from 'lucide-react-native';
 
 // 3. Shared UI
 import { Text } from '@/components/shared-ui';
+import { BookingProgressBar } from '@/components/bookings/BookingProgressBar';
+import { getBookingStageView } from '@/utils/bookingStages';
 
 // ============================================================================
 // TYPES
@@ -64,6 +66,16 @@ export interface Booking {
   /** Free-form detail. Used by PendingQuoteCard in Upcoming to display the
    *  tire specs the user requested before any shop has quoted a price. */
   notes?: string;
+  /** Epoch ms the booking was created. Drives newest-first ordering in the
+   *  My Bookings lists. Optional only for back-compat with legacy adapters. */
+  createdAt?: number;
+  /** VIN of the vehicle the booking is for. Used by the vehicle-filter
+   *  chip on My Bookings to match by ID instead of name parsing. */
+  vin?: string;
+  /** When status === "in_progress", the convex `live_stage` slug
+   *  (booking_confirmed | service_in_progress | vehicle_ready). Drives
+   *  the 3rd vs 4th segment of the service progress bar. */
+  liveStage?: string;
 }
 
 interface BookingCardProps {
@@ -74,8 +86,6 @@ interface BookingCardProps {
   onReschedule?: (bookingId: string) => void;
   onDownloadPdf?: (bookingId: string) => void;
   onToggleFavorite?: (bookingId: string) => void;
-  /** Called when the Live Tracker toggle is flipped. Implementer flips the status. */
-  onToggleLiveTracker?: (bookingId: string) => void;
 }
 
 // ============================================================================
@@ -90,7 +100,7 @@ function titleCase(str: string): string {
 // STATUS CONFIG
 // ============================================================================
 
-const STATUS_CONFIG: Record<BookingStatus, { label: string; bgColor: string; textColor: string }> = {
+export const STATUS_CONFIG: Record<BookingStatus, { label: string; bgColor: string; textColor: string }> = {
   pending: {
     label: 'Pending',
     bgColor: '#fff6ee',
@@ -145,14 +155,7 @@ export function BookingCard({
   onReschedule,
   onDownloadPdf,
   onToggleFavorite,
-  onToggleLiveTracker,
 }: BookingCardProps) {
-  const isLive = booking.status === 'in_progress';
-  // Show the Live Tracker toggle on any non-final upcoming-like status.
-  const canToggleLive =
-    variant === 'upcoming' &&
-    booking.status !== 'completed' &&
-    booking.status !== 'cancelled';
   const router = useRouter();
   const statusConfig = STATUS_CONFIG[booking.status];
   const [carImageError, setCarImageError] = useState(false);
@@ -176,12 +179,16 @@ export function BookingCard({
 
   const handleCancelBooking = () => {
     Alert.alert(
-      "Cancel Booking",
-      "Are you sure you want to cancel this booking?",
+      "Cancel Appointment",
+      "Are you sure you want to cancel this appointment?",
       [
-        { text: "No", style: "cancel" },
-        { text: "Yes, Cancel", style: "destructive", onPress: () => onCancelBooking?.(booking.id) },
-      ]
+        { text: "Keep It", style: "cancel" },
+        {
+          text: "Cancel Appointment",
+          style: "destructive",
+          onPress: () => onCancelBooking?.(booking.id),
+        },
+      ],
     );
   };
 
@@ -197,8 +204,19 @@ export function BookingCard({
     onToggleFavorite?.(booking.id);
   };
 
+
+  const stageView = getBookingStageView(booking.status, booking.liveStage);
+
   return (
     <View style={styles.card}>
+      {/* Lifecycle progress bar — see utils/bookingStages.ts. The status
+          badge in the title row below carries the same info textually so
+          the bar reads as visual reinforcement. */}
+      <BookingProgressBar
+        stages={stageView.stages}
+        currentIndex={stageView.currentIndex}
+      />
+
       {/* Title Row */}
       <View style={styles.titleRow}>
         <View style={styles.servicesContainer}>
@@ -270,25 +288,6 @@ export function BookingCard({
           </View>
         </View>
       </View>
-
-      {/* Live Tracker toggle — upcoming variant only */}
-      {canToggleLive && onToggleLiveTracker ? (
-        <View style={styles.liveToggleRow}>
-          <View style={styles.liveToggleLabel}>
-            <View style={[styles.liveDot, isLive && styles.liveDotActive]} />
-            <Text weight="semiBold" size="sm" color={isLive ? '#5299FE' : '#6B7280'}>
-              {isLive ? 'Live Tracker On' : 'Move to Live Tracker'}
-            </Text>
-          </View>
-          <Switch
-            value={isLive}
-            onValueChange={() => onToggleLiveTracker(booking.id)}
-            trackColor={{ false: '#E5E5EA', true: '#5299FE' }}
-            thumbColor="#FFFFFF"
-            ios_backgroundColor="#E5E5EA"
-          />
-        </View>
-      ) : null}
 
       {/* Date/Time or Completion Info */}
       {variant === 'upcoming' ? (
@@ -394,7 +393,7 @@ export function BookingCard({
           >
             <Star size={20} color="#1F2937" strokeWidth={1.5} />
           </Pressable>
-          
+
           <View style={{ flex: 1 }} />
           
           <Pressable
@@ -498,28 +497,6 @@ const styles = StyleSheet.create({
   },
   mechanicDetails: {
     gap: 2,
-  },
-  liveToggleRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 4,
-    marginBottom: 8,
-  },
-  liveToggleLabel: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  liveDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: '#D1D5DB',
-  },
-  liveDotActive: {
-    backgroundColor: '#5299FE',
   },
   dateTimeContainer: {
     flexDirection: 'row',

@@ -231,27 +231,20 @@ export default function HomeScreen() {
 
   useEffect(() => {
     if (!listVehicles?.length) return;
-    let cancelled = false;
     listVehicles.forEach((r: any) => {
       if (!r.vin || fetchedVinsRef.current.has(r.vin)) return;
       fetchedVinsRef.current.add(r.vin);
 
+      // Reuse any cached image_url from Convex — the cars screen is the
+      // single owner of the one-time API fetch, and writes the result to
+      // `vehicles.image_url`. Home just reads what's there. Restricting by
+      // domain would force a re-fetch if cars saved a non-trusted URL,
+      // burning API credits unnecessarily.
       const cachedUrl = r.vehicle?.image_url;
-      if (cachedUrl && (cachedUrl.includes("vehicledatabases.com") || cachedUrl.includes("vhr.nyc3.cdn"))) {
+      if (cachedUrl) {
         setVehicleImageUrls((prev) => ({ ...prev, [r.vin]: cachedUrl }));
-        return;
       }
-      // TODO: re-enable once API credits are available
-      // const v = r.vehicle;
-      // const meta = v?.metadata as { make?: string; model?: string; color?: string } | undefined;
-      // const color = meta?.color ?? r.ownership?.color ?? "";
-      // fetchVehicleImageUrl(meta?.make ?? "", meta?.model ?? "", v?.year, r.vin, color).then((url) => {
-      //   if (cancelled || !url) return;
-      //   setVehicleImageUrls((prev) => ({ ...prev, [r.vin]: url }));
-      //   saveVehicleImageUrl({ vin: r.vin, image_url: url });
-      // });
     });
-    return () => { cancelled = true; };
   }, [listVehicles]);
 
   // ── Maintenance records for ALL vehicles ──
