@@ -164,7 +164,6 @@ function getMechanicPortalStatus(args: { activeShopUser: any; latestInvitation: 
   return "not_invited";
 }
 
-
 function getStripeStatusPatch(args: {
   shop: StripeConnectShopFields;
   chargesEnabled: boolean;
