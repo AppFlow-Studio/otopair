@@ -25,13 +25,29 @@ import type * as engines from "../engines.js";
 import type * as fitments from "../fitments.js";
 import type * as follow_ups from "../follow_ups.js";
 import type * as http from "../http.js";
+import type * as invitations from "../invitations.js";
 import type * as job_actuals from "../job_actuals.js";
 import type * as lib_checkin_questions from "../lib/checkin_questions.js";
 import type * as lib_classifier from "../lib/classifier.js";
 import type * as lib_intervals from "../lib/intervals.js";
+import type * as lib_job_actuals from "../lib/job_actuals.js";
+import type * as lib_late_start from "../lib/late_start.js";
 import type * as lib_modifiers from "../lib/modifiers.js";
+<<<<<<< HEAD
 import type * as lib_vdbCache from "../lib/vdbCache.js";
 import type * as lib_vehicleDatabases from "../lib/vehicleDatabases.js";
+=======
+import type * as lib_packageRules from "../lib/packageRules.js";
+import type * as lib_schedule_overlap from "../lib/schedule_overlap.js";
+import type * as lib_simpleTireScraper from "../lib/simpleTireScraper.js";
+import type * as lib_timeSlotAvailability from "../lib/timeSlotAvailability.js";
+import type * as lib_tireBrands from "../lib/tireBrands.js";
+import type * as lib_tireRackScraper from "../lib/tireRackScraper.js";
+import type * as lib_vdbCache from "../lib/vdbCache.js";
+import type * as lib_vehicleDatabases from "../lib/vehicleDatabases.js";
+import type * as lib_vehicle_passports from "../lib/vehicle_passports.js";
+import type * as lib_walmartTireScraper from "../lib/walmartTireScraper.js";
+>>>>>>> ab23282d4a75810de4f120136ee91fe0b0d1587e
 import type * as maintenance from "../maintenance.js";
 import type * as maintenance_pipeline from "../maintenance_pipeline.js";
 import type * as makes from "../makes.js";
@@ -49,10 +65,15 @@ import type * as preferences from "../preferences.js";
 import type * as retrigger_enrichment from "../retrigger_enrichment.js";
 import type * as reviews from "../reviews.js";
 import type * as rewards from "../rewards.js";
+import type * as schedule from "../schedule.js";
 import type * as seed from "../seed.js";
 import type * as seed_modifier_weights from "../seed_modifier_weights.js";
 import type * as seed_services from "../seed_services.js";
 import type * as seed_services_catalog from "../seed_services_catalog.js";
+<<<<<<< HEAD
+=======
+import type * as seed_transactions from "../seed_transactions.js";
+>>>>>>> ab23282d4a75810de4f120136ee91fe0b0d1587e
 import type * as seeds_blockEbay from "../seeds/blockEbay.js";
 import type * as seeds_cleanAndRerun from "../seeds/cleanAndRerun.js";
 import type * as seeds_deleteAndRerunNissan from "../seeds/deleteAndRerunNissan.js";
@@ -63,6 +84,10 @@ import type * as seeds_seedBlockedDomains from "../seeds/seedBlockedDomains.js";
 import type * as seeds_seedMakes from "../seeds/seedMakes.js";
 import type * as seeds_seedServices from "../seeds/seedServices.js";
 import type * as seeds_testEnrichment from "../seeds/testEnrichment.js";
+<<<<<<< HEAD
+=======
+import type * as serviceParts from "../serviceParts.js";
+>>>>>>> ab23282d4a75810de4f120136ee91fe0b0d1587e
 import type * as service_categories from "../service_categories.js";
 import type * as service_insights from "../service_insights.js";
 import type * as service_options from "../service_options.js";
@@ -82,7 +107,12 @@ import type * as smartcar from "../smartcar.js";
 import type * as spec_confirmations from "../spec_confirmations.js";
 import type * as spec_variances from "../spec_variances.js";
 import type * as specs from "../specs.js";
+import type * as stripe_webhook_events from "../stripe_webhook_events.js";
 import type * as time_slots from "../time_slots.js";
+import type * as tireBrands from "../tireBrands.js";
+import type * as tire_quote_responses from "../tire_quote_responses.js";
+import type * as tires from "../tires.js";
+import type * as tires_catalog from "../tires_catalog.js";
 import type * as transactions from "../transactions.js";
 import type * as transmissions from "../transmissions.js";
 import type * as trims from "../trims.js";
@@ -118,12 +148,14 @@ import type * as vehicleEnrichment_searchPreGather from "../vehicleEnrichment/se
 import type * as vehicleEnrichment_sourceDiscovery from "../vehicleEnrichment/sourceDiscovery.js";
 import type * as vehicleEnrichment_sourceRegistry from "../vehicleEnrichment/sourceRegistry.js";
 import type * as vehicleEnrichment_sourceVerifier from "../vehicleEnrichment/sourceVerifier.js";
-import type * as vehicleEnrichment_testHarness from "../vehicleEnrichment/testHarness.js";
 import type * as vehicleEnrichment_tier2Enrichment from "../vehicleEnrichment/tier2Enrichment.js";
 import type * as vehicleEnrichment_types from "../vehicleEnrichment/types.js";
 import type * as vehicleEnrichment_utils_batchClient from "../vehicleEnrichment/utils/batchClient.js";
 import type * as vehicleEnrichment_utils_chassisLookup from "../vehicleEnrichment/utils/chassisLookup.js";
 import type * as vehicleEnrichment_utils_claudeClient from "../vehicleEnrichment/utils/claudeClient.js";
+import type * as vehicleEnrichment_utils_engineCodeLookup from "../vehicleEnrichment/utils/engineCodeLookup.js";
+import type * as vehicleEnrichment_utils_engineLookup from "../vehicleEnrichment/utils/engineLookup.js";
+import type * as vehicleEnrichment_utils_wheelSizeScraper from "../vehicleEnrichment/utils/wheelSizeScraper.js";
 import type * as vehicleEnrichment_v3TestSuite from "../vehicleEnrichment/v3TestSuite.js";
 import type * as vehicleEnrichment_v3mutations from "../vehicleEnrichment/v3mutations.js";
 import type * as vehicleEnrichment_v3pipeline from "../vehicleEnrichment/v3pipeline.js";
@@ -161,13 +193,29 @@ declare const fullApi: ApiFromModules<{
   fitments: typeof fitments;
   follow_ups: typeof follow_ups;
   http: typeof http;
+  invitations: typeof invitations;
   job_actuals: typeof job_actuals;
   "lib/checkin_questions": typeof lib_checkin_questions;
   "lib/classifier": typeof lib_classifier;
   "lib/intervals": typeof lib_intervals;
+  "lib/job_actuals": typeof lib_job_actuals;
+  "lib/late_start": typeof lib_late_start;
   "lib/modifiers": typeof lib_modifiers;
+<<<<<<< HEAD
   "lib/vdbCache": typeof lib_vdbCache;
   "lib/vehicleDatabases": typeof lib_vehicleDatabases;
+=======
+  "lib/packageRules": typeof lib_packageRules;
+  "lib/schedule_overlap": typeof lib_schedule_overlap;
+  "lib/simpleTireScraper": typeof lib_simpleTireScraper;
+  "lib/timeSlotAvailability": typeof lib_timeSlotAvailability;
+  "lib/tireBrands": typeof lib_tireBrands;
+  "lib/tireRackScraper": typeof lib_tireRackScraper;
+  "lib/vdbCache": typeof lib_vdbCache;
+  "lib/vehicleDatabases": typeof lib_vehicleDatabases;
+  "lib/vehicle_passports": typeof lib_vehicle_passports;
+  "lib/walmartTireScraper": typeof lib_walmartTireScraper;
+>>>>>>> ab23282d4a75810de4f120136ee91fe0b0d1587e
   maintenance: typeof maintenance;
   maintenance_pipeline: typeof maintenance_pipeline;
   makes: typeof makes;
@@ -185,10 +233,15 @@ declare const fullApi: ApiFromModules<{
   retrigger_enrichment: typeof retrigger_enrichment;
   reviews: typeof reviews;
   rewards: typeof rewards;
+  schedule: typeof schedule;
   seed: typeof seed;
   seed_modifier_weights: typeof seed_modifier_weights;
   seed_services: typeof seed_services;
   seed_services_catalog: typeof seed_services_catalog;
+<<<<<<< HEAD
+=======
+  seed_transactions: typeof seed_transactions;
+>>>>>>> ab23282d4a75810de4f120136ee91fe0b0d1587e
   "seeds/blockEbay": typeof seeds_blockEbay;
   "seeds/cleanAndRerun": typeof seeds_cleanAndRerun;
   "seeds/deleteAndRerunNissan": typeof seeds_deleteAndRerunNissan;
@@ -199,6 +252,10 @@ declare const fullApi: ApiFromModules<{
   "seeds/seedMakes": typeof seeds_seedMakes;
   "seeds/seedServices": typeof seeds_seedServices;
   "seeds/testEnrichment": typeof seeds_testEnrichment;
+<<<<<<< HEAD
+=======
+  serviceParts: typeof serviceParts;
+>>>>>>> ab23282d4a75810de4f120136ee91fe0b0d1587e
   service_categories: typeof service_categories;
   service_insights: typeof service_insights;
   service_options: typeof service_options;
@@ -218,7 +275,12 @@ declare const fullApi: ApiFromModules<{
   spec_confirmations: typeof spec_confirmations;
   spec_variances: typeof spec_variances;
   specs: typeof specs;
+  stripe_webhook_events: typeof stripe_webhook_events;
   time_slots: typeof time_slots;
+  tireBrands: typeof tireBrands;
+  tire_quote_responses: typeof tire_quote_responses;
+  tires: typeof tires;
+  tires_catalog: typeof tires_catalog;
   transactions: typeof transactions;
   transmissions: typeof transmissions;
   trims: typeof trims;
@@ -254,12 +316,14 @@ declare const fullApi: ApiFromModules<{
   "vehicleEnrichment/sourceDiscovery": typeof vehicleEnrichment_sourceDiscovery;
   "vehicleEnrichment/sourceRegistry": typeof vehicleEnrichment_sourceRegistry;
   "vehicleEnrichment/sourceVerifier": typeof vehicleEnrichment_sourceVerifier;
-  "vehicleEnrichment/testHarness": typeof vehicleEnrichment_testHarness;
   "vehicleEnrichment/tier2Enrichment": typeof vehicleEnrichment_tier2Enrichment;
   "vehicleEnrichment/types": typeof vehicleEnrichment_types;
   "vehicleEnrichment/utils/batchClient": typeof vehicleEnrichment_utils_batchClient;
   "vehicleEnrichment/utils/chassisLookup": typeof vehicleEnrichment_utils_chassisLookup;
   "vehicleEnrichment/utils/claudeClient": typeof vehicleEnrichment_utils_claudeClient;
+  "vehicleEnrichment/utils/engineCodeLookup": typeof vehicleEnrichment_utils_engineCodeLookup;
+  "vehicleEnrichment/utils/engineLookup": typeof vehicleEnrichment_utils_engineLookup;
+  "vehicleEnrichment/utils/wheelSizeScraper": typeof vehicleEnrichment_utils_wheelSizeScraper;
   "vehicleEnrichment/v3TestSuite": typeof vehicleEnrichment_v3TestSuite;
   "vehicleEnrichment/v3mutations": typeof vehicleEnrichment_v3mutations;
   "vehicleEnrichment/v3pipeline": typeof vehicleEnrichment_v3pipeline;

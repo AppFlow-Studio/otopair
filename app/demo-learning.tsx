@@ -488,32 +488,28 @@ export default function DemoLearningScreen() {
         {techNotes ? <InfoRow label="Notes" value={techNotes} /> : null}
       </View>
 
-      <Text style={styles.sectionLabel}>SERVICE INSIGHTS</Text>
+      <Text style={styles.sectionLabel}>LABOR TIMES</Text>
       {serviceInsight ? (
         <View style={styles.infoBlock}>
           <InfoRow
-            label="Estimated Labor"
-            value={`${serviceInsight.estimated_labor_hours.toFixed(2)} hrs`}
+            label="Book Hours"
+            value={`${(serviceInsight.book_hours ?? 0).toFixed(2)} hrs`}
           />
           <InfoRow
-            label="Avg Actual Labor"
-            value={`${serviceInsight.avg_actual_labor_hours.toFixed(2)} hrs`}
+            label="Empirical Hours"
+            value={`${(serviceInsight.empirical_hours ?? 0).toFixed(2)} hrs`}
           />
           <InfoRow
-            label="Avg Parts Cost"
-            value={`$${serviceInsight.avg_actual_parts_cost.toFixed(2)}`}
-          />
-          <InfoRow
-            label="Completed Jobs"
-            value={serviceInsight.completed_jobs_count.toString()}
-          />
-          <InfoRow
-            label="Labor Variance"
-            value={`${(serviceInsight.labor_variance * 100).toFixed(1)}%`}
+            label="Sample Size"
+            value={(serviceInsight.empirical_sample_size ?? 0).toString()}
           />
           <InfoRow
             label="Confidence"
-            value={`${(serviceInsight.confidence_level * 100).toFixed(0)}%`}
+            value={`${((serviceInsight.confidence ?? 0) * 100).toFixed(0)}%`}
+          />
+          <InfoRow
+            label="Data Quality"
+            value={serviceInsight.data_quality ?? "unknown"}
           />
         </View>
       ) : (

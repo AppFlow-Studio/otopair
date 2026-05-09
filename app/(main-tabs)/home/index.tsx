@@ -1,5 +1,5 @@
 // 1. React & React Native
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated from 'react-native-reanimated';
@@ -8,8 +8,16 @@ import Animated from 'react-native-reanimated';
 import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
+import {
+  BottomSheetBackdrop,
+  BottomSheetModal,
+  BottomSheetScrollView,
+  type BottomSheetBackdropProps,
+} from "@gorhom/bottom-sheet";
 import { Bell, MoveRight, Star, Trophy } from 'lucide-react-native';
+import { useMutation, useQuery } from 'convex/react';
+import { api } from '@/convex/_generated/api';
 
 // 3. Shared UI
 import { Button, BrandColors, ScrollDrivenGradientBackground, Text } from "@/components/shared-ui";
@@ -17,12 +25,12 @@ import { Button, BrandColors, ScrollDrivenGradientBackground, Text } from "@/com
 // 4. Stores & Hooks
 import { useAuthStore } from '@/stores/useAuthStore';
 import { useBookingStore } from '@/stores/useBookingStore';
+import { usePendingNavigationStore } from "@/stores/usePendingNavigationStore";
+import { useVehicleStore } from "@/stores/useVehicleStore";
 import { useShallow } from 'zustand/react/shallow';
 import { useVehicleOwnershipFromConvex } from '@/hooks/useVehicleOwnershipFromConvex';
 import { fetchVehicleImageUrl } from '@/utils/vehicleImage';
 import { computeMaintenanceStatus, MAINTENANCE_LABELS } from '@/utils/maintenanceStatus';
-import { useMutation, useQuery } from 'convex/react';
-import { api } from '@/convex/_generated/api';
 import type { Id } from '@/convex/_generated/dataModel';
 
 // Native iOS 26 liquid glass (optional)
@@ -36,18 +44,23 @@ try {
   // Not available — fall back to BlurView style
 }
 
-// 5. Flow-specific components
-import { ActionCardsCarousel } from '@/components/home/ActionCardsCarousel';
-import { AddFirstVehicleCard } from '@/components/home/AddFirstVehicleCard';
-import { LoyaltyCard } from '@/components/home/LoyaltyCard';
-import { MechanicSearchBar } from '@/components/home/MechanicSearchBar';
-import { NavigationETABar } from '@/components/home/NavigationETABar';
-import { ServiceBundlesSection } from '@/components/home/ServiceBundlesSection';
-import { MoreServicesSection } from '@/components/home/MoreServicesSection';
-import { SuggestionsSection } from '@/components/home/SuggestionsSection';
-import { VehicleMaintenanceCard } from '@/components/home/VehicleMaintenanceCard';
-import { HomeLogo } from '@/components/icons/home-logo';
-import { OtoPairIcon } from '@/components/icons/oto-pair';
+// 6. Flow-specific components
+import { ActionCardsCarousel } from "@/components/home/ActionCardsCarousel";
+import { AddFirstVehicleCard } from "@/components/home/AddFirstVehicleCard";
+import {
+  FinishCarSetupPickerSheet,
+  type FinishCarSetupPickerSheetRef,
+  type IncompleteVehicleRow,
+} from "@/components/home/FinishCarSetupPickerSheet";
+import { LoyaltyCard } from "@/components/home/LoyaltyCard";
+import { MechanicSearchBar } from "@/components/home/MechanicSearchBar";
+import { NavigationETABar } from "@/components/home/NavigationETABar";
+import { ServiceBundlesSection } from "@/components/home/ServiceBundlesSection";
+import { MoreServicesSection } from "@/components/home/MoreServicesSection";
+import { SuggestionsSection } from "@/components/home/SuggestionsSection";
+import { VehicleMaintenanceCard } from "@/components/home/VehicleMaintenanceCard";
+import { HomeLogo } from "@/components/icons/home-logo";
+import { OtoPairIcon } from "@/components/icons/oto-pair";
 
 function formatBookingDate(dateStr: string): string {
   const [y, m, d] = dateStr.split('-').map(Number);
@@ -65,7 +78,7 @@ function formatBookingTime(timeStr: string): string {
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const { isNewUser } = useAuthStore();
+  const { isNewUser, shouldShowReactivationSheet, setShouldShowReactivationSheet } = useAuthStore();
   const { vehicles: listVehicles, hasVehicles } = useVehicleOwnershipFromConvex();
   const [showWelcome, setShowWelcome] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -79,6 +92,33 @@ export default function HomeScreen() {
   const [activeCardIndex, setActiveCardIndex] = useState(0);
   const [accountSetupDismissed, setAccountSetupDismissed] = useState(false);
   const [carSetupDismissed, setCarSetupDismissed] = useState(false);
+
+  // Reactivation bottom sheet (from temur-dev)
+  const sheetRef = useRef<BottomSheetModal>(null);
+  const hasPresentedReactivationRef = useRef(false);
+  const snapPoints = useMemo(() => ["42%"], []);
+
+  const renderBackdrop = useCallback(
+    (props: BottomSheetBackdropProps) => (
+      <BottomSheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} opacity={0.5} />
+    ),
+    []
+  );
+
+  useEffect(() => {
+    if (shouldShowReactivationSheet && showWelcome) {
+      setShowWelcome(false);
+    }
+  }, [shouldShowReactivationSheet, showWelcome]);
+
+  useEffect(() => {
+    if (!shouldShowReactivationSheet || showWelcome || hasPresentedReactivationRef.current) return;
+    hasPresentedReactivationRef.current = true;
+    requestAnimationFrame(() => {
+      sheetRef.current?.present();
+      setShouldShowReactivationSheet(false);
+    });
+  }, [shouldShowReactivationSheet, showWelcome, setShouldShowReactivationSheet]);
 
   // ── Data for action cards ──
   const me = useQuery(api.users.getMe);
@@ -111,18 +151,47 @@ export default function HomeScreen() {
     return joined.length > 25 ? joined.slice(0, 22) + '...' : joined;
   }, [selectedServiceIds, availableServices]);
 
+  // Resume booking vehicle context — subscribed reads so the card refreshes
+  // when the user switches vehicle or Convex re-syncs mid-booking.
+  const resumeVehicle = useVehicleStore((s) =>
+    s.selectedVehicleId ? s.vehicles[s.selectedVehicleId] : undefined,
+  );
+  const resumeVehicleName = resumeVehicle ? `${resumeVehicle.make} ${resumeVehicle.model}` : undefined;
+  const resumeVehicleImage = resumeVehicle?.imageSource;
+
   // Account setup: hide when all checkable steps are done
   const isAccountSetupComplete = !!(me?.onboardingCompleted && me?.tellUsAboutCompleted && hasVehicles);
   const showAccountSetup = !isAccountSetupComplete && !accountSetupDismissed;
 
-  // Car setup: prefer incomplete vehicles, then completed-but-not-acknowledged
-  const carSetupVehicle = (listVehicles ?? []).find(
-    (r: any) => r.ownership && r.ownership.onboardingComplete !== true
-  ) ?? (listVehicles ?? []).find(
+  // Car setup: prefer incomplete vehicles, then completed-but-not-acknowledged.
+  // `incompleteVehicles` is the full list of not-yet-onboarded cars so we can
+  // show a picker when there are multiple; `carSetupVehicle` remains the
+  // single representative used for the card's checklist state.
+  const incompleteVehicles = useMemo(
+    () => (listVehicles ?? []).filter((r: any) => r.ownership && r.ownership.onboardingComplete !== true),
+    [listVehicles],
+  );
+  const carSetupVehicle = incompleteVehicles[0] ?? (listVehicles ?? []).find(
     (r: any) => r.ownership && r.ownership.onboardingComplete === true && !r.ownership.setupCardDismissed
   );
   const isCarSetupDone = !!carSetupVehicle?.ownership?.onboardingComplete;
   const showCarSetup = !!carSetupVehicle && !carSetupDismissed;
+
+  // Rows for the picker sheet, adapted from the Convex shape.
+  const pickerVehicles = useMemo<IncompleteVehicleRow[]>(
+    () =>
+      incompleteVehicles.map((r: any) => ({
+        ownershipId: String(r.ownership?._id ?? r.vin),
+        vin: r.vin,
+        year: r.vehicle?.year ?? 0,
+        make: (r.vehicle?.metadata?.make as string | undefined) ?? "Vehicle",
+        model: (r.vehicle?.metadata?.model as string | undefined) ?? "",
+        imageUrl: (r.vehicle?.image_url as string | null | undefined) ?? null,
+        preOnboardingComplete: !!r.ownership?.preOnboardingComplete,
+      })),
+    [incompleteVehicles],
+  );
+  const pickerSheetRef = useRef<FinishCarSetupPickerSheetRef>(null);
 
   // Checklist state for FinishCarSetupCard
   const carSetupChecklist = useMemo(() => {
@@ -172,14 +241,15 @@ export default function HomeScreen() {
         setVehicleImageUrls((prev) => ({ ...prev, [r.vin]: cachedUrl }));
         return;
       }
-      const v = r.vehicle;
-      const meta = v?.metadata as { make?: string; model?: string; color?: string } | undefined;
-      const color = meta?.color ?? r.ownership?.color ?? "";
-      fetchVehicleImageUrl(meta?.make ?? "", meta?.model ?? "", v?.year, r.vin, color).then((url) => {
-        if (cancelled || !url) return;
-        setVehicleImageUrls((prev) => ({ ...prev, [r.vin]: url }));
-        saveVehicleImageUrl({ vin: r.vin, image_url: url });
-      });
+      // TODO: re-enable once API credits are available
+      // const v = r.vehicle;
+      // const meta = v?.metadata as { make?: string; model?: string; color?: string } | undefined;
+      // const color = meta?.color ?? r.ownership?.color ?? "";
+      // fetchVehicleImageUrl(meta?.make ?? "", meta?.model ?? "", v?.year, r.vin, color).then((url) => {
+      //   if (cancelled || !url) return;
+      //   setVehicleImageUrls((prev) => ({ ...prev, [r.vin]: url }));
+      //   saveVehicleImageUrl({ vin: r.vin, image_url: url });
+      // });
     });
     return () => { cancelled = true; };
   }, [listVehicles]);
@@ -320,6 +390,7 @@ export default function HomeScreen() {
   };
 
   return (
+    <>
     <ScrollDrivenGradientBackground colors={["#5BA3D9", "#8FC4E8", "#d9e8f5"]}>
       {(scrollHandler) => (
         <View style={styles.container}>
@@ -356,37 +427,54 @@ export default function HomeScreen() {
                   onPress={() => setShowLoyaltyCard(true)}
                   style={({ pressed }) => [styles.goldTierBadge, pressed && styles.goldTierBadgePressed]}
                 >
-                  <View style={styles.glassContainer}>
-                    <BlurView intensity={10} tint="dark" style={styles.glassBlur}>
-                      <View style={styles.glassOverlay} />
-                      <LinearGradient
-                        colors={["rgba(255,255,255,0.25)", "rgba(255,255,255,0.05)"]}
-                        start={{ x: 0.5, y: 0 }}
-                        end={{ x: 0.5, y: 0.5 }}
-                        style={styles.glassGloss}
-                      />
-                      <Trophy size={22} color="#FFFFFF" fill="none" strokeWidth={2} />
-                    </BlurView>
-                  </View>
+                  {isLiquidGlassEnabled && LiquidGlassView ? (
+                    <LiquidGlassView interactive effect="clear" style={styles.liquidGlassIcon}>
+                      <Trophy size={22} color="#000000" fill="none" strokeWidth={2} />
+                    </LiquidGlassView>
+                  ) : (
+                    <View style={styles.glassContainer}>
+                      <BlurView intensity={10} tint="dark" style={styles.glassBlur}>
+                        <View style={styles.glassOverlay} />
+                        <LinearGradient
+                          colors={['rgba(255,255,255,0.25)', 'rgba(255,255,255,0.05)']}
+                          start={{ x: 0.5, y: 0 }}
+                          end={{ x: 0.5, y: 0.5 }}
+                          style={styles.glassGloss}
+                        />
+                        <Trophy size={22} color="#000000" fill="none" strokeWidth={2} />
+                      </BlurView>
+                    </View>
+                  )}
                 </Pressable>
 
                 {/* Notification Bell */}
-                <Pressable style={({ pressed }) => [styles.bellButton, pressed && styles.bellButtonPressed]}>
-                  <View style={styles.glassContainer}>
-                    <BlurView intensity={10} tint="dark" style={styles.glassBlur}>
-                      <View style={styles.glassOverlay} />
-                      <LinearGradient
-                        colors={["rgba(255,255,255,0.25)", "rgba(255,255,255,0.05)"]}
-                        start={{ x: 0.5, y: 0 }}
-                        end={{ x: 0.5, y: 0.5 }}
-                        style={styles.glassGloss}
-                      />
+                <Pressable
+                  style={({ pressed }) => [styles.bellButton, pressed && styles.bellButtonPressed]}
+                >
+                  {isLiquidGlassEnabled && LiquidGlassView ? (
+                    <LiquidGlassView interactive effect="clear" style={styles.liquidGlassIcon}>
                       <View style={styles.bellIconContainer}>
-                        <Bell size={22} color="#FFFFFF" fill="none" strokeWidth={2} />
+                        <Bell size={22} color="#000000" fill="none" strokeWidth={2} />
                         <View style={styles.bellDot} />
                       </View>
-                    </BlurView>
-                  </View>
+                    </LiquidGlassView>
+                  ) : (
+                    <View style={styles.glassContainer}>
+                      <BlurView intensity={10} tint="dark" style={styles.glassBlur}>
+                        <View style={styles.glassOverlay} />
+                        <LinearGradient
+                          colors={['rgba(255,255,255,0.25)', 'rgba(255,255,255,0.05)']}
+                          start={{ x: 0.5, y: 0 }}
+                          end={{ x: 0.5, y: 0.5 }}
+                          style={styles.glassGloss}
+                        />
+                        <View style={styles.bellIconContainer}>
+                          <Bell size={22} color="#000000" fill="none" strokeWidth={2} />
+                          <View style={styles.bellDot} />
+                        </View>
+                      </BlurView>
+                    </View>
+                  )}
                 </Pressable>
               </View>
             </View>
@@ -400,129 +488,101 @@ export default function HomeScreen() {
                 onMapPress={handleMapPress}
               />
             </View>
-          </View>
 
-          {/* Right Side - Gold Tier & Bell */}
-          <View style={styles.headerRight}>
-            {/* Gold Tier Badge - Clickable */}
-            <Pressable
-              onPress={() => setShowLoyaltyCard(true)}
-              style={({ pressed }) => [styles.goldTierBadge, pressed && styles.goldTierBadgePressed]}
-            >
-              {isLiquidGlassEnabled && LiquidGlassView ? (
-                <LiquidGlassView interactive effect="clear" style={styles.liquidGlassIcon}>
-                  <Trophy size={22} color="#000000" fill="none" strokeWidth={2} />
-                </LiquidGlassView>
-              ) : (
-                <View style={styles.glassContainer}>
-                  <BlurView intensity={10} tint="dark" style={styles.glassBlur}>
-                    <View style={styles.glassOverlay} />
-                    <LinearGradient
-                      colors={['rgba(255,255,255,0.25)', 'rgba(255,255,255,0.05)']}
-                      start={{ x: 0.5, y: 0 }}
-                      end={{ x: 0.5, y: 0.5 }}
-                      style={styles.glassGloss}
-                    />
-                    <Trophy size={22} color="#000000" fill="none" strokeWidth={2} />
-                  </BlurView>
+            {/* Content Area */}
+            <View style={styles.content}>
+              {/* Action Cards Carousel */}
+              {visibleCardIds.length > 0 && <View style={styles.carouselContainer}>
+                <ActionCardsCarousel
+                  // Upcoming Appointment
+                  showAppointment={!!upcomingBooking}
+                  appointmentBusinessName={upcomingBooking?.shopName ?? ''}
+                  appointmentMechanicName={upcomingBooking?.mechanicName ?? ''}
+                  appointmentRating={upcomingBooking?.shopRating ?? 0}
+                  appointmentIsVerified={upcomingBooking?.shopIsVerified ?? false}
+                  appointmentDate={upcomingBooking ? formatBookingDate(upcomingBooking.scheduled_date) : ''}
+                  appointmentTimeSlot={upcomingBooking ? formatBookingTime(upcomingBooking.scheduled_time) : ''}
+                  appointmentLateMinutes={upcomingBooking?.delayMinutes}
+                  onAppointmentPress={handleAppointmentPress}
+                  // Resume Booking
+                  showResumeBooking={hasResumeBooking}
+                  resumeServicesPreview={resumeServicesPreview}
+                  resumeVehicleName={resumeVehicleName}
+                  resumeVehicleImage={resumeVehicleImage}
+                  onResumePress={() => router.push('/home/map?openServices=true')}
+                  // Account Setup
+                  showAccountSetup={showAccountSetup}
+                  onAccountSetupDismiss={() => setAccountSetupDismissed(true)}
+                  // Car Setup
+                  showCarSetup={showCarSetup}
+                  carSetupChecklist={carSetupChecklist}
+                  isCarSetupDone={isCarSetupDone}
+                  onCarSetupPress={() => {
+                    const o = carSetupVehicle?.ownership;
+                    if (isCarSetupDone) {
+                      // All done — dismiss permanently
+                      if (o?._id) dismissSetupCard({ vehicleOwnerId: o._id });
+                      setCarSetupDismissed(true);
+                      return;
+                    }
+                    // More than one car still to onboard → let the user choose.
+                    if (incompleteVehicles.length > 1) {
+                      pickerSheetRef.current?.open();
+                      return;
+                    }
+                    if (!o) {
+                      router.push('/add-vehicle');
+                    } else if (!o.preOnboardingComplete) {
+                      router.push({ pathname: '/car-pre-onboarding', params: { vehicleOwnerId: o._id } });
+                    } else {
+                      router.push({ pathname: '/(main-tabs)/cars', params: { openStepper: 'true' } });
+                    }
+                  }}
+                  onCarSetupDismiss={() => setCarSetupDismissed(true)}
+                  // Carousel callback
+                  onCardChange={(index) => setActiveCardIndex(index)}
+                  // User status - determines card order
+                  isNewUser={isNewUser}
+                />
+              </View>}
+
+              {/* Navigation ETA Bar - Only show when on Upcoming Appointment card */}
+              {getCardTypeAtIndex(activeCardIndex) === 'appointment' && upcomingBooking && (
+                <View style={styles.etaBarContainer}>
+                  <NavigationETABar
+                    etaMinutes={20}
+                    destinationLatitude={upcomingBooking.shopLat ?? 0}
+                    destinationLongitude={upcomingBooking.shopLng ?? 0}
+                    destinationName={upcomingBooking.shopName}
+                  />
                 </View>
               )}
-            </Pressable>
 
-            {/* Notification Bell */}
-            <Pressable
-              style={({ pressed }) => [styles.bellButton, pressed && styles.bellButtonPressed]}
-            >
-              {isLiquidGlassEnabled && LiquidGlassView ? (
-                <LiquidGlassView interactive effect="clear" style={styles.liquidGlassIcon}>
-                  <View style={styles.bellIconContainer}>
-                    <Bell size={22} color="#000000" fill="none" strokeWidth={2} />
-                    <View style={styles.bellDot} />
-                  </View>
-                </LiquidGlassView>
-              ) : (
-                <View style={styles.glassContainer}>
-                  <BlurView intensity={10} tint="dark" style={styles.glassBlur}>
-                    <View style={styles.glassOverlay} />
-                    <LinearGradient
-                      colors={['rgba(255,255,255,0.25)', 'rgba(255,255,255,0.05)']}
-                      start={{ x: 0.5, y: 0 }}
-                      end={{ x: 0.5, y: 0.5 }}
-                      style={styles.glassGloss}
-                    />
-                    <View style={styles.bellIconContainer}>
-                      <Bell size={22} color="#000000" fill="none" strokeWidth={2} />
-                      <View style={styles.bellDot} />
-                    </View>
-                  </BlurView>
-                </View>
-              )}
-            </Pressable>
-          </View>
-        </View>
+              {/* Vehicle Maintenance - with dynamic margin based on active card */}
+              <View style={{ marginTop: visibleCardIds.length > 0 ? getCardMargin(activeCardIndex) : 0 }}>
+                {hasVehicles ? (
+                  <VehicleMaintenanceCard
+                    vehicles={mappedVehicles.length > 0 ? mappedVehicles : undefined}
+                    onBookNow={(vehicleId, serviceId) => {
+                      useVehicleStore.getState().selectVehicle(vehicleId);
+                      router.push('/home/map?openServices=true');
+                    }}
+                    onSwipeStart={() => setIsCardSwiping(true)}
+                    onSwipeEnd={() => setIsCardSwiping(false)}
+                  />
+                ) : (
+                  <AddFirstVehicleCard showAccountSetup={showAccountSetup} />
+                )}
+              </View>
 
               {/* More Services Section */}
               <MoreServicesSection />
 
-        {/* Content Area */}
-        <View style={styles.content}>
-          {/* Action Cards Carousel */}
-          {visibleCardIds.length > 0 && <View style={styles.carouselContainer}>
-            <ActionCardsCarousel
-              // Upcoming Appointment
-              showAppointment={!!upcomingBooking}
-              appointmentBusinessName={upcomingBooking?.shopName ?? ''}
-              appointmentMechanicName={upcomingBooking?.mechanicName ?? ''}
-              appointmentRating={upcomingBooking?.shopRating ?? 0}
-              appointmentIsVerified={upcomingBooking?.shopIsVerified ?? false}
-              appointmentDate={upcomingBooking ? formatBookingDate(upcomingBooking.scheduled_date) : ''}
-              appointmentTimeSlot={upcomingBooking ? formatBookingTime(upcomingBooking.scheduled_time) : ''}
-              appointmentLateMinutes={upcomingBooking?.delayMinutes}
-              onAppointmentPress={handleAppointmentPress}
-              // Resume Booking
-              showResumeBooking={hasResumeBooking}
-              resumeServicesPreview={resumeServicesPreview}
-              onResumePress={() => router.push('/home/map?openServices=true')}
-              // Account Setup
-              showAccountSetup={showAccountSetup}
-              onAccountSetupDismiss={() => setAccountSetupDismissed(true)}
-              // Car Setup
-              showCarSetup={showCarSetup}
-              carSetupChecklist={carSetupChecklist}
-              isCarSetupDone={isCarSetupDone}
-              onCarSetupPress={() => {
-                const o = carSetupVehicle?.ownership;
-                if (isCarSetupDone) {
-                  // All done — dismiss permanently
-                  if (o?._id) dismissSetupCard({ vehicleOwnerId: o._id });
-                  setCarSetupDismissed(true);
-                  return;
-                }
-                if (!o) {
-                  router.push('/add-vehicle');
-                } else if (!o.preOnboardingComplete) {
-                  router.push({ pathname: '/car-pre-onboarding', params: { vehicleOwnerId: o._id } });
-                } else {
-                  router.push({ pathname: '/(main-tabs)/cars', params: { openStepper: 'true' } });
-                }
-              }}
-              onCarSetupDismiss={() => setCarSetupDismissed(true)}
-              // Carousel callback
-              onCardChange={(index) => setActiveCardIndex(index)}
-              // User status - determines card order
-              isNewUser={isNewUser}
-            />
-          </View>}
+              {/* Service Bundles Section */}
+              <ServiceBundlesSection />
 
-          {/* Navigation ETA Bar - Only show when on Upcoming Appointment card */}
-          {getCardTypeAtIndex(activeCardIndex) === 'appointment' && upcomingBooking && (
-            <View style={styles.etaBarContainer}>
-              <NavigationETABar
-                etaMinutes={20}
-                destinationLatitude={upcomingBooking.shopLat ?? 0}
-                destinationLongitude={upcomingBooking.shopLng ?? 0}
-                destinationName={upcomingBooking.shopName}
-              />
+              {/* Suggestions Section */}
+              <SuggestionsSection />
             </View>
           </Animated.ScrollView>
 
@@ -543,36 +603,22 @@ export default function HomeScreen() {
             />
           )}
 
-          {/* Vehicle Maintenance - with dynamic margin based on active card */}
-          <ScrollFadeIn scrollY={scrollY} style={{ marginTop: visibleCardIds.length > 0 ? getCardMargin(activeCardIndex) : 0 }}>
-            {hasVehicles ? (
-              <VehicleMaintenanceCard
-                vehicles={mappedVehicles.length > 0 ? mappedVehicles : undefined}
-                onBookNow={(vehicleId, serviceId) => {
-                  router.push('/home/map?openServices=true');
-                }}
-                onSwipeStart={() => setIsCardSwiping(true)}
-                onSwipeEnd={() => setIsCardSwiping(false)}
-              />
-            ) : (
-              <AddFirstVehicleCard showAccountSetup={showAccountSetup} />
-            )}
-          </ScrollFadeIn>
-
-          {/* More Services Section */}
-          <ScrollFadeIn scrollY={scrollY}>
-            <MoreServicesSection />
-          </ScrollFadeIn>
-
-          {/* Service Bundles Section */}
-          <ScrollFadeIn scrollY={scrollY}>
-            <ServiceBundlesSection />
-          </ScrollFadeIn>
-
-          {/* Suggestions Section */}
-          <ScrollFadeIn scrollY={scrollY}>
-            <SuggestionsSection />
-          </ScrollFadeIn>
+          <BottomSheetModal
+            ref={sheetRef}
+            snapPoints={snapPoints}
+            backdropComponent={renderBackdrop}
+            enableDynamicSizing={false}
+            enableContentPanningGesture={false}
+            handleIndicatorStyle={styles.sheetHandle}
+            backgroundStyle={styles.sheetBackground}
+          >
+            <BottomSheetScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={[styles.sheetContentContainer, { paddingBottom: insets.bottom + 24 }]}
+            >
+              <View style={styles.sheetTitleWrap}>
+                <Text style={styles.sheetTitle}>Welcome back!</Text>
+              </View>
 
               <View style={styles.sheetBody}>
                 <Text style={styles.sheetBodyText}>
@@ -597,6 +643,22 @@ export default function HomeScreen() {
         </View>
       )}
     </ScrollDrivenGradientBackground>
+
+    <FinishCarSetupPickerSheet
+      ref={pickerSheetRef}
+      vehicles={pickerVehicles}
+      onSelect={(v) => {
+        if (!v.preOnboardingComplete) {
+          router.push({ pathname: '/car-pre-onboarding', params: { vehicleOwnerId: v.ownershipId } });
+        } else {
+          router.push({
+            pathname: '/(main-tabs)/cars',
+            params: { openStepper: 'true', vehicleOwnerId: v.ownershipId },
+          });
+        }
+      }}
+    />
+    </>
   );
 }
 

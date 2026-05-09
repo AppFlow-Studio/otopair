@@ -263,7 +263,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.72)',
     borderRadius: 16,
     overflow: 'hidden',
-    marginBottom: 24,
+    marginBottom: Spacing["2xl"],
     borderWidth: 1,
     borderColor: 'rgba(255, 255, 255, 0.2)',
   },

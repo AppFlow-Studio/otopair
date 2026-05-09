@@ -7,8 +7,9 @@
  * USED IN: app/(main-tabs)/settings/index.tsx
  */
 
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  BackHandler,
   Pressable,
   ScrollView,
   SectionList,
@@ -17,6 +18,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useLocalSearchParams } from 'expo-router';
 import { BottomSheetModal } from '@gorhom/bottom-sheet';
 import {
   AlertTriangle,
@@ -208,10 +210,28 @@ const DEFAULT_DETAIL: TransactionDetail = {
 export default function TransactionsScreen() {
   const insets = useSafeAreaInsets();
   const sheetRef = useRef<BottomSheetModal>(null);
+  const { shop } = useLocalSearchParams<{ shop?: string }>();
   const { userId } = useUserFromConvex();
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(typeof shop === 'string' ? shop : '');
   const [activeFilter, setActiveFilter] = useState<TransactionFilter>('all');
   const [selectedTransaction, setSelectedTransaction] = useState<TransactionItem | null>(null);
+
+  useEffect(() => {
+    if (typeof shop === 'string') {
+      setQuery(shop);
+    }
+  }, [shop]);
+
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (selectedTransaction != null) {
+        sheetRef.current?.dismiss();
+        return true;
+      }
+      return false;
+    });
+    return () => sub.remove();
+  }, [selectedTransaction]);
 
   const transactionType =
     activeFilter === 'all' ? undefined : (activeFilter as 'charge' | 'credit' | 'refund');
@@ -552,8 +572,8 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
   },
   chipActive: {
-    backgroundColor: '#1D1D1F',
-    borderColor: '#1D1D1F',
+    backgroundColor: BrandColors.secondary,
+    borderColor: BrandColors.secondary,
     shadowOpacity: 0.1,
     shadowRadius: 10,
   },

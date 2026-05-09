@@ -46,6 +46,9 @@ export {
 // Button Components
 export { Button, GhostButton, IconButton, PrimaryButton, SecondaryButton, type ButtonProps } from "./Button";
 
+// Chip (selectable pill)
+export { Chip, type ChipProps } from "./Chip";
+
 export { GlassCircleButton } from "./GlassCircleButton";
 
 // Bottom Sheet Modal

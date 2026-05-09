@@ -71,7 +71,6 @@ export function ProfilePhotoStep({ onNext, onBack, progress }: ProfilePhotoStepP
 
   const dynamicStyles = {
     container: { paddingTop: insets.top + Spacing.lg },
-    bottomContainer: { paddingBottom: insets.bottom + Spacing.lg },
   };
 
   const isCompact = height < 720;
@@ -188,19 +187,19 @@ export function ProfilePhotoStep({ onNext, onBack, progress }: ProfilePhotoStepP
             Let's see the face behind the wheel!
           </Text>
         </View>
-      </View>
 
-      <View style={[styles.bottomContainer, dynamicStyles.bottomContainer]}>
-        <FooterButton
-          label="Continue"
-          onPress={handleContinue}
-          disabled={!canContinue || isUploading}
-          loading={isUploading}
-          size={buttonSize}
-          paddingVertical={buttonPaddingVertical}
-          backgroundColor={canContinue ? undefined : "#6B7280"}
-          textColor={canContinue ? undefined : BrandColors.white}
-        />
+        <View style={styles.actionsContainer}>
+          <FooterButton
+            label="Continue"
+            onPress={handleContinue}
+            disabled={!canContinue || isUploading}
+            loading={isUploading}
+            size={buttonSize}
+            paddingVertical={buttonPaddingVertical}
+            backgroundColor={canContinue ? undefined : "#6B7280"}
+            textColor={canContinue ? undefined : BrandColors.white}
+          />
+        </View>
       </View>
 
       <Modal
@@ -253,6 +252,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingHorizontal: Spacing["2xl"],
+    gap: Spacing.lg,
   },
   photoContainer: {
     marginBottom: Spacing["3xl"],
@@ -309,13 +309,9 @@ const styles = StyleSheet.create({
     lineHeight: Spacing['2xl'],
     paddingHorizontal: Spacing.lg,
   },
-  bottomContainer: {
-    paddingTop: Spacing.sm,
-    paddingHorizontal: Spacing["2xl"],
-    backgroundColor: 'transparent',
-  },
-  buttonSpacer: {
-    height: Spacing.md,
+  actionsContainer: {
+    width: "100%",
+    gap: Spacing.lg,
   },
   photoModalBackdrop: {
     flex: 1,

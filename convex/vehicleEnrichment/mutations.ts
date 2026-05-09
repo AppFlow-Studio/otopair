@@ -9,18 +9,26 @@ import { v } from "convex/values";
 import { internalMutation, mutation } from "../_generated/server";
 import { internal } from "../_generated/api";
 
-/** Insert a fully enriched engine config record. Returns the new document ID. */
+/** Upsert a vehicle_config record. Returns the document ID. */
 export const storeEnrichedData = internalMutation({
   args: { data: v.any() },
   handler: async (ctx, args) => {
-    return await ctx.db.insert("enriched_engine_configs", args.data);
+    const existing = await ctx.db
+      .query("vehicle_configs")
+      .withIndex("by_config_key", (q) => q.eq("config_key", args.data.config_key))
+      .first();
+    if (existing) {
+      await ctx.db.patch(existing._id, args.data);
+      return existing._id;
+    }
+    return await ctx.db.insert("vehicle_configs", args.data);
   },
 });
 
-/** Update an existing enriched engine config record (v4 re-enrichment). */
+/** Update an existing vehicle_config record (v4 re-enrichment). */
 export const updateEnrichedData = internalMutation({
   args: {
-    id: v.id("enriched_engine_configs"),
+    id: v.id("vehicle_configs"),
     data: v.any(),
   },
   handler: async (ctx, args) => {
@@ -28,31 +36,32 @@ export const updateEnrichedData = internalMutation({
   },
 });
 
-/** Set the enrichedEngineConfigId on a vehicle record. */
+/** Set the vehicle_config_id on a vehicle record (and store config_key string). */
 export const attachToVehicle = internalMutation({
   args: {
     vehicleId: v.id("vehicles"),
-    enrichedDataId: v.id("enriched_engine_configs"),
+    enrichedDataId: v.id("vehicle_configs"),
   },
   handler: async (ctx, args) => {
+    const vc = await ctx.db.get(args.enrichedDataId);
     await ctx.db.patch(args.vehicleId, {
-      enriched_engine_config_id: args.enrichedDataId,
+      vehicle_config_id: args.enrichedDataId,
+      enriched_engine_config_id: vc?.config_key,
     });
   },
 });
 
-/** [TEST] Delete enrichment record and unlink from vehicle. Remove after testing. */
+/** [TEST] Unlink vehicle from its vehicle_config. */
 export const debugCleanup = mutation({
   args: {
     vehicleId: v.id("vehicles"),
-    enrichedId: v.id("enriched_engine_configs"),
+    enrichedId: v.id("vehicle_configs"),
   },
   handler: async (ctx, args) => {
-    // Unlink from vehicle
     await ctx.db.patch(args.vehicleId, {
+      vehicle_config_id: undefined,
       enriched_engine_config_id: undefined,
     });
-    // Delete enrichment record
     await ctx.db.delete(args.enrichedId);
     return { success: true };
   },
@@ -83,13 +92,13 @@ export const debugScheduleEnrichment = mutation({
   },
 });
 
-/** [TEST] Delete enrichment record by engine key (cache clear). Remove after testing. */
+/** [TEST] Delete vehicle_config by config key (cache clear). */
 export const debugDeleteByEngineKey = mutation({
   args: { engineKey: v.string() },
   handler: async (ctx, args) => {
     const record = await ctx.db
-      .query("enriched_engine_configs")
-      .withIndex("by_engine_config", (q) => q.eq("engineConfig", args.engineKey))
+      .query("vehicle_configs")
+      .withIndex("by_config_key", (q) => q.eq("config_key", args.engineKey))
       .first();
     if (record) {
       await ctx.db.delete(record._id);

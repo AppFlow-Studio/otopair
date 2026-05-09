@@ -109,6 +109,10 @@ export function MoreServicesSection() {
   const router = useRouter();
 
   const handleCardPress = (serviceId: string) => {
+    if (serviceId === 'tires') {
+      router.push('/(tire-booking)');
+      return;
+    }
     router.push({ pathname: '/coming-soon', params: { service: serviceId } });
   };
 

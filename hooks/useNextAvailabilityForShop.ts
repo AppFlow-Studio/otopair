@@ -33,9 +33,12 @@ export function useNextAvailabilityForShop(
   mechanicId: string | null | undefined,
   limit: number = DEFAULT_LIMIT,
 ) {
+  // Skip query for mock shop IDs (e.g. "1", "2") — only call Convex with real IDs
+  const isConvexId = shopId != null && shopId.length > 10;
+
   const convexSlots = useQuery(
     api.time_slots.getNextAvailableByShop,
-    shopId
+    isConvexId
       ? {
           shopId: shopId as Id<"shops">,
           limit,

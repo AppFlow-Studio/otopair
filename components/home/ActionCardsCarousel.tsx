@@ -26,6 +26,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   Dimensions,
+  type ImageSourcePropType,
   NativeScrollEvent,
   NativeSyntheticEvent,
   ScrollView,
@@ -65,6 +66,8 @@ interface ActionCardsCarouselProps {
   showResumeBooking?: boolean;
   resumeMechanicsAvailable?: number;
   resumeServicesPreview?: string;
+  resumeVehicleName?: string;
+  resumeVehicleImage?: ImageSourcePropType;
   onResumePress?: () => void;
 
   // Finish Account Setup
@@ -110,6 +113,8 @@ export function ActionCardsCarousel({
   showResumeBooking = false,
   resumeMechanicsAvailable,
   resumeServicesPreview = '',
+  resumeVehicleName,
+  resumeVehicleImage,
   onResumePress,
 
   // Finish Account Setup
@@ -189,6 +194,8 @@ export function ActionCardsCarousel({
             <ResumeBookingCard
               mechanicsAvailable={resumeMechanicsAvailable}
               servicesPreview={resumeServicesPreview}
+              vehicleName={resumeVehicleName}
+              vehicleImage={resumeVehicleImage}
               onPress={onResumePress}
             />
           </View>

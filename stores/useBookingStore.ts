@@ -47,6 +47,7 @@ export interface SelectedMechanicSlot {
   scheduledTime?: string;
 }
 import { useMechanicStore } from "./useMechanicStore";
+import { useVehicleStore } from "./useVehicleStore";
 
 // ─────────────────────────────────────────────────────────────
 // STORE STATE INTERFACE
@@ -189,6 +190,14 @@ interface BookingState {
   setServiceCategories: (categories: ServiceCategoryItem[]) => void;
   /** Hydrate bookings from Convex (cache for user's bookings) */
   setBookingsFromConvex: (bookings: Booking[]) => void;
+  /** Cancel a local booking by ID (sets status to "cancelled") */
+  cancelBooking: (id: string) => void;
+  /** Reschedule a local booking's date/time. `date` = YYYY-MM-DD, `time` = "9:00 AM" */
+  rescheduleBooking: (id: string, date: string, time: string) => void;
+  /** Flip a booking between "in_progress" (Live Tracker) and "confirmed" (Upcoming). */
+  toggleLiveTracker: (id: string) => void;
+  /** Flip a booking between pending_quote (Upcoming) and quotes_ready (Quotes). */
+  toggleQuotesReady: (id: string) => void;
   /** Get a booking by ID */
   getBookingById: (id: string) => Booking | null;
   /** Get all upcoming bookings (pending or confirmed, future dates) */
@@ -432,9 +441,23 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
     }),
 
   setBookingsFromConvex: (bookings) =>
-    set(() => {
+    set((state) => {
+      // Preserve local-only bookings (created outside Convex — e.g. the
+      // tire-flow synthetic booking) so Convex re-syncs don't wipe them.
+      const incomingIds = new Set(bookings.map((b) => b.id));
       const byId: Record<string, Booking> = {};
       const ids: string[] = [];
+      // Local-only entries first (stable order).
+      state.bookingIds.forEach((id) => {
+        if (!incomingIds.has(id)) {
+          const existing = state.bookings[id];
+          if (existing) {
+            byId[id] = existing;
+            ids.push(id);
+          }
+        }
+      });
+      // Then the Convex payload overwrites/adds.
       bookings.forEach((b) => {
         byId[b.id] = b;
         ids.push(b.id);
@@ -617,6 +640,88 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
     return scheduledAppointment.time;
   },
 
+  cancelBooking: (id) => {
+    set((state) => {
+      const booking = state.bookings[id];
+      if (!booking) return state;
+      return {
+        bookings: {
+          ...state.bookings,
+          [id]: { ...booking, status: "cancelled" as const, updatedAt: new Date().toISOString() },
+        },
+      };
+    });
+  },
+
+  rescheduleBooking: (id, date, time) => {
+    // TODO(convex): add a rescheduleBooking Convex mutation and call it here so
+    // Convex-sourced bookings in the list also reflect the new date/time.
+    set((state) => {
+      const booking = state.bookings[id];
+      if (!booking) return state;
+      return {
+        bookings: {
+          ...state.bookings,
+          [id]: {
+            ...booking,
+            scheduledDate: date,
+            scheduledTime: time,
+            updatedAt: new Date().toISOString(),
+          },
+        },
+      };
+    });
+  },
+
+  toggleLiveTracker: (id) => {
+    // TODO(convex): mirror this flip with a Convex mutation so Convex bookings
+    // can also be promoted/demoted from the Live Tracker tab.
+    set((state) => {
+      const target = state.bookings[id];
+      if (!target) return state;
+      const now = new Date().toISOString();
+
+      // Flip OFF: currently live → back to confirmed.
+      if (target.status === "in_progress") {
+        return {
+          bookings: {
+            ...state.bookings,
+            [id]: { ...target, status: "confirmed" as const, updatedAt: now },
+          },
+        };
+      }
+
+      // Flip ON: demote any other local booking that's currently live, then promote this one.
+      const next = { ...state.bookings };
+      for (const otherId of state.bookingIds) {
+        const other = next[otherId];
+        if (other && otherId !== id && other.status === "in_progress") {
+          next[otherId] = { ...other, status: "confirmed" as const, updatedAt: now };
+        }
+      }
+      next[id] = { ...target, status: "in_progress" as const, updatedAt: now };
+      return { bookings: next };
+    });
+  },
+
+  toggleQuotesReady: (id) => {
+    // Flip a pending_quote booking to quotes_ready (moves it from the
+    // Upcoming tab to the Quotes tab) and back. Mirrors toggleLiveTracker.
+    set((state) => {
+      const target = state.bookings[id];
+      if (!target) return state;
+      const now = new Date().toISOString();
+      const nextStatus =
+        target.status === "quotes_ready" ? "pending_quote" : "quotes_ready";
+      return {
+        bookings: {
+          ...state.bookings,
+          [id]: { ...target, status: nextStatus as const, updatedAt: now },
+        },
+      };
+    });
+  },
+
   getBookingById: (id) => {
     const { bookings } = get();
     return bookings[id] || null;
@@ -668,7 +773,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       id: bookingId,
       userId: "current_user_id", // TODO: Get from auth store
       shopId: String(mechanic.shopId),
-      vehicleId: "default_vehicle_id", // TODO: Get from vehicle store
+      vehicleId: useVehicleStore.getState().selectedVehicleId ?? "default_vehicle_id",
       serviceIds: state.selectedServiceIds,
       status: bookingType === "schedule_later" ? "pending" : "confirmed",
       scheduledDate,

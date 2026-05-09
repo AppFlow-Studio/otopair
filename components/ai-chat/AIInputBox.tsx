@@ -44,8 +44,16 @@ import Animated, {
   Extrapolate,
   Easing,
 } from 'react-native-reanimated';
-import { LinearGradient } from 'expo-linear-gradient';
 import { Plus, Mic, ArrowUp, X } from 'lucide-react-native';
+
+// Native iOS 26 liquid glass (optional)
+let LiquidGlassView: React.ComponentType<any> | null = null;
+let isLiquidGlassEnabled = false;
+try {
+  const lg = require("@callstack/liquid-glass");
+  LiquidGlassView = lg.LiquidGlassView;
+  isLiquidGlassEnabled = !!lg.isLiquidGlassSupported;
+} catch (e) {}
 
 // 3. Shared UI
 import { Text } from '@/components/shared-ui';
@@ -78,6 +86,8 @@ interface AIInputBoxProps {
   onToggleAttachment?: () => void;
   /** Whether there are images selected (enables send without text) */
   hasImages?: boolean;
+  /** InputAccessoryView ID for keyboard docking */
+  inputAccessoryViewID?: string;
 }
 
 // ============================================================================
@@ -271,6 +281,7 @@ export function AIInputBox({
   isAttachmentOpen = false,
   onToggleAttachment,
   hasImages = false,
+  inputAccessoryViewID,
 }: AIInputBoxProps) {
   const showRecordingUI = isRecording || isTranscribing;
   const inputRef = useRef<TextInput>(null);
@@ -390,6 +401,7 @@ export function AIInputBox({
             onContentSizeChange={handleContentSizeChange}
             onFocus={handleFocus}
             onBlur={handleBlur}
+            inputAccessoryViewID={inputAccessoryViewID}
           />
         )}
 
@@ -405,7 +417,7 @@ export function AIInputBox({
               onPress={onToggleAttachment}
             >
               <Animated.View style={plusButtonAnimatedStyle}>
-                <Plus size={20} color={isAttachmentOpen ? BrandColors.secondary : "#9CA3AF"} strokeWidth={2} />
+                <Plus size={20} color={isAttachmentOpen ? BrandColors.secondary : (hasText ? "rgba(0,0,0,0.6)" : "rgba(0,0,0,0.4)")} strokeWidth={2} />
               </Animated.View>
             </Pressable>
           )}
@@ -413,7 +425,7 @@ export function AIInputBox({
           <View style={styles.rightButtons}>
             {/* Mic button */}
             <Animated.View style={[
-              styles.buttonWrapper, 
+              styles.buttonWrapper,
               !showRecordingUI && micButtonAnimatedStyle
             ]}>
               <Pressable
@@ -430,7 +442,7 @@ export function AIInputBox({
                 {showRecordingUI ? (
                   <ArrowUp size={16} color={BrandColors.white} strokeWidth={2.5} />
                 ) : (
-                  <Mic size={18} color="#9CA3AF" strokeWidth={2} />
+                  <Mic size={18} color={hasText ? "rgba(0,0,0,0.6)" : "rgba(0,0,0,0.4)"} strokeWidth={2} />
                 )}
               </Pressable>
             </Animated.View>
@@ -449,8 +461,8 @@ export function AIInputBox({
             )}
           </View>
 
-          {/* X dismiss button - shown when focused */}
-          {isFocused && !showRecordingUI && (
+          {/* X dismiss button - shown when focused AND has text */}
+          {isFocused && hasText && !showRecordingUI && (
             <Pressable
               onPress={() => {
                 Keyboard.dismiss();
@@ -469,22 +481,25 @@ export function AIInputBox({
     </View>
   );
 
-  const showGradient = isFocused && !showRecordingUI;
+  if (isLiquidGlassEnabled && LiquidGlassView) {
+    return (
+      <View style={styles.container}>
+        <LiquidGlassView interactive effect="regular" style={styles.glassCard}>
+          {inputCardContent}
+        </LiquidGlassView>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.container}>
-      <LinearGradient
-        colors={showGradient ? ['#74B4E0', '#74B4E0'] : ['transparent', 'transparent']}
-        start={{ x: 0, y: 0 }}
-        end={{ x: 1, y: 1 }}
-        style={[
-          styles.gradientBorder,
-          !showGradient && !showRecordingUI && styles.inputCardUnfocused,
-          showRecordingUI && styles.inputCardRecording,
-        ]}
-      >
+      <View style={[
+        styles.inputCardOuter,
+        showRecordingUI && styles.inputCardRecording,
+        isFocused && !showRecordingUI && styles.inputCardOuterFocused,
+      ]}>
         {inputCardContent}
-      </LinearGradient>
+      </View>
     </View>
   );
 }
@@ -496,20 +511,22 @@ export function AIInputBox({
 const styles = StyleSheet.create({
   container: {
     paddingHorizontal: Spacing.md,
-    paddingBottom: Spacing.sm,
     paddingTop: Spacing.xs,
   },
-  gradientBorder: {
-    borderRadius: 28,
-    padding: 2,
+  glassCard: {
+    borderRadius: 24,
   },
-  inputCardUnfocused: {
-    backgroundColor: '#F3F4F6',
+  inputCardOuter: {
+    borderRadius: 24,
+    backgroundColor: 'rgba(255,255,255,0.85)',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.06)',
+  },
+  inputCardOuterFocused: {
+    backgroundColor: 'rgba(255,255,255,0.95)',
+    borderColor: 'rgba(0,0,0,0.08)',
   },
   inputCardInner: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 26,
-    overflow: 'hidden',
   },
   inputCardRecording: {
     backgroundColor: '#EEF2FF',
@@ -525,7 +542,6 @@ const styles = StyleSheet.create({
     minHeight: 48,
   },
   inputRowFocused: {
-    minHeight: 72,
   },
   plusBtn: {
     width: 32,

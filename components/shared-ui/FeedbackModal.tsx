@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   ActivityIndicator,
   InteractionManager,
@@ -11,13 +17,13 @@ import {
   TextInput,
   TouchableWithoutFeedback,
   View,
-} from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { X } from 'lucide-react-native';
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { X } from "lucide-react-native";
 
-import { BrandColors } from '@/constants/theme';
-import { Button } from './Button';
-import { Text } from './Text';
+import { BrandColors } from "@/constants/theme";
+import { Button } from "./Button";
+import { Text } from "./Text";
 
 export interface FeedbackModalProps {
   visible: boolean;
@@ -35,12 +41,12 @@ export function FeedbackModal({
   visible,
   onClose,
   onSubmit,
-  placeholder = 'Enter your feedback here',
-  title = 'Give Us Feedback',
+  placeholder = "Enter your feedback here",
+  title = "Give Us Feedback",
 }: FeedbackModalProps) {
   const insets = useSafeAreaInsets();
   const inputRef = useRef<TextInput>(null);
-  const [feedback, setFeedback] = useState('');
+  const [feedback, setFeedback] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [didSucceed, setDidSucceed] = useState(false);
 
@@ -49,14 +55,14 @@ export function FeedbackModal({
   const [kavKey, setKavKey] = useState(0);
   const remountTimer = useRef<any>(null);
   useEffect(() => {
-    if (Platform.OS !== 'android' || !visible) return;
-    const sub = Keyboard.addListener('keyboardDidHide', () => {
+    if (Platform.OS !== "android" || !visible) return;
+    const sub = Keyboard.addListener("keyboardDidHide", () => {
       if (remountTimer.current) clearTimeout(remountTimer.current);
       remountTimer.current = setTimeout(() => {
         setKavKey((k) => k + 1);
       }, 100);
     });
-    const showSub = Keyboard.addListener('keyboardDidShow', () => {
+    const showSub = Keyboard.addListener("keyboardDidShow", () => {
       // Cancel any pending remount if the keyboard comes back up
       if (remountTimer.current) {
         clearTimeout(remountTimer.current);
@@ -70,15 +76,14 @@ export function FeedbackModal({
     };
   }, [visible]);
 
-  const canSubmit = useMemo(() => feedback.trim().length > 0 && !isSubmitting && !didSucceed, [
-    feedback,
-    isSubmitting,
-    didSucceed,
-  ]);
+  const canSubmit = useMemo(
+    () => feedback.trim().length > 0 && !isSubmitting && !didSucceed,
+    [feedback, isSubmitting, didSucceed],
+  );
 
   useEffect(() => {
     if (!visible) {
-      setFeedback('');
+      setFeedback("");
       setIsSubmitting(false);
       setDidSucceed(false);
       setKavKey(0);
@@ -100,7 +105,7 @@ export function FeedbackModal({
 
       setIsSubmitting(false);
       setDidSucceed(true);
-      setFeedback('');
+      setFeedback("");
 
       // Show success briefly then close
       setTimeout(() => {
@@ -117,6 +122,7 @@ export function FeedbackModal({
       visible={visible}
       animationType="fade"
       statusBarTranslucent
+      navigationBarTranslucent
       onShow={() => {
         // Simple command to focus and trigger keyboard after 150ms
         setTimeout(() => {
@@ -129,7 +135,7 @@ export function FeedbackModal({
 
       <KeyboardAvoidingView
         key={kavKey}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={styles.keyboardView}
       >
         {/* Backdrop touch target - tap to close */}
@@ -146,10 +152,19 @@ export function FeedbackModal({
 
           {/* Header */}
           <View style={styles.header}>
-            <Pressable onPress={onClose} style={styles.closeButton} hitSlop={10}>
+            <Pressable
+              onPress={onClose}
+              style={styles.closeButton}
+              hitSlop={10}
+            >
               <X size={20} color="#111827" />
             </Pressable>
-            <Text weight="bold" size="lg" color="#111827" style={styles.headerTitle}>
+            <Text
+              weight="bold"
+              size="lg"
+              color="#111827"
+              style={styles.headerTitle}
+            >
               {title}
             </Text>
             <View style={{ width: 40 }} />
@@ -157,7 +172,12 @@ export function FeedbackModal({
 
           {/* Content */}
           <View style={styles.content}>
-            <Text weight="medium" size="sm" color="#374151" style={styles.label}>
+            <Text
+              weight="medium"
+              size="sm"
+              color="#374151"
+              style={styles.label}
+            >
               Feedback
             </Text>
 
@@ -194,7 +214,10 @@ export function FeedbackModal({
               </Button>
 
               <Pressable
-                style={[styles.submitWrap, !canSubmit && styles.submitWrapDisabled]}
+                style={[
+                  styles.submitWrap,
+                  !canSubmit && styles.submitWrapDisabled,
+                ]}
                 onPress={handleSubmit}
                 disabled={!canSubmit}
               >
@@ -217,36 +240,36 @@ export function FeedbackModal({
 const styles = StyleSheet.create({
   keyboardView: {
     flex: 1,
-    justifyContent: 'flex-end',
+    justifyContent: "flex-end",
   },
   fullScreenBackdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.4)',
+    backgroundColor: "rgba(0, 0, 0, 0.4)",
   },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
   },
   card: {
     marginHorizontal: 10,
-    backgroundColor: '#E8ECF0',
+    backgroundColor: "#E8ECF0",
     borderRadius: 28,
-    overflow: 'hidden',
+    overflow: "hidden",
   },
   handleRow: {
-    alignItems: 'center',
+    alignItems: "center",
     paddingTop: 10,
     paddingBottom: 6,
   },
   handle: {
     width: 40,
     height: 4,
-    backgroundColor: '#6B7280',
+    backgroundColor: "#6B7280",
     borderRadius: 2,
   },
   header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
     paddingHorizontal: 24,
     paddingBottom: 16,
   },
@@ -254,13 +277,13 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
+    backgroundColor: "#FFFFFF",
+    alignItems: "center",
+    justifyContent: "center",
   },
   headerTitle: {
     flex: 1,
-    textAlign: 'center',
+    textAlign: "center",
   },
   content: {
     paddingHorizontal: 24,
@@ -270,19 +293,19 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   input: {
-    backgroundColor: '#F3F4F6',
+    backgroundColor: "#F3F4F6",
     borderRadius: 14,
     paddingHorizontal: 14,
     paddingVertical: 12,
     minHeight: 120,
     fontSize: 16,
-    color: '#111827',
+    color: "#111827",
   },
   successRow: {
     marginTop: 10,
   },
   actionsRow: {
-    flexDirection: 'row',
+    flexDirection: "row",
     gap: 12,
     marginTop: 16,
   },
@@ -292,14 +315,14 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
   },
   cancelButton: {
-    backgroundColor: '#EEF2F7',
+    backgroundColor: "#EEF2F7",
   },
   submitWrap: {
     flex: 2,
     borderRadius: 14,
     backgroundColor: BrandColors.secondary,
-    alignItems: 'center',
-    justifyContent: 'center',
+    alignItems: "center",
+    justifyContent: "center",
     paddingVertical: 12,
   },
   submitWrapDisabled: {
