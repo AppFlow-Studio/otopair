@@ -102,7 +102,7 @@ function SegmentSweep() {
     width: `${progress.value * 100}%`,
     // Fade out the last bit of the sweep so the snap-back to 0% reads
     // as a clean dissolve rather than an abrupt jump.
-    opacity: progress.value < 0.8 ? 1 : 1 - (progress.value - 0.8) / 0.2,
+    opacity: progress.value < 0.92 ? 1 : 1 - (progress.value - 0.92) / 0.08,
   }));
 
   return <Animated.View style={[styles.sweep, animatedStyle]} />;

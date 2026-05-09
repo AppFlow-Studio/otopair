@@ -13,7 +13,7 @@
  */
 
 // 1. React & React Native
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ActivityIndicator, Image, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Expo & Third-party
@@ -56,7 +56,7 @@ export default function PaymentScreen() {
   // ═══════════════ HOOKS ═══════════════
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, confirmError } = useLocalSearchParams<{ id: string; confirmError?: string }>();
 
   // ═══════════════ BOOKING STORE ═══════════════
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
@@ -69,6 +69,16 @@ export default function PaymentScreen() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorModalVisible, setErrorModalVisible] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string>("");
+
+  // Pick up an error bounced back from the /confirming screen and surface
+  // it in the existing error modal. Run once when the param shows up.
+  useEffect(() => {
+    if (confirmError) {
+      setErrorMessage(confirmError);
+      setErrorModalVisible(true);
+      router.setParams({ confirmError: undefined });
+    }
+  }, [confirmError, router]);
   const setBookingStage = useBookingStore((state) => state.setBookingStage);
   const skippedBookingDetails = useBookingStore((state) => state.skippedBookingDetails);
 
@@ -167,20 +177,13 @@ export default function PaymentScreen() {
     router.back();
   }, [router, skippedBookingDetails, setBookingStage]);
 
-  const handleConfirmPayment = useCallback(async () => {
+  const handleConfirmPayment = useCallback(() => {
     if (!selectedMechanicId) return;
-    setIsSubmitting(true);
-    try {
-      await createBookingConvex(selectedMechanicId, bookingType || "book_now");
-      router.push(`/home/mechanic/${id}/confirmation`);
-    } catch (error: unknown) {
-      console.error("Failed to create booking:", error);
-      setErrorMessage(error instanceof Error ? error.message : "Something went wrong. Please try again.");
-      setErrorModalVisible(true);
-    } finally {
-      setIsSubmitting(false);
-    }
-  }, [router, id, selectedMechanicId, createBookingConvex, bookingType]);
+    // Hand off to the confirming screen — it runs the mutation alongside
+    // a minimum-display timer for the Lottie loading animation, then
+    // routes forward to /confirmation (or back here with an error param).
+    router.push(`/home/mechanic/${id}/confirming`);
+  }, [router, id, selectedMechanicId]);
 
   const handleApplePay = useCallback(() => {
     // Apple Pay integration would go here

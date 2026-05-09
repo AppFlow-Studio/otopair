@@ -19,7 +19,7 @@ import type { BookingStatus } from "@/components/bookings/BookingCard";
 export const SERVICE_STAGES = [
   "Booked",
   "Confirmed",
-  "In Progress",
+  "Servicing",
   "Vehicle Ready",
   "Completed",
 ] as const;

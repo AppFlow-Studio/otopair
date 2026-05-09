@@ -33,6 +33,7 @@
 
 import { query, mutation, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
+import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { isTerminal, validateTransition } from "./booking_status_history";
 import {
@@ -4237,16 +4238,68 @@ export const acceptTireQuote = mutation({
 
     const now = Date.now();
 
-    // Fill in the chosen shop + pricing on the booking. Time slot is left
-    // empty for now — scheduling against the shop's calendar is a follow-up
-    // (the response.availability is currently free-text).
+    // Resolve the winning shop's "Tire Replacement" service so the
+    // accepted booking carries a real `service_ids` entry — without it
+    // every service-aware web surface (schedule cards, dashboard counters,
+    // pre-job form) renders blank for the row. Quote-stage bookings can't
+    // know the shop until acceptance, so this is the only point where
+    // the right service can be picked.
+    let tireService = await ctx.db
+      .query("services")
+      .withIndex("by_slug", (q) => q.eq("slug", "tire-replacement"))
+      .first();
+    if (!tireService) {
+      // Legacy seed used an underscore form — fall back so older
+      // deployments don't break.
+      tireService = await ctx.db
+        .query("services")
+        .withIndex("by_slug", (q) => q.eq("slug", "tire_replacement"))
+        .first();
+    }
+
+    let attachServiceId: Id<"services"> | null = null;
+    if (tireService) {
+      // The shop has already committed to install these tires (they
+      // submitted the quote we're accepting), so auto-register the
+      // shop_services row if it's missing. This avoids the cosmetic
+      // regression on the schedule/dashboard for shops with incomplete
+      // service-catalog onboarding.
+      const offered = await ctx.db
+        .query("shop_services")
+        .withIndex("by_shop_and_service", (q) =>
+          q.eq("shop_id", response.shop_id).eq("service_id", tireService!._id),
+        )
+        .first();
+      if (!offered) {
+        await ctx.db.insert("shop_services", {
+          shop_id: response.shop_id,
+          service_id: tireService._id,
+          is_offered: true,
+        });
+      } else if (!offered.is_offered) {
+        await ctx.db.patch(offered._id, { is_offered: true });
+      }
+      attachServiceId = tireService._id;
+    } else {
+      console.warn(
+        "[acceptTireQuote] no Tire Replacement service found in catalog — service_ids will be empty",
+      );
+    }
+
+    // Fill in the chosen shop + pricing + scheduled slot + service. The
+    // shop's structured `availability` (YYYY-MM-DD + HH:MM) goes straight
+    // onto the booking so it surfaces on /bookings + /schedule on the
+    // web side; service_ids drives the rest of the service-aware UI.
     await ctx.db.patch(args.booking_id, {
       shop_id: response.shop_id,
       labor_cost: response.labor_cost,
       parts_cost: response.per_tire_price * response.quantity,
       total_cost: response.total,
+      scheduled_date: response.availability.date,
+      scheduled_time: response.availability.time,
       status: "confirmed",
       updated_at: now,
+      ...(attachServiceId ? { service_ids: [attachServiceId] } : {}),
     });
 
     // Supersede all other live responses for this booking.

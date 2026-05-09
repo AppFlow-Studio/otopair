@@ -30,6 +30,37 @@ import { useVehicleStore } from "@/stores/useVehicleStore";
 import { useShallow } from 'zustand/react/shallow';
 import { useVehicleOwnershipFromConvex } from '@/hooks/useVehicleOwnershipFromConvex';
 import { fetchVehicleImageUrl } from '@/utils/vehicleImage';
+import { adaptConvexBookingWithDetailsToCard } from '@/utils/bookingAdapter';
+import { BookingDetailsSheet, type BookingDetailsSheetRef } from '@/components/bookings/BookingDetailsSheet';
+import { LeaveReviewSheet, type LeaveReviewSheetRef } from '@/components/bookings/LeaveReviewSheet';
+import { useMyBookingsWithDetails } from '@/hooks/useMyBookingsWithDetails';
+import { useUserFromConvex } from '@/hooks/useUserFromConvex';
+import * as SecureStore from 'expo-secure-store';
+
+// Persists the set of booking IDs that have already triggered the
+// review-prompt sheet on home, so each completed booking only auto-prompts
+// once across app restarts.
+const REVIEW_PROMPT_SEEN_KEY = 'otopair.reviewPromptSeenBookingIds.v1';
+async function loadPromptedBookingIds(): Promise<Set<string>> {
+  try {
+    const raw = await SecureStore.getItemAsync(REVIEW_PROMPT_SEEN_KEY);
+    if (!raw) return new Set();
+    const arr = JSON.parse(raw);
+    return new Set(Array.isArray(arr) ? (arr as string[]) : []);
+  } catch {
+    return new Set();
+  }
+}
+async function addPromptedBookingId(id: string, current: Set<string>): Promise<Set<string>> {
+  const next = new Set(current);
+  next.add(id);
+  try {
+    await SecureStore.setItemAsync(REVIEW_PROMPT_SEEN_KEY, JSON.stringify([...next]));
+  } catch {
+    // Non-fatal: prompt may re-fire next launch if writing fails.
+  }
+  return next;
+}
 import { computeMaintenanceStatus, MAINTENANCE_LABELS } from '@/utils/maintenanceStatus';
 import type { Id } from '@/convex/_generated/dataModel';
 
@@ -59,7 +90,8 @@ import { ServiceBundlesSection } from "@/components/home/ServiceBundlesSection";
 import { MoreServicesSection } from "@/components/home/MoreServicesSection";
 import { SuggestionsSection } from "@/components/home/SuggestionsSection";
 import { VehicleMaintenanceCard } from "@/components/home/VehicleMaintenanceCard";
-import { HomeLogo } from "@/components/icons/home-logo";
+import { ProfileInitialsButton } from "@/components/home/ProfileInitialsButton";
+import { SettingsOverlay } from "@/components/settings/SettingsOverlay";
 import { OtoPairIcon } from "@/components/icons/oto-pair";
 
 function formatBookingDate(dateStr: string): string {
@@ -235,13 +267,12 @@ export default function HomeScreen() {
       if (!r.vin || fetchedVinsRef.current.has(r.vin)) return;
       fetchedVinsRef.current.add(r.vin);
 
-      // Reuse any cached image_url from Convex — the cars screen is the
-      // single owner of the one-time API fetch, and writes the result to
-      // `vehicles.image_url`. Home just reads what's there. Restricting by
-      // domain would force a re-fetch if cars saved a non-trusted URL,
-      // burning API credits unnecessarily.
+      // Reuse cached image_url ONLY if it's from the new transparent-bg
+      // endpoint. Old cached URLs (legacy white-bg `vehicle-media/v2`)
+      // are skipped here so the cars screen — the single owner of the
+      // VDB fetch — can re-fetch and upgrade them.
       const cachedUrl = r.vehicle?.image_url;
-      if (cachedUrl) {
+      if (typeof cachedUrl === "string" && cachedUrl.includes("/transparent/")) {
         setVehicleImageUrls((prev) => ({ ...prev, [r.vin]: cachedUrl }));
       }
     });
@@ -350,6 +381,65 @@ export default function HomeScreen() {
     // TODO: Navigate to appointment details
   };
 
+  // Adapt the upcoming booking row to the BookingCard shape so the home
+  // screen can render the same card the bookings tab uses.
+  const upcomingBookingCard = useMemo(
+    () => (upcomingBooking ? adaptConvexBookingWithDetailsToCard(upcomingBooking) : null),
+    [upcomingBooking],
+  );
+
+  // Cancel handler — mirror the bookings tab's behavior. Convex bookings
+  // get the cancelBooking mutation; tire-quote-prefixed local IDs are
+  // out of scope here (those don't surface as upcoming on home).
+  const cancelConvexBooking = useMutation(api.bookings.cancelBooking);
+  const handleAppointmentCancel = useCallback(
+    (bookingId: string) => {
+      void cancelConvexBooking({ bookingId: bookingId as Id<"bookings"> });
+    },
+    [cancelConvexBooking],
+  );
+
+  // View Details — open the same BookingDetailsSheet the bookings tab uses.
+  const detailsSheetRef = useRef<BookingDetailsSheetRef>(null);
+  const handleAppointmentViewDetails = useCallback(
+    (_bookingId: string) => {
+      if (upcomingBookingCard) detailsSheetRef.current?.open(upcomingBookingCard);
+    },
+    [upcomingBookingCard],
+  );
+
+  // ── Pending-review prompt ────────────────────────────────────────────────
+  // When a user has a completed booking they haven't reviewed yet, surface
+  // the LeaveReviewSheet the first time they land on home after the booking
+  // completes. Once shown — whether the user submits a rating or dismisses —
+  // we persist the booking id to SecureStore so the prompt never auto-fires
+  // again for that booking. (Submitting a review also drops the booking
+  // from `pendingReviewBookings` via Convex `listReviewedBookingIdsForUser`,
+  // so this guard is mainly for "No thanks" dismissals.)
+  const { pendingReviewBookings } = useMyBookingsWithDetails();
+  const { userId } = useUserFromConvex();
+  const reviewSheetRef = useRef<LeaveReviewSheetRef>(null);
+  const promptedIdsRef = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    void loadPromptedBookingIds().then((set) => {
+      promptedIdsRef.current = set;
+    });
+  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      const seen = promptedIdsRef.current;
+      // Wait for the persisted set to hydrate before deciding — otherwise
+      // we could prompt a booking that was already shown last launch.
+      if (!seen || !userId) return;
+      const target = pendingReviewBookings.find((b) => !seen.has(b.id));
+      if (!target) return;
+      reviewSheetRef.current?.open(target, String(userId));
+      void addPromptedBookingId(target.id, seen).then((next) => {
+        promptedIdsRef.current = next;
+      });
+    }, [pendingReviewBookings, userId]),
+  );
+
   // Dynamic visible card IDs — matches the order in ActionCardsCarousel
   const visibleCardIds = useMemo(() => {
     return [
@@ -400,8 +490,8 @@ export default function HomeScreen() {
             <View style={styles.header}>
               {/* Location */}
               <View style={styles.locationSection}>
-                <View style={{ marginTop: -8, marginLeft: 8 }}>
-                  <HomeLogo size={68} />
+                <View style={{ marginLeft: 12, marginTop: -8 }}>
+                  <ProfileInitialsButton />
                 </View>
                 <View style={styles.locationText}>
                   <Text size="xl" color="#FFFFFF" weight="bold">
@@ -472,13 +562,16 @@ export default function HomeScreen() {
               </View>
             </View>
 
-            {/* Search Bar */}
+            {/* Search Bar — tapping the search field opens the map flow
+                (same as the Map button) since free-text search isn't
+                wired yet and the map is the primary discovery surface. */}
             <View style={styles.searchContainer}>
               <MechanicSearchBar
                 value={searchQuery}
                 onChangeText={setSearchQuery}
                 onSubmit={handleSearch}
                 onMapPress={handleMapPress}
+                onPress={handleMapPress}
               />
             </View>
 
@@ -487,16 +580,13 @@ export default function HomeScreen() {
               {/* Action Cards Carousel */}
               {visibleCardIds.length > 0 && <View style={styles.carouselContainer}>
                 <ActionCardsCarousel
-                  // Upcoming Appointment
+                  // Upcoming Appointment — now uses the same BookingCard
+                  // the bookings tab renders, fed by the adapted booking
+                  // row + view-details/cancel handlers below.
                   showAppointment={!!upcomingBooking}
-                  appointmentBusinessName={upcomingBooking?.shopName ?? ''}
-                  appointmentMechanicName={upcomingBooking?.mechanicName ?? ''}
-                  appointmentRating={upcomingBooking?.shopRating ?? 0}
-                  appointmentIsVerified={upcomingBooking?.shopIsVerified ?? false}
-                  appointmentDate={upcomingBooking ? formatBookingDate(upcomingBooking.scheduled_date) : ''}
-                  appointmentTimeSlot={upcomingBooking ? formatBookingTime(upcomingBooking.scheduled_time) : ''}
-                  appointmentLateMinutes={upcomingBooking?.delayMinutes}
-                  onAppointmentPress={handleAppointmentPress}
+                  appointmentBooking={upcomingBookingCard}
+                  onAppointmentViewDetails={handleAppointmentViewDetails}
+                  onAppointmentCancel={handleAppointmentCancel}
                   // Resume Booking
                   showResumeBooking={hasResumeBooking}
                   resumeServicesPreview={resumeServicesPreview}
@@ -637,6 +727,19 @@ export default function HomeScreen() {
       )}
     </ScrollDrivenGradientBackground>
 
+    {/* Booking details sheet — opened by the upcoming appointment card's
+        View Details button. Mirrors the bookings tab's wiring. */}
+    <BookingDetailsSheet ref={detailsSheetRef} />
+
+    {/* Shared-element overlay that lifts Settings on top of Home when
+        the initials button in the header is tapped. Driven by
+        useSettingsOverlayStore. */}
+    <SettingsOverlay />
+
+    {/* Auto-prompt: if the user has a completed-but-unreviewed booking,
+        this sheet pops on focus / cold start until they submit a review. */}
+    <LeaveReviewSheet ref={reviewSheetRef} />
+
     <FinishCarSetupPickerSheet
       ref={pickerSheetRef}
       vehicles={pickerVehicles}
@@ -699,6 +802,7 @@ const styles = StyleSheet.create({
   locationText: {
     gap: 0,
     marginTop: -7,
+    marginLeft: 12,
   },
   headerRight: {
     flexDirection: "row",
@@ -766,10 +870,13 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   carouselContainer: {
-    marginBottom: 16,
+    marginBottom: 0,
   },
   etaBarContainer: {
-    marginTop: -72,
+    // Was -72 to pull the ETA bar into empty space on the old, smaller
+    // appointment card. The new BookingCard fills that space with its
+    // action buttons; ETA bar now sits flush below the card.
+    marginTop: 0,
   },
   sheetBackground: {
     backgroundColor: "#FFFFFF",

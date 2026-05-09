@@ -42,12 +42,14 @@ const FALLBACK_REGION: Region = {
 };
 
 const PIN_COUNT = 5;
-const STAGGER_MS = 1200;
-// Drop animation timings — `FADE_MS` is short so pins are visible during
-// the drop, `DROP_MS` runs longer so the bounce easing reads as gravity.
-const FADE_MS = 200;
-const DROP_MS = 650;
-const DROP_DISTANCE = 120;
+const STAGGER_MS = 600;
+// Drop-in animation: pin starts above its resting spot at a smaller scale,
+// then springs into place with a single tasteful overshoot. Scale animates
+// alongside translateY so the pin reads as "thudding" onto the map rather
+// than just sliding in. Opacity ramps in over the first stretch of the drop.
+const FADE_MS = 240;
+const DROP_DISTANCE = 90;
+const PIN_START_SCALE = 0.78;
 const PIN_SIZE = 76;
 // Pins live in the upper portion of the screen so they sit above the
 // 52%-tall bottom sheet. Top band spans 8% → 42% of screen height. Bigger
@@ -243,10 +245,11 @@ interface PinComponentProps {
 
 function FadingLogoPin({ pin, delayMs }: PinComponentProps) {
   const opacity = useRef(new Animated.Value(0)).current;
-  // Start above the final resting spot so the pin appears to fall in. The
-  // `Easing.bounce` curve gives the classic Apple-Maps "drop and settle"
-  // feel — a couple of small bounces after impact.
+  // Start above the resting spot, slightly shrunk. translateY + scale spring
+  // together — one overshoot, quick settle — for that satisfying "thud"
+  // without the cartoonish multi-bounce of Easing.bounce.
   const translateY = useRef(new Animated.Value(-DROP_DISTANCE)).current;
+  const scale = useRef(new Animated.Value(PIN_START_SCALE)).current;
 
   useEffect(() => {
     Animated.parallel([
@@ -254,18 +257,27 @@ function FadingLogoPin({ pin, delayMs }: PinComponentProps) {
         toValue: 1,
         duration: FADE_MS,
         delay: delayMs,
-        easing: Easing.out(Easing.cubic),
+        easing: Easing.out(Easing.quad),
         useNativeDriver: true,
       }),
-      Animated.timing(translateY, {
+      Animated.spring(translateY, {
         toValue: 0,
-        duration: DROP_MS,
         delay: delayMs,
-        easing: Easing.bounce,
+        // Tuned for one clean overshoot (~5% past, then settle). Higher
+        // tension = snappier; friction controls how fast the overshoot dies.
+        tension: 110,
+        friction: 7,
+        useNativeDriver: true,
+      }),
+      Animated.spring(scale, {
+        toValue: 1,
+        delay: delayMs,
+        tension: 140,
+        friction: 6,
         useNativeDriver: true,
       }),
     ]).start();
-  }, [delayMs, opacity, translateY]);
+  }, [delayMs, opacity, translateY, scale]);
 
   return (
     <Animated.View
@@ -275,12 +287,12 @@ function FadingLogoPin({ pin, delayMs }: PinComponentProps) {
           top: pin.top,
           left: pin.left,
           opacity,
-          transform: [{ translateY }],
+          transform: [{ translateY }, { scale }],
         },
       ]}
     >
       <Image
-        source={require("@/assets/images/homelogo.png")}
+        source={require("@/assets/images/pin-logo-3d.png")}
         style={styles.pinImage}
         resizeMode="contain"
         fadeDuration={0}

@@ -23,11 +23,21 @@ import React, { useCallback, useEffect, useRef } from "react";
 import { Dimensions, StyleSheet, View } from "react-native";
 
 import { useRouter } from "expo-router";
+import LottieView from "lottie-react-native";
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withDelay,
+  withTiming,
+} from "react-native-reanimated";
 
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { QuoteRequestStatus } from "@/components/tire-booking/QuoteRequestStatus";
+import { Text } from "@/components/shared-ui";
+// Earlier backgrounds parked on disk for revert if needed:
 // import { TireGridBackground } from "@/components/tire-booking/TireGridBackground";
-import { RequestingMapBackground } from "@/components/tire-booking/RequestingMapBackground";
+// import { RequestingMapBackground } from "@/components/tire-booking/RequestingMapBackground";
+// import { RequestingPinAnimation } from "@/components/tire-booking/RequestingPinAnimation";
 import { TIRE_TIERS, TIRE_TYPES } from "@/constants/tireFlow";
 import { useCreateTireQuoteRequest } from "@/hooks/useCreateTireQuoteRequest";
 import { useTireBookingStore } from "@/stores/useTireBookingStore";
@@ -44,6 +54,15 @@ export default function TireRequestingScreen() {
   const tireType = useTireBookingStore((s) => s.tireType);
   const tier = useTireBookingStore((s) => s.tier);
   const selectedTirePositions = useTireBookingStore((s) => s.selectedTirePositions);
+
+  // Copy fade-in — the pin lands at Lottie frame 120 (60fps → 2s). Wait
+  // for the landing, then fade the text in over 600ms so it appears like
+  // a follow-up beat to the drop.
+  const copyOpacity = useSharedValue(0);
+  const copyAnimStyle = useAnimatedStyle(() => ({ opacity: copyOpacity.value }));
+  useEffect(() => {
+    copyOpacity.value = withDelay(2050, withTiming(1, { duration: 600 }));
+  }, [copyOpacity]);
 
   // Open the sheet as soon as the route mounts.
   useEffect(() => {
@@ -103,11 +122,30 @@ export default function TireRequestingScreen() {
 
   return (
     <View style={styles.screen}>
-      {/* Apple Maps backdrop centered on the user, with 5 OtoPair logo
-          pins fading in one-by-one over ~6 seconds. The previous
-          isometric tire-grid background is parked on disk for revert. */}
-      {/* <TireGridBackground width={SCREEN_W} height={SCREEN_HEIGHT} /> */}
-      <RequestingMapBackground width={SCREEN_W} height={SCREEN_HEIGHT} />
+      {/* Authoritative Lottie export from Claude Design — the same
+          "OtoPair Pin Loader" prototype, now as a single animated asset
+          so we don't have to maintain a hand-built recreate. The 600x600
+          source is centered and scaled to fill the screen. */}
+      <LottieView
+        source={require("@/assets/animations/logo-loading-animation.json")}
+        autoPlay
+        loop
+        resizeMode="cover"
+        style={styles.lottie}
+      />
+
+      {/* Contextual loading copy layered on top of the Lottie. Fades in
+          after the pin lands (~2s in) so it reads as a follow-up beat
+          rather than competing with the drop animation. Native RN Text so
+          the font matches the rest of the app. */}
+      <Animated.View style={[styles.copyOverlay, copyAnimStyle]} pointerEvents="none">
+        <Text size="md" weight="bold" color="#000000" center>
+          Searching for nearby tire shops
+        </Text>
+        <Text size="xs" weight="regular" color="#000000" center style={styles.copySub}>
+          Reaching out to local mechanics for the best quotes
+        </Text>
+      </Animated.View>
 
       {/* Bottom sheet hosting the status body. */}
       <FloatingSheet
@@ -128,6 +166,25 @@ export default function TireRequestingScreen() {
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    backgroundColor: "#CFE4F7",
+    // Match the Lottie's first frame (light edge of the radial gradient)
+    // so there's no flash of contrasting color before the JSON paints.
+    backgroundColor: "#FFFFFF",
+  },
+  lottie: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  // Position the copy in the upper visible area, well below where the
+  // pin settles in the Lottie (~28% from top of screen) and well above
+  // the FloatingSheet which covers the bottom 52%.
+  copyOverlay: {
+    position: "absolute",
+    top: "37%",
+    left: 24,
+    right: 24,
+    alignItems: "center",
+    gap: 8,
+  },
+  copySub: {
+    marginTop: 2,
   },
 });

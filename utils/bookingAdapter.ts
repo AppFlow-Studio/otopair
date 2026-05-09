@@ -38,6 +38,8 @@ export interface ConvexBookingWithDetails {
   scheduled_date: string;
   scheduled_time: string;
   total_cost: number;
+  shop_id?: string;
+  mechanic_id?: string;
   shopName: string;
   shopPhone: string;
   mechanicName: string;
@@ -216,6 +218,8 @@ export function adaptConvexBookingWithDetailsToCard(row: ConvexBookingWithDetail
     createdAt: row._creationTime,
     vin: row.vin,
     liveStage: row.liveStage,
+    shopId: row.shop_id,
+    mechanicId: row.mechanic_id,
   };
 }
 

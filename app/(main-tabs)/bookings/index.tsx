@@ -27,6 +27,9 @@ import {
 import { ScrollDrivenGradientBackground, Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { useMyBookingsWithDetails } from "@/hooks/useMyBookingsWithDetails";
+import { useUserFromConvex } from "@/hooks/useUserFromConvex";
+import { CompletedBookingReviewCard } from "@/components/bookings/CompletedBookingReviewCard";
+import { LeaveReviewSheet, type LeaveReviewSheetRef } from "@/components/bookings/LeaveReviewSheet";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { useMutation } from "convex/react";
@@ -61,7 +64,14 @@ export default function BookingsScreen() {
   // dedicated Live Tracker tab anymore). `historyBookings` is kept here
   // because the details sheet supports opening any booking by id —
   // including ones the user reached via Settings → Booking History.
-  const { upcomingBookings, quoteBookings, historyBookings, isLoading } = useMyBookingsWithDetails();
+  const {
+    upcomingBookings,
+    quoteBookings,
+    pendingReviewBookings,
+    historyBookings,
+    isLoading,
+  } = useMyBookingsWithDetails();
+  const { userId } = useUserFromConvex();
 
   const { tab: tabParam, requestSubmitted: requestSubmittedParam } =
     useLocalSearchParams<{ tab?: string; requestSubmitted?: string }>();
@@ -80,6 +90,7 @@ export default function BookingsScreen() {
   const detailsSheetRef = useRef<BookingDetailsSheetRef>(null);
   const confirmSheetRef = useRef<QuoteRequestConfirmationSheetRef>(null);
   const vehiclePickerRef = useRef<FloatingSheetRef>(null);
+
 
   // ── Vehicle filter ───────────────────────────────────────────────────────
   // Lets users scope the upcoming/quotes lists to a single car when their
@@ -189,6 +200,37 @@ export default function BookingsScreen() {
     quoteListSheetRef.current?.open(bookingId);
   };
 
+  // ── Leave-a-review flow ──────────────────────────────────────────────────
+  // `pendingReviewBookings` from the hook = completed bookings the user
+  // hasn't reviewed in Convex. `dismissedReviewIds` is in-memory only —
+  // when the user taps the X on the card, it hides for this session but
+  // returns next launch (until they actually submit a review). Once a
+  // review is submitted, `listReviewedBookingIdsForUser` re-runs and
+  // the row is dropped permanently.
+  const reviewSheetRef = useRef<LeaveReviewSheetRef>(null);
+  const [dismissedReviewIds, setDismissedReviewIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const visibleReviewBookings = useMemo(
+    () =>
+      pendingReviewBookings
+        .filter((b) => !dismissedReviewIds.has(b.id))
+        .filter(matchesFilter),
+    [pendingReviewBookings, dismissedReviewIds, matchesFilter],
+  );
+  const handleLeaveReview = useCallback((bookingId: string) => {
+    const target = pendingReviewBookings.find((b) => b.id === bookingId);
+    if (!target || !userId) return;
+    reviewSheetRef.current?.open(target, String(userId));
+  }, [pendingReviewBookings, userId]);
+  const handleDismissReviewCard = useCallback((bookingId: string) => {
+    setDismissedReviewIds((prev) => {
+      const next = new Set(prev);
+      next.add(bookingId);
+      return next;
+    });
+  }, []);
+
   const handleReschedule = (bookingId?: string) => {
     console.log("Reschedule booking:", bookingId || "live");
   };
@@ -239,7 +281,9 @@ export default function BookingsScreen() {
             {allVehicles.length > 1 ? (
               <View style={styles.pickerRow}>
                 <Pressable
-                  onPress={() => vehiclePickerRef.current?.open()}
+                  onPress={() => {
+                    vehiclePickerRef.current?.open();
+                  }}
                   style={({ pressed }) => [
                     styles.pickerButton,
                     pressed && styles.pickerButtonPressed,
@@ -273,8 +317,20 @@ export default function BookingsScreen() {
 
             {/* Booking Content. The Bookings tab includes in-progress
                 cards now — their per-card progress bar communicates
-                status inline, replacing the old Live Tracker tab. */}
+                status inline, replacing the old Live Tracker tab.
+                Completed-but-unreviewed bookings get a "Leave a review"
+                card pinned at the very top until the user reviews. */}
             <View style={styles.content}>
+              {activeTab === "bookings" && visibleReviewBookings.length > 0
+                ? visibleReviewBookings.map((booking) => (
+                    <CompletedBookingReviewCard
+                      key={`review-${booking.id}`}
+                      booking={booking}
+                      onLeaveReview={handleLeaveReview}
+                      onDismiss={handleDismissReviewCard}
+                    />
+                  ))
+                : null}
               {bookings.length > 0 ? (
                 bookings.map((booking) =>
                   booking.status === "pending_quote" || booking.status === "quotes_ready" ? (
@@ -298,6 +354,9 @@ export default function BookingsScreen() {
                     />
                   ),
                 )
+              ) : activeTab === "bookings" && visibleReviewBookings.length > 0 ? (
+                // Review cards are present — no empty state needed.
+                null
               ) : (
                 <View style={styles.emptyState}>
                   <View style={styles.emptyIconContainer}>
@@ -328,10 +387,14 @@ export default function BookingsScreen() {
 
     <QuoteListSheet ref={quoteListSheetRef} />
 
-    {/* Vehicle picker sheet — drives the filter button above. */}
+    <LeaveReviewSheet ref={reviewSheetRef} />
+
+    {/* Vehicle picker sheet — drives the filter button above.
+        showBackdrop dims + blurs the page behind it. */}
     <FloatingSheet
       ref={vehiclePickerRef}
       snapHeights={[Math.min(540, 200 + (allVehicles.length + 1) * 78)]}
+      showBackdrop
     >
       <View style={styles.sheetContent}>
         <Text size="lg" weight="bold" color="#1A1A1A" style={styles.sheetTitle}>

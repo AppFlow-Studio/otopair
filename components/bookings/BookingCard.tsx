@@ -76,6 +76,10 @@ export interface Booking {
    *  (booking_confirmed | service_in_progress | vehicle_ready). Drives
    *  the 3rd vs 4th segment of the service progress bar. */
   liveStage?: string;
+  /** Convex shop_id — needed when writing a review on a completed booking. */
+  shopId?: string;
+  /** Convex mechanic_id — optional review association. */
+  mechanicId?: string;
 }
 
 interface BookingCardProps {
@@ -282,9 +286,15 @@ export function BookingCard({
             <Text weight="bold" size="sm" color="#1F2937">
               {booking.mechanicName}
             </Text>
-            <Text weight="regular" size="xs" color="#6B7280">
-              {booking.shopName}
-            </Text>
+            {/* Server falls back to shopName for `mechanicName` when no
+                mechanic is assigned (e.g. accepted tire quotes). Skip
+                the second line when it's the same string to avoid
+                rendering "Shop / Shop". */}
+            {booking.mechanicName !== booking.shopName ? (
+              <Text weight="regular" size="xs" color="#6B7280">
+                {booking.shopName}
+              </Text>
+            ) : null}
           </View>
         </View>
       </View>
@@ -331,46 +341,36 @@ export function BookingCard({
         </View>
       )}
 
-      {/* Actions Row */}
+      {/* Actions Row. Once a booking is in service the user can no
+          longer cancel — service is in flight at the shop. Reschedule is
+          parked for now (handler kept) until the reschedule sheet ships. */}
       {variant === 'upcoming' ? (
-        <View style={booking.status === 'confirmed' ? styles.actionsRow : styles.actionsRowSpaced}>
-          <Pressable
-            onPress={handleCancelBooking}
-            style={({ pressed }) => [
-              styles.outlinedButton,
-              pressed && styles.buttonPressed,
-            ]}
-          >
-            <Text weight="semiBold" size="sm" color="#1F2937">
-              Cancel Booking
-            </Text>
-          </Pressable>
-          
-          {booking.status === 'confirmed' && (
-            <Pressable
-              onPress={handleReschedule}
-              style={({ pressed }) => [
-                styles.outlinedButton,
-                pressed && styles.buttonPressed,
-              ]}
-            >
-              <Text weight="semiBold" size="sm" color="#1F2937">
-                Reschedule
-              </Text>
-            </Pressable>
-          )}
-          
+        <View style={styles.actionsRow}>
           <Pressable
             onPress={handleViewDetails}
             style={({ pressed }) => [
-              styles.filledButton,
+              styles.primaryButton,
               pressed && styles.buttonPressed,
             ]}
           >
-            <Text weight="semiBold" size="sm" color="#FFFFFF">
+            <Text weight="semiBold" size="sm" color="#FFFFFF" numberOfLines={1}>
               View Details
             </Text>
           </Pressable>
+
+          {booking.status !== 'in_progress' && (
+            <Pressable
+              onPress={handleCancelBooking}
+              style={({ pressed }) => [
+                styles.cancelButton,
+                pressed && styles.buttonPressed,
+              ]}
+            >
+              <Text weight="semiBold" size="sm" color="#DC2626" numberOfLines={1}>
+                Cancel Booking
+              </Text>
+            </Pressable>
+          )}
         </View>
       ) : (
         <View style={styles.actionsRow}>
@@ -479,6 +479,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
+    minWidth: 0,
   },
   mechanicImage: {
     width: 36,
@@ -496,6 +497,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   mechanicDetails: {
+    flex: 1,
+    minWidth: 0,
     gap: 2,
   },
   dateTimeContainer: {
@@ -528,23 +531,53 @@ const styles = StyleSheet.create({
   actionsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'flex-start',
-    gap: 8,
-    marginLeft: -4,
+    gap: 10,
   },
-  actionsRowSpaced: {
-    flexDirection: 'row',
+  // Upcoming-variant action buttons. flexBasis: 0 + flexGrow: 1 + minWidth: 0
+  // forces equal widths regardless of label length — `flex: 1` alone can let
+  // the longer-label button (e.g. "Cancel Booking") win an extra few pixels
+  // off intrinsic text width. Same pattern is mirrored in PendingQuoteCard.
+  primaryButton: {
+    flexBasis: 0,
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 0,
+    height: 48,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    backgroundColor: '#5299FE',
     alignItems: 'center',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
   },
-  outlinedButton: {
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 8,
+  secondaryButton: {
+    flexBasis: 0,
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 0,
+    height: 48,
+    paddingHorizontal: 16,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: '#E5E7EB',
     backgroundColor: '#FFFFFF',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
+  cancelButton: {
+    flexBasis: 0,
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 0,
+    height: 48,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#FECACA',
+    backgroundColor: '#FEF2F2',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  // History-variant: small "View Details" pill next to icon buttons.
   filledButton: {
     paddingVertical: 8,
     paddingHorizontal: 16,

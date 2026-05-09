@@ -97,7 +97,11 @@ export function GarageCarSelectionSheet({
         const year = v?.year ?? new Date().getFullYear();
         const vin = r.vin;
 
-        if (!vin || v?.image_url || fetchedImageUrls[vin] || !make || !model) return;
+        // Treat a stale white-bg cached URL as missing so we re-fetch
+        // and pick up the new transparent-bg image.
+        const cachedTransparent =
+          typeof v?.image_url === "string" && v.image_url.includes("/transparent/");
+        if (!vin || cachedTransparent || fetchedImageUrls[vin] || !make || !model) return;
         if (pendingImageVinsRef.current.has(vin)) return;
 
         pendingImageVinsRef.current.add(vin);
@@ -128,8 +132,12 @@ export function GarageCarSelectionSheet({
         const model = meta.model ?? o?.nickname?.split(" ").slice(2).join(" ") ?? r.vin.slice(-6);
         const year = v?.year ?? new Date().getFullYear();
         const fetchedImageUrl = fetchedImageUrls[r.vin];
-        const imageSource: ImageSourcePropType | undefined =
-          v?.image_url || fetchedImageUrl ? { uri: v?.image_url ?? fetchedImageUrl } : undefined;
+        const cachedIsTransparent =
+          typeof v?.image_url === "string" && v.image_url.includes("/transparent/");
+        const resolvedUrl = cachedIsTransparent ? v.image_url : fetchedImageUrl;
+        const imageSource: ImageSourcePropType | undefined = resolvedUrl
+          ? { uri: resolvedUrl }
+          : undefined;
 
         return {
           id: r.vin,
