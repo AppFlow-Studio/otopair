@@ -56,6 +56,10 @@ interface MechanicSearchBarProps {
     onMapPress?: () => void;
     /** Called when search input is focused */
     onFocus?: () => void;
+    /** When provided, the search field becomes non-editable and a tap
+     *  anywhere on it fires this handler instead of focusing the input.
+     *  Used on Home to make the search bar a shortcut to the map flow. */
+    onPress?: () => void;
     /** Container style */
     style?: ViewStyle;
     /** Placeholder text */
@@ -72,6 +76,7 @@ export function MechanicSearchBar({
     onSubmit,
     onMapPress,
     onFocus,
+    onPress,
     style,
     placeholder = 'Search for mechanics...',
 }: MechanicSearchBarProps) {
@@ -105,39 +110,58 @@ export function MechanicSearchBar({
                 style,
             ]}
         >
-            {/* Search Section */}
-            <View style={styles.searchSection}>
-                <Search
-                    size={20}
-                    color="#000000"
-                    strokeWidth={2}
-                />
-                <TextInput
-                    style={styles.input}
-                    placeholder={placeholder}
-                    placeholderTextColor="#9CA3AF"
-                    value={searchValue}
-                    onChangeText={handleChangeText}
-                    onFocus={() => {
-                        setIsFocused(true);
-                        onFocus?.();
-                    }}
-                    onBlur={() => setIsFocused(false)}
-                    onSubmitEditing={handleSubmit}
-                    returnKeyType="search"
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                />
-                {hasValue && (
-                    <Pressable
-                        onPress={handleClear}
-                        hitSlop={8}
-                        style={styles.clearButton}
+            {/* Search Section. When `onPress` is provided, the input is
+                read-only and the entire row acts as a button (used on
+                Home to launch the map flow). Otherwise the TextInput
+                behaves normally. */}
+            {onPress ? (
+                <Pressable
+                    onPress={onPress}
+                    style={({ pressed }) => [
+                        styles.searchSection,
+                        pressed && styles.searchSectionPressed,
+                    ]}
+                >
+                    <Search size={20} color="#000000" strokeWidth={2} />
+                    <Text
+                        size="md"
+                        weight="regular"
+                        color="#9CA3AF"
+                        style={styles.placeholderText}
                     >
-                        <X size={18} color="#9CA3AF" strokeWidth={2} />
-                    </Pressable>
-                )}
-            </View>
+                        {placeholder}
+                    </Text>
+                </Pressable>
+            ) : (
+                <View style={styles.searchSection}>
+                    <Search size={20} color="#000000" strokeWidth={2} />
+                    <TextInput
+                        style={styles.input}
+                        placeholder={placeholder}
+                        placeholderTextColor="#9CA3AF"
+                        value={searchValue}
+                        onChangeText={handleChangeText}
+                        onFocus={() => {
+                            setIsFocused(true);
+                            onFocus?.();
+                        }}
+                        onBlur={() => setIsFocused(false)}
+                        onSubmitEditing={handleSubmit}
+                        returnKeyType="search"
+                        autoCapitalize="none"
+                        autoCorrect={false}
+                    />
+                    {hasValue && (
+                        <Pressable
+                            onPress={handleClear}
+                            hitSlop={8}
+                            style={styles.clearButton}
+                        >
+                            <X size={18} color="#9CA3AF" strokeWidth={2} />
+                        </Pressable>
+                    )}
+                </View>
+            )}
 
             {/* Divider */}
             <View style={styles.divider} />
@@ -194,6 +218,12 @@ const styles = StyleSheet.create({
         flexDirection: 'row',
         alignItems: 'center',
         gap: Spacing.sm,
+    },
+    searchSectionPressed: {
+        opacity: 0.6,
+    },
+    placeholderText: {
+        flex: 1,
     },
     input: {
         flex: 1,

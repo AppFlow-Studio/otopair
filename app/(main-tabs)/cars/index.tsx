@@ -738,25 +738,31 @@ export default function CarsHomeScreen() {
         return;
       }
 
-      // Use cached URL from Convex if it's from our current provider
+      // Reuse cached image_url IF it's from the new transparent-bg
+      // endpoint (URLs include "/transparent/" in the path). Older
+      // cached URLs point at white-background renders from the legacy
+      // `vehicle-media/v2` endpoint — refetch those once so they upgrade
+      // to the new transparent images.
       const cachedUrl = r.vehicle?.image_url;
-      if (cachedUrl && (cachedUrl.includes("vehicledatabases.com") || cachedUrl.includes("vhr.nyc3.cdn"))) {
+      const isTransparent = typeof cachedUrl === "string" && cachedUrl.includes("/transparent/");
+      if (cachedUrl && isTransparent) {
         setVehicleImageUrls((prev) => ({ ...prev, [r.vin]: cachedUrl }));
         return;
       }
 
-      // TODO: re-enable once API credits are available
-      // const v = r.vehicle;
-      // const meta = v?.metadata as { make?: string; model?: string; color?: string } | undefined;
-      // const make = meta?.make ?? "";
-      // const model = meta?.model ?? "";
-      // const color = meta?.color ?? r.ownership?.color ?? "";
-      // fetchVehicleImageUrl(make, model, v?.year, r.vin, color).then((url) => {
-      //   if (url) {
-      //     setVehicleImageUrls((prev) => ({ ...prev, [r.vin]: url }));
-      //     saveVehicleImageUrl({ vin: r.vin, image_url: url });
-      //   }
-      // });
+      // No cached URL (or stale white-bg one) → fetch the API and persist
+      // via saveVehicleImageUrl so subsequent loads short-circuit above.
+      const v = r.vehicle;
+      const meta = v?.metadata as { make?: string; model?: string; color?: string } | undefined;
+      const make = meta?.make ?? "";
+      const model = meta?.model ?? "";
+      const color = meta?.color ?? r.ownership?.color ?? "";
+      if (!make || !model) return;
+      fetchVehicleImageUrl(make, model, v?.year, r.vin, color).then((url) => {
+        if (!url) return;
+        setVehicleImageUrls((prev) => ({ ...prev, [r.vin]: url }));
+        saveVehicleImageUrl({ vin: r.vin, image_url: url });
+      });
     });
   }, [listVehicles]);
 
@@ -775,10 +781,9 @@ export default function CarsHomeScreen() {
       const o = r.ownership;
       const meta = v ? (v as { metadata?: { make?: string; model?: string; color?: string } }).metadata : undefined;
       const paintColor = meta?.color;
-      // TODO: re-enable once car images have transparent backgrounds
-      // const gradient = (paintColor && COLOR_GRADIENTS[paintColor])
-      //   || DEFAULT_GRADIENTS[i % DEFAULT_GRADIENTS.length];
-      const gradient = ["#FFFFFF", "#FFFFFF", "#FFFFFF", "#FFFFFF"];
+      const gradient =
+        (paintColor && COLOR_GRADIENTS[paintColor]) ||
+        DEFAULT_GRADIENTS[i % DEFAULT_GRADIENTS.length];
       const displayMake = titleCase(meta?.make || o?.nickname?.split(" ")[1] || "Vehicle");
       const displayModel = titleCase(meta?.model || o?.nickname?.split(" ").slice(2).join(" ") || r.vin.slice(-6));
       paired.push({
@@ -1179,7 +1184,7 @@ export default function CarsHomeScreen() {
         scrollEventThrottle={16}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#6B7280" />}
       >
-        {/* Scrolling Gradient - uses active vehicle's color */}
+        {/* Scrolling Gradient - uses active vehicle's color. */}
         <View style={styles.scrollingGradientContainer} pointerEvents="none">
           <LinearGradient
             colors={activeGradient as [string, string, ...string[]]}

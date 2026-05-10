@@ -1835,14 +1835,22 @@ export function CarCarousel({
       {/* Thumbnail Selector with Activity Rings */}
       <View style={styles.thumbnailRow}>
         <View style={styles.thumbnailSelector}>
-          {/* Sliding glass indicator behind active thumbnail */}
-          {isLiquidGlassEnabled && LiquidGlassView && (
-            <ReAnimated.View
-              style={[styles.slidingGlassWrapper, slidingGlassStyle]}
-            >
-              <LiquidGlassView interactive effect="clear" style={styles.slidingGlassPill} />
-            </ReAnimated.View>
-          )}
+          {/* Sliding glass indicator behind active thumbnail.
+              Uses native LiquidGlassView on iOS 26+ for the real
+              liquid-glass refraction; everywhere else (older iOS,
+              Android, simulators where the native module is missing)
+              falls back to a frosted BlurView pill so the indicator is
+              always visible — same approach as the bottom TabBar. */}
+          <ReAnimated.View
+            style={[styles.slidingGlassWrapper, slidingGlassStyle]}
+            pointerEvents="none"
+          >
+            {isLiquidGlassEnabled && LiquidGlassView ? (
+              <LiquidGlassView interactive effect="regular" style={styles.slidingGlassPill} />
+            ) : (
+              <BlurView intensity={60} tint="light" style={styles.slidingGlassPill} />
+            )}
+          </ReAnimated.View>
 
           {sortedVehicles.map((vehicle, index) => {
             const imageSource = vehicle.imageSource || FALLBACK_VEHICLE_IMAGE;
@@ -2230,6 +2238,14 @@ const styles = StyleSheet.create({
     width: scale(48),
     height: scale(48),
     borderRadius: scale(24),
+    overflow: 'hidden',
+    backgroundColor: 'rgba(255,255,255,0.55)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.6)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
   },
   thumbnailButton: {
     width: scale(48),

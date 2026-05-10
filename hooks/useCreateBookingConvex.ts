@@ -81,7 +81,12 @@ export function useCreateBookingConvex() {
     async (mechanicId: string, bookingType: "book_now" | "schedule_later"): Promise<string[]> => {
       const shopId = effectiveShopId;
       const timeSlotId = resolveTimeSlotId(mechanicId);
-      const vin = primaryVin ?? getSelectedVehicle()?.vin;
+      // Prefer the user's currently selected vehicle in the booking flow.
+      // `primaryVin` is the user's default car and is only useful as a
+      // fallback for entry points that don't explicitly switch cars
+      // (e.g., AI chat). Otherwise picking BMW would still write the VW's
+      // VIN whenever the VW is marked primary.
+      const vin = getSelectedVehicle()?.vin ?? primaryVin;
 
       if (!userId || !vin || !shopId || !timeSlotId || selectedServiceIds.length === 0) {
         const localId = createBooking(mechanicId, bookingType);

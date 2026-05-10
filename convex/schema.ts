@@ -649,7 +649,8 @@ export default defineSchema({
     data_quality: v.optional(v.string()),
     created_at: v.optional(v.number()),
   })
-    .index("by_vehicle_config", ["vehicle_config_id", "service_id"])
+    .index("by_vehicle_config", ["vehicle_config_id"])
+    .index("by_vehicle_config_and_service", ["vehicle_config_id", "service_id"])
     .index("by_engine_family", ["engine_family"]),
 
   // ===== VEHICLES & OWNERSHIP =====
@@ -965,7 +966,10 @@ export default defineSchema({
     customInputs: v.optional(v.any()),
     confirmedHealthyAt: v.optional(v.number()),
     serviceSource: v.optional(v.string()),
-    confidence: v.optional(v.number()),
+    /** Categorical: "verified" | "unverified" | "self_reported". Schema
+     *  was originally v.number() but every writer (checkin, bookings)
+     *  uses string labels — the validator was the side that drifted. */
+    confidence: v.optional(v.string()),
     createdAt: v.optional(v.number()),
     updatedAt: v.optional(v.number()),
   })
@@ -1468,8 +1472,13 @@ export default defineSchema({
     quantity: v.number(),
     labor_cost: v.number(),
     total: v.number(),
-    /** Free-text date/time for now (e.g. "Tomorrow, 10:00 AM"). Slotting + scheduling lands when the user accepts. */
-    availability: v.string(),
+    /** Structured date+time the shop can install. Mobile-side `acceptTireQuote`
+     *  copies these onto the booking as `scheduled_date` / `scheduled_time` so
+     *  the booking lands on the shop's calendar without parsing free text. */
+    availability: v.object({
+      date: v.string(), // "YYYY-MM-DD"
+      time: v.string(), // "HH:MM" (24h)
+    }),
     created_at: v.number(),
     /** Optional expiration so stale quotes can be filtered out. */
     expires_at: v.optional(v.number()),

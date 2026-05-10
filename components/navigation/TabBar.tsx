@@ -4,7 +4,7 @@ import TabBarButton from "./TabBarButton";
 import { useState, useEffect, useCallback } from "react";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { BlurView } from 'expo-blur';
-import Animated, { 
+import Animated, {
   useAnimatedStyle, 
   useSharedValue, 
   withTiming, 
