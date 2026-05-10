@@ -512,13 +512,15 @@ export default defineSchema({
     actual_labor_hours: v.optional(v.number()),
     parts_used_correct: v.optional(v.boolean()),
     overall_accuracy: v.optional(v.number()),
+    status: v.optional(v.string()), // "pending" | "accepted" | "rejected"
     verified_at: v.optional(v.number()),
     created_at: v.optional(v.number()),
   })
     .index("by_vehicle_config", ["vehicle_config_id"])
     .index("by_mechanic", ["mechanic_id"])
     .index("by_job", ["job_id"])
-    .index("by_service", ["service_id"]),
+    .index("by_service", ["service_id"])
+    .index("by_status", ["status"]),
 
   vin_queue: defineTable({
     vin: v.string(),
@@ -1075,7 +1077,6 @@ export default defineSchema({
     city: v.optional(v.string()),
     state: v.optional(v.string()),
     zip: v.optional(v.string()),
-    timezone: v.optional(v.string()),
     phone: v.optional(v.string()),
     lat: v.optional(v.number()),
     lng: v.optional(v.number()),
@@ -1095,9 +1096,10 @@ export default defineSchema({
     onboarding_complete: v.optional(v.boolean()),
     email: v.optional(v.string()),
     website: v.optional(v.string()),
+    timezone: v.optional(v.string()),
     no_show_threshold_minutes: v.optional(v.number()),
     overrun_default_extension_percent: v.optional(v.number()),
-    overrun_default_extension_floor_minutes: v.optional(v.number()),
+    overrun_extension_floor_minutes: v.optional(v.number()),
   })
     .index("by_slug", ["slug"])
     .index("by_owner_user_id", ["owner_user_id"])
@@ -1246,13 +1248,14 @@ export default defineSchema({
     previous_scheduled_time: v.optional(v.string()),
     previous_mechanic_id: v.optional(v.id("mechanics")),
     previous_status: v.optional(v.string()),
+    vehicle_arrived_at_ms: v.optional(v.number()),
+    vehicle_arrived_by_user_id: v.optional(v.id("users")),
+    assignment_preference: v.optional(v.string()),
     reschedule_proposed_at: v.optional(v.number()),
     schedule_change_mode: v.optional(v.string()),
     schedule_change_source_booking_id: v.optional(v.id("bookings")),
     customer_can_restore_original: v.optional(v.boolean()),
-    vehicle_arrived_at_ms: v.optional(v.number()),
-    vehicle_arrived_by_user_id: v.optional(v.id("users")),
-    assignment_preference: v.optional(v.string()),
+    refund_reason: v.optional(v.string()),
   })
     .index("by_user_id", ["user_id"])
     .index("by_shop_id", ["shop_id"])
@@ -1389,6 +1392,73 @@ export default defineSchema({
   // booking (status === "pending_quote"). The user picks one to accept,
   // which fills in shop_id/labor_cost/etc on the booking and flips it to
   // "confirmed".
+  notification_outbox: defineTable({
+    shop_id: v.optional(v.id("shops")),
+    booking_id: v.optional(v.id("bookings")),
+    user_id: v.optional(v.id("users")),
+    mechanic_id: v.optional(v.id("mechanics")),
+    channel: v.string(),
+    category: v.string(),
+    status: v.string(),
+    dedupe_key: v.string(),
+    payload: v.any(),
+    scheduled_for_ms: v.optional(v.number()),
+    created_at: v.number(),
+    updated_at: v.optional(v.number()),
+    processed_at: v.optional(v.number()),
+  })
+    .index("by_dedupe_key", ["dedupe_key"])
+    .index("by_status", ["status"])
+    .index("by_shop_id", ["shop_id"])
+    .index("by_booking_id", ["booking_id"])
+    .index("by_shop_and_status", ["shop_id", "status"]),
+
+  customer_late_monitors: defineTable({
+    shop_id: v.id("shops"),
+    booking_id: v.id("bookings"),
+    status: v.string(),
+    scheduled_start_ms: v.number(),
+    push_due_at_ms: v.number(),
+    sms_due_at_ms: v.number(),
+    threshold_due_at_ms: v.number(),
+    push_enqueued_at_ms: v.optional(v.number()),
+    sms_enqueued_at_ms: v.optional(v.number()),
+    frontdesk_enqueued_at_ms: v.optional(v.number()),
+    resolved_at_ms: v.optional(v.number()),
+    resolved_by_user_id: v.optional(v.id("users")),
+    created_at: v.optional(v.number()),
+    updated_at: v.optional(v.number()),
+  })
+    .index("by_shop_id", ["shop_id"])
+    .index("by_booking_id", ["booking_id"])
+    .index("by_status", ["status"])
+    .index("by_shop_and_status", ["shop_id", "status"]),
+
+  overrun_checkins: defineTable({
+    shop_id: v.id("shops"),
+    booking_id: v.id("bookings"),
+    mechanic_id: v.optional(v.id("mechanics")),
+    status: v.string(),
+    due_at_ms: v.number(),
+    escalation_due_at_ms: v.number(),
+    auto_apply_at_ms: v.number(),
+    default_extension_minutes: v.number(),
+    mechanic_prompted_at_ms: v.optional(v.number()),
+    frontdesk_escalated_at_ms: v.optional(v.number()),
+    answered_at_ms: v.optional(v.number()),
+    answered_by_user_id: v.optional(v.id("users")),
+    answer_source: v.optional(v.string()),
+    is_complete: v.optional(v.boolean()),
+    extension_minutes: v.optional(v.number()),
+    resolved_at_ms: v.optional(v.number()),
+    created_at: v.optional(v.number()),
+    updated_at: v.optional(v.number()),
+  })
+    .index("by_shop_id", ["shop_id"])
+    .index("by_booking_id", ["booking_id"])
+    .index("by_status", ["status"])
+    .index("by_shop_and_status", ["shop_id", "status"]),
+
   tire_quote_responses: defineTable({
     booking_id: v.id("bookings"),
     shop_id: v.id("shops"),
@@ -1751,4 +1821,91 @@ export default defineSchema({
   }).index("by_tire_model", ["tire_model_id"])
     .index("by_source", ["source"])
     .index("by_tire_model_source", ["tire_model_id", "source"]),
+
+  // ─── Director Panel ───────────────────────────────────────────────────────
+
+  bugs: defineTable({
+    title: v.string(),
+    source: v.union(
+      v.literal("consumer_ios"),
+      v.literal("consumer_android"),
+      v.literal("shop_web"),
+      v.literal("manual"),
+    ),
+    status: v.string(), // new | triaged | assigned | in_progress | done | verified
+    version: v.optional(v.string()),
+    device: v.optional(v.string()),
+    assignee: v.optional(v.id("director_users")),
+    description: v.optional(v.string()),
+    created_at: v.number(),
+    updated_at: v.optional(v.number()),
+    archived: v.optional(v.boolean()),
+  })
+    .index("by_status", ["status"])
+    .index("by_created_at", ["created_at"]),
+
+  app_feedback: defineTable({
+    title: v.string(),
+    category: v.union(
+      v.literal("feature_request"),
+      v.literal("ux"),
+      v.literal("shop_quality"),
+      v.literal("general"),
+      v.literal("praise"),
+    ),
+    sentiment: v.union(
+      v.literal("positive"),
+      v.literal("neutral"),
+      v.literal("negative"),
+    ),
+    source: v.string(), // consumer_ios | consumer_android | rating_comment | email | manual
+    status: v.string(), // new | reviewed | triaged | planned | done | wontfix | duplicate
+    auto_ingested: v.optional(v.boolean()),
+    rating_shop: v.optional(v.string()),
+    description: v.optional(v.string()),
+    created_at: v.number(),
+    updated_at: v.optional(v.number()),
+    archived: v.optional(v.boolean()),
+  })
+    .index("by_status", ["status"])
+    .index("by_category", ["category"])
+    .index("by_created_at", ["created_at"]),
+
+  director_notes: defineTable({
+    entity_type: v.string(),
+    entity_id: v.string(),
+    author: v.string(),
+    text: v.string(),
+    created_at: v.number(),
+  }).index("by_entity", ["entity_type", "entity_id"]),
+
+  audit_log: defineTable({
+    entity_type: v.string(),
+    entity_id: v.string(),
+    action: v.string(),
+    actor: v.string(),
+    actor_id: v.optional(v.id("director_users")),
+    detail: v.optional(v.string()),
+    created_at: v.number(),
+  })
+    .index("by_entity", ["entity_type", "entity_id"])
+    .index("by_created_at", ["created_at"])
+    .index("by_actor_id", ["actor_id"]),
+
+  director_users: defineTable({
+    name: v.string(),
+    role: v.union(v.literal("superadmin"), v.literal("admin"), v.literal("viewer")),
+    totp_secret: v.string(),
+    created_at: v.number(),
+    last_login: v.optional(v.number()),
+  }),
+
+  director_sessions: defineTable({
+    user_id: v.id("director_users"),
+    token: v.string(),
+    created_at: v.number(),
+    expires_at: v.number(),
+  })
+    .index("by_token", ["token"])
+    .index("by_user_id", ["user_id"]),
 });

@@ -3812,10 +3812,28 @@ export const clearDashboardBookingsBatch = mutation({
       await ctx.db.delete(type._id);
     }
 
+    const existingLateStartReviews = await ctx.db
+      .query("late_start_reviews")
+      .withIndex("by_shop_id", (q) => q.eq("shop_id", args.shopId))
+      .take(100);
+    for (const review of existingLateStartReviews) {
+      await ctx.db.delete(review._id);
+    }
+
+    const existingLateStartMonitors = await ctx.db
+      .query("late_start_monitors")
+      .withIndex("by_shop_id", (q) => q.eq("shop_id", args.shopId))
+      .take(100);
+    for (const monitor of existingLateStartMonitors) {
+      await ctx.db.delete(monitor._id);
+    }
+
     const processed =
       existingBookings.length +
       existingSlots.length +
-      blockTypes.length;
+      blockTypes.length +
+      existingLateStartReviews.length +
+      existingLateStartMonitors.length;
 
     return {
       done: processed === 0,
@@ -3823,8 +3841,8 @@ export const clearDashboardBookingsBatch = mutation({
       processedBookings: existingBookings.length,
       processedSlots: existingSlots.length,
       processedBlockTypes: blockTypes.length,
-      processedLateStartReviews: 0,
-      processedLateStartMonitors: 0,
+      processedLateStartReviews: existingLateStartReviews.length,
+      processedLateStartMonitors: existingLateStartMonitors.length,
     };
   },
 });
@@ -3844,9 +3862,45 @@ export const seedDashboardBookings = mutation({
     const today = new Date(now).toISOString().split("T")[0];
 
     if (args.clearExisting ?? false) {
-      throw new Error(
-        "Large clear operations must use clearDashboardBookingsBatch. Update the caller to clear in batches before reseeding."
-      );
+      const existingBookings = await ctx.db
+        .query("bookings")
+        .withIndex("by_shop_id", (q) => q.eq("shop_id", args.shopId))
+        .collect();
+      const bookingIds = new Set(existingBookings.map((booking) => String(booking._id)));
+
+      const history = await ctx.db.query("booking_status_history").collect();
+      for (const row of history) {
+        if (bookingIds.has(String(row.booking_id))) {
+          await ctx.db.delete(row._id);
+        }
+      }
+
+      const jobActuals = await ctx.db.query("job_actuals").collect();
+      for (const row of jobActuals) {
+        if (bookingIds.has(String(row.booking_id))) {
+          await ctx.db.delete(row._id);
+        }
+      }
+
+      for (const booking of existingBookings) {
+        await ctx.db.delete(booking._id);
+      }
+
+      const existingSlots = await ctx.db
+        .query("time_slots")
+        .withIndex("by_shop_id", (q) => q.eq("shop_id", args.shopId))
+        .collect();
+      for (const slot of existingSlots) {
+        await ctx.db.delete(slot._id);
+      }
+
+      const blockTypes = await ctx.db
+        .query("block_time_types")
+        .withIndex("by_shop_id", (q) => q.eq("shop_id", args.shopId))
+        .collect();
+      for (const type of blockTypes) {
+        await ctx.db.delete(type._id);
+      }
     }
 
     if ((args.seedDemo ?? true) === false) {
@@ -3872,22 +3926,23 @@ export const seedDashboardBookings = mutation({
     const linkedShopServiceIds = new Set(
       existingShopServices.map((shopService) => String(shopService.service_id))
     );
-
     const ensureService = async (slug: string, name: string, categoryName: string) => {
-      const existingService = servicesBySlug.get(slug);
+      const services = await ctx.db.query("services").collect();
+      const existingService = services.find((service) => service.slug === slug);
       let serviceId: any;
 
       if (existingService) {
         serviceId = existingService._id;
       } else {
+        const categories = await ctx.db.query("service_categories").collect();
+        const existingCategory = categories.find((category) => category.name === categoryName);
         const categoryId =
-          categoryIdsByName.get(categoryName) ??
+          existingCategory?._id ??
           (await ctx.db.insert("service_categories", {
             name: categoryName,
             icon_name: "wrench",
             display_order: 99,
           }));
-        categoryIdsByName.set(categoryName, categoryId);
 
         serviceId = await ctx.db.insert("services", {
           name,
@@ -4964,7 +5019,15 @@ export const seedLateStartReviewScenario = mutation({
       return user;
     };
 
-    const [acceptUpstreamCustomer, acceptDownstreamCustomer, pushUpstreamCustomer, pushDownstreamCustomer, manualUpstreamCustomer, manualDownstreamCustomer, blockerCustomer] = await Promise.all([
+    const [
+      acceptUpstreamCustomer,
+      acceptDownstreamCustomer,
+      pushUpstreamCustomer,
+      pushDownstreamCustomer,
+      manualUpstreamCustomer,
+      manualDownstreamCustomer,
+      blockerCustomer,
+    ] = await Promise.all([
       ensureCustomer({
         clerkUserId: "late-start-accept-upstream",
         email: "accept.upstream@demo.otopair.com",
@@ -5255,7 +5318,8 @@ export const seedLateStartReviewScenario = mutation({
           proposed_scheduled_time: "16:00",
           proposed_mechanic_id: miaMechanic._id,
           used_alternate_mechanic: true,
-          blocked_reason: "Automatic delay was intentionally paused for manual review testing.",
+          blocked_reason:
+            "Automatic delay was intentionally paused for manual review testing.",
         },
       ],
       blocking_reason:
