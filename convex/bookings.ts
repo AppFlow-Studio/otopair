@@ -33,6 +33,7 @@
 
 import { query, mutation, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
+import type { Id } from "./_generated/dataModel";
 import { internal } from "./_generated/api";
 import { isTerminal, validateTransition } from "./booking_status_history";
 import {
@@ -381,6 +382,7 @@ export const getByUserIdWithDetails = query({
 
         return {
           _id: booking._id,
+          _creationTime: booking._creationTime,
           status: booking.status,
           scheduled_date: booking.scheduled_date,
           scheduled_time: booking.scheduled_time,
@@ -395,6 +397,10 @@ export const getByUserIdWithDetails = query({
           vehicleDisplay,
           licensePlate,
           makeLogoUrl,
+          /** Hero image of the vehicle itself (cached from VehicleDB).
+           *  The card thumbnail prefers this; falls back to the brand
+           *  logo (`makeLogoUrl`) when no hero image is available. */
+          vehicleImageUrl: vehicle?.image_url,
           serviceNames,
           progressPercent,
           currentStage,
@@ -410,6 +416,62 @@ export const getByUserIdWithDetails = query({
     );
 
     return results;
+  },
+});
+
+/**
+ * MUTATION: deleteBooking
+ * Hard-deletes a booking row. Wired to the testing-only trash button on the
+ * My Bookings cards so dev/staging users can clear out test data without
+ * having to wait for completion or cascade through the proper lifecycle.
+ * NOT intended for production user-facing flows — those should soft-delete
+ * via the cancellation path.
+ */
+export const deleteBooking = mutation({
+  args: { bookingId: v.id("bookings") },
+  handler: async (ctx, args) => {
+    // Idempotent — if the row was already deleted (e.g. duplicate fire from
+    // React strict-mode double-invoke or a stale UI re-tap), silently no-op
+    // instead of throwing "Delete on nonexistent document ID".
+    const existing = await ctx.db.get(args.bookingId);
+    if (!existing) return;
+    await ctx.db.delete(args.bookingId);
+  },
+});
+
+/**
+ * MUTATION: cancelBooking
+ * Soft-deletes a booking by flipping `status` to "cancelled". Used by the
+ * "Cancel Appointment" / "Cancel Request" buttons on the My Bookings
+ * cards. Cancelled bookings remain in Convex and surface in the user's
+ * Booking History. Logs a status_history row for the audit trail.
+ *
+ * Idempotent — re-cancelling an already-cancelled booking is a no-op.
+ */
+export const cancelBooking = mutation({
+  args: {
+    bookingId: v.id("bookings"),
+    /** Optional free-form reason. Defaults to "user_cancelled". */
+    reason: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db.get(args.bookingId);
+    if (!existing) return;
+    if (existing.status === "cancelled") return;
+    const now = Date.now();
+    const previousStatus = existing.status;
+    await ctx.db.patch(args.bookingId, {
+      status: "cancelled",
+      updated_at: now,
+    });
+    await logBookingStatusChange(
+      ctx,
+      args.bookingId,
+      previousStatus,
+      "cancelled",
+      existing.user_id,
+      args.reason ?? "user_cancelled",
+    );
   },
 });
 
@@ -6691,16 +6753,68 @@ export const acceptTireQuote = mutation({
 
     const now = Date.now();
 
-    // Fill in the chosen shop + pricing on the booking. Time slot is left
-    // empty for now — scheduling against the shop's calendar is a follow-up
-    // (the response.availability is currently free-text).
+    // Resolve the winning shop's "Tire Replacement" service so the
+    // accepted booking carries a real `service_ids` entry — without it
+    // every service-aware web surface (schedule cards, dashboard counters,
+    // pre-job form) renders blank for the row. Quote-stage bookings can't
+    // know the shop until acceptance, so this is the only point where
+    // the right service can be picked.
+    let tireService = await ctx.db
+      .query("services")
+      .withIndex("by_slug", (q) => q.eq("slug", "tire-replacement"))
+      .first();
+    if (!tireService) {
+      // Legacy seed used an underscore form — fall back so older
+      // deployments don't break.
+      tireService = await ctx.db
+        .query("services")
+        .withIndex("by_slug", (q) => q.eq("slug", "tire_replacement"))
+        .first();
+    }
+
+    let attachServiceId: Id<"services"> | null = null;
+    if (tireService) {
+      // The shop has already committed to install these tires (they
+      // submitted the quote we're accepting), so auto-register the
+      // shop_services row if it's missing. This avoids the cosmetic
+      // regression on the schedule/dashboard for shops with incomplete
+      // service-catalog onboarding.
+      const offered = await ctx.db
+        .query("shop_services")
+        .withIndex("by_shop_and_service", (q) =>
+          q.eq("shop_id", response.shop_id).eq("service_id", tireService!._id),
+        )
+        .first();
+      if (!offered) {
+        await ctx.db.insert("shop_services", {
+          shop_id: response.shop_id,
+          service_id: tireService._id,
+          is_offered: true,
+        });
+      } else if (!offered.is_offered) {
+        await ctx.db.patch(offered._id, { is_offered: true });
+      }
+      attachServiceId = tireService._id;
+    } else {
+      console.warn(
+        "[acceptTireQuote] no Tire Replacement service found in catalog — service_ids will be empty",
+      );
+    }
+
+    // Fill in the chosen shop + pricing + scheduled slot + service. The
+    // shop's structured `availability` (YYYY-MM-DD + HH:MM) goes straight
+    // onto the booking so it surfaces on /bookings + /schedule on the
+    // web side; service_ids drives the rest of the service-aware UI.
     await ctx.db.patch(args.booking_id, {
       shop_id: response.shop_id,
       labor_cost: response.labor_cost,
       parts_cost: response.per_tire_price * response.quantity,
       total_cost: response.total,
+      scheduled_date: response.availability.date,
+      scheduled_time: response.availability.time,
       status: "confirmed",
       updated_at: now,
+      ...(attachServiceId ? { service_ids: [attachServiceId] } : {}),
     });
 
     // Supersede all other live responses for this booking.

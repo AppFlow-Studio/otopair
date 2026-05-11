@@ -172,7 +172,7 @@ const COUNTDOWN_SECONDS = 8;
  * user can tap at any time to confirm instantly. The timer is cancelled if
  * the button unmounts (e.g. via the Go back secondary).
  */
-function ConfirmCountdownButton({ onConfirm }: { onConfirm: () => void }) {
+export function ConfirmCountdownButton({ onConfirm }: { onConfirm: () => void }) {
   const [remaining, setRemaining] = useState(COUNTDOWN_SECONDS);
   const progress = useSharedValue(0);
   const firedRef = useRef(false);

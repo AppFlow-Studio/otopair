@@ -72,6 +72,8 @@ interface ServiceHistoryProps {
   documents?: PickedDocument[];
   onRemoveDocument?: (index: number) => void;
   onOpenDocument?: (document: PickedDocument) => void;
+  /** Page bg is dark — flip the section header to white. */
+  isDarkBg?: boolean;
 }
 
 // ============================================================================
@@ -86,6 +88,7 @@ export function ServiceHistory({
   documents,
   onRemoveDocument,
   onOpenDocument,
+  isDarkBg = false,
 }: ServiceHistoryProps) {
   const [modalVisible, setModalVisible] = useState(false);
   const [layoutInfo, setLayoutInfo] = useState<LayoutInfo | null>(null);
@@ -118,7 +121,7 @@ export function ServiceHistory({
     <View style={styles.container}>
       {/* Section Header */}
       <View style={styles.sectionHeader}>
-        <Text weight="semiBold" size="lg" color={Colors.light.text}>
+        <Text weight="semiBold" size="lg" color={isDarkBg ? "#FFFFFF" : Colors.light.text}>
           Service History
         </Text>
       </View>

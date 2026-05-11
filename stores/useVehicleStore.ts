@@ -136,7 +136,12 @@ export const useVehicleStore = create<VehicleState>()((set, get) => ({
       const vin = r.vin.toUpperCase().trim();
       const year = r.vehicle?.year ?? new Date().getFullYear();
       const meta = r.vehicle?.metadata as { make?: string; model?: string } | undefined;
+      // Only surface cached image_url if it's from the new transparent-bg
+      // endpoint. Stale white-bg URLs from the legacy `vehicle-media/v2`
+      // endpoint are dropped so consumers fall back to a placeholder
+      // until the cars screen re-fetches and overwrites them.
       const imageUrl = r.vehicle?.image_url;
+      const isTransparent = typeof imageUrl === "string" && imageUrl.includes("/transparent/");
       const v: Vehicle = {
         id: vin,
         vin,
@@ -146,7 +151,7 @@ export const useVehicleStore = create<VehicleState>()((set, get) => ({
         mileage: r.ownership?.mileage,
         isDefault: r.ownership?.is_primary ?? ids.length === 0,
         engineId: r.vehicle?.engine_id as string | undefined,
-        imageSource: imageUrl ? { uri: imageUrl } : undefined,
+        imageSource: isTransparent ? { uri: imageUrl } : undefined,
       };
       vehiclesRecord[vin] = v;
       ids.push(vin);

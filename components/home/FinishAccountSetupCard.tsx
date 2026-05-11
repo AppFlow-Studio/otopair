@@ -65,9 +65,15 @@ export function FinishAccountSetupCard({
   const hasCarRegistered = (activeVehicleOwnerships?.length ?? 0) > 0;
 
   const isCreateAccountCompleteFromStore = useOnboardingStore((state) => state.isCreateAccountComplete());
-  // Persisted in Convex so "Create Account" stays complete after reload
+  // "Create Account" is complete the moment a Convex user row exists
+  // with name fields populated — that covers OAuth sign-ups that skip
+  // the full onboarding store flow. Falls back to the store check and
+  // the persisted `onboardingCompleted` flag for older paths.
+  const hasConvexAccount = Boolean(me?.first_name && me?.last_name);
   const isCreateAccountComplete =
-    isCreateAccountCompleteFromStore || me?.onboardingCompleted === true;
+    hasConvexAccount ||
+    isCreateAccountCompleteFromStore ||
+    me?.onboardingCompleted === true;
   const isTellUsAboutYourselfCompleteFromStore = useOnboardingStore(
     (state) => state.data.isTellUsAboutYourselfComplete,
   );

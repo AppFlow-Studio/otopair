@@ -2,26 +2,29 @@
  * RequestingMapBackground
  *
  * PURPOSE: Decorative full-screen Apple Maps backdrop for the tire-quote
- *          requesting screen. Centers on the user's location.
- *          Non-interactive — taps fall through to the FloatingSheet above.
+ *          requesting screen. Centers on the user's location and fades in
+ *          5 OtoPair pin logos one-by-one in the upper portion of the
+ *          screen over ~6 seconds. Non-interactive — taps fall through to
+ *          the FloatingSheet above.
  *
- *          NOTE: The 5 staggered OtoPair logo pins are temporarily
- *          commented out below — image-marker rendering on Apple Maps
- *          (PROVIDER_DEFAULT) was unreliable. To re-enable, restore the
- *          marked blocks. The pin generator + AnimatedLogoMarker are
- *          preserved so we can pick this back up.
+ *          IMPLEMENTATION NOTE: Earlier attempts rendered the logos as
+ *          react-native-maps `<Marker>` children with custom JSX. That
+ *          path was unreliable on Apple Maps (PROVIDER_DEFAULT) — the
+ *          Marker snapshot system either ignored the image or rendered it
+ *          at the wrong size. Since the map is non-interactive (no scroll,
+ *          no zoom), there's no need for lat/lng-anchored pins; we render
+ *          the logos as absolutely-positioned `<Image>` views on top of
+ *          the MapView and keep the implementation entirely in stock RN.
  *
  * USED IN: app/(tire-booking)/requesting.tsx
  *
  * OWNER: Ahmad Hamoudeh
  */
 
-import React, { useEffect, useState } from "react";
-import { StyleSheet, View } from "react-native";
+import React, { useEffect, useRef, useState } from "react";
+import { Animated, Easing, Image, StyleSheet, View } from "react-native";
 
 import * as Location from "expo-location";
-// import { Image } from "react-native";
-// import { Marker } from "react-native-maps";
 import MapView, { PROVIDER_DEFAULT, type Region } from "react-native-maps";
 
 interface Props {
@@ -38,43 +41,118 @@ const FALLBACK_REGION: Region = {
   longitudeDelta: 0.04,
 };
 
-/* ---------------------------------------------------------------------------
- * Pin logic — temporarily disabled. Re-enable when we sort out the
- * react-native-maps Marker rendering on Apple Maps.
- *
- * interface Pin {
- *   id: string;
- *   latitude: number;
- *   longitude: number;
- * }
- *
- * const PIN_COUNT = 5;
- * const STAGGER_MS = 1200;
- * const MIN_PIN_GAP = 0.006;
- *
- * function generatePins(region: Region): Pin[] {
- *   const placed: Pin[] = [];
- *   for (let i = 0; i < PIN_COUNT; i++) {
- *     let candidate: Pin | null = null;
- *     for (let attempt = 0; attempt < 30; attempt++) {
- *       const c: Pin = {
- *         id: `pin-${i}`,
- *         latitude: region.latitude + 0.004 + Math.random() * 0.012,
- *         longitude: region.longitude + (Math.random() - 0.5) * 0.024,
- *       };
- *       const tooClose = placed.some(
- *         (p) =>
- *           Math.abs(p.latitude - c.latitude) < MIN_PIN_GAP &&
- *           Math.abs(p.longitude - c.longitude) < MIN_PIN_GAP,
- *       );
- *       if (!tooClose) { candidate = c; break; }
- *       candidate = c;
- *     }
- *     if (candidate) placed.push(candidate);
- *   }
- *   return placed;
- * }
- * ------------------------------------------------------------------------- */
+const PIN_COUNT = 5;
+const STAGGER_MS = 600;
+// Drop-in animation: pin starts above its resting spot at a smaller scale,
+// then springs into place with a single tasteful overshoot. Scale animates
+// alongside translateY so the pin reads as "thudding" onto the map rather
+// than just sliding in. Opacity ramps in over the first stretch of the drop.
+const FADE_MS = 240;
+const DROP_DISTANCE = 90;
+const PIN_START_SCALE = 0.78;
+const PIN_SIZE = 76;
+// Pins live in the upper portion of the screen so they sit above the
+// 52%-tall bottom sheet. Top band spans 8% → 42% of screen height. Bigger
+// pins eat more vertical room — TOP_BAND_END subtracts PIN_SIZE downstream.
+const TOP_BAND_START = 0.08;
+const TOP_BAND_END = 0.42;
+// Horizontal padding so pins don't kiss the screen edges.
+const SIDE_PADDING = 24;
+// Minimum pixel distance between any two pin centers — scales with
+// PIN_SIZE so bigger pins still get breathing room.
+const MIN_PIN_GAP_PX = PIN_SIZE + 24;
+
+interface PinPosition {
+  id: string;
+  top: number;
+  left: number;
+}
+
+/**
+ * Convert a pin's pixel position on the screen to a real-world coordinate.
+ * The map fills the layer, so screen-center maps to `region.latitude/longitude`
+ * and per-pixel deltas come from `region.latitudeDelta / height` etc.
+ */
+function pixelToCoord(
+  pin: PinPosition,
+  region: Region,
+  width: number,
+  height: number,
+): { latitude: number; longitude: number } {
+  const cx = pin.left + PIN_SIZE / 2;
+  const cy = pin.top + PIN_SIZE / 2;
+  const latPerPx = region.latitudeDelta / height;
+  const lngPerPx = region.longitudeDelta / width;
+  // pixelY increasing = south (smaller lat); pixelX increasing = east.
+  return {
+    latitude: region.latitude + (height / 2 - cy) * latPerPx,
+    longitude: region.longitude + (cx - width / 2) * lngPerPx,
+  };
+}
+
+/**
+ * Reverse-geocodes a coordinate via the OS geocoder (no external API call).
+ * Land returns at least one result with a street/city/name; bodies of water
+ * resolve to an empty array. Errors are treated as "land" so we don't drop
+ * pins because of a transient permissions hiccup.
+ */
+async function isOnLand(coord: {
+  latitude: number;
+  longitude: number;
+}): Promise<boolean> {
+  try {
+    const results = await Location.reverseGeocodeAsync(coord);
+    return results.some((r) => r.street || r.city || r.name || r.region);
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * Async pin generation with rejection sampling. For each pin we try up to
+ * MAX_ATTEMPTS positions; each must (1) clear the spacing constraint and
+ * (2) reverse-geocode to land. If every attempt fails (rare), we fall
+ * back to the last spacing-clean candidate so we never end up with
+ * fewer than PIN_COUNT pins. Caps reverse-geocode calls at
+ * PIN_COUNT * MAX_ATTEMPTS = 30 — comfortably below OS rate limits.
+ */
+async function generateValidPins(
+  region: Region,
+  width: number,
+  height: number,
+): Promise<PinPosition[]> {
+  const MAX_ATTEMPTS = 6;
+  const placed: PinPosition[] = [];
+  const minTop = Math.round(height * TOP_BAND_START);
+  const maxTop = Math.round(height * TOP_BAND_END) - PIN_SIZE;
+  const minLeft = SIDE_PADDING;
+  const maxLeft = width - SIDE_PADDING - PIN_SIZE;
+
+  for (let i = 0; i < PIN_COUNT; i++) {
+    let chosen: PinPosition | null = null;
+    let lastSpaced: PinPosition | null = null;
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      const top = minTop + Math.random() * (maxTop - minTop);
+      const left = minLeft + Math.random() * (maxLeft - minLeft);
+      const c: PinPosition = { id: `pin-${i}`, top, left };
+      const tooClose = placed.some((p) => {
+        const dx = (p.left + PIN_SIZE / 2) - (c.left + PIN_SIZE / 2);
+        const dy = (p.top + PIN_SIZE / 2) - (c.top + PIN_SIZE / 2);
+        return Math.sqrt(dx * dx + dy * dy) < MIN_PIN_GAP_PX;
+      });
+      if (tooClose) continue;
+      lastSpaced = c;
+      const coord = pixelToCoord(c, region, width, height);
+      if (await isOnLand(coord)) {
+        chosen = c;
+        break;
+      }
+    }
+    const final = chosen ?? lastSpaced;
+    if (final) placed.push(final);
+  }
+  return placed;
+}
 
 export function RequestingMapBackground({ width, height }: Props) {
   const [region, setRegion] = useState<Region | null>(null);
@@ -106,89 +184,151 @@ export function RequestingMapBackground({ width, height }: Props) {
     };
   }, []);
 
-  // const pins = useMemo(() => (region ? generatePins(region) : []), [region]);
-
-  if (!region) {
-    return <View style={[styles.fallback, { width, height }]} />;
-  }
+  // Pins generate asynchronously after the region resolves, because each
+  // candidate is reverse-geocoded to filter out water tiles. There's a
+  // brief window where the map is visible but pins haven't dropped yet —
+  // intentional, the map alone reads cleanly while geocoding settles.
+  const [pins, setPins] = useState<PinPosition[]>([]);
+  useEffect(() => {
+    if (!region) return;
+    let cancelled = false;
+    generateValidPins(region, width, height).then((result) => {
+      if (!cancelled) setPins(result);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [region, width, height]);
 
   return (
-    <MapView
-      style={StyleSheet.absoluteFill}
-      provider={PROVIDER_DEFAULT}
-      region={region}
-      showsUserLocation
-      scrollEnabled={false}
-      zoomEnabled={false}
-      pitchEnabled={false}
-      rotateEnabled={false}
-      pointerEvents="none"
-    >
-      {/* {pins.map((pin, i) => (
-        <AnimatedLogoMarker key={pin.id} pin={pin} delayMs={i * STAGGER_MS} />
-      ))} */}
-    </MapView>
+    <>
+      {/* MAP LAYER — sits at the bottom of the screen's z-stack. */}
+      <View style={[styles.mapLayer, { width, height }]} pointerEvents="none">
+        {region ? (
+          <MapView
+            style={StyleSheet.absoluteFill}
+            provider={PROVIDER_DEFAULT}
+            region={region}
+            showsUserLocation
+            scrollEnabled={false}
+            zoomEnabled={false}
+            pitchEnabled={false}
+            rotateEnabled={false}
+            pointerEvents="none"
+          />
+        ) : (
+          <View style={[styles.fallback, StyleSheet.absoluteFill]} />
+        )}
+      </View>
+
+      {/* PIN OVERLAY — separate sibling so it isn't a child of the same View
+          tree as the native MapView UIView. iOS' UIKit composition can let
+          a native MapView overdraw RN siblings sharing its parent; lifting
+          the pins out (plus explicit `elevation` + high `zIndex`) keeps
+          them visible above the map on both platforms. */}
+      <View
+        style={[styles.pinLayer, { width, height }]}
+        pointerEvents="none"
+      >
+        {pins.map((pin, i) => (
+          <FadingLogoPin key={pin.id} pin={pin} delayMs={i * STAGGER_MS} />
+        ))}
+      </View>
+    </>
   );
 }
 
-/* ---------------------------------------------------------------------------
- * AnimatedLogoMarker — disabled along with the pin logic above.
- *
- * interface MarkerProps {
- *   pin: Pin;
- *   delayMs: number;
- * }
- *
- * function AnimatedLogoMarker({ pin, delayMs }: MarkerProps) {
- *   const [visible, setVisible] = useState(false);
- *   const [imageLoaded, setImageLoaded] = useState(false);
- *   const [tracking, setTracking] = useState(true);
- *
- *   useEffect(() => {
- *     const t = setTimeout(() => setVisible(true), delayMs);
- *     return () => clearTimeout(t);
- *   }, [delayMs]);
- *
- *   useEffect(() => {
- *     if (!imageLoaded) return;
- *     const t = setTimeout(() => setTracking(false), 200);
- *     return () => clearTimeout(t);
- *   }, [imageLoaded]);
- *
- *   if (!visible) return null;
- *
- *   return (
- *     <Marker
- *       coordinate={{ latitude: pin.latitude, longitude: pin.longitude }}
- *       anchor={{ x: 0.5, y: 0.5 }}
- *       tracksViewChanges={tracking}
- *     >
- *       <View style={styles.pinWrap}>
- *         <Image
- *           source={require("@/assets/images/splash-icon.png")}
- *           style={styles.pinImage}
- *           resizeMode="contain"
- *           onLoad={() => setImageLoaded(true)}
- *           fadeDuration={0}
- *         />
- *       </View>
- *     </Marker>
- *   );
- * }
- * ------------------------------------------------------------------------- */
+interface PinComponentProps {
+  pin: PinPosition;
+  delayMs: number;
+}
+
+function FadingLogoPin({ pin, delayMs }: PinComponentProps) {
+  const opacity = useRef(new Animated.Value(0)).current;
+  // Start above the resting spot, slightly shrunk. translateY + scale spring
+  // together — one overshoot, quick settle — for that satisfying "thud"
+  // without the cartoonish multi-bounce of Easing.bounce.
+  const translateY = useRef(new Animated.Value(-DROP_DISTANCE)).current;
+  const scale = useRef(new Animated.Value(PIN_START_SCALE)).current;
+
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(opacity, {
+        toValue: 1,
+        duration: FADE_MS,
+        delay: delayMs,
+        easing: Easing.out(Easing.quad),
+        useNativeDriver: true,
+      }),
+      Animated.spring(translateY, {
+        toValue: 0,
+        delay: delayMs,
+        // Tuned for one clean overshoot (~5% past, then settle). Higher
+        // tension = snappier; friction controls how fast the overshoot dies.
+        tension: 110,
+        friction: 7,
+        useNativeDriver: true,
+      }),
+      Animated.spring(scale, {
+        toValue: 1,
+        delay: delayMs,
+        tension: 140,
+        friction: 6,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [delayMs, opacity, translateY, scale]);
+
+  return (
+    <Animated.View
+      style={[
+        styles.pinWrap,
+        {
+          top: pin.top,
+          left: pin.left,
+          opacity,
+          transform: [{ translateY }, { scale }],
+        },
+      ]}
+    >
+      <Image
+        source={require("@/assets/images/pin-logo-3d.png")}
+        style={styles.pinImage}
+        resizeMode="contain"
+        fadeDuration={0}
+      />
+    </Animated.View>
+  );
+}
 
 const styles = StyleSheet.create({
+  mapLayer: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    overflow: "hidden",
+  },
+  pinLayer: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    // Force above the native MapView. zIndex helps on iOS; elevation
+    // is the Android equivalent. Both are needed for cross-platform.
+    zIndex: 10,
+    elevation: 10,
+  },
   fallback: {
     backgroundColor: "#CFE4F7",
   },
-  // pinWrap: {
-  //   width: 56,
-  //   height: 56,
-  //   alignItems: "center",
-  //   justifyContent: "center",
-  // },
-  // pinImage: {
-  //   width: 52,
-  //   height: 52,
-  // },
+  pinWrap: {
+    position: "absolute",
+    width: PIN_SIZE,
+    height: PIN_SIZE,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pinImage: {
+    width: PIN_SIZE,
+    height: PIN_SIZE,
+  },
 });
