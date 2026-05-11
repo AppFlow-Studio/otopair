@@ -422,7 +422,7 @@ const RENDER_TOOLS: OtoToolSchema[] = [
   {
     name: "render_quick_replies",
     description:
-      "Show 2–4 tap-to-send reply buttons under your message. Use when offering a small set of obvious next options ('Closest', 'Best rated'; 'Yes', 'No'; 'Reschedule', 'Cancel', 'Got it'). Keep replies short (≤ 18 chars). Don't use this for free-form clarifying questions.",
+      "Show 2–4 tap-to-send reply buttons under your message. This tool emits quick-reply buttons that ARE your final response to the user — calling this tool ENDS YOUR TURN. Optionally include a brief introductory text message in the same turn; the buttons supplement your text, but calling this tool means you're done responding for this turn. Do NOT call other tools after this one. Use when offering a small set of obvious next options ('Closest', 'Best rated'; 'Yes', 'No'; 'Reschedule', 'Cancel', 'Got it'). Keep replies short (≤ 18 chars). Don't use this for free-form clarifying questions.",
     input_schema: {
       type: "object",
       properties: {
