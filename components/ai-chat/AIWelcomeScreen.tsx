@@ -16,7 +16,7 @@
 
 // 1. React & React Native
 import React from 'react';
-import { View, StyleSheet, Pressable, Image, ScrollView, Platform } from 'react-native';
+import { View, StyleSheet, Pressable, Image, ScrollView, Platform, useWindowDimensions } from 'react-native';
 
 // 2. Expo & Third-party
 import Animated, {
@@ -26,6 +26,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { BottomTabBarHeightContext } from '@react-navigation/bottom-tabs';
 import { MessageSquare, Shield, AlertTriangle } from 'lucide-react-native';
 
 // 3. Shared UI (design system)
@@ -49,15 +50,15 @@ interface AIWelcomeScreenProps {
 // LOGO COMPONENT
 // ============================================================================
 
-function AILogo() {
+function AILogo({ compact = false }: { compact?: boolean }) {
   return (
     <Animated.View 
-      style={styles.logoContainer}
+      style={[styles.logoContainer, compact && styles.logoContainerCompact]}
       entering={FadeIn.duration(600)}
     >
       <Image 
         source={OTOPAIR_AI_LOGO} 
-        style={styles.logoImage}
+        style={[styles.logoImage, compact && styles.logoImageCompact]}
         resizeMode="contain"
       />
     </Animated.View>
@@ -73,11 +74,13 @@ function InfoItem({
   title,
   description,
   delay,
+  compact = false,
 }: {
   icon: React.ReactNode;
   title: string;
   description: string;
   delay: number;
+  compact?: boolean;
 }) {
   return (
     <Animated.View 
@@ -88,10 +91,10 @@ function InfoItem({
         {icon}
       </View>
       <View style={styles.infoContent}>
-        <Text style={styles.infoTitle} weight="semiBold">
+        <Text style={[styles.infoTitle, compact && styles.infoTitleCompact]} weight="semiBold">
           {title}
         </Text>
-        <Text style={styles.infoDescription} size="sm">
+        <Text style={[styles.infoDescription, compact && styles.infoDescriptionCompact]} size="sm">
           {description}
         </Text>
       </View>
@@ -103,16 +106,30 @@ function InfoItem({
 // MAIN COMPONENT
 // ============================================================================
 
-// Match tab layout behavior: iOS 26+ uses native tabs with a slightly smaller effective offset.
-const TAB_BAR_HEIGHT =
-  Platform.OS === "ios" && parseInt(String(Platform.Version), 10) >= 26
-    ? 90
-    : 100;
-
 export function AIWelcomeScreen({ onContinue }: AIWelcomeScreenProps) {
   const insets = useSafeAreaInsets();
-  // Use bottom inset + tab bar height to account for the native tab bar
-  const bottomPadding = Math.max(insets.bottom, TAB_BAR_HEIGHT);
+  const { height: windowHeight } = useWindowDimensions();
+  const tabBarHeightCtx = React.useContext(BottomTabBarHeightContext);
+  const isIOS26 =
+    Platform.OS === 'ios' && parseInt(String(Platform.Version), 10) >= 26;
+  const isVeryShortScreen = windowHeight < 700;
+  const useTightLayout = Platform.OS === 'android' || windowHeight < 760;
+  const useCompactTypography = !isIOS26 && isVeryShortScreen;
+  // tabBarHeightCtx already includes insets.bottom when available.
+  // Fall back to manual calc on iOS 26 (native tab bar) or if context is missing.
+  const tabBarFallbackOffset = isIOS26 ? 18 : Platform.OS === 'android' ? 52 : 48;
+  const measuredTabBarHeight =
+    typeof tabBarHeightCtx === 'number' && tabBarHeightCtx > 0
+      ? tabBarHeightCtx
+      : undefined;
+  const bottomPadding = measuredTabBarHeight !== undefined
+    ? measuredTabBarHeight
+    : insets.bottom + tabBarFallbackOffset;
+  const effectiveBottomPadding = bottomPadding + (isIOS26 ? 8 : 0);
+  const topPadding = isIOS26
+    ? Math.max(insets.top - 16, 0)
+    : insets.top + (useTightLayout ? 8 : 16);
+  const contentMinHeight = Math.max(0, windowHeight - topPadding - effectiveBottomPadding);
 
   return (
     <View style={styles.container}>
@@ -125,78 +142,89 @@ export function AIWelcomeScreen({ onContinue }: AIWelcomeScreenProps) {
 
       <ScrollView 
         style={styles.scrollView}
-        contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 20, paddingBottom: bottomPadding + 20 }]}
+        contentContainerStyle={[
+          styles.scrollContent,
+          {
+            paddingTop: topPadding,
+            paddingBottom: effectiveBottomPadding,
+            minHeight: contentMinHeight,
+          },
+        ]}
         showsVerticalScrollIndicator={false}
       >
         {/* Content Wrapper */}
-        <View style={styles.content}>
+        <View style={[styles.content, useTightLayout && styles.contentCompact]}>
           {/* Logo */}
-          <AILogo />
+          <AILogo compact={useTightLayout} />
 
           {/* Title Section */}
           <Animated.View 
-            style={styles.titleSection}
+            style={[styles.titleSection, useTightLayout && styles.titleSectionCompact]}
             entering={FadeInUp.delay(200).duration(500)}
           >
-            <Text style={styles.welcomeTitle} weight="bold">
-              Welcome to OtoPair AI
+            <Text style={[styles.welcomeTitle, useCompactTypography && styles.welcomeTitleCompact]} weight="bold">
+              Welcome to Oto AI
             </Text>
-            <Text style={styles.welcomeSubtitle}>
+            <Text style={[styles.welcomeSubtitle, useCompactTypography && styles.welcomeSubtitleCompact]}>
               Your AI assistant for car diagnostics, repair tips, and maintenance scheduling.
             </Text>
           </Animated.View>
 
           {/* Info Items - ChatGPT style, no boxes */}
-          <View style={styles.infoContainer}>
+          <View style={[styles.infoContainer, useTightLayout && styles.infoContainerCompact]}>
             <InfoItem
               icon={<MessageSquare size={22} color={BrandColors.secondary} />}
               title="Responses can be inaccurate"
-              description="OtoPair AI may provide inaccurate information about cars, repairs, or maintenance."
+              description="Oto AI may provide inaccurate information about cars, repairs, or maintenance."
               delay={400}
+              compact={useCompactTypography}
             />
             <InfoItem
               icon={<Shield size={22} color={BrandColors.secondary} />}
               title="Don't share sensitive info"
-              description="Chats may be reviewed to improve our service. Learn more."
+              description="Chats may be reviewed to improve our service."
               delay={500}
+              compact={useCompactTypography}
             />
             <InfoItem
               icon={<AlertTriangle size={22} color="#F59E0B" />}
               title="Not emergency advice"
               description="For immediate safety concerns, pull over safely and call roadside assistance."
               delay={600}
+              compact={useCompactTypography}
             />
           </View>
-        </View>
 
-        {/* Footer inside ScrollView to ensure it's reachable on small screens */}
-        <Animated.View 
-          style={styles.footer}
-          entering={FadeInDown.delay(700).duration(400)}
-        >
-          <Text style={styles.termsText} size="sm">
-            By continuing, you agree to our{' '}
-            <Text style={styles.termsLink} size="sm" weight="semiBold">
-              Terms of Service
-            </Text>
-            {' '}and{' '}
-            <Text style={styles.termsLink} size="sm" weight="semiBold">
-              Privacy Policy
-            </Text>
-          </Text>
-
-          <Pressable
-            onPress={onContinue}
-            style={({ pressed }) => [
-              styles.continueButton,
-              pressed && styles.continueButtonPressed,
-            ]}
+          {/* Footer inside content so the whole onboarding block centers together */}
+          <Animated.View 
+            style={[styles.footer, useTightLayout && styles.footerCompact]}
+            entering={FadeInDown.delay(700).duration(400)}
           >
-            <Text style={styles.continueButtonText} weight="semiBold">
-              Continue
+            <Text style={[styles.termsText, useTightLayout && styles.termsTextCompact]} size="sm">
+              By continuing, you agree to our{' '}
+              <Text style={styles.termsLink} size="sm" weight="semiBold">
+                Terms of Service
+              </Text>
+              {' '}and{' '}
+              <Text style={styles.termsLink} size="sm" weight="semiBold">
+                Privacy Policy
+              </Text>
             </Text>
-          </Pressable>
-        </Animated.View>
+
+            <Pressable
+              onPress={onContinue}
+              style={({ pressed }) => [
+                styles.continueButton,
+                useTightLayout && styles.continueButtonCompact,
+                pressed && styles.continueButtonPressed,
+              ]}
+            >
+              <Text style={styles.continueButtonText} weight="semiBold">
+                Continue
+              </Text>
+            </Pressable>
+          </Animated.View>
+        </View>
       </ScrollView>
     </View>
   );
@@ -218,25 +246,39 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
   content: {
-    flex: 1,
+    flexGrow: 1,
     paddingHorizontal: Spacing.xl,
     alignItems: 'center',
     justifyContent: 'center',
     paddingBottom: Spacing.xl,
   },
+  contentCompact: {
+    paddingBottom: Spacing.lg,
+  },
   // Logo
   logoContainer: {
     marginBottom: Spacing.lg,
+  },
+  logoContainerCompact: {
+    marginBottom: Spacing.md,
   },
   logoImage: {
     width: 72,
     height: 72,
     borderRadius: 16,
   },
+  logoImageCompact: {
+    width: 60,
+    height: 60,
+    borderRadius: 12,
+  },
   // Title Section
   titleSection: {
     alignItems: 'center',
     marginBottom: Spacing['2xl'],
+  },
+  titleSectionCompact: {
+    marginBottom: Spacing.lg,
   },
   welcomeTitle: {
     fontSize: 26,
@@ -245,6 +287,10 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.sm,
     fontFamily: FontFamily.bold,
   },
+  welcomeTitleCompact: {
+    fontSize: 22,
+    marginBottom: 4,
+  },
   welcomeSubtitle: {
     fontSize: 15,
     color: '#6B7280',
@@ -252,11 +298,19 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     paddingHorizontal: Spacing.md,
   },
+  welcomeSubtitleCompact: {
+    fontSize: 13,
+    lineHeight: 18,
+    paddingHorizontal: Spacing.sm,
+  },
   // Info Items (ChatGPT style - no boxes)
   infoContainer: {
     width: '100%',
     gap: Spacing.xl,
     paddingHorizontal: Spacing.sm,
+  },
+  infoContainerCompact: {
+    gap: Spacing.md,
   },
   infoItem: {
     flexDirection: 'row',
@@ -276,21 +330,38 @@ const styles = StyleSheet.create({
     marginBottom: 4,
     fontFamily: FontFamily.semiBold,
   },
+  infoTitleCompact: {
+    fontSize: 14,
+    marginBottom: 1,
+  },
   infoDescription: {
     color: '#6B7280',
     lineHeight: 22,
     fontSize: 15,
   },
+  infoDescriptionCompact: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
   // Footer
   footer: {
+    width: '100%',
     paddingHorizontal: Spacing.xl,
-    paddingTop: Spacing.lg,
+    paddingTop: Spacing.xl,
+  },
+  footerCompact: {
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.sm,
   },
   termsText: {
     color: '#9CA3AF',
     textAlign: 'center',
     marginBottom: Spacing.lg,
     lineHeight: 20,
+  },
+  termsTextCompact: {
+    marginBottom: Spacing.sm,
+    lineHeight: 18,
   },
   termsLink: {
     color: BrandColors.secondary,
@@ -301,6 +372,9 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.lg,
     alignItems: 'center',
     ...Shadows.md,
+  },
+  continueButtonCompact: {
+    paddingVertical: 12,
   },
   continueButtonPressed: {
     opacity: 0.9,
