@@ -1,6 +1,6 @@
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Image, Pressable, StyleSheet, View } from 'react-native';
+import { ActivityIndicator, Image, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated from 'react-native-reanimated';
 
@@ -111,7 +111,7 @@ export default function HomeScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { isNewUser, shouldShowReactivationSheet, setShouldShowReactivationSheet } = useAuthStore();
-  const { vehicles: listVehicles, hasVehicles } = useVehicleOwnershipFromConvex();
+  const { vehicles: listVehicles, hasVehicles, isLoading: vehiclesLoading } = useVehicleOwnershipFromConvex();
   const [showWelcome, setShowWelcome] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [locationName, setLocationName] = useState('Loading...');
@@ -158,6 +158,23 @@ export default function HomeScreen() {
     api.bookings.getByUserIdWithDetails,
     me?._id ? { userId: me._id } : "skip"
   );
+
+  // Hold a splash screen until the critical Convex queries — current
+  // user + vehicle ownership — have settled. Without this, the home
+  // page paints "no account / no car" defaults for a frame or two
+  // while individual queries arrive at different times, then snaps
+  // to the real state. We also enforce a small minimum hold (350ms)
+  // so the splash itself doesn't flash on fast cache-warm reloads.
+  const isCriticalDataLoading = me === undefined || vehiclesLoading;
+  const [splashHidden, setSplashHidden] = useState(false);
+  const splashStartedAtRef = useRef(Date.now());
+  useEffect(() => {
+    if (isCriticalDataLoading) return;
+    const elapsed = Date.now() - splashStartedAtRef.current;
+    const wait = Math.max(0, 350 - elapsed);
+    const t = setTimeout(() => setSplashHidden(true), wait);
+    return () => clearTimeout(t);
+  }, [isCriticalDataLoading]);
   const { selectedServiceIds, availableServices } = useBookingStore(
     useShallow((s) => ({ selectedServiceIds: s.selectedServiceIds, availableServices: s.availableServices }))
   );
@@ -191,8 +208,16 @@ export default function HomeScreen() {
   const resumeVehicleName = resumeVehicle ? `${resumeVehicle.make} ${resumeVehicle.model}` : undefined;
   const resumeVehicleImage = resumeVehicle?.imageSource;
 
-  // Account setup: hide when all checkable steps are done
-  const isAccountSetupComplete = !!(me?.onboardingCompleted && me?.tellUsAboutCompleted && hasVehicles);
+  // Account setup: hide when all checkable steps are done. Mirrors the
+  // per-step logic inside FinishAccountSetupCard:
+  //   - Create Account: signed-in user with name (covers OAuth signups
+  //     that skip the full onboarding flow)
+  //   - About You: tellUsAboutCompleted flag
+  //   - Add Car: at least one registered vehicle
+  //   - Payment Method: always considered complete
+  const hasCreateAccount = !!(me?.first_name && me?.last_name) || me?.onboardingCompleted === true;
+  const hasAboutYou = me?.tellUsAboutCompleted === true;
+  const isAccountSetupComplete = hasCreateAccount && hasAboutYou && hasVehicles;
   const showAccountSetup = !isAccountSetupComplete && !accountSetupDismissed;
 
   // Car setup: prefer incomplete vehicles, then completed-but-not-acknowledged.
@@ -471,6 +496,18 @@ export default function HomeScreen() {
         return 0;
     }
   };
+
+  if (!splashHidden) {
+    return (
+      <ScrollDrivenGradientBackground colors={["#5BA3D9", "#8FC4E8", "#d9e8f5"]}>
+        {() => (
+          <View style={styles.splashContainer}>
+            <ActivityIndicator size="large" color="#FFFFFF" />
+          </View>
+        )}
+      </ScrollDrivenGradientBackground>
+    );
+  }
 
   return (
     <>
@@ -777,6 +814,11 @@ const styles = StyleSheet.create({
   // Main home screen styles
   container: {
     flex: 1,
+  },
+  splashContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
   scrollView: {
     flex: 1,

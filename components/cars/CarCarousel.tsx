@@ -85,6 +85,10 @@ export interface Vehicle {
   nextUnlock?: string;
   gradientColors?: string[];
   connectionStatus?: string; // "unconnected" | "connected" | "error"
+  /** Body style from `vehicles.metadata.body_style` — drives the
+   *  per-car ground-line tire offset (trucks/SUVs sit higher in the
+   *  frame than sedans/coupes). */
+  bodyStyle?: string;
 }
 
 interface CarCarouselProps {
@@ -105,6 +109,9 @@ interface CarCarouselProps {
   isEstimatedScore?: boolean;
   /** Called when the user taps to resume the Quick Read from the estimated modal */
   onResumeCheckin?: () => void;
+  /** Parent has determined the active vehicle's gradient top is dark
+   *  enough that the hero text must flip to light to stay readable. */
+  isDarkBg?: boolean;
 }
 
 // ============================================================================
@@ -1524,6 +1531,7 @@ export function CarCarousel({
   healthScore: parentHealthScore,
   isEstimatedScore,
   onResumeCheckin,
+  isDarkBg = false,
 }: CarCarouselProps) {
   // Trust parent ordering to keep indices consistent across screens.
   const sortedVehicles = useMemo(() => vehicles, [vehicles]);
@@ -1597,6 +1605,22 @@ export function CarCarousel({
   };
 
   const activeVehicle = sortedVehicles[activeIndex];
+
+  // Ground-line tire offset, per body style. The car image is
+  // bottom-aligned in the carousel card with `resizeMode: contain`,
+  // but body styles sit differently in the frame — trucks/SUVs are
+  // tall (tires higher up the image) while sedans/coupes are flat
+  // (tires close to the bottom edge). These offsets are relative to
+  // the bottom of the carousel hero container; bigger value = line
+  // moves up.
+  const groundLineBottom = useMemo(() => {
+    const style = (activeVehicle?.bodyStyle ?? "").toLowerCase();
+    if (/truck|pickup/.test(style)) return 110;
+    if (/suv|crossover|wagon|van/.test(style)) return 95;
+    if (/coupe|convertible|roadster/.test(style)) return 64;
+    if (/sedan|hatchback|saloon/.test(style)) return 72;
+    return 78; // unknown body — keep the previous tuned default
+  }, [activeVehicle?.bodyStyle]);
 
   useEffect(() => {
     if (sortedVehicles.length === 0) {
@@ -1808,6 +1832,22 @@ export function CarCarousel({
               totalItems={sortedVehicles.length}
             />
           ))}
+
+          {/* Ground illusion: barely-visible hairline + a soft
+              shadow that fades downward, anchored to the bottom of
+              the hero zone (where the tires touch). Reads as the
+              car resting on a surface instead of floating in the
+              gradient. Both layers are pointer-transparent so they
+              don't interrupt the carousel's pan gesture. */}
+          <View
+            style={[styles.groundLine, { bottom: groundLineBottom }]}
+            pointerEvents="none"
+          />
+          <LinearGradient
+            colors={["rgba(0,0,0,0.06)", "rgba(0,0,0,0)"]}
+            style={[styles.groundShadow, { bottom: groundLineBottom - 38 }]}
+            pointerEvents="none"
+          />
         </View>
       </GestureDetector>
 
@@ -1815,11 +1855,11 @@ export function CarCarousel({
       <View style={styles.activeCarInfo}>
         <Text style={[
           styles.heroCarName,
-          activeVehicle?.make === 'Lamborghini' && styles.heroCarNameLight
+          (isDarkBg || activeVehicle?.make === 'Lamborghini') && styles.heroCarNameLight,
         ]}>{activeVehicle?.make} {activeVehicle?.model}</Text>
         <Text style={[
           styles.heroCarMeta,
-          activeVehicle?.make === 'Lamborghini' && styles.heroCarMetaLight
+          (isDarkBg || activeVehicle?.make === 'Lamborghini') && styles.heroCarMetaLight,
         ]}>
           {Math.ceil(activeVehicle?.mileage || 0).toLocaleString()} mi  |  {activeVehicle?.year}
         </Text>
@@ -1846,9 +1886,24 @@ export function CarCarousel({
             pointerEvents="none"
           >
             {isLiquidGlassEnabled && LiquidGlassView ? (
-              <LiquidGlassView interactive effect="regular" style={styles.slidingGlassPill} />
+              // Native iOS 26 liquid glass. `tintColor` gives the
+              // pill enough body to show on uniform backgrounds —
+              // without it the refraction is invisible against the
+              // light card backdrop. `colorScheme="light"` matches
+              // the bookings segmented-control's active pill look.
+              <LiquidGlassView
+                interactive
+                effect="regular"
+                tintColor="rgba(255,255,255,0.55)"
+                colorScheme="light"
+                style={styles.slidingGlassPillNative}
+              />
             ) : (
-              <BlurView intensity={60} tint="light" style={styles.slidingGlassPill} />
+              <BlurView
+                intensity={60}
+                tint="light"
+                style={[styles.slidingGlassPillNative, styles.slidingGlassPillFallback]}
+              />
             )}
           </ReAnimated.View>
 
@@ -2108,6 +2163,29 @@ const styles = StyleSheet.create({
     position: 'relative',
     marginTop: 0,
   },
+  // Inset so it reads as a "subtle plane" rather than a hard
+  // edge-to-edge horizon. Anchored to the bottom of the carousel
+  // hero zone so it lands at the tire line regardless of which car
+  // is active.
+  // `bottom` is supplied at the JSX site so the line can follow the
+  // active vehicle's body-style tire offset (truck vs sedan vs coupe).
+  groundLine: {
+    position: 'absolute',
+    left: 24,
+    right: 24,
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: 'rgba(255,255,255,0.1)',
+  },
+  // Soft floor shadow that starts at the hairline and fades
+  // downward from a faint dark tint into transparent. `bottom` is
+  // also supplied at the JSX site, kept 38px below the line so the
+  // pair stays glued together as the line moves.
+  groundShadow: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    height: 38,
+  },
   carouselCard: {
     width: CAR_CARD_WIDTH,
     height: CAR_CARD_HEIGHT,
@@ -2146,7 +2224,11 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     zIndex: 1,
-    transform: [{ translateY: scale(15) }],
+    // `scale: 0.85` zooms out the car a touch so it doesn't dominate
+    // the frame. `translateY` keeps the bottom (tires) at roughly the
+    // same Y after the scale-down so the ground line still lands at
+    // the tire base without retuning per-body-style offsets.
+    transform: [{ translateY: scale(22) }, { scale: 0.85 }],
   },
   carouselCarImageLexus: {
     // No longer needed — dynamic images have consistent sizing
@@ -2234,18 +2316,24 @@ const styles = StyleSheet.create({
     height: scale(48),
     zIndex: 0,
   },
-  slidingGlassPill: {
+  slidingGlassPillNative: {
     width: scale(48),
     height: scale(48),
     borderRadius: scale(24),
     overflow: 'hidden',
-    backgroundColor: 'rgba(255,255,255,0.55)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.6)',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.08,
     shadowRadius: 6,
+  },
+  // Only applied when falling back to BlurView. The white tint and
+  // border give the pill enough body to be visible without the iOS 26
+  // native refraction. On the LiquidGlassView path these would smother
+  // the real glass effect, so they're kept off that surface.
+  slidingGlassPillFallback: {
+    backgroundColor: 'rgba(255,255,255,0.55)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.6)',
   },
   thumbnailButton: {
     width: scale(48),
