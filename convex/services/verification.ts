@@ -36,7 +36,7 @@ export const processMechanicVerification = internalMutation({
         status: v.string(), // "confirmed" | "corrected" | "unknown"
         corrected_value: v.optional(v.string()),
         notes: v.optional(v.string()),
-      })
+      }),
     ),
     actual_labor_hours: v.optional(v.float64()),
     parts_used_correct: v.optional(v.boolean()),
