@@ -14,12 +14,12 @@
 
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo } from "react";
-import { Alert, Image, Platform, ScrollView, StyleSheet, TouchableOpacity, View, useWindowDimensions } from "react-native";
+import { Alert, BackHandler, Image, Platform, ScrollView, StyleSheet, TouchableOpacity, View, useWindowDimensions } from "react-native";
 
 // 2. Expo & Third-party
 import * as Calendar from "expo-calendar";
 import * as Linking from "expo-linking";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { Check, Gift, Navigation, Phone, Star } from "lucide-react-native";
 import Animated, {
   Easing,
@@ -372,6 +372,21 @@ export default function ConfirmationScreen() {
       Alert.alert("Error", "Could not add to calendar. Please try again.");
     }
   }, [shop?.name, localShop?.name, mechanic?.name, mechanic?.shopName, scheduledAppointment?.date, scheduledAppointment?.time, localBooking, fullAddress]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (Platform.OS !== "android") {
+        return undefined;
+      }
+
+      const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+        handleBackToHome();
+        return true;
+      });
+
+      return () => subscription.remove();
+    }, [handleBackToHome])
+  );
 
   // ═══════════════ RENDER ═══════════════
   return (

@@ -16,9 +16,9 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { StyleSheet, View, useWindowDimensions } from "react-native";
+import { BackHandler, Platform, StyleSheet, View, useWindowDimensions } from "react-native";
 
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import LottieView from "lottie-react-native";
 import Animated, {
   useAnimatedStyle,
@@ -95,6 +95,23 @@ export default function BookingConfirmingScreen() {
   const handleGoBack = useCallback(() => {
     sheetRef.current?.close();
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (Platform.OS !== "android") {
+        return undefined;
+      }
+
+      const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+        if (!submitting) {
+          handleGoBack();
+        }
+        return true;
+      });
+
+      return () => subscription.remove();
+    }, [handleGoBack, submitting])
+  );
 
   const handleConfirm = useCallback(async () => {
     if (submitting || navigatedRef.current) return;

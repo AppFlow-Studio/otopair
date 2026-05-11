@@ -16,11 +16,11 @@
 
 // 1. React & React Native
 import React, { useCallback, useMemo, useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { BackHandler, Platform, Pressable, StyleSheet, View } from "react-native";
 
 // 2. Expo & Third-party
 import { BlurView } from "expo-blur";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { ArrowLeft } from "lucide-react-native";
 import Animated, { interpolate, useAnimatedRef, useAnimatedStyle, useScrollOffset } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -179,6 +179,31 @@ export default function ShopDetailScreen() {
       setActiveTab(tab);
     }
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (Platform.OS !== "android") {
+        return undefined;
+      }
+
+      const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+        if (showAddServicesModal) {
+          setShowAddServicesModal(false);
+          return true;
+        }
+
+        if (showBookingModal) {
+          handleCloseBookingModal();
+          return true;
+        }
+
+        handleBack();
+        return true;
+      });
+
+      return () => subscription.remove();
+    }, [handleBack, handleCloseBookingModal, showAddServicesModal, showBookingModal])
+  );
 
   // ═══════════════ RENDER ═══════════════
   if (!shop) {
