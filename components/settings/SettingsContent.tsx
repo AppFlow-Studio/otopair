@@ -141,6 +141,7 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
 
   // Local stores (fallbacks + counts shown in row values).
   const bookingIds = useBookingStore((s) => s.bookingIds);
+  const bookings = useBookingStore((s) => s.bookings);
   const vehicleIds = useVehicleStore((s) => s.vehicleIds);
   const paymentMethods = usePaymentStore((s) => s.paymentMethods);
   const { transactions: convexTransactions } = useTransactionsFromConvex(
@@ -244,10 +245,13 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
   const vehicleCount = vehicleIds?.length ?? 0;
   const paymentMethodCount = paymentMethods?.length ?? 0;
   const transactionCount = convexTransactions.length;
-  const totalBookingsCount = useMemo(() => {
-    if (Array.isArray(convexBookings)) return convexBookings.length;
-    return Array.isArray(bookingIds) ? bookingIds.length : 0;
-  }, [convexBookings, bookingIds]);
+  const completedBookingsCount = useMemo(() => {
+    if (Array.isArray(convexBookings)) {
+      return convexBookings.filter((booking) => booking.status === "completed").length;
+    }
+    if (!Array.isArray(bookingIds)) return 0;
+    return bookingIds.filter((id) => bookings[id]?.status === "completed").length;
+  }, [convexBookings, bookingIds, bookings]);
 
   const planTitle = useMemo(() => {
     if (isCreateAccountComplete) return "Gold";
@@ -351,10 +355,10 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
           <AvatarSlider
             size={72}
             panels={[
-              <Text weight="semiBold" size="2xl" color="#FFFFFF">
+              <Text key="initials" weight="semiBold" size="2xl" color="#FFFFFF">
                 {initials}
               </Text>,
-              <OtoPairIcon size={48} />,
+              <OtoPairIcon key="logo" size={48} />,
             ]}
           />
         </LinearGradient>
@@ -456,7 +460,7 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
           <SettingsRow
             icon={<Clock size={18} color="#1F2937" />}
             label="Booking History"
-            value={totalBookingsCount > 0 ? totalBookingsCount : undefined}
+            value={completedBookingsCount > 0 ? completedBookingsCount : undefined}
             onPress={() => router.push("/settings/booking-history")}
             isLast
           />
@@ -713,7 +717,7 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
                   Logout?
                 </Text>
                 <Text size="sm" color="#6B7280" style={styles.confirmText}>
-                  You'll need to sign in again to access your account.
+                  You&apos;ll need to sign in again to access your account.
                 </Text>
                 <View style={styles.confirmActionsRow}>
                   <Button
