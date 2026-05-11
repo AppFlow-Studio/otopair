@@ -1221,6 +1221,74 @@ export default defineSchema({
     mechanic_id: v.optional(v.id("mechanics")),
     vin: v.string(),
     service_ids: v.array(v.id("services")),
+    customer_notes: v.optional(v.string()),
+    diagnostic_system: v.optional(
+      v.union(
+        v.literal("brakes"),
+        v.literal("tires_wheels"),
+        v.literal("engine"),
+        v.literal("battery_electrical"),
+        v.literal("not_sure"),
+      ),
+    ),
+    diagnostic_checklist: v.optional(
+      v.array(
+        v.object({
+          label: v.string(),
+          status: v.union(
+            v.literal("pending"),
+            v.literal("checked"),
+            v.literal("flagged"),
+            v.literal("skipped"),
+          ),
+          mechanic_note: v.optional(v.string()),
+          skip_reason: v.optional(
+            v.union(
+              v.literal("not_applicable"),
+              v.literal("no_equipment"),
+              v.literal("customer_declined"),
+              v.literal("out_of_time"),
+            ),
+          ),
+        }),
+      ),
+    ),
+    diagnostic_checklist_completed_at_ms: v.optional(v.number()),
+    diagnostic_findings_note: v.optional(v.string()),
+    recommended_service_id: v.optional(v.id("services")),
+    recommended_service_note: v.optional(v.string()),
+    recommendation_state: v.optional(
+      v.union(
+        v.literal("none"),
+        v.literal("pending_customer"),
+        v.literal("confirmed"),
+        v.literal("declined"),
+        v.literal("out_of_scope"),
+      ),
+    ),
+    recommendation_sent_at_ms: v.optional(v.number()),
+    recommendation_decided_at_ms: v.optional(v.number()),
+    recommended_scheduled_date: v.optional(v.string()),
+    recommended_scheduled_time: v.optional(v.string()),
+    parent_job_id: v.optional(v.id("bookings")),
+    diagnostic_followup_state: v.optional(
+      v.union(
+        v.literal("pending"),
+        v.literal("awaiting_info"),
+        v.literal("resolved"),
+      ),
+    ),
+    awaiting_info_note: v.optional(v.string()),
+    awaiting_info_at_ms: v.optional(v.number()),
+    out_of_scope_note: v.optional(v.string()),
+    out_of_scope_category: v.optional(
+      v.union(
+        v.literal("bodywork"),
+        v.literal("transmission"),
+        v.literal("electrical_major"),
+        v.literal("other"),
+      ),
+    ),
     time_slot_id: v.optional(v.id("time_slots")),
     scheduled_date: v.optional(v.string()),
     scheduled_time: v.optional(v.string()),
@@ -1246,6 +1314,10 @@ export default defineSchema({
     previous_scheduled_time: v.optional(v.string()),
     previous_mechanic_id: v.optional(v.id("mechanics")),
     previous_status: v.optional(v.string()),
+    vehicle_arrived_at_ms: v.optional(v.number()),
+    vehicle_arrived_by_user_id: v.optional(v.id("users")),
+    assignment_preference: v.optional(v.string()),
+    completed_at_ms: v.optional(v.number()),
     reschedule_proposed_at: v.optional(v.number()),
   })
     .index("by_user_id", ["user_id"])

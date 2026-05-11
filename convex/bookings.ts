@@ -66,6 +66,35 @@ import {
   vehiclePassportUpdateValidator,
 } from "./lib/vehicle_passports";
 import { getBookingServiceFlags } from "../lib/vehicle-service-relevance";
+import {
+  templateForSystem,
+  type DiagnosticSystem,
+} from "../lib/diagnostic-checklist-templates";
+
+function assertFlaggedItemsHaveNotes(booking: any) {
+  const checklist = booking.diagnostic_checklist ?? [];
+  const offenders = checklist.filter(
+    (item: any) =>
+      item.status === "flagged" &&
+      (!item.mechanic_note || item.mechanic_note.trim().length === 0),
+  );
+  if (offenders.length > 0) {
+    throw new Error(
+      `Add a note to ${offenders.length} flagged item${offenders.length === 1 ? "" : "s"} before submitting.`,
+    );
+  }
+}
+
+function resolveDiagnosticSystem(
+  booking: any,
+  serviceNames: string[],
+): DiagnosticSystem | null {
+  if (booking.diagnostic_system) return booking.diagnostic_system as DiagnosticSystem;
+  if (serviceNames.some((name) => /diagnost/i.test(name))) {
+    return "not_sure";
+  }
+  return null;
+}
 
 function normalizeNullableText(value: string | null | undefined) {
   const trimmed = typeof value === "string" ? value.trim() : "";
@@ -3135,6 +3164,29 @@ export const getJobDetail = query({
       previousMechanicId: booking.previous_mechanic_id ?? null,
       previousMechanicName,
       rescheduleProposedAt: booking.reschedule_proposed_at ?? null,
+      // Diagnostic worksheet + recommend-service flow (ported from web).
+      customerNotes: booking.customer_notes ?? null,
+      diagnosticSystem: resolveDiagnosticSystem(booking, serviceNames),
+      diagnosticChecklist: booking.diagnostic_checklist ?? null,
+      diagnosticChecklistCompletedAtMs:
+        booking.diagnostic_checklist_completed_at_ms ?? null,
+      diagnosticFindingsNote: booking.diagnostic_findings_note ?? null,
+      recommendedServiceId: booking.recommended_service_id ?? null,
+      recommendedServiceName: booking.recommended_service_id
+        ? ((await ctx.db.get(booking.recommended_service_id)) as any)?.name ?? null
+        : null,
+      recommendedServiceNote: booking.recommended_service_note ?? null,
+      recommendationState: booking.recommendation_state ?? null,
+      recommendationSentAtMs: booking.recommendation_sent_at_ms ?? null,
+      recommendationDecidedAtMs: booking.recommendation_decided_at_ms ?? null,
+      recommendedScheduledDate: booking.recommended_scheduled_date ?? null,
+      recommendedScheduledTime: booking.recommended_scheduled_time ?? null,
+      parentJobId: booking.parent_job_id ?? null,
+      diagnosticFollowupState: booking.diagnostic_followup_state ?? null,
+      awaitingInfoNote: booking.awaiting_info_note ?? null,
+      awaitingInfoAtMs: booking.awaiting_info_at_ms ?? null,
+      outOfScopeNote: booking.out_of_scope_note ?? null,
+      outOfScopeCategory: booking.out_of_scope_category ?? null,
     };
   },
 });
@@ -3256,6 +3308,29 @@ export const startWithPrejob = mutation({
         changedBy: user._id,
         reason: "started_by_shop",
       });
+    }
+
+    {
+      const resolvedSystem = resolveDiagnosticSystem(
+        booking,
+        await resolveServiceNames(ctx, booking.service_ids),
+      );
+      if (
+        resolvedSystem &&
+        (!booking.diagnostic_checklist || booking.diagnostic_checklist.length === 0)
+      ) {
+        await ctx.db.patch(booking._id, {
+          diagnostic_checklist: templateForSystem(resolvedSystem),
+          diagnostic_followup_state:
+            booking.diagnostic_followup_state ?? "pending",
+          updated_at: now,
+        });
+      } else if (resolvedSystem && !booking.diagnostic_followup_state) {
+        await ctx.db.patch(booking._id, {
+          diagnostic_followup_state: "pending",
+          updated_at: now,
+        });
+      }
     }
 
     return await buildVehiclePassportForBooking(ctx, booking);
@@ -4395,5 +4470,475 @@ export const listOpenTireQuoteRequestsForShop = query({
         };
       }),
     );
+  },
+});
+
+// ============================================================================
+// DIAGNOSTIC WORKSHEET + RECOMMEND SERVICE FLOW
+// Ported from otopair-web@TemurDev (54d59ad + 507f5f4).
+// ============================================================================
+
+export const updateDiagnosticChecklistItem = mutation({
+  args: {
+    bookingId: v.id("bookings"),
+    index: v.number(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("checked"),
+      v.literal("flagged"),
+      v.literal("skipped"),
+    ),
+    mechanicNote: v.optional(v.string()),
+    skipReason: v.optional(
+      v.union(
+        v.literal("not_applicable"),
+        v.literal("no_equipment"),
+        v.literal("customer_declined"),
+        v.literal("out_of_time"),
+      ),
+    ),
+  },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUser(ctx);
+    const booking = await ctx.db.get(args.bookingId);
+    if (!booking) throw new Error("We couldn't find that booking. It may have been cancelled or removed.");
+    await requireShopStaff(ctx, user._id, booking.shop_id);
+
+    let checklist = booking.diagnostic_checklist ?? [];
+    if (checklist.length === 0) {
+      const resolvedSystem = resolveDiagnosticSystem(
+        booking,
+        await resolveServiceNames(ctx, booking.service_ids),
+      );
+      if (resolvedSystem) {
+        checklist = templateForSystem(resolvedSystem);
+      }
+    }
+    if (args.index < 0 || args.index >= checklist.length) {
+      throw new Error("That checklist item is no longer available. Refresh and try again.");
+    }
+    const trimmedNote = args.mechanicNote?.trim();
+    const next = checklist.map((item, idx) => {
+      if (idx !== args.index) return item;
+      const updated: any = { ...item, status: args.status };
+      if (args.status === "pending") {
+        delete updated.mechanic_note;
+        delete updated.skip_reason;
+      } else {
+        if (trimmedNote && trimmedNote.length > 0) {
+          updated.mechanic_note = trimmedNote;
+        } else if (args.mechanicNote !== undefined) {
+          delete updated.mechanic_note;
+        }
+        if (args.status === "skipped") {
+          if (args.skipReason) updated.skip_reason = args.skipReason;
+        } else {
+          delete updated.skip_reason;
+        }
+      }
+      return updated;
+    });
+
+    await ctx.db.patch(booking._id, {
+      diagnostic_checklist: next,
+      updated_at: Date.now(),
+    });
+
+    return next;
+  },
+});
+
+export const updateDiagnosticFindings = mutation({
+  args: {
+    bookingId: v.id("bookings"),
+    note: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUser(ctx);
+    const booking = await ctx.db.get(args.bookingId);
+    if (!booking) throw new Error("We couldn't find that booking. It may have been cancelled or removed.");
+    await requireShopStaff(ctx, user._id, booking.shop_id);
+    await ctx.db.patch(booking._id, {
+      diagnostic_findings_note: args.note.trim() || undefined,
+      updated_at: Date.now(),
+    });
+    return { success: true };
+  },
+});
+
+export const completeDiagnosticBooking = mutation({
+  args: { bookingId: v.id("bookings") },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUser(ctx);
+    const booking = await ctx.db.get(args.bookingId);
+    if (!booking) throw new Error("We couldn't find that booking. It may have been cancelled or removed.");
+    await requireShopStaff(ctx, user._id, booking.shop_id);
+
+    const resolvedSystem = resolveDiagnosticSystem(
+      booking,
+      await resolveServiceNames(ctx, booking.service_ids),
+    );
+    if (!resolvedSystem) {
+      throw new Error("Not a diagnostic booking");
+    }
+    const checklist = booking.diagnostic_checklist ?? [];
+    if (checklist.length === 0) {
+      throw new Error("Diagnostic checklist has not been started");
+    }
+    const unresolved = checklist.filter((item: any) => item.status === "pending");
+    if (unresolved.length > 0) {
+      throw new Error(
+        `Resolve all ${checklist.length} checklist items before completing (${unresolved.length} pending).`,
+      );
+    }
+    assertFlaggedItemsHaveNotes(booking);
+
+    const now = Date.now();
+    await ctx.db.patch(booking._id, {
+      diagnostic_checklist_completed_at_ms: now,
+      diagnostic_followup_state: "resolved",
+      updated_at: now,
+    });
+
+    if (booking.status !== "completed") {
+      await applyBookingStatusTransition(ctx, {
+        booking,
+        newStatus: "completed",
+        changedBy: user._id,
+        reason: "diagnostic_completed_by_shop",
+      });
+    }
+
+    return { success: true };
+  },
+});
+
+export const parkDiagnosticForInfo = mutation({
+  args: {
+    bookingId: v.id("bookings"),
+    note: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUser(ctx);
+    const booking = await ctx.db.get(args.bookingId);
+    if (!booking) throw new Error("We couldn't find that booking. It may have been cancelled or removed.");
+    await requireShopStaff(ctx, user._id, booking.shop_id);
+
+    const note = args.note.trim();
+    if (!note) throw new Error("Add a short note about what you're waiting on.");
+
+    const now = Date.now();
+    await ctx.db.patch(booking._id, {
+      diagnostic_followup_state: "awaiting_info",
+      awaiting_info_note: note,
+      awaiting_info_at_ms: now,
+      updated_at: now,
+    });
+    return { success: true };
+  },
+});
+
+export const resumeDiagnosticFollowUp = mutation({
+  args: { bookingId: v.id("bookings") },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUser(ctx);
+    const booking = await ctx.db.get(args.bookingId);
+    if (!booking) throw new Error("We couldn't find that booking. It may have been cancelled or removed.");
+    await requireShopStaff(ctx, user._id, booking.shop_id);
+
+    await ctx.db.patch(booking._id, {
+      diagnostic_followup_state: "pending",
+      awaiting_info_note: undefined,
+      awaiting_info_at_ms: undefined,
+      updated_at: Date.now(),
+    });
+    return { success: true };
+  },
+});
+
+export const getDiagnosticsNeedingFollowUp = query({
+  args: {},
+  handler: async (ctx) => {
+    const user = await getCurrentUserOrNull(ctx);
+    if (!user) return [];
+    const primary = await getPrimaryAuthorizedShop(ctx, user._id);
+    if (!primary) return [];
+
+    const rows = await ctx.db
+      .query("bookings")
+      .withIndex("by_shop_id", (q: any) => q.eq("shop_id", primary.shopId))
+      .collect();
+
+    const filtered = rows.filter(
+      (b: any) =>
+        (b.diagnostic_followup_state === "pending" ||
+          b.diagnostic_followup_state === "awaiting_info") &&
+        b.status !== "cancelled" &&
+        b.status !== "declined",
+    );
+
+    return await Promise.all(
+      filtered.map(async (booking: any) => {
+        const customer: any = await ctx.db.get(booking.user_id);
+        const vehicleLabels = await resolveVehicleLabel(ctx, booking.vin);
+        const serviceNames = await resolveServiceNames(ctx, booking.service_ids);
+        return {
+          _id: booking._id,
+          scheduledDate: booking.scheduled_date,
+          scheduledTime: booking.scheduled_time,
+          status: booking.status,
+          customerName: formatCustomerName(customer),
+          vehicle: vehicleLabels.full,
+          serviceNames,
+          diagnosticSystem: resolveDiagnosticSystem(booking, serviceNames),
+          followupState: booking.diagnostic_followup_state,
+          awaitingInfoNote: booking.awaiting_info_note ?? null,
+          awaitingInfoAtMs: booking.awaiting_info_at_ms ?? null,
+          checklistCompletedAtMs:
+            booking.diagnostic_checklist_completed_at_ms ?? null,
+        };
+      }),
+    );
+  },
+});
+
+export const flagOutOfScopeFinding = mutation({
+  args: {
+    bookingId: v.id("bookings"),
+    category: v.union(
+      v.literal("bodywork"),
+      v.literal("transmission"),
+      v.literal("electrical_major"),
+      v.literal("other"),
+    ),
+    note: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUser(ctx);
+    const booking = await ctx.db.get(args.bookingId);
+    if (!booking) throw new Error("We couldn't find that booking. It may have been cancelled or removed.");
+    await requireShopStaff(ctx, user._id, booking.shop_id);
+
+    const note = args.note.trim();
+    if (!note) throw new Error("Describe the finding before flagging.");
+    assertFlaggedItemsHaveNotes(booking);
+
+    const now = Date.now();
+    await ctx.db.patch(booking._id, {
+      recommendation_state: "out_of_scope",
+      out_of_scope_category: args.category,
+      out_of_scope_note: note,
+      recommendation_sent_at_ms: now,
+      diagnostic_followup_state: "resolved",
+      updated_at: now,
+    });
+
+    if (booking.status !== "completed") {
+      await applyBookingStatusTransition(ctx, {
+        booking,
+        newStatus: "completed",
+        changedBy: user._id,
+        reason: "diagnostic_out_of_scope",
+      });
+    }
+
+    return { success: true };
+  },
+});
+
+export const attachRecommendedService = mutation({
+  args: {
+    bookingId: v.id("bookings"),
+    serviceId: v.id("services"),
+    mechanicNote: v.string(),
+    scheduledDate: v.optional(v.string()),
+    scheduledTime: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUser(ctx);
+    const booking = await ctx.db.get(args.bookingId);
+    if (!booking) throw new Error("We couldn't find that booking. It may have been cancelled or removed.");
+    await requireShopStaff(ctx, user._id, booking.shop_id);
+
+    const service = await ctx.db.get(args.serviceId);
+    if (!service) throw new Error("Recommended service not found");
+
+    const note = args.mechanicNote.trim();
+    if (!note) throw new Error("Add a short note explaining the finding.");
+    assertFlaggedItemsHaveNotes(booking);
+
+    const now = Date.now();
+    await ctx.db.patch(booking._id, {
+      recommended_service_id: args.serviceId,
+      recommended_service_note: note,
+      recommendation_state: "pending_customer",
+      recommendation_sent_at_ms: now,
+      recommendation_decided_at_ms: undefined,
+      recommended_scheduled_date: args.scheduledDate,
+      recommended_scheduled_time: args.scheduledTime,
+      diagnostic_followup_state: "resolved",
+      updated_at: now,
+    });
+
+    return { success: true };
+  },
+});
+
+export const customerDecideRecommendation = mutation({
+  args: {
+    bookingId: v.id("bookings"),
+    decision: v.union(v.literal("confirmed"), v.literal("declined")),
+  },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUser(ctx);
+    const booking = await ctx.db.get(args.bookingId);
+    if (!booking) throw new Error("We couldn't find that booking. It may have been cancelled or removed.");
+    await requireShopStaff(ctx, user._id, booking.shop_id);
+
+    if (booking.recommendation_state !== "pending_customer") {
+      throw new Error("No recommendation is awaiting a decision.");
+    }
+
+    const now = Date.now();
+
+    if (args.decision === "declined") {
+      await ctx.db.patch(booking._id, {
+        recommendation_state: "declined",
+        recommendation_decided_at_ms: now,
+        updated_at: now,
+      });
+      return { success: true, followUpBookingId: null as Id<"bookings"> | null };
+    }
+
+    if (!booking.recommended_service_id) {
+      throw new Error("Recommendation has no service attached.");
+    }
+    const service = await ctx.db.get(booking.recommended_service_id);
+    if (!service) throw new Error("Recommended service no longer exists.");
+
+    const scheduledForLater =
+      !!booking.recommended_scheduled_date &&
+      !!booking.recommended_scheduled_time &&
+      (booking.recommended_scheduled_date !== booking.scheduled_date ||
+        booking.recommended_scheduled_time !== booking.scheduled_time);
+
+    const followUpMinutes = Math.round(
+      ((service as any).default_labor_hours ?? 1) * 60,
+    );
+
+    const followUpDate = scheduledForLater
+      ? booking.recommended_scheduled_date!
+      : booking.scheduled_date;
+    const followUpStart = scheduledForLater
+      ? booking.recommended_scheduled_time!
+      : getBookingEndTime(
+          booking.scheduled_time,
+          booking.estimated_labor_minutes,
+        );
+
+    const followUpId = await ctx.db.insert("bookings", {
+      user_id: booking.user_id,
+      shop_id: booking.shop_id,
+      mechanic_id: booking.mechanic_id,
+      vin: booking.vin,
+      service_ids: [booking.recommended_service_id],
+      scheduled_date: followUpDate,
+      scheduled_time: followUpStart,
+      status: scheduledForLater ? "confirmed" : "in_progress",
+      assignment_preference: booking.assignment_preference,
+      labor_cost: 0,
+      parts_cost: 0,
+      total_cost: 0,
+      estimated_labor_minutes: followUpMinutes,
+      parent_job_id: booking._id,
+      vehicle_arrived_at_ms: scheduledForLater
+        ? undefined
+        : booking.vehicle_arrived_at_ms ?? now,
+      created_at: now,
+      updated_at: now,
+    });
+
+    // Right-after path: cascade-push later bookings on the same mechanic's lane
+    if (!scheduledForLater && booking.mechanic_id) {
+      const toMinutes = (hhmm: string) => {
+        const [h, m] = hhmm.split(":").map(Number);
+        return h * 60 + m;
+      };
+      const shopBookings = await ctx.db
+        .query("bookings")
+        .withIndex("by_shop_id", (q: any) =>
+          q.eq("shop_id", booking.shop_id),
+        )
+        .collect();
+      const laneBookings = shopBookings
+        .filter(
+          (b: any) =>
+            String(b.mechanic_id) === String(booking.mechanic_id) &&
+            b.scheduled_date === followUpDate &&
+            String(b._id) !== String(booking._id) &&
+            String(b._id) !== String(followUpId) &&
+            b.status !== "cancelled" &&
+            b.status !== "declined" &&
+            b.status !== "no_show" &&
+            toMinutes(b.scheduled_time) >= toMinutes(followUpStart),
+        )
+        .sort(
+          (a: any, b: any) =>
+            toMinutes(a.scheduled_time) - toMinutes(b.scheduled_time),
+        );
+
+      let cursor = addMinutesToHHMM(followUpStart, followUpMinutes);
+      for (const b of laneBookings) {
+        if (toMinutes(b.scheduled_time) >= toMinutes(cursor)) break;
+        await ctx.db.patch(b._id, {
+          scheduled_time: cursor,
+          updated_at: now,
+        });
+        cursor = addMinutesToHHMM(cursor, b.estimated_labor_minutes ?? 60);
+      }
+    }
+
+    await ctx.db.patch(booking._id, {
+      recommendation_state: "confirmed",
+      recommendation_decided_at_ms: now,
+      status: "completed",
+      completed_at_ms: now,
+      updated_at: now,
+    });
+
+    return { success: true, followUpBookingId: followUpId };
+  },
+});
+
+export const generatePostjobPhotoUploadUrl = mutation({
+  args: { bookingId: v.id("bookings") },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUser(ctx);
+    const booking = await ctx.db.get(args.bookingId);
+    if (!booking) throw new Error("We couldn't find that booking. It may have been cancelled or removed.");
+    await requireShopStaff(ctx, user._id, booking.shop_id);
+    return await ctx.storage.generateUploadUrl();
+  },
+});
+
+export const getPostjobPhotoUrls = query({
+  args: { bookingId: v.id("bookings") },
+  handler: async (ctx, args) => {
+    const booking = await ctx.db.get(args.bookingId);
+    if (!booking) return [];
+    const jobActual = await ctx.db
+      .query("job_actuals")
+      .withIndex("by_booking_id", (q) => q.eq("booking_id", args.bookingId))
+      .first();
+    const photos = (jobActual?.postjob_report as any)?.postjob_photos ?? [];
+    const resolved = await Promise.all(
+      photos.map(async (photo: any) => ({
+        storage_id: photo.storage_id,
+        caption: photo.caption ?? null,
+        taken_at: photo.taken_at,
+        url: await ctx.storage.getUrl(photo.storage_id),
+      })),
+    );
+    return resolved.filter((entry) => entry.url !== null);
   },
 });
