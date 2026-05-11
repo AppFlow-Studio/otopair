@@ -28,6 +28,21 @@ import { TireQuoteCard } from "@/components/tire-booking/TireQuoteCard";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
 import type { TireQuote } from "@/constants/tireFlow";
+import { hhmmToDisplayTime } from "@/utils/timeSlotUtils";
+
+/** Format a structured availability ({date, time}) into a single display
+ *  string for `TireQuoteCard`. e.g. {date: "2026-05-15", time: "14:00"}
+ *  → "Fri, May 15 · 2:00 PM". Local timezone (avoids the UTC-midnight bug). */
+function formatAvailability(date: string, time: string): string {
+  const [y, m, d] = date.split("-").map(Number);
+  if (!y || !m || !d) return `${date} · ${time}`;
+  const weekdays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  const dt = new Date(y, m - 1, d);
+  const dateLabel = `${weekdays[dt.getDay()]}, ${months[dt.getMonth()]} ${dt.getDate()}`;
+  const timeLabel = /^\d{1,2}:\d{2}$/.test(time) ? hhmmToDisplayTime(time) : time;
+  return `${dateLabel} · ${timeLabel}`;
+}
 
 export interface QuoteListSheetRef {
   /** Open the sheet with quotes for the given booking. */
@@ -81,7 +96,7 @@ export const QuoteListSheet = forwardRef<QuoteListSheetRef, Props>(
         quantity: number;
         labor_cost: number;
         total: number;
-        availability: string;
+        availability: { date: string; time: string };
         shop: {
           _id: string;
           name: string;
@@ -111,7 +126,7 @@ export const QuoteListSheet = forwardRef<QuoteListSheetRef, Props>(
           quantity: r.quantity,
           laborCost: r.labor_cost,
           total: r.total,
-          availability: r.availability,
+          availability: formatAvailability(r.availability.date, r.availability.time),
           isBestMatch,
         };
       });

@@ -44,23 +44,20 @@ import {
 import { FinishAccountSetupCard } from './FinishAccountSetupCard';
 import { FinishCarSetupCard } from './FinishCarSetupCard';
 import { ResumeBookingCard } from './ResumeBookingCard';
-import { UpcomingAppointmentCard } from './UpcomingAppointmentCard';
+import { BookingCard, type Booking as BookingCardBooking } from '@/components/bookings/BookingCard';
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
 interface ActionCardsCarouselProps {
-  // Upcoming Appointment
+  // Upcoming Appointment — now uses the shared BookingCard from the
+  // bookings tab for consistency. Pass the adapted booking object plus
+  // the same handlers the bookings tab wires (view-details, cancel).
   showAppointment?: boolean;
-  appointmentBusinessName?: string;
-  appointmentMechanicName?: string;
-  appointmentRating?: number;
-  appointmentIsVerified?: boolean;
-  appointmentDate?: string;
-  appointmentTimeSlot?: string;
-  appointmentLateMinutes?: number;
-  onAppointmentPress?: () => void;
+  appointmentBooking?: BookingCardBooking | null;
+  onAppointmentViewDetails?: (bookingId: string) => void;
+  onAppointmentCancel?: (bookingId: string) => void;
 
   // Resume Booking
   showResumeBooking?: boolean;
@@ -100,14 +97,9 @@ const CARD_GAP = 0; // No gap to prevent peeking
 export function ActionCardsCarousel({
   // Upcoming Appointment
   showAppointment = false,
-  appointmentBusinessName = '',
-  appointmentMechanicName = '',
-  appointmentRating = 0,
-  appointmentIsVerified = false,
-  appointmentDate = '',
-  appointmentTimeSlot = '',
-  appointmentLateMinutes,
-  onAppointmentPress,
+  appointmentBooking,
+  onAppointmentViewDetails,
+  onAppointmentCancel,
 
   // Resume Booking
   showResumeBooking = false,
@@ -176,16 +168,14 @@ export function ActionCardsCarousel({
       case 'appointment':
         return (
           <View key={cardId} style={styles.cardContainer}>
-            <UpcomingAppointmentCard
-              businessName={appointmentBusinessName}
-              mechanicName={appointmentMechanicName}
-              rating={appointmentRating}
-              isVerified={appointmentIsVerified}
-              date={appointmentDate}
-              timeSlot={appointmentTimeSlot}
-              lateMinutes={appointmentLateMinutes}
-              onPress={onAppointmentPress}
-            />
+            {appointmentBooking ? (
+              <BookingCard
+                booking={appointmentBooking}
+                variant="upcoming"
+                onViewDetails={onAppointmentViewDetails}
+                onCancelBooking={onAppointmentCancel}
+              />
+            ) : null}
           </View>
         );
       case 'resume':
@@ -250,7 +240,10 @@ export function ActionCardsCarousel({
 
 const styles = StyleSheet.create({
   container: {
-    height: 310, // Fixed height to prevent content shifting when scrolling between cards
+    // BookingCard (used for the appointment slot) is the tallest card —
+    // keep a uniform height so swiping between cards doesn't shift the
+    // layout below.
+    height: 380,
   },
   scrollView: {
     marginHorizontal: -16, // Extend scroll view to edges

@@ -27,7 +27,7 @@
 
 import { BlurView } from "expo-blur";
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from "react";
-import { Dimensions, Pressable, StyleSheet, View } from "react-native";
+import { Dimensions, Modal, Pressable, StyleSheet, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
   Extrapolation,
@@ -282,7 +282,19 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
 
     if (!mounted) return null;
 
+    // Wrap in a native <Modal> so the sheet renders above the global
+    // bottom tab bar (matches the membership-page bottom-sheet pattern).
+    // Without this, the absolute-positioned sheet sits underneath the
+    // floating TabBar and the user sees the tab bar peek through the
+    // dim/blur backdrop.
     return (
+      <Modal
+        visible={mounted}
+        transparent
+        animationType="none"
+        statusBarTranslucent
+        onRequestClose={close}
+      >
       <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
         {showBackdrop ? (
           <Animated.View style={[StyleSheet.absoluteFill, backdropAnimStyle]} pointerEvents="auto">
@@ -325,6 +337,7 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
           </Animated.View>
         </Animated.View>
       </View>
+      </Modal>
     );
   },
 );

@@ -11,8 +11,8 @@
  */
 
 // 1. React & React Native
-import React, { useCallback, useLayoutEffect, useRef, useState } from "react";
-import { StyleSheet, TouchableOpacity, View } from "react-native";
+import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { InteractionManager, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
 import { BlurView } from "expo-blur";
@@ -79,6 +79,19 @@ export default function BookingsScreen() {
 
   // ═══════════════ REFS ═══════════════
   const mapRef = useRef<MapView>(null);
+
+  // Defer mounting the heavy native MapView until the slide-from-bottom
+  // transition has completed. The MapView's first-frame initialization
+  // would otherwise run on the JS thread during the route animation and
+  // produce visible chop. The placeholder underneath shares the screen's
+  // background color so the swap is invisible.
+  const [isMapReady, setIsMapReady] = useState(false);
+  useEffect(() => {
+    const handle = InteractionManager.runAfterInteractions(() => {
+      setIsMapReady(true);
+    });
+    return () => handle.cancel();
+  }, []);
 
   // ═══════════════ BOOKING STORE ═══════════════
   const userLocation = useBookingStore((state) => state.userLocation);
@@ -263,13 +276,19 @@ export default function BookingsScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Map - dynamically loads pins based on current view */}
-      <BookingMap
-        ref={mapRef}
-        onShopSelect={handleShopSelect}
-        sheetAnimatedIndex={indexForMap ?? undefined}
-        focusedShop={focusedShop}
-      />
+      {/* Map — deferred mount keeps the slide-in animation smooth.
+          A neutral placeholder fills the space until InteractionManager
+          confirms the route transition is done. */}
+      {isMapReady ? (
+        <BookingMap
+          ref={mapRef}
+          onShopSelect={handleShopSelect}
+          sheetAnimatedIndex={indexForMap ?? undefined}
+          focusedShop={focusedShop}
+        />
+      ) : (
+        <View style={styles.mapPlaceholder} />
+      )}
 
       {/* Floating Back Button - Top Left */}
       {/* Hidden when sheet is fully expanded OR in search mode */}
@@ -334,6 +353,10 @@ export default function BookingsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: "#E8ECF0",
+  },
+  mapPlaceholder: {
+    ...StyleSheet.absoluteFillObject,
     backgroundColor: "#E8ECF0",
   },
   backButtonContainer: {

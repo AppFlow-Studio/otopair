@@ -10,6 +10,17 @@ import { type ReactNode, useEffect, useRef, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
 import { KeyboardProvider } from "react-native-keyboard-controller";
+import { LogBox } from "react-native";
+
+// Suppress the dev-mode red LogBox overlay for Convex mutation/query
+// errors. We always catch these in app code and surface them via the
+// existing error modal — the LogBox dump is just dev-time noise on top.
+// Errors still log to Metro for debugging; this only hides the overlay.
+LogBox.ignoreLogs([
+  /\[CONVEX M\([^\)]+\)\]/,
+  /\[CONVEX Q\([^\)]+\)\]/,
+  /\[CONVEX A\([^\)]+\)\]/,
+]);
 
 import { ConvexReactClient } from "convex/react";
 import { ConvexProviderWithClerk } from "convex/react-clerk";

@@ -39,7 +39,7 @@ import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 
 // 4. Shared UI
 import { Text } from "@/components/shared-ui";
-import { useVehicleImage } from "@/utils/vehicleImage";
+import { fetchVehicleImageUrl, useVehicleImage } from "@/utils/vehicleImage";
 import { scale, verticalScale, moderateScale } from '@/utils/responsive';
 
 // 5. Constants
@@ -255,6 +255,7 @@ export default function ReviewVehicleDetailsScreen() {
   const { userId } = useUserFromConvex();
   const addOwner = useMutation(api.vehicles.addOwner);
   const upsertVehicle = useMutation(api.vehicles.upsertVehicle);
+  const saveVehicleImageUrl = useMutation(api.vehicles.saveVehicleImageUrl);
   // Check if this is manual entry mode (no VIN provided)
   const isManualEntry = manual === "true";
 
@@ -390,6 +391,32 @@ export default function ReviewVehicleDetailsScreen() {
         mileage: mileage ? Number(mileage) : undefined,
       });
       createdOwnershipId = String(ownershipId);
+
+      // Kick off the vehicle-image fetch *after* the vehicle row exists
+      // (so `saveVehicleImageUrl` can patch by VIN) but *before* we
+      // navigate, so the image is already cached in Convex by the time
+      // the cars page reads it. Fire-and-forget — we don't want to
+      // block the navigation on a network round-trip. If the API has
+      // no color-matched render the helper falls back to the first
+      // exterior shot.
+      if (brand && model && normalizedVin.length === 17) {
+        const yearNum = year ? parseFloat(year) : undefined;
+        fetchVehicleImageUrl(
+          brand,
+          model,
+          yearNum,
+          normalizedVin,
+          selectedColor || undefined,
+          trim || undefined,
+        )
+          .then((url) => {
+            if (url) saveVehicleImageUrl({ vin: normalizedVin, image_url: url });
+          })
+          .catch(() => {
+            // Non-fatal: cars page useEffect will retry the fetch
+            // next time the user lands on it.
+          });
+      }
 
     } catch (e) {
       console.warn("Convex add vehicle failed", e);

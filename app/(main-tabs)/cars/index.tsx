@@ -30,6 +30,7 @@ import { computeVehicleHealthScore, type HealthScoreInput } from "@/utils/health
 import { Text } from "@/components/shared-ui";
 import { OilIcon, BrakesIcon, TireIcon, BatteryIcon, WarningIcon } from "@/components/cars/ServiceIcons";
 import { fetchVehicleImageUrl } from "@/utils/vehicleImage";
+import { isDarkColor } from "@/utils/contrast";
 import { scale, verticalScale, moderateScale } from '@/utils/responsive';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
@@ -208,24 +209,27 @@ function HealthSheetBookingCards({ maintenanceItems, onClose }: HealthSheetBooki
 // VEHICLE-SPECIFIC DATA
 // ============================================================================
 
-// Default gradient sets for carousel (alternate by index when Convex has no metadata)
+// Three-stop saturated → deep-dark palettes, Revolut-style. The top
+// stop is a vivid mid-tone of the car's paint color, the bottom stop
+// is near-black with a faint hue tint. This gives the page real
+// depth instead of a flat or washed-out wash. White content cards
+// then read as "floating" against the dark bottom.
 const DEFAULT_GRADIENTS = [
-  ["#9a9cc0", "#e7e3fd", "#e0dcf4", "#f1ecfe"],
-  ["#5090d8", "#c0daf8", "#b8d4f8", "#d8ecff"],
+  ["#5e6488", "#2a2e48", "#0d0f20"],
+  ["#3a78c8", "#152e54", "#06101c"],
 ];
 
-// Map car colors to background gradient palettes
 const COLOR_GRADIENTS: Record<string, string[]> = {
-  black:            ["#3a3a3a", "#5c5c5c", "#787878", "#a0a0a0"],
-  "midnight-silver":["#4a4a5a", "#7a7a8a", "#9a9aaa", "#c0c0d0"],
-  silver:           ["#9a9cc0", "#e7e3fd", "#e0dcf4", "#f1ecfe"],
-  white:            ["#b8c0cc", "#d8dce6", "#e8ecf2", "#f4f6fa"],
-  gray:             ["#6b7080", "#8e929e", "#adb0ba", "#cdd0d8"],
-  red:              ["#a03030", "#d06868", "#e09898", "#f0c8c8"],
-  blue:             ["#5090d8", "#c0daf8", "#b8d4f8", "#d8ecff"],
-  green:            ["#2a7a4a", "#60b080", "#90d0a8", "#c8f0d8"],
-  beige:            ["#b8a080", "#d4c0a8", "#e4d8c4", "#f2ece0"],
-  brown:            ["#6b4030", "#8b6050", "#b08878", "#d8b8a8"],
+  black:            ["#2a2d33", "#15171c", "#08090c"],
+  "midnight-silver":["#3a4256", "#1c2030", "#0a0d18"],
+  silver:           ["#7a8294", "#2f3540", "#10131c"],
+  white:            ["#e0e6ed", "#b4bcc8", "#6a7280"],
+  gray:             ["#5b6477", "#2c3140", "#0e111a"],
+  red:              ["#a8344a", "#481420", "#13050a"],
+  blue:             ["#3a78c8", "#152e54", "#06101c"],
+  green:            ["#2da784", "#114036", "#04161a"],
+  beige:            ["#b69478", "#5a4530", "#1a140d"],
+  brown:            ["#7a4a35", "#36201a", "#15090a"],
 };
 
 // (Service history is now sourced from Smartcar data via useSmartcarData)
@@ -738,25 +742,31 @@ export default function CarsHomeScreen() {
         return;
       }
 
-      // Use cached URL from Convex if it's from our current provider
+      // Reuse cached image_url IF it's from the new transparent-bg
+      // endpoint (URLs include "/transparent/" in the path). Older
+      // cached URLs point at white-background renders from the legacy
+      // `vehicle-media/v2` endpoint — refetch those once so they upgrade
+      // to the new transparent images.
       const cachedUrl = r.vehicle?.image_url;
-      if (cachedUrl && (cachedUrl.includes("vehicledatabases.com") || cachedUrl.includes("vhr.nyc3.cdn"))) {
+      const isTransparent = typeof cachedUrl === "string" && cachedUrl.includes("/transparent/");
+      if (cachedUrl && isTransparent) {
         setVehicleImageUrls((prev) => ({ ...prev, [r.vin]: cachedUrl }));
         return;
       }
 
-      // TODO: re-enable once API credits are available
-      // const v = r.vehicle;
-      // const meta = v?.metadata as { make?: string; model?: string; color?: string } | undefined;
-      // const make = meta?.make ?? "";
-      // const model = meta?.model ?? "";
-      // const color = meta?.color ?? r.ownership?.color ?? "";
-      // fetchVehicleImageUrl(make, model, v?.year, r.vin, color).then((url) => {
-      //   if (url) {
-      //     setVehicleImageUrls((prev) => ({ ...prev, [r.vin]: url }));
-      //     saveVehicleImageUrl({ vin: r.vin, image_url: url });
-      //   }
-      // });
+      // No cached URL (or stale white-bg one) → fetch the API and persist
+      // via saveVehicleImageUrl so subsequent loads short-circuit above.
+      const v = r.vehicle;
+      const meta = v?.metadata as { make?: string; model?: string; color?: string } | undefined;
+      const make = meta?.make ?? "";
+      const model = meta?.model ?? "";
+      const color = meta?.color ?? r.ownership?.color ?? "";
+      if (!make || !model) return;
+      fetchVehicleImageUrl(make, model, v?.year, r.vin, color).then((url) => {
+        if (!url) return;
+        setVehicleImageUrls((prev) => ({ ...prev, [r.vin]: url }));
+        saveVehicleImageUrl({ vin: r.vin, image_url: url });
+      });
     });
   }, [listVehicles]);
 
@@ -773,12 +783,11 @@ export default function CarsHomeScreen() {
     listVehicles.forEach((r: any, i: number) => {
       const v = r.vehicle;
       const o = r.ownership;
-      const meta = v ? (v as { metadata?: { make?: string; model?: string; color?: string } }).metadata : undefined;
+      const meta = v ? (v as { metadata?: { make?: string; model?: string; color?: string; body_style?: string } }).metadata : undefined;
       const paintColor = meta?.color;
-      // TODO: re-enable once car images have transparent backgrounds
-      // const gradient = (paintColor && COLOR_GRADIENTS[paintColor])
-      //   || DEFAULT_GRADIENTS[i % DEFAULT_GRADIENTS.length];
-      const gradient = ["#FFFFFF", "#FFFFFF", "#FFFFFF", "#FFFFFF"];
+      const gradient =
+        (paintColor && COLOR_GRADIENTS[paintColor]) ||
+        DEFAULT_GRADIENTS[i % DEFAULT_GRADIENTS.length];
       const displayMake = titleCase(meta?.make || o?.nickname?.split(" ")[1] || "Vehicle");
       const displayModel = titleCase(meta?.model || o?.nickname?.split(" ").slice(2).join(" ") || r.vin.slice(-6));
       paired.push({
@@ -799,6 +808,7 @@ export default function CarsHomeScreen() {
           nextUnlock: undefined,
           gradientColors: gradient,
           connectionStatus: r.connectionStatus || "unconnected",
+          bodyStyle: meta?.body_style,
         },
         ownershipId: o?._id,
         ownership: o,
@@ -1084,6 +1094,15 @@ export default function CarsHomeScreen() {
     () => activeVehicle?.gradientColors ?? DEFAULT_GRADIENTS[0],
     [activeVehicle?.gradientColors]
   );
+  // Static text on this page (vehicle name, mileage, "Maintenance
+  // Tracker" header) sits over the top stop of the gradient. When
+  // that stop is dark — black, midnight-silver, gray, etc. — dark
+  // text becomes unreadable, so swap to light. Computed once per
+  // active vehicle and passed down to the consuming components.
+  const isDarkBg = useMemo(
+    () => isDarkColor(activeGradient[0]),
+    [activeGradient]
+  );
 
   // Handle default toggle via Convex
   const handleToggleDefault = useCallback(
@@ -1179,23 +1198,20 @@ export default function CarsHomeScreen() {
         scrollEventThrottle={16}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#6B7280" />}
       >
-        {/* Scrolling Gradient - uses active vehicle's color */}
+        {/* Scrolling Gradient - uses active vehicle's color. The
+            palette is a saturated → deep-dark vertical fade so the
+            page reads with real depth. A faint top highlight adds a
+            subtle "light source" sheen at the top edge; no white
+            wash at the bottom (that was making the page look flat). */}
         <View style={styles.scrollingGradientContainer} pointerEvents="none">
           <LinearGradient
             colors={activeGradient as [string, string, ...string[]]}
-            locations={[0, 0.33, 0.33, 1]}
-            style={StyleSheet.absoluteFill}
-          />
-          <LinearGradient
-            colors={["rgba(255, 255, 255, 0)", "rgba(255, 255, 255, 0.15)", "rgba(255, 255, 255, 0.35)"]}
             locations={[0, 0.5, 1]}
             style={StyleSheet.absoluteFill}
           />
           <LinearGradient
-            colors={["rgba(255, 255, 255, 0.1)", "rgba(255, 255, 255, 0)", "rgba(255, 255, 255, 0.1)"]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            locations={[0, 0.5, 1]}
+            colors={["rgba(255, 255, 255, 0.12)", "rgba(255, 255, 255, 0)"]}
+            locations={[0, 0.35]}
             style={StyleSheet.absoluteFill}
           />
         </View>
@@ -1249,6 +1265,7 @@ export default function CarsHomeScreen() {
             isFocused={isFocused}
             maintenanceItems={mergedMaintenanceItems}
             currentMileage={currentOdometer}
+            isDarkBg={isDarkBg}
             showHealthRing={isActiveVehicleConnected || celebrationDismissed || (isOnboardingComplete && !celebrationActive && !healthPageVisible)}
             healthScore={isPreOnboardingComplete && !isOnboardingComplete
               ? (activeOwnership?.health_score as number | undefined) ?? computedHealthScore
@@ -1316,7 +1333,17 @@ export default function CarsHomeScreen() {
                 end={{ x: 1, y: 0 }}
                 style={styles.quickReadCtaGradient}
               >
-                <Text weight="bold" size="md" color="#FFFFFF">Get a quick read on your {activeVehicle?.make && activeVehicle?.model ? `${activeVehicle.make} ${activeVehicle.model}` : "vehicle"}</Text>
+                <Text
+                  weight="bold"
+                  size="md"
+                  color="#FFFFFF"
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.6}
+                  style={{ flexShrink: 1, marginRight: scale(8) }}
+                >
+                  Get a quick read on your {activeVehicle?.make && activeVehicle?.model ? `${activeVehicle.make} ${activeVehicle.model}` : "vehicle"}
+                </Text>
                 <Ionicons name="arrow-forward" size={scale(18)} color="#FFFFFF" />
               </LinearGradient>
             </Pressable>
@@ -1373,6 +1400,7 @@ export default function CarsHomeScreen() {
               items={mergedMaintenanceItems}
               vehicleCondition={computedHealthScore}
               healthScoreInput={healthScoreInput}
+              isDarkBg={isDarkBg}
               onBookNow={(id) => {
                 const vin = activeVehicle?.vin;
                 if (vin) useVehicleStore.getState().selectVehicle(vin.toUpperCase().trim());
@@ -1402,6 +1430,7 @@ export default function CarsHomeScreen() {
 
           {/* Service History Section (hidden until onboarding complete) */}
           {(isActiveVehicleConnected || isOnboardingComplete) && <ServiceHistory
+            isDarkBg={isDarkBg}
             records={serviceRecords}
             onAddNotes={(id) => {
               // TODO: Open notes modal/screen for this service record
@@ -1445,6 +1474,7 @@ export default function CarsHomeScreen() {
 
           {/* Loyalty Points Section (hidden until onboarding complete) */}
           {(isActiveVehicleConnected || isOnboardingComplete) && <LoyaltyPoints
+            isDarkBg={isDarkBg}
             totalPoints={1240}
             currentTier="Gold Member"
             currentPoints={240}
