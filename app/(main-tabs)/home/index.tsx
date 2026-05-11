@@ -259,6 +259,25 @@ export default function HomeScreen() {
     ];
   }, [carSetupVehicle]);
 
+  // Display label for the Finish Setup card so the user knows which
+  // car they're about to resume — falls back to a nickname or the
+  // last 6 of the VIN when make/model are missing.
+  const carSetupVehicleLabel = useMemo(() => {
+    if (!carSetupVehicle) return undefined;
+    const v = carSetupVehicle.vehicle as
+      | { year?: number; metadata?: { make?: string; model?: string } }
+      | undefined;
+    const meta = v?.metadata;
+    const yearPart = v?.year ? String(v.year) : "";
+    const makeModel = [meta?.make, meta?.model].filter(Boolean).join(" ").trim();
+    const fromMeta = [yearPart, makeModel].filter(Boolean).join(" ").trim();
+    if (fromMeta) return fromMeta;
+    const nickname = carSetupVehicle.ownership?.nickname;
+    if (nickname) return nickname;
+    const vin = carSetupVehicle.vin;
+    return vin ? `VIN ${vin.slice(-6)}` : undefined;
+  }, [carSetupVehicle]);
+
   useEffect(() => {
     (async () => {
       // Request location permission
@@ -549,7 +568,7 @@ export default function HomeScreen() {
                 >
                   {isLiquidGlassEnabled && LiquidGlassView ? (
                     <LiquidGlassView interactive effect="clear" style={styles.liquidGlassIcon}>
-                      <Trophy size={22} color="#000000" fill="none" strokeWidth={2} />
+                      <Trophy size={22} color="#6B7280" fill="none" strokeWidth={2} />
                     </LiquidGlassView>
                   ) : (
                     <View style={styles.glassContainer}>
@@ -561,7 +580,7 @@ export default function HomeScreen() {
                           end={{ x: 0.5, y: 0.5 }}
                           style={styles.glassGloss}
                         />
-                        <Trophy size={22} color="#000000" fill="none" strokeWidth={2} />
+                        <Trophy size={22} color="#6B7280" fill="none" strokeWidth={2} />
                       </BlurView>
                     </View>
                   )}
@@ -574,7 +593,7 @@ export default function HomeScreen() {
                   {isLiquidGlassEnabled && LiquidGlassView ? (
                     <LiquidGlassView interactive effect="clear" style={styles.liquidGlassIcon}>
                       <View style={styles.bellIconContainer}>
-                        <Bell size={22} color="#000000" fill="none" strokeWidth={2} />
+                        <Bell size={22} color="#6B7280" fill="none" strokeWidth={2} />
                         <View style={styles.bellDot} />
                       </View>
                     </LiquidGlassView>
@@ -589,7 +608,7 @@ export default function HomeScreen() {
                           style={styles.glassGloss}
                         />
                         <View style={styles.bellIconContainer}>
-                          <Bell size={22} color="#000000" fill="none" strokeWidth={2} />
+                          <Bell size={22} color="#6B7280" fill="none" strokeWidth={2} />
                           <View style={styles.bellDot} />
                         </View>
                       </BlurView>
@@ -637,6 +656,8 @@ export default function HomeScreen() {
                   showCarSetup={showCarSetup}
                   carSetupChecklist={carSetupChecklist}
                   isCarSetupDone={isCarSetupDone}
+                  carSetupVehicleLabel={carSetupVehicleLabel}
+                  carSetupVehicleCount={incompleteVehicles.length}
                   onCarSetupPress={() => {
                     const o = carSetupVehicle?.ownership;
                     if (isCarSetupDone) {
