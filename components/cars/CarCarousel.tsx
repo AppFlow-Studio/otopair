@@ -28,6 +28,7 @@ import {
 
 // 2. Expo & Third-party
 import { BlurView } from 'expo-blur';
+import SegmentedControl from '@react-native-segmented-control/segmented-control';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Calendar, Check, ChevronLeft, ChevronRight, Info, Plus, X, XCircle } from 'lucide-react-native';
 import Svg, { Circle, Defs, LinearGradient as SvgLinearGradient, Stop } from 'react-native-svg';
@@ -55,16 +56,6 @@ import { router } from 'expo-router';
 // 5. Responsive utilities
 import { scale, verticalScale, moderateScale, isTablet } from '@/utils/responsive';
 
-// 6. Native iOS 26 liquid glass (optional)
-let LiquidGlassView: React.ComponentType<any> | null = null;
-let isLiquidGlassEnabled = false;
-try {
-  const lg = require('@callstack/liquid-glass');
-  LiquidGlassView = lg.LiquidGlassView;
-  isLiquidGlassEnabled = !!lg.isLiquidGlassSupported;
-} catch {
-  // Not available — fall back to plain style
-}
 
 // ============================================================================
 // TYPES
@@ -121,6 +112,10 @@ interface CarCarouselProps {
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const CAR_CARD_WIDTH = Math.min(scale(320), 420);
 const CAR_CARD_HEIGHT = scale(240);
+// Width per segment in the SegmentedControl-based thumbnail selector.
+// Drives both the rail layout and the absolute-positioned thumbnail
+// overlays so they line up over each segment's center.
+const SEGMENT_WIDTH = scale(56);
 const RADIUS = SCREEN_WIDTH * 0.5;
 
 // Fallback image used only when no dynamic imageSource is available
@@ -1449,8 +1444,12 @@ const CircularCarouselItem = memo(({ item, index, rotation, totalItems }: Carous
     // rendered at the front — see the fallback-Lexus-as-hero regression.
     const currentAngle = baseAngle + rotation.value;
 
-    // Calculate position on a wider arc (not full circle)
-    const x = Math.sin(currentAngle) * RADIUS * 1.2;
+    // Calculate position on a wider arc (not full circle). When there
+    // are 4+ vehicles the per-item angle gets small enough that
+    // neighbors overlap the active car visually — push them out
+    // proportionally so they read as distinct silhouettes.
+    const xMultiplier = 1.2 + Math.max(0, totalItems - 3) * 0.2;
+    const x = Math.sin(currentAngle) * RADIUS * xMultiplier;
     const z = Math.cos(currentAngle) * RADIUS - RADIUS;
 
     // Scale based on Z position - front car is full size
@@ -1539,6 +1538,16 @@ export function CarCarousel({
   const [activeIndex, setActiveIndex] = useState(0);
   const rotation = useSharedValue(0);
   const anglePerItem = sortedVehicles.length > 0 ? (2 * Math.PI) / sortedVehicles.length : 0;
+
+  // Thumbnail-rail segment width adapts to vehicle count so the rail
+  // doesn't push the health ring off-screen. Floor of scale(40) keeps
+  // the thumbnail image readable; cap of SEGMENT_WIDTH (scale 56) is
+  // the natural size when there's room.
+  const segmentWidth = Math.max(
+    scale(40),
+    Math.min(SEGMENT_WIDTH, Math.floor((SCREEN_WIDTH - scale(180)) / Math.max(1, sortedVehicles.length))),
+  );
+  const thumbnailSize = Math.min(scale(36), segmentWidth - scale(8));
   const lastUpdatedIndex = useSharedValue(0);
   const isUserAnimating = useRef(false);
 
@@ -1582,15 +1591,6 @@ export function CarCarousel({
 
   // Vehicle Health Modal state
   const [showHealthModal, setShowHealthModal] = useState(false);
-
-  // Sliding glass indicator position
-  const glassTranslateX = useSharedValue(0);
-  useEffect(() => {
-    glassTranslateX.value = withSpring(activeIndex * (scale(48) + Spacing.sm), { damping: 18, stiffness: 200 });
-  }, [activeIndex]);
-  const slidingGlassStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: glassTranslateX.value }],
-  }));
 
   // Bottom sheet animation values
   const sheetTranslateY = useRef(new Animated.Value(scale(300))).current;
@@ -1872,62 +1872,45 @@ export function CarCarousel({
       </View>
 
 
-      {/* Thumbnail Selector with Activity Rings */}
+      {/* Thumbnail Selector with Activity Rings.
+          The car-selector rail is a native iOS SegmentedControl,
+          which on iOS 26+ gets the real liquid-glass treatment for
+          free from the OS — same mechanism as the bookings tab
+          switcher. SegmentedControl only supports text segments, so
+          we feed it blank (space) labels for layout/hit-testing and
+          overlay the car thumbnails on top with `pointerEvents="none"`
+          so taps fall through to the rail. */}
       <View style={styles.thumbnailRow}>
-        <View style={styles.thumbnailSelector}>
-          {/* Sliding glass indicator behind active thumbnail.
-              Uses native LiquidGlassView on iOS 26+ for the real
-              liquid-glass refraction; everywhere else (older iOS,
-              Android, simulators where the native module is missing)
-              falls back to a frosted BlurView pill so the indicator is
-              always visible — same approach as the bottom TabBar. */}
-          <ReAnimated.View
-            style={[styles.slidingGlassWrapper, slidingGlassStyle]}
-            pointerEvents="none"
-          >
-            {isLiquidGlassEnabled && LiquidGlassView ? (
-              // Native iOS 26 liquid glass. `tintColor` gives the
-              // pill enough body to show on uniform backgrounds —
-              // without it the refraction is invisible against the
-              // light card backdrop. `colorScheme="light"` matches
-              // the bookings segmented-control's active pill look.
-              <LiquidGlassView
-                interactive
-                effect="regular"
-                tintColor="rgba(255,255,255,0.55)"
-                colorScheme="light"
-                style={styles.slidingGlassPillNative}
-              />
-            ) : (
-              <BlurView
-                intensity={60}
-                tint="light"
-                style={[styles.slidingGlassPillNative, styles.slidingGlassPillFallback]}
-              />
-            )}
-          </ReAnimated.View>
-
-          {sortedVehicles.map((vehicle, index) => {
-            const imageSource = vehicle.imageSource || FALLBACK_VEHICLE_IMAGE;
-            const isActive = index === activeIndex;
-
-            return (
-              <Pressable
-                key={vehicle.id}
-                onPress={() => rotateToIndex(index)}
-                style={[
-                  styles.thumbnailButton,
-                  !isLiquidGlassEnabled && isActive && styles.thumbnailButtonActive,
-                ]}
-              >
+        <View style={styles.thumbnailLeftGroup}>
+          <View style={[styles.thumbnailSelector, { width: segmentWidth * sortedVehicles.length }]}>
+            <SegmentedControl
+              values={sortedVehicles.map(() => ' ')}
+              selectedIndex={activeIndex}
+              appearance="light"
+              onChange={(e) => rotateToIndex(e.nativeEvent.selectedSegmentIndex)}
+              style={[styles.segmentedRail, { width: segmentWidth * sortedVehicles.length }]}
+            />
+            {sortedVehicles.map((vehicle, index) => {
+              const imageSource = vehicle.imageSource || FALLBACK_VEHICLE_IMAGE;
+              return (
                 <Image
+                  key={vehicle.id}
                   source={imageSource}
-                  style={styles.thumbnailImage}
+                  style={[
+                    styles.thumbnailOverlay,
+                    {
+                      width: thumbnailSize,
+                      height: thumbnailSize,
+                      top: (scale(48) - thumbnailSize) / 2,
+                      left: index * segmentWidth + (segmentWidth - thumbnailSize) / 2,
+                    },
+                  ]}
                   resizeMode="contain"
+                  pointerEvents="none"
                 />
-              </Pressable>
-            );
-          })}
+              );
+            })}
+          </View>
 
           <Pressable style={styles.addCarButton} onPress={() => router.push('/add-vehicle')}>
             <Plus size={scale(18)} color="#000000" />
@@ -2174,7 +2157,7 @@ const styles = StyleSheet.create({
     left: 24,
     right: 24,
     height: StyleSheet.hairlineWidth,
-    backgroundColor: 'rgba(255,255,255,0.1)',
+    backgroundColor: 'rgba(255,255,255,0.06)',
   },
   // Soft floor shadow that starts at the hairline and fades
   // downward from a faint dark tint into transparent. `bottom` is
@@ -2302,49 +2285,33 @@ const styles = StyleSheet.create({
     marginTop: Spacing.sm,
     marginHorizontal: Spacing.lg,
   },
-  thumbnailSelector: {
+  // Wraps the SegmentedControl rail + the "+" add-vehicle button so
+  // they stay grouped on the left side of the row, with the
+  // ActivityRings pushed to the right via the parent's space-between.
+  thumbnailLeftGroup: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: Spacing.sm,
+  },
+  thumbnailSelector: {
+    height: scale(48),
+    justifyContent: 'center',
     position: 'relative',
   },
-  slidingGlassWrapper: {
+  // Native iOS UISegmentedControl backing the thumbnail row.
+  // Height matches the thumbnails so the overlay images stay
+  // visually centered over each segment. Width is set inline so it
+  // tracks the vehicle count.
+  segmentedRail: {
+    height: scale(48),
+  },
+  // Absolute-positioned car image on top of each segment. Driven by
+  // `left = index * SEGMENT_WIDTH + (SEGMENT_WIDTH - thumb)/2` so it
+  // sits centered above each segment. `pointerEvents="none"` on the
+  // overlay lets taps fall through to the SegmentedControl underneath.
+  thumbnailOverlay: {
     position: 'absolute',
-    left: 0,
-    top: 0,
-    width: scale(48),
-    height: scale(48),
-    zIndex: 0,
-  },
-  slidingGlassPillNative: {
-    width: scale(48),
-    height: scale(48),
-    borderRadius: scale(24),
-    overflow: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
-  },
-  // Only applied when falling back to BlurView. The white tint and
-  // border give the pill enough body to be visible without the iOS 26
-  // native refraction. On the LiquidGlassView path these would smother
-  // the real glass effect, so they're kept off that surface.
-  slidingGlassPillFallback: {
-    backgroundColor: 'rgba(255,255,255,0.55)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.6)',
-  },
-  thumbnailButton: {
-    width: scale(48),
-    height: scale(48),
-    borderRadius: moderateScale(10),
-    backgroundColor: 'transparent',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  thumbnailButtonActive: {},
-  thumbnailImage: {
+    top: (scale(48) - scale(36)) / 2,
     width: scale(36),
     height: scale(36),
   },

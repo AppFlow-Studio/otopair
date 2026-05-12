@@ -46,10 +46,7 @@ import { AnimatedGradientBackground } from "@/components/shared-ui/AnimatedGradi
 import ServiceHistory, { ServiceRecord, type PickedDocument } from "@/components/cars/ServiceHistory";
 import VehicleStatsCard from "@/components/cars/VehicleStatsCard";
 import { useVehicleStore } from "@/stores/useVehicleStore";
-import { useMechanicStore } from "@/stores/useMechanicStore";
-import { useShopStore } from "@/stores/useShopStore";
-import { useBookingStore } from "@/stores/useBookingStore";
-import { ShopCard, type ShopWithMechanics, type SlotWithBookingMeta, type SelectedSlotInfo, type SelectedServiceInfo } from "@/components/booking/sheets/ShopCard";
+import { PostOptimizeBookingSheet } from "@/components/cars/PostOptimizeBookingSheet";
 
 // ============================================================================
 // HELPERS
@@ -61,148 +58,6 @@ function titleCase(str: string): string {
     .split(' ')
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(' ');
-}
-
-// ============================================================================
-// MAINTENANCE → SERVICE MAPPING
-// ============================================================================
-
-const MAINTENANCE_TO_SERVICE: Record<string, string> = {
-  oil: "svc_oil_change",
-  brakes: "svc_brake_pads",
-  tires: "svc_tire_rotation",
-  fluids: "svc_fluid_change",
-  battery: "svc_electrical_check",
-  inspection: "svc_engine_diagnostic",
-  wipers: "svc_filter_change",
-};
-
-// ============================================================================
-// HEALTH SHEET BOOKING CARDS
-// ============================================================================
-
-interface HealthSheetBookingCardsProps {
-  maintenanceItems: Array<{ id: string; serviceName: string; status: string }>;
-  onClose: () => void;
-}
-
-function HealthSheetBookingCards({ maintenanceItems, onClose }: HealthSheetBookingCardsProps) {
-  const router = useRouter();
-  const mechanics = useMechanicStore((s) => s.mechanics);
-  const mechanicIds = useMechanicStore((s) => s.mechanicIds);
-  const shops = useShopStore((s) => s.shops);
-  const availableServices = useBookingStore((s) => s.availableServices);
-  const toggleServiceSelection = useBookingStore((s) => s.toggleServiceSelection);
-  const clearSelectedServices = useBookingStore((s) => s.clearSelectedServices);
-
-  const [selectedSlot, setSelectedSlot] = useState<SelectedSlotInfo | null>(null);
-
-  // Build ShopWithMechanics from stores (top 3 shops)
-  const shopGroups = useMemo((): ShopWithMechanics[] => {
-    const shopMap = new Map<string, ShopWithMechanics>();
-    for (const id of mechanicIds) {
-      const mech = mechanics[id];
-      if (!mech) continue;
-      const existing = shopMap.get(mech.shopId);
-      if (existing) {
-        existing.mechanics.push(mech);
-        if (mech.rating > existing.rating) existing.rating = mech.rating;
-        if (mech.isVerified) existing.isVerified = true;
-      } else {
-        const shop = shops[mech.shopId];
-        shopMap.set(mech.shopId, {
-          shopId: mech.shopId,
-          shopName: mech.shopName,
-          rating: mech.rating,
-          isVerified: mech.isVerified,
-          distanceMi: mech.distanceMi,
-          mechanics: [mech],
-          laborRate: shop?.labor_rate,
-        });
-      }
-    }
-    return Array.from(shopMap.values()).slice(0, 3);
-  }, [mechanicIds, mechanics, shops]);
-
-  // Map urgent maintenance items to service info for price display
-  const urgentItems = maintenanceItems.filter(
-    (item) => item.status === "overdue" || item.status === "needs_attention" || item.status === "due_soon"
-  );
-  const serviceIds = urgentItems
-    .map((item) => MAINTENANCE_TO_SERVICE[item.id])
-    .filter(Boolean);
-  const selectedServices = useMemo((): SelectedServiceInfo[] => {
-    if (serviceIds.length === 0) return [];
-    return availableServices
-      .filter((s) => serviceIds.includes(s.id))
-      .map((s) => ({
-        id: s.id,
-        name: s.name,
-        price: 0,
-        default_labor_hours: s.default_labor_hours,
-        default_parts_estimate: s.default_parts_estimate,
-      }));
-  }, [availableServices, serviceIds.join(",")]);
-
-  const handleSelectSlot = useCallback(
-    (shopId: string, mechanicId: string | null, slot: SlotWithBookingMeta) => {
-      setSelectedSlot({ shopId, mechanicId, slot });
-      // Pre-select services and navigate to booking
-      clearSelectedServices();
-      serviceIds.forEach((sid) => toggleServiceSelection(sid));
-      onClose();
-      router.push('/home/map?openServices=true');
-    },
-    [serviceIds, clearSelectedServices, toggleServiceSelection, onClose, router],
-  );
-
-  const handleShopDetails = useCallback(
-    (shopId: string) => {
-      onClose();
-      router.push(`/home/shop/${shopId}`);
-    },
-    [onClose, router],
-  );
-
-  const handleMoreAvailability = useCallback(
-    (shopId: string, _mechanicId: string | null) => {
-      onClose();
-      router.push('/home/map?openServices=true');
-    },
-    [onClose, router],
-  );
-
-  if (shopGroups.length === 0) {
-    return (
-      <View style={{ alignItems: "center", paddingVertical: scale(20) }}>
-        <Text weight="semiBold" size="md" color="#6B7280">No shops available nearby</Text>
-      </View>
-    );
-  }
-
-  return (
-    <ScrollView
-      horizontal
-      pagingEnabled={false}
-      showsHorizontalScrollIndicator={false}
-      decelerationRate="fast"
-      snapToInterval={scale(300) + scale(12)}
-      contentContainerStyle={{ paddingHorizontal: scale(4), gap: scale(12) }}
-    >
-      {shopGroups.map((shop) => (
-        <View key={shop.shopId} style={{ width: scale(300) }}>
-          <ShopCard
-            shop={shop}
-            onSelectSlot={handleSelectSlot}
-            onShopDetails={handleShopDetails}
-            onMoreAvailability={handleMoreAvailability}
-            selectedSlot={selectedSlot}
-            selectedServices={selectedServices}
-          />
-        </View>
-      ))}
-    </ScrollView>
-  );
 }
 
 // ============================================================================
@@ -276,6 +131,10 @@ export default function CarsHomeScreen() {
   const dashboardFade = useRef(new Animated.Value(0)).current;
   const dashboardSlide = useRef(new Animated.Value(20)).current;
   const skeletonPulse = useRef(new Animated.Value(0.3)).current;
+
+  // Post-optimize booking sheet: opens once when the gears overlay
+  // dismisses, then stays closed until the user re-runs Optimize.
+  const [showOptimizeBookingSheet, setShowOptimizeBookingSheet] = useState(false);
 
   // Fullscreen gears overlay
   const [pickedDocuments, setPickedDocuments] = useState<PickedDocument[]>([]);
@@ -712,6 +571,10 @@ export default function CarsHomeScreen() {
       setGearsPhase('looping');
       celebrationFlowActive.current = false;
       setCelebrationActive(false);
+      // Optimize flow just finished — surface the booking sheet on the
+      // car's dashboard. Opens once per cycle; dismissed-on-its-own = stays
+      // closed until the user runs Optimize again.
+      setShowOptimizeBookingSheet(true);
     });
   }, [gearsOverlayOpacity, mainPageSlideX, mainPageFade]);
 
@@ -856,6 +719,10 @@ export default function CarsHomeScreen() {
 
   // Memoize current vehicle and its data
   const activeVehicle = useMemo(() => vehicles[activeVehicleIndex], [vehicles, activeVehicleIndex]);
+  const activeVehicleLabel = useMemo(() => {
+    if (!activeVehicle) return undefined;
+    return `${activeVehicle.year} ${titleCase(activeVehicle.make)} ${activeVehicle.model}`;
+  }, [activeVehicle]);
   const activeOwnershipId = useMemo(() => ownershipIds[activeVehicleIndex], [ownershipIds, activeVehicleIndex]);
   const activeOwnership = useMemo(() => ownerships[activeVehicleIndex], [ownerships, activeVehicleIndex]);
   const isPreOnboardingComplete = activeOwnership?.preOnboardingComplete === true;
@@ -1771,12 +1638,33 @@ export default function CarsHomeScreen() {
                 </Animated.View>
               ) : (
                 <>
-                  {/* Shop booking cards based on vehicle issues */}
+                  {/* What optimization will do for the user — replaces the
+                      old in-sheet booking cards so the only forward action
+                      is "Optimize my vehicle profile". */}
                   <Animated.View style={[{ alignSelf: "stretch", marginTop: scale(12), flex: 1 }, { opacity: benefitsFade, transform: [{ translateY: benefitsFade.interpolate({ inputRange: [0, 1], outputRange: [scale(16), 0] }) }] }]}>
-                    <HealthSheetBookingCards
-                      maintenanceItems={mergedMaintenanceItems}
-                      onClose={closeHealthSheet}
-                    />
+                    <View style={{ gap: scale(14), paddingHorizontal: scale(4) }}>
+                      {[
+                        "We'll scan your VIN against open recalls",
+                        "We'll match your maintenance history to manufacturer intervals",
+                        "We'll pre-load nearby shops with the services you need",
+                      ].map((label, idx) => (
+                        <View key={idx} style={{ flexDirection: "row", alignItems: "center", gap: scale(12) }}>
+                          <View style={{
+                            width: scale(28), height: scale(28), borderRadius: scale(14),
+                            backgroundColor: "rgba(82,153,254,0.12)",
+                            alignItems: "center", justifyContent: "center",
+                          }}>
+                            <Ionicons name="checkmark" size={scale(16)} color="#5299FE" />
+                          </View>
+                          <Text
+                            weight="medium"
+                            style={{ fontSize: moderateScale(14), color: "#1F2937", flex: 1 }}
+                          >
+                            {label}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
                   </Animated.View>
 
                   <Animated.View style={[{ width: "100%", marginTop: "auto", paddingBottom: insets.bottom + scale(24) }, { opacity: buttonFade, transform: [{ translateY: buttonFade.interpolate({ inputRange: [0, 1], outputRange: [scale(16), 0] }) }] }]}>
@@ -1934,6 +1822,15 @@ export default function CarsHomeScreen() {
         </Animated.View>
       )}
       </Modal>
+
+      {/* Post-optimize booking sheet — pops on the car's dashboard right
+          after `dismissGearsOverlay` runs. */}
+      <PostOptimizeBookingSheet
+        visible={showOptimizeBookingSheet}
+        onClose={() => setShowOptimizeBookingSheet(false)}
+        maintenanceItems={mergedMaintenanceItems}
+        vehicleLabel={activeVehicleLabel}
+      />
 
       {/* Document Viewer Modal */}
       <Modal

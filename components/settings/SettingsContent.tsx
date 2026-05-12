@@ -78,7 +78,8 @@ import * as StoreReview from "expo-store-review";
 import { Button, FeedbackModal, Text } from "@/components/shared-ui";
 import { AvatarSlider } from "@/components/settings/AvatarSlider";
 import { SettingsCard } from "@/components/settings/SettingsCard";
-import { OtoPairIcon } from "@/components/icons/oto-pair";
+// 3D OtoPair pin logo used as the second avatar-slider panel.
+const OTO_LOGO_3D = require("@/assets/images/pin-logo-3d.png");
 import { SettingsHeaderCard } from "@/components/settings/SettingsHeaderCard";
 import { SettingsRow } from "@/components/settings/SettingsRow";
 import { useAuth, useUser } from "@clerk/clerk-expo";
@@ -354,7 +355,11 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
               <Text weight="semiBold" size="2xl" color="#FFFFFF">
                 {initials}
               </Text>,
-              <OtoPairIcon size={48} />,
+              <Image
+                source={OTO_LOGO_3D}
+                style={{ width: 68, height: 68 }}
+                resizeMode="contain"
+              />,
             ]}
           />
         </LinearGradient>

@@ -46,16 +46,21 @@ export default function TabLayout() {
               title: 'My Cars',
             }}
           />
+          {/* Settings is no longer a bottom-bar tab — users enter
+              Settings via the profile button on the home header
+              (SettingsOverlay). The route is kept reachable for
+              deep links (membership, refer-a-friend, etc.) via
+              `href: null`. */}
           <Tabs.Screen
             name="settings"
             options={{
-              title: 'Settings',
+              href: null,
             }}
           />
           <Tabs.Screen
             name="ai-chat"
             options={{
-              title: 'AI Chat',
+              title: 'Oto',
             }}
           />
           <Tabs.Screen
@@ -86,14 +91,12 @@ export default function TabLayout() {
           <Icon sf="car" drawable="custom_settings_drawable" />
           <Label>{"Cars"}</Label>
         </NativeTabs.Trigger>
-        <NativeTabs.Trigger name="settings">
-          <Icon sf="gearshape" drawable="custom_settings_drawable" />
-          <Label>{"Settings"}</Label>
-        </NativeTabs.Trigger>
+        {/* Settings tab removed — users enter Settings via the
+            profile button on the home header (SettingsOverlay). */}
 
         <NativeTabs.Trigger name="ai-chat">
           <Icon sf="bubble.left.and.bubble.right.fill" drawable="custom_ai_drawable" />
-          <Label>{""}</Label>
+          <Label>{"Oto"}</Label>
         </NativeTabs.Trigger>
       </NativeTabs>
     </>
