@@ -179,9 +179,11 @@ export default function AIChatScreen() {
       const make = meta?.make || o?.nickname?.split(" ")[1] || "Vehicle";
       const model = meta?.model || o?.nickname?.split(" ").slice(2).join(" ") || "";
       const cachedUrl = v?.image_url;
-      const imageUrl = cachedUrl && (cachedUrl.includes("vehicledatabases.com") || cachedUrl.includes("vhr.nyc3.cdn"))
-        ? cachedUrl
-        : null;
+      // Only use cached URLs from the new transparent-bg endpoint.
+      const imageUrl =
+        typeof cachedUrl === "string" && cachedUrl.includes("/transparent/")
+          ? cachedUrl
+          : null;
       const modelLower = model.toLowerCase();
       const localImage = LOCAL_VEHICLE_IMAGES[modelLower] || null;
       return {

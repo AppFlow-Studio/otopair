@@ -192,6 +192,8 @@ interface BookingState {
   setBookingsFromConvex: (bookings: Booking[]) => void;
   /** Cancel a local booking by ID (sets status to "cancelled") */
   cancelBooking: (id: string) => void;
+  /** Hard-delete a local booking. Used by the testing trash button. */
+  removeBooking: (id: string) => void;
   /** Reschedule a local booking's date/time. `date` = YYYY-MM-DD, `time` = "9:00 AM" */
   rescheduleBooking: (id: string, date: string, time: string) => void;
   /** Flip a booking between "in_progress" (Live Tracker) and "confirmed" (Upcoming). */
@@ -649,6 +651,17 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
           ...state.bookings,
           [id]: { ...booking, status: "cancelled" as const, updatedAt: new Date().toISOString() },
         },
+      };
+    });
+  },
+
+  removeBooking: (id) => {
+    set((state) => {
+      if (!state.bookings[id]) return state;
+      const { [id]: _removed, ...rest } = state.bookings;
+      return {
+        bookings: rest,
+        bookingIds: state.bookingIds.filter((bid) => bid !== id),
       };
     });
   },

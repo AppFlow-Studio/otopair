@@ -1,17 +1,30 @@
 /**
  * Vehicle Image Fetcher
  *
- * Fetches vehicle images from the VehicleDatabases.com API.
- * Supports VIN-based lookups (preferred) and Year/Make/Model fallback.
- * Prefers color renders (no white background) over exterior images.
- * When a specific color is provided, matches that color first.
+ * Fetches transparent-background vehicle images from the
+ * VehicleDatabases.com "Vehicle Images" API.
  *
- * Docs: https://vehicledatabases.com/vehicle-image-api
+ * Endpoints (per https://vehicledatabases.com/vehicle-images-docs/):
+ *   GET /vehicle-images/{vin}
+ *   GET /vehicle-images/{year}/{make}/{model}/{trim}
+ *
+ * Coverage: 2011–2026.
+ *
+ * VIN is the most reliable lookup. The YMMT path *requires trim*
+ * (the prior YMM endpoint is a different, white-background API). If a
+ * caller doesn't have a trim, only VIN lookups will resolve.
+ *
+ * Response shape (both endpoints):
+ *   { status, data: { year, make, model, trim, images: { exterior[], colors[] } } }
+ *
+ * Both `exterior` and `colors` are transparent-bg renders. We prefer
+ * `colors[]` when the user has selected a paint color so the image
+ * matches their car; otherwise we fall back to `exterior[]`.
  */
 
 import { useEffect, useState } from "react";
 
-const BASE_URL = "https://api.vehicledatabases.com/vehicle-media/v2";
+const BASE_URL = "https://api.vehicledatabases.com/vehicle-images";
 const API_KEY = process.env.EXPO_PUBLIC_VEHICLE_DB_API_KEY ?? "";
 
 /**
@@ -20,8 +33,9 @@ const API_KEY = process.env.EXPO_PUBLIC_VEHICLE_DB_API_KEY ?? "";
  * @param make  - Vehicle manufacturer (e.g. "Toyota")
  * @param model - Model name (e.g. "Corolla")
  * @param year  - Optional model year (e.g. 2024)
- * @param vin   - Optional 17-char VIN (used for more accurate lookup)
+ * @param vin   - Optional 17-char VIN (preferred — most reliable)
  * @param color - Optional color id (e.g. "black", "midnight-silver")
+ * @param trim  - Optional trim (required for YMMT lookups, e.g. "Base 4dr Sedan Automatic")
  * @returns     - Image URL string, or null if not found
  */
 export async function fetchVehicleImageUrl(
@@ -29,49 +43,59 @@ export async function fetchVehicleImageUrl(
   model: string,
   year?: number,
   vin?: string,
-  color?: string
+  color?: string,
+  trim?: string,
 ): Promise<string | null> {
   try {
     const normalizedVin = (vin ?? "").toUpperCase().trim();
     const makes = normalizeMakes(make);
 
-    // Try VIN first, then each make variant with YMM
-    const urls: string[] = normalizedVin.length === 17
-      ? [`${BASE_URL}/${normalizedVin}`, ...makes.map((m) => `${BASE_URL}/${year}/${encodeURIComponent(m)}/${encodeURIComponent(model)}`)]
-      : makes.map((m) => `${BASE_URL}/${year}/${encodeURIComponent(m)}/${encodeURIComponent(model)}`);
+    // Try VIN first, then each make variant with full YMMT (only if trim
+    // is available — the API requires it for the YMMT path).
+    const ymmtUrls =
+      trim && year
+        ? makes.map(
+            (m) =>
+              `${BASE_URL}/${year}/${encodeURIComponent(m)}/${encodeURIComponent(model)}/${encodeURIComponent(trim)}`,
+          )
+        : [];
+    const urls: string[] =
+      normalizedVin.length === 17
+        ? [`${BASE_URL}/${normalizedVin}`, ...ymmtUrls]
+        : ymmtUrls;
 
     for (const url of urls) {
       console.log("[vehicleImage] GET", url);
-      const response = await fetch(url, { headers: { "x-authkey": API_KEY } });
+      // Header casing matches the working convex caller in
+      // `convex/lib/vehicleDatabases.ts`. The API gateway has been
+      // observed to 403 on lowercased "x-authkey" despite RFC saying
+      // header names are case-insensitive — keep this capitalized.
+      const response = await fetch(url, { headers: { "x-AuthKey": API_KEY } });
       console.log("[vehicleImage] status", response.status, "ok?", response.ok);
       if (!response.ok) continue;
 
       const json = await response.json();
-      console.log("[vehicleImage] api status:", json.status, "images keys:", Object.keys(json.data?.images ?? {}));
-      console.log("[vehicleImage] colors[] length:", (json.data?.images?.colors ?? []).length, "exterior[] length:", (json.data?.images?.exterior ?? []).length);
-      console.log("[vehicleImage] colors sample:", JSON.stringify((json.data?.images?.colors ?? []).slice(0, 5)));
+      const exterior: string[] = json.data?.images?.exterior ?? [];
+      const colorImages: string[] = json.data?.images?.colors ?? [];
+      console.log("[vehicleImage] api status:", json.status, "exterior:", exterior.length, "colors:", colorImages.length);
       if (json.status !== "success") continue;
 
-      // Color images have no white background — always preferred
-      const colorImages: string[] = json.data?.images?.colors ?? [];
-
-      // 1. Try color-specific match if user specified a color
+      // 1. Color-specific match if user picked a paint color
       if (color) {
         const colorMatch = findColorImage(colorImages, color);
         if (colorMatch) return colorMatch;
       }
 
-      // 2. Prefer any color image (no white background)
+      // 2. Any color render (transparent bg)
       if (colorImages.length > 0) return colorImages[0];
 
-      // 3. Fall back to exterior (white background) only if no color images
-      const exterior: string[] = json.data?.images?.exterior ?? [];
+      // 3. Fall back to exterior gallery (also transparent bg on this endpoint).
+      // Pick the front 3/4 angle when we can recognize EVOX naming, else first.
       const evoxFront = exterior.find(
-        (u) => u.includes("3231303031") || u.includes("6130313031")
+        (u) => u.includes("3231303031") || u.includes("6130313031"),
       );
-      const isHashNaming = !exterior.some((u) => /ext-\d{10}\.jpg$/.test(u));
-      const picked = evoxFront ?? ((isHashNaming && exterior[3]) || exterior[0]) ?? null;
-      return picked;
+      const picked = evoxFront ?? exterior[0] ?? null;
+      if (picked) return picked;
     }
 
     return null;
@@ -122,15 +146,16 @@ export function useVehicleImage(
   model: string,
   year?: number,
   vin?: string,
-  color?: string
+  color?: string,
+  trim?: string,
 ): string | null {
   const [imageUrl, setImageUrl] = useState<string | null>(null);
 
   useEffect(() => {
     if (!make || !model) return;
     setImageUrl(null);
-    fetchVehicleImageUrl(make, model, year, vin, color).then(setImageUrl);
-  }, [make, model, year, vin, color]);
+    fetchVehicleImageUrl(make, model, year, vin, color, trim).then(setImageUrl);
+  }, [make, model, year, vin, color, trim]);
 
   return imageUrl;
 }

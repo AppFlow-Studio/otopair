@@ -23,6 +23,7 @@ export default function SettingsLayout() {
             <Stack.Screen name="success" />
             <Stack.Screen name="contact-us" />
             <Stack.Screen name="transactions" />
+            <Stack.Screen name="booking-history" />
             <Stack.Screen name="privacy-policy" />
             <Stack.Screen name="terms-of-service" />
             <Stack.Screen name="about" />

@@ -13,10 +13,8 @@ import { useQuery } from "convex/react";
 import { useMemo } from "react";
 import { api } from "@/convex/_generated/api";
 import type { Booking as BookingCardBooking } from "@/components/bookings/BookingCard";
-import type { LiveTracking } from "@/components/bookings/LiveTrackerCard";
 import {
   adaptConvexBookingWithDetailsToCard,
-  adaptConvexBookingWithDetailsToLiveTracking,
   type ConvexBookingWithDetails,
 } from "@/utils/bookingAdapter";
 import { useUserFromConvex } from "./useUserFromConvex";
@@ -24,6 +22,7 @@ import { useBookingStore } from "@/stores/useBookingStore";
 import { useShopStore } from "@/stores/useShopStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import type { Booking as StoreBooking } from "@/stores/types/store.types";
+import { hhmmToDisplayTime } from "@/utils/timeSlotUtils";
 
 function isUpcoming(row: ConvexBookingWithDetails): boolean {
   if (row.status === "completed" || row.status === "cancelled") return false;
@@ -55,43 +54,12 @@ function extractImageUri(source: unknown): string | undefined {
   return undefined;
 }
 
-/** Adapt a local Zustand booking into the BookingCard format */
-function adaptLocalBookingToLiveTracking(
-  booking: StoreBooking,
-  getServiceName: (id: string) => string,
-  getMechanicName: (id: string) => string | undefined,
-  getShopName: (id: string) => string | undefined,
-  vehicle: { year: number; make: string; model: string; imageSource?: unknown } | undefined,
-): LiveTracking {
-  const carYear = vehicle ? String(vehicle.year) : "";
-  const carModel = vehicle ? `${vehicle.make} ${vehicle.model}` : "Vehicle";
-  const makeLogoUrl = vehicle ? extractImageUri(vehicle.imageSource) : undefined;
-  const primaryService = booking.serviceIds[0] ? getServiceName(booking.serviceIds[0]) : "Service";
-  return {
-    id: booking.id,
-    carModel,
-    carYear,
-    licensePlate: "",
-    makeLogoUrl: makeLogoUrl ?? "",
-    mechanicName: getMechanicName(booking.shopId) ?? "Assigned Mechanic",
-    shopName: getShopName(booking.shopId) ?? "Auto Shop",
-    currentStage: "Service in Progress",
-    progressPercent: 45,
-    stages: [
-      { id: "1", title: "Booking Confirmed", description: "Your appointment is set.", status: "completed" },
-      { id: "2", title: "Service in Progress", description: primaryService, status: "current" },
-      { id: "3", title: "Your vehicle is ready", description: "You will be notified when ready.", status: "pending" },
-      { id: "4", title: "Service Completed", description: "Your service is completed", status: "pending" },
-    ],
-  };
-}
-
 function adaptLocalBookingToCard(
   booking: StoreBooking,
   getServiceName: (id: string) => string,
   getMechanicName: (id: string) => string | undefined,
   getShopName: (id: string) => string | undefined,
-  vehicle: { year: number; make: string; model: string; imageSource?: unknown } | undefined,
+  vehicle: { year: number; make: string; model: string; vin?: string; imageSource?: unknown } | undefined,
 ): BookingCardBooking {
   const serviceNames = booking.serviceIds.map(getServiceName);
 
@@ -110,6 +78,10 @@ function adaptLocalBookingToCard(
   const carModel = vehicle ? `${vehicle.make} ${vehicle.model}` : "Vehicle";
   const makeLogoUrl = vehicle ? extractImageUri(vehicle.imageSource) : undefined;
 
+  // Local store stamps `createdAt` as an ISO string. Convert to epoch ms so
+  // it sorts cleanly alongside Convex's `_creationTime` (also epoch ms).
+  const createdAtMs = booking.createdAt ? Date.parse(booking.createdAt) : Date.now();
+
   return {
     id: booking.id,
     services: serviceNames,
@@ -120,16 +92,27 @@ function adaptLocalBookingToCard(
     mechanicName: getMechanicName(booking.shopId) ?? "Assigned Mechanic",
     shopName: getShopName(booking.shopId) ?? "Auto Shop",
     date: formattedDate,
-    time: booking.scheduledTime,
+    time: booking.scheduledTime && /^\d{1,2}:\d{2}$/.test(booking.scheduledTime)
+      ? hhmmToDisplayTime(booking.scheduledTime)
+      : booking.scheduledTime,
     status: booking.status,
     totalCost: booking.totalPrice,
     notes: booking.notes,
+    createdAt: Number.isFinite(createdAtMs) ? createdAtMs : Date.now(),
+    vin: vehicle?.vin,
   };
 }
 
 export function useMyBookingsWithDetails() {
   const { userId } = useUserFromConvex();
   const rows = useQuery(api.bookings.getByUserIdWithDetails, userId ? { userId } : "skip");
+  // Booking IDs the user has already submitted a review for. Drives the
+  // "Leave a review" card on completed bookings — once a review exists,
+  // the card disappears for good.
+  const reviewedBookingIds = useQuery(
+    api.reviews.listReviewedBookingIdsForUser,
+    userId ? { userId } : "skip",
+  );
 
   // Local bookings from Zustand (created with mock data)
   const localBookings = useBookingStore((s) => s.bookings);
@@ -147,33 +130,45 @@ export function useMyBookingsWithDetails() {
     const upcomingRows = list.filter(isUpcoming);
     const historyRows = list.filter(isHistory);
 
-    let liveTracking: LiveTracking | null =
-      liveRows.length > 0 ? adaptConvexBookingWithDetailsToLiveTracking(liveRows[0]) : null;
     let liveBooking: BookingCardBooking | null =
       liveRows.length > 0 ? adaptConvexBookingWithDetailsToCard(liveRows[0]) : null;
 
-    // Per the Apr 23 redesign: pending_quote → Upcoming (waiting for shops);
-    // quotes_ready → Quotes (shops responded, user picks one).
-    const upcomingOnly = upcomingRows.filter(
-      (r: ConvexBookingWithDetails) => r.status !== "quotes_ready",
-    );
-    const quotesReadyOnly = upcomingRows.filter(
-      (r: ConvexBookingWithDetails) => r.status === "quotes_ready",
-    );
+    // May 2 redesign: both quote-stage statuses (`pending_quote` +
+    // `quotes_ready`) live in the Quotes tab. Service-stage bookings
+    // (pending, confirmed, in_progress) live in the Bookings tab —
+    // including in-progress, which used to have its own Live Tracker
+    // tab. The per-card progress bar now communicates status inline.
+    const isQuoteStage = (r: ConvexBookingWithDetails) =>
+      r.status === "pending_quote" || r.status === "quotes_ready";
+    const serviceRows = [...liveRows, ...upcomingRows.filter((r) => !isQuoteStage(r))];
+    const quoteRows = upcomingRows.filter(isQuoteStage);
 
-    const upcomingBookings: BookingCardBooking[] = upcomingOnly
+    const upcomingBookings: BookingCardBooking[] = serviceRows
       .sort((a: ConvexBookingWithDetails, b: ConvexBookingWithDetails) =>
         (a.scheduled_date ?? "").localeCompare(b.scheduled_date ?? ""),
       )
       .map(adaptConvexBookingWithDetailsToCard);
 
-    const quoteBookings: BookingCardBooking[] = quotesReadyOnly
+    const quoteBookings: BookingCardBooking[] = quoteRows
       .sort((a: ConvexBookingWithDetails, b: ConvexBookingWithDetails) =>
         (b.scheduled_date ?? "").localeCompare(a.scheduled_date ?? ""),
       )
       .map(adaptConvexBookingWithDetailsToCard);
 
-    const historyBookings: BookingCardBooking[] = historyRows
+    // Pull completed-but-unreviewed rows out of history — they need a
+    // dedicated "Leave a review" card at the top of the Bookings tab.
+    // Cancelled bookings stay in history regardless.
+    const reviewedSet = new Set(reviewedBookingIds ?? []);
+    const isPendingReview = (r: ConvexBookingWithDetails) =>
+      r.status === "completed" && !reviewedSet.has(String(r._id));
+    const pendingReviewRows = historyRows.filter(isPendingReview);
+    const trueHistoryRows = historyRows.filter((r) => !isPendingReview(r));
+
+    const pendingReviewBookings: BookingCardBooking[] = pendingReviewRows
+      .sort((a, b) => (b._creationTime ?? 0) - (a._creationTime ?? 0))
+      .map(adaptConvexBookingWithDetailsToCard);
+
+    const historyBookings: BookingCardBooking[] = trueHistoryRows
       .sort((a: ConvexBookingWithDetails, b: ConvexBookingWithDetails) =>
         new Date(b.scheduled_date).getTime() - new Date(a.scheduled_date).getTime(),
       )
@@ -205,18 +200,11 @@ export function useMyBookingsWithDetails() {
 
       const vehicle = getVehicleById(booking.vehicleId) ?? getSelectedVehicle();
 
-      // Local in_progress booking → surface it as the active Live Tracker
-      // (only if there isn't already a Convex-sourced one).
+      // Local in_progress booking → surface it as the active card.
+      // Per the May 2 redesign, in-progress bookings appear in the
+      // Bookings list with their own progress bar instead of a
+      // dedicated Live Tracker tab.
       if (booking.status === "in_progress") {
-        if (!liveTracking) {
-          liveTracking = adaptLocalBookingToLiveTracking(
-            booking,
-            getServiceName,
-            getMechanicName,
-            getShopName,
-            vehicle,
-          );
-        }
         if (!liveBooking) {
           liveBooking = adaptLocalBookingToCard(
             booking,
@@ -249,18 +237,23 @@ export function useMyBookingsWithDetails() {
       }
     }
 
-    // Re-sort after merging local bookings
-    upcomingBookings.sort((a, b) => a.date.localeCompare(b.date));
-    quoteBookings.sort((a, b) => b.date.localeCompare(a.date));
-    historyBookings.sort((a, b) => b.date.localeCompare(a.date));
+    // Newest-first across every tab — most recently created booking sits at
+    // the top so a freshly-submitted card appears immediately on return to
+    // the My Bookings screen. Older `scheduled_date`-based ordering caused
+    // tire quote-stage rows (no scheduled_date yet) to clump arbitrarily.
+    const byCreatedAtDesc = (a: BookingCardBooking, b: BookingCardBooking) =>
+      (b.createdAt ?? 0) - (a.createdAt ?? 0);
+    upcomingBookings.sort(byCreatedAtDesc);
+    quoteBookings.sort(byCreatedAtDesc);
+    historyBookings.sort(byCreatedAtDesc);
 
     return {
-      liveTracking,
       liveBooking,
       upcomingBookings,
       quoteBookings,
+      pendingReviewBookings,
       historyBookings,
       isLoading: rows === undefined,
     };
-  }, [rows, localBookings, localBookingIds, availableServices, getShopById, getVehicleById, getSelectedVehicle, selectedMechanicSlot]);
+  }, [rows, reviewedBookingIds, localBookings, localBookingIds, availableServices, getShopById, getVehicleById, getSelectedVehicle, selectedMechanicSlot]);
 }

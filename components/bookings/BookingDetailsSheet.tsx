@@ -16,6 +16,7 @@ import {
   Alert,
   Dimensions,
   Image,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -97,6 +98,11 @@ interface BookingDetailsSheetProps {
   vehicleMileage?: number;
   // TODO(convex): stage history (requested/confirmed/in_progress timestamps)
   statusHistory?: Array<{ stage: BookingStatus; timestamp: number }>;
+  /** Fires after the sheet finishes closing. Lets parents track open
+   *  state for things like hiding the tab bar / dimming the screen. */
+  onClose?: () => void;
+  /** Fires immediately after open() is called. Symmetric with onClose. */
+  onOpen?: () => void;
 }
 
 function titleCase(str: string): string {
@@ -119,6 +125,8 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
       serviceDurationMinutes,
       vehicleMileage,
       statusHistory,
+      onOpen,
+      onClose,
     } = props;
 
     const insets = useSafeAreaInsets();
@@ -175,12 +183,16 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
     const open = useCallback((b: Booking) => {
       setBooking(b);
       setDetentJs(0);
-    }, []);
+      onOpen?.();
+    }, [onOpen]);
 
     const close = useCallback(() => {
       sheetHeight.value = withTiming(0, { duration: 260 });
-      setTimeout(() => setBooking(null), 280);
-    }, [sheetHeight]);
+      setTimeout(() => {
+        setBooking(null);
+        onClose?.();
+      }, 280);
+    }, [sheetHeight, onClose]);
 
     useImperativeHandle(ref, () => ({ open, close }));
 
@@ -331,7 +343,16 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
 
     const statusConfig = STATUS_CONFIG[booking.status] ?? STATUS_CONFIG.pending;
 
+    // Wrap in a native <Modal> so the sheet renders above the global
+    // bottom tab bar (matches the membership-page bottom-sheet pattern).
     return (
+      <Modal
+        visible={!!booking}
+        transparent
+        animationType="none"
+        statusBarTranslucent
+        onRequestClose={close}
+      >
       <View pointerEvents="box-none" style={StyleSheet.absoluteFill}>
         {/* Blur backdrop — fades in as sheet opens, tap to dismiss */}
         <Animated.View style={[StyleSheet.absoluteFill, backdropAnimStyle]} pointerEvents="auto">
@@ -393,6 +414,7 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
         {/* Chat thread with the mechanic */}
         <MechanicChatSheet ref={chatSheetRef} />
       </View>
+      </Modal>
     );
   },
 );
@@ -439,7 +461,9 @@ function MidContent({ booking, mechanicRating, statusConfig, onClose, onOpenChat
 
         <View style={styles.midStatusBlock}>
           <Text size="xl" weight="semiBold" color="#1A1A1A" style={styles.midStatusLeft}>
-            {booking.date} · {booking.time}
+            {booking.date && booking.time
+              ? `${booking.date} · ${booking.time}`
+              : booking.date || booking.time || "Time TBD"}
           </Text>
           <View style={[styles.statusPill, { backgroundColor: statusConfig.bgColor }]}>
             <Text weight="semiBold" size="sm" color={statusConfig.textColor}>
@@ -533,13 +557,22 @@ function MechanicCard({
           )}
         </View>
         <View style={styles.mechanicBody}>
-          <Text size="md" weight="semiBold" color="#1A1A1A" numberOfLines={1}>
+          <Text size="md" weight="semiBold" color="#1A1A1A">
             {booking.shopName}
           </Text>
-          <Text size="xs" weight="regular" color="#8E8E93" numberOfLines={1}>
-            {booking.mechanicName}
-            {mechanicRating != null ? ` · ⭐ ${mechanicRating.toFixed(1)}` : ""}
-          </Text>
+          {/* Server falls back to shopName for `mechanicName` when no
+              mechanic is assigned (e.g. accepted tire quotes). Only render
+              the second line when it's actually a separate person. */}
+          {booking.mechanicName && booking.mechanicName !== booking.shopName ? (
+            <Text size="xs" weight="regular" color="#8E8E93">
+              {booking.mechanicName}
+              {mechanicRating != null ? ` · ⭐ ${mechanicRating.toFixed(1)}` : ""}
+            </Text>
+          ) : mechanicRating != null ? (
+            <Text size="xs" weight="regular" color="#8E8E93">
+              ⭐ {mechanicRating.toFixed(1)}
+            </Text>
+          ) : null}
         </View>
         <View style={styles.mechanicActions}>
           <IconCircleButton onPress={handleCall} icon={<Phone size={16} color="#1A1A1A" />} />
@@ -981,6 +1014,7 @@ const styles = StyleSheet.create({
   },
   mechanicBody: {
     flex: 1,
+    minWidth: 0,
     gap: 2,
   },
   mechanicActions: {

@@ -6,8 +6,7 @@
  *
  *          status === "pending_quote"  (Upcoming tab)
  *            - Tag: Pending Quote (amber)
- *            - Footer: "Waiting for shops to respond"
- *            - Action: Switch toggle to move the booking to Quotes
+ *            - Action: View Details (opens booking sheet) + Cancel Request
  *
  *          status === "quotes_ready"   (Quotes tab)
  *            - Tag: Quotes Ready (blue)
@@ -20,12 +19,14 @@
  */
 
 import React from "react";
-import { Image, Pressable, StyleSheet, Switch, View } from "react-native";
+import { Alert, Image, Pressable, StyleSheet, View } from "react-native";
 
 import { ArrowRight, Car } from "lucide-react-native";
 
 import { Text } from "@/components/shared-ui";
-import type { Booking } from "@/components/bookings/BookingCard";
+import { type Booking } from "@/components/bookings/BookingCard";
+import { BookingProgressBar } from "@/components/bookings/BookingProgressBar";
+import { getBookingStageView } from "@/utils/bookingStages";
 
 // ============================================================================
 // HELPERS
@@ -53,6 +54,10 @@ function parseTireSpecs(notes: string | undefined): {
   };
 }
 
+function titleCase(str: string): string {
+  return str.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 // ============================================================================
 // COMPONENT
 // ============================================================================
@@ -60,46 +65,60 @@ function parseTireSpecs(notes: string | undefined): {
 interface Props {
   booking: Booking;
   onPress?: (bookingId: string) => void;
-  /** Flip pending_quote ↔ quotes_ready — called from the Switch toggle. */
-  onToggleQuotesReady?: (bookingId: string) => void;
   /** Open the quote list sheet. Called from the "View quotes" button. */
   onViewQuotes?: (bookingId: string) => void;
+  /** Soft-deletes the booking by flipping its status to "cancelled".
+   *  Triggered by the "Cancel Request" button. */
+  onCancel?: (bookingId: string) => void;
 }
 
 export function PendingQuoteCard({
   booking,
   onPress,
-  onToggleQuotesReady,
   onViewQuotes,
+  onCancel,
 }: Props) {
   const vehicleLabel =
     booking.carModel && booking.carModel !== "Vehicle" ? booking.carModel : "Vehicle";
   const specs = parseTireSpecs(booking.notes);
   const isReady = booking.status === "quotes_ready";
+  const stageView = getBookingStageView(booking.status, booking.liveStage);
 
   return (
     <Pressable
       style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
       onPress={() => onPress?.(booking.id)}
     >
-      {/* Header: vehicle + status tag */}
+      {/* Quote-stage progress bar — see utils/bookingStages.ts. */}
+      <BookingProgressBar
+        stages={stageView.stages}
+        currentIndex={stageView.currentIndex}
+      />
+
+      {/* Header: vehicle + status tag. Mirrors BookingCard's vehicle row —
+          small contained image (no gray bg), full multi-line model name,
+          license plate underneath. */}
       <View style={styles.header}>
-        <View style={styles.thumb}>
-          {booking.makeLogoUrl ? (
-            <Image source={{ uri: booking.makeLogoUrl }} style={styles.thumbImage} resizeMode="contain" />
-          ) : (
-            <Car size={30} color="#9CA3AF" />
-          )}
-        </View>
+        {booking.makeLogoUrl ? (
+          <Image
+            source={{ uri: booking.makeLogoUrl }}
+            style={styles.carImage}
+            resizeMode="contain"
+          />
+        ) : (
+          <View style={styles.carPlaceholder}>
+            <Car size={20} color="#9CA3AF" strokeWidth={1.5} />
+          </View>
+        )}
         <View style={styles.headerText}>
-          {booking.carYear ? (
-            <Text size="xs" weight="semiBold" color="#8E8E93" style={styles.year}>
-              {booking.carYear}
+          <Text size="md" weight="bold" color="#1F2937">
+            {titleCase(vehicleLabel)}
+          </Text>
+          {booking.licensePlate ? (
+            <Text size="xs" weight="regular" color="#6B7280">
+              {booking.licensePlate}
             </Text>
           ) : null}
-          <Text size="lg" weight="bold" color="#1A1A1A" numberOfLines={1}>
-            {vehicleLabel}
-          </Text>
         </View>
         <View style={[styles.tag, isReady ? styles.tagReady : styles.tagPending]}>
           <Text
@@ -133,10 +152,7 @@ export function PendingQuoteCard({
 
       {/* Mode-specific footer/action */}
       {isReady ? (
-        <>
-          <Text size="xs" weight="regular" color="#8E8E93" style={styles.footer}>
-            Quotes are in · pick the best fit
-          </Text>
+        <View style={styles.actionRow}>
           <Pressable
             onPress={(e) => {
               e.stopPropagation?.();
@@ -149,28 +165,65 @@ export function PendingQuoteCard({
             </Text>
             <ArrowRight size={16} color="#FFFFFF" strokeWidth={2.4} />
           </Pressable>
-        </>
+          {onCancel && booking.status !== "cancelled" ? (
+            <Pressable
+              onPress={(e) => {
+                e.stopPropagation?.();
+                handleCancel();
+              }}
+              style={({ pressed }) => [styles.cancelOutlineButton, pressed && styles.viewButtonPressed]}
+            >
+              <Text size="sm" weight="semiBold" color="#DC2626">
+                Cancel Request
+              </Text>
+            </Pressable>
+          ) : null}
+        </View>
       ) : (
-        <View style={styles.toggleRow}>
-          <View style={styles.toggleText}>
-            <Text size="sm" weight="semiBold" color="#1A1A1A">
-              Move to Quotes
+        <View style={styles.actionRow}>
+          <Pressable
+            onPress={(e) => {
+              e.stopPropagation?.();
+              onPress?.(booking.id);
+            }}
+            style={({ pressed }) => [styles.viewButton, pressed && styles.viewButtonPressed]}
+          >
+            <Text size="sm" weight="semiBold" color="#FFFFFF">
+              View Details
             </Text>
-            <Text size="xs" weight="regular" color="#8E8E93">
-              Simulate that shops responded with prices
-            </Text>
-          </View>
-          <Switch
-            value={false}
-            onValueChange={() => onToggleQuotesReady?.(booking.id)}
-            trackColor={{ false: "#E5E7EB", true: "#5299FE" }}
-            thumbColor="#FFFFFF"
-            ios_backgroundColor="#E5E7EB"
-          />
+          </Pressable>
+          {onCancel && booking.status !== "cancelled" ? (
+            <Pressable
+              onPress={(e) => {
+                e.stopPropagation?.();
+                handleCancel();
+              }}
+              style={({ pressed }) => [styles.cancelOutlineButton, pressed && styles.viewButtonPressed]}
+            >
+              <Text size="sm" weight="semiBold" color="#DC2626">
+                Cancel Request
+              </Text>
+            </Pressable>
+          ) : null}
         </View>
       )}
     </Pressable>
   );
+
+  function handleCancel() {
+    Alert.alert(
+      "Cancel Request",
+      "Stop waiting for shop quotes? You can submit a new request later.",
+      [
+        { text: "Keep Waiting", style: "cancel" },
+        {
+          text: "Cancel Request",
+          style: "destructive",
+          onPress: () => onCancel?.(booking.id),
+        },
+      ],
+    );
+  }
 }
 
 // ============================================================================
@@ -211,31 +264,30 @@ const styles = StyleSheet.create({
     opacity: 0.94,
   },
 
-  // Header
+
+  // Header — matches BookingCard's vehicle row dimensions so the two
+  // card types feel like one set on the My Bookings screen.
   header: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 14,
+    gap: 8,
   },
-  thumb: {
-    width: 64,
-    height: 64,
-    borderRadius: 16,
-    backgroundColor: "#F2F2F7",
+  carImage: {
+    width: 50,
+    height: 32,
+  },
+  carPlaceholder: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#E5E7EB",
     alignItems: "center",
     justifyContent: "center",
-    overflow: "hidden",
-  },
-  thumbImage: {
-    width: 64,
-    height: 64,
   },
   headerText: {
     flex: 1,
+    minWidth: 0,
     gap: 2,
-  },
-  year: {
-    letterSpacing: 1,
   },
   tag: {
     paddingHorizontal: 10,
@@ -274,37 +326,43 @@ const styles = StyleSheet.create({
     textAlign: "right",
   },
 
-  // Pending-state footer
-  footer: {
-    marginTop: 16,
-  },
-
-  // Pending toggle row
-  toggleRow: {
+  // Action / status row at the bottom of the card
+  actionRow: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
-    gap: 12,
-    marginTop: 16,
-    paddingTop: 14,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: "#E5E7EB",
-  },
-  toggleText: {
-    flex: 1,
-    gap: 2,
-  },
-
-  // Ready-state action button
-  viewButton: {
+    gap: 10,
     marginTop: 14,
+  },
+  pendingFooter: {
+    flex: 1,
+  },
+  viewButton: {
+    flexBasis: 0,
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 0,
     height: 48,
+    paddingHorizontal: 16,
     borderRadius: 12,
     backgroundColor: "#5299FE",
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     gap: 8,
+  },
+  cancelOutlineButton: {
+    flexBasis: 0,
+    flexGrow: 1,
+    flexShrink: 1,
+    minWidth: 0,
+    height: 48,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#FECACA",
+    backgroundColor: "#FEF2F2",
+    alignItems: "center",
+    justifyContent: "center",
   },
   viewButtonPressed: {
     opacity: 0.9,

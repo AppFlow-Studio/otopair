@@ -38,6 +38,7 @@ import type * as lib_checkin_questions from "../lib/checkin_questions.js";
 import type * as lib_classifier from "../lib/classifier.js";
 import type * as lib_intervals from "../lib/intervals.js";
 import type * as lib_job_actuals from "../lib/job_actuals.js";
+import type * as lib_late_start from "../lib/late_start.js";
 import type * as lib_modifiers from "../lib/modifiers.js";
 import type * as lib_packageRules from "../lib/packageRules.js";
 import type * as lib_schedule_overlap from "../lib/schedule_overlap.js";
@@ -166,6 +167,7 @@ import type * as vehicle_owners from "../vehicle_owners.js";
 import type * as vehicle_pipeline from "../vehicle_pipeline.js";
 import type * as vehicle_specs from "../vehicle_specs.js";
 import type * as vehicles from "../vehicles.js";
+import type * as ymmtCatalog from "../ymmtCatalog.js";
 
 import type {
   ApiFromModules,
@@ -204,6 +206,7 @@ declare const fullApi: ApiFromModules<{
   "lib/classifier": typeof lib_classifier;
   "lib/intervals": typeof lib_intervals;
   "lib/job_actuals": typeof lib_job_actuals;
+  "lib/late_start": typeof lib_late_start;
   "lib/modifiers": typeof lib_modifiers;
   "lib/packageRules": typeof lib_packageRules;
   "lib/schedule_overlap": typeof lib_schedule_overlap;
@@ -332,6 +335,7 @@ declare const fullApi: ApiFromModules<{
   vehicle_pipeline: typeof vehicle_pipeline;
   vehicle_specs: typeof vehicle_specs;
   vehicles: typeof vehicles;
+  ymmtCatalog: typeof ymmtCatalog;
 }>;
 
 /**

@@ -1,57 +1,47 @@
 /**
  * ScrollDrivenGradientBackground
  *
- * PURPOSE: Reusable background wrapper that drives `AnimatedGradientBackground` transitions
- *          based on vertical scroll position. Exposes a reanimated `onScroll` handler via
- *          render-props so screens can attach it to an `Animated.ScrollView`.
+ * PURPOSE: Originally a scroll-driven gradient that swapped colors as the
+ *          user scrolled. The transitions on every scroll frame made
+ *          scrolling feel laggy on every screen that used this, so it's
+ *          been collapsed into a STATIC blue→white gradient that the
+ *          entire app shares. The render-prop signature is preserved
+ *          (callers still receive a `scrollHandler` and a `scrollY`
+ *          shared value) so existing usages compile unchanged — the
+ *          handler just records scroll offset without driving anything,
+ *          and `scrollY` remains available for parallax/header fades.
  *
- * USED IN: components/payments/ActivityRewardsScreen.tsx (and any scroll-based screens)
+ *          The `colors`, `gradientScrollIndices`, and
+ *          `scrollPerTransition` props are accepted for backward
+ *          compatibility but ignored.
  *
- * PROPS:
- *   - colors (string[]): Gradient colors passed to `AnimatedGradientBackground` (min 2)
- *   - gradientScrollIndices (number[], optional): Indices representing the sequence of 
- *       gradient "stops" while scrolling. These indices are represented in 
- *       AnimatedGradientBackground.tsx, under SHARED_GRADIENT_CONFIGS
- *   - scrollPerTransition (number, optional): Scroll distance (px) per stop transition, from
- *       one index of SHARED_GRADIENT_CONFIGS to the next index
- *   - children ((scrollHandler, scrollY) => React.ReactNode): Render prop that receives the scroll handler and scrollY value
+ * USED IN: 9+ screens — home, cars, bookings, settings, payments, etc.
  *
- * EXAMPLE:
- *   <ScrollDrivenGradientBackground colors={[BrandColors.secondary, BrandColors.secondary, '#f4f1f8']}>
- *     {(scrollHandler, scrollY) => (
- *       <Animated.ScrollView onScroll={scrollHandler} scrollEventThrottle={16}>
- *         ...
- *       </Animated.ScrollView>
- *     )}
- *   </ScrollDrivenGradientBackground>
- *
- * OWNER: Daniel Chelala
- * TICKET: OTO-XXX
+ * OWNER: Ahmad Hamoudeh
  */
 
-import React, { useMemo } from 'react';
+import React from 'react';
 import { StyleSheet, View } from 'react-native';
-import Animated, {
-  Extrapolation,
-  interpolate,
+import { LinearGradient } from 'expo-linear-gradient';
+import {
   useAnimatedScrollHandler,
   useSharedValue,
   type ScrollHandlerProcessed,
   type SharedValue,
 } from 'react-native-reanimated';
-import { AnimatedGradientBackground } from './AnimatedGradientBackground';
-import { BrandColors } from '@/constants/theme';
 
-// Defaults match `ActivityRewardsScreen` so screens don't need to re-specify these.
-const DEFAULT_COLORS: [string, string, string] = [BrandColors.secondary, BrandColors.secondary, '#f4f1f8'];
-const DEFAULT_GRADIENT_SCROLL_INDICES = [0, 3, 6, 9];
-const DEFAULT_SCROLL_PER_TRANSITION = 300;
-
+// Single shared gradient used across the whole app. Saturated brand
+// blue at top fading to near-white at the bottom — gives screens a
+// consistent feel without paying the cost of recomputing gradient
+// stops on every scroll frame.
+const STATIC_GRADIENT: [string, string, string] = ['#86C2E8', '#B0D6F0', '#EAF2FA'];
 
 export interface ScrollDrivenGradientBackgroundProps {
-  /** Gradient colors passed to `AnimatedGradientBackground` (min 2). Defaults to Activity screen scheme. */
+  /** Accepted for backward compat; ignored (the gradient is static now). */
   colors?: string[];
+  /** Accepted for backward compat; ignored. */
   gradientScrollIndices?: number[];
+  /** Accepted for backward compat; ignored. */
   scrollPerTransition?: number;
   /** Optional external scrollY to sync with other animations. */
   scrollY?: SharedValue<number>;
@@ -62,67 +52,29 @@ export interface ScrollDrivenGradientBackgroundProps {
 }
 
 export function ScrollDrivenGradientBackground({
-  colors = DEFAULT_COLORS,
-  gradientScrollIndices = DEFAULT_GRADIENT_SCROLL_INDICES,
-  scrollPerTransition = DEFAULT_SCROLL_PER_TRANSITION,
   scrollY: externalScrollY,
   children,
 }: ScrollDrivenGradientBackgroundProps) {
-  const bgProgress = useSharedValue(0);
   const internalScrollY = useSharedValue(0);
   const scrollY = externalScrollY ?? internalScrollY;
-  const currentSegment = useSharedValue(0);
-  const fromIndexSV = useSharedValue(0);
-  const toIndexSV = useSharedValue(0);
 
-  const safeIndices = useMemo(() => {
-    const filtered = (gradientScrollIndices ?? []).filter((n) => Number.isFinite(n));
-    return filtered.length >= 2 ? filtered : DEFAULT_GRADIENT_SCROLL_INDICES;
-  }, [gradientScrollIndices]);
-
-  // Initialize shared indices on the JS thread
-  fromIndexSV.value = safeIndices[0];
-  toIndexSV.value = safeIndices[1];
-
+  // No-op handler — still records scroll offset so callers using
+  // `scrollY` for header fades / parallax keep working, but no
+  // per-frame gradient interpolation runs.
   const scrollHandler = useAnimatedScrollHandler({
     onScroll: (event) => {
-      const scrollOffset = event.contentOffset.y;
-      scrollY.value = scrollOffset;
-
-      const totalTransitions = safeIndices.length - 1;
-      const maxScroll = totalTransitions * scrollPerTransition;
-
-      const clampedScroll = Math.max(0, Math.min(scrollOffset, maxScroll));
-
-      const segmentIndex = Math.min(
-        Math.floor(clampedScroll / scrollPerTransition),
-        totalTransitions - 1
-      );
-
-      const segmentStart = segmentIndex * scrollPerTransition;
-      bgProgress.value = interpolate(
-        clampedScroll,
-        [segmentStart, segmentStart + scrollPerTransition],
-        [0, 1],
-        Extrapolation.CLAMP
-      );
-
-      if (segmentIndex !== currentSegment.value) {
-        currentSegment.value = segmentIndex;
-        fromIndexSV.value = safeIndices[segmentIndex];
-        toIndexSV.value = safeIndices[segmentIndex + 1];
-      }
+      scrollY.value = event.contentOffset.y;
     },
   });
 
   return (
     <>
       <View style={StyleSheet.absoluteFill}>
-        <AnimatedGradientBackground
-          progress={bgProgress}
-          fromIndexSV={fromIndexSV}
-          toIndexSV={toIndexSV}
-          colors={colors}
+        <LinearGradient
+          colors={STATIC_GRADIENT}
+          start={{ x: 0.5, y: 0 }}
+          end={{ x: 0.5, y: 1 }}
+          style={StyleSheet.absoluteFill}
         />
       </View>
       {children(scrollHandler, scrollY)}
