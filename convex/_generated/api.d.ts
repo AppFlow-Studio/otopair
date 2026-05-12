@@ -63,6 +63,7 @@ import type * as onboarding_questions_answers from "../onboarding_questions_answ
 import type * as oto_chat from "../oto/chat.js";
 import type * as oto_dispatcher from "../oto/dispatcher.js";
 import type * as oto_envelope from "../oto/envelope.js";
+import type * as oto_system_prompt from "../oto/system_prompt.js";
 import type * as oto_tools from "../oto/tools.js";
 import type * as payment_status_history from "../payment_status_history.js";
 import type * as payments from "../payments.js";
@@ -231,6 +232,7 @@ declare const fullApi: ApiFromModules<{
   "oto/chat": typeof oto_chat;
   "oto/dispatcher": typeof oto_dispatcher;
   "oto/envelope": typeof oto_envelope;
+  "oto/system_prompt": typeof oto_system_prompt;
   "oto/tools": typeof oto_tools;
   payment_status_history: typeof payment_status_history;
   payments: typeof payments;
