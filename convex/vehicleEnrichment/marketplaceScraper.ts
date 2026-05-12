@@ -472,6 +472,13 @@ Return ONLY the JSON array, no other text.`,
 export const processVinQueue = internalAction({
   args: {},
   handler: async (ctx) => {
+    // Kill-switch: pause enrichment without redeploying.
+    // Toggle via: npx convex env set --prod ENRICHMENT_PAUSED true|false
+    if (process.env.ENRICHMENT_PAUSED === "true") {
+      console.log("[queue] ENRICHMENT_PAUSED — skipping run");
+      return { processed: 0, enriched: 0, skipped: 0, reason: "paused" };
+    }
+
     // Check daily budget
     const todayCount = await ctx.runQuery(
       internal.vehicleEnrichment.marketplaceScraper.countTodayEnrichments,

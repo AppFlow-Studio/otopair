@@ -33,7 +33,8 @@ crons.daily(
   { source: "carscom" }
 );
 
-// Process VIN queue every 10 minutes — pick up pending VINs and trigger enrichment
+// Process VIN queue every 10 minutes — pick up pending VINs and trigger enrichment.
+// Gated by env var ENRICHMENT_PAUSED — set to "true" in Convex env to pause without redeploying.
 crons.interval(
   "process-vin-queue",
   { minutes: 10 },
