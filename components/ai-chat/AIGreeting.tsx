@@ -340,6 +340,12 @@ export function AIGreeting({
               ))}
             </Animated.View>
           )}
+
+          {/* Swipe hint — only when there's more than one vehicle to swipe
+              between, so first-time users know the carousel is swipeable. */}
+          {!isSingleCar && (
+            <Text style={styles.swipeHint}>Swipe to switch vehicles</Text>
+          )}
         </View>
       )}
     </View>
@@ -435,6 +441,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 6,
     marginTop: 16,
+  },
+  swipeHint: {
+    marginTop: 8,
+    textAlign: 'center',
+    color: '#9CA3AF',
+    fontSize: 12,
+    fontFamily: FontFamily.medium,
   },
   dot: {
     height: 6,

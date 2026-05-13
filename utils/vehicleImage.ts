@@ -80,21 +80,34 @@ export async function fetchVehicleImageUrl(
       console.log("[vehicleImage] api status:", json.status, "exterior:", exterior.length, "colors:", colorImages.length);
       if (json.status !== "success") continue;
 
+      // EVOX front 3/4 angle preference for any exterior pick.
+      const pickEvoxFront = () => {
+        const evoxFront = exterior.find(
+          (u) => u.includes("3231303031") || u.includes("6130313031"),
+        );
+        return evoxFront ?? exterior[0] ?? null;
+      };
+
       // 1. Color-specific match if user picked a paint color
       if (color) {
         const colorMatch = findColorImage(colorImages, color);
         if (colorMatch) return colorMatch;
+        // No color-matched image found. Prefer a neutral exterior render
+        // over a wrong-colored one — landing on the cars page showing a
+        // red car when the user picked blue is worse than showing a
+        // generic transparent render where the background gradient
+        // carries the color choice. Falls through to colorImages[0]
+        // only if no exterior is available.
+        const neutral = pickEvoxFront();
+        if (neutral) return neutral;
       }
 
-      // 2. Any color render (transparent bg)
+      // 2. Any color render (transparent bg) — only when user did NOT
+      // pick a color, so any paint is fine.
       if (colorImages.length > 0) return colorImages[0];
 
       // 3. Fall back to exterior gallery (also transparent bg on this endpoint).
-      // Pick the front 3/4 angle when we can recognize EVOX naming, else first.
-      const evoxFront = exterior.find(
-        (u) => u.includes("3231303031") || u.includes("6130313031"),
-      );
-      const picked = evoxFront ?? exterior[0] ?? null;
+      const picked = pickEvoxFront();
       if (picked) return picked;
     }
 
@@ -105,26 +118,51 @@ export async function fetchVehicleImageUrl(
 }
 
 /**
+ * Marketing-name synonyms for each user-pickable color id. The
+ * VehicleDatabases color URLs are named after manufacturer marketing
+ * paint names (e.g. "Storm Sea Blue", "Quartz White", "Phantom Black
+ * Pearl"), not generic color words, so we need a list of strings that
+ * commonly appear in those names. Keys are color ids from the
+ * add-vehicle picker; values are lowercase substrings to search the
+ * URL's last path segment for.
+ */
+const COLOR_SYNONYMS: Record<string, string[]> = {
+  black:             ["black", "phantom", "obsidian", "shadow", "onyx", "ebony", "raven"],
+  "midnight-silver": ["midnight", "silver", "graphite", "platinum"],
+  silver:            ["silver", "platinum", "graphite", "titanium", "mineral"],
+  white:             ["white", "ivory", "pearl", "quartz", "atlas", "alpine", "snow", "cream"],
+  gray:              ["gray", "grey", "graphite", "titanium", "mineral", "ash", "smoke", "cement"],
+  red:               ["red", "crimson", "ruby", "scarlet", "garnet", "rosso", "carmine", "cherry"],
+  blue:              ["blue", "navy", "ocean", "azure", "sapphire", "indigo", "marine", "atlas", "storm", "sea", "abyss", "denim", "cobalt"],
+  green:             ["green", "emerald", "jade", "forest", "moss", "olive", "lime", "british"],
+  beige:             ["beige", "sand", "tan", "khaki", "champagne", "wheat", "almond"],
+  brown:             ["brown", "espresso", "cocoa", "mahogany", "walnut", "bronze", "copper", "russet"],
+};
+
+/**
  * Match a user-selected color id (e.g. "black") to an API color image URL
- * (e.g. ".../deep-black-pearl.jpg") using keyword matching.
+ * (e.g. ".../deep-black-pearl.jpg") using keyword + synonym matching.
  */
 function findColorImage(colorUrls: string[], userColor: string): string | null {
   if (!userColor || !colorUrls.length) return null;
 
   const keywords = userColor.toLowerCase().split(/[-_\s]+/);
+  const synonyms = COLOR_SYNONYMS[userColor.toLowerCase()] ?? keywords;
 
-  // Try matching ALL keywords first (most specific, e.g. "midnight-silver" → both must match)
+  // Try matching ALL keywords first (most specific, e.g. "midnight-silver"
+  // → both literal words must appear in the filename).
   const allMatch = colorUrls.find((url) => {
     const filename = url.split("/").pop()?.toLowerCase() ?? "";
     return keywords.every((kw) => filename.includes(kw));
   });
   if (allMatch) return allMatch;
 
-  // Fall back to matching the primary keyword (e.g. "black" in "deep-black-pearl")
-  const primary = keywords[0];
+  // Fall back to ANY synonym — covers marketing-name paint colors like
+  // Hyundai's "Storm Sea Blue" (matches "storm" or "sea") or Honda's
+  // "Phantom Black Pearl" (matches "phantom").
   return colorUrls.find((url) => {
     const filename = url.split("/").pop()?.toLowerCase() ?? "";
-    return filename.includes(primary);
+    return synonyms.some((kw) => filename.includes(kw));
   }) ?? null;
 }
 

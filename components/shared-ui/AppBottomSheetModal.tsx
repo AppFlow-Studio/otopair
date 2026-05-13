@@ -35,13 +35,13 @@ import React, { forwardRef, useCallback, useImperativeHandle, useMemo, useRef } 
 import { Dimensions, Pressable, StyleSheet, View, type StyleProp, type ViewStyle } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
-  BottomSheetBackdrop,
   BottomSheetModal,
   BottomSheetScrollView,
 } from '@gorhom/bottom-sheet';
 import { X } from 'lucide-react-native';
 
 import { Spacing } from '@/constants/theme';
+import { BlurBackdrop } from './BlurBackdrop';
 import { Text } from './Text';
 
 export interface AppBottomSheetModalProps {
@@ -73,9 +73,7 @@ export const AppBottomSheetModal = forwardRef<BottomSheetModal, AppBottomSheetMo
     }, []);
 
     const renderBackdrop = useCallback(
-      (props: any) => (
-        <BottomSheetBackdrop appearsOnIndex={0} disappearsOnIndex={-1} {...props} />
-      ),
+      (props: any) => <BlurBackdrop {...props} />,
       []
     );
 

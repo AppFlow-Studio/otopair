@@ -64,7 +64,11 @@ function GarageCarSelectionCardComponent({
             <Image source={vehicle.imageSource} style={styles.carImage} resizeMode="cover" />
           ) : (
             <View style={styles.imagePlaceholder}>
-              <Car size={24} color="#8CBBFE" />
+              <Image
+                source={require("@/assets/images/covered-car.png")}
+                style={{ width: 40, height: 26 }}
+                resizeMode="contain"
+              />
             </View>
           )}
         </View>

@@ -78,7 +78,7 @@ const COLOR_GRADIENTS: Record<string, string[]> = {
   black:            ["#2a2d33", "#15171c", "#08090c"],
   "midnight-silver":["#3a4256", "#1c2030", "#0a0d18"],
   silver:           ["#7a8294", "#2f3540", "#10131c"],
-  white:            ["#e0e6ed", "#b4bcc8", "#6a7280"],
+  white:            ["#f5f7fa", "#dde2ea", "#a8b0bd"],
   gray:             ["#5b6477", "#2c3140", "#0e111a"],
   red:              ["#a8344a", "#481420", "#13050a"],
   blue:             ["#3a78c8", "#152e54", "#06101c"],

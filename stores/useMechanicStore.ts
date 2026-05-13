@@ -79,15 +79,17 @@ const DEFAULT_FILTERS: MechanicFilters = {
 // ─────────────────────────────────────────────────────────────
 
 export const useMechanicStore = create<MechanicState>()((set, get) => {
-  // Initialize with mock data (ids as string for Convex compatibility)
+  // ─── TEMP: Skip the MOCK_MECHANICS seed so the booking flow only
+  // surfaces real Convex mechanics filtered down to Chelala by
+  // `useMechanicsFromConvex`. Re-enable when more shops launch. ───
   const initialMechanics: Record<string, Mechanic> = {};
   const initialMechanicIds: string[] = [];
-  MOCK_MECHANICS.forEach((mechanic) => {
-    const id = String(mechanic.id);
-    const shopId = String(mechanic.shopId);
-    initialMechanics[id] = { ...mechanic, id, shopId };
-    initialMechanicIds.push(id);
-  });
+  // MOCK_MECHANICS.forEach((mechanic) => {
+  //   const id = String(mechanic.id);
+  //   const shopId = String(mechanic.shopId);
+  //   initialMechanics[id] = { ...mechanic, id, shopId };
+  //   initialMechanicIds.push(id);
+  // });
 
   return {
     // ═══════════════ INITIAL STATE ═══════════════

@@ -712,7 +712,11 @@ function FullContent({
                   resizeMode="contain"
                 />
               ) : (
-                <Car size={24} color="#9CA3AF" />
+                <Image
+                  source={require("@/assets/images/covered-car.png")}
+                  style={{ width: 40, height: 26 }}
+                  resizeMode="contain"
+                />
               )}
             </View>
             <View style={styles.vehicleInfo}>

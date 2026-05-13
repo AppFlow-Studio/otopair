@@ -161,7 +161,13 @@ export function BookingCard({
   onToggleFavorite,
 }: BookingCardProps) {
   const router = useRouter();
-  const statusConfig = STATUS_CONFIG[booking.status];
+  // Fall back to a neutral pill when the backend returns a status we
+  // don't have a config for, so an unknown value doesn't crash the card.
+  const statusConfig = STATUS_CONFIG[booking.status] ?? {
+    label: titleCase(String(booking.status ?? 'Unknown').replace(/_/g, ' ')),
+    bgColor: '#E5E7EB',
+    textColor: '#6B7280',
+  };
   const [carImageError, setCarImageError] = useState(false);
   const showCarPlaceholder = !booking.makeLogoUrl?.trim() || carImageError;
   

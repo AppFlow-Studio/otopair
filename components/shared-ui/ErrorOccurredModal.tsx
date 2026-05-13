@@ -9,6 +9,7 @@
 
 import React from "react";
 import { Modal, StyleSheet, TouchableOpacity, View } from "react-native";
+import { BlurView } from "expo-blur";
 import { AlertCircle } from "lucide-react-native";
 
 import { BorderRadius, BrandColors, Shadows, Spacing } from "@/constants/theme";
@@ -37,6 +38,7 @@ export function ErrorOccurredModal({
   return (
     <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
       <View style={[styles.overlay, inline && styles.overlayInline]}>
+        <BlurView intensity={28} tint="dark" style={StyleSheet.absoluteFill} pointerEvents="none" />
         <View style={styles.container}>
           <View style={styles.iconContainer}>
             <AlertCircle size={32} color="#EF4444" />
@@ -74,7 +76,7 @@ export function ErrorOccurredModal({
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    backgroundColor: "rgba(0, 0, 0, 0.18)",
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: Spacing["2xl"],

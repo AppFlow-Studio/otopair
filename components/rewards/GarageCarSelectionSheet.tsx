@@ -25,6 +25,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
+import { BlurView } from "expo-blur";
 import { X, Search, ArrowLeft } from "lucide-react-native";
 import { useQuery, useMutation } from "convex/react";
 import { KeyboardAwareScrollView } from "react-native-keyboard-controller";
@@ -375,6 +376,7 @@ export function GarageCarSelectionSheet({
   return (
       <Modal visible={visible} transparent animationType="none" statusBarTranslucent onRequestClose={dismiss}>
         <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]}>
+          <BlurView intensity={28} tint="dark" style={StyleSheet.absoluteFill} />
           <Pressable style={StyleSheet.absoluteFill} onPress={dismiss} />
         </Animated.View>
 
@@ -518,7 +520,7 @@ export function GarageCarSelectionSheet({
 const styles = StyleSheet.create({
   backdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0, 0, 0, 0.4)",
+    backgroundColor: "rgba(0, 0, 0, 0.18)",
   },
   bottomSheet: {
     position: "absolute",
