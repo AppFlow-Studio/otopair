@@ -120,6 +120,7 @@ import type * as users from "../users.js";
 import type * as vehicleEnrichment_adversarialVerification from "../vehicleEnrichment/adversarialVerification.js";
 import type * as vehicleEnrichment_anomalyDetection from "../vehicleEnrichment/anomalyDetection.js";
 import type * as vehicleEnrichment_applicabilityRules from "../vehicleEnrichment/applicabilityRules.js";
+import type * as vehicleEnrichment_backfillNhtsaKey from "../vehicleEnrichment/backfillNhtsaKey.js";
 import type * as vehicleEnrichment_blockedDomains from "../vehicleEnrichment/blockedDomains.js";
 import type * as vehicleEnrichment_buildSearchQueries from "../vehicleEnrichment/buildSearchQueries.js";
 import type * as vehicleEnrichment_cacheValidation from "../vehicleEnrichment/cacheValidation.js";
@@ -289,6 +290,7 @@ declare const fullApi: ApiFromModules<{
   "vehicleEnrichment/adversarialVerification": typeof vehicleEnrichment_adversarialVerification;
   "vehicleEnrichment/anomalyDetection": typeof vehicleEnrichment_anomalyDetection;
   "vehicleEnrichment/applicabilityRules": typeof vehicleEnrichment_applicabilityRules;
+  "vehicleEnrichment/backfillNhtsaKey": typeof vehicleEnrichment_backfillNhtsaKey;
   "vehicleEnrichment/blockedDomains": typeof vehicleEnrichment_blockedDomains;
   "vehicleEnrichment/buildSearchQueries": typeof vehicleEnrichment_buildSearchQueries;
   "vehicleEnrichment/cacheValidation": typeof vehicleEnrichment_cacheValidation;
