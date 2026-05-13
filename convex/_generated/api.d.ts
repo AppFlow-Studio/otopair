@@ -141,6 +141,7 @@ import type * as vehicleEnrichment_prompts_batch1Prompt from "../vehicleEnrichme
 import type * as vehicleEnrichment_prompts_batch1bPrompt from "../vehicleEnrichment/prompts/batch1bPrompt.js";
 import type * as vehicleEnrichment_prompts_batch2Prompt from "../vehicleEnrichment/prompts/batch2Prompt.js";
 import type * as vehicleEnrichment_queries from "../vehicleEnrichment/queries.js";
+import type * as vehicleEnrichment_runHeadless from "../vehicleEnrichment/runHeadless.js";
 import type * as vehicleEnrichment_runPublic from "../vehicleEnrichment/runPublic.js";
 import type * as vehicleEnrichment_runTest from "../vehicleEnrichment/runTest.js";
 import type * as vehicleEnrichment_scraper from "../vehicleEnrichment/scraper.js";
@@ -311,6 +312,7 @@ declare const fullApi: ApiFromModules<{
   "vehicleEnrichment/prompts/batch1bPrompt": typeof vehicleEnrichment_prompts_batch1bPrompt;
   "vehicleEnrichment/prompts/batch2Prompt": typeof vehicleEnrichment_prompts_batch2Prompt;
   "vehicleEnrichment/queries": typeof vehicleEnrichment_queries;
+  "vehicleEnrichment/runHeadless": typeof vehicleEnrichment_runHeadless;
   "vehicleEnrichment/runPublic": typeof vehicleEnrichment_runPublic;
   "vehicleEnrichment/runTest": typeof vehicleEnrichment_runTest;
   "vehicleEnrichment/scraper": typeof vehicleEnrichment_scraper;
