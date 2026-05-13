@@ -137,6 +137,7 @@ export function VehicleMaintenanceCard({
   const [currentIndex, setCurrentIndex] = useState(0);
   const [backIndex, setBackIndex] = useState(vehicles.length > 1 ? 1 : 0);
   const [fetchedImageUrls, setFetchedImageUrls] = useState<Record<string, string>>({});
+  const [measuredHeights, setMeasuredHeights] = useState<Record<string, number>>({});
 
   // Animated values for the front card
   const translateX = useSharedValue(0);
@@ -300,7 +301,20 @@ export function VehicleMaintenanceCard({
 
   const frontVehicle = vehicles[currentIndex];
   const canSwipe = vehicles.length > 1;
-  const [cardHeight, setCardHeight] = useState<number | undefined>(undefined);
+  const resolvedCardHeight = (() => {
+    const heights = Object.values(measuredHeights);
+    if (heights.length === 0) return undefined;
+    return Math.max(...heights);
+  })();
+
+  const handleMeasureCard = (vehicleId: string, height: number) => {
+    setMeasuredHeights((prev) => {
+      if (prev[vehicleId] === height) {
+        return prev;
+      }
+      return { ...prev, [vehicleId]: height };
+    });
+  };
 
   return (
     <View style={styles.container}>
@@ -315,6 +329,19 @@ export function VehicleMaintenanceCard({
         onTouchEnd={() => onSwipeEnd?.()}
         onTouchCancel={() => onSwipeEnd?.()}
       >
+        {/* Pre-measure every card so the section keeps a stable height. */}
+        <View style={styles.measurementLayer} pointerEvents="none">
+          {vehicles.map((vehicle) => (
+            <View
+              key={`measure-${vehicle.id}`}
+              style={styles.measurementCard}
+              onLayout={(e) => handleMeasureCard(vehicle.id, e.nativeEvent.layout.height)}
+            >
+              {renderCardContent(vehicle)}
+            </View>
+          ))}
+        </View>
+
         {/* Stacked card behind */}
         {canSwipe && (
           <View style={styles.stackedCard}>
@@ -332,11 +359,11 @@ export function VehicleMaintenanceCard({
         )}
 
         {/* Card area */}
-        <View style={[styles.swiperContainer, cardHeight ? { height: cardHeight } : undefined]}>
-          {/* Back card — absolute, behind front card */}
+        <View style={[styles.swiperContainer, resolvedCardHeight ? { height: resolvedCardHeight } : undefined]}>
+          {/* Full next card sits behind the active card so it is ready during the drag. */}
           {canSwipe && (
-            <View style={styles.backCard}>
-              {renderCardContent(vehicles[backIndex], 1)}
+            <View pointerEvents="none" style={styles.backCard}>
+              {renderCardContent(vehicles[backIndex])}
             </View>
           )}
 
@@ -344,14 +371,13 @@ export function VehicleMaintenanceCard({
           {canSwipe ? (
             <GestureDetector gesture={panGesture}>
               <Animated.View
-                style={frontCardStyle}
-                onLayout={(e) => setCardHeight(e.nativeEvent.layout.height)}
+                style={[styles.frontCardLayer, frontCardStyle]}
               >
                 {renderCardContent(frontVehicle)}
               </Animated.View>
             </GestureDetector>
           ) : (
-            <View onLayout={(e) => setCardHeight(e.nativeEvent.layout.height)}>
+            <View style={styles.frontCardLayer}>
               {renderCardContent(frontVehicle)}
             </View>
           )}
@@ -376,6 +402,19 @@ const styles = StyleSheet.create({
   swiperWrapper: {
     position: 'relative',
     paddingTop: 10,
+  },
+  measurementLayer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    opacity: 0,
+    zIndex: -1,
+  },
+  measurementCard: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
   },
   stackedCard: {
     position: 'absolute',
@@ -403,14 +442,21 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.7)',
   },
   swiperContainer: {
+    position: 'relative',
     zIndex: 1,
+    overflow: 'visible',
   },
   backCard: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
-    bottom: 0,
+    zIndex: 0,
+    elevation: 0,
+  },
+  frontCardLayer: {
+    zIndex: 3,
+    elevation: 12,
   },
   card: {
     borderRadius: 12,

@@ -25,14 +25,18 @@ export interface SettingsOverlayRect {
 
 interface SettingsOverlayState {
   isOpen: boolean;
+  isTransitionVisible: boolean;
   fromRect: SettingsOverlayRect | null;
   open: (rect: SettingsOverlayRect) => void;
   close: () => void;
+  finishClose: () => void;
 }
 
 export const useSettingsOverlayStore = create<SettingsOverlayState>((set) => ({
   isOpen: false,
+  isTransitionVisible: false,
   fromRect: null,
-  open: (rect) => set({ isOpen: true, fromRect: rect }),
+  open: (rect) => set({ isOpen: true, isTransitionVisible: true, fromRect: rect }),
   close: () => set({ isOpen: false }),
+  finishClose: () => set({ isTransitionVisible: false, fromRect: null }),
 }));

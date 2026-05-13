@@ -497,7 +497,14 @@ export default function HomeScreen() {
                   <Text size="xl" color="#FFFFFF" weight="bold">
                     Otopair
                   </Text>
-                  <Text weight="semiBold" size="sm" color="#FFFFFF">
+                  <Text
+                    weight="semiBold"
+                    size="sm"
+                    color="#FFFFFF"
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                    style={styles.locationLabel}
+                  >
                     {locationName}
                   </Text>
                 </View>
@@ -803,6 +810,12 @@ const styles = StyleSheet.create({
     gap: 0,
     marginTop: -7,
     marginLeft: 12,
+    flex: 1,
+    minWidth: 0,
+    paddingRight: 12,
+  },
+  locationLabel: {
+    flexShrink: 1,
   },
   headerRight: {
     flexDirection: "row",
