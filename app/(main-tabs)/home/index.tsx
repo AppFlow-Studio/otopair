@@ -1,6 +1,6 @@
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Image, Pressable, StyleSheet, View } from 'react-native';
+import { Image, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated from 'react-native-reanimated';
 
@@ -109,6 +109,7 @@ function formatBookingTime(timeStr: string): string {
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
+  const { height } = useWindowDimensions();
   const router = useRouter();
   const { isNewUser, shouldShowReactivationSheet, setShouldShowReactivationSheet } = useAuthStore();
   const { vehicles: listVehicles, hasVehicles } = useVehicleOwnershipFromConvex();
@@ -128,7 +129,11 @@ export default function HomeScreen() {
   // Reactivation bottom sheet (from temur-dev)
   const sheetRef = useRef<BottomSheetModal>(null);
   const hasPresentedReactivationRef = useRef(false);
-  const snapPoints = useMemo(() => ["42%"], []);
+  const reactivationSheetHeight = useMemo(() => {
+    const maxHeight = Math.max(height - insets.top - 72, 320);
+    return Math.min(Math.max(height * 0.5, 400), maxHeight);
+  }, [height, insets.top]);
+  const snapPoints = useMemo(() => [reactivationSheetHeight], [reactivationSheetHeight]);
 
   const renderBackdrop = useCallback(
     (props: BottomSheetBackdropProps) => (

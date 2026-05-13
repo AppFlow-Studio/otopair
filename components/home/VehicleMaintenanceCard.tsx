@@ -236,10 +236,29 @@ export function VehicleMaintenanceCard({
         <View style={styles.topSectionInner}>
           <View style={styles.vehicleInfoSection}>
             <View style={styles.vehicleTextInfo}>
-              <Text weight="bold" size="xl" color="#1F2937" style={styles.vehicleName}>
+              <Text
+                weight="bold"
+                size="xl"
+                color="#1F2937"
+                lineHeight={1.25}
+                numberOfLines={2}
+                adjustsFontSizeToFit
+                minimumFontScale={0.82}
+                ellipsizeMode="clip"
+                style={styles.vehicleName}
+              >
                 {vehicle.name}
               </Text>
-              <Text size="sm" color="#9CA3AF" style={styles.vin}>
+              <Text
+                size="sm"
+                color="#9CA3AF"
+                lineHeight={1.25}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.68}
+                ellipsizeMode="clip"
+                style={styles.vin}
+              >
                 {vehicle.vin}
               </Text>
             </View>
@@ -360,26 +379,22 @@ export function VehicleMaintenanceCard({
 
         {/* Card area */}
         <View style={[styles.swiperContainer, resolvedCardHeight ? { height: resolvedCardHeight } : undefined]}>
-          {/* Full next card sits behind the active card so it is ready during the drag. */}
+          {/* Back card preview */}
           {canSwipe && (
-            <View pointerEvents="none" style={styles.backCard}>
-              {renderCardContent(vehicles[backIndex])}
+            <View style={styles.backCard}>
+              {renderCardContent(vehicles[backIndex], 1)}
             </View>
           )}
 
           {/* Front card */}
           {canSwipe ? (
             <GestureDetector gesture={panGesture}>
-              <Animated.View
-                style={[styles.frontCardLayer, frontCardStyle]}
-              >
+              <Animated.View style={frontCardStyle}>
                 {renderCardContent(frontVehicle)}
               </Animated.View>
             </GestureDetector>
           ) : (
-            <View style={styles.frontCardLayer}>
-              {renderCardContent(frontVehicle)}
-            </View>
+            renderCardContent(frontVehicle)
           )}
         </View>
       </View>
@@ -448,15 +463,12 @@ const styles = StyleSheet.create({
   },
   backCard: {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
+    top: -8,
+    left: 12,
+    right: 12,
     zIndex: 0,
-    elevation: 0,
-  },
-  frontCardLayer: {
-    zIndex: 3,
-    elevation: 12,
+    opacity: 0.9,
+    transform: [{ scale: 0.98 }],
   },
   card: {
     borderRadius: 12,
@@ -508,9 +520,11 @@ const styles = StyleSheet.create({
   },
   vehicleName: {
     marginBottom: 4,
+    minHeight: 50,
   },
   vin: {
     letterSpacing: 0.5,
+    flexShrink: 1,
   },
   vehicleImage: {
     width: 140,
