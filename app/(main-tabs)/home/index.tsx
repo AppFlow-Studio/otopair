@@ -27,6 +27,8 @@ import { useAuthStore } from '@/stores/useAuthStore';
 import { useBookingStore } from '@/stores/useBookingStore';
 import { usePendingNavigationStore } from "@/stores/usePendingNavigationStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
+import { useNotificationsSheetStore } from "@/stores/useNotificationsSheetStore";
+import { useNotificationsFromConvex } from "@/hooks/useNotificationsFromConvex";
 import { useShallow } from 'zustand/react/shallow';
 import { useVehicleOwnershipFromConvex } from '@/hooks/useVehicleOwnershipFromConvex';
 import { fetchVehicleImageUrl } from '@/utils/vehicleImage';
@@ -408,6 +410,13 @@ export default function HomeScreen() {
     router.push("/home/map");
   };
 
+  // Notifications bell — opens the global NotificationsSheet and
+  // surfaces an unread dot when the customer has pending outbox rows
+  // (e.g., a shop has just proposed a reschedule).
+  const openNotificationsSheet = useNotificationsSheetStore((s) => s.open);
+  const { unreadCount: notificationsUnreadCount } = useNotificationsFromConvex();
+  const hasUnreadNotifications = notificationsUnreadCount > 0;
+
   // When returning from map modal with "Add vehicle" tapped: navigate to cars tab
   const pendingNavigateToCars = usePendingNavigationStore((s) => s.pendingNavigateToCars);
   const setPendingNavigateToCars = usePendingNavigationStore((s) => s.setPendingNavigateToCars);
@@ -588,13 +597,16 @@ export default function HomeScreen() {
 
                 {/* Notification Bell */}
                 <Pressable
+                  onPress={openNotificationsSheet}
                   style={({ pressed }) => [styles.bellButton, pressed && styles.bellButtonPressed]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Notifications"
                 >
                   {isLiquidGlassEnabled && LiquidGlassView ? (
                     <LiquidGlassView interactive effect="clear" style={styles.liquidGlassIcon}>
                       <View style={styles.bellIconContainer}>
                         <Bell size={22} color="#6B7280" fill="none" strokeWidth={2} />
-                        <View style={styles.bellDot} />
+                        {hasUnreadNotifications ? <View style={styles.bellDot} /> : null}
                       </View>
                     </LiquidGlassView>
                   ) : (
@@ -609,7 +621,7 @@ export default function HomeScreen() {
                         />
                         <View style={styles.bellIconContainer}>
                           <Bell size={22} color="#6B7280" fill="none" strokeWidth={2} />
-                          <View style={styles.bellDot} />
+                          {hasUnreadNotifications ? <View style={styles.bellDot} /> : null}
                         </View>
                       </BlurView>
                     </View>

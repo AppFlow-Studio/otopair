@@ -2075,7 +2075,7 @@ async function buildVehiclePassportForBooking(ctx: any, booking: any) {
       ? ctx.db
           .query("trim_specs")
           .withIndex("by_trim", (q: any) => q.eq("trim_id", vehicle.trim_id))
-          .unique()
+          .first()
       : null,
     vehicle?.engine_id ? ctx.db.get(vehicle.engine_id) : null,
     vehicle?.transmission_id ? ctx.db.get(vehicle.transmission_id) : null,
@@ -8213,5 +8213,71 @@ export const listOpenTireQuoteRequestsForShop = query({
         };
       }),
     );
+  },
+});
+
+/**
+ * Customer-side fetch for the Pending Customer Acceptance overlay.
+ *
+ * Returns the raw `previous_*` and `schedule_change_*` fields the
+ * decision UI needs to render the before/after comparison. Auth-gated
+ * to the booking's owner. Joins shop name, current + previous mechanic
+ * names, and service names.
+ */
+export const getBookingByIdForCustomer = query({
+  args: { bookingId: v.id("bookings") },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUser(ctx);
+    const booking = await ctx.db.get(args.bookingId);
+    if (!booking) return null;
+    if (booking.user_id !== user._id) return null;
+
+    const shop = booking.shop_id ? await ctx.db.get(booking.shop_id) : null;
+    const currentMechanic = booking.mechanic_id
+      ? await ctx.db.get(booking.mechanic_id)
+      : null;
+    const previousMechanic = booking.previous_mechanic_id
+      ? await ctx.db.get(booking.previous_mechanic_id)
+      : null;
+
+    const serviceNames = await resolveServiceNames(ctx, booking.service_ids);
+
+    const vehicle = booking.vin
+      ? await ctx.db
+          .query("vehicles")
+          .withIndex("by_vin", (q: any) => q.eq("vin", booking.vin))
+          .first()
+      : null;
+    const meta = (vehicle?.metadata as
+      | { make?: string; model?: string; trim?: string }
+      | undefined) ?? undefined;
+    const vehicleDisplay = vehicle
+      ? [vehicle.year, meta?.make, meta?.model].filter(Boolean).join(" ") || null
+      : null;
+
+    const formatMechanic = (m: any) =>
+      m ? `${m.first_name ?? ""} ${m.last_name ?? ""}`.trim() : null;
+
+    return {
+      id: booking._id,
+      status: booking.status,
+      scheduledDate: booking.scheduled_date,
+      scheduledTime: booking.scheduled_time,
+      previousScheduledDate: booking.previous_scheduled_date ?? null,
+      previousScheduledTime: booking.previous_scheduled_time ?? null,
+      previousStatus: booking.previous_status ?? null,
+      rescheduleProposedAt: booking.reschedule_proposed_at ?? null,
+      scheduleChangeMode: booking.schedule_change_mode ?? null,
+      customerCanRestoreOriginal: booking.customer_can_restore_original ?? null,
+      shopId: booking.shop_id ?? null,
+      shopName: (shop as any)?.name ?? null,
+      mechanicId: booking.mechanic_id ?? null,
+      mechanicName: formatMechanic(currentMechanic),
+      previousMechanicId: booking.previous_mechanic_id ?? null,
+      previousMechanicName: formatMechanic(previousMechanic),
+      serviceNames,
+      vehicleDisplay,
+      totalCost: booking.total_cost,
+    };
   },
 });

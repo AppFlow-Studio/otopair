@@ -5,6 +5,8 @@ import { Platform } from "react-native";
 import { TabBar } from "@/components/navigation/TabBar";
 import { useBookingsFromConvex } from "@/hooks/useBookingsFromConvex";
 import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromConvex";
+import { NotificationsSheet } from "@/components/notifications/NotificationsSheet";
+import { RescheduleDecisionOverlay } from "@/components/notifications/RescheduleDecisionOverlay";
 
 /** Hydrates vehicle and booking stores with Convex data when main tabs are active. */
 function HydrateBookingData() {
@@ -70,6 +72,8 @@ export default function TabLayout() {
             }}
           />
         </Tabs>
+        <NotificationsSheet />
+        <RescheduleDecisionOverlay />
       </>
     );
   }
@@ -99,6 +103,8 @@ export default function TabLayout() {
           <Label>{"Oto"}</Label>
         </NativeTabs.Trigger>
       </NativeTabs>
+      <NotificationsSheet />
+      <RescheduleDecisionOverlay />
     </>
   );
 }

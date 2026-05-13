@@ -40,10 +40,6 @@ import type * as lib_intervals from "../lib/intervals.js";
 import type * as lib_job_actuals from "../lib/job_actuals.js";
 import type * as lib_late_start from "../lib/late_start.js";
 import type * as lib_modifiers from "../lib/modifiers.js";
-<<<<<<< HEAD
-import type * as lib_vdbCache from "../lib/vdbCache.js";
-import type * as lib_vehicleDatabases from "../lib/vehicleDatabases.js";
-=======
 import type * as lib_packageRules from "../lib/packageRules.js";
 import type * as lib_schedule_overlap from "../lib/schedule_overlap.js";
 import type * as lib_simpleTireScraper from "../lib/simpleTireScraper.js";
@@ -54,16 +50,15 @@ import type * as lib_vdbCache from "../lib/vdbCache.js";
 import type * as lib_vehicleDatabases from "../lib/vehicleDatabases.js";
 import type * as lib_vehicle_passports from "../lib/vehicle_passports.js";
 import type * as lib_walmartTireScraper from "../lib/walmartTireScraper.js";
->>>>>>> ab23282d4a75810de4f120136ee91fe0b0d1587e
 import type * as maintenance from "../maintenance.js";
 import type * as maintenance_pipeline from "../maintenance_pipeline.js";
 import type * as makes from "../makes.js";
 import type * as manual_review_queue from "../manual_review_queue.js";
 import type * as mcp_api from "../mcp_api.js";
 import type * as mechanics from "../mechanics.js";
-import type * as migration from "../migration.js";
 import type * as migrations from "../migrations.js";
 import type * as models from "../models.js";
+import type * as notifications from "../notifications.js";
 import type * as oemParts from "../oemParts.js";
 import type * as onboarding_questions_answers from "../onboarding_questions_answers.js";
 import type * as oto_chat from "../oto/chat.js";
@@ -81,10 +76,7 @@ import type * as seed from "../seed.js";
 import type * as seed_modifier_weights from "../seed_modifier_weights.js";
 import type * as seed_services from "../seed_services.js";
 import type * as seed_services_catalog from "../seed_services_catalog.js";
-<<<<<<< HEAD
-=======
 import type * as seed_transactions from "../seed_transactions.js";
->>>>>>> ab23282d4a75810de4f120136ee91fe0b0d1587e
 import type * as seeds_blockEbay from "../seeds/blockEbay.js";
 import type * as seeds_cleanAndRerun from "../seeds/cleanAndRerun.js";
 import type * as seeds_deleteAndRerunNissan from "../seeds/deleteAndRerunNissan.js";
@@ -95,10 +87,7 @@ import type * as seeds_seedBlockedDomains from "../seeds/seedBlockedDomains.js";
 import type * as seeds_seedMakes from "../seeds/seedMakes.js";
 import type * as seeds_seedServices from "../seeds/seedServices.js";
 import type * as seeds_testEnrichment from "../seeds/testEnrichment.js";
-<<<<<<< HEAD
-=======
 import type * as serviceParts from "../serviceParts.js";
->>>>>>> ab23282d4a75810de4f120136ee91fe0b0d1587e
 import type * as service_categories from "../service_categories.js";
 import type * as service_insights from "../service_insights.js";
 import type * as service_options from "../service_options.js";
@@ -220,10 +209,6 @@ declare const fullApi: ApiFromModules<{
   "lib/job_actuals": typeof lib_job_actuals;
   "lib/late_start": typeof lib_late_start;
   "lib/modifiers": typeof lib_modifiers;
-<<<<<<< HEAD
-  "lib/vdbCache": typeof lib_vdbCache;
-  "lib/vehicleDatabases": typeof lib_vehicleDatabases;
-=======
   "lib/packageRules": typeof lib_packageRules;
   "lib/schedule_overlap": typeof lib_schedule_overlap;
   "lib/simpleTireScraper": typeof lib_simpleTireScraper;
@@ -234,16 +219,15 @@ declare const fullApi: ApiFromModules<{
   "lib/vehicleDatabases": typeof lib_vehicleDatabases;
   "lib/vehicle_passports": typeof lib_vehicle_passports;
   "lib/walmartTireScraper": typeof lib_walmartTireScraper;
->>>>>>> ab23282d4a75810de4f120136ee91fe0b0d1587e
   maintenance: typeof maintenance;
   maintenance_pipeline: typeof maintenance_pipeline;
   makes: typeof makes;
   manual_review_queue: typeof manual_review_queue;
   mcp_api: typeof mcp_api;
   mechanics: typeof mechanics;
-  migration: typeof migration;
   migrations: typeof migrations;
   models: typeof models;
+  notifications: typeof notifications;
   oemParts: typeof oemParts;
   onboarding_questions_answers: typeof onboarding_questions_answers;
   "oto/chat": typeof oto_chat;
@@ -261,10 +245,7 @@ declare const fullApi: ApiFromModules<{
   seed_modifier_weights: typeof seed_modifier_weights;
   seed_services: typeof seed_services;
   seed_services_catalog: typeof seed_services_catalog;
-<<<<<<< HEAD
-=======
   seed_transactions: typeof seed_transactions;
->>>>>>> ab23282d4a75810de4f120136ee91fe0b0d1587e
   "seeds/blockEbay": typeof seeds_blockEbay;
   "seeds/cleanAndRerun": typeof seeds_cleanAndRerun;
   "seeds/deleteAndRerunNissan": typeof seeds_deleteAndRerunNissan;
@@ -275,10 +256,7 @@ declare const fullApi: ApiFromModules<{
   "seeds/seedMakes": typeof seeds_seedMakes;
   "seeds/seedServices": typeof seeds_seedServices;
   "seeds/testEnrichment": typeof seeds_testEnrichment;
-<<<<<<< HEAD
-=======
   serviceParts: typeof serviceParts;
->>>>>>> ab23282d4a75810de4f120136ee91fe0b0d1587e
   service_categories: typeof service_categories;
   service_insights: typeof service_insights;
   service_options: typeof service_options;

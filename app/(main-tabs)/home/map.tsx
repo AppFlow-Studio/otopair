@@ -12,11 +12,11 @@
 
 // 1. React & React Native
 import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { InteractionManager, StyleSheet, TouchableOpacity, View } from "react-native";
+import { BackHandler, InteractionManager, Platform, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
 import { BlurView } from "expo-blur";
-import { useNavigation, useRouter } from "expo-router";
+import { useFocusEffect, useNavigation, useRouter } from "expo-router";
 import { ChevronLeft } from "lucide-react-native";
 import MapView from "react-native-maps";
 import Animated, { Extrapolation, interpolate, SharedValue, useAnimatedStyle } from "react-native-reanimated";
@@ -79,6 +79,7 @@ export default function BookingsScreen() {
 
   // ═══════════════ REFS ═══════════════
   const mapRef = useRef<MapView>(null);
+  const bottomSheetBackHandlerRef = useRef<(() => boolean) | null>(null);
 
   // Defer mounting the heavy native MapView until the slide-from-bottom
   // transition has completed. The MapView's first-frame initialization
@@ -238,6 +239,34 @@ export default function BookingsScreen() {
     }
   }, [router]);
 
+  const handleBottomSheetBackHandlerChange = useCallback((handler: (() => boolean) | null) => {
+    bottomSheetBackHandlerRef.current = handler;
+  }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (Platform.OS !== "android") {
+        return undefined;
+      }
+
+      const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+        if (isFilterOpen) {
+          setIsFilterOpen(false);
+          return true;
+        }
+
+        if (bottomSheetBackHandlerRef.current?.()) {
+          return true;
+        }
+
+        handleBackPress();
+        return true;
+      });
+
+      return () => subscription.remove();
+    }, [handleBackPress, isFilterOpen])
+  );
+
   // Add vehicle from car selection: back (dismiss modal) then navigate to cars from home
   const setPendingNavigateToCars = usePendingNavigationStore((s) => s.setPendingNavigateToCars);
   const handleAddVehicle = useCallback(() => {
@@ -341,6 +370,7 @@ export default function BookingsScreen() {
         onShopChange={handleShopChange}
         onShopClose={handleShopClose}
         onAddVehicle={handleAddVehicle}
+        onBackHandlerChange={handleBottomSheetBackHandlerChange}
       />
     </View>
   );

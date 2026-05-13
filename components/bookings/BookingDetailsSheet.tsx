@@ -68,6 +68,7 @@ type BookingStatus = Booking["status"];
 const STATUS_CONFIG: Record<BookingStatus, { label: string; bgColor: string; textColor: string }> = {
   pending: { label: "Pending", bgColor: "#fff6ee", textColor: "#f89829" },
   pending_quote: { label: "Pending Quote", bgColor: "#FFF8ED", textColor: "#C8972E" },
+  pending_customer_acceptance: { label: "Action needed", bgColor: "#FFF6E5", textColor: "#C8972E" },
   confirmed: { label: "Confirmed", bgColor: "#e8f5e9", textColor: "#4CAF50" },
   in_progress: { label: "In Progress", bgColor: "#E0E7FF", textColor: "#4F46E5" },
   completed: { label: "Completed", bgColor: "#f0fcf5", textColor: "#60d17e" },
@@ -823,9 +824,10 @@ function StatusTimeline({
   const pulseAnimStyle = useAnimatedStyle(() => ({ opacity: pulseOpacity.value }));
 
   const stages: BookingStatus[] = ["pending", "confirmed", "in_progress", "completed"];
-  const stageLabels: Record<BookingStatus, string> = {
+  const stageLabels: Partial<Record<BookingStatus, string>> = {
     pending: "Requested",
     pending_quote: "Awaiting Quote",
+    pending_customer_acceptance: "Awaiting your approval",
     confirmed: "Confirmed",
     in_progress: "In Progress",
     completed: "Complete",
@@ -880,7 +882,7 @@ function StatusTimeline({
                 weight={isCurrent ? "semiBold" : "medium"}
                 color={isCompleted || isCurrent ? "#1A1A1A" : "#8E8E93"}
               >
-                {stageLabels[stage]}
+                {stageLabels[stage] ?? ""}
               </Text>
               {timestamp ? (
                 <Text size="xs" weight="regular" color="#8E8E93">

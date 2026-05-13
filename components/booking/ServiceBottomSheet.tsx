@@ -109,6 +109,8 @@ interface ServiceBottomSheetProps {
   onShopClose?: () => void;
   /** Called when "Add a vehicle" is tapped in car selection (e.g. navigate to My Cars) */
   onAddVehicle?: () => void;
+  /** Registers a back handler with the parent route. Return true when consumed. */
+  onBackHandlerChange?: (handler: (() => boolean) | null) => void;
 }
 
 // ============================================================================
@@ -179,6 +181,7 @@ export function ServiceBottomSheet({
   onShopChange,
   onShopClose,
   onAddVehicle: onAddVehicleProp,
+  onBackHandlerChange,
 }: ServiceBottomSheetProps) {
   // ═══════════════ REFS ═══════════════
   const bottomSheetRef = useRef<BottomSheet>(null);
@@ -771,6 +774,13 @@ export function ServiceBottomSheet({
     setBookingStage("service_selection", "backward");
   }, [setBookingStage]);
 
+  const handleMechanicSelectionGoBack = useCallback(() => {
+    const anyHasOptions = availableServices.some(
+      (svc) => selectedServiceIds.includes(svc.id) && svc.has_options === true,
+    );
+    setBookingStage(anyHasOptions ? "service_options" : "service_selection", "backward");
+  }, [availableServices, selectedServiceIds, setBookingStage]);
+
   // Service options complete -> go to mechanic selection
   const handleServiceOptionsContinue = useCallback(() => {
     setBookingStage("mechanic_selection", "forward");
@@ -849,6 +859,50 @@ export function ServiceBottomSheet({
       snapToIndexSafe(1); // Snap to preview stage
     }
   }, [isSearchMode, exitSearchMode, snapToIndexSafe]);
+
+  const handleParentBack = useCallback(() => {
+    if (isSearchMode) {
+      exitSearchMode();
+      return true;
+    }
+
+    if (showCarPreview) {
+      handleCarSelectionClose();
+      return true;
+    }
+
+    if (showShopPreview) {
+      handleShopPreviewClose();
+      return true;
+    }
+
+    if (currentStage === "mechanic_selection") {
+      handleMechanicSelectionGoBack();
+      return true;
+    }
+
+    if (currentStage === "service_options") {
+      handleServiceOptionsGoBack();
+      return true;
+    }
+
+    return false;
+  }, [
+    currentStage,
+    exitSearchMode,
+    handleCarSelectionClose,
+    handleMechanicSelectionGoBack,
+    handleServiceOptionsGoBack,
+    handleShopPreviewClose,
+    isSearchMode,
+    showCarPreview,
+    showShopPreview,
+  ]);
+
+  useEffect(() => {
+    onBackHandlerChange?.(handleParentBack);
+    return () => onBackHandlerChange?.(null);
+  }, [handleParentBack, onBackHandlerChange]);
 
   // Handle category tap - expand to mid (50%) if below mid
   const handleCategorySelect = useCallback(() => {
@@ -1323,7 +1377,7 @@ export function ServiceBottomSheet({
       {searchQuery.length > 0 && !hasSearchResults && (
         <View style={styles.emptyState}>
           <Text size="md" weight="medium" color="#9CA3AF" center>
-            No results found for "{searchQuery}"
+            No results found for {searchQuery}
           </Text>
         </View>
       )}

@@ -25,8 +25,9 @@
  */
 
 // 1. React & React Native
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Alert, Image, Pressable, StyleSheet, View } from 'react-native';
+import type { View as RNView } from 'react-native';
 
 // 2. Expo & Third-party
 import { useRouter } from 'expo-router';
@@ -36,12 +37,14 @@ import { Car, FileText, Star, User } from 'lucide-react-native';
 import { Text } from '@/components/shared-ui';
 import { BookingProgressBar } from '@/components/bookings/BookingProgressBar';
 import { getBookingStageView } from '@/utils/bookingStages';
+import { useRescheduleDecisionOverlayStore } from '@/stores/useRescheduleDecisionOverlayStore';
+import type { Id } from '@/convex/_generated/dataModel';
 
 // ============================================================================
 // TYPES
 // ============================================================================
 
-export type BookingStatus = 'pending' | 'pending_quote' | 'quotes_ready' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled' | 'delayed';
+export type BookingStatus = 'pending' | 'pending_quote' | 'quotes_ready' | 'pending_customer_acceptance' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled' | 'delayed';
 
 export interface Booking {
   id: string;
@@ -120,6 +123,11 @@ export const STATUS_CONFIG: Record<BookingStatus, { label: string; bgColor: stri
     bgColor: '#E3F0FF',
     textColor: '#2F6DCC',
   },
+  pending_customer_acceptance: {
+    label: 'Action needed',
+    bgColor: '#FFF6E5',
+    textColor: '#C8972E',
+  },
   confirmed: {
     label: 'Confirmed',
     bgColor: '#e8f5e9',
@@ -161,7 +169,13 @@ export function BookingCard({
   onToggleFavorite,
 }: BookingCardProps) {
   const router = useRouter();
-  const statusConfig = STATUS_CONFIG[booking.status];
+  const openRescheduleDecision = useRescheduleDecisionOverlayStore((s) => s.open);
+  const primaryBtnRef = useRef<RNView | null>(null);
+  const statusConfig = STATUS_CONFIG[booking.status] ?? {
+    label: titleCase(String(booking.status ?? 'Unknown').replace(/_/g, ' ')),
+    bgColor: '#E5E7EB',
+    textColor: '#6B7280',
+  };
   const [carImageError, setCarImageError] = useState(false);
   const showCarPlaceholder = !booking.makeLogoUrl?.trim() || carImageError;
   
@@ -173,6 +187,23 @@ export function BookingCard({
     : `+${additionalCount} More`;
 
   const handleViewDetails = () => {
+    // Bookings awaiting customer acceptance route to the dedicated
+    // Accept / Decline overlay instead of the generic details sheet —
+    // the action is the whole point of the row.
+    if (booking.status === 'pending_customer_acceptance') {
+      const launch = (rect: { x: number; y: number; width: number; height: number }) => {
+        openRescheduleDecision(rect, booking.id as unknown as Id<'bookings'>);
+      };
+      const node = primaryBtnRef.current as unknown as { measureInWindow?: (...args: any[]) => void } | null;
+      if (node && typeof node.measureInWindow === 'function') {
+        node.measureInWindow((x: number, y: number, width: number, height: number) => {
+          launch({ x, y, width, height });
+        });
+      } else {
+        launch({ x: 16, y: 200, width: 200, height: 48 });
+      }
+      return;
+    }
     if (onViewDetails) {
       onViewDetails(booking.id);
     } else {
@@ -347,6 +378,7 @@ export function BookingCard({
       {variant === 'upcoming' ? (
         <View style={styles.actionsRow}>
           <Pressable
+            ref={primaryBtnRef}
             onPress={handleViewDetails}
             style={({ pressed }) => [
               styles.primaryButton,
@@ -354,7 +386,9 @@ export function BookingCard({
             ]}
           >
             <Text weight="semiBold" size="sm" color="#FFFFFF" numberOfLines={1}>
-              View Details
+              {booking.status === 'pending_customer_acceptance'
+                ? 'Review change'
+                : 'View Details'}
             </Text>
           </Pressable>
 

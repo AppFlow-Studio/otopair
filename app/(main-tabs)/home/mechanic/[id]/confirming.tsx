@@ -16,9 +16,9 @@
  */
 
 import React, { useCallback, useEffect, useRef, useState } from "react";
-import { Dimensions, StyleSheet, View } from "react-native";
+import { BackHandler, Platform, StyleSheet, View, useWindowDimensions } from "react-native";
 
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import LottieView from "lottie-react-native";
 import Animated, {
   useAnimatedStyle,
@@ -32,9 +32,6 @@ import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/Flo
 import { BookingConfirmStatus } from "@/components/booking/BookingConfirmStatus";
 import { useCreateBookingConvex } from "@/hooks/useCreateBookingConvex";
 import { useBookingStore } from "@/stores/useBookingStore";
-
-const { width: SCREEN_W, height: SCREEN_HEIGHT } = Dimensions.get("window");
-const SHEET_HEIGHT = Math.round(SCREEN_HEIGHT * 0.52);
 
 // Copy fade-in is gated to the same landing moment as the tire flow so
 // the timing reads consistently across both surfaces.
@@ -59,11 +56,17 @@ export default function BookingConfirmingScreen() {
   const router = useRouter();
   const { id } = useLocalSearchParams<{ id: string }>();
   const sheetRef = useRef<FloatingSheetRef>(null);
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
   const { createBookingConvex } = useCreateBookingConvex();
   const selectedMechanicId = useBookingStore((s) => s.selectedMechanicId);
   const bookingType = useBookingStore((s) => s.bookingType);
   const navigatedRef = useRef(false);
   const [submitting, setSubmitting] = useState(false);
+  const isCompactLayout = windowHeight < 860;
+  const isVeryCompactLayout = windowHeight < 760;
+  const sheetHeight = Math.round(
+    windowHeight * (isVeryCompactLayout ? 0.57 : isCompactLayout ? 0.53 : 0.5),
+  );
 
   // Open the sheet on mount, same shape as the tire-quote requesting flow.
   useEffect(() => {
@@ -92,6 +95,23 @@ export default function BookingConfirmingScreen() {
   const handleGoBack = useCallback(() => {
     sheetRef.current?.close();
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (Platform.OS !== "android") {
+        return undefined;
+      }
+
+      const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+        if (!submitting) {
+          handleGoBack();
+        }
+        return true;
+      });
+
+      return () => subscription.remove();
+    }, [handleGoBack, submitting])
+  );
 
   const handleConfirm = useCallback(async () => {
     if (submitting || navigatedRef.current) return;
@@ -126,21 +146,40 @@ export default function BookingConfirmingScreen() {
         autoPlay
         loop
         resizeMode="cover"
-        style={styles.lottie}
+        style={[
+          styles.lottie,
+          isCompactLayout && styles.lottieCompact,
+          isVeryCompactLayout && styles.lottieVeryCompact,
+          { width: windowWidth, height: windowHeight },
+        ]}
       />
 
-      <Animated.View style={[styles.copyOverlay, copyAnimStyle]} pointerEvents="none">
-        <Text size="md" weight="bold" color="#000000" center>
+      <Animated.View
+        style={[
+          styles.copyOverlay,
+          isCompactLayout && styles.copyOverlayCompact,
+          isVeryCompactLayout && styles.copyOverlayVeryCompact,
+          copyAnimStyle,
+        ]}
+        pointerEvents="none"
+      >
+        <Text size={isVeryCompactLayout ? "sm" : "md"} weight="bold" color="#000000" center>
           Confirming your appointment
         </Text>
-        <Text size="xs" weight="regular" color="#000000" center style={styles.copySub}>
+        <Text
+          size="xs"
+          weight="regular"
+          color="#000000"
+          center
+          style={[styles.copySub, isCompactLayout && styles.copySubCompact]}
+        >
           Locking in your time slot with the shop
         </Text>
       </Animated.View>
 
       <FloatingSheet
         ref={sheetRef}
-        snapHeights={[SHEET_HEIGHT]}
+        snapHeights={[sheetHeight]}
         onClose={handleSheetClose}
         cornerRadius={24}
       >
@@ -161,8 +200,12 @@ const styles = StyleSheet.create({
   },
   lottie: {
     ...StyleSheet.absoluteFillObject,
-    width: SCREEN_W,
-    height: SCREEN_HEIGHT,
+  },
+  lottieCompact: {
+    transform: [{ translateY: -18 }],
+  },
+  lottieVeryCompact: {
+    transform: [{ translateY: -30 }],
   },
   copyOverlay: {
     position: "absolute",
@@ -172,7 +215,19 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
+  copyOverlayCompact: {
+    top: "36.5%",
+    left: 20,
+    right: 20,
+    gap: 6,
+  },
+  copyOverlayVeryCompact: {
+    top: "34.5%",
+  },
   copySub: {
     marginTop: 2,
+  },
+  copySubCompact: {
+    marginTop: 0,
   },
 });

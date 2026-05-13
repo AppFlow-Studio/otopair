@@ -1,9 +1,7 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
-import {
-  applyBookingStatusTransition,
-} from "./bookings";
+import { applyBookingStatusTransition } from "./bookings";
 import {
   ensureJobActualRecord,
   finalizeJobActuals,
@@ -83,6 +81,9 @@ export const getByBookingId = query({
     if (!booking) return null;
 
     await requireShopStaff(ctx, user._id, booking.shop_id);
+    if (booking.status !== "vehicle_at_shop" && booking.status !== "in_progress") {
+      throw new Error("Mark the vehicle here before starting work.");
+    }
 
     return await getLatestJobActualForBooking(ctx, args.bookingId);
   },
