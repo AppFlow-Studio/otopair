@@ -19,10 +19,10 @@
 
 // 1. React & React Native
 import React, { useCallback, useMemo, useState } from "react";
-import { ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
+import { BackHandler, Platform, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Expo & Third-party
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { Calendar, ChevronRight, Clock } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -160,6 +160,31 @@ export default function BookingDetailsScreen() {
     setSkipServiceRemovalConfirm(true);
     handleConfirmRemove();
   }, [setSkipServiceRemovalConfirm, handleConfirmRemove]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (Platform.OS !== "android") {
+        return undefined;
+      }
+
+      const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+        if (showDiscardModal) {
+          handleCloseDiscardModal();
+          return true;
+        }
+
+        if (showAddServicesModal) {
+          setShowAddServicesModal(false);
+          return true;
+        }
+
+        handleBack();
+        return true;
+      });
+
+      return () => subscription.remove();
+    }, [handleBack, handleCloseDiscardModal, showAddServicesModal, showDiscardModal])
+  );
 
   // ═══════════════ RENDER ═══════════════
   if (!mechanic) {

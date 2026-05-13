@@ -14,12 +14,12 @@
 
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo } from "react";
-import { Alert, Image, Platform, StyleSheet, TouchableOpacity, View } from "react-native";
+import { Alert, BackHandler, Image, Platform, ScrollView, StyleSheet, TouchableOpacity, View, useWindowDimensions } from "react-native";
 
 // 2. Expo & Third-party
 import * as Calendar from "expo-calendar";
 import * as Linking from "expo-linking";
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { Check, Gift, Navigation, Phone, Star } from "lucide-react-native";
 import Animated, {
   Easing,
@@ -152,7 +152,7 @@ function ConfettiExplosion() {
   );
 }
 
-function SuccessCheckmark() {
+function SuccessCheckmark({ compact = false, veryCompact = false }: { compact?: boolean; veryCompact?: boolean }) {
   const scale = useSharedValue(0);
   const checkScale = useSharedValue(0);
 
@@ -169,12 +169,21 @@ function SuccessCheckmark() {
     transform: [{ scale: checkScale.value }],
   }));
 
+  const checkIconSize = veryCompact ? 26 : compact ? 28 : 32;
+
   return (
-    <View style={styles.successContainer}>
+    <View style={[styles.successContainer, compact && styles.successContainerCompact, veryCompact && styles.successContainerVeryCompact]}>
       <ConfettiExplosion />
-      <Animated.View style={[styles.successCircle, circleStyle]}>
+      <Animated.View
+        style={[
+          styles.successCircle,
+          compact && styles.successCircleCompact,
+          veryCompact && styles.successCircleVeryCompact,
+          circleStyle,
+        ]}
+      >
         <Animated.View style={checkStyle}>
-          <Check size={32} color="#FFFFFF" strokeWidth={3} />
+          <Check size={checkIconSize} color="#FFFFFF" strokeWidth={3} />
         </Animated.View>
       </Animated.View>
     </View>
@@ -189,7 +198,10 @@ export default function ConfirmationScreen() {
   // ═══════════════ HOOKS ═══════════════
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
   const { id: bookingId } = useLocalSearchParams<{ id: string }>();
+  const isCompactLayout = windowHeight < 860;
+  const isVeryCompactLayout = windowHeight < 760;
 
   // ═══════════════ STORES ═══════════════
   const selectedMechanicId = useBookingStore((state) => state.selectedMechanicId);
@@ -311,18 +323,6 @@ export default function ConfirmationScreen() {
       return;
     }
     try {
-      const { status } = await Calendar.requestCalendarPermissionsAsync();
-      if (status !== "granted") {
-        Alert.alert("Calendar access", "Calendar permission is required to add the appointment.");
-        return;
-      }
-      const calendars = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
-      const writable = calendars.filter((c) => c.allowsModifications !== false);
-      const calendarId = writable[0]?.id ?? calendars[0]?.id;
-      if (!calendarId) {
-        Alert.alert("Calendar", "No calendar available to add the event.");
-        return;
-      }
       const [year, month, day] = dateStr.split("-").map(Number);
       const timeMatch = timeStr.match(/(\d{1,2}):(\d{2})\s*(AM|PM)?/i);
       let hour = 14;
@@ -335,12 +335,34 @@ export default function ConfirmationScreen() {
       }
       const startDate = new Date(year, month - 1, day, hour, minute, 0, 0);
       const endDate = new Date(startDate.getTime() + 60 * 60 * 1000);
-      await Calendar.createEventAsync(calendarId, {
+      const eventDetails = {
         title: `Service at ${shopName}`,
         startDate,
         endDate,
         location: fullAddress || undefined,
-      });
+        notes: mechanic?.name ? `Appointment with ${mechanic.name}` : undefined,
+      };
+
+      if (Platform.OS === "android") {
+        await Calendar.createEventInCalendarAsync(eventDetails, {
+          startNewActivityTask: false,
+        });
+        return;
+      }
+
+      const { status } = await Calendar.requestCalendarPermissionsAsync();
+      if (status !== "granted") {
+        Alert.alert("Calendar access", "Calendar permission is required to add the appointment.");
+        return;
+      }
+      const calendars = await Calendar.getCalendarsAsync(Calendar.EntityTypes.EVENT);
+      const writable = calendars.filter((c) => c.allowsModifications !== false);
+      const calendarId = writable[0]?.id ?? calendars[0]?.id;
+      if (!calendarId) {
+        Alert.alert("Calendar", "No calendar available to add the event.");
+        return;
+      }
+      await Calendar.createEventAsync(calendarId, eventDetails);
       Alert.alert("Added", "Appointment added to your calendar.");
     } catch (e) {
       if (Platform.OS === "web") {
@@ -349,185 +371,231 @@ export default function ConfirmationScreen() {
       }
       Alert.alert("Error", "Could not add to calendar. Please try again.");
     }
-  }, [shop?.name, localShop?.name, mechanic?.shopName, scheduledAppointment?.date, scheduledAppointment?.time, localBooking, fullAddress]);
+  }, [shop?.name, localShop?.name, mechanic?.name, mechanic?.shopName, scheduledAppointment?.date, scheduledAppointment?.time, localBooking, fullAddress]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (Platform.OS !== "android") {
+        return undefined;
+      }
+
+      const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+        handleBackToHome();
+        return true;
+      });
+
+      return () => subscription.remove();
+    }, [handleBackToHome])
+  );
 
   // ═══════════════ RENDER ═══════════════
   return (
-    <View style={[styles.container, { paddingTop: insets.top, paddingBottom: insets.bottom }]}>
-      {/* Main Content */}
-      <View style={styles.content}>
-        {/* Success Animation */}
-        <SuccessCheckmark />
+    <View style={styles.container}>
+      <ScrollView
+        style={styles.scrollView}
+        contentContainerStyle={[
+          styles.scrollContent,
+          isCompactLayout && styles.scrollContentCompact,
+          isVeryCompactLayout && styles.scrollContentVeryCompact,
+          {
+            minHeight: windowHeight,
+            paddingTop: insets.top + (isVeryCompactLayout ? Spacing.sm : isCompactLayout ? Spacing.md : Spacing.lg),
+            paddingBottom: insets.bottom + (isVeryCompactLayout ? Spacing.xl : Spacing["3xl"]),
+          },
+        ]}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Main Content */}
+        <View style={[styles.content, isCompactLayout && styles.contentCompact, isVeryCompactLayout && styles.contentVeryCompact]}>
+          {/* Success Animation */}
+          <SuccessCheckmark compact={isCompactLayout} veryCompact={isVeryCompactLayout} />
 
-        {/* Title */}
-        <Text size="2xl" weight="bold" color={BrandColors.primary} center style={styles.title}>
-          You're all set.
-        </Text>
+          {/* Title */}
+          <Text
+            size={isVeryCompactLayout ? "xl" : "2xl"}
+            weight="bold"
+            color={BrandColors.primary}
+            center
+            style={[styles.title, isCompactLayout && styles.titleCompact]}
+          >
+            You&apos;re all set!
+          </Text>
 
-        {/* Subtitle */}
-        <Text size="md" weight="regular" color="#6B7280" center style={styles.subtitle}>
-          Your appointment with {mechanic?.name || "your mechanic"} is{"\n"}confirmed.
-        </Text>
+          {/* Subtitle */}
+          <Text
+            size={isVeryCompactLayout ? "sm" : "md"}
+            weight="regular"
+            color="#6B7280"
+            center
+            style={[styles.subtitle, isCompactLayout && styles.subtitleCompact, isVeryCompactLayout && styles.subtitleVeryCompact]}
+          >
+            Your appointment with {mechanic?.name || "your mechanic"} is{"\n"}confirmed.
+          </Text>
 
-        {/* Mechanic Card - Matching Payment Screen Style */}
-        {mechanic && (
-          <View style={styles.mechanicCard}>
-            {/* Mechanic Info Row */}
-            <View style={styles.mechanicRow}>
-              <View style={styles.avatarWrapper}>
-                {mechanic.photoUrl ? (
-                  <Image source={{ uri: mechanic.photoUrl }} style={styles.avatar} />
-                ) : (
-                  <View style={styles.avatarPlaceholder}>
-                    <Text size="xl" weight="bold" color="#9CA3AF">
-                      {mechanic.name.charAt(0)}
+          {/* Mechanic Card - Matching Payment Screen Style */}
+          {mechanic && (
+            <View style={[styles.mechanicCard, isCompactLayout && styles.mechanicCardCompact, isVeryCompactLayout && styles.mechanicCardVeryCompact]}>
+              {/* Mechanic Info Row */}
+              <View style={[styles.mechanicRow, isCompactLayout && styles.mechanicRowCompact]}>
+                <View style={styles.avatarWrapper}>
+                  {mechanic.photoUrl ? (
+                    <Image source={{ uri: mechanic.photoUrl }} style={[styles.avatar, isCompactLayout && styles.avatarCompact]} />
+                  ) : (
+                    <View style={[styles.avatarPlaceholder, isCompactLayout && styles.avatarCompact]}>
+                      <Text size={isVeryCompactLayout ? "lg" : "xl"} weight="bold" color="#9CA3AF">
+                        {mechanic.name.charAt(0)}
+                      </Text>
+                    </View>
+                  )}
+                  {/* Rating Badge */}
+                  <View style={styles.ratingBadge}>
+                    <Star size={10} color="#FCD34D" fill="#FCD34D" />
+                    <Text size="xs" weight="bold" color={BrandColors.white}>
+                      {mechanic.rating.toFixed(1)}
                     </Text>
                   </View>
-                )}
-                {/* Rating Badge */}
-                <View style={styles.ratingBadge}>
-                  <Star size={10} color="#FCD34D" fill="#FCD34D" />
-                  <Text size="xs" weight="bold" color={BrandColors.white}>
-                    {mechanic.rating.toFixed(1)}
+                </View>
+
+                <View style={styles.mechanicInfo}>
+                  <Text size="lg" weight="bold" color={BrandColors.primary}>
+                    {mechanic.name}
+                  </Text>
+                  <Text size="sm" weight="medium" color="#6B7280">
+                    {mechanic.title ?? mechanic.shopName}
                   </Text>
                 </View>
               </View>
 
-              <View style={styles.mechanicInfo}>
-                <Text size="lg" weight="bold" color={BrandColors.primary}>
-                  {mechanic.name}
+              {/* Divider */}
+              <View style={[styles.cardDivider, isCompactLayout && styles.cardDividerCompact]} />
+
+              {/* Details Grid - 2x2 Layout */}
+              <View style={[styles.detailsGrid, isCompactLayout && styles.detailsGridCompact]}>
+                {/* Row 1: DATE and TIME */}
+                <View style={[styles.detailsGridRow, isCompactLayout && styles.detailsGridRowCompact]}>
+                  <View style={styles.detailsGridItem}>
+                    <Text size="xs" weight="bold" color={BrandColors.secondary} style={styles.detailLabel}>
+                      DATE
+                    </Text>
+                    <Text size={isVeryCompactLayout ? "xs" : "sm"} weight="medium" color={BrandColors.primary}>
+                      {formattedDate}
+                    </Text>
+                  </View>
+                  <View style={styles.detailsGridItem}>
+                    <Text size="xs" weight="bold" color={BrandColors.secondary} style={styles.detailLabel}>
+                      TIME
+                    </Text>
+                    <Text size={isVeryCompactLayout ? "xs" : "sm"} weight="medium" color={BrandColors.primary}>
+                      {formattedTime}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Row 2: LOCATION and VEHICLE */}
+                <View style={[styles.detailsGridRow, isCompactLayout && styles.detailsGridRowCompact]}>
+                  <View style={styles.detailsGridItem}>
+                    <Text size="xs" weight="bold" color={BrandColors.secondary} style={styles.detailLabel}>
+                      LOCATION
+                    </Text>
+                    <Text size={isVeryCompactLayout ? "xs" : "sm"} weight="medium" color={BrandColors.primary}>
+                      {shopLocation}
+                    </Text>
+                  </View>
+                  <View style={styles.detailsGridItem}>
+                    <Text size="xs" weight="bold" color={BrandColors.secondary} style={styles.detailLabel}>
+                      VEHICLE
+                    </Text>
+                    <Text size={isVeryCompactLayout ? "xs" : "sm"} weight="medium" color={BrandColors.primary}>
+                      {vehicleDisplay}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+
+              {/* Divider */}
+              <View style={[styles.cardDivider, isCompactLayout && styles.cardDividerCompact]} />
+
+              {/* Action Buttons Row */}
+              <View style={[styles.actionButtonsRow, isCompactLayout && styles.actionButtonsRowCompact]}>
+                <TouchableOpacity
+                  style={[styles.actionButton, isCompactLayout && styles.actionButtonCompact]}
+                  activeOpacity={0.7}
+                  onPress={handleDirections}
+                  disabled={!fullAddress}
+                >
+                  <Navigation
+                    size={16}
+                    color={fullAddress ? "#6B7280" : "#9CA3AF"}
+                    fill={fullAddress ? "#6B7280" : "#9CA3AF"}
+                  />
+                  <Text size={isVeryCompactLayout ? "xs" : "sm"} weight="medium" color={fullAddress ? "#6B7280" : "#9CA3AF"}>
+                    Directions
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.actionButton, isCompactLayout && styles.actionButtonCompact]}
+                  activeOpacity={0.7}
+                  onPress={handleContact}
+                  disabled={!shop?.phone}
+                >
+                  <Phone
+                    size={16}
+                    color={shop?.phone ? "#6B7280" : "#9CA3AF"}
+                    fill={shop?.phone ? "#6B7280" : "#9CA3AF"}
+                  />
+                  <Text size={isVeryCompactLayout ? "xs" : "sm"} weight="medium" color={shop?.phone ? "#6B7280" : "#9CA3AF"}>
+                    Contact
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+
+          {/* Ownership Credit Section */}
+          <View style={[styles.ownershipCreditCard, isCompactLayout && styles.ownershipCreditCardCompact]}>
+            <View style={[styles.ownershipLeft, isCompactLayout && styles.ownershipLeftCompact]}>
+              <View style={[styles.giftIconContainer, isCompactLayout && styles.giftIconContainerCompact]}>
+                <Gift size={20} color={BrandColors.secondary} />
+              </View>
+              <View style={styles.ownershipContent}>
+                <Text size={isVeryCompactLayout ? "sm" : "md"} weight="semiBold" color={BrandColors.secondary}>
+                  +${OWNERSHIP_CREDIT_EARNED.toFixed(2)} Ownership Credit
                 </Text>
-                <Text size="sm" weight="medium" color="#6B7280">
-                  {mechanic.title ?? mechanic.shopName}
+                <Text size={isVeryCompactLayout ? "xs" : "sm"} weight="regular" color="#6B7280">
+                  Added to your rewards
                 </Text>
               </View>
             </View>
-
-            {/* Divider */}
-            <View style={styles.cardDivider} />
-
-            {/* Details Grid - 2x2 Layout */}
-            <View style={styles.detailsGrid}>
-              {/* Row 1: DATE and TIME */}
-              <View style={styles.detailsGridRow}>
-                <View style={styles.detailsGridItem}>
-                  <Text size="xs" weight="bold" color={BrandColors.secondary} style={styles.detailLabel}>
-                    DATE
-                  </Text>
-                  <Text size="sm" weight="medium" color={BrandColors.primary}>
-                    {formattedDate}
-                  </Text>
-                </View>
-                <View style={styles.detailsGridItem}>
-                  <Text size="xs" weight="bold" color={BrandColors.secondary} style={styles.detailLabel}>
-                    TIME
-                  </Text>
-                  <Text size="sm" weight="medium" color={BrandColors.primary}>
-                    {formattedTime}
-                  </Text>
-                </View>
-              </View>
-
-              {/* Row 2: LOCATION and VEHICLE */}
-              <View style={styles.detailsGridRow}>
-                <View style={styles.detailsGridItem}>
-                  <Text size="xs" weight="bold" color={BrandColors.secondary} style={styles.detailLabel}>
-                    LOCATION
-                  </Text>
-                  <Text size="sm" weight="medium" color={BrandColors.primary}>
-                    {shopLocation}
-                  </Text>
-                </View>
-                <View style={styles.detailsGridItem}>
-                  <Text size="xs" weight="bold" color={BrandColors.secondary} style={styles.detailLabel}>
-                    VEHICLE
-                  </Text>
-                  <Text size="sm" weight="medium" color={BrandColors.primary}>
-                    {vehicleDisplay}
-                  </Text>
-                </View>
-              </View>
-            </View>
-
-            {/* Divider */}
-            <View style={styles.cardDivider} />
-
-            {/* Action Buttons Row */}
-            <View style={styles.actionButtonsRow}>
-              <TouchableOpacity
-                style={styles.actionButton}
-                activeOpacity={0.7}
-                onPress={handleDirections}
-                disabled={!fullAddress}
-              >
-                <Navigation
-                  size={16}
-                  color={fullAddress ? "#6B7280" : "#9CA3AF"}
-                  fill={fullAddress ? "#6B7280" : "#9CA3AF"}
-                />
-                <Text size="sm" weight="medium" color={fullAddress ? "#6B7280" : "#9CA3AF"}>
-                  Directions
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.actionButton}
-                activeOpacity={0.7}
-                onPress={handleContact}
-                disabled={!shop?.phone}
-              >
-                <Phone
-                  size={16}
-                  color={shop?.phone ? "#6B7280" : "#9CA3AF"}
-                  fill={shop?.phone ? "#6B7280" : "#9CA3AF"}
-                />
-                <Text size="sm" weight="medium" color={shop?.phone ? "#6B7280" : "#9CA3AF"}>
-                  Contact
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        )}
-
-        {/* Ownership Credit Section */}
-        <View style={styles.ownershipCreditCard}>
-          <View style={styles.ownershipLeft}>
-            <View style={styles.giftIconContainer}>
-              <Gift size={20} color={BrandColors.secondary} />
-            </View>
-            <View style={styles.ownershipContent}>
-              <Text size="md" weight="semiBold" color={BrandColors.secondary}>
-                +${OWNERSHIP_CREDIT_EARNED.toFixed(2)} Ownership Credit
+            <View style={styles.ownershipRight}>
+              <Text size="xs" weight="medium" color="#6B7280">
+                BALANCE
               </Text>
-              <Text size="sm" weight="regular" color="#6B7280">
-                Added to your rewards
+              <Text size={isVeryCompactLayout ? "md" : "lg"} weight="bold" color={BrandColors.secondary}>
+                ${OWNERSHIP_BALANCE.toFixed(2)}
               </Text>
             </View>
           </View>
-          <View style={styles.ownershipRight}>
-            <Text size="xs" weight="medium" color="#6B7280">
-              BALANCE
+
+          {/* Add to Calendar Button */}
+          <TouchableOpacity
+            style={[styles.calendarButton, isCompactLayout && styles.calendarButtonCompact]}
+            onPress={handleAddToCalendar}
+            activeOpacity={0.8}
+          >
+            <Text size={isVeryCompactLayout ? "sm" : "md"} weight="semiBold" color={BrandColors.white}>
+              Add to Calendar
             </Text>
-            <Text size="lg" weight="bold" color={BrandColors.secondary}>
-              ${OWNERSHIP_BALANCE.toFixed(2)}
+          </TouchableOpacity>
+
+          {/* Back to Home Link */}
+          <TouchableOpacity style={[styles.backToHomeButton, isCompactLayout && styles.backToHomeButtonCompact]} onPress={handleBackToHome} activeOpacity={0.7}>
+            <Text size={isVeryCompactLayout ? "sm" : "md"} weight="medium" color={BrandColors.secondary}>
+              Back to Home
             </Text>
-          </View>
+          </TouchableOpacity>
         </View>
-
-        {/* Add to Calendar Button */}
-        <TouchableOpacity style={styles.calendarButton} onPress={handleAddToCalendar} activeOpacity={0.8}>
-          <Text size="md" weight="semiBold" color={BrandColors.white}>
-            Add to Calendar
-          </Text>
-        </TouchableOpacity>
-
-        {/* Back to Home Link */}
-        <TouchableOpacity style={styles.backToHomeButton} onPress={handleBackToHome} activeOpacity={0.7}>
-          <Text size="md" weight="medium" color={BrandColors.secondary}>
-            Back to Home
-          </Text>
-        </TouchableOpacity>
-      </View>
+      </ScrollView>
     </View>
   );
 }
@@ -541,11 +609,29 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: "#F9FAFB",
   },
-  content: {
+  scrollView: {
     flex: 1,
+  },
+  scrollContent: {
     paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.lg,
+  },
+  scrollContentCompact: {
+    paddingHorizontal: Spacing.md,
+  },
+  scrollContentVeryCompact: {
+    paddingHorizontal: Spacing.sm,
+  },
+  content: {
+    width: "100%",
     alignItems: "center",
+    justifyContent: "center",
+    flexGrow: 1,
+  },
+  contentCompact: {
+    justifyContent: "flex-start",
+  },
+  contentVeryCompact: {
+    justifyContent: "flex-start",
   },
 
   // Success Animation
@@ -555,6 +641,16 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginBottom: Spacing.md,
+  },
+  successContainerCompact: {
+    width: 72,
+    height: 72,
+    marginBottom: Spacing.sm,
+  },
+  successContainerVeryCompact: {
+    width: 64,
+    height: 64,
+    marginBottom: Spacing.xs,
   },
   confettiContainer: {
     position: "absolute",
@@ -570,14 +666,35 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     ...Shadows.md,
   },
+  successCircleCompact: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+  },
+  successCircleVeryCompact: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+  },
 
   // Title & Subtitle
   title: {
     marginBottom: Spacing.sm,
   },
+  titleCompact: {
+    marginBottom: Spacing.xs,
+  },
   subtitle: {
     marginBottom: Spacing.xl,
     lineHeight: 22,
+  },
+  subtitleCompact: {
+    marginBottom: Spacing.lg,
+    lineHeight: 20,
+  },
+  subtitleVeryCompact: {
+    marginBottom: Spacing.md,
+    lineHeight: 18,
   },
 
   // Mechanic Card - Matching Payment Screen
@@ -589,10 +706,20 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.lg,
     ...Shadows.sm,
   },
+  mechanicCardCompact: {
+    padding: Spacing.md,
+    marginBottom: Spacing.md,
+  },
+  mechanicCardVeryCompact: {
+    padding: Spacing.sm + 2,
+  },
   mechanicRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.md,
+  },
+  mechanicRowCompact: {
+    gap: Spacing.sm,
   },
   avatarWrapper: {
     position: "relative",
@@ -601,6 +728,10 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: BorderRadius.full,
+  },
+  avatarCompact: {
+    width: 56,
+    height: 56,
   },
   avatarPlaceholder: {
     width: 64,
@@ -633,14 +764,23 @@ const styles = StyleSheet.create({
     backgroundColor: "#E5E7EB",
     marginVertical: Spacing.lg,
   },
+  cardDividerCompact: {
+    marginVertical: Spacing.md,
+  },
 
   // Details Grid - 2x2 Layout
   detailsGrid: {
     gap: Spacing.md,
   },
+  detailsGridCompact: {
+    gap: Spacing.sm,
+  },
   detailsGridRow: {
     flexDirection: "row",
     gap: Spacing.md,
+  },
+  detailsGridRowCompact: {
+    gap: Spacing.sm,
   },
   detailsGridItem: {
     flex: 1,
@@ -655,6 +795,9 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     gap: Spacing.md,
   },
+  actionButtonsRowCompact: {
+    gap: Spacing.sm,
+  },
   actionButton: {
     flex: 1,
     flexDirection: "row",
@@ -665,6 +808,10 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.lg,
     borderWidth: 1,
     borderColor: "#E5E7EB",
+  },
+  actionButtonCompact: {
+    gap: Spacing.xs,
+    paddingVertical: Spacing.sm + 2,
   },
 
   // Ownership Credit Card
@@ -678,11 +825,18 @@ const styles = StyleSheet.create({
     width: "100%",
     marginBottom: Spacing.xl,
   },
+  ownershipCreditCardCompact: {
+    padding: Spacing.md,
+    marginBottom: Spacing.lg,
+  },
   ownershipLeft: {
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.md,
     flex: 1,
+  },
+  ownershipLeftCompact: {
+    gap: Spacing.sm,
   },
   giftIconContainer: {
     width: 40,
@@ -691,6 +845,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#DBEAFE",
     alignItems: "center",
     justifyContent: "center",
+  },
+  giftIconContainerCompact: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
   },
   ownershipContent: {
     flex: 1,
@@ -711,8 +870,15 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: Spacing.lg,
   },
+  calendarButtonCompact: {
+    paddingVertical: Spacing.md,
+    marginBottom: Spacing.md,
+  },
   backToHomeButton: {
     paddingVertical: Spacing.md,
     alignItems: "center",
+  },
+  backToHomeButtonCompact: {
+    paddingVertical: Spacing.sm,
   },
 });

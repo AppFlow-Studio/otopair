@@ -16,17 +16,17 @@
 
 // 1. React & React Native
 import React, { useCallback, useMemo, useState } from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { BackHandler, Platform, Pressable, StyleSheet, View } from "react-native";
 
 // 2. Expo & Third-party
 import { BlurView } from "expo-blur";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { ArrowLeft } from "lucide-react-native";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { ArrowLeft, Store } from "lucide-react-native";
 import Animated, { interpolate, useAnimatedRef, useAnimatedStyle, useScrollOffset } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 3. Shared UI (design system)
-import { BorderRadius, BrandColors, ScreenContainer, Shadows, Spacing, Text } from "@/components/shared-ui";
+import { BorderRadius, BrandColors, Button, ScreenContainer, Shadows, Spacing, Text } from "@/components/shared-ui";
 import { FullScreenContainer } from "@/components/shared-ui/Container";
 
 // 4. Flow-specific components
@@ -180,14 +180,54 @@ export default function ShopDetailScreen() {
     }
   }, []);
 
+  useFocusEffect(
+    useCallback(() => {
+      if (Platform.OS !== "android") {
+        return undefined;
+      }
+
+      const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+        if (showAddServicesModal) {
+          setShowAddServicesModal(false);
+          return true;
+        }
+
+        if (showBookingModal) {
+          handleCloseBookingModal();
+          return true;
+        }
+
+        handleBack();
+        return true;
+      });
+
+      return () => subscription.remove();
+    }, [handleBack, handleCloseBookingModal, showAddServicesModal, showBookingModal])
+  );
+
   // ═══════════════ RENDER ═══════════════
   if (!shop) {
     return (
       <ScreenContainer style={styles.container}>
         <View style={styles.errorContainer}>
-          <Text size="lg" weight="medium" color={BrandColors.primary}>
+          <View style={styles.errorIconCircle}>
+            <Store size={36} color={BrandColors.primary} strokeWidth={1.75} />
+          </View>
+          <Text size="xl" weight="semiBold" color={BrandColors.primary} style={styles.errorTitle}>
             Shop not found
           </Text>
+          <Text size="md" color={BrandColors.primary} style={styles.errorMessage}>
+            This shop is no longer available or the link is invalid.
+          </Text>
+          <Button
+            onPress={handleBack}
+            variant="primary"
+            size="lg"
+            leftIcon={<ArrowLeft size={18} color={BrandColors.white} />}
+            style={styles.errorButton}
+          >
+            Go back
+          </Button>
         </View>
       </ScreenContainer>
     );
@@ -358,6 +398,27 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
+    paddingHorizontal: Spacing.xl,
+    gap: Spacing.md,
+  },
+  errorIconCircle: {
+    width: 72,
+    height: 72,
+    borderRadius: BorderRadius.full,
+    backgroundColor: BrandColors.background,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: Spacing.sm,
+  },
+  errorTitle: {
+    textAlign: "center",
+  },
+  errorMessage: {
+    textAlign: "center",
+    marginBottom: Spacing.lg,
+  },
+  errorButton: {
+    minWidth: 180,
   },
   spacer: {
     width: 40,

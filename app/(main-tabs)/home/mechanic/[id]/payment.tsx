@@ -14,10 +14,10 @@
 
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, Image, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, BackHandler, Image, Platform, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Expo & Third-party
-import { useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { FontAwesome } from "@expo/vector-icons";
 import { Calendar, Car, ChevronRight, FileText, Info, Lock, Star } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -194,6 +194,26 @@ export default function PaymentScreen() {
     // Google Pay integration would go here
     handleConfirmPayment();
   }, [handleConfirmPayment]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (Platform.OS !== "android") {
+        return undefined;
+      }
+
+      const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
+        if (errorModalVisible) {
+          setErrorModalVisible(false);
+          return true;
+        }
+
+        handleBack();
+        return true;
+      });
+
+      return () => subscription.remove();
+    }, [errorModalVisible, handleBack])
+  );
 
   // ═══════════════ RENDER ═══════════════
   if (!mechanic) {

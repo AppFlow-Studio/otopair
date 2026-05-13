@@ -1,31 +1,87 @@
-/**
- * vehicle-service-relevance
- *
- * Inspects a booking's service names to flag whether the work falls into
- * categories that require additional pre-job survey fields (brake measurements,
- * oil viscosity/type, etc.). Used by `validatePrejobReport` in convex/bookings.ts.
- *
- * Mirrors the shape of the otopair-web helper of the same name. If/when the
- * canonical version lands, replace this stub with the shared module.
- */
+// Mirrors the current Otopair service groupings used for service-aware UI states.
 
-const BRAKE_KEYWORDS = ["brake", "rotor", "pad"];
-const OIL_KEYWORDS = ["oil change", "oil filter", "lube"];
+const OIL_CHANGE_SERVICES = new Set(["oil change"]);
 
-function matchesAny(haystack: string, keywords: string[]): boolean {
-  const normalized = haystack.toLowerCase();
-  return keywords.some((kw) => normalized.includes(kw));
+const TIRE_AND_WHEEL_SERVICES = new Set([
+  "tire rotation",
+  "wheel balancing",
+  "wheel alignment",
+  "tire replacement",
+  "tire installation",
+  "tpms sensor calibration",
+]);
+
+const BRAKE_SERVICES = new Set([
+  "brake pad replacement",
+  "brake rotor replacement",
+  "brake fluid flush",
+  "brake system inspection",
+]);
+
+const FLUID_SERVICES = new Set([
+  "oil change",
+  "coolant flush",
+  "transmission fluid service",
+  "brake fluid flush",
+]);
+
+function tokenizeServiceName(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
-export interface BookingServiceFlags {
-  hasBrakeWork: boolean;
-  hasOilChange: boolean;
+export function normalizeServiceName(value: string) {
+  return tokenizeServiceName(value);
 }
 
-export function getBookingServiceFlags(serviceNames: string[]): BookingServiceFlags {
-  const joined = serviceNames.join(" | ");
+export function normalizeServiceNames(services: string[]) {
+  return services.map(normalizeServiceName).filter(Boolean);
+}
+
+export function isOilChangeService(value: string) {
+  const normalized = normalizeServiceName(value);
+  return OIL_CHANGE_SERVICES.has(normalized);
+}
+
+export function isTireService(value: string) {
+  const normalized = normalizeServiceName(value);
+  return (
+    TIRE_AND_WHEEL_SERVICES.has(normalized) ||
+    normalized.includes("tire") ||
+    normalized.includes("wheel") ||
+    normalized.includes("alignment") ||
+    normalized.includes("tpms")
+  );
+}
+
+export function isBrakeService(value: string) {
+  const normalized = normalizeServiceName(value);
+  return BRAKE_SERVICES.has(normalized) || normalized.includes("brake");
+}
+
+export function isFluidService(value: string) {
+  const normalized = normalizeServiceName(value);
+  return (
+    FLUID_SERVICES.has(normalized) ||
+    normalized.includes("coolant") ||
+    normalized.includes("fluid")
+  );
+}
+
+export function getBookingServiceFlags(services: string[]) {
   return {
-    hasBrakeWork: matchesAny(joined, BRAKE_KEYWORDS),
-    hasOilChange: matchesAny(joined, OIL_KEYWORDS),
+    hasOilChange: services.some(isOilChangeService),
+    hasTireWork: services.some(isTireService),
+    hasBrakeWork: services.some(isBrakeService),
+    hasFluidWork: services.some(
+      (service) => isOilChangeService(service) || isFluidService(service)
+    ),
   };
+}
+
+export function serviceListsOverlap(left: string[], right: string[]) {
+  const rightSet = new Set(normalizeServiceNames(right));
+  return normalizeServiceNames(left).some((service) => rightSet.has(service));
 }
