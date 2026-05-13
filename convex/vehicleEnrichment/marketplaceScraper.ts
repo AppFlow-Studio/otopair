@@ -643,6 +643,7 @@ export const enrichAndTrack = internalAction({
             engineCode: decoded.engineCode,
             displacement: decoded.displacement ?? "",
             drivetrain: decoded.drivetrain ?? undefined,
+            nhtsaVinKey: decoded.nhtsaVinKey ?? undefined,
           }
         );
       }
