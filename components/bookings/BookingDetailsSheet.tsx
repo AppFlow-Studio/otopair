@@ -38,7 +38,12 @@ import Animated, {
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 
-import { Car, MessageCircle, Phone, User, Wrench, X } from "lucide-react-native";
+import { Car, MessageCircle, Navigation, Phone, User, Wrench, X } from "lucide-react-native";
+
+import { openMapsForAddress, openPhone } from "@/utils/linking";
+import { useQuery } from "convex/react";
+import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { Text } from "@/components/shared-ui";
@@ -90,6 +95,7 @@ interface BookingDetailsSheetProps {
   mechanicRating?: number;
   // TODO(convex): expose shop address/hours/rating from shops table
   shopAddress?: string;
+  shopPhone?: string;
   shopHoursLabel?: string;
   shopRating?: { score: number; count: number };
   // TODO(convex): service description + duration from services table
@@ -120,6 +126,7 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
       relativeTime = "Upcoming",
       mechanicRating,
       shopAddress,
+      shopPhone,
       shopHoursLabel,
       shopRating,
       serviceDescription,
@@ -167,6 +174,29 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
         mechanicImage: booking.mechanicImage,
       });
     }, [booking]);
+
+    // Live shop lookup — pulls address + phone so the Directions /
+    // Contact buttons in the mid view work without each caller
+    // pre-fetching the shop. Skipped when the booking has no shopId
+    // (e.g., pending_quote rows before a shop accepts).
+    const shopDoc = useQuery(
+      api.shops.getById,
+      booking?.shopId
+        ? { id: booking.shopId as Id<"shops"> }
+        : "skip",
+    );
+    const resolvedShopAddress = useMemo(() => {
+      if (shopAddress) return shopAddress;
+      if (!shopDoc) return undefined;
+      const parts = [
+        (shopDoc as any).address,
+        (shopDoc as any).city,
+        (shopDoc as any).state,
+        (shopDoc as any).zip,
+      ].filter((p) => typeof p === "string" && p.trim().length > 0);
+      return parts.length > 0 ? parts.join(", ") : undefined;
+    }, [shopAddress, shopDoc]);
+    const resolvedShopPhone = shopPhone ?? ((shopDoc as any)?.phone ?? undefined);
 
     const handleConfirmReschedule = useCallback(
       (bookingId: string, newDate: string, newTime: string) => {
@@ -382,6 +412,8 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
                   booking={booking}
                   mechanicRating={mechanicRating}
                   statusConfig={statusConfig}
+                  shopAddress={resolvedShopAddress}
+                  shopPhone={resolvedShopPhone}
                   onClose={close}
                   onOpenChat={handleOpenChat}
                 />
@@ -443,16 +475,37 @@ interface MidContentProps {
   booking: Booking;
   mechanicRating?: number;
   statusConfig: { label: string; bgColor: string; textColor: string };
+  shopAddress?: string;
+  shopPhone?: string;
   onClose: () => void;
   onOpenChat: () => void;
 }
 
-function MidContent({ booking, mechanicRating, statusConfig, onClose, onOpenChat }: MidContentProps) {
+function MidContent({
+  booking,
+  mechanicRating,
+  statusConfig,
+  shopAddress,
+  shopPhone,
+  onClose,
+  onOpenChat,
+}: MidContentProps) {
   const primaryActionLabel = "Message Mechanic";
 
   const handlePrimary = useCallback(() => {
     onOpenChat();
   }, [onOpenChat]);
+
+  const handleDirections = useCallback(() => {
+    if (shopAddress) openMapsForAddress(shopAddress);
+  }, [shopAddress]);
+
+  const handleContact = useCallback(() => {
+    if (shopPhone) openPhone(shopPhone);
+  }, [shopPhone]);
+
+  const directionsDisabled = !shopAddress;
+  const contactDisabled = !shopPhone;
 
   return (
     <View style={styles.midContainer}>
@@ -514,6 +567,47 @@ function MidContent({ booking, mechanicRating, statusConfig, onClose, onOpenChat
 
       {/* Bottom block — pushed to bottom */}
       <View style={styles.midBottomBlock}>
+        {/* Directions + Contact — mirrors the Order Confirmation card */}
+        <View style={styles.midActionRow}>
+          <TouchableOpacity
+            style={[styles.midActionButton, directionsDisabled && styles.midActionButtonDisabled]}
+            onPress={handleDirections}
+            disabled={directionsDisabled}
+            activeOpacity={0.7}
+          >
+            <Navigation
+              size={16}
+              color={directionsDisabled ? "#9CA3AF" : "#1A1A1A"}
+            />
+            <Text
+              size="sm"
+              weight="medium"
+              color={directionsDisabled ? "#9CA3AF" : "#1A1A1A"}
+            >
+              Directions
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.midActionButton, contactDisabled && styles.midActionButtonDisabled]}
+            onPress={handleContact}
+            disabled={contactDisabled}
+            activeOpacity={0.7}
+          >
+            <Phone
+              size={16}
+              color={contactDisabled ? "#9CA3AF" : "#1A1A1A"}
+            />
+            <Text
+              size="sm"
+              weight="medium"
+              color={contactDisabled ? "#9CA3AF" : "#1A1A1A"}
+            >
+              Contact
+            </Text>
+          </TouchableOpacity>
+        </View>
+
         <TouchableOpacity style={styles.primaryButton} onPress={handlePrimary} activeOpacity={0.85}>
           <Text size="md" weight="semiBold" color="#FFFFFF">
             {primaryActionLabel}
@@ -971,7 +1065,28 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
   },
   midBottomBlock: {
+    marginTop: 8,
     gap: 0,
+  },
+  midActionRow: {
+    flexDirection: "row",
+    gap: 12,
+    marginBottom: 12,
+  },
+  midActionButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    backgroundColor: "#FFFFFF",
+  },
+  midActionButtonDisabled: {
+    backgroundColor: "#F9FAFB",
   },
   midStatusBlock: {
     marginTop: 5,
