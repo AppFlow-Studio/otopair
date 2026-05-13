@@ -46,7 +46,7 @@ import { Text } from '@/components/shared-ui';
 import { AIReasoning, type ReasoningStep } from './AIReasoning';
 import { AISources, type Source } from './AISources';
 import { AITypingIndicator } from './AITypingIndicator';
-import type { QuickReply } from './AIQuickReplies';
+import { AIQuickReplies, type QuickReply } from './AIQuickReplies';
 
 // 5. Constants, hooks, types
 import { BrandColors, BorderRadius, Spacing, FontFamily, Shadows } from '@/constants/theme';
@@ -412,6 +412,17 @@ export function AIMessageBubble({
           <AISources sources={message.sources} />
         )}
         */}
+
+        {/* Quick Replies (AI only, after content has settled) */}
+        {showContent &&
+          !isStreaming &&
+          message.quickReplies &&
+          message.quickReplies.length > 0 && (
+            <AIQuickReplies
+              replies={message.quickReplies}
+              onSelect={(reply) => onQuickReplySelect?.(reply)}
+            />
+          )}
 
         {/* Action Buttons (AI only, when not streaming) */}
         {showContent && !isStreaming && (
