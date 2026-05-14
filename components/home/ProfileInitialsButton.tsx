@@ -19,6 +19,7 @@ import { useQuery } from "convex/react";
 import { useShallow } from "zustand/react/shallow";
 
 import { Text } from "@/components/shared-ui";
+import { OtoPairIcon } from "@/components/icons/oto-pair";
 import { AvatarSlider } from "@/components/settings/AvatarSlider";
 import { api } from "@/convex/_generated/api";
 
