@@ -21,7 +21,7 @@
  * TICKET: OTO-XXX
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import {
   BrandColors,
   FontFamily,
@@ -68,22 +68,7 @@ const FALLBACK_OPTIONS = [
 export function HeardAboutStep({ onNext, onBack, progress }: HeardAboutStepProps) {
   const insets = useSafeAreaInsets();
   const { updateData, data } = useOnboardingStore();
-  const { answers, saveAnswer } = useOnboardingQuestion('heardAboutOtopair');
-
-  const options = useMemo(
-    () =>
-      answers.length > 0
-        ? answers.map((a) => {
-            const fallback = FALLBACK_OPTIONS.find((f) => f.id === a.answer_value);
-            return {
-              id: a.answer_value,
-              label: a.answer_text,
-              icon: fallback?.icon || MoreHorizontal,
-            };
-          })
-        : FALLBACK_OPTIONS,
-    [answers],
-  );
+  const { saveQuestionAnswer } = useOnboardingQuestion('heardAboutOtopair');
 
   const [selected, setSelected] = useState<string | null>(data.heardAboutOtopair ?? null);
 
@@ -91,10 +76,11 @@ export function HeardAboutStep({ onNext, onBack, progress }: HeardAboutStepProps
     if (!selected) return;
     updateData({ heardAboutOtopair: selected });
 
-    const answer = answers.find((a) => a.answer_value === selected);
-    if (answer) {
-      await saveAnswer({ answerId: answer._id });
-    }
+    const option = FALLBACK_OPTIONS.find((item) => item.id === selected);
+    await saveQuestionAnswer(
+      'How did you hear about Otopair?',
+      option?.label ?? selected
+    );
 
     onNext();
   };
@@ -116,7 +102,7 @@ export function HeardAboutStep({ onNext, onBack, progress }: HeardAboutStepProps
           </View>
 
           <View style={styles.optionsContainer}>
-            {options.map((option) => {
+            {FALLBACK_OPTIONS.map((option) => {
               const isSelected = selected === option.id;
               const Icon = option.icon;
               return (

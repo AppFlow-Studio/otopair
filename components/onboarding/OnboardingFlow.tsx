@@ -82,8 +82,8 @@ const STEP_INDICES: Record<OnboardingStep, number> = {
     name: 3,
     emailConfirm: 3,
     profilePhoto: 5,
-    userIntent: 6,
-    heardAbout: 7,
+    userIntent: 3,
+    heardAbout: 0,
     visitReason: 8,
     zipCode: 9,
     pushNotifications: 10,
@@ -187,7 +187,7 @@ export function OnboardingFlow({ initialStep = "signup", filteredSteps, isResume
   const getPreviousStepAfterLocationServices = async (): Promise<OnboardingStep> => {
     const hasNotifications = await checkNotificationPermissions();
     if (hasNotifications) {
-      return "userIntent";
+      return "zipCode";
     }
     return "pushNotifications";
   };
@@ -250,7 +250,8 @@ export function OnboardingFlow({ initialStep = "signup", filteredSteps, isResume
                 goToStep('zipCode');
                 break;
             case 'locationServices': {
-                goToStep(getPreviousStepAfterLocationServices());
+                const previousStep = await getPreviousStepAfterLocationServices();
+                goToStep(previousStep);
                 break;
             }
       default:
@@ -291,8 +292,8 @@ export function OnboardingFlow({ initialStep = "signup", filteredSteps, isResume
     }
   };
 
-  // Helper function to determine next step after userIntent based on permissions
-  const getNextStepAfterUserIntent = async (): Promise<OnboardingStep> => {
+  // Helper function to determine next step after zipCode based on permissions
+  const getNextStepAfterZipCode = async (): Promise<OnboardingStep> => {
     const hasNotifications = await checkNotificationPermissions();
     if (!hasNotifications) {
       return "pushNotifications";
@@ -368,8 +369,17 @@ export function OnboardingFlow({ initialStep = "signup", filteredSteps, isResume
       case "profilePhoto":
         goToStep("userIntent");
         break;
-      case "userIntent": {
-        const nextStep = await getNextStepAfterUserIntent();
+      case "userIntent":
+        goToStep("heardAbout");
+        break;
+      case "heardAbout":
+        goToStep("visitReason");
+        break;
+      case "visitReason":
+        goToStep("zipCode");
+        break;
+      case "zipCode": {
+        const nextStep = await getNextStepAfterZipCode();
         goToStep(nextStep);
         break;
       }

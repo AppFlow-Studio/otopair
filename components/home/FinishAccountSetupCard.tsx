@@ -36,8 +36,12 @@ import { GradientPlusCircle } from "@/components/icons/gradient-plus-circle";
 // 4. Convex & Store & Utilities
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { getIncompleteOnboardingSteps } from "@/components/onboarding/OnboardingFlow";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
+import {
+  buildOnboardingResumeData,
+  getDevicePermissionState,
+  getIncompleteOnboardingStepsFromResumeData,
+} from "@/lib/onboarding-resume";
 
 // ============================================================================
 // TYPES
@@ -58,24 +62,23 @@ export function FinishAccountSetupCard({
 }: FinishAccountSetupCardProps) {
   const router = useRouter();
   const me = useQuery(api.users.getMe);
+  const onboardingQa = useQuery(
+    api.onboarding_questions_answers.getMyQuestionsAndAnswers,
+  );
   const activeVehicleOwnerships = useQuery(
     api.vehicle_owners.getActiveByUser,
     me?._id ? { userId: me._id } : "skip",
   );
   const hasCarRegistered = (activeVehicleOwnerships?.length ?? 0) > 0;
+  const updateOnboardingData = useOnboardingStore((state) => state.updateData);
 
-  const isCreateAccountCompleteFromStore = useOnboardingStore((state) => state.isCreateAccountComplete());
-  // Persisted in Convex so "Create Account" stays complete after reload
-  const isCreateAccountComplete =
-    isCreateAccountCompleteFromStore || me?.onboardingCompleted === true;
-  const isTellUsAboutYourselfCompleteFromStore = useOnboardingStore(
-    (state) => state.data.isTellUsAboutYourselfComplete,
-  );
-  // Persisted in Convex so "About you" stays complete after reload
-  const isTellUsAboutYourselfComplete =
-    isTellUsAboutYourselfCompleteFromStore || me?.tellUsAboutCompleted === true;
+  // Use persisted Convex completion flags for the home-card status so
+  // "Finish later" never leaves the tile looking complete just because
+  // the in-memory onboarding store still has partial answers.
+  const isCreateAccountComplete = me?.onboardingCompleted === true;
+  const isTellUsAboutYourselfComplete = me?.tellUsAboutCompleted === true;
 
-  const handlePress = (stepId?: string) => {
+  const handlePress = async (stepId?: string) => {
     if (stepId === "personalize") {
       router.push("/flow");
       return;
@@ -92,13 +95,27 @@ export function FinishAccountSetupCard({
     }
 
     if (stepId === "account") {
-      // Get incomplete onboarding steps
-      const incompleteSteps = getIncompleteOnboardingSteps();
-      
+      const resumeData = buildOnboardingResumeData(me, onboardingQa);
+      const devicePermissions = await getDevicePermissionState();
+      const incompleteSteps = getIncompleteOnboardingStepsFromResumeData(
+        resumeData,
+        devicePermissions,
+      );
+
       if (incompleteSteps.length === 0) {
         // All steps complete - could show a message or navigate elsewhere
         return;
       }
+
+      updateOnboardingData({
+        ...resumeData,
+        pushNotificationStatus: devicePermissions.pushNotificationStatus,
+        pushNotificationsGranted:
+          devicePermissions.pushNotificationStatus === "granted" ||
+          devicePermissions.pushNotificationStatus === "provisional",
+        locationPermissionStatus: devicePermissions.locationPermissionStatus,
+        locationGranted: devicePermissions.locationPermissionStatus === "granted",
+      });
 
       // Navigate to onboarding with filtered steps
       router.push({

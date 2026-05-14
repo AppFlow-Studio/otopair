@@ -47,7 +47,7 @@ interface ZipCodeStepProps {
 export function ZipCodeStep({ onNext, onBack, progress }: ZipCodeStepProps) {
   const insets = useSafeAreaInsets();
   const { updateData, data } = useOnboardingStore();
-  const { saveAnswer } = useOnboardingQuestion('zipCode');
+  const { saveQuestionAnswer } = useOnboardingQuestion('zipCode');
 
   const [zipCode, setZipCode] = useState(data.zipCode ?? '');
 
@@ -57,7 +57,7 @@ export function ZipCodeStep({ onNext, onBack, progress }: ZipCodeStepProps) {
   const handleContinue = async () => {
     if (!isValidZip) return;
     updateData({ zipCode: sanitizedZip });
-    await saveAnswer({ freeTextAnswer: sanitizedZip });
+    await saveQuestionAnswer("What's your zip code?", sanitizedZip);
     onNext();
   };
 
