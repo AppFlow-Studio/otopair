@@ -73,6 +73,7 @@ type BookingStatus = Booking["status"];
 const STATUS_CONFIG: Record<BookingStatus, { label: string; bgColor: string; textColor: string }> = {
   pending: { label: "Pending", bgColor: "#fff6ee", textColor: "#f89829" },
   pending_quote: { label: "Pending Quote", bgColor: "#FFF8ED", textColor: "#C8972E" },
+  quotes_ready: { label: "Quotes Ready", bgColor: "#E3F0FF", textColor: "#2F6DCC" },
   pending_customer_acceptance: { label: "Action needed", bgColor: "#FFF6E5", textColor: "#C8972E" },
   confirmed: { label: "Confirmed", bgColor: "#e8f5e9", textColor: "#4CAF50" },
   in_progress: { label: "In Progress", bgColor: "#E0E7FF", textColor: "#4F46E5" },
@@ -91,6 +92,8 @@ export interface BookingDetailsSheetRef {
 }
 
 interface BookingDetailsSheetProps {
+  /** Header phrasing used in the mid view ("Upcoming", "In progress", etc.). */
+  relativeTime?: string;
   // TODO(convex): expose mechanic rating
   mechanicRating?: number;
   // TODO(convex): expose shop address/hours/rating from shops table
@@ -198,15 +201,6 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
     }, [shopAddress, shopDoc]);
     const resolvedShopPhone = shopPhone ?? ((shopDoc as any)?.phone ?? undefined);
 
-    const handleConfirmReschedule = useCallback(
-      (bookingId: string, newDate: string, newTime: string) => {
-        useBookingStore.getState().rescheduleBooking(bookingId, newDate, newTime);
-        // Close the detail sheet so the updated booking is immediately visible in the list.
-        close();
-      },
-      [close],
-    );
-
     // Crossfade opacities for the two content layers (mid + full).
     const midOpacity = useSharedValue(1);
     const fullOpacity = useSharedValue(0);
@@ -224,6 +218,15 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
         onClose?.();
       }, 280);
     }, [sheetHeight, onClose]);
+
+    const handleConfirmReschedule = useCallback(
+      (bookingId: string, newDate: string, newTime: string) => {
+        useBookingStore.getState().rescheduleBooking(bookingId, newDate, newTime);
+        // Close the detail sheet so the updated booking is immediately visible in the list.
+        close();
+      },
+      [close],
+    );
 
     useImperativeHandle(ref, () => ({ open, close }));
 
