@@ -45,7 +45,16 @@ import { useTireBookingStore } from "@/stores/useTireBookingStore";
 const { width: SCREEN_W, height: SCREEN_HEIGHT } = Dimensions.get("window");
 const SHEET_HEIGHT = Math.round(SCREEN_HEIGHT * 0.52);
 
-export default function TireRequestingScreen() {
+interface TireRequestingScreenProps {
+  /** Modal-mode close — when set, "Go back" closes the modal entirely. */
+  onClose?: () => void;
+  /** Modal-mode confirm — when set, "View" / auto-confirm calls this
+   *  instead of router.replace. Parent should close the modal AND
+   *  navigate to the bookings tab from its own (live) router context. */
+  onConfirmed?: () => void;
+}
+
+export default function TireRequestingScreen({ onClose, onConfirmed }: TireRequestingScreenProps = {}) {
   const router = useRouter();
   const sheetRef = useRef<FloatingSheetRef>(null);
 
@@ -72,6 +81,10 @@ export default function TireRequestingScreen() {
   const handleClose = () => {
     // Fires after the sheet finishes closing. We pop back to the config
     // page so the user sees their tire selections again.
+    if (onClose) {
+      onClose();
+      return;
+    }
     if (router.canGoBack()) router.back();
     else router.replace("/(main-tabs)/home");
   };
@@ -107,6 +120,18 @@ export default function TireRequestingScreen() {
 
     // `requestSubmitted` triggers the one-shot confirmation sheet on the
     // Upcoming tab. Consumed + cleared on arrival.
+    if (onConfirmed) {
+      // Modal mode — close the inner FloatingSheet (which has its own
+      // native Modal) BEFORE the parent dismisses the outer Modal. iOS
+      // hangs with a black screen if you dismiss a Modal while a nested
+      // Modal is still presented. Delay onConfirmed so the FloatingSheet
+      // animation completes first.
+      sheetRef.current?.close();
+      setTimeout(() => {
+        onConfirmed();
+      }, 300);
+      return;
+    }
     router.replace({
       pathname: "/(main-tabs)/bookings",
       params: { tab: "bookings", requestSubmitted: "1" },
@@ -118,6 +143,7 @@ export default function TireRequestingScreen() {
     tier,
     tireSize,
     tireType,
+    onConfirmed,
   ]);
 
   return (
@@ -129,7 +155,7 @@ export default function TireRequestingScreen() {
       <LottieView
         source={require("@/assets/animations/logo-loading-animation.json")}
         autoPlay
-        loop
+        loop={false}
         resizeMode="cover"
         style={styles.lottie}
       />

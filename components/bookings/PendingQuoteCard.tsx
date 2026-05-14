@@ -107,7 +107,11 @@ export function PendingQuoteCard({
           />
         ) : (
           <View style={styles.carPlaceholder}>
-            <Car size={20} color="#9CA3AF" strokeWidth={1.5} />
+            <Image
+              source={require("@/assets/images/covered-car.png")}
+              style={{ width: 32, height: 20 }}
+              resizeMode="contain"
+            />
           </View>
         )}
         <View style={styles.headerText}>

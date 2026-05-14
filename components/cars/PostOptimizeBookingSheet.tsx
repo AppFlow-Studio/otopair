@@ -12,7 +12,7 @@
  * OWNER: Ahmad Hamoudeh
  */
 
-import React, { useEffect, useRef } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Dimensions, Pressable, StyleSheet, View } from "react-native";
 
 import { LinearGradient } from "expo-linear-gradient";
@@ -38,6 +38,10 @@ export function PostOptimizeBookingSheet({
   vehicleLabel,
 }: PostOptimizeBookingSheetProps) {
   const sheetRef = useRef<FloatingSheetRef>(null);
+  // Track the title's rendered line count so the sheet snap can grow
+  // when a long vehicle label wraps to two lines (otherwise the cards
+  // get pushed into the Book Later button on long titles).
+  const [titleLines, setTitleLines] = useState(1);
 
   useEffect(() => {
     if (visible) {
@@ -47,7 +51,14 @@ export function PostOptimizeBookingSheet({
     }
   }, [visible]);
 
-  const sheetHeight = Math.min(SCREEN_HEIGHT * 0.7, 480);
+  // Base snap fits one-line title. Each extra wrapped title line adds
+  // ~28pt (lg/bold line height). Cap at 85% of screen so we never push
+  // off the top edge on small devices.
+  const TITLE_LINE_HEIGHT = 28;
+  const sheetHeight = Math.min(
+    SCREEN_HEIGHT * 0.85,
+    480 + Math.max(0, titleLines - 1) * TITLE_LINE_HEIGHT,
+  );
 
   return (
     <FloatingSheet
@@ -57,7 +68,16 @@ export function PostOptimizeBookingSheet({
       onClose={onClose}
     >
       <View style={styles.content}>
-        <Text size="lg" weight="bold" color="#0F172A" style={styles.title}>
+        <Text
+          size="lg"
+          weight="bold"
+          color="#0F172A"
+          style={styles.title}
+          onTextLayout={(e) => {
+            const lines = e.nativeEvent.lines.length;
+            if (lines > 0 && lines !== titleLines) setTitleLines(lines);
+          }}
+        >
           {vehicleLabel
             ? `Book a service for your ${vehicleLabel}`
             : "Book a service for your car"}

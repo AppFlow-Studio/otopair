@@ -14,7 +14,8 @@ import React, { forwardRef, useCallback, useImperativeHandle, useMemo, useRef, u
 import { Image, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
-import { BottomSheetBackdrop, BottomSheetModal, BottomSheetScrollView } from "@gorhom/bottom-sheet";
+import { BottomSheetModal, BottomSheetScrollView } from "@gorhom/bottom-sheet";
+import { BlurBackdrop } from "@/components/shared-ui/BlurBackdrop";
 import { MoreVertical, Star, ThumbsUp, User, X } from "lucide-react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
@@ -341,7 +342,7 @@ export const AllReviewsSheet = forwardRef<AllReviewsSheetRef, AllReviewsSheetPro
 
   // ═══════════════ RENDER HELPERS ═══════════════
   const renderBackdrop = useCallback(
-    (props: any) => <BottomSheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} opacity={0.5} />,
+    (props: any) => <BlurBackdrop {...props} />,
     [],
   );
 

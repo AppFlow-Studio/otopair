@@ -297,7 +297,11 @@ export default function BookingsScreen() {
                     />
                   ) : (
                     <View style={styles.pickerIconBubble}>
-                      <Car size={16} color="#5299FE" strokeWidth={2} />
+                      <Image
+                        source={require("@/assets/images/covered-car.png")}
+                        style={{ width: 36, height: 26 }}
+                        resizeMode="contain"
+                      />
                     </View>
                   )}
                   <View style={styles.pickerLabelWrap}>
@@ -409,7 +413,11 @@ export default function BookingsScreen() {
             }}
           >
             <View style={styles.vehicleRowIconBubble}>
-              <Car size={18} color="#5299FE" strokeWidth={2} />
+              <Image
+                source={require("@/assets/images/covered-car.png")}
+                style={{ width: 30, height: 20 }}
+                resizeMode="contain"
+              />
             </View>
             <View style={styles.vehicleRowText}>
               <Text size="md" weight="semiBold" color="#1F2937">
@@ -442,7 +450,11 @@ export default function BookingsScreen() {
                       resizeMode="contain"
                     />
                   ) : (
-                    <Car size={20} color="#9CA3AF" />
+                    <Image
+                      source={require("@/assets/images/covered-car.png")}
+                      style={{ width: 32, height: 22 }}
+                      resizeMode="contain"
+                    />
                   )}
                 </View>
                 <View style={styles.vehicleRowText}>

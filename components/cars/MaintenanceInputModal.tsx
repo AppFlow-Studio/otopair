@@ -26,6 +26,7 @@ import {
   View,
 } from "react-native";
 import { useMutation } from "convex/react";
+import { BlurView } from "expo-blur";
 import Svg, { Circle, Path } from "react-native-svg";
 
 import { Text } from "@/components/shared-ui";
@@ -363,6 +364,7 @@ export function MaintenanceInputModal({
       onRequestClose={closeSheet}
     >
       <Animated.View style={[styles.backdrop, { opacity: backdropOpacity }]}>
+        <BlurView intensity={28} tint="dark" style={StyleSheet.absoluteFill} />
         <Pressable style={StyleSheet.absoluteFill} onPress={closeSheet} />
       </Animated.View>
 
@@ -443,7 +445,7 @@ export function MaintenanceInputModal({
 const styles = StyleSheet.create({
   backdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0, 0, 0, 0.4)",
+    backgroundColor: "rgba(0, 0, 0, 0.18)",
   },
   bottomSheet: {
     position: "absolute",

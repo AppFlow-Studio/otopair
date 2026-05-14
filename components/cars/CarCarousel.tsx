@@ -669,7 +669,17 @@ const VehicleHealthModal = ({
           </ScrollView>
           
           <View style={modalStyles.scheduleButtonContainer}>
-            <Pressable style={modalStyles.scheduleButton}>
+            <Pressable
+              style={modalStyles.scheduleButton}
+              onPress={() => {
+                // Close the Vehicle Health sheet, then drop the user into
+                // the booking flow's service-selection entry point — same
+                // target MaintenanceTracker's "Book Now" uses, so both
+                // surfaces lead to the same place.
+                onClose();
+                router.push("/home/map");
+              }}
+            >
               <BlurView intensity={80} tint="dark" style={modalStyles.scheduleButtonBlur}>
                 <LinearGradient
                   colors={selectedServices.size > 0 
@@ -1295,12 +1305,16 @@ interface ActivityRingsProps {
   servicePercentage?: number;
   size?: number;
   onPress?: () => void;
+  /** Flip the centered percentage to white when the page bg is dark
+   *  enough that the default dark navy is unreadable. */
+  isDarkBg?: boolean;
 }
 
-const ActivityRings = ({ 
-  healthPercentage, 
+const ActivityRings = ({
+  healthPercentage,
   size = scale(72),
   onPress,
+  isDarkBg = false,
 }: ActivityRingsProps) => {
   const [animatedHealth, setAnimatedHealth] = useState(0);
 
@@ -1388,7 +1402,7 @@ const ActivityRings = ({
       </Svg>
       {/* Centered percentage */}
       <View style={activityRingStyles.centerContainer}>
-        <Text style={[activityRingStyles.percentageText, { color: '#1F2937' }]}>
+        <Text style={[activityRingStyles.percentageText, { color: isDarkBg ? '#FFFFFF' : '#1F2937' }]}>
           {Math.round(animatedHealth)}%
         </Text>
       </View>
@@ -1887,6 +1901,11 @@ export function CarCarousel({
               values={sortedVehicles.map(() => ' ')}
               selectedIndex={activeIndex}
               appearance="light"
+              // Translucent indicator so the active segment reads as
+              // frosted glass over whatever paint gradient is behind it
+              // — a stark opaque white pill clashed on saturated bgs
+              // like the green Tiguan.
+              tintColor={isDarkBg ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.55)"}
               onChange={(e) => rotateToIndex(e.nativeEvent.selectedSegmentIndex)}
               style={[styles.segmentedRail, { width: segmentWidth * sortedVehicles.length }]}
             />
@@ -1919,12 +1938,13 @@ export function CarCarousel({
 
         {/* Activity Rings - Vehicle Condition (hidden until onboarding is complete) */}
         {showHealthRing && (
-          <ActivityRings 
+          <ActivityRings
             healthPercentage={overallCondition}
             maintenancePercentage={maintenanceScoreForRing}
             servicePercentage={usageScoreForRing}
             size={scale(72)}
             onPress={() => setShowHealthModal(true)}
+            isDarkBg={isDarkBg}
           />
         )}
       </View>

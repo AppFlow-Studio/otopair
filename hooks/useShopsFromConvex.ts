@@ -51,7 +51,15 @@ export function useShopsFromConvex() {
       serviceIdsByShop[shopKey].push(ss.service_id as string);
     }
 
-    return convexShops.map((shop) => mapConvexShopToStore(shop, serviceIdsByShop[shop._id as string] ?? []));
+    // ─── TEMP: Mobile only surfaces Chelala Service Center until other
+    // shops are wired up end-to-end with otopair-web. Surfacing other
+    // shops creates dead-end bookings the web side can't service. Remove
+    // this filter when more shops go live. ───
+    const onlyChelala = convexShops.filter((shop) =>
+      (shop.name ?? "").toLowerCase().includes("chelala"),
+    );
+
+    return onlyChelala.map((shop) => mapConvexShopToStore(shop, serviceIdsByShop[shop._id as string] ?? []));
   }, [convexShops, shopServicesList]);
 
   useEffect(() => {

@@ -171,6 +171,8 @@ export function BookingCard({
   const router = useRouter();
   const openRescheduleDecision = useRescheduleDecisionOverlayStore((s) => s.open);
   const primaryBtnRef = useRef<RNView | null>(null);
+  // Fall back to a neutral pill when the backend returns a status we
+  // don't have a config for, so an unknown value doesn't crash the card.
   const statusConfig = STATUS_CONFIG[booking.status] ?? {
     label: titleCase(String(booking.status ?? 'Unknown').replace(/_/g, ' ')),
     bgColor: '#E5E7EB',

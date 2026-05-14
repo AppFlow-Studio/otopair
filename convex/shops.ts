@@ -14,9 +14,11 @@ import {
 const OWNER_ROLES = new Set(["owner", "shop_owner", "admin"]);
 const MECHANIC_ROLES = new Set(["shop_mechanic", "mechanic"]);
 const TERMINAL_BOOKING_STATUSES = new Set(["completed", "cancelled", "no_show"]);
-const DEFAULT_NO_SHOW_THRESHOLD_MINUTES = 30;
-const DEFAULT_OVERRUN_EXTENSION_PERCENT = 25;
-const DEFAULT_OVERRUN_EXTENSION_FLOOR_MINUTES = 15;
+// DEFAULT_NO_SHOW_THRESHOLD_MINUTES / DEFAULT_OVERRUN_EXTENSION_PERCENT /
+// DEFAULT_OVERRUN_EXTENSION_FLOOR_MINUTES are imported from
+// `../lib/scheduling-overhaul` above — the local duplicates that lived
+// here pre-merge were leftover artefacts of the daniel-dev → temur-dev
+// merge and clashed with the imports.
 
 function clampNumber(value: number, min: number, max: number) {
   return Math.max(min, Math.min(max, value));

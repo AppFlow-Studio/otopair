@@ -17,7 +17,8 @@ import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo
 import { Dimensions, Image, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
-import { BottomSheetBackdrop, BottomSheetModal, BottomSheetView } from "@gorhom/bottom-sheet";
+import { BottomSheetModal, BottomSheetView } from "@gorhom/bottom-sheet";
+import { BlurBackdrop } from "@/components/shared-ui/BlurBackdrop";
 import { useRouter } from "expo-router";
 import { BadgeCheck, Calendar, Check, Clock, Star, User } from "lucide-react-native";
 import Animated, {
@@ -324,9 +325,9 @@ export const ConfirmationModal = forwardRef<ConfirmationModalRef, ConfirmationMo
 
   // ═══════════════ RENDER HELPERS ═══════════════
   const renderBackdrop = useCallback(
-    (props: any) => (
-      <BottomSheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} opacity={0.6} pressBehavior="none" />
-    ),
+    // pressBehavior="none" preserved — confirmation backdrop shouldn't
+    // dismiss on tap.
+    (props: any) => <BlurBackdrop {...props} pressBehavior="none" />,
     [],
   );
 

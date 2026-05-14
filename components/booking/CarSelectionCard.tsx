@@ -120,7 +120,11 @@ function CarSelectionCardComponent({
             {vehicle.imageSource ? (
               <Image source={vehicle.imageSource} style={styles.rowImage} resizeMode="contain" />
             ) : (
-              <Car size={28} color="#9CA3AF" />
+              <Image
+                source={require("@/assets/images/covered-car.png")}
+                style={{ width: 44, height: 28 }}
+                resizeMode="contain"
+              />
             )}
           </View>
         </View>
@@ -138,7 +142,11 @@ function CarSelectionCardComponent({
             <Image source={vehicle.imageSource} style={styles.image} resizeMode="contain" />
           ) : (
             <View style={styles.imagePlaceholder}>
-              <Car size={32} color="#9CA3AF" />
+              <Image
+                source={require("@/assets/images/covered-car.png")}
+                style={{ width: 56, height: 36 }}
+                resizeMode="contain"
+              />
             </View>
           )}
         </View>
