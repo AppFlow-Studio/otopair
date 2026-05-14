@@ -61,7 +61,12 @@ import { SYSTEM_PROMPT, SYSTEM_PROMPT_VERSION } from "./system_prompt";
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION = "2023-06-01";
-const MODEL = "claude-haiku-4-5-20251001";
+const HAIKU_MODEL = "claude-haiku-4-5-20251001";
+const SONNET_MODEL = "claude-sonnet-4-6";
+// Default model used when ai_conversations.current_model is unset/null.
+// Per-turn selection happens in sendMessageHandler based on the conversation's
+// current_model field — Sonnet cascade (Locked Principle #2).
+const MODEL = HAIKU_MODEL;
 const MAX_TOKENS = 1024;
 const HISTORY_TURNS = 10;
 const MAX_TOOL_ITERATIONS = 5;
@@ -75,13 +80,133 @@ void SYSTEM_PROMPT_VERSION;
 // slices wire them; the dispatcher already covers the routing for the full
 // inventory, so this list is the only place to extend.
 const TOOL_NAMES_V1 = [
+  // Data tools — vehicle / service / booking
   "list_services_for_vehicle",
   "get_service_details",
+  "get_vehicle_health",
+  "get_projected_health_score",
+  "get_bookings",
+  "get_due_services",
+  "get_vehicle_facts",
+  // Data tools — knowledge base + lookups for general car questions
+  "lookup_vehicle_spec",
+  "retrieve_vehicle_facts",
+  "record_vehicle_fact",
+  // State tools (side-effect; Oto-maintained conversation memory)
+  "update_conversation_state",
+  // Render tools — full booking-flow chain. Oto's involvement ENDS at
+  // render_booking_confirmation; the mobile component's "Confirm booking"
+  // button handles the redirect to payment internally, no Oto turn for that.
   "render_quick_replies",
+  "render_diagnostic_form",
+  "render_record_confirmation",
+  "render_service_picker",
+  "render_shop_carousel",
+  "render_time_selector",
+  "render_booking_confirmation",
+  // Model routing — Phase 2 Sonnet cascade (Locked Principle #2)
+  "request_sonnet_handoff",
+  "request_haiku_handback",
 ] as const;
+
+// Server-managed Anthropic tools. The model invokes these directly; we do
+// NOT dispatch them in our loop. Append them to the tools array in
+// callAnthropic. web_search results come back as content blocks inside the
+// assistant message; the model then uses them to compose its response.
+//
+// Note: the actual type string ("web_search_20250305") is set by Anthropic
+// and may rotate. Keep this list narrow.
+const SERVER_MANAGED_TOOLS: ReadonlyArray<unknown> = [
+  {
+    type: "web_search_20250305",
+    name: "web_search",
+    max_uses: 3,
+  },
+];
+const SERVER_MANAGED_TOOL_NAMES = new Set(["web_search"]);
 const TOOLS_FOR_HAIKU = OTO_TOOLS.filter((t) =>
   (TOOL_NAMES_V1 as readonly string[]).includes(t.name),
 );
+
+// Module-load invariant: every tool advertised to Haiku must have a handler.
+// Data tools require a callable in buildCallables; render/navigation tools are
+// handled by dispatcher.ts. Drift between TOOL_NAMES_V1, buildCallables, and
+// OTO_TOOL_CATEGORY surfaces here loudly instead of as silent "not_implemented"
+// tool_result errors that the model then narrates as "I don't have access."
+//
+// console.error (not throw) — a throw at module load would brick every chat
+// request on misconfig; the error here is loud enough in Convex logs to catch.
+{
+  const DATA_TOOL_CALLABLE_NAMES = new Set([
+    "list_services_for_vehicle",
+    "get_service_details",
+    "get_vehicle_health",
+    "get_projected_health_score",
+    "get_bookings",
+    "get_due_services",
+    "get_vehicle_facts",
+    "lookup_vehicle_spec",
+    "retrieve_vehicle_facts",
+  ]);
+  const STATE_TOOL_CALLABLE_NAMES = new Set([
+    "update_conversation_state",
+    "record_vehicle_fact",
+    "request_sonnet_handoff",
+    "request_haiku_handback",
+  ]);
+  const renderToolNames = new Set(
+    Object.entries(OTO_TOOL_CATEGORY)
+      .filter(([, cat]) => cat === "render")
+      .map(([name]) => name),
+  );
+  const navToolNames = new Set(
+    Object.entries(OTO_TOOL_CATEGORY)
+      .filter(([, cat]) => cat === "navigation")
+      .map(([name]) => name),
+  );
+  for (const name of TOOL_NAMES_V1) {
+    const wired =
+      DATA_TOOL_CALLABLE_NAMES.has(name) ||
+      STATE_TOOL_CALLABLE_NAMES.has(name) ||
+      renderToolNames.has(name) ||
+      navToolNames.has(name);
+    if (!wired) {
+      console.error(
+        `[oto/chat] CONFIG ERROR: tool "${name}" is in TOOL_NAMES_V1 but has no handler. ` +
+          `Data/state tools need a callable in buildCallables; render/nav tools need an entry in OTO_TOOL_CATEGORY.`,
+      );
+    }
+  }
+
+  // Block 4 — second-half invariant: every tool name the SYSTEM PROMPT
+  // references must be in TOOL_NAMES_V1. Closes the v0.5/v0.6 drift footgun
+  // where the prompt advertised tools the chat action wasn't surfacing to
+  // Haiku — Anthropic returns tool_use blocks for tool names the request
+  // didn't actually list, but the dispatcher then fails silently with
+  // not_implemented, which Haiku narrates as "I don't have access to that
+  // right now." Scan the prompt for `name` pattern matches against the full
+  // OTO_TOOL_NAMES list; anything mentioned in the prompt that's NOT wired
+  // gets logged loudly.
+  {
+    const promptRefs = new Set<string>();
+    for (const candidate of Object.keys(OTO_TOOL_CATEGORY)) {
+      // Match \`tool_name\` (backticked) anywhere in the prompt body — that's
+      // the canonical reference style in system_prompt.ts. Avoids false
+      // positives from incidental substring matches in prose.
+      const re = new RegExp("`" + candidate + "`");
+      if (re.test(SYSTEM_PROMPT)) promptRefs.add(candidate);
+    }
+    const wiredSet = new Set<string>(TOOL_NAMES_V1 as readonly string[]);
+    for (const ref of promptRefs) {
+      if (!wiredSet.has(ref) && !SERVER_MANAGED_TOOL_NAMES.has(ref)) {
+        console.error(
+          `[oto/chat] CONFIG ERROR: prompt references tool "${ref}" but it is NOT in TOOL_NAMES_V1. ` +
+            `Haiku will hallucinate this tool's effect or report "I don't have access." Either wire it in TOOL_NAMES_V1 + buildCallables, or remove the prompt reference.`,
+        );
+      }
+    }
+  }
+}
 
 // Anthropic content-block shape — minimal for parsing the response.
 interface AnthropicTextBlock {
@@ -131,13 +256,39 @@ export const sendMessage = action({
     // Optional — if omitted, the action falls back to most-recently-added.
     // Wins over the (forward-compat) conversation.vehicle_id rule.
     vehicleVin: v.optional(v.string()),
+    // Dev-only: when true, the action returns a `trace` field capturing the
+    // envelope, every Anthropic request/response, tool_use/tool_result blocks,
+    // token usage, latency, and iteration accounting. Powers scripts/oto-harness.html.
+    // Production callers MUST NOT pass this (extra payload, perf overhead).
+    debug: v.optional(v.boolean()),
+    // Dev-only: when true, skip persistence of both the user turn and the
+    // assistant turn. Lets the harness iterate freely without polluting
+    // ai_messages history. No effect unless `debug` is also true.
+    debug_skip_persist: v.optional(v.boolean()),
   },
   // @ts-expect-error TS2589 — same cause as above; documents return shape.
   // `quickReplies` typed loose (v.any()) so the shape can evolve as we add
   // render tools without churning the validator on every change.
   returns: v.object({
     text: v.string(),
+    // Render directives — any of these may be present depending on which
+    // render tool fired. The mobile app and harness pick the renderer based
+    // on which fields are set. All are loose v.any() since their shapes
+    // evolve with the render-tool inventory.
     quickReplies: v.optional(v.array(v.any())),
+    showDiagnosticForm: v.optional(v.any()),
+    showRecordConfirmation: v.optional(v.any()),
+    showServicePicker: v.optional(v.boolean()),
+    pickerServices: v.optional(v.any()),
+    pickerPreSelectedId: v.optional(v.string()),
+    shopCarousel: v.optional(v.any()),
+    timeSelector: v.optional(v.any()),
+    bookingConfirmation: v.optional(v.any()),
+    reasoning: v.optional(v.any()),
+    sources: v.optional(v.any()),
+    // Trace blob — only populated when `debug: true`. Loose v.any() since
+    // this is an inspection surface, not a production contract.
+    trace: v.optional(v.any()),
   }),
   handler: sendMessageHandler,
 });
@@ -151,12 +302,33 @@ async function sendMessageHandler(
     conversationId,
     message,
     vehicleVin,
+    debug,
+    debug_skip_persist,
   }: {
     conversationId: Id<"ai_conversations">;
     message: string;
     vehicleVin?: string;
+    debug?: boolean;
+    debug_skip_persist?: boolean;
   },
-): Promise<{ text: string; quickReplies?: unknown[] }> {
+): Promise<{
+  text: string;
+  quickReplies?: unknown[];
+  showDiagnosticForm?: { initialSystem?: string; initialNotes?: string };
+  showRecordConfirmation?: { vehicle_id: string; maintenance_type: string };
+  showServicePicker?: boolean;
+  pickerServices?: unknown;
+  pickerPreSelectedId?: string;
+  shopCarousel?: unknown;
+  timeSelector?: unknown;
+  bookingConfirmation?: unknown;
+  reasoning?: unknown;
+  sources?: unknown;
+  trace?: unknown;
+}> {
+  // Trace accumulator — populated only when debug=true. `null` in production.
+  // Each Anthropic round-trip pushes one entry into trace.iterations.
+  const trace: any = debug ? { iterations: [] } : null;
   // ── 1. Auth ──────────────────────────────────────────────────────────
   const identity = await ctx.auth.getUserIdentity();
   if (!identity) throw new Error("unauthenticated");
@@ -215,22 +387,59 @@ async function sendMessageHandler(
   }
 
   // ── 4. Build the uncached-zone envelope ──────────────────────────────
+  // conversation state (mood, arc, established facts, intent) — read back so
+  // Haiku has cross-turn memory without re-deriving from raw history.
+  const convoState = {
+    mood: (conversation as any).mood ?? null,
+    arc_summary: (conversation as any).arc_summary ?? null,
+    established_facts: ((conversation as any).established_facts ?? []) as string[],
+    last_user_intent: (conversation as any).last_user_intent ?? null,
+    updated_at: (conversation as any).state_updated_at ?? null,
+  };
+  // Polite-exit counter snapshot (Locked Principle #6). When >= 6 the
+  // envelope emits a polite_exit_required block and the prompt rule forces
+  // a not_sure diagnostic form on this turn.
+  const diagnosticTurnCount = ((conversation as any).diagnostic_turn_count as number | undefined) ?? 0;
   const envelope = buildEnvelope({
     userFirstName: user.first_name ?? null,
     vehicle: activeVehicle,
     history,
     userMessage: message,
+    conversationState: convoState,
+    diagnosticTurnCount,
   });
   console.log("[oto/chat] envelope sent to Haiku:\n" + envelope);
 
+  if (trace) {
+    trace.system_prompt_version = SYSTEM_PROMPT_VERSION;
+    trace.system_prompt_chars = SYSTEM_PROMPT.length;
+    trace.system_prompt = SYSTEM_PROMPT;
+    trace.envelope = envelope;
+    trace.tools_advertised = [...TOOL_NAMES_V1];
+    trace.vehicle = activeVehicle;
+    trace.user_first_name = user.first_name ?? null;
+    trace.history_turns_included = history.length;
+    trace.model = MODEL;
+  }
+
   // ── 5. Build the callable map ────────────────────────────────────────
   // chat.ts owns every `api.*` reference. Each callable is a closure that
-  // captures ctx + api; dispatcher.ts never sees Convex types.
-  const callables = buildCallables(ctx);
+  // captures ctx + api; dispatcher.ts never sees Convex types. The state
+  // callable also captures conversationId so it can patch the right row.
+  const callables = buildCallables(ctx, conversationId);
 
   // ── 6. Tool-use loop ─────────────────────────────────────────────────
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error("ANTHROPIC_API_KEY env var not set");
+
+  // Per-turn model selection — Sonnet cascade. ai_conversations.current_model
+  // is set by Haiku's request_sonnet_handoff (or cleared by request_haiku_handback).
+  const conversationCurrentModel = ((conversation as any).current_model ?? null) as
+    | string
+    | null;
+  const turnModel =
+    conversationCurrentModel === "sonnet" ? SONNET_MODEL : HAIKU_MODEL;
+  if (trace) trace.model = turnModel;
 
   const messages: AnthropicMessage[] = [{ role: "user", content: envelope }];
   const accumulatedResults: ToolResultBlock[] = [];
@@ -241,11 +450,20 @@ async function sendMessageHandler(
 
   while (iterations < MAX_TOOL_ITERATIONS) {
     iterations++;
+    // Snapshot messages BEFORE the call so the trace captures what Haiku
+    // actually saw on this iteration (not what's there after we mutate
+    // messages with the assistant turn + tool_results).
+    const requestMessagesSnapshot = trace
+      ? JSON.parse(JSON.stringify(messages))
+      : null;
+    const t0 = Date.now();
     const resp = await callAnthropic({
       apiKey,
       messages,
       tools: TOOLS_FOR_HAIKU,
+      model: turnModel,
     });
+    const latencyMs = Date.now() - t0;
 
     const toolUses: ToolUseBlock[] = resp.content.filter(
       (b): b is ToolUseBlock => b.type === "tool_use",
@@ -258,17 +476,65 @@ async function sendMessageHandler(
     // Data tools are loop INPUTS — their results feed the next Anthropic
     // call so the model can compose a response. Render and navigation tools
     // are loop OUTPUTS — terminal directives the chat action packages for
-    // the client. We dispatch them in-process, never feed their results
-    // back to Haiku, and exit the loop after this iteration. Mixing the
-    // two in one turn means the AI both asked for data AND emitted output;
-    // we treat output as authoritative ("you're done") and exit anyway.
+    // the client. State tools are SIDE EFFECTS — they persist conversation
+    // memory and never gate loop control flow. We dispatch them in parallel
+    // with the rest; their tool_results are appended only when there's a
+    // follow-up API call (data_continue branch).
     const dataToolUses: ToolUseBlock[] = [];
+    const stateToolUses: ToolUseBlock[] = [];
     const terminalToolUses: ToolUseBlock[] = [];
     for (const tu of toolUses) {
       const cat = OTO_TOOL_CATEGORY[tu.name];
       if (cat === "data") dataToolUses.push(tu);
-      else terminalToolUses.push(tu); // render | navigation | unknown
+      else if (cat === "state" || cat === "model_routing") {
+        // model_routing tools (request_sonnet_handoff / request_haiku_handback)
+        // are side-effect writes to ai_conversations.current_model. Same
+        // dispatch behavior as state tools — execute in parallel, return
+        // trivial ack, don't gate the loop.
+        stateToolUses.push(tu);
+      } else terminalToolUses.push(tu); // render | navigation | unknown
     }
+
+    // Side-effect: dispatch state tools eagerly (before branching), so
+    // persistence happens even if the rest of the response throws.
+    const stateAckResults =
+      stateToolUses.length > 0
+        ? await Promise.all(stateToolUses.map((tu) => executeTool(tu, callables)))
+        : [];
+
+    // One trace entry per Anthropic round-trip. Pushed here (before tool
+    // dispatch) so even a thrown dispatch error still leaves the entry in
+    // place — `tool_results` is filled in after dispatch below.
+    const traceIter: any = trace
+      ? {
+          iteration: iterations,
+          latency_ms: latencyMs,
+          request: {
+            message_count: requestMessagesSnapshot!.length,
+            messages: requestMessagesSnapshot,
+            tools_advertised_count: TOOLS_FOR_HAIKU.length,
+          },
+          response: {
+            id: resp.id,
+            model: resp.model,
+            stop_reason: resp.stop_reason,
+            usage: resp.usage,
+            content: resp.content,
+          },
+          text_block: textBlock?.text ?? null,
+          data_tool_uses: dataToolUses,
+          state_tool_uses: stateToolUses,
+          terminal_tool_uses: terminalToolUses,
+          state_results: stateAckResults,
+          tool_results: [] as ToolResultBlock[],
+          branch: terminalToolUses.length > 0
+            ? "terminal"
+            : dataToolUses.length === 0
+              ? "text_only"
+              : "data_continue",
+        }
+      : null;
+    if (trace) trace.iterations.push(traceIter);
 
     // Terminal tools (render + nav) dispatch in-process and contribute to
     // the response payload. They do NOT participate in the API loop.
@@ -284,13 +550,32 @@ async function sendMessageHandler(
         terminalToolUses.map((tu) => executeTool(tu, callables)),
       );
       accumulatedResults.push(...terminalResults);
+      if (traceIter) traceIter.tool_results = terminalResults;
       // Whatever text accompanied the render call is the user-facing prose.
       finalText = textBlock?.text ?? "";
       break;
     }
 
     if (dataToolUses.length === 0) {
-      // No tools at all → pure text turn → terminal.
+      // No data tools this iteration. Three sub-cases:
+      //   (a) Text emitted → terminal text turn. Most common path.
+      //   (b) State tool emitted alongside text → terminal (state is side
+      //       effect, doesn't change the branch).
+      //   (c) State tool emitted with NO text → broken response from Haiku.
+      //       The loop must NOT terminate here; we'd return empty text and
+      //       throw downstream. Feed the state ack back and let Haiku try
+      //       again. This recovers the "state-only-no-text" failure mode.
+      const hasText = !!textBlock?.text?.trim();
+      if (!hasText && stateToolUses.length > 0) {
+        // Continuation path: persist messages with state ack tool_results
+        // and let the loop iterate. Haiku gets another chance to emit text
+        // (and may emit more tools — that's fine; loop continues until
+        // text/render/cap).
+        messages.push({ role: "assistant", content: resp.content });
+        messages.push({ role: "user", content: stateAckResults });
+        if (iterations === MAX_TOOL_ITERATIONS) hitCap = true;
+        continue;
+      }
       finalText = textBlock?.text ?? "";
       break;
     }
@@ -301,15 +586,22 @@ async function sendMessageHandler(
     );
 
     // Standard data-tool continuation: append assistant turn, dispatch,
-    // append tool_results as next user turn, loop.
+    // append tool_results as next user turn, loop. State tool acks ride
+    // alongside data results so the Anthropic API contract (every tool_use
+    // in the assistant turn matched by a tool_result in the next user turn)
+    // holds.
     messages.push({ role: "assistant", content: resp.content });
 
     const dataResults = await Promise.all(
       dataToolUses.map((tu) => executeTool(tu, callables)),
     );
     accumulatedResults.push(...dataResults);
+    if (traceIter) traceIter.tool_results = dataResults;
 
-    messages.push({ role: "user", content: dataResults });
+    messages.push({
+      role: "user",
+      content: [...stateAckResults, ...dataResults],
+    });
 
     if (iterations === MAX_TOOL_ITERATIONS) {
       hitCap = true;
@@ -317,20 +609,51 @@ async function sendMessageHandler(
   }
 
   // Forced-terminate: cap was hit with tool_use still firing. Call Anthropic
-  // once more with `tools: []` so the model has to emit text.
+  // once more with NO tools at all (including server-managed web_search) so
+  // the model has to emit text. We bypass callAnthropic's tool-merging path
+  // entirely and hit Anthropic directly with tools: [].
   if (hitCap && !finalText) {
     console.warn(
-      "[oto/chat] tool loop hit MAX_TOOL_ITERATIONS; forcing final response with tools disabled.",
+      "[oto/chat] tool loop hit MAX_TOOL_ITERATIONS; forcing final response with ALL tools disabled.",
     );
-    const forced = await callAnthropic({
-      apiKey,
-      messages,
-      tools: [],
+    const t0 = Date.now();
+    const forcedResp = await fetch(ANTHROPIC_URL, {
+      method: "POST",
+      headers: {
+        "x-api-key": apiKey,
+        "anthropic-version": ANTHROPIC_VERSION,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: MODEL,
+        max_tokens: MAX_TOKENS,
+        // Plain system string, no cache_control, no tools — guarantees text.
+        system: SYSTEM_PROMPT,
+        messages,
+      }),
     });
+    if (!forcedResp.ok) {
+      const body = await forcedResp.text().catch(() => "<unreadable>");
+      throw new Error(`Anthropic API (forced) ${forcedResp.status}: ${body}`);
+    }
+    const forced = (await forcedResp.json()) as AnthropicResponse;
+    const forcedLatencyMs = Date.now() - t0;
     const forcedText = forced.content.find(
       (b): b is AnthropicTextBlock => b.type === "text",
     );
     finalText = forcedText?.text ?? "";
+    if (trace) {
+      trace.forced_final = {
+        latency_ms: forcedLatencyMs,
+        response: {
+          id: forced.id,
+          model: forced.model,
+          stop_reason: forced.stop_reason,
+          usage: forced.usage,
+          content: forced.content,
+        },
+      };
+    }
   }
 
   // ── 7. Merge render directives ───────────────────────────────────────
@@ -338,63 +661,290 @@ async function sendMessageHandler(
   const quickReplies = Array.isArray(renderEnvelope.quickReplies)
     ? (renderEnvelope.quickReplies as unknown[])
     : undefined;
+  const showDiagnosticForm =
+    renderEnvelope.showDiagnosticForm &&
+    typeof renderEnvelope.showDiagnosticForm === "object"
+      ? (renderEnvelope.showDiagnosticForm as {
+          initialSystem?: string;
+          initialNotes?: string;
+        })
+      : undefined;
 
-  // Empty text is fine when render directives carry the turn (e.g., the
-  // model emits only quick-reply buttons with no accompanying prose). Only
-  // throw if BOTH are empty — that's a real "nothing to say" failure.
-  if (!finalText && !quickReplies) {
-    throw new Error(
-      "Anthropic returned no text and no render directives after tool loop",
+  // Empty text is fine when ANY render directive carries the turn (quick
+  // replies, diagnostic form, service picker, shop carousel, time selector,
+  // booking confirmation, reasoning, sources). Only fall back when text AND
+  // every render directive are empty — that's a real "nothing to say" failure.
+  const hasAnyRender =
+    !!quickReplies ||
+    !!showDiagnosticForm ||
+    renderEnvelope.showServicePicker === true ||
+    renderEnvelope.shopCarousel !== undefined ||
+    renderEnvelope.timeSelector !== undefined ||
+    renderEnvelope.bookingConfirmation !== undefined ||
+    renderEnvelope.reasoning !== undefined ||
+    renderEnvelope.sources !== undefined;
+  if (!finalText && !hasAnyRender) {
+    console.error(
+      "[oto/chat] no text + no render after tool loop. iterations=" +
+        iterations +
+        " hitCap=" +
+        hitCap +
+        " — returning fallback text",
     );
+    finalText =
+      "I'm having trouble pulling that one together — can you rephrase or break it into a smaller question?";
   }
 
+  // Voice-rail post-process: the prompt bans markdown bold for data points
+  // and headers, but Haiku falls back to them under pressure (especially in
+  // shorter responses or when emphasizing service names). Strip them
+  // server-side as belt-and-suspenders. If real safety-critical emphasis is
+  // ever needed in v0.8+, swap this for a directive that the chat UI
+  // renders specially.
+  finalText = stripVoiceMarkup(finalText);
+
   // ── 8. Persist both turns ────────────────────────────────────────────
-  await ctx.runMutation(api.ai_messages.create, {
-    conversation_id: conversationId,
-    role: "user",
-    content: message,
-  });
-  await ctx.runMutation(api.ai_messages.create, {
-    conversation_id: conversationId,
-    role: "assistant",
-    content: finalText,
-  });
+  // Harness runs (debug + debug_skip_persist) skip persistence so iteration
+  // doesn't pollute the user's real conversation history.
+  const skipPersist = debug === true && debug_skip_persist === true;
+  if (!skipPersist) {
+    await ctx.runMutation(api.ai_messages.create, {
+      conversation_id: conversationId,
+      role: "user",
+      content: message,
+    });
+    await ctx.runMutation(api.ai_messages.create, {
+      conversation_id: conversationId,
+      role: "assistant",
+      content: finalText,
+    });
 
-  await ctx.runMutation(api.ai_conversations.incrementMessageCount, {
-    id: conversationId,
-  });
-  await ctx.runMutation(api.ai_conversations.incrementMessageCount, {
-    id: conversationId,
-  });
+    await ctx.runMutation(api.ai_conversations.incrementMessageCount, {
+      id: conversationId,
+    });
+    await ctx.runMutation(api.ai_conversations.incrementMessageCount, {
+      id: conversationId,
+    });
+  }
 
-  return quickReplies ? { text: finalText, quickReplies } : { text: finalText };
+  // Aggregate token + tool stats across the loop. Used by both the trace
+  // payload AND the telemetry insert.
+  let aggInputTokens = 0;
+  let aggOutputTokens = 0;
+  let aggCacheCreation = 0;
+  let aggCacheRead = 0;
+  let totalLatencyMs = 0;
+  const allToolsCalled: string[] = [];
+  let finalBranch: string = "text_only";
+  // Replay iterations recorded in trace (when debug) or reconstruct from
+  // accumulatedResults names (in production). Trace block guarantees order
+  // and is precise; without trace we fall back to result names.
+  if (trace?.iterations?.length) {
+    for (const it of trace.iterations) {
+      aggInputTokens += it.response?.usage?.input_tokens ?? 0;
+      aggOutputTokens += it.response?.usage?.output_tokens ?? 0;
+      aggCacheCreation += it.response?.usage?.cache_creation_input_tokens ?? 0;
+      aggCacheRead += it.response?.usage?.cache_read_input_tokens ?? 0;
+      totalLatencyMs += it.latency_ms ?? 0;
+      for (const t of it.data_tool_uses ?? []) allToolsCalled.push(t.name);
+      for (const t of it.state_tool_uses ?? []) allToolsCalled.push(t.name);
+      for (const t of it.terminal_tool_uses ?? []) allToolsCalled.push(t.name);
+      finalBranch = it.branch ?? finalBranch;
+    }
+    if (trace.forced_final?.response?.usage) {
+      aggInputTokens += trace.forced_final.response.usage.input_tokens ?? 0;
+      aggOutputTokens += trace.forced_final.response.usage.output_tokens ?? 0;
+      aggCacheCreation += trace.forced_final.response.usage.cache_creation_input_tokens ?? 0;
+      aggCacheRead += trace.forced_final.response.usage.cache_read_input_tokens ?? 0;
+      totalLatencyMs += trace.forced_final.latency_ms ?? 0;
+    }
+  } else {
+    // Best-effort tool names from accumulatedResults if trace is off.
+    for (const r of accumulatedResults) {
+      if ((r as any).name) allToolsCalled.push((r as any).name as string);
+    }
+  }
+
+  if (trace) {
+    trace.hit_cap = hitCap;
+    trace.iterations_used = iterations;
+    trace.final_text = finalText;
+    trace.quick_replies = quickReplies ?? null;
+    trace.show_diagnostic_form = showDiagnosticForm ?? null;
+    trace.persisted = !skipPersist;
+    trace.usage_total = {
+      input_tokens: aggInputTokens,
+      output_tokens: aggOutputTokens,
+      cache_creation_tokens: aggCacheCreation,
+      cache_read_tokens: aggCacheRead,
+    };
+  }
+
+  // Polite-exit counter (Locked Principle #6) — server-managed.
+  // - Reset to 0 when this turn rendered the diagnostic form (Haiku
+  //   converged or hit the polite-exit threshold last turn).
+  // - Increment if Haiku's just-written last_user_intent starts with
+  //   "symptom_narrowing" (we're still narrowing this turn).
+  // - Leave alone otherwise.
+  // Skip on harness debug runs.
+  if (!skipPersist) {
+    try {
+      const renderedForm = !!showDiagnosticForm;
+      let nextCount: number | null = null;
+      if (renderedForm) {
+        nextCount = 0;
+      } else {
+        // Re-read the conversation to see what Haiku just wrote via state tool.
+        const fresh = await ctx.runQuery(api.ai_conversations.getById, {
+          id: conversationId,
+        });
+        const latestIntent = (fresh as any)?.last_user_intent as string | undefined;
+        if (latestIntent && latestIntent.startsWith("symptom_narrowing")) {
+          nextCount = diagnosticTurnCount + 1;
+        }
+      }
+      if (nextCount !== null) {
+        await ctx.runMutation(api.ai_conversations.setDiagnosticTurnCount, {
+          id: conversationId,
+          count: nextCount,
+        });
+      }
+    } catch (e: any) {
+      console.error("[oto/chat] polite-exit counter update failed (swallowed):", e?.message);
+    }
+  }
+
+  // Block 5 telemetry — fire-and-forget. Failures must NOT break the turn.
+  // Skip on harness runs (same gate as ai_messages persistence) so we don't
+  // pollute analytics with debug traffic.
+  if (!skipPersist) {
+    try {
+      await ctx.runMutation(api.oto.telemetry.recordTurn, {
+        conversation_id: conversationId,
+        user_id: user._id,
+        model: MODEL,
+        system_prompt_version: SYSTEM_PROMPT_VERSION,
+        iterations_used: iterations,
+        hit_cap: hitCap,
+        input_tokens: aggInputTokens,
+        output_tokens: aggOutputTokens,
+        cache_creation_tokens: aggCacheCreation || undefined,
+        cache_read_tokens: aggCacheRead || undefined,
+        total_latency_ms: totalLatencyMs,
+        tools_called: allToolsCalled,
+        final_branch: finalBranch,
+      });
+    } catch (e: any) {
+      console.error("[oto/chat] telemetry insert failed (swallowed):", e?.message);
+    }
+  }
+
+  // Pull through every render directive the merger produced. The mobile
+  // app and the harness key off whichever fields are non-null to decide
+  // which UI element to render.
+  const showServicePicker =
+    typeof renderEnvelope.showServicePicker === "boolean"
+      ? (renderEnvelope.showServicePicker as boolean)
+      : undefined;
+  const pickerServices = renderEnvelope.pickerServices;
+  const pickerPreSelectedId =
+    typeof renderEnvelope.pickerPreSelectedId === "string"
+      ? (renderEnvelope.pickerPreSelectedId as string)
+      : undefined;
+  const shopCarousel = renderEnvelope.shopCarousel;
+  const timeSelector = renderEnvelope.timeSelector;
+  const bookingConfirmation = renderEnvelope.bookingConfirmation;
+  const reasoning = renderEnvelope.reasoning;
+  const sources = renderEnvelope.sources;
+
+  return {
+    text: finalText,
+    ...(quickReplies ? { quickReplies } : {}),
+    ...(showDiagnosticForm ? { showDiagnosticForm } : {}),
+    ...(showServicePicker !== undefined ? { showServicePicker } : {}),
+    ...(pickerServices !== undefined ? { pickerServices } : {}),
+    ...(pickerPreSelectedId !== undefined ? { pickerPreSelectedId } : {}),
+    ...(shopCarousel !== undefined ? { shopCarousel } : {}),
+    ...(timeSelector !== undefined ? { timeSelector } : {}),
+    ...(bookingConfirmation !== undefined ? { bookingConfirmation } : {}),
+    ...(reasoning !== undefined ? { reasoning } : {}),
+    ...(sources !== undefined ? { sources } : {}),
+    ...(trace ? { trace } : {}),
+  };
 }
 
 // =============================================================================
 // Helpers
 // =============================================================================
 
+/**
+ * Strip markdown that violates Oto's voice rules. The prompt bans bold and
+ * headers, but Haiku falls back to them under pressure. This is the
+ * belt-and-suspenders pass — runs once on finalText right before persistence
+ * and return. Safe to apply to all turns: nothing in Oto's voice depends on
+ * markdown styling being preserved.
+ */
+function stripVoiceMarkup(s: string): string {
+  if (!s) return s;
+  return s
+    // Bold **text** and __text__ → text
+    .replace(/\*\*([^*]+?)\*\*/g, "$1")
+    .replace(/__([^_]+?)__/g, "$1")
+    // ATX headers at line start: ## Title → Title
+    .replace(/^#{1,6}\s+/gm, "");
+}
+
 async function callAnthropic({
   apiKey,
   messages,
   tools,
+  model,
 }: {
   apiKey: string;
   messages: AnthropicMessage[];
   tools: ReadonlyArray<unknown>;
+  model?: string;
 }): Promise<AnthropicResponse> {
+  const modelToUse = model ?? MODEL;
+  // Block 6 — prompt caching.
+  // System prompt is the largest static block; wrap it as a single text
+  // content block with cache_control: ephemeral. Anthropic returns the
+  // cache_creation tokens on first call and cache_read tokens on every
+  // subsequent call within the 5-minute TTL. Cost on cached input drops
+  // ~90% relative to a normal input token.
+  const systemBlocks: Array<{ type: "text"; text: string; cache_control?: { type: "ephemeral" } }> = [
+    {
+      type: "text",
+      text: SYSTEM_PROMPT,
+      cache_control: { type: "ephemeral" },
+    },
+  ];
+  // Merge OUR tool schemas + server-managed (Anthropic-provided) tools.
+  // Cache breakpoint goes on the last OUR-tool entry; server-managed tools
+  // follow it. Anthropic caches everything up to the breakpoint.
+  const ourTools = tools.length > 0
+    ? tools.map((t, i) =>
+        i === tools.length - 1
+          ? { ...(t as object), cache_control: { type: "ephemeral" } }
+          : t,
+      )
+    : tools;
+  const mergedTools = [...(ourTools as unknown[]), ...SERVER_MANAGED_TOOLS];
+
   const response = await fetch(ANTHROPIC_URL, {
     method: "POST",
     headers: {
       "x-api-key": apiKey,
       "anthropic-version": ANTHROPIC_VERSION,
+      // web_search is currently a beta feature — required header.
+      "anthropic-beta": "web-search-2025-03-05",
       "content-type": "application/json",
     },
     body: JSON.stringify({
-      model: MODEL,
+      model: modelToUse,
       max_tokens: MAX_TOKENS,
-      system: SYSTEM_PROMPT,
-      tools,
+      system: systemBlocks,
+      tools: mergedTools,
       messages,
     }),
   });
@@ -412,7 +962,7 @@ async function callAnthropic({
 // Three callables for this slice; add entries here when wiring more tools.
 // -----------------------------------------------------------------------------
 
-function buildCallables(ctx: any): ToolCallables {
+function buildCallables(ctx: any, conversationId: Id<"ai_conversations">): ToolCallables {
   return {
     /**
      * list_services_for_vehicle — returns the full 23-service catalog.
@@ -482,7 +1032,278 @@ function buildCallables(ctx: any): ToolCallables {
       };
     },
 
-    // render_quick_replies has no callable — the dispatcher's render packager
-    // handles it without touching Convex.
+    /**
+     * get_vehicle_health — health score + per-type maintenance breakdown.
+     *
+     * Backed by api.oto.vehicleHealth.getVehicleHealth. The `vehicle_id` arg
+     * is the Convex `vehicles._id` emitted in the `<vehicle>` block's `id:`
+     * field. The query resolves it to a vehicle_owners row internally; the AI
+     * layer never sees the VIN.
+     */
+    get_vehicle_health: async (input) => {
+      const vehicleId = (input.vehicle_id ?? "") as string;
+      return await ctx.runQuery(api.oto.vehicleHealth.getVehicleHealth, {
+        vehicle_id: vehicleId,
+      });
+    },
+
+    /**
+     * get_projected_health_score — counterfactual score if one item flipped
+     * to on-time. Pass the item_id from a prior get_vehicle_health response.
+     */
+    get_projected_health_score: async (input) => {
+      const vehicleId = (input.vehicle_id ?? "") as string;
+      const itemId = (input.item_id ?? "") as string;
+      return await ctx.runQuery(
+        api.oto.vehicleHealth.getProjectedHealthScore,
+        { vehicle_id: vehicleId, item_id: itemId },
+      );
+    },
+
+    /**
+     * get_bookings — user-scoped booking list with status filter.
+     * Identity pulled from auth in the query handler; no user_id passes the
+     * tool boundary. Default limit is enforced by the schema validator.
+     */
+    get_bookings: async (input) => {
+      const statusFilter = (input.status_filter ?? "active") as
+        | "active"
+        | "completed"
+        | "all";
+      const limit =
+        typeof input.limit === "number" && Number.isFinite(input.limit)
+          ? (input.limit as number)
+          : undefined;
+      return await ctx.runQuery(api.oto.bookings.getBookings, {
+        status_filter: statusFilter,
+        ...(limit !== undefined ? { limit } : {}),
+      });
+    },
+
+    /**
+     * get_due_services — overdue + due_soon services for the active vehicle.
+     * `vehicle_id` is the Convex `vehicles._id` from the <vehicle> envelope
+     * block (same convention as get_vehicle_health). Resolved server-side.
+     */
+    get_due_services: async (input) => {
+      const vehicleId = (input.vehicle_id ?? "") as string;
+      return await ctx.runQuery(api.oto.dueServices.getDueServices, {
+        vehicle_id: vehicleId,
+      });
+    },
+
+    /**
+     * get_vehicle_facts — specs for the user's vehicle (engine, transmission,
+     * tire fitment, fluids). Same `vehicle_id` convention as the other
+     * vehicle-scoped tools.
+     */
+    get_vehicle_facts: async (input) => {
+      const vehicleId = (input.vehicle_id ?? "") as string;
+      return await ctx.runQuery(api.oto.vehicleFacts.getVehicleFacts, {
+        vehicle_id: vehicleId,
+      });
+    },
+
+    /**
+     * lookup_vehicle_spec — comparison-car factual lookup against the
+     * catalog (any car, not just the user's). Fuzzy-matches free-text.
+     */
+    lookup_vehicle_spec: async (input) => {
+      const q = (input.query ?? "") as string;
+      return await ctx.runQuery(api.oto.lookupVehicleSpec.lookupVehicleSpec, {
+        query: q,
+      });
+    },
+
+    /**
+     * retrieve_vehicle_facts — KB lookup. Two-layer: semantic if
+     * question_text + embedding API key, else structural by config /
+     * chassis / engine fallback.
+     */
+    retrieve_vehicle_facts: async (input) => {
+      const topic = (input.topic ?? "") as string;
+      const limit = typeof input.limit === "number" ? input.limit : undefined;
+      const question_text =
+        typeof input.question_text === "string" ? input.question_text : undefined;
+
+      // Try semantic search if we have a question_text.
+      if (question_text) {
+        const embedding = (await ctx.runAction(
+          api.oto.vehicleFactsKB.embedText,
+          { text: question_text },
+        )) as number[] | null;
+        if (embedding) {
+          const sem = (await ctx.runAction(
+            api.oto.vehicleFactsKB.lookupFactsSemantic,
+            {
+              embedding,
+              ...(limit !== undefined ? { limit } : {}),
+            },
+          )) as any[];
+          if (sem && sem.length > 0) return { mode: "semantic", facts: sem };
+        }
+      }
+
+      // Structural fallback.
+      const struct = (await ctx.runQuery(
+        api.oto.vehicleFactsKB.lookupFactsStructural,
+        {
+          topic,
+          vehicle_config_id: input.vehicle_config_id as any,
+          chassis_code: input.chassis_code as any,
+          engine_code: input.engine_code as any,
+          ...(limit !== undefined ? { limit } : {}),
+        },
+      )) as any[];
+      return { mode: "structural", facts: struct };
+    },
+
+    /**
+     * record_vehicle_fact — KB write. Persists the fact then (if an
+     * embedding API key is set) embeds the question_text and patches the
+     * embedding column for future semantic retrieval.
+     */
+    record_vehicle_fact: async (input) => {
+      // Defensive coercion. Haiku sometimes omits required fields; if we
+      // String()'d undefined we'd push the literal "undefined" into a v.union
+      // validator and the mutation would reject the whole record. Better to
+      // default to safe values + log so the KB still grows.
+      const VALID_SOURCES = new Set([
+        "manufacturer",
+        "oto_inferred",
+        "web_search",
+        "user_confirmed",
+        "propagated",
+      ]);
+      const VALID_AXES = new Set([
+        "vehicle",
+        "trim",
+        "chassis",
+        "engine",
+        "model_year",
+      ]);
+
+      const topic = typeof input.topic === "string" && input.topic.trim() ? input.topic : null;
+      const factText =
+        typeof input.fact_text === "string" && input.fact_text.trim() ? input.fact_text : null;
+      const questionText =
+        typeof input.question_text === "string" && input.question_text.trim()
+          ? input.question_text
+          : null;
+
+      if (!topic || !factText || !questionText) {
+        console.warn(
+          "[oto/chat] record_vehicle_fact called with missing essential field(s); skipping write.",
+          { topic, fact_text_len: factText?.length, question_text_len: questionText?.length },
+        );
+        return { ok: false, reason: "missing essential fields" };
+      }
+
+      const sourceRaw = typeof input.source === "string" ? input.source : "";
+      const source: any = VALID_SOURCES.has(sourceRaw) ? sourceRaw : "oto_inferred";
+      const axisRaw = typeof input.topic_axis === "string" ? input.topic_axis : "";
+      const topic_axis: any = VALID_AXES.has(axisRaw) ? axisRaw : "vehicle";
+
+      const args: any = {
+        topic,
+        topic_axis,
+        fact_text: factText,
+        question_text: questionText,
+        source,
+        confidence:
+          typeof input.confidence === "number" && input.confidence >= 0 && input.confidence <= 1
+            ? input.confidence
+            : 0.5,
+      };
+      // Pass through optional scoping ids only when present + correct type.
+      for (const k of [
+        "vehicle_config_id",
+        "chassis_code",
+        "engine_code",
+        "make",
+        "model",
+        "trim_name",
+        "answer_format",
+        "cited_url",
+      ]) {
+        if (typeof input[k] === "string" && (input[k] as string).trim()) {
+          args[k] = input[k];
+        }
+      }
+      for (const k of ["year_min", "year_max"]) {
+        if (typeof input[k] === "number" && Number.isFinite(input[k])) {
+          args[k] = input[k];
+        }
+      }
+      return await ctx.runAction(api.oto.vehicleFactsKB.recordFact, args);
+    },
+
+    /**
+     * update_conversation_state — state writeback. Persists Haiku's read of
+     * the current mood, conversation arc, established facts, and intent
+     * onto ai_conversations. Ack is trivial; the loop layer does NOT use
+     * its result to gate continuation.
+     */
+    update_conversation_state: async (input) => {
+      // Tool params use short names (arc / last_intent) — matching the
+      // envelope labels Haiku reads. Translate to schema-column names for
+      // the mutation. Back-compat: accept the long-form names too in case
+      // Haiku falls back to them.
+      const args: any = { id: conversationId };
+      if (typeof input.mood === "string") args.mood = input.mood;
+      const arc = (input.arc ?? input.arc_summary) as string | undefined;
+      if (typeof arc === "string") args.arc_summary = arc;
+      if (Array.isArray(input.established_facts)) {
+        // Defensively coerce to strings + cap at 12 entries.
+        args.established_facts = (input.established_facts as unknown[])
+          .filter((f): f is string => typeof f === "string")
+          .slice(0, 12);
+      }
+      const intent = (input.last_intent ?? input.last_user_intent) as
+        | string
+        | undefined;
+      if (typeof intent === "string") args.last_user_intent = intent;
+      await ctx.runMutation(api.ai_conversations.updateState, args);
+      return { ok: true, persisted_at: Date.now() };
+    },
+
+    /**
+     * request_sonnet_handoff — Haiku escalates the NEXT turn to Sonnet.
+     * Sets ai_conversations.current_model = "sonnet". Per-turn model selection
+     * in sendMessageHandler reads this and switches model at turn start.
+     * Telemetry captures the reason for calibration.
+     */
+    request_sonnet_handoff: async (input) => {
+      const reason =
+        typeof input.reason === "string" && input.reason.trim()
+          ? input.reason
+          : "unspecified";
+      await ctx.runMutation(api.ai_conversations.setCurrentModel, {
+        id: conversationId,
+        model: "sonnet",
+      });
+      console.log(`[oto/chat] sonnet handoff requested (reason: ${reason})`);
+      return { ok: true, model: "sonnet", reason };
+    },
+
+    /**
+     * request_haiku_handback — Sonnet returns routing to Haiku for the
+     * NEXT turn. Clears the current_model field on the conversation.
+     */
+    request_haiku_handback: async (input) => {
+      const reason =
+        typeof input.reason === "string" && input.reason.trim()
+          ? input.reason
+          : "unspecified";
+      await ctx.runMutation(api.ai_conversations.setCurrentModel, {
+        id: conversationId,
+        model: "haiku",
+      });
+      console.log(`[oto/chat] haiku handback (reason: ${reason})`);
+      return { ok: true, model: "haiku", reason };
+    },
+
+    // render_quick_replies and render_diagnostic_form have no callables — the
+    // dispatcher's render packager handles them without touching Convex.
   };
 }

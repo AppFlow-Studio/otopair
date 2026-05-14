@@ -1,0 +1,121 @@
+{
+  "_doc": "Oto AI golden eval cases. Each case: { name, description, vehicle_vin_tail? (default M550i N96146), turns: [{user, expect}] }. Expect fields: tools_called (array, all must appear in any iter), branch (string, must match last iter), text_contains (string[], all must be present case-insensitive), text_not_contains (string[], none may be present), form_system (string, render_diagnostic_form.initialSystem must equal). Locked Principle #8: every prompt change debated against this set.",
+  "cases": [
+    {
+      "name": "health_check_with_warning_light",
+      "description": "Decision D: explicit ask for score; warning-light interpretation must name finding, not enumerate mechanical causes. Multi-tool batching: should fire get_vehicle_health AND get_due_services together.",
+      "turns": [
+        {
+          "user": "How is my car doing?",
+          "expect": {
+            "tools_called": ["get_vehicle_health", "get_due_services", "update_conversation_state"],
+            "branch": "text_only",
+            "text_contains": ["80"],
+            "text_not_contains": ["thermostat", "low coolant", "circulation issue", "cooling circuit", "**"]
+          }
+        }
+      ]
+    },
+    {
+      "name": "brake_narrowing_on_time_to_diagnostic",
+      "description": "Decision A: on_time brakes → diagnostic form, NOT direct service. Validates the v0.7 loophole closure.",
+      "turns": [
+        {
+          "user": "My brakes have been squealing for a few weeks",
+          "expect": {
+            "tools_called": ["update_conversation_state"],
+            "text_not_contains": ["Brake Pad Replacement", "book it"]
+          }
+        },
+        {
+          "user": "Mostly when I first hit the brakes, then it goes quiet",
+          "expect": {
+            "tools_called": ["get_vehicle_health", "render_diagnostic_form", "update_conversation_state"],
+            "branch": "terminal",
+            "form_system": "brakes",
+            "text_not_contains": ["Brake Pad Replacement is the right"]
+          }
+        }
+      ]
+    },
+    {
+      "name": "frustration_acknowledged",
+      "description": "Voice/mood: frustrated user gets a short acknowledgment, not a lecture or pile of caveats.",
+      "turns": [
+        {
+          "user": "this is taking forever btw",
+          "expect": {
+            "tools_called": ["update_conversation_state"],
+            "text_not_contains": ["**", "I understand your concern", "I apologize"]
+          }
+        }
+      ]
+    },
+    {
+      "name": "override_pushback",
+      "description": "Decision A override clause: user demands direct booking, Oto holds the diagnostic line with user-centered framing.",
+      "turns": [
+        {
+          "user": "Just book me the brake service, I don't want a diagnostic",
+          "expect": {
+            "tools_called": ["update_conversation_state"],
+            "text_contains": ["diagnostic"],
+            "text_not_contains": ["I'll book", "Booking your brake"]
+          }
+        }
+      ]
+    },
+    {
+      "name": "mechanical_refusal",
+      "description": "Scope: repair-procedure asks are hard-refused, regardless of difficulty.",
+      "turns": [
+        {
+          "user": "How do I change my oil?",
+          "expect": {
+            "tools_called": ["update_conversation_state"],
+            "text_not_contains": ["First, locate", "Step 1", "drain plug"]
+          }
+        }
+      ]
+    },
+    {
+      "name": "legal_evaluation_refusal",
+      "description": "Legal-adjacent: dictionary info OK, case evaluation refused, no attorney referrals.",
+      "turns": [
+        {
+          "user": "Do I have a lemon law case? My car's been in the shop four times.",
+          "expect": {
+            "tools_called": ["update_conversation_state"],
+            "text_contains": ["attorney"],
+            "text_not_contains": ["here are some lawyers", "I recommend contacting", "this attorney"]
+          }
+        }
+      ]
+    },
+    {
+      "name": "vehicle_facts_engine",
+      "description": "User's-car spec question routes to get_vehicle_facts, not a fabrication.",
+      "turns": [
+        {
+          "user": "What engine does my car have?",
+          "expect": {
+            "tools_called": ["get_vehicle_facts", "update_conversation_state"]
+          }
+        }
+      ]
+    },
+    {
+      "name": "general_car_knowledge_other_car",
+      "description": "User asks about a car they don't own — Oto answers from training with a general-info hedge, no get_vehicle_facts call.",
+      "turns": [
+        {
+          "user": "How does the M5 compare to my M550i?",
+          "expect": {
+            "tools_called": ["update_conversation_state"],
+            "text_not_contains": ["I'll look that up", "checking the database", "according to my records"]
+          }
+        }
+      ]
+    }
+  ]
+}

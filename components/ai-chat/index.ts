@@ -54,6 +54,11 @@ export { AIQuickReplies, PRIORITY_REPLIES, CONFIRMATION_REPLIES, type QuickReply
 export { AIBookingCarousel, type SelectedTimeSlot } from "./AIBookingCarousel";
 export { AIWelcomeScreen } from "./AIWelcomeScreen";
 export { AIServicePicker, DEFAULT_SERVICES, type ServiceOption } from "./AIServicePicker";
+export { AIDiagnosticForm, SYSTEMS as DIAGNOSTIC_SYSTEMS } from "./AIDiagnosticForm";
+export {
+  AIRecordConfirmation,
+  type RecordConfirmationDecision,
+} from "./AIRecordConfirmation";
 
 // ============================================================================
 // LEGACY (deprecated - use alternatives above)

@@ -39,12 +39,24 @@ export interface HistoryTurn {
   content: string;
 }
 
+export interface ConversationStateBlock {
+  mood: string | null;
+  arc_summary: string | null;
+  established_facts: string[];
+  last_user_intent: string | null;
+  updated_at: number | null;
+}
+
 interface BuildEnvelopeArgs {
   userFirstName: string | null;
   vehicle: ResolvedVehicle | null;
   history: HistoryTurn[];
   userMessage: string;
+  conversationState?: ConversationStateBlock | null;
+  diagnosticTurnCount?: number;
 }
+
+const POLITE_EXIT_THRESHOLD = 6;
 
 // -----------------------------------------------------------------------------
 // Pick the active vehicle for this conversation. Precedence:
@@ -139,6 +151,8 @@ export function buildEnvelope({
   vehicle,
   history,
   userMessage,
+  conversationState,
+  diagnosticTurnCount = 0,
 }: BuildEnvelopeArgs): string {
   const blocks: string[] = [];
 
@@ -153,6 +167,38 @@ export function buildEnvelope({
         `  display: ${vehicle.display}`,
         `  id: ${vehicle.id}`,
         `</vehicle>`,
+      ].join("\n"),
+    );
+  }
+
+  // Conversation state replay (v0.7). Skip the block entirely when there's
+  // nothing useful to say — don't tell Haiku to think about empty fields.
+  if (conversationState && hasUsefulState(conversationState)) {
+    const lines = [`<conversation_state>`];
+    if (conversationState.mood) lines.push(`  mood: ${conversationState.mood}`);
+    if (conversationState.last_user_intent) {
+      lines.push(`  last_intent: ${conversationState.last_user_intent}`);
+    }
+    if (conversationState.arc_summary) {
+      lines.push(`  arc: ${conversationState.arc_summary}`);
+    }
+    if (conversationState.established_facts.length > 0) {
+      lines.push(`  established_facts:`);
+      for (const fact of conversationState.established_facts) {
+        lines.push(`    - ${fact}`);
+      }
+    }
+    lines.push(`</conversation_state>`);
+    blocks.push(lines.join("\n"));
+  }
+
+  if (diagnosticTurnCount >= POLITE_EXIT_THRESHOLD) {
+    blocks.push(
+      [
+        `<polite_exit_required>`,
+        `  diagnostic_turn_count: ${diagnosticTurnCount}`,
+        `  rule: This conversation has narrowed for ${diagnosticTurnCount} turns without converging. Stop narrowing now. Call render_diagnostic_form with diagnostic_system="not_sure" and customer_notes summarizing everything the user has mentioned across the conversation. The mechanic can see what you couldn't.`,
+        `</polite_exit_required>`,
       ].join("\n"),
     );
   }
@@ -173,4 +219,13 @@ export function buildEnvelope({
   );
 
   return blocks.join("\n\n");
+}
+
+function hasUsefulState(s: ConversationStateBlock): boolean {
+  return Boolean(
+    s.mood ||
+      s.arc_summary ||
+      (s.established_facts && s.established_facts.length > 0) ||
+      s.last_user_intent,
+  );
 }

@@ -59,6 +59,24 @@ export const getRecordsByMultipleVehicles = query({
  * MUTATION: upsertRecord
  * Insert or update a maintenance record for a given vehicleOwnerId + type.
  * If a record already exists for that vehicle+type, update it; otherwise insert.
+ *
+ * Trust-signal fields (confidence, serviceSource, confirmedHealthyAt) are
+ * optional and only patched/inserted when explicitly provided. Callers that
+ * don't pass them won't clobber existing values on the patch path. This was
+ * extended in 2026-05 to support the AI's render-confirm flow (the chat
+ * suggests a record correction; on user confirm the render component calls
+ * this mutation with serviceSource: "ai_chat_correction" and an appropriate
+ * confidence label, OR with confirmedHealthyAt: Date.now() for the
+ * "yes-the-record-is-correct" path).
+ *
+ * Owners of writers and what they set:
+ *   - onboarding flow         → confidence: "self_reported", serviceSource: "onboarding"
+ *   - quarterly check-in      → confidence: "self_reported", serviceSource: "checkin",
+ *                                confirmedHealthyAt: Date.now() on Q4b "fine" answer
+ *   - completed booking path  → confidence: "verified", serviceSource: "booking"
+ *   - service-record upload   → confidence: "verified", serviceSource: "uploaded_record"
+ *   - mechanic onboarding     → confidence: "verified", serviceSource: "mechanic_onboarded"
+ *   - AI chat correction      → confidence: "self_reported", serviceSource: "ai_chat_correction"
  */
 export const upsertRecord = mutation({
   args: {
@@ -67,6 +85,11 @@ export const upsertRecord = mutation({
     lastServiceDate: v.optional(v.float64()),
     lastServiceMileage: v.optional(v.float64()),
     customInputs: v.optional(v.any()),
+    // Trust-signal fields. Schema labels are categorical; see the doc above
+    // each writer for the allowed values it sets.
+    confidence: v.optional(v.string()),
+    serviceSource: v.optional(v.string()),
+    confirmedHealthyAt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -79,12 +102,25 @@ export const upsertRecord = mutation({
       )
       .unique();
 
+    // Build the patch/insert payload. Only include trust-signal fields when
+    // the caller explicitly provided them — `undefined` from Convex's patch
+    // semantics means "no change", so omitting these keeps prior values.
+    const trustFields: {
+      confidence?: string;
+      serviceSource?: string;
+      confirmedHealthyAt?: number;
+    } = {};
+    if (args.confidence !== undefined) trustFields.confidence = args.confidence;
+    if (args.serviceSource !== undefined) trustFields.serviceSource = args.serviceSource;
+    if (args.confirmedHealthyAt !== undefined) trustFields.confirmedHealthyAt = args.confirmedHealthyAt;
+
     let recordId;
     if (existing) {
       await ctx.db.patch(existing._id, {
         lastServiceDate: args.lastServiceDate,
         lastServiceMileage: args.lastServiceMileage,
         customInputs: args.customInputs,
+        ...trustFields,
         updatedAt: now,
       });
       recordId = existing._id;
@@ -95,6 +131,7 @@ export const upsertRecord = mutation({
         lastServiceDate: args.lastServiceDate,
         lastServiceMileage: args.lastServiceMileage,
         customInputs: args.customInputs,
+        ...trustFields,
         createdAt: now,
         updatedAt: now,
       });

@@ -25,6 +25,8 @@ import type { Source } from "@/components/ai-chat/AISources";
 import type { QuickReply } from "@/components/ai-chat/AIQuickReplies";
 import type { Suggestion } from "@/components/ai-chat/PromptSuggestions";
 import type { Shop as StoreShop, Mechanic, MechanicAvailabilitySlot } from "@/stores/types/store.types";
+import type { DiagnosticSystem } from "@/lib/diagnostic-checklist-templates";
+import type { MaintenanceType } from "@/utils/maintenanceStatus";
 
 // ============================================================================
 // CONVERSATION STAGES
@@ -35,6 +37,7 @@ export type ConversationStage =
   | "diagnosis"
   | "question"
   | "service_selection"
+  | "diagnostic_form"
   | "priority_selection"
   | "shop_selection"
   | "time_selection"
@@ -131,6 +134,20 @@ export interface ChatMessage {
   shops?: AIShop[];
   // Service picker flag
   showServicePicker?: boolean;
+  // Diagnostic form pre-fill (rendered when stage === "diagnostic_form")
+  showDiagnosticForm?: {
+    initialSystem?: DiagnosticSystem;
+    initialNotes?: string;
+  };
+  // Record confirmation prompt — Oto fires this when a user-described symptom
+  // contradicts a self_reported maintenance_record. Component shows the
+  // record's stated state and offers Confirm / Update buttons. Trigger-only:
+  // the component queries Convex directly for the record contents.
+  // See: convex/oto/tools.ts → render_record_confirmation.
+  showRecordConfirmation?: {
+    vehicle_id: string; // vehicles._id
+    maintenance_type: MaintenanceType;
+  };
   // Metadata
   scenarioType?: ScenarioType;
   stage?: ConversationStage;
@@ -152,6 +169,10 @@ export interface ConversationState {
   // Service details
   serviceName: string | null;
   servicePrice: string | null;
+  // Diagnostic form state — persists for the rest of the conversation so the
+  // AI can reference back to the user's confirmed subsystem and notes.
+  selectedDiagnosticSystem?: DiagnosticSystem;
+  diagnosticNotes?: string;
   // UI state
   isProcessing: boolean;
   suggestions: Suggestion[];
@@ -173,6 +194,14 @@ export interface ScenarioResponse {
   shops?: AIShop[];
   timeSlots?: TimeSlot[];
   showServicePicker?: boolean;
+  showDiagnosticForm?: {
+    initialSystem?: DiagnosticSystem;
+    initialNotes?: string;
+  };
+  showRecordConfirmation?: {
+    vehicle_id: string;
+    maintenance_type: MaintenanceType;
+  };
 }
 
 // ============================================================================

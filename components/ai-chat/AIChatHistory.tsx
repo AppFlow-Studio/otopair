@@ -20,13 +20,17 @@ import { Text } from '@/components/shared-ui';
 
 // 4. Constants, hooks, types
 import { BrandColors, BorderRadius, Spacing, FontFamily } from '@/constants/theme';
-import type { Conversation } from '@/stores/useAIChatStore';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
+export interface AIChatHistoryItem {
+  id: string;
+  title: string;
+}
+
 interface AIChatHistoryProps {
   onClose: () => void;
-  conversations: Conversation[];
+  conversations: AIChatHistoryItem[];
   onSelectConversation: (conversationId: string) => void;
   isLoading?: boolean;
   paddingTop: number;

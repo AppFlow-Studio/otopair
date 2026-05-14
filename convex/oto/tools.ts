@@ -244,6 +244,230 @@ const DATA_TOOLS: OtoToolSchema[] = [
       properties: {},
     },
   },
+
+  {
+    name: "get_vehicle_health",
+    description:
+      "Returns the user's vehicle health snapshot: a 0–100 health score, whether the score is estimated, and a per-maintenance-type breakdown (oil, brakes, tires, inspection, battery) with status, description, and service-history details. Call this tool when the user asks about their car's overall condition (\"how is my car doing?\", \"what's my score?\") or when narrowing a symptom has pointed toward a routine maintenance category and you need to check whether that maintenance is overdue or due-soon. Do NOT call this tool for educational questions, refusals, or general catalog inquiries — only when vehicle-specific maintenance state is relevant to the response.\n\nEach item includes `record_provenance`, which tells you how much to trust its status: `verified` = backed by third-party evidence (a completed OtoPair booking, an uploaded service record, or mechanic-onboarded data), treat as truth; `self_reported` = user-provided via onboarding or check-in without a backing document, soft data that may be stale or wrong (data form hallucination is common — users misremember service dates and click through onboarding quickly); `inferred` = no record exists, status came from a fallback (warning light, vehicle age, default). When a user-described symptom contradicts a `self_reported` item's status, the record itself is suspect — surface it to the user before treating the status as authoritative. When the contradiction is against a `verified` item, the symptom is the surprise — narrow it.",
+    input_schema: {
+      type: "object",
+      properties: {
+        vehicle_id: {
+          type: "string",
+          description: "VIN. Get from the <vehicle> block or get_my_vehicles.",
+        },
+      },
+      required: ["vehicle_id"],
+    },
+  },
+
+  {
+    name: "lookup_vehicle_spec",
+    description:
+      "Look up factual specs for ANY vehicle (engine, drivetrain, transmission, chassis code, trim) by free-text query — used for comparison questions or general curiosity about cars the user does NOT own. Pass a natural-language query like *\"2020 BMW M5\"*, *\"Tesla Model 3 Performance\"*, *\"Honda Civic Si\"*. Returns either a single matched config with the full facts, or a candidates list to disambiguate (Haiku then asks the user which they meant, OR picks the most recent year by default). If the result is empty (no match in our catalog), fall back to web_search for a published spec — never fabricate. For the user's OWN car, use get_vehicle_facts instead.",
+    input_schema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "Free-text car name. Examples: \"2020 BMW M5\", \"Tesla Model 3\", \"Honda Civic Si Coupe\".",
+        },
+      },
+      required: ["query"],
+    },
+  },
+
+  {
+    name: "retrieve_vehicle_facts",
+    description:
+      "Search Oto's growing knowledge base of vehicle facts. Pass a `topic` slug (e.g. \"oil_capacity\", \"timing_belt_or_chain\", \"recommended_tire_pressure\") AND optionally a `question_text` (the user's actual phrasing — enables semantic similarity search). Optional scope: `vehicle_config_id`, `chassis_code`, or `engine_code` — restricts results to facts relevant to that scoping (e.g., chassis-axis facts propagate to all configs sharing the chassis). Returns matched facts with provenance + confidence. Call this BEFORE answering any factual question about a car — saves training-knowledge fabrication AND grows the KB over time. If results are empty, answer from training knowledge (or web_search for verifiable specs) AND call record_vehicle_fact so the next user with the same question gets the cached answer.",
+    input_schema: {
+      type: "object",
+      properties: {
+        topic: { type: "string", description: "Short topic slug; pick something stable so future writes match (e.g. 'oil_capacity_qts')." },
+        question_text: { type: "string", description: "The user's actual question, for semantic similarity ranking. Optional." },
+        vehicle_config_id: { type: "string", description: "Convex vehicle_configs._id to scope to one specific config." },
+        chassis_code: { type: "string", description: "Chassis code to scope to all configs sharing this chassis." },
+        engine_code: { type: "string", description: "Engine code to scope to all configs sharing this engine." },
+        limit: { type: "integer", minimum: 1, maximum: 10, description: "Default 5." },
+      },
+      required: ["topic"],
+    },
+  },
+
+  {
+    name: "record_vehicle_fact",
+    description:
+      "Persist a factual statement to Oto's knowledge base so future turns and other users don't have to re-derive it. Call this AFTER answering a factual question — whether from your training knowledge, from web_search results, or from a tool response that confirmed a detail. Scope the fact along ONE axis (\"vehicle\" / \"trim\" / \"chassis\" / \"engine\" / \"model_year\") — pick the axis the fact actually applies to. Engine facts (oil viscosity, displacement, timing) go on \"engine\" with engine_code so they propagate to all cars sharing that engine. Chassis facts (suspension geometry, body dimensions) go on \"chassis\". Trim-specific facts (tire fitment, brake hardware) go on \"trim\" or \"vehicle\". Set `source` honestly: \"manufacturer\" for OEM-documented values, \"web_search\" for sourced web results (cite the URL), \"oto_inferred\" for reasoned-from-training conclusions, \"user_confirmed\" when the user supplied the answer. `confidence` 0.0–1.0 — calibrate honestly; over-confident facts pollute the KB.",
+    input_schema: {
+      type: "object",
+      properties: {
+        topic: { type: "string" },
+        topic_axis: {
+          type: "string",
+          enum: ["vehicle", "trim", "chassis", "engine", "model_year"],
+        },
+        vehicle_config_id: { type: "string" },
+        chassis_code: { type: "string" },
+        engine_code: { type: "string" },
+        make: { type: "string" },
+        model: { type: "string" },
+        trim_name: { type: "string" },
+        year_min: { type: "integer" },
+        year_max: { type: "integer" },
+        fact_text: { type: "string", description: "The fact itself, written naturally." },
+        question_text: { type: "string", description: "The question this fact answers — used to embed for semantic retrieval." },
+        answer_format: { type: "string", description: "Optional: 'numeric_qts', 'numeric_psi', 'enum', 'prose', etc." },
+        source: {
+          type: "string",
+          enum: ["manufacturer", "oto_inferred", "web_search", "user_confirmed", "propagated"],
+        },
+        cited_url: { type: "string", description: "Required when source='web_search'." },
+        confidence: { type: "number", minimum: 0, maximum: 1 },
+      },
+      required: ["topic", "topic_axis", "fact_text", "question_text", "source", "confidence"],
+    },
+  },
+
+  // NOTE: web_search is a server-managed Anthropic tool (see chat.ts
+  // SERVER_MANAGED_TOOLS). Its schema is set by Anthropic, not by us — we
+  // don't define it here, but the system_prompt documents when Haiku should
+  // invoke it. After a web_search invocation, Haiku MUST call
+  // record_vehicle_fact with source="web_search" and the cited URL so the
+  // KB grows.
+
+  {
+    name: "get_vehicle_facts",
+    description:
+      "Get factual specifications for the user's vehicle — engine (displacement, cylinders, configuration, aspiration, oil viscosity, oil capacity, coolant type, coolant capacity), transmission (type, speeds, fluid), drivetrain, tire fitment and pressures, brake and power-steering fluid types. Call this when the user asks specifics about THEIR car (\"what engine does my car have?\", \"what oil does it take?\", \"what tire pressure should I use?\", \"does it have a timing belt or chain?\"). Do NOT call for general questions about cars they don't own — use your training knowledge for that with a 'general info, your actual config may differ' caveat.",
+    input_schema: {
+      type: "object",
+      properties: {
+        vehicle_id: {
+          type: "string",
+          description: "Convex `vehicles._id` from the <vehicle> block (NOT a VIN).",
+        },
+      },
+      required: ["vehicle_id"],
+    },
+  },
+
+  {
+    name: "get_projected_health_score",
+    description:
+      "Returns what the user's health score would become if a specific maintenance item flipped to on-time. Used for conversion moments — \"fixing this would lift your score from 71 to 84.\" Call this AFTER get_vehicle_health has identified a non-on_time item the user is being encouraged to address. Pass the item_id from that item.",
+    input_schema: {
+      type: "object",
+      properties: {
+        vehicle_id: {
+          type: "string",
+          description: "VIN. Same value passed to get_vehicle_health.",
+        },
+        item_id: {
+          type: "string",
+          description: "MaintenanceItem id from get_vehicle_health (e.g. \"user-brakes\", \"unknown-oil\").",
+        },
+      },
+      required: ["vehicle_id", "item_id"],
+    },
+  },
+];
+
+// -----------------------------------------------------------------------------
+// MODEL ROUTING TOOLS — Phase 2 Sonnet cascade.
+//
+// Haiku self-assesses when a turn needs deeper reasoning than it can reliably
+// deliver, and calls request_sonnet_handoff to escalate. Sonnet handles the
+// hard turn, then calls request_haiku_handback to return to default Haiku
+// routing for the next turn.
+//
+// Per-turn model state lives on ai_conversations.current_model. chat.ts
+// reads it at the start of each turn and selects the model accordingly.
+//
+// Calibration target (TestFlight data): complexity self-assessment fires on
+// ~15-25% of diagnostic turns. Below = missing hard cases; above = over-
+// routing to Sonnet. Threshold is tuned in the prompt rule, not in code.
+// -----------------------------------------------------------------------------
+
+const MODEL_ROUTING_TOOLS: OtoToolSchema[] = [
+  {
+    name: "request_sonnet_handoff",
+    description:
+      "Escalate this conversation to Claude Sonnet for the NEXT user turn. Call this when you (Haiku) recognize that the current or upcoming turn exceeds what you can reliably deliver — common triggers: (a) the user has asked a deep diagnostic question with 3+ candidate causes that need careful narrowing, (b) the conversation has accumulated 4+ turns of failed narrowing and you're about to render the polite-exit form (sonnet may close it cleanly), (c) the user asked a multi-part technical/comparison question that needs cross-tool reasoning (vehicle facts + KB + comparison), (d) legal-adjacent or safety-sensitive turn where wording precision matters. Do NOT escalate for: simple specs lookups, single-fact answers, routine booking-flow stages. Escalation costs ~5x more per turn; over-routing hurts cost-per-booking.",
+    input_schema: {
+      type: "object",
+      properties: {
+        reason: {
+          type: "string",
+          description: "Short tag explaining why you're escalating. Used for telemetry calibration. Examples: 'deep_diagnostic_narrowing', 'cross_tool_reasoning', 'legal_adjacent', 'polite_exit_complex'.",
+        },
+      },
+      required: ["reason"],
+    },
+  },
+  {
+    name: "request_haiku_handback",
+    description:
+      "Sonnet calls this when its escalated turn(s) are complete and the next turn can return to Haiku at the default rate. Use after Sonnet has finished the hard turn — typically immediately after Sonnet's user-facing response. Haiku will pick up the next turn at default cost.",
+    input_schema: {
+      type: "object",
+      properties: {
+        reason: {
+          type: "string",
+          description: "Short tag explaining why handing back. Examples: 'narrowing_complete', 'recommendation_made', 'refusal_landed'.",
+        },
+      },
+      required: ["reason"],
+    },
+  },
+];
+
+// -----------------------------------------------------------------------------
+// STATE TOOLS — Oto-maintained conversation state writebacks.
+//
+// State tools are side-effect calls that persist to ai_conversations. The
+// dispatcher fires them in parallel with the main response (data/render),
+// returns a trivial ack tool_result for API contract conformance, and does
+// NOT use them to control loop continuation. Call them WHENEVER you produce a
+// user-facing response; the next turn replays the saved state as a
+// <conversation_state> envelope block so you don't have to re-derive context
+// from raw message history every turn.
+// -----------------------------------------------------------------------------
+
+const STATE_TOOLS: OtoToolSchema[] = [
+  {
+    name: "update_conversation_state",
+    description:
+      "Persist your current read of the conversation so the next turn picks it up. Call this on EVERY user-facing response turn alongside your text or render directive. Send the FULL CURRENT STATE each time — not deltas. If a field hasn't changed, repeat its prior value. The next turn's envelope replays these fields as <conversation_state>; if you stop writing, the next turn sees stale or empty state.",
+    input_schema: {
+      type: "object",
+      properties: {
+        mood: {
+          type: "string",
+          enum: ["calm", "curious", "worried", "frustrated", "hyped", "confused", "neutral"],
+          description:
+            "Your best read of the user's emotional state from their last message AND the conversation arc. Not their vocabulary (don't mirror) — their underlying state. 'calm' is the default for routine chat. 'curious' for educational questions. 'worried' for safety concerns about their car. 'frustrated' for impatience, complaints, push-back, or cap-hit anger. 'hyped' for excited/upbeat energy. 'confused' when they're lost and need a slower explanation. 'neutral' if you genuinely can't tell.",
+        },
+        arc: {
+          type: "string",
+          maxLength: 400,
+          description:
+            "One or two sentences capturing where the conversation is right now — what was asked, what's been established, what's pending. Used by future turns to avoid retracing. Example: 'User reported brake squeal, narrowed to first-stop pattern. Asked Oto about health and learned brakes are on_time with no flagged service history. Currently considering whether to book a Diagnostic Scan.' Field name is `arc` (matches the envelope label).",
+        },
+        established_facts: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Short factual statements the conversation has surfaced — symptoms reported, conditions, mileages, prior service mentions, user preferences. Each entry is one self-contained string. SEND THE FULL CURRENT LIST every time (this REPLACES the prior value — no deltas). Cap around 10 entries; drop oldest if you exceed. Examples: 'mileage ~38000', 'brake squeal at first braking only', 'no recent brake work mentioned', 'user prefers shop nearest to home zip'.",
+        },
+        last_intent: {
+          type: "string",
+          description:
+            "Short tag for what the user is doing in this latest message. Examples: 'health_check', 'symptom_narrowing_brakes', 'service_history_lookup', 'vehicle_facts_query', 'override_attempt', 'general_car_knowledge', 'support_intake', 'safety'. Free-form — pick what's most descriptive. Field name is `last_intent` (matches the envelope label).",
+        },
+      },
+    },
+  },
 ];
 
 // -----------------------------------------------------------------------------
@@ -253,71 +477,51 @@ const DATA_TOOLS: OtoToolSchema[] = [
 // merges them when assembling the assistant message envelope.
 //
 // Field-parity contract:
-//   render_shop_carousel        → message.shops
-//   render_service_picker       → message.showServicePicker (+ optional services)
-//   render_time_selector        → message.timeSlots         (envelope extension — Gap 6)
-//   render_booking_confirmation → message.bookingSummary    (envelope extension — Gap 7)
-//   render_quick_replies        → message.quickReplies
-//   render_reasoning            → message.reasoning
-//   render_sources              → message.sources
+//   render_shop_carousel         → message.shops
+//   render_service_picker        → message.showServicePicker (+ optional services)
+//   render_diagnostic_form       → message.showDiagnosticForm { initialSystem, initialNotes }
+//   render_record_confirmation   → message.showRecordConfirmation { vehicle_id, maintenance_type }
+//   render_time_selector         → message.timeSlots         (envelope extension — Gap 6)
+//   render_booking_confirmation  → message.bookingSummary    (envelope extension — Gap 7)
+//   render_quick_replies         → message.quickReplies
+//   render_reasoning             → message.reasoning
+//   render_sources               → message.sources
 // -----------------------------------------------------------------------------
 
 const RENDER_TOOLS: OtoToolSchema[] = [
   {
     name: "render_shop_carousel",
     description:
-      "Show a horizontal carousel of mechanic/shop cards inside the chat. Use after the user has indicated they want to book or chosen a service, and after you've fetched shops via get_shop or get_my_mechanics. Limit to 5 shops max — more makes the carousel unwieldy. Ranked order matters: put the best fit first.",
+      "Trigger the mechanic-selection component to render its carousel. You pass the service the user is booking + their priority preference; the FRONTEND queries Convex and renders the actual mechanic cards with all their pricing, ratings, availability, photos, etc. — you do NOT compose mechanic data, you do NOT pass pricing, you do NOT pick which mechanics show up. The component handles all of that from real data. Your job is just to signal which service is being booked and how the user wants the list sorted.",
     input_schema: {
       type: "object",
       properties: {
-        shops: {
-          type: "array",
-          maxItems: 5,
-          items: {
-            type: "object",
-            properties: {
-              id: { type: "string" },
-              name: { type: "string" },
-              shopName: { type: "string" },
-              address: { type: "string" },
-              rating: { type: "number" },
-              isVerified: { type: "boolean" },
-              photoUrl: { type: ["string", "null"] },
-              distanceMi: { type: "number" },
-              services: { type: "array", items: { type: "string" } },
-              yearsExperience: { type: "integer" },
-              isAvailable: { type: "boolean" },
-              responseTime: { type: "string", enum: ["Quick", "Normal", "Slow"] },
-              availability: { type: "integer" },
-              nextAvailability: {
-                type: "array",
-                items: {
-                  type: "object",
-                  properties: {
-                    dayOfWeek: { type: "string" },
-                    day: { type: "string" },
-                    time: { type: "string" },
-                  },
-                  required: ["dayOfWeek", "day", "time"],
-                },
-              },
-              price: { type: "string" },
-            },
-            required: ["id", "name", "shopName", "rating", "distanceMi"],
-          },
+        service_slug: {
+          type: "string",
+          description: "Canonical snake_case service slug the user is booking (e.g. 'diagnostic_scan'). The component filters mechanics to those who offer this service.",
+        },
+        priority: {
+          type: "string",
+          enum: ["closest", "best_rated", "best_price"],
+          description: "Sort order the user picked in the priority_selection stage. Frontend uses this to rank mechanics.",
         },
       },
-      required: ["shops"],
+      required: ["service_slug", "priority"],
     },
   },
 
   {
     name: "render_service_picker",
     description:
-      "Open the inline service picker with category tabs. Use when the user has expressed general booking intent but hasn't named a specific service. Prefer passing the `services` list filtered via list_services_for_vehicle — the user sees only what's possible for their car. If `services` is omitted the picker shows the default catalog (less precise; only use when no vehicle is in context).",
+      "Open the inline service picker with category tabs. Use when the user has expressed booking intent. Prefer passing the `services` list filtered via list_services_for_vehicle — the user sees only what's possible for their car. If `services` is omitted the picker shows the default catalog. **Pass `pre_selected_id` to highlight the service Oto is recommending** so the user can tap Confirm without hunting through tabs. **Do NOT pass a price field on any service.** Mechanic labor rates vary by location and are only known after a mechanic is selected — full-service prices surface ONLY in the booking_confirmation card after a mechanic has quoted. The picker shows service names + descriptions + typical duration as a planning aid, never price.",
     input_schema: {
       type: "object",
       properties: {
+        pre_selected_id: {
+          type: "string",
+          description:
+            "Canonical service slug to highlight as the recommended choice. The mobile picker opens with this service already selected — user just taps Confirm to advance, or picks a different one. Example: 'diagnostic_scan'. Match exactly against the slug used in get_service_details.",
+        },
         services: {
           type: "array",
           description: "Optional filtered list. Omit for default-catalog mode.",
@@ -339,8 +543,7 @@ const RENDER_TOOLS: OtoToolSchema[] = [
                 //   Diagnostics, Compliance              → "diagnostics"
                 description: "Picker's 4-tab key. Map from list_services_for_vehicle's category field per the comment in tools.ts.",
               },
-              price: { type: "string", description: "Display string, e.g. '$80-$120'." },
-              duration: { type: "string", description: "Display string, e.g. '30-45 min'." },
+              duration: { type: "string", description: "Display string for TYPICAL duration only (e.g. '30-45 min'). NOT a quote." },
             },
             required: ["id", "name", "category"],
           },
@@ -352,70 +555,74 @@ const RENDER_TOOLS: OtoToolSchema[] = [
   {
     name: "render_time_selector",
     description:
-      "Show available time slots for the user to pick from, after find_available_slots has been called. Each slot should be one entry. Display in chronological order.",
+      "Trigger the time-slot picker component for the selected mechanic. You pass the mechanic_id + service_slug; the FRONTEND queries Convex for available slots and renders the chips itself. You do NOT compose slot data. Use after the user has picked a mechanic in the shop_selection stage.",
     input_schema: {
       type: "object",
       properties: {
-        shop_id: { type: "string", description: "Shop the slots belong to." },
-        slots: {
-          type: "array",
-          items: {
-            type: "object",
-            properties: {
-              id: { type: "string", description: "Slot ID from find_available_slots." },
-              day: { type: "string", description: "Day-of-month string, e.g. '14'." },
-              dayOfWeek: { type: "string", description: "Day name, e.g. 'Mon'." },
-              time: { type: "string", description: "Start time, e.g. '10:30 AM'." },
-              displayText: { type: "string", description: "User-facing label, e.g. 'Mon May 14, 10:30 AM'." },
-            },
-            required: ["id", "day", "time", "displayText"],
-          },
-        },
+        mechanic_id: { type: "string", description: "Convex mechanic ID the user picked in the prior turn." },
+        service_slug: { type: "string", description: "Canonical service slug being booked." },
       },
-      required: ["shop_id", "slots"],
+      required: ["mechanic_id", "service_slug"],
     },
   },
 
   {
     name: "render_booking_confirmation",
     description:
-      "Show the final booking-summary card BEFORE handing off to payment. Use exactly once per booking flow, after the user has confirmed shop + time + service. Follow with navigate_to_payment only after the user explicitly accepts. The card includes service name, price, platform fee, total, shop, and time slot.",
+      "Trigger the final booking-summary component. You pass the IDs of what the user has chosen (service slug, mechanic id, slot id); the FRONTEND queries Convex for the actual price, platform fee, total, shop name, mechanic photo, and renders the summary card itself. You do NOT compose pricing. Use exactly once per booking flow, after the user has confirmed shop + time + service. Follow with navigate_to_payment only after the user explicitly accepts.",
     input_schema: {
       type: "object",
       properties: {
-        summary: {
-          type: "object",
-          properties: {
-            serviceName: { type: "string" },
-            servicePrice: { type: "string", description: "Display string, e.g. '$95'." },
-            platformFee: { type: "string", description: "Display string, e.g. '$7'." },
-            total: { type: "string", description: "Display string, e.g. '$102'." },
-            shop: {
-              type: "object",
-              description: "Same shape as one entry in render_shop_carousel.shops.",
-              properties: {
-                id: { type: "string" },
-                name: { type: "string" },
-                shopName: { type: "string" },
-                address: { type: "string" },
-              },
-              required: ["id", "name"],
-            },
-            timeSlot: {
-              type: "object",
-              properties: {
-                day: { type: "string" },
-                dayOfWeek: { type: "string" },
-                time: { type: "string" },
-                displayText: { type: "string" },
-              },
-              required: ["time", "displayText"],
-            },
-          },
-          required: ["serviceName", "servicePrice", "total", "shop", "timeSlot"],
+        service_slug: { type: "string", description: "Canonical snake_case service slug." },
+        mechanic_id: { type: "string", description: "Convex mechanic ID the user picked." },
+        slot_id: { type: "string", description: "Slot ID the user picked." },
+        vehicle_id: { type: "string", description: "Convex vehicle ID for the booking." },
+      },
+      required: ["service_slug", "mechanic_id", "slot_id"],
+    },
+  },
+
+  {
+    name: "render_diagnostic_form",
+    description:
+      "Renders a pre-filled diagnostic booking form for the user to review, edit, and confirm. The form has a subsystem selector (5 options) and a free-form customer notes field. Pre-fill both based on the conversation context. The user reviews and confirms — you never execute the booking yourself. Terminal render tool — calling it ends your turn.",
+    input_schema: {
+      type: "object",
+      properties: {
+        diagnostic_system: {
+          type: "string",
+          enum: ["brakes", "tires_wheels", "engine", "battery_electrical", "not_sure"],
+          description:
+            "The subsystem to pre-fill. Use the user's words as primary signal. See the prompt's Decision B mapping for guidance.",
+        },
+        customer_notes: {
+          type: "string",
+          description:
+            "Free-form 2–3 sentence summary in service-advisor voice describing what the user reported. Only write what the conversation actually surfaced — no invented duration, no inferred conditions.",
         },
       },
-      required: ["summary"],
+      required: ["diagnostic_system", "customer_notes"],
+    },
+  },
+
+  {
+    name: "render_record_confirmation",
+    description:
+      "Surface a self_reported maintenance record to the user and ask them to confirm it's still correct, OR update it with new details. Call this when a user-described symptom contradicts an item from get_vehicle_health whose `record_provenance` is `self_reported` — the record itself may be wrong (data form hallucination is common during onboarding). The component shows the user what we have on file (last service date and mileage) with two buttons: [Yes, that's right] and [No, update it]. On confirm: the record gets stamped confirmedHealthyAt: now (locks status to on_time for 90 days). On update: an inline date+mileage form appears, the user submits new values, and the record is rewritten. Either way the user's decision is pushed back into conversation_state, so on your NEXT turn you can react to it (e.g., if they updated the record showing it was actually overdue, route to the relevant service or diagnostic). Trigger-only: do not call for `verified` items — those are backed by completed bookings or uploaded receipts, you can trust them. Do not call for `inferred` items — there's no record to confirm. Terminal render tool — calling it ends your turn.",
+    input_schema: {
+      type: "object",
+      properties: {
+        vehicle_id: {
+          type: "string",
+          description: "Convex `vehicles._id` from the <vehicle> block. Same value you'd pass to get_vehicle_facts.",
+        },
+        maintenance_type: {
+          type: "string",
+          enum: ["oil", "brakes", "tires", "battery", "inspection"],
+          description: "Which maintenance item the record applies to. Must match the `type` of an item from get_vehicle_health that has record_provenance: \"self_reported\".",
+        },
+      },
+      required: ["vehicle_id", "maintenance_type"],
     },
   },
 
@@ -530,13 +737,15 @@ const NAVIGATION_TOOLS: OtoToolSchema[] = [
 
 export const OTO_TOOLS: OtoToolSchema[] = [
   ...DATA_TOOLS,
+  ...STATE_TOOLS,
+  ...MODEL_ROUTING_TOOLS,
   ...RENDER_TOOLS,
   ...NAVIGATION_TOOLS,
 ];
 
 export const OTO_TOOL_NAMES = OTO_TOOLS.map((t) => t.name);
 
-export type OtoToolCategory = "data" | "render" | "navigation";
+export type OtoToolCategory = "data" | "state" | "model_routing" | "render" | "navigation";
 
 export const OTO_TOOL_CATEGORY: Record<string, OtoToolCategory> = {
   // data
@@ -554,11 +763,33 @@ export const OTO_TOOL_CATEGORY: Record<string, OtoToolCategory> = {
   get_reviews: "data",
   find_available_slots: "data",
   get_rewards_summary: "data",
+  get_vehicle_health: "data",
+  get_projected_health_score: "data",
+  get_vehicle_facts: "data",
+  lookup_vehicle_spec: "data",
+  retrieve_vehicle_facts: "data",
+  // web_search is a server-managed Anthropic tool — defined in chat.ts
+  // SERVER_MANAGED_TOOLS, NOT in this category map.
+  // state (Oto writes back; ack is trivial; doesn't gate loop continuation)
+  update_conversation_state: "state",
+  // record_vehicle_fact is also a state-write side effect — Haiku emits it
+  // alongside the user-facing text on the same iteration; the dispatcher
+  // fires it in parallel and the loop terminates without forcing another
+  // round-trip. Treating it as "data" caused the loop to swallow the text
+  // accompanying the call.
+  record_vehicle_fact: "state",
+  // model_routing — side-effect writes to ai_conversations.current_model.
+  // Same dispatch shape as state tools; ack is trivial and doesn't gate the
+  // loop. Routing takes effect on the NEXT turn.
+  request_sonnet_handoff: "model_routing",
+  request_haiku_handback: "model_routing",
   // render
   render_shop_carousel: "render",
   render_service_picker: "render",
   render_time_selector: "render",
   render_booking_confirmation: "render",
+  render_diagnostic_form: "render",
+  render_record_confirmation: "render",
   render_quick_replies: "render",
   render_reasoning: "render",
   render_sources: "render",

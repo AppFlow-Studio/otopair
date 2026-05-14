@@ -18,7 +18,8 @@ crons.daily(
 
 // ─── Marketplace VIN Discovery Pipeline ─────────────────────────
 
-// Scrape CarGurus for VINs — runs twice daily (8 AM and 6 PM UTC)
+// Scrape CarGurus for VINs — runs twice daily (8 AM and 6 PM UTC).
+// Gated by env var ENRICHMENT_PAUSED — set to "true" in Convex env to pause without redeploying.
 crons.daily(
   "marketplace-scrape-cargurus-morning",
   { hourUTC: 8, minuteUTC: 0 },

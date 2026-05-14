@@ -154,7 +154,16 @@ interface RenderDirective<T = unknown> {
 function packageRenderDirective(toolUse: ToolUseBlock): ToolResultBlock {
   switch (toolUse.name) {
     case "render_shop_carousel":
-      return ok(toolUse.id, renderD("shops", toolUse.input.shops));
+      // Trigger-only: pass service_slug + priority; the mobile component
+      // queries Convex for the actual mechanics and renders them with real
+      // pricing / availability / ratings. Oto never composes mechanic data.
+      return ok(
+        toolUse.id,
+        renderD("shopCarousel", {
+          service_slug: toolUse.input.service_slug,
+          priority: toolUse.input.priority,
+        }),
+      );
 
     case "render_service_picker":
       return ok(toolUse.id, {
@@ -164,20 +173,64 @@ function packageRenderDirective(toolUse: ToolUseBlock): ToolResultBlock {
           ...(toolUse.input.services
             ? [{ field: "pickerServices", value: toolUse.input.services }]
             : []),
+          ...(toolUse.input.pre_selected_id
+            ? [{ field: "pickerPreSelectedId", value: toolUse.input.pre_selected_id }]
+            : []),
         ],
       });
 
     case "render_time_selector":
-      return ok(toolUse.id, {
-        type: "render",
-        directives: [
-          { field: "timeSlots", value: toolUse.input.slots },
-          { field: "timeSlotsShopId", value: toolUse.input.shop_id },
-        ],
-      });
+      // Trigger-only: pass mechanic_id + service_slug; the mobile component
+      // queries Convex for actual slots.
+      return ok(
+        toolUse.id,
+        renderD("timeSelector", {
+          mechanic_id: toolUse.input.mechanic_id,
+          service_slug: toolUse.input.service_slug,
+        }),
+      );
 
     case "render_booking_confirmation":
-      return ok(toolUse.id, renderD("bookingSummary", toolUse.input.summary));
+      // Trigger-only: pass IDs; the mobile component queries Convex for the
+      // service name, real prices (mechanic-set labor rate × parts × fee),
+      // platform fee, total, shop info, slot details.
+      return ok(
+        toolUse.id,
+        renderD("bookingConfirmation", {
+          service_slug: toolUse.input.service_slug,
+          mechanic_id: toolUse.input.mechanic_id,
+          slot_id: toolUse.input.slot_id,
+          vehicle_id: toolUse.input.vehicle_id,
+        }),
+      );
+
+    case "render_diagnostic_form":
+      return ok(
+        toolUse.id,
+        renderD("showDiagnosticForm", {
+          initialSystem: toolUse.input.diagnostic_system,
+          initialNotes: toolUse.input.customer_notes,
+        }),
+      );
+
+    case "render_record_confirmation":
+      // Trigger-only: pass vehicle_id + maintenance_type. The mobile component
+      // queries Convex for the actual maintenance_record row and renders its
+      // current state with Confirm / Update buttons. Confirm path writes
+      // confirmedHealthyAt: Date.now() via upsertRecord (locks status to
+      // on_time for 90 days per CONFIRMED_HEALTHY_TTL_MS). Update path
+      // collects new date+mileage in an inline form, then writes via
+      // upsertRecord with serviceSource: "ai_chat_correction" and
+      // confidence: "self_reported". Either way, the user's decision is
+      // pushed back into conversation_state via appendEstablishedFact so
+      // Oto sees it on the next turn.
+      return ok(
+        toolUse.id,
+        renderD("showRecordConfirmation", {
+          vehicle_id: toolUse.input.vehicle_id,
+          maintenance_type: toolUse.input.maintenance_type,
+        }),
+      );
 
     case "render_quick_replies":
       return ok(toolUse.id, renderD("quickReplies", toolUse.input.replies));
@@ -281,12 +334,16 @@ function errorResult(
 
 export interface ChatMessageEnvelope {
   quickReplies?: unknown;
-  shops?: unknown;
   showServicePicker?: boolean;
   pickerServices?: unknown;
-  timeSlots?: unknown;
-  timeSlotsShopId?: unknown;
-  bookingSummary?: unknown;
+  pickerPreSelectedId?: unknown;
+  showDiagnosticForm?: unknown;
+  // Trigger payloads — the frontend renders the actual component using the
+  // IDs/params provided, querying Convex for real data. Oto never composes
+  // mechanic data, pricing, slot data, or shop info.
+  shopCarousel?: unknown;
+  timeSelector?: unknown;
+  bookingConfirmation?: unknown;
   reasoning?: unknown;
   sources?: unknown;
   [k: string]: unknown;

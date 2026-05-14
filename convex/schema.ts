@@ -1593,6 +1593,34 @@ export default defineSchema({
     booking_id: v.optional(v.id("bookings")),
     message_count: v.optional(v.number()),
     session_id: v.optional(v.string()),
+    // -----------------------------------------------------------------------
+    // Conversation state (v0.7) — Oto-maintained context across turns.
+    // Updated by Haiku via the update_conversation_state tool. Read back on
+    // the next turn through the <conversation_state> envelope block so Haiku
+    // remembers the user's mood, what's been established, and the active
+    // intent without re-deriving it from raw message history every turn.
+    // -----------------------------------------------------------------------
+    mood: v.optional(v.string()),
+    arc_summary: v.optional(v.string()),
+    established_facts: v.optional(v.array(v.string())),
+    last_user_intent: v.optional(v.string()),
+    state_updated_at: v.optional(v.number()),
+    // -----------------------------------------------------------------------
+    // Polite-exit counter (Locked Principle #6) — tracks how many turns of
+    // symptom-narrowing have happened without converging on a diagnostic
+    // form or direct service. chat.ts increments when Haiku stays in
+    // narrowing mode (last_user_intent starts with "symptom_narrowing")
+    // without rendering the form; resets when the form fires. At 6 the
+    // envelope emits a `<polite_exit_required>` block and the prompt rule
+    // forces Haiku to render the diagnostic form with not_sure.
+    // -----------------------------------------------------------------------
+    diagnostic_turn_count: v.optional(v.number()),
+    // -----------------------------------------------------------------------
+    // Sonnet cascade (Locked Principle #2) — per-conversation model routing.
+    // null/undefined → use HAIKU_MODEL (default). "sonnet" → SONNET_MODEL for
+    // the next turn(s) until a request_haiku_handback resets to default.
+    // -----------------------------------------------------------------------
+    current_model: v.optional(v.string()),
   })
     .index("by_user_id", ["user_id"])
     .index("by_session_id", ["session_id"])
@@ -1611,6 +1639,120 @@ export default defineSchema({
     .index("by_conversation_id", ["conversation_id"])
     .index("by_role", ["role"])
     .index("by_timestamp", ["timestamp"]),
+
+  // -------------------------------------------------------------------------
+  // vehicle_facts — Oto's growing knowledge base.
+  //
+  // Each row is one factual statement about cars, scoped along ONE axis:
+  //   • vehicle        — fact applies to one specific vehicles row (rarest)
+  //   • trim           — applies to a specific trim across years
+  //   • chassis        — applies to all configs sharing chassis_code
+  //   • engine         — applies to all engines sharing engine_code
+  //   • model_year     — applies to a specific (year, make, model)
+  //
+  // Lookup pipeline (in get_vehicle_facts):
+  //   1. Semantic search via embedding (if embedding is populated)
+  //   2. Exact match by config_id + topic
+  //   3. Chassis fallback (same chassis_code)
+  //   4. Engine fallback (same engine_code) — only for engine-axis topics
+  //
+  // Haiku writes facts via record_vehicle_fact whenever it answers a
+  // research question. Source tracks provenance for trust grading.
+  //
+  // Embedding column is optional so the table is functional without an
+  // embedding API key. Once OPENAI_API_KEY or VOYAGE_API_KEY is set, an
+  // embedding action backfills rows + populates on insert; semantic search
+  // turns on automatically.
+  // -------------------------------------------------------------------------
+  vehicle_facts: defineTable({
+    topic: v.string(),
+    topic_axis: v.union(
+      v.literal("vehicle"),
+      v.literal("trim"),
+      v.literal("chassis"),
+      v.literal("engine"),
+      v.literal("model_year"),
+    ),
+    // Scoping ids — at least one of these is set, matching topic_axis.
+    vehicle_config_id: v.optional(v.id("vehicle_configs")),
+    chassis_code: v.optional(v.string()),
+    engine_code: v.optional(v.string()),
+    make: v.optional(v.string()),
+    model: v.optional(v.string()),
+    trim_name: v.optional(v.string()),
+    year_min: v.optional(v.number()),
+    year_max: v.optional(v.number()),
+
+    // The fact itself.
+    fact_text: v.string(),
+    question_text: v.string(),
+    answer_format: v.optional(v.string()),
+
+    // Provenance + trust.
+    source: v.union(
+      v.literal("manufacturer"),
+      v.literal("oto_inferred"),
+      v.literal("web_search"),
+      v.literal("user_confirmed"),
+      v.literal("propagated"),
+    ),
+    cited_url: v.optional(v.string()),
+    confidence: v.number(),
+    propagated_from_id: v.optional(v.id("vehicle_facts")),
+
+    // Semantic search vector. 1536 dims for OpenAI text-embedding-3-small;
+    // VOYAGE voyage-3 is 1024 dims. Schema accepts the OpenAI default; if
+    // VOYAGE is configured, embed action coerces dimensions or we add a
+    // separate table.
+    embedding: v.optional(v.array(v.float64())),
+
+    created_at: v.number(),
+    updated_at: v.optional(v.number()),
+    last_verified_at: v.optional(v.number()),
+  })
+    .index("by_vehicle_config", ["vehicle_config_id", "topic"])
+    .index("by_chassis", ["chassis_code", "topic"])
+    .index("by_engine", ["engine_code", "topic"])
+    .index("by_make_model_year", ["make", "model", "year_min"])
+    .index("by_topic_axis", ["topic_axis", "topic"])
+    .vectorIndex("by_embedding", {
+      vectorField: "embedding",
+      dimensions: 1536,
+      filterFields: ["topic_axis", "topic"],
+    }),
+
+  // -------------------------------------------------------------------------
+  // oto_telemetry — per-turn metrics for the Oto chat action.
+  // Locked Principle #12: every turn logs routed-model, tokens, latency,
+  // tool calls. Without this, the cost-per-booking metric is unverifiable.
+  // One row per sendMessage call. Skip on harness runs (debug_skip_persist).
+  // -------------------------------------------------------------------------
+  oto_telemetry: defineTable({
+    conversation_id: v.id("ai_conversations"),
+    user_id: v.id("users"),
+    ts: v.number(),
+    model: v.string(),
+    system_prompt_version: v.string(),
+    iterations_used: v.number(),
+    hit_cap: v.boolean(),
+    // Aggregate token usage across all iterations in this turn.
+    input_tokens: v.number(),
+    output_tokens: v.number(),
+    cache_creation_tokens: v.optional(v.number()),
+    cache_read_tokens: v.optional(v.number()),
+    total_latency_ms: v.number(),
+    // Tools fired this turn (names; same order they were dispatched).
+    tools_called: v.array(v.string()),
+    // Branch of the final iteration: "data_continue" | "terminal" | "text_only"
+    final_branch: v.string(),
+    // For ad-hoc cost analysis later.
+    booking_id: v.optional(v.id("bookings")),
+    error: v.optional(v.string()),
+  })
+    .index("by_conversation_id", ["conversation_id"])
+    .index("by_user_id", ["user_id"])
+    .index("by_ts", ["ts"])
+    .index("by_user_ts", ["user_id", "ts"]),
 
   // [I]
   analytics_events: defineTable({
