@@ -28,12 +28,17 @@ import {
   Image,
   Keyboard,
   LayoutChangeEvent,
+  Modal,
   ScrollView,
   StyleSheet,
   TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
+
+// (Tire Replacement is rendered inline as a Modal because routing to
+//  /(tire-booking) from inside the sheet wasn't navigating reliably.)
+import TireBookingScreen from "@/app/(tire-booking)";
 
 // 2. Expo & Third-party
 import BottomSheet, { BottomSheetFooter, BottomSheetFooterProps } from "@gorhom/bottom-sheet";
@@ -185,6 +190,10 @@ export function ServiceBottomSheet({
 }: ServiceBottomSheetProps) {
   // ═══════════════ REFS ═══════════════
   const bottomSheetRef = useRef<BottomSheet>(null);
+  // Tire Replacement → inline Modal hosting TireBookingScreen. Used
+  // instead of router.push to /(tire-booking) because that wasn't
+  // navigating from inside the bottom sheet.
+  const [showTireBookingModal, setShowTireBookingModal] = useState(false);
   const searchInputRef = useRef<TextInput>(null);
   const animatedIndex = useSharedValue(SERVICE_SNAP_COUNT - 1); // Start at expanded (index 3 when 4 points)
   /** For map controls: when opening car selection we animate so controls don't pop; when false, follows animatedIndex */
@@ -759,6 +768,17 @@ export function ServiceBottomSheet({
   // ═══════════════ HANDLERS ═══════════════
   // Service selection complete -> go to service options if any, else mechanic selection
   const handleServicesSelected = useCallback(() => {
+    // Tire Replacement bypasses the generic Option Selection stage and
+    // hands off to the dedicated Shop Tires flow (per-wheel picker +
+    // size + type + quality tier). Matched by name because the mock
+    // catalog id (`svc_tire_replacement`) differs from the Convex doc id.
+    const tireReplacementSelected = availableServices.some(
+      (svc) => selectedServiceIds.includes(svc.id) && svc.name === "Tire Replacement",
+    );
+    if (tireReplacementSelected) {
+      setShowTireBookingModal(true);
+      return;
+    }
     const anyHasOptions = availableServices.some(
       (svc) => selectedServiceIds.includes(svc.id) && svc.has_options === true,
     );
@@ -767,7 +787,7 @@ export function ServiceBottomSheet({
     } else {
       setBookingStage("mechanic_selection", "forward");
     }
-  }, [setBookingStage, availableServices, selectedServiceIds]);
+  }, [setBookingStage, availableServices, selectedServiceIds, router]);
 
   // Service options -> go back to service selection
   const handleServiceOptionsGoBack = useCallback(() => {
@@ -1100,7 +1120,10 @@ export function ServiceBottomSheet({
       case "service_selection":
         return (
           <Animated.View key="service" entering={sheetEntering} exiting={sheetExiting} style={styles.contentWrapper}>
-            <ServiceSelectionContent onCategorySelect={handleCategorySelect} />
+            <ServiceSelectionContent
+              onCategorySelect={handleCategorySelect}
+              onShopTiresRequested={() => setShowTireBookingModal(true)}
+            />
           </Animated.View>
         );
 
@@ -1386,6 +1409,7 @@ export function ServiceBottomSheet({
 
   // ═══════════════ RENDER ═══════════════
   return (
+    <>
     <BottomSheet
       ref={bottomSheetRef}
       snapPoints={snapPoints}
@@ -1511,6 +1535,33 @@ export function ServiceBottomSheet({
         )}
       </View>
     </BottomSheet>
+
+    {/* Tire Replacement inline flow — full-screen Modal over the sheet
+        because router.push to /(tire-booking) wasn't navigating from
+        inside the BottomSheet on this stack. The screen renders
+        identically to the standalone route; back chevron just closes
+        the Modal via the onClose prop. */}
+    <Modal
+      visible={showTireBookingModal}
+      animationType="slide"
+      presentationStyle="fullScreen"
+      onRequestClose={() => setShowTireBookingModal(false)}
+    >
+      <TireBookingScreen
+        onClose={() => setShowTireBookingModal(false)}
+        onConfirmed={() => {
+          // Just close the modal + sheet — no navigation. Navigating to
+          // Bookings from this context produced a black screen on the
+          // simulator (router push/navigate from inside a Modal close
+          // doesn't recover cleanly). The Convex mutation already
+          // wrote the booking; the user will see it next time they
+          // open the Bookings tab via the bottom nav.
+          setShowTireBookingModal(false);
+          bottomSheetRef.current?.close();
+        }}
+      />
+    </Modal>
+    </>
   );
 }
 

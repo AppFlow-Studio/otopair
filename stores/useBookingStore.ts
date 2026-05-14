@@ -288,6 +288,13 @@ const MOCK_SERVICES: Service[] = [
     price: 60,
     category: "tires_wheels",
   },
+  {
+    id: "svc_tire_replacement",
+    name: "Tire Replacement",
+    description: "Mount and balance new tires to OEM size",
+    price: 0,
+    category: "tires_wheels",
+  },
   // Brakes & Suspension
   {
     id: "svc_brake_pads",

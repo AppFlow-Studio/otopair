@@ -30,6 +30,7 @@ import { computeVehicleHealthScore, type HealthScoreInput } from "@/utils/health
 import { Text } from "@/components/shared-ui";
 import { OilIcon, BrakesIcon, TireIcon, BatteryIcon, WarningIcon } from "@/components/cars/ServiceIcons";
 import { fetchVehicleImageUrl } from "@/utils/vehicleImage";
+import { isDarkColor } from "@/utils/contrast";
 import { scale, verticalScale, moderateScale } from '@/utils/responsive';
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
@@ -45,10 +46,7 @@ import { AnimatedGradientBackground } from "@/components/shared-ui/AnimatedGradi
 import ServiceHistory, { ServiceRecord, type PickedDocument } from "@/components/cars/ServiceHistory";
 import VehicleStatsCard from "@/components/cars/VehicleStatsCard";
 import { useVehicleStore } from "@/stores/useVehicleStore";
-import { useMechanicStore } from "@/stores/useMechanicStore";
-import { useShopStore } from "@/stores/useShopStore";
-import { useBookingStore } from "@/stores/useBookingStore";
-import { ShopCard, type ShopWithMechanics, type SlotWithBookingMeta, type SelectedSlotInfo, type SelectedServiceInfo } from "@/components/booking/sheets/ShopCard";
+import { PostOptimizeBookingSheet } from "@/components/cars/PostOptimizeBookingSheet";
 
 // ============================================================================
 // HELPERS
@@ -63,169 +61,30 @@ function titleCase(str: string): string {
 }
 
 // ============================================================================
-// MAINTENANCE → SERVICE MAPPING
-// ============================================================================
-
-const MAINTENANCE_TO_SERVICE: Record<string, string> = {
-  oil: "svc_oil_change",
-  brakes: "svc_brake_pads",
-  tires: "svc_tire_rotation",
-  fluids: "svc_fluid_change",
-  battery: "svc_electrical_check",
-  inspection: "svc_engine_diagnostic",
-  wipers: "svc_filter_change",
-};
-
-// ============================================================================
-// HEALTH SHEET BOOKING CARDS
-// ============================================================================
-
-interface HealthSheetBookingCardsProps {
-  maintenanceItems: Array<{ id: string; serviceName: string; status: string }>;
-  onClose: () => void;
-}
-
-function HealthSheetBookingCards({ maintenanceItems, onClose }: HealthSheetBookingCardsProps) {
-  const router = useRouter();
-  const mechanics = useMechanicStore((s) => s.mechanics);
-  const mechanicIds = useMechanicStore((s) => s.mechanicIds);
-  const shops = useShopStore((s) => s.shops);
-  const availableServices = useBookingStore((s) => s.availableServices);
-  const toggleServiceSelection = useBookingStore((s) => s.toggleServiceSelection);
-  const clearSelectedServices = useBookingStore((s) => s.clearSelectedServices);
-
-  const [selectedSlot, setSelectedSlot] = useState<SelectedSlotInfo | null>(null);
-
-  // Build ShopWithMechanics from stores (top 3 shops)
-  const shopGroups = useMemo((): ShopWithMechanics[] => {
-    const shopMap = new Map<string, ShopWithMechanics>();
-    for (const id of mechanicIds) {
-      const mech = mechanics[id];
-      if (!mech) continue;
-      const existing = shopMap.get(mech.shopId);
-      if (existing) {
-        existing.mechanics.push(mech);
-        if (mech.rating > existing.rating) existing.rating = mech.rating;
-        if (mech.isVerified) existing.isVerified = true;
-      } else {
-        const shop = shops[mech.shopId];
-        shopMap.set(mech.shopId, {
-          shopId: mech.shopId,
-          shopName: mech.shopName,
-          rating: mech.rating,
-          isVerified: mech.isVerified,
-          distanceMi: mech.distanceMi,
-          mechanics: [mech],
-          laborRate: shop?.labor_rate,
-        });
-      }
-    }
-    return Array.from(shopMap.values()).slice(0, 3);
-  }, [mechanicIds, mechanics, shops]);
-
-  // Map urgent maintenance items to service info for price display
-  const urgentItems = maintenanceItems.filter(
-    (item) => item.status === "overdue" || item.status === "needs_attention" || item.status === "due_soon"
-  );
-  const serviceIds = urgentItems
-    .map((item) => MAINTENANCE_TO_SERVICE[item.id])
-    .filter(Boolean);
-  const selectedServices = useMemo((): SelectedServiceInfo[] => {
-    if (serviceIds.length === 0) return [];
-    return availableServices
-      .filter((s) => serviceIds.includes(s.id))
-      .map((s) => ({
-        id: s.id,
-        name: s.name,
-        price: 0,
-        default_labor_hours: s.default_labor_hours,
-        default_parts_estimate: s.default_parts_estimate,
-      }));
-  }, [availableServices, serviceIds.join(",")]);
-
-  const handleSelectSlot = useCallback(
-    (shopId: string, mechanicId: string | null, slot: SlotWithBookingMeta) => {
-      setSelectedSlot({ shopId, mechanicId, slot });
-      // Pre-select services and navigate to booking
-      clearSelectedServices();
-      serviceIds.forEach((sid) => toggleServiceSelection(sid));
-      onClose();
-      router.push('/home/map?openServices=true');
-    },
-    [serviceIds, clearSelectedServices, toggleServiceSelection, onClose, router],
-  );
-
-  const handleShopDetails = useCallback(
-    (shopId: string) => {
-      onClose();
-      router.push(`/home/shop/${shopId}`);
-    },
-    [onClose, router],
-  );
-
-  const handleMoreAvailability = useCallback(
-    (shopId: string, _mechanicId: string | null) => {
-      onClose();
-      router.push('/home/map?openServices=true');
-    },
-    [onClose, router],
-  );
-
-  if (shopGroups.length === 0) {
-    return (
-      <View style={{ alignItems: "center", paddingVertical: scale(20) }}>
-        <Text weight="semiBold" size="md" color="#6B7280">No shops available nearby</Text>
-      </View>
-    );
-  }
-
-  return (
-    <ScrollView
-      horizontal
-      pagingEnabled={false}
-      showsHorizontalScrollIndicator={false}
-      decelerationRate="fast"
-      snapToInterval={scale(300) + scale(12)}
-      contentContainerStyle={{ paddingHorizontal: scale(4), gap: scale(12) }}
-    >
-      {shopGroups.map((shop) => (
-        <View key={shop.shopId} style={{ width: scale(300) }}>
-          <ShopCard
-            shop={shop}
-            onSelectSlot={handleSelectSlot}
-            onShopDetails={handleShopDetails}
-            onMoreAvailability={handleMoreAvailability}
-            selectedSlot={selectedSlot}
-            selectedServices={selectedServices}
-          />
-        </View>
-      ))}
-    </ScrollView>
-  );
-}
-
-// ============================================================================
 // VEHICLE-SPECIFIC DATA
 // ============================================================================
 
-// Default gradient sets for carousel (alternate by index when Convex has no metadata)
+// Three-stop saturated → deep-dark palettes, Revolut-style. The top
+// stop is a vivid mid-tone of the car's paint color, the bottom stop
+// is near-black with a faint hue tint. This gives the page real
+// depth instead of a flat or washed-out wash. White content cards
+// then read as "floating" against the dark bottom.
 const DEFAULT_GRADIENTS = [
-  ["#9a9cc0", "#e7e3fd", "#e0dcf4", "#f1ecfe"],
-  ["#5090d8", "#c0daf8", "#b8d4f8", "#d8ecff"],
+  ["#5e6488", "#2a2e48", "#0d0f20"],
+  ["#3a78c8", "#152e54", "#06101c"],
 ];
 
-// Map car colors to background gradient palettes
 const COLOR_GRADIENTS: Record<string, string[]> = {
-  black:            ["#3a3a3a", "#5c5c5c", "#787878", "#a0a0a0"],
-  "midnight-silver":["#4a4a5a", "#7a7a8a", "#9a9aaa", "#c0c0d0"],
-  silver:           ["#9a9cc0", "#e7e3fd", "#e0dcf4", "#f1ecfe"],
-  white:            ["#b8c0cc", "#d8dce6", "#e8ecf2", "#f4f6fa"],
-  gray:             ["#6b7080", "#8e929e", "#adb0ba", "#cdd0d8"],
-  red:              ["#a03030", "#d06868", "#e09898", "#f0c8c8"],
-  blue:             ["#5090d8", "#c0daf8", "#b8d4f8", "#d8ecff"],
-  green:            ["#2a7a4a", "#60b080", "#90d0a8", "#c8f0d8"],
-  beige:            ["#b8a080", "#d4c0a8", "#e4d8c4", "#f2ece0"],
-  brown:            ["#6b4030", "#8b6050", "#b08878", "#d8b8a8"],
+  black:            ["#2a2d33", "#15171c", "#08090c"],
+  "midnight-silver":["#3a4256", "#1c2030", "#0a0d18"],
+  silver:           ["#7a8294", "#2f3540", "#10131c"],
+  white:            ["#f5f7fa", "#dde2ea", "#a8b0bd"],
+  gray:             ["#5b6477", "#2c3140", "#0e111a"],
+  red:              ["#a8344a", "#481420", "#13050a"],
+  blue:             ["#3a78c8", "#152e54", "#06101c"],
+  green:            ["#2da784", "#114036", "#04161a"],
+  beige:            ["#b69478", "#5a4530", "#1a140d"],
+  brown:            ["#7a4a35", "#36201a", "#15090a"],
 };
 
 // (Service history is now sourced from Smartcar data via useSmartcarData)
@@ -272,6 +131,10 @@ export default function CarsHomeScreen() {
   const dashboardFade = useRef(new Animated.Value(0)).current;
   const dashboardSlide = useRef(new Animated.Value(20)).current;
   const skeletonPulse = useRef(new Animated.Value(0.3)).current;
+
+  // Post-optimize booking sheet: opens once when the gears overlay
+  // dismisses, then stays closed until the user re-runs Optimize.
+  const [showOptimizeBookingSheet, setShowOptimizeBookingSheet] = useState(false);
 
   // Fullscreen gears overlay
   const [pickedDocuments, setPickedDocuments] = useState<PickedDocument[]>([]);
@@ -708,6 +571,10 @@ export default function CarsHomeScreen() {
       setGearsPhase('looping');
       celebrationFlowActive.current = false;
       setCelebrationActive(false);
+      // Optimize flow just finished — surface the booking sheet on the
+      // car's dashboard. Opens once per cycle; dismissed-on-its-own = stays
+      // closed until the user runs Optimize again.
+      setShowOptimizeBookingSheet(true);
     });
   }, [gearsOverlayOpacity, mainPageSlideX, mainPageFade]);
 
@@ -779,7 +646,7 @@ export default function CarsHomeScreen() {
     listVehicles.forEach((r: any, i: number) => {
       const v = r.vehicle;
       const o = r.ownership;
-      const meta = v ? (v as { metadata?: { make?: string; model?: string; color?: string } }).metadata : undefined;
+      const meta = v ? (v as { metadata?: { make?: string; model?: string; color?: string; body_style?: string } }).metadata : undefined;
       const paintColor = meta?.color;
       const gradient =
         (paintColor && COLOR_GRADIENTS[paintColor]) ||
@@ -804,6 +671,7 @@ export default function CarsHomeScreen() {
           nextUnlock: undefined,
           gradientColors: gradient,
           connectionStatus: r.connectionStatus || "unconnected",
+          bodyStyle: meta?.body_style,
         },
         ownershipId: o?._id,
         ownership: o,
@@ -851,6 +719,10 @@ export default function CarsHomeScreen() {
 
   // Memoize current vehicle and its data
   const activeVehicle = useMemo(() => vehicles[activeVehicleIndex], [vehicles, activeVehicleIndex]);
+  const activeVehicleLabel = useMemo(() => {
+    if (!activeVehicle) return undefined;
+    return `${activeVehicle.year} ${titleCase(activeVehicle.make)} ${activeVehicle.model}`;
+  }, [activeVehicle]);
   const activeOwnershipId = useMemo(() => ownershipIds[activeVehicleIndex], [ownershipIds, activeVehicleIndex]);
   const activeOwnership = useMemo(() => ownerships[activeVehicleIndex], [ownerships, activeVehicleIndex]);
   const isPreOnboardingComplete = activeOwnership?.preOnboardingComplete === true;
@@ -1089,6 +961,15 @@ export default function CarsHomeScreen() {
     () => activeVehicle?.gradientColors ?? DEFAULT_GRADIENTS[0],
     [activeVehicle?.gradientColors]
   );
+  // Static text on this page (vehicle name, mileage, "Maintenance
+  // Tracker" header) sits over the top stop of the gradient. When
+  // that stop is dark — black, midnight-silver, gray, etc. — dark
+  // text becomes unreadable, so swap to light. Computed once per
+  // active vehicle and passed down to the consuming components.
+  const isDarkBg = useMemo(
+    () => isDarkColor(activeGradient[0]),
+    [activeGradient]
+  );
 
   // Handle default toggle via Convex
   const handleToggleDefault = useCallback(
@@ -1184,23 +1065,20 @@ export default function CarsHomeScreen() {
         scrollEventThrottle={16}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#6B7280" />}
       >
-        {/* Scrolling Gradient - uses active vehicle's color. */}
+        {/* Scrolling Gradient - uses active vehicle's color. The
+            palette is a saturated → deep-dark vertical fade so the
+            page reads with real depth. A faint top highlight adds a
+            subtle "light source" sheen at the top edge; no white
+            wash at the bottom (that was making the page look flat). */}
         <View style={styles.scrollingGradientContainer} pointerEvents="none">
           <LinearGradient
             colors={activeGradient as [string, string, ...string[]]}
-            locations={[0, 0.33, 0.33, 1]}
-            style={StyleSheet.absoluteFill}
-          />
-          <LinearGradient
-            colors={["rgba(255, 255, 255, 0)", "rgba(255, 255, 255, 0.15)", "rgba(255, 255, 255, 0.35)"]}
             locations={[0, 0.5, 1]}
             style={StyleSheet.absoluteFill}
           />
           <LinearGradient
-            colors={["rgba(255, 255, 255, 0.1)", "rgba(255, 255, 255, 0)", "rgba(255, 255, 255, 0.1)"]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            locations={[0, 0.5, 1]}
+            colors={["rgba(255, 255, 255, 0.12)", "rgba(255, 255, 255, 0)"]}
+            locations={[0, 0.35]}
             style={StyleSheet.absoluteFill}
           />
         </View>
@@ -1254,6 +1132,7 @@ export default function CarsHomeScreen() {
             isFocused={isFocused}
             maintenanceItems={mergedMaintenanceItems}
             currentMileage={currentOdometer}
+            isDarkBg={isDarkBg}
             showHealthRing={isActiveVehicleConnected || celebrationDismissed || (isOnboardingComplete && !celebrationActive && !healthPageVisible)}
             healthScore={isPreOnboardingComplete && !isOnboardingComplete
               ? (activeOwnership?.health_score as number | undefined) ?? computedHealthScore
@@ -1321,7 +1200,17 @@ export default function CarsHomeScreen() {
                 end={{ x: 1, y: 0 }}
                 style={styles.quickReadCtaGradient}
               >
-                <Text weight="bold" size="md" color="#FFFFFF">Get a quick read on your {activeVehicle?.make && activeVehicle?.model ? `${activeVehicle.make} ${activeVehicle.model}` : "vehicle"}</Text>
+                <Text
+                  weight="bold"
+                  size="md"
+                  color="#FFFFFF"
+                  numberOfLines={1}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.6}
+                  style={{ flexShrink: 1, marginRight: scale(8) }}
+                >
+                  Get a quick read on your {activeVehicle?.make && activeVehicle?.model ? `${activeVehicle.make} ${activeVehicle.model}` : "vehicle"}
+                </Text>
                 <Ionicons name="arrow-forward" size={scale(18)} color="#FFFFFF" />
               </LinearGradient>
             </Pressable>
@@ -1378,6 +1267,7 @@ export default function CarsHomeScreen() {
               items={mergedMaintenanceItems}
               vehicleCondition={computedHealthScore}
               healthScoreInput={healthScoreInput}
+              isDarkBg={isDarkBg}
               onBookNow={(id) => {
                 const vin = activeVehicle?.vin;
                 if (vin) useVehicleStore.getState().selectVehicle(vin.toUpperCase().trim());
@@ -1407,6 +1297,7 @@ export default function CarsHomeScreen() {
 
           {/* Service History Section (hidden until onboarding complete) */}
           {(isActiveVehicleConnected || isOnboardingComplete) && <ServiceHistory
+            isDarkBg={isDarkBg}
             records={serviceRecords}
             onAddNotes={(id) => {
               // TODO: Open notes modal/screen for this service record
@@ -1450,6 +1341,7 @@ export default function CarsHomeScreen() {
 
           {/* Loyalty Points Section (hidden until onboarding complete) */}
           {(isActiveVehicleConnected || isOnboardingComplete) && <LoyaltyPoints
+            isDarkBg={isDarkBg}
             totalPoints={1240}
             currentTier="Gold Member"
             currentPoints={240}
@@ -1746,12 +1638,33 @@ export default function CarsHomeScreen() {
                 </Animated.View>
               ) : (
                 <>
-                  {/* Shop booking cards based on vehicle issues */}
+                  {/* What optimization will do for the user — replaces the
+                      old in-sheet booking cards so the only forward action
+                      is "Optimize my vehicle profile". */}
                   <Animated.View style={[{ alignSelf: "stretch", marginTop: scale(12), flex: 1 }, { opacity: benefitsFade, transform: [{ translateY: benefitsFade.interpolate({ inputRange: [0, 1], outputRange: [scale(16), 0] }) }] }]}>
-                    <HealthSheetBookingCards
-                      maintenanceItems={mergedMaintenanceItems}
-                      onClose={closeHealthSheet}
-                    />
+                    <View style={{ gap: scale(14), paddingHorizontal: scale(4) }}>
+                      {[
+                        "We'll scan your VIN against open recalls",
+                        "We'll match your maintenance history to manufacturer intervals",
+                        "We'll pre-load nearby shops with the services you need",
+                      ].map((label, idx) => (
+                        <View key={idx} style={{ flexDirection: "row", alignItems: "center", gap: scale(12) }}>
+                          <View style={{
+                            width: scale(28), height: scale(28), borderRadius: scale(14),
+                            backgroundColor: "rgba(82,153,254,0.12)",
+                            alignItems: "center", justifyContent: "center",
+                          }}>
+                            <Ionicons name="checkmark" size={scale(16)} color="#5299FE" />
+                          </View>
+                          <Text
+                            weight="medium"
+                            style={{ fontSize: moderateScale(14), color: "#1F2937", flex: 1 }}
+                          >
+                            {label}
+                          </Text>
+                        </View>
+                      ))}
+                    </View>
                   </Animated.View>
 
                   <Animated.View style={[{ width: "100%", marginTop: "auto", paddingBottom: insets.bottom + scale(24) }, { opacity: buttonFade, transform: [{ translateY: buttonFade.interpolate({ inputRange: [0, 1], outputRange: [scale(16), 0] }) }] }]}>
@@ -1909,6 +1822,15 @@ export default function CarsHomeScreen() {
         </Animated.View>
       )}
       </Modal>
+
+      {/* Post-optimize booking sheet — pops on the car's dashboard right
+          after `dismissGearsOverlay` runs. */}
+      <PostOptimizeBookingSheet
+        visible={showOptimizeBookingSheet}
+        onClose={() => setShowOptimizeBookingSheet(false)}
+        maintenanceItems={mergedMaintenanceItems}
+        vehicleLabel={activeVehicleLabel}
+      />
 
       {/* Document Viewer Modal */}
       <Modal

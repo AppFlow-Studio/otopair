@@ -164,10 +164,10 @@ function Divider() {
 // CONFIRM COUNTDOWN BUTTON — primary CTA on the requesting sheet.
 // ============================================================================
 
-const COUNTDOWN_SECONDS = 8;
+const COUNTDOWN_SECONDS = 7;
 
 /**
- * Uber-Eats-style "Confirm (0:08)" button. Counts down from 8s with a
+ * Uber-Eats-style "Confirm (0:07)" button. Counts down from 7s with a
  * darker-blue progress fill; auto-fires `onConfirm` when it reaches 0. The
  * user can tap at any time to confirm instantly. The timer is cancelled if
  * the button unmounts (e.g. via the Go back secondary).

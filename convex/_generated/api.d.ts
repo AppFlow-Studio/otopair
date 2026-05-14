@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as adminCleanupMechanics from "../adminCleanupMechanics.js";
 import type * as ai_conversations from "../ai_conversations.js";
 import type * as ai_enrichment_logs from "../ai_enrichment_logs.js";
 import type * as ai_messages from "../ai_messages.js";
@@ -58,8 +59,14 @@ import type * as mcp_api from "../mcp_api.js";
 import type * as mechanics from "../mechanics.js";
 import type * as migrations from "../migrations.js";
 import type * as models from "../models.js";
+import type * as notifications from "../notifications.js";
 import type * as oemParts from "../oemParts.js";
 import type * as onboarding_questions_answers from "../onboarding_questions_answers.js";
+import type * as oto_chat from "../oto/chat.js";
+import type * as oto_dispatcher from "../oto/dispatcher.js";
+import type * as oto_envelope from "../oto/envelope.js";
+import type * as oto_system_prompt from "../oto/system_prompt.js";
+import type * as oto_tools from "../oto/tools.js";
 import type * as payment_status_history from "../payment_status_history.js";
 import type * as payments from "../payments.js";
 import type * as preferences from "../preferences.js";
@@ -115,6 +122,7 @@ import type * as users from "../users.js";
 import type * as vehicleEnrichment_adversarialVerification from "../vehicleEnrichment/adversarialVerification.js";
 import type * as vehicleEnrichment_anomalyDetection from "../vehicleEnrichment/anomalyDetection.js";
 import type * as vehicleEnrichment_applicabilityRules from "../vehicleEnrichment/applicabilityRules.js";
+import type * as vehicleEnrichment_backfillNhtsaKey from "../vehicleEnrichment/backfillNhtsaKey.js";
 import type * as vehicleEnrichment_blockedDomains from "../vehicleEnrichment/blockedDomains.js";
 import type * as vehicleEnrichment_buildSearchQueries from "../vehicleEnrichment/buildSearchQueries.js";
 import type * as vehicleEnrichment_cacheValidation from "../vehicleEnrichment/cacheValidation.js";
@@ -135,6 +143,7 @@ import type * as vehicleEnrichment_prompts_batch1Prompt from "../vehicleEnrichme
 import type * as vehicleEnrichment_prompts_batch1bPrompt from "../vehicleEnrichment/prompts/batch1bPrompt.js";
 import type * as vehicleEnrichment_prompts_batch2Prompt from "../vehicleEnrichment/prompts/batch2Prompt.js";
 import type * as vehicleEnrichment_queries from "../vehicleEnrichment/queries.js";
+import type * as vehicleEnrichment_runHeadless from "../vehicleEnrichment/runHeadless.js";
 import type * as vehicleEnrichment_runPublic from "../vehicleEnrichment/runPublic.js";
 import type * as vehicleEnrichment_runTest from "../vehicleEnrichment/runTest.js";
 import type * as vehicleEnrichment_scraper from "../vehicleEnrichment/scraper.js";
@@ -163,6 +172,7 @@ import type * as vehicle_owners from "../vehicle_owners.js";
 import type * as vehicle_pipeline from "../vehicle_pipeline.js";
 import type * as vehicle_specs from "../vehicle_specs.js";
 import type * as vehicles from "../vehicles.js";
+import type * as ymmtCatalog from "../ymmtCatalog.js";
 
 import type {
   ApiFromModules,
@@ -171,6 +181,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  adminCleanupMechanics: typeof adminCleanupMechanics;
   ai_conversations: typeof ai_conversations;
   ai_enrichment_logs: typeof ai_enrichment_logs;
   ai_messages: typeof ai_messages;
@@ -221,8 +232,14 @@ declare const fullApi: ApiFromModules<{
   mechanics: typeof mechanics;
   migrations: typeof migrations;
   models: typeof models;
+  notifications: typeof notifications;
   oemParts: typeof oemParts;
   onboarding_questions_answers: typeof onboarding_questions_answers;
+  "oto/chat": typeof oto_chat;
+  "oto/dispatcher": typeof oto_dispatcher;
+  "oto/envelope": typeof oto_envelope;
+  "oto/system_prompt": typeof oto_system_prompt;
+  "oto/tools": typeof oto_tools;
   payment_status_history: typeof payment_status_history;
   payments: typeof payments;
   preferences: typeof preferences;
@@ -278,6 +295,7 @@ declare const fullApi: ApiFromModules<{
   "vehicleEnrichment/adversarialVerification": typeof vehicleEnrichment_adversarialVerification;
   "vehicleEnrichment/anomalyDetection": typeof vehicleEnrichment_anomalyDetection;
   "vehicleEnrichment/applicabilityRules": typeof vehicleEnrichment_applicabilityRules;
+  "vehicleEnrichment/backfillNhtsaKey": typeof vehicleEnrichment_backfillNhtsaKey;
   "vehicleEnrichment/blockedDomains": typeof vehicleEnrichment_blockedDomains;
   "vehicleEnrichment/buildSearchQueries": typeof vehicleEnrichment_buildSearchQueries;
   "vehicleEnrichment/cacheValidation": typeof vehicleEnrichment_cacheValidation;
@@ -298,6 +316,7 @@ declare const fullApi: ApiFromModules<{
   "vehicleEnrichment/prompts/batch1bPrompt": typeof vehicleEnrichment_prompts_batch1bPrompt;
   "vehicleEnrichment/prompts/batch2Prompt": typeof vehicleEnrichment_prompts_batch2Prompt;
   "vehicleEnrichment/queries": typeof vehicleEnrichment_queries;
+  "vehicleEnrichment/runHeadless": typeof vehicleEnrichment_runHeadless;
   "vehicleEnrichment/runPublic": typeof vehicleEnrichment_runPublic;
   "vehicleEnrichment/runTest": typeof vehicleEnrichment_runTest;
   "vehicleEnrichment/scraper": typeof vehicleEnrichment_scraper;
@@ -326,6 +345,7 @@ declare const fullApi: ApiFromModules<{
   vehicle_pipeline: typeof vehicle_pipeline;
   vehicle_specs: typeof vehicle_specs;
   vehicles: typeof vehicles;
+  ymmtCatalog: typeof ymmtCatalog;
 }>;
 
 /**

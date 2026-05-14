@@ -121,7 +121,11 @@ export default function BookingHistoryScreen() {
                 />
               ) : (
                 <View style={styles.pickerIconBubble}>
-                  <Car size={16} color="#5299FE" strokeWidth={2} />
+                  <Image
+                    source={require("@/assets/images/covered-car.png")}
+                    style={{ width: 26, height: 18 }}
+                    resizeMode="contain"
+                  />
                 </View>
               )}
               <View style={styles.pickerLabelWrap}>
@@ -216,7 +220,11 @@ export default function BookingHistoryScreen() {
               }}
             >
               <View style={styles.vehicleRowIconBubble}>
-                <Car size={18} color="#5299FE" strokeWidth={2} />
+                <Image
+                  source={require("@/assets/images/covered-car.png")}
+                  style={{ width: 30, height: 20 }}
+                  resizeMode="contain"
+                />
               </View>
               <View style={styles.vehicleRowText}>
                 <Text size="md" weight="semiBold" color="#1F2937">

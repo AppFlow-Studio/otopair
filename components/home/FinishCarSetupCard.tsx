@@ -47,6 +47,15 @@ interface FinishCarSetupCardProps {
   isComplete?: boolean;
   onPress?: () => void;
   onDismiss?: () => void;
+  /** Display name of the car the card is currently representing
+   *  (e.g. "2024 Volkswagen Tiguan"). Shown as a subtitle so the
+   *  user knows which incomplete car the CTA is going to resume. */
+  vehicleLabel?: string;
+  /** When >1, the card represents the first of several incomplete
+   *  cars and pressing the CTA opens a picker. We surface the count
+   *  on the card so it doesn't look like there's only one car
+   *  waiting. */
+  vehicleCount?: number;
 }
 
 // Default checklist items
@@ -64,6 +73,8 @@ export function FinishCarSetupCard({
   isComplete = false,
   onPress,
   onDismiss,
+  vehicleLabel,
+  vehicleCount = 0,
 }: FinishCarSetupCardProps) {
   const router = useRouter();
 
@@ -122,8 +133,15 @@ export function FinishCarSetupCard({
         {/* Content */}
         <View style={styles.contentSection}>
           <Text weight="bold" size="xl" color="#141C24">
-            Finish Setting Up Your Car
+            {vehicleCount > 1 ? 'Finish Setting Up Your Cars' : 'Finish Setting Up Your Car'}
           </Text>
+          {(vehicleLabel || vehicleCount > 1) && (
+            <Text weight="semiBold" size="sm" color="#5299FE" style={styles.vehicleLabel}>
+              {vehicleCount > 1
+                ? `${vehicleCount} cars waiting · starting with ${vehicleLabel ?? 'first car'}`
+                : vehicleLabel}
+            </Text>
+          )}
           <Text size="sm" color="#6B7280" style={styles.subtitle}>
             Complete your setup to track services, get reminders, and find the best mechanics.
           </Text>
@@ -228,6 +246,9 @@ const styles = StyleSheet.create({
   subtitle: {
     marginTop: 8,
     lineHeight: 20,
+  },
+  vehicleLabel: {
+    marginTop: 6,
   },
   checklist: {
     gap: 12,

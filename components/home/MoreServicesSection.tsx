@@ -19,10 +19,10 @@ import { useRouter } from 'expo-router';
 import {
   AlertCircle,
   Battery,
+  LifeBuoy,
   ClipboardCheck,
   Droplet,
   Gauge,
-  LifeBuoy,
 } from 'lucide-react-native';
 
 // 3. Shared UI
@@ -109,10 +109,10 @@ export function MoreServicesSection() {
   const router = useRouter();
 
   const handleCardPress = (serviceId: string) => {
-    if (serviceId === 'tires') {
-      router.push('/(tire-booking)');
-      return;
-    }
+    // Tires is shown for visual completeness but its real entry point
+    // moved to the bookings service selector (Tire Replacement row).
+    // No-op here so the card doesn't lead anywhere from this surface.
+    if (serviceId === 'tires') return;
     router.push({ pathname: '/coming-soon', params: { service: serviceId } });
   };
 

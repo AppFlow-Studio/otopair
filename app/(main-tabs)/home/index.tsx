@@ -1,6 +1,7 @@
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Image, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
+import { ActivityIndicator, Image, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated from 'react-native-reanimated';
 
@@ -27,6 +28,8 @@ import { useAuthStore } from '@/stores/useAuthStore';
 import { useBookingStore } from '@/stores/useBookingStore';
 import { usePendingNavigationStore } from "@/stores/usePendingNavigationStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
+import { useNotificationsSheetStore } from "@/stores/useNotificationsSheetStore";
+import { useNotificationsFromConvex } from "@/hooks/useNotificationsFromConvex";
 import { useShallow } from 'zustand/react/shallow';
 import { useVehicleOwnershipFromConvex } from '@/hooks/useVehicleOwnershipFromConvex';
 import { fetchVehicleImageUrl } from '@/utils/vehicleImage';
@@ -112,7 +115,7 @@ export default function HomeScreen() {
   const { height } = useWindowDimensions();
   const router = useRouter();
   const { isNewUser, shouldShowReactivationSheet, setShouldShowReactivationSheet } = useAuthStore();
-  const { vehicles: listVehicles, hasVehicles } = useVehicleOwnershipFromConvex();
+  const { vehicles: listVehicles, hasVehicles, isLoading: vehiclesLoading } = useVehicleOwnershipFromConvex();
   const [showWelcome, setShowWelcome] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [locationName, setLocationName] = useState('Loading...');
@@ -163,6 +166,23 @@ export default function HomeScreen() {
     api.bookings.getByUserIdWithDetails,
     me?._id ? { userId: me._id } : "skip"
   );
+
+  // Hold a splash screen until the critical Convex queries — current
+  // user + vehicle ownership — have settled. Without this, the home
+  // page paints "no account / no car" defaults for a frame or two
+  // while individual queries arrive at different times, then snaps
+  // to the real state. We also enforce a small minimum hold (350ms)
+  // so the splash itself doesn't flash on fast cache-warm reloads.
+  const isCriticalDataLoading = me === undefined || vehiclesLoading;
+  const [splashHidden, setSplashHidden] = useState(false);
+  const splashStartedAtRef = useRef(Date.now());
+  useEffect(() => {
+    if (isCriticalDataLoading) return;
+    const elapsed = Date.now() - splashStartedAtRef.current;
+    const wait = Math.max(0, 350 - elapsed);
+    const t = setTimeout(() => setSplashHidden(true), wait);
+    return () => clearTimeout(t);
+  }, [isCriticalDataLoading]);
   const { selectedServiceIds, availableServices } = useBookingStore(
     useShallow((s) => ({ selectedServiceIds: s.selectedServiceIds, availableServices: s.availableServices }))
   );
@@ -196,8 +216,16 @@ export default function HomeScreen() {
   const resumeVehicleName = resumeVehicle ? `${resumeVehicle.make} ${resumeVehicle.model}` : undefined;
   const resumeVehicleImage = resumeVehicle?.imageSource;
 
-  // Account setup: hide when all checkable steps are done
-  const isAccountSetupComplete = !!(me?.onboardingCompleted && me?.tellUsAboutCompleted && hasVehicles);
+  // Account setup: hide when all checkable steps are done. Mirrors the
+  // per-step logic inside FinishAccountSetupCard:
+  //   - Create Account: signed-in user with name (covers OAuth signups
+  //     that skip the full onboarding flow)
+  //   - About You: tellUsAboutCompleted flag
+  //   - Add Car: at least one registered vehicle
+  //   - Payment Method: always considered complete
+  const hasCreateAccount = !!(me?.first_name && me?.last_name) || me?.onboardingCompleted === true;
+  const hasAboutYou = me?.tellUsAboutCompleted === true;
+  const isAccountSetupComplete = hasCreateAccount && hasAboutYou && hasVehicles;
   const showAccountSetup = !isAccountSetupComplete && !accountSetupDismissed;
 
   // Car setup: prefer incomplete vehicles, then completed-but-not-acknowledged.
@@ -237,6 +265,25 @@ export default function HomeScreen() {
       { id: 'vin', label: 'Add your Car with your VIN number', completed: !!o },
       { id: 'mileage', label: 'Answer Questions about your Service History', completed: !!o?.onboardingComplete },
     ];
+  }, [carSetupVehicle]);
+
+  // Display label for the Finish Setup card so the user knows which
+  // car they're about to resume — falls back to a nickname or the
+  // last 6 of the VIN when make/model are missing.
+  const carSetupVehicleLabel = useMemo(() => {
+    if (!carSetupVehicle) return undefined;
+    const v = carSetupVehicle.vehicle as
+      | { year?: number; metadata?: { make?: string; model?: string } }
+      | undefined;
+    const meta = v?.metadata;
+    const yearPart = v?.year ? String(v.year) : "";
+    const makeModel = [meta?.make, meta?.model].filter(Boolean).join(" ").trim();
+    const fromMeta = [yearPart, makeModel].filter(Boolean).join(" ").trim();
+    if (fromMeta) return fromMeta;
+    const nickname = carSetupVehicle.ownership?.nickname;
+    if (nickname) return nickname;
+    const vin = carSetupVehicle.vin;
+    return vin ? `VIN ${vin.slice(-6)}` : undefined;
   }, [carSetupVehicle]);
 
   useEffect(() => {
@@ -369,6 +416,13 @@ export default function HomeScreen() {
     router.push("/home/map");
   };
 
+  // Notifications bell — opens the global NotificationsSheet and
+  // surfaces an unread dot when the customer has pending outbox rows
+  // (e.g., a shop has just proposed a reschedule).
+  const openNotificationsSheet = useNotificationsSheetStore((s) => s.open);
+  const { unreadCount: notificationsUnreadCount } = useNotificationsFromConvex();
+  const hasUnreadNotifications = notificationsUnreadCount > 0;
+
   // When returning from map modal with "Add vehicle" tapped: navigate to cars tab
   const pendingNavigateToCars = usePendingNavigationStore((s) => s.pendingNavigateToCars);
   const setPendingNavigateToCars = usePendingNavigationStore((s) => s.setPendingNavigateToCars);
@@ -477,6 +531,18 @@ export default function HomeScreen() {
     }
   };
 
+  if (!splashHidden) {
+    return (
+      <ScrollDrivenGradientBackground colors={["#5BA3D9", "#8FC4E8", "#d9e8f5"]}>
+        {() => (
+          <View style={styles.splashContainer}>
+            <ActivityIndicator size="large" color="#FFFFFF" />
+          </View>
+        )}
+      </ScrollDrivenGradientBackground>
+    );
+  }
+
   return (
     <>
     <ScrollDrivenGradientBackground colors={["#5BA3D9", "#8FC4E8", "#d9e8f5"]}>
@@ -524,7 +590,7 @@ export default function HomeScreen() {
                 >
                   {isLiquidGlassEnabled && LiquidGlassView ? (
                     <LiquidGlassView interactive effect="clear" style={styles.liquidGlassIcon}>
-                      <Trophy size={22} color="#000000" fill="none" strokeWidth={2} />
+                      <Trophy size={22} color="#6B7280" fill="none" strokeWidth={2} />
                     </LiquidGlassView>
                   ) : (
                     <View style={styles.glassContainer}>
@@ -536,7 +602,7 @@ export default function HomeScreen() {
                           end={{ x: 0.5, y: 0.5 }}
                           style={styles.glassGloss}
                         />
-                        <Trophy size={22} color="#000000" fill="none" strokeWidth={2} />
+                        <Trophy size={22} color="#6B7280" fill="none" strokeWidth={2} />
                       </BlurView>
                     </View>
                   )}
@@ -544,13 +610,16 @@ export default function HomeScreen() {
 
                 {/* Notification Bell */}
                 <Pressable
+                  onPress={openNotificationsSheet}
                   style={({ pressed }) => [styles.bellButton, pressed && styles.bellButtonPressed]}
+                  accessibilityRole="button"
+                  accessibilityLabel="Notifications"
                 >
                   {isLiquidGlassEnabled && LiquidGlassView ? (
                     <LiquidGlassView interactive effect="clear" style={styles.liquidGlassIcon}>
                       <View style={styles.bellIconContainer}>
-                        <Bell size={22} color="#000000" fill="none" strokeWidth={2} />
-                        <View style={styles.bellDot} />
+                        <Bell size={22} color="#6B7280" fill="none" strokeWidth={2} />
+                        {hasUnreadNotifications ? <View style={styles.bellDot} /> : null}
                       </View>
                     </LiquidGlassView>
                   ) : (
@@ -564,8 +633,8 @@ export default function HomeScreen() {
                           style={styles.glassGloss}
                         />
                         <View style={styles.bellIconContainer}>
-                          <Bell size={22} color="#000000" fill="none" strokeWidth={2} />
-                          <View style={styles.bellDot} />
+                          <Bell size={22} color="#6B7280" fill="none" strokeWidth={2} />
+                          {hasUnreadNotifications ? <View style={styles.bellDot} /> : null}
                         </View>
                       </BlurView>
                     </View>
@@ -612,6 +681,8 @@ export default function HomeScreen() {
                   showCarSetup={showCarSetup}
                   carSetupChecklist={carSetupChecklist}
                   isCarSetupDone={isCarSetupDone}
+                  carSetupVehicleLabel={carSetupVehicleLabel}
+                  carSetupVehicleCount={incompleteVehicles.length}
                   onCarSetupPress={() => {
                     const o = carSetupVehicle?.ownership;
                     if (isCarSetupDone) {
@@ -789,6 +860,11 @@ const styles = StyleSheet.create({
   // Main home screen styles
   container: {
     flex: 1,
+  },
+  splashContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
   scrollView: {
     flex: 1,

@@ -27,6 +27,7 @@ import React from "react";
 import { Modal, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
+import { BlurView } from "expo-blur";
 import { Trash2 } from "lucide-react-native";
 
 // 3. Shared UI (design system)
@@ -58,6 +59,7 @@ export function DiscardServiceModal({ visible, onClose, onConfirm, onDontAskAgai
   return (
     <Modal visible={visible} transparent animationType="fade" statusBarTranslucent onRequestClose={onClose}>
       <View style={styles.overlay}>
+        <BlurView intensity={28} tint="dark" style={StyleSheet.absoluteFill} pointerEvents="none" />
         <View style={styles.container}>
           {/* Icon */}
           <View style={styles.iconContainer}>
@@ -108,7 +110,7 @@ export function DiscardServiceModal({ visible, onClose, onConfirm, onDontAskAgai
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    backgroundColor: "rgba(0, 0, 0, 0.18)",
     justifyContent: "center",
     alignItems: "center",
     paddingHorizontal: Spacing["2xl"],

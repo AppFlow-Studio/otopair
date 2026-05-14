@@ -39,7 +39,7 @@ export const TierInfoSheet = forwardRef<TierInfoSheetRef>((_, ref) => {
   const tier = tierId ? TIRE_TIERS.find((t) => t.id === tierId) ?? null : null;
 
   return (
-    <FloatingSheet ref={sheetRef} snapHeights={[Math.min(SCREEN_HEIGHT * 0.5, 380)]}>
+    <FloatingSheet ref={sheetRef} snapHeights={[Math.min(SCREEN_HEIGHT * 0.5, 380)]} showBackdrop>
       {tier ? (
         <View style={styles.content}>
           <Text size="xl" weight="bold" color="#1A1A1A" style={styles.title}>

@@ -14,7 +14,8 @@ import React, { forwardRef, useCallback, useImperativeHandle, useMemo, useRef, u
 import { ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
-import { BottomSheetBackdrop, BottomSheetModal, BottomSheetScrollView } from "@gorhom/bottom-sheet";
+import { BottomSheetModal, BottomSheetScrollView } from "@gorhom/bottom-sheet";
+import { BlurBackdrop } from "@/components/shared-ui/BlurBackdrop";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 3. Shared UI (design system)
@@ -125,7 +126,7 @@ export const AddMoreServicesSheet = forwardRef<AddMoreServicesSheetRef, AddMoreS
 
     // ═══════════════ RENDER HELPERS ═══════════════
     const renderBackdrop = useCallback(
-      (props: any) => <BottomSheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} opacity={0.5} />,
+      (props: any) => <BlurBackdrop {...props} />,
       [],
     );
 

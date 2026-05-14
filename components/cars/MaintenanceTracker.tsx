@@ -31,6 +31,19 @@ import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Circle } from 'react-native-svg';
+
+// Native iOS 26 liquid-glass for the "Update Info" button. Falls back
+// gracefully on iOS < 26 / Android / Expo Go to the BlurView + gradient
+// chrome below.
+let LiquidGlassView: React.ComponentType<any> | null = null;
+let isLiquidGlassEnabled = false;
+try {
+  const lg = require('@callstack/liquid-glass');
+  LiquidGlassView = lg.LiquidGlassView;
+  isLiquidGlassEnabled = !!lg.isLiquidGlassSupported;
+} catch {
+  // Native module unavailable — fallback chrome will render.
+}
 import Animated, {
   Easing as REasing,
   useAnimatedStyle,
@@ -79,6 +92,9 @@ interface MaintenanceTrackerProps {
   onBookNow?: (id: string) => void;
   onAddInfo?: (id: string) => void;
   onEditPressed?: () => void;
+  /** Parent has determined the page bg is dark enough that the
+   *  "Maintenance Tracker" header must flip to light to stay readable. */
+  isDarkBg?: boolean;
 }
 
 // ============================================================================
@@ -378,7 +394,7 @@ function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBo
 // HEALTHY ITEMS SECTION (expandable)
 // ============================================================================
 
-function HealthySection({ items }: { items: MaintenanceItem[] }) {
+function HealthySection({ items, isDarkBg = false }: { items: MaintenanceItem[]; isDarkBg?: boolean }) {
   const [expanded, setExpanded] = useState(false);
   const chevronRotation = useSharedValue(0);
 
@@ -398,7 +414,13 @@ function HealthySection({ items }: { items: MaintenanceItem[] }) {
       <Pressable onPress={toggle} style={({ pressed }) => pressed && { opacity: 0.7 }}>
         <View style={summaryStyles.headerRow}>
           <View style={summaryStyles.dot} />
-          <Text weight="semiBold" style={summaryStyles.headerText}>
+          <Text
+            weight="semiBold"
+            style={[
+              summaryStyles.headerText,
+              isDarkBg && summaryStyles.headerTextOnDark,
+            ]}
+          >
             {items.length} {items.length === 1 ? 'item' : 'items'} healthy
           </Text>
           <Animated.View style={chevronStyle}>
@@ -434,7 +456,7 @@ function HealthySection({ items }: { items: MaintenanceItem[] }) {
 // COMPONENT
 // ============================================================================
 
-export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, onBookNow, onAddInfo, onEditPressed }: MaintenanceTrackerProps) {
+export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, onBookNow, onAddInfo, onEditPressed, isDarkBg = false }: MaintenanceTrackerProps) {
   const [selectedItem, setSelectedItem] = useState<MaintenanceItem | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
 
@@ -468,23 +490,34 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
     <View style={styles.container}>
       {/* Section Header */}
       <View style={styles.headerRow}>
-        <Text weight="bold" color="#0F172A" style={{ fontSize: moderateScale(22) }}>
+        <Text weight="bold" color={isDarkBg ? "#FFFFFF" : "#0F172A"} style={{ fontSize: moderateScale(22) }}>
           Maintenance Tracker
         </Text>
         {onEditPressed && (
-          <Pressable onPress={onEditPressed} style={({ pressed }) => [styles.editHeaderButton, pressed && { opacity: 0.7 }]}>
-            <BlurView intensity={40} tint="light" style={StyleSheet.absoluteFill} />
-            <LinearGradient
-              colors={['rgba(255,255,255,0.35)', 'rgba(255,255,255,0.25)']}
-              style={StyleSheet.absoluteFill}
-            />
-            <LinearGradient
-              colors={['rgba(255,255,255,0.55)', 'rgba(255,255,255,0.15)', 'rgba(255,255,255,0)']}
-              locations={[0, 0.35, 0.7]}
-              style={styles.editButtonGloss}
-            />
-            <Text weight="bold" style={styles.editHeaderButtonText}>Update Info</Text>
-          </Pressable>
+          isLiquidGlassEnabled && LiquidGlassView ? (
+            // Native iOS 26 liquid glass — Pressable carries no chrome
+            // so the glass effect renders pure. Matches the Oto pill on
+            // the AI chat header.
+            <Pressable onPress={onEditPressed} style={({ pressed }) => pressed && { opacity: 0.7 }}>
+              <LiquidGlassView interactive effect="regular" style={styles.editHeaderButtonGlass}>
+                <Text weight="bold" style={styles.editHeaderButtonText}>Update Info</Text>
+              </LiquidGlassView>
+            </Pressable>
+          ) : (
+            <Pressable onPress={onEditPressed} style={({ pressed }) => [styles.editHeaderButton, pressed && { opacity: 0.7 }]}>
+              <BlurView intensity={40} tint="light" style={StyleSheet.absoluteFill} />
+              <LinearGradient
+                colors={['rgba(255,255,255,0.35)', 'rgba(255,255,255,0.25)']}
+                style={StyleSheet.absoluteFill}
+              />
+              <LinearGradient
+                colors={['rgba(255,255,255,0.55)', 'rgba(255,255,255,0.15)', 'rgba(255,255,255,0)']}
+                locations={[0, 0.35, 0.7]}
+                style={styles.editButtonGloss}
+              />
+              <Text weight="bold" style={styles.editHeaderButtonText}>Update Info</Text>
+            </Pressable>
+          )
         )}
       </View>
 
@@ -543,7 +576,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
           )}
 
           {/* Healthy items (expandable) */}
-          <HealthySection items={healthyItems} />
+          <HealthySection items={healthyItems} isDarkBg={isDarkBg} />
         </>
       )}
 
@@ -619,6 +652,14 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.06,
     shadowRadius: 6,
     elevation: 2,
+  },
+  // Liquid-glass variant: no background, no border, no shadow — just
+  // the radius + padding for the LiquidGlassView to wrap around. iOS 26
+  // does the entire chrome natively.
+  editHeaderButtonGlass: {
+    borderRadius: moderateScale(15),
+    paddingVertical: scale(7),
+    paddingHorizontal: scale(14),
   },
   editButtonGloss: {
     position: 'absolute',
@@ -786,6 +827,11 @@ const summaryStyles = StyleSheet.create({
     flex: 1,
     fontSize: moderateScale(15),
     color: '#2d3435',
+  },
+  // Used by HealthySection when the page bg is dark — keeps the
+  // "N items healthy" label readable on saturated/dark gradients.
+  headerTextOnDark: {
+    color: '#FFFFFF',
   },
   card: {
     marginHorizontal: scale(20),
