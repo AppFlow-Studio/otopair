@@ -137,6 +137,7 @@ export function VehicleMaintenanceCard({
   const [currentIndex, setCurrentIndex] = useState(0);
   const [backIndex, setBackIndex] = useState(vehicles.length > 1 ? 1 : 0);
   const [fetchedImageUrls, setFetchedImageUrls] = useState<Record<string, string>>({});
+  const [measuredHeights, setMeasuredHeights] = useState<Record<string, number>>({});
 
   // Animated values for the front card
   const translateX = useSharedValue(0);
@@ -235,10 +236,29 @@ export function VehicleMaintenanceCard({
         <View style={styles.topSectionInner}>
           <View style={styles.vehicleInfoSection}>
             <View style={styles.vehicleTextInfo}>
-              <Text weight="bold" size="xl" color="#1F2937" style={styles.vehicleName}>
+              <Text
+                weight="bold"
+                size="xl"
+                color="#1F2937"
+                lineHeight={1.25}
+                numberOfLines={2}
+                adjustsFontSizeToFit
+                minimumFontScale={0.82}
+                ellipsizeMode="clip"
+                style={styles.vehicleName}
+              >
                 {vehicle.name}
               </Text>
-              <Text size="sm" color="#9CA3AF" style={styles.vin}>
+              <Text
+                size="sm"
+                color="#9CA3AF"
+                lineHeight={1.25}
+                numberOfLines={1}
+                adjustsFontSizeToFit
+                minimumFontScale={0.68}
+                ellipsizeMode="clip"
+                style={styles.vin}
+              >
                 {vehicle.vin}
               </Text>
             </View>
@@ -300,7 +320,20 @@ export function VehicleMaintenanceCard({
 
   const frontVehicle = vehicles[currentIndex];
   const canSwipe = vehicles.length > 1;
-  const [cardHeight, setCardHeight] = useState<number | undefined>(undefined);
+  const resolvedCardHeight = (() => {
+    const heights = Object.values(measuredHeights);
+    if (heights.length === 0) return undefined;
+    return Math.max(...heights);
+  })();
+
+  const handleMeasureCard = (vehicleId: string, height: number) => {
+    setMeasuredHeights((prev) => {
+      if (prev[vehicleId] === height) {
+        return prev;
+      }
+      return { ...prev, [vehicleId]: height };
+    });
+  };
 
   return (
     <View style={styles.container}>
@@ -315,6 +348,19 @@ export function VehicleMaintenanceCard({
         onTouchEnd={() => onSwipeEnd?.()}
         onTouchCancel={() => onSwipeEnd?.()}
       >
+        {/* Pre-measure every card so the section keeps a stable height. */}
+        <View style={styles.measurementLayer} pointerEvents="none">
+          {vehicles.map((vehicle) => (
+            <View
+              key={`measure-${vehicle.id}`}
+              style={styles.measurementCard}
+              onLayout={(e) => handleMeasureCard(vehicle.id, e.nativeEvent.layout.height)}
+            >
+              {renderCardContent(vehicle)}
+            </View>
+          ))}
+        </View>
+
         {/* Stacked card behind */}
         {canSwipe && (
           <View style={styles.stackedCard}>
@@ -332,8 +378,8 @@ export function VehicleMaintenanceCard({
         )}
 
         {/* Card area */}
-        <View style={[styles.swiperContainer, cardHeight ? { height: cardHeight } : undefined]}>
-          {/* Back card — absolute, behind front card */}
+        <View style={[styles.swiperContainer, resolvedCardHeight ? { height: resolvedCardHeight } : undefined]}>
+          {/* Back card preview */}
           {canSwipe && (
             <View style={styles.backCard}>
               {renderCardContent(vehicles[backIndex], 1)}
@@ -343,17 +389,12 @@ export function VehicleMaintenanceCard({
           {/* Front card */}
           {canSwipe ? (
             <GestureDetector gesture={panGesture}>
-              <Animated.View
-                style={frontCardStyle}
-                onLayout={(e) => setCardHeight(e.nativeEvent.layout.height)}
-              >
+              <Animated.View style={frontCardStyle}>
                 {renderCardContent(frontVehicle)}
               </Animated.View>
             </GestureDetector>
           ) : (
-            <View onLayout={(e) => setCardHeight(e.nativeEvent.layout.height)}>
-              {renderCardContent(frontVehicle)}
-            </View>
+            renderCardContent(frontVehicle)
           )}
         </View>
       </View>
@@ -376,6 +417,19 @@ const styles = StyleSheet.create({
   swiperWrapper: {
     position: 'relative',
     paddingTop: 10,
+  },
+  measurementLayer: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    top: 0,
+    opacity: 0,
+    zIndex: -1,
+  },
+  measurementCard: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
   },
   stackedCard: {
     position: 'absolute',
@@ -403,14 +457,18 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.7)',
   },
   swiperContainer: {
+    position: 'relative',
     zIndex: 1,
+    overflow: 'visible',
   },
   backCard: {
     position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
+    top: -8,
+    left: 12,
+    right: 12,
+    zIndex: 0,
+    opacity: 0.9,
+    transform: [{ scale: 0.98 }],
   },
   card: {
     borderRadius: 12,
@@ -462,9 +520,11 @@ const styles = StyleSheet.create({
   },
   vehicleName: {
     marginBottom: 4,
+    minHeight: 50,
   },
   vin: {
     letterSpacing: 0.5,
+    flexShrink: 1,
   },
   vehicleImage: {
     width: 140,

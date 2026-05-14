@@ -13,7 +13,7 @@
  */
 
 import React, { useMemo, useRef } from "react";
-import { Image, Pressable, StyleSheet, View } from "react-native";
+import { Image, Platform, Pressable, StatusBar, StyleSheet, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useQuery } from "convex/react";
 import { useShallow } from "zustand/react/shallow";
@@ -44,6 +44,9 @@ export function ProfileInitialsButton() {
   const open = useSettingsOverlayStore((s) => s.open);
   const isOpen = useSettingsOverlayStore((s) => s.isOpen);
 
+  const modalWindowOffsetY =
+    Platform.OS === "android" ? (StatusBar.currentHeight ?? 0) : 0;
+
   const initials = useMemo(
     () =>
       computeInitials({
@@ -69,51 +72,64 @@ export function ProfileInitialsButton() {
     // Ignore taps while the overlay is already open / animating in.
     if (isOpen) return;
     viewRef.current?.measureInWindow((x, y, width, height) => {
-      open({ x, y, width, height });
+      if (!Number.isFinite(x) || !Number.isFinite(y) || width <= 0 || height <= 0) {
+        return;
+      }
+      open({ x, y: y + modalWindowOffsetY, width, height });
     });
   };
 
   return (
-    <Pressable
+    <View
       ref={viewRef}
-      onPress={handlePress}
-      style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
-      hitSlop={6}
+      collapsable={false}
+      pointerEvents={isOpen ? "none" : "auto"}
+      style={[styles.measureWrap, isOpen && styles.hiddenWrap]}
     >
-      {photoUri ? (
-        <Image source={{ uri: photoUri }} style={styles.image} />
-      ) : (
-        <LinearGradient
-          colors={["#5299FE", "#C5DAFF"]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 1, y: 1 }}
-          style={styles.placeholder}
-        >
-          <AvatarSlider
-            size={BUTTON_SIZE}
-            panels={[
-              <Text
-                weight="semiBold"
-                size="sm"
-                color="#FFFFFF"
-                style={styles.text}
-              >
-                {initials}
-              </Text>,
-              <Image
-                source={OTO_LOGO_3D}
-                style={{ width: 38, height: 38 }}
-                resizeMode="contain"
-              />,
-            ]}
-          />
-        </LinearGradient>
-      )}
-    </Pressable>
+      <Pressable
+        onPress={handlePress}
+        style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
+        hitSlop={6}
+      >
+        {photoUri ? (
+          <Image source={{ uri: photoUri }} style={styles.image} />
+        ) : (
+          <LinearGradient
+            colors={["#5299FE", "#C5DAFF"]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={styles.placeholder}
+          >
+            <AvatarSlider
+              size={BUTTON_SIZE}
+              panels={[
+                <Text
+                  key="initials"
+                  weight="semiBold"
+                  size="sm"
+                  color="#FFFFFF"
+                  style={styles.text}
+                >
+                  {initials}
+                </Text>,
+                <OtoPairIcon key="logo" size={26} />,
+              ]}
+            />
+          </LinearGradient>
+        )}
+      </Pressable>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  measureWrap: {
+    width: BUTTON_SIZE,
+    height: BUTTON_SIZE,
+  },
+  hiddenWrap: {
+    opacity: 0,
+  },
   button: {
     width: BUTTON_SIZE,
     height: BUTTON_SIZE,

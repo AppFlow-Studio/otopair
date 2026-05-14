@@ -1,5 +1,6 @@
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Image, Pressable, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { ActivityIndicator, Image, Pressable, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated from 'react-native-reanimated';
@@ -111,6 +112,7 @@ function formatBookingTime(timeStr: string): string {
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
+  const { height } = useWindowDimensions();
   const router = useRouter();
   const { isNewUser, shouldShowReactivationSheet, setShouldShowReactivationSheet } = useAuthStore();
   const { vehicles: listVehicles, hasVehicles, isLoading: vehiclesLoading } = useVehicleOwnershipFromConvex();
@@ -130,7 +132,11 @@ export default function HomeScreen() {
   // Reactivation bottom sheet (from temur-dev)
   const sheetRef = useRef<BottomSheetModal>(null);
   const hasPresentedReactivationRef = useRef(false);
-  const snapPoints = useMemo(() => ["42%"], []);
+  const reactivationSheetHeight = useMemo(() => {
+    const maxHeight = Math.max(height - insets.top - 72, 320);
+    return Math.min(Math.max(height * 0.5, 400), maxHeight);
+  }, [height, insets.top]);
+  const snapPoints = useMemo(() => [reactivationSheetHeight], [reactivationSheetHeight]);
 
   const renderBackdrop = useCallback(
     (props: BottomSheetBackdropProps) => (
@@ -562,7 +568,14 @@ export default function HomeScreen() {
                   <Text size="xl" color="#FFFFFF" weight="bold">
                     Otopair
                   </Text>
-                  <Text weight="semiBold" size="sm" color="#FFFFFF">
+                  <Text
+                    weight="semiBold"
+                    size="sm"
+                    color="#FFFFFF"
+                    numberOfLines={1}
+                    ellipsizeMode="tail"
+                    style={styles.locationLabel}
+                  >
                     {locationName}
                   </Text>
                 </View>
@@ -878,6 +891,12 @@ const styles = StyleSheet.create({
     gap: 0,
     marginTop: -7,
     marginLeft: 12,
+    flex: 1,
+    minWidth: 0,
+    paddingRight: 12,
+  },
+  locationLabel: {
+    flexShrink: 1,
   },
   headerRight: {
     flexDirection: "row",
