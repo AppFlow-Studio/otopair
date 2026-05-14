@@ -20,8 +20,10 @@ import { useShallow } from "zustand/react/shallow";
 
 import { Text } from "@/components/shared-ui";
 import { AvatarSlider } from "@/components/settings/AvatarSlider";
-import { OtoPairIcon } from "@/components/icons/oto-pair";
 import { api } from "@/convex/_generated/api";
+
+// 3D OtoPair pin logo used as the second avatar-slider panel.
+const OTO_LOGO_3D = require("@/assets/images/pin-logo-3d.png");
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import { useSettingsOverlayStore } from "@/stores/useSettingsOverlayStore";
 import { computeInitials } from "@/utils/userInitials";

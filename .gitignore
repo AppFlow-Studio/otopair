@@ -63,3 +63,6 @@ _generated/api.js
 _generated/dataModel.d.ts
 _generated/server.d.ts
 _generated/server.js
+
+# Local backup archives — not for the repo
+*.zip

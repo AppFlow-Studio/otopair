@@ -283,6 +283,7 @@ export default function RootLayout() {
                     <Stack.Screen name="(onboarding)" options={{ headerShown: false }} />
                     <Stack.Screen name="(main-tabs)" options={{ headerShown: false }} />
                     <Stack.Screen name="(tell-us-about)" options={{ headerShown: false }} />
+                    <Stack.Screen name="(tire-booking)" options={{ headerShown: false }} />
                     <Stack.Screen
                       name="coming-soon"
                       options={{

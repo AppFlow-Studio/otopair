@@ -18,6 +18,7 @@ import { ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
 import { BottomSheetScrollView } from "@gorhom/bottom-sheet";
+import { useRouter } from "expo-router";
 
 // 3. Shared UI (design system)
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
@@ -27,6 +28,13 @@ import { BorderRadius } from "@/constants/theme";
 import type { Service, ServiceCategory } from "@/stores/types/store.types";
 import { useBookingStore } from "@/stores/useBookingStore";
 
+/** Service NAME (not id) that hands off to the dedicated Shop Tires
+ *  flow instead of being toggled like a regular line-item. We match by
+ *  name because the mock catalog uses `svc_tire_replacement` while the
+ *  Convex-hydrated catalog uses opaque doc ids — name is the stable
+ *  identifier across both. */
+const SHOP_TIRES_SERVICE_NAME = "Tire Replacement";
+
 // ============================================================================
 // TYPES
 // ============================================================================
@@ -34,14 +42,21 @@ import { useBookingStore } from "@/stores/useBookingStore";
 interface ServiceSelectionContentProps {
   /** Called when a category tab is tapped (to expand sheet if minimized) */
   onCategorySelect?: () => void;
+  /** Called when the user picks Tire Replacement — the parent should
+   *  close the bottom sheet (so it doesn't obscure the new screen) and
+   *  hand off to the Shop Tires flow. If omitted, this component falls
+   *  back to a direct router.push, which works but leaves the sheet
+   *  visible over the new screen. */
+  onShopTiresRequested?: () => void;
 }
 
 // ============================================================================
 // COMPONENT
 // ============================================================================
 
-export function ServiceSelectionContent({ onCategorySelect }: ServiceSelectionContentProps) {
+export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested }: ServiceSelectionContentProps) {
   // ═══════════════ HOOKS ═══════════════
+  const router = useRouter();
 
   // ═══════════════ STATE-EFFECT: Local State ═══════════════
   const [selectedCategory, setSelectedCategory] = useState<ServiceCategory>("basic_maintenance");
@@ -60,9 +75,22 @@ export function ServiceSelectionContent({ onCategorySelect }: ServiceSelectionCo
   // ═══════════════ STATE-EFFECT: Handlers ═══════════════
   const handleServicePress = useCallback(
     (serviceId: string) => {
+      // Tire Replacement hands off to the dedicated Shop Tires flow
+      // (per-wheel picker + size + type + quality tier) instead of
+      // being toggled as a line-item. The flow reads the active vehicle
+      // from useVehicleStore on mount, so nothing to pass.
+      const service = availableServices.find((s) => s.id === serviceId);
+      if (service?.name === SHOP_TIRES_SERVICE_NAME) {
+        if (onShopTiresRequested) {
+          onShopTiresRequested();
+        } else {
+          router.push("/(tire-booking)");
+        }
+        return;
+      }
       toggleServiceSelection(serviceId);
     },
-    [toggleServiceSelection],
+    [toggleServiceSelection, router, availableServices, onShopTiresRequested],
   );
 
   const handleCategorySelect = useCallback(

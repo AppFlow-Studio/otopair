@@ -40,6 +40,7 @@ import { Chip, Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { TierInfoSheet, type TierInfoSheetRef } from "@/components/tire-booking/TierInfoSheet";
 import { VehicleTireSelector3D } from "@/components/tire-booking/VehicleTireSelector3D";
+import TireRequestingScreen from "@/app/(tire-booking)/requesting";
 import {
   DEFAULT_OEM_SIZES,
   MOCK_OEM_SIZES_BY_MAKE,
@@ -58,7 +59,19 @@ const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 // SCREEN
 // ============================================================================
 
-export default function TireBookingScreen() {
+interface TireBookingScreenProps {
+  /** When provided, the back chevron calls this instead of router.back().
+   *  Used when this screen is embedded as a Modal from
+   *  ServiceBottomSheet (router.push to (tire-booking) wasn't
+   *  navigating reliably from inside the sheet, so we embed instead). */
+  onClose?: () => void;
+  /** Bubbled up to TireRequestingScreen so the parent (which lives in
+   *  the real screen tree, not inside the Modal) handles the booking
+   *  confirmation + navigation. */
+  onConfirmed?: () => void;
+}
+
+export default function TireBookingScreen({ onClose, onConfirmed }: TireBookingScreenProps = {}) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
@@ -131,9 +144,13 @@ export default function TireBookingScreen() {
   // ── Handlers ───────────────────────────────────────────────────────────────
   const handleBack = useCallback(() => {
     resetTireStore();
+    if (onClose) {
+      onClose();
+      return;
+    }
     if (router.canGoBack()) router.back();
     else router.replace("/(main-tabs)/home");
-  }, [router, resetTireStore]);
+  }, [router, resetTireStore, onClose]);
 
   const handlePickVehicle = useCallback(
     (id: string) => {
@@ -152,23 +169,26 @@ export default function TireBookingScreen() {
     [toggleTirePosition],
   );
 
+  // Modal mode: swap to the requesting view inline instead of pushing a
+  // new route (router.push from inside the parent Modal doesn't navigate
+  // reliably). Route mode keeps the original push-based flow.
+  const [showRequestingInline, setShowRequestingInline] = useState(false);
+
   const handleGetQuotes = useCallback(() => {
-    // Spinner ON first — immediate tactile feedback for the user.
     setIsSubmitting(true);
     Haptics.selectionAsync();
-
-    // Defer the heavy work by one animation frame so React renders the
-    // spinner before the screen transition begins. Otherwise setState gets
-    // batched with the sync router.push and the spinner never paints.
     requestAnimationFrame(() => {
-      // Stream mock shop responses into the tire store for the background
-      // ticking animation (kept while real responses ramp up via the website).
-      // The booking record itself is NOT created here — that happens when
-      // the user taps Confirm on the requesting sheet.
       void fireRequest();
-      router.push("/(tire-booking)/requesting");
+      if (onClose) {
+        // Modal mode — render requesting inline. Reset spinner so it
+        // doesn't visually hang on the now-hidden config screen.
+        setIsSubmitting(false);
+        setShowRequestingInline(true);
+      } else {
+        router.push("/(tire-booking)/requesting");
+      }
     });
-  }, [fireRequest, router]);
+  }, [fireRequest, router, onClose]);
 
   // ── Derived ────────────────────────────────────────────────────────────────
   const selectedCount = selectedTirePositions.length;
@@ -190,6 +210,11 @@ export default function TireBookingScreen() {
     // enabled CTA is a plain action label rather than a price-range preview.
     return "Get Quotes";
   })();
+
+  // Modal mode after Get Quotes: render the requesting screen inline.
+  if (showRequestingInline && onClose) {
+    return <TireRequestingScreen onClose={onClose} onConfirmed={onConfirmed} />;
+  }
 
   return (
     <View style={styles.screen}>

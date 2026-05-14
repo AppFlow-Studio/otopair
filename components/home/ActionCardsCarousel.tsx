@@ -76,6 +76,11 @@ interface ActionCardsCarouselProps {
   showCarSetup?: boolean;
   isCarSetupDone?: boolean;
   carSetupChecklist?: { id: string; label: string; completed: boolean }[];
+  /** Name of the car the Finish Setup card is referring to. */
+  carSetupVehicleLabel?: string;
+  /** Number of cars still pending setup — when >1 the CTA opens a
+   *  picker so the user can choose which one to resume. */
+  carSetupVehicleCount?: number;
   onCarSetupPress?: () => void;
   onCarSetupDismiss?: () => void;
 
@@ -118,6 +123,8 @@ export function ActionCardsCarousel({
   showCarSetup = true,
   isCarSetupDone = false,
   carSetupChecklist,
+  carSetupVehicleLabel,
+  carSetupVehicleCount,
   onCarSetupPress,
   onCarSetupDismiss,
 
@@ -207,6 +214,8 @@ export function ActionCardsCarousel({
               isComplete={isCarSetupDone}
               onPress={onCarSetupPress}
               onDismiss={onCarSetupDismiss}
+              vehicleLabel={carSetupVehicleLabel}
+              vehicleCount={carSetupVehicleCount}
             />
           </View>
         );

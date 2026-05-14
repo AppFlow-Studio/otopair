@@ -66,6 +66,8 @@ interface LoyaltyPointsProps {
   nextTier?: string;
   maxPoints?: number;
   onViewFullPage?: () => void;
+  /** Page bg is dark — flip the section header to white. */
+  isDarkBg?: boolean;
 }
 
 // Milestone markers on the progress bar
@@ -83,6 +85,7 @@ export function LoyaltyPoints({
   nextTier = 'Platinum',
   maxPoints = 500,
   onViewFullPage,
+  isDarkBg = false,
 }: LoyaltyPointsProps) {
   const [modalVisible, setModalVisible] = useState(false);
   const [layoutInfo, setLayoutInfo] = useState<LayoutInfo | null>(null);
@@ -143,7 +146,7 @@ export function LoyaltyPoints({
     <View style={styles.container}>
       {/* Section Header */}
       <View style={styles.sectionHeader}>
-        <Text weight="semiBold" size="lg" color={Colors.light.text}>
+        <Text weight="semiBold" size="lg" color={isDarkBg ? "#FFFFFF" : Colors.light.text}>
           Loyalty Points
         </Text>
       </View>

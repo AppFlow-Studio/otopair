@@ -63,7 +63,7 @@ export const FinishCarSetupPickerSheet = forwardRef<FinishCarSetupPickerSheetRef
     };
 
     return (
-      <FloatingSheet ref={sheetRef} snapHeights={[sheetHeight]}>
+      <FloatingSheet ref={sheetRef} snapHeights={[sheetHeight]} showBackdrop>
         <View style={styles.content}>
           <Text size="lg" weight="bold" color="#1A1A1A" style={styles.title}>
             Which car?
@@ -83,7 +83,11 @@ export const FinishCarSetupPickerSheet = forwardRef<FinishCarSetupPickerSheetRef
                   {v.imageUrl ? (
                     <Image source={{ uri: v.imageUrl }} style={styles.thumbImage} resizeMode="contain" />
                   ) : (
-                    <Car size={22} color="#9CA3AF" />
+                    <Image
+                      source={require("@/assets/images/covered-car.png")}
+                      style={{ width: 36, height: 22 }}
+                      resizeMode="contain"
+                    />
                   )}
                 </View>
                 <View style={styles.text}>

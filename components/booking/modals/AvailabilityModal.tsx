@@ -136,7 +136,12 @@ export function AvailabilityModal({ visible, mechanicId, shopId, onClose, onConf
 
   const effectiveShopId =
     shopId ?? shopMechanics[0]?.shopId ?? (mechanicId ? getMechanicById(mechanicId)?.shopId : null);
-  const effectiveMechanicId = selectedMechanicId ?? shopMechanics[0]?.id ?? mechanicId;
+  // When the user explicitly picked "Any mechanic" (selectedMechanicId === null)
+  // we keep it null so the downstream Convex queries omit `mechanic_id` and
+  // return the shop-wide UNION of every mechanic's open slots. A prior
+  // `?? shopMechanics[0]?.id` fallback collapsed "Any" → the first mechanic,
+  // making "Any" and a specific pick return identical slot lists.
+  const effectiveMechanicId = selectedMechanicId ?? mechanicId ?? undefined;
 
   // ═══════════════ CONVEX: calendar availability (Available / Booked highlighting) ═══════════════
   const convexCalendar = useCalendarAvailabilityForShop(

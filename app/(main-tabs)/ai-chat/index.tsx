@@ -83,9 +83,20 @@ import { formatMake } from "@/utils/formatMake";
 import { createInitialState, processUserMessage, WELCOME_SUGGESTIONS } from "@/services/ai/scenarioEngine";
 import type { ConversationState, ChatMessage, AIMechanic, SelectedService } from "@/services/ai/types";
 
+// Oto AI minimal end-to-end loop (Phase 1 spike) — feature-flagged so we can
+// flip back to the rule engine instantly.
+import { useAction, useMutation } from "convex/react";
+import { api } from "@/convex/_generated/api";
+import type { Id } from "@/convex/_generated/dataModel";
+
 // ============================================================================
 // CONSTANTS
 // ============================================================================
+
+// Feature flag — route chat sends through the Oto AI Convex action instead of
+// the rule-based scenario engine. Flip back to `false` to restore the rule
+// engine path. The rule-engine code is intentionally left intact below.
+const USE_OTO_AI_ACTION = true;
 
 // Match tab layout behavior: iOS 26+ uses native tabs with a slightly smaller effective offset.
 const TAB_BAR_HEIGHT =
@@ -137,6 +148,17 @@ export default function AIChatScreen() {
   // User data for greeting
   const { user: convexUser } = useUserFromConvex();
   const userFirstName = convexUser?.first_name || "User";
+
+  // Oto AI action wiring — feature-flagged.
+  const sendMessageAction = useAction(api.oto.chat.sendMessage);
+  const createConversation = useMutation(api.ai_conversations.create);
+  const [convexConversationId, setConvexConversationId] =
+    useState<Id<"ai_conversations"> | null>(null);
+  // Stable session id for this mount — used when lazily creating the
+  // ai_conversations row on first send.
+  const sessionIdRef = useRef<string>(
+    `oto_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`
+  );
 
   // Vehicle data for greeting screen
   const { vehicles: rawVehicles } = useVehicleOwnershipFromConvex();
@@ -386,13 +408,13 @@ export default function AIChatScreen() {
   const handleSend = useCallback(() => {
     const trimmedInput = inputValue.trim();
     const hasImages = selectedImages.length > 0;
-    
+
     // Allow sending if there's text OR images
     if ((!trimmedInput && !hasImages) || isProcessing) return;
 
     // Capture images before clearing
     const attachedImages = [...selectedImages];
-    
+
     setInputValue("");
     setSelectedImages([]); // Clear selected images
     setIsAttachmentOpen(false); // Close attachment panel
@@ -401,6 +423,105 @@ export default function AIChatScreen() {
     // Use a default message for image-only sends
     const messageText = trimmedInput || (hasImages ? "Here's an image for you to analyze" : "");
 
+    // ── Oto AI path (feature-flagged) ───────────────────────────────────
+    // Minimal end-to-end Phase 1 loop: lazy-create the ai_conversations row
+    // on first send, then call the Convex action which talks to Anthropic
+    // and persists both turns. Rule-engine code below is preserved and
+    // re-enabled by flipping USE_OTO_AI_ACTION to false.
+    if (USE_OTO_AI_ACTION) {
+      if (!convexUser?._id) {
+        // Auth not ready yet — bail out gracefully.
+        setIsProcessing(false);
+        showToast("Still signing you in — try again in a sec.");
+        return;
+      }
+
+      const userMessage: ChatMessage = {
+        id: `user_${Date.now()}`,
+        role: "user",
+        content: messageText,
+        timestamp: new Date().toISOString(),
+        images: attachedImages.length > 0 ? attachedImages : undefined,
+      };
+
+      // Show user message immediately for snappy UX. Note: the Convex
+      // action also persists this turn server-side, so we do NOT call
+      // saveCurrentConversation here (which would dual-persist locally).
+      setState((prev) => ({ ...prev, messages: [...prev.messages, userMessage] }));
+
+      (async () => {
+        try {
+          // Lazy-create the ai_conversations row on the first send.
+          let conversationId = convexConversationId;
+          if (!conversationId) {
+            conversationId = await createConversation({
+              user_id: convexUser._id as Id<"users">,
+              session_id: sessionIdRef.current,
+            });
+            setConvexConversationId(conversationId);
+          }
+
+          const { text, quickReplies } = await sendMessageAction({
+            conversationId,
+            message: messageText,
+            // Pass the frontend's vehicle-picker selection so the action
+            // doesn't fall back to "most recently added" when the user has
+            // explicitly chosen a different car.
+            vehicleVin: selectedVehicleVin ?? undefined,
+          });
+
+          const aiMessage: ChatMessage = {
+            id: `ai_${Date.now()}`,
+            role: "assistant",
+            content: text,
+            timestamp: new Date().toISOString(),
+            isStreaming: true,
+            // Render directives emitted by the AI's tool calls — currently
+            // only `render_quick_replies` is wired. AIMessageBubble forwards
+            // `quickReplies` to the existing AIQuickReplies component.
+            quickReplies: quickReplies as QuickReply[] | undefined,
+          };
+          setState((prev) => ({
+            ...prev,
+            messages: [...prev.messages, aiMessage],
+          }));
+
+          // Stop the streaming animation after a beat. Reuses the rule
+          // engine's animation cadence so the bubble feels consistent.
+          setTimeout(() => {
+            setState((prev) => ({
+              ...prev,
+              messages: prev.messages.map((m) =>
+                m.id === aiMessage.id ? { ...m, isStreaming: false } : m
+              ),
+            }));
+            setIsProcessing(false);
+          }, Math.min(text.length * 30, 3000));
+        } catch (err) {
+          // Surface the error in-chat so the loop is debuggable without
+          // having to open the inspector. Refine before launch.
+          const message =
+            err instanceof Error ? err.message : "Something went wrong.";
+          setState((prev) => ({
+            ...prev,
+            messages: [
+              ...prev.messages,
+              {
+                id: `err_${Date.now()}`,
+                role: "assistant",
+                content: `(Oto error: ${message})`,
+                timestamp: new Date().toISOString(),
+              },
+            ],
+          }));
+          setIsProcessing(false);
+        }
+      })();
+
+      return;
+    }
+
+    // ── Rule-engine path (legacy — left intact for flip-back) ───────────
     // Process with scenario engine
     const { newState, response } = processUserMessage(state, messageText, attachedImages);
 
@@ -460,7 +581,20 @@ export default function AIChatScreen() {
         setIsProcessing(false);
       }, response.message.length * 30); // Approximate streaming time
     }, 1500); // AI thinking delay
-  }, [inputValue, state, isProcessing, saveCurrentConversation, selectedImages]);
+  }, [
+    inputValue,
+    state,
+    isProcessing,
+    saveCurrentConversation,
+    selectedImages,
+    // Oto AI path deps
+    convexUser?._id,
+    convexConversationId,
+    createConversation,
+    sendMessageAction,
+    selectedVehicleVin,
+    showToast,
+  ]);
 
   // Handle suggestion press
   const handleSuggestionPress = useCallback(
@@ -751,6 +885,13 @@ export default function AIChatScreen() {
     setIsProcessing(false);
     setIsCarConfirmed(false);
     setSelectedVehicle(null);
+    // Reset the Convex-side conversation pointer so the next send via the
+    // Oto AI action creates a fresh ai_conversations row instead of appending
+    // to the previous one.
+    setConvexConversationId(null);
+    sessionIdRef.current = `oto_${Date.now()}_${Math.random()
+      .toString(36)
+      .slice(2, 10)}`;
   }, [startNewConversation]);
 
   // Handle selecting a conversation from history

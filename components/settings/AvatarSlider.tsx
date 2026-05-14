@@ -8,21 +8,24 @@
  *          is consistent forever (it never reverses), so it reads as
  *          a one-way carousel rotating through the panels.
  *
- *          The container clips with `overflow: hidden`, so callers can
- *          drop this directly inside any circular avatar background
- *          (gradient, photo, etc) and the slide stays inside the
- *          circle.
+ *          Implementation: both panels are always mounted at the same
+ *          z-level inside an `overflow: hidden` clip. Their visual
+ *          role (current vs incoming) is derived from a UI-thread
+ *          shared value `cycleSV` plus an animated `progress` 0→1.
+ *          When `progress` reaches 1 we increment `cycleSV` and reset
+ *          `progress` to 0 *on the same UI-thread frame*, so there's
+ *          no React-state-vs-shared-value race that would briefly
+ *          flash the wrong panel between cycles.
  *
  * USED IN: SettingsContent's default avatar, ProfileInitialsButton.
  *
  * OWNER: Ahmad Hamoudeh
  */
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect } from "react";
 import { StyleSheet, View, type ViewStyle } from "react-native";
 import Animated, {
   Easing,
-  runOnJS,
   useAnimatedStyle,
   useSharedValue,
   withTiming,
@@ -32,7 +35,7 @@ type AvatarSliderProps = {
   size: number;
   /** Two panels rendered as the slide pair. */
   panels: [React.ReactNode, React.ReactNode];
-  /** ms between each auto-flip. Default 3500. */
+  /** ms between each auto-flip. Default 5000. */
   intervalMs?: number;
   /** ms for the slide/crossfade itself. Default 450. */
   durationMs?: number;
@@ -42,63 +45,77 @@ type AvatarSliderProps = {
 export function AvatarSlider({
   size,
   panels,
-  intervalMs = 3500,
+  intervalMs = 5000,
   durationMs = 450,
   style,
 }: AvatarSliderProps) {
-  // We always render two layers: the panel currently in view and the
-  // panel that's about to slide in. After each cycle we swap which
-  // panel index lives in which slot, so the visual motion stays
-  // identical (current → off left, next → in from right) regardless
-  // of whether we're going initials→logo or logo→initials.
-  const [slots, setSlots] = useState<{ current: 0 | 1; incoming: 0 | 1 }>({
-    current: 0,
-    incoming: 1,
-  });
+  // `cycleSV` flips between even / odd to decide which of `panels[0]`
+  // and `panels[1]` is the current vs the incoming surface. Living on
+  // the UI thread (alongside `progress`) means the swap + reset run
+  // on the same animation frame — no inter-thread race.
+  const cycleSV = useSharedValue(0);
   const progress = useSharedValue(0);
 
   useEffect(() => {
-    const swap = () => {
-      setSlots((s) => ({
-        current: s.incoming,
-        incoming: s.current,
-      }));
-      progress.value = 0;
-    };
-
     const id = setInterval(() => {
       progress.value = withTiming(
         1,
         { duration: durationMs, easing: Easing.out(Easing.cubic) },
         (finished) => {
-          if (finished) runOnJS(swap)();
+          if (finished) {
+            // Both updates happen synchronously on the UI thread,
+            // so the next frame's `useAnimatedStyle` reads a
+            // consistent (cycle+1, progress=0) pair instead of
+            // briefly seeing the old slot at the new position.
+            cycleSV.value = cycleSV.value + 1;
+            progress.value = 0;
+          }
         },
       );
     }, intervalMs);
-
     return () => clearInterval(id);
-  }, [intervalMs, durationMs, progress]);
+  }, [intervalMs, durationMs, progress, cycleSV]);
 
-  const currentStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: -progress.value * size }],
-    opacity: 1 - progress.value,
-  }));
+  // Each panel is conditionally treated as "current" (sliding out
+  // leftward) or "incoming" (sliding in from the right) based on
+  // cycle parity. Both are always mounted; only their transform +
+  // opacity change.
+  const panel0Style = useAnimatedStyle(() => {
+    const isCurrent = cycleSV.value % 2 === 0;
+    return isCurrent
+      ? {
+          transform: [{ translateX: -progress.value * size }],
+          opacity: 1 - progress.value,
+        }
+      : {
+          transform: [{ translateX: (1 - progress.value) * size }],
+          opacity: progress.value,
+        };
+  });
 
-  const incomingStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: (1 - progress.value) * size }],
-    opacity: progress.value,
-  }));
+  const panel1Style = useAnimatedStyle(() => {
+    const isCurrent = cycleSV.value % 2 === 1;
+    return isCurrent
+      ? {
+          transform: [{ translateX: -progress.value * size }],
+          opacity: 1 - progress.value,
+        }
+      : {
+          transform: [{ translateX: (1 - progress.value) * size }],
+          opacity: progress.value,
+        };
+  });
 
   return (
     <View
       style={[{ width: size, height: size }, styles.clip, style]}
       pointerEvents="none"
     >
-      <Animated.View style={[StyleSheet.absoluteFill, styles.center, currentStyle]}>
-        {panels[slots.current]}
+      <Animated.View style={[StyleSheet.absoluteFill, styles.center, panel0Style]}>
+        {panels[0]}
       </Animated.View>
-      <Animated.View style={[StyleSheet.absoluteFill, styles.center, incomingStyle]}>
-        {panels[slots.incoming]}
+      <Animated.View style={[StyleSheet.absoluteFill, styles.center, panel1Style]}>
+        {panels[1]}
       </Animated.View>
     </View>
   );
