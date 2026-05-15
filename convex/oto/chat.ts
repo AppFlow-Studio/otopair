@@ -669,14 +669,24 @@ async function sendMessageHandler(
           initialNotes?: string;
         })
       : undefined;
+  const showRecordConfirmation =
+    renderEnvelope.showRecordConfirmation &&
+    typeof renderEnvelope.showRecordConfirmation === "object"
+      ? (renderEnvelope.showRecordConfirmation as {
+          vehicle_id: string;
+          maintenance_type: string;
+        })
+      : undefined;
 
   // Empty text is fine when ANY render directive carries the turn (quick
-  // replies, diagnostic form, service picker, shop carousel, time selector,
-  // booking confirmation, reasoning, sources). Only fall back when text AND
-  // every render directive are empty — that's a real "nothing to say" failure.
+  // replies, diagnostic form, record confirmation, service picker, shop
+  // carousel, time selector, booking confirmation, reasoning, sources). Only
+  // fall back when text AND every render directive are empty — that's a real
+  // "nothing to say" failure.
   const hasAnyRender =
     !!quickReplies ||
     !!showDiagnosticForm ||
+    !!showRecordConfirmation ||
     renderEnvelope.showServicePicker === true ||
     renderEnvelope.shopCarousel !== undefined ||
     renderEnvelope.timeSelector !== undefined ||
@@ -861,6 +871,7 @@ async function sendMessageHandler(
     text: finalText,
     ...(quickReplies ? { quickReplies } : {}),
     ...(showDiagnosticForm ? { showDiagnosticForm } : {}),
+    ...(showRecordConfirmation ? { showRecordConfirmation } : {}),
     ...(showServicePicker !== undefined ? { showServicePicker } : {}),
     ...(pickerServices !== undefined ? { pickerServices } : {}),
     ...(pickerPreSelectedId !== undefined ? { pickerPreSelectedId } : {}),

@@ -134,6 +134,9 @@ export interface ChatMessage {
   shops?: AIShop[];
   // Service picker flag
   showServicePicker?: boolean;
+  // Service picker pre-selection / list (v0.9 render_service_picker schema)
+  pickerServices?: unknown; // ServiceOption[]-like; loose to match action's loose return
+  pickerPreSelectedId?: string;
   // Diagnostic form pre-fill (rendered when stage === "diagnostic_form")
   showDiagnosticForm?: {
     initialSystem?: DiagnosticSystem;
@@ -148,6 +151,12 @@ export interface ChatMessage {
     vehicle_id: string; // vehicles._id
     maintenance_type: MaintenanceType;
   };
+  // v0.9 trigger-only render envelopes — payload is just IDs; mobile component
+  // queries Convex for the real data (mechanics, slots, pricing). See
+  // convex/oto/dispatcher.ts → packageRenderDirective for the shapes.
+  shopCarousel?: unknown; // { service_slug, priority }
+  timeSelector?: unknown; // { mechanic_id, service_slug }
+  bookingConfirmation?: unknown; // { service_slug, mechanic_id, slot_id, vehicle_id }
   // Metadata
   scenarioType?: ScenarioType;
   stage?: ConversationStage;

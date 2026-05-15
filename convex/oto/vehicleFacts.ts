@@ -115,12 +115,17 @@ export const getVehicleFacts = query({
         config?.make_id ? ctx.db.get(config.make_id) : Promise.resolve(null),
         config?.model_id ? ctx.db.get(config.model_id) : Promise.resolve(null),
         // trim_specs is keyed by trim_id or vehicle_config_id; try both.
+        // CRITICAL: use .withIndex (NOT .filter) — trim_specs is a big
+        // enrichment-derived table; .filter forces a full table scan and
+        // makes this query time out (~1s Convex query budget). The
+        // by_trim and by_vehicle_config indexes are defined in schema.ts;
+        // use them.
         (async () => {
           if (vehicle.vehicle_config_id) {
             const byCfg = await ctx.db
               .query("trim_specs")
-              .filter((q: any) =>
-                q.eq(q.field("vehicle_config_id"), vehicle.vehicle_config_id),
+              .withIndex("by_vehicle_config", (q: any) =>
+                q.eq("vehicle_config_id", vehicle.vehicle_config_id),
               )
               .first();
             if (byCfg) return byCfg;
@@ -128,7 +133,7 @@ export const getVehicleFacts = query({
           if (trimId) {
             return await ctx.db
               .query("trim_specs")
-              .filter((q: any) => q.eq(q.field("trim_id"), trimId))
+              .withIndex("by_trim", (q: any) => q.eq("trim_id", trimId))
               .first();
           }
           return null;

@@ -173,6 +173,22 @@ export default function AIChatScreen() {
   const createConversation = useMutation(api.ai_conversations.create);
   const [convexConversationId, setConvexConversationId] =
     useState<Id<"ai_conversations"> | null>(null);
+  // appendEstablishedFact — mobile-side write into ai_conversations.established_facts
+  // so Haiku reads selections from <conversation_state> on the next turn instead of
+  // re-deriving them from natural-language history. Decision D: "IDs come from
+  // <conversation_state>, NEVER from user text." Wired into every render-target
+  // confirmation handler below. Fire-and-forget — mutation is fast (~50ms) and
+  // the next Anthropic turn takes much longer to set up, so the race is benign.
+  const appendEstablishedFact = useMutation(api.ai_conversations.appendEstablishedFact);
+  const pushFact = useCallback(
+    (fact: string) => {
+      if (!convexConversationId) return;
+      appendEstablishedFact({ id: convexConversationId, fact }).catch((e) => {
+        console.warn("[ai-chat] appendEstablishedFact failed (non-fatal):", e?.message);
+      });
+    },
+    [appendEstablishedFact, convexConversationId],
+  );
   // Stable session id for this mount — used when lazily creating the
   // ai_conversations row on first send.
   const sessionIdRef = useRef<string>(
@@ -404,7 +420,25 @@ export default function AIChatScreen() {
           setConvexConversationId(conversationId);
         }
 
-        const { text, quickReplies, showDiagnosticForm, showRecordConfirmation } = await sendMessageAction({
+        const {
+          text,
+          quickReplies,
+          showDiagnosticForm,
+          showRecordConfirmation,
+          // v0.9 trigger-only render schemas — these fire from the action
+          // and MUST be passed onto the message envelope so the render
+          // blocks downstream can find them. Previously these were silently
+          // dropped (server returned them, mobile destructure didn't pull
+          // them), causing render_service_picker / render_shop_carousel /
+          // render_time_selector / render_booking_confirmation to "fire"
+          // server-side but never display.
+          showServicePicker,
+          pickerServices,
+          pickerPreSelectedId,
+          shopCarousel,
+          timeSelector,
+          bookingConfirmation,
+        } = await sendMessageAction({
           conversationId,
           message: messageText,
           // Pass the frontend's vehicle-picker selection so the action
@@ -424,26 +458,43 @@ export default function AIChatScreen() {
           | { vehicle_id: string; maintenance_type: import("@/utils/maintenanceStatus").MaintenanceType }
           | undefined;
 
+        // Stage derivation — pick the most-specific render that fired.
+        // Order matters: terminal renders win over service_selection.
+        const nextStage: ChatMessage["stage"] = diagnosticFormEnvelope
+          ? "diagnostic_form"
+          : showServicePicker
+            ? "service_selection"
+            : shopCarousel
+              ? "shop_selection"
+              : timeSelector
+                ? "time_selection"
+                : bookingConfirmation
+                  ? "confirmation"
+                  : undefined;
+
         const aiMessage: ChatMessage = {
           id: `ai_${Date.now()}`,
           role: "assistant",
           content: text,
           timestamp: new Date().toISOString(),
           isStreaming: true,
-          // Render directives emitted by the AI's tool calls — currently
-          // `render_quick_replies`, `render_diagnostic_form`, and
-          // `render_record_confirmation` are wired.
+          // Render directives emitted by the AI's tool calls. All v0.9
+          // render envelope fields are now passed through.
           quickReplies: quickReplies as QuickReply[] | undefined,
           showDiagnosticForm: diagnosticFormEnvelope,
           showRecordConfirmation: recordConfirmEnvelope,
-          stage: diagnosticFormEnvelope ? "diagnostic_form" : undefined,
+          showServicePicker: showServicePicker as boolean | undefined,
+          pickerServices: pickerServices as unknown,
+          pickerPreSelectedId: pickerPreSelectedId as string | undefined,
+          shopCarousel: shopCarousel as unknown,
+          timeSelector: timeSelector as unknown,
+          bookingConfirmation: bookingConfirmation as unknown,
+          stage: nextStage,
         };
         setState((prev) => ({
           ...prev,
           messages: [...prev.messages, aiMessage],
-          currentStage: diagnosticFormEnvelope
-            ? "diagnostic_form"
-            : prev.currentStage,
+          currentStage: nextStage ?? prev.currentStage,
         }));
 
         // Stop the streaming animation after a beat. Reuses the rule
@@ -674,6 +725,14 @@ export default function AIChatScreen() {
       // Select the mechanic (use the mechanic's actual ID from mock data)
       selectMechanic(mechanic.id.toString());
 
+      // Push selections into established_facts so the next Oto turn (if the
+      // user comes back to chat) sees them in <conversation_state>. The book
+      // flow ends in a navigation to /payment, so these facts mostly serve
+      // as conversation memory for any later returning-user turn. Decision D
+      // is the rationale — no relying on natural-language echo.
+      pushFact(`selected mechanic_id: ${mechanic.id}`);
+      pushFact(`selected booking_time: ${timeSlot.dayOfWeek} ${timeSlot.day} at ${timeSlot.time}`);
+
       // Set the scheduled appointment from the time slot
       const currentYear = new Date().getFullYear();
       const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -699,12 +758,14 @@ export default function AIChatScreen() {
     },
     [
       state.selectedServices,
+      state.currentScenario,
       clearSelectedServices,
       toggleServiceSelection,
       selectMechanic,
       setScheduledAppointment,
       setBookingStage,
       router,
+      pushFact,
     ]
   );
 
@@ -726,9 +787,12 @@ export default function AIChatScreen() {
       setState((prev) => ({ ...prev, selectedServices }));
 
       const serviceNames = services.map((s) => s.name).join(", ");
+      // Push the chosen service slugs as one fact so the next turn's
+      // <conversation_state> reflects what was picked — Decision D.
+      pushFact(`selected service_slugs: ${services.map((s) => s.id).join(", ")}`);
       sendToOtoAI(`I'd like to schedule: ${serviceNames}`);
     },
-    [isProcessing, sendToOtoAI]
+    [isProcessing, pushFact, sendToOtoAI]
   );
 
   // Handle the user's decision from AIRecordConfirmation. The component has
@@ -742,8 +806,10 @@ export default function AIChatScreen() {
     (decision: RecordConfirmationDecision) => {
       if (isProcessing) return;
       let echoText: string;
+      let factText: string;
       if (decision.kind === "confirmed") {
         echoText = `Confirmed — ${decision.type} record is correct as-is.`;
+        factText = `confirmed ${decision.type} record current as of now`;
       } else {
         const dateStr = new Date(decision.lastServiceDate).toLocaleDateString(
           undefined,
@@ -753,10 +819,16 @@ export default function AIChatScreen() {
           ? ` at ${decision.lastServiceMileage.toLocaleString()} mi`
           : "";
         echoText = `Updated — last ${decision.type} service was actually in ${dateStr}${mileagePart}.`;
+        factText = `corrected ${decision.type} last_service to ${dateStr}${mileagePart}`;
       }
+      // Decision D: write to established_facts so Oto reads the trust-protocol
+      // outcome from <conversation_state>, not from echo-message text. The
+      // synthetic echoText still goes through sendToOtoAI for chat-history
+      // continuity, but the fact is the canonical state signal.
+      pushFact(factText);
       sendToOtoAI(echoText);
     },
-    [isProcessing, sendToOtoAI],
+    [isProcessing, pushFact, sendToOtoAI],
   );
 
   // Handle diagnostic-form confirmation from AIDiagnosticForm
@@ -783,6 +855,17 @@ export default function AIChatScreen() {
         selectedDiagnosticSystem: system,
         diagnosticNotes: notes,
       }));
+
+      // Decision D: push the diagnostic_system selection (and a brief note hint)
+      // into established_facts so the next turn's <conversation_state> carries
+      // the canonical diagnostic decision rather than relying on Haiku to
+      // re-parse from the synthetic user echo.
+      pushFact(`diagnostic_system selected: ${system}`);
+      if (notes && notes.trim().length > 0) {
+        // Keep the fact short — cap at 80 chars to stay within the 10-entry budget.
+        const trimmed = notes.trim().replace(/\s+/g, " ").slice(0, 80);
+        pushFact(`diagnostic_notes: ${trimmed}`);
+      }
 
       // 2. AI follow-up after the same thinking delay used by handleServiceSelect.
       setTimeout(() => {
@@ -832,7 +915,7 @@ export default function AIChatScreen() {
         }, aiMessage.content.length * 30);
       }, 1000);
     },
-    [isProcessing, saveCurrentConversation]
+    [isProcessing, pushFact, saveCurrentConversation]
   );
 
   // Handle copy message
