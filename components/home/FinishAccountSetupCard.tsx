@@ -26,8 +26,8 @@ import { Pressable, StyleSheet, View } from "react-native";
 
 // 2. Expo & Third-party
 import { useRouter } from "expo-router";
-import { X, Shuffle, Landmark } from "lucide-react-native";
-import { PlusCircleIcon, ShuffleIcon, UserCircleIcon, CarIcon, BankIcon } from "phosphor-react-native";
+import { X } from "lucide-react-native";
+import { UserCircleIcon, CarIcon, BankIcon } from "phosphor-react-native";
 
 // 3. Shared UI
 import { Text } from "@/components/shared-ui";
@@ -143,10 +143,10 @@ export function FinishAccountSetupCard({
   };
 
   const steps = [
-    { id: "account", label: "Create Account", icon: GradientPlusCircle },
-    { id: "personalize", label: "About You", icon: UserCircleIcon },
-    { id: "car", label: "Add Car", icon: CarIcon },
-    { id: "payment", label: "Payment Method", icon: BankIcon },
+    { id: "account", label: "Create\nAccount", icon: GradientPlusCircle },
+    { id: "personalize", label: "About\nYou", icon: UserCircleIcon },
+    { id: "car", label: "Add\nCar", icon: CarIcon },
+    { id: "payment", label: "Payment\nMethod", icon: BankIcon },
   ];
 
   return (
@@ -214,6 +214,10 @@ export function FinishAccountSetupCard({
                   color={isComplete ? "#9CA3AF" : "#141C24"}
                   weight="medium"
                   center
+                  numberOfLines={2}
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.72}
+                  ellipsizeMode="clip"
                   style={styles.stepLabel}
                 >
                   {step.label}
@@ -266,7 +270,7 @@ const styles = StyleSheet.create({
   stepsContainer: {
     flexDirection: "row",
     justifyContent: "space-between",
-    gap: 8,
+    gap: 6,
   },
   stepTile: {
     flex: 1,
@@ -274,7 +278,7 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     paddingTop: 16,
     paddingBottom: 12,
-    paddingHorizontal: 8,
+    paddingHorizontal: 6,
     alignItems: "center",
     justifyContent: "flex-start",
     minHeight: 110,
@@ -302,7 +306,8 @@ const styles = StyleSheet.create({
     opacity: 0.5,
   },
   stepLabel: {
-    lineHeight: 12,
+    width: "100%",
+    lineHeight: 14,
     marginTop: 2,
   },
 });
