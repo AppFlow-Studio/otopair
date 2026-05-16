@@ -277,22 +277,27 @@ export function SettingsContainerTransformOverlay() {
   });
 
   const surfaceContentStyle = useAnimatedStyle(() => {
-    const left = interpolate(
+    const width = interpolate(
       progress.value,
       [0, 1],
-      [localRect.x, 0],
+      [localRect.width, overlayWidth],
       Extrapolation.CLAMP,
     );
-    const top = interpolate(
+    const height = interpolate(
       progress.value,
       [0, 1],
-      [localRect.y, 0],
+      [localRect.height, overlayHeight],
       Extrapolation.CLAMP,
     );
+
     return {
       width: overlayWidth,
       height: overlayHeight,
-      transform: [{ translateX: -left }, { translateY: -top }],
+      transformOrigin: "top left",
+      transform: [
+        { scaleX: width / overlayWidth },
+        { scaleY: height / overlayHeight },
+      ],
     };
   });
 
