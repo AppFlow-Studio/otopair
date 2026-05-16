@@ -103,6 +103,9 @@ import { VehicleMaintenanceCard } from "@/components/home/VehicleMaintenanceCard
 import { ProfileInitialsButton } from "@/components/home/ProfileInitialsButton";
 import { SettingsOverlay } from "@/components/settings/SettingsOverlay";
 
+const isIOS26OrNewer =
+  Platform.OS === "ios" && parseInt(String(Platform.Version), 10) >= 26;
+
 function formatBookingDate(dateStr: string): string {
   const [y, m, d] = dateStr.split('-').map(Number);
   const date = new Date(y, m - 1, d);
@@ -820,10 +823,9 @@ export default function HomeScreen() {
         View Details button. Mirrors the bookings tab's wiring. */}
     <BookingDetailsSheet ref={detailsSheetRef} />
 
-    {/* Shared-element overlay that lifts Settings on top of Home when
-        the initials button in the header is tapped. Driven by
-        useSettingsOverlayStore. */}
-    {Platform.OS === "ios" ? <SettingsOverlay /> : null}
+    {/* iOS 26 keeps the existing shared-element Settings overlay path.
+        Android and iOS <= 25 use the dedicated host in the tabs layout. */}
+    {isIOS26OrNewer ? <SettingsOverlay /> : null}
 
     {/* Auto-prompt: if the user has a completed-but-unreviewed booking,
         this sheet pops on focus / cold start until they submit a review. */}
