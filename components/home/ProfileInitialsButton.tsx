@@ -12,8 +12,8 @@
  * OWNER: Ahmad Hamoudeh
  */
 
-import React, { useCallback, useMemo, useRef } from "react";
-import { Image, Pressable, StyleSheet, View } from "react-native";
+import React, { useCallback, useEffect, useMemo, useRef } from "react";
+import { Image, Platform, Pressable, StyleSheet, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useQuery } from "convex/react";
 import { useShallow } from "zustand/react/shallow";
@@ -28,10 +28,13 @@ import type { SettingsOverlayRect } from "@/stores/useSettingsOverlayStore";
 import { computeInitials } from "@/utils/userInitials";
 
 const BUTTON_SIZE = 40;
+const isIOS26OrNewer =
+  Platform.OS === "ios" && parseInt(String(Platform.Version), 10) >= 26;
 
 export function ProfileInitialsButton() {
   const viewRef = useRef<View>(null);
   const measuredRectRef = useRef<SettingsOverlayRect | null>(null);
+  const openedFromPressRef = useRef(false);
   const me = useQuery(api.users.getMe);
   const { firstName, lastName, profilePhotoUri: storedPhoto } =
     useOnboardingStore(
@@ -65,6 +68,12 @@ export function ProfileInitialsButton() {
     return null;
   }, [me?.profile_photo_storage_id, me?.profile_photo_url, storedPhoto]);
 
+  useEffect(() => {
+    if (!isOpen) {
+      openedFromPressRef.current = false;
+    }
+  }, [isOpen]);
+
   const updateMeasuredRect = useCallback(() => {
     viewRef.current?.measureInWindow((x, y, width, height) => {
       if (!Number.isFinite(x) || !Number.isFinite(y) || width <= 0 || height <= 0) {
@@ -76,10 +85,11 @@ export function ProfileInitialsButton() {
 
   const handlePress = useCallback(() => {
     // Ignore taps while the overlay is already open / animating in.
-    if (isOpen) return;
+    if (isOpen || openedFromPressRef.current) return;
 
     const measuredRect = measuredRectRef.current;
     if (measuredRect) {
+      openedFromPressRef.current = true;
       open(measuredRect);
       return;
     }
@@ -90,6 +100,7 @@ export function ProfileInitialsButton() {
       }
       const rect = { x, y, width, height };
       measuredRectRef.current = rect;
+      openedFromPressRef.current = true;
       open(rect);
     });
   }, [isOpen, open]);
@@ -103,9 +114,12 @@ export function ProfileInitialsButton() {
       onLayout={updateMeasuredRect}
     >
       <Pressable
+        onPressIn={isIOS26OrNewer ? undefined : handlePress}
         onPress={handlePress}
         style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
         hitSlop={6}
+        accessibilityRole="button"
+        accessibilityLabel="Open settings"
       >
         {photoUri ? (
           <Image source={{ uri: photoUri }} style={styles.image} />

@@ -101,11 +101,22 @@ export function SettingsContainerTransformOverlay() {
   }, [me?.profile_photo_storage_id, me?.profile_photo_url, storedPhoto]);
 
   const [mounted, setMounted] = useState(false);
+  const [contentMounted, setContentMounted] = useState(false);
   const [settled, setSettled] = useState(false);
   const [activeRect, setActiveRect] = useState<SettingsOverlayRect | null>(
     null,
   );
   const progress = useSharedValue(0);
+  const contentMountTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
+
+  const clearContentMountTimer = () => {
+    if (contentMountTimerRef.current) {
+      clearTimeout(contentMountTimerRef.current);
+      contentMountTimerRef.current = null;
+    }
+  };
 
   const measureRoot = () => {
     rootRef.current?.measureInWindow((x, y, width, height) => {
@@ -144,6 +155,7 @@ export function SettingsContainerTransformOverlay() {
       measureRoot();
       setActiveRect(fromRect);
       setMounted(true);
+      setContentMounted(false);
       setSettled(false);
       progress.value = 0;
       progress.value = withTiming(
@@ -158,10 +170,16 @@ export function SettingsContainerTransformOverlay() {
           }
         },
       );
+      clearContentMountTimer();
+      contentMountTimerRef.current = setTimeout(() => {
+        setContentMounted(true);
+        contentMountTimerRef.current = null;
+      }, 48);
       return;
     }
 
     if (isTransitionVisible && mounted) {
+      clearContentMountTimer();
       setSettled(false);
       progress.value = withTiming(
         0,
@@ -172,6 +190,7 @@ export function SettingsContainerTransformOverlay() {
         (finished) => {
           if (finished) {
             runOnJS(setMounted)(false);
+            runOnJS(setContentMounted)(false);
             runOnJS(finishClose)();
           }
         },
@@ -180,6 +199,13 @@ export function SettingsContainerTransformOverlay() {
     // mounted intentionally omitted; this reacts to store transitions.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [finishClose, fromRect, isOpen, isTransitionVisible]);
+
+  useEffect(
+    () => () => {
+      clearContentMountTimer();
+    },
+    [],
+  );
 
   useEffect(() => {
     if (Platform.OS !== "android" || !mounted || !isOpen) return;
@@ -338,19 +364,21 @@ export function SettingsContainerTransformOverlay() {
               pointerEvents={settled ? "auto" : "none"}
               style={[StyleSheet.absoluteFill, contentStyle]}
             >
-              <SettingsContent
-                deferBlurHeader={!settled}
-                avatarOverride={
-                  settled ? undefined : (
-                    <View
-                      style={{
-                        width: AVATAR_TARGET_SIZE,
-                        height: AVATAR_TARGET_SIZE,
-                      }}
-                    />
-                  )
-                }
-              />
+              {contentMounted ? (
+                <SettingsContent
+                  deferBlurHeader={!settled}
+                  avatarOverride={
+                    settled ? undefined : (
+                      <View
+                        style={{
+                          width: AVATAR_TARGET_SIZE,
+                          height: AVATAR_TARGET_SIZE,
+                        }}
+                      />
+                    )
+                  }
+                />
+              ) : null}
             </Animated.View>
           </Animated.View>
 
