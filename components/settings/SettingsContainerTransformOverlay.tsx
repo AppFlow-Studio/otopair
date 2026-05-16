@@ -5,7 +5,13 @@
  * separate from SettingsOverlay, which remains the iOS 26 implementation.
  */
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   BackHandler,
   Image,
@@ -147,7 +153,7 @@ export function SettingsContainerTransformOverlay() {
     return () => clearTimeout(timer);
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (isOpen && fromRect) {
       measureRoot();
       setActiveRect(fromRect);
@@ -322,6 +328,26 @@ export function SettingsContainerTransformOverlay() {
   }));
 
   const shouldRenderSurface = mounted || contentMounted;
+  const avatarPlaceholder = useMemo(
+    () => (
+      <View
+        style={{
+          width: AVATAR_TARGET_SIZE,
+          height: AVATAR_TARGET_SIZE,
+        }}
+      />
+    ),
+    [],
+  );
+  const settingsContent = useMemo(() => {
+    if (!contentMounted) return null;
+    return (
+      <SettingsContent
+        deferBlurHeader={!settled}
+        avatarOverride={settled ? undefined : avatarPlaceholder}
+      />
+    );
+  }, [avatarPlaceholder, contentMounted, settled]);
 
   return (
     <View
@@ -358,21 +384,7 @@ export function SettingsContainerTransformOverlay() {
               pointerEvents={settled ? "auto" : "none"}
               style={[StyleSheet.absoluteFill, contentStyle]}
             >
-              {contentMounted ? (
-                <SettingsContent
-                  deferBlurHeader={!settled}
-                  avatarOverride={
-                    settled ? undefined : (
-                      <View
-                        style={{
-                          width: AVATAR_TARGET_SIZE,
-                          height: AVATAR_TARGET_SIZE,
-                        }}
-                      />
-                    )
-                  }
-                />
-              ) : null}
+              {settingsContent}
             </Animated.View>
           </Animated.View>
 
