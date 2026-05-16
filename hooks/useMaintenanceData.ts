@@ -29,6 +29,89 @@ import {
 } from "@/utils/maintenanceStatus";
 
 // ============================================================================
+// RECOMMENDATION TYPES (driver-visible mechanic recs)
+// ============================================================================
+
+/** Shape returned by api.jobRecommendations.getDriverVisibleRecsForVehicle. */
+export interface DriverRecommendation {
+  _id: string;
+  service_id: string | null;
+  service_name: string;
+  urgency: "next_visit" | "within_3_months" | "soon";
+  reason: string | null;
+  shop_id: string;
+  shop_name: string | null;
+  mechanic_id: string;
+  mechanic_name: string | null;
+  created_at: number;
+  source_recommendation_id: string;
+  target_mileage?: number | null;
+  scheduled_at?: number | null;
+  scheduled_mechanic_id?: string | null;
+  scheduled_mechanic_name?: string | null;
+}
+
+/** Heuristic map from rec.service_name → existing MaintenanceType so we
+ *  can dedupe mechanic recs against algorithmic items (mechanic wins). */
+function inferMaintenanceTypeFromServiceName(name: string): MaintenanceType | null {
+  const n = name.toLowerCase();
+  if (n.includes("oil")) return "oil";
+  if (n.includes("brake")) return "brakes";
+  if (n.includes("tire")) return "tires";
+  if (n.includes("batter")) return "battery";
+  if (n.includes("inspection")) return "inspection";
+  return null;
+}
+
+function recUrgencyToStatus(urgency: DriverRecommendation["urgency"]): MaintenanceStatus {
+  return urgency === "next_visit" ? "overdue" : "due_soon";
+}
+
+function recUrgencyToLabel(urgency: DriverRecommendation["urgency"]): string {
+  switch (urgency) {
+    case "next_visit":
+      return "Service on next visit";
+    case "within_3_months":
+      return "Service within 3 months";
+    case "soon":
+    default:
+      return "Service recommended soon";
+  }
+}
+
+function recToMaintenanceItem(rec: DriverRecommendation): MaintenanceItem {
+  const status = recUrgencyToStatus(rec.urgency);
+  const urgencyLabel = recUrgencyToLabel(rec.urgency);
+  const mechanicName = rec.mechanic_name ?? "your mechanic";
+  return {
+    id: `rec-${rec._id}`,
+    serviceName: rec.service_name,
+    description: rec.reason ?? "Recommended by your mechanic",
+    detail: status === "overdue" ? "Recommended" : "Due soon",
+    status,
+    sourceRecommendationId: rec.source_recommendation_id,
+    serviceId: rec.service_id,
+    recUrgency: rec.urgency,
+    scheduledAt: rec.scheduled_at ?? null,
+    scheduledMechanicName: rec.scheduled_mechanic_name ?? null,
+    mechanicProvenance: {
+      shopName: rec.shop_name,
+      mechanicName: rec.mechanic_name,
+    },
+    urgency: urgencyLabel,
+    recommendation:
+      rec.reason ??
+      `${mechanicName} recommended this service${
+        rec.urgency === "within_3_months"
+          ? " within the next 3 months"
+          : rec.urgency === "next_visit"
+            ? " on your next visit"
+            : " soon"
+      }.`,
+  };
+}
+
+// ============================================================================
 // TYPES
 // ============================================================================
 
@@ -233,6 +316,17 @@ function enrichUrgentItem(item: MaintenanceItem): MaintenanceItem {
   const isUrgent = item.status === "overdue" || item.status === "due_soon" || item.status === "needs_attention";
   if (!isUrgent) return item;
 
+  // Mechanic-recommended items already carry urgency/recommendation from the
+  // post-job report — don't overwrite with generic copy.
+  if (item.sourceRecommendationId) {
+    return {
+      ...item,
+      impacts: item.impacts ?? [
+        { label: "Vehicle health", severity: item.status === "overdue" ? "high" : "medium" },
+      ],
+    };
+  }
+
   const type = item.id.replace(/^(unknown-|user-)/, "");
   const details = URGENT_DETAILS[type]?.[item.status];
   if (!details) {
@@ -267,15 +361,42 @@ export function useMergedMaintenance(
   drivingConditions?: string,
   avgMonthlyDriving?: string,
   knownIssues?: string[],
-  vehicleYear?: number
+  vehicleYear?: number,
+  recommendations: DriverRecommendation[] = []
 ) {
   const { records, items: userItems } = useMaintenanceRecords(vehicleOwnerId, currentOdometer, make, drivingConditions, avgMonthlyDriving, knownIssues);
 
-  // Merge: user record > unknown.
+  // Bucket recs by inferred maintenance type (mechanic-wins dedupe target).
+  // Recs that don't map to a known type are appended as their own cards.
+  const recsByType = useMemo(() => {
+    const map = new Map<MaintenanceType, DriverRecommendation>();
+    for (const rec of recommendations) {
+      const type = inferMaintenanceTypeFromServiceName(rec.service_name);
+      if (type && !map.has(type)) map.set(type, rec);
+    }
+    return map;
+  }, [recommendations]);
+
+  const unmappedRecs = useMemo(
+    () =>
+      recommendations.filter(
+        (rec) => inferMaintenanceTypeFromServiceName(rec.service_name) == null,
+      ),
+    [recommendations],
+  );
+
+  // Merge: mechanic rec > user record > unknown
   const mergedItems = useMemo(() => {
     const result: MaintenanceItem[] = [];
 
     for (const type of ALL_MAINTENANCE_TYPES) {
+      // Priority 0: mechanic recommendation wins on service_id match.
+      const rec = recsByType.get(type);
+      if (rec) {
+        result.push(recToMaintenanceItem(rec));
+        continue;
+      }
+
       const userItem = userItems.get(type);
 
       // If user recently reported service or confirmed healthy, force
@@ -358,14 +479,26 @@ export function useMergedMaintenance(
     }
 
     // Append inspection records when they exist (inspection is excluded from the
-    // default loop since the stepper doesn't ask about it)
-    const inspectionItem = userItems.get("inspection");
-    if (inspectionItem) {
-      result.push(inspectionItem);
+    // default loop since the stepper doesn't ask about it). Mechanic rec wins
+    // here too if one targets inspection.
+    const inspectionRec = recsByType.get("inspection");
+    if (inspectionRec) {
+      result.push(recToMaintenanceItem(inspectionRec));
+    } else {
+      const inspectionItem = userItems.get("inspection");
+      if (inspectionItem) {
+        result.push(inspectionItem);
+      }
+    }
+
+    // Append unmapped recs (services that don't fit the 5 known maintenance
+    // types — e.g. coolant flush, alignment) as their own cards.
+    for (const rec of unmappedRecs) {
+      result.push(recToMaintenanceItem(rec));
     }
 
     return result.map(enrichUrgentItem);
-  }, [userItems, records, knownIssues, vehicleYear]);
+  }, [userItems, records, knownIssues, vehicleYear, recsByType, unmappedRecs]);
 
   // Expose raw records so the modal can pre-fill from existing data
   const recordsByType = useMemo(() => {

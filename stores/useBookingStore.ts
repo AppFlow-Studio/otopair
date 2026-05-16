@@ -112,6 +112,17 @@ interface BookingState {
   selectedMechanicSlot: SelectedMechanicSlot | null;
   /** Selected service option per service (maps service_id → option selection with pricing) */
   selectedServiceOptions: Record<string, ServiceOptionSelection>;
+  /** When the driver starts this booking from a mechanic recommendation card,
+   *  the rec's _id is stashed here and forwarded to bookings.createBatch as
+   *  source_recommendation_id so the rec auto-closes on completion. */
+  sourceRecommendationId: string | null;
+  /** When the driver confirms a mechanic-scheduled date from the Take Action
+   *  detail screen, the ms-epoch slot is stashed here so the booking date
+   *  picker can pre-select it. Cleared by resetBookingFlow. */
+  prefilledScheduledAt: number | null;
+  /** Free-text notes from the customer that the mechanic should read before
+   *  starting the job (entered on the Review & Pay screen). */
+  customerNotes: string;
 
   // ═══════════════ BOOKING STATE ═══════════════
   /** All bookings indexed by ID */
@@ -183,6 +194,12 @@ interface BookingState {
   setSelectedServiceOption: (serviceId: string, option: ServiceOptionSelection) => void;
   /** Clear all selected service options */
   clearSelectedServiceOptions: () => void;
+  /** Set the rec id sourced into the booking flow (null clears it) */
+  setSourceRecommendationId: (id: string | null) => void;
+  /** Set the pre-confirmed scheduled date sourced from a mechanic rec. */
+  setPrefilledScheduledAt: (ms: number | null) => void;
+  /** Set the customer notes (passed to the booking row as customer_notes). */
+  setCustomerNotes: (notes: string) => void;
   /** Reset booking flow to initial state */
   resetBookingFlow: () => void;
 
@@ -375,6 +392,9 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   skippedBookingDetails: false,
   selectedMechanicSlot: null,
   selectedServiceOptions: {},
+  sourceRecommendationId: null,
+  prefilledScheduledAt: null,
+  customerNotes: "",
   bookings: {},
   bookingIds: [],
   draftBooking: null,
@@ -576,6 +596,15 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   clearSelectedServiceOptions: () =>
     set({ selectedServiceOptions: {} }),
 
+  setSourceRecommendationId: (id) =>
+    set({ sourceRecommendationId: id }),
+
+  setPrefilledScheduledAt: (ms) =>
+    set({ prefilledScheduledAt: ms }),
+
+  setCustomerNotes: (notes) =>
+    set({ customerNotes: notes }),
+
   resetBookingFlow: () =>
     set({
       bookingStage: "discovery",
@@ -591,6 +620,9 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       skippedBookingDetails: false,
       selectedMechanicSlot: null,
       selectedServiceOptions: {},
+      sourceRecommendationId: null,
+      prefilledScheduledAt: null,
+      customerNotes: "",
       draftBooking: null,
     }),
 

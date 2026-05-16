@@ -25,6 +25,7 @@ import {
   Image,
   ActivityIndicator,
   KeyboardAvoidingView,
+  Keyboard,
   Platform,
   useWindowDimensions,
   Linking,
@@ -33,6 +34,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { User } from "lucide-react-native";
 import {
+  BottomSheetTextInput,
   BottomSheetModal,
   BottomSheetScrollView,
 } from "@gorhom/bottom-sheet";
@@ -74,9 +76,14 @@ export default function DeleteAccountScreen() {
   const [isSurveyStep, setIsSurveyStep] = useState(false);
   const [selectedReason, setSelectedReason] = useState<string | null>(null);
   const [surveyDetails, setSurveyDetails] = useState("");
+  const [sheetKeyboardInset, setSheetKeyboardInset] = useState(0);
+  const [isSurveyDetailsFocused, setIsSurveyDetailsFocused] = useState(false);
 
   const inputRefs = useRef<(TextInput | null)[]>([]);
+  const lastAutoSubmittedCode = useRef<string | null>(null);
+  const shouldExitAfterSheetDismiss = useRef(false);
   const sheetRef = useRef<BottomSheetModal>(null);
+  const sheetScrollRef = useRef<BottomSheetScrollView>(null);
   const snapPoints = useMemo(() => ["88%"], []);
   const isCodeComplete = useMemo(() => code.join("").length === 6, [code]);
 
@@ -89,6 +96,34 @@ export default function DeleteAccountScreen() {
     }
     return () => clearInterval(interval);
   }, [timer]);
+
+  useEffect(() => {
+    const showEvent =
+      Platform.OS === "ios" ? "keyboardWillShow" : "keyboardDidShow";
+    const hideEvent =
+      Platform.OS === "ios" ? "keyboardWillHide" : "keyboardDidHide";
+
+    const showSubscription = Keyboard.addListener(showEvent, (event) => {
+      setSheetKeyboardInset(event.endCoordinates.height);
+
+      if (isSurveyStep && isSurveyDetailsFocused) {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            sheetScrollRef.current?.scrollToEnd({ animated: true });
+          });
+        });
+      }
+    });
+
+    const hideSubscription = Keyboard.addListener(hideEvent, () => {
+      setSheetKeyboardInset(0);
+    });
+
+    return () => {
+      showSubscription.remove();
+      hideSubscription.remove();
+    };
+  }, [isSurveyStep, isSurveyDetailsFocused]);
 
   const fullName = useMemo(() => {
     const fromConvex =
@@ -121,6 +156,9 @@ export default function DeleteAccountScreen() {
     if (digit && index < 5) {
       setFocusedIndex(index + 1);
       inputRefs.current[index + 1]?.focus();
+    } else if (digit && index === 5) {
+      inputRefs.current[index]?.blur();
+      Keyboard.dismiss();
     }
   };
 
@@ -139,32 +177,7 @@ export default function DeleteAccountScreen() {
     }
   };
 
-  const handleDeleteAccount = async () => {
-    if (!codeSent) {
-      setIsDeleting(true);
-      try {
-        await sendVerificationCode();
-        console.log("Triggering verification code for:", email);
-        setCodeSent(true);
-        setTimer(60); // 60 second resend timer
-        setErrorMessage(null);
-      } catch (error: any) {
-        console.error("Failed to send verification code:", error);
-        setErrorMessage("Failed to send verification code. Please try again.");
-      } finally {
-        setIsDeleting(false);
-      }
-      return;
-    }
-
-    const fullCode = code.join("");
-    if (fullCode.length < 6) {
-      setErrorMessage(
-        "Please enter the 6-digit verification code sent to your email.",
-      );
-      return;
-    }
-
+  const handleVerifyDeletionCode = useCallback(async (fullCode: string) => {
     setIsDeleting(true);
     setErrorMessage(null);
     try {
@@ -199,6 +212,53 @@ export default function DeleteAccountScreen() {
     } finally {
       setIsDeleting(false);
     }
+  }, [verifyDeletionCode]);
+
+  useEffect(() => {
+    const fullCode = code.join("");
+    if (!codeSent) {
+      lastAutoSubmittedCode.current = null;
+      return;
+    }
+
+    if (fullCode.length < 6) {
+      lastAutoSubmittedCode.current = null;
+      return;
+    }
+
+    if (!isDeleting && lastAutoSubmittedCode.current !== fullCode) {
+      lastAutoSubmittedCode.current = fullCode;
+      void handleVerifyDeletionCode(fullCode);
+    }
+  }, [code, codeSent, isDeleting, handleVerifyDeletionCode]);
+
+  const handleDeleteAccount = async () => {
+    if (!codeSent) {
+      setIsDeleting(true);
+      try {
+        await sendVerificationCode();
+        console.log("Triggering verification code for:", email);
+        setCodeSent(true);
+        setTimer(60); // 60 second resend timer
+        setErrorMessage(null);
+      } catch (error: any) {
+        console.error("Failed to send verification code:", error);
+        setErrorMessage("Failed to send verification code. Please try again.");
+      } finally {
+        setIsDeleting(false);
+      }
+      return;
+    }
+
+    const fullCode = code.join("");
+    if (fullCode.length < 6) {
+      setErrorMessage(
+        "Please enter the 6-digit verification code sent to your email.",
+      );
+      return;
+    }
+
+    await handleVerifyDeletionCode(fullCode);
   };
 
   const handleProceedToSurvey = () => {
@@ -209,7 +269,28 @@ export default function DeleteAccountScreen() {
     setIsSurveyStep(false);
     setSelectedReason(null);
     setSurveyDetails("");
+    if (shouldExitAfterSheetDismiss.current) {
+      shouldExitAfterSheetDismiss.current = false;
+      router.back();
+    }
   };
+
+  const handleCancelDeletionFlow = () => {
+    shouldExitAfterSheetDismiss.current = true;
+    sheetRef.current?.dismiss();
+  };
+
+  const handleSurveyDetailsFocus = useCallback(() => {
+    setSelectedReason(OTHER_REASON);
+    setIsSurveyDetailsFocused(true);
+    requestAnimationFrame(() => {
+      sheetScrollRef.current?.scrollToEnd({ animated: true });
+    });
+  }, []);
+
+  const handleSurveyDetailsBlur = useCallback(() => {
+    setIsSurveyDetailsFocused(false);
+  }, []);
 
   const handleFinalizeDeletion = async (survey: { response?: string; skipped?: boolean }) => {
     setIsDeleting(true);
@@ -258,7 +339,7 @@ export default function DeleteAccountScreen() {
     try {
       await sendVerificationCode();
       setTimer(60);
-    } catch (error) {
+    } catch {
       setErrorMessage("Failed to resend code. Please try again.");
     } finally {
       setIsDeleting(false);
@@ -437,7 +518,7 @@ export default function DeleteAccountScreen() {
           <View style={styles.verificationContainer}>
             <View style={styles.header}>
               <Text weight="bold" style={styles.title}>
-                Verify it's you
+                Verify it&apos;s you
               </Text>
               <Text style={styles.subtitle}>
                 Enter the 6-digit code sent to {email}
@@ -493,34 +574,6 @@ export default function DeleteAccountScreen() {
 
             <View style={styles.footer}>
               <Pressable
-                style={({ pressed }) => [
-                  styles.deleteButton,
-                  {
-                    backgroundColor: codeSent ? "#F87171" : BrandColors.primary,
-                    shadowColor: codeSent ? "#F87171" : BrandColors.primary,
-                  },
-                  (pressed || isDeleting || !isCodeComplete) && {
-                    opacity: 0.8,
-                    transform: [{ scale: 0.98 }],
-                  },
-                ]}
-                onPress={handleDeleteAccount}
-                disabled={isDeleting || !isCodeComplete}
-              >
-                {isDeleting ? (
-                  <ActivityIndicator color="#FFF" />
-                ) : (
-                  <Text
-                    weight="semiBold"
-                    color="#FFF"
-                    style={styles.deleteButtonText}
-                  >
-                    Delete account
-                  </Text>
-                )}
-              </Pressable>
-
-              <Pressable
                 style={styles.cancelButton}
                 onPress={() => setCodeSent(false)}
                 disabled={isDeleting}
@@ -544,15 +597,27 @@ export default function DeleteAccountScreen() {
         backdropComponent={BlurBackdrop}
         enableDynamicSizing={false}
         enableContentPanningGesture={false}
+        keyboardBehavior="interactive"
+        keyboardBlurBehavior="restore"
+        android_keyboardInputMode="adjustResize"
         onDismiss={handleSheetDismiss}
         handleIndicatorStyle={styles.sheetHandle}
         backgroundStyle={styles.sheetBackground}
       >
         <BottomSheetScrollView
+          ref={sheetScrollRef}
           showsVerticalScrollIndicator={false}
+          keyboardShouldPersistTaps="handled"
           contentContainerStyle={[
             styles.sheetContentContainer,
-            { paddingBottom: insets.bottom + 24 },
+            {
+              paddingBottom:
+                insets.bottom +
+                24 +
+                (isSurveyStep
+                  ? Math.max(sheetKeyboardInset - insets.bottom, 0) * 0.32 + 8
+                  : 0),
+            },
           ]}
         >
           {!isSurveyStep ? (
@@ -563,7 +628,7 @@ export default function DeleteAccountScreen() {
 
               <View style={styles.sheetBody}>
                 <Text style={styles.sheetSectionTitle}>
-                  What's going to happen:
+                  What&apos;s going to happen:
                 </Text>
 
                 <View style={styles.sheetBulletRow}>
@@ -623,7 +688,7 @@ export default function DeleteAccountScreen() {
                     color="#FFF"
                     style={styles.sheetDeleteButtonText}
                   >
-                    I'm sure
+                    I&apos;m sure
                   </Text>
                 </Pressable>
 
@@ -632,7 +697,7 @@ export default function DeleteAccountScreen() {
                     styles.sheetCancelButton,
                     pressed && styles.sheetPressed,
                   ]}
-                  onPress={() => sheetRef.current?.dismiss()}
+                  onPress={handleCancelDeletionFlow}
                   disabled={isDeleting}
                 >
                   <Text weight="semiBold" style={styles.sheetCancelButtonText}>
@@ -671,10 +736,11 @@ export default function DeleteAccountScreen() {
                 })}
               </View>
 
-              <TextInput
+              <BottomSheetTextInput
                 value={surveyDetails}
                 onChangeText={setSurveyDetails}
-                onFocus={() => setSelectedReason(OTHER_REASON)}
+                onFocus={handleSurveyDetailsFocus}
+                onBlur={handleSurveyDetailsBlur}
                 placeholder="(Optional) Enter more details"
                 placeholderTextColor="#9CA3AF"
                 style={styles.surveyDetailsInput}
@@ -717,6 +783,10 @@ export default function DeleteAccountScreen() {
                   </Text>
                 </Pressable>
               </View>
+
+              {sheetKeyboardInset > 0 && (
+                <View style={{ height: Math.max(sheetKeyboardInset * 0.1, 20) }} />
+              )}
             </>
           )}
         </BottomSheetScrollView>

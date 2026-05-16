@@ -27,6 +27,9 @@ import { api } from "@/convex/_generated/api";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromConvex";
 import { useMergedMaintenance } from "@/hooks/useMaintenanceData";
+import { useDriverRecommendationsFromConvex } from "@/hooks/useDriverRecommendationsFromConvex";
+import { useBookingStore } from "@/stores/useBookingStore";
+import { useTireBookingStore } from "@/stores/useTireBookingStore";
 import type { Id } from "@/convex/_generated/dataModel";
 import { ALL_MAINTENANCE_TYPES, MAINTENANCE_LABELS, type MaintenanceType } from "@/utils/maintenanceStatus";
 import { computeVehicleHealthScore, type HealthScoreInput } from "@/utils/healthScore";
@@ -46,6 +49,7 @@ import LoyaltyPoints from "@/components/cars/LoyaltyPoints";
 import MaintenanceTracker from "@/components/cars/MaintenanceTracker";
 import MaintenanceInputModal from "@/components/cars/MaintenanceInputModal";
 import { CheckinBanner } from "@/components/cars/CheckinBanner";
+import UpcomingFollowUpsCard from "@/components/cars/UpcomingFollowUpsCard";
 import CarInfoStepper, { type CarInfoStepperHandle } from "@/components/cars/CarInfoStepper";
 import { AnimatedGradientBackground } from "@/components/shared-ui/AnimatedGradientBackground";
 import ServiceHistory, { ServiceRecord, type PickedDocument } from "@/components/cars/ServiceHistory";
@@ -629,6 +633,7 @@ export default function CarsHomeScreen() {
   const removeOwner = useMutation(api.vehicles.removeOwner);
   const autoCompleteNewVehicle = useMutation(api.vehicles.autoCompleteNewVehicleOnboarding);
   const saveVehicleImageUrl = useMutation(api.vehicles.saveVehicleImageUrl);
+  const clearVehicleImageUrl = useMutation(api.vehicles.clearVehicleImageUrl);
   const [vehicleImageUrls, setVehicleImageUrls] = useState<Record<string, string>>({});
 
   // Use cached image_url from Convex, or fetch from API and save it
@@ -653,25 +658,42 @@ export default function CarsHomeScreen() {
       // to the new transparent images.
       const cachedUrl = r.vehicle?.image_url;
       const isTransparent = typeof cachedUrl === "string" && cachedUrl.includes("/transparent/");
+
+      const doFetch = () => {
+        const veh = r.vehicle;
+        const meta = veh?.metadata as { make?: string; model?: string; color?: string } | undefined;
+        const make = meta?.make ?? "";
+        const model = meta?.model ?? "";
+        const color = meta?.color ?? r.ownership?.color ?? "";
+        const trim = r.trimName ?? undefined;
+        if (!make || !model) return;
+        fetchVehicleImageUrl(make, model, veh?.year, r.vin, color, trim).then((url) => {
+          if (!url) return;
+          setVehicleImageUrls((prev) => ({ ...prev, [r.vin]: url }));
+          saveVehicleImageUrl({ vin: r.vin, image_url: url });
+        });
+      };
+
       if (cachedUrl && isTransparent) {
+        // Validate the cached URL belongs to the correct vehicle by checking
+        // that make/model appear in the URL path. If mismatched (e.g. a Lexus
+        // image cached for a Honda), clear and re-fetch.
+        const meta = r.vehicle?.metadata as { make?: string; model?: string } | undefined;
+        const make = (meta?.make ?? "").toLowerCase();
+        const model = (meta?.model ?? "").toLowerCase();
+        const urlLower = cachedUrl.toLowerCase();
+        const mismatch = (make && model) && !urlLower.includes(make) && !urlLower.includes(model);
+        if (mismatch) {
+          clearVehicleImageUrl({ vin: r.vin }).then(doFetch);
+          return;
+        }
         setVehicleImageUrls((prev) => ({ ...prev, [r.vin]: cachedUrl }));
         return;
       }
 
       // No cached URL (or stale white-bg one) → fetch the API and persist
       // via saveVehicleImageUrl so subsequent loads short-circuit above.
-      const v = r.vehicle;
-      const meta = v?.metadata as { make?: string; model?: string; color?: string } | undefined;
-      const make = meta?.make ?? "";
-      const model = meta?.model ?? "";
-      const color = meta?.color ?? r.ownership?.color ?? "";
-      if (!make || !model) return;
-      console.log("[cars] resolving image for", r.vin, "color=", color, "make=", make, "model=", model);
-      fetchVehicleImageUrl(make, model, v?.year, r.vin, color).then((url) => {
-        if (!url) return;
-        setVehicleImageUrls((prev) => ({ ...prev, [r.vin]: url }));
-        saveVehicleImageUrl({ vin: r.vin, image_url: url });
-      });
+      doFetch();
     });
   }, [listVehicles]);
 
@@ -808,6 +830,13 @@ export default function CarsHomeScreen() {
 
   const currentOdometer = isOnboardingComplete ? (activeOwnership?.mileage ?? null) : null;
   const activeOwnershipKnownIssues = activeOwnership?.knownIssues as string[] | undefined;
+  // Mechanic-submitted job recommendations for the active vehicle. Already
+  // cross-shop deduped server-side; merged with mechanic-wins precedence
+  // inside useMergedMaintenance.
+  const { recommendations: driverRecommendations } = useDriverRecommendationsFromConvex(
+    activeVehicle?.vin,
+  );
+
   const { mergedItems: mergedMaintenanceItems, recordsByType } = useMergedMaintenance(
     activeOwnershipId,
     currentOdometer,
@@ -815,7 +844,8 @@ export default function CarsHomeScreen() {
     activeOwnershipDrivingConditions,
     activeOwnershipAvgMonthlyDriving,
     activeOwnershipKnownIssues,
-    activeVehicle?.year
+    activeVehicle?.year,
+    driverRecommendations,
   );
 
   // HP buffer for the active vehicle — every 15 HP yields +1 on the
@@ -841,7 +871,11 @@ export default function CarsHomeScreen() {
     pipelineHealthScore: activeOwnership?.health_score as number | undefined,
     pipelineIsEstimated: activeOwnership?.health_score_is_estimated as boolean | undefined,
     hpBuffer: activeVehicleHpBuffer,
-  }), [mergedMaintenanceItems, currentOdometer, activeVehicle?.mileage, activeOwnershipKnownIssues, activeOwnership?.health_score, activeOwnership?.health_score_is_estimated, activeVehicleHpBuffer]);
+    recPenalty: activeOwnership?.health_score_rec_penalty as number | undefined,
+    mileageRecs: driverRecommendations
+      .filter((r: any) => typeof r.target_mileage === "number" && r.target_mileage > 0)
+      .map((r: any) => ({ target_mileage: r.target_mileage as number })),
+  }), [mergedMaintenanceItems, currentOdometer, activeVehicle?.mileage, activeOwnershipKnownIssues, activeOwnership?.health_score, activeOwnership?.health_score_is_estimated, activeOwnership?.health_score_rec_penalty, activeVehicleHpBuffer, driverRecommendations]);
 
   const computedHealthScore = useMemo(() => {
     return computeVehicleHealthScore(healthScoreInput);
@@ -1375,7 +1409,20 @@ export default function CarsHomeScreen() {
               onBookNow={(id) => {
                 const vin = activeVehicle?.vin;
                 if (vin) useVehicleStore.getState().selectVehicle(vin.toUpperCase().trim());
+                // If this item was sourced from a mechanic recommendation,
+                // stash the rec id so createBatch wires it into the booking
+                // (auto-closes the rec on completion).
+                const tapped = mergedMaintenanceItems.find((m) => m.id === id);
+                useBookingStore.getState().setSourceRecommendationId(
+                  tapped?.sourceRecommendationId ?? null,
+                );
                 router.push('/home/map');
+              }}
+              onTakeAction={(item) => {
+                const vin = activeVehicle?.vin;
+                if (vin) useVehicleStore.getState().selectVehicle(vin.toUpperCase().trim());
+                if (!item.sourceRecommendationId) return;
+                router.push(`/cars/recommendation/${item.sourceRecommendationId}`);
               }}
               onAddInfo={(id) => {
                 const type = id.replace(/^(unknown-|user-)/, "") as MaintenanceType;
@@ -1385,6 +1432,32 @@ export default function CarsHomeScreen() {
               onEditPressed={() => openEditPicker()}
             />
           )}
+
+          {showPostOnboardingContent && activeVehicle?.vin ? (
+            <UpcomingFollowUpsCard
+              vin={activeVehicle.vin}
+              currentMileage={currentOdometer ?? activeVehicle?.mileage ?? null}
+              onConfirmBooking={({ recommendationId, serviceId, selectedServiceOption, tireSpecs }) => {
+                const vin = activeVehicle?.vin;
+                if (vin) useVehicleStore.getState().selectVehicle(vin.toUpperCase().trim());
+                const bookingStore = useBookingStore.getState();
+                bookingStore.setSourceRecommendationId(recommendationId);
+                if (selectedServiceOption && serviceId) {
+                  bookingStore.setSelectedServiceOption(serviceId, {
+                    optionId: selectedServiceOption.option_id as any,
+                    optionLabel: selectedServiceOption.option_label,
+                  } as any);
+                }
+                if (tireSpecs) {
+                  const tireStore = useTireBookingStore.getState();
+                  tireStore.setSize(tireSpecs.size);
+                  tireStore.setType(tireSpecs.type as any);
+                  tireStore.setTier(tireSpecs.tier as any);
+                }
+                router.push('/home/map');
+              }}
+            />
+          ) : null}
 
           {/* Service History Section (hidden until onboarding complete) */}
           {isOnboardingComplete && <ServiceHistory

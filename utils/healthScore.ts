@@ -115,6 +115,45 @@ export interface HealthScoreInput {
    * score, capped at +3. Never hides real problems — score still can't
    * exceed 100. Caller supplies the buffer via `api.healthPoints.getPoints`. */
   hpBuffer?: number;
+  /** Additive penalty (0–25) from open mechanic recommendations.
+   *  Read from vehicle_owners.health_score_rec_penalty; subtracted before clamp. */
+  recPenalty?: number;
+  /** Open mileage-based recommendations from job_recommendations. Each
+   *  rec contributes a penalty that ramps in as the odometer approaches
+   *  target_mileage and pegs at full once the threshold is reached. */
+  mileageRecs?: Array<{ target_mileage: number }>;
+}
+
+const MILEAGE_REC_PENALTY_PER_REC = 8;
+const MILEAGE_REC_RAMP_WINDOW = 5_000;
+const MILEAGE_REC_PENALTY_CAP = 20;
+
+/**
+ * Penalty for open recommendations with a target_mileage threshold.
+ * Zero until the vehicle is within MILEAGE_REC_RAMP_WINDOW miles of the
+ * target, then linearly ramps to MILEAGE_REC_PENALTY_PER_REC, pinned at
+ * that value once the odometer crosses the threshold. Summed across recs,
+ * capped at MILEAGE_REC_PENALTY_CAP so a single vehicle can't be zeroed
+ * out by recs alone.
+ */
+function mileageRecPenalty(
+  odometerMiles: number,
+  recs?: Array<{ target_mileage: number }>,
+): number {
+  if (!recs || recs.length === 0) return 0;
+  let total = 0;
+  for (const rec of recs) {
+    const target = rec.target_mileage;
+    if (!Number.isFinite(target) || target <= 0) continue;
+    const distance = target - odometerMiles;
+    if (distance <= 0) {
+      total += MILEAGE_REC_PENALTY_PER_REC;
+    } else if (distance < MILEAGE_REC_RAMP_WINDOW) {
+      const proximity = 1 - distance / MILEAGE_REC_RAMP_WINDOW;
+      total += MILEAGE_REC_PENALTY_PER_REC * proximity;
+    }
+  }
+  return Math.min(MILEAGE_REC_PENALTY_CAP, total);
 }
 
 /**
@@ -155,9 +194,15 @@ export function computeVehicleHealthScore(input: HealthScoreInput): number {
   const warningReserve = Math.max(0, 15 - penalty);
 
   // ── Blend ─────────────────────────────────────────────────────
-  const raw = (maintenancePct * 0.60) + (usagePct * 0.25) + warningReserve;
+  let raw = (maintenancePct * 0.60) + (usagePct * 0.25) + warningReserve;
+
+  // Subtract open-recommendation penalty before clamp so 0/100 bounds still hold.
+  raw -= input.recPenalty ?? 0;
+  raw -= mileageRecPenalty(odometerMiles, input.mileageRecs);
 
   const rounded = Math.max(0, Math.min(100, Math.round(raw)));
+  // HP buffer adds on top of the clamped score (Rewards Framework v3 §11),
+  // capped so total can't exceed 100.
   const buffer = Math.max(0, Math.min(3, hpBuffer ?? 0));
   return Math.min(100, rounded + buffer);
 }

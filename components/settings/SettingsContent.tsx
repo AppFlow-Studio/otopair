@@ -100,6 +100,7 @@ import { useAuth, useUser } from "@clerk/clerk-expo";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useAuthStore } from "@/stores/useAuthStore";
+import { useSettingsOverlayStore } from "@/stores/useSettingsOverlayStore";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import { usePaymentStore } from "@/stores/usePaymentStore";
@@ -184,6 +185,19 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
   );
 
   const resetAuth = useAuthStore((s) => s.reset);
+
+  // When rendered inside the Home → Settings overlay, navigating to a
+  // sub-page should dismiss the overlay first so the destination isn't
+  // hidden behind the lifted Settings card.
+  const navigate = useCallback(
+    (href: Parameters<typeof router.push>[0]) => {
+      if (useSettingsOverlayStore.getState().isOpen) {
+        useSettingsOverlayStore.getState().closeInstant();
+      }
+      router.push(href);
+    },
+    [router],
+  );
 
   const [biometricLabel, setBiometricLabel] = useState("Biometric Login");
 
@@ -506,23 +520,23 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
             icon={<CreditCard size={18} color="#FFFFFF" />}
             label="Payment Methods"
             value={paymentMethodCount > 0 ? paymentMethodCount : undefined}
-            onPress={() => router.push("/payments")}
+            onPress={() => navigate("/payments")}
           />
           <SettingsRow
             icon={<Receipt size={18} color="#FFFFFF" />}
             label="Transactions & Receipts"
             value={transactionCount > 0 ? transactionCount : undefined}
-            onPress={() => router.push("/settings/transactions")}
+            onPress={() => navigate("/settings/transactions")}
           />
           <SettingsRow
             icon={<Award size={18} color="#FFFFFF" />}
             label="Loyalty & Rewards"
-            onPress={() => router.push("/membership")}
+            onPress={() => navigate("/membership")}
           />
           <SettingsRow
             icon={<UserPlus size={18} color="#FFFFFF" />}
             label="Refer a Friend"
-            onPress={() => router.push("/settings/refer-a-friend")}
+            onPress={() => navigate("/settings/refer-a-friend")}
             isLast
           />
         </SettingsCard>
@@ -532,12 +546,12 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
           <SettingsRow
             icon={<Headset size={18} color="#FFFFFF" />}
             label="Contact Us"
-            onPress={() => router.push("/settings/contact-us")}
+            onPress={() => navigate("/settings/contact-us")}
           />
           <SettingsRow
             icon={<HelpCircle size={18} color="#FFFFFF" />}
             label="FAQ"
-            onPress={() => router.push("/settings/faq")}
+            onPress={() => navigate("/settings/faq")}
           />
           <SettingsRow
             icon={<MessageSquare size={18} color="#FFFFFF" />}
@@ -558,13 +572,13 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
             <SettingsRow
               icon={<Lock size={18} color="#FFFFFF" />}
               label="Change Password"
-              onPress={() => router.push("/settings/change-password")}
+              onPress={() => navigate("/settings/change-password")}
             />
           ) : null}
           <SettingsRow
             icon={<ShieldCheck size={18} color="#FFFFFF" />}
             label="Two-Factor Authentication"
-            onPress={() => router.push("/settings/two-factor-method")}
+            onPress={() => navigate("/settings/two-factor-method")}
           />
           <SettingsRow
             icon={
@@ -575,12 +589,12 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
               )
             }
             label={biometricLabel}
-            onPress={() => router.push("/settings/biometric-setup")}
+            onPress={() => navigate("/settings/biometric-setup")}
           />
           <SettingsRow
             icon={<Shield size={18} color="#FFFFFF" />}
             label="Permissions"
-            onPress={() => router.push("/settings/permissions")}
+            onPress={() => navigate("/settings/permissions")}
             isLast
           />
         </SettingsCard>
@@ -590,13 +604,13 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
           <SettingsRow
             icon={<CircleDollarSign size={18} color="#FFFFFF" />}
             label="Pricing Transparency"
-            onPress={() => router.push("/settings/pricing-transparency")}
+            onPress={() => navigate("/settings/pricing-transparency")}
           />
           <SettingsRow
             icon={<RotateCcw size={18} color="#FFFFFF" />}
             label="How Your Data Is Used"
             onPress={() =>
-              router.push({
+              navigate({
                 pathname: "/coming-soon",
                 params: { serviceName: "How Your Data Is Used" },
               } as any)
@@ -605,12 +619,12 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
           <SettingsRow
             icon={<Shield size={18} color="#FFFFFF" />}
             label="Privacy Policy"
-            onPress={() => router.push("/settings/privacy-policy")}
+            onPress={() => navigate("/settings/privacy-policy")}
           />
           <SettingsRow
             icon={<FileText size={18} color="#FFFFFF" />}
             label="Terms and Conditions"
-            onPress={() => router.push("/settings/terms-and-conditions")}
+            onPress={() => navigate("/settings/terms-and-conditions")}
             isLast
           />
         </SettingsCard>
@@ -715,7 +729,7 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
         </View>
         <View style={styles.stickySide}>
           <Pressable
-            onPress={() => router.push("/membership")}
+            onPress={() => navigate("/membership")}
             style={({ pressed }) => [
               styles.upgradePillWrapper,
               pressed && { opacity: 0.85 },
