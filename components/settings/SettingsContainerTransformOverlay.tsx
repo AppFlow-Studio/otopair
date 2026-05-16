@@ -6,6 +6,7 @@
  */
 
 import React, {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -114,6 +115,8 @@ export function SettingsContainerTransformOverlay() {
     null,
   );
   const progress = useSharedValue(0);
+  const expandedAvatarTop = useSharedValue(insets.top + 40);
+  const currentSettingsScrollYRef = useRef(0);
 
   const measureRoot = () => {
     rootRef.current?.measureInWindow((x, y, width, height) => {
@@ -157,6 +160,8 @@ export function SettingsContainerTransformOverlay() {
   useLayoutEffect(() => {
     if (isOpen && fromRect) {
       measureRoot();
+      currentSettingsScrollYRef.current = 0;
+      expandedAvatarTop.value = insets.top + 40;
       setActiveRect(fromRect);
       setMounted(true);
       setContentMounted(true);
@@ -179,7 +184,8 @@ export function SettingsContainerTransformOverlay() {
     }
 
     if (isTransitionVisible && mounted) {
-      setSettled(false);
+      expandedAvatarTop.value =
+        insets.top + 40 - currentSettingsScrollYRef.current;
       progress.value = withTiming(
         0,
         {
@@ -196,7 +202,7 @@ export function SettingsContainerTransformOverlay() {
     }
     // mounted intentionally omitted; this reacts to store transitions.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [finishClose, fromRect, isOpen, isTransitionVisible]);
+  }, [finishClose, fromRect, insets.top, isOpen, isTransitionVisible]);
 
   useEffect(() => {
     if (Platform.OS !== "android" || !mounted || !isOpen) return;
@@ -224,7 +230,10 @@ export function SettingsContainerTransformOverlay() {
   };
   const overlayWidth = rootMetrics.width || window.width;
   const overlayHeight = rootMetrics.height || window.height;
-  const naturalAvatarTop = insets.top + 40;
+
+  const handleSettingsScrollOffsetChange = useCallback((offsetY: number) => {
+    currentSettingsScrollYRef.current = offsetY;
+  }, []);
 
   const backdropStyle = useAnimatedStyle(() => ({
     opacity: interpolate(progress.value, [0, 0.65], [0, 1], Extrapolation.CLAMP),
@@ -326,19 +335,20 @@ export function SettingsContainerTransformOverlay() {
     const top = interpolate(
       progress.value,
       [0, 1],
-      [localRect.y, naturalAvatarTop],
+      [localRect.y, expandedAvatarTop.value],
+      Extrapolation.CLAMP,
+    );
+    const openOpacity = interpolate(
+      progress.value,
+      [0, 0.18, 0.36],
+      [0, 0, 1],
       Extrapolation.CLAMP,
     );
     return {
       width: size,
       height: size,
       borderRadius: size / 2,
-      opacity: interpolate(
-        progress.value,
-        [0, 0.18, 0.36],
-        [0, 0, 1],
-        Extrapolation.CLAMP,
-      ),
+      opacity: openOpacity,
       transform: [{ translateX: left }, { translateY: top }],
     };
   });
@@ -381,9 +391,16 @@ export function SettingsContainerTransformOverlay() {
         deferBlurHeader={!settled}
         avatarOverride={settled ? undefined : avatarPlaceholder}
         resetScrollSignal={openSequence}
+        onScrollOffsetChange={handleSettingsScrollOffsetChange}
       />
     );
-  }, [avatarPlaceholder, contentMounted, openSequence, settled]);
+  }, [
+    avatarPlaceholder,
+    contentMounted,
+    handleSettingsScrollOffsetChange,
+    openSequence,
+    settled,
+  ]);
 
   return (
     <View

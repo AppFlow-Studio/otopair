@@ -33,6 +33,7 @@ import {
 import Animated, {
   Extrapolation,
   interpolate,
+  runOnJS,
   useAnimatedScrollHandler,
   useAnimatedStyle,
   useSharedValue,
@@ -125,6 +126,8 @@ interface SettingsContentProps {
   deferBlurHeader?: boolean;
   /** Increment to reset the Settings scroll position back to the top. */
   resetScrollSignal?: number;
+  /** Reports the current vertical scroll offset to overlay transition hosts. */
+  onScrollOffsetChange?: (offsetY: number) => void;
 }
 
 // ============================================================================
@@ -136,6 +139,7 @@ export function SettingsContent({
   translucent,
   deferBlurHeader,
   resetScrollSignal,
+  onScrollOffsetChange,
 }: SettingsContentProps) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -308,6 +312,9 @@ export function SettingsContent({
   const scrollY = useSharedValue(0);
   const onScroll = useAnimatedScrollHandler((event) => {
     scrollY.value = event.contentOffset.y;
+    if (onScrollOffsetChange) {
+      runOnJS(onScrollOffsetChange)(event.contentOffset.y);
+    }
   });
 
   useLayoutEffect(() => {
