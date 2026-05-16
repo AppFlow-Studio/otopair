@@ -121,13 +121,19 @@ interface SettingsContentProps {
    *  transparent screen. Used by SettingsOverlay so a BlurView of the
    *  home page can show through behind the rows. */
   translucent?: boolean;
+  /** Skips the sticky blur layer while Android's overlay transition is running. */
+  deferBlurHeader?: boolean;
 }
 
 // ============================================================================
 // COMPONENT
 // ============================================================================
 
-export function SettingsContent({ avatarOverride, translucent }: SettingsContentProps) {
+export function SettingsContent({
+  avatarOverride,
+  translucent,
+  deferBlurHeader,
+}: SettingsContentProps) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { signOut } = useAuth();
@@ -643,25 +649,27 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
           blurHeaderStyle,
         ]}
       >
-        <MaskedView
-          style={StyleSheet.absoluteFill}
-          maskElement={
-            <LinearGradient
-              colors={["#000", "#000", "transparent"]}
-              locations={[0, 0.7, 1]}
-              start={{ x: 0.5, y: 0 }}
-              end={{ x: 0.5, y: 1 }}
+        {deferBlurHeader ? null : (
+          <MaskedView
+            style={StyleSheet.absoluteFill}
+            maskElement={
+              <LinearGradient
+                colors={["#000", "#000", "transparent"]}
+                locations={[0, 0.7, 1]}
+                start={{ x: 0.5, y: 0 }}
+                end={{ x: 0.5, y: 1 }}
+                style={StyleSheet.absoluteFill}
+              />
+            }
+          >
+            <BlurView
+              intensity={50}
+              tint="dark"
               style={StyleSheet.absoluteFill}
             />
-          }
-        >
-          <BlurView
-            intensity={50}
-            tint="dark"
-            style={StyleSheet.absoluteFill}
-          />
-          <View style={styles.blurHeaderTint} />
-        </MaskedView>
+            <View style={styles.blurHeaderTint} />
+          </MaskedView>
+        )}
       </Animated.View>
 
       {/* Sticky top row — Upgrade pill + animated centered title */}

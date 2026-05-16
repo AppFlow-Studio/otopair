@@ -52,6 +52,7 @@ import {
 import { computeInitials } from "@/utils/userInitials";
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get("window");
+const IS_ANDROID = Platform.OS === "android";
 
 // Settings avatar's natural target size (matches SettingsContent's
 // avatar block: 72×72 circular). The animation interpolates the
@@ -59,6 +60,15 @@ const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get("window");
 const AVATAR_TARGET_SIZE = 72;
 
 const SPRING_CONFIG = { damping: 22, stiffness: 145, mass: 1.05 } as const;
+const ANDROID_SPRING_CONFIG = {
+  damping: 27,
+  stiffness: 230,
+  mass: 0.85,
+  overshootClamping: true,
+} as const;
+
+const SETTINGS_GRADIENT_TOP = "#1A2C4E";
+const SETTINGS_GRADIENT_BOTTOM = "#0B1120";
 
 export function SettingsOverlay() {
   const insets = useSafeAreaInsets();
@@ -123,22 +133,30 @@ export function SettingsOverlay() {
       setMounted(true);
       setSettled(false);
       progress.value = 0;
-      // Defer the spring until after the Modal has actually mounted
-      // so the first frame renders at progress=0 (card at button rect).
-      requestAnimationFrame(() => {
-        progress.value = withSpring(1, SPRING_CONFIG, (finished) => {
+      if (IS_ANDROID) {
+        progress.value = withSpring(1, ANDROID_SPRING_CONFIG, (finished) => {
           if (finished) {
             runOnJS(setSettled)(true);
           }
         });
-      });
+      } else {
+        // Defer the spring until after the Modal has actually mounted
+        // so the first frame renders at progress=0 (card at button rect).
+        requestAnimationFrame(() => {
+          progress.value = withSpring(1, SPRING_CONFIG, (finished) => {
+            if (finished) {
+              runOnJS(setSettled)(true);
+            }
+          });
+        });
+      }
     } else if (isTransitionVisible && mounted) {
       // Re-instate the floating avatar before reversing the spring so
       // the user sees the avatar shrink back into the home button.
       setSettled(false);
       progress.value = withSpring(
         0,
-        SPRING_CONFIG,
+        IS_ANDROID ? ANDROID_SPRING_CONFIG : SPRING_CONFIG,
         (finished) => {
           if (finished) {
             runOnJS(setMounted)(false);
@@ -161,38 +179,63 @@ export function SettingsOverlay() {
 
   // Card grows from the button rect to fullscreen. `overflow: hidden`
   // clips the SettingsContent inside while it's still small.
-  const cardStyle = useAnimatedStyle(() => ({
-    top: interpolate(
+  const cardStyle = useAnimatedStyle(() => {
+    const top = interpolate(
       progress.value,
       [0, 1],
       [rect.y, 0],
       Extrapolation.CLAMP,
-    ),
-    left: interpolate(
+    );
+    const left = interpolate(
       progress.value,
       [0, 1],
       [rect.x, 0],
       Extrapolation.CLAMP,
-    ),
-    width: interpolate(
+    );
+    const width = interpolate(
       progress.value,
       [0, 1],
       [rect.width, SCREEN_W],
       Extrapolation.CLAMP,
-    ),
-    height: interpolate(
+    );
+    const height = interpolate(
       progress.value,
       [0, 1],
       [rect.height, SCREEN_H],
       Extrapolation.CLAMP,
-    ),
-    borderRadius: interpolate(
+    );
+    const borderRadius = interpolate(
       progress.value,
       [0, 1],
       [rect.width / 2, 0],
       Extrapolation.CLAMP,
-    ),
-  }));
+    );
+
+    if (IS_ANDROID) {
+      return {
+        top: 0,
+        left: 0,
+        width: SCREEN_W,
+        height: SCREEN_H,
+        borderRadius,
+        transformOrigin: "top left",
+        transform: [
+          { translateX: left },
+          { translateY: top },
+          { scaleX: width / SCREEN_W },
+          { scaleY: height / SCREEN_H },
+        ],
+      };
+    }
+
+    return {
+      top,
+      left,
+      width,
+      height,
+      borderRadius,
+    };
+  });
 
   // Backdrop blur fades in as the card grows.
   const backdropStyle = useAnimatedStyle(() => ({
@@ -263,14 +306,43 @@ export function SettingsOverlay() {
   }));
 
   // SettingsContent body fades in once the card has enough room.
-  const bodyStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(
+  const bodyStyle = useAnimatedStyle(() => {
+    const inputRange = IS_ANDROID ? [0.12, 0.55] : [0.4, 0.9];
+    return {
+      opacity: interpolate(
+        progress.value,
+        inputRange,
+        [0, 1],
+        Extrapolation.CLAMP,
+      ),
+    };
+  });
+
+  const androidAvatarStyle = useAnimatedStyle(() => {
+    const size = interpolate(
       progress.value,
-      [0.4, 0.9],
       [0, 1],
+      [rect.width, AVATAR_TARGET_SIZE],
       Extrapolation.CLAMP,
-    ),
-  }));
+    );
+    return {
+      width: size,
+      height: size,
+      borderRadius: size / 2,
+      left: interpolate(
+        progress.value,
+        [0, 1],
+        [rect.x, (SCREEN_W - AVATAR_TARGET_SIZE) / 2],
+        Extrapolation.CLAMP,
+      ),
+      top: interpolate(
+        progress.value,
+        [0, 1],
+        [rect.y, NATURAL_AVATAR_TOP],
+        Extrapolation.CLAMP,
+      ),
+    };
+  });
 
   // X close button is the last thing to appear.
   const closeStyle = useAnimatedStyle(() => ({
@@ -282,27 +354,22 @@ export function SettingsOverlay() {
     ),
   }));
 
-  if (!mounted) return null;
-
-  return (
-    <Modal
-      transparent
-      visible={mounted}
-      animationType="none"
-      statusBarTranslucent
-      onRequestClose={handleClose}
-    >
+  const overlayContent = (
+    <>
       {/* Backdrop blur over Home */}
       <Animated.View
         style={[StyleSheet.absoluteFill, backdropStyle]}
         pointerEvents="none"
       >
-        <BlurView
-          intensity={40}
-          experimentalBlurMethod={Platform.OS === "android" ? "dimezisBlurView" : undefined}
-          tint="default"
-          style={StyleSheet.absoluteFill}
-        />
+        {IS_ANDROID ? (
+          <View style={styles.androidBackdrop} />
+        ) : (
+          <BlurView
+            intensity={40}
+            tint="default"
+            style={StyleSheet.absoluteFill}
+          />
+        )}
       </Animated.View>
 
       {/* The growing card. overflow:hidden clips Settings content while
@@ -312,15 +379,28 @@ export function SettingsOverlay() {
       <Animated.View style={[styles.card, cardStyle]}>
         {/* Frosted backdrop — blurs the home page visible through the
             card's transparent fill. */}
-        <BlurView
-          intensity={60}
-          experimentalBlurMethod={Platform.OS === "android" ? "dimezisBlurView" : undefined}
-          tint="default"
-          style={StyleSheet.absoluteFill}
-        />
-        {/* Subtle navy tint to keep the white row text legible against
-            the blurred home content. */}
-        <View style={styles.cardTint} />
+        {IS_ANDROID ? (
+          <>
+            <LinearGradient
+              colors={[SETTINGS_GRADIENT_TOP, SETTINGS_GRADIENT_BOTTOM]}
+              start={{ x: 0.5, y: 0 }}
+              end={{ x: 0.5, y: 1 }}
+              style={StyleSheet.absoluteFill}
+            />
+            <View style={styles.androidCardTint} />
+          </>
+        ) : (
+          <>
+            <BlurView
+              intensity={60}
+              tint="default"
+              style={StyleSheet.absoluteFill}
+            />
+            {/* Subtle navy tint to keep the white row text legible against
+                the blurred home content. */}
+            <View style={styles.cardTint} />
+          </>
+        )}
 
         {/* Settings render tree. While the spring is animating we
             render a blank placeholder in the avatar slot so the
@@ -332,7 +412,8 @@ export function SettingsOverlay() {
             so the blur above shows through. */}
         <Animated.View style={[StyleSheet.absoluteFill, bodyStyle]}>
           <SettingsContent
-            translucent
+            translucent={!IS_ANDROID}
+            deferBlurHeader={IS_ANDROID && !settled}
             avatarOverride={
               settled ? undefined : (
                 <View
@@ -351,7 +432,7 @@ export function SettingsOverlay() {
             SettingsContent is now in charge (and scrolls correctly).
             Mirrors the home button's image-or-initials choice so the
             shared element is visually identical at progress=0. */}
-        {settled ? null : (
+        {!IS_ANDROID && !settled ? (
           <Animated.View
             style={[styles.floatingAvatar, avatarStyle]}
             pointerEvents="none"
@@ -374,7 +455,7 @@ export function SettingsOverlay() {
               </LinearGradient>
             )}
           </Animated.View>
-        )}
+        ) : null}
 
         {/* X close — top-left, fades in last */}
         <Animated.View
@@ -396,6 +477,53 @@ export function SettingsOverlay() {
           </Pressable>
         </Animated.View>
       </Animated.View>
+
+      {IS_ANDROID && !settled ? (
+        <Animated.View
+          style={[styles.floatingAvatar, androidAvatarStyle]}
+          pointerEvents="none"
+        >
+          {photoUri ? (
+            <Image
+              source={{ uri: photoUri }}
+              style={StyleSheet.absoluteFill}
+            />
+          ) : (
+            <LinearGradient
+              colors={["#5299FE", "#C5DAFF"]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={[StyleSheet.absoluteFill, styles.floatingAvatarFill]}
+            >
+              <Animated.Text style={[styles.initialsText, initialsTextStyle]}>
+                {initials}
+              </Animated.Text>
+            </LinearGradient>
+          )}
+        </Animated.View>
+      ) : null}
+    </>
+  );
+
+  if (!mounted) return null;
+
+  if (IS_ANDROID) {
+    return (
+      <View style={styles.androidOverlayRoot}>
+        {overlayContent}
+      </View>
+    );
+  }
+
+  return (
+    <Modal
+      transparent
+      visible={mounted}
+      animationType="none"
+      statusBarTranslucent
+      onRequestClose={handleClose}
+    >
+      {overlayContent}
     </Modal>
   );
 }
@@ -409,6 +537,19 @@ const styles = StyleSheet.create({
   cardTint: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(11,17,32,0.25)",
+  },
+  androidOverlayRoot: {
+    ...StyleSheet.absoluteFillObject,
+    zIndex: 1000,
+    elevation: 1000,
+  },
+  androidBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(3,7,18,0.24)",
+  },
+  androidCardTint: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(11,17,32,0.08)",
   },
   floatingAvatar: {
     position: "absolute",

@@ -7,6 +7,7 @@ import { useBookingsFromConvex } from "@/hooks/useBookingsFromConvex";
 import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromConvex";
 import { NotificationsSheet } from "@/components/notifications/NotificationsSheet";
 import { RescheduleDecisionOverlay } from "@/components/notifications/RescheduleDecisionOverlay";
+import { SettingsOverlay } from "@/components/settings/SettingsOverlay";
 
 /** Hydrates vehicle and booking stores with Convex data when main tabs are active. */
 function HydrateBookingData() {
@@ -72,6 +73,7 @@ export default function TabLayout() {
             }}
           />
         </Tabs>
+        {Platform.OS === "android" ? <SettingsOverlay /> : null}
         <NotificationsSheet />
         <RescheduleDecisionOverlay />
       </>

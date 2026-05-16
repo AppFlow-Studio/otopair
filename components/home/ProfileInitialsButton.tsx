@@ -12,8 +12,8 @@
  * OWNER: Ahmad Hamoudeh
  */
 
-import React, { useMemo, useRef } from "react";
-import { Image, Platform, Pressable, StatusBar, StyleSheet, View } from "react-native";
+import React, { useCallback, useMemo, useRef } from "react";
+import { Image, Pressable, StyleSheet, View } from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useQuery } from "convex/react";
 import { useShallow } from "zustand/react/shallow";
@@ -22,17 +22,16 @@ import { Text } from "@/components/shared-ui";
 import { OtoPairIcon } from "@/components/icons/oto-pair";
 import { AvatarSlider } from "@/components/settings/AvatarSlider";
 import { api } from "@/convex/_generated/api";
-
-// 3D OtoPair pin logo used as the second avatar-slider panel.
-const OTO_LOGO_3D = require("@/assets/images/pin-logo-3d.png");
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import { useSettingsOverlayStore } from "@/stores/useSettingsOverlayStore";
+import type { SettingsOverlayRect } from "@/stores/useSettingsOverlayStore";
 import { computeInitials } from "@/utils/userInitials";
 
 const BUTTON_SIZE = 40;
 
 export function ProfileInitialsButton() {
   const viewRef = useRef<View>(null);
+  const measuredRectRef = useRef<SettingsOverlayRect | null>(null);
   const me = useQuery(api.users.getMe);
   const { firstName, lastName, profilePhotoUri: storedPhoto } =
     useOnboardingStore(
@@ -44,9 +43,6 @@ export function ProfileInitialsButton() {
     );
   const open = useSettingsOverlayStore((s) => s.open);
   const isOpen = useSettingsOverlayStore((s) => s.isOpen);
-
-  const modalWindowOffsetY =
-    Platform.OS === "android" ? (StatusBar.currentHeight ?? 0) : 0;
 
   const initials = useMemo(
     () =>
@@ -69,16 +65,34 @@ export function ProfileInitialsButton() {
     return null;
   }, [me?.profile_photo_storage_id, me?.profile_photo_url, storedPhoto]);
 
-  const handlePress = () => {
-    // Ignore taps while the overlay is already open / animating in.
-    if (isOpen) return;
+  const updateMeasuredRect = useCallback(() => {
     viewRef.current?.measureInWindow((x, y, width, height) => {
       if (!Number.isFinite(x) || !Number.isFinite(y) || width <= 0 || height <= 0) {
         return;
       }
-      open({ x, y: y + modalWindowOffsetY, width, height });
+      measuredRectRef.current = { x, y, width, height };
     });
-  };
+  }, []);
+
+  const handlePress = useCallback(() => {
+    // Ignore taps while the overlay is already open / animating in.
+    if (isOpen) return;
+
+    const measuredRect = measuredRectRef.current;
+    if (measuredRect) {
+      open(measuredRect);
+      return;
+    }
+
+    viewRef.current?.measureInWindow((x, y, width, height) => {
+      if (!Number.isFinite(x) || !Number.isFinite(y) || width <= 0 || height <= 0) {
+        return;
+      }
+      const rect = { x, y, width, height };
+      measuredRectRef.current = rect;
+      open(rect);
+    });
+  }, [isOpen, open]);
 
   return (
     <View
@@ -86,6 +100,7 @@ export function ProfileInitialsButton() {
       collapsable={false}
       pointerEvents={isOpen ? "none" : "auto"}
       style={[styles.measureWrap, isOpen && styles.hiddenWrap]}
+      onLayout={updateMeasuredRect}
     >
       <Pressable
         onPress={handlePress}

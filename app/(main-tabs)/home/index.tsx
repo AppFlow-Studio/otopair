@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Image,
+  Platform,
   Pressable,
   StyleSheet,
   View,
@@ -822,7 +823,7 @@ export default function HomeScreen() {
     {/* Shared-element overlay that lifts Settings on top of Home when
         the initials button in the header is tapped. Driven by
         useSettingsOverlayStore. */}
-    <SettingsOverlay />
+    {Platform.OS === "ios" ? <SettingsOverlay /> : null}
 
     {/* Auto-prompt: if the user has a completed-but-unreviewed booking,
         this sheet pops on focus / cold start until they submit a review. */}
