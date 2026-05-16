@@ -27,11 +27,13 @@ import {
 } from 'react-native';
 
 // 2. Expo & Third-party
-import { BlurView } from 'expo-blur';
 import SegmentedControl from '@react-native-segmented-control/segmented-control';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Calendar, Check, ChevronLeft, ChevronRight, Info, Plus, X, XCircle } from 'lucide-react-native';
-import Svg, { Circle, Defs, LinearGradient as SvgLinearGradient, Stop } from 'react-native-svg';
+import { Calendar, Check, ChevronDown, ChevronLeft, ChevronRight, Info, Plus, X, XCircle } from 'lucide-react-native';
+import { CarSelectionContent } from '@/components/booking/sheets/CarSelectionContent';
+import { FloatingSheet, type FloatingSheetRef } from '@/components/shared-ui/FloatingSheet';
+import { useVehicleStore } from '@/stores/useVehicleStore';
+import Svg, { Circle, Defs, Ellipse, LinearGradient as SvgLinearGradient, RadialGradient, Stop } from 'react-native-svg';
 import { Easing } from 'react-native';
 import ReAnimated, {
   Extrapolate,
@@ -55,6 +57,7 @@ import { router } from 'expo-router';
 
 // 5. Responsive utilities
 import { scale, verticalScale, moderateScale, isTablet } from '@/utils/responsive';
+import { computeHealthScoreFactors, type HealthFactor } from '@/utils/healthScore';
 
 
 // ============================================================================
@@ -75,7 +78,6 @@ export interface Vehicle {
   condition?: number;
   nextUnlock?: string;
   gradientColors?: string[];
-  connectionStatus?: string; // "unconnected" | "connected" | "error"
   /** Body style from `vehicles.metadata.body_style` — drives the
    *  per-car ground-line tire offset (trucks/SUVs sit higher in the
    *  frame than sedans/coupes). */
@@ -103,6 +105,29 @@ interface CarCarouselProps {
   /** Parent has determined the active vehicle's gradient top is dark
    *  enough that the hero text must flip to light to stay readable. */
   isDarkBg?: boolean;
+  /** Solid color used for the ground-line shadow under the active car.
+   *  Should be a desaturated dark tint of the page's background hue
+   *  so the line reads as a natural shadow on the current screen.
+   *  Defaults to the GroundLine component's neutral dark-pink tint. */
+  groundLineTint?: string;
+  /** Same hue as `groundLineTint` with alpha 0 — used for the two
+   *  outer stops of the line's gradient. Override together with
+   *  `groundLineTint` so both ends fade to transparency cleanly. */
+  groundLineTintTransparent?: string;
+  /** RGB triple ("r, g, b", no alpha) for the elliptical drop shadow
+   *  under the car. Should be the desaturated dark version of the
+   *  active background hue so the shadow tints to match the screen. */
+  groundShadowTintRgb?: string;
+  /** When true, skips rendering the elliptical ground shadow under
+   *  the active car. Used for covered-car fallback states where the
+   *  cloth illustration shouldn't cast a contact-patch shadow. The
+   *  `<GroundLine>` still renders. */
+  hideGroundShadow?: boolean;
+  /** Active vehicle's known dashboard warning lights — feeds the
+   *  Score Factors breakdown inside the Vehicle Health sheet. */
+  knownIssues?: string[];
+  /** Health Points bonus buffer (0–3) — shown as a positive factor. */
+  hpBuffer?: number;
 }
 
 // ============================================================================
@@ -112,14 +137,223 @@ interface CarCarouselProps {
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const CAR_CARD_WIDTH = Math.min(scale(320), 420);
 const CAR_CARD_HEIGHT = scale(240);
+
+// ============================================================================
+// GROUND LINE
+// ============================================================================
+
+/**
+ * GroundLine
+ *
+ * Soft horizontal "ground plane" line that grounds the active car in
+ * the carousel. Renders a thin horizontal LinearGradient that fades
+ * transparent → solid → transparent across its width, so the line
+ * eases out at both ends instead of hard-cutting. Reads as the
+ * surface the car is resting on without feeling like a screen-wide
+ * divider.
+ *
+ * Standalone so it scales (via `width`) when the active vehicle
+ * changes between body styles in the carousel.
+ */
+function GroundLine({
+  width,
+  bottomOffset,
+  tint = "rgba(60, 15, 25, 0.35)",
+  tintTransparent = "rgba(60, 15, 25, 0)",
+  height = 1.5,
+}: {
+  /** Pixel width of the line — typically the car image container
+   *  width (e.g. `CAR_CARD_WIDTH`), NOT the screen width, so the line
+   *  stays anchored to the car rather than reading as a screen-wide
+   *  divider. */
+  width: number;
+  /** Distance from the parent's bottom edge, in pixels. Aligns the
+   *  line vertically with the tire contact point. */
+  bottomOffset: number;
+  /** Solid middle color. Defaults to a desaturated dark-pink so the
+   *  line matches the warm-toned cars page background and reads as a
+   *  soft ground plane rather than a pure-black hairline. */
+  tint?: string;
+  /** Same hue, alpha=0. Override only when `tint` is customized. */
+  tintTransparent?: string;
+  /** Line thickness in px. 1.5 reads as a hairline at retina density
+   *  without disappearing. */
+  height?: number;
+}) {
+  return (
+    <View
+      style={{
+        position: 'absolute',
+        bottom: bottomOffset,
+        left: 0,
+        right: 0,
+        alignItems: 'center',
+        zIndex: 0,
+      }}
+      pointerEvents="none"
+    >
+      <LinearGradient
+        // Horizontal gradient — transparent at both edges, solid
+        // through the middle 60%. Two solid stops (20% and 80%) give
+        // a flat core instead of a single peak, so the line reads as
+        // a band of ground rather than a diamond-shaped highlight.
+        colors={[tintTransparent, tint, tint, tintTransparent]}
+        locations={[0, 0.2, 0.8, 1]}
+        start={{ x: 0, y: 0.5 }}
+        end={{ x: 1, y: 0.5 }}
+        style={{ width, height }}
+      />
+    </View>
+  );
+}
+
+// ============================================================================
+// GROUND SHADOW
+// ============================================================================
+
+/**
+ * CarGroundShadow
+ *
+ * Soft elliptical drop shadow that sits under the active car beneath
+ * the GroundLine. Renders a radial-gradient ellipse (dark at center,
+ * fading to transparent at the edges) so the car reads as casting a
+ * shadow onto the surface, not just resting on a line.
+ *
+ * `tintRgb` is the RGB triple (no alpha) — the component composes
+ * `rgb(${tintRgb})` for the two SVG stop colors and applies
+ * `centerOpacity` / 0 separately via `stopOpacity`. Lets the parent
+ * pass a hue derived from the active background gradient.
+ */
+function CarGroundShadow({
+  width,
+  bottom,
+  offsetY = 0,
+  offsetX = 0,
+  height = 22,
+  tintRgb = "60, 15, 25",
+  centerOpacity = 0.45,
+}: {
+  /** Pixel width of the ellipse — typically ~75% of the car card width. */
+  width: number;
+  /** Anchor distance from the parent's bottom edge, in pixels. */
+  bottom: number;
+  /** Additional upward offset added to `bottom`. Negative drops the
+   *  shadow lower in the frame, positive pushes it up. */
+  offsetY?: number;
+  /** Horizontal translation in pixels — aligns the shadow with the
+   *  car's visual center of mass on 3/4-angle renders. */
+  offsetX?: number;
+  /** Vertical thickness of the ellipse. */
+  height?: number;
+  /** RGB triple ("r, g, b") for the shadow tint. Compose from the
+   *  active background gradient's top stop so the shadow desaturates
+   *  to the screen's own hue. */
+  tintRgb?: string;
+  /** Alpha at the ellipse center; falls to half at 70% radius, 0 at
+   *  the edge. Gives a punchier falloff than a linear fade. */
+  centerOpacity?: number;
+}) {
+  return (
+    <View
+      style={{
+        position: 'absolute',
+        bottom: bottom + offsetY,
+        left: 0,
+        right: 0,
+        alignItems: 'center',
+        zIndex: 0,
+        transform: [{ translateX: offsetX }],
+      }}
+      pointerEvents="none"
+    >
+      <Svg width={width} height={height}>
+        <Defs>
+          <RadialGradient
+            id="carGroundShadow"
+            cx="50%"
+            cy="50%"
+            rx="50%"
+            ry="50%"
+            fx="50%"
+            fy="50%"
+            gradientUnits="userSpaceOnUse"
+          >
+            <Stop offset="0%" stopColor={`rgb(${tintRgb})`} stopOpacity={centerOpacity} />
+            <Stop offset="70%" stopColor={`rgb(${tintRgb})`} stopOpacity={centerOpacity / 2} />
+            <Stop offset="100%" stopColor={`rgb(${tintRgb})`} stopOpacity="0" />
+          </RadialGradient>
+        </Defs>
+        <Ellipse
+          cx={width / 2}
+          cy={height / 2}
+          rx={width / 2}
+          ry={height / 2}
+          fill="url(#carGroundShadow)"
+        />
+      </Svg>
+    </View>
+  );
+}
+
 // Width per segment in the SegmentedControl-based thumbnail selector.
 // Drives both the rail layout and the absolute-positioned thumbnail
 // overlays so they line up over each segment's center.
 const SEGMENT_WIDTH = scale(56);
+// Compact-mode (5+ cars) the strip is only 3 segments — we can hold
+// the natural segment width but keep room for the active-car pill
+// + add button + health ring on the same row.
+const COMPACT_SEGMENT_WIDTH = scale(46);
+const COMPACT_THUMB_SIZE = scale(32);
 const RADIUS = SCREEN_WIDTH * 0.5;
 
 // Fallback image used only when no dynamic imageSource is available
-const FALLBACK_VEHICLE_IMAGE = require('@/assets/images/lexus.png');
+const FALLBACK_VEHICLE_IMAGE = require('@/assets/images/covered-car.png');
+
+/**
+ * Best-effort body-style classifier from a car's make/model. Used when
+ * `vehicle.bodyStyle` (from Convex metadata) is missing so the
+ * ground-line + shadow sizing still varies per vehicle shape.
+ *
+ * Covers popular nameplates seen in test data plus generic keyword
+ * matches (e.g. "truck", "convertible") in the model name. Returns
+ * one of: "truck" | "suv" | "coupe" | "convertible" | "sedan" | "".
+ * Empty string falls through to the default sizing in the consuming
+ * useMemo.
+ */
+function inferBodyStyleFromModel(_make?: string, model?: string): string {
+  const m = (model ?? "").toLowerCase().trim();
+  if (!m) return "";
+
+  // Direct keyword cues in the model name.
+  if (/\b(truck|pickup|f-?\d{2,3}|silverado|ram\s*\d|tundra|tacoma|frontier|colorado|ridgeline|maverick)\b/.test(m)) {
+    return "truck";
+  }
+  if (/\b(suv|crossover|wagon|van)\b/.test(m)) return "suv";
+  if (/\b(convertible|cabriolet|spyder|spider|roadster)\b/.test(m)) return "convertible";
+  if (/\b(coupe|gt|gtr|gt-r)\b/.test(m)) return "coupe";
+  if (/\b(sedan|saloon|hatchback)\b/.test(m)) return "sedan";
+
+  // Popular nameplate → body style. Loose substring match so trims
+  // (e.g. "911 Turbo", "Blazer RS") still resolve.
+  const SUV = /(explorer|blazer|tahoe|suburban|expedition|escalade|navigator|highlander|4runner|rav4|cr-?v|hr-?v|pilot|passport|telluride|palisade|sorento|sportage|tucson|santa\s?fe|santa\s?cruz|outback|forester|ascent|tiguan|atlas|rogue|murano|pathfinder|armada|cx-?\d|mkx|mkc|mkz|aviator|nautilus|corsair|x[1-7]\b|q[3-8]\b|gle|glc|gls|glb|gla|grand\s?cherokee|wrangler|bronco|edge|escape|equinox|trailblazer|venza|kicks|seltos|trax|encore|envision|enclave|q-?[357]|qx[3-8]|macan|cayenne|range\s?rover|discovery|defender)/;
+  const COUPE = /(911|cayman|boxster|gt[3-4]|corvette|mustang|camaro|challenger|charger|supra|gr\s?86|brz|nsx|i8|m[2-4]\b|amg\s?gt|r8|huracan|aventador)/;
+  const TRUCK = /(silverado|sierra|f-?(150|250|350)|ranger|titan|tundra|tacoma|frontier|colorado|canyon|ridgeline|maverick|cybertruck|gladiator)/;
+  const CONVERTIBLE = /(miata|mx-?5|z[34]\b|s2000|elise|exige|spider|spyder|roadster|cabriolet)/;
+
+  if (TRUCK.test(m)) return "truck";
+  if (SUV.test(m)) return "suv";
+  if (CONVERTIBLE.test(m)) return "convertible";
+  if (COUPE.test(m)) return "coupe";
+
+  // Common sedan letter/number patterns (A4, 3-Series, C-Class, etc.)
+  // — last resort before falling through to default.
+  if (/^(a[3-8]\b|s[3-8]\b|rs[3-8]\b|q50|q60|[3-7]\s?series|[gm][3-7]|c-?class|e-?class|s-?class|civic|accord|camry|corolla|altima|sentra|maxima|impala|malibu|fusion|focus|elantra|sonata|optima|forte|jetta|passat|3\b|6\b|mazda\s?[346])/.test(m)) {
+    return "sedan";
+  }
+
+  return "";
+}
+
 
 // ============================================================================
 // RING CONFIGURATION & TYPES
@@ -136,15 +370,6 @@ interface RingConfig {
   showGlow: boolean;
   name: string;
   description: string;
-}
-
-// Service items that need attention
-interface ServiceItem {
-  name: string;
-  dueInfo: string;
-  status: 'overdue' | 'due_soon';
-  scoreImpact: number; // Points gained if completed
-  actionDescription: string; // Why this affects the score
 }
 
 // Metric configuration for breakdown rows
@@ -172,6 +397,8 @@ interface VehicleHealthModalProps {
   currentMileage?: number;
   isEstimated?: boolean;
   onResumeCheckin?: () => void;
+  knownIssues?: string[];
+  hpBuffer?: number;
 }
 
 const VehicleHealthModal = ({
@@ -185,6 +412,8 @@ const VehicleHealthModal = ({
   currentMileage: realMileage,
   isEstimated,
   onResumeCheckin,
+  knownIssues,
+  hpBuffer,
 }: VehicleHealthModalProps) => {
   const slideAnim = useRef(new Animated.Value(SCREEN_HEIGHT)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
@@ -205,44 +434,22 @@ const VehicleHealthModal = ({
   // Info modal state
   const [showInfoModal, setShowInfoModal] = useState(false);
 
-  // Selected services state
-  const [selectedServices, setSelectedServices] = useState<Set<number>>(new Set());
-
-  // Toggle service selection
-  const toggleServiceSelection = (index: number) => {
-    setSelectedServices(prev => {
-      const newSet = new Set(prev);
-      if (newSet.has(index)) {
-        newSet.delete(index);
-      } else {
-        newSet.add(index);
-      }
-      return newSet;
-    });
-  };
-
   // Calculate overall score (average of all three)
   const overallScore = Math.round((healthPercentage + maintenancePercentage + servicePercentage) / 3);
 
-  // Build service items from real maintenance data
-  const serviceItems: ServiceItem[] = useMemo(() => {
-    if (!realItems) return [];
-    const items: ServiceItem[] = [];
-    for (const item of realItems) {
-      if (item.status === "overdue" || item.status === "due_soon" || item.status === "needs_attention") {
-        const statusLabel = item.status === "overdue" ? "Overdue" : item.status === "due_soon" ? "Due soon" : "Needs attention";
-        const impact = item.status === "overdue" ? 5 : 3;
-        items.push({
-          name: item.serviceName,
-          dueInfo: item.description || statusLabel,
-          status: item.status === "needs_attention" ? "due_soon" : item.status,
-          scoreImpact: impact,
-          actionDescription: `+${impact}% to Overall Condition`,
-        });
-      }
+  // Score factors breakdown — same formula as the displayed score, but
+  // split into "what's helping" vs "what's hurting" with pts deltas.
+  const { positives: factorsPositive, negatives: factorsNegative } = useMemo(() => {
+    if (!realItems || realItems.length === 0) {
+      return { positives: [] as HealthFactor[], negatives: [] as HealthFactor[] };
     }
-    return items;
-  }, [realItems]);
+    return computeHealthScoreFactors({
+      maintenanceItems: realItems,
+      odometerMiles: realMileage ?? 0,
+      knownIssues,
+      hpBuffer,
+    });
+  }, [realItems, realMileage, knownIssues, hpBuffer]);
 
   // Use the unified health score passed from parent
   const calculatedCondition = healthPercentage;
@@ -295,7 +502,7 @@ const VehicleHealthModal = ({
     },
   ];
 
-  const needsAttention = serviceItems.length > 0;
+  const hasFactors = factorsPositive.length > 0 || factorsNegative.length > 0;
 
   useEffect(() => {
     if (visible) {
@@ -590,121 +797,58 @@ const VehicleHealthModal = ({
               )}
             </View>
 
-            {needsAttention && (
-              <View style={modalStyles.attentionCardOuter}>
-                <BlurView intensity={20} tint="light" style={modalStyles.attentionBlur}>
-                  <LinearGradient
-                    colors={['rgba(82, 153, 254, 0.12)', 'rgba(82, 153, 254, 0.06)']}
-                    style={StyleSheet.absoluteFill}
-                  />
-                  <LinearGradient
-                    colors={['rgba(255, 255, 255, 0.5)', 'rgba(255, 255, 255, 0)']}
-                    locations={[0, 0.5]}
-                    style={modalStyles.attentionGloss}
-                  />
-                </BlurView>
-                <View style={modalStyles.attentionContent}>
-                  <View style={modalStyles.attentionHeader}>
-                    <Text style={[modalStyles.attentionTitle, { color: '#5299FE' }]}>How to Improve Your Score</Text>
+            {hasFactors && (
+              <View style={modalStyles.factorsCard}>
+                <Text style={modalStyles.factorsTitle}>Score Factors</Text>
+
+                {factorsPositive.length > 0 && (
+                  <View style={modalStyles.factorsGroup}>
+                    <Text style={modalStyles.factorsGroupLabel}>What&apos;s helping</Text>
+                    {factorsPositive.map((f, i) => (
+                      <View key={`pos-${i}`} style={modalStyles.factorRow}>
+                        <View style={[modalStyles.factorDot, { backgroundColor: '#30D158' }]} />
+                        <View style={modalStyles.factorBody}>
+                          <Text style={modalStyles.factorLabel}>{f.label}</Text>
+                          {f.detail ? (
+                            <Text style={modalStyles.factorDetail}>{f.detail}</Text>
+                          ) : null}
+                        </View>
+                        <View style={[modalStyles.factorPill, modalStyles.factorPillPositive]}>
+                          <Text style={[modalStyles.factorPillText, modalStyles.factorPillTextPositive]}>
+                            +{f.pts}
+                          </Text>
+                        </View>
+                      </View>
+                    ))}
                   </View>
-                  
-                  {serviceItems.map((item, index) => {
-                    const isSelected = selectedServices.has(index);
-                    return (
-                      <Pressable 
-                        key={index} 
-                        style={[
-                          modalStyles.serviceItem,
-                          isSelected && modalStyles.serviceItemSelected
-                        ]}
-                        onPress={() => toggleServiceSelection(index)}
-                      >
-                        <View style={[
-                          modalStyles.checkbox,
-                          isSelected && modalStyles.checkboxSelected
-                        ]}>
-                          {isSelected && <Check size={scale(14)} color="#fff" strokeWidth={3} />}
+                )}
+
+                {factorsNegative.length > 0 && (
+                  <View style={modalStyles.factorsGroup}>
+                    <Text style={modalStyles.factorsGroupLabel}>What&apos;s hurting</Text>
+                    {factorsNegative.map((f, i) => (
+                      <View key={`neg-${i}`} style={modalStyles.factorRow}>
+                        <View style={[modalStyles.factorDot, { backgroundColor: '#FF3B5C' }]} />
+                        <View style={modalStyles.factorBody}>
+                          <Text style={modalStyles.factorLabel}>{f.label}</Text>
+                          {f.detail ? (
+                            <Text style={modalStyles.factorDetail}>{f.detail}</Text>
+                          ) : null}
                         </View>
-                        
-                        <View style={modalStyles.serviceItemLeft}>
-                          <View style={modalStyles.serviceNameRow}>
-                            <Text style={modalStyles.serviceName}>{item.name}</Text>
-                            <View 
-                              style={[
-                                modalStyles.statusBadge,
-                                item.status === 'overdue' ? modalStyles.overdueBadge : modalStyles.dueSoonBadge
-                              ]}
-                            >
-                              <Text 
-                                style={[
-                                  modalStyles.statusText,
-                                  item.status === 'overdue' ? modalStyles.overdueText : modalStyles.dueSoonText
-                                ]}
-                              >
-                                {item.status === 'overdue' ? 'OVERDUE' : 'DUE SOON'}
-                              </Text>
-                            </View>
-                          </View>
-                          <Text style={modalStyles.serviceDue}>{item.dueInfo}</Text>
-                          <Text style={modalStyles.actionDescription}>{item.actionDescription}</Text>
+                        <View style={[modalStyles.factorPill, modalStyles.factorPillNegative]}>
+                          <Text style={[modalStyles.factorPillText, modalStyles.factorPillTextNegative]}>
+                            −{f.pts}
+                          </Text>
                         </View>
-                        <View style={modalStyles.scoreImpactBadgeLarge}>
-                          <Text style={modalStyles.scoreImpactTextLarge}>+{item.scoreImpact}%</Text>
-                        </View>
-                      </Pressable>
-                    );
-                  })}
-                  
-                  <View style={modalStyles.totalImprovementRow}>
-                    <Text style={modalStyles.totalImprovementLabel}>Complete all to gain</Text>
-                    <Text style={modalStyles.totalImprovementValue}>
-                      +{serviceItems.reduce((sum, item) => sum + item.scoreImpact, 0)}%
-                    </Text>
+                      </View>
+                    ))}
                   </View>
-                </View>
+                )}
               </View>
             )}
 
             <View style={{ height: scale(20) }} />
           </ScrollView>
-          
-          <View style={modalStyles.scheduleButtonContainer}>
-            <Pressable
-              style={modalStyles.scheduleButton}
-              onPress={() => {
-                // Close the Vehicle Health sheet, then drop the user into
-                // the booking flow's service-selection entry point — same
-                // target MaintenanceTracker's "Book Now" uses, so both
-                // surfaces lead to the same place.
-                onClose();
-                router.push("/home/map");
-              }}
-            >
-              <BlurView intensity={80} tint="dark" style={modalStyles.scheduleButtonBlur}>
-                <LinearGradient
-                  colors={selectedServices.size > 0 
-                    ? ['rgba(82, 153, 254, 0.95)', 'rgba(60, 120, 220, 0.98)']
-                    : ['rgba(40, 40, 40, 0.9)', 'rgba(20, 20, 20, 0.95)']}
-                  style={StyleSheet.absoluteFill}
-                />
-                <LinearGradient
-                  colors={['rgba(255, 255, 255, 0.15)', 'rgba(255, 255, 255, 0)']}
-                  locations={[0, 0.5]}
-                  style={modalStyles.scheduleButtonGloss}
-                />
-              </BlurView>
-              <View style={modalStyles.scheduleButtonContent}>
-                <Text style={modalStyles.scheduleButtonText}>
-                  {selectedServices.size === 0 
-                    ? 'Schedule Service' 
-                    : selectedServices.size === 1 
-                      ? '1 service selected'
-                      : `${selectedServices.size} services selected`}
-                </Text>
-                <Calendar size={scale(20)} color="#fff" />
-              </View>
-            </Pressable>
-          </View>
             </>
           )}
         </Animated.View>
@@ -979,161 +1123,85 @@ const modalStyles = StyleSheet.create({
     fontSize: moderateScale(11),
     fontFamily: 'Urbanist-Bold',
   },
-  attentionCardOuter: {
+  factorsCard: {
     marginTop: scale(24),
+    backgroundColor: '#FFFFFF',
     borderRadius: moderateScale(16),
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.5)',
-    shadowColor: 'rgba(255, 59, 92, 0.15)',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 12,
-    elevation: 4,
-  },
-  attentionBlur: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  attentionGloss: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: '40%',
-  },
-  attentionContent: {
     padding: scale(16),
+    borderWidth: 1,
+    borderColor: 'rgba(0, 0, 0, 0.06)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
   },
-  attentionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: scale(12),
-  },
-  attentionTitle: {
+  factorsTitle: {
     fontSize: moderateScale(15),
     fontFamily: 'Urbanist-SemiBold',
-    color: '#FF3B5C',
+    color: '#1a1a1a',
+    marginBottom: scale(12),
   },
-  serviceItem: {
+  factorsGroup: {
+    marginTop: scale(8),
+  },
+  factorsGroupLabel: {
+    fontSize: moderateScale(11),
+    fontFamily: 'Urbanist-Bold',
+    color: '#94A3B8',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+    marginBottom: scale(8),
+  },
+  factorRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: scale(12),
+    paddingVertical: scale(10),
     borderTopWidth: 1,
-    borderTopColor: 'rgba(0, 0, 0, 0.06)',
+    borderTopColor: 'rgba(0, 0, 0, 0.05)',
     gap: scale(12),
   },
-  serviceItemSelected: {
-    backgroundColor: 'rgba(82, 153, 254, 0.08)',
-    marginHorizontal: scale(-16),
-    paddingHorizontal: scale(16),
-    borderRadius: moderateScale(12),
-    borderTopWidth: 0,
-    marginTop: scale(4),
+  factorDot: {
+    width: scale(8),
+    height: scale(8),
+    borderRadius: scale(4),
   },
-  checkbox: {
-    width: scale(24),
-    height: scale(24),
-    borderRadius: moderateScale(6),
-    borderWidth: 2,
-    borderColor: 'rgba(0, 0, 0, 0.2)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#fff',
-  },
-  checkboxSelected: {
-    backgroundColor: '#5299FE',
-    borderColor: '#5299FE',
-  },
-  serviceItemLeft: {
+  factorBody: {
     flex: 1,
   },
-  serviceName: {
+  factorLabel: {
     fontSize: moderateScale(14),
     fontFamily: 'Urbanist-Medium',
     color: '#1a1a1a',
   },
-  serviceDue: {
+  factorDetail: {
     fontSize: moderateScale(12),
     fontFamily: 'Urbanist-Regular',
     color: '#666',
     marginTop: scale(2),
   },
-  statusBadge: {
+  factorPill: {
     paddingHorizontal: scale(10),
     paddingVertical: scale(4),
-    borderRadius: moderateScale(8),
-  },
-  overdueBadge: {
-    backgroundColor: 'rgba(255, 59, 92, 0.12)',
-  },
-  dueSoonBadge: {
-    backgroundColor: 'rgba(255, 214, 10, 0.2)',
-  },
-  statusText: {
-    fontSize: moderateScale(10),
-    fontFamily: 'Urbanist-Bold',
-    letterSpacing: 0.5,
-  },
-  overdueText: {
-    color: '#FF3B5C',
-  },
-  dueSoonText: {
-    color: '#B8860B',
-  },
-  serviceNameRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: scale(8),
-    marginBottom: scale(2),
-  },
-  actionDescription: {
-    fontSize: moderateScale(12),
-    fontFamily: 'Urbanist-Regular',
-    color: '#5299FE',
-    marginTop: scale(4),
-  },
-  scoreImpactBadgeLarge: {
-    backgroundColor: 'rgba(48, 209, 88, 0.15)',
-    paddingHorizontal: scale(12),
-    paddingVertical: scale(8),
     borderRadius: moderateScale(10),
+    minWidth: scale(44),
     alignItems: 'center',
-    minWidth: scale(50),
   },
-  scoreImpactTextLarge: {
-    fontSize: moderateScale(18),
-    fontFamily: 'Urbanist-Bold',
-    color: '#30D158',
+  factorPillPositive: {
+    backgroundColor: 'rgba(48, 209, 88, 0.15)',
   },
-  scoreImpactLabel: {
-    fontSize: moderateScale(10),
-    fontFamily: 'Urbanist-Medium',
-    color: '#30D158',
+  factorPillNegative: {
+    backgroundColor: 'rgba(255, 59, 92, 0.15)',
   },
-  totalImprovementRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginTop: scale(16),
-    paddingTop: scale(12),
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(0, 0, 0, 0.08)',
-  },
-  totalImprovementLabel: {
+  factorPillText: {
     fontSize: moderateScale(14),
-    fontFamily: 'Urbanist-Medium',
-    color: '#666',
-  },
-  totalImprovementValue: {
-    fontSize: moderateScale(16),
     fontFamily: 'Urbanist-Bold',
+  },
+  factorPillTextPositive: {
     color: '#30D158',
   },
-  scheduleButtonContainer: {
-    paddingHorizontal: scale(24),
-    paddingBottom: scale(20),
-    paddingTop: scale(8),
-    backgroundColor: '#fff',
+  factorPillTextNegative: {
+    color: '#FF3B5C',
   },
   estimatedLabel: {
     fontSize: moderateScale(13),
@@ -1171,39 +1239,6 @@ const modalStyles = StyleSheet.create({
     color: '#FFFFFF',
     textAlign: 'center',
     flex: 1,
-  },
-  scheduleButton: {
-    borderRadius: moderateScale(25),
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 8,
-  },
-  scheduleButtonBlur: {
-    ...StyleSheet.absoluteFillObject,
-  },
-  scheduleButtonGloss: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    height: '50%',
-  },
-  scheduleButtonContent: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: scale(10),
-    paddingVertical: scale(16),
-  },
-  scheduleButtonText: {
-    fontSize: moderateScale(16),
-    fontFamily: 'Urbanist-SemiBold',
-    color: '#fff',
   },
   // Info Modal Styles
   infoModalOverlay: {
@@ -1545,7 +1580,22 @@ export function CarCarousel({
   isEstimatedScore,
   onResumeCheckin,
   isDarkBg = false,
+  groundLineTint,
+  groundLineTintTransparent,
+  groundShadowTintRgb,
+  hideGroundShadow = false,
+  knownIssues,
+  hpBuffer,
 }: CarCarouselProps) {
+  "use no memo";
+  // ↑ Opt this file out of React Compiler. The compiler was freezing
+  //   ref objects (`prevStoreVinRef`, `prevActiveIndexRef`,
+  //   `activeVehicleIdRef`) and refusing assignments to `.current`,
+  //   causing "set the key `current` with undefined on a frozen
+  //   object" runtime errors on every render. The carousel has its
+  //   own carefully-tuned memoization already; auto-memoization
+  //   isn't safe here.
+
   // Trust parent ordering to keep indices consistent across screens.
   const sortedVehicles = useMemo(() => vehicles, [vehicles]);
 
@@ -1562,6 +1612,36 @@ export function CarCarousel({
     Math.min(SEGMENT_WIDTH, Math.floor((SCREEN_WIDTH - scale(180)) / Math.max(1, sortedVehicles.length))),
   );
   const thumbnailSize = Math.min(scale(36), segmentWidth - scale(8));
+
+  // Past this threshold the thumbnail strip can't physically fit a
+  // legible image AND the health ring on the same row. In compact
+  // mode we show 3 thumbnails centered on the active car (with
+  // wraparound) plus an "+N ⌄" overflow pill that opens the full
+  // CarSelectionContent sheet.
+  const COMPACT_SELECTOR_THRESHOLD = 5;
+  const useCompactSelector = sortedVehicles.length >= COMPACT_SELECTOR_THRESHOLD;
+  const [showCarSheet, setShowCarSheet] = useState(false);
+  const carSheetRef = useRef<FloatingSheetRef>(null);
+  useEffect(() => {
+    if (showCarSheet) carSheetRef.current?.open();
+  }, [showCarSheet]);
+
+  // The 3 vehicle indices visible in compact mode are FIXED — always
+  // the first three cars in `sortedVehicles`. They never reshuffle
+  // as the user swipes. The active-car highlight on the segmented
+  // control follows `activeIndex` when it's one of the visible three;
+  // for cars 4+ the strip stays unhighlighted and the dropdown pill
+  // (which shows the current car's name) is the active-state cue.
+  const compactVisibleIndices = useMemo(() => {
+    const total = sortedVehicles.length;
+    const count = Math.min(3, total);
+    return Array.from({ length: count }, (_, i) => i);
+  }, [sortedVehicles.length]);
+
+  // Relative position of the active car within the visible 3, or -1
+  // if the active car is car #4 or later (and therefore not on the
+  // strip).
+  const compactRelativeActive = compactVisibleIndices.indexOf(activeIndex);
   const lastUpdatedIndex = useSharedValue(0);
   const isUserAnimating = useRef(false);
 
@@ -1588,13 +1668,16 @@ export function CarCarousel({
       onActiveIndexChange?.(0);
       return;
     }
-    setActiveIndex((prev) => {
-      if (newIdx !== prev) {
-        onActiveIndexChange?.(newIdx);
-        return newIdx;
-      }
-      return prev;
-    });
+    // Notify the parent OUTSIDE of the setState updater. React 18
+    // treats updater-function bodies as part of the render phase,
+    // so calling `onActiveIndexChange` (a parent setState) inside
+    // the updater warns "Cannot update a component while rendering
+    // a different component."
+    if (newIdx !== activeIndex) {
+      setActiveIndex(newIdx);
+      onActiveIndexChange?.(newIdx);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sortedVehicles, onActiveIndexChange]);
 
   // Bottom sheet state
@@ -1627,14 +1710,40 @@ export function CarCarousel({
   // (tires close to the bottom edge). These offsets are relative to
   // the bottom of the carousel hero container; bigger value = line
   // moves up.
-  const groundLineBottom = useMemo(() => {
-    const style = (activeVehicle?.bodyStyle ?? "").toLowerCase();
-    if (/truck|pickup/.test(style)) return 110;
-    if (/suv|crossover|wagon|van/.test(style)) return 95;
-    if (/coupe|convertible|roadster/.test(style)) return 64;
-    if (/sedan|hatchback|saloon/.test(style)) return 72;
-    return 78; // unknown body — keep the previous tuned default
-  }, [activeVehicle?.bodyStyle]);
+  // Combined body-style signal: prefer the Convex-sourced `bodyStyle`
+  // when present, fall back to a model-keyword heuristic so cars
+  // without populated metadata still get a per-shape shadow/line. The
+  // heuristic covers popular makes/models seen in test data; unknown
+  // models fall through to the default case.
+  const effectiveBodyStyle = useMemo(() => {
+    const explicit = (activeVehicle?.bodyStyle ?? "").toLowerCase().trim();
+    if (explicit) return explicit;
+    return inferBodyStyleFromModel(activeVehicle?.make, activeVehicle?.model);
+  }, [activeVehicle?.bodyStyle, activeVehicle?.make, activeVehicle?.model]);
+
+  // Single stable vertical anchor for the ground line + shadow. The
+  // car PNG renders are all built with their tires near the bottom of
+  // the image bounding box, so per-body-style offsets only added
+  // jitter (coupes ended up too low, SUVs too high). One value keeps
+  // the horizon consistent across vehicles. Tune this number alone if
+  // the line drifts in either direction.
+  const groundLineBottom = 75;
+
+  // Per-body-style ground-shadow footprint + vertical offset. SUVs
+  // (Lincoln MKX) were the "perfect" reference; coupes/sedans have
+  // tires sitting higher in their PNG frames so the shadow needs to
+  // rise to keep landing at the tire contact point. Width/height
+  // track body proportions too. `effectiveBodyStyle` uses the
+  // inferred body style when Convex metadata is missing.
+  const groundShadowSize = useMemo(() => {
+    const style = effectiveBodyStyle;
+    if (/truck|pickup/.test(style)) return { widthFactor: 0.92, height: 26, offsetY: -44 };
+    if (/suv|crossover|wagon|van/.test(style)) return { widthFactor: 0.88, height: 24, offsetY: -40 };
+    if (/convertible|roadster/.test(style)) return { widthFactor: 0.74, height: 18, offsetY: -26 };
+    if (/coupe/.test(style)) return { widthFactor: 0.78, height: 20, offsetY: -28 };
+    if (/sedan|hatchback|saloon/.test(style)) return { widthFactor: 0.84, height: 22, offsetY: -32 };
+    return { widthFactor: 0.85, height: 22, offsetY: -34 };
+  }, [effectiveBodyStyle]);
 
   useEffect(() => {
     if (sortedVehicles.length === 0) {
@@ -1687,10 +1796,19 @@ export function CarCarousel({
 
   // Pan gesture for rotating carousel
   const lastTranslationX = useSharedValue(0);
-  
+  // 0 when the carousel is at rest, 1 while the user is panning.
+  // Drives a fade on the ground line + shadow so they hide as cars
+  // swipe across them — at rest we re-show under the active car.
+  const panActive = useSharedValue(0);
+
+  const groundFadeStyle = useAnimatedStyle(() => ({
+    opacity: 1 - panActive.value,
+  }));
+
   const panGesture = Gesture.Pan()
     .onStart(() => {
       lastTranslationX.value = 0;
+      panActive.value = withTiming(1, { duration: 100 });
     })
     .onUpdate((e) => {
       const delta = e.translationX - lastTranslationX.value;
@@ -1714,13 +1832,23 @@ export function CarCarousel({
       lastUpdatedIndex.value = normalizedIndex;
       runOnJS(setAnimatingTrue)();
 
+      // Notify the parent of the new active index IMMEDIATELY on
+      // swipe end (rather than waiting for the rotation to settle)
+      // so the cars-page background crossfade starts in parallel with
+      // the rotation animation. Cuts the ~350ms "nothing's happening"
+      // gap before the bg actually begins changing.
+      runOnJS(finishAnimation)(normalizedIndex);
+
       rotation.value = withTiming(snappedRotation, {
         duration: 350,
         easing: SETTLE_EASING,
       }, (finished) => {
         'worklet';
         if (finished) {
-          runOnJS(finishAnimation)(normalizedIndex);
+          // Fade the ground line + shadow back in under the now-active
+          // car after the settle completes, so they appear with the
+          // car instead of mid-swipe.
+          panActive.value = withTiming(0, { duration: 180 });
         }
       });
     });
@@ -1757,6 +1885,57 @@ export function CarCarousel({
       closeBottomSheet();
     }
   }, [anglePerItem, sortedVehicles.length, showBottomSheet, finishAnimation, SETTLE_EASING]);
+
+  // Two-way bridge between carousel and `useVehicleStore`.
+  //
+  // Effect A (store → carousel): on bottom-sheet pick. Guarded by
+  // `prevStoreVinRef` so spurious dep-ref changes (sortedVehicles /
+  // rotateToIndex re-deriving on parent re-renders) don't trigger
+  // a rotation — only an actual VALUE change of `storeSelectedVin`
+  // does anything. Blocks the rubber-band loop we hit before.
+  //
+  // Effect B (carousel → store): on swipe / compact-thumb tap.
+  // Mirrors the active VIN onto the store so the "Select Vehicle"
+  // sheet's row checkmark and other subscribers reflect what's
+  // actually active. Loop-safe because Effect A's prev-value guard
+  // ignores writes that don't change the value.
+  const storeSelectedVin = useVehicleStore((s) => s.selectedVehicleId);
+  const selectVehicleInStore = useVehicleStore((s) => s.selectVehicle);
+  const prevStoreVinRef = useRef<string | null>(storeSelectedVin);
+  const prevActiveIndexRef = useRef<number>(activeIndex);
+
+  // Effect A — only acts on actual storeSelectedVin VALUE change.
+  useEffect(() => {
+    if (storeSelectedVin === prevStoreVinRef.current) return;
+    prevStoreVinRef.current = storeSelectedVin;
+    if (!storeSelectedVin) return;
+    const target = storeSelectedVin.toUpperCase().trim();
+    const idx = sortedVehicles.findIndex(
+      (v) => v.id.toUpperCase().trim() === target,
+    );
+    if (idx >= 0 && idx !== activeIndex) {
+      rotateToIndex(idx);
+      carSheetRef.current?.close();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [storeSelectedVin, sortedVehicles, rotateToIndex]);
+
+  // Effect B — only acts on actual activeIndex VALUE change. Without
+  // this guard, sortedVehicles re-deriving (parent re-render from a
+  // Convex push, image URL load, new car added, etc.) would fire
+  // Effect B even when the user didn't switch cars, which combined
+  // with Effect A creates a maximum-update-depth loop.
+  useEffect(() => {
+    if (activeIndex === prevActiveIndexRef.current) return;
+    prevActiveIndexRef.current = activeIndex;
+    const v = sortedVehicles[activeIndex];
+    if (!v) return;
+    const normalized = v.id.toUpperCase().trim();
+    if (normalized !== storeSelectedVin) {
+      selectVehicleInStore(normalized);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeIndex, sortedVehicles, selectVehicleInStore]);
 
   // Bottom sheet functions
   const openBottomSheet = () => {
@@ -1837,6 +2016,37 @@ export function CarCarousel({
       {/* 3D Circular Carousel */}
       <GestureDetector gesture={panGesture}>
         <View style={styles.carouselContainer}>
+          {/* Shadow + line are wrapped in a faded ReAnimated.View so
+              they disappear while the user is swiping between cars
+              (cars passing over a stationary shadow looks broken)
+              and reappear once the carousel settles on a new active
+              car. Driven by `panActive` (0 → 1 on swipe). */}
+          <ReAnimated.View
+            style={[StyleSheet.absoluteFill, groundFadeStyle]}
+            pointerEvents="none"
+          >
+            {/* Ground shadow temporarily disabled — re-enable by
+                uncommenting the block below. */}
+            {/* {hideGroundShadow ? null : (
+              <CarGroundShadow
+                width={CAR_CARD_WIDTH * groundShadowSize.widthFactor}
+                height={groundShadowSize.height}
+                bottom={groundLineBottom}
+                offsetY={groundShadowSize.offsetY}
+                offsetX={0}
+                centerOpacity={0.85}
+                tintRgb="0, 0, 0"
+              />
+            )} */}
+            <GroundLine
+              width={SCREEN_WIDTH}
+              bottomOffset={groundLineBottom}
+              tint={groundLineTint}
+              tintTransparent={groundLineTintTransparent}
+              height={StyleSheet.hairlineWidth}
+            />
+          </ReAnimated.View>
+
           {sortedVehicles.map((item, index) => (
             <CircularCarouselItem
               key={item.id}
@@ -1846,22 +2056,6 @@ export function CarCarousel({
               totalItems={sortedVehicles.length}
             />
           ))}
-
-          {/* Ground illusion: barely-visible hairline + a soft
-              shadow that fades downward, anchored to the bottom of
-              the hero zone (where the tires touch). Reads as the
-              car resting on a surface instead of floating in the
-              gradient. Both layers are pointer-transparent so they
-              don't interrupt the carousel's pan gesture. */}
-          <View
-            style={[styles.groundLine, { bottom: groundLineBottom }]}
-            pointerEvents="none"
-          />
-          <LinearGradient
-            colors={["rgba(0,0,0,0.06)", "rgba(0,0,0,0)"]}
-            style={[styles.groundShadow, { bottom: groundLineBottom - 38 }]}
-            pointerEvents="none"
-          />
         </View>
       </GestureDetector>
 
@@ -1869,20 +2063,14 @@ export function CarCarousel({
       <View style={styles.activeCarInfo}>
         <Text style={[
           styles.heroCarName,
-          (isDarkBg || activeVehicle?.make === 'Lamborghini') && styles.heroCarNameLight,
+          isDarkBg && styles.heroCarNameLight,
         ]}>{activeVehicle?.make} {activeVehicle?.model}</Text>
         <Text style={[
           styles.heroCarMeta,
-          (isDarkBg || activeVehicle?.make === 'Lamborghini') && styles.heroCarMetaLight,
+          isDarkBg && styles.heroCarMetaLight,
         ]}>
           {Math.ceil(activeVehicle?.mileage || 0).toLocaleString()} mi  |  {activeVehicle?.year}
         </Text>
-        {activeVehicle?.connectionStatus === 'connected' && (
-          <View style={styles.connectedBadge}>
-            <Check size={scale(12)} color="#FFFFFF" strokeWidth={3} />
-            <Text style={styles.connectedBadgeText}>Connected</Text>
-          </View>
-        )}
       </View>
 
 
@@ -1896,40 +2084,97 @@ export function CarCarousel({
           so taps fall through to the rail. */}
       <View style={styles.thumbnailRow}>
         <View style={styles.thumbnailLeftGroup}>
-          <View style={[styles.thumbnailSelector, { width: segmentWidth * sortedVehicles.length }]}>
-            <SegmentedControl
-              values={sortedVehicles.map(() => ' ')}
-              selectedIndex={activeIndex}
-              appearance="light"
-              // Translucent indicator so the active segment reads as
-              // frosted glass over whatever paint gradient is behind it
-              // — a stark opaque white pill clashed on saturated bgs
-              // like the green Tiguan.
-              tintColor={isDarkBg ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.55)"}
-              onChange={(e) => rotateToIndex(e.nativeEvent.selectedSegmentIndex)}
-              style={[styles.segmentedRail, { width: segmentWidth * sortedVehicles.length }]}
-            />
-            {sortedVehicles.map((vehicle, index) => {
-              const imageSource = vehicle.imageSource || FALLBACK_VEHICLE_IMAGE;
-              return (
-                <Image
-                  key={vehicle.id}
-                  source={imageSource}
-                  style={[
-                    styles.thumbnailOverlay,
-                    {
-                      width: thumbnailSize,
-                      height: thumbnailSize,
-                      top: (scale(48) - thumbnailSize) / 2,
-                      left: index * segmentWidth + (segmentWidth - thumbnailSize) / 2,
-                    },
-                  ]}
-                  resizeMode="contain"
-                  pointerEvents="none"
+          {useCompactSelector ? (
+            // Compact mode (5+ cars): same liquid-glass SegmentedControl
+            // as the full strip, but only 3 segments at a time
+            // (prev / active / next, with wraparound). A pill to the
+            // right shows the active car's name + chevron and opens
+            // CarSelectionContent for the rest of the garage.
+            <>
+              <View style={[styles.thumbnailSelector, { width: COMPACT_SEGMENT_WIDTH * 3 }]}>
+                <SegmentedControl
+                  values={[' ', ' ', ' ']}
+                  selectedIndex={compactRelativeActive >= 0 ? compactRelativeActive : -1}
+                  appearance="light"
+                  tintColor={isDarkBg ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.55)"}
+                  onChange={(e) => {
+                    const relIdx = e.nativeEvent.selectedSegmentIndex;
+                    const absIdx = compactVisibleIndices[relIdx];
+                    if (absIdx !== undefined && absIdx !== activeIndex) {
+                      rotateToIndex(absIdx);
+                    }
+                  }}
+                  style={[styles.segmentedRail, { width: COMPACT_SEGMENT_WIDTH * 3 }]}
                 />
-              );
-            })}
-          </View>
+                {compactVisibleIndices.map((idx, relIdx) => {
+                  const vehicle = sortedVehicles[idx];
+                  const imageSource = vehicle.imageSource || FALLBACK_VEHICLE_IMAGE;
+                  return (
+                    <Image
+                      key={vehicle.id}
+                      source={imageSource}
+                      style={[
+                        styles.thumbnailOverlay,
+                        {
+                          width: COMPACT_THUMB_SIZE,
+                          height: COMPACT_THUMB_SIZE,
+                          top: (scale(48) - COMPACT_THUMB_SIZE) / 2,
+                          left: relIdx * COMPACT_SEGMENT_WIDTH + (COMPACT_SEGMENT_WIDTH - COMPACT_THUMB_SIZE) / 2,
+                        },
+                      ]}
+                      resizeMode="contain"
+                      pointerEvents="none"
+                    />
+                  );
+                })}
+              </View>
+              <Pressable
+                style={styles.overflowPill}
+                onPress={() => setShowCarSheet(true)}
+                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+              >
+                <Text weight="semiBold" size="sm" color={BrandColors.primary} numberOfLines={1}>
+                  {activeVehicle?.model}
+                </Text>
+                <ChevronDown size={14} color={BrandColors.primary} />
+              </Pressable>
+            </>
+          ) : (
+            <View style={[styles.thumbnailSelector, { width: segmentWidth * sortedVehicles.length }]}>
+              <SegmentedControl
+                values={sortedVehicles.map(() => ' ')}
+                selectedIndex={activeIndex}
+                appearance="light"
+                // Translucent indicator so the active segment reads as
+                // frosted glass over whatever paint gradient is behind it
+                // — a stark opaque white pill clashed on saturated bgs
+                // like the green Tiguan.
+                tintColor={isDarkBg ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.55)"}
+                onChange={(e) => rotateToIndex(e.nativeEvent.selectedSegmentIndex)}
+                style={[styles.segmentedRail, { width: segmentWidth * sortedVehicles.length }]}
+              />
+              {sortedVehicles.map((vehicle, index) => {
+                const imageSource = vehicle.imageSource || FALLBACK_VEHICLE_IMAGE;
+                return (
+                  <Image
+                    key={vehicle.id}
+                    source={imageSource}
+                    style={[
+                      styles.thumbnailOverlay,
+                      {
+                        width: thumbnailSize,
+                        height: thumbnailSize,
+                        top: (scale(48) - thumbnailSize) / 2,
+                        left: index * segmentWidth + (segmentWidth - thumbnailSize) / 2,
+                      },
+                    ]}
+                    resizeMode="contain"
+                    pointerEvents="none"
+                  />
+                );
+              })}
+            </View>
+          )}
 
           <Pressable style={styles.addCarButton} onPress={() => router.push('/add-vehicle')}>
             <Plus size={scale(18)} color="#000000" />
@@ -1949,19 +2194,22 @@ export function CarCarousel({
         )}
       </View>
 
-      {/* Separator */}
-      <View style={[
-        styles.separatorContainer,
-        { width: (sortedVehicles.length * scale(48)) + ((sortedVehicles.length - 1) * Spacing.sm) }
-      ]}>
-        <View style={styles.separator} />
-        <View 
-          style={[
-            styles.separatorIndicator, 
-            { left: activeIndex * (scale(48) + Spacing.sm) }
-          ]} 
-        />
-      </View>
+      {/* Separator — only in strip mode (the underline is positioned
+          to track the segmented control's active segment). */}
+      {!useCompactSelector && (
+        <View style={[
+          styles.separatorContainer,
+          { width: (sortedVehicles.length * scale(48)) + ((sortedVehicles.length - 1) * Spacing.sm) }
+        ]}>
+          <View style={styles.separator} />
+          <View
+            style={[
+              styles.separatorIndicator,
+              { left: activeIndex * (scale(48) + Spacing.sm) }
+            ]}
+          />
+        </View>
+      )}
 
       {/* Bottom Sheet Modal */}
       <Modal
@@ -2144,7 +2392,20 @@ export function CarCarousel({
         currentMileage={vehicleMileage}
         isEstimated={isEstimatedScore}
         onResumeCheckin={onResumeCheckin}
+        knownIssues={knownIssues}
+        hpBuffer={hpBuffer}
       />
+
+      {/* Compact-mode vehicle picker. Mounted lazily — `showCarSheet`
+          flag flips on pill tap, the effect above calls .open(). */}
+      <FloatingSheet
+        ref={carSheetRef}
+        snapHeights={[Math.min(540, 200 + sortedVehicles.length * 78)]}
+        showBackdrop
+        onClose={() => setShowCarSheet(false)}
+      >
+        <CarSelectionContent onClose={() => carSheetRef.current?.close()} />
+      </FloatingSheet>
     </View>
   );
 }
@@ -2165,29 +2426,6 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     position: 'relative',
     marginTop: 0,
-  },
-  // Inset so it reads as a "subtle plane" rather than a hard
-  // edge-to-edge horizon. Anchored to the bottom of the carousel
-  // hero zone so it lands at the tire line regardless of which car
-  // is active.
-  // `bottom` is supplied at the JSX site so the line can follow the
-  // active vehicle's body-style tire offset (truck vs sedan vs coupe).
-  groundLine: {
-    position: 'absolute',
-    left: 24,
-    right: 24,
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-  },
-  // Soft floor shadow that starts at the hairline and fades
-  // downward from a faint dark tint into transparent. `bottom` is
-  // also supplied at the JSX site, kept 38px below the line so the
-  // pair stays glued together as the line moves.
-  groundShadow: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    height: 38,
   },
   carouselCard: {
     width: CAR_CARD_WIDTH,
@@ -2279,23 +2517,6 @@ const styles = StyleSheet.create({
   heroCarMetaLight: {
     color: 'rgba(255, 255, 255, 0.8)',
   },
-  connectedBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: scale(4),
-    marginTop: scale(6),
-    backgroundColor: '#34C759',
-    paddingHorizontal: scale(10),
-    paddingVertical: scale(4),
-    borderRadius: moderateScale(12),
-    alignSelf: 'center',
-  },
-  connectedBadgeText: {
-    color: '#FFFFFF',
-    fontSize: moderateScale(11),
-    fontWeight: '700',
-    letterSpacing: 0.3,
-  },
 
   // Thumbnail Row
   thumbnailRow: {
@@ -2344,6 +2565,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderWidth: 1,
     borderColor: '#000000',
+  },
+
+  // Compact-mode (5+ cars) overflow pill — sits next to the 3-thumb
+  // liquid-glass selector and shows the active car's model name +
+  // chevron. Tap opens the full CarSelectionContent sheet.
+  overflowPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(4),
+    paddingHorizontal: scale(10),
+    paddingVertical: scale(8),
+    borderRadius: scale(20),
+    backgroundColor: 'rgba(255,255,255,0.55)',
+    borderWidth: 1,
+    borderColor: 'rgba(0,0,0,0.08)',
+    maxWidth: scale(110),
   },
 
   // Separator

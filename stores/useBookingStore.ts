@@ -69,6 +69,12 @@ interface BookingState {
   // ═══════════════ SERVICE CATEGORY STATE ═══════════════
   /** Selected service category for service list display (null = no filter) */
   selectedServiceCategory: ServiceCategory | null;
+  /** One-shot signal: when the user enters the booking flow from a
+   *  category-specific entry point (e.g. tapping "Brakes" or "Tires"
+   *  on the home More Services grid), this is set so the service
+   *  selector mounts with that category tab pre-selected. The consumer
+   *  (ServiceSelectionContent) clears it on read. */
+  initialServiceCategory: ServiceCategory | null;
 
   // ═══════════════ MAP STATE ═══════════════
   /** Map region for visible area */
@@ -138,6 +144,9 @@ interface BookingState {
   // ═══════════════ SERVICE CATEGORY ACTIONS ═══════════════
   /** Set the selected service category for service list display (null to clear) */
   setSelectedServiceCategory: (category: ServiceCategory | null) => void;
+  /** Set the one-shot initial category for the next mount of the
+   *  service selector. ServiceSelectionContent reads and clears this. */
+  setInitialServiceCategory: (category: ServiceCategory | null) => void;
 
   // ═══════════════ MAP ACTIONS ═══════════════
   /** Update map region */
@@ -352,6 +361,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   preSelectedShopId: null,
   preSelectedServiceIds: [],
   selectedServiceCategory: null, // No service category selected by default
+  initialServiceCategory: null, // Cleared after one read by ServiceSelectionContent
   mapRegion: null,
   availableServices: MOCK_SERVICES,
   serviceCategories: [],
@@ -415,6 +425,10 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   setSelectedServiceCategory: (category) =>
     set({
       selectedServiceCategory: category,
+    }),
+  setInitialServiceCategory: (category) =>
+    set({
+      initialServiceCategory: category,
     }),
 
   // ═══════════════ MAP ACTIONS ═══════════════
@@ -569,6 +583,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       selectedServiceIds: [],
       selectedMechanicId: null,
       selectedServiceCategory: null,
+      initialServiceCategory: null,
       preSelectedShopId: null,
       preSelectedServiceIds: [],
       bookingType: null,

@@ -59,7 +59,7 @@ import { RescheduleSheet, type RescheduleSheetRef } from "./RescheduleSheet";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 
-const VISIBLE_MED = SCREEN_HEIGHT * 0.62;
+const VISIBLE_MED = SCREEN_HEIGHT * 0.66;
 
 const SIDE_INSET_MAX = 10;
 const CORNER_RADIUS = 46;
@@ -104,7 +104,7 @@ interface BookingDetailsSheetProps {
   // TODO(convex): service description + duration from services table
   serviceDescription?: string;
   serviceDurationMinutes?: number;
-  // TODO(convex): vehicle mileage (vehicles table or Smartcar)
+  // TODO(convex): vehicle mileage (vehicles table)
   vehicleMileage?: number;
   // TODO(convex): stage history (requested/confirmed/in_progress timestamps)
   statusHistory?: Array<{ stage: BookingStatus; timestamp: number }>;

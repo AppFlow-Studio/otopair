@@ -32,22 +32,6 @@
         "WRITE_CALENDAR",
         "POST_NOTIFICATIONS",
         "VIBRATE"
-      ],
-      "intentFilters": [
-        {
-          "action": "VIEW",
-          "data": [
-            {
-              "scheme": "otopair",
-              "host": "smartcar",
-              "pathPrefix": "/callback"
-            }
-          ],
-          "category": [
-            "BROWSABLE",
-            "DEFAULT"
-          ]
-        }
       ]
     },
     "web": {

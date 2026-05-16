@@ -26,6 +26,8 @@ interface SettingsRowProps {
   label: string;
   /** Override the label color (e.g. red for Delete Account). */
   labelColor?: string;
+  /** Override the label weight. Defaults to `medium`. */
+  labelWeight?: "regular" | "medium" | "semiBold" | "bold";
   /** Right-aligned secondary text (counts, status, etc.). */
   value?: string | number;
   onPress: () => void;
@@ -39,10 +41,11 @@ export function SettingsRow({
   icon,
   label,
   labelColor = "#FFFFFF",
+  labelWeight = "medium",
   value,
   onPress,
   isLast = false,
-  iconBg = "rgba(255,255,255,0.95)",
+  iconBg = "transparent",
 }: SettingsRowProps) {
   return (
     <Pressable
@@ -53,7 +56,7 @@ export function SettingsRow({
         {icon}
       </View>
       <Text
-        weight="medium"
+        weight={labelWeight}
         size="md"
         color={labelColor}
         style={styles.label}

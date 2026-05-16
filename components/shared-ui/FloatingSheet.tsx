@@ -26,7 +26,7 @@
  */
 
 import { BlurView } from "expo-blur";
-import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useState } from "react";
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import { Dimensions, Modal, Pressable, StyleSheet, View } from "react-native";
 import { Gesture, GestureDetector } from "react-native-gesture-handler";
 import Animated, {
@@ -112,32 +112,50 @@ export const FloatingSheet = forwardRef<FloatingSheetRef, FloatingSheetProps>(
     const sheetHeight = useSharedValue(0);
     const startHeight = useSharedValue(0);
 
+    // Phase ref distinguishes "just opened, animate up from 0" from
+    // "already open, snap-points changed because content grew" from
+    // "mid-close, ignore everything." Without this, a snap-points
+    // change during the close timeout (common when an upstream picker
+    // selection invalidates a cascading data dep) re-fires the
+    // entrance animation and the sheet visibly re-opens before
+    // shutting again.
+    const phaseRef = useRef<"closed" | "opening" | "open" | "closing">("closed");
+
     const unmount = useCallback(() => {
       setMounted(false);
       onClose?.();
     }, [onClose]);
 
     const close = useCallback(() => {
+      phaseRef.current = "closing";
       sheetHeight.value = withTiming(0, { duration: 260 });
-      setTimeout(unmount, 280);
+      setTimeout(() => {
+        phaseRef.current = "closed";
+        unmount();
+      }, 280);
     }, [sheetHeight, unmount]);
 
     const open = useCallback(() => {
+      phaseRef.current = "opening";
       setMounted(true);
     }, []);
 
     useImperativeHandle(ref, () => ({ open, close }));
 
-    // Enter animation when mounted flips to true.
     useEffect(() => {
-      if (mounted) {
+      if (!mounted || phaseRef.current === "closing") return;
+      const target = snaps[Math.max(0, Math.min(initialSnapIndex, snaps.length - 1))];
+      if (phaseRef.current === "opening") {
         sheetHeight.value = 0;
-        const target = snaps[Math.max(0, Math.min(initialSnapIndex, snaps.length - 1))];
         const id = requestAnimationFrame(() => {
           sheetHeight.value = withTiming(target, { duration: 420 });
+          phaseRef.current = "open";
         });
         return () => cancelAnimationFrame(id);
       }
+      // Already open — snap-points changed (e.g. content grew). Resize
+      // smoothly without resetting to 0 first.
+      sheetHeight.value = withTiming(target, { duration: 240 });
     }, [mounted, initialSnapIndex, snaps, sheetHeight]);
 
     // Pan gesture: drag up to grow, drag down to shrink or dismiss.

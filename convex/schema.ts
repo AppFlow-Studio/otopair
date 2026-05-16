@@ -328,9 +328,17 @@ export default defineSchema({
   // ===== PARTS & FITMENTS =====
 
   // [W] 15 fields (A/D had 5). Replaces deprecated *_part_fitments tables.
+  // Canonical parts catalog. Conceptually "parts_catalog" — table name kept as
+  // oem_parts for backwards compatibility with existing data and call sites.
+  // Otopair currently supplies OEM parts only; part_tier exists for forward
+  // compatibility but new rows should default to "oem".
   oem_parts: defineTable({
     oem_part_number: v.string(),
     name: v.string(),
+    brand: v.optional(v.string()),
+    // "oem" | "aftermarket" | "performance" | "economy" | "unknown".
+    // Legacy rows are implicitly OEM; new rows should set this explicitly.
+    part_tier: v.optional(v.string()),
     category: v.optional(v.string()),
     notes: v.optional(v.string()),
     created_at: v.optional(v.number()),
@@ -348,7 +356,8 @@ export default defineSchema({
     .index("by_part_number", ["oem_part_number"])
     .index("by_category", ["category"])
     .index("by_subcategory", ["subcategory"])
-    .index("by_make_category", ["make_id", "category"]),
+    .index("by_make_category", ["make_id", "category"])
+    .index("by_brand", ["brand"]),
 
   // [U-W] Unified part-to-vehicle-config fitment
   part_fitments: defineTable({
@@ -386,6 +395,94 @@ export default defineSchema({
   })
     .index("by_part", ["part_id"])
     .index("by_part_source", ["part_id", "source_domain"]),
+
+  // Materialized view of "which part does this shop reach for on this
+  // service+vehicle_config?" Built from observation: every shop-supplied
+  // part_snapshot bumps use_count via recordPartUsage. Once a (shop, service,
+  // config, part) tuple crosses the default threshold (3), is_default flips to
+  // true and any prior default for the same (shop, service, config) is reset.
+  // Mechanics never set this up — it accretes from usage.
+  shop_part_preferences: defineTable({
+    shop_id: v.id("shops"),
+    service_id: v.id("services"),
+    vehicle_config_id: v.id("vehicle_configs"),
+    part_id: v.id("oem_parts"),
+    use_count: v.number(),
+    last_used_at: v.number(),
+    is_default: v.boolean(),
+  })
+    .index("by_shop_service_config", ["shop_id", "service_id", "vehicle_config_id"])
+    .index("by_shop_service", ["shop_id", "service_id"])
+    .index("by_part", ["part_id"]),
+
+  // Append-only price snapshots. Every part used on every closed job lands
+  // here. The core mental model: a snapshot is a sensor reading — "on this
+  // date, this shop used this part on this vehicle for this service at this
+  // cost." Aggregations across thousands of these power eventual quote
+  // confidence intervals.
+  //
+  // Strict append-only with one exception: superseded_by_id can be patched
+  // when a correction snapshot lands (corrects_snapshot_id points back).
+  // Aggregations filter where superseded_by_id is undefined.
+  part_snapshots: defineTable({
+    booking_id: v.id("bookings"),
+    job_actual_id: v.optional(v.id("job_actuals")),
+    shop_id: v.id("shops"),
+    mechanic_id: v.id("users"),
+
+    // Vehicle context — denormalized so aggregations don't need joins.
+    vehicle_id: v.id("vehicles"),
+    vehicle_config_id: v.optional(v.id("vehicle_configs")),
+    engine_id: v.optional(v.id("engines")),
+    chassis_id: v.optional(v.id("chassis_variants")),
+    trim_id: v.optional(v.id("trims")),
+
+    service_id: v.id("services"),
+
+    // Part identity. part_id is null when the mechanic typed a free-form part
+    // not yet in oem_parts; admin promotes frequent free-form entries into the
+    // catalog (flag_reason="missing_part_id" on those rows).
+    part_id: v.optional(v.id("oem_parts")),
+    part_name: v.string(),
+    oem_part_number: v.optional(v.string()),
+    brand: v.optional(v.string()),
+    // "oem" | "aftermarket" | "performance" | "economy" | "unknown".
+    // Otopair-supplied parts default to "oem".
+    part_tier: v.string(),
+
+    // "shop" — Otopair-fulfilled. "customer" — driver brought their own part;
+    // unit_cost forced to 0 at the mutation, excluded from price aggregates
+    // and from shop_part_preferences (it's the customer's choice, not the
+    // shop's preference).
+    supplied_by: v.string(),
+    quantity: v.number(),
+    unit_cost: v.number(),
+    total_cost: v.number(),
+    currency: v.optional(v.string()),
+
+    // Reasonableness pipeline — never blocks. cost_outlier_low/high set when
+    // unit_cost is <50% or >200% of recent median for the same part on the
+    // same vehicle_config (min sample 5). missing_part_id set when the
+    // catalog has no match for the entered part_number/name.
+    flagged_for_review: v.optional(v.boolean()),
+    flag_reason: v.optional(v.string()),
+
+    // Two-pass correction model. Corrections are NEW rows pointing back via
+    // corrects_snapshot_id; the original gets its superseded_by_id patched.
+    corrects_snapshot_id: v.optional(v.id("part_snapshots")),
+    superseded_by_id: v.optional(v.id("part_snapshots")),
+
+    recorded_at: v.number(),
+    notes: v.optional(v.string()),
+  })
+    .index("by_booking", ["booking_id"])
+    .index("by_shop_service", ["shop_id", "service_id"])
+    .index("by_shop_service_config", ["shop_id", "service_id", "vehicle_config_id"])
+    .index("by_service_config", ["service_id", "vehicle_config_id"])
+    .index("by_service_engine", ["service_id", "engine_id"])
+    .index("by_part", ["part_id"])
+    .index("by_flagged", ["flagged_for_review"])
+    .index("by_recorded_at", ["recorded_at"]),
 
   // ===== ENRICHMENT PIPELINE (all Waleed unique) =====
 
@@ -687,9 +784,6 @@ export default defineSchema({
     mileage: v.optional(v.number()),
     added_at: v.optional(v.number()),
     removed_at: v.optional(v.number()),
-    smartcarVehicleId: v.optional(v.string()),
-    connectionStatus: v.optional(v.string()),
-    connectedAt: v.optional(v.number()),
     ownershipType: v.optional(v.string()),
     ownedSinceNew: v.optional(v.boolean()),
     mileageAtPurchase: v.optional(v.number()),
@@ -728,8 +822,7 @@ export default defineSchema({
     .index("by_vin", ["vin"])
     .index("by_user_id", ["user_id"])
     .index("by_vin_user", ["vin", "user_id"])
-    .index("by_user_status", ["user_id", "status"])
-    .index("by_smartcar_vehicle_id", ["smartcarVehicleId"]),
+    .index("by_user_status", ["user_id", "status"]),
 
   // [U-W] Owner-specific hardware facts about THIS car.
   // Resolves which package-tagged part_fitments apply at booking time.
@@ -804,30 +897,6 @@ export default defineSchema({
     .index("by_vin", ["vin"])
     .index("by_updated_at", ["updated_at"]),
 
-  // [I]
-  odometer_history: defineTable({
-    vehicleOwnerId: v.id("vehicle_owners"),
-    distance: v.number(),
-    unit: v.string(),
-    recordedAt: v.number(),
-  }).index("by_vehicle_and_date", ["vehicleOwnerId", "recordedAt"]),
-
-  // [I]
-  smartcar_connections: defineTable({
-    vehicleOwnerId: v.id("vehicle_owners"),
-    smartcarVehicleId: v.string(),
-    accessToken: v.string(),
-    refreshToken: v.string(),
-    tokenExpiresAt: v.number(),
-    connectedAt: v.number(),
-    lastSyncedAt: v.optional(v.number()),
-    permissions: v.optional(v.any()),
-    status: v.string(),
-  })
-    .index("by_vehicle_owner", ["vehicleOwnerId"])
-    .index("by_smartcar_vehicle_id", ["smartcarVehicleId"])
-    .index("by_status", ["status"]),
-
   // [I] Daniel/Waleed
   vehicle_tiers: defineTable({
     vin: v.string(),
@@ -836,6 +905,24 @@ export default defineSchema({
     spend_12mo: v.optional(v.number()),
     created_at: v.optional(v.number()),
     updated_at: v.optional(v.number()),
+  })
+    .index("by_vin_user", ["vin", "user_id"])
+    .index("by_user_id", ["user_id"]),
+
+  // Health Points per vehicle — motivation layer that buffers the
+  // Vehicle Health score (every 15 HP = +1, cap +3). Per Rewards
+  // Framework v3 §11.
+  vehicle_health_points: defineTable({
+    vin: v.string(),
+    user_id: v.id("users"),
+    points: v.number(),
+    // Dedupe key for the one-time "vehicle profile fully complete"
+    // award. Other earn events stack on `points` without flag tracking.
+    profile_complete_awarded: v.optional(v.boolean()),
+    // Tracks when decay was last applied so the daily cron is a
+    // no-op until the next 30-day window elapses for this row.
+    last_decay_at: v.optional(v.number()),
+    updated_at: v.number(),
   })
     .index("by_vin_user", ["vin", "user_id"])
     .index("by_user_id", ["user_id"]),
@@ -976,18 +1063,6 @@ export default defineSchema({
     .index("by_vehicle_owner", ["vehicleOwnerId"])
     .index("by_vehicle_and_type", ["vehicleOwnerId", "type"]),
 
-  // [I]
-  vehicle_health_snapshots: defineTable({
-    vehicleOwnerId: v.id("vehicle_owners"),
-    snapshotType: v.string(),
-    data: v.any(),
-    source: v.optional(v.string()),
-    recordedAt: v.number(),
-    createdAt: v.number(),
-  })
-    .index("by_vehicle_owner", ["vehicleOwnerId"])
-    .index("by_vehicle_and_type", ["vehicleOwnerId", "snapshotType"]),
-
   // ===== USERS & AUTH =====
 
   // [D] 25 fields (A had 15, W had 22)
@@ -1015,6 +1090,10 @@ export default defineSchema({
     deletionRequestedAt: v.optional(v.number()),
     deletionSurveyResponse: v.optional(v.string()),
     deletionSurveySkipped: v.optional(v.boolean()),
+    // Timestamp the user last opened the membership/loyalty surface.
+    // Compared against the latest `ownership_credit_transactions.created_at`
+    // to drive the trophy-icon red dot. Bumped by `rewards.markCreditsSeen`.
+    last_viewed_credits_at: v.optional(v.number()),
     createdAt: v.optional(v.number()),
     lastUpdated: v.optional(v.number()),
   })
@@ -1029,6 +1108,20 @@ export default defineSchema({
     language: v.optional(v.string()),
     units: v.optional(v.string()),
     last_updated: v.optional(v.number()),
+  }).index("by_user_id", ["user_id"]),
+
+  // Saved Addresses — UberEats-style list of user-saved Home/Work/Other
+  // addresses. Used by the settings page now; future booking flows
+  // can read `is_primary` to pre-fill the customer location.
+  user_saved_addresses: defineTable({
+    user_id: v.id("users"),
+    type: v.union(v.literal("home"), v.literal("work"), v.literal("other")),
+    label: v.string(),
+    address: v.string(),
+    notes: v.optional(v.string()),
+    is_primary: v.optional(v.boolean()),
+    created_at: v.number(),
+    updated_at: v.number(),
   }).index("by_user_id", ["user_id"]),
 
   // [U-D] User mechanic favorites/hidden
@@ -1051,6 +1144,28 @@ export default defineSchema({
   })
     .index("by_user_id", ["user_id"])
     .index("by_user_action", ["user_id", "action_type"]),
+
+  // Referrals — referee enters referrer's code during onboarding,
+  // row inserted with status="pending". On the referee's first
+  // `completed` booking, status flips to "credited" and both sides
+  // are paid the $15 referral credit via claimContributionReward.
+  // Per Rewards Framework v3 §8.
+  referrals: defineTable({
+    referrer_user_id: v.id("users"),
+    referee_user_id: v.id("users"),
+    code_used: v.string(),
+    status: v.union(
+      v.literal("pending"),
+      v.literal("credited"),
+      v.literal("cancelled"),
+    ),
+    created_at: v.number(),
+    first_service_booking_id: v.optional(v.id("bookings")),
+    credited_at: v.optional(v.number()),
+  })
+    .index("by_referee", ["referee_user_id"])
+    .index("by_referrer", ["referrer_user_id"])
+    .index("by_status", ["status"]),
 
   // [I] Daniel/Waleed
   user_reward_wallets: defineTable({

@@ -38,6 +38,7 @@ import {
   BottomSheetModal,
   BottomSheetScrollView,
 } from "@gorhom/bottom-sheet";
+import { BlurBackdrop } from "@/components/shared-ui/BlurBackdrop";
 import { useQuery } from "convex/react";
 
 import {
@@ -592,7 +593,7 @@ export default function DeleteAccountScreen() {
       <BottomSheetModal
         ref={sheetRef}
         snapPoints={snapPoints}
-        backdropComponent={undefined}
+        backdropComponent={BlurBackdrop}
         enableDynamicSizing={false}
         enableContentPanningGesture={false}
         keyboardBehavior="interactive"

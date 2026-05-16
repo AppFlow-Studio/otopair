@@ -1445,7 +1445,7 @@ export function ServiceBottomSheet({
                 {selectedVehicle?.imageSource ? (
                   <Image source={selectedVehicle.imageSource} style={styles.carToggleImage} resizeMode="contain" />
                 ) : (
-                  <Car size={20} color={BrandColors.primary} />
+                  <Car size={28} color={BrandColors.primary} />
                 )}
               </TouchableOpacity>
 
@@ -1612,18 +1612,14 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   carToggleButton: {
-    width: 36,
-    height: 36,
-    borderRadius: BorderRadius.lg,
-    backgroundColor: "#F3F4F6",
+    width: 56,
+    height: 40,
     alignItems: "center",
     justifyContent: "center",
-    overflow: "hidden",
   },
   carToggleImage: {
-    width: 36,
-    height: 36,
-    borderRadius: BorderRadius.lg,
+    width: 56,
+    height: 40,
   },
   closeButton: {
     padding: Spacing.xs,

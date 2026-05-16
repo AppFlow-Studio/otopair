@@ -13,7 +13,7 @@
  */
 
 // 1. React & React Native
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
@@ -58,14 +58,34 @@ export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested
   // ═══════════════ HOOKS ═══════════════
   const router = useRouter();
 
-  // ═══════════════ STATE-EFFECT: Local State ═══════════════
-  const [selectedCategory, setSelectedCategory] = useState<ServiceCategory>("basic_maintenance");
-
   // ═══════════════ STATE-EFFECT: Store Subscriptions ═══════════════
   const selectedServiceIds = useBookingStore((state) => state.selectedServiceIds);
   const toggleServiceSelection = useBookingStore((state) => state.toggleServiceSelection);
   const availableServices = useBookingStore((state) => state.availableServices);
   const getServiceCategories = useBookingStore((state) => state.getServiceCategories);
+  const initialServiceCategory = useBookingStore((state) => state.initialServiceCategory);
+
+  // ═══════════════ STATE-EFFECT: Local State ═══════════════
+  // Read the category signal from the store on first render so entries
+  // from category-specific cards (e.g. home "Brakes" card) open on the
+  // right tab. We intentionally DO NOT clear the signal here — in dev,
+  // React strict-mode double-mounts components, and clearing during the
+  // first mount would leave the second (real) mount with an empty
+  // signal and fall back to `basic_maintenance`. The store keeps the
+  // value as "sticky last intent"; senders (e.g. MoreServicesSection,
+  // MechanicSearchBar) always set it before navigating, so the next
+  // entry always has fresh intent.
+  const [selectedCategory, setSelectedCategory] = useState<ServiceCategory>(
+    initialServiceCategory ?? "basic_maintenance",
+  );
+
+  // Sync follow-up store updates while the sheet is mounted (e.g. the
+  // user returns to home, taps a different card, and comes back).
+  useEffect(() => {
+    if (initialServiceCategory) {
+      setSelectedCategory(initialServiceCategory);
+    }
+  }, [initialServiceCategory]);
 
   // ═══════════════ STATE-EFFECT: Memoized Values ═══════════════
   const filteredServices = useMemo(() => {

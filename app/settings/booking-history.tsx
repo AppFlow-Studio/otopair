@@ -85,7 +85,7 @@ export default function BookingHistoryScreen() {
 
   const handleBack = useCallback(() => {
     if (router.canGoBack()) router.back();
-    else router.replace("/(main-tabs)/settings");
+    else router.replace("/(main-tabs)/home");
   }, [router]);
 
   return (
@@ -206,6 +206,7 @@ export default function BookingHistoryScreen() {
       <FloatingSheet
         ref={vehiclePickerRef}
         snapHeights={[Math.min(540, 200 + (allVehicles.length + 1) * 78)]}
+        showBackdrop
       >
         <View style={styles.sheetContent}>
           <Text size="lg" weight="bold" color="#1A1A1A" style={styles.sheetTitle}>

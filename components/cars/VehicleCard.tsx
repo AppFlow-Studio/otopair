@@ -78,7 +78,7 @@ interface VehicleCardProps {
 }
 
 // Fallback image used only when no dynamic imageSource is available
-const FALLBACK_VEHICLE_IMAGE = require('@/assets/images/lexus.png');
+const FALLBACK_VEHICLE_IMAGE = require('@/assets/images/covered-car.png');
 
 // ============================================================================
 // COMPONENT

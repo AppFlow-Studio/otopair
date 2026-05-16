@@ -28,6 +28,9 @@ import {
 import { BrandColors, Text, BlurHeaderOverlay, buildReferralShareMessage, useReferralCode } from '@/components/shared-ui';
 import { ScrollDrivenGradientBackground } from '@/components/shared-ui/ScrollDrivenGradientBackground';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
+import { useQuery } from 'convex/react';
+import { api } from '@/convex/_generated/api';
+import { useUserFromConvex } from '@/hooks/useUserFromConvex';
 
 const COLORS = {
   primary: '#2463eb',
@@ -65,8 +68,16 @@ export default function ReferAFriendScreen() {
   const data = useOnboardingStore((s) => s.data);
 
   const referralCode = useReferralCode(data);
-
   const displayCode = referralCode.toUpperCase();
+
+  // Pull live referral stats. $15 per successful referral at MVP.
+  const { userId } = useUserFromConvex();
+  const referralStatus = useQuery(
+    api.referrals.getMyReferralStatus,
+    userId ? { userId } : "skip",
+  );
+  const successfulReferrals = referralStatus?.credited ?? 0;
+  const totalCreditEarned = successfulReferrals * 15;
 
   const handleCopy = useCallback(async () => {
     await Clipboard.setStringAsync(displayCode);
@@ -169,7 +180,7 @@ export default function ReferAFriendScreen() {
                   weight="bold"
                   style={[styles.statValue, { color: COLORS.textDark }]}
                 >
-                  $45
+                  ${totalCreditEarned}
                 </Text>
               </GlassPanel>
               <GlassPanel style={styles.statCard}>
@@ -184,7 +195,7 @@ export default function ReferAFriendScreen() {
                   weight="bold"
                   style={[styles.statValue, { color: COLORS.textDark }]}
                 >
-                  3
+                  {successfulReferrals}
                 </Text>
               </GlassPanel>
             </View>
@@ -329,9 +340,9 @@ const styles = StyleSheet.create({
   },
   heroTitle: {
     fontSize: 28,
+    lineHeight: 36,
     letterSpacing: -0.5,
     textAlign: 'center',
-    paddingBottom: 6
   },
   heroDescription: {
     textAlign: 'center',
@@ -393,7 +404,7 @@ const styles = StyleSheet.create({
   statCard: {
     flex: 1,
     padding: 20,
-    minHeight: 100,
+    minHeight: 116,
     justifyContent: 'space-between',
   },
   statLabel: {
@@ -401,6 +412,7 @@ const styles = StyleSheet.create({
   },
   statValue: {
     fontSize: 28,
+    lineHeight: 36,
   },
   activityCard: {
     padding: 0,

@@ -1,4 +1,4 @@
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, Text as RNText, View } from "react-native";
 import React, { useEffect } from "react";
 import Animated, {
   useAnimatedStyle,
@@ -9,6 +9,7 @@ import Animated, {
 import { Home, Calendar, MessageSquare, LucideIcon, Settings } from "lucide-react-native";
 import { CarIcon } from "phosphor-react-native";
 import { OtoPairIcon } from "@/components/icons/oto-pair";
+import { useUnseenBookingsCount } from "@/hooks/useUnseenBookingsCount";
 import { BrandColors } from "../shared-ui";
 
 const icon: Record<string, any> = {
@@ -41,6 +42,13 @@ const TabBarButton = ({
   const isOtoPair = routeName === 'home';
   const isPhosphor = routeName === 'cars';
 
+  // Only the Bookings tab consumes this — the hook returns 0 for every
+  // other route, so reading it here is fine. We show a plain red dot
+  // (no count) so the bookings indicator visually matches the trophy
+  // and bell indicators elsewhere in the app.
+  const unseenBookingsCount = useUnseenBookingsCount();
+  const showBookingsBadge = routeName === "bookings" && unseenBookingsCount > 0;
+
   return (
     <Pressable
       onPress={onPress}
@@ -49,16 +57,19 @@ const TabBarButton = ({
     >
       <View style={styles.buttonWrapper}>
         <View style={styles.content}>
-          {isOtoPair ? (
-            <IconComponent size={24} />
-          ) : (
-            <IconComponent
-              size={24}
-              color={isFocused ? activeColor : inactiveColor}
-              strokeWidth={1.5}
-              weight="regular"
-            />
-          )}
+          <View style={styles.iconWrapper}>
+            {isOtoPair ? (
+              <IconComponent size={24} />
+            ) : (
+              <IconComponent
+                size={24}
+                color={isFocused ? activeColor : inactiveColor}
+                strokeWidth={1.5}
+                weight="regular"
+              />
+            )}
+            {showBookingsBadge ? <View style={styles.badgeDot} /> : null}
+          </View>
           <Animated.Text
             style={[
               styles.label,
@@ -106,7 +117,21 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: 2,
   },
+  iconWrapper: {
+    position: "relative",
+  },
   label: {
     fontSize: 10,
+  },
+  badgeDot: {
+    position: "absolute",
+    top: -2,
+    right: -4,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#FF3B30",
+    borderWidth: 1.5,
+    borderColor: "#FFFFFF",
   },
 });

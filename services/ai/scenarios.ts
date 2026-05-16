@@ -110,28 +110,26 @@ function getTimeSlotsForShop(shopId: number): TimeSlot[] {
 // ============================================================================
 
 const BRAKE_REASONING: ReasoningStep[] = [
-  { id: "brake_1", text: "Checking Smartcar API for brake system warnings...", completed: true },
-  { id: "brake_2", text: "Checking Service History - last brake service: 18 months ago", completed: true },
-  { id: "brake_3", text: 'Analyzing symptom: "high-pitched squeal"', completed: true },
-  { id: "brake_4", text: "Matching pattern in Common Scenarios DB...", completed: true },
+  { id: "brake_1", text: "Checking Service History - last brake service: 18 months ago", completed: true },
+  { id: "brake_2", text: 'Analyzing symptom: "high-pitched squeal"', completed: true },
+  { id: "brake_3", text: "Matching pattern in Common Scenarios DB...", completed: true },
 ];
 
 const CHECK_ENGINE_REASONING: ReasoningStep[] = [
-  { id: "cel_1", text: "Scanning Smartcar API for error codes...", completed: true },
-  { id: "cel_2", text: "Found code P0171 - looking up in Error Code Dictionary...", completed: true },
-  { id: "cel_3", text: 'P0171 = "System Too Lean - Bank 1"', completed: true },
-  { id: "cel_4", text: "Common causes: vacuum leak, MAF sensor, air filter", completed: true },
+  { id: "cel_1", text: "Looking up code P0171 in Error Code Dictionary...", completed: true },
+  { id: "cel_2", text: 'P0171 = "System Too Lean - Bank 1"', completed: true },
+  { id: "cel_3", text: "Common causes: vacuum leak, MAF sensor, air filter", completed: true },
 ];
 
 const OIL_CHANGE_REASONING: ReasoningStep[] = [
-  { id: "oil_1", text: "Checking Smartcar API for oil life percentage...", completed: true },
-  { id: "oil_2", text: "Oil life at 12% - approximately 500 miles remaining", completed: true },
+  { id: "oil_1", text: "Reviewing service history for oil intervals...", completed: true },
+  { id: "oil_2", text: "Estimated next oil change due in 500 miles", completed: true },
   { id: "oil_3", text: "Checking Service History for preferred shops...", completed: true },
 ];
 
 const TIRE_PRESSURE_REASONING: ReasoningStep[] = [
-  { id: "tire_1", text: "Reading Smartcar API tire pressure data...", completed: true },
-  { id: "tire_2", text: "Front left tire at 24 PSI (8 below recommended)", completed: true },
+  { id: "tire_1", text: "Pulling tire-related service history...", completed: true },
+  { id: "tire_2", text: "Front left flagged in last inspection (low pressure)", completed: true },
   { id: "tire_3", text: "Checking for recent temperature changes...", completed: true },
 ];
 
@@ -152,24 +150,20 @@ const NEW_VEHICLE_REASONING: ReasoningStep[] = [
 // ============================================================================
 
 const BRAKE_SOURCES: Source[] = [
-  { ...SOURCE_DEFINITIONS.smartcar_api, details: "Brake system sensor data" },
   { ...SOURCE_DEFINITIONS.service_history, details: "Last brake service: 18 months ago" },
   { ...SOURCE_DEFINITIONS.common_scenarios, details: "Squeal pattern analysis" },
 ];
 
 const CHECK_ENGINE_SOURCES: Source[] = [
-  { ...SOURCE_DEFINITIONS.smartcar_api, details: "Error code P0171 detected" },
   { ...SOURCE_DEFINITIONS.error_codes, details: "System Too Lean - Bank 1" },
   { ...SOURCE_DEFINITIONS.common_scenarios, details: "Known causes database" },
 ];
 
 const OIL_CHANGE_SOURCES: Source[] = [
-  { ...SOURCE_DEFINITIONS.smartcar_api, details: "Oil life: 12%" },
   { ...SOURCE_DEFINITIONS.service_history, details: "Preferred shops" },
 ];
 
 const TIRE_PRESSURE_SOURCES: Source[] = [
-  { ...SOURCE_DEFINITIONS.smartcar_api, details: "TPMS sensor readings" },
   { ...SOURCE_DEFINITIONS.service_history, details: "Recent tire work" },
 ];
 
@@ -539,7 +533,6 @@ const VAGUE_ISSUE_SCENARIO: Scenario = {
           "I understand - sometimes cars just don't feel right. I ran a quick scan and didn't find any active error codes, but that doesn't mean nothing's wrong.\n\nA professional inspection can catch issues that sensors miss. Would you like me to book a full vehicle inspection?",
         reasoning: VAGUE_ISSUE_REASONING,
         sources: [
-          { ...SOURCE_DEFINITIONS.smartcar_api, details: "No active error codes" },
           { ...SOURCE_DEFINITIONS.service_history, details: "Checking recent work" },
           { ...SOURCE_DEFINITIONS.common_scenarios, details: "Symptom analysis" },
         ],
@@ -614,10 +607,9 @@ const NEW_VEHICLE_SCENARIO: Scenario = {
       stage: "diagnosis",
       getMessage: (state, userInput) => ({
         message:
-          "Welcome! Let's get your new vehicle registered. I'll help you set up:\n\n✓ **Vehicle Profile** - Save make, model, and VIN\n✓ **Maintenance Schedule** - Set up service reminders\n✓ **Preferred Mechanics** - Find trusted shops near you\n\nTo get started, you can either:\n• Enter your VIN manually\n• Connect via Smartcar API for automatic setup\n\nWould you like me to help you find a mechanic for your initial setup and inspection?",
+          "Welcome! Let's get your new vehicle registered. I'll help you set up:\n\n✓ **Vehicle Profile** - Save make, model, and VIN\n✓ **Maintenance Schedule** - Set up service reminders\n✓ **Preferred Mechanics** - Find trusted shops near you\n\nWould you like me to help you find a mechanic for your initial setup and inspection?",
         reasoning: NEW_VEHICLE_REASONING,
         sources: [
-          { ...SOURCE_DEFINITIONS.smartcar_api, details: "Ready to connect" },
           { ...SOURCE_DEFINITIONS.manufacturer_data, details: "VIN database access" },
         ],
         nextStage: "question",

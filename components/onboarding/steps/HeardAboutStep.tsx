@@ -36,9 +36,12 @@ import {
   FinishLater,
 } from '@/components/shared-ui';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import { useOnboardingQuestion } from '@/hooks/useOnboardingQuestion';
+import { useMutation } from 'convex/react';
+import { api } from '@/convex/_generated/api';
+import { useUserFromConvex } from '@/hooks/useUserFromConvex';
 import {
   Users,
   Share2,
@@ -71,6 +74,9 @@ export function HeardAboutStep({ onNext, onBack, progress }: HeardAboutStepProps
   const { saveQuestionAnswer } = useOnboardingQuestion('heardAboutOtopair');
 
   const [selected, setSelected] = useState<string | null>(data.heardAboutOtopair ?? null);
+  const [referralCode, setReferralCode] = useState<string>('');
+  const submitReferralCode = useMutation(api.referrals.submitCode);
+  const { userId } = useUserFromConvex();
 
   const handleContinue = async () => {
     if (!selected) return;
@@ -81,6 +87,18 @@ export function HeardAboutStep({ onNext, onBack, progress }: HeardAboutStepProps
       'How did you hear about Otopair?',
       option?.label ?? selected
     );
+
+    // Optional: redeem a referral code if user pasted one. Non-blocking
+    // — failures (already submitted, code not found) just continue
+    // onboarding silently.
+    const trimmedCode = referralCode.trim();
+    if (trimmedCode && userId) {
+      try {
+        await submitReferralCode({ refereeUserId: userId, code: trimmedCode });
+      } catch {
+        // swallow; never block onboarding on referral failure
+      }
+    }
 
     onNext();
   };
@@ -124,6 +142,25 @@ export function HeardAboutStep({ onNext, onBack, progress }: HeardAboutStepProps
               );
             })}
           </View>
+
+          {/* Optional referral-code field. Revealed when the user
+              picks "Friend or family recommended it" — both sides
+              earn $15 in Ownership Credit once the new user
+              completes their first service (Rewards Framework v3 §8). */}
+          {selected === 'referral' && (
+            <View style={styles.referralContainer}>
+              <Text style={styles.referralLabel}>Have a referral code? (optional)</Text>
+              <TextInput
+                value={referralCode}
+                onChangeText={setReferralCode}
+                placeholder="otopair-…"
+                placeholderTextColor="rgba(255,255,255,0.4)"
+                autoCapitalize="none"
+                autoCorrect={false}
+                style={styles.referralInput}
+              />
+            </View>
+          )}
         </ScrollView>
 
         <FadeFooterContainer paddingBottom={insets.bottom + Spacing.lg}>
@@ -196,5 +233,27 @@ const styles = StyleSheet.create({
   optionTextSelected: {
     color: BrandColors.secondary,
     fontFamily: FontFamily.semiBold,
+  },
+  referralContainer: {
+    paddingHorizontal: Spacing['2xl'],
+    marginTop: Spacing.xl,
+    gap: Spacing.sm,
+  },
+  referralLabel: {
+    fontSize: FontSize.md,
+    fontFamily: FontFamily.semiBold,
+    color: BrandColors.white,
+    opacity: 0.9,
+  },
+  referralInput: {
+    backgroundColor: 'rgba(255,255,255,0.1)',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.2)',
+    borderRadius: BorderRadius.lg,
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    color: BrandColors.white,
+    fontSize: FontSize.lg,
+    fontFamily: FontFamily.regular,
   },
 });

@@ -402,7 +402,7 @@ export default function EditProfileScreen() {
 
       if (emailChanged || phoneChanged) {
         router.push({
-          pathname: "/(main-tabs)/settings/verify-contact-update" as any,
+          pathname: "/settings/verify-contact-update" as any,
           params: {
             verifyPhone: phoneChanged ? "1" : "0",
             verifyEmail: emailChanged ? "1" : "0",

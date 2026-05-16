@@ -100,6 +100,10 @@ export interface Mechanic {
   rating: number;
   /** Number of reviews (from Convex) for display */
   reviewCount?: number;
+  /** Parent shop's aggregate rating — used by the booking sheet's per-shop grouping */
+  shopRating?: number;
+  /** Parent shop's aggregate review count */
+  shopReviewCount?: number;
   /** Whether the mechanic is verified */
   isVerified: boolean;
   /** Distance in miles from user */

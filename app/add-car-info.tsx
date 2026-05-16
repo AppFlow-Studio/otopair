@@ -34,18 +34,23 @@ import { useRouter, useLocalSearchParams } from "expo-router";
 import { Car, Bike, Truck, Check, ChevronLeft, ChevronRight, X } from "lucide-react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import LottieView from "lottie-react-native";
+import Animated, {
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 
 // 3. Convex & hooks
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
-import { buildYearOptions, useMakes, useModels, useTrims } from "@/hooks/useYmmtCatalog";
+import { buildYearOptions, useMakes, useModels } from "@/hooks/useYmmtCatalog";
 
 // 4. Shared UI
 import { Text } from "@/components/shared-ui";
 import { Input } from "@/components/shared-ui/Input";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
-import { fetchVehicleImageUrl, useVehicleImage } from "@/utils/vehicleImage";
+import { fetchVehicleImageUrl, useVdbTrims, useVehicleImage } from "@/utils/vehicleImage";
 
 // 5. Constants
 import { Spacing, BorderRadius, BrandColors } from "@/constants/theme";
@@ -56,11 +61,7 @@ import { Spacing, BorderRadius, BrandColors } from "@/constants/theme";
 
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 
-const getKeyboardOffset = () => {
-  if (Platform.OS !== "ios") return 0;
-  if (SCREEN_HEIGHT >= 920) return 50;
-  return 0;
-};
+const getKeyboardOffset = () => 0;
 
 // Vehicle colours
 const COLOURS = [
@@ -127,20 +128,47 @@ export default function AddVehicleDetailsScreen() {
   const [isEditing, setIsEditing] = useState(isManualEntry);
   const [sheetMode, setSheetMode] = useState<SheetMode>("brand");
   const [isLoadingComplete, setIsLoadingComplete] = useState(false);
-  const [showCarImageAfterAnimation, setShowCarImageAfterAnimation] = useState(false);
   const hasAnimationPlayedRef = useRef(false);
-
-  const carImageUrl = useVehicleImage(brand, model, year ? parseInt(year, 10) : undefined, undefined, selectedColor);
 
   // Refs
   const pickerSheetRef = useRef<FloatingSheetRef>(null);
 
-  // ── YMMT catalog (Year/Make/Model/Trim) — backed by convex/ymmtCatalog.ts
-  // and shared with the otopair-web admin/booking flows. `useMakes` is
-  // year-agnostic; `useModels`/`useTrims` lazy-fetch from NHTSA on cache miss.
+  // ── YMMT catalog — makes/models backed by `convex/ymmtCatalog.ts`
+  // (shared with otopair-web), trims backed by VDB's ymm-specs
+  // options endpoint. We pulled trims off NHTSA because NHTSA returns
+  // empty for most modern vehicles and its strings are marketing
+  // names VDB's image endpoint rejects. VDB's canonical trim strings
+  // double as valid image-lookup keys.
   const makes = useMakes();
   const { models: ymmtModels, loading: modelsLoading } = useModels(brand, year);
-  const { trims: ymmtTrims, loading: trimsLoading } = useTrims(brand, model, year);
+  const yearNum = year ? parseInt(year, 10) : undefined;
+  const { trims: vdbTrims, isLoading: trimsLoading } = useVdbTrims(yearNum, brand, model);
+
+  // Use the user's explicit picker selection when they've made one,
+  // otherwise fall back to the first VDB trim so the image still
+  // resolves on year+brand+model alone.
+  const effectiveTrim = trim || vdbTrims[0] || undefined;
+
+  const { url: carImageUrl } = useVehicleImage(
+    brand,
+    model,
+    yearNum,
+    undefined,
+    selectedColor,
+    effectiveTrim,
+  );
+
+  // Crossfade the VDB image over the covered-car placeholder as it
+  // arrives. Driven by URL presence — when carImageUrl flips null→string
+  // we fade in over 300ms; when it flips back to null (user clears a
+  // field) we fade out symmetrically.
+  const carImageOpacity = useSharedValue(0);
+  useEffect(() => {
+    carImageOpacity.value = withTiming(carImageUrl ? 1 : 0, { duration: 300 });
+  }, [carImageUrl, carImageOpacity]);
+  const carImageAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: carImageOpacity.value,
+  }));
 
   // Trim picker keeps a separate text-input value because NHTSA doesn't
   // expose trims without VIN context — most cache rows resolve to []. The
@@ -165,7 +193,6 @@ export default function AddVehicleDetailsScreen() {
       setIsLoadingComplete(true);
       const timer = setTimeout(() => {
         setIsLoadingComplete(false);
-        setShowCarImageAfterAnimation(true);
       }, 5000);
       return () => clearTimeout(timer);
     }
@@ -261,14 +288,19 @@ export default function AddVehicleDetailsScreen() {
       // (so `saveVehicleImageUrl` can patch by VIN) but before we
       // navigate, so the image is cached in Convex by the time the cars
       // page reads it. Fire-and-forget — don't block navigation on a
-      // network round-trip.
-      if (brand && model && normalizedVin.length === 17) {
+      // network round-trip. Manual-entry vehicles have a synthetic
+      // `MANUAL-…` VIN; pass undefined to the fetcher in that case so it
+      // falls through to the YMMT path instead of trying to look up the
+      // fake VIN.
+      if (brand && model) {
         const yearNum = year ? parseFloat(year) : undefined;
+        const vinForLookup =
+          normalizedVin.length === 17 ? normalizedVin : undefined;
         fetchVehicleImageUrl(
           brand,
           model,
           yearNum,
-          normalizedVin,
+          vinForLookup,
           selectedColor || undefined,
           trim || undefined,
         )
@@ -315,16 +347,16 @@ export default function AddVehicleDetailsScreen() {
   // plain string[] so the picker render code stays uniform.
   const pickerData = useMemo<any[]>(() => {
     switch (sheetMode) {
-      case "brand": return (makes ?? []).map((m) => m.name);
-      case "model": return (ymmtModels ?? []).map((m) => m.name);
+      case "brand": return [...new Set((makes ?? []).map((m) => m.name))];
+      case "model": return [...new Set((ymmtModels ?? []).map((m) => m.name))];
       case "year": return YEARS;
       case "color": return COLOURS;
       case "bodyStyle": return BODY_STYLES;
-      case "trim": return (ymmtTrims ?? []).map((t) => t.name);
+      case "trim": return vdbTrims;
       case "drivetrain": return DRIVETRAINS;
       default: return [];
     }
-  }, [sheetMode, makes, ymmtModels, ymmtTrims]);
+  }, [sheetMode, makes, ymmtModels, vdbTrims]);
 
   // Dynamic snap height — fits the actual content (header + rows +
   // padding) so short lists like Drivetrain don't render as a half-empty
@@ -503,7 +535,7 @@ export default function AddVehicleDetailsScreen() {
   return (
     <KeyboardAvoidingView
       style={styles.container}
-      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      behavior={Platform.OS === "android" ? "height" : undefined}
       keyboardVerticalOffset={getKeyboardOffset()}
     >
       <StatusBar style="dark" />
@@ -516,10 +548,15 @@ export default function AddVehicleDetailsScreen() {
         style={styles.scrollView}
         contentContainerStyle={[
           styles.scrollContent,
-          { paddingTop: insets.top + Spacing.sm, paddingBottom: insets.bottom + Spacing.lg },
+          {
+            paddingTop: insets.top + Spacing.sm,
+            paddingBottom: insets.bottom + Spacing.lg + 26,
+          },
         ]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
+        automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
+        keyboardDismissMode="interactive"
       >
         {/* Header — inline so the page reads as one continuous scroll */}
         <View style={styles.header}>
@@ -535,32 +572,42 @@ export default function AddVehicleDetailsScreen() {
           </Text>
           <View style={styles.headerButton} />
         </View>
-        {/* Hero image card */}
+        {/* Hero image card —
+            Base layer is always the covered-car placeholder. The VDB
+            image fades in over it as soon as the hook resolves, driven
+            by `useVehicleImage`'s 400ms-debounced fetch and the
+            300ms crossfade on `carImageOpacity`. The Lottie still
+            plays once when manual-mode fields fill, but it now sits on
+            top of the swap instead of gating it. */}
         <View style={styles.heroCard}>
-          {(!isManualEntry || showCarImageAfterAnimation) ? (
+          <View style={isManualEntry ? styles.heroEmpty : undefined}>
             <Image
-              source={carImageUrl ? { uri: carImageUrl } : require("@/assets/images/covered-car.png")}
-              style={styles.heroImage}
+              source={require("@/assets/images/covered-car.png")}
+              style={isManualEntry ? styles.heroEmptyImage : styles.heroImage}
               resizeMode="contain"
             />
-          ) : isManualEntry && isLoadingComplete ? (
+            {isManualEntry && !carImageUrl && (
+              <Text size="sm" color="#8E8E93" center style={styles.heroEmptyText}>
+                Your car shows up here as you fill in the details
+              </Text>
+            )}
+          </View>
+
+          {carImageUrl && (
+            <Animated.Image
+              source={{ uri: carImageUrl }}
+              style={[styles.heroImageOverlay, carImageAnimatedStyle]}
+              resizeMode="contain"
+            />
+          )}
+
+          {isManualEntry && isLoadingComplete && (
             <LottieView
               source={require("@/assets/animations/loading-dots-blue.json")}
               autoPlay
               loop
-              style={styles.heroLottie}
+              style={[styles.heroLottie, styles.heroLottieOverlay]}
             />
-          ) : (
-            <View style={styles.heroEmpty}>
-              <Image
-                source={require("@/assets/images/covered-car.png")}
-                style={styles.heroEmptyImage}
-                resizeMode="contain"
-              />
-              <Text size="sm" color="#8E8E93" center style={styles.heroEmptyText}>
-                Your car shows up here as you fill in the details
-              </Text>
-            </View>
           )}
 
           {!isManualEntry && (
@@ -811,9 +858,19 @@ const styles = StyleSheet.create({
     width: "100%",
     height: 180,
   },
+  heroImageOverlay: {
+    position: "absolute",
+    top: Spacing.lg,
+    left: Spacing.lg,
+    right: Spacing.lg,
+    bottom: Spacing.lg,
+  },
   heroLottie: {
     width: 200,
     height: 100,
+  },
+  heroLottieOverlay: {
+    position: "absolute",
   },
   heroEmpty: {
     alignItems: "center",

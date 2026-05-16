@@ -4,7 +4,13 @@ import { Alert, Animated, Dimensions, Easing, Image, Modal, Platform, Pressable,
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 2. Expo & Third-party
-import { useSharedValue } from "react-native-reanimated";
+import ReAnimated, {
+  Easing as ReEasing,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withTiming,
+} from "react-native-reanimated";
 import { useIsFocused } from "@react-navigation/native";
 import { Ionicons } from "@expo/vector-icons";
 import { ArrowLeft } from "lucide-react-native";
@@ -16,11 +22,10 @@ import { WebView } from "react-native-webview";
 import Svg, { Circle, Defs, LinearGradient as SvgLinearGradient, Stop } from "react-native-svg";
 
 // 3. Convex & hooks
-import { useAction, useMutation } from "convex/react";
+import { useAction, useMutation, useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromConvex";
-import { useSmartcarData } from "@/hooks/useSmartcarData";
 import { useMergedMaintenance } from "@/hooks/useMaintenanceData";
 import type { Id } from "@/convex/_generated/dataModel";
 import { ALL_MAINTENANCE_TYPES, MAINTENANCE_LABELS, type MaintenanceType } from "@/utils/maintenanceStatus";
@@ -44,7 +49,6 @@ import { CheckinBanner } from "@/components/cars/CheckinBanner";
 import CarInfoStepper, { type CarInfoStepperHandle } from "@/components/cars/CarInfoStepper";
 import { AnimatedGradientBackground } from "@/components/shared-ui/AnimatedGradientBackground";
 import ServiceHistory, { ServiceRecord, type PickedDocument } from "@/components/cars/ServiceHistory";
-import VehicleStatsCard from "@/components/cars/VehicleStatsCard";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { PostOptimizeBookingSheet } from "@/components/cars/PostOptimizeBookingSheet";
 
@@ -64,30 +68,69 @@ function titleCase(str: string): string {
 // VEHICLE-SPECIFIC DATA
 // ============================================================================
 
-// Three-stop saturated → deep-dark palettes, Revolut-style. The top
-// stop is a vivid mid-tone of the car's paint color, the bottom stop
-// is near-black with a faint hue tint. This gives the page real
-// depth instead of a flat or washed-out wash. White content cards
-// then read as "floating" against the dark bottom.
+// Light-mode palettes — top stop is a soft, color-tinted shade and the
+// bottom stop is near-white. The natural transition between them lands
+// in the tire zone of the carousel hero and reads as a subtle "floor"
+// without needing a hard-coded hairline. Matches the rest of the app's
+// light surface so the cars page no longer feels like a dark island.
+// Top stop holds a saturated-but-still-light tint of the car's paint,
+// middle stop is a small step lighter, bottom stop is near-white. The
+// strong contrast between the top pair and the bottom + a tight
+// transition window (see `locations` below) is what produces the
+// visible "floor line" at the tire zone.
+// Three-stop palettes that mirror the home screen's brightness curve
+// (`STATIC_GRADIENT` in ScrollDrivenGradientBackground:
+// ['#86C2E8','#B0D6F0','#EAF2FA']) — saturated mid-tone at the top,
+// a softer tint in the middle, near-white at the bottom — tinted per
+// car color so the cars page reads as part of the same light-mode app.
+// Stops are evenly distributed (no `locations` prop) for the same
+// smooth top→bottom fade home uses.
 const DEFAULT_GRADIENTS = [
-  ["#5e6488", "#2a2e48", "#0d0f20"],
-  ["#3a78c8", "#152e54", "#06101c"],
+  ["#A6B5D0", "#C5CFDE", "#EDF0F5"],
+  ["#86C2E8", "#B0D6F0", "#EAF2FA"],
 ];
 
+/**
+ * Derives the desaturated-dark RGB triple ("r, g, b", no alpha) from a
+ * hex color. Parses #RRGGBB, darkens each channel toward black, and
+ * mixes in a small amount of gray to drop saturation. Used as the
+ * shared base for both the ground line and ground shadow tints —
+ * the line composes `rgba(${rgb}, 0.32)`, the shadow uses the rgb
+ * directly with its own per-stop opacity. Tuned so the result reads
+ * as shadow on the light-mode palettes currently in use (blue → dark
+ * slate-blue, red → dark plum, etc.) without going pure-black.
+ */
+function darkRgbFromHex(hex: string): string {
+  const clean = hex.startsWith("#") ? hex.slice(1) : hex;
+  const r = parseInt(clean.slice(0, 2), 16);
+  const g = parseInt(clean.slice(2, 4), 16);
+  const b = parseInt(clean.slice(4, 6), 16);
+  const darken = 0.30;
+  const grayMix = 0.20;
+  const dr = Math.round(r * darken * (1 - grayMix) + 60 * grayMix);
+  const dg = Math.round(g * darken * (1 - grayMix) + 60 * grayMix);
+  const db = Math.round(b * darken * (1 - grayMix) + 60 * grayMix);
+  return `${dr}, ${dg}, ${db}`;
+}
+
+/** rgba string from a hex base + alpha — convenience wrapper around `darkRgbFromHex`. */
+function shadowTintFromHex(hex: string, alpha: number): string {
+  return `rgba(${darkRgbFromHex(hex)}, ${alpha})`;
+}
+
 const COLOR_GRADIENTS: Record<string, string[]> = {
-  black:            ["#2a2d33", "#15171c", "#08090c"],
-  "midnight-silver":["#3a4256", "#1c2030", "#0a0d18"],
-  silver:           ["#7a8294", "#2f3540", "#10131c"],
-  white:            ["#f5f7fa", "#dde2ea", "#a8b0bd"],
-  gray:             ["#5b6477", "#2c3140", "#0e111a"],
-  red:              ["#a8344a", "#481420", "#13050a"],
-  blue:             ["#3a78c8", "#152e54", "#06101c"],
-  green:            ["#2da784", "#114036", "#04161a"],
-  beige:            ["#b69478", "#5a4530", "#1a140d"],
-  brown:            ["#7a4a35", "#36201a", "#15090a"],
+  black:            ["#8E96A7", "#B8BFCD", "#ECEFF4"],
+  "midnight-silver":["#8190A5", "#AEB9C9", "#EAEEF3"],
+  silver:           ["#8290A0", "#AEB7C6", "#EAEDF2"],
+  white:            ["#B8C2D0", "#D0D7E1", "#F2F5F9"],
+  gray:             ["#525C70", "#8B96A8", "#EBEEF3"],
+  red:              ["#E8909C", "#F0B5BE", "#FBE2E5"],
+  blue:             ["#86C2E8", "#B0D6F0", "#EAF2FA"],
+  green:            ["#7BCBA7", "#A8DDC1", "#E4F3EB"],
+  beige:            ["#D4B189", "#E4CCAE", "#F6EAD6"],
+  brown:            ["#B98D6A", "#D0AC8D", "#EFE0CD"],
 };
 
-// (Service history is now sourced from Smartcar data via useSmartcarData)
 
 const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
@@ -585,9 +628,7 @@ export default function CarsHomeScreen() {
   const resetOnboarding = useMutation(api.vehicles.resetVehicleOnboarding);
   const removeOwner = useMutation(api.vehicles.removeOwner);
   const autoCompleteNewVehicle = useMutation(api.vehicles.autoCompleteNewVehicleOnboarding);
-  const fetchVehicleData = useAction(api.smartcar.fetchVehicleData);
   const saveVehicleImageUrl = useMutation(api.vehicles.saveVehicleImageUrl);
-  const [isRefreshingSmartcar, setIsRefreshingSmartcar] = useState(false);
   const [vehicleImageUrls, setVehicleImageUrls] = useState<Record<string, string>>({});
 
   // Use cached image_url from Convex, or fetch from API and save it
@@ -625,6 +666,7 @@ export default function CarsHomeScreen() {
       const model = meta?.model ?? "";
       const color = meta?.color ?? r.ownership?.color ?? "";
       if (!make || !model) return;
+      console.log("[cars] resolving image for", r.vin, "color=", color, "make=", make, "model=", model);
       fetchVehicleImageUrl(make, model, v?.year, r.vin, color).then((url) => {
         if (!url) return;
         setVehicleImageUrls((prev) => ({ ...prev, [r.vin]: url }));
@@ -670,7 +712,6 @@ export default function CarsHomeScreen() {
           condition: undefined,
           nextUnlock: undefined,
           gradientColors: gradient,
-          connectionStatus: r.connectionStatus || "unconnected",
           bodyStyle: meta?.body_style,
         },
         ownershipId: o?._id,
@@ -727,7 +768,7 @@ export default function CarsHomeScreen() {
   const activeOwnership = useMemo(() => ownerships[activeVehicleIndex], [ownerships, activeVehicleIndex]);
   const isPreOnboardingComplete = activeOwnership?.preOnboardingComplete === true;
 
-  // Onboarding state for non-Smartcar vehicles.
+  // Onboarding state.
   // localOnboardingDone is set immediately when the stepper finishes saving,
   // working around a Convex subscription delay that can leave the field undefined.
   const isOnboardingComplete = activeOwnership?.onboardingComplete === true || localOnboardingDone;
@@ -764,22 +805,10 @@ export default function CarsHomeScreen() {
 
   const activeOwnershipDrivingConditions = activeOwnership?.drivingConditions as string | undefined;
   const activeOwnershipAvgMonthlyDriving = activeOwnership?.avgMonthlyDriving as string | undefined;
-  // Smartcar data for the active vehicle
-  const {
-    stats: smartcarStats,
-    maintenanceItems: smartcarMaintenanceItems,
-    tripStats,
-    nextServicePrediction,
-    isConnected: isActiveVehicleConnected,
-  } = useSmartcarData(activeOwnershipId);
 
-  // Merged maintenance: Smartcar items + user-provided records (with per-make intervals)
-  // For non-connected vehicles with onboarding, use ownership.mileage as the odometer
-  const currentOdometer = smartcarStats?.odometer?.distance
-    ?? (isOnboardingComplete ? (activeOwnership?.mileage ?? null) : null);
+  const currentOdometer = isOnboardingComplete ? (activeOwnership?.mileage ?? null) : null;
   const activeOwnershipKnownIssues = activeOwnership?.knownIssues as string[] | undefined;
   const { mergedItems: mergedMaintenanceItems, recordsByType } = useMergedMaintenance(
-    smartcarMaintenanceItems,
     activeOwnershipId,
     currentOdometer,
     activeVehicle?.make,
@@ -789,27 +818,37 @@ export default function CarsHomeScreen() {
     activeVehicle?.year
   );
 
-  // Unified vehicle health score — graduated maintenance statuses, warning-light
-  // penalty, and Smartcar live-sensor blend when connected.
+  // HP buffer for the active vehicle — every 15 HP yields +1 on the
+  // displayed score, capped at +3 (Rewards Framework v3 §11).
+  const hpForUser = useQuery(
+    api.healthPoints.getPointsForUser,
+    userId ? { userId } : "skip",
+  );
+  const activeVehicleHpBuffer = useMemo(() => {
+    if (!hpForUser || !activeVehicle?.vin) return 0;
+    const match = (hpForUser as Array<{ vin: string; buffer: number }>).find(
+      (r) => r.vin === activeVehicle.vin,
+    );
+    return match?.buffer ?? 0;
+  }, [hpForUser, activeVehicle?.vin]);
+
+  // Unified vehicle health score — graduated maintenance statuses
+  // and warning-light penalty.
   const healthScoreInput: HealthScoreInput = useMemo(() => ({
     maintenanceItems: mergedMaintenanceItems,
     odometerMiles: currentOdometer ?? activeVehicle?.mileage ?? 0,
     knownIssues: activeOwnershipKnownIssues,
-    smartcar: smartcarStats ? {
-      oilLife: smartcarStats.oilLife,
-      tirePressure: smartcarStats.tirePressure,
-      fuelPercent: smartcarStats.fuel?.percentRemaining,
-    } : undefined,
     pipelineHealthScore: activeOwnership?.health_score as number | undefined,
     pipelineIsEstimated: activeOwnership?.health_score_is_estimated as boolean | undefined,
-  }), [mergedMaintenanceItems, currentOdometer, activeVehicle?.mileage, activeOwnershipKnownIssues, smartcarStats, activeOwnership?.health_score, activeOwnership?.health_score_is_estimated]);
+    hpBuffer: activeVehicleHpBuffer,
+  }), [mergedMaintenanceItems, currentOdometer, activeVehicle?.mileage, activeOwnershipKnownIssues, activeOwnership?.health_score, activeOwnership?.health_score_is_estimated, activeVehicleHpBuffer]);
 
   const computedHealthScore = useMemo(() => {
     return computeVehicleHealthScore(healthScoreInput);
   }, [healthScoreInput]);
 
   // Pulse animation for inline Quick Read health ring
-  const showQuickReadCard = !isActiveVehicleConnected && isPreOnboardingComplete && !isOnboardingComplete && !isNewVehicle;
+  const showQuickReadCard = isPreOnboardingComplete && !isOnboardingComplete && !isNewVehicle;
   useEffect(() => {
     if (!showQuickReadCard) return;
     const loop = Animated.loop(
@@ -918,57 +957,110 @@ export default function CarsHomeScreen() {
     });
   }, [editPickerY, editPickerBackdrop]);
 
-  // Map Smartcar service history to ServiceHistory component format
-  const serviceRecords: ServiceRecord[] = useMemo(() => {
-    if (!smartcarStats?.serviceHistory || smartcarStats.serviceHistory.length === 0) return [];
-    return smartcarStats.serviceHistory.map((r, i) => {
-      const tasks = (r.serviceTasks || []).map((t) => t.taskDescription).filter(Boolean) as string[];
-      const dateStr = r.serviceDate
-        ? new Date(r.serviceDate).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })
-        : "Unknown date";
-      return {
-        id: r.serviceId || `smartcar-service-${i}`,
-        date: dateStr,
-        facilityName: "Service Center",
-        services: tasks.length > 0 ? tasks : ["Service performed"],
-        totalCost: r.serviceCost?.totalCost ?? 0,
-      };
-    });
-  }, [smartcarStats?.serviceHistory]);
-
-  // Refresh Smartcar data
-  const handleSmartcarRefresh = useCallback(async () => {
-    console.log("[Refresh] handleSmartcarRefresh called, activeOwnershipId=", activeOwnershipId);
-    if (!activeOwnershipId) {
-      console.log("[Refresh] No activeOwnershipId, aborting");
-      return;
-    }
-    setIsRefreshingSmartcar(true);
-    try {
-      console.log("[Refresh] Calling fetchVehicleData...");
-      await fetchVehicleData({ vehicleOwnerId: activeOwnershipId });
-      console.log("[Refresh] fetchVehicleData completed");
-    } catch (err) {
-      console.warn("[Refresh] Smartcar refresh failed:", err);
-    } finally {
-      setIsRefreshingSmartcar(false);
-    }
-  }, [activeOwnershipId, fetchVehicleData]);
+  const serviceRecords: ServiceRecord[] = [];
 
 
-  // Active vehicle's gradient colors for the background
+  // True when the active vehicle is showing the covered-car fallback
+  // (no `imageSource` has been resolved yet). In that case the page
+  // gets the blue palette and skips the elliptical ground shadow
+  // entirely — the cloth illustration doesn't read as a real car
+  // casting a contact shadow.
+  const isCoveredCar = !activeVehicle?.imageSource;
+
+  // Active vehicle's gradient colors for the background. Covered cars
+  // get the canonical blue palette regardless of their stored color.
   const activeGradient = useMemo(
-    () => activeVehicle?.gradientColors ?? DEFAULT_GRADIENTS[0],
-    [activeVehicle?.gradientColors]
+    () =>
+      isCoveredCar
+        ? COLOR_GRADIENTS.blue
+        : (activeVehicle?.gradientColors ?? DEFAULT_GRADIENTS[0]),
+    [isCoveredCar, activeVehicle?.gradientColors]
   );
   // Static text on this page (vehicle name, mileage, "Maintenance
   // Tracker" header) sits over the top stop of the gradient. When
   // that stop is dark — black, midnight-silver, gray, etc. — dark
   // text becomes unreadable, so swap to light. Computed once per
   // active vehicle and passed down to the consuming components.
-  const isDarkBg = useMemo(
-    () => isDarkColor(activeGradient[0]),
+  // Page-level text (vehicle name, mileage, section headers) always
+  // renders dark now that every palette in `COLOR_GRADIENTS` is
+  // light-mode. Forcing `false` keeps downstream components from
+  // flipping their text to white on the (still-light) "darker" gray
+  // / midnight-silver palettes. The prop is kept on the API so
+  // consumers' types don't change.
+  const isDarkBg = false;
+
+  // ── Gradient crossfade ────────────────────────────────────────
+  // Smooth color transition between cars without the white screen
+  // bleed-through that a two-layer mutual crossfade produces.
+  //
+  // Setup:
+  //   • Bottom layer: ALWAYS opacity 1. Shows the last-settled
+  //     gradient (`settledGradient`). Acts as the opaque base so
+  //     the page's underlying white background never shows through
+  //     at any point during the transition.
+  //   • Top layer: opacity 0 → 1. Shows the incoming gradient
+  //     (`incomingGradient`). When the fade completes, we copy the
+  //     incoming colors into `settledGradient` and reset the top
+  //     layer's opacity back to 0 — ready for the next swap.
+  //
+  // Because the bottom is always fully opaque, the composite is
+  // never partially transparent. The user sees a clean blend between
+  // two fully opaque gradients instead of both fading through their
+  // midpoint (which previously revealed the white screen behind).
+  const [settledGradient, setSettledGradient] = useState<readonly string[]>(activeGradient);
+  const [incomingGradient, setIncomingGradient] = useState<readonly string[]>(activeGradient);
+  const overlayOpacity = useSharedValue(0);
+  const overlayStyle = useAnimatedStyle(() => ({ opacity: overlayOpacity.value }));
+
+  useEffect(() => {
+    if (settledGradient === activeGradient) return;
+    // Load the incoming colors into the top layer first. Since its
+    // opacity is currently 0 (either initial or just reset after a
+    // previous fade), this state update is invisible to the user.
+    setIncomingGradient(activeGradient);
+    overlayOpacity.value = withTiming(
+      1,
+      { duration: 1100, easing: ReEasing.inOut(ReEasing.cubic) },
+      (finished) => {
+        "worklet";
+        if (finished) {
+          // Lock in the new gradient as the "settled" base. We do
+          // NOT reset overlayOpacity here — that would briefly leave
+          // the bottom showing the OLD settled gradient (React state
+          // updates are async, but `overlayOpacity = 0` applies on
+          // the next UI-thread frame). The reset happens in the
+          // useEffect below once settled has committed.
+          runOnJS(setSettledGradient)(activeGradient);
+        }
+      },
+    );
+  }, [activeGradient, settledGradient, overlayOpacity]);
+
+  // Reset the overlay only after `settledGradient` has committed and
+  // the bottom layer is now painting the new colors. Now we can hide
+  // the overlay safely — bottom + overlay both show the same colors
+  // for a moment, then the overlay drops to 0 ready for the next swap.
+  useEffect(() => {
+    overlayOpacity.value = 0;
+  }, [settledGradient, overlayOpacity]);
+
+  // Shadow tint base, derived from the active gradient's top stop.
+  // Each background color (blue, red, green, …) gets a desaturated
+  // dark version of its own hue so both the ground line and the
+  // ellipse beneath the car read as a natural shadow on whatever
+  // screen the user is looking at, instead of a hardcoded dark-pink
+  // that only looks right on warm palettes.
+  const groundShadowTintRgb = useMemo(
+    () => darkRgbFromHex(activeGradient[0]),
     [activeGradient]
+  );
+  const groundLineTint = useMemo(
+    () => `rgba(${groundShadowTintRgb}, 0.32)`,
+    [groundShadowTintRgb]
+  );
+  const groundLineTintTransparent = useMemo(
+    () => `rgba(${groundShadowTintRgb}, 0)`,
+    [groundShadowTintRgb]
   );
 
   // Handle default toggle via Convex
@@ -1011,19 +1103,8 @@ export default function CarsHomeScreen() {
 
   const handleRefresh = useCallback(async () => {
     setRefreshing(true);
-    // Also trigger Smartcar refresh if connected
-    if (activeOwnershipId && activeVehicle?.connectionStatus === "connected") {
-      setIsRefreshingSmartcar(true);
-      try {
-        await fetchVehicleData({ vehicleOwnerId: activeOwnershipId });
-      } catch (err) {
-        console.warn("Pull-to-refresh Smartcar failed:", err);
-      } finally {
-        setIsRefreshingSmartcar(false);
-      }
-    }
     setRefreshing(false);
-  }, [activeOwnershipId, activeVehicle?.connectionStatus, fetchVehicleData]);
+  }, []);
 
   // Empty state: no vehicles from Convex
   if (!isLoading && vehicles.length === 0) {
@@ -1065,27 +1146,44 @@ export default function CarsHomeScreen() {
         scrollEventThrottle={16}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} tintColor="#6B7280" />}
       >
-        {/* Scrolling Gradient - uses active vehicle's color. The
-            palette is a saturated → deep-dark vertical fade so the
-            page reads with real depth. A faint top highlight adds a
-            subtle "light source" sheen at the top edge; no white
-            wash at the bottom (that was making the page look flat). */}
+        {/* Scrolling Gradient — uses the active vehicle's color tinted
+            into the same brightness curve as the home screen's static
+            gradient: saturated tint at the top → soft mid → near-white
+            at the bottom. The container is `SCREEN_HEIGHT * 2.5` tall
+            so it can cover the scroll area, which means only ~40% of
+            the gradient is visible at rest (positions 0.20–0.60).
+            Locations compress the three stops into that window so the
+            visible page reads as a clean top→bottom fade, identical
+            to home's `[0, 0.5, 1]` on its absoluteFill gradient. */}
         <View style={styles.scrollingGradientContainer} pointerEvents="none">
+          {/* Bottom — always opaque. Shows the last-settled gradient
+              so the white page background never bleeds through during
+              transitions. Gets updated to match the incoming gradient
+              only after the overlay fade completes. */}
           <LinearGradient
-            colors={activeGradient as [string, string, ...string[]]}
-            locations={[0, 0.5, 1]}
+            colors={settledGradient as [string, string, ...string[]]}
+            locations={[0.20, 0.40, 0.60]}
+            start={{ x: 0.5, y: 0 }}
+            end={{ x: 0.5, y: 1 }}
             style={StyleSheet.absoluteFill}
           />
-          <LinearGradient
-            colors={["rgba(255, 255, 255, 0.12)", "rgba(255, 255, 255, 0)"]}
-            locations={[0, 0.35]}
-            style={StyleSheet.absoluteFill}
-          />
+          {/* Top overlay — fades 0 → 1 to bring the incoming gradient
+              on top of the still-opaque bottom. Resets to 0 after the
+              fade settles and the bottom adopts the new colors. */}
+          <ReAnimated.View style={[StyleSheet.absoluteFill, overlayStyle]}>
+            <LinearGradient
+              colors={incomingGradient as [string, string, ...string[]]}
+              locations={[0.20, 0.40, 0.60]}
+              start={{ x: 0.5, y: 0 }}
+              end={{ x: 0.5, y: 1 }}
+              style={StyleSheet.absoluteFill}
+            />
+          </ReAnimated.View>
         </View>
 
         {/* Dev/debug buttons — top left */}
         <View style={{ flexDirection: "row", flexWrap: "wrap", gap: scale(6), paddingHorizontal: scale(16), marginBottom: scale(4), zIndex: 10, position: "relative" }}>
-          {!isActiveVehicleConnected && isPreOnboardingComplete && showPostOnboardingContent && activeOwnershipId && (
+          {isPreOnboardingComplete && showPostOnboardingContent && activeOwnershipId && (
             <Pressable
               style={({ pressed }) => [{ paddingVertical: scale(4), paddingHorizontal: scale(10), borderRadius: moderateScale(12), backgroundColor: "rgba(82,153,254,0.1)" }, pressed && { opacity: 0.7 }]}
               onPress={async () => {
@@ -1133,17 +1231,23 @@ export default function CarsHomeScreen() {
             maintenanceItems={mergedMaintenanceItems}
             currentMileage={currentOdometer}
             isDarkBg={isDarkBg}
-            showHealthRing={isActiveVehicleConnected || celebrationDismissed || (isOnboardingComplete && !celebrationActive && !healthPageVisible)}
+            groundLineTint={groundLineTint}
+            groundLineTintTransparent={groundLineTintTransparent}
+            groundShadowTintRgb={groundShadowTintRgb}
+            hideGroundShadow={isCoveredCar}
+            showHealthRing={celebrationDismissed || (isOnboardingComplete && !celebrationActive && !healthPageVisible)}
             healthScore={isPreOnboardingComplete && !isOnboardingComplete
               ? (activeOwnership?.health_score as number | undefined) ?? computedHealthScore
               : computedHealthScore}
             isEstimatedScore={isPreOnboardingComplete && !isOnboardingComplete}
             onResumeCheckin={openEstimatedHealthSheet}
+            knownIssues={activeOwnershipKnownIssues}
+            hpBuffer={activeVehicleHpBuffer}
           />
         </View>
 
         {/* Quick Read intro card — shown when pre-onboarding done but onboarding not yet complete */}
-        {!isActiveVehicleConnected && isPreOnboardingComplete && !isOnboardingComplete && !isNewVehicle && (() => {
+        {isPreOnboardingComplete && !isOnboardingComplete && !isNewVehicle && (() => {
           const estScore = (activeOwnership?.health_score as number | undefined) ?? computedHealthScore;
           const ringSize = 120;
           const strokeWidth = 10;
@@ -1223,8 +1327,8 @@ export default function CarsHomeScreen() {
             BOTTOM SECTION: Maintenance, Service History, Loyalty
         ═══════════════════════════════════════════════════════════════════ */}
         <View style={styles.bottomSection}>
-          {/* Non-connected + pre-onboarding incomplete → show continue prompt */}
-          {!isActiveVehicleConnected && !isPreOnboardingComplete && activeOwnershipId && (
+          {/* Pre-onboarding incomplete → show continue prompt */}
+          {!isPreOnboardingComplete && activeOwnershipId && (
             <View style={styles.preOnboardingCard}>
               <Text weight="semiBold" size="md" color="#111827" style={{ textAlign: "center" }}>
                 Continue setup to unlock your maintenance dashboard
@@ -1261,8 +1365,8 @@ export default function CarsHomeScreen() {
             />
           )}
 
-          {/* Maintenance tracker (shown for connected vehicles, or non-connected after onboarding + sheet dismissed) */}
-          {(isActiveVehicleConnected || showPostOnboardingContent) && (
+          {/* Maintenance tracker (shown after onboarding + sheet dismissed) */}
+          {showPostOnboardingContent && (
             <MaintenanceTracker
               items={mergedMaintenanceItems}
               vehicleCondition={computedHealthScore}
@@ -1282,21 +1386,8 @@ export default function CarsHomeScreen() {
             />
           )}
 
-        {/* ═══════════════════════════════════════════════════════════════════
-            SMARTCAR STATS (only for connected vehicles)
-        ═══════════════════════════════════════════════════════════════════ */}
-        {isActiveVehicleConnected && activeVehicle?.connectionStatus === 'connected' && smartcarStats && (
-          <VehicleStatsCard
-            stats={smartcarStats}
-            tripStats={tripStats}
-            nextServicePrediction={nextServicePrediction}
-            onRefresh={handleSmartcarRefresh}
-            isRefreshing={isRefreshingSmartcar}
-          />
-        )}
-
           {/* Service History Section (hidden until onboarding complete) */}
-          {(isActiveVehicleConnected || isOnboardingComplete) && <ServiceHistory
+          {isOnboardingComplete && <ServiceHistory
             isDarkBg={isDarkBg}
             records={serviceRecords}
             onAddNotes={(id) => {
@@ -1340,7 +1431,7 @@ export default function CarsHomeScreen() {
           />}
 
           {/* Loyalty Points Section (hidden until onboarding complete) */}
-          {(isActiveVehicleConnected || isOnboardingComplete) && <LoyaltyPoints
+          {isOnboardingComplete && <LoyaltyPoints
             isDarkBg={isDarkBg}
             totalPoints={1240}
             currentTier="Gold Member"
@@ -1697,16 +1788,15 @@ export default function CarsHomeScreen() {
           {/* Building phase: car image + sequential AI task list */}
           {gearsPhase !== 'looping' && (
             <Animated.View style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, opacity: lottieFadeOut }}>
-              {/* Car image at top */}
-              {activeVehicle?.imageSource && (
-                <Animated.View style={{ opacity: carPulseAnim, width: scale(280), height: scale(170), alignSelf: 'center', marginTop: verticalScale(100) }}>
-                  <Image
-                    source={activeVehicle.imageSource}
-                    style={{ width: '100%', height: '100%' }}
-                    resizeMode="contain"
-                  />
-                </Animated.View>
-              )}
+              {/* Car image at top — VDB image if available, otherwise
+                  the covered-car placeholder (manual-entry vehicles). */}
+              <Animated.View style={{ opacity: carPulseAnim, width: scale(280), height: scale(170), alignSelf: 'center', marginTop: verticalScale(100) }}>
+                <Image
+                  source={activeVehicle?.imageSource ?? require('@/assets/images/covered-car.png')}
+                  style={{ width: '100%', height: '100%' }}
+                  resizeMode="contain"
+                />
+              </Animated.View>
               {/* Sequential step list */}
               <View style={{ paddingHorizontal: scale(28), marginTop: scale(24) }}>
                 {AI_STEPS.map((step, idx) => {
@@ -1763,18 +1853,16 @@ export default function CarsHomeScreen() {
                   Vehicle profile optimized
                 </Text>
               </View>
-              {/* Car image — below title */}
-              {activeVehicle?.imageSource && (
-                <Animated.View style={{ alignSelf: 'center', marginTop: scale(16), transform: [{ scale: carImageFadeIn.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) }] }}>
-                  <View style={{ width: scale(280), height: scale(170), alignItems: 'center', justifyContent: 'center' }}>
-                    <Image
-                      source={activeVehicle.imageSource}
-                      style={{ width: '100%', height: '100%' }}
-                      resizeMode="contain"
-                    />
-                  </View>
-                </Animated.View>
-              )}
+              {/* Car image — VDB if available, covered-car otherwise. */}
+              <Animated.View style={{ alignSelf: 'center', marginTop: scale(16), transform: [{ scale: carImageFadeIn.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) }] }}>
+                <View style={{ width: scale(280), height: scale(170), alignItems: 'center', justifyContent: 'center' }}>
+                  <Image
+                    source={activeVehicle?.imageSource ?? require('@/assets/images/covered-car.png')}
+                    style={{ width: '100%', height: '100%' }}
+                    resizeMode="contain"
+                  />
+                </View>
+              </Animated.View>
               {/* Completed steps list */}
               <View style={{ paddingHorizontal: scale(28), marginTop: scale(20) }}>
                 {AI_STEPS.map((step, idx) => (

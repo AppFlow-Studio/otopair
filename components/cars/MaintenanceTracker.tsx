@@ -130,7 +130,7 @@ const CARD_COLORS: Partial<Record<MaintenanceStatus, { statusColor: string; icon
 };
 
 function getServiceIcon(itemId: string, size: number, color: string) {
-  const type = itemId.replace(/^(unknown-|user-|smartcar-)/, '');
+  const type = itemId.replace(/^(unknown-|user-)/, '');
   switch (type) {
     case 'oil': return <OilIcon size={size} color={color} />;
     case 'brakes': return <BrakesIcon size={size} color={color} />;
