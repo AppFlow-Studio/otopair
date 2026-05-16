@@ -174,3 +174,122 @@ export async function teardownTenants(client: ConvexClient): Promise<void> {
     {},
   );
 }
+
+// =============================================================================
+// Verified-fact authoring helpers (Sprint 2 Day 2)
+// =============================================================================
+//
+// HTTP-client wrappers around the two internalMutations defined in
+// `convex/oto/migrations/verifiedFactsSeed.ts`. These exist so that future
+// cross-tenant verified/unverified case authoring in the eval harness
+// (Wave 1.4 v3 case (d) family) is one line per case instead of an inline
+// recordVehicleFact + editVehicleFact sequence.
+//
+// The Convex-side mutations enforce all the v3 invariants:
+//   - source is locked to "web_search" (the only path where verify-after-
+//     record is meaningful)
+//   - confidence floor of 0.7 (enforced by recordVehicleFact)
+//   - canonical_question_key derived via canonicalize.ts (same path the
+//     chat agent uses, so the canonical-hash probe collides correctly)
+//   - audit-row atomicity preserved (every verify call routes through
+//     editVehicleFact, which writes the paired audit row in the same
+//     transaction)
+//
+// CI grep Rules 1 + 3 stay green: this file never touches vehicle_facts
+// or vehicle_facts_audit directly — it only POSTs to Convex.
+// =============================================================================
+
+// -- Public args + result shapes ---------------------------------------------
+
+export type VerifiedFactScope =
+  | "vehicle_config"
+  | "trim"
+  | "chassis"
+  | "engine"
+  | "model_year";
+
+export interface SeedVerifiedFactArgs {
+  scope: VerifiedFactScope;
+  scope_key: string;
+  topic: string;
+  fact_text: string;
+  question_text: string;
+  source: "web_search";
+  confidence: number;
+  /** Default: true. Pass false to leave the row at verification_status="unverified". */
+  verify?: boolean;
+  /** Required when verify=true. Stamped on the audit row. */
+  editor_user_id?: string;
+  /** Optional. Stamped on vehicle_facts.asked_by_user_id. */
+  asked_by_user_id?: string;
+
+  // Scope-detail args — pass the subset that matches `scope`.
+  vehicle_config_id?: string;
+  chassis_code?: string;
+  engine_code?: string;
+  make?: string;
+  model?: string;
+  trim_name?: string;
+  year_min?: number;
+  year_max?: number;
+}
+
+export interface SeededVerifiedFact {
+  fact_id: string;
+}
+
+// -- Public: seedVerifiedFact ------------------------------------------------
+//
+// Calls `internal.oto.migrations.verifiedFactsSeed.seedEvalVerifiedFact`,
+// which:
+//   1. Computes canonical_question_key via convex/oto/canonicalize.ts.
+//   2. Routes to api.oto.vehicleFactsEditing.recordVehicleFact to land
+//      the row (web_search → unverified by default, audit-row-free
+//      creation per D-3.2 relocation).
+//   3. If `verify` is true (default), routes to
+//      api.oto.vehicleFactsEditing.editVehicleFact with action="verify"
+//      to flip verification_status → "verified". The audit row writes
+//      atomically as part of editVehicleFact.
+//
+// Returns the new (or de-duped) fact_id.
+//
+// Idempotent — re-seeding the same canonical question key reuses the
+// existing fact and gracefully no-ops the verify step on a row already
+// in "verified" state.
+
+export async function seedVerifiedFact(
+  client: ConvexClient,
+  args: SeedVerifiedFactArgs,
+): Promise<SeededVerifiedFact> {
+  return await postMutation<SeededVerifiedFact>(
+    client,
+    "oto/migrations/verifiedFactsSeed:seedEvalVerifiedFact",
+    args as unknown as Record<string, unknown>,
+  );
+}
+
+// -- Public: cleanupVerifiedFact ---------------------------------------------
+//
+// Calls `internal.oto.migrations.verifiedFactsSeed.cleanupEvalVerifiedFact`,
+// which deletes (in reverse-FK order):
+//   1. fact_reports rows pointing at the fact (by_fact index)
+//   2. vehicle_facts_audit rows pointing at the fact (by_fact index)
+//   3. the vehicle_facts row itself
+//
+// All deletes scoped strictly to the passed fact_id. Idempotent —
+// missing rows at any stage are silently skipped.
+
+export async function cleanupVerifiedFact(
+  client: ConvexClient,
+  args: { fact_id: string },
+): Promise<void> {
+  await postMutation<{
+    reports_deleted: number;
+    audit_deleted: number;
+    fact_deleted: number;
+  }>(
+    client,
+    "oto/migrations/verifiedFactsSeed:cleanupEvalVerifiedFact",
+    args as unknown as Record<string, unknown>,
+  );
+}

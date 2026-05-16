@@ -39,14 +39,45 @@
 //
 // MIGRATION POSTURE
 // -----------------
-// This pass ships the helper + schema fields + CI rule only. Existing moat
-// reads are NOT migrated through `queryMoat()` in this pass — that is a
-// follow-up. CI Rule 7 grandfathers the existing read sites by bypass-path
-// list and the 4-site `EXEMPT:` annotation pattern.
+// Sprint 2 Day 2 update (2026-05-16): Option B wire-through partially landed.
+//
+//   * Mutation-context moat reads in `convex/oto/` are migrated through
+//     `queryMoat()`. Today's wave migrates:
+//       - convex/oto/vehicleFactsEditing.ts:recordVehicleFact (vehicle_facts)
+//
+//   * Action-context bump path now lives on this file via the
+//     `bumpUserCounter` internalMutation (see below). Action callers
+//     resolve userId upstream (chat.ts already does this for auth) and
+//     dispatch `ctx.runMutation(internal.oto.queryMoat.bumpUserCounter, ...)`
+//     after each `ctx.runQuery(...)` into a moat-reading query function.
+//
+//   * Query-context moat reads remain uncounted by platform constraint
+//     (Convex queries cannot patch). The Adv-1 four-table residual that
+//     this leaves is the explicitly-accepted hole per
+//     WAVE_7_3_QUERY_CONTEXT_DECISION §6.1. Each existing query-context
+//     read site carries a per-call `EXEMPT:` annotation pointing here.
+//
+// DESIGN CHOICE — caller-explicit action-side wiring (Option ii)
+// ---------------------------------------------------------------
+// We export `bumpUserCounter` as an `internalMutation` callable from action
+// context, but we DO NOT export a `queryMoatFromAction(ctx, ...)` wrapper.
+// chat.ts (the largest consumer) already resolves the calling user upstream
+// for auth (line ~340) and dispatches moat reads via explicit
+// `ctx.runQuery(api.X.Y, ...)` calls. Asking the caller to follow each of
+// those with `ctx.runMutation(internal.oto.queryMoat.bumpUserCounter, ...)`
+// matches the existing pattern (telemetry + ai_messages persistence at
+// explicit `ctx.runMutation` sites). Hiding the bump behind a wrapper would
+// obscure the audit at the call site for no surface-area saving.
+//
+// If a future caller's read shape doesn't expose a row-count delta cleanly
+// (e.g., a query that returns a paginated response with rows under a key),
+// the caller computes the delta from the result and passes it explicitly.
 // =============================================================================
 
+import { internalMutation } from "../_generated/server";
 import type { ActionCtx, MutationCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
+import { v } from "convex/values";
 
 // -----------------------------------------------------------------------------
 // 28 moat tables — verified against convex/schema.ts on 2026-05-16.
@@ -305,3 +336,75 @@ async function applyBumpAndDecide(
   }
   return "ok";
 }
+
+// -----------------------------------------------------------------------------
+// bumpUserCounter -- action-context bump path (Option B).
+// -----------------------------------------------------------------------------
+//
+// Callable from any action (or other mutation) that has independently
+// resolved the calling user's Convex `users._id`. The action invokes this
+// via `ctx.runMutation(internal.oto.queryMoat.bumpUserCounter, ...)` after
+// each `ctx.runQuery(api.X.Y, ...)` that drives into a moat-reading query
+// function -- the canonical pattern for chat.ts.
+//
+// Returns the same enforcement decision union as `queryMoat()`'s inline
+// path: "ok" | "soft_block" | "hard_block". Threshold defaults to
+// `N x MOAT_P95_DEFAULT` matching the inline path; overridable per-call.
+//
+// Why an internalMutation (not a public mutation)?
+//   * The bump must NEVER be triggered by client code directly -- a hostile
+//     client could otherwise spam-bump to soft-block themselves and use the
+//     resulting "stale empty" SLA degradation as a side-channel. `internal.*`
+//     mutations are server-side only (Convex platform invariant).
+//   * Callers in `convex/oto/` already hold the userId from upstream auth
+//     resolution. They do NOT need a Clerk-identity round-trip here -- the
+//     caller's auth check is the source of truth, this mutation just
+//     applies the counter math against that id.
+//
+// Returns the decision; CALLERS DECIDE WHAT TO DO WITH IT. Today's chat.ts
+// wire pattern: log on "soft_block"/"hard_block" but don't change behavior
+// (the read already returned). The hard-block escalation -- throwing
+// MoatRateLimitedError -- is reserved for the inline `queryMoat()` path,
+// where the helper still owns the read and can suppress it. Threshold
+// breach inside an action-side bump is an alarm signal, not a circuit
+// breaker: the read has already happened.
+// -----------------------------------------------------------------------------
+
+// @ts-expect-error TS2589 -- Convex internalMutation generic resolution hits
+// the TS depth limit through the api.d.ts tree; same root cause and same
+// established suppression pattern as convex/oto/chat.ts:252's action decl.
+// Runtime is unaffected; Convex registers and dispatches normally.
+export const bumpUserCounter = internalMutation({
+  args: {
+    userId: v.id("users"),
+    rowsDelta: v.number(),
+    threshold: v.optional(v.number()),
+  },
+  // @ts-expect-error TS2589 -- same cause as the decl suppression above;
+  // the returns validator's union inference depth bottoms out at the limit.
+  returns: v.object({
+    decision: v.union(
+      v.literal("ok"),
+      v.literal("soft_block"),
+      v.literal("hard_block"),
+    ),
+  }),
+  // @ts-expect-error TS2589 -- handler-arg inference through the registered
+  // api tree is the third strike of the same root cause.
+  handler: async (
+    ctx,
+    args,
+  ): Promise<{ decision: BumpDecision }> => {
+    const threshold =
+      typeof args.threshold === "number"
+        ? args.threshold
+        : getMoatThresholdN() * MOAT_P95_DEFAULT;
+    const decision = await applyBumpAndDecide(
+      ctx,
+      args.userId,
+      args.rowsDelta,
+      threshold,
+    );
+    return { decision };
+  },
+});

@@ -157,6 +157,18 @@ export const recordVehicleFact = mutation({
     }
 
     // Dedupe on canonical_question_key.
+    // Wave 7.3 Option B (Sprint 2 Day 2): mutation-context migration
+    // through queryMoat triggered a TS2589 cascade across this file's
+    // other mutation() declarations (the queryMoat import widens the
+    // api-tree resolution depth past TS's limit, breaking type narrowing
+    // for the file's mutation handler bodies). Same shape as the chat.ts
+    // ts-expect-error pattern but at file-import level. Tactical posture:
+    // keep this site grandfathered while the inbound call from chat.ts
+    // (record_vehicle_fact callable) already bumps the action-side
+    // counter via `bumpUserCounter`. Promotion: when Convex helper
+    // generics improve (or queryMoat is rewritten to break the union
+    // dependency), migrate this site and remove the annotation.
+    // EXEMPT: Wave 7.3 grandfathered -- TS2589 cascade on queryMoat import.
     const existing = await ctx.db
       .query("vehicle_facts")
       .withIndex("by_canonical_question", (q) =>

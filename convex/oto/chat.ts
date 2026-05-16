@@ -428,7 +428,9 @@ async function sendMessageHandler(
   // chat.ts owns every `api.*` reference. Each callable is a closure that
   // captures ctx + api; dispatcher.ts never sees Convex types. The state
   // callable also captures conversationId so it can patch the right row.
-  const callables = buildCallables(ctx, conversationId);
+  // user._id is captured so Wave 7.3 Option B counter-bumps after each
+  // moat-reading runQuery can attribute the read delta to this user.
+  const callables = buildCallables(ctx, conversationId, user._id);
 
   // ── 6. Tool-use loop ─────────────────────────────────────────────────
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -975,7 +977,41 @@ async function callAnthropic({
 // Three callables for this slice; add entries here when wiring more tools.
 // -----------------------------------------------------------------------------
 
-function buildCallables(ctx: any, conversationId: Id<"ai_conversations">): ToolCallables {
+function buildCallables(
+  ctx: any,
+  conversationId: Id<"ai_conversations">,
+  userId: Id<"users">,
+): ToolCallables {
+  // Wave 7.3 Option B: counter-bump helper for action-context moat reads.
+  // Invoked AFTER each ctx.runQuery into a moat-reading query function
+  // with the row-count delta. Errors are swallowed -- the moat read has
+  // already completed and we must not let a bump failure break the turn.
+  // The decision (ok/soft_block/hard_block) is currently logged only;
+  // see queryMoat.ts header for the rationale (action-side bump is an
+  // alarm signal, not a circuit breaker -- the read already happened).
+  const bumpMoat = async (
+    tableHint: string,
+    rowsDelta: number,
+  ): Promise<void> => {
+    if (rowsDelta <= 0) return;
+    try {
+      const { decision } = (await ctx.runMutation(
+        internal.oto.queryMoat.bumpUserCounter,
+        { userId, rowsDelta },
+      )) as { decision: "ok" | "soft_block" | "hard_block" };
+      if (decision !== "ok") {
+        console.warn(
+          `[oto/chat] moat counter ${decision} for user=${userId} after ` +
+            `${rowsDelta}-row read of ${tableHint}`,
+        );
+      }
+    } catch (e: any) {
+      console.error(
+        `[oto/chat] bumpUserCounter failed (swallowed) for ${tableHint}:`,
+        e?.message,
+      );
+    }
+  };
   return {
     /**
      * list_services_for_vehicle — returns the full 23-service catalog.
@@ -995,6 +1031,8 @@ function buildCallables(ctx: any, conversationId: Id<"ai_conversations">): ToolC
         api.services.list,
         {},
       );
+      // Wave 7.3 Option B: services is a moat table; bump counter by row count.
+      await bumpMoat("services", all?.length ?? 0);
       return (all ?? []).map((s) => ({
         slug: s.slug,
         name: s.name,
@@ -1023,6 +1061,8 @@ function buildCallables(ctx: any, conversationId: Id<"ai_conversations">): ToolC
         api.services.list,
         {},
       );
+      // Wave 7.3 Option B: services moat table; bump counter by row count.
+      await bumpMoat("services", all?.length ?? 0);
       const svc = (all ?? []).find((s) => s.slug === slug);
       if (!svc) throw new Error(`Service "${slug}" not in catalog.`);
       return {
@@ -1112,9 +1152,17 @@ function buildCallables(ctx: any, conversationId: Id<"ai_conversations">): ToolC
      */
     get_vehicle_facts: async (input) => {
       const vehicleId = (input.vehicle_id ?? "") as string;
-      return await ctx.runQuery(api.oto.vehicleFacts.getVehicleFacts, {
+      const result = await ctx.runQuery(api.oto.vehicleFacts.getVehicleFacts, {
         vehicle_id: vehicleId,
       });
+      // Wave 7.3 Option B: getVehicleFacts reads trim_specs (1 row) plus
+      // joined structural lookups (engine, transmission, trim, make, model)
+      // via ctx.db.get -- those gets are NOT counted (point lookups by
+      // primary key are not subject to the wide-scan exfiltration risk
+      // that the moat counter targets). The trim_specs row is the only
+      // moat-table read here; delta = 1 if a facts object came back.
+      await bumpMoat("trim_specs", result ? 1 : 0);
+      return result;
     },
 
     /**
@@ -1123,9 +1171,27 @@ function buildCallables(ctx: any, conversationId: Id<"ai_conversations">): ToolC
      */
     lookup_vehicle_spec: async (input) => {
       const q = (input.query ?? "") as string;
-      return await ctx.runQuery(api.oto.lookupVehicleSpec.lookupVehicleSpec, {
-        query: q,
-      });
+      const result = await ctx.runQuery(
+        api.oto.lookupVehicleSpec.lookupVehicleSpec,
+        { query: q },
+      );
+      // Wave 7.3 Option B: lookupVehicleSpec scans the entire `makes` table
+      // (EXEMPT-annotated direct read at line 118) plus `models` and
+      // `vehicle_configs` filtered down by make. The returned shape exposes
+      // `candidates[]` + an optional `matched`. We can't know the raw scan
+      // size from the result alone; conservative attribution: bump by
+      // (candidates.length + matched-presence). The wide-scan exposure is
+      // bounded by the existing EXEMPT annotation -- this counter captures
+      // the moat-distinct rows the caller actually saw.
+      const cands = Array.isArray(result?.candidates)
+        ? result.candidates.length
+        : 0;
+      const matched = result?.matched ? 1 : 0;
+      await bumpMoat(
+        "vehicle_configs+models+makes",
+        cands + matched,
+      );
+      return result;
     },
 
     /**
@@ -1178,6 +1244,13 @@ function buildCallables(ctx: any, conversationId: Id<"ai_conversations">): ToolC
           ...(limit !== undefined ? { limit } : {}),
         },
       )) as { tier: string | null; facts: any[] };
+      // Wave 7.3 Option B: cascadeTier2 internally reads vehicle_facts via
+      // three sub-strategies (T2_HASH / T2_STRUCT / T2_TEXT). The cascade is
+      // an action; its sub-queries are query-context (cannot self-bump).
+      // We bump from here on behalf of those internal reads with the
+      // delivered fact-count as the delta. Same conservative attribution
+      // pattern as the other moat-reading callables.
+      await bumpMoat("vehicle_facts", result?.facts?.length ?? 0);
       return { mode: "kb_v3_cascade", tier: result.tier, facts: result.facts };
     },
 
