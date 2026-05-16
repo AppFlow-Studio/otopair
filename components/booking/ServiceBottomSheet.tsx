@@ -1707,6 +1707,8 @@ export function ServiceBottomSheet({
           labor_hours: option.labor_hours,
           parts_cost_avg: (option.parts_cost_low + option.parts_cost_high) / 2,
           state_fee: option.state_fee,
+          option_label: option.option_label,
+          option_type: option.option_type,
         });
         if (!store.selectedServiceIds.includes(optionsServiceId)) {
           store.toggleServiceSelection(optionsServiceId);

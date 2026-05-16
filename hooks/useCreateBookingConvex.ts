@@ -37,6 +37,8 @@ export function useCreateBookingConvex() {
   const createBooking = useBookingStore((s) => s.createBooking);
   const sourceRecommendationId = useBookingStore((s) => s.sourceRecommendationId);
   const setSourceRecommendationId = useBookingStore((s) => s.setSourceRecommendationId);
+  const selectedServiceOptions = useBookingStore((s) => s.selectedServiceOptions);
+  const customerNotes = useBookingStore((s) => s.customerNotes);
 
   // Resolve shopId: from selectedMechanicSlot or from selected mechanic's shop
   const effectiveShopId =
@@ -130,6 +132,21 @@ export function useCreateBookingConvex() {
       const servicesSubtotal = services.reduce((sum, s) => sum + s.labor_cost + s.parts_cost, 0);
       const PLATFORM_FEE = servicesSubtotal > 0 ? Math.max(servicesSubtotal * SERVICE_FEE_RATE, SERVICE_FEE_MINIMUM) : 0;
 
+      // Snapshot per-service option picks (e.g. Brake Pads → Front and rear)
+      // so the booking row carries the labels forward to the mechanic's
+      // schedule card without an extra service_options lookup.
+      const selectedOptionsPayload = Object.entries(selectedServiceOptions)
+        .filter(([sid]) => selectedServiceIds.includes(sid))
+        .map(([sid, opt]) => ({
+          service_id: sid as Id<"services">,
+          option_id: opt.optionId as Id<"service_options">,
+          option_label: opt.option_label ?? "",
+          option_type: opt.option_type,
+        }))
+        .filter((o) => o.option_label.length > 0);
+
+      const trimmedNotes = customerNotes.trim();
+
       const bookingIds = await createBatch({
         user_id: userId,
         vin,
@@ -144,6 +161,9 @@ export function useCreateBookingConvex() {
         source_recommendation_id: sourceRecommendationId
           ? (sourceRecommendationId as Id<"job_recommendations">)
           : undefined,
+        customer_notes: trimmedNotes.length > 0 ? trimmedNotes : undefined,
+        selected_service_options:
+          selectedOptionsPayload.length > 0 ? selectedOptionsPayload : undefined,
       });
 
       // Clear the rec link so subsequent (unrelated) bookings don't reuse it.
@@ -166,6 +186,8 @@ export function useCreateBookingConvex() {
       createBooking,
       sourceRecommendationId,
       setSourceRecommendationId,
+      selectedServiceOptions,
+      customerNotes,
     ],
   );
 

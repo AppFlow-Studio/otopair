@@ -14,7 +14,7 @@
 
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ActivityIndicator, BackHandler, Image, Platform, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, BackHandler, Image, Platform, ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from "react-native";
 
 // 2. Expo & Third-party
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
@@ -64,6 +64,8 @@ export default function PaymentScreen() {
   const selectedMechanicId = useBookingStore((state) => state.selectedMechanicId);
   const getFormattedAppointmentDate = useBookingStore((state) => state.getFormattedAppointmentDate);
   const getFormattedAppointmentTime = useBookingStore((state) => state.getFormattedAppointmentTime);
+  const customerNotes = useBookingStore((state) => state.customerNotes);
+  const setCustomerNotes = useBookingStore((state) => state.setCustomerNotes);
   const { createBookingConvex } = useCreateBookingConvex();
   const bookingType = useBookingStore((state) => state.bookingType);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -396,6 +398,34 @@ export default function PaymentScreen() {
           </View>
         </View>
 
+        {/* Notes for the mechanic — read on the schedule card before
+            the job starts (e.g. "wheel lock is in the glovebox"). */}
+        <View style={styles.notesSection}>
+          <View style={styles.notesHeader}>
+            <FileText size={18} color="#6B7280" />
+            <Text size="md" weight="semiBold" color={BrandColors.primary}>
+              Notes for the mechanic
+            </Text>
+          </View>
+          <Text size="sm" weight="regular" color="#6B7280" style={styles.notesHelper}>
+            Anything the mechanic should know before starting? (Optional)
+          </Text>
+          <TextInput
+            value={customerNotes}
+            onChangeText={setCustomerNotes}
+            placeholder="e.g. wheel lock is in the glovebox, please use the rear gate to enter"
+            placeholderTextColor="#9CA3AF"
+            multiline
+            numberOfLines={3}
+            maxLength={500}
+            style={styles.notesInput}
+            textAlignVertical="top"
+          />
+          <Text size="xs" weight="regular" color="#9CA3AF" style={styles.notesCounter}>
+            {customerNotes.length}/500
+          </Text>
+        </View>
+
         {/* Payment Options Section */}
         <View style={styles.paymentSection}>
           {/* Apple Pay Button */}
@@ -656,6 +686,39 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.sm,
     paddingVertical: 4,
     borderRadius: BorderRadius.md,
+  },
+
+  // Notes Section
+  notesSection: {
+    marginBottom: Spacing.lg,
+    padding: Spacing.lg,
+    backgroundColor: BrandColors.white,
+    borderRadius: BorderRadius.xl,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  notesHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+    marginBottom: Spacing.xs,
+  },
+  notesHelper: {
+    marginBottom: Spacing.sm,
+  },
+  notesInput: {
+    minHeight: 80,
+    padding: Spacing.md,
+    backgroundColor: "#F8FAFC",
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+    color: BrandColors.primary,
+    fontSize: 14,
+  },
+  notesCounter: {
+    marginTop: Spacing.xs,
+    textAlign: "right",
   },
 
   // Payment Section

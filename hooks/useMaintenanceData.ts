@@ -48,6 +48,10 @@ export interface DriverRecommendation {
   mechanic_name: string | null;
   created_at: number;
   source_recommendation_id: string;
+  target_mileage?: number | null;
+  scheduled_at?: number | null;
+  scheduled_mechanic_id?: string | null;
+  scheduled_mechanic_name?: string | null;
 }
 
 /** Heuristic map from rec.service_name → existing MaintenanceType so we
@@ -89,6 +93,10 @@ function recToMaintenanceItem(rec: DriverRecommendation): MaintenanceItem {
     detail: status === "overdue" ? "Recommended" : "Due soon",
     status,
     sourceRecommendationId: rec.source_recommendation_id,
+    serviceId: rec.service_id,
+    recUrgency: rec.urgency,
+    scheduledAt: rec.scheduled_at ?? null,
+    scheduledMechanicName: rec.scheduled_mechanic_name ?? null,
     mechanicProvenance: {
       shopName: rec.shop_name,
       mechanicName: rec.mechanic_name,

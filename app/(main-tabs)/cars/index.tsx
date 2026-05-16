@@ -1315,6 +1315,12 @@ export default function CarsHomeScreen() {
                 );
                 router.push('/home/map');
               }}
+              onTakeAction={(item) => {
+                const vin = activeVehicle?.vin;
+                if (vin) useVehicleStore.getState().selectVehicle(vin.toUpperCase().trim());
+                if (!item.sourceRecommendationId) return;
+                router.push(`/cars/recommendation/${item.sourceRecommendationId}`);
+              }}
               onAddInfo={(id) => {
                 const type = id.replace(/^(unknown-|user-)/, "") as MaintenanceType;
                 setMaintenanceModalType(type);

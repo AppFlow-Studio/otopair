@@ -92,6 +92,16 @@ export interface MaintenanceItem {
     shopName?: string | null;
     mechanicName?: string | null;
   };
+  /** Raw urgency literal from the mechanic rec — drives the timing-vs-date
+   *  branch in the Take Action detail screen. */
+  recUrgency?: "next_visit" | "within_3_months" | "soon";
+  /** ms-epoch slot the shop pre-picked; when set the detail screen offers
+   *  Confirm Date / Dismiss instead of Book This Service. */
+  scheduledAt?: number | null;
+  scheduledMechanicName?: string | null;
+  /** Canonical service id behind the rec — surfaced for the booking flow
+   *  pre-fill from the detail screen. */
+  serviceId?: string | null;
 }
 
 interface MaintenanceTrackerProps {
@@ -99,6 +109,10 @@ interface MaintenanceTrackerProps {
   vehicleCondition?: number;
   healthScoreInput?: HealthScoreInput;
   onBookNow?: (id: string) => void;
+  /** Fired when the driver taps "Take Action" on a mechanic-recommended urgent
+   *  card. Routes to the recommendation detail screen. When omitted, the card
+   *  falls back to the legacy onBookNow behavior. */
+  onTakeAction?: (item: MaintenanceItem) => void;
   onAddInfo?: (id: string) => void;
   onEditPressed?: () => void;
   /** Parent has determined the page bg is dark enough that the
@@ -326,11 +340,21 @@ interface UrgentCardProps {
   vehicleCondition: number;
   healthScoreInput?: HealthScoreInput;
   onBookNow?: (id: string) => void;
+  onTakeAction?: (item: MaintenanceItem) => void;
   onAddInfo?: (id: string) => void;
   onCardPress?: (item: MaintenanceItem) => void;
 }
 
-function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBookNow, onCardPress }: UrgentCardProps) {
+function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBookNow, onTakeAction, onCardPress }: UrgentCardProps) {
+  // Mechanic-recommended items get the new single "Take Action" CTA that
+  // routes to the detail screen. Algorithmic items keep the legacy two-button
+  // layout (Book Service + View Details).
+  const isMechanicRec = !!item.sourceRecommendationId;
+  const primaryLabel = isMechanicRec ? 'Take Action' : 'Book Service';
+  const handlePrimary = () => {
+    if (isMechanicRec && onTakeAction) onTakeAction(item);
+    else onBookNow?.(item.id);
+  };
   const colors = CARD_COLORS[item.status] ?? { statusColor: '#5299FE', iconBg: 'rgba(82,153,254,0.07)' };
 
   const delta = healthScoreInput
@@ -360,7 +384,11 @@ function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBo
     <Pressable
       onPressIn={() => { cardScale.value = withSpring(0.98, { damping: 20, stiffness: 300 }); }}
       onPressOut={() => { cardScale.value = withSpring(1, { damping: 20, stiffness: 300 }); }}
-      onPress={() => onCardPress ? onCardPress(item) : onBookNow?.(item.id)}
+      onPress={() => {
+        if (isMechanicRec && onTakeAction) onTakeAction(item);
+        else if (onCardPress) onCardPress(item);
+        else onBookNow?.(item.id);
+      }}
     >
       <Animated.View style={[cardStyles.container, entryStyle]}>
         <View style={cardStyles.topRow}>
@@ -389,16 +417,18 @@ function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBo
         <View style={cardStyles.buttonRow}>
           <Pressable
             style={({ pressed }) => [cardStyles.bookServiceBtn, pressed && { opacity: 0.85 }]}
-            onPress={() => onBookNow?.(item.id)}
+            onPress={handlePrimary}
           >
-            <Text weight="semiBold" style={cardStyles.bookServiceText}>Book Service</Text>
+            <Text weight="semiBold" style={cardStyles.bookServiceText}>{primaryLabel}</Text>
           </Pressable>
-          <Pressable
-            style={({ pressed }) => [cardStyles.viewDetailsBtn, pressed && { opacity: 0.85 }]}
-            onPress={() => onCardPress?.(item)}
-          >
-            <Text weight="semiBold" style={cardStyles.viewDetailsText}>View Details</Text>
-          </Pressable>
+          {!isMechanicRec && (
+            <Pressable
+              style={({ pressed }) => [cardStyles.viewDetailsBtn, pressed && { opacity: 0.85 }]}
+              onPress={() => onCardPress?.(item)}
+            >
+              <Text weight="semiBold" style={cardStyles.viewDetailsText}>View Details</Text>
+            </Pressable>
+          )}
         </View>
       </Animated.View>
     </Pressable>
@@ -471,7 +501,7 @@ function HealthySection({ items, isDarkBg = false }: { items: MaintenanceItem[];
 // COMPONENT
 // ============================================================================
 
-export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, onBookNow, onAddInfo, onEditPressed, isDarkBg = false }: MaintenanceTrackerProps) {
+export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, onBookNow, onTakeAction, onAddInfo, onEditPressed, isDarkBg = false }: MaintenanceTrackerProps) {
   const [selectedItem, setSelectedItem] = useState<MaintenanceItem | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
 
@@ -561,6 +591,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
                     vehicleCondition={vehicleCondition ?? 0}
                     healthScoreInput={healthScoreInput}
                     onBookNow={onBookNow}
+                    onTakeAction={onTakeAction}
                     onAddInfo={onAddInfo}
                     onCardPress={handleCardPress}
                   />
@@ -582,6 +613,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
                     vehicleCondition={vehicleCondition ?? 0}
                     healthScoreInput={healthScoreInput}
                     onBookNow={onBookNow}
+                    onTakeAction={onTakeAction}
                     onAddInfo={onAddInfo}
                     onCardPress={handleCardPress}
                   />
