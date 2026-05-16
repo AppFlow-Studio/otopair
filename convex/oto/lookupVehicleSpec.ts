@@ -23,6 +23,7 @@
 import { query } from "../_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
+import { isEvalTestMake } from "./evalTestFilter";
 
 export interface SpecCandidate {
   vehicle_config_id: string;
@@ -111,7 +112,11 @@ export const lookupVehicleSpec = query({
     };
 
     // Match makes — take all makes, filter by token containment in name.
-    const allMakes = await ctx.db.query("makes").collect();
+    // Awaiting Option B migration through queryMoat helper. See
+    // docs/SPRINT_1/WAVE_7_3_RATE_LIMIT_DESIGN.md "Implementation Status".
+    // EXEMPT: Wave 7.3 grandfathered (pre-migration moat read).
+    const allMakesRaw = await ctx.db.query("makes").collect();
+    const allMakes = allMakesRaw.filter((m) => !isEvalTestMake(m));
     const makeMatches = allMakes.filter((m) =>
       tokensLower.some((tk) => matchesToken((m as any).name, tk)),
     );

@@ -1,0 +1,356 @@
+#!/usr/bin/env bash
+# =============================================================================
+# CI grep rules — vehicle_facts invariant enforcement (consolidated v3)
+# =============================================================================
+#
+# Sprint 1 Day 1 correction (2026-05-16). Authority: MEMORY_SCHEMA_V3_CONSOLIDATED §7.
+# Sprint 1 Day 2 update (2026-05-16): Rule 4 exception path renamed from
+# stripEmbeddings.ts to backfillV3Lifecycle.ts (the two backfills were
+# folded into one combined pass per §5 fold-recommendation).
+# Sprint 1 Day 5 update (2026-05-16): Rule 6 added — chat-tool moat reads
+# must filter the EvalTest sentinel namespace.
+# Subagent consensus: Memory Engineer + Security Analyst + RAG Specialist.
+#
+# Seven rules. Together they pin the v3 invariants at code-review time:
+#   1. No direct ctx.db.patch against vehicle_facts outside the helper.
+#      Exception: convex/oto/vehicleFactsEditing.ts.
+#   2. No direct ctx.db.replace against vehicle_facts anywhere.
+#   3. No direct ctx.db.insert into vehicle_facts_audit outside the helper.
+#   4. No new embedding writes anywhere in convex/.
+#      (Pre-existing rows on disk still have embedding until the combined
+#      v3 lifecycle backfill clears them; that one path is the only
+#      legitimate place an "embedding:" token may appear in code.
+#      File: convex/oto/migrations/backfillV3Lifecycle.ts.)
+#   5. The retired parallel-table name vehicle_searched_facts must never
+#      reappear in the codebase outside the deprecation stub + docs.
+#   6. Chat-tool moat-table reads in convex/oto/ must go through the
+#      EvalTest filter helper. Bypass paths: evalHarness.ts (Wave 1.4 v3
+#      case (d) + Wave 5.1 Cat G require it), migrations/, evalTestFilter.ts
+#      itself, convex/admin/, convex/vehicleEnrichment/. Heuristic check
+#      (perfect enforcement needs AST); see Rule 6 body for details.
+#   7. Wave 7.3 moat rate-limit: direct ctx.db.query("<moat_table>") inside
+#      convex/oto/ must route through the queryMoat helper. Bypass paths:
+#      queryMoat.ts (the helper itself), migrations/ (backfill bypass),
+#      evalHarness.ts (internal eval bypass), evalTestFilter.ts (sentinel
+#      filtering bypass). Per-call EXEMPT: annotations grandfather the
+#      4-site services-moat hole accepted in D-Q1 per
+#      docs/SPRINT_1/WAVE_7_3_QUERY_CONTEXT_DECISION.md §6.1.
+#
+# Exit codes:
+#   0 — clean
+#   1 — at least one rule fired; PR is blocked
+# =============================================================================
+
+set -euo pipefail
+
+REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || echo ".")"
+cd "$REPO_ROOT"
+
+VIOLATIONS=0
+HELPER_FILE="convex/oto/vehicleFactsEditing.ts"
+DEPRECATION_STUB="convex/oto/searchedFacts.ts"
+V3_BACKFILL_FILE="convex/oto/migrations/backfillV3Lifecycle.ts"
+
+red()    { printf "\033[31m%s\033[0m\n" "$*"; }
+green()  { printf "\033[32m%s\033[0m\n" "$*"; }
+yellow() { printf "\033[33m%s\033[0m\n" "$*"; }
+
+echo "Running vehicle-facts invariant CI checks (consolidated v3)..."
+echo ""
+
+# Rule 1
+echo "Rule 1: forbidden direct patches on vehicle_facts..."
+RULE_1_HITS=$(
+  rg -n 'ctx\.db\.patch\(' convex/ --type ts -B 2 -A 4 \
+  | rg -B 2 -A 4 '"vehicle_facts"|<"vehicle_facts">' \
+  | rg -v "^$HELPER_FILE" \
+  | rg -v "^convex/oto/migrations/" \
+  || true
+)
+if [ -n "$RULE_1_HITS" ]; then
+  red "  FAIL — direct ctx.db.patch against vehicle_facts outside $HELPER_FILE:"
+  echo "$RULE_1_HITS"
+  VIOLATIONS=$((VIOLATIONS + 1))
+else
+  green "  OK"
+fi
+echo ""
+
+# Rule 2
+echo "Rule 2: forbidden direct replace on vehicle_facts..."
+RULE_2_HITS=$(
+  rg -n 'ctx\.db\.replace\(' convex/ --type ts -B 2 -A 4 \
+  | rg '"vehicle_facts"|<"vehicle_facts">' \
+  || true
+)
+if [ -n "$RULE_2_HITS" ]; then
+  red "  FAIL — ctx.db.replace against vehicle_facts is never legal:"
+  echo "$RULE_2_HITS"
+  VIOLATIONS=$((VIOLATIONS + 1))
+else
+  green "  OK"
+fi
+echo ""
+
+# Rule 3
+echo "Rule 3: forbidden direct insert into vehicle_facts_audit..."
+RULE_3_HITS=$(
+  rg -n 'ctx\.db\.insert\("vehicle_facts_audit"' convex/ --type ts \
+  | rg -v "^$HELPER_FILE" \
+  || true
+)
+if [ -n "$RULE_3_HITS" ]; then
+  red "  FAIL — direct insert into vehicle_facts_audit outside $HELPER_FILE:"
+  echo "$RULE_3_HITS"
+  VIOLATIONS=$((VIOLATIONS + 1))
+else
+  green "  OK"
+fi
+echo ""
+
+# Rule 4
+echo "Rule 4: no new embedding writes..."
+RULE_4_HITS=$(
+  rg -n 'embedding\s*:\s*' convex/ --type ts \
+  | rg -v "^convex/_generated/" \
+  | rg -v "^$V3_BACKFILL_FILE" \
+  | rg -v "^convex/schema\.ts" \
+  || true
+)
+if [ -n "$RULE_4_HITS" ]; then
+  red "  FAIL — embedding writes detected (D-3.12 violation):"
+  echo "$RULE_4_HITS"
+  VIOLATIONS=$((VIOLATIONS + 1))
+else
+  green "  OK"
+fi
+echo ""
+
+# Rule 5
+echo "Rule 5: retired vehicle_searched_facts name must not reappear..."
+RULE_5_HITS=$(
+  rg -n 'vehicle_searched_facts' convex/ app/ components/ hooks/ stores/ services/ lib/ 2>/dev/null \
+    --type ts --type tsx --type md \
+  | rg -v "^$DEPRECATION_STUB" \
+  | rg -v "^convex/schema\.ts" \
+  | rg -v "_CONSOLIDATED\.md$" \
+  | rg -v "_CORRECTION_LOG\.md$" \
+  || true
+)
+if [ -n "$RULE_5_HITS" ]; then
+  red "  FAIL — retired parallel-table name reappeared in non-deprecation paths:"
+  echo "$RULE_5_HITS"
+  VIOLATIONS=$((VIOLATIONS + 1))
+else
+  green "  OK"
+fi
+echo ""
+
+# Rule 6 — chat-tool moat-table reads must filter EvalTest.
+#
+# Heuristic: enumerate every ctx.db.query("<moat_table>") inside convex/oto/,
+# strip the sanctioned bypass paths, then for each remaining file confirm
+# that it imports from "./evalTestFilter" (or that the call site is
+# annotated with a 1-line `EXEMPT:` comment justifying the bypass on the
+# same or immediately preceding line). Perfect enforcement requires AST
+# analysis (e.g., confirming the filter actually wraps the result); this
+# rule catches the obvious "added a new chat-tool read path without ever
+# touching the filter helper" miss. Code review backstops the rest.
+#
+# Bypass paths (legitimate EvalTest readers):
+#   * convex/oto/evalHarness.ts          - Wave 1.4 v3 case (d), Wave 5.1 Cat G
+#   * convex/oto/migrations/             - seed + backfills cross the boundary
+#   * convex/oto/evalTestFilter.ts       - the helper itself
+#   * convex/admin/                      - admin tooling sees everything
+#   * convex/vehicleEnrichment/          - pipeline owns the tables
+echo "Rule 6: chat-tool moat reads must filter EvalTest..."
+MOAT_TABLES='vehicle_configs|makes|models|trims|engines|transmissions|chassis_specs|chassis_variants|trim_specs|drivetrain_configs|oem_parts|part_fitments|part_prices|tire_brands|tire_models|tire_pricing|services|service_categories|service_options|service_vehicle_specs|service_intervals|labor_times|mechanic_verifications|model_year_cache|trim_year_cache|scrape_cache'
+RULE_6_HITS=$(
+  rg -n "ctx\.db\.query\(\"($MOAT_TABLES)\"" convex/oto/ --type ts \
+  | rg -v "^convex/oto/evalHarness\.ts" \
+  | rg -v "^convex/oto/migrations/" \
+  | rg -v "^convex/oto/evalTestFilter\.ts" \
+  || true
+)
+RULE_6_VIOLATIONS=""
+if [ -n "$RULE_6_HITS" ]; then
+  while IFS= read -r hit; do
+    [ -z "$hit" ] && continue
+    file="${hit%%:*}"
+    rest="${hit#*:}"
+    lineno="${rest%%:*}"
+    # Check 1: file imports the filter helper somewhere.
+    if rg -q 'from\s+"\./evalTestFilter"|from\s+"\.\./oto/evalTestFilter"' "$file" 2>/dev/null; then
+      continue
+    fi
+    # Check 2: hit line or one of the 2 lines above is annotated EXEMPT.
+    start=$(( lineno > 2 ? lineno - 2 : 1 ))
+    if sed -n "${start},${lineno}p" "$file" 2>/dev/null | rg -q 'EXEMPT:'; then
+      continue
+    fi
+    RULE_6_VIOLATIONS="${RULE_6_VIOLATIONS}${hit}"$'\n'
+  done <<< "$RULE_6_HITS"
+fi
+if [ -n "$RULE_6_VIOLATIONS" ]; then
+  red "  FAIL — chat-tool moat-table reads without EvalTest filter import or EXEMPT annotation:"
+  printf "%s" "$RULE_6_VIOLATIONS"
+  VIOLATIONS=$((VIOLATIONS + 1))
+else
+  green "  OK"
+fi
+echo ""
+
+# Rule 7 -- Wave 7.3 moat rate-limit: direct moat-table reads inside
+# convex/oto/ must route through the queryMoat wrapper. Mirrors Rule 6's
+# bypass-path + EXEMPT-annotation pattern.
+#
+# Bypass paths (legitimate non-rate-limited readers):
+#   * convex/oto/queryMoat.ts            - the helper itself
+#   * convex/oto/migrations/             - backfill bypass (no user ctx)
+#   * convex/oto/evalHarness.ts          - internal eval bypass
+#   * convex/oto/evalTestFilter.ts       - sentinel filtering bypass
+#
+# Grandfather mechanism: per-call `EXEMPT: <reason>` annotation on the hit
+# line or one of the 2 lines above grandfathers existing reads. The 4-site
+# services-moat hole (services, service_categories, service_options,
+# service_vehicle_specs) accepted in D-Q1 is grandfathered this way at
+# each site once Option B migration begins. See
+# docs/SPRINT_1/WAVE_7_3_QUERY_CONTEXT_DECISION.md §6.1.
+echo "Rule 7: moat-table reads must route through queryMoat helper..."
+MOAT_TABLES_W7_3='makes|models|generations|trims|engines|transmissions|chassis_variants|chassis_specs|vehicle_configs|drivetrain_configs|trim_specs|oem_parts|part_fitments|part_prices|services|service_categories|service_options|service_vehicle_specs|service_intervals|labor_times|mechanic_verifications|tire_brands|tire_size_cache|tire_models|tire_pricing|model_year_cache|trim_year_cache|vehicle_facts'
+RULE_7_HITS=$(
+  rg -n "ctx\.db\.query\(\"($MOAT_TABLES_W7_3)\"" convex/oto/ --type ts \
+  | rg -v "^convex/oto/queryMoat\.ts" \
+  | rg -v "^convex/oto/migrations/" \
+  | rg -v "^convex/oto/evalHarness\.ts" \
+  | rg -v "^convex/oto/evalTestFilter\.ts" \
+  || true
+)
+RULE_7_VIOLATIONS=""
+if [ -n "$RULE_7_HITS" ]; then
+  while IFS= read -r hit; do
+    [ -z "$hit" ] && continue
+    file="${hit%%:*}"
+    rest="${hit#*:}"
+    lineno="${rest%%:*}"
+    # Per-call EXEMPT annotation grandfathers the read.
+    start=$(( lineno > 2 ? lineno - 2 : 1 ))
+    if sed -n "${start},${lineno}p" "$file" 2>/dev/null | rg -q 'EXEMPT:'; then
+      continue
+    fi
+    RULE_7_VIOLATIONS="${RULE_7_VIOLATIONS}${hit}"$'\n'
+  done <<< "$RULE_7_HITS"
+fi
+if [ -n "$RULE_7_VIOLATIONS" ]; then
+  red "  FAIL -- moat-table reads outside queryMoat helper / bypass paths / EXEMPT annotation:"
+  printf "%s" "$RULE_7_VIOLATIONS"
+  VIOLATIONS=$((VIOLATIONS + 1))
+else
+  green "  OK"
+fi
+echo ""
+
+# Rule 8 -- Wave 4 prompt-split discipline: convex/oto/system_prompt.ts must
+# remain a thin shim re-exporting from convex/oto/prompt/. STABLE_PROMPT_SECTION
+# and VOLATILE_PROMPT_SECTION may only be imported from within convex/oto/prompt/.
+# Catches: silent re-merging of the split, boundary leak to chat.ts or other
+# consumers.
+echo "Rule 8: prompt-split discipline (shim integrity + section import boundary)..."
+RULE_8_VIOLATIONS=""
+
+# 8a: system_prompt.ts must be a shim (<=30 lines).
+SHIM="convex/oto/system_prompt.ts"
+if [ -f "$SHIM" ]; then
+  SHIM_LINES=$(wc -l < "$SHIM" | tr -d ' ')
+  if [ "$SHIM_LINES" -gt 30 ]; then
+    RULE_8_VIOLATIONS="$RULE_8_VIOLATIONS  $SHIM has $SHIM_LINES lines (max 30 for shim integrity)
+"
+  fi
+else
+  RULE_8_VIOLATIONS="$RULE_8_VIOLATIONS  $SHIM is missing -- expected re-export shim
+"
+fi
+
+# 8b: STABLE_PROMPT_SECTION / VOLATILE_PROMPT_SECTION imports outside convex/oto/prompt/.
+SECTION_LEAKS=$(grep -rnE "(STABLE_PROMPT_SECTION|VOLATILE_PROMPT_SECTION)" convex/ \
+  --include="*.ts" --include="*.tsx" 2>/dev/null \
+  | grep -v "^convex/oto/prompt/" || true)
+if [ -n "$SECTION_LEAKS" ]; then
+  RULE_8_VIOLATIONS="$RULE_8_VIOLATIONS  STABLE/VOLATILE_PROMPT_SECTION imported outside convex/oto/prompt/:
+$SECTION_LEAKS
+"
+fi
+
+if [ -n "$RULE_8_VIOLATIONS" ]; then
+  red "  FAIL -- prompt-split discipline violations:"
+  printf "%b" "$RULE_8_VIOLATIONS"
+  VIOLATIONS=$((VIOLATIONS + 1))
+else
+  green "  OK"
+fi
+echo ""
+
+# Rule 9 -- Wave 7.3 MOAT_TABLES list integrity: the MOAT_TABLES const in
+# queryMoat.ts must contain exactly 28 v.literal entries (the documented moat
+# count). Changes require a corresponding amendment in ARCHITECTURE_v3_AMENDMENTS.md.
+# Catches: silent addition or removal of moat tables (which changes the surface
+# area Wave 7.3 defends).
+echo "Rule 9: MOAT_TABLES list integrity (28 entries; matches architecture amendment)..."
+RULE_9_VIOLATIONS=""
+
+QM="convex/oto/queryMoat.ts"
+EXPECTED_MOAT_COUNT=28
+if [ -f "$QM" ]; then
+  # Count entries that look like table-name string literals inside a MOAT_TABLES
+  # array. Tolerant of formatting variation: count quoted strings on lines between
+  # 'MOAT_TABLES' opening and the closing bracket.
+  ACTUAL_COUNT=$(awk '
+    /MOAT_TABLES[^A-Za-z0-9_]/ {in_block=1}
+    in_block && /\]/ {in_block=0}
+    in_block && /"[a-z_]+"/ {
+      n=gsub(/"[a-z_]+"/, "&")
+      total += n
+    }
+    END {print total+0}
+  ' "$QM")
+  if [ "$ACTUAL_COUNT" != "$EXPECTED_MOAT_COUNT" ]; then
+    RULE_9_VIOLATIONS="$RULE_9_VIOLATIONS  MOAT_TABLES count in $QM is $ACTUAL_COUNT, expected $EXPECTED_MOAT_COUNT.
+"
+    RULE_9_VIOLATIONS="$RULE_9_VIOLATIONS  If you intentionally changed the list, also update docs/ARCHITECTURE_v3_AMENDMENTS.md
+"
+    RULE_9_VIOLATIONS="$RULE_9_VIOLATIONS  AND update EXPECTED_MOAT_COUNT in this script.
+"
+  fi
+else
+  RULE_9_VIOLATIONS="$RULE_9_VIOLATIONS  $QM is missing -- expected queryMoat wrapper helper
+"
+fi
+
+if [ -n "$RULE_9_VIOLATIONS" ]; then
+  red "  FAIL -- MOAT_TABLES integrity violations:"
+  printf "%b" "$RULE_9_VIOLATIONS"
+  VIOLATIONS=$((VIOLATIONS + 1))
+else
+  green "  OK"
+fi
+echo ""
+
+# Summary
+if [ $VIOLATIONS -eq 0 ]; then
+  green "All vehicle-facts invariant checks passed (9/9 rules clean)."
+  exit 0
+else
+  red "$VIOLATIONS rule violation(s)."
+  yellow "Use recordVehicleFact / editVehicleFact / reportVehicleFact / resolveFactReport"
+  yellow "  from $HELPER_FILE."
+  yellow "For Rule 6: import from convex/oto/evalTestFilter and apply isEvalTestMake /"
+  yellow "  excludeEvalTestVehicleConfig / isEvalTestConfigId at the call site, OR add a"
+  yellow "  one-line 'EXEMPT: <reason>' comment immediately above the moat-table read."
+  yellow "For Rule 7: route the moat-table read through queryMoat from"
+  yellow "  convex/oto/queryMoat.ts, OR add a one-line 'EXEMPT: <reason>' comment"
+  yellow "  immediately above the read for grandfathered sites (e.g. the 4-table"
+  yellow "  services-moat hole accepted in D-Q1)."
+  yellow "If you genuinely need a new mutation pattern, update the helper, the schema,"
+  yellow "  MEMORY_SCHEMA_V3_CONSOLIDATED, and this script."
+  exit 1
+fi

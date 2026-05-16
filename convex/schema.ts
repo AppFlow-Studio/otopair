@@ -1017,6 +1017,13 @@ export default defineSchema({
     deletionSurveySkipped: v.optional(v.boolean()),
     createdAt: v.optional(v.number()),
     lastUpdated: v.optional(v.number()),
+    // Wave 7.3 — single per-user moat-read counter.
+    // See docs/SPRINT_1/WAVE_7_3_RATE_LIMIT_DESIGN.md §2.
+    // All three fields are optional during the backfill window and on
+    // first-bump-for-this-user; defaulted by the bump helper.
+    moat_reads_window: v.optional(v.number()),
+    moat_reads_window_start: v.optional(v.number()),
+    moat_reads_is_admin_exempt: v.optional(v.boolean()),
   })
     .index("by_clerkUserId", ["clerkUserId"])
     .index("by_isPendingDeletion", ["isPendingDeletion"])
@@ -1641,30 +1648,52 @@ export default defineSchema({
     .index("by_timestamp", ["timestamp"]),
 
   // -------------------------------------------------------------------------
-  // vehicle_facts — Oto's growing knowledge base.
+  // vehicle_facts — Oto's KB, consolidated v3 (Sprint 1, 2026-05-16).
   //
-  // Each row is one factual statement about cars, scoped along ONE axis:
-  //   • vehicle        — fact applies to one specific vehicles row (rarest)
-  //   • trim           — applies to a specific trim across years
-  //   • chassis        — applies to all configs sharing chassis_code
-  //   • engine         — applies to all engines sharing engine_code
-  //   • model_year     — applies to a specific (year, make, model)
+  // Authority: PM Ruling v3, MEMORY_SCHEMA_V3_CONSOLIDATED, D-3.10/3.11/3.12/3.13.
+  // Subagent consensus: Memory Engineer + RAG Specialist + Security Analyst.
   //
-  // Lookup pipeline (in get_vehicle_facts):
-  //   1. Semantic search via embedding (if embedding is populated)
-  //   2. Exact match by config_id + topic
-  //   3. Chassis fallback (same chassis_code)
-  //   4. Engine fallback (same engine_code) — only for engine-axis topics
+  // Single KB table. Trust class is encoded in `source`:
+  //   manufacturer | oto_inferred | user_confirmed | propagated  → verified
+  //   web_search                                                  → unverified
+  // The agent serves all rows from here; the disclaim tag fires when
+  // (source == "web_search" AND verification_status == "unverified").
   //
-  // Haiku writes facts via record_vehicle_fact whenever it answers a
-  // research question. Source tracks provenance for trust grading.
+  // Lifecycle: unverified | verified | retracted. No auto-promotion.
+  // Human-only verification by Waleed or Temur via admin UI (D-3.13).
+  // (Narrow reading of D-3.13: enrichment-sourced rows default to "verified";
+  //  only web_search-sourced rows start "unverified" and require manual
+  //  promotion. Per Waleed's ruling on MEMORY_SCHEMA_V3_CONSOLIDATED §B.)
   //
-  // Embedding column is optional so the table is functional without an
-  // embedding API key. Once OPENAI_API_KEY or VOYAGE_API_KEY is set, an
-  // embedding action backfills rows + populates on insert; semantic search
-  // turns on automatically.
+  // Mutable in place. D-3.2 (append-only) is preserved for conversation_facts
+  // and user_semantic_facts. The historical-reconstruction half of that
+  // property is provided here by the paired vehicle_facts_audit table.
+  // Every edit to this row writes one audit row in the same Convex mutation
+  // — enforced by the editVehicleFact helper (convex/oto/vehicleFactsEditing.ts)
+  // and the CI greps (scripts/ci/vehicle-facts-grep.sh).
+  //
+  // Read order on a reference ask:
+  //   Tier 1: enrichment-owned structured tables (vehicle_configs, engines,
+  //           tire_specs, chassis_specs, …) — direct topic-routed lookup.
+  //   Tier 2: vehicle_facts.
+  //             a) by_canonical_question  (O(log n) point lookup on sha256)
+  //             b) structural (by_vehicle_config / by_chassis / by_engine /
+  //                by_make_model_year / by_topic_axis)
+  //             c) by_text  (Convex searchIndex, BM25-like fuzzy fallback)
+  //   Tier 3: web_search → write back here with
+  //             source: "web_search", verification_status: "unverified".
+  //
+  // No embedding column. No vectorIndex. (D-3.12 — KB persistence uses
+  // canonical-hash + structural + searchIndex; no embedding model.)
+  // The embedding column was removed in three deploys per MEMORY_SCHEMA_V3
+  // _CONSOLIDATED §5: Deploy A removed the vectorIndex + new writes; Deploy
+  // B stripped existing values via stripEmbeddings backfill; Deploy C
+  // removed the field definition. This file represents the Deploy A state
+  // (vectorIndex gone; embedding field absent from new schema; pre-existing
+  // rows still carry the field on disk until the backfill runs).
   // -------------------------------------------------------------------------
   vehicle_facts: defineTable({
+    // ----- Topic + scoping (unchanged from pre-v3) -----
     topic: v.string(),
     topic_axis: v.union(
       v.literal("vehicle"),
@@ -1673,7 +1702,7 @@ export default defineSchema({
       v.literal("engine"),
       v.literal("model_year"),
     ),
-    // Scoping ids — at least one of these is set, matching topic_axis.
+    // Scoping ids — at least one is set, matching topic_axis.
     vehicle_config_id: v.optional(v.id("vehicle_configs")),
     chassis_code: v.optional(v.string()),
     engine_code: v.optional(v.string()),
@@ -1683,12 +1712,12 @@ export default defineSchema({
     year_min: v.optional(v.number()),
     year_max: v.optional(v.number()),
 
-    // The fact itself.
+    // ----- The fact itself (unchanged) -----
     fact_text: v.string(),
     question_text: v.string(),
     answer_format: v.optional(v.string()),
 
-    // Provenance + trust.
+    // ----- Provenance + trust (unchanged) -----
     source: v.union(
       v.literal("manufacturer"),
       v.literal("oto_inferred"),
@@ -1700,26 +1729,198 @@ export default defineSchema({
     confidence: v.number(),
     propagated_from_id: v.optional(v.id("vehicle_facts")),
 
-    // Semantic search vector. 1536 dims for OpenAI text-embedding-3-small;
-    // VOYAGE voyage-3 is 1024 dims. Schema accepts the OpenAI default; if
-    // VOYAGE is configured, embed action coerces dimensions or we add a
-    // separate table.
-    embedding: v.optional(v.array(v.float64())),
+    // ----- v3 cache key -----
+    // SHA-256 hex of the normalized question. O(log n) point lookup on
+    // repeat asks across users. Computed by the agent at write time and on
+    // read for cache probes. Normalization rules live in
+    // convex/oto/canonicalize.ts (lowercase, NFKC, strip terminal
+    // punctuation, collapse whitespace).
+    // Optional during the §4 lifecycle backfill window; required after.
+    canonical_question_key: v.optional(v.string()),
 
+    // ----- v3 lifecycle -----
+    // Optional during the §4 lifecycle backfill window. Once backfill
+    // completes, every row has a value and the field can be tightened
+    // to non-optional in a later deploy.
+    verification_status: v.optional(
+      v.union(
+        v.literal("unverified"), // default for source == "web_search"
+        v.literal("verified"),   // default for the other four source values; or
+                                 // human-promoted from unverified via admin UI
+        v.literal("retracted"),  // soft-retract; not served to chat
+      ),
+    ),
+    verified_at: v.optional(v.number()),
+    retracted_at: v.optional(v.number()),
+
+    // ----- v3 report telemetry (denormalized for review-queue ordering) -----
+    // Source of truth is fact_reports; this pair is recomputed inside the
+    // reportVehicleFact mutation (same transaction, atomic).
+    // Optional during backfill window; defaulted to 0 once backfilled.
+    report_count: v.optional(v.number()),
+    last_reported_at: v.optional(v.number()),
+
+    // ----- v3 multi-agent writer attribution (D-3.6, extended by D-3.11) -----
+    // Optional during backfill window; defaulted to "chat_agent".
+    written_by: v.optional(
+      v.union(
+        v.literal("chat_agent"),
+        v.literal("health_monitor"),
+        v.literal("admin_edit"),
+        v.literal("system"),
+      ),
+    ),
+
+    // ----- v3 asker attribution -----
+    // Optional because health_monitor / system / admin_edit / propagated /
+    // pre-v3 rows have no asking user.
+    asked_by_user_id: v.optional(v.id("users")),
+    asked_at: v.optional(v.number()),
+
+    // ----- Timestamps (unchanged) -----
     created_at: v.number(),
     updated_at: v.optional(v.number()),
     last_verified_at: v.optional(v.number()),
+
+    // NOTE: `embedding: v.optional(v.array(v.float64()))` is REMOVED here in
+    // Deploy A. Pre-existing rows on disk that still have the field will be
+    // tolerated until the stripEmbeddings backfill runs (Deploy B). Once
+    // Deploy C ships, the field is gone for good.
+    // The `.vectorIndex("by_embedding", ...)` block is REMOVED here.
   })
+    // ---- Existing indexes (unchanged) ----
     .index("by_vehicle_config", ["vehicle_config_id", "topic"])
     .index("by_chassis", ["chassis_code", "topic"])
     .index("by_engine", ["engine_code", "topic"])
     .index("by_make_model_year", ["make", "model", "year_min"])
     .index("by_topic_axis", ["topic_axis", "topic"])
-    .vectorIndex("by_embedding", {
-      vectorField: "embedding",
-      dimensions: 1536,
+    // ---- v3 indexes ----
+    // Hot read path: O(log n) point lookup on the canonical question hash.
+    .index("by_canonical_question", ["canonical_question_key"])
+    // Review queue: oldest-unverified-first; oldest-retracted-first for audit.
+    .index("by_verification_status", ["verification_status", "created_at"])
+    // Report-driven review queue: highest-reported first.
+    .index("by_report_count", ["report_count"])
+    // BM25-like fuzzy fallback. Replaces the deleted vectorIndex as the
+    // last-resort match before falling through to web_search.
+    .searchIndex("by_text", {
+      searchField: "fact_text",
       filterFields: ["topic_axis", "topic"],
     }),
+
+  // -------------------------------------------------------------------------
+  // vehicle_facts_audit — append-only edit history for vehicle_facts.
+  //
+  // Wave 3.1a addition (Sprint 1, 2026-05-16, consolidated v3).
+  // Authority: MEMORY_SCHEMA_V3_CONSOLIDATED §2.
+  // Subagent consensus: Memory Engineer + Security Analyst.
+  //
+  // This table IS append-only. No ctx.db.patch, no ctx.db.replace ever.
+  // Every mutation to vehicle_facts inserts exactly one row here inside
+  // the same Convex mutation (atomic; Convex serializes).
+  //
+  // Creation of a vehicle_facts row is NOT audited — the creation row IS
+  // its own creation record. Audit captures CHANGES to existing rows.
+  // Size is O(edits), not O(facts).
+  //
+  // Preserves the D-3.2 safety properties (historical reconstruction;
+  // compromised-account defense) under the v3 mutability concession on
+  // vehicle_facts. See SECURITY_CONSOLIDATED_V3.md §1.
+  // -------------------------------------------------------------------------
+  vehicle_facts_audit: defineTable({
+    fact_id: v.id("vehicle_facts"),
+    edited_by: v.id("users"),
+    edited_at: v.number(),
+
+    action: v.union(
+      v.literal("verify"),     // unverified → verified
+      v.literal("retract"),    // any → retracted
+      v.literal("edit_text"),  // fact_text mutated
+      v.literal("edit_meta"),  // confidence / topic / topic_axis / scoping /
+                               // cited_url / source / answer_format
+    ),
+
+    // Snapshot of fields that changed, BEFORE the edit. Only fields actually
+    // changing are present. Replay-equivalent: reverse-applying these in
+    // chronological order reconstructs the row's full history.
+    previous_values: v.object({
+      fact_text: v.optional(v.string()),
+      verification_status: v.optional(v.string()),
+      confidence: v.optional(v.number()),
+      topic: v.optional(v.string()),
+      topic_axis: v.optional(v.string()),
+      cited_url: v.optional(v.string()),
+      source: v.optional(v.string()),
+      answer_format: v.optional(v.string()),
+      // scoping fields — rare-but-possible to edit (e.g., refining scope)
+      vehicle_config_id: v.optional(v.id("vehicle_configs")),
+      chassis_code: v.optional(v.string()),
+      engine_code: v.optional(v.string()),
+      make: v.optional(v.string()),
+      model: v.optional(v.string()),
+      trim_name: v.optional(v.string()),
+      year_min: v.optional(v.number()),
+      year_max: v.optional(v.number()),
+    }),
+
+    reason: v.string(),  // required; admin UI enforces non-empty
+  })
+    // Full history of one fact in chronological order.
+    .index("by_fact", ["fact_id", "edited_at"])
+    // Per-editor audit — incident-response query if an account is suspected.
+    .index("by_editor", ["edited_by", "edited_at"])
+    // Time-range scan for reconciliation cron.
+    .index("by_time", ["edited_at"]),
+
+  // -------------------------------------------------------------------------
+  // fact_reports — user-submitted "this answer looks wrong" reports.
+  //
+  // Wave 3.1a addition (Sprint 1, consolidated v3).
+  // Authority: PM Ruling v3 §3.1, MEMORY_SCHEMA_V3_CONSOLIDATED §3.
+  //
+  // One row per user tap on "Report Message/Conversation". Triggered only
+  // on messages rendered with the "Oto may be incorrect" disclaim tag
+  // (i.e., backed by a vehicle_facts row whose source == "web_search" AND
+  // verification_status == "unverified"). Visible to Waleed + Temur only
+  // via the admin review queue; disposition lifecycle ends in
+  // edited/retracted/answer_quality/no_action.
+  // -------------------------------------------------------------------------
+  fact_reports: defineTable({
+    fact_id: v.id("vehicle_facts"),
+    conversation_id: v.id("ai_conversations"),
+    message_id: v.id("ai_messages"),
+
+    reported_by: v.id("users"),
+    reported_at: v.number(),
+    user_note: v.optional(v.string()),
+
+    disposition: v.union(
+      v.literal("open"),            // default on insert
+      v.literal("edited"),          // reviewer edited the fact
+      v.literal("retracted"),       // reviewer retracted the fact
+      v.literal("answer_quality"),  // fact ok, answer misused it
+      v.literal("no_action"),       // spurious or already-correct
+    ),
+
+    resolved_by: v.optional(v.id("users")),
+    resolved_at: v.optional(v.number()),
+    resolution_note: v.optional(v.string()),
+  })
+    // Review queue ordering: open first, oldest open first.
+    .index("by_disposition", ["disposition", "reported_at"])
+    // All reports against one fact — admin fact-detail view + parity check.
+    .index("by_fact", ["fact_id", "reported_at"])
+    // All reports filed by one user — abuse detection.
+    .index("by_reporter", ["reported_by", "reported_at"]),
+
+  // -------------------------------------------------------------------------
+  // [DELETED] vehicle_searched_facts — parallel table.
+  // The original Sprint 1 Day 1 added a parallel "vehicle_searched_facts"
+  // here. Consolidation v3 retired it: vehicle_facts is the single KB,
+  // with source-typed trust. See SPRINT_1_DAY_1_CORRECTION_LOG.md.
+  // [DELETED] vehicle_searched_facts_audit — replaced by vehicle_facts_audit above.
+  // [DELETED] duplicate fact_reports pointing at vehicle_searched_facts — replaced above.
+  // -------------------------------------------------------------------------
 
   // -------------------------------------------------------------------------
   // oto_telemetry — per-turn metrics for the Oto chat action.
@@ -2122,4 +2323,85 @@ export default defineSchema({
     .index("by_shop_id", ["shop_id"])
     .index("by_booking_id", ["booking_id"])
     .index("by_shop_and_status", ["shop_id", "status"]),
+
+  // -------------------------------------------------------------------------
+  // oto_migrations — system table for migration progress + idempotency.
+  //
+  // Sprint 1 Day 2 addition (2026-05-16). Authority: MEMORY_SCHEMA_V3_CONSOLIDATED §4.
+  // Owner: Memory Systems Engineer.
+  //
+  // SYSTEM TABLE used exclusively by migration drivers in convex/oto/migrations/.
+  // Application code MUST NOT read or write it. Each migration writes a single
+  // row keyed by `migration_name` and updates `last_cursor_ms` as the driver
+  // loop advances; `completed_at` is set when the driver's batch returns
+  // `processed === 0`. Re-running a completed migration is a no-op (the per-row
+  // guard in each backfill mutation skips already-patched rows).
+  //
+  // Renamed from "_migrations" Sprint 1 Day 2: Convex reserves underscore-
+  // prefixed table names for its own system tables.
+  // -------------------------------------------------------------------------
+  oto_migrations: defineTable({
+    migration_name: v.string(),
+    last_cursor_ms: v.optional(v.number()),
+    started_at: v.number(),
+    completed_at: v.optional(v.number()),
+    total_processed: v.number(),
+    total_patched: v.number(),
+  }).index("by_name", ["migration_name"]),
+
+  // -------------------------------------------------------------------------
+  // reconciliation_runs — vehicle_facts_audit reconciliation cron output.
+  //
+  // Sprint 1 Day 3 addition (2026-05-16). Authority: MEMORY_SCHEMA_V3_CONSOLIDATED §8.
+  // Owner: Memory Systems Engineer.
+  //
+  // One row per `runReconciliation` driver invocation (every 15 minutes via
+  // convex/crons.ts). Captures which checks ran, any anomalies found, and
+  // the overall status (running/clean/anomalies). Page-on-anomaly handled
+  // upstream by the alerting layer reading by_status.
+  // -------------------------------------------------------------------------
+  reconciliation_runs: defineTable({
+    run_id: v.string(),
+    started_at: v.number(),
+    completed_at: v.optional(v.number()),
+    checks_ran: v.array(v.string()),
+    anomalies: v.array(v.object({
+      check: v.string(),
+      severity: v.union(v.literal("page"), v.literal("alert"), v.literal("info")),
+      fact_id: v.optional(v.id("vehicle_facts")),
+      details: v.string(),
+    })),
+    status: v.union(v.literal("running"), v.literal("clean"), v.literal("anomalies")),
+  })
+    .index("by_started_at", ["started_at"])
+    .index("by_status", ["status", "started_at"]),
+
+  // -------------------------------------------------------------------------
+  // prompt_changelog — auto-generated history of every prompt change.
+  //
+  // Sprint 1 Day 5 addition (2026-05-16). Authority: Doc 3 §1 + Doc 4 Wave 1.5
+  // + WAVE_1_5_PROMPT_CHANGE_PROTOCOL.md.
+  // Owner: Principal Prompt Engineer.
+  //
+  // One row per merged prompt PR. Author tooling writes the row at merge time;
+  // editing it after merge is a P9 violation (the principle that prompt
+  // changes go through eval). Append-only by convention (no audit-table-style
+  // enforcement — threat model is internal trust, volume is small).
+  // -------------------------------------------------------------------------
+  prompt_changelog: defineTable({
+    prompt_version: v.string(),
+    prev_version: v.string(),
+    diff_summary: v.string(),
+    rationale: v.string(),
+    expected_eval_delta: v.optional(v.string()),
+    actual_eval_delta: v.optional(v.string()),
+    author: v.string(),
+    merged_at: v.number(),
+    ab_window_started_at: v.optional(v.number()),
+    ab_window_completed_at: v.optional(v.number()),
+    ab_window_outcome: v.optional(v.union(v.literal("promoted"), v.literal("rolled_back"))),
+    rollback_reason: v.optional(v.string()),
+  })
+    .index("by_merged_at", ["merged_at"])
+    .index("by_version", ["prompt_version"]),
 });

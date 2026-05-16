@@ -17,6 +17,7 @@
 import { query } from "../_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
+import { isEvalTestMake } from "./evalTestFilter";
 
 export interface VehicleFactsResponse {
   display: string;
@@ -139,6 +140,12 @@ export const getVehicleFacts = query({
           return null;
         })(),
       ]);
+
+    // EvalTest sentinel: synthetic eval-fixture vehicles must never surface
+    // to real users (Day 5 RAG Specialist — re-applied Day 8 via bash).
+    if (isEvalTestMake(makeRow)) {
+      throw new Error(`vehicle not found: ${vehicle_id}`);
+    }
 
     // Display string — prefer joined make/model/trim, fall back to metadata.
     const meta = (vehicle.metadata ?? {}) as Record<string, unknown>;

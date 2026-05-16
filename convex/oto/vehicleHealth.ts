@@ -20,6 +20,7 @@
 import { query } from "../_generated/server";
 import { v } from "convex/values";
 import type { Doc, Id } from "../_generated/dataModel";
+import { isEvalTestMake } from "./evalTestFilter";
 import {
   ALL_MAINTENANCE_TYPES,
   MAINTENANCE_LABELS,
@@ -204,6 +205,9 @@ async function loadVehicleContext(
       const config = await ctx.db.get(vehicle.vehicle_config_id);
       if (config?.make_id) {
         const makeRow = await ctx.db.get(config.make_id);
+        if (isEvalTestMake(makeRow)) {
+          throw new Error("vehicle not found");
+        }
         if (makeRow?.name) make = makeRow.name;
       }
     }

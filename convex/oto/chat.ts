@@ -58,6 +58,8 @@ import {
   type ToolUseBlock,
 } from "./dispatcher";
 import { SYSTEM_PROMPT, SYSTEM_PROMPT_VERSION } from "./system_prompt";
+import { canonicalQuestionKey } from "./canonicalize";
+import { internal } from "../_generated/api";
 
 const ANTHROPIC_URL = "https://api.anthropic.com/v1/messages";
 const ANTHROPIC_VERSION = "2023-06-01";
@@ -1132,41 +1134,51 @@ function buildCallables(ctx: any, conversationId: Id<"ai_conversations">): ToolC
      * chassis / engine fallback.
      */
     retrieve_vehicle_facts: async (input) => {
+      // v3 Wave 5.4 — Tier 2 cascade against vehicle_facts.
+      // canonical-hash → structural → BM25 searchIndex.
+      // EvalTest short-circuit: synthetic eval fixtures must never serve real users.
       const topic = (input.topic ?? "") as string;
-      const limit = typeof input.limit === "number" ? input.limit : undefined;
+      const topic_axis = (input.topic_axis ?? "vehicle") as
+        | "vehicle"
+        | "trim"
+        | "chassis"
+        | "engine"
+        | "model_year";
       const question_text =
-        typeof input.question_text === "string" ? input.question_text : undefined;
+        typeof input.question_text === "string" ? input.question_text : "";
+      const limit = typeof input.limit === "number" ? input.limit : undefined;
+      const vehicle_config_id = input.vehicle_config_id as
+        | Id<"vehicle_configs">
+        | undefined;
 
-      // Try semantic search if we have a question_text.
-      if (question_text) {
-        const embedding = (await ctx.runAction(
-          api.oto.vehicleFactsKB.embedText,
-          { text: question_text },
-        )) as number[] | null;
-        if (embedding) {
-          const sem = (await ctx.runAction(
-            api.oto.vehicleFactsKB.lookupFactsSemantic,
-            {
-              embedding,
-              ...(limit !== undefined ? { limit } : {}),
-            },
-          )) as any[];
-          if (sem && sem.length > 0) return { mode: "semantic", facts: sem };
+      // EvalTest filter — short-circuit before invoking the cascade.
+      if (vehicle_config_id) {
+        const isEval = (await ctx.runQuery(
+          internal.oto.evalTestFilter.isEvalTestConfigId,
+          { vehicleConfigId: vehicle_config_id },
+        )) as boolean;
+        if (isEval) {
+          return { mode: "kb_v3_cascade", tier: null, facts: [] };
         }
       }
 
-      // Structural fallback.
-      const struct = (await ctx.runQuery(
-        api.oto.vehicleFactsKB.lookupFactsStructural,
+      const result = (await ctx.runAction(
+        api.oto.vehicleFactsKB.cascadeTier2,
         {
+          question_text,
           topic,
-          vehicle_config_id: input.vehicle_config_id as any,
-          chassis_code: input.chassis_code as any,
-          engine_code: input.engine_code as any,
+          topic_axis,
+          ...(vehicle_config_id !== undefined ? { vehicle_config_id } : {}),
+          ...(typeof input.chassis_code === "string"
+            ? { chassis_code: input.chassis_code }
+            : {}),
+          ...(typeof input.engine_code === "string"
+            ? { engine_code: input.engine_code }
+            : {}),
           ...(limit !== undefined ? { limit } : {}),
         },
-      )) as any[];
-      return { mode: "structural", facts: struct };
+      )) as { tier: string | null; facts: any[] };
+      return { mode: "kb_v3_cascade", tier: result.tier, facts: result.facts };
     },
 
     /**
@@ -1175,10 +1187,8 @@ function buildCallables(ctx: any, conversationId: Id<"ai_conversations">): ToolC
      * embedding column for future semantic retrieval.
      */
     record_vehicle_fact: async (input) => {
-      // Defensive coercion. Haiku sometimes omits required fields; if we
-      // String()'d undefined we'd push the literal "undefined" into a v.union
-      // validator and the mutation would reject the whole record. Better to
-      // default to safe values + log so the KB still grows.
+      // v3 Day 4 — migrated from legacy recordFact action to recordVehicleFact mutation.
+      // Helper requires canonical_question_key + clamps web_search confidence to <= 0.7.
       const VALID_SOURCES = new Set([
         "manufacturer",
         "oto_inferred",
@@ -1194,9 +1204,12 @@ function buildCallables(ctx: any, conversationId: Id<"ai_conversations">): ToolC
         "model_year",
       ]);
 
-      const topic = typeof input.topic === "string" && input.topic.trim() ? input.topic : null;
+      const topic =
+        typeof input.topic === "string" && input.topic.trim() ? input.topic : null;
       const factText =
-        typeof input.fact_text === "string" && input.fact_text.trim() ? input.fact_text : null;
+        typeof input.fact_text === "string" && input.fact_text.trim()
+          ? input.fact_text
+          : null;
       const questionText =
         typeof input.question_text === "string" && input.question_text.trim()
           ? input.question_text
@@ -1215,18 +1228,33 @@ function buildCallables(ctx: any, conversationId: Id<"ai_conversations">): ToolC
       const axisRaw = typeof input.topic_axis === "string" ? input.topic_axis : "";
       const topic_axis: any = VALID_AXES.has(axisRaw) ? axisRaw : "vehicle";
 
+      // Confidence: clamp web_search source to <= 0.7 (helper enforces).
+      let confidence =
+        typeof input.confidence === "number" &&
+        input.confidence >= 0 &&
+        input.confidence <= 1
+          ? input.confidence
+          : 0.5;
+      if (source === "web_search" && confidence > 0.7) {
+        console.warn(
+          `[oto/chat] record_vehicle_fact: clamping web_search confidence ${confidence} -> 0.7`,
+        );
+        confidence = 0.7;
+      }
+
+      // canonical_question_key — v3 requirement for the canonical-hash cache.
+      const canonical_question_key = await canonicalQuestionKey(questionText);
+
       const args: any = {
         topic,
         topic_axis,
         fact_text: factText,
         question_text: questionText,
+        canonical_question_key,
         source,
-        confidence:
-          typeof input.confidence === "number" && input.confidence >= 0 && input.confidence <= 1
-            ? input.confidence
-            : 0.5,
+        written_by: "chat_agent" as const,
+        confidence,
       };
-      // Pass through optional scoping ids only when present + correct type.
       for (const k of [
         "vehicle_config_id",
         "chassis_code",
@@ -1246,7 +1274,10 @@ function buildCallables(ctx: any, conversationId: Id<"ai_conversations">): ToolC
           args[k] = input[k];
         }
       }
-      return await ctx.runAction(api.oto.vehicleFactsKB.recordFact, args);
+      return await ctx.runMutation(
+        api.oto.vehicleFactsEditing.recordVehicleFact,
+        args,
+      );
     },
 
     /**

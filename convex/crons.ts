@@ -48,4 +48,20 @@ crons.interval(
   internal.bookings.revertExpiredReschedules,
 );
 
+// ─── vehicle_facts Reconciliation (Sprint 1 Day 3) ──────────────
+// Layer 4 of the §5 four-layer defense for the v3 mutability concession on
+// vehicle_facts. Reads vehicle_facts + vehicle_facts_audit + fact_reports,
+// writes a single reconciliation_runs row per invocation. Never writes to
+// vehicle_facts or vehicle_facts_audit (CI grep rules 1 + 3 enforce this).
+//
+// Authority: MEMORY_SCHEMA_V3_CONSOLIDATED §8 + docs/SPRINT_1/RECONCILIATION_RUNBOOK.md.
+// The driver internally decides per-run which checks to fire (replay/orphan/
+// telemetry every run; counter every ~4th run for hourly cadence).
+crons.interval(
+  "vehicle_facts_reconciliation",
+  { minutes: 15 },
+  internal.oto.migrations.vehicleFactsReconciliation.runReconciliation,
+  {},
+);
+
 export default crons;
