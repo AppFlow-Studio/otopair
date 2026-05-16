@@ -80,6 +80,16 @@ export async function fetchVehicleImageUrl(
       console.log("[vehicleImage] api status:", json.status, "exterior:", exterior.length, "colors:", colorImages.length);
       if (json.status !== "success") continue;
 
+      // Validate the API returned the correct vehicle — VehicleDatabases
+      // occasionally maps a VIN to the wrong make/model. If the response
+      // make doesn't match what we expect, skip this result.
+      const returnedMake = (json.data?.make ?? "").toLowerCase();
+      const expectedMake = make.toLowerCase();
+      if (returnedMake && expectedMake && !returnedMake.includes(expectedMake) && !expectedMake.includes(returnedMake)) {
+        console.warn("[vehicleImage] make mismatch — expected:", expectedMake, "got:", returnedMake, "skipping");
+        continue;
+      }
+
       // EVOX front 3/4 angle preference for any exterior pick.
       const pickEvoxFront = () => {
         const evoxFront = exterior.find(

@@ -35,6 +35,8 @@ export function useCreateBookingConvex() {
   const selectedMechanicSlot = useBookingStore((s) => s.selectedMechanicSlot);
   const scheduledAppointment = useBookingStore((s) => s.scheduledAppointment);
   const createBooking = useBookingStore((s) => s.createBooking);
+  const sourceRecommendationId = useBookingStore((s) => s.sourceRecommendationId);
+  const setSourceRecommendationId = useBookingStore((s) => s.setSourceRecommendationId);
 
   // Resolve shopId: from selectedMechanicSlot or from selected mechanic's shop
   const effectiveShopId =
@@ -139,7 +141,13 @@ export function useCreateBookingConvex() {
         services,
         taxes_and_fees: TAXES_AND_FEES,
         platform_fee: PLATFORM_FEE,
+        source_recommendation_id: sourceRecommendationId
+          ? (sourceRecommendationId as Id<"job_recommendations">)
+          : undefined,
       });
+
+      // Clear the rec link so subsequent (unrelated) bookings don't reuse it.
+      if (sourceRecommendationId) setSourceRecommendationId(null);
 
       // One appointment = one booking ID
       return bookingIds;
@@ -156,6 +164,8 @@ export function useCreateBookingConvex() {
       resolveTimeSlotId,
       createBatch,
       createBooking,
+      sourceRecommendationId,
+      setSourceRecommendationId,
     ],
   );
 

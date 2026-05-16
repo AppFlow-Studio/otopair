@@ -65,6 +65,7 @@ export function SettingsOverlay() {
   const isOpen = useSettingsOverlayStore((s) => s.isOpen);
   const isTransitionVisible = useSettingsOverlayStore((s) => s.isTransitionVisible);
   const fromRect = useSettingsOverlayStore((s) => s.fromRect);
+  const instantCloseToken = useSettingsOverlayStore((s) => s.instantCloseToken);
   const closeStore = useSettingsOverlayStore((s) => s.close);
   const finishClose = useSettingsOverlayStore((s) => s.finishClose);
 
@@ -150,6 +151,17 @@ export function SettingsOverlay() {
     // mounted intentionally not in deps — we only react to store changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [finishClose, fromRect, isOpen, isTransitionVisible]);
+
+  // Instant dismiss — skip the reverse spring entirely (used when a
+  // settings row navigates to a sub-page so the destination isn't
+  // hidden behind the lifted card).
+  useEffect(() => {
+    if (instantCloseToken === 0) return;
+    progress.value = 0;
+    setSettled(false);
+    setMounted(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [instantCloseToken]);
 
   const handleClose = () => {
     closeStore();

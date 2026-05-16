@@ -106,6 +106,10 @@ interface BookingState {
   selectedMechanicSlot: SelectedMechanicSlot | null;
   /** Selected service option per service (maps service_id → option selection with pricing) */
   selectedServiceOptions: Record<string, ServiceOptionSelection>;
+  /** When the driver starts this booking from a mechanic recommendation card,
+   *  the rec's _id is stashed here and forwarded to bookings.createBatch as
+   *  source_recommendation_id so the rec auto-closes on completion. */
+  sourceRecommendationId: string | null;
 
   // ═══════════════ BOOKING STATE ═══════════════
   /** All bookings indexed by ID */
@@ -174,6 +178,8 @@ interface BookingState {
   setSelectedServiceOption: (serviceId: string, option: ServiceOptionSelection) => void;
   /** Clear all selected service options */
   clearSelectedServiceOptions: () => void;
+  /** Set the rec id sourced into the booking flow (null clears it) */
+  setSourceRecommendationId: (id: string | null) => void;
   /** Reset booking flow to initial state */
   resetBookingFlow: () => void;
 
@@ -365,6 +371,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   skippedBookingDetails: false,
   selectedMechanicSlot: null,
   selectedServiceOptions: {},
+  sourceRecommendationId: null,
   bookings: {},
   bookingIds: [],
   draftBooking: null,
@@ -562,6 +569,9 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
   clearSelectedServiceOptions: () =>
     set({ selectedServiceOptions: {} }),
 
+  setSourceRecommendationId: (id) =>
+    set({ sourceRecommendationId: id }),
+
   resetBookingFlow: () =>
     set({
       bookingStage: "discovery",
@@ -576,6 +586,7 @@ export const useBookingStore = create<BookingState>()((set, get) => ({
       skippedBookingDetails: false,
       selectedMechanicSlot: null,
       selectedServiceOptions: {},
+      sourceRecommendationId: null,
       draftBooking: null,
     }),
 

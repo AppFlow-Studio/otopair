@@ -86,6 +86,7 @@ import { useAuth, useUser } from "@clerk/clerk-expo";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useAuthStore } from "@/stores/useAuthStore";
+import { useSettingsOverlayStore } from "@/stores/useSettingsOverlayStore";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import { usePaymentStore } from "@/stores/usePaymentStore";
@@ -150,6 +151,19 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
   );
 
   const resetAuth = useAuthStore((s) => s.reset);
+
+  // When rendered inside the Home → Settings overlay, navigating to a
+  // sub-page should dismiss the overlay first so the destination isn't
+  // hidden behind the lifted Settings card.
+  const navigate = useCallback(
+    (href: Parameters<typeof router.push>[0]) => {
+      if (useSettingsOverlayStore.getState().isOpen) {
+        useSettingsOverlayStore.getState().closeInstant();
+      }
+      router.push(href);
+    },
+    [router],
+  );
 
   const [biometricLabel, setBiometricLabel] = useState("Biometric Login");
 
@@ -288,7 +302,7 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
   }, []);
 
   const openEditProfile = useCallback(() => {
-    router.push({
+    navigate({
       pathname: "/(main-tabs)/settings/edit-profile" as any,
       params: { showPhotos: "0" },
     });
@@ -429,14 +443,14 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
             title={planTitle}
             subtitle="Your plan"
             icon={<BadgeCheck size={22} color="#FFFFFF" />}
-            onPress={() => router.push("/membership")}
+            onPress={() => navigate("/membership")}
           />
           <SettingsHeaderCard
             variant="action"
             title="Invite friends"
             subtitle="Earn $60 or more"
             icon={<UserPlus size={22} color="#FFFFFF" />}
-            onPress={() => router.push("/settings/refer-a-friend")}
+            onPress={() => navigate("/settings/refer-a-friend")}
           />
         </View>
 
@@ -446,18 +460,18 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
             icon={<Car size={18} color="#1F2937" />}
             label="My Vehicles"
             value={vehicleCount > 0 ? vehicleCount : undefined}
-            onPress={() => router.push("/cars")}
+            onPress={() => navigate("/cars")}
           />
           <SettingsRow
             icon={<Users size={18} color="#1F2937" />}
             label="My Mechanics"
-            onPress={() => router.push("/settings/my-mechanics")}
+            onPress={() => navigate("/settings/my-mechanics")}
           />
           <SettingsRow
             icon={<MapPin size={18} color="#1F2937" />}
             label="Saved Addresses"
             onPress={() =>
-              router.push({
+              navigate({
                 pathname: "/coming-soon",
                 params: { serviceName: "Saved Addresses" },
               } as any)
@@ -467,7 +481,7 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
             icon={<Clock size={18} color="#1F2937" />}
             label="Booking History"
             value={completedBookingsCount > 0 ? completedBookingsCount : undefined}
-            onPress={() => router.push("/settings/booking-history")}
+            onPress={() => navigate("/settings/booking-history")}
             isLast
           />
         </SettingsCard>
@@ -478,23 +492,23 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
             icon={<CreditCard size={18} color="#1F2937" />}
             label="Payment Methods"
             value={paymentMethodCount > 0 ? paymentMethodCount : undefined}
-            onPress={() => router.push("/payments")}
+            onPress={() => navigate("/payments")}
           />
           <SettingsRow
             icon={<Receipt size={18} color="#1F2937" />}
             label="Transactions & Receipts"
             value={transactionCount > 0 ? transactionCount : undefined}
-            onPress={() => router.push("/settings/transactions")}
+            onPress={() => navigate("/settings/transactions")}
           />
           <SettingsRow
             icon={<Award size={18} color="#1F2937" />}
             label="Loyalty & Rewards"
-            onPress={() => router.push("/membership")}
+            onPress={() => navigate("/membership")}
           />
           <SettingsRow
             icon={<UserPlus size={18} color="#1F2937" />}
             label="Refer a Friend"
-            onPress={() => router.push("/settings/refer-a-friend")}
+            onPress={() => navigate("/settings/refer-a-friend")}
             isLast
           />
         </SettingsCard>
@@ -505,13 +519,13 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
             icon={<Bell size={18} color="#1F2937" />}
             label="Notification Preferences"
             onPress={() =>
-              router.push("/settings/notification-preferences")
+              navigate("/settings/notification-preferences")
             }
           />
           <SettingsRow
             icon={<Sliders size={18} color="#1F2937" />}
             label="App Preferences"
-            onPress={() => router.push("/settings/preferences" as any)}
+            onPress={() => navigate("/settings/preferences" as any)}
             isLast
           />
         </SettingsCard>
@@ -521,12 +535,12 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
           <SettingsRow
             icon={<Headset size={18} color="#1F2937" />}
             label="Contact Us"
-            onPress={() => router.push("/settings/contact-us")}
+            onPress={() => navigate("/settings/contact-us")}
           />
           <SettingsRow
             icon={<HelpCircle size={18} color="#1F2937" />}
             label="FAQ"
-            onPress={() => router.push("/settings/faq")}
+            onPress={() => navigate("/settings/faq")}
           />
           <SettingsRow
             icon={<MessageSquare size={18} color="#1F2937" />}
@@ -547,13 +561,13 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
             <SettingsRow
               icon={<Lock size={18} color="#1F2937" />}
               label="Change Password"
-              onPress={() => router.push("/settings/change-password")}
+              onPress={() => navigate("/settings/change-password")}
             />
           ) : null}
           <SettingsRow
             icon={<ShieldCheck size={18} color="#1F2937" />}
             label="Two-Factor Authentication"
-            onPress={() => router.push("/settings/two-factor-method")}
+            onPress={() => navigate("/settings/two-factor-method")}
           />
           <SettingsRow
             icon={
@@ -564,12 +578,12 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
               )
             }
             label={biometricLabel}
-            onPress={() => router.push("/settings/biometric-setup")}
+            onPress={() => navigate("/settings/biometric-setup")}
           />
           <SettingsRow
             icon={<Shield size={18} color="#1F2937" />}
             label="Permissions"
-            onPress={() => router.push("/settings/permissions")}
+            onPress={() => navigate("/settings/permissions")}
             isLast
           />
         </SettingsCard>
@@ -579,13 +593,13 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
           <SettingsRow
             icon={<CircleDollarSign size={18} color="#1F2937" />}
             label="Pricing Transparency"
-            onPress={() => router.push("/settings/pricing-transparency")}
+            onPress={() => navigate("/settings/pricing-transparency")}
           />
           <SettingsRow
             icon={<RotateCcw size={18} color="#1F2937" />}
             label="How Your Data Is Used"
             onPress={() =>
-              router.push({
+              navigate({
                 pathname: "/coming-soon",
                 params: { serviceName: "How Your Data Is Used" },
               } as any)
@@ -594,12 +608,12 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
           <SettingsRow
             icon={<Shield size={18} color="#1F2937" />}
             label="Privacy Policy"
-            onPress={() => router.push("/settings/privacy-policy")}
+            onPress={() => navigate("/settings/privacy-policy")}
           />
           <SettingsRow
             icon={<FileText size={18} color="#1F2937" />}
             label="Terms and Conditions"
-            onPress={() => router.push("/settings/terms-and-conditions")}
+            onPress={() => navigate("/settings/terms-and-conditions")}
             isLast
           />
         </SettingsCard>
@@ -611,14 +625,14 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
             label="Delete Account"
             labelColor="#F87171"
             iconBg="rgba(248,113,113,0.15)"
-            onPress={() => router.push("/settings/delete-account" as any)}
+            onPress={() => navigate("/settings/delete-account" as any)}
             isLast
           />
         </SettingsCard>
 
         {/* Footer */}
         <View style={styles.footerRow}>
-          <Pressable onPress={() => router.push("/settings/about")}>
+          <Pressable onPress={() => navigate("/settings/about")}>
             <Text weight="medium" size="sm" color="rgba(255,255,255,0.55)">
               About OtoPair v1.0.0
             </Text>
@@ -687,7 +701,7 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
         </View>
         <View style={styles.stickySide}>
           <Pressable
-            onPress={() => router.push("/membership")}
+            onPress={() => navigate("/membership")}
             style={({ pressed }) => [
               styles.upgradePill,
               pressed && { opacity: 0.85 },

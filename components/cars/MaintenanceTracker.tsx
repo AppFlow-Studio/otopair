@@ -83,6 +83,15 @@ export interface MaintenanceItem {
   urgency?: string;
   impacts?: Array<{ label: string; severity: 'high' | 'medium' | 'low' }>;
   recommendation?: string;
+  /** Set when this item comes from a mechanic-submitted job recommendation.
+   *  Threaded through the booking flow as bookings.source_recommendation_id
+   *  so the rec auto-closes when the booking completes. */
+  sourceRecommendationId?: string;
+  /** Mechanic + shop provenance for recs — drives the "Suggested by …" subtitle. */
+  mechanicProvenance?: {
+    shopName?: string | null;
+    mechanicName?: string | null;
+  };
 }
 
 interface MaintenanceTrackerProps {
@@ -361,6 +370,12 @@ function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBo
           <View style={cardStyles.textColumn}>
             <Text weight="bold" style={cardStyles.title}>{item.serviceName}</Text>
             <Text style={cardStyles.subtitle}>{item.description}</Text>
+            {item.mechanicProvenance && (item.mechanicProvenance.mechanicName || item.mechanicProvenance.shopName) && (
+              <Text style={cardStyles.provenance}>
+                Suggested by {item.mechanicProvenance.mechanicName ?? 'your mechanic'}
+                {item.mechanicProvenance.shopName ? ` at ${item.mechanicProvenance.shopName}` : ''}
+              </Text>
+            )}
           </View>
           {delta > 0 && (
             <View style={cardStyles.scoreColumn}>
@@ -716,6 +731,11 @@ const cardStyles = StyleSheet.create({
     fontSize: moderateScale(12),
     color: '#757c7d',
     marginTop: 1,
+  },
+  provenance: {
+    fontSize: moderateScale(11),
+    color: '#5299FE',
+    marginTop: 2,
   },
   scoreColumn: {
     alignItems: 'flex-end',

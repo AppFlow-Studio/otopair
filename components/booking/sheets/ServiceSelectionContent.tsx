@@ -48,13 +48,18 @@ interface ServiceSelectionContentProps {
    *  back to a direct router.push, which works but leaves the sheet
    *  visible over the new screen. */
   onShopTiresRequested?: () => void;
+  /** Called when the user taps a service whose has_options=true and isn't
+   *  already selected. The parent should open a per-service options
+   *  picker (SingleServiceOptionsSheet), which on confirm will toggle the
+   *  service on with the selected option recorded. */
+  onServiceWithOptionsRequested?: (serviceId: string) => void;
 }
 
 // ============================================================================
 // COMPONENT
 // ============================================================================
 
-export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested }: ServiceSelectionContentProps) {
+export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested, onServiceWithOptionsRequested }: ServiceSelectionContentProps) {
   // ═══════════════ HOOKS ═══════════════
   const router = useRouter();
 
@@ -88,9 +93,19 @@ export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested
         }
         return;
       }
+      // has_options services route to a per-service picker on the first
+      // tap so the user resolves Front/Rear/Both (or equivalent) before
+      // the service lands in the cart. Subsequent taps just toggle off.
+      const isAlreadySelected = selectedServiceIds.includes(serviceId);
+      if (service?.has_options === true && !isAlreadySelected) {
+        if (onServiceWithOptionsRequested) {
+          onServiceWithOptionsRequested(serviceId);
+          return;
+        }
+      }
       toggleServiceSelection(serviceId);
     },
-    [toggleServiceSelection, router, availableServices, onShopTiresRequested],
+    [toggleServiceSelection, router, availableServices, onShopTiresRequested, onServiceWithOptionsRequested, selectedServiceIds],
   );
 
   const handleCategorySelect = useCallback(

@@ -27,8 +27,14 @@ interface SettingsOverlayState {
   isOpen: boolean;
   isTransitionVisible: boolean;
   fromRect: SettingsOverlayRect | null;
+  /** Bumped whenever an instant-dismiss is requested. Overlay watches
+   *  this to tear down without playing the reverse spring (used when
+   *  navigating to a sub-page — the user shouldn't see Settings shrink
+   *  back into the home button before the next screen appears). */
+  instantCloseToken: number;
   open: (rect: SettingsOverlayRect) => void;
   close: () => void;
+  closeInstant: () => void;
   finishClose: () => void;
 }
 
@@ -36,7 +42,15 @@ export const useSettingsOverlayStore = create<SettingsOverlayState>((set) => ({
   isOpen: false,
   isTransitionVisible: false,
   fromRect: null,
+  instantCloseToken: 0,
   open: (rect) => set({ isOpen: true, isTransitionVisible: true, fromRect: rect }),
   close: () => set({ isOpen: false }),
+  closeInstant: () =>
+    set((s) => ({
+      isOpen: false,
+      isTransitionVisible: false,
+      fromRect: null,
+      instantCloseToken: s.instantCloseToken + 1,
+    })),
   finishClose: () => set({ isTransitionVisible: false, fromRect: null }),
 }));

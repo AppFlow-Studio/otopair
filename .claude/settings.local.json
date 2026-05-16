@@ -23,7 +23,12 @@
       "Bash(head -1083 convex/schema.ts)",
       "Bash(tail -n +2272 convex/schema.ts)",
       "Bash(mv convex/schema.ts.tmp convex/schema.ts)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "mcp__claude_ai_Otopair_Convex_MCP__query_by_index",
+      "Bash(git rm *)",
+      "Bash(git add *)",
+      "Bash(sed -n '70,73p' /Users/temurbeksayfutdinov/Documents/AppFlowStudios/otopair/hooks/useCreateBookingConvex.ts)",
+      "Bash(sed -n '748,752p' /Users/temurbeksayfutdinov/Documents/AppFlowStudios/otopair/stores/useBookingStore.ts)"
     ]
   }
 }
