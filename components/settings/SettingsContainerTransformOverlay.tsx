@@ -257,21 +257,36 @@ export function SettingsContainerTransformOverlay() {
     );
 
     return {
-      width: overlayWidth,
-      height: overlayHeight,
+      left,
+      top,
+      width,
+      height,
       borderRadius: interpolate(
         progress.value,
         [0, 0.82, 1],
         [localRect.width / 2, 26, 0],
         Extrapolation.CLAMP,
       ),
-      transformOrigin: "top left",
-      transform: [
-        { translateX: left },
-        { translateY: top },
-        { scaleX: width / overlayWidth },
-        { scaleY: height / overlayHeight },
-      ],
+    };
+  });
+
+  const surfaceContentStyle = useAnimatedStyle(() => {
+    const left = interpolate(
+      progress.value,
+      [0, 1],
+      [localRect.x, 0],
+      Extrapolation.CLAMP,
+    );
+    const top = interpolate(
+      progress.value,
+      [0, 1],
+      [localRect.y, 0],
+      Extrapolation.CLAMP,
+    );
+    return {
+      width: overlayWidth,
+      height: overlayHeight,
+      transform: [{ translateX: -left }, { translateY: -top }],
     };
   });
 
@@ -291,22 +306,29 @@ export function SettingsContainerTransformOverlay() {
       [localRect.width, AVATAR_TARGET_SIZE],
       Extrapolation.CLAMP,
     );
+    const left = interpolate(
+      progress.value,
+      [0, 1],
+      [localRect.x, (overlayWidth - AVATAR_TARGET_SIZE) / 2],
+      Extrapolation.CLAMP,
+    );
+    const top = interpolate(
+      progress.value,
+      [0, 1],
+      [localRect.y, naturalAvatarTop],
+      Extrapolation.CLAMP,
+    );
     return {
       width: size,
       height: size,
       borderRadius: size / 2,
-      left: interpolate(
+      opacity: interpolate(
         progress.value,
-        [0, 1],
-        [localRect.x, (overlayWidth - AVATAR_TARGET_SIZE) / 2],
+        [0, 0.18, 0.36],
+        [0, 0, 1],
         Extrapolation.CLAMP,
       ),
-      top: interpolate(
-        progress.value,
-        [0, 1],
-        [localRect.y, naturalAvatarTop],
-        Extrapolation.CLAMP,
-      ),
+      transform: [{ translateX: left }, { translateY: top }],
     };
   });
 
@@ -377,17 +399,19 @@ export function SettingsContainerTransformOverlay() {
               !mounted && { width: overlayWidth, height: overlayHeight },
             ]}
           >
-            <LinearGradient
-              colors={[SETTINGS_GRADIENT_TOP, SETTINGS_GRADIENT_BOTTOM]}
-              start={{ x: 0.5, y: 0 }}
-              end={{ x: 0.5, y: 1 }}
-              style={StyleSheet.absoluteFill}
-            />
-            <Animated.View
-              pointerEvents={settled ? "auto" : "none"}
-              style={[StyleSheet.absoluteFill, contentStyle]}
-            >
-              {settingsContent}
+            <Animated.View style={mounted ? surfaceContentStyle : undefined}>
+              <LinearGradient
+                colors={[SETTINGS_GRADIENT_TOP, SETTINGS_GRADIENT_BOTTOM]}
+                start={{ x: 0.5, y: 0 }}
+                end={{ x: 0.5, y: 1 }}
+                style={StyleSheet.absoluteFill}
+              />
+              <Animated.View
+                pointerEvents={settled ? "auto" : "none"}
+                style={[StyleSheet.absoluteFill, contentStyle]}
+              >
+                {settingsContent}
+              </Animated.View>
             </Animated.View>
           </Animated.View>
 
@@ -457,6 +481,8 @@ const styles = StyleSheet.create({
   },
   floatingAvatar: {
     position: "absolute",
+    left: 0,
+    top: 0,
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
