@@ -14,7 +14,13 @@ import type { Doc, Id } from "@/convex/_generated/dataModel";
 import type { Mechanic } from "@/stores/types/store.types";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 
-function mapConvexMechanicToStore(mechanic: Doc<"mechanics"> & { shop?: { name: string } | null }): Mechanic {
+type ConvexMechanicListRow = Doc<"mechanics"> & {
+  shop?: { name: string } | null;
+  shopRating?: number;
+  shopReviewCount?: number;
+};
+
+function mapConvexMechanicToStore(mechanic: ConvexMechanicListRow): Mechanic {
   const name = `${mechanic.first_name} ${mechanic.last_name}`.trim();
   const shopName = mechanic.shop?.name ?? "Shop";
   return {
@@ -26,6 +32,8 @@ function mapConvexMechanicToStore(mechanic: Doc<"mechanics"> & { shop?: { name: 
     photoUrl: null,
     rating: mechanic.rating ?? 0,
     reviewCount: mechanic.review_count != null ? Math.round(Number(mechanic.review_count)) : undefined,
+    shopRating: mechanic.shopRating ?? 0,
+    shopReviewCount: mechanic.shopReviewCount ?? 0,
     isVerified: false,
     distanceMi: 0,
     services: [],
@@ -63,9 +71,7 @@ export function useMechanicsFromConvex() {
       seen.add(key);
       return true;
     });
-    return deduped.map((m) =>
-      mapConvexMechanicToStore(m as Doc<"mechanics"> & { shop?: { name: string } | null }),
-    );
+    return deduped.map((m) => mapConvexMechanicToStore(m as ConvexMechanicListRow));
   }, [convexMechanics]);
 
   useEffect(() => {

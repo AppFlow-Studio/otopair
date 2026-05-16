@@ -51,15 +51,6 @@ export const ALL_MAINTENANCE_TYPES: MaintenanceType[] = [
   "battery",
 ];
 
-/** Which types Smartcar can provide (used to determine priority) */
-export const SMARTCAR_TYPES: Set<string> = new Set(["oil", "tires"]);
-
-/** Maps Smartcar maintenance item IDs to our type keys */
-export const SMARTCAR_ID_TO_TYPE: Record<string, MaintenanceType> = {
-  "smartcar-oil": "oil",
-  "smartcar-tires": "tires",
-};
-
 // ============================================================================
 // CONFIRMED HEALTHY (from quarterly check-in Q4b)
 // ============================================================================
@@ -289,7 +280,7 @@ interface StatusResult {
  * Compute maintenance status for a single record.
  *
  * @param record - The maintenance record from DB
- * @param currentOdometer - Current odometer in miles (from Smartcar or user input)
+ * @param currentOdometer - Current odometer in miles (from user input)
  * @param make - Vehicle make (e.g. "Volkswagen", "BMW") for per-make intervals
  * @param now - Current timestamp (defaults to Date.now())
  * @param drivingConditions - "city" | "highway" | "mixed" — adjusts intervals

@@ -13,9 +13,9 @@ import * as Haptics from "expo-haptics";
 import {
   Car,
   Check,
-  ChevronDown,
   ChevronLeft,
   Info,
+  ListFilter,
 } from "lucide-react-native";
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
@@ -239,24 +239,31 @@ export default function TireBookingScreen({ onClose, onConfirmed }: TireBookingS
           onPress={() => canSwitch && vehiclePickerRef.current?.open()}
           activeOpacity={canSwitch ? 0.85 : 1}
         >
-          <View style={styles.vehicleThumb}>
+          <View style={styles.vehicleSide}>
             {selectedVehicle?.imageSource ? (
-              <Image source={selectedVehicle.imageSource} style={styles.vehicleThumbImage} resizeMode="contain" />
+              <Image
+                source={selectedVehicle.imageSource}
+                style={styles.vehicleThumbImage}
+                resizeMode="contain"
+              />
             ) : (
-              <Car size={20} color="#9CA3AF" />
+              <Car size={28} color="#9CA3AF" />
             )}
           </View>
-          <View style={styles.vehicleText}>
-            <Text size="xs" weight="semiBold" color="#8E8E93">
-              TIRES FOR
-            </Text>
-            <Text size="md" weight="bold" color="#1A1A1A" numberOfLines={1}>
-              {selectedVehicle
-                ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}`
-                : "Select vehicle"}
-            </Text>
+          <Text
+            size="md"
+            weight="bold"
+            color="#1A1A1A"
+            numberOfLines={1}
+            style={styles.vehicleLabel}
+          >
+            {selectedVehicle
+              ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}`
+              : "Select vehicle"}
+          </Text>
+          <View style={styles.vehicleSide}>
+            {canSwitch ? <ListFilter size={16} color="#8E8E93" /> : null}
           </View>
-          {canSwitch ? <ChevronDown size={18} color="#8E8E93" /> : null}
         </TouchableOpacity>
 
         {/* 3D hero */}
@@ -352,6 +359,7 @@ export default function TireBookingScreen({ onClose, onConfirmed }: TireBookingS
       <FloatingSheet
         ref={vehiclePickerRef}
         snapHeights={[Math.min(SCREEN_HEIGHT * 0.45, 120 + vehicles.length * 78)]}
+        showBackdrop
       >
         <View style={styles.sheetContent}>
           <Text size="lg" weight="bold" color="#1A1A1A" style={styles.sheetTitle}>
@@ -367,11 +375,11 @@ export default function TireBookingScreen({ onClose, onConfirmed }: TireBookingS
                   onPress={() => handlePickVehicle(v.id)}
                   activeOpacity={0.85}
                 >
-                  <View style={styles.vehicleRowThumb}>
+                  <View style={styles.vehicleRowSide}>
                     {v.imageSource ? (
                       <Image source={v.imageSource} style={styles.vehicleRowImage} resizeMode="contain" />
                     ) : (
-                      <Car size={20} color="#9CA3AF" />
+                      <Car size={28} color="#9CA3AF" />
                     )}
                   </View>
                   <View style={styles.vehicleRowText}>
@@ -494,33 +502,30 @@ const styles = StyleSheet.create({
   vehicleChip: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
     backgroundColor: "#FFFFFF",
     borderRadius: 14,
     borderWidth: 1,
     borderColor: "#E8E8E8",
-    padding: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
     marginBottom: 16,
   },
   vehicleChipStatic: {
     opacity: 0.95,
   },
-  vehicleThumb: {
-    width: 40,
+  vehicleSide: {
+    width: 56,
     height: 40,
-    borderRadius: 20,
-    backgroundColor: "#F2F2F7",
     alignItems: "center",
     justifyContent: "center",
-    overflow: "hidden",
   },
   vehicleThumbImage: {
-    width: 40,
+    width: 56,
     height: 40,
   },
-  vehicleText: {
+  vehicleLabel: {
     flex: 1,
-    gap: 2,
+    textAlign: "center",
   },
 
   hero: {
@@ -655,17 +660,14 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     backgroundColor: "#F5F9FF",
   },
-  vehicleRowThumb: {
-    width: 40,
+  vehicleRowSide: {
+    width: 56,
     height: 40,
-    borderRadius: 20,
-    backgroundColor: "#F2F2F7",
     alignItems: "center",
     justifyContent: "center",
-    overflow: "hidden",
   },
   vehicleRowImage: {
-    width: 40,
+    width: 56,
     height: 40,
   },
   vehicleRowText: {

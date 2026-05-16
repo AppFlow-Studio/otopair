@@ -22,6 +22,18 @@ import MapView from "react-native-maps";
 import Animated, { Extrapolation, interpolate, SharedValue, useAnimatedStyle } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
+// Native iOS 26 liquid glass (optional). Mirrors the home/ai-chat pattern —
+// falls back to BlurView when the lib is unavailable.
+let LiquidGlassView: React.ComponentType<any> | null = null;
+let isLiquidGlassEnabled = false;
+try {
+  const lg = require("@callstack/liquid-glass");
+  LiquidGlassView = lg.LiquidGlassView;
+  isLiquidGlassEnabled = !!lg.isLiquidGlassSupported;
+} catch {
+  // Not available — fall back to BlurView style
+}
+
 // 4. Flow-specific components
 import {
   BookingMap,
@@ -323,17 +335,24 @@ export default function BookingsScreen() {
       {/* Hidden when sheet is fully expanded OR in search mode */}
       {!isSearchMode && (
         <Animated.View style={[styles.backButtonContainer, { top: insets.top + Spacing.md }, backButtonAnimatedStyle]}>
-          <BlurView intensity={80} tint="light" style={styles.backButtonBlur}>
-            <View style={styles.backButtonOverlay} />
-            <TouchableOpacity
-              onPress={handleBackPress}
-              style={styles.backButton}
-              activeOpacity={0.7}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <ChevronLeft size={24} color={BrandColors.primary} strokeWidth={2.5} />
-            </TouchableOpacity>
-          </BlurView>
+          <TouchableOpacity
+            onPress={handleBackPress}
+            activeOpacity={0.7}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+          >
+            {isLiquidGlassEnabled && LiquidGlassView ? (
+              <LiquidGlassView interactive effect="clear" style={styles.backButton}>
+                <ChevronLeft size={24} color={BrandColors.primary} strokeWidth={2.5} />
+              </LiquidGlassView>
+            ) : (
+              <BlurView intensity={80} tint="light" style={styles.backButtonBlur}>
+                <View style={styles.backButtonOverlay} />
+                <View style={styles.backButton}>
+                  <ChevronLeft size={24} color={BrandColors.primary} strokeWidth={2.5} />
+                </View>
+              </BlurView>
+            )}
+          </TouchableOpacity>
         </Animated.View>
       )}
 
@@ -405,6 +424,7 @@ const styles = StyleSheet.create({
   backButton: {
     width: 44,
     height: 44,
+    borderRadius: BorderRadius.xl,
     alignItems: "center",
     justifyContent: "center",
   },

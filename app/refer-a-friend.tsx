@@ -5,4 +5,4 @@
  *          use this route so that router.back() returns to membership.
  */
 
-export { default } from "./(main-tabs)/settings/refer-a-friend";
+export { default } from "./settings/refer-a-friend";

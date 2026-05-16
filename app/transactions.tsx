@@ -7,4 +7,4 @@
  * USED IN: router.push("/transactions") from membership History button
  */
 
-export { default } from "./(main-tabs)/settings/transactions";
+export { default } from "./settings/transactions";

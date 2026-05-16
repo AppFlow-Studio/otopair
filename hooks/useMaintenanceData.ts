@@ -2,15 +2,13 @@
  * useMaintenanceData
  *
  * PURPOSE:
- * Merges Smartcar-derived maintenance items with user-provided maintenance records
- * into a unified MaintenanceItem[] array for the MaintenanceTracker UI.
+ * Builds a MaintenanceItem[] array for the MaintenanceTracker UI from
+ * user-provided maintenance records in Convex.
  *
  * LOGIC:
  * 1. Fetch user-provided records from Convex (maintenance_records table)
- * 2. Get Smartcar-derived items from useSmartcarData
- * 3. For each of the 7 maintenance types:
- *    - If Smartcar provides it → use Smartcar item
- *    - Else if user has a record → compute status from record
+ * 2. For each of the 7 maintenance types:
+ *    - If user has a record → compute status from record
  *    - Else → emit "unknown" item (prompts user to "Add Info")
  *
  * USED IN: app/(main-tabs)/cars/index.tsx
@@ -26,7 +24,6 @@ import type { MaintenanceItem, MaintenanceStatus } from "@/components/cars/Maint
 import {
   ALL_MAINTENANCE_TYPES,
   MAINTENANCE_LABELS,
-  SMARTCAR_ID_TO_TYPE,
   computeMaintenanceStatus,
   type MaintenanceType,
 } from "@/utils/maintenanceStatus";
@@ -236,7 +233,7 @@ function enrichUrgentItem(item: MaintenanceItem): MaintenanceItem {
   const isUrgent = item.status === "overdue" || item.status === "due_soon" || item.status === "needs_attention";
   if (!isUrgent) return item;
 
-  const type = item.id.replace(/^(unknown-|user-|smartcar-)/, "");
+  const type = item.id.replace(/^(unknown-|user-)/, "");
   const details = URGENT_DETAILS[type]?.[item.status];
   if (!details) {
     return {
@@ -254,17 +251,16 @@ function enrichUrgentItem(item: MaintenanceItem): MaintenanceItem {
 // ============================================================================
 
 /**
- * Main hook for the My Cars page. Merges Smartcar items + user records into
- * a single MaintenanceItem[] covering all 7 maintenance types.
+ * Main hook for the My Cars page. Builds a MaintenanceItem[] covering
+ * all 7 maintenance types from user-provided records, falling back to
+ * "unknown" entries when no record exists.
  *
- * @param smartcarItems - Items derived from Smartcar data (from useSmartcarData)
  * @param vehicleOwnerId - The active vehicle's ownership ID
- * @param currentOdometer - Current odometer in miles (from Smartcar, if available)
+ * @param currentOdometer - Current odometer in miles
  * @param make - Vehicle make (e.g. "Volkswagen") for per-make interval overrides
  * @param drivingConditions - "city" | "highway" | "mixed" — adjusts intervals
  */
 export function useMergedMaintenance(
-  smartcarItems: MaintenanceItem[],
   vehicleOwnerId: Id<"vehicle_owners"> | undefined,
   currentOdometer: number | null,
   make?: string,
@@ -275,38 +271,23 @@ export function useMergedMaintenance(
 ) {
   const { records, items: userItems } = useMaintenanceRecords(vehicleOwnerId, currentOdometer, make, drivingConditions, avgMonthlyDriving, knownIssues);
 
-  // Build a lookup of Smartcar items by our type key
-  const smartcarByType = useMemo(() => {
-    const map = new Map<string, MaintenanceItem>();
-    for (const item of smartcarItems) {
-      const type = SMARTCAR_ID_TO_TYPE[item.id];
-      if (type) map.set(type, item);
-    }
-    return map;
-  }, [smartcarItems]);
-
-  // Merge: Smartcar > user record > unknown
+  // Merge: user record > unknown.
   const mergedItems = useMemo(() => {
     const result: MaintenanceItem[] = [];
 
     for (const type of ALL_MAINTENANCE_TYPES) {
-      const smartcarItem = smartcarByType.get(type);
       const userItem = userItems.get(type);
 
-      // If user recently reported service or confirmed healthy, their record wins
-      // because Smartcar sensors may not have refreshed yet
+      // If user recently reported service or confirmed healthy, force
+      // on_time so a stale calculated status doesn't override their
+      // direct input.
       const userRecord = records?.find((r: MaintenanceRecord) => r.type === type);
-      const userServicedRecently =
-        userRecord?.lastServiceDate &&
-        Date.now() - userRecord.lastServiceDate < 7 * 24 * 60 * 60 * 1000;
       const userConfirmedHealthy =
         userRecord?.confirmedHealthyAt &&
         Date.now() - userRecord.confirmedHealthyAt < 90 * 24 * 60 * 60 * 1000;
 
-      // Priority 1: Recent user service report or confirmed healthy overrides Smartcar
-      if ((userServicedRecently || userConfirmedHealthy) && userItem) {
-        // Force on_time when user explicitly confirmed healthy in check-in
-        if (userConfirmedHealthy && userItem.status !== "on_time") {
+      if (userConfirmedHealthy && userItem) {
+        if (userItem.status !== "on_time") {
           result.push({
             ...userItem,
             status: "on_time",
@@ -319,13 +300,7 @@ export function useMergedMaintenance(
         continue;
       }
 
-      // Priority 2: Smartcar data
-      if (smartcarItem) {
-        result.push(smartcarItem);
-        continue;
-      }
-
-      // Priority 3: User-provided record
+      // User-provided record
       if (userItem) {
         result.push(userItem);
         continue;
@@ -390,7 +365,7 @@ export function useMergedMaintenance(
     }
 
     return result.map(enrichUrgentItem);
-  }, [smartcarByType, userItems, records, knownIssues, vehicleYear]);
+  }, [userItems, records, knownIssues, vehicleYear]);
 
   // Expose raw records so the modal can pre-fill from existing data
   const recordsByType = useMemo(() => {

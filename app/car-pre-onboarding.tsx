@@ -123,6 +123,27 @@ export default function CarPreOnboardingScreen() {
     [params.flow],
   );
 
+  // Seed the odometer input from whatever mileage the user typed on
+  // add-car-info (saved to vehicle_owners.mileage). One-shot — once
+  // they edit the field here, their value wins.
+  const ownedVehicles = useQuery(
+    api.vehicles.listVehiclesByUser,
+    userId ? { userId } : "skip",
+  );
+  const seededMileageRef = useRef(false);
+  useEffect(() => {
+    if (seededMileageRef.current) return;
+    if (!ownedVehicles || !vehicleOwnerId) return;
+    const match = (ownedVehicles as Array<{ ownership?: { _id?: string; mileage?: number } }>).find(
+      (r) => r.ownership?._id === vehicleOwnerId,
+    );
+    const seed = match?.ownership?.mileage;
+    if (typeof seed === "number" && seed > 0) {
+      setCurrentMileage(String(Math.round(seed)));
+      seededMileageRef.current = true;
+    }
+  }, [ownedVehicles, vehicleOwnerId]);
+
   const steps = useMemo(() => {
     const ordered: StepId[] = ["ownershipType"];
     if (ownershipType === "owned") {

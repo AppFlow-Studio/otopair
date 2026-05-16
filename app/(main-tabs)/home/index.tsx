@@ -10,11 +10,10 @@ import { LinearGradient } from 'expo-linear-gradient';
 import * as Location from 'expo-location';
 import { useFocusEffect, useRouter } from 'expo-router';
 import {
-  BottomSheetBackdrop,
   BottomSheetModal,
   BottomSheetScrollView,
-  type BottomSheetBackdropProps,
 } from "@gorhom/bottom-sheet";
+import { BlurBackdrop } from "@/components/shared-ui/BlurBackdrop";
 import { Bell, MoveRight, Star, Trophy } from 'lucide-react-native';
 import { useMutation, useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
@@ -131,13 +130,6 @@ export default function HomeScreen() {
   const sheetRef = useRef<BottomSheetModal>(null);
   const hasPresentedReactivationRef = useRef(false);
   const snapPoints = useMemo(() => ["42%"], []);
-
-  const renderBackdrop = useCallback(
-    (props: BottomSheetBackdropProps) => (
-      <BottomSheetBackdrop {...props} disappearsOnIndex={-1} appearsOnIndex={0} opacity={0.5} />
-    ),
-    []
-  );
 
   useEffect(() => {
     if (shouldShowReactivationSheet && showWelcome) {
@@ -417,6 +409,16 @@ export default function HomeScreen() {
   const { unreadCount: notificationsUnreadCount } = useNotificationsFromConvex();
   const hasUnreadNotifications = notificationsUnreadCount > 0;
 
+  // Trophy dot — true when the user has earned any credit since the
+  // last time they opened the loyalty surface. Cleared by the
+  // `markCreditsSeen` mutation when the loyalty popover opens.
+  const { userId } = useUserFromConvex();
+  const hasUnseenCredits = useQuery(
+    api.rewards.hasUnseenCredits,
+    userId ? { userId } : "skip",
+  );
+  const markCreditsSeen = useMutation(api.rewards.markCreditsSeen);
+
   // When returning from map modal with "Add vehicle" tapped: navigate to cars tab
   const pendingNavigateToCars = usePendingNavigationStore((s) => s.pendingNavigateToCars);
   const setPendingNavigateToCars = usePendingNavigationStore((s) => s.setPendingNavigateToCars);
@@ -470,7 +472,6 @@ export default function HomeScreen() {
   // from `pendingReviewBookings` via Convex `listReviewedBookingIdsForUser`,
   // so this guard is mainly for "No thanks" dismissals.)
   const { pendingReviewBookings } = useMyBookingsWithDetails();
-  const { userId } = useUserFromConvex();
   const reviewSheetRef = useRef<LeaveReviewSheetRef>(null);
   const promptedIdsRef = useRef<Set<string> | null>(null);
   useEffect(() => {
@@ -512,8 +513,8 @@ export default function HomeScreen() {
     const cardType = getCardTypeAtIndex(cardIndex);
 
     switch (cardType) {
-      case "appointment": // Upcoming Appointment - NavigationETABar shows, so no extra margin needed
-        return 10;
+      case "appointment": // Upcoming Appointment — pull Vehicle Maintenance up under the ETA bar
+        return 0;
       case "resume": // Resume Booking
         return -100;
       case "account": // Finish Account Setup
@@ -572,12 +573,20 @@ export default function HomeScreen() {
               <View style={styles.headerRight}>
                 {/* Gold Tier Badge - Clickable */}
                 <Pressable
-                  onPress={() => setShowLoyaltyCard(true)}
+                  onPress={() => {
+                    setShowLoyaltyCard(true);
+                    if (hasUnseenCredits && userId) {
+                      void markCreditsSeen({ userId });
+                    }
+                  }}
                   style={({ pressed }) => [styles.goldTierBadge, pressed && styles.goldTierBadgePressed]}
                 >
                   {isLiquidGlassEnabled && LiquidGlassView ? (
                     <LiquidGlassView interactive effect="clear" style={styles.liquidGlassIcon}>
-                      <Trophy size={22} color="#6B7280" fill="none" strokeWidth={2} />
+                      <View style={styles.bellIconContainer}>
+                        <Trophy size={22} color="#6B7280" fill="none" strokeWidth={2} />
+                        {hasUnseenCredits ? <View style={styles.trophyDot} /> : null}
+                      </View>
                     </LiquidGlassView>
                   ) : (
                     <View style={styles.glassContainer}>
@@ -589,7 +598,10 @@ export default function HomeScreen() {
                           end={{ x: 0.5, y: 0.5 }}
                           style={styles.glassGloss}
                         />
-                        <Trophy size={22} color="#6B7280" fill="none" strokeWidth={2} />
+                        <View style={styles.bellIconContainer}>
+                          <Trophy size={22} color="#6B7280" fill="none" strokeWidth={2} />
+                          {hasUnseenCredits ? <View style={styles.trophyDot} /> : null}
+                        </View>
                       </BlurView>
                     </View>
                   )}
@@ -759,7 +771,7 @@ export default function HomeScreen() {
           <BottomSheetModal
             ref={sheetRef}
             snapPoints={snapPoints}
-            backdropComponent={renderBackdrop}
+            backdropComponent={BlurBackdrop}
             enableDynamicSizing={false}
             enableContentPanningGesture={false}
             handleIndicatorStyle={styles.sheetHandle}
@@ -936,6 +948,18 @@ const styles = StyleSheet.create({
     borderRadius: 3.5,
     backgroundColor: "#FF3B30",
   },
+  // Trophy icon's handles extend past its cup, so the bell offset
+  // would land the dot on the handle. Pull it up-and-out so it sits
+  // cleanly above the cup.
+  trophyDot: {
+    position: "absolute",
+    top: -3,
+    right: -3,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#FF3B30",
+  },
   searchContainer: {
     paddingHorizontal: 16,
     marginTop: 34,
@@ -948,10 +972,11 @@ const styles = StyleSheet.create({
     marginBottom: 0,
   },
   etaBarContainer: {
-    // Was -72 to pull the ETA bar into empty space on the old, smaller
-    // appointment card. The new BookingCard fills that space with its
-    // action buttons; ETA bar now sits flush below the card.
-    marginTop: 0,
+    // ActionCardsCarousel is locked at height: 380 so swiping between
+    // cards doesn't shift content. The appointment BookingCard is
+    // shorter than that, leaving an empty stripe — pull the ETA bar
+    // up so the chain reads as one tight stack instead of a gap.
+    marginTop: -52,
   },
   sheetBackground: {
     backgroundColor: "#FFFFFF",

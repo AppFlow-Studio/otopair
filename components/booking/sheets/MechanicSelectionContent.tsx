@@ -80,15 +80,12 @@ function groupMechanicsByShop(mechanics: Mechanic[], shopIdToLaborRate?: Map<str
     const existing = shopMap.get(mechanic.shopId);
     if (existing) {
       existing.mechanics.push(mechanic);
-      // Update rating to highest
-      if (mechanic.rating > existing.rating) {
-        existing.rating = mechanic.rating;
-      }
-      // Update verified if any mechanic is verified
+      // Shop rating is a single value per shop (aggregated from
+      // `reviews` by `convex/reviews.ts:submit`) — don't recompute
+      // from the max mechanic rating in the group.
       if (mechanic.isVerified) {
         existing.isVerified = true;
       }
-      // Update distance to closest
       if (mechanic.distanceMi < existing.distanceMi) {
         existing.distanceMi = mechanic.distanceMi;
       }
@@ -96,7 +93,7 @@ function groupMechanicsByShop(mechanics: Mechanic[], shopIdToLaborRate?: Map<str
       shopMap.set(mechanic.shopId, {
         shopId: mechanic.shopId,
         shopName: mechanic.shopName,
-        rating: mechanic.rating,
+        rating: mechanic.shopRating ?? 0,
         isVerified: mechanic.isVerified,
         distanceMi: mechanic.distanceMi,
         mechanics: [mechanic],
@@ -452,7 +449,7 @@ export function MechanicSelectionContent({
           {selectedVehicle?.imageSource ? (
             <Image source={selectedVehicle.imageSource} style={styles.carButtonImage} resizeMode="contain" />
           ) : (
-            <Car size={20} color={BrandColors.primary} />
+            <Car size={28} color={BrandColors.primary} />
           )}
         </Pressable>
       </View>
@@ -558,17 +555,14 @@ const styles = StyleSheet.create({
     width: 32,
   },
   carButton: {
-    width: 36,
-    height: 36,
-    borderRadius: BorderRadius.lg,
-    backgroundColor: "#F3F4F6",
+    width: 56,
+    height: 40,
     alignItems: "center",
     justifyContent: "center",
-    overflow: "hidden",
   },
   carButtonImage: {
-    width: 32,
-    height: 32,
+    width: 56,
+    height: 40,
   },
   searchContainer: {
     flexDirection: "row",

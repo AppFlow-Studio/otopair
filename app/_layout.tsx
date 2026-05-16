@@ -181,43 +181,6 @@ function RootErrorBoundary({ error }: ErrorBoundaryProps) {
 
 export { RootErrorBoundary as ErrorBoundary };
 
-/**
- * Refresh Smartcar data once on cold start for all connected vehicles.
- * Runs silently in the background — no loading UI.
- */
-function SmartcarColdStartRefresh() {
-  const { vehicles } = useVehicleOwnershipFromConvex();
-  const fetchVehicleData = useAction(api.smartcar.fetchVehicleData);
-  const hasRefreshedRef = useRef(false);
-
-  useEffect(() => {
-    if (hasRefreshedRef.current) return;
-    if (!vehicles || vehicles.length === 0) return;
-
-    // Find connected vehicles
-    const connected = vehicles.filter((v: any) => v.connectionStatus === "connected" && v.ownership?._id);
-
-    console.log(
-      `[ColdStart] vehicles=${vehicles.length}, connected=${connected.length}, statuses=${vehicles.map((v: any) => v.connectionStatus).join(",")}`
-    );
-
-    if (connected.length === 0) return;
-
-    hasRefreshedRef.current = true;
-
-    // Refresh each connected vehicle (fire-and-forget)
-    for (const v of connected) {
-      const ownerId = (v as any).ownership._id;
-      console.log(`[ColdStart] Refreshing vehicle owner=${ownerId}`);
-      fetchVehicleData({ vehicleOwnerId: ownerId }).catch((err: any) =>
-        console.warn("[ColdStart] Smartcar refresh failed:", err)
-      );
-    }
-  }, [vehicles, fetchVehicleData]);
-
-  return null;
-}
-
 export default function RootLayout() {
   const colorScheme = useColorScheme();
   const [fontsLoaded, fontError] = useAppFonts();
@@ -283,8 +246,7 @@ export default function RootLayout() {
                     />
                     <Stack.Screen name="membership" options={{ headerShown: false }} />
                     <Stack.Screen name="suggested-deals" options={{ headerShown: false }} />
-                    <Stack.Screen name="transactions" options={{ headerShown: false }} />
-                    <Stack.Screen name="refer-a-friend" options={{ headerShown: false }} />
+                    <Stack.Screen name="settings" options={{ headerShown: false }} />
                   </Stack>
                   <StatusBar style="auto" />
                 </ThemeProvider>
@@ -294,7 +256,6 @@ export default function RootLayout() {
           </AppErrorBoundary>
           {/* <EnsureConvexUserRecord />
         <SyncAuthStoreWithClerk />
-        <SmartcarColdStartRefresh />
         <GestureHandlerRootView style={{ flex: 1 }}>
           <BottomSheetModalProvider>
             <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>

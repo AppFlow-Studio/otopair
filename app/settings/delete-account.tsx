@@ -33,11 +33,10 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
 import { User } from "lucide-react-native";
 import {
-  BottomSheetBackdrop,
   BottomSheetModal,
   BottomSheetScrollView,
-  type BottomSheetBackdropProps,
 } from "@gorhom/bottom-sheet";
+import { BlurBackdrop } from "@/components/shared-ui/BlurBackdrop";
 import { useQuery } from "convex/react";
 
 import {
@@ -80,18 +79,6 @@ export default function DeleteAccountScreen() {
   const sheetRef = useRef<BottomSheetModal>(null);
   const snapPoints = useMemo(() => ["88%"], []);
   const isCodeComplete = useMemo(() => code.join("").length === 6, [code]);
-
-  const renderBackdrop = useCallback(
-    (props: BottomSheetBackdropProps) => (
-      <BottomSheetBackdrop
-        {...props}
-        disappearsOnIndex={-1}
-        appearsOnIndex={0}
-        opacity={0.5}
-      />
-    ),
-    [],
-  );
 
   useEffect(() => {
     let interval: any;
@@ -554,7 +541,7 @@ export default function DeleteAccountScreen() {
       <BottomSheetModal
         ref={sheetRef}
         snapPoints={snapPoints}
-        backdropComponent={undefined}
+        backdropComponent={BlurBackdrop}
         enableDynamicSizing={false}
         enableContentPanningGesture={false}
         onDismiss={handleSheetDismiss}
