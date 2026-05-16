@@ -598,14 +598,15 @@ const REPORT_FLOW_CASES: CaseAssertion[] = [
 // The PM-lean option (b) intentionally avoids this for the case-spec ship;
 // the cases work today without it.
 //
-// LIVE-MODE WIRING NOTE
-// ---------------------
-// `runCascade` (`cascadeClient.ts`) today calls `cascadeTier2` directly, not
-// `runFullCascade`. Live (d) cases will NOT exercise T1 until cascadeClient
-// is switched to `runFullCascade` (the Day-4 ticket called out at
-// cascadeClient.ts:104). Until then, live (d-001) reports `tier=NONE` and
-// fails the assertion. This is a KNOWN-FAIL state — the case-spec is locked
-// here; the harness-owner flips passed once `runFullCascade` is wired.
+// LIVE-MODE WIRING NOTE (Sprint 2 Day 4 — RESOLVED)
+// -------------------------------------------------
+// `runCascade` (`cascadeClient.ts`) now calls `oto/evalHarness:runFullCascade`
+// — the full T1→T2→T3 walk. d-001's labeled entry carries an explicit
+// `topic="oil_capacity"` / `topic_axis="engine"` so live mode routes through
+// `lookupT1` → engines table → the seeded EVAL-I4-1.5T row. T1 hits, no
+// disclaim tag, no web_search. d-002 / d-003 still use the default
+// topic="general" (T1 no-op) and hit on T2 HASH against the seeded
+// vehicle_facts row, identical to the Day 3 wire-up.
 
 const CROSS_TENANT_BASE_SCOPE = {
   make: EVAL_SENTINEL_MAKE,
@@ -629,6 +630,12 @@ const CROSS_TENANT_CASES: CaseAssertion[] = [
       //   T1 reads from enrichment-owned tables, not from vehicle_facts.
       // Setup (mock): no-op; runCascade returns the labeled-set outcome
       //   verbatim.
+      //
+      // Sprint 2 Day 4 wire-up (cascadeClient → runFullCascade): the entry
+      // now carries an explicit `topic`/`topic_axis` so live mode routes
+      // through `lookupT1` → engines table → `oil_capacity_qts` column on
+      // the seeded EVAL-I4-1.5T engine. Mock mode is unchanged (the mock
+      // shim returns labeled-set outcomes verbatim regardless of topic).
       const entry: LabeledEntry = {
         id: "crosstenant-d-001",
         query: "How much oil does my car take?",
@@ -638,6 +645,8 @@ const CROSS_TENANT_CASES: CaseAssertion[] = [
         expected_fact_substrings: ["quart"],
         category: "A",
         cross_tenant: true,
+        topic: "oil_capacity",
+        topic_axis: "engine",
       };
 
       const r = await runCascade(entry, mode);
@@ -645,14 +654,15 @@ const CROSS_TENANT_CASES: CaseAssertion[] = [
       const tagOk = r.actual_render_tag === false;
       const noWebOk = r.web_search_invoked === false;
       const assertionsOk = tierOk && tagOk && noWebOk;
-      // DEFERRED: passed=false in live until cascadeClient switches to
-      // runFullCascade. Mock passes the assertion shape.
-      const passed = mode === "mock" ? assertionsOk : false;
+      // Sprint 2 Day 4 wire-up: live now exercises the full T1 cascade via
+      // runFullCascade. Gate collapses to assertionsOk for both modes —
+      // matches the d-002 / d-003 pattern shipped Day 3.
+      const passed = assertionsOk;
       return {
         case_id: "crosstenant-d-001",
         category: "d",
         passed,
-        notes: `mode=${mode} tier=${r.resolved_tier} (exp T1) tag=${r.actual_render_tag} (exp false) web=${r.web_search_invoked} (exp false) assertions=${assertionsOk}${mode === "live" ? " [DEFERRED: cascadeClient needs runFullCascade wiring]" : ""}`,
+        notes: `mode=${mode} tier=${r.resolved_tier} (exp T1) tag=${r.actual_render_tag} (exp false) web=${r.web_search_invoked} (exp false) assertions=${assertionsOk}`,
         details: { cascade: r, cross_tenant: true, fixture: CROSS_TENANT_BASE_SCOPE },
       };
     },

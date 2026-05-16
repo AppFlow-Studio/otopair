@@ -1,23 +1,27 @@
 // =============================================================================
-// cascadeClient — typed wrapper around convex/oto/vehicleFactsKB:cascadeTier2
+// cascadeClient — typed wrapper around convex/oto/evalHarness:runFullCascade
 // =============================================================================
 //
 // Two modes:
 //   1. live — POST to Convex's HTTP action endpoint at $OTO_EVAL_CONVEX_URL
 //             with $OTO_EVAL_CONVEX_KEY as the bearer. The deployment must
-//             have the `cascadeTier2` action exposed and the eval principal
-//             must have read access on `vehicle_facts`.
+//             have the `runFullCascade` action exposed (it lives in
+//             convex/oto/evalHarness.ts) and the eval principal must have
+//             read access on the enrichment-owned tables (vehicle_configs,
+//             engines, transmissions, trim_specs) plus `vehicle_facts`.
 //   2. mock — deterministic canned cascade results keyed by labeled-set id.
 //             First-class. Without a live Convex deployment the harness must
 //             still produce a complete report so it's developable offline
 //             (Doc 3 §6 charter).
 //
 // The wrapper exposes ONE function — `runCascade(entry, mode)` — that returns
-// the same shape regardless of mode. Tier 1 (which lives outside this file
-// in `vehicleFacts.ts` / structured enrichment tables) and Tier 3 (which is
-// a web_search dispatched at the chat.ts level) are NOT cascadeTier2's job;
-// the harness's mock layer emulates them too so the labeled-set entries that
-// expect T1, T3, or REFUSE still have something to assert against.
+// the same shape regardless of mode. In live mode the call now exercises the
+// FULL cascade walk: T1 (enrichment-table lookups via lookupT1 → engines /
+// transmissions / trim_specs / vehicle_configs) → T2 (HASH → STRUCT → TEXT
+// via cascadeTier2) → T3 (stubbed; gated behind `no_web_search`). The eval-
+// baseline default is `no_web_search: true` so T3 reports `tier=null` with
+// empty facts unless we explicitly turn it on (variable latency + API cost
+// should not ride in baseline measurement — RAG_WAVE_5_1 §6).
 // =============================================================================
 
 import type {
@@ -50,6 +54,20 @@ export interface LabeledEntry {
   category: Category;
   cross_tenant?: boolean;
   notes?: string;
+  /**
+   * Optional explicit topic override. When provided, the live cascade call
+   * passes this as `topic` to `runFullCascade` (which routes T1 lookups via
+   * `T1_TOPIC_MAP` in `convex/oto/evalHarness.ts` and feeds T2 STRUCT/TEXT).
+   * When absent, falls back to `"general"` — which T1 cannot resolve, so
+   * the cascade walks straight to T2. Set for cases that EXPECT a T1 hit.
+   */
+  topic?: string;
+  /**
+   * Optional explicit topic_axis override. When provided, passed verbatim
+   * to `runFullCascade`. Must be one of the five axis literals the
+   * `FullCascadeFactRow.topic_axis` type permits.
+   */
+  topic_axis?: "vehicle" | "trim" | "chassis" | "engine" | "model_year";
 }
 
 // -- Cascade response (matches vehicleFactsKB.ts Tier2Result + outer driver) --
@@ -93,20 +111,33 @@ function getConvexConfig(): ConvexHttpConfig | null {
 }
 
 /**
- * STUB: real Convex action POST. Shape per
- *   https://docs.convex.dev/http-api/#action-call
+ * Live cascade: POST `oto/evalHarness:runFullCascade` to the Convex HTTP
+ * action endpoint. This exercises the FULL T1 → T2 → T3 walk:
+ *   • T1 — topic-routed lookup against enrichment-owned tables (engines,
+ *     transmissions, trim_specs, vehicle_configs) via `lookupT1`. Requires
+ *     the caller to pass a `topic` from `T1_TOPIC_MAP` (e.g., "oil_capacity",
+ *     "tire_pressure_front"). If the caller passes "general" or another
+ *     unmapped topic, T1 returns no rows and the cascade falls through.
+ *   • T2 — HASH → STRUCT → TEXT via the existing `cascadeTier2` action.
+ *   • T3 — stub. With `no_web_search: true` (eval-baseline default), this
+ *     entry point reports `tier=null` with empty facts on all-tier-miss.
+ *     With `no_web_search: false`, reports `tier=T3` with empty facts (real
+ *     web_search wiring is Day 5+ work).
  *
- * Fully functional structurally — the wire format is correct — but does NOT
- * exercise Tier 1 (which is `api.oto.vehicleFacts.getVehicleFacts`, a query
- * routed by topic, not by hash). A complete live harness needs the outer
- * driver from `convex/oto/tools.ts::retrieve_vehicle_facts` exposed as an
- * action so this client can call it directly. Day 4 ticket: expose that
- * driver as `api.oto.evalHarness.runFullCascade` and switch this call over.
- *
- * For now this function calls cascadeTier2 only and reports T2_HASH / T2_STRUCT / T2_TEXT / NONE. T1
- * and T3 lookups will report NONE, which the harness treats as a miss; this
- * is acceptable for harness-shape work but NOT for the Wave 5.2 baseline
- * measurement. The baseline must run after the Day 4 driver-exposure ticket.
+ * The endpoint returns `FullCascadeResult` (see convex/oto/evalHarness.ts):
+ *   { tier, facts, attempted_tiers }
+ * We map onto the harness's `CascadeResponse` field-by-field:
+ *   tier === null            → resolved_tier = "NONE"
+ *   tier === "REFUSE"        → resolved_tier = "REFUSE"
+ *   tier === "T1"|"T2_*"|"T3"→ resolved_tier = same literal
+ * `facts` carries `render_disclaim_tag` per row (the locked F.5 predicate);
+ * we pass through to `first_hit_facts` and reuse for `union_facts` since
+ * `runFullCascade` returns only the first-hit tier's rows. `web_search_invoked`
+ * is true iff `attempted_tiers` includes "T3" (i.e., we passed `no_web_search:
+ * false` AND T1/T2 both missed). `per_tier_counts` is best-effort: we record
+ * the count of the resolved tier; pre-tier counts are not surfaced by
+ * `runFullCascade` (it short-circuits on first-hit) — the cascade is
+ * monotonic-fail-forward so this stays accurate.
  */
 async function runCascadeLive(
   entry: LabeledEntry,
@@ -114,7 +145,7 @@ async function runCascadeLive(
 ): Promise<CascadeResponse> {
   const endpoint = `${cfg.url.replace(/\/$/, "")}/api/action`;
   const body = {
-    path: "oto/vehicleFactsKB:cascadeTier2",
+    path: "oto/evalHarness:runFullCascade",
     args: {
       question_text: entry.query,
       topic: deriveTopicForLive(entry),
@@ -129,6 +160,7 @@ async function runCascadeLive(
         ? { engine_code: entry.vehicle_scope.engine_code }
         : {}),
       limit: 5,
+      no_web_search: true,
     },
     format: "json",
   };
@@ -145,28 +177,42 @@ async function runCascadeLive(
   if (!res.ok) {
     const text = await res.text();
     throw new Error(
-      `cascadeTier2 HTTP ${res.status}: ${text.slice(0, 200)}`,
+      `runFullCascade HTTP ${res.status}: ${text.slice(0, 200)}`,
     );
   }
 
   const raw = (await res.json()) as {
     status: string;
     value?: {
-      tier: "T2_HASH" | "T2_STRUCT" | "T2_TEXT" | null;
+      tier:
+        | "T1"
+        | "T2_HASH"
+        | "T2_STRUCT"
+        | "T2_TEXT"
+        | "T3"
+        | "REFUSE"
+        | null;
       facts: Array<{
         fact_id: string;
         fact_text: string;
-        render_disclaim_tag: boolean;
+        topic: string;
+        topic_axis: string;
         source: string;
         verification_status: string;
+        confidence: number;
+        cited_url: string | null;
+        canonical_question_key: string | null;
+        render_disclaim_tag: boolean;
+        match_kind: string;
       }>;
+      attempted_tiers: Array<"T1" | "T2_HASH" | "T2_STRUCT" | "T2_TEXT" | "T3">;
     };
     errorMessage?: string;
   };
 
   if (raw.status !== "success" || !raw.value) {
     throw new Error(
-      `cascadeTier2 action returned ${raw.status}: ${raw.errorMessage ?? "(no message)"}`,
+      `runFullCascade action returned ${raw.status}: ${raw.errorMessage ?? "(no message)"}`,
     );
   }
 
@@ -176,30 +222,35 @@ async function runCascadeLive(
     render_disclaim_tag: f.render_disclaim_tag,
   }));
 
+  // Map FullCascadeResult.tier → CascadeResponse.resolved_tier. The two
+  // share every non-null literal verbatim; null collapses to "NONE" (the
+  // harness's all-tier-miss sentinel).
   const resolved_tier: ResolvedTier = tier === null ? "NONE" : tier;
-  const actual_render_tag = facts.length > 0 ? !!facts[0].render_disclaim_tag : false;
+  const actual_render_tag =
+    facts.length > 0 ? !!facts[0].render_disclaim_tag : false;
+  const web_search_invoked = raw.value.attempted_tiers.includes("T3");
 
   return {
     resolved_tier,
     first_hit_facts: facts,
     union_facts: facts,
     actual_render_tag,
-    web_search_invoked: false,
+    web_search_invoked,
     per_tier_counts: { [resolved_tier]: facts.length } as Partial<
       Record<ResolvedTier, number>
     >,
   };
 }
 
-// Trivial topic mapper for the live call. The real outer driver in
-// `tools.ts::retrieve_vehicle_facts` does smarter topic routing; this stub
-// passes "general" so the structural index doesn't over-filter. Day 4 will
-// replace this when the full driver is exposed.
-function deriveTopicForLive(_entry: LabeledEntry): string {
-  return "general";
+// Topic mapper for the live call. Honors an explicit `topic` on the labeled
+// entry (e.g., "oil_capacity" for the d-001 case so T1 hits); falls back to
+// "general" otherwise — which `T1_TOPIC_MAP` does not contain, so T1 is a
+// no-op and the cascade walks straight to T2.
+function deriveTopicForLive(entry: LabeledEntry): string {
+  return entry.topic ?? "general";
 }
-function deriveTopicAxisForLive(_entry: LabeledEntry): string {
-  return "vehicle";
+function deriveTopicAxisForLive(entry: LabeledEntry): string {
+  return entry.topic_axis ?? "vehicle";
 }
 
 // -- MOCK mode: canned, deterministic, per-entry-id --------------------------
