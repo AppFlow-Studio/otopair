@@ -7,6 +7,7 @@ import Animated, {
   useAnimatedStyle,
   withTiming,
   Easing,
+  runOnJS,
 } from "react-native-reanimated";
 
 const AnimatedRect = Animated.createAnimatedComponent(Rect);
@@ -47,11 +48,19 @@ export default function SquircleRing({
   const perimeter = useMemo(() => computePerimeter(w, h, rx), [w, h, rx]);
   const animatedProgress = useSharedValue(progress);
   const glowAnim = useSharedValue(isDone ? 1 : 0);
+  const [showProgressStroke, setShowProgressStroke] = React.useState(progress > 0);
 
   useEffect(() => {
+    if (progress > 0) {
+      setShowProgressStroke(true);
+    }
     animatedProgress.value = withTiming(progress, {
       duration: 600,
       easing: Easing.bezier(0.16, 1, 0.3, 1),
+    }, (finished) => {
+      if (finished && progress <= 0) {
+        runOnJS(setShowProgressStroke)(false);
+      }
     });
   }, [progress]);
 
@@ -93,18 +102,20 @@ export default function SquircleRing({
           stroke="rgba(82,153,254,0.1)"
           strokeWidth={STROKE_WIDTH}
         />
-        <AnimatedRect
-          x={INSET}
-          y={INSET}
-          width={rectW}
-          height={rectH}
-          rx={rx}
-          fill="none"
-          stroke="#5299FE"
-          strokeWidth={STROKE_WIDTH}
-          strokeLinecap="round"
-          animatedProps={progressProps}
-        />
+        {showProgressStroke ? (
+          <AnimatedRect
+            x={INSET}
+            y={INSET}
+            width={rectW}
+            height={rectH}
+            rx={rx}
+            fill="none"
+            stroke="#5299FE"
+            strokeWidth={STROKE_WIDTH}
+            strokeLinecap="round"
+            animatedProps={progressProps}
+          />
+        ) : null}
       </Svg>
     </Animated.View>
   );

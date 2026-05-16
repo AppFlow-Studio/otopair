@@ -20,6 +20,7 @@ import {
   Dimensions,
   Easing,
   Keyboard,
+  Platform,
   Pressable,
   StyleSheet,
   View,
@@ -357,6 +358,14 @@ function CardGridItem({ cardId, isDone, isJustCompleted, progress, onPress, isWi
           <ReAnimated.View style={glowWrapperStyle}>
             <ReAnimated.View style={pulseAnimStyle}>
               <View style={{ width: outerW, height: outerH, alignItems: "center", justifyContent: "center" }}>
+                {!isCompleted ? (
+                  <View
+                    style={[
+                      s.cardOuterFill,
+                      { width: outerW, height: outerH, borderRadius: CARD_RX },
+                    ]}
+                  />
+                ) : null}
                 <SquircleRing width={outerW} height={outerH} rx={CARD_RX} progress={progress} isDone={isCompleted} />
 
                 {/* Default glass card */}
@@ -498,13 +507,49 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
   // ── Mount fade-in (when entering stepping directly) ────────
   const mountHeaderFade = useRef(new Animated.Value(skipIntro ? 0 : 1)).current;
   const mountGridFade = useRef(new Animated.Value(skipIntro ? 0 : 1)).current;
+  const mountGridTranslateY = useRef(
+    new Animated.Value(skipIntro && Platform.OS === "android" ? scale(18) : 0),
+  ).current;
+  const mountGridScale = useRef(
+    new Animated.Value(skipIntro && Platform.OS === "android" ? 0.985 : 1),
+  ).current;
   const mountFooterFade = useRef(new Animated.Value(skipIntro ? 0 : 1)).current;
 
   useEffect(() => {
     if (!skipIntro) return;
     Animated.stagger(180, [
       Animated.timing(mountHeaderFade, { toValue: 1, duration: 500, easing: Easing.out(Easing.ease), useNativeDriver: true }),
-      Animated.timing(mountGridFade, { toValue: 1, duration: 500, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+      ...(Platform.OS === "android"
+        ? [
+            Animated.parallel([
+              Animated.timing(mountGridFade, {
+                toValue: 1,
+                duration: 420,
+                easing: Easing.out(Easing.ease),
+                useNativeDriver: true,
+              }),
+              Animated.timing(mountGridTranslateY, {
+                toValue: 0,
+                duration: 420,
+                easing: Easing.out(Easing.cubic),
+                useNativeDriver: true,
+              }),
+              Animated.timing(mountGridScale, {
+                toValue: 1,
+                duration: 420,
+                easing: Easing.out(Easing.cubic),
+                useNativeDriver: true,
+              }),
+            ]),
+          ]
+        : [
+            Animated.timing(mountGridFade, {
+              toValue: 1,
+              duration: 500,
+              easing: Easing.out(Easing.ease),
+              useNativeDriver: true,
+            }),
+          ]),
       Animated.timing(mountFooterFade, { toValue: 1, duration: 500, easing: Easing.out(Easing.ease), useNativeDriver: true }),
     ]).start();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -797,7 +842,20 @@ const CarInfoStepper = forwardRef<CarInfoStepperHandle, CarInfoStepperProps>(fun
           </Animated.View>
 
           {/* Grid */}
-          <Animated.View style={[s.steppingBody, { opacity: mountGridFade }]}>
+          <Animated.View
+            needsOffscreenAlphaCompositing={Platform.OS === "android"}
+            renderToHardwareTextureAndroid={Platform.OS === "android"}
+            style={[
+              s.steppingBody,
+              {
+                opacity: mountGridFade,
+                transform: [
+                  { translateY: mountGridTranslateY },
+                  { scale: mountGridScale },
+                ],
+              },
+            ]}
+          >
             {renderServiceGrid()}
           </Animated.View>
 
@@ -1015,7 +1073,7 @@ const s = StyleSheet.create({
     gap: GRID_GAP,
   },
   card: {
-    backgroundColor: "rgba(255,255,255,0.85)",
+    backgroundColor: "#FFFFFF",
     borderWidth: 1.5,
     borderColor: "rgba(255,255,255,0.9)",
     alignItems: "center",
@@ -1025,6 +1083,12 @@ const s = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 28,
     elevation: 4,
+  },
+  cardOuterFill: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    backgroundColor: "#FFFFFF",
   },
   cardGradientOverlay: {
     position: "absolute",
