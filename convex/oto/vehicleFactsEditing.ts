@@ -51,6 +51,7 @@
 import { mutation } from "../_generated/server";
 import { v } from "convex/values";
 import type { Doc } from "../_generated/dataModel";
+import { queryMoat } from "./queryMoat";
 
 // -----------------------------------------------------------------------------
 // Shared validators — mirror the schema unions so a typo here surfaces at
@@ -157,24 +158,22 @@ export const recordVehicleFact = mutation({
     }
 
     // Dedupe on canonical_question_key.
-    // Wave 7.3 Option B (Sprint 2 Day 2): mutation-context migration
-    // through queryMoat triggered a TS2589 cascade across this file's
-    // other mutation() declarations (the queryMoat import widens the
-    // api-tree resolution depth past TS's limit, breaking type narrowing
-    // for the file's mutation handler bodies). Same shape as the chat.ts
-    // ts-expect-error pattern but at file-import level. Tactical posture:
-    // keep this site grandfathered while the inbound call from chat.ts
-    // (record_vehicle_fact callable) already bumps the action-side
-    // counter via `bumpUserCounter`. Promotion: when Convex helper
-    // generics improve (or queryMoat is rewritten to break the union
-    // dependency), migrate this site and remove the annotation.
-    // EXEMPT: Wave 7.3 grandfathered -- TS2589 cascade on queryMoat import.
-    const existing = await ctx.db
-      .query("vehicle_facts")
-      .withIndex("by_canonical_question", (q) =>
-        q.eq("canonical_question_key", args.canonical_question_key),
-      )
-      .first();
+    // Wave 7.3 Option B (Sprint 2 Day 3): migrated through queryMoat after
+    // the build-callback typing was tightened to `QueryInitializer<NamedTableInfo<...>>`,
+    // which preserves the table-scoped index/field names through the helper
+    // boundary. Counter bump applies in mutation context per the helper's
+    // contract; this is the canonical KB (Group G) write-side read path.
+    const existingRows = await queryMoat(
+      ctx,
+      "vehicle_facts",
+      (q) =>
+        q
+          .withIndex("by_canonical_question", (q2) =>
+            q2.eq("canonical_question_key", args.canonical_question_key),
+          )
+          .take(1),
+    );
+    const existing = existingRows[0] ?? null;
 
     const now = Date.now();
 

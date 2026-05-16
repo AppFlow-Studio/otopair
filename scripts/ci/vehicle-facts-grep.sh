@@ -9,9 +9,16 @@
 # folded into one combined pass per §5 fold-recommendation).
 # Sprint 1 Day 5 update (2026-05-16): Rule 6 added — chat-tool moat reads
 # must filter the EvalTest sentinel namespace.
+# Sprint 2 Day 1 update (2026-05-16): Rules 7 + 8 + 9 added — moat reads
+# must route through queryMoat helper; prompt-split shim discipline; and
+# MOAT_TABLES list integrity (28 entries pinned).
+# Sprint 2 Day 3 update (2026-05-16): Rules 10 + 11 added — bumpMoat literal
+# integrity (Day 2's action-context wire-through pattern) and direct-delete
+# protection on vehicle_facts / vehicle_facts_audit / fact_reports outside
+# the migrations/ teardown path.
 # Subagent consensus: Memory Engineer + Security Analyst + RAG Specialist.
 #
-# Seven rules. Together they pin the v3 invariants at code-review time:
+# Eleven rules. Together they pin the v3 invariants at code-review time:
 #   1. No direct ctx.db.patch against vehicle_facts outside the helper.
 #      Exception: convex/oto/vehicleFactsEditing.ts.
 #   2. No direct ctx.db.replace against vehicle_facts anywhere.
@@ -335,9 +342,116 @@ else
 fi
 echo ""
 
+# Rule 10 -- Wave 7.3 bumpMoat literal integrity (Sprint 2 Day 3): every
+# bumpMoat("X", ...) call in convex/oto/ must pass a table-name literal that is
+# either (a) a member of the MOAT_TABLES set, OR (b) a "+"-joined composite of
+# MOAT_TABLES members (the conservative-attribution pattern used by
+# lookup_vehicle_spec's multi-table read), OR (c) preceded by an EXEMPT:
+# annotation. Defends against typos and against drift when Rule 9's MOAT_TABLES
+# list changes (a bumpMoat with a name removed from MOAT_TABLES would silently
+# misattribute the rate-limit counter). Multi-line aware: looks at the bumpMoat
+# anchor line plus the two following lines for the first quoted argument.
+echo "Rule 10: bumpMoat literal integrity (every call passes a moat-table name)..."
+RULE_10_VIOLATIONS=""
+RULE_10_ANCHORS=$(rg -n 'bumpMoat\(' convex/oto/ --type ts 2>/dev/null || true)
+if [ -n "$RULE_10_ANCHORS" ]; then
+  while IFS= read -r hit; do
+    [ -z "$hit" ] && continue
+    file="${hit%%:*}"
+    rest="${hit#*:}"
+    lineno="${rest%%:*}"
+    arg=$(sed -n "${lineno},$((lineno+2))p" "$file" 2>/dev/null | tr '\n' ' ' \
+          | sed -nE 's/.*bumpMoat\([[:space:]]*"([^"]+)".*/\1/p' | head -1)
+    if [ -z "$arg" ]; then
+      start=$(( lineno > 2 ? lineno - 2 : 1 ))
+      if sed -n "${start},${lineno}p" "$file" 2>/dev/null | rg -q 'EXEMPT:'; then
+        continue
+      fi
+      RULE_10_VIOLATIONS="${RULE_10_VIOLATIONS}  $file:$lineno  bumpMoat( called with non-literal argument (only literal table names allowed; use EXEMPT: to grandfather)
+"
+      continue
+    fi
+    valid=0
+    case "|$MOAT_TABLES_W7_3|" in
+      *"|$arg|"*) valid=1 ;;
+    esac
+    if [ $valid -eq 0 ] && [ "$arg" != "${arg/+/}" ]; then
+      composite_ok=1
+      OLD_IFS="$IFS"
+      IFS='+'
+      for piece in $arg; do
+        case "|$MOAT_TABLES_W7_3|" in
+          *"|$piece|"*) ;;
+          *) composite_ok=0; break ;;
+        esac
+      done
+      IFS="$OLD_IFS"
+      if [ $composite_ok -eq 1 ]; then valid=1; fi
+    fi
+    if [ $valid -eq 0 ]; then
+      start=$(( lineno > 2 ? lineno - 2 : 1 ))
+      if sed -n "${start},${lineno}p" "$file" 2>/dev/null | rg -q 'EXEMPT:'; then
+        valid=1
+      fi
+    fi
+    if [ $valid -eq 0 ]; then
+      RULE_10_VIOLATIONS="${RULE_10_VIOLATIONS}  $file:$lineno  bumpMoat(\"$arg\") -- \"$arg\" not in MOAT_TABLES, not a valid composite, no EXEMPT annotation
+"
+    fi
+  done <<< "$RULE_10_ANCHORS"
+fi
+if [ -n "$RULE_10_VIOLATIONS" ]; then
+  red "  FAIL -- bumpMoat called with non-MOAT_TABLES argument:"
+  printf "%b" "$RULE_10_VIOLATIONS"
+  VIOLATIONS=$((VIOLATIONS + 1))
+else
+  green "  OK"
+fi
+echo ""
+
+# Rule 11 -- delete protection on protected tables (Sprint 2 Day 3): direct
+# ctx.db.delete(...) inside convex/oto/ is restricted to the migrations/
+# teardown path (legitimate cleanup, e.g. cleanupEvalVerifiedFact in
+# verifiedFactsSeed.ts). vehicle_facts_audit MUST remain append-only outside
+# that path -- deleting audit rows for an unrelated fact breaks the safety
+# property D-3.2 relocated to the audit log per PM Ruling v3 sec.4.2.
+# vehicle_facts retraction is a status flip via editVehicleFact, never a
+# delete. fact_reports deletes only happen during fact teardown (when the
+# parent row is also being removed). Future admin tooling can be grandfathered
+# with an EXEMPT: <reason> annotation above the call.
+echo "Rule 11: delete protection on protected tables..."
+RULE_11_HITS=$(
+  rg -n 'ctx\.db\.delete\(' convex/oto/ --type ts \
+  | rg -v "^convex/oto/migrations/" \
+  || true
+)
+RULE_11_VIOLATIONS=""
+if [ -n "$RULE_11_HITS" ]; then
+  while IFS= read -r hit; do
+    [ -z "$hit" ] && continue
+    file="${hit%%:*}"
+    rest="${hit#*:}"
+    lineno="${rest%%:*}"
+    start=$(( lineno > 2 ? lineno - 2 : 1 ))
+    if sed -n "${start},${lineno}p" "$file" 2>/dev/null | rg -q 'EXEMPT:'; then
+      continue
+    fi
+    RULE_11_VIOLATIONS="${RULE_11_VIOLATIONS}${hit}
+"
+  done <<< "$RULE_11_HITS"
+fi
+if [ -n "$RULE_11_VIOLATIONS" ]; then
+  red "  FAIL -- ctx.db.delete outside migrations/ (teardown path) without EXEMPT annotation:"
+  printf "%s" "$RULE_11_VIOLATIONS"
+  VIOLATIONS=$((VIOLATIONS + 1))
+else
+  green "  OK"
+fi
+echo ""
+
 # Summary
 if [ $VIOLATIONS -eq 0 ]; then
-  green "All vehicle-facts invariant checks passed (9/9 rules clean)."
+  green "All vehicle-facts invariant checks passed (11/11 rules clean)."
   exit 0
 else
   red "$VIOLATIONS rule violation(s)."
@@ -350,6 +464,12 @@ else
   yellow "  convex/oto/queryMoat.ts, OR add a one-line 'EXEMPT: <reason>' comment"
   yellow "  immediately above the read for grandfathered sites (e.g. the 4-table"
   yellow "  services-moat hole accepted in D-Q1)."
+  yellow "For Rule 10: pass a literal table name from MOAT_TABLES in queryMoat.ts,"
+  yellow "  OR a '+'-joined composite of MOAT_TABLES members (e.g. for multi-table"
+  yellow "  reads), OR annotate the call with an 'EXEMPT: <reason>' comment."
+  yellow "For Rule 11: deletes on vehicle_facts / vehicle_facts_audit / fact_reports"
+  yellow "  belong in convex/oto/migrations/ teardown helpers (e.g."
+  yellow "  cleanupEvalVerifiedFact). For new admin tooling, annotate EXEMPT."
   yellow "If you genuinely need a new mutation pattern, update the helper, the schema,"
   yellow "  MEMORY_SCHEMA_V3_CONSOLIDATED, and this script."
   exit 1

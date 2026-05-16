@@ -278,6 +278,12 @@ export async function seedVerifiedFact(
 //
 // All deletes scoped strictly to the passed fact_id. Idempotent —
 // missing rows at any stage are silently skipped.
+//
+// NOTE: The teardown is fact_id-keyed, NOT verification-status-keyed. It
+// works uniformly for verified and unverified facts. The "Verified" in the
+// name is historical (the helper landed as the verified-fact companion in
+// Sprint 2 Day 2); the d-003 unverified case reuses this same teardown
+// without a separate cleanupUnverifiedFact wrapper.
 
 export async function cleanupVerifiedFact(
   client: ConvexClient,
@@ -291,5 +297,46 @@ export async function cleanupVerifiedFact(
     client,
     "oto/migrations/verifiedFactsSeed:cleanupEvalVerifiedFact",
     args as unknown as Record<string, unknown>,
+  );
+}
+
+// -- Public: seedUnverifiedFact ----------------------------------------------
+//
+// Sprint 2 Day 3 (QA Lead — crosstenant-d-003 wire-up).
+//
+// HTTP-only wrapper that calls `seedEvalVerifiedFact` with verify=false.
+// No new internalMutation is required because the underlying mutation
+// already exposes a `verify` boolean that defaults to true; flipping it to
+// false skips the paired editVehicleFact("verify") call and leaves the row
+// at verification_status="unverified", which is the d-003 setup the case
+// needs.
+//
+// Args mirror SeedVerifiedFactArgs minus the verify/editor_user_id fields,
+// since both are forced to the unverified configuration (verify=false, no
+// editor required).
+//
+// Returns the new (or de-duped) fact_id — same shape as seedVerifiedFact
+// so the case-site code stays symmetric.
+//
+// Teardown: use the existing `cleanupVerifiedFact(client, { fact_id })` —
+// the cleanup is fact_id-keyed and works uniformly for unverified facts.
+
+export type SeedUnverifiedFactArgs = Omit<
+  SeedVerifiedFactArgs,
+  "verify" | "editor_user_id"
+>;
+
+export async function seedUnverifiedFact(
+  client: ConvexClient,
+  args: SeedUnverifiedFactArgs,
+): Promise<SeededVerifiedFact> {
+  const verifiedArgs: SeedVerifiedFactArgs = {
+    ...args,
+    verify: false,
+  };
+  return await postMutation<SeededVerifiedFact>(
+    client,
+    "oto/migrations/verifiedFactsSeed:seedEvalVerifiedFact",
+    verifiedArgs as unknown as Record<string, unknown>,
   );
 }

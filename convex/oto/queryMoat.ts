@@ -76,7 +76,9 @@
 
 import { internalMutation } from "../_generated/server";
 import type { ActionCtx, MutationCtx } from "../_generated/server";
-import type { Doc, Id } from "../_generated/dataModel";
+import type { DataModel, Doc, Id } from "../_generated/dataModel";
+import type { NamedTableInfo } from "convex/server";
+import type { QueryInitializer } from "convex/server";
 import { v } from "convex/values";
 
 // -----------------------------------------------------------------------------
@@ -176,21 +178,26 @@ export class MoatRateLimitedError extends Error {
 }
 
 // -----------------------------------------------------------------------------
-// Query-builder type alias. We keep this loose intentionally: the second
-// argument to `build` is whatever `ctx.db.query("<table>")` returns. Convex
-// types this as the OrderedQuery for the table; the helper passes it through
-// unchanged. Avoiding the explicit OrderedQuery type lets us support both
-// `.withIndex(...).collect()` and bare `.collect()` shapes without a deep
-// Convex generics dance.
+// Query-builder typing. The build callback receives the table-scoped
+// QueryInitializer Convex returns from `ctx.db.query(tableName)`. We thread
+// the table-name literal `T extends MoatTable` through to the callback so
+// `.withIndex("<index_name>", ...)` and `.eq("<field>", ...)` resolve against
+// the actual table's index/field set instead of collapsing to the system-table
+// shape (`by_id`/`by_creation_time` only). This was the latent bug behind the
+// Sprint 2 Day 2 cascade: the old `ReturnType<CtxWithDb["db"]["query"]>` alias
+// erased the table generic at the callback boundary, so every concrete call
+// site would TS2345 at the first index name.
 // -----------------------------------------------------------------------------
 
-// The callback receives the query handle and returns a final value
-// (typically a Promise<T[]> after `.collect()`/`.take()`/`.first()`).
-// We type the callback as `unknown -> Promise<unknown>` and narrow on the
-// caller side via the helper's generic parameter. This avoids `any` while
-// keeping the helper drop-in for arbitrary `withIndex(...)` chains.
 type CtxWithDb = MutationCtx;
 type AnyCtx = MutationCtx | ActionCtx;
+
+// The table-scoped query handle the `build` callback receives. Constructed
+// from Convex's `NamedTableInfo<DataModel, T>` so index names + field names on
+// `.withIndex(...)` / `.eq(...)` resolve precisely.
+type MoatQueryHandle<T extends MoatTable> = QueryInitializer<
+  NamedTableInfo<DataModel, T>
+>;
 
 // -----------------------------------------------------------------------------
 // queryMoat — the canonical helper
@@ -209,16 +216,19 @@ type AnyCtx = MutationCtx | ActionCtx;
  * accordingly.
  *
  * @param ctx          The Convex MutationCtx (or ActionCtx with a sibling bump path).
- * @param tableName    A `MoatTable` -- compile-time-checked union of the 28 names.
+ * @param tableName    A `MoatTable` literal -- compile-time-checked union of the 28 names.
  * @param build        Callback that wires `withIndex(...)` and finalizes the query.
+ *                     The callback's `q` parameter is the table-scoped
+ *                     `QueryInitializer` so index names + field names type-check
+ *                     against the concrete table.
  * @param opts.threshold Optional explicit threshold override (otherwise N × p95).
  */
-export async function queryMoat<T>(
+export async function queryMoat<Table extends MoatTable, Row>(
   ctx: CtxWithDb,
-  tableName: MoatTable,
-  build: (q: ReturnType<CtxWithDb["db"]["query"]>) => Promise<T[]>,
+  tableName: Table,
+  build: (q: MoatQueryHandle<Table>) => Promise<Row[]>,
   opts?: { threshold?: number },
-): Promise<T[]> {
+): Promise<Row[]> {
   const threshold =
     typeof opts?.threshold === "number"
       ? opts.threshold
@@ -228,7 +238,13 @@ export async function queryMoat<T>(
   const userId = await resolveCallingUserId(ctx);
 
   // Execute the underlying query first; the row-count is the bump delta.
-  const rows: T[] = await build(ctx.db.query(tableName));
+  // Cast the table-scoped query handle to the callback's parameter type --
+  // Convex's `ctx.db.query(tableName)` returns the table-scoped initializer
+  // at runtime; the cast restores that type for the callback after the
+  // dispatch through the union of all moat tables (which TS can't narrow on
+  // the value `tableName` alone).
+  const q = ctx.db.query(tableName) as unknown as MoatQueryHandle<Table>;
+  const rows: Row[] = await build(q);
   const rowsDelta = rows.length;
 
   // System / cron / unauthenticated calls are NOT subject to the counter.
@@ -249,7 +265,7 @@ export async function queryMoat<T>(
       `[queryMoat] soft block for user=${userId} on table=${tableName} ` +
         `(counter exceeded threshold; serving empty result)`,
     );
-    return [] as T[];
+    return [] as Row[];
   }
   // decision === "hard_block"
   throw new MoatRateLimitedError(userId, rowsDelta, threshold);

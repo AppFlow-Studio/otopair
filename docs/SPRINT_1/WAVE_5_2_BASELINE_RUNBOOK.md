@@ -338,7 +338,7 @@ these exact numbers.
 | Per-case `pass_ci_low` / `pass_ci_high` columns are blank / equal to pass_rate | `--repeats` was set to 1 (or omitted on an older version) | The harness warns under N<10 but doesn't refuse. Re-run with `--repeats 10`. Wilson CI needs ≥10 samples to be informative — `WAVE_1_5_PROMPT_CHANGE_PROTOCOL.md` §3(a) hinges on this. |
 | Per-category breakdown printed but no top-line aggregate block | The harness was killed mid-run (Ctrl+C, network blip) before `main()` reached `renderSummary()` | Re-run the full command. Partial JSON files in `runs/` are safe to delete. |
 | `recordPromptChange` returns `MUTATION_NOT_FOUND` | The deployment is missing `convex/oto/promptChangelog.ts` (Day 5 deliverable) | Confirm with `npx convex run oto/promptChangelog:listRecentChanges`. If that also 404s, re-deploy. |
-| Live-cat-G cases pass but cat-D cross-tenant cases all FAIL | The `multiTenantSetup` seed succeeded but the assertion logic is still placeholder-deferred | This is expected on Day 7 — `wave_1_4_v3_harness.ts:507-548` cross-tenant cases are deferred-shape pending the assertion-wiring wave. Note the FAILs but they don't invalidate the rest of the run. |
+| Live-cat-G cases pass but cat-D cross-tenant cases all FAIL | (HISTORICAL — Sprint 1 Day 7 state) The `multiTenantSetup` seed succeeded but the assertion logic was placeholder-deferred. **Sprint 2 Day 3 wired d-002 / d-003 to seed + assert + tear down via `seedVerifiedFact` / `seedUnverifiedFact` / `cleanupVerifiedFact`.** Cat-D should now PASS in live mode at ≥95% / N=10. d-001 remains deferred until `runFullCascade` is wired into `cascadeClient.ts` (separate harness-owner ticket; see cascadeClient.ts:104). If d-002/d-003 still FAIL in live mode after Day 3, check that the deployment ships `internal.oto.migrations.verifiedFactsSeed.{seedEvalVerifiedFact,cleanupEvalVerifiedFact}` (Sprint 2 Day 2). |
 
 ---
 
@@ -367,10 +367,12 @@ scope for Wave 5.2 — do not conflate "the baseline lands cleanly" with
 6. **LLM-judge boundary cases.** Wave 1.4 v3 categories (b/c/e) are
    programmatic — they assert structural invariants, not language quality. The
    LLM-judge waves ride this same harness later; they aren't running today.
-7. **Cross-tenant assertion correctness.** Cat-D cases in
-   `wave_1_4_v3_harness.ts` are seed-able now (Step 2b) but the assertion
-   bodies are still placeholder pass=false pending Wave 5.4 wiring. Treat any
-   cat-D FAIL as "infrastructure deferred," not "the cascade is broken."
+7. **Cross-tenant assertion correctness.** (UPDATED — Sprint 2 Day 3) Cat-D
+   cases d-002 / d-003 are now seed + assert + tear down end-to-end in live
+   mode. d-001 remains placeholder-deferred until `cascadeClient.ts` switches
+   to `runFullCascade` (the Day-4 follow-up; harness-owner ticket). Treat
+   d-001 FAIL as "T1 cascade wiring deferred"; treat d-002/d-003 FAIL as a
+   genuine cascade or seed regression worth investigating.
 
 If anyone reads the baseline as "retrieval is broken / the rebuild can't
 help," redirect them to this list. The number is a measurement of one
