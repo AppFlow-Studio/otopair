@@ -234,6 +234,26 @@ export const getByBookingId = query({
   },
 });
 
+export const getPostjobReportForBooking = query({
+  args: { bookingId: v.id("bookings") },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUser(ctx);
+    const booking = await ctx.db.get(args.bookingId);
+    if (!booking) return null;
+
+    await requireShopStaff(ctx, user._id, booking.shop_id);
+
+    const actual = await getLatestJobActualForBooking(ctx, args.bookingId);
+    if (!actual) return null;
+
+    return {
+      postjobReport: actual.postjob_report ?? null,
+      submittedAt: actual.updated_at ?? actual._creationTime ?? null,
+      mechanicId: actual.mechanic_id ?? null,
+    };
+  },
+});
+
 export const getPrefillData = query({
   args: { bookingId: v.id("bookings") },
   handler: async (ctx, args) => {
@@ -454,6 +474,38 @@ export const getPrefillData = query({
       }
     }
 
+    // Prior open recommendations for the same VIN (shop-scoped). Surfaced as
+    // a muted "last visit said…" strip at the top of the post-job step so
+    // the mechanic has memory aids — actual confirmation happens in pre-job.
+    const priorRecRows = booking.shop_id
+      ? (
+          await ctx.db
+            .query("job_recommendations")
+            .withIndex("by_vehicle_and_status", (q) =>
+              q.eq("vehicle_vin", booking.vin).eq("status", "open"),
+            )
+            .collect()
+        )
+          .filter((r) => String(r.shop_id) === String(booking.shop_id))
+          .sort((a, b) => b.created_at - a.created_at)
+          .slice(0, 5)
+      : [];
+    const priorOpenRecommendations = await Promise.all(
+      priorRecRows.map(async (rec) => {
+        const svc = rec.recommended_service_id
+          ? await ctx.db.get(rec.recommended_service_id)
+          : null;
+        return {
+          _id: rec._id,
+          service_name: svc?.name ?? rec.freeform_text ?? "Unspecified",
+          is_freeform: !rec.recommended_service_id,
+          urgency: rec.urgency,
+          reason: rec.reason ?? null,
+          created_at: rec.created_at,
+        };
+      }),
+    );
+
     return {
       vehicleLabel,
       serviceName: service?.name ?? "",
@@ -465,6 +517,7 @@ export const getPrefillData = query({
       suggestedParts,
       oemRecommendations,
       vehicleConfigId: vehicle.vehicle_config_id ?? null,
+      priorOpenRecommendations,
     };
   },
 });

@@ -35,6 +35,7 @@ import type * as follow_ups from "../follow_ups.js";
 import type * as healthPoints from "../healthPoints.js";
 import type * as http from "../http.js";
 import type * as invitations from "../invitations.js";
+import type * as jobRecommendations from "../jobRecommendations.js";
 import type * as job_actuals from "../job_actuals.js";
 import type * as lib_checkin_questions from "../lib/checkin_questions.js";
 import type * as lib_classifier from "../lib/classifier.js";
@@ -214,6 +215,7 @@ declare const fullApi: ApiFromModules<{
   healthPoints: typeof healthPoints;
   http: typeof http;
   invitations: typeof invitations;
+  jobRecommendations: typeof jobRecommendations;
   job_actuals: typeof job_actuals;
   "lib/checkin_questions": typeof lib_checkin_questions;
   "lib/classifier": typeof lib_classifier;
