@@ -17,7 +17,9 @@ export function TabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
   const [dimensions, setDimensions] = useState({ height: 0, width: 0 });
 
-  const visibleRoutes = state.routes.filter(route => !['_sitemap', '+not-found', 'index'].includes(route.name));
+  const visibleRoutes = state.routes.filter(
+    (route) => !["_sitemap", "+not-found", "index", "settings"].includes(route.name),
+  );
   
   const onTabbarLayout = (e: LayoutChangeEvent) => {
     setDimensions({
