@@ -267,6 +267,12 @@ export function SettingsContainerTransformOverlay() {
         [localRect.width / 2, 26, 0],
         Extrapolation.CLAMP,
       ),
+      opacity: interpolate(
+        progress.value,
+        [0, 0.08, 0.16],
+        [0, 0, 1],
+        Extrapolation.CLAMP,
+      ),
     };
   });
 
