@@ -109,6 +109,7 @@ export function SettingsContainerTransformOverlay() {
   const [mounted, setMounted] = useState(false);
   const [contentMounted, setContentMounted] = useState(false);
   const [settled, setSettled] = useState(false);
+  const [openSequence, setOpenSequence] = useState(0);
   const [activeRect, setActiveRect] = useState<SettingsOverlayRect | null>(
     null,
   );
@@ -160,6 +161,7 @@ export function SettingsContainerTransformOverlay() {
       setMounted(true);
       setContentMounted(true);
       setSettled(false);
+      setOpenSequence((value) => value + 1);
       progress.value = 0;
       progress.value = withTiming(
         1,
@@ -345,9 +347,10 @@ export function SettingsContainerTransformOverlay() {
       <SettingsContent
         deferBlurHeader={!settled}
         avatarOverride={settled ? undefined : avatarPlaceholder}
+        resetScrollSignal={openSequence}
       />
     );
-  }, [avatarPlaceholder, contentMounted, settled]);
+  }, [avatarPlaceholder, contentMounted, openSequence, settled]);
 
   return (
     <View

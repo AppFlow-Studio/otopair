@@ -19,7 +19,7 @@
  * OWNER: Ahmad Hamoudeh (extraction), Daniel Chelala (data plumbing)
  */
 
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   Image,
   type LayoutChangeEvent,
@@ -123,6 +123,8 @@ interface SettingsContentProps {
   translucent?: boolean;
   /** Skips the sticky blur layer while Android's overlay transition is running. */
   deferBlurHeader?: boolean;
+  /** Increment to reset the Settings scroll position back to the top. */
+  resetScrollSignal?: number;
 }
 
 // ============================================================================
@@ -133,6 +135,7 @@ export function SettingsContent({
   avatarOverride,
   translucent,
   deferBlurHeader,
+  resetScrollSignal,
 }: SettingsContentProps) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -301,10 +304,17 @@ export function SettingsContent({
   }, [router]);
 
   // Scroll-driven blur header
+  const scrollRef = useRef<React.ElementRef<typeof Animated.ScrollView>>(null);
   const scrollY = useSharedValue(0);
   const onScroll = useAnimatedScrollHandler((event) => {
     scrollY.value = event.contentOffset.y;
   });
+
+  useLayoutEffect(() => {
+    if (resetScrollSignal === undefined) return;
+    scrollY.value = 0;
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+  }, [resetScrollSignal, scrollY]);
   const blurHeaderStyle = useAnimatedStyle(() => ({
     opacity: interpolate(
       scrollY.value,
@@ -390,6 +400,7 @@ export function SettingsContent({
       )}
 
       <Animated.ScrollView
+        ref={scrollRef}
         onScroll={onScroll}
         scrollEventThrottle={16}
         showsVerticalScrollIndicator={false}
