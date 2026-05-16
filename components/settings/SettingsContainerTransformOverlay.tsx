@@ -107,16 +107,6 @@ export function SettingsContainerTransformOverlay() {
     null,
   );
   const progress = useSharedValue(0);
-  const contentMountTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  );
-
-  const clearContentMountTimer = () => {
-    if (contentMountTimerRef.current) {
-      clearTimeout(contentMountTimerRef.current);
-      contentMountTimerRef.current = null;
-    }
-  };
 
   const measureRoot = () => {
     rootRef.current?.measureInWindow((x, y, width, height) => {
@@ -151,11 +141,18 @@ export function SettingsContainerTransformOverlay() {
   }, [window.width, window.height]);
 
   useEffect(() => {
+    const timer = setTimeout(() => {
+      setContentMounted(true);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, []);
+
+  useEffect(() => {
     if (isOpen && fromRect) {
       measureRoot();
       setActiveRect(fromRect);
       setMounted(true);
-      setContentMounted(false);
+      setContentMounted(true);
       setSettled(false);
       progress.value = 0;
       progress.value = withTiming(
@@ -170,16 +167,10 @@ export function SettingsContainerTransformOverlay() {
           }
         },
       );
-      clearContentMountTimer();
-      contentMountTimerRef.current = setTimeout(() => {
-        setContentMounted(true);
-        contentMountTimerRef.current = null;
-      }, 48);
       return;
     }
 
     if (isTransitionVisible && mounted) {
-      clearContentMountTimer();
       setSettled(false);
       progress.value = withTiming(
         0,
@@ -190,7 +181,6 @@ export function SettingsContainerTransformOverlay() {
         (finished) => {
           if (finished) {
             runOnJS(setMounted)(false);
-            runOnJS(setContentMounted)(false);
             runOnJS(finishClose)();
           }
         },
@@ -199,13 +189,6 @@ export function SettingsContainerTransformOverlay() {
     // mounted intentionally omitted; this reacts to store transitions.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [finishClose, fromRect, isOpen, isTransitionVisible]);
-
-  useEffect(
-    () => () => {
-      clearContentMountTimer();
-    },
-    [],
-  );
 
   useEffect(() => {
     if (Platform.OS !== "android" || !mounted || !isOpen) return;
@@ -338,6 +321,8 @@ export function SettingsContainerTransformOverlay() {
     ),
   }));
 
+  const shouldRenderSurface = mounted || contentMounted;
+
   return (
     <View
       ref={rootRef}
@@ -346,14 +331,23 @@ export function SettingsContainerTransformOverlay() {
       style={styles.root}
       onLayout={handleRootLayout}
     >
-      {mounted ? (
+      {shouldRenderSurface ? (
         <>
-          <Animated.View
-            pointerEvents="none"
-            style={[StyleSheet.absoluteFill, styles.backdrop, backdropStyle]}
-          />
+          {mounted ? (
+            <Animated.View
+              pointerEvents="none"
+              style={[StyleSheet.absoluteFill, styles.backdrop, backdropStyle]}
+            />
+          ) : null}
 
-          <Animated.View style={[styles.surface, surfaceStyle]}>
+          <Animated.View
+            pointerEvents={mounted ? "auto" : "none"}
+            style={[
+              styles.surface,
+              mounted ? surfaceStyle : styles.prewarmSurface,
+              !mounted && { width: overlayWidth, height: overlayHeight },
+            ]}
+          >
             <LinearGradient
               colors={[SETTINGS_GRADIENT_TOP, SETTINGS_GRADIENT_BOTTOM]}
               start={{ x: 0.5, y: 0 }}
@@ -382,7 +376,7 @@ export function SettingsContainerTransformOverlay() {
             </Animated.View>
           </Animated.View>
 
-          {!settled ? (
+          {mounted && !settled ? (
             <Animated.View
               pointerEvents="none"
               style={[styles.floatingAvatar, avatarStyle]}
@@ -404,21 +398,23 @@ export function SettingsContainerTransformOverlay() {
             </Animated.View>
           ) : null}
 
-          <Animated.View
-            pointerEvents={settled ? "auto" : "none"}
-            style={[styles.closeWrap, { top: insets.top + 12 }, closeStyle]}
-          >
-            <Pressable
-              onPress={closeStore}
-              style={({ pressed }) => [
-                styles.closeButton,
-                pressed && styles.closeButtonPressed,
-              ]}
-              hitSlop={10}
+          {mounted ? (
+            <Animated.View
+              pointerEvents={settled ? "auto" : "none"}
+              style={[styles.closeWrap, { top: insets.top + 12 }, closeStyle]}
             >
-              <X size={20} color="#FFFFFF" strokeWidth={2.4} />
-            </Pressable>
-          </Animated.View>
+              <Pressable
+                onPress={closeStore}
+                style={({ pressed }) => [
+                  styles.closeButton,
+                  pressed && styles.closeButtonPressed,
+                ]}
+                hitSlop={10}
+              >
+                <X size={20} color="#FFFFFF" strokeWidth={2.4} />
+              </Pressable>
+            </Animated.View>
+          ) : null}
         </>
       ) : null}
     </View>
@@ -440,6 +436,9 @@ const styles = StyleSheet.create({
     top: 0,
     overflow: "hidden",
     backgroundColor: "#0B1120",
+  },
+  prewarmSurface: {
+    opacity: 0,
   },
   floatingAvatar: {
     position: "absolute",
