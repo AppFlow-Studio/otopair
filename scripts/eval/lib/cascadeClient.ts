@@ -137,7 +137,7 @@ async function runCascadeLive(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${cfg.authKey}`,
+      Authorization: `Convex ${cfg.authKey}`,
     },
     body: JSON.stringify(body),
   });

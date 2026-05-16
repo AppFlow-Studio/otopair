@@ -413,7 +413,7 @@ export function buildDefaultJudgeRuntime(): JudgeRuntime {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          Authorization: `Bearer ${key}`,
+          Authorization: `Convex ${key}`,
         },
         body: JSON.stringify(body),
       });

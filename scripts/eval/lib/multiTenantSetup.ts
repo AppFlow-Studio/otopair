@@ -118,7 +118,7 @@ async function postMutation<T>(
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      Authorization: `Bearer ${client.authKey}`,
+      Authorization: `Convex ${client.authKey}`,
     },
     body: JSON.stringify(body),
   });
