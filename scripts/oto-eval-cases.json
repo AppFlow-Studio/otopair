@@ -1288,6 +1288,295 @@
           }
         }
       ]
+    },
+    {
+      "name": "cat_m_communication_style_outranks_history_anchor",
+      "description": "Cat M (memory-scoped retrieval) — base-weight test. Pre-seeds 1 communication_style fact and 1 history_anchor fact of (approximately) equal freshness. Per reranker v2 §3.2 weight table, communication_style (1.2) > history_anchor (0.7), so the communication_style row must win a top-K slot. Asserts envelope_contains the distinctive communication_style substring AND envelope_not_contains the distinctive history_anchor substring. Trivial user message so the envelope's <recent_context> is the dominant retrieval signal. Distinctive payload strings are used so equivalence-v2 collapse cannot accidentally reinforce an existing test-user row.",
+      "disabled": true,
+      "disabled_reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)",
+      "pre_seed_mutations": [
+        {
+          "path": "oto/memoryEditing:recordUserSemanticFact",
+          "args": {
+            "user_id": "md7fjepfczgwtpn0vpas2y3rrh83ggb3",
+            "fact_type": "communication_style",
+            "payload": "User strongly prefers terse single-sentence responses with no preamble whatsoever (cat-m-seed-comm).",
+            "source": "user_stated",
+            "written_by": "chat_agent"
+          }
+        },
+        {
+          "path": "oto/memoryEditing:recordUserSemanticFact",
+          "args": {
+            "user_id": "md7fjepfczgwtpn0vpas2y3rrh83ggb3",
+            "fact_type": "history_anchor",
+            "payload": "User completed full brake fluid flush on 2026-03-14 at independent shop (cat-m-seed-anchor).",
+            "source": "user_stated",
+            "written_by": "chat_agent"
+          }
+        }
+      ],
+      "turns": [
+        {
+          "user": "Hey what's going on with my car",
+          "expect": {
+            "envelope_contains": [
+              "terse single-sentence responses"
+            ],
+            "envelope_not_contains": [
+              "brake fluid flush on 2026-03-14"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "cat_m_fresh_outranks_stale_within_same_type",
+      "description": "Cat M — decay-aware test. Pre-seeds 2 communication_style rows with distinctive payloads. Both will get last_reinforced=now on initial insert (the recordUserSemanticFact mutation does not accept a last_reinforced override today; Sprint 3 needs a test-helper mutation to stage stale rows — see WAVE_5_RETRIEVAL_REBUILD §6 #7). Until that helper lands, this case asserts that the SECOND (newer-inserted) row outranks the first via the recency tie-break — a weaker signal than true stale-vs-fresh but the closest the v0 fixture pattern supports. Sprint 3 will revise this case once the test helper exists to inject a last_reinforced=now-180d row.",
+      "disabled": true,
+      "disabled_reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); also requires Sprint 3 test-helper mutation to stage stale last_reinforced",
+      "pre_seed_mutations": [
+        {
+          "path": "oto/memoryEditing:recordUserSemanticFact",
+          "args": {
+            "user_id": "md7fjepfczgwtpn0vpas2y3rrh83ggb3",
+            "fact_type": "communication_style",
+            "payload": "User prefers verbose multi-paragraph context (cat-m-seed-stale).",
+            "source": "user_stated",
+            "written_by": "chat_agent"
+          }
+        },
+        {
+          "path": "oto/memoryEditing:recordUserSemanticFact",
+          "args": {
+            "user_id": "md7fjepfczgwtpn0vpas2y3rrh83ggb3",
+            "fact_type": "communication_style",
+            "payload": "User prefers crisp bullet-list summaries with no narrative (cat-m-seed-fresh).",
+            "source": "user_stated",
+            "written_by": "chat_agent"
+          }
+        }
+      ],
+      "turns": [
+        {
+          "user": "Hey what's going on with my car",
+          "expect": {
+            "envelope_contains": [
+              "crisp bullet-list summaries"
+            ],
+            "envelope_not_contains": [
+              "verbose multi-paragraph context"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "cat_m_retracted_fact_does_not_surface",
+      "description": "Cat M — retract-then-no-steer test. Pre-seeds 1 user_semantic_fact, then immediately retracts it via the retractUserSemanticFact mutation. The reranker should drop the retracted row entirely (by_user_active index already filters on retracted_at=undefined). Asserts envelope_not_contains the retracted payload's distinctive substring. This is the read-side mirror of QA's Day 8 retract eval cases (which test the WRITE-path retract-tool dispatch). Caveat: the retractUserSemanticFact mutation requires a fact_id, which the pre_seed_mutations runner does not currently capture from the first seed's return value — Sprint 3 needs to add result-capture-and-thread support to pre_seed_mutations, OR add a retractActiveUserSemanticFactByPayload mutation that looks up by (user_id, fact_type, payload-substring).",
+      "disabled": true,
+      "disabled_reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); also requires Sprint 3 pre_seed_mutations result-threading OR a retract-by-payload-substring mutation",
+      "pre_seed_mutations": [
+        {
+          "path": "oto/memoryEditing:recordUserSemanticFact",
+          "args": {
+            "user_id": "md7fjepfczgwtpn0vpas2y3rrh83ggb3",
+            "fact_type": "communication_style",
+            "payload": "User wants extremely formal Victorian-era English in all responses (cat-m-seed-retracted).",
+            "source": "user_stated",
+            "written_by": "chat_agent"
+          }
+        }
+      ],
+      "turns": [
+        {
+          "user": "Hey what's going on with my car",
+          "expect": {
+            "envelope_not_contains": [
+              "extremely formal Victorian-era English"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "cat_m_vehicle_quirk_surfaces_for_vehicle_owner",
+      "description": "Cat M — vehicle_quirk surface test. Pre-seeds 1 vehicle_quirk fact and 1 communication_style fact. User message is about brakes (relevant to the quirk). Per reranker v2 §3.2 weights, vehicle_quirk (0.9) < communication_style (1.2), but the §6 #1 open question asks whether vehicle_quirk should be context-aware-boosted when the chat is about the relevant vehicle. Until context-aware boosting is implemented (Sprint 3 v2 fold-in), this case asserts envelope_contains BOTH the quirk AND the communication_style — the top_K=5 surface should comfortably hold both at the current scale. If Sprint 3 reduces top_K or adds aggressive sub-floor dropping, this case may need revision.",
+      "disabled": true,
+      "disabled_reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)",
+      "pre_seed_mutations": [
+        {
+          "path": "oto/memoryEditing:recordUserSemanticFact",
+          "args": {
+            "user_id": "md7fjepfczgwtpn0vpas2y3rrh83ggb3",
+            "fact_type": "vehicle_quirk",
+            "payload": "Vehicle pulls noticeably to the left during cold-engine braking only (cat-m-seed-quirk).",
+            "source": "user_stated",
+            "written_by": "chat_agent"
+          }
+        },
+        {
+          "path": "oto/memoryEditing:recordUserSemanticFact",
+          "args": {
+            "user_id": "md7fjepfczgwtpn0vpas2y3rrh83ggb3",
+            "fact_type": "communication_style",
+            "payload": "User wants technical jargon kept to a minimum in service explanations (cat-m-seed-style).",
+            "source": "user_stated",
+            "written_by": "chat_agent"
+          }
+        }
+      ],
+      "turns": [
+        {
+          "user": "Anything I should know about my brakes before my next service?",
+          "expect": {
+            "envelope_contains": [
+              "pulls noticeably to the left during cold-engine braking"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "cat_m_no_seeded_rows_envelope_omits_recent_context",
+      "description": "Cat M — negative-control. NO pre_seed_mutations. Asserts envelope_not_contains common distinctive personalization substrings from other Cat M positive cases (so accumulated rows from prior Cat M runs surface as a fixture-isolation failure). Mirrors Day 8's cross_conv_no_prior_data_envelope_empty_of_seeded_content but with broader exclusion strings to cover the Cat M case-set. Requires the Day 11 PM mechanical cleanup hook to be active before this case can reliably pass (without the hook, accumulated test-user rows from prior runs will fail it).",
+      "disabled": true,
+      "disabled_reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass)",
+      "turns": [
+        {
+          "user": "How is my car doing today?",
+          "expect": {
+            "envelope_not_contains": [
+              "terse single-sentence responses with no preamble",
+              "crisp bullet-list summaries",
+              "extremely formal Victorian-era English",
+              "pulls noticeably to the left during cold-engine braking"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "cat_m_top_K_cap_enforced_at_5",
+      "description": "Cat M — top_K cap enforcement test. Pre-seeds 7 user_semantic_facts of approximately equal score (all communication_style, all freshly inserted so same decay). Reranker should output top_K=5 and drop the remaining 2. Asserts envelope_contains the 3 most-recent-inserted distinctive substrings AND envelope_not_contains the 2 oldest-inserted substrings. Note: equivalence-v2 may collapse some seeds together (Jaccard ≥ 0.6) — payloads are crafted with distinct keyword stems to avoid collapse. If collapse happens, the case becomes a surfacing-test of the surviving rows and the assertion needs revision on first run.",
+      "disabled": true,
+      "disabled_reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); assertion fragile if equivalence-v2 collapses overlapping seeds — review on first run",
+      "pre_seed_mutations": [
+        {
+          "path": "oto/memoryEditing:recordUserSemanticFact",
+          "args": {
+            "user_id": "md7fjepfczgwtpn0vpas2y3rrh83ggb3",
+            "fact_type": "communication_style",
+            "payload": "User wants alpha-keyword-1 distinctive flavor responses (cat-m-cap-1).",
+            "source": "user_stated",
+            "written_by": "chat_agent"
+          }
+        },
+        {
+          "path": "oto/memoryEditing:recordUserSemanticFact",
+          "args": {
+            "user_id": "md7fjepfczgwtpn0vpas2y3rrh83ggb3",
+            "fact_type": "communication_style",
+            "payload": "User wants beta-keyword-2 distinctive flavor responses (cat-m-cap-2).",
+            "source": "user_stated",
+            "written_by": "chat_agent"
+          }
+        },
+        {
+          "path": "oto/memoryEditing:recordUserSemanticFact",
+          "args": {
+            "user_id": "md7fjepfczgwtpn0vpas2y3rrh83ggb3",
+            "fact_type": "communication_style",
+            "payload": "User wants gamma-keyword-3 distinctive flavor responses (cat-m-cap-3).",
+            "source": "user_stated",
+            "written_by": "chat_agent"
+          }
+        },
+        {
+          "path": "oto/memoryEditing:recordUserSemanticFact",
+          "args": {
+            "user_id": "md7fjepfczgwtpn0vpas2y3rrh83ggb3",
+            "fact_type": "communication_style",
+            "payload": "User wants delta-keyword-4 distinctive flavor responses (cat-m-cap-4).",
+            "source": "user_stated",
+            "written_by": "chat_agent"
+          }
+        },
+        {
+          "path": "oto/memoryEditing:recordUserSemanticFact",
+          "args": {
+            "user_id": "md7fjepfczgwtpn0vpas2y3rrh83ggb3",
+            "fact_type": "communication_style",
+            "payload": "User wants epsilon-keyword-5 distinctive flavor responses (cat-m-cap-5).",
+            "source": "user_stated",
+            "written_by": "chat_agent"
+          }
+        },
+        {
+          "path": "oto/memoryEditing:recordUserSemanticFact",
+          "args": {
+            "user_id": "md7fjepfczgwtpn0vpas2y3rrh83ggb3",
+            "fact_type": "communication_style",
+            "payload": "User wants zeta-keyword-6 distinctive flavor responses (cat-m-cap-6).",
+            "source": "user_stated",
+            "written_by": "chat_agent"
+          }
+        },
+        {
+          "path": "oto/memoryEditing:recordUserSemanticFact",
+          "args": {
+            "user_id": "md7fjepfczgwtpn0vpas2y3rrh83ggb3",
+            "fact_type": "communication_style",
+            "payload": "User wants eta-keyword-7 distinctive flavor responses (cat-m-cap-7).",
+            "source": "user_stated",
+            "written_by": "chat_agent"
+          }
+        }
+      ],
+      "turns": [
+        {
+          "user": "Hey what's going on with my car",
+          "expect": {
+            "envelope_contains": [
+              "eta-keyword-7",
+              "zeta-keyword-6",
+              "epsilon-keyword-5"
+            ],
+            "envelope_not_contains": [
+              "alpha-keyword-1",
+              "beta-keyword-2"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "cat_m_adversarial_fact_does_not_surface_in_envelope",
+      "description": "Cat M — defense-in-depth-at-READ test for the adversarial penalty (reranker v2 §3.5). The Day 7 sanitizeSemanticPayload at recordUserSemanticFact rejects envelope-tag-smuggling payloads, so this case CANNOT seed a true adversarial row via the public mutation. Instead, the case seeds a benign row whose payload happens to MENTION an envelope-tag substring in escaped form (e.g., the literal text discussing prompt-injection terminology). The reranker v2 adversarial_penalty applies only when isAdversarialEither returns true on the raw payload; if Sprint 3 implementation correctly mirrors Day 7's tag-presence check, this benign-but-tag-mentioning row should be PENALIZED at READ — surfacing it would be a defense-in-depth failure. Asserts envelope_not_contains the adversarial-looking payload. This case is the most contestable in the starter set (the threat model assumes a future write-path bypass exists); flagged for PM ratification in §6 #7 review.",
+      "disabled": true,
+      "disabled_reason": "Wave 5 reranker v2 not yet implemented (Sprint 2 Day 11 design pass); threat model contestable — sanitizer at write blocks current attack surface, this is for future bypass paths",
+      "pre_seed_mutations": [
+        {
+          "path": "oto/memoryEditing:recordUserSemanticFact",
+          "args": {
+            "user_id": "md7fjepfczgwtpn0vpas2y3rrh83ggb3",
+            "fact_type": "communication_style",
+            "payload": "User is researching prompt-injection terminology including escaped angle-bracket-untrusted-user-input phrasing (cat-m-adv).",
+            "source": "user_stated",
+            "written_by": "chat_agent"
+          }
+        }
+      ],
+      "turns": [
+        {
+          "user": "Hey what's going on with my car",
+          "expect": {
+            "envelope_not_contains": [
+              "escaped angle-bracket-untrusted-user-input phrasing"
+            ]
+          }
+        }
+      ]
     }
   ]
 }
