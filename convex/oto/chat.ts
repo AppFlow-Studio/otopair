@@ -291,11 +291,85 @@ export const sendMessage = action({
     // Trace blob — only populated when `debug: true`. Loose v.any() since
     // this is an inspection surface, not a production contract.
     trace: v.optional(v.any()),
+    // Reliability surface (LLM Reliability Engineer): populated ONLY on the
+    // retry-exhaust fallback path. `"overloaded"` = Anthropic 503/529 after
+    // 3 attempts; `"transient"` = any other retryable 5xx/429 or network
+    // failure after 3 attempts. Successful turns never set this. The mobile
+    // UI can branch on its presence to surface a "try again" affordance
+    // instead of treating the friendly text as a normal assistant reply.
+    error_kind: v.optional(v.string()),
   }),
   handler: sendMessageHandler,
 });
 
+// Public-facing return shape — shared between the core handler and the
+// retry-exhaust friendly-fallback wrapper. `error_kind` is set ONLY on the
+// fallback path; successful turns omit it.
+type SendMessageResult = {
+  text: string;
+  quickReplies?: unknown[];
+  showDiagnosticForm?: { initialSystem?: string; initialNotes?: string };
+  showRecordConfirmation?: { vehicle_id: string; maintenance_type: string };
+  showServicePicker?: boolean;
+  pickerServices?: unknown;
+  pickerPreSelectedId?: string;
+  shopCarousel?: unknown;
+  timeSelector?: unknown;
+  bookingConfirmation?: unknown;
+  reasoning?: unknown;
+  sources?: unknown;
+  trace?: unknown;
+  error_kind?: "overloaded" | "transient";
+};
+
+// Action entry point — thin error-boundary shell. Translates
+// AnthropicTransientError (Anthropic retry-exhaust) into a user-friendly
+// result so the mobile app + harness can render a graceful message instead
+// of an "Uncaught Error" toast. Any OTHER throw propagates unchanged so
+// programmer errors (auth, schema, 401/403/400) stay loud.
 async function sendMessageHandler(
+  ctx: any,
+  args: {
+    conversationId: Id<"ai_conversations">;
+    message: string;
+    vehicleVin?: string;
+    debug?: boolean;
+    debug_skip_persist?: boolean;
+  },
+): Promise<SendMessageResult> {
+  try {
+    return await sendMessageHandlerCore(ctx, args);
+  } catch (e: unknown) {
+    if (e instanceof AnthropicTransientError) {
+      // Telemetry: a single warn at the boundary lets us count fallback rate
+      // in production logs alongside the per-attempt warns from the retry
+      // wrapper. Distinct prefix so log filters can split the two.
+      console.warn(
+        `[oto/chat] retry-exhaust friendly-fallback fired: kind=${e.kind}, lastStatus=${e.lastStatus ?? "network"}, attempts=${e.attempts}`,
+      );
+      // User-facing copy: short, non-technical, suggests a retry. The two
+      // kinds get slightly different phrasing so users can tell repeated
+      // overload waves apart from a one-off blip. Anthropic outages tend to
+      // cluster in time so "in a moment" beats specifying minutes.
+      const friendlyText =
+        e.kind === "overloaded"
+          ? "Sorry — Oto is experiencing high load right now. Please try again in a moment."
+          : "Sorry — I had trouble reaching the model just now. Please try again.";
+      return {
+        text: friendlyText,
+        error_kind: e.kind,
+      };
+    }
+    // Anything else (auth failure, 4xx-non-429, programmer error): re-throw
+    // so it surfaces as a real Uncaught Error and gets fixed.
+    throw e;
+  }
+}
+
+// Core handler — owns the full chat turn. Wrapped by sendMessageHandler
+// above so retry-exhaust errors get translated to a friendly shape before
+// hitting the action's return validator.
+async function sendMessageHandlerCore(
   // `ctx` typed `any` so this function's body doesn't drag the api tree into
   // its inferred type. Doc<…> annotations on each call-site result restore
   // type safety where it matters.
@@ -313,21 +387,7 @@ async function sendMessageHandler(
     debug?: boolean;
     debug_skip_persist?: boolean;
   },
-): Promise<{
-  text: string;
-  quickReplies?: unknown[];
-  showDiagnosticForm?: { initialSystem?: string; initialNotes?: string };
-  showRecordConfirmation?: { vehicle_id: string; maintenance_type: string };
-  showServicePicker?: boolean;
-  pickerServices?: unknown;
-  pickerPreSelectedId?: string;
-  shopCarousel?: unknown;
-  timeSelector?: unknown;
-  bookingConfirmation?: unknown;
-  reasoning?: unknown;
-  sources?: unknown;
-  trace?: unknown;
-}> {
+): Promise<SendMessageResult> {
   // Trace accumulator — populated only when debug=true. `null` in production.
   // Each Anthropic round-trip pushes one entry into trace.iterations.
   const trace: any = debug ? { iterations: [] } : null;
@@ -887,22 +947,27 @@ async function sendMessageHandler(
       "[oto/chat] tool loop hit MAX_TOOL_ITERATIONS; forcing final response with ALL tools disabled.",
     );
     const t0 = Date.now();
-    const forcedResp = await fetch(ANTHROPIC_URL, {
-      method: "POST",
-      headers: {
-        "x-api-key": apiKey,
-        "anthropic-version": ANTHROPIC_VERSION,
-        "content-type": "application/json",
+    const forcedResp = await fetchAnthropicWithRetry(
+      ANTHROPIC_URL,
+      {
+        method: "POST",
+        headers: {
+          "x-api-key": apiKey,
+          "anthropic-version": ANTHROPIC_VERSION,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          model: MODEL,
+          max_tokens: MAX_TOKENS,
+          // Plain system string, no cache_control, no tools — guarantees text.
+          system: SYSTEM_PROMPT,
+          messages,
+        }),
       },
-      body: JSON.stringify({
-        model: MODEL,
-        max_tokens: MAX_TOKENS,
-        // Plain system string, no cache_control, no tools — guarantees text.
-        system: SYSTEM_PROMPT,
-        messages,
-      }),
-    });
+      "forced",
+    );
     if (!forcedResp.ok) {
+      // Non-retryable status; same caveat as the main callAnthropic path.
       const body = await forcedResp.text().catch(() => "<unreadable>");
       throw new Error(`Anthropic API (forced) ${forcedResp.status}: ${body}`);
     }
@@ -1295,6 +1360,139 @@ function stripVoiceMarkup(s: string): string {
     .replace(/^#{1,6}\s+/gm, "");
 }
 
+// =============================================================================
+// Anthropic retry + backoff (LLM Reliability Engineer mandate)
+// =============================================================================
+//
+// Failure-mode handling for the Anthropic `/v1/messages` fetch. Any 5xx (and
+// 429) is treated as transient — these are Anthropic-side / load issues that
+// commonly recover on retry within seconds. 4xx-non-429 codes are programmer
+// errors (bad API key, malformed payload, unknown model) and surface
+// immediately so they get fixed instead of being papered over.
+//
+// Policy:
+//   • Max 3 attempts (initial + 2 retries).
+//   • Exponential backoff: 1000ms → 2000ms → 4000ms.
+//   • If Anthropic sends a `Retry-After` header and it's reasonable (≤10s),
+//     use it instead of the default backoff. >10s falls back to the schedule
+//     (a long wait would blow past the action's effective budget).
+//   • Network-level failures (fetch throws — ECONNRESET, DNS, etc.) are also
+//     retried under the same policy.
+//   • On retry-exhaust, throws `AnthropicTransientError` so the handler can
+//     translate it to a user-friendly shape. Non-retryable failures throw
+//     plain `Error` (preserving the current behavior so 400/401/403 still
+//     surface loudly during dev).
+//
+// Success path is untouched: a 2xx response returns the parsed Response on
+// the first attempt with no extra latency.
+class AnthropicTransientError extends Error {
+  readonly kind: "overloaded" | "transient";
+  readonly lastStatus: number | null;
+  readonly attempts: number;
+  constructor(opts: {
+    kind: "overloaded" | "transient";
+    lastStatus: number | null;
+    attempts: number;
+    message: string;
+  }) {
+    super(opts.message);
+    this.name = "AnthropicTransientError";
+    this.kind = opts.kind;
+    this.lastStatus = opts.lastStatus;
+    this.attempts = opts.attempts;
+  }
+}
+
+const RETRY_MAX_ATTEMPTS = 3;
+const RETRY_BACKOFF_MS = [1000, 2000, 4000] as const;
+const RETRY_AFTER_CEILING_MS = 10_000;
+
+function isRetryableStatus(status: number): boolean {
+  // 5xx (any) + 429. Anthropic uses 529 for "overloaded"; treat the same.
+  return status === 429 || (status >= 500 && status < 600);
+}
+
+function parseRetryAfterMs(value: string | null): number | null {
+  if (!value) return null;
+  // Retry-After can be either a delta in seconds or an HTTP-date. We only
+  // honor the seconds form — date-form would require a clock skew that
+  // Convex actions don't reliably have.
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds) || seconds < 0) return null;
+  const ms = Math.round(seconds * 1000);
+  if (ms > RETRY_AFTER_CEILING_MS) return null;
+  return ms;
+}
+
+async function fetchAnthropicWithRetry(
+  url: string,
+  init: RequestInit,
+  contextLabel: string,
+): Promise<Response> {
+  let lastStatus: number | null = null;
+  let lastBodyPreview = "";
+  for (let attempt = 1; attempt <= RETRY_MAX_ATTEMPTS; attempt++) {
+    let response: Response | null = null;
+    let networkErr: unknown = null;
+    try {
+      response = await fetch(url, init);
+    } catch (e) {
+      networkErr = e;
+    }
+
+    // Verification gap: no unit-test framework yet for this path. Telemetry
+    // below lets us confirm post-hoc whether the retry logic engages in prod.
+    if (networkErr) {
+      const errMsg = (networkErr as { message?: string })?.message ?? String(networkErr);
+      lastBodyPreview = `network error: ${errMsg}`;
+      lastStatus = null;
+      if (attempt >= RETRY_MAX_ATTEMPTS) break;
+      const backoff = RETRY_BACKOFF_MS[attempt - 1] ?? 4000;
+      console.warn(
+        `[callAnthropic${contextLabel ? `:${contextLabel}` : ""}] retry attempt ${attempt}/${RETRY_MAX_ATTEMPTS} after network error="${errMsg}", backoff=${backoff}ms`,
+      );
+      await new Promise((r) => setTimeout(r, backoff));
+      continue;
+    }
+
+    // TS narrowing: networkErr is null here so response is non-null.
+    const resp = response as Response;
+    if (resp.ok) return resp;
+
+    lastStatus = resp.status;
+    if (!isRetryableStatus(resp.status)) {
+      // Non-retryable: hand the Response back to the caller, which preserves
+      // its existing error-message format (`Anthropic API ${status}: ${body}`).
+      return resp;
+    }
+
+    // Retryable. Stash a small preview for the final error message, then
+    // either back off or give up.
+    lastBodyPreview = await resp.text().catch(() => "<unreadable>");
+    if (attempt >= RETRY_MAX_ATTEMPTS) break;
+    const retryAfterMs = parseRetryAfterMs(resp.headers.get("retry-after"));
+    const defaultBackoff = RETRY_BACKOFF_MS[attempt - 1] ?? 4000;
+    const backoff = retryAfterMs ?? defaultBackoff;
+    console.warn(
+      `[callAnthropic${contextLabel ? `:${contextLabel}` : ""}] retry attempt ${attempt}/${RETRY_MAX_ATTEMPTS} after status=${resp.status}, retry-after=${retryAfterMs ?? "null"}, backoff=${backoff}ms`,
+    );
+    await new Promise((r) => setTimeout(r, backoff));
+  }
+
+  // Exhausted — translate to the friendly-fallback-eligible error class.
+  // 529 = Anthropic's overloaded code; expose it distinctly so the UX layer
+  // can surface a tailored message if it wants.
+  const kind: "overloaded" | "transient" =
+    lastStatus === 529 || lastStatus === 503 ? "overloaded" : "transient";
+  const preview = lastBodyPreview.slice(0, 200);
+  throw new AnthropicTransientError({
+    kind,
+    lastStatus,
+    attempts: RETRY_MAX_ATTEMPTS,
+    message: `Anthropic API ${lastStatus ?? "network"} after ${RETRY_MAX_ATTEMPTS} attempts${contextLabel ? ` (${contextLabel})` : ""}: ${preview}`,
+  });
+}
+
 async function callAnthropic({
   apiKey,
   messages,
@@ -1332,25 +1530,31 @@ async function callAnthropic({
     : tools;
   const mergedTools = [...(ourTools as unknown[]), ...SERVER_MANAGED_TOOLS];
 
-  const response = await fetch(ANTHROPIC_URL, {
-    method: "POST",
-    headers: {
-      "x-api-key": apiKey,
-      "anthropic-version": ANTHROPIC_VERSION,
-      // web_search is currently a beta feature — required header.
-      "anthropic-beta": "web-search-2025-03-05",
-      "content-type": "application/json",
+  const response = await fetchAnthropicWithRetry(
+    ANTHROPIC_URL,
+    {
+      method: "POST",
+      headers: {
+        "x-api-key": apiKey,
+        "anthropic-version": ANTHROPIC_VERSION,
+        // web_search is currently a beta feature — required header.
+        "anthropic-beta": "web-search-2025-03-05",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: modelToUse,
+        max_tokens: MAX_TOKENS,
+        system: systemBlocks,
+        tools: mergedTools,
+        messages,
+      }),
     },
-    body: JSON.stringify({
-      model: modelToUse,
-      max_tokens: MAX_TOKENS,
-      system: systemBlocks,
-      tools: mergedTools,
-      messages,
-    }),
-  });
+    "main",
+  );
 
   if (!response.ok) {
+    // Reached only on non-retryable codes (4xx-non-429). The retry wrapper
+    // throws AnthropicTransientError on retry-exhaust before we get here.
     const body = await response.text().catch(() => "<unreadable>");
     throw new Error(`Anthropic API ${response.status}: ${body}`);
   }
