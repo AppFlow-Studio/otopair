@@ -61,9 +61,9 @@
 //
 // =============================================================================
 
-import { mutation, internalMutation } from "../_generated/server";
+import { mutation, internalMutation, query } from "../_generated/server";
 import { v } from "convex/values";
-import type { MutationCtx } from "../_generated/server";
+import type { MutationCtx, QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
 
 // -----------------------------------------------------------------------------
@@ -533,6 +533,112 @@ export const retractUserSemanticFact = mutation({
 // =============================================================================
 // conversation_episodic_control mutations (§2.3)
 // =============================================================================
+
+// -----------------------------------------------------------------------------
+// getEpisodicControl — read helper for the wire-in surfaces.
+//
+// commitEpisodic and commitControl require expected_turn == row.updated_by_turn
+// for concurrency-detection (§7 D8 fail-loud). Callers must read the row to
+// learn the current updated_by_turn BEFORE invoking the commit. This helper
+// is the sanctioned read path so the wire-in lives entirely inside the
+// memoryEditing surface area (no callers reach into the table directly).
+//
+// Returns null when no row exists (pre-init). Wire-in code paths follow the
+// pattern: initEpisodicControl -> getEpisodicControl -> commit{Episodic,Control}.
+// -----------------------------------------------------------------------------
+export const getEpisodicControl = query({
+  args: {
+    conversation_id: v.id("ai_conversations"),
+  },
+  handler: async (
+    ctx: QueryCtx,
+    args,
+  ): Promise<Doc<"conversation_episodic_control"> | null> => {
+    const row = await ctx.db
+      .query("conversation_episodic_control")
+      .withIndex("by_conversation", (q) =>
+        q.eq("conversation_id", args.conversation_id),
+      )
+      .first();
+    return row;
+  },
+});
+
+// -----------------------------------------------------------------------------
+// initEpisodicControl — idempotent row bootstrap.
+//
+// Wave 3 Day 6 wire-in (chat.ts integration step 3): the schema is mutable-
+// in-place, so `commitEpisodic` and `commitControl` both throw when no row
+// exists for the conversation. They cannot lazily insert because the field-
+// class split forbids them from touching the OTHER class's fields, and a
+// schema-valid initial row needs values for BOTH classes (every field is
+// non-optional except the two compression fields). This bootstrap helper
+// fills that gap with defaults that mirror today's ai_conversations
+// equivalents (mood/current_flow/arc unset → safe neutral seed; current_model
+// → "haiku" matches the Sonnet-cascade default; counters → 0; budget_cap →
+// 0 since no cost-management policy is wired yet — Wave 5 dispatch sets it).
+//
+// Idempotent: if a row already exists for conversation_id, returns its _id
+// without modification. Multiple wire-in callers (commitEpisodic + commitControl
+// landings in chat.ts) call this on every turn; only the FIRST observes an
+// insert. Concurrent-call safety relies on Convex's single-mutation-at-a-time
+// guarantee per document (the `by_conversation` index is queried first; a
+// concurrent insert would surface as a second row, which we then prune is
+// out of scope — Wave 3 §7 D8 fail-loud discipline says we'd rather see two
+// rows in dev telemetry than silently merge).
+//
+// Field-class purity: this helper is the ONE legal place that writes BOTH
+// classes in a single insert. After the row exists, the field-class split
+// is enforced by the separate commit helpers as designed.
+// -----------------------------------------------------------------------------
+export const initEpisodicControl = mutation({
+  args: {
+    conversation_id: v.id("ai_conversations"),
+  },
+  handler: async (
+    ctx: MutationCtx,
+    args,
+  ): Promise<Id<"conversation_episodic_control">> => {
+    const existing = await ctx.db
+      .query("conversation_episodic_control")
+      .withIndex("by_conversation", (q) =>
+        q.eq("conversation_id", args.conversation_id),
+      )
+      .first();
+    if (existing) {
+      return existing._id;
+    }
+    const now = Date.now();
+    const rowId = await ctx.db.insert("conversation_episodic_control", {
+      conversation_id: args.conversation_id,
+      // Episodic-class defaults — safe-neutral seed; mood "neutral" / flow
+      // "none" / arc_summary "" mirror the convention used by the envelope
+      // builder when the legacy ai_conversations fields are unset.
+      mood: "neutral",
+      current_flow: "none",
+      flow_turn_count: 0,
+      arc_summary: "",
+      // compression fields intentionally unset (undefined) — Wave 3.9 / D-3.4
+      // populates them when compression actually runs.
+      // Control-class defaults — current_model "haiku" matches the Sonnet-
+      // cascade default (Locked Principle #2: HAIKU_MODEL is the chat origin);
+      // counters zero; budget_cap 0 because no cost-management policy is wired
+      // until Wave 5 dispatch sets a real ceiling.
+      current_model: "haiku",
+      budget_spent_usd: 0,
+      budget_cap_usd: 0,
+      escalation_count: 0,
+      escalation_state: "none",
+      sonnet_turns_used: 0,
+      sonnet_turn_budget: 0,
+      // Concurrency-detection envelope — turn 0 is the seed; the first commit
+      // expects updated_by_turn=0.
+      updated_at: now,
+      updated_by_turn: 0,
+    });
+    return rowId;
+  },
+});
 
 // -----------------------------------------------------------------------------
 // commitEpisodic — model-influenced fields only.

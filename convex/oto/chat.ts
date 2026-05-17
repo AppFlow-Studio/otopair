@@ -438,18 +438,39 @@ async function sendMessageHandler(
   // turn_number convention matches the conversation_audit recordTurn
   // wire-in below (sortedMessages.length is the canonical 0-indexed turn
   // index for this user-row).
+  //
+  // Wave 3 wire-in step 3 (commitEpisodic — WAVE_3_DESIGN §2.3): the state
+  // callable ALSO captures the PREVIOUS mood + arc_summary so it can diff
+  // them against Haiku's new values and mirror changes into
+  // conversation_episodic_control via commitEpisodic. The episodic field-
+  // class (mood + arc + flow + compression) is exactly the design's
+  // "model-influenced" surface; commitEpisodic enforces field-class purity
+  // by accepting ONLY those fields in its delta. last_user_intent is NOT
+  // mirrored — the §2.3 schema deliberately drops it (the polite-exit
+  // counter still reads it from the legacy ai_conversations.last_user_intent
+  // until Wave 5's read-cutover dispatch).
   const previousEstablishedFacts: string[] = Array.isArray(
     convoState.established_facts,
   )
     ? [...convoState.established_facts]
     : [];
   const conversationFactTurnNumber = sortedMessages.length;
+  // Pre-turn snapshot for the commitEpisodic mirror. `null` here is the
+  // legacy-unset sentinel; the diff logic in update_conversation_state
+  // treats `null !== "neutral"` as a change (initEpisodicControl seeds the
+  // row at mood="neutral" / arc="" so a first-turn Haiku writing
+  // mood="curious" / arc="user opening question" generates a true delta).
+  const previousMood: string | null = (conversation as any).mood ?? null;
+  const previousArcSummary: string | null =
+    (conversation as any).arc_summary ?? null;
   const callables = buildCallables(
     ctx,
     conversationId,
     user._id,
     previousEstablishedFacts,
     conversationFactTurnNumber,
+    previousMood,
+    previousArcSummary,
   );
 
   // ── 6. Tool-use loop ─────────────────────────────────────────────────
@@ -839,6 +860,46 @@ async function sendMessageHandler(
         e?.message,
       );
     }
+
+    // Wave 3 wire-in step 3 (commitControl — sonnet_turns_used counter).
+    // ----------------------------------------------------------------------
+    // A "sonnet turn" is one that COMPLETED on the Sonnet model. The natural
+    // wire site is here, after the assistant recordTurn write — by this
+    // point we know modelShortLiteral and the turn is irrevocable. Field-
+    // class purity: control-class only (sonnet_turns_used). Failure-isolated
+    // try/catch; a missing row or stale expected_turn must NEVER fail the
+    // chat turn. The counter is monotonic per §7 D8 — commitControl rejects
+    // decreases.
+    //
+    // Skip on harness debug runs to keep eval traffic out of the counter.
+    if (!skipPersist && modelShortLiteral === "sonnet") {
+      try {
+        await ctx.runMutation(
+          api.oto.memoryEditing.initEpisodicControl,
+          { conversation_id: conversationId },
+        );
+        const row: Doc<"conversation_episodic_control"> | null =
+          await ctx.runQuery(
+            api.oto.memoryEditing.getEpisodicControl,
+            { conversation_id: conversationId },
+          );
+        if (row) {
+          await ctx.runMutation(api.oto.memoryEditing.commitControl, {
+            conversation_id: conversationId,
+            expected_turn: row.updated_by_turn,
+            delta: {
+              sonnet_turns_used: row.sonnet_turns_used + 1,
+            },
+            next_turn: row.updated_by_turn + 1,
+          });
+        }
+      } catch (e: any) {
+        console.error(
+          "[oto/chat] commitControl (sonnet_turns_used) mirror failed (swallowed):",
+          e?.message,
+        );
+      }
+    }
   }
 
   // Aggregate token + tool stats across the loop. Used by both the trace
@@ -1096,6 +1157,18 @@ function buildCallables(
   // Convention matches the conversation_audit recordTurn wire-in: this is
   // sortedMessages.length captured pre-this-turn.
   factSourceTurn: number,
+  // Wave 3 wire-in step 3 (commitEpisodic — WAVE_3_DESIGN §2.3): pre-turn
+  // snapshots of the episodic field-class. `null` is the legacy-unset
+  // sentinel (the first turn for this conversation finds ai_conversations
+  // with no mood/arc populated yet). The state callable diffs Haiku's new
+  // values against these to decide when to mirror to
+  // conversation_episodic_control via commitEpisodic. Field-class purity is
+  // upheld here: the closure carries mood + arc but NOT current_model /
+  // counters; control-class mirroring lives at its OWN call sites
+  // (request_sonnet_handoff, request_haiku_handback, per-turn sonnet usage)
+  // never through update_conversation_state.
+  previousMood: string | null,
+  previousArcSummary: string | null,
 ): ToolCallables {
   // Wave 7.3 Option B: counter-bump helper for action-context moat reads.
   // Invoked AFTER each ctx.runQuery into a moat-reading query function
@@ -1589,6 +1662,116 @@ function buildCallables(
         }
       }
 
+      // ── Wave 3 mirror step 3: episodic field-class delta ─────────────
+      // If Haiku's update_conversation_state changed mood or arc_summary
+      // versus the pre-turn snapshot, mirror those changes into
+      // conversation_episodic_control via commitEpisodic. Field-class
+      // purity: ONLY mood + arc_summary are passed; control-class fields
+      // are NEVER touched here (CI Rule 16 + design §2.3 enforce that).
+      //
+      // last_user_intent is NOT mirrored — the §2.3 schema deliberately
+      // drops it. The polite-exit counter still reads it from the legacy
+      // ai_conversations.last_user_intent until Wave 5's read-cutover.
+      //
+      // Concurrency envelope: commitEpisodic enforces
+      // expected_turn == row.updated_by_turn. The first turn for this
+      // conversation finds an unseeded row (initEpisodicControl creates it
+      // at updated_by_turn=0), so we read the row BEFORE calling
+      // commitEpisodic to learn the current expected_turn. next_turn is
+      // factSourceTurn + 1 — the canonical "after this turn finishes"
+      // marker that matches the recordTurn convention used elsewhere in
+      // this file. Subsequent commitEpisodic calls within the SAME chat
+      // turn (e.g. Haiku calls update_conversation_state twice in one
+      // tool-use iteration) will observe expected_turn advanced by the
+      // FIRST commit and fail the gate — which is the correct fail-loud
+      // posture per §7 D8 (a second state mutation in the same turn is
+      // either a Haiku duplicate or a real race; both deserve telemetry).
+      const newMood = typeof input.mood === "string" ? input.mood : null;
+      const newArc =
+        typeof (input.arc ?? input.arc_summary) === "string"
+          ? ((input.arc ?? input.arc_summary) as string)
+          : null;
+      const moodChanged = newMood !== null && newMood !== previousMood;
+      const arcChanged = newArc !== null && newArc !== previousArcSummary;
+      if (moodChanged || arcChanged) {
+        try {
+          // Ensure the row exists; initEpisodicControl is idempotent (returns
+          // the existing _id if a row is already there). This is the design-
+          // gap solution surfaced by the wire-in: the §2.3 schema is mutable-
+          // in-place and ships EMPTY by design (wave3Backfill no-ops the
+          // table), so the first commitEpisodic per conversation must lazy-
+          // seed. The bootstrap lives inside memoryEditing.ts so CI Rule 16
+          // still defends the table from out-of-helper writes.
+          await ctx.runMutation(
+            api.oto.memoryEditing.initEpisodicControl,
+            { conversation_id: conversationId },
+          );
+          // Read the row to learn the current updated_by_turn — the helper
+          // gates on expected_turn == updated_by_turn for concurrency
+          // detection. A fresh row is at turn 0; commitEpisodic advances it.
+          const row: Doc<"conversation_episodic_control"> | null =
+            await ctx.runQuery(
+              api.oto.memoryEditing.getEpisodicControl,
+              { conversation_id: conversationId },
+            );
+          if (!row) {
+            throw new Error(
+              "initEpisodicControl returned but row not readable",
+            );
+          }
+          const delta: Record<string, unknown> = {};
+          if (moodChanged) {
+            // Map the legacy free-string mood to the §2.3 enum. The legacy
+            // mood column on ai_conversations is v.optional(v.string()) —
+            // historically free-form. The §2.3 schema constrains it to a
+            // five-member union. We accept the exact-match values verbatim
+            // and route anything else through "neutral" (the safe default
+            // the seed uses). Logging the unmapped value preserves the
+            // forensic signal.
+            const allowedMoods = new Set([
+              "neutral",
+              "curious",
+              "concerned",
+              "frustrated",
+              "satisfied",
+            ]);
+            if (allowedMoods.has(newMood as string)) {
+              delta.mood = newMood as
+                | "neutral"
+                | "curious"
+                | "concerned"
+                | "frustrated"
+                | "satisfied";
+            } else {
+              console.warn(
+                `[oto/chat] commitEpisodic: unmapped mood "${newMood}"; ` +
+                  `defaulting to "neutral" for the conversation_episodic_control mirror.`,
+              );
+              delta.mood = "neutral" as const;
+            }
+          }
+          if (arcChanged) {
+            delta.arc_summary = newArc as string;
+          }
+          await ctx.runMutation(api.oto.memoryEditing.commitEpisodic, {
+            conversation_id: conversationId,
+            expected_turn: row.updated_by_turn,
+            delta,
+            next_turn: row.updated_by_turn + 1,
+          });
+        } catch (e: any) {
+          // Same failure-isolation discipline as the conversation_facts
+          // mirror above and the conversation_audit recordTurn wire-in.
+          // The legacy ai_conversations.mood / .arc_summary are what the
+          // envelope builder still reads until Wave 5 cuts over;
+          // conversation_episodic_control is the forensic substrate.
+          console.error(
+            "[oto/chat] commitEpisodic mirror failed (swallowed):",
+            e?.message,
+          );
+        }
+      }
+
       return { ok: true, persisted_at: Date.now() };
     },
 
@@ -1597,6 +1780,17 @@ function buildCallables(
      * Sets ai_conversations.current_model = "sonnet". Per-turn model selection
      * in sendMessageHandler reads this and switches model at turn start.
      * Telemetry captures the reason for calibration.
+     *
+     * Wave 3 wire-in step 3 (commitControl — WAVE_3_DESIGN §2.3): also
+     * mirrors current_model and increments escalation_count on the
+     * conversation_episodic_control row. Field-class purity: control-class
+     * only; never touches mood / arc / flow. Same try/catch + swallow
+     * discipline — a mirror failure must NEVER break the cascade.
+     *
+     * Counter rationale (escalation_count = number of times Haiku ESCALATED
+     * to Sonnet for this conversation): handoff request IS the escalation
+     * event, so incrementing here is the canonical site. Monotonic guard
+     * in commitControl rejects decreases per §7 D8.
      */
     request_sonnet_handoff: async (input) => {
       const reason =
@@ -1608,12 +1802,47 @@ function buildCallables(
         model: "sonnet",
       });
       console.log(`[oto/chat] sonnet handoff requested (reason: ${reason})`);
+      // ── Wave 3 control-class mirror ──────────────────────────────────
+      try {
+        await ctx.runMutation(
+          api.oto.memoryEditing.initEpisodicControl,
+          { conversation_id: conversationId },
+        );
+        const row: Doc<"conversation_episodic_control"> | null =
+          await ctx.runQuery(
+            api.oto.memoryEditing.getEpisodicControl,
+            { conversation_id: conversationId },
+          );
+        if (row) {
+          await ctx.runMutation(api.oto.memoryEditing.commitControl, {
+            conversation_id: conversationId,
+            expected_turn: row.updated_by_turn,
+            delta: {
+              current_model: "sonnet" as const,
+              escalation_count: row.escalation_count + 1,
+              escalation_state: "active" as const,
+            },
+            next_turn: row.updated_by_turn + 1,
+          });
+        }
+      } catch (e: any) {
+        console.error(
+          "[oto/chat] commitControl (sonnet handoff) mirror failed (swallowed):",
+          e?.message,
+        );
+      }
       return { ok: true, model: "sonnet", reason };
     },
 
     /**
      * request_haiku_handback — Sonnet returns routing to Haiku for the
      * NEXT turn. Clears the current_model field on the conversation.
+     *
+     * Wave 3 wire-in step 3 (commitControl): mirrors current_model back to
+     * "haiku" and clears the escalation_state to "none". escalation_count
+     * is NOT decremented (monotonic counter — handback does NOT undo the
+     * escalation event; the count is a forensic record of how many times
+     * Sonnet was engaged across the conversation lifetime).
      */
     request_haiku_handback: async (input) => {
       const reason =
@@ -1625,6 +1854,34 @@ function buildCallables(
         model: "haiku",
       });
       console.log(`[oto/chat] haiku handback (reason: ${reason})`);
+      // ── Wave 3 control-class mirror ──────────────────────────────────
+      try {
+        await ctx.runMutation(
+          api.oto.memoryEditing.initEpisodicControl,
+          { conversation_id: conversationId },
+        );
+        const row: Doc<"conversation_episodic_control"> | null =
+          await ctx.runQuery(
+            api.oto.memoryEditing.getEpisodicControl,
+            { conversation_id: conversationId },
+          );
+        if (row) {
+          await ctx.runMutation(api.oto.memoryEditing.commitControl, {
+            conversation_id: conversationId,
+            expected_turn: row.updated_by_turn,
+            delta: {
+              current_model: "haiku" as const,
+              escalation_state: "none" as const,
+            },
+            next_turn: row.updated_by_turn + 1,
+          });
+        }
+      } catch (e: any) {
+        console.error(
+          "[oto/chat] commitControl (haiku handback) mirror failed (swallowed):",
+          e?.message,
+        );
+      }
       return { ok: true, model: "haiku", reason };
     },
 
