@@ -1668,7 +1668,15 @@ window.__oto = {
     await stampAuth();
     const me = await callConvex("query", "users:getCurrentUser", {});
     const results = [];
+    const skipped = [];
     for (const c of cases) {
+      // Disabled cases (Sprint 2 drift-audit additions): preserved in the JSON
+      // for historical intent, but not executed. They surface in the result
+      // payload under `skipped` so a future re-enablement is one-flag away.
+      if (c.disabled === true) {
+        skipped.push({ name: c.name, description: c.description, reason: c.disabled_reason || "(no reason given)" });
+        continue;
+      }
       const caseResult = { name: c.name, description: c.description, turns: [], passed: true, failures: [] };
       try {
         await stampAuth();
@@ -1768,7 +1776,9 @@ window.__oto = {
       total: results.length,
       passed,
       failed: results.length - passed,
+      skipped_count: skipped.length,
       results,
+      skipped,
     };
   },
 };

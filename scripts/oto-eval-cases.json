@@ -1,5 +1,5 @@
 {
-  "_doc": "Oto AI golden eval cases. Each case: { name, description, vehicle_vin_tail? (default M550i N96146), turns: [{user, expect}] }. Expect fields: tools_called (array, all must appear in any iter), branch (string, must match last iter), text_contains (string[], all must be present case-insensitive), text_not_contains (string[], none may be present), form_system (string, render_diagnostic_form.initialSystem must equal). Locked Principle #8: every prompt change debated against this set.",
+  "_doc": "Oto AI golden eval cases. Each case: { name, description, vehicle_vin_tail? (default M550i N96146), disabled? (boolean), disabled_reason? (string), turns: [{user, expect}] }. Expect fields: tools_called (array, all must appear in any iter), branch (string, must match last iter), text_contains (string[], all must be present case-insensitive), text_not_contains (string[], none may be present), form_system (string, render_diagnostic_form.initialSystem must equal). Locked Principle #8: every prompt change debated against this set. Disabled cases are preserved verbatim — they record historical intent for future re-enablement once the underlying behavior is unblocked. The runner reports disabled cases separately from passed/failed (see oto-harness.html runEval).",
   "cases": [
     {
       "name": "health_check_with_warning_light",
@@ -353,6 +353,8 @@
     {
       "name": "polite_exit_after_vague_narrowing",
       "description": "Symptom routing safety valve: when narrowing fails to converge after several vague exchanges, route to render_diagnostic_form with diagnostic_system='not_sure' (per the polite-exit rule).",
+      "disabled": true,
+      "disabled_reason": "Sprint 2 / Wave 7.x: the polite-exit counter (ai_conversations.diagnostic_turn_count, threshold=6) is incremented in chat.ts inside `if (!skipPersist)`. The harness defaults to debug_skip_persist=true, so the counter never advances and the 6th turn never fires the <polite_exit_required> envelope block. Two unblock paths: (A) decouple the counter from skipPersist (a chat.ts-only change, out of scope for the QA-lead adaptation dispatch), or (B) ship a harness-side seed mutation that sets diagnostic_turn_count=5 before the final turn (also touches convex/). Re-enable once either lands. Intent preserved verbatim — do not delete.",
       "turns": [
         { "user": "Something feels weird with my car", "expect": { "tools_called": ["update_conversation_state"] } },
         { "user": "Hard to say, just doesn't feel right", "expect": { "tools_called": ["update_conversation_state"] } },
