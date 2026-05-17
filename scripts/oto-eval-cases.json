@@ -1,5 +1,5 @@
 {
-  "_doc": "Oto AI golden eval cases. Each case: { name, description, vehicle_vin_tail? (default M550i N96146), disabled? (boolean), disabled_reason? (string), turns: [{user, expect}] }. Expect fields: tools_called (array, all must appear in any iter), branch (string, must match last iter), text_contains (string[], all must be present case-insensitive), text_not_contains (string[], none may be present), form_system (string, render_diagnostic_form.initialSystem must equal), tools_not_called (string[], none may appear in any iter — symmetric to tools_called, added Day 6 for rigorous negative-case assertion). Locked Principle #8: every prompt change debated against this set. Disabled cases are preserved verbatim — they record historical intent for future re-enablement once the underlying behavior is unblocked. The runner reports disabled cases separately from passed/failed (see oto-harness.html runEval).",
+  "_doc": "Oto AI golden eval cases. Each case: { name, description, vehicle_vin_tail? (default M550i N96146), pre_seed_mutations? (Array<{path,args}> — Day 8; dispatched via runner's `call(path,args,'mutation')` BEFORE turns run, used to seed cross-conv READ-path and retract-path fixtures; no per-case teardown), disabled? (boolean), disabled_reason? (string), turns: [{user, expect}] }. Expect fields: tools_called (array, all must appear in any iter), tools_not_called (Day 6; string[], none may appear in any iter — symmetric to tools_called, rigorous negative-case assertion), branch (string, must match last iter), text_contains (string[], all must be present case-insensitive), text_not_contains (string[], none may be present), form_system (string, render_diagnostic_form.initialSystem must equal), envelope_contains (Day 8; string[], all must be present in trace.envelope case-insensitive — used to verify cross-conv <recent_context> surfaces seeded prior-conv facts), envelope_not_contains (Day 8; string[], none may be present in trace.envelope — confirms envelope only surfaces seeded content, not hallucinated). Runner env vars: CASE_FILTER (Day 5; substring filter on case.name), REPEAT (Day 8; int >=1, default 1 — each case runs N times; ALL N runs must pass for case to be marked PASS; enables ad-hoc N=K statistical runs without a full Wave 1.5 comparator harness). Locked Principle #8: every prompt change debated against this set. Disabled cases are preserved verbatim — they record historical intent for future re-enablement once the underlying behavior is unblocked. The runner reports disabled cases separately from passed/failed (see oto-harness.html runEval).",
   "cases": [
     {
       "name": "health_check_with_warning_light",
@@ -1112,6 +1112,178 @@
               "saved that preference",
               "record_semantic_fact",
               "user_semantic_facts"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "retract_semantic_fact_communication_style_after_user_changes_mind",
+      "description": "Wave 3 retract-path coverage (Day 8). Pre-seeds a durable communication_style fact (User prefers verbose detailed explanations.) via the public recordUserSemanticFact mutation (verified Day 8 to be a mutation, not internalMutation, so client-callable via the runner standard call wrapper). On turn 1, user changes their mind (Actually scratch that — give me terse one-liners from now on). The Day 7 Fact retraction prompt rule (v0.12+) instructs the model to fire retract_semantic_fact on the prior preference AND record_semantic_fact for the new one — refinement-via-replacement, not refinement-via-edit. Validates the new retract_semantic_fact AI tool dispatch path lands the helper-internal retracted_at patch on the most-recent matching active row (case-insensitive substring lookup via findActiveUserSemanticFactForRetract). text_not_contains guards against the model leaking internal terminology to the user.",
+      "pre_seed_mutations": [
+        {
+          "path": "oto/memoryEditing:recordUserSemanticFact",
+          "args": {
+            "user_id": "md7fjepfczgwtpn0vpas2y3rrh83ggb3",
+            "fact_type": "communication_style",
+            "payload": "User prefers verbose detailed explanations.",
+            "source": "user_stated",
+            "written_by": "chat_agent"
+          }
+        }
+      ],
+      "turns": [
+        {
+          "user": "Actually scratch that — give me terse one-liners from now on, not the long-form.",
+          "expect": {
+            "tools_called": [
+              "retract_semantic_fact",
+              "record_semantic_fact",
+              "update_conversation_state"
+            ],
+            "text_not_contains": [
+              "retract_semantic_fact",
+              "record_semantic_fact",
+              "user_semantic_facts",
+              "communication_style",
+              "fact_type",
+              "semantic fact"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "retract_semantic_fact_no_match_handled_gracefully",
+      "description": "Wave 3 retract-path failure-isolation coverage (Day 8). NO pre-seed — the runner deliberately leaves user_semantic_facts un-seeded for the (user_id, fact_type, vehicle_id?) tuple the model will infer from the user retract phrase. The model MAY fire retract_semantic_fact (mechanic_preference is plausible from BMW specialists phrasing); when findActiveUserSemanticFactForRetract returns null, the chat.ts dispatcher swallows + returns ok:false reason:no matching active fact found per Day 7 dispatch design. The Day 7 prompt rule failure-tolerance clause (no-match → conversational acknowledgement, no compensating actions) means the model should acknowledge naturally without surfacing couldn't find / no record / error impl details. tools_not_called intentionally omitted — the retract MAY fire and gracefully no-op; the load-bearing assertion is text_not_contains for impl-leakage. update_conversation_state should still fire (the conversational acknowledgement).",
+      "turns": [
+        {
+          "user": "Actually I take back what I said about preferring BMW specialists.",
+          "expect": {
+            "tools_called": [
+              "update_conversation_state"
+            ],
+            "text_not_contains": [
+              "couldn't find",
+              "could not find",
+              "no record",
+              "no matching",
+              "error",
+              "retract_semantic_fact",
+              "user_semantic_facts",
+              "fact_type",
+              "semantic fact"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "retract_conversation_fact_corrects_user_misstatement",
+      "description": "Wave 3 retract-path coverage for conversation-scoped facts (Day 8). Two turns: (1) user reports a symptom (check engine light came on) that should land in established_facts via update_conversation_state and likely a recordConversationFact via the chat.ts established_facts wire-in; (2) user immediately corrects themselves (Wait, sorry, I meant the OIL light, not check engine). The Day 7 prompt rule retraction-discrimination clause says corrections of in-conversation factual claims fire retract_conversation_fact (not record_semantic_fact — this is conversation-scoped, not durable user-preference). Asserts turn 2 fires retract_conversation_fact + update_conversation_state with the corrected fact. text_not_contains guards against terminology leakage. NO pre-seed: turn 1 establishes the fact within the same conversation via the live chat path, so turn 2 retract has a real row to substring-match against.",
+      "turns": [
+        {
+          "user": "My check engine light came on this morning.",
+          "expect": {
+            "tools_called": [
+              "update_conversation_state"
+            ],
+            "text_not_contains": [
+              "retract_conversation_fact",
+              "conversation_facts",
+              "fact_type"
+            ]
+          }
+        },
+        {
+          "user": "Wait, sorry, I meant the OIL light, not check engine.",
+          "expect": {
+            "tools_called": [
+              "retract_conversation_fact",
+              "update_conversation_state"
+            ],
+            "text_not_contains": [
+              "retract_conversation_fact",
+              "conversation_facts",
+              "fact_type",
+              "semantic fact"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "cross_conv_recent_communication_style_surfaces_in_envelope",
+      "description": "Wave 3 step 4 cross-conv READ-path coverage (Day 8 — first eval of commit 28bfea1). Pre-seeds a communication_style fact (User prefers terse summaries with minimal preamble.) in the user semantic-fact substrate via the recordUserSemanticFact mutation. The case then opens a FRESH conversation (every case gets its own ai_conversations row via the runner create-conv-per-case pattern). chat.ts:484 calls getCrossConversationMemory which now (per Day 8 RAG dispatch — see #16) reads user_semantic_facts (in addition to conversation_facts) and surfaces them in the envelope <recent_context>. Asserts envelope_contains:[User prefers] verifying the seeded payload SUBSTRING actually reaches the model context window. NOTE: assertion is fragile if RAG Day 8 dispatch lands a different surfacing format than the substring — if this case fails on a format mismatch (e.g. envelope wraps payloads in `- ` bullets), tighten the needle accordingly. Validates the personalization substrate is reaching the envelope (the gap RAG flagged Day 6 as write-only).",
+      "pre_seed_mutations": [
+        {
+          "path": "oto/memoryEditing:recordUserSemanticFact",
+          "args": {
+            "user_id": "md7fjepfczgwtpn0vpas2y3rrh83ggb3",
+            "fact_type": "communication_style",
+            "payload": "User prefers terse summaries with minimal preamble.",
+            "source": "user_stated",
+            "written_by": "chat_agent"
+          }
+        }
+      ],
+      "turns": [
+        {
+          "user": "Hey what's going on with my car",
+          "expect": {
+            "envelope_contains": [
+              "User prefers"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "cross_conv_recent_mechanic_preference_recalled_in_chat",
+      "description": "Wave 3 step 4 cross-conv READ-path coverage (Day 8). Pre-seeds a mechanic_preference fact and then asks the AI for a mechanic recommendation. If getCrossConversationMemory Day 8 extension correctly surfaces user_semantic_facts in the envelope <recent_context>, the model should reference the prior preference naturally in its response — text_contains:[specialists] tests the seeded payload distinctive token shows up. This is a tighter behavioral test than envelope_contains alone: the model not only RECEIVES the prior preference but USES it in conversation. update_conversation_state should fire as it does on virtually every turn. NO branch assertion — the chat path may stay text_only or route through a service tool; the load-bearing assertion is text_contains on the personalized token.",
+      "pre_seed_mutations": [
+        {
+          "path": "oto/memoryEditing:recordUserSemanticFact",
+          "args": {
+            "user_id": "md7fjepfczgwtpn0vpas2y3rrh83ggb3",
+            "fact_type": "mechanic_preference",
+            "payload": "User only trusts BMW specialists, never general shops.",
+            "source": "user_stated",
+            "written_by": "chat_agent"
+          }
+        }
+      ],
+      "turns": [
+        {
+          "user": "Can you recommend a mechanic for my next service?",
+          "expect": {
+            "tools_called": [
+              "update_conversation_state"
+            ],
+            "text_contains": [
+              "specialists"
+            ],
+            "text_not_contains": [
+              "record_semantic_fact",
+              "user_semantic_facts",
+              "mechanic_preference",
+              "fact_type",
+              "semantic fact"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "cross_conv_no_prior_data_envelope_empty_of_seeded_content",
+      "description": "Wave 3 step 4 cross-conv READ-path NEGATIVE coverage (Day 8). NO pre_seed_mutations — control case verifying the envelope <recent_context> only surfaces ACTUAL seeded content, not hallucinated personalization. Asserts envelope_not_contains for distinctive substrings that prior cross_conv_* positive cases seed (User prefers, User trusts, BMW specialists). If this case fails (those substrings appear in envelope without a seed), the cross-conv READ path is leaking prior test runs rows into fresh conversations OR the envelope builder is hallucinating personalization tokens — both are real bugs. Pairs with the two positive cases above to establish the boundary: seed → surfaces; no-seed → does NOT surface. CAVEAT: the test user already has 13+ user_semantic_facts rows from prior smoke tests (per Day 6 finding); a real production-isolation pattern would teardown/wipe rows between cases. Day 8 v1 accepts test-user pollution as a known artifact — if envelope_not_contains hits, investigate whether a prior run seeded a row that is still active (retracted_at unset).",
+      "turns": [
+        {
+          "user": "How is my car doing today?",
+          "expect": {
+            "envelope_not_contains": [
+              "User prefers terse summaries with minimal preamble",
+              "User only trusts BMW specialists"
             ]
           }
         }

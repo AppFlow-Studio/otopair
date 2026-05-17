@@ -70,6 +70,10 @@ import {
 import { v } from "convex/values";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
+// Sprint 2 Day 8 (Wave 3 personalization-in-envelope) — decay-on-read for
+// user_semantic_facts. Pure-function module; zero Convex-runtime deps so
+// import is cheap and harness-safe. See memoryDecay.ts header for contract.
+import { decayConfidence } from "./memoryDecay";
 
 // -----------------------------------------------------------------------------
 // Shared validators — mirror the schema unions so a typo here surfaces at
@@ -1292,19 +1296,51 @@ export const deprecateKbTopic = mutation({
 // total when 5 facts are listed. Helps stay inside the cached zone's budget.
 const PRIOR_FACT_TEXT_TRUNCATE = 500;
 
+// Confidence floor for user_semantic_facts at retrieval time. Per design
+// §2.2 retrieval-layer floor: facts whose DECAYED effective_confidence falls
+// below 0.1 are dropped from the envelope (still live in the DB; never auto-
+// retracted on decay alone). The floor lives HERE, not in `decayConfidence`,
+// to keep the decay math pure and composable (the reranker may pick a
+// different floor for other consumers; this is the envelope's policy).
+//
+// Sprint 2 Day 8 (Wave 3 personalization-in-envelope).
+const SEMANTIC_FACT_RETRIEVAL_FLOOR = 0.1;
+
+// Reranker score for conversation_facts. Per design §2.2 + RAG review:
+// conversation_facts are short-lived and recent (this conversation's siblings),
+// so no decay is applied — they enter the score-merge at a fixed weight.
+// Slightly above the 0.5-ish midpoint so that a strongly-confident decayed
+// semantic fact can outrank a stale conversation fact, but a fresh
+// (recently-reinforced) semantic fact still naturally outranks. Adjust in
+// follow-up dispatch if the labeled retrieval eval set shows the weighting is
+// off.
+const CONVERSATION_FACT_BASE_SCORE = 0.7;
+
 export const getCrossConversationMemory = internalQuery({
   args: {
     user_id: v.id("users"),
     current_conversation_id: v.id("ai_conversations"),
     top_K: v.number(),
   },
+  // Sprint 2 Day 8 — return shape extended for two-pool merge:
+  //   - `source` discriminates "conversation" (conversation_facts) vs
+  //     "user_semantic" (user_semantic_facts) for envelope/trace clarity.
+  //   - `conversation_id` is OPTIONAL: user_semantic_facts have no
+  //     conversation scope (they're user-level facts). Envelope renderer
+  //     consumes `fact_type` + `payload_text` + `created_at` only; this
+  //     field is for trace/audit consumers.
+  //   - `effective_confidence` is OPTIONAL: only populated for user_semantic
+  //     rows where decay was applied. Conversation rows omit it. Future
+  //     envelope work (Day 8+ flagged) can render this annotation.
   returns: v.array(
     v.object({
-      conversation_id: v.id("ai_conversations"),
+      source: v.union(v.literal("conversation"), v.literal("user_semantic")),
+      conversation_id: v.optional(v.id("ai_conversations")),
       fact_type: v.string(),
       payload_text: v.string(),
       written_by: v.string(),
       created_at: v.number(),
+      effective_confidence: v.optional(v.number()),
     }),
   ),
   handler: async (
@@ -1312,15 +1348,35 @@ export const getCrossConversationMemory = internalQuery({
     args,
   ): Promise<
     Array<{
-      conversation_id: Id<"ai_conversations">;
+      source: "conversation" | "user_semantic";
+      conversation_id?: Id<"ai_conversations">;
       fact_type: string;
       payload_text: string;
       written_by: string;
       created_at: number;
+      effective_confidence?: number;
     }>
   > => {
     if (args.top_K <= 0) return [];
 
+    // Two-pool reranker. Each pool produces a sequence of candidate rows
+    // tagged with a unified scoring tuple: {score, created_at}. Score is the
+    // primary sort key; created_at is the recency tie-breaker.
+    type ScoredRow = {
+      source: "conversation" | "user_semantic";
+      conversation_id?: Id<"ai_conversations">;
+      fact_type: string;
+      payload_text: string;
+      written_by: string;
+      created_at: number;
+      effective_confidence?: number;
+      score: number;
+    };
+    const candidates: ScoredRow[] = [];
+
+    // -------------------------------------------------------------------------
+    // POOL A — conversation_facts from this user's PRIOR conversations.
+    // -------------------------------------------------------------------------
     // Step 1 — enumerate this user's conversations, excluding the current.
     const userConversations = await ctx.db
       .query("ai_conversations")
@@ -1333,50 +1389,109 @@ export const getCrossConversationMemory = internalQuery({
         priorConversationIds.push(c._id);
       }
     }
-    if (priorConversationIds.length === 0) return [];
 
-    // Step 2 — per-conversation indexed scan, newest-first, of active
-    // (non-retracted) facts. Take up to top_K per conversation; cap overall
-    // at top_K across all conversations after a final sort.
-    //
-    // The `by_conversation_active` index keys are (conversation_id,
-    // retracted_at, created_at). We restrict the prefix to
-    // conversation_id+retracted_at=undefined so the scan only walks the
-    // active subset; .order("desc") returns newest first per the
-    // created_at suffix.
-    type ScannedRow = {
-      conversation_id: Id<"ai_conversations">;
-      fact_type: string;
-      payload_text: string;
-      written_by: string;
-      created_at: number;
-    };
-    const allRows: ScannedRow[] = [];
-    for (const cid of priorConversationIds) {
-      const rows = await ctx.db
-        .query("conversation_facts")
-        .withIndex("by_conversation_active", (q) =>
-          q.eq("conversation_id", cid).eq("retracted_at", undefined),
-        )
-        .order("desc")
-        .take(args.top_K);
-      for (const r of rows) {
-        allRows.push({
-          conversation_id: r.conversation_id,
-          fact_type: r.fact_type,
-          payload_text: extractPayloadText(r.payload),
-          written_by: r.written_by,
-          created_at: r.created_at,
-        });
+    if (priorConversationIds.length > 0) {
+      // Step 2 — per-conversation indexed scan, newest-first, of active
+      // (non-retracted) facts. Take up to top_K per conversation; cap overall
+      // at top_K across all conversations after a final sort.
+      //
+      // The `by_conversation_active` index keys are (conversation_id,
+      // retracted_at, created_at). We restrict the prefix to
+      // conversation_id+retracted_at=undefined so the scan only walks the
+      // active subset; .order("desc") returns newest first per the
+      // created_at suffix.
+      for (const cid of priorConversationIds) {
+        const rows = await ctx.db
+          .query("conversation_facts")
+          .withIndex("by_conversation_active", (q) =>
+            q.eq("conversation_id", cid).eq("retracted_at", undefined),
+          )
+          .order("desc")
+          .take(args.top_K);
+        for (const r of rows) {
+          candidates.push({
+            source: "conversation",
+            conversation_id: r.conversation_id,
+            fact_type: r.fact_type,
+            payload_text: extractPayloadText(r.payload),
+            written_by: r.written_by,
+            created_at: r.created_at,
+            // Per design §2.2 + RAG review: conversation_facts get a fixed
+            // base score (no decay applied — they're conversation-scoped and
+            // intrinsically fresh on the multi-day horizon decay measures).
+            score: CONVERSATION_FACT_BASE_SCORE,
+          });
+        }
       }
     }
 
-    // Sort across ALL prior conversations newest-first, then cap at top_K.
-    // Cross-conversation interleaving by recency matters: 5 facts from the
-    // user's overall history is what the envelope wants, not 5 from the
-    // most-recently-added conversation only.
-    allRows.sort((a, b) => b.created_at - a.created_at);
-    const capped = allRows.slice(0, args.top_K);
+    // -------------------------------------------------------------------------
+    // POOL B — user_semantic_facts for this user (active subset, ALL types).
+    // -------------------------------------------------------------------------
+    // Step 3 — pull active facts via `by_user_active` index (keys: user_id,
+    // retracted_at, last_reinforced). Prefix to user_id + retracted_at=undefined
+    // so the cursor walks only the live subset; `.order("desc")` sorts by
+    // last_reinforced desc (most-recently-reinforced first). Cap at 4×top_K to
+    // give the reranker enough headroom while keeping the read bounded —
+    // per-user live fact count is typically 1-50 per design §7 D2.
+    //
+    // No type filter here — the envelope renders ALL fact_types (preferences,
+    // mechanic anchors, vehicle quirks) under <recent_context>. Type-specific
+    // weighting (communication_style × 1.2, etc.) is deferred per dispatch
+    // brief — see "Optional fact_type weighting" follow-up below.
+    const semanticRows: Doc<"user_semantic_facts">[] = await ctx.db
+      .query("user_semantic_facts")
+      .withIndex("by_user_active", (q) =>
+        q.eq("user_id", args.user_id).eq("retracted_at", undefined),
+      )
+      .order("desc")
+      .take(args.top_K * 4);
+
+    const nowMs = Date.now();
+    for (const r of semanticRows) {
+      // Decay-on-read per design §2.2 + D-3.5: effective_confidence =
+      // stored * 2^(-elapsed_days / 120). Pure function; safe to call with
+      // any stored value (clamped to [0, 1] internally).
+      const effective = decayConfidence(
+        r.confidence,
+        r.last_reinforced,
+        nowMs,
+      );
+      // Floor at 0.1 per design §2.2 retrieval-layer floor. Drop AFTER decay,
+      // in the consumer (here), NOT in decayConfidence (which stays pure).
+      // Live rows below the floor are still in the DB; never auto-retracted.
+      if (effective < SEMANTIC_FACT_RETRIEVAL_FLOOR) continue;
+      candidates.push({
+        source: "user_semantic",
+        // No conversation_id — user_semantic_facts are user-scoped, not
+        // conversation-scoped.
+        fact_type: r.fact_type,
+        payload_text: r.payload,
+        written_by: r.written_by,
+        // Use last_reinforced as the "recency" timestamp for sort ties —
+        // matches the design intent that recently-reinforced facts feel
+        // fresher than stale ones in the envelope.
+        created_at: r.last_reinforced,
+        effective_confidence: effective,
+        // Reranker score for user_semantic_facts: post-decay effective
+        // confidence. A fact with stored=1.0 freshly reinforced scores ~1.0;
+        // a fact at 240d (two half-lives, no reinforcement) scores ~0.25.
+        score: effective,
+      });
+    }
+
+    // -------------------------------------------------------------------------
+    // MERGE + RERANK — sort by score DESC, recency DESC as tie-breaker.
+    // -------------------------------------------------------------------------
+    // The reranker contract per design §2.2: highest-score-wins, with recency
+    // as a deterministic tie-breaker so equal-score rows surface in a
+    // predictable order (newest first). Top_K=5 by default (chat.ts dispatch
+    // — tunable).
+    candidates.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return b.created_at - a.created_at;
+    });
+    const capped = candidates.slice(0, args.top_K);
 
     // Truncate over-long payload_text to keep the envelope block bounded.
     // Truncation is at the query layer (closer to the source) so the
@@ -1581,3 +1696,121 @@ export const findActiveConversationFactForRetract = internalQuery({
 
 void internalMutation;
 void (undefined as unknown as Doc<"conversation_facts">);
+
+// =============================================================================
+// getActiveUserSemanticFactsForUser — diagnostic / future-consumer surface
+// =============================================================================
+//
+// Sprint 2 Day 8 (Wave 3 personalization-in-envelope). RAG Specialist.
+//
+// PURPOSE
+// -------
+// Companion to `getCrossConversationMemory`'s in-line user_semantic_facts
+// scan. Exposes the SAME pool as a standalone internalQuery so:
+//   1. QA can write cross-conversation READ-path eval cases that assert which
+//      semantic facts entered the envelope (without re-deriving the scan).
+//   2. Future consumers (Wave 5 reranker, observability cron, admin debug
+//      tooling) can reuse one canonical query instead of duplicating the
+//      "active user facts, decay-aware, floored at 0.1" walk.
+//
+// CONTRACT
+// --------
+// Returns active (non-retracted) user_semantic_facts for one user, decay-
+// applied at the supplied `now_ms`, dropped below 0.1, sorted by post-decay
+// effective_confidence DESC with last_reinforced DESC as tie-breaker.
+// `top_K=0` returns []; negative top_K rejects.
+//
+// SCOPE
+// -----
+// User-level only (vehicle_id filter not applied; envelope shows all). A
+// future vehicle-scoped variant can be added when an envelope rule needs it.
+//
+// WHY internalQuery
+// -----------------
+// Diagnostic / cross-internal use only. Not surfaced to mobile clients.
+// Callers invoke via `ctx.runQuery(internal.oto.memoryEditing.getActiveUserSemanticFactsForUser, ...)`.
+// -----------------------------------------------------------------------------
+
+const SEMANTIC_FACT_FLOOR_PUBLIC = 0.1;
+
+export const getActiveUserSemanticFactsForUser = internalQuery({
+  args: {
+    user_id: v.id("users"),
+    top_K: v.number(),
+    // Optional injectable clock for deterministic tests; defaults to
+    // Date.now() at call time. memoryDecay is pure so the same value the
+    // production envelope sees can be pinned by tests.
+    now_ms: v.optional(v.number()),
+  },
+  returns: v.array(
+    v.object({
+      fact_id: v.id("user_semantic_facts"),
+      fact_type: v.string(),
+      payload: v.string(),
+      vehicle_id: v.optional(v.id("vehicles")),
+      stored_confidence: v.number(),
+      effective_confidence: v.number(),
+      last_reinforced: v.number(),
+      observation_count: v.number(),
+    }),
+  ),
+  handler: async (
+    ctx: QueryCtx,
+    args,
+  ): Promise<
+    Array<{
+      fact_id: Id<"user_semantic_facts">;
+      fact_type: string;
+      payload: string;
+      vehicle_id?: Id<"vehicles">;
+      stored_confidence: number;
+      effective_confidence: number;
+      last_reinforced: number;
+      observation_count: number;
+    }>
+  > => {
+    if (args.top_K <= 0) return [];
+
+    const rows = await ctx.db
+      .query("user_semantic_facts")
+      .withIndex("by_user_active", (q) =>
+        q.eq("user_id", args.user_id).eq("retracted_at", undefined),
+      )
+      .order("desc")
+      .take(args.top_K * 4);
+
+    const nowMs = args.now_ms ?? Date.now();
+    const scored: Array<{
+      fact_id: Id<"user_semantic_facts">;
+      fact_type: string;
+      payload: string;
+      vehicle_id?: Id<"vehicles">;
+      stored_confidence: number;
+      effective_confidence: number;
+      last_reinforced: number;
+      observation_count: number;
+    }> = [];
+    for (const r of rows) {
+      const effective = decayConfidence(r.confidence, r.last_reinforced, nowMs);
+      if (effective < SEMANTIC_FACT_FLOOR_PUBLIC) continue;
+      scored.push({
+        fact_id: r._id,
+        fact_type: r.fact_type,
+        payload: r.payload,
+        ...(r.vehicle_id !== undefined ? { vehicle_id: r.vehicle_id } : {}),
+        stored_confidence: r.confidence,
+        effective_confidence: effective,
+        last_reinforced: r.last_reinforced,
+        observation_count: r.observation_count,
+      });
+    }
+
+    scored.sort((a, b) => {
+      if (b.effective_confidence !== a.effective_confidence) {
+        return b.effective_confidence - a.effective_confidence;
+      }
+      return b.last_reinforced - a.last_reinforced;
+    });
+    return scored.slice(0, args.top_K);
+  },
+});

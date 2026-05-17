@@ -475,6 +475,13 @@ async function sendMessageHandlerCore(
   // <recent_context> block so the AI sees what was established earlier
   // across sessions, not just within the current conversation.
   //
+  // Sprint 2 Day 8 (Wave 3 personalization-in-envelope): the query now
+  // merges TWO pools — conversation_facts (cross-session) PLUS
+  // user_semantic_facts (decay-on-read, floored at 0.1). The `source`
+  // discriminator distinguishes them; `conversation_id` is undefined for
+  // user_semantic rows. Envelope renders both under <recent_context>;
+  // type alignment here keeps chat.ts in lock-step with the validator.
+  //
   // Failure-isolated try/catch + swallow per the existing Wave 3 wire-in
   // pattern (recordTurn / commitEpisodic / commitControl). A failed cross-
   // conversation read MUST NEVER fail the chat turn — degrade gracefully to
@@ -483,11 +490,13 @@ async function sendMessageHandlerCore(
   // top_K=5 is the dispatch default. Tunable; the envelope truncates over-
   // long payload_text at the query layer to keep the block under ~1KB.
   let priorConversationFacts: Array<{
-    conversation_id: Id<"ai_conversations">;
+    source: "conversation" | "user_semantic";
+    conversation_id?: Id<"ai_conversations">;
     fact_type: string;
     payload_text: string;
     written_by: string;
     created_at: number;
+    effective_confidence?: number;
   }> = [];
   try {
     priorConversationFacts = await ctx.runQuery(
@@ -506,6 +515,22 @@ async function sendMessageHandlerCore(
     priorConversationFacts = [];
   }
 
+  // Sprint 2 Day 8 — adapt the two-pool query result back to the envelope's
+  // PriorConversationFact shape (envelope.ts is structurally Security's Day 7
+  // surface; we add no new fields to its render pipeline this round). The
+  // envelope only reads fact_type / payload_text / created_at; conversation_id
+  // is required by its TS interface but never rendered. For user_semantic
+  // rows (no underlying conversation scope) we pass the empty string —
+  // safe-cast since the field is never visited. The full expanded shape with
+  // `source` + `effective_confidence` survives in `trace.prior_conversation_facts`
+  // for QA inspection.
+  const envelopePriorFacts = priorConversationFacts.map((f) => ({
+    conversation_id: (f.conversation_id ?? "") as string,
+    fact_type: f.fact_type,
+    payload_text: f.payload_text,
+    written_by: f.written_by,
+    created_at: f.created_at,
+  }));
   const envelope = buildEnvelope({
     userFirstName: user.first_name ?? null,
     vehicle: activeVehicle,
@@ -513,7 +538,7 @@ async function sendMessageHandlerCore(
     userMessage: message,
     conversationState: convoState,
     diagnosticTurnCount,
-    priorConversationFacts,
+    priorConversationFacts: envelopePriorFacts,
   });
   console.log("[oto/chat] envelope sent to Haiku:\n" + envelope);
 
@@ -1851,28 +1876,81 @@ function buildCallables(
         }
       }
 
-      const result = (await ctx.runAction(
-        api.oto.vehicleFactsKB.cascadeTier2,
-        {
-          question_text,
-          topic,
-          topic_axis,
-          ...(vehicle_config_id !== undefined ? { vehicle_config_id } : {}),
-          ...(typeof input.chassis_code === "string"
-            ? { chassis_code: input.chassis_code }
-            : {}),
-          ...(typeof input.engine_code === "string"
-            ? { engine_code: input.engine_code }
-            : {}),
-          ...(limit !== undefined ? { limit } : {}),
-        },
-      )) as { tier: string | null; facts: any[] };
-      // Wave 7.3 Option B: cascadeTier2 internally reads vehicle_facts via
-      // three sub-strategies (T2_HASH / T2_STRUCT / T2_TEXT). The cascade is
-      // an action; its sub-queries are query-context (cannot self-bump).
-      // We bump from here on behalf of those internal reads with the
-      // delivered fact-count as the delta. Same conservative attribution
-      // pattern as the other moat-reading callables.
+      // Sprint 2 Day 8 — strangler completion. Production now calls
+      // `runFullCascade` (T1 enrichment-table reads → T2 hash+struct+text →
+      // T3 web_search) instead of `cascadeTier2` directly. Eval and prod
+      // share ONE retrieval entry point — the cascade walk that
+      // `evalHarness.runFullCascade` measures IS the cascade walk that
+      // serves real users. `no_web_search: false` (T3 ENABLED in production;
+      // the eval harness sets `true` for baseline runs to skip variable-cost
+      // web_search). Return shape: `runFullCascade` returns
+      //   { tier, facts, attempted_tiers }
+      // vs `cascadeTier2`'s narrower
+      //   { tier, facts }.
+      // Consumer shape preservation: we map back to
+      //   { mode: "kb_v3_cascade", tier, facts }
+      // so downstream tool_result and moat-bump attribution stay byte-
+      // identical to the pre-strangler behavior. `attempted_tiers` is
+      // observability-only (logged when present); production consumers don't
+      // surface it. If `runFullCascade` somehow fails (transient action
+      // failure / scope mismatch / future schema drift), the try/catch
+      // swallows + returns an empty-facts response — the chat turn never
+      // breaks. Failure-isolation discipline matches the rest of Wave 3.
+      let result: { tier: string | null; facts: any[] } = {
+        tier: null,
+        facts: [],
+      };
+      try {
+        const cascadeResult = (await ctx.runAction(
+          api.oto.evalHarness.runFullCascade,
+          {
+            question_text,
+            topic,
+            topic_axis,
+            ...(vehicle_config_id !== undefined ? { vehicle_config_id } : {}),
+            ...(typeof input.chassis_code === "string"
+              ? { chassis_code: input.chassis_code }
+              : {}),
+            ...(typeof input.engine_code === "string"
+              ? { engine_code: input.engine_code }
+              : {}),
+            ...(limit !== undefined ? { limit } : {}),
+            // Prod: T3 web_search ENABLED (eval pins `true` for baseline).
+            no_web_search: false,
+          },
+        )) as {
+          tier: string | null;
+          facts: any[];
+          attempted_tiers?: string[];
+        };
+        result = { tier: cascadeResult.tier, facts: cascadeResult.facts ?? [] };
+        if (
+          cascadeResult.attempted_tiers !== undefined &&
+          cascadeResult.attempted_tiers.length > 0
+        ) {
+          console.log(
+            `[oto/chat] runFullCascade attempted_tiers=${JSON.stringify(cascadeResult.attempted_tiers)} tier=${cascadeResult.tier} facts=${result.facts.length}`,
+          );
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.warn(
+          "[oto/chat] retrieve_vehicle_facts runFullCascade swallowed error:",
+          msg,
+        );
+        // Graceful empty-facts fallback — see comment above.
+        result = { tier: null, facts: [] };
+      }
+      // Wave 7.3 Option B: runFullCascade internally walks T1 (enrichment-
+      // owned reads — no vehicle_facts row) and T2 (cascadeTier2: HASH →
+      // STRUCT → TEXT — reads vehicle_facts). The cascade is an action; its
+      // sub-queries are query-context (cannot self-bump). We bump from here
+      // on behalf of those internal reads with the delivered fact-count as
+      // the delta. Same conservative attribution pattern as the other moat-
+      // reading callables. Bump is a no-op for T1-only hits (those don't
+      // read vehicle_facts), and over-bumping vs under-bumping here is the
+      // designed trade-off (better to attribute a fictitious delta than
+      // lose a real one).
       await bumpMoat("vehicle_facts", result?.facts?.length ?? 0);
       return { mode: "kb_v3_cascade", tier: result.tier, facts: result.facts };
     },

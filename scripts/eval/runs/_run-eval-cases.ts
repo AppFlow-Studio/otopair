@@ -18,6 +18,25 @@ interface ExpectBlock {
   text_contains?: string[];
   text_not_contains?: string[];
   form_system?: string;
+  // envelope_contains / envelope_not_contains (Day 8) — assertion primitives
+  // that operate on `result.trace.envelope` (string) instead of result.text.
+  // Closes the cross-conversation READ-path coverage gap: commit 28bfea1
+  // wires getCrossConversationMemory into <recent_context>, but no prior
+  // primitive could verify the envelope actually contains expected substrings.
+  // Symmetric pair (positive + negative) parallels text_contains structure.
+  envelope_contains?: string[];
+  envelope_not_contains?: string[];
+}
+// PreSeedMutation (Day 8) — per-case `pre_seed_mutations` field. Each entry
+// is dispatched via `call(path, args, "mutation")` BEFORE the case's turns
+// run. Used to seed cross-conversation memory (user_semantic_facts /
+// conversation_facts rows in a prior conversation) so the runner can
+// validate the READ path. NO post-case cleanup — fixture rows accumulate
+// (the test user has many already; isolation will be a follow-up if
+// behavior becomes contaminated).
+interface PreSeedMutation {
+  path: string;
+  args: Record<string, unknown>;
 }
 interface Turn {
   user: string;
@@ -28,6 +47,7 @@ interface Case {
   description: string;
   vehicle_vin_tail?: string;
   turns: Turn[];
+  pre_seed_mutations?: PreSeedMutation[];
   disabled?: boolean;
   disabled_reason?: string;
 }
@@ -198,6 +218,27 @@ function assertExpect(turn: Turn, idx: number, result: SendResult): { pass: bool
     }
   }
 
+  // envelope_contains / envelope_not_contains (Day 8) — operate on the
+  // envelope STRING in trace (set at chat.ts:524 from buildEnvelope output).
+  // Mirrors the text_contains / text_not_contains semantics: substring match,
+  // case-insensitive. Used by cross-conversation READ-path eval cases to
+  // verify <recent_context> actually surfaces the seeded prior-conv facts.
+  const envelopeStr = (trace?.envelope ?? "").toLowerCase();
+  if (e.envelope_contains && e.envelope_contains.length > 0) {
+    for (const needle of e.envelope_contains) {
+      if (!envelopeStr.includes(needle.toLowerCase())) {
+        reasons.push(`envelope_contains missing: "${needle}"`);
+      }
+    }
+  }
+  if (e.envelope_not_contains && e.envelope_not_contains.length > 0) {
+    for (const needle of e.envelope_not_contains) {
+      if (envelopeStr.includes(needle.toLowerCase())) {
+        reasons.push(`envelope_not_contains hit: "${needle}"`);
+      }
+    }
+  }
+
   return { pass: reasons.length === 0, reasons };
 }
 
@@ -208,6 +249,31 @@ async function runCase(c: Case): Promise<{ name: string; pass: boolean; turnResu
     conversationId = (await call("ai_conversations:create", { user_id: USER_ID, session_id: sessionId }, "mutation")) as string;
   } catch (e: unknown) {
     return { name: c.name, pass: false, turnResults: [], error: `create conv failed: ${(e as Error).message}` };
+  }
+
+  // pre_seed_mutations (Day 8) — dispatched BEFORE any turn runs. Used by
+  // cross-conv READ-path and retract-path cases to seed user_semantic_facts /
+  // conversation_facts rows the AI is expected to subsequently read or
+  // retract. Each mutation is fired sequentially via the standard `call`
+  // wrapper so it shares JWT + Convex auth with the chat send. Failure on
+  // any seed marks the entire case as failed (no point running turns against
+  // a half-seeded fixture). NO cleanup hook — rows accumulate; the test user
+  // already has many. If fixture isolation becomes necessary, add per-case
+  // teardown here as a follow-up.
+  if (c.pre_seed_mutations && c.pre_seed_mutations.length > 0) {
+    for (let s = 0; s < c.pre_seed_mutations.length; s++) {
+      const seed = c.pre_seed_mutations[s];
+      try {
+        await call(seed.path, seed.args, "mutation");
+      } catch (e: unknown) {
+        return {
+          name: c.name,
+          pass: false,
+          turnResults: [],
+          error: `pre_seed_mutations[${s}] (${seed.path}) failed: ${(e as Error).message}`,
+        };
+      }
+    }
   }
 
   const turnResults: Array<{ idx: number; pass: boolean; reasons: string[] }> = [];
@@ -251,29 +317,60 @@ async function runCase(c: Case): Promise<{ name: string; pass: boolean; turnResu
   const filter = process.env.CASE_FILTER ?? "";
   const active = filter ? activeAll.filter((c) => c.name.includes(filter)) : activeAll;
 
-  console.log(`Loaded ${all.length} cases (${activeAll.length} active, ${disabled.length} disabled)${filter ? `; filter="${filter}" -> ${active.length} matched` : ""}`);
+  // REPEAT env var (Day 8) — each case runs N times. PASS criteria: ALL N
+  // runs must pass for the case to be marked PASS in the final tally. Enables
+  // ad-hoc N=K statistical runs (the Wave 1.5 protocol prerequisite) without
+  // authoring a full comparator harness. Default 1 preserves current behavior.
+  // Clamp to a sane integer >= 1 (so REPEAT=0 / NaN / negative all -> 1).
+  const repeatRaw = Number.parseInt(process.env.REPEAT ?? "1", 10);
+  const REPEAT = Number.isFinite(repeatRaw) && repeatRaw >= 1 ? repeatRaw : 1;
+
+  console.log(`Loaded ${all.length} cases (${activeAll.length} active, ${disabled.length} disabled)${filter ? `; filter="${filter}" -> ${active.length} matched` : ""}${REPEAT > 1 ? `; REPEAT=${REPEAT} (each case must pass all ${REPEAT} attempts)` : ""}`);
   await loadOwnedVehicles();
   console.log("");
 
-  const results: Array<Awaited<ReturnType<typeof runCase>>> = [];
+  // Per-case aggregate: { name, pass, attempts: Array<runCase result> }
+  interface CaseAggregate {
+    name: string;
+    pass: boolean;
+    attempts: Array<Awaited<ReturnType<typeof runCase>>>;
+    passCount: number;
+  }
+  const results: CaseAggregate[] = [];
   let passed = 0;
   let failed = 0;
 
   for (let i = 0; i < active.length; i++) {
     const c = active[i];
-    process.stdout.write(`[${i + 1}/${active.length}] ${c.name} ... `);
-    const r = await runCase(c);
-    results.push(r);
-    if (r.pass) {
+    const attempts: Array<Awaited<ReturnType<typeof runCase>>> = [];
+    let passCount = 0;
+    for (let r = 0; r < REPEAT; r++) {
+      const attempt = await runCase(c);
+      attempts.push(attempt);
+      if (attempt.pass) passCount++;
+    }
+    const casePass = passCount === REPEAT;
+    const aggregate: CaseAggregate = { name: c.name, pass: casePass, attempts, passCount };
+    results.push(aggregate);
+
+    const tag = REPEAT > 1 ? ` (${passCount}/${REPEAT} PASS)` : "";
+    process.stdout.write(`[${i + 1}/${active.length}] ${c.name}${tag} ... `);
+    if (casePass) {
       passed++;
       console.log("PASS");
     } else {
       failed++;
       console.log("FAIL");
-      if (r.error) console.log(`    error: ${r.error}`);
-      for (const tr of r.turnResults) {
-        if (!tr.pass) {
-          console.log(`    turn ${tr.idx}: ${tr.reasons.join("; ")}`);
+      // Show failure detail from EACH failed attempt for diagnosability.
+      for (let aIdx = 0; aIdx < attempts.length; aIdx++) {
+        const a = attempts[aIdx];
+        if (a.pass) continue;
+        const attemptPrefix = REPEAT > 1 ? `    [attempt ${aIdx + 1}]` : "   ";
+        if (a.error) console.log(`${attemptPrefix} error: ${a.error}`);
+        for (const tr of a.turnResults) {
+          if (!tr.pass) {
+            console.log(`${attemptPrefix} turn ${tr.idx}: ${tr.reasons.join("; ")}`);
+          }
         }
       }
     }
@@ -281,12 +378,27 @@ async function runCase(c: Case): Promise<{ name: string; pass: boolean; turnResu
 
   console.log("");
   console.log("=".repeat(72));
-  console.log(`OVERALL: ${passed}/${active.length} PASS  (${failed} failed, ${disabled.length} skipped/disabled)`);
+  if (REPEAT > 1) {
+    console.log(`OVERALL: ${passed}/${active.length} cases PASS (all ${REPEAT} attempts)  (${failed} FAIL — at least one attempt failed, ${disabled.length} skipped/disabled)`);
+  } else {
+    console.log(`OVERALL: ${passed}/${active.length} PASS  (${failed} failed, ${disabled.length} skipped/disabled)`);
+  }
   console.log("=".repeat(72));
 
   writeFileSync(
     "scripts/eval/runs/_run-eval-cases-result.json",
-    JSON.stringify({ timestamp: new Date().toISOString(), passed, failed, disabled: disabled.length, results }, null, 2),
+    JSON.stringify(
+      {
+        timestamp: new Date().toISOString(),
+        repeat: REPEAT,
+        passed,
+        failed,
+        disabled: disabled.length,
+        results,
+      },
+      null,
+      2,
+    ),
   );
   console.log("Full result: scripts/eval/runs/_run-eval-cases-result.json");
 })();
