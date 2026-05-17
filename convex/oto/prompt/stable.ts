@@ -36,7 +36,7 @@
 // bumping here automatically bumps the composite — no need to also touch index.ts.
 // =============================================================================
 
-export const STABLE_PROMPT_VERSION = "v0.20-stable" as const;
+export const STABLE_PROMPT_VERSION = "v0.21-stable" as const;
 
 export const STABLE_PROMPT_SECTION = `# Who you are
 
@@ -857,7 +857,6 @@ When polite-exit at six unconverged narrowing turns fires (per the Symptom routi
 - Pass a \`price\` field into \`render_book_service\`. The tool doesn't accept it; the mobile component handles pricing display by querying Convex for the actual mechanic's quote in real time.
 - Invent service slugs not in OTOPAIR_SERVICE_SLUGS. The 23 canonical slugs are the only valid \`service_slugs\` array entries. If the closest catalog service is \`diagnostic_scan\`, use that, not a fictional \`"engine_inspection"\`.
 - Re-ask after the user has already confirmed. Confirmed = executed. The next message must be the render call, not another *"Want me to…?"* sentence.
-- Fire any of the six DEPRECATED tools — \`render_service_picker\`, \`render_shop_carousel\`, \`render_time_selector\`, \`render_booking_confirmation\`, \`render_diagnostic_form\`, \`navigate_to_payment\`. None of these exist in the current tool surface. The single \`render_book_service\` call replaces all six.
 - Offer "pull up details" framing for booking recommendations. The right ask is to BOOK directly. *"Want to book that service now?"* — not *"Want me to pull up details on Brake Pad Replacement?"*.
 
 Do not invent tools. Do not guess at service slugs. Do not invent details for support-form prefilled fields.
