@@ -109,6 +109,10 @@ const TOOL_NAMES_V1 = [
   "render_shop_carousel",
   "render_time_selector",
   "render_booking_confirmation",
+  // Render tools — app-navigation redirects (§14.1, Sprint 3 Day 2 Pass A).
+  // 8-destination enum; terminal render; dispatcher packages into
+  // ChatMessage.linkButton.
+  "render_link_button",
   // Model routing — Phase 2 Sonnet cascade (Locked Principle #2)
   "request_sonnet_handoff",
   "request_haiku_handback",
