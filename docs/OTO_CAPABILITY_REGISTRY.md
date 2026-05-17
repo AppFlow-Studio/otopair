@@ -604,7 +604,7 @@ Do NOT:
 
 ### §14.1 `render_link_button` — app-navigation redirect surface
 
-**Status: LIVE as of Sprint 3 Day 2 Pass A + Day 3 Pass A0 (8 destinations); Day 4 expands to 9 destinations (`vehicle_onboarding` added).** Tool registered in `convex/oto/tools.ts`, dispatcher branch in `convex/oto/dispatcher.ts`, TOOL_NAMES_V1 entry in `convex/oto/chat.ts`, prompt section in `convex/oto/prompt/stable.ts`, 14 eval cases shipped Day 2 (8 destination positives + 3 AI-feedback routing + 3 discrimination) + Day 4 adds case(s) for `vehicle_onboarding`.
+**Status: LIVE as of Sprint 3 Day 4 Pass B with all 9 destinations** (Day 2 Pass A shipped 8 destinations; Day 3 Pass A0 fixed TOOL_NAMES_V1; Day 4 Pass B adds `vehicle_onboarding`). Tool registered in `convex/oto/tools.ts` (1093 lines, 9-value enum), dispatcher branch in `convex/oto/dispatcher.ts` (routes any destination through `renderD`), TOOL_NAMES_V1 entry in `convex/oto/chat.ts`, prompt sections in `convex/oto/prompt/stable.ts` (`v0.16-stable`) including new `# Vehicle anchoring — one chat, one car` section, 14 Day 2 eval cases + 4 Day 4 vehicle-related cases = 18 cases now in the §14.1 + anchoring scope.
 
 **Purpose.** When the user asks to go to a specific in-app screen (legal documents, account screens, support/feedback channels, vehicle onboarding), Oto renders a tap-to-redirect button instead of recomposing screen content in chat. Nine destinations — this is the general app-navigation redirect surface. Loyalty is explicitly NOT a destination of this tool (Loyalty has its own in-chat surface per §14.2); the Loyalty conversation happens in chat the same way the Booking conversation does.
 

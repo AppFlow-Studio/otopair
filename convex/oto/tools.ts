@@ -639,7 +639,7 @@ const STATE_TOOLS: OtoToolSchema[] = [
 //   render_record_confirmation   → message.showRecordConfirmation { vehicle_id, maintenance_type }
 //   render_time_selector         → message.timeSlots         (envelope extension — Gap 6)
 //   render_booking_confirmation  → message.bookingSummary    (envelope extension — Gap 7)
-//   render_link_button           → message.linkButton        (Sprint 3 §14.1 — 8-destination app-nav redirect)
+//   render_link_button           → message.linkButton        (Sprint 3 §14.1 — 9-destination app-nav redirect)
 //   render_quick_replies         → message.quickReplies
 //   render_reasoning             → message.reasoning
 //   render_sources               → message.sources
@@ -786,7 +786,7 @@ const RENDER_TOOLS: OtoToolSchema[] = [
   {
     name: "render_link_button",
     description:
-      "Render a tap-to-redirect button that opens a specific in-app screen. Use when the user asks to go to (or perform an action that lives on) one of the 8 supported destinations — DO NOT recompose screen content in chat. TERMINAL render — calling this ENDS YOUR TURN; do not call other tools after it. Pair with a short framing sentence in your prose (e.g. 'Settings is in your account area — tap to open.'). Destinations and when to fire each: " +
+      "Render a tap-to-redirect button that opens a specific in-app screen. Use when the user asks to go to (or perform an action that lives on) one of the 9 supported destinations — DO NOT recompose screen content in chat. TERMINAL render — calling this ENDS YOUR TURN; do not call other tools after it. Pair with a short framing sentence in your prose (e.g. 'Settings is in your account area — tap to open.'). Destinations and when to fire each: " +
       "(1) `terms_of_service` — user asks to see the TOS / terms (\"show me the terms\", \"where's the TOS?\"). " +
       "(2) `privacy_policy` — user asks about privacy policy / data privacy (\"what's your privacy policy?\", \"data privacy\"). " +
       "(3) `settings` — user wants to change preferences, notifications, app settings (\"take me to settings\", \"open settings\", \"update notification settings\"). " +
@@ -795,6 +795,7 @@ const RENDER_TOOLS: OtoToolSchema[] = [
       "(6) `customer_support` — user asks how to reach support or wants a human (\"contact customer support\", \"talk to a human\", \"I need help with my account\"). " +
       "(7) `feedback` — user wants to leave general feedback / feature suggestions (\"I have a suggestion\", \"feature request\", \"I want to leave feedback\"). " +
       "(8) `bug_report` — user reports a GENERAL APP bug: crash, broken screen, broken booking flow, UI breakage (\"the app crashed\", \"I found a bug\", \"the bookings tab is broken\"). " +
+      "(9) `vehicle_onboarding` — EXPLICIT-ONLY: fire ONLY when the user explicitly states they want to add / register / onboard a vehicle to their garage (\"add a new vehicle\", \"register my Subaru\", \"I want to onboard my Civic\", \"how do I add another car?\", \"add my truck to the app\"). CRITICAL: implicit-ownership phrasings — where the user mentions a vehicle Oto has no record of but does NOT explicitly ask to add it (\"my new Subaru needs an oil change\", \"the RAV4 I just bought is making a noise\", \"can you book service for my new truck?\") — do NOT trigger this redirect. In those cases ask a clarifying question instead (e.g. \"I don't see that vehicle in your garage yet — do you want to add it, or were you asking about a different car?\") and only fire `render_link_button(destination: \"vehicle_onboarding\")` after the user confirms they want to add it. " +
       "IMPORTANT: `bug_report` is for GENERAL APP bugs ONLY. If the user complains about YOUR response (\"Oto, you got that wrong\", \"your answer was weird\", \"that's not right\"), DO NOT fire `render_link_button(destination: \"bug_report\")` — AI-conversation feedback is handled by a per-message UI button (next to copy / TTS) that the mobile chat UI owns; point the user to that icon instead. Same applies to `feedback`: it is for general feature suggestions, not for response-specific complaints about Oto. " +
       "Use the optional `label` field to override the default button text when context demands a more specific framing (e.g. user asked about notification settings → `label: \"Open notification settings\"`).",
     input_schema: {
@@ -811,9 +812,10 @@ const RENDER_TOOLS: OtoToolSchema[] = [
             "customer_support",
             "feedback",
             "bug_report",
+            "vehicle_onboarding",
           ],
           description:
-            "Which in-app screen to redirect to. Must be one of the 8 enum values. The enum IS the contract — there is no 9th destination today (e.g. no `loyalty`, no `payment_methods`). If the user wants a destination not in this enum, do NOT call this tool; explain conversationally instead.",
+            "Which in-app screen to redirect to. Must be one of the 9 enum values. The enum IS the contract — there is no 10th destination today (e.g. no `loyalty`, no `payment_methods`). If the user wants a destination not in this enum, do NOT call this tool; explain conversationally instead. Special-case: `vehicle_onboarding` is EXPLICIT-ONLY — see the tool description's destination-(9) guidance for the implicit-ownership clarifying-ask rule.",
         },
         label: {
           type: "string",
