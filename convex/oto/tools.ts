@@ -238,10 +238,58 @@ const DATA_TOOLS: OtoToolSchema[] = [
   {
     name: "get_rewards_summary",
     description:
-      "Snapshot of the user's rewards: credit balance, miles safely driven, services completed, shops visited, and current vehicle tier. Single call returns everything — don't chain multiple rewards lookups.",
+      "Snapshot of the user's rewards: credit balance, miles safely driven, services completed, shops visited, and current vehicle tier. Single call returns everything — don't chain multiple rewards lookups. Call this for \"what's my balance?\", \"how many credits do I have?\", \"what tier am I?\", \"how many miles have I driven safely?\", \"how many services have I completed?\". For deep-dive transaction history use get_loyalty_points_history; for what the user can redeem use get_available_redemptions; for program rules use get_loyalty_program_info.",
     input_schema: {
       type: "object",
       properties: {},
+    },
+  },
+
+  {
+    name: "get_loyalty_points_history",
+    description:
+      "Recent ownership-credit transactions for the user (both earn and redeem). Call this when the user asks where their credits came from, what they earned recently, what they redeemed, or to itemize last month's activity (\"how many credits have I earned this month?\", \"where did my last credit come from?\", \"show me my points history\"). For the current balance snapshot, use get_rewards_summary instead — don't chain.",
+    input_schema: {
+      type: "object",
+      properties: {
+        limit: {
+          type: "integer",
+          minimum: 1,
+          maximum: 20,
+          description: "Maximum number of transactions to return. Default 5.",
+        },
+      },
+    },
+  },
+
+  {
+    name: "get_available_redemptions",
+    description:
+      "What redemption options the user can browse with their current rewards posture (gift cards, booking credit, deals). INFORMATIONAL SURFACING ONLY — Haiku surfaces options to the user; the actual claim happens on the Loyalty screen in the app, NEVER in chat. Do NOT promise to claim, do NOT call this in response to \"redeem [X]\" expecting it to execute the redemption. When the user wants to actually claim, briefly describe what's available and point them to the Loyalty screen in their account. Optional `category` narrows the list (e.g., \"gift_card\", \"service_credit\") if the user asks for a specific kind.",
+    input_schema: {
+      type: "object",
+      properties: {
+        category: {
+          type: "string",
+          description: "Optional filter for redemption category (e.g., \"gift_card\", \"service_credit\"). Pass through verbatim; matched case-insensitively against reward_deals categories.",
+        },
+      },
+    },
+  },
+
+  {
+    name: "get_loyalty_program_info",
+    description:
+      "Program rules for the OtoPair loyalty program: tier breakpoints (Driver / Preferred / Elite), credit earning rates per tier, credit-expiry rules, and how the program works overall. Call this when the user asks \"how does the loyalty program work?\", \"what are the tier breakpoints?\", \"how do I earn credits?\", \"do my credits expire?\". Returns plain-language rules — Haiku summarizes them in conversational tone. For the user's CURRENT tier / balance, use get_rewards_summary instead.",
+    input_schema: {
+      type: "object",
+      properties: {
+        scope: {
+          type: "string",
+          enum: ["overview", "tiers", "earning_rules", "expiry_rules"],
+          description: "Optional scope filter. \"overview\" returns everything; \"tiers\" only breakpoints; \"earning_rules\" only rate-per-tier; \"expiry_rules\" only credit-expiry policy. Default \"overview\".",
+        },
+      },
     },
   },
 
@@ -914,6 +962,11 @@ export const OTO_TOOL_CATEGORY: Record<string, OtoToolCategory> = {
   get_reviews: "data",
   find_available_slots: "data",
   get_rewards_summary: "data",
+  // Loyalty Tier 2 expansion (Sprint 3 Day 3 §11 + §14.2) — informational
+  // surfacing only; no claim-flow tool (per §14.2 Constraint 2, Day 1 Pass F).
+  get_loyalty_points_history: "data",
+  get_available_redemptions: "data",
+  get_loyalty_program_info: "data",
   get_vehicle_health: "data",
   get_projected_health_score: "data",
   get_vehicle_facts: "data",

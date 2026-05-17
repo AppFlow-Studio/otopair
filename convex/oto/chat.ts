@@ -94,6 +94,11 @@ const TOOL_NAMES_V1 = [
   "lookup_vehicle_spec",
   "retrieve_vehicle_facts",
   "record_vehicle_fact",
+  // Data tools — Loyalty / rewards (Sprint 3 Day 3 §11 + §14.2)
+  "get_rewards_summary",
+  "get_loyalty_points_history",
+  "get_available_redemptions",
+  "get_loyalty_program_info",
   // State tools (side-effect; Oto-maintained conversation memory)
   "update_conversation_state",
   "record_semantic_fact",
@@ -156,6 +161,11 @@ const TOOLS_FOR_HAIKU = OTO_TOOLS.filter((t) =>
     "get_vehicle_facts",
     "lookup_vehicle_spec",
     "retrieve_vehicle_facts",
+    // Loyalty Tier 2 expansion (Sprint 3 Day 3 §11 + §14.2).
+    "get_rewards_summary",
+    "get_loyalty_points_history",
+    "get_available_redemptions",
+    "get_loyalty_program_info",
   ]);
   const STATE_TOOL_CALLABLE_NAMES = new Set([
     "update_conversation_state",
@@ -3321,6 +3331,182 @@ function buildCallables(
           });
         return { ok: false, reason: "swallowed error" };
       }
+    },
+
+    // -------------------------------------------------------------------
+    // Loyalty / rewards data tools — Sprint 3 Day 3 §11 + §14.2 graduation.
+    // INFORMATIONAL only. Per §14.2 Constraint 2 (Day 1 Pass F), Oto does
+    // NOT support redemption claim in chat — `render_redemption_card` was
+    // dropped. The claim flow lives on the Loyalty screen; these callables
+    // surface state, history, options, and program rules ONLY.
+    // -------------------------------------------------------------------
+
+    /**
+     * get_rewards_summary — comprehensive snapshot of the user's rewards
+     * posture. Returns credit balance, miles-safe, services completed, shops
+     * visited, and primary-vehicle tier in one shot. Composed from three
+     * rewards.ts queries (wallet + membership-stats + primary-tier) because
+     * no single rewards.ts query returns all five fields. Parallelized via
+     * Promise.all to keep per-turn op count flat.
+     *
+     * userId is the closure-bound auth-resolved Convex users._id; no
+     * user-supplied id crosses the tool boundary.
+     */
+    get_rewards_summary: async (_input) => {
+      const [wallet, stats, tierInfo] = await Promise.all([
+        ctx.runQuery(api.rewards.getWallet, { userId }) as Promise<
+          { balance: number; auto_apply_to_booking?: boolean; miles_safe?: number } | null
+        >,
+        ctx.runQuery(api.rewards.getMembershipStats, { userId }) as Promise<{
+          milesSafe: number;
+          services: number;
+          shops: number;
+        }>,
+        ctx.runQuery(api.rewards.getPrimaryVehicleTier, { userId }) as Promise<{
+          tier: "driver" | "preferred" | "elite";
+        }>,
+      ]);
+      return {
+        credit_balance: wallet?.balance ?? 0,
+        auto_apply_to_booking: wallet?.auto_apply_to_booking ?? true,
+        miles_safe: stats.milesSafe,
+        services_completed: stats.services,
+        shops_visited: stats.shops,
+        primary_vehicle_tier: tierInfo.tier,
+      };
+    },
+
+    /**
+     * get_loyalty_points_history — recent ownership_credit_transactions for
+     * the user (both earn and redeem). Backed by api.rewards.getCreditHistory.
+     * Default limit 5 per the schema; clamped at 1..20 in the schema validator,
+     * but we re-coerce here defensively so a malformed Haiku call doesn't blow
+     * past the cap.
+     */
+    get_loyalty_points_history: async (input) => {
+      const rawLimit =
+        typeof input.limit === "number" && Number.isFinite(input.limit)
+          ? Math.floor(input.limit as number)
+          : 5;
+      const limit = Math.max(1, Math.min(20, rawLimit));
+      const transactions = (await ctx.runQuery(api.rewards.getCreditHistory, {
+        userId,
+        limit,
+      })) as Array<{
+        _id: string;
+        amount: number;
+        type: string;
+        description?: string;
+        reference_id?: string;
+        expires_at?: number;
+        created_at: number;
+      }>;
+      return {
+        limit,
+        transactions: (transactions ?? []).map((t) => ({
+          id: t._id,
+          amount: t.amount,
+          type: t.type,
+          description: t.description ?? null,
+          reference_id: t.reference_id ?? null,
+          expires_at: t.expires_at ?? null,
+          created_at: t.created_at,
+        })),
+      };
+    },
+
+    /**
+     * get_available_redemptions — what the user could redeem with current
+     * balance. INFORMATIONAL ONLY (no claim affordance per §14.2 Constraint 2).
+     * Backed by api.rewards.getAllDeals (full catalog) — the result includes
+     * the user's current balance so Haiku can surface "you have enough" / "you
+     * need $X more" framing. Optional `category` filter applied client-side.
+     */
+    get_available_redemptions: async (input) => {
+      const category =
+        typeof input.category === "string" && input.category.trim()
+          ? input.category.trim().toLowerCase()
+          : null;
+      const [wallet, deals] = await Promise.all([
+        ctx.runQuery(api.rewards.getWallet, { userId }) as Promise<
+          { balance: number } | null
+        >,
+        ctx.runQuery(api.rewards.getAllDeals, {}) as Promise<
+          Array<{
+            _id: string;
+            title?: string;
+            name?: string;
+            description?: string;
+            category?: string;
+            cost?: number;
+            credit_cost?: number;
+            value?: number;
+          }>
+        >,
+      ]);
+      const balance = wallet?.balance ?? 0;
+      const filtered = (deals ?? []).filter((d) => {
+        if (!category) return true;
+        const dealCat = typeof d.category === "string" ? d.category.toLowerCase() : "";
+        return dealCat === category;
+      });
+      const items = filtered.map((d) => {
+        const cost = typeof d.cost === "number"
+          ? d.cost
+          : typeof d.credit_cost === "number"
+            ? d.credit_cost
+            : null;
+        return {
+          id: d._id,
+          title: d.title ?? d.name ?? null,
+          description: d.description ?? null,
+          category: d.category ?? null,
+          cost,
+          value: typeof d.value === "number" ? d.value : null,
+          affordable_now: cost !== null ? balance >= cost : null,
+        };
+      });
+      return {
+        credit_balance: balance,
+        category_filter: category,
+        // Reminder for Haiku — surfaced in the tool result so the model sees
+        // it inline with the options. Pairs with the prompt-section rule:
+        // claim flow happens on the Loyalty screen, never in chat.
+        claim_flow_note:
+          "Informational only. The actual claim happens on the Loyalty screen in the app — describe these options to the user and point them there if they want to redeem.",
+        redemptions: items,
+      };
+    },
+
+    /**
+     * get_loyalty_program_info — program-level rules (tier breakpoints, earn
+     * rates, expiry policy). Backed by a new api.rewards.getProgramInfo query
+     * (added in the same dispatch). The query mirrors the constants embedded
+     * in addCreditForCompletedBooking so program-rule answers stay in sync
+     * with actual credit-issuance behavior.
+     *
+     * Optional `scope` narrows the response. Schema enforces the enum;
+     * invalid values fall back to "overview" via the query's default branch.
+     */
+    get_loyalty_program_info: async (input) => {
+      const VALID_SCOPES = new Set([
+        "overview",
+        "tiers",
+        "earning_rules",
+        "expiry_rules",
+      ]);
+      const scope =
+        typeof input.scope === "string" && VALID_SCOPES.has(input.scope)
+          ? (input.scope as
+              | "overview"
+              | "tiers"
+              | "earning_rules"
+              | "expiry_rules")
+          : undefined;
+      return await ctx.runQuery(
+        api.rewards.getProgramInfo,
+        scope !== undefined ? { scope } : {},
+      );
     },
 
     // render_quick_replies and render_diagnostic_form have no callables — the

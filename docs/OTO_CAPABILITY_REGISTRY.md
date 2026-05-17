@@ -428,35 +428,43 @@ Every domain entry follows this shape:
 
 ---
 
-## §11. Loyalty (basic) — rewards summary today; full in-chat surface in Sprint 3
+## §11. Loyalty (basic) — rewards summary + in-chat informational surface
 
-**Purpose.** Surface the user's current rewards posture — credit balance, miles safely driven, services completed, shops visited, current vehicle tier. As of Sprint 2 close, the single `get_rewards_summary` tool returns the snapshot and Loyalty is `live-unsurfaced` (tool exists, no prompt section). Sprint 3 expands this into a full in-chat Loyalty surface per §14.2: graduates `get_rewards_summary` to `live` + adds 4 more tools (`get_loyalty_points_history`, `get_available_redemptions`, `get_loyalty_program_info`, `render_redemption_card`) + a dedicated prompt section. Loyalty is handled in-chat, NOT via `render_link_button` redirect.
+**Status: LIVE as of Sprint 3 Day 3 Pass A.** `get_rewards_summary` graduated from `live-unsurfaced` to `live`; three additional data tools (`get_loyalty_points_history`, `get_available_redemptions`, `get_loyalty_program_info`) registered + wired + prompted + eval-covered (7 cases). `render_redemption_card` was dropped Day 1 Pass F — no claim flow in chat.
 
-**User-visible behaviors (Sprint 2 close — what works today).**
+**Purpose.** Surface the user's current rewards posture in chat — credit balance, miles safely driven, services completed, shops visited, current vehicle tier — and answer browsing / history / program-rule questions natively without redirecting. The actual REDEMPTION CLAIM happens on the Loyalty screen in the app; Oto's role in chat is informational + conversational pointer. Loyalty is its own in-chat domain (NOT a `render_link_button` destination — that enum is in §14.1).
 
-- Answer "what's my rewards balance?" / "how many credits do I have?" / "what tier am I?" / "how many miles have I driven safely?" / "how many services have I completed?" via `get_rewards_summary`. The tool is callable today but no prompt section guides Oto to call it consistently — falls under general capability honesty.
+**User-visible behaviors (Sprint 3 Day 3 — current state).**
 
-**User-visible behaviors (Sprint 3 target — see §14.2 for the full contract).**
-
-- All Sprint 2 behaviors above, but with a prompt section reliably routing to `get_rewards_summary`.
-- Plus: redemption browsing (`get_available_redemptions`), points history (`get_loyalty_points_history`), program rules (`get_loyalty_program_info`), specific-redemption claim render (`render_redemption_card`).
+- One-shot factual: *"what's my balance?"* / *"how many credits?"* / *"what tier am I?"* / *"how many miles?"* / *"how many services completed?"* → `get_rewards_summary` (composed `getWallet` + `getMembershipStats` + `getPrimaryVehicleTier`; returns the full snapshot in one call).
+- History lookup: *"where did my last credit come from?"* / *"what have I earned this month?"* → `get_loyalty_points_history(limit?)` (wraps `getCreditHistory`).
+- Browse-available-redemptions: *"what can I get with my points?"* / *"what's available to redeem?"* → `get_available_redemptions(category?)` (wraps `getAllDeals` + client-side category filter). **Informational surfacing only — no claim affordance.**
+- Program rules: *"how does the loyalty program work?"* / *"what are the tier breakpoints?"* → `get_loyalty_program_info(scope?)` (returns hardcoded constants mirroring `addCreditForCompletedBooking` earn rates 1%/1.5%/2% + tier thresholds $750/$1500 + 180-day expiry).
+- Claim request (*"I want to redeem the X reward"*): Oto acknowledges, optionally describes options via `get_available_redemptions`, ends with conversational pointer to the Loyalty screen ("That gets done from the Loyalty screen in your account — pick the one you want and confirm it there"). No claim-executing tool call (`render_redemption_card` does not exist).
 
 **Tools.**
 
-- `get_rewards_summary` — `live-unsurfaced` today; **`live` after Sprint 3 §14.2 graduation**.
-- See §14.2 for the four additional Sprint 3 planned tools.
+- `get_rewards_summary` — **live** (graduated Sprint 3 Day 3 Pass A from `live-unsurfaced`).
+- `get_loyalty_points_history(limit?)` — **live** (Sprint 3 Day 3 Pass A). Recent credit transactions (earn + redeem). Default limit 5, max 20.
+- `get_available_redemptions(category?)` — **live** (Sprint 3 Day 3 Pass A). Informational surfacing only.
+- `get_loyalty_program_info(scope?)` — **live** (Sprint 3 Day 3 Pass A). Program rules + tier breakpoints.
 
-**Prompt rules.** None as of v0.13 (Sprint 2 close). Sprint 3 §14.2 dispatch adds a dedicated Loyalty section.
+**Prompt rules.** `stable.ts` `# Loyalty — rewards balance, history, redemption browsing` section (Sprint 3 Day 3 Pass A, `v0.15-stable`, lines ~970-1011). Discrimination rules (which tool maps to which user intent) + no-claim-flow constraint + screen-pointer pattern + illustrative MUST-NOTs all live there.
 
-**Data sources.** `user_reward_wallets`, `user_contribution_claims`, `reward_deals`, `ownership_credit_transactions`, `vehicle_tiers`.
+**Data sources.** `user_reward_wallets`, `user_contribution_claims`, `reward_deals`, `ownership_credit_transactions`, `vehicle_tiers`. Backing queries in `convex/rewards.ts` (`getWallet`, `getCreditHistory`, `getMembershipStats`, `getAllDeals`, `getPrimaryVehicleTier`, NEW `getProgramInfo` added Sprint 3 Day 3 Pass A).
 
 **Oto MUST NOT.**
 
-- Chain multiple rewards lookups; the single call returns everything.
+- Promise to claim a redemption ("I'll set up that redemption for you", "let me redeem those points").
+- Offer claim affordances (no `render_quick_replies` with a "Redeem" button, no render-card with a Confirm action — there's no claim-executing tool).
+- Pretend the claim happened in chat ("Done! 10% off applied").
+- Use forensic register about the limitation ("the redemption tool isn't built", "the system doesn't support…"). Plain conversational pointer only.
+- Chain multiple rewards lookups when one tool suffices (e.g. `get_rewards_summary` returns the full snapshot; don't also call `get_loyalty_points_history` unless the user asked for history).
 - Quote dollar values of credits unless `get_rewards_summary` returned them explicitly.
 - Promote rewards/loyalty as a marketing pitch (no upselling tone, per Identity / Voice baseline).
+- Treat Loyalty questions as routable to `render_link_button` — loyalty is NOT in the §14.1 8-destination enum.
 
-**Eval coverage.** None today. Sprint 3 should add a `rewards_summary_*` category as part of Loyalty Tier 2 dispatch.
+**Eval coverage.** 7 cases shipped Sprint 3 Day 3 Pass A: `loyalty_balance_oneshot`, `loyalty_history_lookup`, `loyalty_program_info_request`, `loyalty_redeem_inquiry_describes_only`, `loyalty_redeem_request_pointer_to_screen`, `loyalty_no_claim_promise`, `loyalty_not_a_redirect_destination`.
 
 ---
 
@@ -613,7 +621,9 @@ Do NOT:
 
 ### §14.2 Loyalty program — in-chat informational surface (no claim flow)
 
-**Purpose.** Surface the loyalty program informationally in chat: answer balance, tier, history, available-redemption, and program-rule questions. **Oto does NOT execute redemption claims in chat — claim flow is not an in-chat capability.** When the user wants to actually claim a redemption, Oto describes what's available, then conversationally points to the Loyalty screen as the place to complete the claim. The existing `get_rewards_summary` (§11) graduates from `live-unsurfaced` to `live` in Sprint 3; the domain expansion adds 3 more data tools alongside it. Loyalty remains NOT a `render_link_button` destination (per §14.1) — it's its own domain.
+**Status: LIVE as of Sprint 3 Day 3 Pass A.** 4 tools live (`get_rewards_summary` graduated + 3 new). 7 eval cases shipped. Prompt section live at `v0.15-stable`. Sprint 3 Loyalty Tier 2 dispatch complete.
+
+**Purpose.** Surface the loyalty program informationally in chat: answer balance, tier, history, available-redemption, and program-rule questions. **Oto does NOT execute redemption claims in chat — claim flow is not an in-chat capability.** When the user wants to actually claim a redemption, Oto describes what's available, then conversationally points to the Loyalty screen as the place to complete the claim. The existing `get_rewards_summary` (§11) graduated from `live-unsurfaced` to `live` in Sprint 3 Day 3; the domain expansion added 3 more data tools alongside it. Loyalty remains NOT a `render_link_button` destination (per §14.1) — it's its own domain.
 
 **Behavioral contract.**
 
@@ -771,7 +781,10 @@ These rules apply regardless of which domain the conversation is in. They're cal
 | data | `get_my_mechanics` | live | Booking |
 | data | `get_reviews` | live | Booking |
 | data | `find_available_slots` | live | Booking |
-| data | `get_rewards_summary` | live-unsurfaced | Loyalty |
+| data | `get_rewards_summary` | live (graduated Sprint 3 Day 3 Pass A from live-unsurfaced) | Loyalty |
+| data | `get_loyalty_points_history` | live (Sprint 3 Day 3 Pass A) | Loyalty |
+| data | `get_available_redemptions` | live (Sprint 3 Day 3 Pass A; informational only — no claim) | Loyalty |
+| data | `get_loyalty_program_info` | live (Sprint 3 Day 3 Pass A) | Loyalty |
 | data | `get_vehicle_health` | live | Diagnostic |
 | data | `get_projected_health_score` | live | Diagnostic |
 | data | `get_vehicle_facts` | live | Vehicle |
@@ -800,11 +813,11 @@ These rules apply regardless of which domain the conversation is in. They're cal
 
 | Category | Tool | Status | Domain |
 |---|---|---|---|
-| render | `render_link_button` | **live** as of Sprint 3 Day 2 Pass A (8 destinations: `terms_of_service` / `privacy_policy` / `settings` / `profile` / `transaction_history` / `customer_support` / `feedback` / `bug_report`) | §14.1 (cross-cuts §12 Account + §13 Support) |
+| render | `render_link_button` | **live** as of Sprint 3 Day 2 Pass A + Day 3 Pass A0 (8 destinations: `terms_of_service` / `privacy_policy` / `settings` / `profile` / `transaction_history` / `customer_support` / `feedback` / `bug_report`) | §14.1 (cross-cuts §12 Account + §13 Support) |
 | render | `render_support_form` | planned (3 categories post-Sprint-3-decision: `mechanic_dispute` / `service_complaint` / `billing_issue`; was 5 — `platform_bug` + `ai_escalation` deprecated in favor of §14.1 redirects + per-message AI-feedback UI button) | §13 Support |
-| data | `get_loyalty_points_history` | planned | §14.2 |
-| data | `get_available_redemptions` | planned (informational surfacing only — no claim) | §14.2 |
-| data | `get_loyalty_program_info` | planned | §14.2 |
+| data | `get_loyalty_points_history` | **live** as of Sprint 3 Day 3 Pass A | §14.2 |
+| data | `get_available_redemptions` | **live** as of Sprint 3 Day 3 Pass A (informational surfacing only — no claim) | §14.2 |
+| data | `get_loyalty_program_info` | **live** as of Sprint 3 Day 3 Pass A | §14.2 |
 | data | `get_pending_bookings` | planned | §14.3 |
 | render | `render_booking_card` | planned | §14.3 |
 | render | `render_bookings_list` | planned | §14.3 |
