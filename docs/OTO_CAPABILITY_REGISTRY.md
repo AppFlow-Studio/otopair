@@ -92,6 +92,7 @@ Every domain entry follows this shape:
 - Pleasantry padding: *"Let me know if you have any other questions!"*, *"Hope this helps!"*, *"Feel free to ask anything!"*.
 - Restate the user's question back to them.
 - Re-introduce itself mid-conversation (second turn onward the user knows who Oto is).
+- **Offer to "pull up details" on a service when the natural next action is to BOOK that service (Sprint 4 Day 1 Pass A).** When narrowing converges on a recommendation (Diagnostic Scan or any direct service), ask the user to BOOK directly. Banned: *"Want me to pull up details on a Diagnostic Scan?"* / *"Pull that up for you?"* / any offer of an action other than booking. Canonical pattern: *"Booking a diagnostic scan will allow a mechanic to diagnose your car and pin down the exact issue. Want to book that service now?"* — frames mechanic as diagnoser, user as booker, and asks the booking question directly. The pull-up-details pattern violated the booker-not-doer rule AND offered an action that no longer exists in the consolidated single-component booking flow (§4).
 - Use `**bold**` markdown for emphasis-as-style. Reserve bold for safety-critical directives only (e.g. *"**Stop driving and pull over**…"*).
 - Use Markdown headers (`##`, `###`) in user-visible responses.
 - Use more than one emoji per response (default zero).
@@ -142,26 +143,30 @@ Every domain entry follows this shape:
 
 ---
 
-## §3. Diagnostic — symptom routing + narrowing + form rendering
+## §3. Diagnostic — symptom routing + narrowing + booking-prefill recommendation
 
-**Purpose.** When the user describes a symptom ("my brakes squeal", "weird ticking noise", "feels off"), Oto reasons through it: forms 2-4 candidate hypotheses, asks one clarifying question at a time, checks `get_vehicle_health` once narrowing points toward routine maintenance, then either recommends the direct service (vehicle-health flagged + symptom matches) OR renders the diagnostic form (most other cases). The narrowing IS the diagnosis.
+**Status: Sprint 4 Day 1 Pass A — booking surface consolidated.** Diagnostic narrowing protocol unchanged; the recommendation output now fires `render_book_service` (single terminal render) with diagnostic prefills instead of the deprecated `render_diagnostic_form`. The narrowing IS the diagnosis; the booking flow is in one component.
+
+**Purpose.** When the user describes a symptom ("my brakes squeal", "weird ticking noise", "feels off"), Oto reasons through it: forms 2-4 candidate hypotheses, asks one clarifying question at a time, checks `get_vehicle_health` once narrowing points toward routine maintenance, then either recommends the direct service (vehicle-health flagged + symptom matches) OR fires `render_book_service` with diagnostic-scan prefill (most other cases). The narrowing IS the diagnosis.
 
 **User-visible behaviors.**
 
 - Form 2-4 hypotheses for any reported symptom; refuse to recommend from a single message ("my brakes squeal" → narrowing, not direct booking).
 - Ask one open clarifying question at a time; never enumerate 3+ named mechanical causes ("could be the thermostat or low coolant" is BANNED for tool findings).
 - Call `get_vehicle_health` once narrowing points toward routine maintenance — never on turn 1 (wastes the call).
-- Recommend the **direct service** (e.g. `brake_pad_replacement`) ONLY when vehicle-health item is `overdue` OR `due_soon` AND symptom matches that wear.
-- Fire `render_diagnostic_form` for: items that are `on_time` AND record `verified` / `inferred`, items that are `unknown` / `needs_attention`, narrowing that exposes multi-cause ambiguity, narrowing that hits 6 unproductive turns (polite-exit pattern with `diagnostic_system: "not_sure"`).
+- Recommend the **direct service** (e.g. `brake_pad_replacement`) ONLY when vehicle-health item is `overdue` OR `due_soon` AND symptom matches that wear → fire `render_book_service(service_slugs: [<direct_slug>])`.
+- Fire `render_book_service(service_slugs: ["diagnostic_scan"], diagnostic_system: <subsystem>, customer_notes: <2-3 sentence summary>)` for: items that are `on_time` AND record `verified` / `inferred`, items that are `unknown` / `needs_attention`, narrowing that exposes multi-cause ambiguity, narrowing that hits 6 unproductive turns (polite-exit pattern with `diagnostic_system: "not_sure"`).
 - Hold the line when users push to skip diagnostic ("just book me the brake service") — user-centered persuasion, not legal.
+- **Booking-action phrasing (Sprint 4 Day 1 Pass A — §1 Voice update):** when recommending a Diagnostic Scan, ASK TO BOOK directly, do NOT offer to "pull up details." Canonical: *"Booking a diagnostic scan will allow a mechanic to diagnose your car and pin down the exact issue. Want to book that service now?"* BANNED: *"Want me to pull up details on a Diagnostic Scan?"* (frames Oto as the doer; offers an action that doesn't exist in the consolidated flow).
 
 **Tools.**
 
 - `get_vehicle_health` — `live` — score 0-100, per-item breakdown (oil/brakes/tires/inspection/battery), per-item `record_provenance` trust signal, history strings for direct quoting.
 - `get_projected_health_score` — `live` — projected score-lift if a flagged item flips to on_time. Used for conversion moments ("fixing this would lift you from 71 to 84").
-- `render_diagnostic_form` — `live` — pre-filled diagnostic booking form (subsystem dropdown + customer_notes text). **Terminal render — calling it ends the turn.**
+- `render_book_service` — **planned** (Sprint 4 Pass B). Single terminal render that prefills the booking flow. Diagnostic scenarios pass `service_slugs: ["diagnostic_scan"]` + `diagnostic_system` + `customer_notes`.
+- `render_diagnostic_form` — **DEPRECATED** (folded into `render_book_service` via the `diagnostic_system` + `customer_notes` prefill args).
 
-**Prompt rules.** `stable.ts` `# Symptom routing — reason, narrow, then recommend` (the 6-step protocol), `# Diagnostic form pre-fill rules`, `# Vehicle Health & Service-Due`. `volatile.ts` Examples 8, 10, 11, 12.
+**Prompt rules.** `stable.ts` `# Symptom routing — reason, narrow, then recommend` (the 6-step protocol; updated by Sprint 4 Pass B to reference `render_book_service`), `# Vehicle Health & Service-Due`. `volatile.ts` Examples 8, 10, 11, 12 — Sprint 4 Pass B rewrites these for the consolidated flow.
 
 **Data sources.** `maintenance_records`, `vehicle_health_snapshots`, `vehicle_checkins`, `vehicle_service_states`, `service_intervals`, `vehicle_tiers`, `composite_modifier_weights`, `bookings` (for service-history anchoring via `last_service` strings).
 
@@ -178,55 +183,73 @@ Every domain entry follows this shape:
 
 ---
 
-## §4. Booking — 6-stage canonical flow + payment handoff
+## §4. Booking — single-component prefill flow + multi-service bundling
 
-**Purpose.** Walk the user through service-booking ONE stage at a time. Service selection → diagnostic form (if applicable) → priority selection → shop selection → time selection → booking confirmation → payment redirect. One render per stage. The user advances by confirming on the rendered component; Oto reads `<conversation_state>.established_facts` for the IDs (never the user's free-text).
+**Status: Sprint 4 Day 1 Pass A — CONSOLIDATED.** Replaces the prior 6-stage canonical flow (Sprint 1-3) with a single terminal `render_book_service` render call. The mobile component handles every sub-stage internally (service selection → service options → service notes → mechanic → time → confirmation → pay redirect). Oto fires ONCE per booking with prefilled scenario data; the user reviews and confirms each step inside the component.
+
+**Purpose.** When the conversation converges on a service-booking decision, Oto fires `render_book_service` with prefilled service slug(s), diagnostic system (if applicable), customer notes, and recommended priority. The mobile component takes over: it lets the user review the pre-fills, override any of them, pick the mechanic + time slot, and confirm. The component itself redirects to the existing pay screen on final confirmation. **Oto's involvement ends at the `render_book_service` call** — there are no more multi-turn booking exchanges between Oto and the user once the component is rendered.
+
+**Why the consolidation (Sprint 4 motivation):** the prior 6-stage flow had Oto driving every stage transition via separate render tools (`render_service_picker` → `render_diagnostic_form` → `render_quick_replies(priority)` → `render_shop_carousel` → `render_time_selector` → `render_booking_confirmation` → `navigate_to_payment`). Each transition was a chat turn, every transition was a chance for Haiku to hallucinate an ID, drop state, or re-ask after confirmation. Consolidating to one render with prefill eliminates the per-stage Haiku failure surface — the mobile component drives stage transitions without going through Haiku.
 
 **User-visible behaviors.**
 
-- When the user confirms booking intent, render `render_service_picker` with `pre_selected_id` for the recommended service.
-- For Diagnostic Scans only, render `render_diagnostic_form` next (subsystem + customer_notes pre-filled).
-- Render `render_quick_replies` with the three priority options (`Closest`, `Best rated`, `Best price`).
-- Render `render_shop_carousel` with `service_slug` + `priority`; frontend pulls real mechanic data + pricing.
-- Render `render_time_selector` with `mechanic_id` + `service_slug`; frontend pulls real slots.
-- Render `render_booking_confirmation` with `service_slug` + `mechanic_id` + `slot_id` + `vehicle_id`; frontend pulls real prices + composes summary.
-- Call `navigate_to_payment` ONLY after the user explicitly accepts the confirmation card (NOT speculatively).
-- Look up active/completed bookings via `get_bookings(status_filter)`.
-- Confirm-on-confirmation HARD RULE: when the user says "yeah" / "yes" / "go ahead" / "sounds good" / "let's do it" after Oto offered a render, execute the render immediately — DO NOT re-ask, re-explain, or chain another "Want me to…?" sentence.
+- When narrowing converges on a Diagnostic Scan (per §3 Diagnostic), fire `render_book_service` with `service_slugs: ["diagnostic_scan"]` + `diagnostic_system` + `customer_notes` prefilled from the conversation context.
+- When vehicle-health flags a maintenance item due-soon / overdue AND the user agrees to book, fire `render_book_service` with `service_slugs: [<direct_service_slug>]` (e.g. `["oil_change"]`).
+- For multi-service bundling (e.g. user has overdue oil change AND overdue tire rotation; user agrees to bundle), fire `render_book_service` with `service_slugs: ["oil_change", "tire_rotation"]` — the component handles options + notes per service.
+- Optional prefills Oto can include when narrowing supports them: `recommended_priority` (`closest` / `best_rated` / `best_price`) based on user-stated preference; `recommended_mechanic_id` if the user has a preferred mechanic from prior bookings (via `get_my_mechanics`).
+- Look up active/completed bookings via `get_bookings(status_filter)` — the Booking Status surface (§14.3) is unchanged.
+- Confirm-on-confirmation HARD RULE retained: when the user says "yeah" / "yes" / "go ahead" / "sounds good" / "let's do it" after Oto offered to book a service, fire `render_book_service` immediately — DO NOT re-ask, re-explain, or chain another "Want me to…?" sentence.
+
+**Prefill rules (Oto's job before firing render_book_service).**
+
+| Scenario | service_slugs prefill | diagnostic_system prefill | customer_notes prefill | recommended_priority |
+|---|---|---|---|---|
+| Symptom narrowed to "needs eyes-on" (multiple possible causes; vehicle-health not flagged or trust-gate not triggered) | `["diagnostic_scan"]` | The subsystem closest to symptom (`brakes`, `tires_wheels`, `engine`, `battery_electrical`, or `not_sure`) | 2-3 sentence service-advisor summary of what the user actually said | If user mentioned mechanic preference, use it; else omit |
+| Vehicle-health item flagged due-soon/overdue + symptom matches that wear (direct service) | `[<direct_service_slug>]` (e.g. `["brake_pad_replacement"]`) | omit (not a diagnostic booking) | omit OR brief anchor like "Customer mentioned squeal during stop-and-go" | as above |
+| User explicitly asks to book a specific service ("I want an oil change") | `[<requested_service_slug>]` | omit | omit | as above |
+| User bundles multiple services ("oil change and rotate the tires") | `["oil_change", "tire_rotation"]` (or as named) | omit | omit | as above |
+| Polite-exit after 6 unconverged narrowing turns | `["diagnostic_scan"]` | `not_sure` | summary of everything the user mentioned | omit |
 
 **Tools.**
 
-- `get_bookings` — `live` — filter by `active` (pending/confirmed/in_progress), `completed`, `all`. Returns service names, shop, mechanic, scheduled date, VIN tail.
-- `get_shop` — `live` — name, neighborhood, address, rating, review count.
-- `get_shop_services` — `live` — which slugs a shop offers.
-- `get_shop_hours` — `live` — 7-day operating hours.
-- `get_mechanic` — `live` — name, photo, rating, review count, shop.
-- `get_my_mechanics` — `live` — user's favorites + recently booked.
-- `get_reviews` — `live` — reviews of a shop or mechanic (limit 5 default, max 20). PII stripped (initials only).
-- `find_available_slots` — `live` — next bookable slots at a shop (post-intent only, NOT for discovery).
-- `render_service_picker` — `live` — opens picker with `pre_selected_id` highlighted + 4-tab category mapping.
-- `render_shop_carousel` — `live` — trigger-only: passes `service_slug` + `priority`; frontend queries actual mechanics.
-- `render_time_selector` — `live` — trigger-only: passes `mechanic_id` + `service_slug`; frontend queries actual slots.
-- `render_booking_confirmation` — `live` — trigger-only: passes IDs; frontend composes the real-price summary.
-- `render_quick_replies` — `live` — used at stage 3 (priority selection) + general short-option asks. **Terminal render.**
-- `navigate_to_payment` — `live` — final handoff to `/home/mechanic/{id}/payment` after explicit user accept.
+- `render_book_service` — **planned** (Sprint 4 Pass B implementation). Terminal render. Single tool replacing the 6-stage flow.
+- `get_bookings` — `live` — unchanged; filter by `active` / `completed` / `all`.
+- `get_pending_bookings` — `live` (§14.3, Day 5) — unchanged.
+- `render_booking_card` / `render_bookings_list` — `live` (§14.3) — unchanged; these are for VIEWING existing bookings.
+- `get_shop` / `get_shop_services` / `get_shop_hours` / `get_mechanic` / `get_my_mechanics` / `get_reviews` / `find_available_slots` — `live` — unchanged; available for Oto to reference when narrowing toward a prefill recommendation (e.g. `get_my_mechanics` to populate `recommended_mechanic_id`).
 
-**Prompt rules.** `stable.ts` `# Booking flow — 6 stages`, `# Pricing — Oto never composes, quotes, or estimates prices`, `# Service-name discipline` (23 canonical snake_case slugs).
+**DEPRECATED tools (Sprint 4 Pass B will remove from tools.ts + chat.ts + dispatcher.ts):**
 
-**Data sources.** `bookings`, `booking_status_history`, `shops`, `shops_hours`, `shop_services`, `shop_portfolio`, `mechanics`, `time_slots`, `services`, `service_categories`, `service_vehicle_specs`, `service_options`, `payments`, `payment_status_history`, `transactions`, `tire_quote_responses`, `reviews`.
+- `render_service_picker` — folds into `render_book_service` (service selection is the first sub-stage inside the component)
+- `render_shop_carousel` — folds in (mechanic selection sub-stage)
+- `render_time_selector` — folds in (time-slot sub-stage)
+- `render_booking_confirmation` — folds in (final review sub-stage)
+- `render_diagnostic_form` — folds in (diagnostic-system + customer-notes are prefill args on the single tool)
+- `navigate_to_payment` — folds in (the mobile component handles the redirect to the existing pay screen on final user confirm)
+
+**Prompt rules.** `stable.ts` new `# Booking flow — single-component prefill` section (Sprint 4 Pass B will author). Cross-cutting `# Pricing` rule and `# Service-name discipline` (23 canonical snake_case slugs) unchanged.
+
+**Data sources.** `bookings`, `booking_status_history`, `shops`, `shops_hours`, `shop_services`, `shop_portfolio`, `mechanics`, `time_slots`, `services`, `service_categories`, `service_vehicle_specs`, `service_options`, `payments`, `payment_status_history`, `transactions`, `tire_quote_responses`, `reviews`. **Schema check:** `bookings.service_ids: Id<"services">[]` already supports multi-service via the array shape — no schema migration needed for the consolidation.
 
 **Oto MUST NOT.**
 
-- Quote dollar amounts in prose. NEVER *"runs around $80-$120"*. Mechanic labor varies; mobile frontend handles pricing display.
-- Pass a `price` field in any render-tool input. Tools do not accept it; pricing is rendered from real-time Convex queries.
-- Chain two booking stages in one response. Each render tool is terminal.
-- Re-ask the user after they've confirmed an offered action ("Want me to…?" twice after "yeah" is a HARD failure mode).
-- Invent service slugs. The 23 canonical snake_case slugs are the only services Otopair offers; no "Brake Inspection", no "Engine Tune-Up", no "Suspension Check".
-- Invent mechanic_id, slot_id, or shop_id from the user's free-text message. IDs come from `<conversation_state>.established_facts` (frontend writes them when the user taps a card).
-- Fire `navigate_to_payment` speculatively. Only after user explicitly accepts the booking confirmation.
-- Re-explain the service when the user has already said yes to booking it.
+- Quote dollar amounts in prose. NEVER *"runs around $80-$120"*. Mechanic labor varies; mobile component handles pricing display.
+- Pass a `price` field in any render-tool input. Tool inputs are IDs + prefill metadata only.
+- Fire `render_book_service` more than once in a single conversation cycle. Once the component is rendered, the user drives the rest inside the component.
+- Re-ask the user after they've confirmed an offered booking action ("Want me to…?" twice after "yeah" is a HARD failure mode).
+- Invent service slugs. The 23 canonical snake_case slugs are the only services Otopair offers.
+- Invent `recommended_mechanic_id` or other IDs from the user's free-text message. Use IDs only from prior tool results (`get_my_mechanics`, `get_mechanic`, etc.).
+- Re-explain the service when the user has already said yes to booking it. Just fire `render_book_service`.
+- Fire any of the 6 deprecated tools (`render_service_picker`, `render_shop_carousel`, `render_time_selector`, `render_booking_confirmation`, `render_diagnostic_form`, `navigate_to_payment`). These are deprecated post-Sprint-4-Pass-B.
 
-**Eval coverage.** `direct_routine_booking`, `booking_*` (in-flight subset), `confirm_executes` (no eval category prefix yet but covered in qualitative validation).
+**Eval coverage.** Sprint 4 Pass B rewrites coverage:
+- `book_service_single_diagnostic` (symptom narrowed → render_book_service with diagnostic prefill)
+- `book_service_single_routine` (overdue oil change → render_book_service with oil_change prefill)
+- `book_service_multi_bundle` (oil change + tire rotation bundled)
+- `book_service_diagnostic_phrasing_correct` (booking-action phrasing per §1 Voice update, not "pull up details")
+- `book_service_polite_exit_not_sure` (6-turn polite exit fires render_book_service with diagnostic_scan + not_sure)
+- Existing `override_pushback` (user tries to skip diagnostic) — still valid; reworded to render_book_service
+- Existing `booking_status_vs_booking_flow_discrimination` (§14.3) — still valid; reworded
 
 ---
 
@@ -844,16 +867,16 @@ These rules apply regardless of which domain the conversation is in. They're cal
 | state | `record_vehicle_fact` | live | Vehicle (KB) |
 | model_routing | `request_sonnet_handoff` | live | Identity / Voice (model routing) |
 | model_routing | `request_haiku_handback` | live | Identity / Voice (model routing) |
-| render | `render_shop_carousel` | live | Booking |
-| render | `render_service_picker` | live | Booking |
-| render | `render_time_selector` | live | Booking |
-| render | `render_booking_confirmation` | live | Booking |
-| render | `render_diagnostic_form` | live | Diagnostic |
+| render | `render_shop_carousel` | **DEPRECATED Sprint 4 Pass A** (folds into `render_book_service`) | Booking |
+| render | `render_service_picker` | **DEPRECATED Sprint 4 Pass A** (folds into `render_book_service`) | Booking |
+| render | `render_time_selector` | **DEPRECATED Sprint 4 Pass A** (folds into `render_book_service`) | Booking |
+| render | `render_booking_confirmation` | **DEPRECATED Sprint 4 Pass A** (folds into `render_book_service`) | Booking |
+| render | `render_diagnostic_form` | **DEPRECATED Sprint 4 Pass A** (folds into `render_book_service` via diagnostic_system + customer_notes prefill args) | Diagnostic |
 | render | `render_record_confirmation` | live | Trust Protocol |
 | render | `render_quick_replies` | live | Booking + cross-domain |
 | render | `render_reasoning` | live-unsurfaced | Cross-domain |
 | render | `render_sources` | live-unsurfaced | Vehicle (KB) |
-| navigation | `navigate_to_payment` | live | Booking |
+| navigation | `navigate_to_payment` | **DEPRECATED Sprint 4 Pass A** (mobile component handles its own pay-screen redirect on final user confirm) | Booking |
 
 ### Planned tools (Sprint 3 Tier 2)
 
@@ -869,6 +892,14 @@ These rules apply regardless of which domain the conversation is in. They're cal
 | render | `render_bookings_list` | **live** as of Sprint 3 Day 5 Pass A | §14.3 |
 
 **Loyalty graduation (Sprint 3).** `get_rewards_summary` graduates from `live-unsurfaced` to `live` in Sprint 3 as part of the §14.2 dispatch — same tool, new prompt section gating when Oto calls it (alongside the 4 new Loyalty data tools above).
+
+### Planned tools (Sprint 4 — booking-flow consolidation)
+
+| Category | Tool | Status | Domain |
+|---|---|---|---|
+| render | `render_book_service` | **planned** (Sprint 4 Pass B). Single terminal render replacing the prior 6-stage booking flow. Inputs: `service_slugs: string[]` (required, ≥1; supports multi-service bundling), `diagnostic_system?` enum (5 values: `brakes`/`tires_wheels`/`engine`/`battery_electrical`/`not_sure`), `customer_notes?` string, `recommended_priority?` enum (`closest`/`best_rated`/`best_price`), `recommended_mechanic_id?` string. Mobile component handles every sub-stage internally including pay-screen redirect. | §4 Booking + §3 Diagnostic |
+
+Net Sprint 4 tool-surface delta: −6 tools (5 render + 1 navigation deprecated), +1 tool (`render_book_service`). Live tool count: 40 → 35 after Sprint 4 Pass B.
 
 **`render_link_button` is the highest-leverage Sprint 3 dispatch.** It cross-cuts §12 Account (settings / profile / transaction_history) + §13 Support (customer_support / feedback / bug_report) + §14.1 legal docs (TOS / Privacy), and obsoletes part of `render_support_form`'s original 5-category enum. Recommend authoring §14.1 first, then `render_support_form` with the revised 3-category enum, then Loyalty + Booking Status as separate dispatches.
 
@@ -982,7 +1013,7 @@ None today — `support_intake_submissions` is planned for Sprint 3+.
 | Identity / Voice | Adequate (5 cases) | Sprint 3 Day 4 adds tone-emotion calibration in volatile.ts + 2-3 eval cases (`voice_warmth_baseline_not_robotic`, `voice_empathy_when_car_broken_no_cheer`, `voice_enthusiasm_on_fun_car_question`) to detect robotic-default + tone-deaf-cheer failure modes. More adaptive-shaping cases (hyped, confused) would still help beyond Day 4. |
 | Vehicle | Strong (8 cases) | Sprint 3 Day 4 Pass A2 adds: `vehicle_sibling_owned_redirects_to_new_chat` (informational sibling question → new-chat redirect), `vehicle_sibling_booking_redirects_to_new_chat` (booking action on sibling → same redirect), `link_button_vehicle_onboarding_explicit_only` (explicit "add a vehicle" triggers; "my new Subaru" gets a clarifying ask), `vehicle_general_knowledge_still_ok_when_not_owned` (external-vehicle educational engagement preserved — discrimination between sibling-owned-redirect and external-vehicle-engage) |
 | Diagnostic | Strong (12 cases) | OK |
-| Booking | Light (1-2 cases via direct_routine + multi_tool) | Add 6-stage canonical-flow coverage in Sprint 3 |
+| Booking | Light (1-2 cases via direct_routine + multi_tool); Sprint 4 Pass B replaces with `book_service_single_diagnostic` + `book_service_single_routine` + `book_service_multi_bundle` + `book_service_diagnostic_phrasing_correct` + `book_service_polite_exit_not_sure` against the consolidated `render_book_service` surface | 6-stage flow deprecated; new coverage needed Sprint 4 Pass B |
 | Memory | Strong (14 cases incl. SPEC) | Cat M cases land in Sprint 3 |
 | Trust Protocol | Light (1 case) | Add gate-trigger + record-update follow-through cases |
 | Safety | Adequate (3 cases) | Self-harm dedicated case is missing |
