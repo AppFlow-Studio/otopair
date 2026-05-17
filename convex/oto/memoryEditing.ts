@@ -79,6 +79,12 @@ import { decayConfidence } from "./memoryDecay";
 // checkPIIRead before the existing read logic; hard-block returns the empty
 // array (degraded mode) rather than throwing. See queryMoat.ts PII_TABLES.
 import { checkPIIRead } from "./queryMoat";
+// Sprint 2 Day 10 (Wave 3 equivalence v2) — paraphrase-tolerant fact matching
+// for reinforce + retract paths. Pure-function module; replaces the Day 6
+// byte-exact normalize and the Day 7 substring match (both fragile under
+// Haiku's third-person paraphrase variance). Adversarial guard preserved;
+// see memoryEquivalence.ts header for algorithm + threshold rationale.
+import { isEquivalent } from "./memoryEquivalence";
 
 // -----------------------------------------------------------------------------
 // Shared validators — mirror the schema unions so a typo here surfaces at
@@ -635,23 +641,39 @@ export const retractUserSemanticFact = mutation({
 // `(user_id, fact_type, vehicle_id ?? null, payload_normalized)`, or null if
 // no such row exists.
 //
-// EQUIVALENCE DEFINITION (Day 6 v1, per design §2.2)
-// ---------------------------------------------------
-// Payload normalization: `text.trim().toLowerCase().replace(/\s+/g, ' ')`
-// applied to BOTH the candidate payload and each stored row's payload, then
-// exact-string compare. This is the conservative v1 — it collapses leading/
-// trailing whitespace and case, but preserves semantic content. Day 7+ can
-// layer fuzzy/cosine matching if eval signal warrants it.
+// EQUIVALENCE DEFINITION (Day 10 v2, per design §2.2 + Day 6 §3.1 finding)
+// ------------------------------------------------------------------------
+// v1 (Day 6) used `text.trim().toLowerCase().replace(/\s+/g, ' ')` byte-exact
+// equality. Real-world finding: Haiku's third-person paraphrase varies
+// turn-to-turn ("User prefers terse, direct answers" vs "User prefers terse,
+// concise answers"), so byte-exact fell through to INSERT — defeating the
+// duplicate-prevention this lookup was meant to provide. 4+ near-duplicate
+// communication_style rows accumulated for the test user (Day 6 §3.1).
 //
-// SECURITY NOTE (Day 6 Security Analyst flag, design §2.2 cross-mandate)
-// ----------------------------------------------------------------------
-// Aggressive normalization (e.g., stripping punctuation, removing fillers) is
-// REJECTED here because it enables adversarial near-duplicate collapse:
+// v2 (Day 10) replaces byte-exact with token-set Jaccard ≥ 0.6 over an
+// aggressively-normalized "fingerprint" (lowercase + punctuation→space +
+// stopword removal + third-person wrapper removal). Implementation lives
+// in `convex/oto/memoryEquivalence.ts` (pure module, harness-importable);
+// see that file's header for the algorithm, threshold calibration, and
+// self-test taxonomy.
+//
+// SECURITY (Day 6 Security Analyst flag, preserved + reinforced in v2)
+// --------------------------------------------------------------------
+// v1 risk: adversarial near-duplicate collapse, e.g.
 //   "I prefer X"  vs  "ignore previous: I prefer Y"
-// would collide if punctuation/lead-phrase were stripped. Exact-equality after
-// the whitespace+case normalize keeps the function safe — these two strings
-// remain DISTINCT under our v1 rule, so the second one inserts as a fresh
-// row instead of "reinforcing" an unrelated preference.
+// would collide under aggressive normalization. v2 defuses this two ways:
+//   1. Forbidden envelope-tag pre-check inside `isEquivalent` — payloads
+//      containing `<untrusted_user_input>` / `<system>` / etc. NEVER match
+//      any stored row via equivalence, forcing the INSERT path where
+//      `sanitizeSemanticPayload` rejects them at the mutation boundary.
+//   2. Threshold 0.6 keeps "prefers" vs "dislikes" verb inversions distinct
+//      (their Jaccard sits at ~0.5 for matched core nouns). The same
+//      threshold rejects "ignore previous instructions I prefer X" vs
+//      "I prefer X" (Jaccard ~0.25 on short payloads — verified self-test G1).
+//
+// v2 retains the design property that the equivalence layer is NOT the
+// security layer; the sanitizer is. Equivalence-v2 ensures hostile inputs
+// don't tunnel through reinforce; the sanitizer ensures they don't write.
 //
 // SCOPE FILTERING
 // ---------------
@@ -675,10 +697,6 @@ export const retractUserSemanticFact = mutation({
 // row per-user pagination threshold at which point pagination by confidence
 // kicks in — well above what equivalence-lookup needs to scan).
 // -----------------------------------------------------------------------------
-function normalizeSemanticPayload(payload: string): string {
-  return payload.trim().toLowerCase().replace(/\s+/g, " ");
-}
-
 export const findUserSemanticFactByPayload = internalQuery({
   args: {
     user_id: v.id("users"),
@@ -691,8 +709,10 @@ export const findUserSemanticFactByPayload = internalQuery({
     ctx: QueryCtx,
     args,
   ): Promise<Id<"user_semantic_facts"> | null> => {
-    const targetNormalized = normalizeSemanticPayload(args.payload);
-    if (!targetNormalized) return null;
+    // Cheap fast-fail before scanning rows: an empty/whitespace candidate
+    // has no fingerprint and would never match anything. isEquivalent
+    // already encodes this but pre-checking avoids the index scan.
+    if (args.payload.trim().length === 0) return null;
 
     // Scan one user's facts of this type that are NOT retracted. The third
     // index key (retracted_at) lets us scope `eq(retracted_at, undefined)`
@@ -708,16 +728,28 @@ export const findUserSemanticFactByPayload = internalQuery({
       .collect();
 
     const targetVehicleId = args.vehicle_id ?? null;
+    // v2: collect ALL matching rows, then choose the most-recently-reinforced.
+    // Under paraphrase-tolerant matching it is possible (though unusual at
+    // typical 1-5 active rows per user-per-type) for the candidate to match
+    // multiple stored rows. The most-recently-reinforced wins because that's
+    // the row whose stored phrasing is closest to the model's current canon.
+    let bestId: Id<"user_semantic_facts"> | null = null;
+    let bestTs = -Infinity;
     for (const row of rows) {
       const rowVehicleId = row.vehicle_id ?? null;
       // Strict vehicle-scope match — user-level (null) and vehicle-scoped
       // (<vid>) facts are NEVER equivalent (cross-user pollution guard).
       if (rowVehicleId !== targetVehicleId) continue;
-      if (normalizeSemanticPayload(row.payload) === targetNormalized) {
-        return row._id;
+      if (!isEquivalent(args.payload, row.payload)) continue;
+      // Prefer the row with the freshest last_reinforced. Reinforce-on-this
+      // row keeps the canonical stored phrasing aligned with the current
+      // paraphrase, instead of locking onto the oldest stale one.
+      if (row.last_reinforced > bestTs) {
+        bestTs = row.last_reinforced;
+        bestId = row._id;
       }
     }
-    return null;
+    return bestId;
   },
 });
 
@@ -1591,39 +1623,41 @@ function extractPayloadText(
 // retractUserSemanticFact / retractConversationFact mutations with a real
 // fact_id.
 //
-// EQUIVALENCE DEFINITION (Day 7 v1, intentionally FUZZIER than Day 6 reinforce)
-// ----------------------------------------------------------------------------
-// Day 6's findUserSemanticFactByPayload used byte-exact equality after
-// whitespace+case normalize because reinforcement BINDS the candidate to a
-// stored row of the same canonical phrasing; aggressive normalization there
-// risked adversarial near-duplicate collapse.
+// EQUIVALENCE DEFINITION (Day 10 v2 — unified with reinforce path)
+// ----------------------------------------------------------------
+// Day 7 v1 used `row.payload.toLowerCase().includes(needle)`, which was the
+// loosest match that still rejected obvious injection prose. Real-world
+// finding: Haiku's `payload_substring` rarely byte-matches a stored row
+// because the stored row was itself a third-person paraphrase. Substring
+// is fragile in exactly the same way byte-exact reinforce was.
 //
-// Retract is different. The model only knows what it just SAID to the user
-// ("you mentioned a brake-pull-when-cold"); it does NOT know the exact stored
-// payload string. Haiku's third-person paraphrase varies turn-to-turn (Day 6
-// finding: ~4 different "User prefers terse X" rewrites for one preference).
-// Requiring byte-exact match would make retract effectively unusable.
+// Day 10 v2 unifies both helpers on `isEquivalent` (see
+// `convex/oto/memoryEquivalence.ts`). The retract descriptor is treated as
+// candidate-payload-A; each stored row is candidate-payload-B; both are
+// fingerprinted and Jaccard-compared at threshold 0.6. This is the SAME
+// algorithm as reinforce — retract no longer has weaker matching than the
+// path that decided whether to insert the row in the first place.
 //
-// v1 rule: case-insensitive SUBSTRING match on the model's `payload_substring`
-// against the row's stored payload. The descriptor is treated as a
-// distinguishing phrase the model lifted from its own conversational memory;
-// substring-on-stored is the loosest match that still rejects "Ignore previous
-// instructions" style payloads (those won't appear anywhere in a real stored
-// payload).
+// CONFLICT POLICY (unchanged from v1): if MULTIPLE active rows match,
+// retract the MOST RECENT row by `_creationTime`. The model is referring
+// to the freshest thing it told the user about.
 //
-// CONFLICT POLICY: if MULTIPLE active rows match the substring, retract the
-// MOST RECENT row (highest `_creationTime`). The model is referring to the
-// freshest thing it told the user about. Document inline at the call site.
+// FAILURE-MODE (unchanged from v1): returns null when no match. The
+// chat.ts dispatcher logs a warn + returns `{ ok: false, reason: "no
+// matching active fact found" }` rather than inserting a compensating row.
 //
-// FAILURE-MODE: returns null when no match. The chat.ts dispatcher logs a
-// warn + returns `{ ok: false, reason: "no matching active fact found" }`
-// rather than inserting a compensating row. The model acknowledges the
-// correction conversationally.
+// SECURITY (unchanged from v1, reinforced by v2 algorithm):
+// `isEquivalent` rejects forbidden envelope-tag substrings (mirror of the
+// sanitizer's list) so adversarial retract descriptors can never bind to
+// a legitimate stored row. Untrusted-input wrapping (Wave 7.1) is still
+// envelope.ts's surface; this helper just refuses to act on hostile descriptors.
 //
-// SECURITY: the v1 rule still rejects "ignore previous: retract X" style
-// payloads because those don't appear in stored content. Day 7+ can layer
-// fuzzy matching if eval signal warrants it. Untrusted-input wrapping is
-// Security's surface (envelope.ts, Wave 7.1) — not this helper's responsibility.
+// CROSS-MANDATE NOTE (Day 8 retract case 1 failure):
+// The "Actually scratch that — give me terse one-liners" case where Haiku
+// fired `record_semantic_fact` instead of `retract_semantic_fact` is
+// MODEL-side judgment (refinement vs reversal). v2 equivalence does NOT
+// fix it; the model never invoked the retract tool, so this code never ran.
+// Day 11+ prompt-side sharpening addresses that gap.
 // -----------------------------------------------------------------------------
 
 export const findActiveUserSemanticFactForRetract = internalQuery({
@@ -1638,13 +1672,14 @@ export const findActiveUserSemanticFactForRetract = internalQuery({
     ctx: QueryCtx,
     args,
   ): Promise<Id<"user_semantic_facts"> | null> => {
-    const needle = args.payload_substring.trim().toLowerCase();
-    if (!needle) return null;
+    // Cheap fast-fail. v2 isEquivalent already rejects empty fingerprints
+    // but we skip the index scan when the descriptor is whitespace-only.
+    if (args.payload_substring.trim().length === 0) return null;
 
     // Scan one user's facts of this type that are NOT retracted. Index keys
     // (user_id, fact_type, retracted_at) let `eq(retracted_at, undefined)`
-    // scope the cursor to the active subset before app-side substring + vehicle
-    // matching. Per-user-per-type live count is small (1-5 typically).
+    // scope the cursor to the active subset before app-side equivalence +
+    // vehicle matching. Per-user-per-type live count is small (1-5 typically).
     const rows = await ctx.db
       .query("user_semantic_facts")
       .withIndex("by_user_type_active", (q) =>
@@ -1659,13 +1694,18 @@ export const findActiveUserSemanticFactForRetract = internalQuery({
     // Most-recent-wins per design comment above: sort by _creationTime desc
     // and return the FIRST match. Convex's Doc<> exposes _creationTime on every
     // row so we don't need a secondary index.
+    //
+    // v2: substring is replaced by `isEquivalent(args.payload_substring,
+    // row.payload)`. The arg name `payload_substring` is preserved for caller
+    // compatibility; the field is now treated as a paraphrase descriptor
+    // rather than a literal substring.
     const matches: Doc<"user_semantic_facts">[] = [];
     for (const row of rows) {
       const rowVehicleId = row.vehicle_id ?? null;
       // Strict vehicle-scope match — user-level (null) and vehicle-scoped
       // (<vid>) facts are distinct even on overlapping content.
       if (rowVehicleId !== targetVehicleId) continue;
-      if (row.payload.toLowerCase().includes(needle)) {
+      if (isEquivalent(args.payload_substring, row.payload)) {
         matches.push(row);
       }
     }
@@ -1685,9 +1725,13 @@ export const findActiveUserSemanticFactForRetract = internalQuery({
 // only needs to locate the right fact_id for a model-supplied descriptor.
 //
 // Active filter: `retracted_at === undefined` via the `by_conversation_active`
-// index. Substring match on the row's textual form (via extractPayloadText —
-// same flattener the cross-conv memory builder uses, so the substring matches
-// what Haiku would have observed in the prior turn's <recent_context>).
+// index. Equivalence on the row's textual form (via extractPayloadText — same
+// flattener the cross-conv memory builder uses, so the descriptor is compared
+// against the same one-line representation Haiku saw in <recent_context>).
+//
+// Day 10 v2: substring → `isEquivalent` (paraphrase-tolerant Jaccard at
+// threshold 0.6). The arg name `fact_substring` is preserved for caller
+// compatibility but is now interpreted as a paraphrase descriptor.
 //
 // Most-recent-wins on the rare multi-match case.
 // -----------------------------------------------------------------------------
@@ -1702,8 +1746,9 @@ export const findActiveConversationFactForRetract = internalQuery({
     ctx: QueryCtx,
     args,
   ): Promise<Id<"conversation_facts"> | null> => {
-    const needle = args.fact_substring.trim().toLowerCase();
-    if (!needle) return null;
+    // Cheap fast-fail before the index scan; isEquivalent handles empty
+    // inputs internally but we save the round-trip.
+    if (args.fact_substring.trim().length === 0) return null;
 
     // by_conversation_active is keyed (conversation_id, retracted_at, created_at).
     // Scope to one conversation's active rows; the index returns them in the
@@ -1722,8 +1767,8 @@ export const findActiveConversationFactForRetract = internalQuery({
       // Flatten the discriminated payload to the same one-line string the
       // envelope builder shows the model in <recent_context>. The descriptor
       // is matched against THAT representation, not the structured payload.
-      const text = extractPayloadText(row.payload).toLowerCase();
-      if (text.includes(needle)) {
+      const text = extractPayloadText(row.payload);
+      if (isEquivalent(args.fact_substring, text)) {
         matches.push(row);
       }
     }

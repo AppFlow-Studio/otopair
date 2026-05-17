@@ -310,7 +310,8 @@ export const sendMessage = action({
 
 // Public-facing return shape — shared between the core handler and the
 // retry-exhaust friendly-fallback wrapper. `error_kind` is set ONLY on the
-// fallback path; successful turns omit it.
+// fallback path (retry-exhaust) or the Wave 7.2 ladder gate (MINIMAL / DOWN);
+// successful turns omit it.
 type SendMessageResult = {
   text: string;
   quickReplies?: unknown[];
@@ -325,7 +326,11 @@ type SendMessageResult = {
   reasoning?: unknown;
   sources?: unknown;
   trace?: unknown;
-  error_kind?: "overloaded" | "transient";
+  // "overloaded" | "transient" come from AnthropicTransientError boundary
+  // (existing). "minimal_mode" | "ladder_down" come from the Wave 7.2 pre-
+  // turn ladder gate in sendMessageHandlerCore. Mobile UI branches on
+  // presence/value to surface a retry affordance.
+  error_kind?: "overloaded" | "transient" | "minimal_mode" | "ladder_down";
 };
 
 // Action entry point — thin error-boundary shell. Translates
@@ -466,6 +471,134 @@ async function sendMessageHandlerCore(
   const sortedMessages = [...allMessages].sort((a, b) => a.timestamp - b.timestamp);
   const history = sortedMessages.slice(-HISTORY_TURNS);
 
+  // ── 2.5. Wave 7.2 pre-turn degradation-ladder gate ────────────────────
+  //
+  // Sprint 2 Day 10. Authority: docs/SPRINT_2/WAVE_7_2_DEGRADATION_LADDER.md
+  // §4.2 (the per-turn gate API contract). Owner: LLM Reliability Engineer.
+  //
+  // Read the system-wide ladder state ONCE per turn from `reliability_events`
+  // (the Day 9 observability substrate) and branch behavior per the design
+  // doc's state table:
+  //
+  //   FULL     — proceed normally (current behavior).
+  //   DEGRADED — proceed normally BUT pass `no_web_search: true` to the
+  //              retrieve_vehicle_facts cascade dispatch (override of the
+  //              production default of `false`). web_search server-tool is
+  //              the failure-prone surface; strip it from the cascade this
+  //              turn so Haiku stops trying.
+  //   MINIMAL  — SKIP the Anthropic call entirely. Return a canned summary
+  //              built from envelope context (user first name + history)
+  //              with `error_kind: "minimal_mode"`. Memory wire-ins also
+  //              skipped (they only fire after a successful Anthropic turn).
+  //   DOWN     — SKIP everything. Return the same friendly-retry text the
+  //              AnthropicTransientError boundary uses, with
+  //              `error_kind: "ladder_down"`.
+  //
+  // Latency budget per design §4.3: < 50ms (single indexed query + decision).
+  //
+  // Failure-isolation: if `getCurrentDegradationState` itself fails, default
+  // to FULL — defense-in-depth. A broken observability layer must NEVER
+  // break the chat path. Caller wraps in try/catch; default state on throw.
+  //
+  // v1 limitations (per design §8 + the reliability.ts implementation
+  // comments): the ladder is STATELESS — every turn computes state fresh
+  // from the trailing-window scan. No per-user state (system-wide only).
+  // No manual admin override.
+  let ladderState: "FULL" | "DEGRADED" | "MINIMAL" | "DOWN" = "FULL";
+  let ladderReason = "default";
+  try {
+    const ladderRead = (await ctx.runQuery(
+      internal.oto.reliability.getCurrentDegradationState,
+      {},
+    )) as {
+      state: "FULL" | "DEGRADED" | "MINIMAL" | "DOWN";
+      reason: string;
+      window_start_ms: number;
+      window_end_ms: number;
+    };
+    ladderState = ladderRead.state;
+    ladderReason = ladderRead.reason;
+  } catch (e: any) {
+    console.warn(
+      "[oto/chat] getCurrentDegradationState failed (defaulting to FULL):",
+      e?.message,
+    );
+  }
+
+  if (ladderState !== "FULL") {
+    console.warn(
+      `[oto/chat] Wave 7.2 degradation-ladder state=${ladderState} reason="${ladderReason}"`,
+    );
+  }
+
+  // MINIMAL / DOWN: short-circuit the chat turn entirely. The fire-and-forget
+  // reliability event below provides symmetric observability so the ladder's
+  // skips show up in metrics alongside the failures that triggered them.
+  if (ladderState === "DOWN") {
+    ctx
+      .runMutation(internal.oto.reliability.recordReliabilityEvent, {
+        surface: "ladder_gate_skipped_anthropic",
+        kind: "fallback_fired",
+        error_message: `state=DOWN reason="${ladderReason}"`,
+        user_id: user._id,
+        conversation_id: conversationId,
+        metadata: { state: "DOWN", reason: ladderReason },
+      })
+      .catch((reportErr: unknown) => {
+        console.error(
+          "[oto/chat] recordReliabilityEvent itself failed (silent):",
+          (reportErr as { message?: string })?.message,
+        );
+      });
+    return {
+      text: "Sorry — Oto is having trouble right now. Please try again in a moment.",
+      error_kind: "ladder_down",
+    };
+  }
+
+  if (ladderState === "MINIMAL") {
+    ctx
+      .runMutation(internal.oto.reliability.recordReliabilityEvent, {
+        surface: "ladder_gate_skipped_anthropic",
+        kind: "fallback_fired",
+        error_message: `state=MINIMAL reason="${ladderReason}"`,
+        user_id: user._id,
+        conversation_id: conversationId,
+        metadata: { state: "MINIMAL", reason: ladderReason },
+      })
+      .catch((reportErr: unknown) => {
+        console.error(
+          "[oto/chat] recordReliabilityEvent itself failed (silent):",
+          (reportErr as { message?: string })?.message,
+        );
+      });
+    // Canned summary from envelope context. We have user.first_name and
+    // history at this point; we deliberately DO NOT load the active vehicle
+    // here because the MINIMAL path's job is to fail fast on a degraded
+    // backend — running extra runQueries to enrich the canned reply is the
+    // exact pattern this state is designed to avoid. The mobile UI branches
+    // on `error_kind === "minimal_mode"` to surface a retry affordance.
+    const firstName =
+      user.first_name && user.first_name.trim().length > 0
+        ? user.first_name.trim()
+        : null;
+    const greeting = firstName ? `Hey ${firstName} — ` : "";
+    const minimalText =
+      `${greeting}Oto is experiencing high load right now, so I'm running in a limited mode for this turn. ` +
+      `I don't have access to my full toolset, but please try again in a moment and I should be back.`;
+    return {
+      text: minimalText,
+      error_kind: "minimal_mode",
+    };
+  }
+
+  // FULL or DEGRADED fall through to the normal chat path below. The
+  // DEGRADED case is plumbed through to buildCallables (line ~677) as the
+  // `noWebSearch` flag — when true the `retrieve_vehicle_facts` callable
+  // overrides the cascade dispatch's `no_web_search: false` default to
+  // `true`, stripping T3 web_search for the duration of this turn.
+  const noWebSearchOverride = ladderState === "DEGRADED";
+
   // ── 3. Resolve active vehicle ────────────────────────────────────────
   const conversationVehicleId = (conversation as Record<string, unknown>)
     .vehicle_id as string | undefined;
@@ -549,6 +682,22 @@ async function sendMessageHandlerCore(
         top_K: 5,
       },
     );
+    // Wave 7.3 (Day 10) — fire-and-forget PII-read counter bump. The check
+    // at the top of getCrossConversationMemory (memoryEditing.ts) reads this
+    // counter; without the bump here the count never advances and enforcement
+    // is inert. Hard-block kicks in at 50 reads / 600s rolling per user
+    // (per design §2.2 review note). Counter failure is swallowed silently —
+    // observability fires it as a reliability event one level above.
+    ctx
+      .runMutation(internal.oto.queryMoat.bumpPIIReadCounter, {
+        userId: user._id,
+      })
+      .catch((bumpErr: unknown) => {
+        console.error(
+          "[oto/chat] bumpPIIReadCounter failed (silent):",
+          (bumpErr as { message?: string })?.message,
+        );
+      });
   } catch (e: any) {
     console.error(
       "[oto/chat] getCrossConversationMemory failed (swallowed):",
@@ -666,6 +815,9 @@ async function sendMessageHandlerCore(
     conversationFactTurnNumber,
     previousMood,
     previousArcSummary,
+    // Wave 7.2 DEGRADED state: strip T3 web_search from the cascade for this
+    // turn. Falls back to `false` (production default) on FULL.
+    noWebSearchOverride,
   );
 
   // ── 6. Tool-use loop ─────────────────────────────────────────────────
@@ -1783,6 +1935,14 @@ function buildCallables(
   // never through update_conversation_state.
   previousMood: string | null,
   previousArcSummary: string | null,
+  // Wave 7.2 (Sprint 2 Day 10) — pre-turn degradation-ladder DEGRADED gate.
+  // When true (ladder state DEGRADED), the `retrieve_vehicle_facts` callable
+  // overrides the cascade dispatch's `no_web_search: false` production
+  // default to `true` so T3 web_search is stripped for the duration of this
+  // turn. Falls back to `false` on FULL (the only other state that reaches
+  // buildCallables; MINIMAL/DOWN short-circuit before the callable map is
+  // built). See docs/SPRINT_2/WAVE_7_2_DEGRADATION_LADDER.md §4.2.
+  noWebSearchOverride: boolean,
 ): ToolCallables {
   // Wave 7.3 Option B: counter-bump helper for action-context moat reads.
   // Invoked AFTER each ctx.runQuery into a moat-reading query function
@@ -2070,7 +2230,12 @@ function buildCallables(
               : {}),
             ...(limit !== undefined ? { limit } : {}),
             // Prod: T3 web_search ENABLED (eval pins `true` for baseline).
-            no_web_search: false,
+            // Wave 7.2 DEGRADED state override: when the pre-turn ladder gate
+            // (sendMessageHandlerCore §2.5) detected DEGRADED, the
+            // `noWebSearchOverride` closure flag is true and we strip T3
+            // web_search from this turn's cascade. See
+            // docs/SPRINT_2/WAVE_7_2_DEGRADATION_LADDER.md §4.2.
+            no_web_search: noWebSearchOverride,
           },
         )) as {
           tier: string | null;

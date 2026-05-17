@@ -605,9 +605,70 @@ else
 fi
 echo ""
 
+# Rule 18 -- reliability_events writes only via reliability.ts helper.
+# Defends Day 9's observability table from external writes. The
+# recordReliabilityEvent internalMutation is the ONLY legal write surface.
+echo "Rule 18: reliability_events inserts only via reliability.ts..."
+RULE_18_HITS=$(
+  rg -n 'ctx\.db\.(insert|patch|replace)\("reliability_events"' convex/ --type ts \
+  | rg -v "^convex/oto/reliability\.ts" \
+  | rg -v "^convex/oto/migrations/" \
+  || true
+)
+if [ -n "$RULE_18_HITS" ]; then
+  red "  FAIL -- reliability_events write outside convex/oto/reliability.ts (Wave 7.2 observability surface):"
+  echo "$RULE_18_HITS"
+  VIOLATIONS=$((VIOLATIONS + 1))
+else
+  green "  OK"
+fi
+echo ""
+
+# Rule 19 -- reliability_events deletes forbidden anywhere outside migrations.
+# Observability data is append-only; pruning belongs in a future GC migration
+# helper, not in code that handles a single turn.
+echo "Rule 19: reliability_events deletes only in migrations/..."
+RULE_19_HITS=$(
+  rg -n 'ctx\.db\.delete\b' convex/ --type ts \
+  | rg '"reliability_events"|<"reliability_events">' \
+  | rg -v "^convex/oto/migrations/" \
+  || true
+)
+if [ -n "$RULE_19_HITS" ]; then
+  red "  FAIL -- reliability_events delete outside migrations/ (observability is append-only):"
+  echo "$RULE_19_HITS"
+  VIOLATIONS=$((VIOLATIONS + 1))
+else
+  green "  OK"
+fi
+echo ""
+
+# Rule 20 -- Wave 1.9 schema-hash drift guard.
+# Catches accidental schema changes that drift from the prompt's enum
+# references (fact_type, source, written_by, etc.). Simple SHA-256 of
+# convex/schema.ts compared to scripts/ci/schema-hash.expected. Intentional
+# schema changes MUST update the expected hash AND any prompt rules that
+# reference touched enums/tables.
+echo "Rule 20: convex/schema.ts hash matches scripts/ci/schema-hash.expected..."
+EXPECTED_SCHEMA_HASH=$(cat scripts/ci/schema-hash.expected 2>/dev/null || echo "(none)")
+CURRENT_SCHEMA_HASH=$(sha256sum convex/schema.ts | awk '{print $1}')
+if [ "$EXPECTED_SCHEMA_HASH" != "$CURRENT_SCHEMA_HASH" ]; then
+  red "  FAIL -- convex/schema.ts hash drift"
+  red "    Expected: $EXPECTED_SCHEMA_HASH"
+  red "    Current:  $CURRENT_SCHEMA_HASH"
+  yellow "  If the schema change is intentional, update scripts/ci/schema-hash.expected"
+  yellow "    and verify any prompt rules referencing schema enums (fact_type, source,"
+  yellow "    written_by, retract triple shape, etc.) are still accurate against the"
+  yellow "    new schema. Then re-run this CI to confirm."
+  VIOLATIONS=$((VIOLATIONS + 1))
+else
+  green "  OK"
+fi
+echo ""
+
 # Summary
 if [ $VIOLATIONS -eq 0 ]; then
-  green "All vehicle-facts invariant checks passed (17/17 rules clean)."
+  green "All vehicle-facts invariant checks passed (20/20 rules clean)."
   exit 0
 else
   red "$VIOLATIONS rule violation(s)."
