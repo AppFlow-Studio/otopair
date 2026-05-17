@@ -116,6 +116,10 @@ interface ServiceBottomSheetProps {
   onAddVehicle?: () => void;
   /** Registers a back handler with the parent route. Return true when consumed. */
   onBackHandlerChange?: (handler: (() => boolean) | null) => void;
+  /** When > 0, the sheet stays fully closed (index -1) for this many ms after
+   *  mount, then snaps up to its normal position. Lets the map breathe before
+   *  the sheet slides in. Defaults to 0 (open immediately). */
+  initialDelayMs?: number;
 }
 
 // ============================================================================
@@ -187,9 +191,13 @@ export function ServiceBottomSheet({
   onShopClose,
   onAddVehicle: onAddVehicleProp,
   onBackHandlerChange,
+  initialDelayMs = 0,
 }: ServiceBottomSheetProps) {
   // ═══════════════ REFS ═══════════════
   const bottomSheetRef = useRef<BottomSheet>(null);
+  // Defer-open state lives further down (after `previousCarSnapIndexRef`
+  // is declared) because the timer needs to reset that ref.
+  const [isDelayElapsed, setIsDelayElapsed] = useState(initialDelayMs <= 0);
   // Tire Replacement → inline Modal hosting TireBookingScreen. Used
   // instead of router.push to /(tire-booking) because that wasn't
   // navigating from inside the bottom sheet.
@@ -230,6 +238,22 @@ export function ServiceBottomSheet({
   const [mechanicFooterHeight, setMechanicFooterHeight] = useState(0);
   const showCarPreviewRef = useRef(showCarPreview);
   const previousCarSnapIndexRef = useRef(SERVICE_SNAP_COUNT - 1);
+
+  // Run the deferred-open timer here so it can reset
+  // `previousCarSnapIndexRef`. While the sheet is held at index -1, the
+  // animatedIndex reaction (below) clamps intermediate values into that
+  // ref, leaving it at 0 by the time the delay ends; without the reset,
+  // the controlled `bottomSheetIndex` would resolve to "collapsed" and
+  // the sheet would settle at 23% instead of expanded.
+  useEffect(() => {
+    if (initialDelayMs <= 0) return;
+    const id = setTimeout(() => {
+      previousCarSnapIndexRef.current = SERVICE_SNAP_COUNT - 1;
+      setIsDelayElapsed(true);
+      bottomSheetRef.current?.snapToIndex(SERVICE_SNAP_COUNT - 1);
+    }, initialDelayMs);
+    return () => clearTimeout(id);
+  }, [initialDelayMs]);
 
   // ═══════════════ STORES ═══════════════
   const setBookingStage = useBookingStore((state) => state.setBookingStage);
@@ -628,6 +652,7 @@ export function ServiceBottomSheet({
     ? CAR_SELECTION_SNAP_INDEX
     : (pendingCarCloseSnapIndex ?? clampSnapIndex(previousCarSnapIndexRef.current));
   const bottomSheetIndex = (() => {
+    if (!isDelayElapsed) return -1;
     const maxIndex = Math.max(0, snapPointsLength - 1);
     return Math.min(maxIndex, Math.max(-1, bottomSheetIndexUnclamped));
   })();

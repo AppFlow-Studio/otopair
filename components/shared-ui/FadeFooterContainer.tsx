@@ -45,19 +45,27 @@ export function FadeFooterContainer({
     fadeHeight = 64,
     fadeVariant = 1,
 }: FadeFooterContainerProps) {
-    // Two configurable color sets; second is a copy for now (user will edit later)
+    // Color sets:
+    //   variant 1 (default) — fades from transparent into white,
+    //     matching the bottom stop of the onboarding / about-you
+    //     LIGHT_PALETTE (which now ramps blue→white top-to-bottom).
+    //     Because the bg behind the fade is also white at that screen
+    //     height, the fade is effectively invisible — content eases
+    //     into the CTA area without showing a band.
+    //   variant 2 — brand-blue (#5299FE) fade, kept for surfaces that
+    //     want a stronger fade into a more-saturated blue.
     const COLOR_SETS: [string, string, string, string][] = [
         [
-            'rgba(32, 63, 125, 0)',       // Transparent at top
-            'rgba(32, 63, 125, 0.3)',     // Light blend
-            'rgba(32, 63, 125, 0.7)',     // Medium blend
-            'rgba(32, 63, 125, 0.95)',    // Nearly opaque at bottom
+            'rgba(255, 255, 255, 0)',
+            'rgba(255, 255, 255, 0.5)',
+            'rgba(255, 255, 255, 0.85)',
+            '#FFFFFF',
         ],
         [
-            'rgba(82, 153, 254, 0)',       // Transparent at top (copy for now)
-            'rgba(82, 153, 254, 0.3)',     // Light blend (copy for now)
-            'rgba(82, 153, 254, 0.7)',     // Medium blend (copy for now)
-            'rgba(82, 153, 254, 0.95)',    // Nearly opaque at bottom (copy for now)
+            'rgba(82, 153, 254, 0)',
+            'rgba(82, 153, 254, 0.3)',
+            'rgba(82, 153, 254, 0.7)',
+            'rgba(82, 153, 254, 0.95)',
         ],
     ];
 

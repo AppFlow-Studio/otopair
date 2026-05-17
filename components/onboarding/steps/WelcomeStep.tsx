@@ -164,14 +164,14 @@ const styles = StyleSheet.create({
   title: {
     fontSize: FontSize["4xl"],
     fontFamily: FontFamily.bold,
-    color: BrandColors.white,
+    color: '#0F172A',
     marginBottom: Spacing.xs,
     lineHeight: Spacing["5xl"],
   },
   subtitle: {
     fontSize: FontSize.lg,
     fontFamily: FontFamily.regular,
-    color: BrandColors.white,
+    color: '#0F172A',
     opacity: 0.9,
     lineHeight: Spacing["2xl"],
     marginBottom: Spacing.sm,
@@ -192,7 +192,7 @@ const styles = StyleSheet.create({
   },
   loginErrorText: {
     textAlign: "center",
-    color: "#FCA5A5",
+    color: "#DC2626",
     fontSize: FontSize.sm,
     fontFamily: FontFamily.medium,
     marginTop: Spacing.xs,

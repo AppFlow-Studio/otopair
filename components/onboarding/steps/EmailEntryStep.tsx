@@ -91,7 +91,7 @@ export function EmailEntryStep({ onNext, onBack, progress }: EmailEntryStepProps
                         <TextInput
                             style={styles.input}
                             placeholder="Email address"
-                            placeholderTextColor="rgba(255, 255, 255, 0.5)"
+                            placeholderTextColor="#829BAD"
                             value={email}
                             onChangeText={setEmail}
                             keyboardType="email-address"
@@ -141,29 +141,29 @@ const styles = StyleSheet.create({
     title: {
         fontSize: FontSize['4xl'],
         fontFamily: FontFamily.bold,
-        color: BrandColors.white,
+        color: '#0F172A',
         marginBottom: Spacing.md,
         lineHeight: 44,
     },
     subtitle: {
         fontSize: FontSize.lg,
         fontFamily: FontFamily.regular,
-        color: BrandColors.white,
+        color: '#0F172A',
         opacity: 0.9,
         lineHeight: 28,
     },
     inputContainer: {
-        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+        backgroundColor: '#FFFFFF',
         borderRadius: 12,
         paddingHorizontal: Spacing.lg,
         paddingVertical: Platform.OS === 'ios' ? Spacing.lg : Spacing.md,
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.2)',
+        borderColor: '#E2E8F0',
     },
     input: {
         fontSize: FontSize.lg,
         fontFamily: FontFamily.medium,
-        color: BrandColors.white,
+        color: '#0F172A',
     },
     infoContainer: {
         marginTop: Spacing.xl,
@@ -171,7 +171,7 @@ const styles = StyleSheet.create({
     infoText: {
         fontSize: FontSize.md,
         fontFamily: FontFamily.regular,
-        color: BrandColors.white,
+        color: '#0F172A',
         opacity: 0.7,
         textAlign: 'center',
     },

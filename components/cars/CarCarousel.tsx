@@ -40,6 +40,7 @@ import ReAnimated, {
   interpolate,
   useAnimatedStyle,
   useSharedValue,
+  withDelay,
   withSpring,
   withTiming,
   runOnJS,
@@ -1842,15 +1843,16 @@ export function CarCarousel({
       rotation.value = withTiming(snappedRotation, {
         duration: 350,
         easing: SETTLE_EASING,
-      }, (finished) => {
-        'worklet';
-        if (finished) {
-          // Fade the ground line + shadow back in under the now-active
-          // car after the settle completes, so they appear with the
-          // car instead of mid-swipe.
-          panActive.value = withTiming(0, { duration: 180 });
-        }
       });
+
+      // Fade the ground line + shadow back in once the settle has
+      // finished. Driving this off `withDelay` (instead of the rotation
+      // timing's completion callback) ensures the fade-in still fires
+      // when a rapid follow-up swipe interrupts the rotation — the new
+      // swipe's onStart resets panActive to 1, and once that swipe ends
+      // it queues its own delayed fade-in. Without this, a rapid swipe
+      // sequence leaves panActive stuck at 1 and the line never returns.
+      panActive.value = withDelay(350, withTiming(0, { duration: 180 }));
     });
 
   // Rotate to specific index
@@ -2043,7 +2045,7 @@ export function CarCarousel({
               bottomOffset={groundLineBottom}
               tint={groundLineTint}
               tintTransparent={groundLineTintTransparent}
-              height={StyleSheet.hairlineWidth}
+              height={1.5}
             />
           </ReAnimated.View>
 

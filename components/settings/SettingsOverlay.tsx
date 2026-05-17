@@ -57,13 +57,27 @@ const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get("window");
 // floating avatar's size FROM the button's size TO this value.
 const AVATAR_TARGET_SIZE = 72;
 
-const SPRING_CONFIG = { damping: 22, stiffness: 145, mass: 1.05 } as const;
+// Settle ~520ms, no overshoot — feels like a deliberate expand
+// instead of a slam. Tightening damping + lowering stiffness gives
+// the card room to "grow" rather than snap to size.
+const SPRING_CONFIG = { damping: 26, stiffness: 110, mass: 1.05 } as const;
 
 export function SettingsOverlay() {
   const insets = useSafeAreaInsets();
-  const isOpen = useSettingsOverlayStore((s) => s.isOpen);
-  const fromRect = useSettingsOverlayStore((s) => s.fromRect);
+  // Pull all three open/mount/rect values in a single subscription so
+  // we never re-render with a partially-applied state combo (e.g.
+  // isMounted=true but fromRect=null, which used to paint the card at
+  // the fallback {0,0,56,56} rect for one frame — that's what looked
+  // like the button "jumping to the top-left corner.")
+  const { isOpen, isMounted, fromRect } = useSettingsOverlayStore(
+    useShallow((s) => ({
+      isOpen: s.isOpen,
+      isMounted: s.isMounted,
+      fromRect: s.fromRect,
+    })),
+  );
   const closeStore = useSettingsOverlayStore((s) => s.close);
+  const finishClose = useSettingsOverlayStore((s) => s.finishClose);
 
   // Identity for the floating avatar — sourced exactly like the home
   // button + Settings avatar so the three never disagree.
@@ -94,11 +108,6 @@ export function SettingsOverlay() {
     return null;
   }, [me?.profile_photo_storage_id, me?.profile_photo_url, storedPhoto]);
 
-  // `mounted` keeps the Modal in the tree across the closing spring so
-  // the animation can play out before unmount. We flip it to true on
-  // open and back to false from the close-spring's completion callback.
-  const [mounted, setMounted] = useState(false);
-
   // `settled` is true only when the open spring has fully landed at
   // progress=1. While settled, we hand off the avatar from the floating
   // animated copy (sibling of the ScrollView, can't scroll) to the
@@ -107,21 +116,19 @@ export function SettingsOverlay() {
   // over for the close animation.
   const [settled, setSettled] = useState(false);
 
-  // The most recent rect we opened from. Captured into a state value so
-  // the closing animation can keep reading it after the store cleared.
-  const [activeRect, setActiveRect] = useState<SettingsOverlayRect | null>(null);
-
   const progress = useSharedValue(0);
 
-  // Drive the open/close springs in response to store changes.
+  // Drive the open/close springs in response to store changes. Mount
+  // state is owned by the store (isMounted) so the home button hide and
+  // the overlay render flip on the same frame — no gap where neither is
+  // visible, no late "fall in" once the spring kicks in.
   useEffect(() => {
     if (isOpen && fromRect) {
-      setActiveRect(fromRect);
-      setMounted(true);
       setSettled(false);
       progress.value = 0;
-      // Defer the spring until after the Modal has actually mounted
-      // so the first frame renders at progress=0 (card at button rect).
+      // Defer the spring until after this render commits so the first
+      // frame paints at progress=0 (card at button rect) before
+      // animating outward.
       requestAnimationFrame(() => {
         progress.value = withSpring(1, SPRING_CONFIG, (finished) => {
           if (finished) {
@@ -129,7 +136,7 @@ export function SettingsOverlay() {
           }
         });
       });
-    } else if (mounted) {
+    } else if (isMounted) {
       // Re-instate the floating avatar before reversing the spring so
       // the user sees the avatar shrink back into the home button.
       setSettled(false);
@@ -138,12 +145,13 @@ export function SettingsOverlay() {
         SPRING_CONFIG,
         (finished) => {
           if (finished) {
-            runOnJS(setMounted)(false);
+            runOnJS(finishClose)();
           }
         },
       );
     }
-    // mounted intentionally not in deps — we only react to store changes.
+    // isMounted intentionally not in deps — we only react to store
+    // open/close changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, fromRect]);
 
@@ -151,7 +159,7 @@ export function SettingsOverlay() {
     closeStore();
   };
 
-  const rect = activeRect ?? { x: 0, y: 0, width: 56, height: 56 };
+  const rect = fromRect ?? { x: 0, y: 0, width: 56, height: 56 };
 
   // ── Animated styles ────────────────────────────────────────────────
 
@@ -258,11 +266,14 @@ export function SettingsOverlay() {
     ),
   }));
 
-  // SettingsContent body fades in once the card has enough room.
+  // SettingsContent body fades in once the card has mostly opened.
+  // Pushing the fade window later (was 0.4→0.9) lets the user see the
+  // card grow first, then the rows appear — feels less like everything
+  // is happening at once.
   const bodyStyle = useAnimatedStyle(() => ({
     opacity: interpolate(
       progress.value,
-      [0.4, 0.9],
+      [0.65, 1],
       [0, 1],
       Extrapolation.CLAMP,
     ),
@@ -272,19 +283,25 @@ export function SettingsOverlay() {
   const closeStyle = useAnimatedStyle(() => ({
     opacity: interpolate(
       progress.value,
-      [0.7, 1],
+      [0.85, 1],
       [0, 1],
       Extrapolation.CLAMP,
     ),
   }));
 
-  if (!mounted) return null;
+  // Belt-and-suspenders: also gate on fromRect being set. With the
+  // combined useShallow selector above this should never trip, but
+  // returning null here guarantees we never paint the card at the
+  // fallback {0,0,56,56} top-left rect even if a race ever did slip
+  // through.
+  if (!isMounted || !fromRect) return null;
 
   return (
     <Modal
       transparent
-      visible={mounted}
+      visible={isMounted}
       animationType="none"
+      presentationStyle="overFullScreen"
       statusBarTranslucent
       onRequestClose={handleClose}
     >
@@ -300,7 +317,25 @@ export function SettingsOverlay() {
           the card is still smaller than the screen. The card itself is
           transparent — a BlurView of the home page sits inside, with a
           subtle navy tint on top so text remains readable. */}
-      <Animated.View style={[styles.card, cardStyle]}>
+      {/* Static rect values inline so the FIRST paint lands at the
+          button rect even before the Reanimated worklet for cardStyle
+          has applied. Without these, `position: absolute` with no
+          top/left would default to (0,0) for one frame — that was the
+          "button jumps to top-left" flash. `cardStyle` immediately
+          takes over and drives the grow animation. */}
+      <Animated.View
+        style={[
+          styles.card,
+          {
+            top: rect.y,
+            left: rect.x,
+            width: rect.width,
+            height: rect.height,
+            borderRadius: rect.width / 2,
+          },
+          cardStyle,
+        ]}
+      >
         {/* Frosted backdrop — blurs the home page visible through the
             card's transparent fill. */}
         <BlurView

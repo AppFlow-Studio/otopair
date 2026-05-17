@@ -72,6 +72,11 @@ export default function BookingsScreen() {
   const navigation = useNavigation();
   const insets = useSafeAreaInsets();
 
+  // Every entry into the map gets the same deferred slide-up: render
+  // the map alone for a beat, then let the sheet glide up. Tune the
+  // delay here if it ever needs to change globally.
+  const sheetInitialDelayMs = 1000;
+
   // Hide tab bar when map is open so bottom sheet can cover it
   useLayoutEffect(() => {
     const parent = navigation.getParent();
@@ -390,6 +395,7 @@ export default function BookingsScreen() {
         onShopClose={handleShopClose}
         onAddVehicle={handleAddVehicle}
         onBackHandlerChange={handleBottomSheetBackHandlerChange}
+        initialDelayMs={sheetInitialDelayMs}
       />
     </View>
   );

@@ -233,14 +233,14 @@ const styles = StyleSheet.create({
   title: {
     fontSize: FontSize["4xl"],
     fontFamily: FontFamily.bold,
-    color: BrandColors.white,
+    color: '#0F172A',
     marginBottom: Spacing.xs,
     lineHeight: Spacing["5xl"],
   },
   subtitle: {
     fontSize: FontSize.lg,
     fontFamily: FontFamily.regular,
-    color: BrandColors.white,
+    color: '#0F172A',
     opacity: 0.9,
     lineHeight: Spacing["2xl"],
     marginBottom: Spacing.sm,
@@ -268,7 +268,7 @@ const styles = StyleSheet.create({
     gap: Spacing.sm,
   },
   googleButton: {
-    backgroundColor: BrandColors.white,
+    backgroundColor: '#EFF6FF',
   },
   googleIcon: {
     fontSize: FontSize.xl,
@@ -285,26 +285,26 @@ const styles = StyleSheet.create({
   },
   appleIcon: {
     fontSize: FontSize.xl,
-    color: BrandColors.white,
+    color: '#0F172A',
   },
   appleText: {
     fontSize: FontSize.md,
     fontFamily: FontFamily.semiBold,
-    color: BrandColors.white,
+    color: '#0F172A',
   },
   emailButton: {
-    backgroundColor: "rgba(255, 255, 255, 0.15)",
+    backgroundColor: "#5299FE",
     borderWidth: 1,
-    borderColor: "rgba(255, 255, 255, 0.3)",
+    borderColor: "#5299FE",
   },
   emailText: {
     fontSize: FontSize.md,
     fontFamily: FontFamily.semiBold,
-    color: BrandColors.white,
+    color: '#0F172A',
   },
   errorText: {
     textAlign: "center",
-    color: "#FCA5A5",
+    color: "#DC2626",
     fontSize: FontSize.sm,
     fontFamily: FontFamily.medium,
   },
@@ -315,12 +315,12 @@ const styles = StyleSheet.create({
   loginLinkText: {
     fontSize: FontSize.md,
     fontFamily: FontFamily.regular,
-    color: BrandColors.white,
+    color: '#0F172A',
     opacity: 0.8,
   },
   loginLinkBold: {
     fontFamily: FontFamily.semiBold,
-    color: "#60A5FA",
+    color: "#1E40AF",
     opacity: 1,
   },
 });

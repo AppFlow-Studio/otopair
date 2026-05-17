@@ -25,14 +25,23 @@ export interface SettingsOverlayRect {
 
 interface SettingsOverlayState {
   isOpen: boolean;
+  /** True from the moment open() is called until the close spring fully
+   *  unmounts the overlay. Used by ProfileInitialsButton to stay hidden
+   *  for the entire open+close lifecycle (avoids visual doubling between
+   *  the home button and the overlay's floating avatar). */
+  isMounted: boolean;
   fromRect: SettingsOverlayRect | null;
   open: (rect: SettingsOverlayRect) => void;
   close: () => void;
+  /** Called by SettingsOverlay's close-spring completion handler. */
+  finishClose: () => void;
 }
 
 export const useSettingsOverlayStore = create<SettingsOverlayState>((set) => ({
   isOpen: false,
+  isMounted: false,
   fromRect: null,
-  open: (rect) => set({ isOpen: true, fromRect: rect }),
+  open: (rect) => set({ isOpen: true, isMounted: true, fromRect: rect }),
   close: () => set({ isOpen: false }),
+  finishClose: () => set({ isMounted: false }),
 }));

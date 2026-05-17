@@ -1055,7 +1055,7 @@ export default function CarsHomeScreen() {
     [activeGradient]
   );
   const groundLineTint = useMemo(
-    () => `rgba(${groundShadowTintRgb}, 0.32)`,
+    () => `rgba(${groundShadowTintRgb}, 0.18)`,
     [groundShadowTintRgb]
   );
   const groundLineTintTransparent = useMemo(

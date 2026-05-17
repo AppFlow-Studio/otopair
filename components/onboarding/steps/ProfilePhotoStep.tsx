@@ -264,11 +264,11 @@ const styles = StyleSheet.create({
     width: 200,
     height: 200,
     borderRadius: 100,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: '#FFFFFF',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
+    borderColor: '#E2E8F0',
     overflow: 'hidden',
   },
   photoPreview: {
@@ -283,11 +283,11 @@ const styles = StyleSheet.create({
     width: 56,
     height: 56,
     borderRadius: 28,
-    backgroundColor: BrandColors.white,
+    backgroundColor: '#EFF6FF',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 3,
-    borderColor: 'rgba(255, 255, 255, 0.4)',
+    borderColor: '#5299FE',
   },
   headerContent: {
     alignItems: 'center',
@@ -296,14 +296,14 @@ const styles = StyleSheet.create({
   title: {
     fontSize: FontSize["4xl"],
     fontFamily: FontFamily.bold,
-    color: BrandColors.white,
+    color: '#0F172A',
     textAlign: 'center',
     lineHeight: Spacing['5xl'],
   },
   subtitle: {
     fontSize: FontSize.lg,
     fontFamily: FontFamily.regular,
-    color: BrandColors.white,
+    color: '#0F172A',
     opacity: 0.9,
     textAlign: 'center',
     lineHeight: Spacing['2xl'],
@@ -331,14 +331,14 @@ const styles = StyleSheet.create({
   photoModalTitle: {
     fontSize: FontSize["2xl"],
     fontFamily: FontFamily.bold,
-    color: BrandColors.white,
+    color: '#0F172A',
     textAlign: "center",
     marginBottom: Spacing.md,
   },
   photoModalSubtitle: {
     fontSize: FontSize.md,
     fontFamily: FontFamily.regular,
-    color: "#9CA3AF",
+    color: "#829BAD",
     textAlign: "center",
     marginBottom: Spacing["2xl"],
     lineHeight: 22,
@@ -348,7 +348,7 @@ const styles = StyleSheet.create({
     gap: Spacing.md,
   },
   photoModalPrimaryButton: {
-    backgroundColor: BrandColors.white,
+    backgroundColor: '#EFF6FF',
     borderRadius: 12,
     paddingVertical: Spacing.md,
     paddingHorizontal: Spacing.lg,
@@ -371,7 +371,7 @@ const styles = StyleSheet.create({
   photoModalSecondaryText: {
     fontSize: FontSize.lg,
     fontFamily: FontFamily.semiBold,
-    color: BrandColors.white,
+    color: '#0F172A',
   },
   photoModalTextButton: {
     paddingVertical: Spacing.sm,
@@ -380,7 +380,7 @@ const styles = StyleSheet.create({
   photoModalTextButtonLabel: {
     fontSize: FontSize.md,
     fontFamily: FontFamily.semiBold,
-    color: "#9CA3AF",
+    color: "#829BAD",
   },
 });
 

@@ -43,6 +43,7 @@ export function ProfileInitialsButton() {
     );
   const open = useSettingsOverlayStore((s) => s.open);
   const isOpen = useSettingsOverlayStore((s) => s.isOpen);
+  const isMounted = useSettingsOverlayStore((s) => s.isMounted);
 
   const initials = useMemo(
     () =>
@@ -77,7 +78,12 @@ export function ProfileInitialsButton() {
     <Pressable
       ref={viewRef}
       onPress={handlePress}
-      style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
+      style={({ pressed }) => [
+        styles.button,
+        pressed && styles.buttonPressed,
+        isMounted && styles.buttonHidden,
+      ]}
+      pointerEvents={isMounted ? "none" : "auto"}
       hitSlop={6}
     >
       {photoUri ? (
@@ -122,6 +128,9 @@ const styles = StyleSheet.create({
   },
   buttonPressed: {
     opacity: 0.85,
+  },
+  buttonHidden: {
+    opacity: 0,
   },
   image: {
     width: BUTTON_SIZE,

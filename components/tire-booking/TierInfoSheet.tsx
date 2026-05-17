@@ -1,9 +1,9 @@
 /**
  * TierInfoSheet
  *
- * PURPOSE: Bottom sheet that explains a single tire tier — what it means,
- *          typical warranty range, and example brands. Opened from the (i)
- *          icon on each tier card on the Shop Tires screen.
+ * PURPOSE: Bottom sheet that explains a single tire tier — what it means
+ *          and example brands. Opened from the (i) icon on each tier
+ *          card on the Shop Tires screen.
  *
  * USED IN: app/(tire-booking)/index.tsx
  *
@@ -39,7 +39,7 @@ export const TierInfoSheet = forwardRef<TierInfoSheetRef>((_, ref) => {
   const tier = tierId ? TIRE_TIERS.find((t) => t.id === tierId) ?? null : null;
 
   return (
-    <FloatingSheet ref={sheetRef} snapHeights={[Math.min(SCREEN_HEIGHT * 0.5, 380)]} showBackdrop>
+    <FloatingSheet ref={sheetRef} snapHeights={[Math.min(SCREEN_HEIGHT * 0.4, 280)]} showBackdrop>
       {tier ? (
         <View style={styles.content}>
           <Text size="xl" weight="bold" color="#1A1A1A" style={styles.title}>
@@ -48,15 +48,6 @@ export const TierInfoSheet = forwardRef<TierInfoSheetRef>((_, ref) => {
           <Text size="sm" weight="regular" color="#4B5563" style={styles.tagline}>
             {tier.tagline}
           </Text>
-
-          <View style={styles.row}>
-            <Text size="xs" weight="semiBold" color="#8E8E93" style={styles.rowLabel}>
-              TYPICAL WARRANTY
-            </Text>
-            <Text size="md" weight="semiBold" color="#1A1A1A">
-              {tier.warrantyRange}
-            </Text>
-          </View>
 
           <View style={styles.row}>
             <Text size="xs" weight="semiBold" color="#8E8E93" style={styles.rowLabel}>

@@ -103,7 +103,7 @@ export function CreatePasswordStep({ onNext, onBack, progress }: CreatePasswordS
                                 <TextInput
                                     style={styles.input}
                                     placeholder="At least 8 characters"
-                                    placeholderTextColor="rgba(255, 255, 255, 0.5)"
+                                    placeholderTextColor="#829BAD"
                                     value={password}
                                     onChangeText={(text) => {
                                         setPassword(text);
@@ -120,9 +120,9 @@ export function CreatePasswordStep({ onNext, onBack, progress }: CreatePasswordS
                                     hitSlop={10}
                                 >
                                     {isPasswordVisible ? (
-                                        <EyeOff size={20} color="rgba(255, 255, 255, 0.6)" />
+                                        <EyeOff size={20} color="#374151" />
                                     ) : (
-                                        <Eye size={20} color="rgba(255, 255, 255, 0.6)" />
+                                        <Eye size={20} color="#374151" />
                                     )}
                                 </TouchableOpacity>
                             </View>
@@ -134,7 +134,7 @@ export function CreatePasswordStep({ onNext, onBack, progress }: CreatePasswordS
                                 <TextInput
                                     style={styles.input}
                                     placeholder="Re-enter your password"
-                                    placeholderTextColor="rgba(255, 255, 255, 0.5)"
+                                    placeholderTextColor="#829BAD"
                                     value={confirmPassword}
                                     onChangeText={(text) => {
                                         setConfirmPassword(text);
@@ -151,9 +151,9 @@ export function CreatePasswordStep({ onNext, onBack, progress }: CreatePasswordS
                                     hitSlop={10}
                                 >
                                     {isConfirmPasswordVisible ? (
-                                        <EyeOff size={20} color="rgba(255, 255, 255, 0.6)" />
+                                        <EyeOff size={20} color="#374151" />
                                     ) : (
-                                        <Eye size={20} color="rgba(255, 255, 255, 0.6)" />
+                                        <Eye size={20} color="#374151" />
                                     )}
                                 </TouchableOpacity>
                             </View>
@@ -199,14 +199,14 @@ const styles = StyleSheet.create({
     title: {
         fontSize: FontSize['4xl'],
         fontFamily: FontFamily.bold,
-        color: BrandColors.white,
+        color: '#0F172A',
         marginBottom: Spacing.md,
         lineHeight: 44,
     },
     subtitle: {
         fontSize: FontSize.lg,
         fontFamily: FontFamily.regular,
-        color: BrandColors.white,
+        color: '#0F172A',
         opacity: 0.9,
         lineHeight: 28,
     },
@@ -219,25 +219,25 @@ const styles = StyleSheet.create({
     label: {
         fontSize: FontSize.sm,
         fontFamily: FontFamily.semiBold,
-        color: BrandColors.white,
+        color: '#0F172A',
         opacity: 0.8,
         marginLeft: 4,
     },
     inputContainer: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+        backgroundColor: '#FFFFFF',
         borderRadius: 12,
         paddingHorizontal: Spacing.lg,
         paddingVertical: Platform.OS === 'ios' ? Spacing.lg : Spacing.md,
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.2)',
+        borderColor: '#E2E8F0',
     },
     input: {
         flex: 1,
         fontSize: FontSize.lg,
         fontFamily: FontFamily.medium,
-        color: BrandColors.white,
+        color: '#0F172A',
     },
     eyeIcon: {
         marginLeft: Spacing.sm,
@@ -252,7 +252,7 @@ const styles = StyleSheet.create({
     errorText: {
         fontSize: FontSize.sm,
         fontFamily: FontFamily.medium,
-        color: '#FCA5A5',
+        color: '#DC2626',
         textAlign: 'center',
     },
     bottomContainer: {

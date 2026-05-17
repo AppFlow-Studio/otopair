@@ -216,14 +216,14 @@ const styles = StyleSheet.create({
     title: {
         fontSize: FontSize['4xl'],
         fontFamily: FontFamily.bold,
-        color: BrandColors.white,
+        color: '#0F172A',
         marginBottom: Spacing.md,
         lineHeight: Spacing['5xl'],
     },
     subtitle: {
         fontSize: FontSize.lg,
         fontFamily: FontFamily.regular,
-        color: BrandColors.white,
+        color: '#0F172A',
         opacity: 0.9,
         lineHeight: Spacing['2xl'],
     },
@@ -234,17 +234,17 @@ const styles = StyleSheet.create({
     optionButton: {
         flexDirection: 'row',
         alignItems: 'center',
-        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+        backgroundColor: '#FFFFFF',
         borderRadius: BorderRadius.lg,
         paddingHorizontal: Spacing.lg,
         paddingVertical: Spacing.lg,
         gap: Spacing.md,
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.2)',
+        borderColor: '#E2E8F0',
     },
     optionButtonSelected: {
-        backgroundColor: BrandColors.white,
-        borderColor: 'rgba(255, 255, 255, 0.3)',
+        backgroundColor: '#EFF6FF',
+        borderColor: '#5299FE',
     },
     optionButtonDisabled: {
         opacity: 0.5,
@@ -269,7 +269,7 @@ const styles = StyleSheet.create({
     rankBadgeText: {
         fontSize: FontSize.md,
         fontFamily: FontFamily.bold,
-        color: '#0B1220',
+        color: '#1E40AF',
     },
     optionEmoji: {
         fontSize: FontSize['2xl'],
@@ -279,7 +279,7 @@ const styles = StyleSheet.create({
     optionText: {
         fontSize: FontSize.lg,
         fontFamily: FontFamily.regular,
-        color: BrandColors.white,
+        color: '#0F172A',
         flex: 1,
     },
     optionTextSelected: {
