@@ -2066,16 +2066,24 @@ function buildCallables(
       }
 
       try {
-        const args: any = {
+        // Cast factTypeRaw/sourceRaw to the schema's enum unions — they've
+        // already been validated against VALID_FACT_TYPES / VALID_SOURCES
+        // sets above (Set.has() narrows runtime but not TS type).
+        const args = {
           user_id: userId,
-          fact_type: factTypeRaw,
+          fact_type: factTypeRaw as
+            | "mechanic_preference"
+            | "service_preference"
+            | "communication_style"
+            | "vehicle_quirk"
+            | "history_anchor",
           payload: text,
-          source: sourceRaw,
+          source: sourceRaw as "user_stated" | "inferred_behavior",
           written_by: "chat_agent" as const,
+          ...(vehicleIdRaw !== null
+            ? { vehicle_id: vehicleIdRaw as Id<"vehicles"> }
+            : {}),
         };
-        if (vehicleIdRaw !== null) {
-          args.vehicle_id = vehicleIdRaw as Id<"vehicles">;
-        }
         const factId = await ctx.runMutation(
           api.oto.memoryEditing.recordUserSemanticFact,
           args,
@@ -2348,10 +2356,22 @@ function buildCallables(
         typeof input.reason === "string" && input.reason.trim()
           ? input.reason
           : "unspecified";
-      await ctx.runMutation(api.ai_conversations.setCurrentModel, {
-        id: conversationId,
-        model: "sonnet",
-      });
+      // Failure-isolation: a transient Convex hiccup here was a chat-turn
+      // killer before this guard. On failure we surface ok:false so the model
+      // loop knows the handoff didn't take + skip the mirror to avoid
+      // canonical/mirror drift; user-facing turn continues normally.
+      try {
+        await ctx.runMutation(api.ai_conversations.setCurrentModel, {
+          id: conversationId,
+          model: "sonnet",
+        });
+      } catch (e: any) {
+        console.warn(
+          "[oto/chat] setCurrentModel (sonnet handoff) failed (swallowed):",
+          e?.message,
+        );
+        return { ok: false, model: "haiku" as const, reason };
+      }
       console.log(`[oto/chat] sonnet handoff requested (reason: ${reason})`);
       // ── Wave 3 control-class mirror ──────────────────────────────────
       try {
@@ -2400,10 +2420,21 @@ function buildCallables(
         typeof input.reason === "string" && input.reason.trim()
           ? input.reason
           : "unspecified";
-      await ctx.runMutation(api.ai_conversations.setCurrentModel, {
-        id: conversationId,
-        model: "haiku",
-      });
+      // Failure-isolation (matches sonnet handoff above): swallow transient
+      // Convex hiccups so the chat turn continues; ok:false signals to the
+      // model loop that the handback didn't take.
+      try {
+        await ctx.runMutation(api.ai_conversations.setCurrentModel, {
+          id: conversationId,
+          model: "haiku",
+        });
+      } catch (e: any) {
+        console.warn(
+          "[oto/chat] setCurrentModel (haiku handback) failed (swallowed):",
+          e?.message,
+        );
+        return { ok: false, model: "sonnet" as const, reason };
+      }
       console.log(`[oto/chat] haiku handback (reason: ${reason})`);
       // ── Wave 3 control-class mirror ──────────────────────────────────
       try {
