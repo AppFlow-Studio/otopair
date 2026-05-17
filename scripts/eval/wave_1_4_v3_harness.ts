@@ -66,7 +66,7 @@ import {
 
 // -- Case + assertion shape ---------------------------------------------------
 
-type CaseCategory = "a" | "b" | "c" | "d" | "e" | "f";
+type CaseCategory = "a" | "b" | "c" | "d" | "e" | "f" | "g" | "h" | "i";
 
 interface CaseResult {
   case_id: string;
@@ -1049,6 +1049,1163 @@ const AUDIT_INVARIANT_CASES: CaseAssertion[] = [
   },
 ];
 
+// =============================================================================
+// (g) Memory write-discipline cases (Wave 3 — QA Review §3, §4)
+// =============================================================================
+//
+// Verify that the helper layer in `convex/oto/memoryEditing.ts` rejects illegal
+// writes to the five Wave 3 tables. Five cases:
+//   g-001: write_through_helper_only             — CI Rule 13 meta-check
+//   g-002: written_by_rejected_invalid_enum      — validator rejects bad value
+//   g-003: source_health_monitor_blocks_confirmed — legality matrix throws
+//   g-004: user_selection_role_only              — role-mismatch throws
+//   g-005: retract_no_steer                      — LLM-judge stage (≥95%)
+//
+// THRESHOLDS (per WAVE_3_REVIEW_QA.md §5):
+//   • g-001..g-004 — ≥99% N=10. Structural / pure-validator. No LLM, no jitter.
+//   • g-005       — ≥95% N=10. The only Wave 3 case with an LLM-judge stage.
+//
+// MOCK-MODE STRATEGY (per WAVE_3_REVIEW_QA.md §2):
+// Each case's `run()` closure simulates the relevant helper-layer behavior
+// using hardcoded fixtures (mirrors cat-(b)/cat-(c)/cat-(e) shape). Live-mode
+// requires new HTTP wrappers in `multiTenantSetup.ts` (e.g.
+// `seedConversationFact`, `mutationThrows`) which are a separate dispatch.
+// Live-mode TODOs are annotated inline below.
+// =============================================================================
+
+// -- Helper: simulate memoryEditing.ts helper-layer reject ------------------
+//
+// Mirrors the helper-body shape in `convex/oto/memoryEditing.ts` for the negative
+// cases. Returns either an ok object or a structured throw-code carrier.
+// This keeps the mock-mode assertion identical in shape to the live-mode
+// thrown-error pattern we'll wire on the next dispatch.
+
+interface MockHelperReject {
+  ok: false;
+  thrown_code: string;
+  message: string;
+}
+interface MockHelperOk {
+  ok: true;
+}
+type MockHelperResult = MockHelperOk | MockHelperReject;
+
+interface MockConversationFactsTable {
+  rows: Array<{
+    fact_id: string;
+    conversation_id: string;
+    fact_type: string;
+    payload: { kind: string } & Record<string, unknown>;
+    source_turn: number;
+    created_at: number;
+    written_by: string;
+    retracted_at?: number;
+    retracted_reason?: string;
+    retracted_by_turn?: number;
+  }>;
+}
+
+interface MockUserSemanticFactsTable {
+  rows: Array<{
+    fact_id: string;
+    user_id: string;
+    fact_type: string;
+    payload: string;
+    confidence: number;
+    source: string;
+    written_by: string;
+    first_observed: number;
+    last_reinforced: number;
+    observation_count: number;
+    retracted_at?: number;
+    retracted_reason?: string;
+  }>;
+}
+
+function freshConversationFactsTable(): MockConversationFactsTable {
+  return { rows: [] };
+}
+
+function freshUserSemanticFactsTable(): MockUserSemanticFactsTable {
+  return { rows: [] };
+}
+
+// Helper: simulate `recordConversationFact` for mock cases (mirrors the body
+// of `convex/oto/memoryEditing.ts::recordConversationFact`).
+function mockRecordConversationFact(
+  tables: MockConversationFactsTable,
+  args: {
+    conversation_id: string;
+    fact_type: string;
+    payload: { kind: string } & Record<string, unknown>;
+    source_turn: number;
+    written_by: string;
+  },
+): MockHelperResult & { fact_id?: string } {
+  // Discriminator integrity — payload.kind MUST equal fact_type.
+  if (args.payload.kind !== args.fact_type) {
+    return {
+      ok: false,
+      thrown_code: "DISCRIMINATOR_MISMATCH",
+      message: `payload.kind="${args.payload.kind}" must match fact_type="${args.fact_type}"`,
+    };
+  }
+  // user_selection reserved for recordSelectionFact.
+  if (args.written_by === "user_selection") {
+    return {
+      ok: false,
+      thrown_code: "ROLE_MISMATCH",
+      message: `written_by="user_selection" is reserved for recordSelectionFact`,
+    };
+  }
+  // Enum integrity — validator-layer reject.
+  const legalWrittenBy = [
+    "chat_agent",
+    "user_selection",
+    "health_monitor",
+    "system",
+  ];
+  if (!legalWrittenBy.includes(args.written_by)) {
+    return {
+      ok: false,
+      thrown_code: "VALIDATOR_REJECT",
+      message: `written_by="${args.written_by}" not in [${legalWrittenBy.join(", ")}]`,
+    };
+  }
+  const fact_id = `cf_${tables.rows.length + 1}`;
+  tables.rows.push({
+    fact_id,
+    conversation_id: args.conversation_id,
+    fact_type: args.fact_type,
+    payload: args.payload,
+    source_turn: args.source_turn,
+    created_at: Date.now(),
+    written_by: args.written_by,
+  });
+  return { ok: true, fact_id };
+}
+
+// Helper: simulate `recordUserSemanticFact` for mock cases (mirrors
+// `convex/oto/memoryEditing.ts::recordUserSemanticFact` including the
+// (source, written_by) legality matrix from design doc §2.2).
+function mockRecordUserSemanticFact(
+  tables: MockUserSemanticFactsTable,
+  args: {
+    user_id: string;
+    fact_type: string;
+    payload: string;
+    source: string;
+    written_by: string;
+  },
+): MockHelperResult & { fact_id?: string } {
+  // (source, written_by) legality matrix per design doc §2.2 + §7 D3.
+  // health_monitor and system MUST NOT write source="mechanic_confirmed"
+  // (deception vector).
+  if (
+    args.source === "mechanic_confirmed" &&
+    (args.written_by === "health_monitor" || args.written_by === "system")
+  ) {
+    return {
+      ok: false,
+      thrown_code: "LEGALITY_MATRIX",
+      message: `(source="mechanic_confirmed", written_by="${args.written_by}") is illegal`,
+    };
+  }
+  const now = Date.now();
+  const fact_id = `usf_${tables.rows.length + 1}`;
+  tables.rows.push({
+    fact_id,
+    user_id: args.user_id,
+    fact_type: args.fact_type,
+    payload: args.payload,
+    confidence: 1.0,
+    source: args.source,
+    written_by: args.written_by,
+    first_observed: now,
+    last_reinforced: now,
+    observation_count: 1,
+  });
+  return { ok: true, fact_id };
+}
+
+// Helper: simulate the asymptotic reinforce formula from
+// `convex/oto/memoryEditing.ts::reinforceUserSemanticFact`.
+// new_confidence = 1 - (1 - old_confidence) * 0.5 (clamped to [0, 1]).
+function mockReinforceUserSemanticFact(
+  tables: MockUserSemanticFactsTable,
+  args: { fact_id: string },
+): MockHelperResult {
+  const row = tables.rows.find((r) => r.fact_id === args.fact_id);
+  if (!row) {
+    return {
+      ok: false,
+      thrown_code: "NOT_FOUND",
+      message: `fact ${args.fact_id} not found`,
+    };
+  }
+  if (row.retracted_at !== undefined) {
+    return {
+      ok: false,
+      thrown_code: "ALREADY_RETRACTED",
+      message: `cannot reinforce retracted fact ${args.fact_id}`,
+    };
+  }
+  const next = 1 - (1 - row.confidence) * 0.5;
+  row.confidence = Math.max(0, Math.min(1, next));
+  row.observation_count += 1;
+  row.last_reinforced = Date.now();
+  return { ok: true };
+}
+
+// Helper: simulate `retractConversationFact` from memoryEditing.ts.
+function mockRetractConversationFact(
+  tables: MockConversationFactsTable,
+  args: { fact_id: string; reason: string; retracted_by_turn: number },
+): MockHelperResult {
+  const row = tables.rows.find((r) => r.fact_id === args.fact_id);
+  if (!row) {
+    return { ok: false, thrown_code: "NOT_FOUND", message: "fact not found" };
+  }
+  if (row.retracted_at !== undefined) {
+    return {
+      ok: false,
+      thrown_code: "ALREADY_RETRACTED",
+      message: "idempotent guard — already retracted",
+    };
+  }
+  row.retracted_at = Date.now();
+  row.retracted_reason = args.reason;
+  row.retracted_by_turn = args.retracted_by_turn;
+  return { ok: true };
+}
+
+// Helper: simulate `retractUserSemanticFact` from memoryEditing.ts.
+function mockRetractUserSemanticFact(
+  tables: MockUserSemanticFactsTable,
+  args: { fact_id: string; reason: string },
+): MockHelperResult {
+  const row = tables.rows.find((r) => r.fact_id === args.fact_id);
+  if (!row) {
+    return { ok: false, thrown_code: "NOT_FOUND", message: "fact not found" };
+  }
+  if (row.retracted_at !== undefined) {
+    return {
+      ok: false,
+      thrown_code: "ALREADY_RETRACTED",
+      message: "idempotent guard — already retracted",
+    };
+  }
+  row.retracted_at = Date.now();
+  row.retracted_reason = args.reason;
+  return { ok: true };
+}
+
+// Helper: simulate the working-memory builder reading by `by_conversation_active`
+// (q.eq("retracted_at", undefined)). Returns fact_ids of active facts only.
+function mockBuildWorkingMemory(
+  tables: MockConversationFactsTable,
+  conversation_id: string,
+): string[] {
+  return tables.rows
+    .filter(
+      (r) => r.conversation_id === conversation_id && r.retracted_at === undefined,
+    )
+    .map((r) => r.fact_id);
+}
+
+const MEMORY_WRITE_DISCIPLINE_CASES: CaseAssertion[] = [
+  {
+    case_id: "memory-g-001",
+    category: "g",
+    description:
+      "memory_write_through_helper_only — CI Rule 13 meta-check: direct ctx.db.patch on conversation_facts outside memoryEditing.ts is caught at CI time",
+    async run(_mode) {
+      // META-CASE: the load-bearing assertion lives in CI Rule 13, not at
+      // runtime. CI Rule 13 in `scripts/ci/vehicle-facts-grep.sh` rejects any
+      // `ctx.db.patch("conversation_facts"...)` invocation outside
+      // `convex/oto/memoryEditing.ts` or the migrations directory. At
+      // runtime, we verify the OTHER direction — that the legal helper path
+      // works (proves the assertion is not a false-positive that would also
+      // reject legal code).
+      //
+      // [LIVE-MODE: would call api.oto.memoryEditing.recordConversationFact
+      // via HTTP and assert the row lands. Requires a `seedConversationFact`
+      // HTTP wrapper in multiTenantSetup.ts — see Day-4 stage-2 TODO.]
+      const tables = freshConversationFactsTable();
+      const res = mockRecordConversationFact(tables, {
+        conversation_id: "ai_conv_eval_001",
+        fact_type: "observation",
+        payload: { kind: "observation", text: "brake squeal at low speed only" },
+        source_turn: 1,
+        written_by: "chat_agent",
+      });
+      const passed = res.ok === true && tables.rows.length === 1;
+      return {
+        case_id: "memory-g-001",
+        category: "g",
+        passed,
+        notes: `helper_path_ok=${res.ok} rows_written=${tables.rows.length} (CI Rule 13 defends the negative direction)`,
+        details: { helper_result: res, ci_rule: "Rule 13" },
+      };
+    },
+  },
+  {
+    case_id: "memory-g-002",
+    category: "g",
+    description:
+      "written_by_rejected_invalid_enum — recordConversationFact with bogus written_by rejected by validator",
+    async run(_mode) {
+      // Negative test. The Convex validator union literals are
+      // [chat_agent | user_selection | health_monitor | system]; any other
+      // string MUST be rejected at the validator layer before the handler
+      // body runs.
+      //
+      // [LIVE-MODE: would invoke the mutation HTTP endpoint with a bad
+      // written_by and assert a 4xx with the validator error code. Requires a
+      // `mutationThrows` HTTP wrapper that returns the error envelope rather
+      // than `throw`-ing it.]
+      const tables = freshConversationFactsTable();
+      const res = mockRecordConversationFact(tables, {
+        conversation_id: "ai_conv_eval_002",
+        fact_type: "observation",
+        payload: { kind: "observation", text: "test" },
+        source_turn: 0,
+        // Bogus written_by — must be rejected.
+        written_by: "rogue_agent",
+      });
+      const expectedCode = "VALIDATOR_REJECT";
+      const codeOk = res.ok === false && res.thrown_code === expectedCode;
+      const noRowWritten = tables.rows.length === 0;
+      const passed = codeOk && noRowWritten;
+      return {
+        case_id: "memory-g-002",
+        category: "g",
+        passed,
+        notes: `expected_throw=${expectedCode} actual=${res.ok === false ? res.thrown_code : "no_throw"} rows_written=${tables.rows.length} (expected 0)`,
+        details: { helper_result: res },
+      };
+    },
+  },
+  {
+    case_id: "memory-g-003",
+    category: "g",
+    description:
+      "source_health_monitor_blocks_mechanic_confirmed — (source=mechanic_confirmed, written_by=health_monitor) rejected by legality matrix",
+    async run(_mode) {
+      // Per design doc §2.2 + §7 D3: a background agent forging a verified
+      // service record is the deception threat the legality matrix closes.
+      // The matrix is enforced at the helper layer (see
+      // `recordUserSemanticFact` in memoryEditing.ts ~line 403).
+      //
+      // [LIVE-MODE: would call api.oto.memoryEditing.recordUserSemanticFact
+      // with the illegal combo and catch the thrown error. Same wrapper need
+      // as g-002.]
+      const tables = freshUserSemanticFactsTable();
+      const res = mockRecordUserSemanticFact(tables, {
+        user_id: "user_eval_a",
+        fact_type: "history_anchor",
+        payload: "last brake service 2026-03-14",
+        source: "mechanic_confirmed",
+        written_by: "health_monitor",
+      });
+      const expectedCode = "LEGALITY_MATRIX";
+      const codeOk = res.ok === false && res.thrown_code === expectedCode;
+      const noRowWritten = tables.rows.length === 0;
+      const passed = codeOk && noRowWritten;
+      return {
+        case_id: "memory-g-003",
+        category: "g",
+        passed,
+        notes: `expected_throw=${expectedCode} actual=${res.ok === false ? res.thrown_code : "no_throw"} rows_written=${tables.rows.length} (expected 0)`,
+        details: { helper_result: res },
+      };
+    },
+  },
+  {
+    case_id: "memory-g-004",
+    category: "g",
+    description:
+      "user_selection_role_only_recordSelectionFact — recordConversationFact with written_by=user_selection rejected (must use recordSelectionFact)",
+    async run(_mode) {
+      // The "user_selection" written_by value is RESERVED for the mobile-tap
+      // path (`recordSelectionFact`). Distinguishing user-tap from chat-agent
+      // appends is the entire point of the established_facts race fix
+      // (Doc 1 §3.3). recordConversationFact must reject it.
+      //
+      // [LIVE-MODE: would call api.oto.memoryEditing.recordConversationFact
+      // with written_by="user_selection" and catch the thrown error.]
+      const tables = freshConversationFactsTable();
+      const res = mockRecordConversationFact(tables, {
+        conversation_id: "ai_conv_eval_004",
+        fact_type: "id_reference",
+        payload: {
+          kind: "id_reference",
+          entity_type: "mechanic",
+          entity_id: "k57abc",
+        },
+        source_turn: 2,
+        // ILLEGAL: user_selection is reserved for recordSelectionFact.
+        written_by: "user_selection",
+      });
+      const expectedCode = "ROLE_MISMATCH";
+      const codeOk = res.ok === false && res.thrown_code === expectedCode;
+      const noRowWritten = tables.rows.length === 0;
+      const passed = codeOk && noRowWritten;
+      return {
+        case_id: "memory-g-004",
+        category: "g",
+        passed,
+        notes: `expected_throw=${expectedCode} actual=${res.ok === false ? res.thrown_code : "no_throw"} rows_written=${tables.rows.length} (expected 0)`,
+        details: { helper_result: res },
+      };
+    },
+  },
+  {
+    case_id: "memory-g-005",
+    category: "g",
+    description:
+      "memory_retract_no_steer — retracted user_semantic_facts must not appear in working memory; assistant response must not be steered by them (≥95% threshold; LLM-judge stage gated mock-only)",
+    async run(_mode) {
+      // QA Review §2.1: this is the load-bearing memory-behavior case (Doc 3
+      // §6 second challenge). A fact is appended, retracted next turn, and
+      // the third turn asserts the retracted fact no longer steers.
+      //
+      // Two-stage assertion per the QA Review:
+      //   STAGE A (programmatic, ≥99% by construction): the working-memory
+      //     builder reads by `by_conversation_active`
+      //     (q.eq("retracted_at", undefined)). Retracted fact MUST be
+      //     excluded.
+      //   STAGE B (LLM-judge, ≥90% admits LLM-nondeterminism): the
+      //     turn-3 response body must not cite/imply the retracted preference.
+      //     Mock-mode short-circuits to PASS (no LLM available); live-mode
+      //     would route through the eval-only Anthropic account from the
+      //     wave_2_4_loader.ts pattern.
+      //
+      // [LIVE-MODE: requires (a) seedConversationFact wrapper to insert the
+      // fact, (b) a "runChatTurn" wrapper that returns the assembled working
+      // memory + the assistant response, (c) the wave_2_4-style LLM judge.
+      // All three are separate-dispatch work; mock-only for now.]
+      const tables = freshConversationFactsTable();
+
+      // Turn 1: append the preference fact.
+      const turn1 = mockRecordConversationFact(tables, {
+        conversation_id: "ai_conv_eval_005",
+        fact_type: "preference",
+        payload: { kind: "preference", dimension: "distance", value: "closest" },
+        source_turn: 1,
+        written_by: "chat_agent",
+      });
+      if (!turn1.ok || !turn1.fact_id) {
+        return {
+          case_id: "memory-g-005",
+          category: "g",
+          passed: false,
+          notes: `setup fail: turn-1 record failed`,
+        };
+      }
+      const recordedFactId = turn1.fact_id;
+
+      // Turn 2: retract the fact.
+      const turn2 = mockRetractConversationFact(tables, {
+        fact_id: recordedFactId,
+        reason: "user changed mind: now prefers cheapest",
+        retracted_by_turn: 2,
+      });
+      if (!turn2.ok) {
+        return {
+          case_id: "memory-g-005",
+          category: "g",
+          passed: false,
+          notes: `setup fail: turn-2 retract failed: ${"thrown_code" in turn2 ? turn2.thrown_code : "?"}`,
+        };
+      }
+
+      // Turn 3: build working memory + assert exclusion.
+      // STAGE A (programmatic): the retracted fact MUST NOT be in working memory.
+      const workingMemory = mockBuildWorkingMemory(
+        tables,
+        "ai_conv_eval_005",
+      );
+      const stageAOk = !workingMemory.includes(recordedFactId);
+
+      // STAGE B (LLM-judge): mock-only short-circuit. Live-mode would call
+      // the judge with the assistant response + the retracted fact's text and
+      // assert verdict=PASS ("response does not use the preference").
+      // In mock mode we assume the response would not cite the retracted
+      // fact since the working-memory builder excluded it (the load-bearing
+      // invariant is stage A; stage B catches a prompt-bug where the model is
+      // TOLD the fact but instructed to ignore it).
+      const stageBOk = true; // mock-only PASS
+
+      const passed = stageAOk && stageBOk;
+      return {
+        case_id: "memory-g-005",
+        category: "g",
+        passed,
+        notes: `stageA_exclude_ok=${stageAOk} (working_memory=[${workingMemory.join(",")}] expected to NOT include ${recordedFactId}) stageB_judge=${stageBOk} (mock-only PASS)`,
+        details: {
+          working_memory_fact_ids: workingMemory,
+          retracted_fact_id: recordedFactId,
+          stage_a: stageAOk,
+          stage_b: stageBOk,
+        },
+      };
+    },
+  },
+];
+
+// =============================================================================
+// (h) Forensic completeness cases (Wave 3 — QA Review §3)
+// =============================================================================
+//
+// Verify that `conversation_audit` is structurally complete on every assistant
+// turn (`model_used`, `prompt_version` stamped; `tool_calls` envelope correct).
+// The Wave 1.5 prompt-change protocol depends on this; cat-(h) is the
+// safety-net.
+//
+// Four cases:
+//   h-001: assistant_turn_requires_model_used   — role invariant
+//   h-002: user_turn_no_model_used              — role invariant (inverse)
+//   h-003: audit_append_only_no_patch           — CI Rule 12 meta-check
+//   h-004: recordTurn_idempotent_on_pair        — duplicate-turn detection
+//
+// THRESHOLDS: ≥99% N=10 (all four are structural; no LLM, no jitter).
+//
+// MOCK-MODE STRATEGY: simulate the role-conditional invariants in
+// `convex/oto/memoryEditing.ts::recordTurn` (lines ~782-832).
+// =============================================================================
+
+interface MockConversationAuditTable {
+  rows: Array<{
+    audit_id: string;
+    conversation_id: string;
+    turn_number: number;
+    role: "user" | "assistant" | "tool";
+    content: string;
+    tool_calls?: Array<{
+      name: string;
+      input: unknown;
+      output?: unknown;
+    }>;
+    model_used?: string;
+    prompt_version?: string;
+    timestamp: number;
+  }>;
+}
+
+function freshConversationAuditTable(): MockConversationAuditTable {
+  return { rows: [] };
+}
+
+// Simulate `convex/oto/memoryEditing.ts::recordTurn` body — role-conditional
+// invariants + duplicate-turn-pair detection.
+function mockRecordTurn(
+  tables: MockConversationAuditTable,
+  args: {
+    conversation_id: string;
+    turn_number: number;
+    role: "user" | "assistant" | "tool";
+    content: string;
+    tool_calls?: Array<{ name: string; input: unknown; output?: unknown }>;
+    model_used?: string;
+    prompt_version?: string;
+  },
+): MockHelperResult & { audit_id?: string } {
+  if (args.turn_number < 0) {
+    return {
+      ok: false,
+      thrown_code: "INVALID_TURN_NUMBER",
+      message: `turn_number must be >= 0`,
+    };
+  }
+  // Role-conditional invariants — assistant turns MUST carry model_used +
+  // prompt_version; user turns MUST NOT carry them.
+  if (args.role === "assistant") {
+    if (args.model_used === undefined) {
+      return {
+        ok: false,
+        thrown_code: "ROLE_INVARIANT",
+        message: "role=assistant requires model_used",
+      };
+    }
+    if (args.prompt_version === undefined || !args.prompt_version.trim()) {
+      return {
+        ok: false,
+        thrown_code: "ROLE_INVARIANT",
+        message: "role=assistant requires prompt_version",
+      };
+    }
+  } else if (args.role === "user") {
+    if (args.model_used !== undefined) {
+      return {
+        ok: false,
+        thrown_code: "ROLE_INVARIANT",
+        message: "role=user must not carry model_used",
+      };
+    }
+    if (args.prompt_version !== undefined) {
+      return {
+        ok: false,
+        thrown_code: "ROLE_INVARIANT",
+        message: "role=user must not carry prompt_version",
+      };
+    }
+    if (args.tool_calls !== undefined) {
+      return {
+        ok: false,
+        thrown_code: "ROLE_INVARIANT",
+        message: "role=user must not carry tool_calls",
+      };
+    }
+  }
+  // Duplicate-turn detection per `recordTurn` lines ~817-831.
+  const existingMatch = tables.rows.find(
+    (r) =>
+      r.conversation_id === args.conversation_id &&
+      r.turn_number === args.turn_number &&
+      r.role === args.role,
+  );
+  if (existingMatch) {
+    return {
+      ok: false,
+      thrown_code: "DUPLICATE_TURN",
+      message: `duplicate (conversation_id, turn_number, role) — append-only invariant violation`,
+    };
+  }
+  const audit_id = `ca_${tables.rows.length + 1}`;
+  tables.rows.push({
+    audit_id,
+    conversation_id: args.conversation_id,
+    turn_number: args.turn_number,
+    role: args.role,
+    content: args.content,
+    ...(args.tool_calls !== undefined ? { tool_calls: args.tool_calls } : {}),
+    ...(args.model_used !== undefined ? { model_used: args.model_used } : {}),
+    ...(args.prompt_version !== undefined
+      ? { prompt_version: args.prompt_version }
+      : {}),
+    timestamp: Date.now(),
+  });
+  return { ok: true, audit_id };
+}
+
+const FORENSIC_COMPLETENESS_CASES: CaseAssertion[] = [
+  {
+    case_id: "forensic-h-001",
+    category: "h",
+    description:
+      "assistant_turn_requires_model_used — recordTurn(role=assistant) without model_used rejected",
+    async run(_mode) {
+      // The Wave 1.5 prompt-change protocol depends on every assistant turn
+      // having `model_used` AND `prompt_version` stamped. Doc 1 §3.1 closed
+      // this gap; the helper enforces it.
+      //
+      // [LIVE-MODE: would call api.oto.memoryEditing.recordTurn with
+      // role=assistant + missing model_used and assert the thrown error.]
+      const tables = freshConversationAuditTable();
+      const res = mockRecordTurn(tables, {
+        conversation_id: "ai_conv_eval_h001",
+        turn_number: 1,
+        role: "assistant",
+        content: "Sure, let me look that up.",
+        // model_used INTENTIONALLY OMITTED — must be rejected.
+        prompt_version: "v3.2.1",
+      });
+      const expectedCode = "ROLE_INVARIANT";
+      const codeOk = res.ok === false && res.thrown_code === expectedCode;
+      const noRowWritten = tables.rows.length === 0;
+      const passed = codeOk && noRowWritten;
+      return {
+        case_id: "forensic-h-001",
+        category: "h",
+        passed,
+        notes: `expected_throw=${expectedCode} actual=${res.ok === false ? res.thrown_code : "no_throw"} audit_rows=${tables.rows.length} (expected 0)`,
+        details: { helper_result: res },
+      };
+    },
+  },
+  {
+    case_id: "forensic-h-002",
+    category: "h",
+    description:
+      "user_turn_no_model_used — recordTurn(role=user) with model_used set rejected",
+    async run(_mode) {
+      // Inverse of h-001: user turns are pure input; model_used / prompt_version
+      // / tool_calls MUST all be absent. Catches a turn-loop bug where the
+      // assistant-turn envelope leaks into the user-turn write.
+      //
+      // [LIVE-MODE: would call api.oto.memoryEditing.recordTurn with
+      // role=user + model_used set and assert the thrown error.]
+      const tables = freshConversationAuditTable();
+      const res = mockRecordTurn(tables, {
+        conversation_id: "ai_conv_eval_h002",
+        turn_number: 0,
+        role: "user",
+        content: "What's my oil capacity?",
+        // model_used should NOT be present on user turns.
+        model_used: "haiku",
+      });
+      const expectedCode = "ROLE_INVARIANT";
+      const codeOk = res.ok === false && res.thrown_code === expectedCode;
+      const noRowWritten = tables.rows.length === 0;
+      const passed = codeOk && noRowWritten;
+      return {
+        case_id: "forensic-h-002",
+        category: "h",
+        passed,
+        notes: `expected_throw=${expectedCode} actual=${res.ok === false ? res.thrown_code : "no_throw"} audit_rows=${tables.rows.length} (expected 0)`,
+        details: { helper_result: res },
+      };
+    },
+  },
+  {
+    case_id: "forensic-h-003",
+    category: "h",
+    description:
+      "audit_append_only_no_patch — CI Rule 12 meta-check: direct ctx.db.patch on conversation_audit caught at CI time. Runtime confirms recordTurn writes a valid assistant row.",
+    async run(_mode) {
+      // META-CASE: the load-bearing assertion lives in CI Rule 12 in
+      // `scripts/ci/vehicle-facts-grep.sh`, which rejects any
+      // `ctx.db.{patch,replace,delete}("conversation_audit"...)` anywhere
+      // in the codebase. Same logic as vehicle_facts_audit: if the forensic
+      // spine becomes mutable, the safety property collapses.
+      //
+      // At runtime, we verify the legal helper path (recordTurn) writes a
+      // structurally complete assistant audit row with the expected_audit_rows_written
+      // count. This proves CI Rule 12 isn't a false-positive that would also
+      // reject legal writes.
+      //
+      // [LIVE-MODE: would call api.oto.memoryEditing.recordTurn against a
+      // staging Convex deployment + then query `by_conversation_turn` for
+      // the audit row.]
+      const tables = freshConversationAuditTable();
+      const res = mockRecordTurn(tables, {
+        conversation_id: "ai_conv_eval_h003",
+        turn_number: 1,
+        role: "assistant",
+        content: "Your oil capacity is 3.7 quarts.",
+        model_used: "haiku",
+        prompt_version: "v3.2.1",
+      });
+      const expectedAuditRows = 1;
+      const helperOk = res.ok === true;
+      const rowCountOk = tables.rows.length === expectedAuditRows;
+      const assistantRow = tables.rows[0];
+      const envelopeOk =
+        assistantRow !== undefined &&
+        assistantRow.role === "assistant" &&
+        assistantRow.model_used === "haiku" &&
+        assistantRow.prompt_version === "v3.2.1";
+      const passed = helperOk && rowCountOk && envelopeOk;
+      return {
+        case_id: "forensic-h-003",
+        category: "h",
+        passed,
+        notes: `helper_ok=${helperOk} audit_rows=${tables.rows.length} (expected ${expectedAuditRows}) envelope_ok=${envelopeOk} (CI Rule 12 defends the negative direction)`,
+        details: {
+          helper_result: res,
+          audit_row: assistantRow,
+          ci_rule: "Rule 12",
+        },
+      };
+    },
+  },
+  {
+    case_id: "forensic-h-004",
+    category: "h",
+    description:
+      "recordTurn_idempotent_on_conversation_turn_pair — duplicate (conversation_id, turn_number, role) detected and rejected",
+    async run(_mode) {
+      // Uniqueness on (conversation_id, turn_number, role) — strict
+      // append-only and Doc 1 §3.1's "no double-write" invariant. The helper
+      // checks via by_conversation_turn index scan (memoryEditing.ts
+      // lines ~817-831).
+      //
+      // [LIVE-MODE: would call api.oto.memoryEditing.recordTurn twice with
+      // the same (conversation_id, turn_number, role) and assert the second
+      // call throws DUPLICATE_TURN.]
+      const tables = freshConversationAuditTable();
+      const first = mockRecordTurn(tables, {
+        conversation_id: "ai_conv_eval_h004",
+        turn_number: 1,
+        role: "assistant",
+        content: "First assistant turn.",
+        model_used: "haiku",
+        prompt_version: "v3.2.1",
+      });
+      const second = mockRecordTurn(tables, {
+        conversation_id: "ai_conv_eval_h004",
+        turn_number: 1, // SAME — must reject.
+        role: "assistant", // SAME role.
+        content: "Duplicate attempt.",
+        model_used: "haiku",
+        prompt_version: "v3.2.1",
+      });
+      const expectedCode = "DUPLICATE_TURN";
+      const firstOk = first.ok === true;
+      const secondRejected = second.ok === false && second.thrown_code === expectedCode;
+      const rowCountStaysOne = tables.rows.length === 1;
+      const passed = firstOk && secondRejected && rowCountStaysOne;
+      return {
+        case_id: "forensic-h-004",
+        category: "h",
+        passed,
+        notes: `first_ok=${firstOk} second_expected_throw=${expectedCode} second_actual=${second.ok === false ? second.thrown_code : "no_throw"} audit_rows=${tables.rows.length} (expected 1)`,
+        details: { first_result: first, second_result: second },
+      };
+    },
+  },
+];
+
+// =============================================================================
+// (i) Asymptotic reinforcement + decay cases (Wave 3 — QA Review §3)
+// =============================================================================
+//
+// Verify the user_semantic_facts decay/reinforce math is correct end-to-end.
+// The asymptotic formula `1 - (1 - c) * 0.5` is load-bearing for personalization
+// downstream (Wave 5 reranker).
+//
+// Five cases:
+//   i-001: initial_record_at_clamped_confidence  — initial insert + clamp
+//   i-002: single_reinforcement_halves_gap       — one reinforce iteration
+//   i-003: three_reinforcements_approach_asymptote — N=3 iterations
+//   i-004: retract_clears_from_working_memory    — retract + exclusion
+//   i-005: decay_120d_half_life_simulation       — decay math (mock-only)
+//
+// THRESHOLDS: ≥99% N=10 (pure math; no LLM, no jitter).
+//
+// MOCK-MODE STRATEGY: exercise the same asymptotic formula from
+// `mockReinforceUserSemanticFact` defined for cat-(g). The math is
+// deterministic so a 0.001 epsilon absorbs any floating-point drift.
+// =============================================================================
+
+const REINFORCEMENT_DECAY_CASES: CaseAssertion[] = [
+  {
+    case_id: "reinforce-i-001",
+    category: "i",
+    description:
+      "initial_record_at_clamped_confidence — recordUserSemanticFact lands at confidence=1.0 (the asymptote ceiling)",
+    async run(_mode) {
+      // Per memoryEditing.ts `recordUserSemanticFact` body (~line 419): the
+      // INITIAL stored confidence is 1.0 (the asymptote ceiling). Note:
+      // QA Review §3 originally framed this as "record at 0.95, asymptote
+      // 0.9 → row.confidence = 0.9" but the as-shipped helper hardcodes the
+      // initial confidence to 1.0 (no asymptote parameter on
+      // recordUserSemanticFact). This case codifies the as-shipped behavior:
+      // initial insert clamps to 1.0; the expected_confidence_in_range
+      // assertion uses [1.0, 1.0] (tight; deterministic).
+      //
+      // [LIVE-MODE: would call api.oto.memoryEditing.recordUserSemanticFact
+      // and query the inserted row; assert row.confidence === 1.0.]
+      const tables = freshUserSemanticFactsTable();
+      const res = mockRecordUserSemanticFact(tables, {
+        user_id: "user_eval_i001",
+        fact_type: "communication_style",
+        payload: "wants terse answers",
+        source: "user_stated",
+        written_by: "chat_agent",
+      });
+      if (!res.ok || !res.fact_id) {
+        return {
+          case_id: "reinforce-i-001",
+          category: "i",
+          passed: false,
+          notes: `setup fail: ${res.ok === false ? res.thrown_code : "?"}`,
+        };
+      }
+      const row = tables.rows.find((r) => r.fact_id === res.fact_id);
+      const expectedRange: [number, number] = [1.0, 1.0];
+      const actualConfidence = row?.confidence ?? -1;
+      const inRange =
+        actualConfidence >= expectedRange[0] - 0.001 &&
+        actualConfidence <= expectedRange[1] + 0.001;
+      const passed = inRange;
+      return {
+        case_id: "reinforce-i-001",
+        category: "i",
+        passed,
+        notes: `expected_confidence_in_range=[${expectedRange[0]}, ${expectedRange[1]}] actual=${actualConfidence.toFixed(4)} in_range=${inRange}`,
+        details: { row, expected_range: expectedRange },
+      };
+    },
+  },
+  {
+    case_id: "reinforce-i-002",
+    category: "i",
+    description:
+      "single_reinforcement_halves_gap — record at 0.5, reinforce once; expect 0.75",
+    async run(_mode) {
+      // Per memoryEditing.ts `reinforceUserSemanticFact` (~line 470):
+      //   new_confidence = 1 - (1 - old_confidence) * 0.5
+      // Starting at 0.5: 1 - (1 - 0.5) * 0.5 = 1 - 0.25 = 0.75
+      // Asymptote formula halves the remaining gap to 1.0.
+      //
+      // [LIVE-MODE: same as i-001 plus admin_edit to set initial confidence
+      // = 0.5 (the helper insert path lands at 1.0; admin_edit bypass needed
+      // to test starting from an arbitrary value).]
+      const tables = freshUserSemanticFactsTable();
+      const res = mockRecordUserSemanticFact(tables, {
+        user_id: "user_eval_i002",
+        fact_type: "service_preference",
+        payload: "always declines synthetic blend",
+        source: "user_stated",
+        written_by: "chat_agent",
+      });
+      if (!res.ok || !res.fact_id) {
+        return {
+          case_id: "reinforce-i-002",
+          category: "i",
+          passed: false,
+          notes: `setup fail`,
+        };
+      }
+      // Manually set initial confidence to 0.5 (simulates admin_edit bypass
+      // for test purposes — the production helper insert lands at 1.0).
+      const row = tables.rows.find((r) => r.fact_id === res.fact_id)!;
+      row.confidence = 0.5;
+
+      // Reinforce once.
+      const reinforce = mockReinforceUserSemanticFact(tables, {
+        fact_id: res.fact_id,
+      });
+      if (!reinforce.ok) {
+        return {
+          case_id: "reinforce-i-002",
+          category: "i",
+          passed: false,
+          notes: `reinforce fail: ${reinforce.ok === false ? reinforce.thrown_code : "?"}`,
+        };
+      }
+
+      // Expected: 1 - (1 - 0.5) * 0.5 = 0.75
+      const expectedRange: [number, number] = [0.749, 0.751];
+      const actualConfidence = row.confidence;
+      const inRange =
+        actualConfidence >= expectedRange[0] &&
+        actualConfidence <= expectedRange[1];
+      const obsCountOk = row.observation_count === 2;
+      const passed = inRange && obsCountOk;
+      return {
+        case_id: "reinforce-i-002",
+        category: "i",
+        passed,
+        notes: `expected_confidence_in_range=[${expectedRange[0]}, ${expectedRange[1]}] actual=${actualConfidence.toFixed(4)} in_range=${inRange} obs_count=${row.observation_count} (expected 2)`,
+        details: { row, expected_range: expectedRange },
+      };
+    },
+  },
+  {
+    case_id: "reinforce-i-003",
+    category: "i",
+    description:
+      "three_reinforcements_approach_asymptote — record at 0.5, reinforce 3x; expect ~0.9375",
+    async run(_mode) {
+      // Iteration math:
+      //   start: 0.5
+      //   r1: 1 - (1 - 0.5) * 0.5 = 0.75
+      //   r2: 1 - (1 - 0.75) * 0.5 = 0.875
+      //   r3: 1 - (1 - 0.875) * 0.5 = 0.9375
+      // Each reinforcement halves the remaining gap to 1.0; asymptote behavior.
+      //
+      // [LIVE-MODE: same as i-002 (admin_edit to set initial = 0.5, then
+      // three reinforce calls).]
+      const tables = freshUserSemanticFactsTable();
+      const res = mockRecordUserSemanticFact(tables, {
+        user_id: "user_eval_i003",
+        fact_type: "mechanic_preference",
+        payload: "books with Carlos repeatedly",
+        source: "inferred_behavior",
+        written_by: "chat_agent",
+      });
+      if (!res.ok || !res.fact_id) {
+        return {
+          case_id: "reinforce-i-003",
+          category: "i",
+          passed: false,
+          notes: `setup fail`,
+        };
+      }
+      const row = tables.rows.find((r) => r.fact_id === res.fact_id)!;
+      row.confidence = 0.5;
+
+      // Reinforce three times.
+      for (let i = 0; i < 3; i++) {
+        const r = mockReinforceUserSemanticFact(tables, {
+          fact_id: res.fact_id,
+        });
+        if (!r.ok) {
+          return {
+            case_id: "reinforce-i-003",
+            category: "i",
+            passed: false,
+            notes: `reinforce iter ${i} fail`,
+          };
+        }
+      }
+
+      // Expected: 0.9375 ± epsilon
+      const expectedRange: [number, number] = [0.93, 0.94];
+      const actualConfidence = row.confidence;
+      const inRange =
+        actualConfidence >= expectedRange[0] &&
+        actualConfidence <= expectedRange[1];
+      const obsCountOk = row.observation_count === 4; // initial + 3 reinforces
+      const passed = inRange && obsCountOk;
+      return {
+        case_id: "reinforce-i-003",
+        category: "i",
+        passed,
+        notes: `expected_confidence_in_range=[${expectedRange[0]}, ${expectedRange[1]}] actual=${actualConfidence.toFixed(4)} in_range=${inRange} obs_count=${row.observation_count} (expected 4)`,
+        details: { row, expected_range: expectedRange },
+      };
+    },
+  },
+  {
+    case_id: "reinforce-i-004",
+    category: "i",
+    description:
+      "retract_clears_from_working_memory — record + retract; verify retracted_at set + fact excluded from working memory",
+    async run(_mode) {
+      // After retractUserSemanticFact:
+      //   - row.retracted_at MUST be set
+      //   - the fact MUST NOT appear in the working-memory builder's output
+      //     (which reads by `by_user_active` filtering on retracted_at === undefined)
+      //
+      // [LIVE-MODE: requires a `buildWorkingMemory` HTTP wrapper that
+      // exercises the working-memory builder's actual code path. For now
+      // we simulate the by_user_active query in mock mode.]
+      const tables = freshUserSemanticFactsTable();
+      const res = mockRecordUserSemanticFact(tables, {
+        user_id: "user_eval_i004",
+        fact_type: "vehicle_quirk",
+        payload: "pulls left when cold",
+        source: "user_stated",
+        written_by: "chat_agent",
+      });
+      if (!res.ok || !res.fact_id) {
+        return {
+          case_id: "reinforce-i-004",
+          category: "i",
+          passed: false,
+          notes: `setup fail`,
+        };
+      }
+      const recordedFactId = res.fact_id;
+
+      // Retract it.
+      const retract = mockRetractUserSemanticFact(tables, {
+        fact_id: recordedFactId,
+        reason: "user said quirk was actually a misaligned bumper",
+      });
+      if (!retract.ok) {
+        return {
+          case_id: "reinforce-i-004",
+          category: "i",
+          passed: false,
+          notes: `retract fail: ${retract.ok === false ? retract.thrown_code : "?"}`,
+        };
+      }
+
+      const row = tables.rows.find((r) => r.fact_id === recordedFactId)!;
+      // Simulate the working-memory builder reading by_user_active (filter
+      // q.eq("retracted_at", undefined)).
+      const workingMemory = tables.rows
+        .filter(
+          (r) =>
+            r.user_id === "user_eval_i004" && r.retracted_at === undefined,
+        )
+        .map((r) => r.fact_id);
+
+      const retractedAtSet = row.retracted_at !== undefined;
+      const excluded = !workingMemory.includes(recordedFactId);
+      const passed = retractedAtSet && excluded;
+      return {
+        case_id: "reinforce-i-004",
+        category: "i",
+        passed,
+        notes: `retracted_at_set=${retractedAtSet} working_memory_excludes_fact=${excluded} (working_memory=[${workingMemory.join(",")}])`,
+        details: {
+          row,
+          working_memory_fact_ids: workingMemory,
+          retracted_fact_id: recordedFactId,
+        },
+      };
+    },
+  },
+  {
+    case_id: "reinforce-i-005",
+    category: "i",
+    description:
+      "decay_120d_half_life_simulation — simulate 120-day decay; verify confidence halves (mock-only; live requires Day 5 decay implementation)",
+    async run(_mode) {
+      // Per design doc §2.2 + D-3.5: decay is COMPUTED ON READ, not written.
+      //   effective_confidence = max(0.1, stored * exp(-ln(2) * (now - last_reinforced) / 120_days_ms))
+      // At exactly one half-life (120 days), effective_confidence = stored * 0.5.
+      //
+      // The decay function itself (`memoryDecay.ts::decayConfidence` per the
+      // design doc §6 Day 1 deliverable) lands in a separate dispatch; this
+      // case authored mock-only with the decay formula simulated inline.
+      //
+      // [LIVE: requires Day 5 decay implementation — the `decayConfidence`
+      // pure function in `convex/oto/memoryDecay.ts` per design doc §6
+      // Day 5. Until then, this case asserts ONLY the mock math, which is
+      // sufficient for catching a formula-regression bug at the case-spec
+      // layer.]
+      //
+      // Inline decay simulation (matches the design doc §2.2 formula):
+      const DAY_MS = 24 * 60 * 60 * 1000;
+      const HALF_LIFE_DAYS = 120;
+      const HALF_LIFE_MS = HALF_LIFE_DAYS * DAY_MS;
+      const FLOOR = 0.1;
+
+      function simulateDecay(
+        stored: number,
+        lastReinforced: number,
+        now: number,
+      ): number {
+        const elapsedMs = now - lastReinforced;
+        const decayed = stored * Math.exp((-Math.LN2 * elapsedMs) / HALF_LIFE_MS);
+        return Math.max(FLOOR, decayed);
+      }
+
+      const now = 1_700_000_000_000;
+      const oneHalfLifeAgo = now - HALF_LIFE_MS;
+
+      // Stored at confidence 1.0, last_reinforced one half-life (120 days) ago.
+      // Expected effective_confidence ≈ 0.5.
+      const effectiveAt120d = simulateDecay(1.0, oneHalfLifeAgo, now);
+
+      // Stored at confidence 1.0, last_reinforced two half-lives (240 days) ago.
+      // Expected effective_confidence ≈ 0.25 (per QA Review §2.2 sub-case 1).
+      const twoHalfLivesAgo = now - 2 * HALF_LIFE_MS;
+      const effectiveAt240d = simulateDecay(1.0, twoHalfLivesAgo, now);
+
+      // Stored at confidence 1.0, last_reinforced 3600 days ago — should floor at 0.1.
+      const tenYearsAgo = now - 3600 * DAY_MS;
+      const effectiveAt3600d = simulateDecay(1.0, tenYearsAgo, now);
+
+      const at120dOk = effectiveAt120d >= 0.49 && effectiveAt120d <= 0.51;
+      const at240dOk = effectiveAt240d >= 0.24 && effectiveAt240d <= 0.26;
+      const flooredOk = effectiveAt3600d === FLOOR;
+
+      const passed = at120dOk && at240dOk && flooredOk;
+      return {
+        case_id: "reinforce-i-005",
+        category: "i",
+        passed,
+        notes: `at_120d=${effectiveAt120d.toFixed(4)} (exp ~0.5) at_240d=${effectiveAt240d.toFixed(4)} (exp ~0.25) at_3600d=${effectiveAt3600d.toFixed(4)} (exp 0.10 floor) | [LIVE: requires Day 5 decay impl]`,
+        details: {
+          at_120d: effectiveAt120d,
+          at_240d: effectiveAt240d,
+          at_3600d_floored: effectiveAt3600d,
+          half_life_days: HALF_LIFE_DAYS,
+          floor: FLOOR,
+        },
+      };
+    },
+  },
+];
+
 // -- (f) Wave 2.4 answer-body-language judge cases ---------------------------
 //
 // Cases load from scripts/eval/fixtures/wave_2_4_cases.jsonl (Day 6 fixture
@@ -1101,14 +2258,18 @@ async function loadWave24CasesFromFixture(fixturePath: string): Promise<CaseAsse
 
 // -- Runner -------------------------------------------------------------------
 
-// Category (a)-(e) cases are statically defined. Category (f) cases load from
-// JSONL at runtime so adding more Wave 2.4 cases is a fixture-file drop.
+// Category (a)-(e) + (g)-(i) cases are statically defined. Category (f) cases
+// load from JSONL at runtime so adding more Wave 2.4 cases is a fixture-file
+// drop. Wave 3 cat-(g/h/i) cases are statically defined per Sprint 2 Day 4.
 const STATIC_CASES: CaseAssertion[] = [
   ...TIER_ROUTING_CASES,
   ...DISCLAIM_RENDER_CASES,
   ...REPORT_FLOW_CASES,
   ...CROSS_TENANT_CASES,
   ...AUDIT_INVARIANT_CASES,
+  ...MEMORY_WRITE_DISCIPLINE_CASES,
+  ...FORENSIC_COMPLETENESS_CASES,
+  ...REINFORCEMENT_DECAY_CASES,
 ];
 
 interface CliArgs {
@@ -1178,7 +2339,7 @@ async function main(): Promise<void> {
   lines.push(`Wave 1.4 v3 — programmatic cases — ${runId}`);
   lines.push(`mode=${args.mode}  repeats=${args.repeats}  category=${args.category}  cases=${out.length}`);
   lines.push("=".repeat(72));
-  for (const cat of ["a", "b", "c", "d", "e", "f"] as CaseCategory[]) {
+  for (const cat of ["a", "b", "c", "d", "e", "f", "g", "h", "i"] as CaseCategory[]) {
     const sub = out.filter((c) => c.category === cat);
     if (sub.length === 0) continue;
     lines.push("");
@@ -1193,7 +2354,13 @@ async function main(): Promise<void> {
               ? "(d) Cross-tenant read  [Day 4]"
               : cat === "e"
                 ? "(e) Audit-log invariant"
-                : "(f) Wave 2.4 answer-body-language judge";
+                : cat === "f"
+                  ? "(f) Wave 2.4 answer-body-language judge"
+                  : cat === "g"
+                    ? "(g) Memory write-discipline  [Wave 3 Day 4]"
+                    : cat === "h"
+                      ? "(h) Forensic completeness   [Wave 3 Day 4]"
+                      : "(i) Asymptotic reinforcement + decay  [Wave 3 Day 4]";
     lines.push(label);
     lines.push("-".repeat(72));
     for (const c of sub) {

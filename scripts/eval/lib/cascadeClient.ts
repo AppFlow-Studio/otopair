@@ -68,6 +68,47 @@ export interface LabeledEntry {
    * `FullCascadeFactRow.topic_axis` type permits.
    */
   topic_axis?: "vehicle" | "trim" | "chassis" | "engine" | "model_year";
+
+  // ===========================================================================
+  // Wave 3 extensions (Sprint 2 Day 4 — QA Lead, per WAVE_3_REVIEW_QA.md §4)
+  // ===========================================================================
+  //
+  // All optional; pre-Wave-3 cat-(a..f) cases continue to compile and run
+  // unchanged. The new cat-(g/h/i) case factories below read these fields;
+  // mock-mode case `run()` closures perform structural assertions on hardcoded
+  // fixtures (mirroring cat-(b)/cat-(c)/cat-(e) shape). Live-mode wiring is
+  // gated until Wave 3 HTTP wrappers ship in multiTenantSetup.ts.
+
+  /**
+   * Cat-(h)-001 / Cat-(g): exact-count assertion on conversation_audit rows
+   * after the test executes. The mock-mode runner reads this from the synthetic
+   * audit-table fixture; the live-mode runner (deferred) will query
+   * `by_conversation_turn` and count.
+   */
+  expected_audit_rows_written?: number;
+
+  /**
+   * Cat-(i): tolerance window for the reinforced confidence value. The case
+   * fails if `actual_confidence` falls outside [min, max] (inclusive).
+   */
+  expected_confidence_in_range?: [number, number];
+
+  /**
+   * Cat-(g) / Cat-(h): for negative-path cases, the error code the helper
+   * should throw. The mock-mode runner simulates the helper-layer throw and
+   * matches against this string; the live-mode runner (deferred) will catch
+   * the actual Convex error and compare error.code or error.message
+   * substring.
+   */
+  expected_throw_code?: string;
+
+  /**
+   * Cat-(g) §2.1: working-memory exclusion check for retracted facts. The
+   * mock-mode runner simulates the working-memory builder reading by
+   * `by_conversation_active` (q.eq("retracted_at", undefined)) and asserts
+   * the named fact_id is NOT in the returned set.
+   */
+  expected_working_memory_excludes_fact_id?: string;
 }
 
 // -- Cascade response (matches vehicleFactsKB.ts Tier2Result + outer driver) --
