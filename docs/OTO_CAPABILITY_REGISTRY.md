@@ -428,20 +428,21 @@ Every domain entry follows this shape:
 
 ---
 
-## §11. Loyalty (basic) — rewards summary
+## §11. Loyalty (basic) — rewards summary + redirect-to-screen pattern
 
-**Purpose.** Surface the user's current rewards posture in one call: credit balance, miles safely driven, services completed, shops visited, current vehicle tier. The single `get_rewards_summary` tool returns the snapshot; no chained lookups today. Loyalty is `live-unsurfaced` — the tool exists, but the prompt has no dedicated section guiding when Oto should call it.
+**Purpose.** Sprint 3 establishes the canonical Loyalty surface inside Oto: one-shot factual rewards questions answered via `get_rewards_summary` in chat; anything browsable / multi-step / program-explanatory redirected to the Loyalty screen via `render_link_button(destination: "loyalty")` (§14.1). The Loyalty screen IS the rewards experience; Oto does NOT recompose redemption lists, points history, or program rules inside chat. Sprint 3 graduates `get_rewards_summary` from `live-unsurfaced` to `live` by adding the discrimination prompt section (factual one-shot vs redirect) and adds `render_link_button` per §14.1.
 
-**User-visible behaviors.**
+**User-visible behaviors (Sprint 3 target).**
 
-- Answer "what's my rewards balance?" / "how many credits do I have?" / "what tier am I?" via `get_rewards_summary`.
-- Answer "how many miles have I driven safely?" / "how many services have I completed?" via the same single call.
+- Answer "what's my rewards balance?" / "how many credits do I have?" / "what tier am I?" / "how many miles have I driven safely?" / "how many services have I completed?" → one-shot via `get_rewards_summary`, response in one short sentence.
+- Answer "where can I see my rewards?" / "take me to my loyalty screen" / "how do I redeem credits?" / "what can I get with my points?" / "how does the program work?" / "where did my last credit come from?" → redirect via `render_link_button(destination: "loyalty")` + one short framing sentence.
 
 **Tools.**
 
-- `get_rewards_summary` — `live-unsurfaced` — single-call snapshot of credit balance, miles, completed services, shops visited, vehicle tier.
+- `get_rewards_summary` — `live-unsurfaced` today; **`live` after Sprint 3 §14.2 graduation** (dedicated prompt section).
+- `render_link_button(destination: "loyalty")` — `planned` per §14.1.
 
-**Prompt rules.** None — no dedicated prompt section as of v0.13. Oto's general capability-honesty rules apply (don't promise actions it can't perform).
+**Prompt rules.** None as of v0.13 (Sprint 2 close); Sprint 3 adds a dedicated section under the broader §14.1/§14.2 prompt-rule dispatch.
 
 **Data sources.** `user_reward_wallets`, `user_contribution_claims`, `reward_deals`, `ownership_credit_transactions`, `vehicle_tiers`.
 
@@ -515,45 +516,46 @@ Every domain entry follows this shape:
 
 ## §14. Planned — Sprint 3 Tier 2 feature surfaces
 
-### §14.1 `render_link_button` — Privacy / TOS / Customer Support redirect
+### §14.1 `render_link_button` — Loyalty / TOS / Privacy Policy redirect
 
-**Purpose.** When the user asks about privacy policy, terms of service, customer support contact, or other static-link destinations, Oto renders a tap-to-redirect button instead of pasting a URL or quoting policy text. Sets the app-redirect pattern that future static-link features will follow.
+**Purpose.** When the user asks about the Loyalty program, the Terms of Service, or the Privacy Policy, Oto renders a tap-to-redirect button instead of pasting a URL, quoting policy text, or recomposing Loyalty-screen content in the chat. Three destinations only — this is the app-redirect pattern, not a generic static-link surface. Other static-link asks (customer support contact, accessibility statement, data policy, bug report) are NOT in scope for this tool; they route through the existing Support intake (§13) or remain `missing-gap` until separately scoped.
 
 **Behavioral contract.**
 
-- User asks about privacy / TOS / customer support / accessibility / data policy / contact / report-a-bug → Oto fires `render_link_button` with `destination` (enum) + short framing text.
-- Mobile component renders a tap-to-open button; on tap, the in-app browser opens to the right URL (or deep-link to the support screen).
+- User asks about the loyalty / rewards / points program ("where can I see my points?", "take me to rewards", "loyalty screen") → Oto fires `render_link_button(destination: "loyalty")` with a short framing sentence. The Loyalty screen IS the rewards experience; Oto does NOT compose redemption details in chat — the screen handles that.
+- User asks about TOS ("where's the terms of service?", "show me the terms") → Oto fires `render_link_button(destination: "terms_of_service")`.
+- User asks about Privacy ("what's your privacy policy?", "data privacy", "show me the privacy policy") → Oto fires `render_link_button(destination: "privacy_policy")`.
+- Mobile component renders a tap-to-open button; on tap, the app navigates to the appropriate screen (deep-link for Loyalty; in-app browser for TOS / Privacy).
 - Terminal render — calling it ends the turn.
 
 **Tools.**
 
-- `render_link_button(destination, label?)` — `planned` — terminal render. `destination` enum: `privacy_policy` / `terms_of_service` / `customer_support` / `data_policy` / `accessibility` / `report_bug`.
+- `render_link_button(destination, label?)` — `planned` — terminal render. `destination` enum: `loyalty` / `terms_of_service` / `privacy_policy`. No other destinations are in scope; the enum is the contract.
 
-**Eval coverage planned.** `link_button_privacy_request`, `link_button_tos_request`, `link_button_support_contact`.
+**Eval coverage planned.** `link_button_loyalty_request`, `link_button_tos_request`, `link_button_privacy_request`.
 
-**Sprint 3 estimate.** ~half-day. Smallest new feature surface; sets the pattern.
+**Sprint 3 estimate.** ~half-day. Smallest new feature surface; sets the redirect pattern. Note: Loyalty as a destination here MEANS Oto does NOT need the §14.2 expanded data-tool surface (`get_loyalty_points_history`, `get_available_redemptions`, `get_loyalty_program_info`, `render_redemption_card`) for Sprint 3 — the Loyalty screen owns that surface. §14.2 is downgraded accordingly.
 
-### §14.2 Loyalty program — full surface
+### §14.2 Loyalty — Sprint 3 scope is redirect-only
 
-**Purpose.** Surface the loyalty program proactively when relevant (user near a tier breakpoint, redemption available, milestone reached), and answer redemption-related questions. The existing `get_rewards_summary` (§11) is the snapshot tool; this domain expansion adds the history + redemption + program-info tools.
+**Purpose.** Loyalty / rewards / points questions in Sprint 3 route to the existing Loyalty screen via `render_link_button(destination: "loyalty")` (§14.1). The Loyalty screen IS the rewards experience — Oto does NOT compose redemption lists, points history, or program-info content inside the chat. The existing `get_rewards_summary` tool (§11, `live-unsurfaced` today) stays available as a single-call snapshot when the user asks a direct factual question Oto can answer in one sentence ("what's my balance?", "what tier am I?"), but anything that would require browsing redemptions, walking through history, or explaining program rules redirects to the Loyalty screen.
 
-**Behavioral contract.**
+**Behavioral contract (Sprint 3).**
 
-- User asks "how do I redeem credits?" / "what can I get with my points?" → Oto fires `get_available_redemptions`, surfaces options.
-- User asks "where did my last credit come from?" → Oto fires `get_loyalty_points_history`, summarizes recent activity.
-- User asks "how does the loyalty program work?" → Oto fires `get_loyalty_program_info`, explains rules.
-- Optional: `render_redemption_card(redemption_id)` for the actual claim flow.
+- User asks a one-shot factual rewards question ("what's my balance?", "how many credits do I have?", "what tier am I?") → Oto fires `get_rewards_summary` and answers in one short sentence. **Sprint 3 also adds a Loyalty prompt section graduating `get_rewards_summary` from `live-unsurfaced` to `live`** so Oto knows when to call it vs. redirect.
+- User asks anything browsable or program-explanatory ("how do I redeem credits?", "what can I get with my points?", "how does the loyalty program work?", "where did my last credit come from?") → Oto fires `render_link_button(destination: "loyalty")` with a short framing sentence. The Loyalty screen handles the browsing experience.
+- Discrimination rule (in the prompt section to be authored): factual one-shot = `get_rewards_summary`; browsing / explanatory / multi-step = redirect.
 
 **Tools.**
 
-- `get_loyalty_points_history(limit?)` — `planned` — recent credit transactions (earn + redeem).
-- `get_available_redemptions(category?)` — `planned` — what the user can claim with current balance.
-- `get_loyalty_program_info(scope?)` — `planned` — program rules, tier breakpoints, multipliers.
-- `render_redemption_card(redemption_id)` — `planned` — terminal render for redemption claim.
+- `get_rewards_summary` — `live-unsurfaced` today; **graduates to `live` in Sprint 3** with a dedicated prompt section.
+- `render_link_button(destination: "loyalty")` — `planned` per §14.1.
 
-**Eval coverage planned.** `loyalty_redeem_inquiry`, `loyalty_history_lookup`, `loyalty_program_info_request`.
+**Eval coverage planned.** `loyalty_balance_oneshot`, `loyalty_browse_redirect`, `loyalty_program_explain_redirect`.
 
-**Sprint 3 estimate.** ~half-day. Tools + prompt section + eval cases + version bump.
+**Sprint 3 estimate.** ~quarter-day (rolls into the §14.1 dispatch; no new data tools; one prompt section graduating `get_rewards_summary` + redirect rule).
+
+**Future Loyalty in-chat expansion (post-Sprint-3, deferred indefinitely).** If product later decides the Loyalty experience belongs partly in chat (proactive nudges, in-chat redemption claim, history summarization), the following tools become candidates: `get_loyalty_points_history`, `get_available_redemptions`, `get_loyalty_program_info`, `render_redemption_card`. Not planned for Sprint 3. Captured here so the next session knows the option exists if scope changes.
 
 ### §14.3 Booking Status — extended booking visibility
 
@@ -702,14 +704,23 @@ These rules apply regardless of which domain the conversation is in. They're cal
 | Category | Tool | Status | Domain |
 |---|---|---|---|
 | render | `render_support_form` | planned | Support |
-| render | `render_link_button` | planned | §14.1 |
-| data | `get_loyalty_points_history` | planned | §14.2 |
-| data | `get_available_redemptions` | planned | §14.2 |
-| data | `get_loyalty_program_info` | planned | §14.2 |
-| render | `render_redemption_card` | planned | §14.2 |
+| render | `render_link_button` | planned (3 destinations: `loyalty` / `terms_of_service` / `privacy_policy`) | §14.1 |
 | data | `get_pending_bookings` | planned | §14.3 |
 | render | `render_booking_card` | planned | §14.3 |
 | render | `render_bookings_list` | planned | §14.3 |
+
+**Loyalty graduation (Sprint 3, no new tool surface).** `get_rewards_summary` graduates from `live-unsurfaced` to `live` in Sprint 3 — same tool, new prompt section gating one-shot factual asks vs redirect-to-Loyalty-screen routing per §14.2.
+
+### Deferred-indefinitely tools (post-Sprint-3, scope-change-gated)
+
+| Category | Tool | Status | Domain |
+|---|---|---|---|
+| data | `get_loyalty_points_history` | deferred | §14.2 future expansion (not Sprint 3) |
+| data | `get_available_redemptions` | deferred | §14.2 future expansion (not Sprint 3) |
+| data | `get_loyalty_program_info` | deferred | §14.2 future expansion (not Sprint 3) |
+| render | `render_redemption_card` | deferred | §14.2 future expansion (not Sprint 3) |
+
+These land ONLY if product later decides parts of the Loyalty experience belong in chat. Sprint 3 scope is redirect-only via §14.1.
 
 ### Missing-gap (no tool, no prompt section)
 
@@ -817,7 +828,7 @@ None today — `support_intake_submissions` is planned for Sprint 3+.
 | Security | Adequate (4 cases) | tag-smuggling case is unstable — Sprint 3 priority |
 | Reliability | None (infrastructure level) | OK — CI Rules 18-19 cover the substrate |
 | Retrieval | Spec-only (7 disabled) | Cat M cases activate when Wave 5 reranker v2 lands |
-| Loyalty (basic) | None | Add when Sprint 3 §14.2 lands |
+| Loyalty (basic) | None | Add `loyalty_balance_oneshot` + `loyalty_browse_redirect` + `loyalty_program_explain_redirect` cases when Sprint 3 §14.1 (redirect) + §14.2 (`get_rewards_summary` graduation) land |
 | Account | Light (2 cases) | OK for now |
 | Support | None | Add when §14 `render_support_form` lands |
 

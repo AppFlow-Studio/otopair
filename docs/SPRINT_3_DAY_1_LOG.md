@@ -14,12 +14,13 @@
 
 ## 1. Methodology — Day 1 timeline
 
-One pass (the registry is a single coherent surface; no parallel dispatching needed at the documentation layer):
+Three passes (Pass A authored the registry, Pass B the log, Pass C corrected §14 scope after Waleed flagged that `render_link_button` was over-scoped at 6 destinations when the actual target list is 3):
 
 | # | Pass | Owner | Surface | Type |
 |---|---|---|---|---|
 | A | Capability registry foundation | PM (mechanical) | `docs/OTO_CAPABILITY_REGISTRY.md` (NEW 857 lines) | Single-source-of-truth doc |
 | B | Day 1 log | PM | `docs/SPRINT_3_DAY_1_LOG.md` (this file) | PM |
+| C | §14 scope correction post-Waleed review | PM (mechanical) | `docs/OTO_CAPABILITY_REGISTRY.md` (§14.1 + §14.2 + §11 + §16 + §18) | Correction |
 
 ### 1.1 Why PM-mechanical, not a subagent dispatch
 
@@ -115,6 +116,28 @@ Eval coverage. (case categories)
 
 This scorecard is itself a Sprint 3 prioritization signal — the "Light" and "None" rows indicate where eval coverage should grow as Tier 2 features land.
 
+### 2.3 Pass C — §14 scope correction (post-Waleed review)
+
+Post-Pass-A Waleed reviewed §14.1 and flagged: "app redirect pattern for only loyalty + TOS and Privacy policy. Right?" The Pass A draft over-scoped the `render_link_button` destination enum to six values (`privacy_policy` / `terms_of_service` / `customer_support` / `data_policy` / `accessibility` / `report_bug`) — drawn from the handoff text "Privacy / TOS / Customer Support redirect pattern" interpreted broadly. The actual scope is three destinations: **`loyalty` / `terms_of_service` / `privacy_policy`**.
+
+Pass C ships these tightenings (no code/schema touch, registry doc only):
+
+1. **§14.1 enum narrowed** to `loyalty` / `terms_of_service` / `privacy_policy` only. Other static-link asks (customer support, accessibility, data policy, bug report) are NOT in scope for this tool; they route through Support intake (§13) or remain `missing-gap`.
+
+2. **§14.1 behavioral contract rewritten** with explicit per-destination phrasings. Loyalty redirect added as the primary destination (was previously framed only as a Support / TOS / Privacy static-link surface).
+
+3. **§14.2 (Loyalty program) downgraded** from "full surface with 4 new data tools" (`get_loyalty_points_history`, `get_available_redemptions`, `get_loyalty_program_info`, `render_redemption_card`) to "redirect-only for Sprint 3". The 4 data tools are now `deferred` in §16 (post-Sprint-3, scope-change-gated) — they only land if product later decides parts of the Loyalty experience belong in chat. Sprint 3 Loyalty work is: redirect via `render_link_button(destination: "loyalty")` + `get_rewards_summary` graduation from `live-unsurfaced` to `live` for one-shot factual asks.
+
+4. **§11 (Loyalty basic) rewritten** to set up the discrimination rule going into Sprint 3: factual one-shot in-chat via `get_rewards_summary`; browsing / multi-step / program-explanatory redirect to the Loyalty screen. Forward-references §14.1 and §14.2 graduation.
+
+5. **§16 planned-tools table updated** — `render_link_button` row now shows the 3-destination enum inline; 4 deferred Loyalty data tools moved to a new "Deferred-indefinitely tools (post-Sprint-3, scope-change-gated)" sub-table.
+
+6. **§18 eval-coverage scorecard updated** — Loyalty row's "gap" line now references the three planned eval prefixes (`loyalty_balance_oneshot` + `loyalty_browse_redirect` + `loyalty_program_explain_redirect`).
+
+**Day 1 estimate adjustment.** §14.1 + §14.2 combined Sprint 3 dispatch is now ~half-day total (Pass A's split-half-day estimates compounded to ~1 day; the redirect-only correction removes ~half-day of data-tool implementation). Sprint 3 Tier 2 net-net Day-2 estimate: render_link_button + Loyalty redirect (~half-day) → Booking Status (~half-day) → small carryovers (multi-day).
+
+**Methodology signal.** Pass C is exactly the kind of post-publication correction the registry's §19 governance section was authored to handle. The registry is a LIVING DOCUMENT; corrections from product / stakeholder review land as registry edits with a Day-log entry. The Day 1 log's table now reflects 3 passes, not 1; future Day-N dispatches should expect occasional Pass-C-style corrections from Waleed's review channel.
+
 ---
 
 ## 3. Sprint 3 Day 1 Verification
@@ -180,6 +203,6 @@ Per handoff §6, the Sprint 3 priority queue carries forward. The registry being
 
 ## 6. The Day 1 one-line summary
 
-**Sprint 3 opens with the capability registry: PM mechanical authored `docs/OTO_CAPABILITY_REGISTRY.md` (857 lines, 20 sections — §0 doc usage + per-domain template + status taxonomy / §1 Identity-Voice cross-cutting / §2-§13 twelve operational domains [Vehicle, Diagnostic, Booking, Memory, Trust Protocol, Safety, Security, Reliability, Retrieval, Loyalty-basic, Account, Support] / §14 planned Sprint 3 Tier 2 surfaces [render_link_button, Loyalty full, Booking Status] + post-Sprint-3 [recall data, Smartcar-proactive, multi-vehicle context-aware retrieval] / §15 ten cross-cutting MUST NOT meta-rules / §16 full tools-registry table [31 live + 9 planned + 3 missing-gap] / §17 backing-tables-by-domain / §18 eval-coverage matrix [34 case prefixes mapped to domains, per-domain coverage scorecard] / §19 governance + planned CI integration / §20 single-sentence contract); commit `56a59ab` ships the registry standalone; 20/20 CI green; schema hash unchanged; no code/schema touch; the registry is the contract every Sprint 3+ feature dispatch references before authoring implementation; effective Day 2 forward every dispatch updates the registry as part of its deliverable list, every new eval case maps to a §18 domain, and a Sprint 3 Tier 3 carryover plans a registry-CI guard (small dispatch, Wave-1.9-pattern); Sprint 3 Day 2 picks up Tier 2 — `render_link_button` is the smallest new surface and sets the app-redirect pattern for Loyalty + Booking Status that follow.**
+**Sprint 3 opens with the capability registry across 3 PM-mechanical passes: Pass A (commit `56a59ab`) shipped `docs/OTO_CAPABILITY_REGISTRY.md` (857 lines, 20 sections — §0 doc usage + per-domain template + status taxonomy / §1 Identity-Voice cross-cutting / §2-§13 twelve operational domains [Vehicle, Diagnostic, Booking, Memory, Trust Protocol, Safety, Security, Reliability, Retrieval, Loyalty-basic, Account, Support] / §14 planned Sprint 3 Tier 2 surfaces / §15 ten cross-cutting MUST NOT meta-rules / §16 full tools-registry table [31 live + planned + deferred] / §17 backing-tables-by-domain / §18 eval-coverage matrix / §19 governance + planned CI integration / §20 single-sentence contract); Pass B (commit `caac4fe`) shipped the Day 1 log; Pass C corrected §14 scope after Waleed flagged that the `render_link_button` enum was over-scoped at 6 destinations when the actual app-redirect target list is 3 — `loyalty` / `terms_of_service` / `privacy_policy` only — so §14.1 enum tightened, §14.2 Loyalty downgraded from "full surface with 4 new data tools" to "redirect-only for Sprint 3 + `get_rewards_summary` graduation from `live-unsurfaced` to `live`", §11 (Loyalty basic) rewritten with the in-chat-factual vs redirect-screen discrimination rule, §16 deferred-indefinitely sub-table added for the 4 Loyalty data tools (post-Sprint-3 scope-change-gated), §18 scorecard updated with the 3 planned Loyalty eval prefixes; 20/20 CI green; schema hash unchanged; no code/schema touch across all three passes; the registry is the contract every Sprint 3+ feature dispatch references before authoring implementation; effective Day 2 forward every dispatch updates the registry as part of its deliverable list, every new eval case maps to a §18 domain, and a Sprint 3 Tier 3 carryover plans a registry-CI guard (small dispatch, Wave-1.9-pattern); Sprint 3 Day 2 picks up Tier 2 — `render_link_button` (3-destination scope) + Loyalty redirect + `get_rewards_summary` graduation as a combined ~half-day dispatch, then Booking Status as a separate ~half-day.**
 
-— End of Sprint 3 Day 1. The architecture-discipline foundation is in place; capability expansion starts Day 2.
+— End of Sprint 3 Day 1. The architecture-discipline foundation + first post-publication correction are in place; capability expansion starts Day 2.
