@@ -281,7 +281,7 @@ export const editVehicleFact = mutation({
       throw new Error("editVehicleFact: reason is required");
     }
 
-    const current = await ctx.db.get(fact_id);
+    const current = (await ctx.db.get(fact_id)) as Doc<"vehicle_facts"> | null;
     if (!current) {
       throw new Error(`editVehicleFact: fact ${fact_id} not found`);
     }
@@ -395,7 +395,7 @@ export const reportVehicleFact = mutation({
     user_note: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const fact = await ctx.db.get(args.fact_id);
+    const fact = (await ctx.db.get(args.fact_id)) as Doc<"vehicle_facts"> | null;
     if (!fact) {
       throw new Error(`reportVehicleFact: fact ${args.fact_id} not found`);
     }
@@ -447,7 +447,7 @@ export const resolveFactReport = mutation({
     resolution_note: v.optional(v.string()),
   },
   handler: async (ctx, { report_id, resolver_id, disposition, resolution_note }) => {
-    const report = await ctx.db.get(report_id);
+    const report = (await ctx.db.get(report_id)) as Doc<"fact_reports"> | null;
     if (!report) {
       throw new Error(`resolveFactReport: report ${report_id} not found`);
     }

@@ -228,7 +228,7 @@ export const incrementMessageCount = mutation({
     }
 
     await ctx.db.patch(args.id, {
-      message_count: conversation.message_count + 1,
+      message_count: (conversation.message_count ?? 0) + 1,
     });
 
     return await ctx.db.get(args.id);

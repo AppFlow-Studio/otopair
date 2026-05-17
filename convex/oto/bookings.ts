@@ -29,10 +29,13 @@ export interface OtoBookingSummary {
   shop_name: string | null;
   mechanic_name: string | null;
   vehicle_vin_tail: string | null;
-  scheduled_at: number | null;
+  scheduled_date: string | null;
   created_at: number;
 }
 
+// @ts-expect-error TS2589 — Convex query({...}) generic resolution exceeds
+// TS depth limit at this schema size (117 tables). Same suppression pattern
+// as convex/oto/chat.ts:sendMessage. Runtime is unaffected.
 export const getBookings = query({
   args: {
     status_filter: v.union(
@@ -42,7 +45,8 @@ export const getBookings = query({
     ),
     limit: v.optional(v.number()),
   },
-  handler: async (ctx, { status_filter, limit }): Promise<OtoBookingSummary[]> => {
+  // @ts-expect-error TS2589 — see above.
+  handler: async (ctx: any, { status_filter, limit }): Promise<OtoBookingSummary[]> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("unauthenticated");
 
@@ -92,7 +96,7 @@ export const getBookings = query({
             ? `${mechanic.first_name} ${mechanic.last_name}`.trim()
             : null,
           vehicle_vin_tail: b.vin ? b.vin.slice(-6) : null,
-          scheduled_at: b.scheduled_at ?? null,
+          scheduled_date: b.scheduled_date ?? null,
           created_at: b._creationTime,
         };
       }),
@@ -119,11 +123,13 @@ export const getBookings = query({
 // definition. Keeping the two handlers independent preserves type safety.
 // =============================================================================
 
+// @ts-expect-error TS2589 — see getBookings above.
 export const getPendingBookings = query({
   args: {
     limit: v.optional(v.number()),
   },
-  handler: async (ctx, { limit }): Promise<OtoBookingSummary[]> => {
+  // @ts-expect-error TS2589 — see getBookings above.
+  handler: async (ctx: any, { limit }): Promise<OtoBookingSummary[]> => {
     const identity = await ctx.auth.getUserIdentity();
     if (!identity) throw new Error("unauthenticated");
 
@@ -168,7 +174,7 @@ export const getPendingBookings = query({
             ? `${mechanic.first_name} ${mechanic.last_name}`.trim()
             : null,
           vehicle_vin_tail: b.vin ? b.vin.slice(-6) : null,
-          scheduled_at: b.scheduled_at ?? null,
+          scheduled_date: b.scheduled_date ?? null,
           created_at: b._creationTime,
         };
       }),

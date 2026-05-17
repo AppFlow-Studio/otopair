@@ -359,7 +359,7 @@ export const retractConversationFact = mutation({
       );
     }
 
-    const row = await ctx.db.get(args.fact_id);
+    const row = (await ctx.db.get(args.fact_id)) as Doc<"conversation_facts"> | null;
     if (!row) {
       throw new Error(`retractConversationFact: fact ${args.fact_id} not found`);
     }
@@ -548,7 +548,7 @@ export const reinforceUserSemanticFact = mutation({
     fact_id: v.id("user_semantic_facts"),
   },
   handler: async (ctx: MutationCtx, args): Promise<void> => {
-    const row = await ctx.db.get(args.fact_id);
+    const row = (await ctx.db.get(args.fact_id)) as Doc<"user_semantic_facts"> | null;
     if (!row) {
       throw new Error(
         `reinforceUserSemanticFact: fact ${args.fact_id} not found`,
@@ -604,7 +604,7 @@ export const retractUserSemanticFact = mutation({
     if (!args.reason.trim()) {
       throw new Error("retractUserSemanticFact: reason required");
     }
-    const row = await ctx.db.get(args.fact_id);
+    const row = (await ctx.db.get(args.fact_id)) as Doc<"user_semantic_facts"> | null;
     if (!row) {
       throw new Error(
         `retractUserSemanticFact: fact ${args.fact_id} not found`,
@@ -1268,7 +1268,7 @@ export const deprecateKbTopic = mutation({
     if (!args.reason.trim()) {
       throw new Error("deprecateKbTopic: reason required");
     }
-    const row = await ctx.db.get(args.topic_id);
+    const row = (await ctx.db.get(args.topic_id)) as Doc<"kb_topics"> | null;
     if (!row) {
       throw new Error(`deprecateKbTopic: topic ${args.topic_id} not found`);
     }

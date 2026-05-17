@@ -1147,6 +1147,16 @@ export default defineSchema({
     // Drives the post-onboarding "welcome back, we've seen your car
     // before" recap surface.
     walkInClaimedAt: v.optional(v.number()),
+    // -------------------------------------------------------------------
+    // [RESTORED post-merge — Sprint 2 Wave 7.3 rate-limiting fields]
+    // Wave 7.3 — per-user moat-read counter (queryMoat.ts enforcement).
+    // -------------------------------------------------------------------
+    moat_reads_window: v.optional(v.number()),
+    moat_reads_window_start: v.optional(v.number()),
+    moat_reads_is_admin_exempt: v.optional(v.boolean()),
+    // Wave 7.3 (Day 9) — per-user PII-read counter (separate from moat).
+    pii_reads_window: v.optional(v.number()),
+    pii_reads_window_start: v.optional(v.number()),
   })
     .index("by_clerkUserId", ["clerkUserId"])
     .index("by_isPendingDeletion", ["isPendingDeletion"])
@@ -1818,6 +1828,36 @@ export default defineSchema({
     booking_id: v.optional(v.id("bookings")),
     message_count: v.optional(v.number()),
     session_id: v.optional(v.string()),
+    // -----------------------------------------------------------------------
+    // [RESTORED post-merge — Sprint 2 conversation_state fields]
+    // Conversation state (v0.7) — Oto-maintained context across turns.
+    // Updated by Haiku via the update_conversation_state tool. Read back on
+    // the next turn through the <conversation_state> envelope block so Haiku
+    // remembers the user's mood, what's been established, and the active
+    // intent without re-deriving it from raw message history every turn.
+    // -----------------------------------------------------------------------
+    mood: v.optional(v.string()),
+    arc_summary: v.optional(v.string()),
+    established_facts: v.optional(v.array(v.string())),
+    last_user_intent: v.optional(v.string()),
+    state_updated_at: v.optional(v.number()),
+    // -----------------------------------------------------------------------
+    // [RESTORED post-merge — Sprint 2 polite-exit counter]
+    // Tracks how many turns of symptom-narrowing have happened without
+    // converging on a diagnostic form or direct service. chat.ts increments
+    // when Haiku stays in narrowing mode (last_user_intent starts with
+    // "symptom_narrowing") without rendering the form; resets when the form
+    // fires. At 6 the envelope emits a `<polite_exit_required>` block and
+    // the prompt rule forces Haiku to render the diagnostic form with not_sure.
+    // -----------------------------------------------------------------------
+    diagnostic_turn_count: v.optional(v.number()),
+    // -----------------------------------------------------------------------
+    // [RESTORED post-merge — Sprint 2 Sonnet cascade]
+    // Per-conversation model routing. null/undefined → use HAIKU_MODEL
+    // (default). "sonnet" → SONNET_MODEL for the next turn(s) until a
+    // request_haiku_handback resets to default.
+    // -----------------------------------------------------------------------
+    current_model: v.optional(v.string()),
   })
     .index("by_user_id", ["user_id"])
     .index("by_session_id", ["session_id"])
