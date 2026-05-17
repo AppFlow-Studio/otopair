@@ -1502,7 +1502,12 @@ export const getCrossConversationMemory = internalQuery({
           r.payload_text.slice(0, PRIOR_FACT_TEXT_TRUNCATE) + "...";
       }
     }
-    return capped;
+    // Project out the internal `score` field — it's a reranker-internal
+    // tuple key not in the returns validator. Without this projection,
+    // Convex throws ReturnsValidationError on every successful query and
+    // the chat.ts caller's try/catch swallows the error, surfacing an
+    // empty envelope (Sprint 2 Day 8 EOD bug, post-Day-8 fix).
+    return capped.map(({ score: _score, ...rest }) => rest);
   },
 });
 
