@@ -1,27 +1,36 @@
 import React from 'react';
 import { Pressable, StyleSheet } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useAuth } from '@clerk/clerk-expo';
+import * as SecureStore from 'expo-secure-store';
 import { Text } from './Text';
 import { BrandColors, FontFamily, FontSize, Spacing } from '@/constants/theme';
+import { getOnboardingFinishedLaterKey } from '@/lib/onboarding-resume';
 
 /**
  * FinishLater
- * 
+ *
  * PURPOSE: A simple text button that allows users to skip the remaining onboarding
  * steps and go straight to the home screen.
- * 
+ *
  * USED IN: Onboarding steps (ProfilePhotoStep, UserIntentStep, etc.)
  */
 export function FinishLater() {
   const router = useRouter();
+  const { userId: clerkUserId } = useAuth();
 
-  const handlePress = () => {
+  const handlePress = async () => {
+    try {
+      await SecureStore.setItemAsync(getOnboardingFinishedLaterKey(clerkUserId), 'true');
+    } catch {
+      // swallow — don't block navigation on storage failure
+    }
     router.replace('/(main-tabs)/home');
   };
 
   return (
-    <Pressable 
-      onPress={handlePress} 
+    <Pressable
+      onPress={handlePress}
       style={({ pressed }) => [
         styles.container,
         pressed && styles.pressed

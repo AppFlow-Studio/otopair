@@ -417,8 +417,8 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.headerContent}>
-            <Text style={styles.title}>What's your number?</Text>
-            <Text style={styles.subtitle}>We'll send a verification code to secure your account.</Text>
+            <Text style={styles.title}>{"What's your number?"}</Text>
+            <Text style={styles.subtitle}>{"We'll send a verification code to secure your account."}</Text>
           </View>
 
           <View style={styles.formStack}>
@@ -436,8 +436,9 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
                 value={phoneNumber}
                 onChangeText={setPhoneNumber}
                 keyboardType="phone-pad"
-                autoComplete="tel"
-                textContentType="telephoneNumber"
+                autoComplete="off"
+                importantForAutofill="no"
+                textContentType="none"
               />
             </View>
 

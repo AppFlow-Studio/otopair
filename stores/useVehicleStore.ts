@@ -68,6 +68,8 @@ interface VehicleState {
   setDefaultVehicle: (vehicleId: string) => void;
   /** Hydrate store from Convex vehicle ownership data (user's registered vehicles) */
   setVehiclesFromConvex: (data: ConvexVehicleOwnership[]) => void;
+  /** Clear user-scoped vehicles on logout / account switch */
+  clearVehicles: () => void;
 }
 
 /** Shape from api.vehicles.listVehiclesByUser (subset of fields we use) */
@@ -166,4 +168,11 @@ export const useVehicleStore = create<VehicleState>()((set, get) => ({
       selectedVehicleId: keepSelection ? currentSelected : (primary ? primary.vin.toUpperCase().trim() : (ids[0] ?? null)),
     });
   },
+
+  clearVehicles: () =>
+    set({
+      vehicles: {},
+      vehicleIds: [],
+      selectedVehicleId: null,
+    }),
 }));

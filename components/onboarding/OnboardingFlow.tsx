@@ -27,12 +27,14 @@ import Animated, {
     withTiming,
     Easing,
 } from 'react-native-reanimated';
+import * as SecureStore from 'expo-secure-store';
 import { AnimatedGradientBackground } from '@/components/shared-ui';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import { useAuth } from '@clerk/clerk-expo';
 import { usePrefetchOnboardingQuestions } from '@/hooks/usePrefetchOnboardingQuestions';
 import { useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
+import { getOnboardingCurrentStepKey, RESUMABLE_STEPS } from '@/lib/onboarding-resume';
 import { SignupStep } from './steps/SignupStep';
 import { EmailSignupStep } from './steps/EmailSignupStep';
 import { EmailVerificationStep } from './steps/EmailVerificationStep';
@@ -140,12 +142,23 @@ export function OnboardingFlow({ initialStep = "signup", filteredSteps, isResume
   const [currentStep, setCurrentStep] = useState<OnboardingStep>(initialStep);
   const [fromStep, setFromStep] = useState<OnboardingStep>(initialStep);
   const [toStep, setToStep] = useState<OnboardingStep>(initialStep);
-  const { isSignedIn } = useAuth();
+  const { isSignedIn, userId: clerkUserId } = useAuth();
   const completeOnboarding = useMutation(api.users.completeOnboarding);
   usePrefetchOnboardingQuestions();
 
   // Animation progress (0 = from step, 1 = to step)
   const animationProgress = useSharedValue(1);
+
+  // Persist current step so the app can resume from exactly here if closed mid-flow.
+  useEffect(() => {
+    if (currentStep === 'complete') {
+      SecureStore.deleteItemAsync(getOnboardingCurrentStepKey(clerkUserId)).catch(() => {});
+      return;
+    }
+    if ((RESUMABLE_STEPS as Set<string>).has(currentStep)) {
+      SecureStore.setItemAsync(getOnboardingCurrentStepKey(clerkUserId), currentStep).catch(() => {});
+    }
+  }, [clerkUserId, currentStep]);
 
   // Use filtered steps if provided (resume mode), otherwise use all progress steps
   const activeSteps = filteredSteps || PROGRESS_STEPS;

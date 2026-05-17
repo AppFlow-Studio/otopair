@@ -6,7 +6,7 @@ import { DarkTheme, DefaultTheme, ThemeProvider } from "@react-navigation/native
 import { Stack, router, useSegments, type ErrorBoundaryProps } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
-import { ConvexReactClient, useAction, useQuery } from "convex/react";
+import { ConvexReactClient, useQuery } from "convex/react";
 import { ConvexProviderWithClerk } from "convex/react-clerk";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
@@ -25,7 +25,7 @@ import { useColorScheme } from "@/hooks/use-color-scheme";
 import { useAppFonts } from "@/hooks/use-fonts";
 import { useConsoleToConvex } from "@/hooks/useConsoleToConvex";
 import { useEnsureConvexUser } from "@/hooks/useEnsureConvexUser";
-import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromConvex";
+import { clearUserSessionState } from "@/lib/session-state";
 import { useAuthStore } from "@/stores/useAuthStore";
 
 LogBox.ignoreLogs([
@@ -159,13 +159,33 @@ function AuthGate({ children }: { children: ReactNode }) {
 
 /** Keep the local auth store in sync with Clerk session state */
 function SyncAuthStoreWithClerk() {
-  const { isSignedIn, isLoaded } = useAuth();
+  const { isSignedIn, isLoaded, userId } = useAuth();
   const setIsAuthenticated = useAuthStore((s) => s.setIsAuthenticated);
+  const lastUserIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (!isLoaded) return;
+
+    const previousUserId = lastUserIdRef.current;
+
+    if (!isSignedIn) {
+      lastUserIdRef.current = null;
+      void clearUserSessionState(previousUserId).catch((error) => {
+        console.error("Failed to clear user session state after sign-out", error);
+      });
+      setIsAuthenticated(false);
+      return;
+    }
+
+    if (previousUserId && userId && previousUserId !== userId) {
+      void clearUserSessionState(previousUserId).catch((error) => {
+        console.error("Failed to clear user session state after account switch", error);
+      });
+    }
+
+    lastUserIdRef.current = userId ?? null;
     setIsAuthenticated(isSignedIn);
-  }, [isLoaded, isSignedIn, setIsAuthenticated]);
+  }, [isLoaded, isSignedIn, setIsAuthenticated, userId]);
 
   return null;
 }

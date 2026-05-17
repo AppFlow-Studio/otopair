@@ -100,10 +100,10 @@ import { SettingsRow } from "@/components/settings/SettingsRow";
 import { useAuth, useUser } from "@clerk/clerk-expo";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
-import { useAuthStore } from "@/stores/useAuthStore";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import { usePaymentStore } from "@/stores/usePaymentStore";
+import { clearUserSessionState } from "@/lib/session-state";
 import { useTransactionsFromConvex } from "@/hooks/useTransactionsFromConvex";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { computeInitials } from "@/utils/userInitials";
@@ -177,7 +177,7 @@ export function SettingsContent({
     [baseRouter, closeSettingsOverlay],
   );
 
-  const { signOut } = useAuth();
+  const { signOut, userId: clerkUserId } = useAuth();
   const { user: clerkUser } = useUser();
 
   // Convex: current user and user-scoped data.
@@ -196,20 +196,14 @@ export function SettingsContent({
     me?._id ?? undefined,
   );
 
-  const resetAuth = useAuthStore((s) => s.reset);
-
   const [biometricLabel, setBiometricLabel] = useState("Biometric Login");
 
   const {
     data,
-    reset,
-    isCreateAccountComplete,
     addFeedbackSubmission,
   } = useOnboardingStore(
     useShallow((state) => ({
       data: state.data,
-      reset: state.reset,
-      isCreateAccountComplete: state.isCreateAccountComplete(),
       addFeedbackSubmission: state.addFeedbackSubmission,
     })),
   );
@@ -312,10 +306,9 @@ export function SettingsContent({
     } catch (e) {
       console.error("Sign out error", e);
     }
-    resetAuth();
-    reset();
+    await clearUserSessionState(clerkUserId);
     router.replace("/(onboarding)");
-  }, [signOut, resetAuth, reset, router]);
+  }, [clerkUserId, signOut, router]);
 
   const handleRateUs = useCallback(async () => {
     try {

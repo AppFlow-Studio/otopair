@@ -1,4 +1,47 @@
 import type { OnboardingStep } from "@/components/onboarding/OnboardingFlow";
+import * as SecureStore from "expo-secure-store";
+
+// Persisted in expo-secure-store. When set to "true", the user explicitly skipped
+// the remaining onboarding steps via "Finish later" and should not be auto-resumed.
+export const ONBOARDING_FINISHED_LATER_KEY = "onboarding_finished_later";
+
+// Persisted in expo-secure-store. Stores the last active onboarding step so the
+// app can resume from exactly where the user left off, not just infer it from data.
+export const ONBOARDING_CURRENT_STEP_KEY = "onboarding_current_step";
+
+export function getOnboardingFinishedLaterKey(clerkUserId?: string | null) {
+  return clerkUserId
+    ? `${ONBOARDING_FINISHED_LATER_KEY}.${clerkUserId}`
+    : ONBOARDING_FINISHED_LATER_KEY;
+}
+
+export function getOnboardingCurrentStepKey(clerkUserId?: string | null) {
+  return clerkUserId
+    ? `${ONBOARDING_CURRENT_STEP_KEY}.${clerkUserId}`
+    : ONBOARDING_CURRENT_STEP_KEY;
+}
+
+export async function clearOnboardingResumeState(clerkUserId?: string | null) {
+  await Promise.all([
+    SecureStore.deleteItemAsync(ONBOARDING_FINISHED_LATER_KEY),
+    SecureStore.deleteItemAsync(ONBOARDING_CURRENT_STEP_KEY),
+    clerkUserId
+      ? SecureStore.deleteItemAsync(getOnboardingFinishedLaterKey(clerkUserId))
+      : Promise.resolve(),
+    clerkUserId
+      ? SecureStore.deleteItemAsync(getOnboardingCurrentStepKey(clerkUserId))
+      : Promise.resolve(),
+  ]);
+}
+
+// Steps that are saved/restored for resume. Auth steps (emailSignup, emailVerify)
+// are excluded — if the user closes during those, they aren't signed in yet and
+// will be sent to the beginning of onboarding normally by index.tsx.
+export const RESUMABLE_STEPS = new Set([
+  "phone", "confirm", "name", "emailConfirm", "profilePhoto",
+  "userIntent", "heardAbout", "visitReason", "zipCode",
+  "pushNotifications", "locationServices",
+] as const);
 
 const HEARD_ABOUT_QUESTION = "How did you hear about Otopair?";
 const VISIT_REASON_QUESTION = "What brings you to Otopair today?";
@@ -124,13 +167,14 @@ export async function getDevicePermissionState(): Promise<DevicePermissionState>
     // @ts-ignore Runtime module
     const notifications = await import("expo-notifications");
     const result = await notifications.getPermissionsAsync();
+    const status = result.status as string;
     if (
-      result.status === "granted" ||
-      result.status === "provisional" ||
-      result.status === "denied" ||
-      result.status === "undetermined"
+      status === "granted" ||
+      status === "provisional" ||
+      status === "denied" ||
+      status === "undetermined"
     ) {
-      pushNotificationStatus = result.status;
+      pushNotificationStatus = status as DevicePermissionState["pushNotificationStatus"];
     } else {
       pushNotificationStatus = "undetermined";
     }

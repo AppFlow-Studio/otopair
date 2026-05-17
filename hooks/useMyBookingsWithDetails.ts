@@ -104,7 +104,7 @@ function adaptLocalBookingToCard(
 }
 
 export function useMyBookingsWithDetails() {
-  const { userId } = useUserFromConvex();
+  const { userId, isLoading: isUserLoading } = useUserFromConvex();
   const rows = useQuery(api.bookings.getByUserIdWithDetails, userId ? { userId } : "skip");
   // Booking IDs the user has already submitted a review for. Drives the
   // "Leave a review" card on completed bookings — once a review exists,
@@ -124,8 +124,19 @@ export function useMyBookingsWithDetails() {
   const selectedMechanicSlot = useBookingStore((s) => s.selectedMechanicSlot);
 
   return useMemo(() => {
+    if (!userId) {
+      return {
+        liveBooking: null,
+        upcomingBookings: [],
+        quoteBookings: [],
+        pendingReviewBookings: [],
+        historyBookings: [],
+        isLoading: isUserLoading,
+      };
+    }
+
     // --- Convex bookings ---
-    const list = rows ?? [];
+    const list: ConvexBookingWithDetails[] = rows ?? [];
     const liveRows = list.filter(isLive);
     const upcomingRows = list.filter(isUpcoming);
     const historyRows = list.filter(isHistory);
@@ -140,7 +151,7 @@ export function useMyBookingsWithDetails() {
     // tab. The per-card progress bar now communicates status inline.
     const isQuoteStage = (r: ConvexBookingWithDetails) =>
       r.status === "pending_quote" || r.status === "quotes_ready";
-    const serviceRows = [...liveRows, ...upcomingRows.filter((r) => !isQuoteStage(r))];
+    const serviceRows = [...liveRows, ...upcomingRows.filter((r: ConvexBookingWithDetails) => !isQuoteStage(r))];
     const quoteRows = upcomingRows.filter(isQuoteStage);
 
     const upcomingBookings: BookingCardBooking[] = serviceRows
@@ -162,10 +173,10 @@ export function useMyBookingsWithDetails() {
     const isPendingReview = (r: ConvexBookingWithDetails) =>
       r.status === "completed" && !reviewedSet.has(String(r._id));
     const pendingReviewRows = historyRows.filter(isPendingReview);
-    const trueHistoryRows = historyRows.filter((r) => !isPendingReview(r));
+    const trueHistoryRows = historyRows.filter((r: ConvexBookingWithDetails) => !isPendingReview(r));
 
     const pendingReviewBookings: BookingCardBooking[] = pendingReviewRows
-      .sort((a, b) => (b._creationTime ?? 0) - (a._creationTime ?? 0))
+      .sort((a: ConvexBookingWithDetails, b: ConvexBookingWithDetails) => (b._creationTime ?? 0) - (a._creationTime ?? 0))
       .map(adaptConvexBookingWithDetailsToCard);
 
     const historyBookings: BookingCardBooking[] = trueHistoryRows
@@ -255,5 +266,5 @@ export function useMyBookingsWithDetails() {
       historyBookings,
       isLoading: rows === undefined,
     };
-  }, [rows, reviewedBookingIds, localBookings, localBookingIds, availableServices, getShopById, getVehicleById, getSelectedVehicle, selectedMechanicSlot]);
+  }, [userId, isUserLoading, rows, reviewedBookingIds, localBookings, localBookingIds, availableServices, getShopById, getVehicleById, getSelectedVehicle, selectedMechanicSlot]);
 }

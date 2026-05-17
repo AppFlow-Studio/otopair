@@ -20,37 +20,44 @@ function convexBookingToStore(doc: Doc<"bookings">): Booking {
   return {
     id: doc._id,
     userId: doc.user_id,
-    shopId: doc.shop_id,
-    vehicleId: doc.vin,
+    shopId: doc.shop_id ?? "",
+    vehicleId: doc.vin ?? "",
     serviceIds,
     status: doc.status as Booking["status"],
-    scheduledDate: doc.scheduled_date,
-    scheduledTime: doc.scheduled_time,
+    scheduledDate: doc.scheduled_date ?? "",
+    scheduledTime: doc.scheduled_time ?? "",
     estimatedDuration: doc.estimated_labor_minutes ?? 60,
-    totalPrice: doc.total_cost,
-    createdAt: new Date(doc.created_at).toISOString(),
-    updatedAt: new Date(doc.updated_at).toISOString(),
+    totalPrice: doc.total_cost ?? 0,
+    createdAt: new Date(doc.created_at ?? Date.now()).toISOString(),
+    updatedAt: new Date(doc.updated_at ?? doc.created_at ?? Date.now()).toISOString(),
   };
 }
 
 export function useBookingsFromConvex() {
-  const { userId } = useUserFromConvex();
+  const { userId, isLoading: isUserLoading } = useUserFromConvex();
   const convexBookings = useQuery(api.bookings.getByUserId, userId ? { userId } : "skip");
   const setBookingsFromConvex = useBookingStore((s) => s.setBookingsFromConvex);
+  const clearBookingState = useBookingStore((s) => s.clearBookingState);
 
   useEffect(() => {
+    if (!userId) {
+      if (!isUserLoading) {
+        clearBookingState();
+      }
+      return;
+    }
     if (!convexBookings || convexBookings.length === 0) {
-      if (convexBookings?.length === 0 && userId) {
+      if (convexBookings?.length === 0) {
         setBookingsFromConvex([]);
       }
       return;
     }
     const storeBookings = convexBookings.map(convexBookingToStore);
     setBookingsFromConvex(storeBookings);
-  }, [convexBookings, userId, setBookingsFromConvex]);
+  }, [clearBookingState, convexBookings, isUserLoading, setBookingsFromConvex, userId]);
 
   return {
     bookings: convexBookings ?? [],
-    isLoading: convexBookings === undefined,
+    isLoading: isUserLoading || (userId ? convexBookings === undefined : false),
   };
 }
