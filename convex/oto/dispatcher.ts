@@ -207,30 +207,6 @@ function packageRenderDirective(toolUse: ToolUseBlock): ToolResultBlock {
         }),
       );
 
-    case "render_support_form":
-      // Sprint 3 Day 6 §13 Channel 1 — terminal substantive-intake form for
-      // the 3 categories that warrant rich shop / mechanic / amount detail:
-      // mechanic_dispute / service_complaint / billing_issue. Trigger-only:
-      // pass `category` + `summary` + optional `prefilled_fields` drawn ONLY
-      // from what the user explicitly said. The mobile component renders the
-      // form pre-filled with these values; the user reviews, edits, and taps
-      // Submit themselves. Oto never submits on the user's behalf. The
-      // backing table `support_intake_submissions` is planned (registry §13);
-      // the mobile team owns the submission flow + persistence schema.
-      // NOT for general app bugs (use render_link_button(bug_report)), NOT
-      // for general feedback (use render_link_button(feedback)), NOT for
-      // AI-conversation complaints (per-message UI icon; no Oto tool).
-      return ok(
-        toolUse.id,
-        renderD("supportForm", {
-          category: toolUse.input.category,
-          summary: toolUse.input.summary,
-          ...(toolUse.input.prefilled_fields
-            ? { prefilled_fields: toolUse.input.prefilled_fields }
-            : {}),
-        }),
-      );
-
     case "render_link_button":
       // Sprint 3 §14.1 — terminal app-nav redirect surface. Trigger-only: pass
       // `destination` (one of 8 enum values: terms_of_service / privacy_policy
@@ -378,11 +354,6 @@ export interface ChatMessageEnvelope {
   // renderable booking record(s) and render the card / list itself.
   bookingCard?: unknown;
   bookingsList?: unknown;
-  // Sprint 3 Day 6 §13 Channel 1 — substantive support intake form payload:
-  // { category, summary, prefilled_fields? }. Mobile component renders the
-  // pre-filled form; user reviews, edits, and submits. Backing table
-  // (support_intake_submissions) + submission flow are mobile-team scope.
-  supportForm?: unknown;
   reasoning?: unknown;
   sources?: unknown;
   [k: string]: unknown;

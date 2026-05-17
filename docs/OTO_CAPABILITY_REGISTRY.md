@@ -548,28 +548,21 @@ Every domain entry follows this shape:
 
 ---
 
-## §13. Support — intake routing + redirect channels + per-message AI feedback
+## §13. Support — redirect-only intake + per-message AI feedback
 
-**Status: LIVE as of Sprint 3 Day 6 Pass A.** All three Support channels operational: Channel 1 (`render_support_form` 3-category form path) LIVE; Channel 2 (`render_link_button` redirects for customer_support / feedback / bug_report) LIVE since Day 2; Channel 3 (per-message AI-feedback UI icon) is mobile-team-owned and remains a coordination ticket. 6 Day 6 eval cases verify form-vs-redirect-vs-AI-icon discrimination + form category positives + prefilled-fields rules.
+**Status: LIVE as of Sprint 4 Day 2 Pass J (architecture revision).** Two channels operational. Channel 1 (`render_link_button` redirects for `customer_support` / `feedback` / `bug_report` — covers ALL support intake including disputes, complaints, billing) LIVE since Sprint 3 Day 2. Channel 2 (per-message AI-feedback UI icon) mobile-team-owned. The previously-scoped `render_support_form` (3-category substantive intake form) was deprecated and removed in Sprint 4 Day 2 Pass J — Oto no longer collects shop / mechanic / billing detail in chat; the Customer Support screen owns those forms. 5 Pass J eval cases (`support_redirect_*` + `support_ai_feedback_no_tool_fired`) verify the 2-channel discrimination.
 
-**Purpose.** Three surfaces. (1) **Substantive intake** — mechanic disputes, general service complaints, billing issues. Oto recognizes the category, fires `render_support_form` with prefilled fields drawn ONLY from what the user explicitly said. These three categories collect rich shop / mechanic / amount detail that warrants a form. (2) **Lightweight redirects** — customer support contact, feature feedback, GENERAL app bug reports. These route via `render_link_button` (§14.1) to dedicated screens. (3) **Per-message AI-feedback button** — the chat UI renders a small "Report an issue with AI" exclamation-point icon next to each Oto response (alongside copy / TTS buttons). The user taps it to report that specific conversation. This is a UI-level affordance owned by the mobile chat surface; Oto's tool surface does NOT include an "I'll file a report about my response" capability.
+**Architecture revision rationale (Sprint 4 Day 2 Pass J).** Pass A through Day 6 implemented a three-channel architecture with `render_support_form` as the substantive-intake form path. After live testing, the user's decision (mrdogsog) was that Oto's role in support is routing, not intake. The Customer Support screen already owns dispute / billing / complaint intake forms; having Oto collect the same fields in chat (shop name, mechanic name, amount, date) was duplicate work and a hallucination risk (the form could be filed before the user reviewed it). The new architecture: Oto identifies the user is asking about support and fires a single `render_link_button` redirect; the destination screen owns the intake form and the submission. Two channels, not three.
 
-**Sprint 3 scope review — render_support_form vs render_link_button vs per-message AI-feedback button.** Pass A drafted `render_support_form` with 5 categories: `mechanic_dispute` / `service_complaint` / `billing_issue` / `ai_escalation` / `platform_bug`. After Pass E's §14.1 expansion (general app bugs → `bug_report` redirect, general help → `customer_support` redirect) AND Pass F's documentation of the per-message AI-feedback UI button, the form's `platform_bug` and `ai_escalation` categories are obsoleted by other surfaces. Resolution (Sprint 3 §14.1 dispatch decision point):
+**Purpose.** Two surfaces. (1) **Redirect to support screen** — Oto recognizes a support signal (dispute, complaint, billing, general help, feature suggestion, app bug) and fires `render_link_button` with the right `destination`. The destination screen handles the intake form. (2) **Per-message AI-feedback icon** — the chat UI renders a small "Report an issue with AI" exclamation-point icon next to each Oto response. The user taps it to report THAT specific response. UI-level affordance owned by the mobile chat surface; Oto's tool surface does NOT include an "I'll file a report about my response" capability.
 
-- **`platform_bug` (general app bug)** → deprecated; `render_link_button(destination: "bug_report")` handles general app bugs via the dedicated bug-report screen.
-- **AI-conversation bugs / "Oto's response was wrong / weird / off"** → handled by the per-message "Report an issue with AI" UI button (next to copy / TTS). NOT a render_link_button destination; NOT a render_support_form category; NOT an Oto tool. The UI owns this surface; Oto's role is to be aware it exists so it doesn't try to handle AI-feedback itself.
-- **`ai_escalation`** → deprecated; `render_link_button(destination: "customer_support")` handles general help / human-handoff requests.
-- **`mechanic_dispute` / `service_complaint` / `billing_issue`** → retain `render_support_form`; these collect detail (shop name, visit date, amount, mechanic name) that a generic feedback form would not.
-
-Final `render_support_form` category enum after Sprint 3 §14.1 dispatch (subject to PM review during the dispatch): `mechanic_dispute` / `service_complaint` / `billing_issue` — 3 categories, not 5.
-
-**Channel discrimination rule (in the Sprint 3 prompt section).**
+**Channel discrimination rule (in the Sprint 4 prompt section).**
 
 | User signal | Channel |
 |---|---|
-| "the shop charged me for X I never approved" / "this booking went wrong" / disputes with specific shop or mechanic details | `render_support_form(category: "mechanic_dispute")` |
-| "service was bad" / "had a complaint about the work" / non-billing service complaints | `render_support_form(category: "service_complaint")` |
-| "I was charged twice" / "wrong amount" / specific billing disputes | `render_support_form(category: "billing_issue")` |
+| "the shop charged me for X I never approved" / "this booking went wrong" / disputes with specific shop or mechanic details | `render_link_button(destination: "customer_support")` |
+| "service was bad" / "had a complaint about the work" / non-billing service complaints | `render_link_button(destination: "customer_support")` |
+| "I was charged twice" / "wrong amount" / specific billing disputes | `render_link_button(destination: "customer_support")` |
 | "I need help with my account" / "talk to a human" / general support inquiry | `render_link_button(destination: "customer_support")` |
 | "I have a feature suggestion" / "feedback on the app" / general suggestions | `render_link_button(destination: "feedback")` |
 | "the app crashed" / "I found a bug" / "[some screen] is broken" — GENERAL APP bug | `render_link_button(destination: "bug_report")` |
@@ -577,10 +570,10 @@ Final `render_support_form` category enum after Sprint 3 §14.1 dispatch (subjec
 
 **User-visible behaviors.**
 
-- Substantive intake (mechanic dispute, service complaint, billing issue): recognize the category, acknowledge briefly (calm, no apology on behalf of the shop, no manufactured empathy, no promise of resolution, no taking sides), fire `render_support_form` with appropriate `category` + `summary` + `prefilled_fields` drawn ONLY from what the user said.
-- Lightweight redirect (customer support contact, GENERAL app bug, feedback / suggestion): fire `render_link_button(destination)` with a short framing sentence. The user opens the appropriate screen and files from there.
+- Support intake of any flavor (dispute, complaint, billing, general help): recognize the signal, acknowledge briefly (calm, no apology on behalf of the shop, no manufactured empathy, no promise of resolution, no taking sides), fire `render_link_button(destination: "customer_support")` with a short framing sentence pointing to the Customer Support screen. The Customer Support screen owns the intake form; the user files from there.
+- Feature suggestion / general feedback: `render_link_button(destination: "feedback")`.
+- General app bug (crash, broken screen, broken flow): `render_link_button(destination: "bug_report")`.
 - AI-conversation feedback ("Oto gave me a weird answer", "this response is off", "Oto's wrong about X"): acknowledge briefly, point the user to the per-message "Report an issue with AI" icon next to the offending Oto response. Do NOT fire any tool; the UI button IS the channel.
-- **TODAY (gap):** none of the three channels' substrates are fully wired yet. Capability-honesty section is honest about it. Sprint 3 §14.1 dispatch lands the redirects; `render_support_form` follows as a separate dispatch; the per-message AI-feedback button is a mobile-team scope ticket coordinated alongside (UI-only, no Oto tool surface change).
 
 **Per-message AI-feedback button (UI affordance, not Oto tool).**
 
@@ -601,27 +594,26 @@ Do NOT:
 
 **Tools.**
 
-- `render_support_form` — `planned` — terminal render. Post-Sprint-3-decision `category` enum: `mechanic_dispute` / `service_complaint` / `billing_issue` (subject to dispatch review). `prefilled_fields` populated ONLY from what the user said; never invent dates, dollar amounts, shop names, mechanic names.
-- `render_link_button(destination: "customer_support" | "feedback" | "bug_report")` — `planned` per §14.1. `bug_report` is for GENERAL APP bugs, NOT AI-conversation feedback.
+- `render_link_button(destination: "customer_support" | "feedback" | "bug_report")` — `live` per §14.1. `bug_report` is for GENERAL APP bugs, NOT AI-conversation feedback. `customer_support` is the single redirect for all support intake including disputes / complaints / billing.
+- `render_support_form` — `retired` (Sprint 4 Day 2 Pass J). Was scoped for 3-category substantive intake during Sprint 3 Day 6; removed when the architecture moved to redirect-only.
 - Per-message "Report an issue with AI" button — UI affordance, NOT an Oto tool.
 
-**Prompt rules.** `stable.ts` `# Support intake`, `# Tools / render_support_form`, `# Capability honesty` (lists support-form as missing). Sprint 3 §14.1 dispatch updates the Support intake section to reflect the three-channel split (form / redirect / per-message-icon).
+**Prompt rules.** `stable.ts` `# Support intake` section (rewritten in Pass J to describe the 2-channel architecture). `# Capability honesty` lists "Submit any support / dispute / billing intake on the user's behalf" as an explicit MUST NOT.
 
-**Data sources.** Support-intake table for the form path is `planned` — Sprint 3+ work would add e.g. `support_intake_submissions` table. Redirect path has no Oto-side persistence; the destination screens own their own submission flow. Per-message AI-feedback path: mobile-team-owned schema (likely `ai_message_reports` or similar; coordinate with mobile dispatch).
+**Data sources.** Redirect path has no Oto-side persistence; the destination screens own their own submission flow. Per-message AI-feedback path: mobile-team-owned schema (likely `ai_message_reports` or similar; coordinate with mobile dispatch).
 
 **Oto MUST NOT.**
 
-- Promise "I've sent this to the team" — none of the three channels' submissions are Oto's action.
+- Promise "I've sent this to the team" — neither channel's submissions are Oto's action.
 - Promise to file a report about its own response — the per-message icon IS the channel for that.
 - Take sides ("that shop ripped you off") — calm acknowledgment only.
-- Manufacture empathy / promise resolution — intake / redirect, not negotiation.
-- Invent details for the prefilled form. Only fill what the user actually said. Leave dates / dollar amounts / shop names blank if not provided.
-- Confuse the three channels: rich-detail asks (specific amounts, specific shops, specific mechanics) → form; lightweight general asks (general help, bug, feedback) → redirect; "Oto said something wrong" → point to per-message icon.
+- Manufacture empathy / promise resolution — redirect, not negotiation.
+- Collect dispute / billing / shop / mechanic detail in chat with intent to "file it." The Customer Support screen owns those intake forms.
 - Treat diagnostic questions as support tickets — they route to the Diagnostic domain.
 - Treat legal-evaluation questions as support tickets — they refuse per Legal-adjacent rules (§15.5).
 - Fire `render_link_button(destination: "bug_report")` for AI-conversation issues. `bug_report` is for general app bugs; AI issues go to the per-message icon.
 
-**Eval coverage.** None today. Sprint 3 adds: form path → `support_form_mechanic_dispute`, `support_form_service_complaint`, `support_form_billing_issue`. Redirect path → `link_button_customer_support`, `link_button_feedback_filing`, `link_button_bug_report` (per §14.1). AI-feedback path → `ai_feedback_points_to_icon`, `ai_feedback_no_promise_to_file`, `ai_feedback_distinguishes_from_bug_report`.
+**Eval coverage.** Pass J set (5 cases): redirect path → `support_redirect_mechanic_dispute`, `support_redirect_service_complaint`, `support_redirect_billing_issue`, `support_redirect_lightweight_help`. AI-feedback path → `support_ai_feedback_no_tool_fired`. (Sprint 3 Day 6 had 6 cases keyed on the form path; those were replaced by the 5-case redirect set when the architecture moved to 2-channel.)
 
 ---
 
@@ -883,7 +875,7 @@ These rules apply regardless of which domain the conversation is in. They're cal
 | Category | Tool | Status | Domain |
 |---|---|---|---|
 | render | `render_link_button` | **live** as of Day 2/3 (8 destinations); Day 4 expands to **9 destinations** adding `vehicle_onboarding`. Full enum: `terms_of_service` / `privacy_policy` / `settings` / `profile` / `transaction_history` / `customer_support` / `feedback` / `bug_report` / `vehicle_onboarding` | §14.1 (cross-cuts §2 Vehicle + §12 Account + §13 Support) |
-| render | `render_support_form` | **live** as of Sprint 3 Day 6 Pass A (3 categories: `mechanic_dispute` / `service_complaint` / `billing_issue`; was 5 — `platform_bug` + `ai_escalation` deprecated in favor of §14.1 redirects + per-message AI-feedback UI button) | §13 Support |
+| render | `render_support_form` | **retired** (Sprint 4 Day 2 Pass J — architecture revision to redirect-only support intake; all support routing now goes through `render_link_button(destination: "customer_support")`) | §13 Support |
 | data | `get_loyalty_points_history` | **live** as of Sprint 3 Day 3 Pass A | §14.2 |
 | data | `get_available_redemptions` | **live** as of Sprint 3 Day 3 Pass A (informational surfacing only — no claim) | §14.2 |
 | data | `get_loyalty_program_info` | **live** as of Sprint 3 Day 3 Pass A | §14.2 |
@@ -1022,7 +1014,7 @@ None today — `support_intake_submissions` is planned for Sprint 3+.
 | Retrieval | Spec-only (7 disabled) | Cat M cases activate when Wave 5 reranker v2 lands |
 | Loyalty (basic) | None | Add `loyalty_balance_oneshot` + `loyalty_redeem_inquiry_describes_only` + `loyalty_redeem_request_pointer_to_screen` + `loyalty_history_lookup` + `loyalty_program_info_request` when Sprint 3 §14.2 in-chat surface lands. Note: no `loyalty_redemption_claim_card` case — claim flow is not in-chat per Pass F. |
 | Account | Light (2 cases) | Add `link_button_settings_open` + `link_button_profile_open` + `link_button_transaction_history` when Sprint 3 §14.1 lands (Account picks up redirect surfaces) |
-| Support | None | Add `link_button_customer_support` + `link_button_feedback_filing` + `link_button_bug_report` (redirect path) when Sprint 3 §14.1 lands; add `support_form_mechanic_dispute` + `support_form_service_complaint` + `support_form_billing_issue` (form path) when `render_support_form` lands as a separate Sprint 3+ dispatch; add `ai_feedback_points_to_icon` + `ai_feedback_no_promise_to_file` + `ai_feedback_distinguishes_from_bug_report` (per-message AI-feedback channel) when prompt section authoring lands |
+| Support | 5 cases (Sprint 4 Day 2 Pass J) | `support_redirect_mechanic_dispute` / `support_redirect_service_complaint` / `support_redirect_billing_issue` / `support_redirect_lightweight_help` / `support_ai_feedback_no_tool_fired`. Architecture is 2-channel (redirect + per-message AI-feedback icon); `render_support_form` retired in Pass J. |
 
 ---
 

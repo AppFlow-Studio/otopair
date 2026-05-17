@@ -109,11 +109,6 @@ const TOOL_NAMES_V1 = [
   // Render tools — general-purpose chat UI affordances.
   "render_quick_replies",
   "render_record_confirmation",
-  // Support intake — Sprint 3 Day 6 §13 Channel 1 (3-category form path:
-  // mechanic_dispute / service_complaint / billing_issue). Distinct from
-  // §14.1 render_link_button redirects (customer_support / feedback /
-  // bug_report) and from the per-message AI-feedback UI button (§13 Ch 3).
-  "render_support_form",
   // Booking flow — Sprint 4 Day 1 Pass B consolidation. Single terminal
   // render replacing the prior 6-tool chain (render_service_picker /
   // render_diagnostic_form / render_shop_carousel / render_time_selector /
@@ -319,6 +314,14 @@ export const sendMessage = action({
     // drives every sub-stage internally (service select → options → notes →
     // mechanic → time → review → pay).
     bookService: v.optional(v.any()),
+    // Sprint 3 Day 2 §14.1 — render_link_button (9 destinations). Dispatcher
+    // produces via renderD("linkButton", { destination, label? }).
+    linkButton: v.optional(v.any()),
+    // Sprint 3 Day 5 §14.3 — render_booking_card / render_bookings_list. Card
+    // is trigger-only (booking_id); list carries an array of ids. The mobile
+    // component queries Convex for the actual booking row(s).
+    bookingCard: v.optional(v.any()),
+    bookingsList: v.optional(v.any()),
     reasoning: v.optional(v.any()),
     sources: v.optional(v.any()),
     // Trace blob — only populated when `debug: true`. Loose v.any() since
@@ -355,6 +358,21 @@ type SendMessageResult = {
     recommended_priority?: "closest" | "best_rated" | "best_price";
     recommended_mechanic_id?: string;
   };
+  linkButton?: {
+    destination:
+      | "terms_of_service"
+      | "privacy_policy"
+      | "settings"
+      | "profile"
+      | "transaction_history"
+      | "customer_support"
+      | "feedback"
+      | "bug_report"
+      | "vehicle_onboarding";
+    label?: string;
+  };
+  bookingCard?: { booking_id: string };
+  bookingsList?: { booking_ids: string[] };
   reasoning?: unknown;
   sources?: unknown;
   trace?: unknown;
@@ -1048,10 +1066,10 @@ async function sendMessageHandlerCore(
             default:
               // Other render tools (render_record_confirmation,
               // render_quick_replies, render_reasoning, render_sources,
-              // render_link_button, render_support_form, render_booking_card,
-              // render_bookings_list) are NOT selection moments — they show
-              // forms, ask Yes/No, decorate prose, redirect to screens, or
-              // surface existing booking details. No offer fact to record.
+              // render_link_button, render_booking_card, render_bookings_list)
+              // are NOT selection moments — they show forms, ask Yes/No,
+              // decorate prose, redirect to screens, or surface existing
+              // booking details. No offer fact to record.
               break;
           }
           if (entityType !== null && entityId !== null) {
@@ -1266,6 +1284,9 @@ async function sendMessageHandlerCore(
     !!quickReplies ||
     !!showRecordConfirmation ||
     renderEnvelope.bookService !== undefined ||
+    renderEnvelope.linkButton !== undefined ||
+    renderEnvelope.bookingCard !== undefined ||
+    renderEnvelope.bookingsList !== undefined ||
     renderEnvelope.reasoning !== undefined ||
     renderEnvelope.sources !== undefined;
   if (!finalText && !hasAnyRender) {
@@ -1606,6 +1627,20 @@ async function sendMessageHandlerCore(
     renderEnvelope.bookService !== undefined
       ? (renderEnvelope.bookService as SendMessageResult["bookService"])
       : undefined;
+  // Sprint 3 Day 2/5 — link button, booking card/list. Each is
+  // dispatcher-produced; chat.ts forwards the typed payload through.
+  const linkButton =
+    renderEnvelope.linkButton !== undefined
+      ? (renderEnvelope.linkButton as SendMessageResult["linkButton"])
+      : undefined;
+  const bookingCard =
+    renderEnvelope.bookingCard !== undefined
+      ? (renderEnvelope.bookingCard as SendMessageResult["bookingCard"])
+      : undefined;
+  const bookingsList =
+    renderEnvelope.bookingsList !== undefined
+      ? (renderEnvelope.bookingsList as SendMessageResult["bookingsList"])
+      : undefined;
   const reasoning = renderEnvelope.reasoning;
   const sources = renderEnvelope.sources;
 
@@ -1614,6 +1649,9 @@ async function sendMessageHandlerCore(
     ...(quickReplies ? { quickReplies } : {}),
     ...(showRecordConfirmation ? { showRecordConfirmation } : {}),
     ...(bookService !== undefined ? { bookService } : {}),
+    ...(linkButton !== undefined ? { linkButton } : {}),
+    ...(bookingCard !== undefined ? { bookingCard } : {}),
+    ...(bookingsList !== undefined ? { bookingsList } : {}),
     ...(reasoning !== undefined ? { reasoning } : {}),
     ...(sources !== undefined ? { sources } : {}),
     ...(trace ? { trace } : {}),
