@@ -436,6 +436,53 @@ const MODEL_ROUTING_TOOLS: OtoToolSchema[] = [
 
 const STATE_TOOLS: OtoToolSchema[] = [
   {
+    name: "record_semantic_fact",
+    description:
+      "Record something the user has stated about themselves that's worth remembering ACROSS future conversations. Use sparingly — only when the user expresses a durable preference, a profile attribute (mileage, driving habits, location, communication style), dismisses an option you might otherwise re-offer later, or anchors a service-history event. Do NOT use for one-off conversational facts about a specific vehicle or service — those go in update_conversation_state. Examples of CORRECT use: user says 'I prefer text summaries over images when you tell me about my car' → fact_type=communication_style, source=user_stated; user says 'I drive about 30k miles per year' → fact_type=service_preference (driving habit influences service cadence), source=user_stated; user declines a brake-check recommendation and says 'I'll do it myself' → fact_type=service_preference, source=user_stated. Examples of INCORRECT use: user says 'my car has a check-engine warning right now' (one-off symptom — belongs in update_conversation_state); user names their car (chat-only fluff). Write the fact in THIRD PERSON referring to the user (e.g., 'User prefers text over images.'). Call this in ADDITION to update_conversation_state — these serve different scopes. Reinforcement and retraction are deferred to future tools; this tool only RECORDS first observations.",
+    input_schema: {
+      type: "object",
+      properties: {
+        text: {
+          type: "string",
+          description:
+            "The fact, written in third person referring to the user. Concise, single sentence. Example: 'User prefers synthetic oil.' or 'User drives ~30k miles per year.'",
+        },
+        fact_type: {
+          type: "string",
+          enum: [
+            "mechanic_preference",
+            "service_preference",
+            "communication_style",
+            "vehicle_quirk",
+            "history_anchor",
+          ],
+          description:
+            "Category. mechanic_preference = repeated-booking-with-specific-mechanic anchors. service_preference = stated taste/choice about services or maintenance cadence (also covers dismissals — 'declines synthetic blend'). communication_style = how the user wants Oto to communicate ('terse answers', 'text over images'). vehicle_quirk = a durable, vehicle-specific behavior the user has observed ('pulls left when cold'). history_anchor = a prior service event worth remembering ('last brake service ~March 2026').",
+        },
+        source: {
+          type: "string",
+          enum: ["user_stated", "inferred_behavior"],
+          description:
+            "Provenance. user_stated = the user said it explicitly in this conversation. inferred_behavior = derived from a pattern across this conversation (e.g., user has dismissed brake-check 3 times). Do NOT use 'mechanic_confirmed' — that's reserved for verified service records, not chat.",
+        },
+        confidence: {
+          type: "number",
+          minimum: 0,
+          maximum: 1,
+          description:
+            "Initial confidence. Anchor 0.4-0.6 for first observation; raise toward 0.7-0.8 only when the user is emphatic ('I ALWAYS want...'). Reinforcement (future dispatch) bumps this asymptotically toward 1.0 on re-observation; never write 1.0 here.",
+        },
+        vehicle_id: {
+          type: "string",
+          description:
+            "Optional Convex vehicles._id when the fact is specific to ONE vehicle (e.g., a vehicle_quirk). Get this from the <vehicle> block. Omit for user-level facts (preferences, communication_style).",
+        },
+      },
+      required: ["text", "fact_type", "source", "confidence"],
+    },
+  },
+
+  {
     name: "update_conversation_state",
     description:
       "Persist your current read of the conversation so the next turn picks it up. Call this on EVERY user-facing response turn alongside your text or render directive. Send the FULL CURRENT STATE each time — not deltas. If a field hasn't changed, repeat its prior value. The next turn's envelope replays these fields as <conversation_state>; if you stop writing, the next turn sees stale or empty state.",
@@ -772,6 +819,11 @@ export const OTO_TOOL_CATEGORY: Record<string, OtoToolCategory> = {
   // SERVER_MANAGED_TOOLS, NOT in this category map.
   // state (Oto writes back; ack is trivial; doesn't gate loop continuation)
   update_conversation_state: "state",
+  // record_semantic_fact — Wave 3 §2.2 user_semantic_facts insert. Side-effect
+  // mutation routed through memoryEditing.recordUserSemanticFact. Same loop
+  // shape as update_conversation_state: parallel dispatch, trivial ack, no
+  // continuation gate.
+  record_semantic_fact: "state",
   // record_vehicle_fact is also a state-write side effect — Haiku emits it
   // alongside the user-facing text on the same iteration; the dispatcher
   // fires it in parallel and the loop terminates without forcing another

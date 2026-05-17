@@ -96,6 +96,7 @@ const TOOL_NAMES_V1 = [
   "record_vehicle_fact",
   // State tools (side-effect; Oto-maintained conversation memory)
   "update_conversation_state",
+  "record_semantic_fact",
   // Render tools — full booking-flow chain. Oto's involvement ENDS at
   // render_booking_confirmation; the mobile component's "Confirm booking"
   // button handles the redirect to payment internally, no Oto turn for that.
@@ -153,6 +154,7 @@ const TOOLS_FOR_HAIKU = OTO_TOOLS.filter((t) =>
   const STATE_TOOL_CALLABLE_NAMES = new Set([
     "update_conversation_state",
     "record_vehicle_fact",
+    "record_semantic_fact",
     "request_sonnet_handoff",
     "request_haiku_handback",
   ]);
@@ -1968,6 +1970,126 @@ function buildCallables(
         api.oto.vehicleFactsEditing.recordVehicleFact,
         args,
       );
+    },
+
+    /**
+     * record_semantic_fact — Wave 3 §2.2 user_semantic_facts insert.
+     *
+     * The model invokes this when content is "worth remembering across
+     * conversations" — durable preferences, profile attributes, dismissals.
+     * Conversation-scoped observations belong to update_conversation_state
+     * (different scope; the prompt rule disambiguates).
+     *
+     * Scope: RECORD ONLY. Reinforcement (asymptotic confidence bump on
+     * re-observation) and retraction (soft-retract on contradiction) are
+     * deferred to a future dispatch — they need contradiction/equivalence
+     * detection beyond this dispatch's mandate.
+     *
+     * Failure-isolation discipline (matches the conversation_audit / state-
+     * mirror wire-ins): try/catch, swallow, return ok=false on the inner
+     * shape. A failed semantic-fact write MUST NEVER break the chat turn —
+     * the helper enforces the (source, written_by) legality matrix and may
+     * throw on invalid combinations; we degrade gracefully instead of
+     * surfacing a tool error that Haiku would then narrate as failure.
+     *
+     * Argument mapping:
+     *  - text → payload (the helper stores it verbatim as prose; the model
+     *    has been instructed to write in third person referring to the user)
+     *  - fact_type → fact_type (passed through to the schema-enforced union)
+     *  - source → source (chat-agent path; "mechanic_confirmed" is rejected
+     *    by the helper's (source, written_by) legality matrix anyway)
+     *  - confidence → noted but NOT passed: recordUserSemanticFact takes a
+     *    fixed initial confidence of 1.0 per the design's "stored is the
+     *    last-reinforced value; decay computed at read time" discipline.
+     *    The model's confidence arg becomes a guidance signal we log; future
+     *    reinforce/retract dispatches consume it. Documented gap (PM ruling
+     *    candidate); for now the design's 1.0-on-insert is authoritative.
+     *  - vehicle_id → vehicle_id (optional; pass-through Convex id when set)
+     *
+     * written_by is fixed to "chat_agent" — this is the chat-agent write
+     * surface (the only path Haiku has to reach user_semantic_facts).
+     */
+    record_semantic_fact: async (input) => {
+      const text = typeof input.text === "string" ? input.text.trim() : "";
+      const factTypeRaw =
+        typeof input.fact_type === "string" ? input.fact_type : "";
+      const sourceRaw =
+        typeof input.source === "string" ? input.source : "user_stated";
+      const confidence =
+        typeof input.confidence === "number" &&
+        input.confidence >= 0 &&
+        input.confidence <= 1
+          ? input.confidence
+          : 0.5;
+      const vehicleIdRaw =
+        typeof input.vehicle_id === "string" && input.vehicle_id.trim()
+          ? input.vehicle_id
+          : null;
+
+      // Validate fact_type against the schema enum. Reject silently (ok=false)
+      // rather than throwing — failure-isolation: the chat turn must not break
+      // on a model-supplied bad enum.
+      const VALID_FACT_TYPES = new Set([
+        "mechanic_preference",
+        "service_preference",
+        "communication_style",
+        "vehicle_quirk",
+        "history_anchor",
+      ]);
+      const VALID_SOURCES = new Set(["user_stated", "inferred_behavior"]);
+      if (!text) {
+        console.warn(
+          "[oto/chat] record_semantic_fact called with empty text; skipping write.",
+        );
+        return { ok: false, reason: "missing text" };
+      }
+      if (!VALID_FACT_TYPES.has(factTypeRaw)) {
+        console.warn(
+          `[oto/chat] record_semantic_fact called with invalid fact_type="${factTypeRaw}"; skipping write.`,
+        );
+        return { ok: false, reason: "invalid fact_type" };
+      }
+      if (!VALID_SOURCES.has(sourceRaw)) {
+        console.warn(
+          `[oto/chat] record_semantic_fact called with invalid source="${sourceRaw}"; skipping write.`,
+        );
+        return { ok: false, reason: "invalid source" };
+      }
+
+      // Log the model-supplied confidence for future reinforce/retract work
+      // (the helper stores 1.0 on insert per the design; confidence is the
+      // model's anchor signal that a future dispatch will consume).
+      if (confidence !== 0.5) {
+        console.log(
+          `[oto/chat] record_semantic_fact confidence guidance=${confidence} (stored 1.0 per design §2.2)`,
+        );
+      }
+
+      try {
+        const args: any = {
+          user_id: userId,
+          fact_type: factTypeRaw,
+          payload: text,
+          source: sourceRaw,
+          written_by: "chat_agent" as const,
+        };
+        if (vehicleIdRaw !== null) {
+          args.vehicle_id = vehicleIdRaw as Id<"vehicles">;
+        }
+        const factId = await ctx.runMutation(
+          api.oto.memoryEditing.recordUserSemanticFact,
+          args,
+        );
+        return { ok: true, fact_id: factId, recorded: true };
+      } catch (e: any) {
+        // Helper may throw on the (source, written_by) legality matrix or
+        // empty-payload guard. Swallow per failure-isolation discipline.
+        console.warn(
+          "[oto/chat] record_semantic_fact swallowed error:",
+          e?.message,
+        );
+        return { ok: false, recorded: false };
+      }
     },
 
     /**
