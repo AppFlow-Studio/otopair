@@ -36,9 +36,21 @@ export default function OnboardingScreen() {
             const resumeData = buildOnboardingResumeData(me, onboardingQa);
             const devicePermissions = await getDevicePermissionState();
             if (cancelled) return;
+            const currentData = useOnboardingStore.getState().data;
 
             updateOnboardingData({
-                ...resumeData,
+                authProvider: resumeData.authProvider ?? currentData.authProvider,
+                email: resumeData.email ?? currentData.email,
+                emailConfirmed: resumeData.emailConfirmed || currentData.emailConfirmed,
+                firstName: resumeData.firstName ?? currentData.firstName,
+                lastName: resumeData.lastName ?? currentData.lastName,
+                phoneNumber: resumeData.phoneNumber ?? currentData.phoneNumber,
+                phoneVerified: resumeData.phoneVerified || currentData.phoneVerified,
+                profilePhotoUri: resumeData.profilePhotoUri ?? currentData.profilePhotoUri,
+                userIntentions: resumeData.userIntentions ?? currentData.userIntentions,
+                heardAboutOtopair: resumeData.heardAboutOtopair ?? currentData.heardAboutOtopair,
+                visitReason: resumeData.visitReason ?? currentData.visitReason,
+                zipCode: resumeData.zipCode ?? currentData.zipCode,
                 pushNotificationStatus: devicePermissions.pushNotificationStatus,
                 pushNotificationsGranted:
                     devicePermissions.pushNotificationStatus === 'granted' ||

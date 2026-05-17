@@ -13,24 +13,21 @@
  */
 
 import { useState, useEffect } from "react";
-import { useAuth } from "@clerk/clerk-expo";
+import { useAuth, useSSO } from "@clerk/clerk-expo";
 import * as WebBrowser from "expo-web-browser";
 import { BrandColors, FontFamily, FontSize, Spacing, Text, BorderRadius } from "@/components/shared-ui";
-import { FooterButton } from "@/components/shared-ui/FooterButton";
 import { Image } from "expo-image";
 import {
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
   View,
-  useWindowDimensions,
   Pressable,
   ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import { useEnsureConvexUser } from "@/hooks/useEnsureConvexUser";
-import { useSSO } from "@clerk/clerk-expo";
 import { Mail } from "lucide-react-native";
 import { useAuthStore } from "@/stores/useAuthStore";
 import { router } from "expo-router";
@@ -46,11 +43,10 @@ interface SignupStepProps {
 
 export function SignupStep({ onNext, onBack, onEmailSignup, onLogin }: SignupStepProps) {
   const insets = useSafeAreaInsets();
-  const { height } = useWindowDimensions();
   const { isSignedIn, isLoaded } = useAuth();
   const { updateData } = useOnboardingStore();
   const ensureConvexUser = useEnsureConvexUser();
-  const { setIsNewUser, setIsAuthenticated } = useAuthStore();
+  const { isNewUser, setIsNewUser, setIsAuthenticated } = useAuthStore();
   const [loading, setLoading] = useState<"google" | "apple" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -59,20 +55,21 @@ export function SignupStep({ onNext, onBack, onEmailSignup, onLogin }: SignupSte
 
   // Already signed in → redirect to home (index may have sent here if me was loading)
   useEffect(() => {
+    if (loading !== null || isNewUser) {
+      return;
+    }
+
     if (isLoaded && isSignedIn) {
       setIsNewUser(false);
       setIsAuthenticated(true);
       router.replace("/(main-tabs)/home");
     }
-  }, [isLoaded, isSignedIn, setIsAuthenticated, setIsNewUser]);
+  }, [isLoaded, isNewUser, isSignedIn, loading, setIsAuthenticated, setIsNewUser]);
 
   const dynamicStyles = {
     container: { paddingTop: insets.top + Spacing.lg },
     bottomContainer: { paddingBottom: insets.bottom + Spacing.lg },
   };
-
-  const isCompact = height < 720;
-  const buttonPaddingVertical = isCompact ? Spacing.sm : Spacing.lg;
 
   const handleOAuthSignup = async (strategy: "google" | "apple") => {
     if (loading) return;
@@ -116,6 +113,7 @@ export function SignupStep({ onNext, onBack, onEmailSignup, onLogin }: SignupSte
         }
         // signIn = existing account (email matched); signUp = new account
         if (signIn) {
+          setIsNewUser(false);
           router.replace("/(main-tabs)/home");
         } else {
           onNext();

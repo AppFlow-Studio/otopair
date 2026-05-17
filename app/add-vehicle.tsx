@@ -9,8 +9,8 @@
  */
 
 // 1. React & React Native
-import React, { useState, useEffect, useRef } from 'react';
-import { ActivityIndicator, Dimensions, Pressable, StyleSheet, View, Image, TextInput, Keyboard, Platform, Animated } from 'react-native';
+import React, { useState } from 'react';
+import { ActivityIndicator, Dimensions, Pressable, StyleSheet, View, TextInput, Keyboard } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 // 2. Expo & Third-party
@@ -18,13 +18,20 @@ import { StatusBar } from 'expo-status-bar';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useRouter } from 'expo-router';
 import { ArrowLeft, QrCode, Edit3 } from 'lucide-react-native';
+import Animated, {
+  Extrapolation,
+  interpolate,
+  useAnimatedStyle,
+  useDerivedValue,
+} from 'react-native-reanimated';
+import { KeyboardStickyView, useReanimatedKeyboardAnimation } from 'react-native-keyboard-controller';
 import { useAction } from 'convex/react';
 
 // 3. App imports
 import { Text } from '@/components/shared-ui';
 import { Spacing } from '@/constants/theme';
 import { api } from '@/convex/_generated/api';
-import { scale, verticalScale, moderateScale } from '@/utils/responsive';
+import { scale, moderateScale } from '@/utils/responsive';
 
 // ============================================================================
 // COMPONENT
@@ -44,42 +51,11 @@ export default function AddVehicleScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const [vinNumber, setVinNumber] = useState('');
-  const [keyboardVisible, setKeyboardVisible] = useState(false);
   const [isDecoding, setIsDecoding] = useState(false);
   const [decodeError, setDecodeError] = useState<string | null>(null);
-  const keyboardHeight = useRef(new Animated.Value(0)).current;
+  const { progress: keyboardProgress } = useReanimatedKeyboardAnimation();
 
   const decodeVin = useAction(api.vehicle_pipeline.decodeVin);
-
-  // Listen to keyboard events with smooth animation
-  useEffect(() => {
-    const showEvent = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
-    const hideEvent = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
-    
-    const showSubscription = Keyboard.addListener(showEvent, (e) => {
-      setKeyboardVisible(true);
-      Animated.spring(keyboardHeight, {
-        toValue: e.endCoordinates.height,
-        useNativeDriver: false,
-        damping: 20,
-        stiffness: 150,
-      }).start();
-    });
-    const hideSubscription = Keyboard.addListener(hideEvent, () => {
-      setKeyboardVisible(false);
-      Animated.spring(keyboardHeight, {
-        toValue: 0,
-        useNativeDriver: false,
-        damping: 20,
-        stiffness: 150,
-      }).start();
-    });
-
-    return () => {
-      showSubscription.remove();
-      hideSubscription.remove();
-    };
-  }, []);
 
   const handleBack = () => {
     router.back();
@@ -137,22 +113,61 @@ export default function AddVehicleScreen() {
     });
   };
 
-  // Calculate animated offset to shift content up when keyboard is visible
-  const keyboardOffset = keyboardHeight.interpolate({
-    inputRange: [0, 400],
-    outputRange: [0, 400 * getKeyboardOffsetMultiplier()],
-    extrapolate: 'clamp',
-  });
+  const keyboardOffsetMultiplier = getKeyboardOffsetMultiplier();
+  const artworkTranslateY = useDerivedValue(() =>
+    interpolate(
+      keyboardProgress.value,
+      [0, 1],
+      [0, -400 * keyboardOffsetMultiplier],
+      Extrapolation.CLAMP
+    )
+  );
+
+  const movingArtworkStyle = useAnimatedStyle(() => ({
+    transform: [{ translateY: artworkTranslateY.value }],
+  }));
+
+  const doorConnectorStyle = useAnimatedStyle(() => ({
+    transform: [
+      { rotate: '1deg' },
+      { translateX: scale(15) },
+      { translateY: artworkTranslateY.value },
+    ],
+  }));
+
+  const windshieldConnectorStyle = useAnimatedStyle(() => ({
+    transform: [
+      { rotate: '1deg' },
+      { translateX: scale(-10) },
+      { translateY: artworkTranslateY.value },
+    ],
+  }));
+
+  const titleAnimatedStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(keyboardProgress.value, [0, 0.15, 0.25], [1, 0.2, 0], Extrapolation.CLAMP),
+    transform: [
+      {
+        translateY: interpolate(keyboardProgress.value, [0, 1], [0, -24], Extrapolation.CLAMP),
+      },
+    ],
+  }));
+
+  const bottomButtonsStyle = useAnimatedStyle(() => ({
+    paddingBottom: interpolate(
+      keyboardProgress.value,
+      [0, 1],
+      [insets.bottom + scale(20), scale(20)],
+      Extrapolation.CLAMP
+    ),
+  }));
 
   // Positioning for dots and lines (relative to screen)
   const windshieldDotLeft = SCREEN_WIDTH * 0.32;
   const doorDotLeft = SCREEN_WIDTH * 0.59;
-  
-  // Animated positions
-  const windshieldDotTop = Animated.subtract(SCREEN_HEIGHT * 0.51, keyboardOffset);
-  const doorDotTop = Animated.subtract(SCREEN_HEIGHT * 0.525, keyboardOffset);
-  const vinBadgeTop = Animated.subtract(SCREEN_HEIGHT * 0.60, keyboardOffset);
-  const imageTop = Animated.subtract(SCREEN_HEIGHT * 0.08, keyboardOffset);
+  const windshieldDotTop = SCREEN_HEIGHT * 0.51;
+  const doorDotTop = SCREEN_HEIGHT * 0.525;
+  const vinBadgeTop = SCREEN_HEIGHT * 0.60;
+  const imageTop = SCREEN_HEIGHT * 0.08;
 
   return (
     <View style={styles.container}>
@@ -161,7 +176,7 @@ export default function AddVehicleScreen() {
       {/* Full Screen Car Image */}
       <Animated.Image
         source={require('@/assets/images/addYourVehiclev2.png')}
-        style={[styles.fullScreenImage, { top: imageTop }]}
+        style={[styles.fullScreenImage, { top: imageTop }, movingArtworkStyle]}
         resizeMode="cover"
       />
 
@@ -179,24 +194,22 @@ export default function AddVehicleScreen() {
       </Pressable>
 
       {/* Title - Overlaid on image (hidden when keyboard is up) */}
-      {!keyboardVisible && (
-        <View style={[styles.titleContainer, { top: insets.top + scale(40) }]}>
-          <Text weight="bold" size="2xl" color="#333333" style={styles.title}>
-            ADD YOUR VEHICLE
-          </Text>
-          <Text size="sm" color="#666666" style={styles.description}>
-            Scan or enter your VIN to add your vehicle. You can find your 17-digit Vehicle Identification Number (VIN) on your driver side door panel or on the windshield.
-          </Text>
-        </View>
-      )}
+      <Animated.View style={[styles.titleContainer, { top: insets.top + scale(40) }, titleAnimatedStyle]}>
+        <Text weight="bold" size="2xl" color="#333333" style={styles.title}>
+          ADD YOUR VEHICLE
+        </Text>
+        <Text size="sm" color="#666666" style={styles.description}>
+          Scan or enter your VIN to add your vehicle. You can find your 17-digit Vehicle Identification Number (VIN) on your driver side door panel or on the windshield.
+        </Text>
+      </Animated.View>
 
       {/* Red Dot - Door Panel */}
-      <Animated.View style={[styles.redDot, { top: doorDotTop, left: doorDotLeft }]}>
+      <Animated.View style={[styles.redDot, { top: doorDotTop, left: doorDotLeft }, movingArtworkStyle]}>
         <View style={styles.redDotInner} />
       </Animated.View>
 
       {/* Red Dot - Windshield */}
-      <Animated.View style={[styles.redDot, { top: windshieldDotTop, left: windshieldDotLeft }]}>
+      <Animated.View style={[styles.redDot, { top: windshieldDotTop, left: windshieldDotLeft }, movingArtworkStyle]}>
         <View style={styles.redDotInner} />
       </Animated.View>
 
@@ -204,128 +217,124 @@ export default function AddVehicleScreen() {
       <Animated.View style={[
         styles.connectorLine,
         {
-          top: Animated.add(doorDotTop, scale(12)),
+          top: doorDotTop + scale(12),
           left: doorDotLeft - scale(6),
-          height: Animated.subtract(Animated.subtract(vinBadgeTop, doorDotTop), scale(10)),
-          transform: [{ rotate: '1deg' }, { translateX: scale(15) }],
-        }
+          height: vinBadgeTop - doorDotTop - scale(10),
+        },
+        doorConnectorStyle,
       ]} />
 
       {/* Line from Windshield Dot to VIN Badge */}
       <Animated.View style={[
         styles.connectorLine,
         {
-          top: Animated.add(windshieldDotTop, scale(12)),
+          top: windshieldDotTop + scale(12),
           left: windshieldDotLeft + scale(18.5),
-          height: Animated.subtract(Animated.subtract(vinBadgeTop, windshieldDotTop), scale(5)),
-          transform: [{ rotate: '1deg' }, { translateX: scale(-10) }],
-        }
+          height: vinBadgeTop - windshieldDotTop - scale(5),
+        },
+        windshieldConnectorStyle,
       ]} />
 
       {/* VIN Badge */}
-      <Animated.View style={[styles.vinBadge, { top: vinBadgeTop }]}>
+      <Animated.View style={[styles.vinBadge, { top: vinBadgeTop }, movingArtworkStyle]}>
         <Text weight="semiBold" size="sm" color="#FFFFFF" style={styles.vinBadgeText}>
           1FDXV92H6KCB23213
         </Text>
       </Animated.View>
 
       {/* Bottom Buttons */}
-      <Animated.View style={[
-        styles.bottomButtonsContainer, 
-        { 
-          paddingBottom: keyboardVisible ? scale(20) : insets.bottom + scale(20),
-          bottom: keyboardHeight,
-        }
-      ]}>
-        {/* Error Message */}
-        {decodeError ? (
-          <View style={styles.errorBanner}>
-            <Text size="sm" color="#FF4444" style={styles.errorText}>
-              {decodeError}
-            </Text>
-          </View>
-        ) : null}
-
-        {/* VIN Input Field */}
-        <TextInput
-          style={styles.vinInput}
-          placeholder="Enter VIN"
-          placeholderTextColor="#999999"
-          value={vinNumber}
-          onChangeText={(text) => {
-            setVinNumber(text);
-            if (decodeError) setDecodeError(null);
-          }}
-          autoCapitalize="characters"
-          autoCorrect={false}
-          maxLength={17}
-          returnKeyType="done"
-          onSubmitEditing={handleVinSubmit}
-          editable={!isDecoding}
-        />
-
-        {/* Decode / Scan VIN Button */}
-        {vinNumber.trim().length > 0 ? (
-          <Pressable
-            onPress={handleVinSubmit}
-            disabled={isDecoding}
-            style={({ pressed }) => [
-              styles.scanVinButton,
-              pressed && styles.scanVinButtonPressed,
-              isDecoding && styles.buttonDisabled,
-            ]}
-          >
-            <LinearGradient
-              colors={['#7BB8FF', '#5299FE', '#3B7FEB']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.scanVinButtonGradient}
-            >
-              {isDecoding ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
-              ) : (
-                <Text weight="bold" size="md" color="#FFFFFF">
-                  Decode VIN
-                </Text>
-              )}
-            </LinearGradient>
-          </Pressable>
-        ) : (
-          <Pressable
-            onPress={handleScanVin}
-            style={({ pressed }) => [
-              styles.scanVinButton,
-              pressed && styles.scanVinButtonPressed,
-            ]}
-          >
-            <LinearGradient
-              colors={['#7BB8FF', '#5299FE', '#3B7FEB']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={styles.scanVinButtonGradient}
-            >
-              <QrCode size={scale(20)} color="#FFFFFF" strokeWidth={2} />
-              <Text weight="bold" size="md" color="#FFFFFF">
-                Scan VIN
+      <KeyboardStickyView style={styles.bottomButtonsWrapper}>
+        <Animated.View style={[styles.bottomButtonsContainer, bottomButtonsStyle]}>
+          {/* Error Message */}
+          {decodeError ? (
+            <View style={styles.errorBanner}>
+              <Text size="sm" color="#FF4444" style={styles.errorText}>
+                {decodeError}
               </Text>
-            </LinearGradient>
-          </Pressable>
-        )}
+            </View>
+          ) : null}
 
-        {/* Manual Entry Link */}
-        <Pressable
-          onPress={handleManualEntry}
-          style={({ pressed }) => [
-            styles.manualEntryButton,
-            pressed && styles.manualEntryButtonPressed,
-          ]}
-        >
-          <Edit3 size={scale(16)} color="#5299FE" strokeWidth={2} />
-          <Text weight="semiBold" size="sm" color="#5299FE" style={styles.manualEntryText}>
-            Enter car information manually
-          </Text>
-        </Pressable>
-      </Animated.View>
+          {/* VIN Input Field */}
+          <TextInput
+            style={styles.vinInput}
+            placeholder="Enter VIN"
+            placeholderTextColor="#999999"
+            value={vinNumber}
+            onChangeText={(text) => {
+              setVinNumber(text);
+              if (decodeError) setDecodeError(null);
+            }}
+            autoCapitalize="characters"
+            autoCorrect={false}
+            maxLength={17}
+            returnKeyType="done"
+            onSubmitEditing={handleVinSubmit}
+            editable={!isDecoding}
+          />
+
+          {/* Decode / Scan VIN Button */}
+          {vinNumber.trim().length > 0 ? (
+            <Pressable
+              onPress={handleVinSubmit}
+              disabled={isDecoding}
+              style={({ pressed }) => [
+                styles.scanVinButton,
+                pressed && styles.scanVinButtonPressed,
+                isDecoding && styles.buttonDisabled,
+              ]}
+            >
+              <LinearGradient
+                colors={['#7BB8FF', '#5299FE', '#3B7FEB']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.scanVinButtonGradient}
+              >
+                {isDecoding ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text weight="bold" size="md" color="#FFFFFF">
+                    Decode VIN
+                  </Text>
+                )}
+              </LinearGradient>
+            </Pressable>
+          ) : (
+            <Pressable
+              onPress={handleScanVin}
+              style={({ pressed }) => [
+                styles.scanVinButton,
+                pressed && styles.scanVinButtonPressed,
+              ]}
+            >
+              <LinearGradient
+                colors={['#7BB8FF', '#5299FE', '#3B7FEB']}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 0 }}
+                style={styles.scanVinButtonGradient}
+              >
+                <QrCode size={scale(20)} color="#FFFFFF" strokeWidth={2} />
+                <Text weight="bold" size="md" color="#FFFFFF">
+                  Scan VIN
+                </Text>
+              </LinearGradient>
+            </Pressable>
+          )}
+
+          {/* Manual Entry Link */}
+          <Pressable
+            onPress={handleManualEntry}
+            style={({ pressed }) => [
+              styles.manualEntryButton,
+              pressed && styles.manualEntryButtonPressed,
+            ]}
+          >
+            <Edit3 size={scale(16)} color="#5299FE" strokeWidth={2} />
+            <Text weight="semiBold" size="sm" color="#5299FE" style={styles.manualEntryText}>
+              Enter car information manually
+            </Text>
+          </Pressable>
+        </Animated.View>
+      </KeyboardStickyView>
     </View>
   );
 }
@@ -409,14 +418,16 @@ const styles = StyleSheet.create({
   vinBadgeText: {
     letterSpacing: scale(1),
   },
-  bottomButtonsContainer: {
+  bottomButtonsWrapper: {
     position: 'absolute',
     bottom: 0,
     left: 0,
     right: 0,
+    zIndex: 20,
+  },
+  bottomButtonsContainer: {
     paddingHorizontal: Spacing.lg,
     gap: scale(12),
-    zIndex: 20,
   },
   vinInput: {
     backgroundColor: '#FFFFFF',

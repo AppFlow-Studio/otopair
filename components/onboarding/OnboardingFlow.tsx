@@ -193,17 +193,17 @@ export function OnboardingFlow({ initialStep = "signup", filteredSteps, isResume
   };
 
   const goBack = async () => {
-    const { data: latestData } = useOnboardingStore.getState();
-
-    // In resume mode, navigate within filtered steps
-    if (isResumeMode && filteredSteps) {
+    if (filteredSteps) {
       const currentIndex = activeSteps.indexOf(currentStep);
-      if (currentIndex <= 0) {
+      if (currentIndex > 0) {
+        goToStep(activeSteps[currentIndex - 1]);
+        return;
+      }
+
+      if (isResumeMode) {
         router.back();
         return;
       }
-      goToStep(activeSteps[currentIndex - 1]);
-      return;
     }
 
     // Normal mode navigation
@@ -317,17 +317,17 @@ export function OnboardingFlow({ initialStep = "signup", filteredSteps, isResume
   const goNext = async () => {
     const { data: latestData } = useOnboardingStore.getState();
 
-    // In resume mode, navigate within filtered steps
-    if (isResumeMode && filteredSteps) {
+    if (filteredSteps) {
       const currentIndex = activeSteps.indexOf(currentStep);
-      console.log("currentIndex", currentIndex);
-      console.log("activeSteps", activeSteps);
-      if (currentIndex >= activeSteps.length - 1) {
-        goToStep("complete");
+      if (currentIndex !== -1) {
+        if (currentIndex >= activeSteps.length - 1) {
+          goToStep("complete");
+          return;
+        }
+
+        goToStep(activeSteps[currentIndex + 1]);
         return;
       }
-      goToStep(activeSteps[currentIndex + 1]);
-      return;
     }
 
     // Normal mode navigation
