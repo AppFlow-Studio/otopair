@@ -403,6 +403,7 @@ async function sendMessageHandler(
   // a not_sure diagnostic form on this turn.
   const diagnosticTurnCount = ((conversation as any).diagnostic_turn_count as number | undefined) ?? 0;
   const envelope = buildEnvelope({
+    userId: user._id,
     userFirstName: user.first_name ?? null,
     vehicle: activeVehicle,
     history,
@@ -739,6 +740,86 @@ async function sendMessageHandler(
     await ctx.runMutation(api.ai_conversations.incrementMessageCount, {
       id: conversationId,
     });
+
+    // Wave 3 forensic spine — DUAL-WRITE alongside ai_messages.
+    // ----------------------------------------------------------------------
+    // ai_messages is the mobile-render substrate; conversation_audit is the
+    // append-only forensic record (WAVE_3_DESIGN.md §2.4, §3.2 strangler
+    // pattern). Until Wave 5's read-cutover, BOTH are written per turn.
+    // Failures here must NEVER break the turn — wrap in try/catch + swallow,
+    // same as the legacy telemetry block below.
+    //
+    // turn_number convention: sortedMessages.length captures the pre-this-
+    // turn ai_messages count, which is the canonical 0-indexed turn index
+    // for this user-row. The assistant-row shares the same turn_number; the
+    // helper's by_conversation_turn uniqueness check is on (id, turn, role)
+    // so (user, N) + (assistant, N) cohabit a single turn cleanly.
+    //
+    // model_used translation: the recordTurn validator union is the short
+    // literal "haiku" | "sonnet" (matches schema enum). chat.ts uses full
+    // Anthropic model IDs (e.g. "claude-haiku-4-5-20251001"). We translate
+    // at the call site here rather than loosen the helper enum — keeps
+    // CI Rule 15 (written_by enum integrity) and the schema invariant
+    // intact. If the turnModel ever fails to map, default to "haiku"
+    // (the cascade origin per Locked Principle #2) so the assistant-row
+    // satisfies the role-conditional invariant; log loudly so the drift
+    // is visible.
+    const turnNumber = sortedMessages.length;
+    // Translate the full Anthropic model ID to the short literal the
+    // recordTurn validator accepts. Default to "haiku" on any unmapped
+    // value (the cascade origin per Locked Principle #2); log loudly so
+    // drift is visible. Const-asserted return values pin the IIFE's
+    // type to the literal union so TS doesn't widen to `string`.
+    let modelShortLiteral: "haiku" | "sonnet";
+    if (turnModel === SONNET_MODEL) {
+      modelShortLiteral = "sonnet";
+    } else if (turnModel === HAIKU_MODEL) {
+      modelShortLiteral = "haiku";
+    } else {
+      console.warn(
+        `[oto/chat] conversation_audit: unmapped turnModel "${turnModel}"; ` +
+          `defaulting to "haiku" for the role=assistant recordTurn.`,
+      );
+      modelShortLiteral = "haiku";
+    }
+
+    try {
+      // User-turn row — role-conditional invariant: no model_used /
+      // prompt_version / tool_calls. content is the raw user message
+      // before envelope-wrapping (forensic preference per dispatch).
+      await ctx.runMutation(api.oto.memoryEditing.recordTurn, {
+        conversation_id: conversationId,
+        turn_number: turnNumber,
+        role: "user",
+        content: message,
+      });
+    } catch (e: any) {
+      console.error(
+        "[oto/chat] conversation_audit user-row insert failed (swallowed):",
+        e?.message,
+      );
+    }
+
+    try {
+      // Assistant-turn row — role-conditional invariant requires
+      // model_used + prompt_version. tool_calls are NOT plumbed here yet
+      // (Wave 5 telemetry-completion dispatch will wire that from
+      // accumulatedResults); omitting keeps the row schema-valid since
+      // tool_calls is optional.
+      await ctx.runMutation(api.oto.memoryEditing.recordTurn, {
+        conversation_id: conversationId,
+        turn_number: turnNumber,
+        role: "assistant",
+        content: finalText,
+        model_used: modelShortLiteral,
+        prompt_version: SYSTEM_PROMPT_VERSION,
+      });
+    } catch (e: any) {
+      console.error(
+        "[oto/chat] conversation_audit assistant-row insert failed (swallowed):",
+        e?.message,
+      );
+    }
   }
 
   // Aggregate token + tool stats across the loop. Used by both the trace
