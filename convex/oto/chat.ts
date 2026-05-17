@@ -403,7 +403,6 @@ async function sendMessageHandler(
   // a not_sure diagnostic form on this turn.
   const diagnosticTurnCount = ((conversation as any).diagnostic_turn_count as number | undefined) ?? 0;
   const envelope = buildEnvelope({
-    userId: user._id,
     userFirstName: user.first_name ?? null,
     vehicle: activeVehicle,
     history,
@@ -431,7 +430,27 @@ async function sendMessageHandler(
   // callable also captures conversationId so it can patch the right row.
   // user._id is captured so Wave 7.3 Option B counter-bumps after each
   // moat-reading runQuery can attribute the read delta to this user.
-  const callables = buildCallables(ctx, conversationId, user._id);
+  //
+  // Wave 3 wire-in (D-3.2): the state callable also captures the PREVIOUS
+  // established_facts snapshot + the current turn_number so it can diff new
+  // entries against the prior state and mirror each new entry to the
+  // append-only conversation_facts table via recordConversationFact. The
+  // turn_number convention matches the conversation_audit recordTurn
+  // wire-in below (sortedMessages.length is the canonical 0-indexed turn
+  // index for this user-row).
+  const previousEstablishedFacts: string[] = Array.isArray(
+    convoState.established_facts,
+  )
+    ? [...convoState.established_facts]
+    : [];
+  const conversationFactTurnNumber = sortedMessages.length;
+  const callables = buildCallables(
+    ctx,
+    conversationId,
+    user._id,
+    previousEstablishedFacts,
+    conversationFactTurnNumber,
+  );
 
   // ── 6. Tool-use loop ─────────────────────────────────────────────────
   const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -1062,6 +1081,21 @@ function buildCallables(
   ctx: any,
   conversationId: Id<"ai_conversations">,
   userId: Id<"users">,
+  // Wave 3 wire-in (D-3.2): snapshot of established_facts AT TURN START.
+  // The update_conversation_state callable diffs the NEW established_facts
+  // (sent by Haiku via the tool args) against this snapshot and mirrors
+  // each new entry into the append-only conversation_facts table via
+  // recordConversationFact. Captured in sendMessageHandler before the
+  // tool-use loop begins so concurrent Haiku iterations within the same
+  // turn observe a consistent "previous" baseline (only the FIRST diff
+  // of the turn ever sees new entries; subsequent same-turn calls observe
+  // their own writes already merged into the array, so the diff degenerates
+  // to empty — append-only invariant preserved).
+  previousEstablishedFacts: string[],
+  // Wave 3 wire-in: turn number for conversation_facts.source_turn.
+  // Convention matches the conversation_audit recordTurn wire-in: this is
+  // sortedMessages.length captured pre-this-turn.
+  factSourceTurn: number,
 ): ToolCallables {
   // Wave 7.3 Option B: counter-bump helper for action-context moat reads.
   // Invoked AFTER each ctx.runQuery into a moat-reading query function
@@ -1439,6 +1473,40 @@ function buildCallables(
      * the current mood, conversation arc, established facts, and intent
      * onto ai_conversations. Ack is trivial; the loop layer does NOT use
      * its result to gate continuation.
+     *
+     * Wave 3 wire-in (D-3.2 / WAVE_3_DESIGN §2.1): after the legacy
+     * established_facts array is persisted onto ai_conversations, this
+     * callable also DIFFS the new array against the pre-turn snapshot and
+     * mirrors each NEW entry into the append-only conversation_facts table
+     * via recordConversationFact. This is the structural fix for Doc 1
+     * §3.3's "established_facts race" — typed rows replace the array.
+     *
+     * Failure-isolation discipline (matches the conversation_audit
+     * recordTurn wire-in in commit 912ebe2): the mirror runs in try/catch
+     * and SWALLOWS errors. A failed mirror MUST NEVER break the chat turn
+     * — the legacy array write is what the working-memory builder still
+     * reads from today; conversation_facts is the forensic substrate Wave 5
+     * will switch to. Until Wave 5 cuts over, both surfaces co-exist.
+     *
+     * fact_type choice: "observation" — the closest semantic fit for an
+     * AI-established conversation-context fact within the existing
+     * discriminated-payload validator. The other options:
+     *   - "id_reference" requires structured entity_type/entity_id (no fit)
+     *   - "preference" requires dimension/value (no fit)
+     *   - "hypothesis" is "Oto's working theory" — closer for diagnostic
+     *     facts but the design's payload carries a `confidence` field that
+     *     Haiku never emits explicitly for these strings; using observation
+     *     dodges that mismatch
+     *   - "user_quote" is "exact user phrasing verbatim" — wrong (these
+     *     facts are AI-authored, not user-spoken)
+     *
+     * confidence handling: the dispatch suggested a 0.8 default. The
+     * observation payload shape ({ kind, text }) does NOT carry confidence,
+     * so the 0.8 default is documented here but not stored. If a future
+     * dispatch needs stored confidence on session-established facts, the
+     * cleanest path is to use the hypothesis payload (which has confidence)
+     * or to introduce a new fact_type — both require schema changes that
+     * the current dispatch explicitly forbids.
      */
     update_conversation_state: async (input) => {
       // Tool params use short names (arc / last_intent) — matching the
@@ -1449,17 +1517,78 @@ function buildCallables(
       if (typeof input.mood === "string") args.mood = input.mood;
       const arc = (input.arc ?? input.arc_summary) as string | undefined;
       if (typeof arc === "string") args.arc_summary = arc;
+      // Defensively coerce to strings + cap at 12 entries; captured here
+      // so the Wave 3 mirror below uses the SAME normalized list that the
+      // legacy mutation will see (no drift between the two writes).
+      let normalizedNewFacts: string[] | null = null;
       if (Array.isArray(input.established_facts)) {
-        // Defensively coerce to strings + cap at 12 entries.
-        args.established_facts = (input.established_facts as unknown[])
+        normalizedNewFacts = (input.established_facts as unknown[])
           .filter((f): f is string => typeof f === "string")
           .slice(0, 12);
+        args.established_facts = normalizedNewFacts;
       }
       const intent = (input.last_intent ?? input.last_user_intent) as
         | string
         | undefined;
       if (typeof intent === "string") args.last_user_intent = intent;
       await ctx.runMutation(api.ai_conversations.updateState, args);
+
+      // ── Wave 3 mirror: diff new vs previous, append new facts as
+      // typed conversation_facts rows. ──────────────────────────────────
+      // The pre-turn snapshot lives in the previousEstablishedFacts
+      // closure arg. Convert to a Set for O(1) membership checks; "new"
+      // means present in normalizedNewFacts but not in the previous set.
+      // Each new entry becomes one observation row attributed to
+      // chat_agent. Mutations are sequential (Promise.all would race the
+      // conversation_audit recordTurn writes in some test harnesses);
+      // count is bounded by 12 (the cap above) so latency is acceptable.
+      if (normalizedNewFacts !== null) {
+        try {
+          const previousSet = new Set<string>(previousEstablishedFacts);
+          const newEntries: string[] = [];
+          for (const fact of normalizedNewFacts) {
+            if (!previousSet.has(fact)) {
+              newEntries.push(fact);
+            }
+          }
+          for (const factText of newEntries) {
+            try {
+              await ctx.runMutation(
+                api.oto.memoryEditing.recordConversationFact,
+                {
+                  conversation_id: conversationId,
+                  fact_type: "observation" as const,
+                  payload: {
+                    kind: "observation" as const,
+                    text: factText,
+                  },
+                  source_turn: factSourceTurn,
+                  written_by: "chat_agent" as const,
+                },
+              );
+            } catch (innerErr: any) {
+              // Per-fact failure — log but keep processing the rest. A
+              // single bad row must not poison the whole mirror.
+              console.error(
+                "[oto/chat] recordConversationFact failed for one entry (swallowed):",
+                innerErr?.message,
+                { fact: factText, turn: factSourceTurn },
+              );
+            }
+          }
+        } catch (e: any) {
+          // Outer guard — same failure-isolation discipline as the
+          // conversation_audit recordTurn wire-in. A broken mirror MUST
+          // NEVER fail the chat turn; the legacy array on
+          // ai_conversations is what the working-memory builder still
+          // reads from until Wave 5 cuts over.
+          console.error(
+            "[oto/chat] conversation_facts mirror failed (swallowed):",
+            e?.message,
+          );
+        }
+      }
+
       return { ok: true, persisted_at: Date.now() };
     },
 
