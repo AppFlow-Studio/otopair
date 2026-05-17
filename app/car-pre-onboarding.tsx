@@ -80,7 +80,6 @@ function toNumber(raw: string): number | undefined {
 const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 const FOOTER_AREA_HEIGHT = scale(110);
 const OPTION_CARD_HEIGHT = SCREEN_HEIGHT * 0.065;
-const OPTION_CARD_HEIGHT_COMPACT = SCREEN_HEIGHT * 0.055;
 
 
 function getEncouragementText(index: number): string {
@@ -403,9 +402,9 @@ export default function CarPreOnboardingScreen() {
             <Text weight="semiBold" size="sm" color="#0F172A" style={{ marginTop: scale(20), marginBottom: scale(4) }}>
               Driving style
             </Text>
-            <OptionCard label="Mostly local (short trips)" selected={usagePattern === "mostly_local"} onPress={() => setUsagePattern("mostly_local")} compact />
-            <OptionCard label="Mostly highway (long drives)" selected={usagePattern === "mostly_highway"} onPress={() => setUsagePattern("mostly_highway")} compact />
-            <OptionCard label="Mix of both" selected={usagePattern === "mixed"} onPress={() => setUsagePattern("mixed")} compact />
+            <OptionCard label="Mostly local (short trips)" selected={usagePattern === "mostly_local"} onPress={() => setUsagePattern("mostly_local")} />
+            <OptionCard label="Mostly highway (long drives)" selected={usagePattern === "mostly_highway"} onPress={() => setUsagePattern("mostly_highway")} />
+            <OptionCard label="Mix of both" selected={usagePattern === "mixed"} onPress={() => setUsagePattern("mixed")} />
           </View>
         );
       default:
@@ -533,12 +532,10 @@ function OptionCard({
   label,
   selected,
   onPress,
-  compact,
 }: {
   label: string;
   selected: boolean;
   onPress: () => void;
-  compact?: boolean;
 }) {
   const progress = useSharedValue(selected ? 1 : 0);
   const scaleAnim = useSharedValue(1);
@@ -564,7 +561,7 @@ function OptionCard({
 
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [pressed && { opacity: 0.9 }]}>
-      <Animated.View style={[styles.optionCard, animatedStyle, { height: compact ? OPTION_CARD_HEIGHT_COMPACT : OPTION_CARD_HEIGHT }]}>
+      <Animated.View style={[styles.optionCard, animatedStyle, { height: OPTION_CARD_HEIGHT }]}>
         <Text weight={selected ? "semiBold" : "medium"} size="md" color={selected ? "#1E40AF" : "#374151"}>
           {label}
         </Text>

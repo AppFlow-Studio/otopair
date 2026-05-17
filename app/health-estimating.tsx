@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Dimensions, Image, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
+import { Dimensions, Image, Pressable, ScrollView, StyleSheet, View, useWindowDimensions } from "react-native";
 import Animated, {
   Easing,
   cancelAnimation,
   runOnJS,
+  useAnimatedProps,
   useAnimatedStyle,
   useSharedValue,
   withDelay,
@@ -12,6 +13,7 @@ import Animated, {
   withSpring,
   withTiming,
 } from "react-native-reanimated";
+import Svg, { Path } from "react-native-svg";
 import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -25,6 +27,8 @@ import { fetchVehicleImageUrl } from "@/utils/vehicleImage";
 import { api } from "@/convex/_generated/api";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
+const AnimatedPath = Animated.createAnimatedComponent(Path);
+const CHECK_PATH_LENGTH = 24;
 
 // ============================================================================
 // FACTS
@@ -81,6 +85,75 @@ function PulsingDots() {
 const dotStyles = StyleSheet.create({
   row: { flexDirection: "row", alignItems: "center", gap: scale(6), marginTop: scale(12) },
   dot: { width: scale(8), height: scale(8), borderRadius: scale(4), backgroundColor: "#5299FE" },
+});
+
+// ============================================================================
+// READY CHECK
+// ============================================================================
+
+function ScoreReadyCheck() {
+  const progress = useSharedValue(0);
+  const checkScale = useSharedValue(0);
+
+  useEffect(() => {
+    checkScale.value = withDelay(
+      100,
+      withSpring(1, { damping: 12, stiffness: 180 })
+    );
+    progress.value = withDelay(
+      300,
+      withTiming(1, { duration: 400 })
+    );
+  }, [checkScale, progress]);
+
+  const animatedIconStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: checkScale.value }],
+  }));
+
+  const animatedPathProps = useAnimatedProps(() => ({
+    strokeDashoffset: CHECK_PATH_LENGTH * (1 - progress.value),
+  }));
+
+  return (
+    <View style={checkStyles.slot}>
+      <Animated.View style={[checkStyles.checkmarkCircle, animatedIconStyle]}>
+        <Svg width={scale(38)} height={scale(38)} viewBox="0 0 24 24">
+          <AnimatedPath
+            d="M6 12L10 16L18 8"
+            fill="none"
+            stroke="#FFFFFF"
+            strokeWidth={3}
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            strokeDasharray={CHECK_PATH_LENGTH}
+            animatedProps={animatedPathProps}
+          />
+        </Svg>
+      </Animated.View>
+    </View>
+  );
+}
+
+const checkStyles = StyleSheet.create({
+  slot: {
+    alignItems: "center",
+    justifyContent: "center",
+    height: scale(76),
+    width: "100%",
+  },
+  checkmarkCircle: {
+    width: scale(64),
+    height: scale(64),
+    borderRadius: scale(32),
+    backgroundColor: "#5299FE",
+    justifyContent: "center",
+    alignItems: "center",
+    shadowColor: "#5299FE",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 6,
+  },
 });
 
 // ============================================================================
@@ -262,6 +335,11 @@ export default function HealthEstimatingScreen() {
   const [poppedSet, setPoppedSet] = useState<Set<number>>(new Set());
   const [loadingDone, setLoadingDone] = useState(false);
   const navigatedRef = useRef(false);
+  const bubblesScrollRef = useRef<ScrollView>(null);
+  const bubblesViewportHeightRef = useRef(0);
+  const bubblesContentHeightRef = useRef(0);
+  const [visibleBubbleCount, setVisibleBubbleCount] = useState(0);
+  const bubbleBottomClearance = scale(132) + insets.bottom;
 
   // Resolve the actual vehicle image so this screen shows the car the
   // user just added instead of the covered-car placeholder. Mirrors the
@@ -313,6 +391,21 @@ export default function HealthEstimatingScreen() {
       delay: 1200 + i * 2000,
     }));
   }, [height]);
+
+  useEffect(() => {
+    setVisibleBubbleCount(0);
+    bubblesContentHeightRef.current = 0;
+    bubblesScrollRef.current?.scrollTo({ y: 0, animated: false });
+    const timers = bubbleSlots.map((slot, index) =>
+      setTimeout(() => {
+        setVisibleBubbleCount((prev) => Math.max(prev, index + 1));
+      }, slot.delay)
+    );
+
+    return () => {
+      timers.forEach(clearTimeout);
+    };
+  }, [bubbleSlots]);
 
   // Loading timer
   useEffect(() => {
@@ -382,6 +475,42 @@ export default function HealthEstimatingScreen() {
     setPoppedSet((prev) => new Set(prev).add(index));
   }, []);
 
+  const scrollToLatestBubble = useCallback((animated = true) => {
+    if (bubblesViewportHeightRef.current <= 0) {
+      return;
+    }
+
+    const visibleContentHeight = Math.max(0, bubblesContentHeightRef.current - bubbleBottomClearance);
+    const visibleLimit = Math.max(0, bubblesViewportHeightRef.current - bubbleBottomClearance);
+
+    if (visibleContentHeight <= visibleLimit + scale(4)) {
+      return;
+    }
+
+    bubblesScrollRef.current?.scrollTo({
+      y: visibleContentHeight - visibleLimit,
+      animated,
+    });
+  }, [bubbleBottomClearance]);
+
+  useEffect(() => {
+    if (visibleBubbleCount === 0) return;
+    const timer = setTimeout(() => {
+      scrollToLatestBubble(true);
+    }, 120);
+
+    return () => clearTimeout(timer);
+  }, [scrollToLatestBubble, visibleBubbleCount]);
+
+  useEffect(() => {
+    if (!loadingDone) return;
+    const timer = setTimeout(() => {
+      scrollToLatestBubble(true);
+    }, 150);
+
+    return () => clearTimeout(timer);
+  }, [loadingDone, scrollToLatestBubble]);
+
   const handleViewScore = useCallback(() => {
     if (navigatedRef.current) return;
     navigatedRef.current = true;
@@ -414,16 +543,20 @@ export default function HealthEstimatingScreen() {
           </Animated.View>
         </View>
 
-        {!loadingDone && (
-          <Animated.View style={[styles.statusRow, subtitleStyle]}>
-            <Animated.View style={dotsAnimStyle}>
-              <PulsingDots />
+        <View style={styles.statusSlot}>
+          {loadingDone ? (
+            <ScoreReadyCheck />
+          ) : (
+            <Animated.View style={[styles.statusRow, subtitleStyle]}>
+              <Animated.View style={dotsAnimStyle}>
+                <PulsingDots />
+              </Animated.View>
+              <Text weight="medium" style={styles.statusText}>
+                {STATUS_TEXTS[statusIndex]}
+              </Text>
             </Animated.View>
-            <Text weight="medium" style={styles.statusText}>
-              {STATUS_TEXTS[statusIndex]}
-            </Text>
-          </Animated.View>
-        )}
+          )}
+        </View>
       </View>
 
       {/* Vehicle hero — uses the resolved VDB render of the user's
@@ -440,17 +573,35 @@ export default function HealthEstimatingScreen() {
       />
 
       {/* Chat bubbles — laid out in a vertical list with alternating alignment */}
-      <View style={styles.bubblesArea} pointerEvents="box-none">
-        {bubbleSlots.map((slot, idx) =>
+      <ScrollView
+        ref={bubblesScrollRef}
+        style={styles.bubblesScroll}
+        contentContainerStyle={[
+          styles.bubblesArea,
+          { paddingBottom: bubbleBottomClearance },
+        ]}
+        showsVerticalScrollIndicator={false}
+        scrollEventThrottle={16}
+        onLayout={(event) => {
+          bubblesViewportHeightRef.current = event.nativeEvent.layout.height;
+        }}
+        onContentSizeChange={(_, contentHeight) => {
+          bubblesContentHeightRef.current = contentHeight;
+          if (visibleBubbleCount > 0) {
+            scrollToLatestBubble(true);
+          }
+        }}
+      >
+        {bubbleSlots.slice(0, visibleBubbleCount).map((slot, idx) =>
           poppedSet.has(idx) ? (
             <View key={idx} style={styles.bubbleSpacer} />
           ) : (
             <View key={idx} style={styles.bubbleRow}>
-              <ChatBubble slot={slot} index={idx} onPop={handlePop} />
+              <ChatBubble slot={{ ...slot, delay: 0 }} index={idx} onPop={handlePop} />
             </View>
           )
         )}
-      </View>
+      </ScrollView>
 
       {/* CTA Button */}
       {loadingDone && (
@@ -507,8 +658,11 @@ const styles = StyleSheet.create({
   },
   statusRow: {
     alignItems: "center",
-    marginTop: scale(16),
-    minHeight: scale(50),
+  },
+  statusSlot: {
+    height: scale(76),
+    justifyContent: "flex-start",
+    alignItems: "center",
   },
   statusText: {
     fontSize: moderateScale(14),
@@ -516,11 +670,12 @@ const styles = StyleSheet.create({
     marginTop: scale(10),
   },
   bubblesArea: {
-    flex: 1,
     paddingHorizontal: scale(20),
     paddingTop: scale(24),
-    paddingBottom: scale(12),
     gap: scale(16),
+  },
+  bubblesScroll: {
+    flex: 1,
   },
   bubbleRow: {
     width: "100%",
@@ -534,7 +689,12 @@ const styles = StyleSheet.create({
     marginTop: scale(4),
   },
   ctaWrap: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
     paddingHorizontal: scale(24),
+    paddingTop: scale(12),
     zIndex: 20,
   },
   ctaButton: {
