@@ -1,0 +1,66 @@
+{
+  "timestamp": "2026-05-17T13:14:58.712Z",
+  "repeat": 1,
+  "passed": 2,
+  "failed": 1,
+  "disabled": 1,
+  "results": [
+    {
+      "name": "cross_conv_recent_communication_style_surfaces_in_envelope",
+      "pass": true,
+      "attempts": [
+        {
+          "name": "cross_conv_recent_communication_style_surfaces_in_envelope",
+          "pass": true,
+          "turnResults": [
+            {
+              "idx": 0,
+              "pass": true,
+              "reasons": []
+            }
+          ]
+        }
+      ],
+      "passCount": 1
+    },
+    {
+      "name": "cross_conv_recent_mechanic_preference_recalled_in_chat",
+      "pass": true,
+      "attempts": [
+        {
+          "name": "cross_conv_recent_mechanic_preference_recalled_in_chat",
+          "pass": true,
+          "turnResults": [
+            {
+              "idx": 0,
+              "pass": true,
+              "reasons": []
+            }
+          ]
+        }
+      ],
+      "passCount": 1
+    },
+    {
+      "name": "cross_conv_no_prior_data_envelope_empty_of_seeded_content",
+      "pass": false,
+      "attempts": [
+        {
+          "name": "cross_conv_no_prior_data_envelope_empty_of_seeded_content",
+          "pass": false,
+          "turnResults": [
+            {
+              "idx": 0,
+              "pass": false,
+              "reasons": [
+                "envelope_not_contains hit: \"User prefers terse summaries with minimal preamble\"",
+                "envelope_not_contains hit: \"User only trusts BMW specialists\""
+              ]
+            }
+          ]
+        }
+      ],
+      "passCount": 0
+    }
+  ]
+}

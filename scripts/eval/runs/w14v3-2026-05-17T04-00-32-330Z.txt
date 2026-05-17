@@ -1,0 +1,19 @@
+========================================================================
+Wave 1.4 v3 — programmatic cases — w14v3-2026-05-17T04-00-32-330Z
+mode=mock  repeats=1  category=g  cases=5
+========================================================================
+
+(g) Memory write-discipline  [Wave 3 Day 4]
+------------------------------------------------------------------------
+  PASS  memory-g-001  pass=1/1 (100.0% [20.7..100.0])
+         helper_path_ok=true rows_written=1 (CI Rule 13 defends the negative direction)
+  PASS  memory-g-002  pass=1/1 (100.0% [20.7..100.0])
+         expected_throw=VALIDATOR_REJECT actual=VALIDATOR_REJECT rows_written=0 (expected 0)
+  PASS  memory-g-003  pass=1/1 (100.0% [20.7..100.0])
+         expected_throw=LEGALITY_MATRIX actual=LEGALITY_MATRIX rows_written=0 (expected 0)
+  PASS  memory-g-004  pass=1/1 (100.0% [20.7..100.0])
+         expected_throw=ROLE_MISMATCH actual=ROLE_MISMATCH rows_written=0 (expected 0)
+  PASS  memory-g-005  pass=1/1 (100.0% [20.7..100.0])
+         stageA_exclude_ok=true (working_memory=[] expected to NOT include cf_1) stageB_judge=true (mock-only PASS)
+========================================================================
+Overall: 5/5 cases passing all repeats
