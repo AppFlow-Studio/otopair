@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useAuth } from '@clerk/clerk-expo';
@@ -12,6 +12,7 @@ import {
     getDevicePermissionState,
     getIncompleteOnboardingStepsFromResumeData,
     getOnboardingCurrentStepKey,
+    RESUMABLE_STEPS,
 } from '@/lib/onboarding-resume';
 import { BrandColors } from '@/constants/theme';
 
@@ -36,7 +37,9 @@ export default function OnboardingScreen() {
         me ? undefined : 'skip',
     );
     const onboardingQa =
-        rawOnboardingQa === undefined
+        me === null
+            ? null
+            : rawOnboardingQa === undefined
             ? undefined
             : rawOnboardingQa === null
                 ? null
@@ -47,14 +50,67 @@ export default function OnboardingScreen() {
     const resetOnboardingData = useOnboardingStore((state) => state.reset);
 
     const isResumeMode = params.isResumeMode === 'true';
-    // Auto-resume: isResumeMode with no explicit step/filter means index.tsx sent us here
-    // to figure out where the user left off.
-    const isAutoResume = isResumeMode && !params.initialStep && !params.filteredSteps;
+    const hasExplicitResumeTarget = !!params.initialStep || !!params.filteredSteps;
+    const shouldAutoResumeSignedInEntryRef = useRef<boolean | null>(null);
+    if (isLoaded && shouldAutoResumeSignedInEntryRef.current === null) {
+        shouldAutoResumeSignedInEntryRef.current = !hasExplicitResumeTarget && isSignedIn === true;
+    }
+    // Auto-resume when index.tsx sends isResumeMode, and also when a signed-in
+    // user initially lands on the onboarding group without params. Freezing the
+    // signed-in fallback on entry prevents a normal signup flow from switching
+    // into auto-resume after Clerk creates the session.
+    const isAutoResume =
+        !hasExplicitResumeTarget &&
+        (isResumeMode || shouldAutoResumeSignedInEntryRef.current === true);
 
     const [autoResumeStep, setAutoResumeStep] = useState<OnboardingStep | null>(null);
     const [autoResumeFiltered, setAutoResumeFiltered] = useState<OnboardingStep[] | undefined>(undefined);
     // Not ready until auto-resume computation finishes; immediately ready for non-auto-resume.
     const [autoResumeReady, setAutoResumeReady] = useState(!isAutoResume);
+
+    useEffect(() => {
+        console.log('[onboarding-resume:screen] route params/state', {
+            params,
+            isLoaded,
+            isSignedIn,
+            clerkUserId,
+            rawMeState: rawMe === undefined ? 'loading' : rawMe === null ? 'null' : 'loaded',
+            meState: me === undefined ? 'loading' : me === null ? 'null' : 'loaded',
+            rawOnboardingQaState:
+                rawOnboardingQa === undefined ? 'loading' : rawOnboardingQa === null ? 'null' : 'loaded',
+            onboardingQaState:
+                onboardingQa === undefined ? 'loading' : onboardingQa === null ? 'null' : 'loaded',
+            isResumeMode,
+            hasExplicitResumeTarget,
+            shouldAutoResumeSignedInEntry: shouldAutoResumeSignedInEntryRef.current,
+            isAutoResume,
+            autoResumeReady,
+        });
+    }, [
+        autoResumeReady,
+        clerkUserId,
+        hasExplicitResumeTarget,
+        isAutoResume,
+        isLoaded,
+        isResumeMode,
+        isSignedIn,
+        me,
+        onboardingQa,
+        params,
+        rawMe,
+        rawOnboardingQa,
+    ]);
+
+    useEffect(() => {
+        if (isAutoResume) {
+            setAutoResumeReady(false);
+            setAutoResumeStep(null);
+            setAutoResumeFiltered(undefined);
+            return;
+        }
+
+        setAutoResumeReady(true);
+    }, [isAutoResume]);
 
     useEffect(() => {
         if (!isLoaded || isSignedIn) return;
@@ -95,28 +151,67 @@ export default function OnboardingScreen() {
                 locationGranted: devicePermissions.locationPermissionStatus === 'granted',
             });
 
-            const [incompleteSteps, savedStep] = await Promise.all([
+            const [incompleteSteps, savedStepForUser, savedStepLegacy] = await Promise.all([
                 Promise.resolve(getIncompleteOnboardingStepsFromResumeData(resumeData, devicePermissions)),
                 SecureStore.getItemAsync(getOnboardingCurrentStepKey(clerkUserId)),
+                SecureStore.getItemAsync(getOnboardingCurrentStepKey()),
             ]);
+            const savedStep = savedStepForUser ?? savedStepLegacy;
 
             if (cancelled) return;
 
-            if (incompleteSteps.length === 0) {
+            const savedStepIsResumable =
+                typeof savedStep === 'string' && (RESUMABLE_STEPS as Set<string>).has(savedStep);
+
+            if (incompleteSteps.length === 0 && !savedStepIsResumable) {
                 // All data-steps are complete — nothing left to do, go home
+                console.log('[onboarding-resume:screen] navigating home: no incomplete or saved step', {
+                    savedStep,
+                    incompleteSteps,
+                    clerkUserId,
+                    convexUserId: me?._id,
+                });
                 router.replace('/(main-tabs)/home');
                 return;
             }
 
             // If the saved step is still in the incomplete list, resume there.
             // Otherwise fall back to the first incomplete step from data-completeness.
-            const startStep =
-                savedStep && incompleteSteps.includes(savedStep as OnboardingStep)
-                    ? (savedStep as OnboardingStep)
-                    : incompleteSteps[0];
+            const startStep = savedStepIsResumable
+                ? (savedStep as OnboardingStep)
+                : incompleteSteps[0];
+            const filteredSteps =
+                savedStepIsResumable && !incompleteSteps.includes(savedStep as OnboardingStep)
+                    ? [savedStep as OnboardingStep, ...incompleteSteps]
+                    : incompleteSteps;
+
+            console.log('[onboarding-resume:screen] resolved auto-resume step', {
+                savedStep,
+                savedStepIsResumable,
+                startStep,
+                incompleteSteps,
+                filteredSteps,
+                devicePermissions,
+                resumeData: {
+                    authProvider: resumeData.authProvider,
+                    hasEmail: !!resumeData.email,
+                    emailConfirmed: resumeData.emailConfirmed,
+                    hasFirstName: !!resumeData.firstName,
+                    hasLastName: !!resumeData.lastName,
+                    hasPhoneNumber: !!resumeData.phoneNumber,
+                    phoneVerified: resumeData.phoneVerified,
+                    hasProfilePhotoUri: !!resumeData.profilePhotoUri,
+                    hasUserIntentions: !!resumeData.userIntentions?.length,
+                    hasHeardAboutOtopair: !!resumeData.heardAboutOtopair,
+                    hasVisitReason: !!resumeData.visitReason,
+                    hasZipCode: !!resumeData.zipCode,
+                },
+                clerkUserId,
+                convexUserId: me?._id,
+            });
 
             setAutoResumeStep(startStep);
-            setAutoResumeFiltered(incompleteSteps);
+            setAutoResumeFiltered(undefined);
             setAutoResumeReady(true);
         };
 

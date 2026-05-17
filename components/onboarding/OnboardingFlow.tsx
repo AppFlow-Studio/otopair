@@ -152,26 +152,37 @@ export function OnboardingFlow({ initialStep = "signup", filteredSteps, isResume
   // Persist current step so the app can resume from exactly here if closed mid-flow.
   useEffect(() => {
     if (currentStep === 'complete') {
-      SecureStore.deleteItemAsync(getOnboardingCurrentStepKey(clerkUserId)).catch(() => {});
+      console.log('[onboarding-resume:flow] clearing saved current step', {
+        currentStep,
+        clerkUserId,
+      });
+      Promise.all([
+        SecureStore.deleteItemAsync(getOnboardingCurrentStepKey(clerkUserId)),
+        SecureStore.deleteItemAsync(getOnboardingCurrentStepKey()),
+      ]).catch(() => {});
       return;
     }
     if ((RESUMABLE_STEPS as Set<string>).has(currentStep)) {
+      console.log('[onboarding-resume:flow] saving current step', {
+        currentStep,
+        currentStepKey: getOnboardingCurrentStepKey(clerkUserId),
+        clerkUserId,
+      });
       SecureStore.setItemAsync(getOnboardingCurrentStepKey(clerkUserId), currentStep).catch(() => {});
     }
   }, [clerkUserId, currentStep]);
 
-  // Use filtered steps if provided (resume mode), otherwise use all progress steps
-  const activeSteps = filteredSteps || PROGRESS_STEPS;
-  console.log("activeSteps", activeSteps);
-  console.log("currentStep", currentStep);
+  // Progress should always represent the full onboarding sequence. filteredSteps
+  // only controls navigation for explicit "finish account setup" flows.
+  const navigationSteps = filteredSteps;
   // Get progress info for the current step
   const getProgressInfo = () => {
-    const stepIndex = activeSteps.indexOf(currentStep);
+    const stepIndex = PROGRESS_STEPS.indexOf(currentStep);
     if (stepIndex === -1) {
       // Signup/login/complete step - no progress bar
-      return { total: activeSteps.length, filled: 0 };
+      return { total: PROGRESS_STEPS.length, filled: 0 };
     }
-    return { total: activeSteps.length, filled: stepIndex };
+    return { total: PROGRESS_STEPS.length, filled: stepIndex };
   };
 
   const progressInfo = getProgressInfo();
@@ -208,10 +219,10 @@ export function OnboardingFlow({ initialStep = "signup", filteredSteps, isResume
   };
 
   const goBack = async () => {
-    if (filteredSteps) {
-      const currentIndex = activeSteps.indexOf(currentStep);
+    if (navigationSteps) {
+      const currentIndex = navigationSteps.indexOf(currentStep);
       if (currentIndex > 0) {
-        goToStep(activeSteps[currentIndex - 1]);
+        goToStep(navigationSteps[currentIndex - 1]);
         return;
       }
 
@@ -332,15 +343,15 @@ export function OnboardingFlow({ initialStep = "signup", filteredSteps, isResume
   const goNext = async () => {
     const { data: latestData } = useOnboardingStore.getState();
 
-    if (filteredSteps) {
-      const currentIndex = activeSteps.indexOf(currentStep);
+    if (navigationSteps) {
+      const currentIndex = navigationSteps.indexOf(currentStep);
       if (currentIndex !== -1) {
-        if (currentIndex >= activeSteps.length - 1) {
+        if (currentIndex >= navigationSteps.length - 1) {
           goToStep("complete");
           return;
         }
 
-        goToStep(activeSteps[currentIndex + 1]);
+        goToStep(navigationSteps[currentIndex + 1]);
         return;
       }
     }

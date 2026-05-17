@@ -40,43 +40,72 @@ export default function Index() {
   const hasNavigated = useRef(false);
 
   useEffect(() => {
+    console.log("[onboarding-resume:index] route check", {
+      isLoaded,
+      isSignedIn,
+      clerkUserId,
+      rawMeState: rawMe === undefined ? "loading" : rawMe === null ? "null" : "loaded",
+      meState: me === undefined ? "loading" : me === null ? "null" : "loaded",
+      onboardingCompleted: me?.onboardingCompleted,
+      hasNavigated: hasNavigated.current,
+    });
+
     if (!isLoaded || hasNavigated.current) return;
 
     if (!isSignedIn) {
+      console.log("[onboarding-resume:index] navigating to onboarding: signed out");
       hasNavigated.current = true;
       router.replace("/(onboarding)");
       return;
     }
 
     // Wait for Convex user record to finish loading (undefined = still loading)
-    if (me === undefined) return;
+    if (me === undefined) {
+      console.log("[onboarding-resume:index] waiting for Convex user record");
+      return;
+    }
 
     (async () => {
       if (hasNavigated.current) return;
 
       // Onboarding fully complete → home
       if (me?.onboardingCompleted === true) {
+        console.log("[onboarding-resume:index] navigating home: onboarding completed", {
+          convexUserId: me._id,
+          clerkUserId,
+        });
         hasNavigated.current = true;
         router.replace("/(main-tabs)/home");
         return;
       }
 
       // User explicitly chose "Finish later" → respect that, go to home
-      const finishedLater = await SecureStore.getItemAsync(getOnboardingFinishedLaterKey(clerkUserId));
+      const finishedLaterKey = getOnboardingFinishedLaterKey(clerkUserId);
+      const finishedLater = await SecureStore.getItemAsync(finishedLaterKey);
       if (hasNavigated.current) return;
       hasNavigated.current = true;
 
       if (finishedLater === "true") {
+        console.log("[onboarding-resume:index] navigating home: finish-later flag set", {
+          finishedLaterKey,
+          clerkUserId,
+        });
         router.replace("/(main-tabs)/home");
       } else {
         // Signed in but onboarding incomplete — resume from last completed step
+        console.log("[onboarding-resume:index] navigating to onboarding auto-resume", {
+          finishedLaterKey,
+          finishedLater,
+          convexUserId: me?._id,
+          clerkUserId,
+        });
         router.replace({
           pathname: "/(onboarding)",
           params: { isResumeMode: "true" },
         });
       }
     })();
-  }, [clerkUserId, isLoaded, isSignedIn, me]);
+  }, [clerkUserId, isLoaded, isSignedIn, me, rawMe]);
 
   return (
     <View style={styles.loading}>

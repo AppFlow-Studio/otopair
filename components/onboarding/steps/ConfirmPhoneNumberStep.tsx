@@ -95,6 +95,12 @@ export function ConfirmPhoneNumberStep({ onNext, onBack, progress }: ConfirmPhon
   }, []);
 
   useEffect(() => {
+    if (data.phoneVerified && !verifying) {
+      onNext();
+    }
+  }, [data.phoneVerified, onNext, verifying]);
+
+  useEffect(() => {
     if (timeRemaining > 0) {
       timerRef.current = setTimeout(() => {
         setTimeRemaining(timeRemaining - 1);
