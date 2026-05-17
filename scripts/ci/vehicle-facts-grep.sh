@@ -666,9 +666,48 @@ else
 fi
 echo ""
 
+# Rule 21 -- Sprint 3 Day 7: Registry-CI guard. Mirrors the chat.ts
+# Block 4 module-load invariant (lines 198-216) at CI time. Every tool
+# name that the system prompt references via backticks AND that is also
+# registered in OTO_TOOL_CATEGORY must appear in TOOL_NAMES_V1 — the
+# visibility filter for what Haiku actually sees. Catches the Sprint 3
+# Day 2 Pass A0 defect class explicitly at CI time instead of relying
+# on the runtime invariant which only fires when Convex loads chat.ts.
+# Helper: scripts/ci/_extract-prompt-tool-refs.js (Node script that
+# parses the escaped backtick pattern \`tool_name\` from the template
+# literals in stable.ts + volatile.ts).
+echo "Rule 21: prompt-referenced tools surfaced in TOOL_NAMES_V1..."
+PROMPT_REFS=$(node scripts/ci/_extract-prompt-tool-refs.js 2>/dev/null)
+CATEGORY_TOOLS=$(grep -E "^  [a-z_]+: \"(data|state|render|navigation|model_routing)\"" convex/oto/tools.ts | grep -oE "^  [a-z_]+" | tr -d ' ' | sort -u)
+TOOLS_V1=$(awk '/^const TOOL_NAMES_V1 = \[/,/\] as const;/' convex/oto/chat.ts | grep -oE '"[a-z_]+"' | tr -d '"' | sort -u)
+MISSING_FROM_V1=""
+for ref in $PROMPT_REFS; do
+  if echo "$CATEGORY_TOOLS" | grep -qx "$ref"; then
+    if ! echo "$TOOLS_V1" | grep -qx "$ref"; then
+      MISSING_FROM_V1="$MISSING_FROM_V1 $ref"
+    fi
+  fi
+done
+if [ -n "$MISSING_FROM_V1" ]; then
+  red "  FAIL -- tool(s) referenced in prompt but missing from TOOL_NAMES_V1:$MISSING_FROM_V1"
+  yellow "  These tools are defined in OTO_TOOL_CATEGORY (convex/oto/tools.ts) AND"
+  yellow "    referenced in the prompt (convex/oto/prompt/stable.ts or volatile.ts)"
+  yellow "    but not surfaced to Haiku via TOOL_NAMES_V1. The Block 4 invariant"
+  yellow "    at chat.ts:198-216 would catch this at Convex module load and log"
+  yellow "    CONFIG ERROR; this CI rule catches it earlier."
+  yellow "  Add the missing names to TOOL_NAMES_V1 in convex/oto/chat.ts (around"
+  yellow "    line 84+). Per Sprint 3 Day 3's per-category surface-enumeration"
+  yellow "    rule, every tool needs: schema + OTO_TOOL_CATEGORY + TOOL_NAMES_V1"
+  yellow "    + (callable XOR dispatcher branch depending on category)."
+  VIOLATIONS=$((VIOLATIONS + 1))
+else
+  green "  OK"
+fi
+echo ""
+
 # Summary
 if [ $VIOLATIONS -eq 0 ]; then
-  green "All vehicle-facts invariant checks passed (20/20 rules clean)."
+  green "All vehicle-facts invariant checks passed (21/21 rules clean)."
   exit 0
 else
   red "$VIOLATIONS rule violation(s)."

@@ -1011,14 +1011,16 @@ None today — `support_intake_submissions` is planned for Sprint 3+.
 - New eval case category → update §18.
 - Status change (planned → live, live-unsurfaced → live, live → deprecated) → update §16 + the domain entry.
 
-### CI integration (planned, not yet wired)
+### CI integration (partially wired as of Sprint 3 Day 7)
 
-A Sprint 3+ CI check could verify:
-- Every tool in `convex/oto/tools.ts` `OTO_TOOLS` export appears in §16 with a status.
-- Every status-tagged `planned` tool either appears in `OTO_TOOLS` (live promotion) OR remains explicitly `planned` (no orphan).
+**Rule 21 (LIVE as of Sprint 3 Day 7):** prompt-referenced tools surfaced in `TOOL_NAMES_V1`. Mirrors the chat.ts Block 4 module-load invariant (lines 198-216) at CI time. Every tool name that the system prompt references via backticks AND that is also registered in `OTO_TOOL_CATEGORY` must appear in `TOOL_NAMES_V1`. Catches the Sprint 3 Day 2 Pass A0 defect class (`render_link_button` registered in tools.ts + dispatcher.ts but missed in chat.ts TOOL_NAMES_V1) explicitly at CI time instead of relying on the runtime invariant. Helper: `scripts/ci/_extract-prompt-tool-refs.js`.
+
+Further CI checks still planned (Sprint 4+ candidates, each small):
+- Every tool in `convex/oto/tools.ts` `OTO_TOOL_CATEGORY` appears in §16 of this registry with a status. Catches registry-tools-table drift.
+- Every status-tagged `planned` tool in §16 either appears in `OTO_TOOL_CATEGORY` (live promotion) OR remains explicitly `planned` (no orphan).
 - Every domain entry's "Eval coverage" line references at least one case prefix that exists in `scripts/oto-eval-cases.json`.
 
-Wiring this CI guard is itself a Sprint 3+ candidate (small dispatch, like Wave 1.9's schema-hash guard).
+These extensions follow the same Wave 1.9 + Rule 21 pattern (small dedicated rule appended to `vehicle-facts-grep.sh`).
 
 ---
 
