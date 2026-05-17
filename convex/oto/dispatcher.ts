@@ -232,6 +232,24 @@ function packageRenderDirective(toolUse: ToolUseBlock): ToolResultBlock {
         }),
       );
 
+    case "render_link_button":
+      // Sprint 3 §14.1 — terminal app-nav redirect surface. Trigger-only: pass
+      // `destination` (one of 8 enum values: terms_of_service / privacy_policy
+      // / settings / profile / transaction_history / customer_support /
+      // feedback / bug_report) and optional `label` text override. The mobile
+      // component renders a tap-to-open button; on tap, the app navigates to
+      // the appropriate screen (deep-link for in-app destinations; in-app
+      // browser for TOS / Privacy). Oto NEVER recomposes screen content here.
+      // bug_report is for GENERAL APP bugs only; AI-conversation feedback is
+      // handled by the per-message UI button (UI-only, no Oto tool surface).
+      return ok(
+        toolUse.id,
+        renderD("linkButton", {
+          destination: toolUse.input.destination,
+          ...(toolUse.input.label ? { label: toolUse.input.label } : {}),
+        }),
+      );
+
     case "render_quick_replies":
       return ok(toolUse.id, renderD("quickReplies", toolUse.input.replies));
 
@@ -344,6 +362,11 @@ export interface ChatMessageEnvelope {
   shopCarousel?: unknown;
   timeSelector?: unknown;
   bookingConfirmation?: unknown;
+  // Sprint 3 §14.1 — app-nav redirect: { destination, label? }. Mobile
+  // component reads `destination` and renders a tap-to-open button that
+  // navigates to the corresponding screen (deep-link for in-app destinations;
+  // in-app browser for TOS / Privacy).
+  linkButton?: unknown;
   reasoning?: unknown;
   sources?: unknown;
   [k: string]: unknown;

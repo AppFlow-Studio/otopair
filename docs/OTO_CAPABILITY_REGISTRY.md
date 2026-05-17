@@ -574,6 +574,8 @@ Do NOT:
 
 ### §14.1 `render_link_button` — app-navigation redirect surface
 
+**Status: LIVE as of Sprint 3 Day 2 Pass A.** Tool registered in `convex/oto/tools.ts`, dispatcher branch in `convex/oto/dispatcher.ts`, prompt section in `convex/oto/prompt/stable.ts` (`v0.14-stable`), 14 eval cases in `scripts/oto-eval-cases.json` (8 destination positives + 3 AI-feedback routing + 3 discrimination). Mobile-frontend `ChatMessage.linkButton` field rendering is a coordinate-with-mobile-team task (registry-only — see backing tables note below).
+
 **Purpose.** When the user asks to go to a specific in-app screen (legal documents, account screens, support/feedback channels), Oto renders a tap-to-redirect button instead of recomposing screen content in chat. Eight destinations — this is the general app-navigation redirect surface. Loyalty is explicitly NOT a destination of this tool (Loyalty has its own in-chat surface per §14.2); the Loyalty conversation happens in chat the same way the Booking conversation does.
 
 **Behavioral contract — per destination.**
@@ -798,7 +800,7 @@ These rules apply regardless of which domain the conversation is in. They're cal
 
 | Category | Tool | Status | Domain |
 |---|---|---|---|
-| render | `render_link_button` | planned (8 destinations: `terms_of_service` / `privacy_policy` / `settings` / `profile` / `transaction_history` / `customer_support` / `feedback` / `bug_report`) | §14.1 (cross-cuts §12 Account + §13 Support) |
+| render | `render_link_button` | **live** as of Sprint 3 Day 2 Pass A (8 destinations: `terms_of_service` / `privacy_policy` / `settings` / `profile` / `transaction_history` / `customer_support` / `feedback` / `bug_report`) | §14.1 (cross-cuts §12 Account + §13 Support) |
 | render | `render_support_form` | planned (3 categories post-Sprint-3-decision: `mechanic_dispute` / `service_complaint` / `billing_issue`; was 5 — `platform_bug` + `ai_escalation` deprecated in favor of §14.1 redirects + per-message AI-feedback UI button) | §13 Support |
 | data | `get_loyalty_points_history` | planned | §14.2 |
 | data | `get_available_redemptions` | planned (informational surfacing only — no claim) | §14.2 |

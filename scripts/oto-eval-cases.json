@@ -1577,6 +1577,376 @@
           }
         }
       ]
+    },
+    {
+      "name": "link_button_tos_request",
+      "description": "Sprint 3 Day 2 §14.1 dispatch (render_link_button — 8 destinations + 3 AI-feedback routing + 3 discrimination). Destination: terms_of_service. User asks for TOS — Oto fires render_link_button(destination='terms_of_service') with a brief framing sentence; mobile component opens in-app browser to the TOS page. Verifies the tool fires + brief text framing the redirect.",
+      "turns": [
+        {
+          "user": "Where can I find your terms of service?",
+          "expect": {
+            "tools_called": [
+              "render_link_button",
+              "update_conversation_state"
+            ],
+            "branch": "terminal",
+            "text_contains": [
+              "terms"
+            ],
+            "text_not_contains": [
+              "I'll send",
+              "I will send",
+              "I'll file",
+              "the dispatcher",
+              "the system"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "link_button_privacy_request",
+      "description": "Sprint 3 Day 2 §14.1 dispatch (render_link_button — 8 destinations + 3 AI-feedback routing + 3 discrimination). Destination: privacy_policy. User asks for the privacy policy — render_link_button(destination='privacy_policy'). Mobile component opens in-app browser to the Privacy Policy page.",
+      "turns": [
+        {
+          "user": "What's your privacy policy?",
+          "expect": {
+            "tools_called": [
+              "render_link_button",
+              "update_conversation_state"
+            ],
+            "branch": "terminal",
+            "text_contains": [
+              "privacy"
+            ],
+            "text_not_contains": [
+              "I'll send",
+              "I will send",
+              "the system",
+              "the dispatcher"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "link_button_settings_open",
+      "description": "Sprint 3 Day 2 §14.1 dispatch (render_link_button — 8 destinations + 3 AI-feedback routing + 3 discrimination). Destination: settings. User asks to go to settings — render_link_button(destination='settings'). Account-domain redirect (§12 + §14.1).",
+      "turns": [
+        {
+          "user": "Take me to settings.",
+          "expect": {
+            "tools_called": [
+              "render_link_button",
+              "update_conversation_state"
+            ],
+            "branch": "terminal",
+            "text_contains": [
+              "settings"
+            ],
+            "text_not_contains": [
+              "I'll change",
+              "I will change",
+              "the system",
+              "the dispatcher"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "link_button_profile_open",
+      "description": "Sprint 3 Day 2 §14.1 dispatch (render_link_button — 8 destinations + 3 AI-feedback routing + 3 discrimination). Destination: profile. User asks to update profile info — render_link_button(destination='profile'). Oto does NOT attempt to edit profile in chat; redirect is the contract.",
+      "turns": [
+        {
+          "user": "I want to update my profile info.",
+          "expect": {
+            "tools_called": [
+              "render_link_button",
+              "update_conversation_state"
+            ],
+            "branch": "terminal",
+            "text_contains": [
+              "profile"
+            ],
+            "text_not_contains": [
+              "I'll update",
+              "I will update",
+              "the system",
+              "the dispatcher"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "link_button_transaction_history",
+      "description": "Sprint 3 Day 2 §14.1 dispatch (render_link_button — 8 destinations + 3 AI-feedback routing + 3 discrimination). Destination: transaction_history. User asks for transaction / payment history — render_link_button(destination='transaction_history'). DISCRIMINATION: must NOT call get_bookings (that's service-history, a different surface per §14.1 contract).",
+      "turns": [
+        {
+          "user": "Show me my transaction history — past payments.",
+          "expect": {
+            "tools_called": [
+              "render_link_button",
+              "update_conversation_state"
+            ],
+            "tools_not_called": [
+              "get_bookings"
+            ],
+            "branch": "terminal",
+            "text_contains": [
+              "transaction"
+            ],
+            "text_not_contains": [
+              "the system",
+              "the dispatcher",
+              "I'll pull"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "link_button_customer_support",
+      "description": "Sprint 3 Day 2 §14.1 dispatch (render_link_button — 8 destinations + 3 AI-feedback routing + 3 discrimination). Destination: customer_support. User asks for support / human contact — render_link_button(destination='customer_support'). Lightweight redirect (§13 channel-discrimination rule).",
+      "turns": [
+        {
+          "user": "How do I reach support? I need to talk to a human.",
+          "expect": {
+            "tools_called": [
+              "render_link_button",
+              "update_conversation_state"
+            ],
+            "branch": "terminal",
+            "text_contains": [
+              "support"
+            ],
+            "text_not_contains": [
+              "I'll connect",
+              "I will connect",
+              "I'll get someone",
+              "I'll have someone",
+              "I'll let the team know",
+              "the system"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "link_button_feedback_filing",
+      "description": "Sprint 3 Day 2 §14.1 dispatch (render_link_button — 8 destinations + 3 AI-feedback routing + 3 discrimination). Destination: feedback. User has a feature suggestion — render_link_button(destination='feedback'). General feedback redirect (NOT support_form, NOT bug_report — feature-suggestion intent).",
+      "turns": [
+        {
+          "user": "I have a feature suggestion — how do I leave feedback?",
+          "expect": {
+            "tools_called": [
+              "render_link_button",
+              "update_conversation_state"
+            ],
+            "branch": "terminal",
+            "text_contains": [
+              "feedback"
+            ],
+            "text_not_contains": [
+              "I'll send",
+              "I will send",
+              "I'll let the team know",
+              "I'll pass it along",
+              "I'll flag this",
+              "the system"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "link_button_bug_report",
+      "description": "Sprint 3 Day 2 §14.1 dispatch (render_link_button — 8 destinations + 3 AI-feedback routing + 3 discrimination). Destination: bug_report. User reports a general app bug (crash / broken screen) — render_link_button(destination='bug_report'). Generic-app-bug phrasing only; AI-conversation bugs route to the per-message icon (see ai_feedback_* cases below).",
+      "turns": [
+        {
+          "user": "The app crashed when I tried to open the booking screen — something's broken.",
+          "expect": {
+            "tools_called": [
+              "render_link_button",
+              "update_conversation_state"
+            ],
+            "branch": "terminal",
+            "text_contains": [
+              "bug"
+            ],
+            "text_not_contains": [
+              "I'll file",
+              "I will file",
+              "I'll let the team know",
+              "I'll have someone look",
+              "the system",
+              "the dispatcher"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "ai_feedback_points_to_icon",
+      "description": "Sprint 3 Day 2 §14.1 dispatch (render_link_button — 8 destinations + 3 AI-feedback routing + 3 discrimination). AI-feedback routing (§13 + §15.11). User complains about Oto's response — Oto acknowledges briefly and points to the per-message 'Report an issue with AI' exclamation icon. MUST NOT fire render_link_button (bug_report and feedback are wrong channels per §13). Pattern: 'tap the exclamation-point icon next to my response'.",
+      "turns": [
+        {
+          "user": "That was a wrong answer — you got that backwards.",
+          "expect": {
+            "tools_called": [
+              "update_conversation_state"
+            ],
+            "tools_not_called": [
+              "render_link_button",
+              "render_support_form"
+            ],
+            "text_contains": [
+              "icon"
+            ],
+            "text_not_contains": [
+              "I'll let the team know",
+              "I'll flag this",
+              "I'll have someone look at it",
+              "I'll file a report",
+              "I will file a report",
+              "I'll send this to the team",
+              "I'll pass it along",
+              "the system",
+              "the dispatcher"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "ai_feedback_no_promise_to_file",
+      "description": "Sprint 3 Day 2 §14.1 dispatch (render_link_button — 8 destinations + 3 AI-feedback routing + 3 discrimination). AI-feedback routing (§13 + §15.11). Negative discrimination: user complains about Oto's response — Oto MUST NOT promise to file a report. Phrasings like 'I'll let the team know', 'I'll flag this', 'I'll have someone look at it', 'I'll file a report' are BANNED. The per-message icon is the user's channel; Oto's role is the conversational pointer.",
+      "turns": [
+        {
+          "user": "That response was bad — Oto's totally off on this.",
+          "expect": {
+            "tools_called": [
+              "update_conversation_state"
+            ],
+            "tools_not_called": [
+              "render_link_button",
+              "render_support_form"
+            ],
+            "text_not_contains": [
+              "I'll let the team know",
+              "I will let the team know",
+              "I'll flag this",
+              "I will flag this",
+              "I'll have someone look at it",
+              "I will have someone look at it",
+              "I'll file a report",
+              "I will file a report",
+              "I'll pass it along",
+              "I'll send this to the team",
+              "I will send this to the team",
+              "I've sent this to the team"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "ai_feedback_distinguishes_from_bug_report",
+      "description": "Sprint 3 Day 2 §14.1 dispatch (render_link_button — 8 destinations + 3 AI-feedback routing + 3 discrimination). AI-feedback vs bug_report discrimination (§13 channel rule + §15.11). User says 'Oto's response was buggy' — contextual signal is response-specific complaint, NOT a general app bug. Oto MUST NOT fire render_link_button(destination='bug_report'). bug_report is for general app bugs (crashes, UI breakage); response-specific complaints route to the per-message icon.",
+      "turns": [
+        {
+          "user": "Oto's response was buggy on that last one.",
+          "expect": {
+            "tools_called": [
+              "update_conversation_state"
+            ],
+            "tools_not_called": [
+              "render_link_button",
+              "render_support_form"
+            ],
+            "text_contains": [
+              "icon"
+            ],
+            "text_not_contains": [
+              "I'll file a report",
+              "I'll let the team know",
+              "I'll have someone look",
+              "I will file a report",
+              "bug report screen",
+              "report a bug"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "transaction_vs_service_history_redirect",
+      "description": "Sprint 3 Day 2 §14.1 dispatch (render_link_button — 8 destinations + 3 AI-feedback routing + 3 discrimination). Discrimination case (§14.1 vs §4 Booking). 'Transaction history' (the payments view) routes to render_link_button(destination='transaction_history') — distinct from 'service history' (shop + dates list of completed bookings) which goes via get_bookings(status_filter='completed'). MUST fire render_link_button; MUST NOT fire get_bookings.",
+      "turns": [
+        {
+          "user": "Show me my transaction history.",
+          "expect": {
+            "tools_called": [
+              "render_link_button",
+              "update_conversation_state"
+            ],
+            "tools_not_called": [
+              "get_bookings"
+            ],
+            "branch": "terminal",
+            "text_contains": [
+              "transaction"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "transaction_vs_service_history_in_chat",
+      "description": "Sprint 3 Day 2 §14.1 dispatch (render_link_button — 8 destinations + 3 AI-feedback routing + 3 discrimination). Counterpart to transaction_vs_service_history_redirect. 'Service history' phrasing ('what have I had done?', 'what's my service history?') routes to get_bookings(status_filter='completed') in-chat — NOT render_link_button. Distinguishes the Booking domain's service-history surface from §14.1's transaction_history redirect destination.",
+      "turns": [
+        {
+          "user": "What have I had done on the car? What's my service history?",
+          "expect": {
+            "tools_called": [
+              "get_bookings",
+              "update_conversation_state"
+            ],
+            "tools_not_called": [
+              "render_link_button"
+            ],
+            "text_not_contains": [
+              "I'll send",
+              "I will send",
+              "the system",
+              "the dispatcher"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "link_button_invalid_destination_rejected",
+      "description": "Sprint 3 Day 2 §14.1 dispatch (render_link_button — 8 destinations + 3 AI-feedback routing + 3 discrimination). Negative discrimination (§14.1 enum + §14.2 Loyalty constraint). Loyalty is NOT in the 8-destination enum — it's its own §14.2 in-chat surface. When the user asks 'take me to the loyalty screen', Oto MUST NOT fire render_link_button(destination='loyalty'). Acceptable outcomes: Oto answers conversationally (likely surfaces rewards balance / describes redemption flow per §14.2) — but no render_link_button.",
+      "turns": [
+        {
+          "user": "Take me to the loyalty screen.",
+          "expect": {
+            "tools_called": [
+              "update_conversation_state"
+            ],
+            "tools_not_called": [
+              "render_link_button"
+            ],
+            "text_not_contains": [
+              "I'll redirect",
+              "the system",
+              "the dispatcher"
+            ]
+          }
+        }
+      ]
     }
   ]
 }

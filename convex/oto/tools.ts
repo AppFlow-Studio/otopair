@@ -591,6 +591,7 @@ const STATE_TOOLS: OtoToolSchema[] = [
 //   render_record_confirmation   → message.showRecordConfirmation { vehicle_id, maintenance_type }
 //   render_time_selector         → message.timeSlots         (envelope extension — Gap 6)
 //   render_booking_confirmation  → message.bookingSummary    (envelope extension — Gap 7)
+//   render_link_button           → message.linkButton        (Sprint 3 §14.1 — 8-destination app-nav redirect)
 //   render_quick_replies         → message.quickReplies
 //   render_reasoning             → message.reasoning
 //   render_sources               → message.sources
@@ -731,6 +732,48 @@ const RENDER_TOOLS: OtoToolSchema[] = [
         },
       },
       required: ["vehicle_id", "maintenance_type"],
+    },
+  },
+
+  {
+    name: "render_link_button",
+    description:
+      "Render a tap-to-redirect button that opens a specific in-app screen. Use when the user asks to go to (or perform an action that lives on) one of the 8 supported destinations — DO NOT recompose screen content in chat. TERMINAL render — calling this ENDS YOUR TURN; do not call other tools after it. Pair with a short framing sentence in your prose (e.g. 'Settings is in your account area — tap to open.'). Destinations and when to fire each: " +
+      "(1) `terms_of_service` — user asks to see the TOS / terms (\"show me the terms\", \"where's the TOS?\"). " +
+      "(2) `privacy_policy` — user asks about privacy policy / data privacy (\"what's your privacy policy?\", \"data privacy\"). " +
+      "(3) `settings` — user wants to change preferences, notifications, app settings (\"take me to settings\", \"open settings\", \"update notification settings\"). " +
+      "(4) `profile` — user wants to view or edit their profile info (\"open my profile\", \"change my name / email / phone\", \"update my profile\"). " +
+      "(5) `transaction_history` — user asks about PAYMENTS / billing history (\"show my transaction history\", \"past payments\", \"my billing history\", \"what have I been charged?\"). This is the payments-ledger view — DISTINCT from service history (past completed bookings with shops + dates), which is served by `get_bookings(status_filter: \"completed\")` in chat. " +
+      "(6) `customer_support` — user asks how to reach support or wants a human (\"contact customer support\", \"talk to a human\", \"I need help with my account\"). " +
+      "(7) `feedback` — user wants to leave general feedback / feature suggestions (\"I have a suggestion\", \"feature request\", \"I want to leave feedback\"). " +
+      "(8) `bug_report` — user reports a GENERAL APP bug: crash, broken screen, broken booking flow, UI breakage (\"the app crashed\", \"I found a bug\", \"the bookings tab is broken\"). " +
+      "IMPORTANT: `bug_report` is for GENERAL APP bugs ONLY. If the user complains about YOUR response (\"Oto, you got that wrong\", \"your answer was weird\", \"that's not right\"), DO NOT fire `render_link_button(destination: \"bug_report\")` — AI-conversation feedback is handled by a per-message UI button (next to copy / TTS) that the mobile chat UI owns; point the user to that icon instead. Same applies to `feedback`: it is for general feature suggestions, not for response-specific complaints about Oto. " +
+      "Use the optional `label` field to override the default button text when context demands a more specific framing (e.g. user asked about notification settings → `label: \"Open notification settings\"`).",
+    input_schema: {
+      type: "object",
+      properties: {
+        destination: {
+          type: "string",
+          enum: [
+            "terms_of_service",
+            "privacy_policy",
+            "settings",
+            "profile",
+            "transaction_history",
+            "customer_support",
+            "feedback",
+            "bug_report",
+          ],
+          description:
+            "Which in-app screen to redirect to. Must be one of the 8 enum values. The enum IS the contract — there is no 9th destination today (e.g. no `loyalty`, no `payment_methods`). If the user wants a destination not in this enum, do NOT call this tool; explain conversationally instead.",
+        },
+        label: {
+          type: "string",
+          description:
+            "Optional button-text override. Default is the destination's generic label (e.g. `settings` → \"Open Settings\"); override when the user asked about a specific area within that screen (e.g. \"notification settings\" → \"Open notification settings\").",
+        },
+      },
+      required: ["destination"],
     },
   },
 
@@ -912,6 +955,7 @@ export const OTO_TOOL_CATEGORY: Record<string, OtoToolCategory> = {
   render_booking_confirmation: "render",
   render_diagnostic_form: "render",
   render_record_confirmation: "render",
+  render_link_button: "render",
   render_quick_replies: "render",
   render_reasoning: "render",
   render_sources: "render",
