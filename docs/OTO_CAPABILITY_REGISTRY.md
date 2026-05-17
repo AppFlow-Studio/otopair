@@ -495,44 +495,78 @@ Every domain entry follows this shape:
 
 ---
 
-## §13. Support — intake routing + redirect channels
+## §13. Support — intake routing + redirect channels + per-message AI feedback
 
-**Purpose.** Two surfaces. (1) **Substantive intake** — mechanic disputes, general service complaints, billing issues. Oto recognizes the category, fires `render_support_form` with prefilled fields drawn ONLY from what the user explicitly said, and routes the user to submit. These three categories collect rich shop / mechanic / amount detail that warrants a form. (2) **Lightweight redirects** — customer support contact, feature feedback, bug reports. These route via `render_link_button` (§14.1) to dedicated screens rather than the in-chat intake form.
+**Purpose.** Three surfaces. (1) **Substantive intake** — mechanic disputes, general service complaints, billing issues. Oto recognizes the category, fires `render_support_form` with prefilled fields drawn ONLY from what the user explicitly said. These three categories collect rich shop / mechanic / amount detail that warrants a form. (2) **Lightweight redirects** — customer support contact, feature feedback, GENERAL app bug reports. These route via `render_link_button` (§14.1) to dedicated screens. (3) **Per-message AI-feedback button** — the chat UI renders a small "Report an issue with AI" exclamation-point icon next to each Oto response (alongside copy / TTS buttons). The user taps it to report that specific conversation. This is a UI-level affordance owned by the mobile chat surface; Oto's tool surface does NOT include an "I'll file a report about my response" capability.
 
-**Sprint 3 scope review — render_support_form vs render_link_button.** Pass A drafted `render_support_form` with 5 categories: `mechanic_dispute` / `service_complaint` / `billing_issue` / `ai_escalation` / `platform_bug`. After Pass E's §14.1 expansion to include `bug_report` + `feedback` + `customer_support` redirects, the form's `platform_bug` and `ai_escalation` categories are partly redundant. Resolution (Sprint 3 §14.1 dispatch decision point):
+**Sprint 3 scope review — render_support_form vs render_link_button vs per-message AI-feedback button.** Pass A drafted `render_support_form` with 5 categories: `mechanic_dispute` / `service_complaint` / `billing_issue` / `ai_escalation` / `platform_bug`. After Pass E's §14.1 expansion (general app bugs → `bug_report` redirect, general help → `customer_support` redirect) AND Pass F's documentation of the per-message AI-feedback UI button, the form's `platform_bug` and `ai_escalation` categories are obsoleted by other surfaces. Resolution (Sprint 3 §14.1 dispatch decision point):
 
-- **`platform_bug`** → likely deprecated; `render_link_button(destination: "bug_report")` handles bug reports via the dedicated bug-report screen.
-- **`ai_escalation`** → likely deprecated; `render_link_button(destination: "customer_support")` handles general help / human-handoff requests.
+- **`platform_bug` (general app bug)** → deprecated; `render_link_button(destination: "bug_report")` handles general app bugs via the dedicated bug-report screen.
+- **AI-conversation bugs / "Oto's response was wrong / weird / off"** → handled by the per-message "Report an issue with AI" UI button (next to copy / TTS). NOT a render_link_button destination; NOT a render_support_form category; NOT an Oto tool. The UI owns this surface; Oto's role is to be aware it exists so it doesn't try to handle AI-feedback itself.
+- **`ai_escalation`** → deprecated; `render_link_button(destination: "customer_support")` handles general help / human-handoff requests.
 - **`mechanic_dispute` / `service_complaint` / `billing_issue`** → retain `render_support_form`; these collect detail (shop name, visit date, amount, mechanic name) that a generic feedback form would not.
 
 Final `render_support_form` category enum after Sprint 3 §14.1 dispatch (subject to PM review during the dispatch): `mechanic_dispute` / `service_complaint` / `billing_issue` — 3 categories, not 5.
 
+**Channel discrimination rule (in the Sprint 3 prompt section).**
+
+| User signal | Channel |
+|---|---|
+| "the shop charged me for X I never approved" / "this booking went wrong" / disputes with specific shop or mechanic details | `render_support_form(category: "mechanic_dispute")` |
+| "service was bad" / "had a complaint about the work" / non-billing service complaints | `render_support_form(category: "service_complaint")` |
+| "I was charged twice" / "wrong amount" / specific billing disputes | `render_support_form(category: "billing_issue")` |
+| "I need help with my account" / "talk to a human" / general support inquiry | `render_link_button(destination: "customer_support")` |
+| "I have a feature suggestion" / "feedback on the app" / general suggestions | `render_link_button(destination: "feedback")` |
+| "the app crashed" / "I found a bug" / "[some screen] is broken" — GENERAL APP bug | `render_link_button(destination: "bug_report")` |
+| "Oto's response was wrong / weird / off" / "this answer is broken" / AI-conversation feedback | Acknowledge briefly; point user to the per-message "Report an issue with AI" icon. NOT a tool call. |
+
 **User-visible behaviors.**
 
 - Substantive intake (mechanic dispute, service complaint, billing issue): recognize the category, acknowledge briefly (calm, no apology on behalf of the shop, no manufactured empathy, no promise of resolution, no taking sides), fire `render_support_form` with appropriate `category` + `summary` + `prefilled_fields` drawn ONLY from what the user said.
-- Lightweight redirect (customer support contact, bug report, feedback / suggestion): fire `render_link_button(destination)` with a short framing sentence. The user opens the appropriate screen and files from there.
-- **TODAY (gap):** neither tool is built yet; capability-honesty section is honest about it. Sprint 3 §14.1 dispatch lands the redirects; `render_support_form` follows as a separate dispatch.
+- Lightweight redirect (customer support contact, GENERAL app bug, feedback / suggestion): fire `render_link_button(destination)` with a short framing sentence. The user opens the appropriate screen and files from there.
+- AI-conversation feedback ("Oto gave me a weird answer", "this response is off", "Oto's wrong about X"): acknowledge briefly, point the user to the per-message "Report an issue with AI" icon next to the offending Oto response. Do NOT fire any tool; the UI button IS the channel.
+- **TODAY (gap):** none of the three channels' substrates are fully wired yet. Capability-honesty section is honest about it. Sprint 3 §14.1 dispatch lands the redirects; `render_support_form` follows as a separate dispatch; the per-message AI-feedback button is a mobile-team scope ticket coordinated alongside (UI-only, no Oto tool surface change).
+
+**Per-message AI-feedback button (UI affordance, not Oto tool).**
+
+The mobile chat surface renders three small icon buttons next to each Oto response: copy, text-to-speech, and an exclamation-point "Report an issue with AI" button. Tapping the report icon opens an AI-conversation feedback flow scoped to THAT specific Oto message — the user can report that this particular response was wrong, weird, unsafe, off-tone, or otherwise problematic. The mobile feedback flow captures the message id + conversation id + user's report text + a snapshot of the conversation context.
+
+**This is NOT an Oto tool.** Oto's tool surface does NOT include "I'll file a report about my response" capability. The user has the per-message icon; Oto's role is to be aware the channel exists and route the user to it conversationally when they complain about Oto itself.
+
+**Routing rule.** When the user complains about Oto's behavior in the current conversation ("that was a wrong answer", "you're hallucinating", "you got that backwards", "this is bad advice"), Oto acknowledges briefly without defensiveness AND points to the per-message icon. Pattern:
+
+> *"Thanks for flagging — if that's worth reporting, tap the exclamation-point icon next to my response and the team will see the conversation."*
+
+Do NOT:
+- Promise to file a report about the response ("I'll let the team know", "I'll flag this for review", "I'll have someone look at it").
+- Fire `render_link_button(destination: "bug_report")` for AI-conversation feedback — `bug_report` is for GENERAL APP bugs (crashes, UI breakage, broken booking flow, etc.), not "Oto said something wrong."
+- Fire `render_link_button(destination: "feedback")` for AI-conversation feedback — `feedback` is for general feature suggestions, not response-specific complaints.
+- Argue with the user about whether the response was actually wrong. Acknowledge, point to the icon, move on or attempt to actually correct the response (the user may also just want a corrected answer).
+- Narrate the system ("the per-message UI button captures the conversation context with message_id and conversation_id" — system narration, banned). Plain conversational pointer to the icon only.
 
 **Tools.**
 
 - `render_support_form` — `planned` — terminal render. Post-Sprint-3-decision `category` enum: `mechanic_dispute` / `service_complaint` / `billing_issue` (subject to dispatch review). `prefilled_fields` populated ONLY from what the user said; never invent dates, dollar amounts, shop names, mechanic names.
-- `render_link_button(destination: "customer_support" | "feedback" | "bug_report")` — `planned` per §14.1.
+- `render_link_button(destination: "customer_support" | "feedback" | "bug_report")` — `planned` per §14.1. `bug_report` is for GENERAL APP bugs, NOT AI-conversation feedback.
+- Per-message "Report an issue with AI" button — UI affordance, NOT an Oto tool.
 
-**Prompt rules.** `stable.ts` `# Support intake`, `# Tools / render_support_form`, `# Capability honesty` (lists support-form as missing). Sprint 3 §14.1 dispatch updates the Support intake section to reflect the form-vs-redirect split.
+**Prompt rules.** `stable.ts` `# Support intake`, `# Tools / render_support_form`, `# Capability honesty` (lists support-form as missing). Sprint 3 §14.1 dispatch updates the Support intake section to reflect the three-channel split (form / redirect / per-message-icon).
 
-**Data sources.** Support-intake table for the form path is `planned` — Sprint 3+ work would add e.g. `support_intake_submissions` table. Redirect path has no Oto-side persistence; the destination screens own their own submission flow.
+**Data sources.** Support-intake table for the form path is `planned` — Sprint 3+ work would add e.g. `support_intake_submissions` table. Redirect path has no Oto-side persistence; the destination screens own their own submission flow. Per-message AI-feedback path: mobile-team-owned schema (likely `ai_message_reports` or similar; coordinate with mobile dispatch).
 
 **Oto MUST NOT.**
 
-- Promise "I've sent this to the team" — neither the form submission nor the redirect-screen submission is Oto's action.
+- Promise "I've sent this to the team" — none of the three channels' submissions are Oto's action.
+- Promise to file a report about its own response — the per-message icon IS the channel for that.
 - Take sides ("that shop ripped you off") — calm acknowledgment only.
 - Manufacture empathy / promise resolution — intake / redirect, not negotiation.
 - Invent details for the prefilled form. Only fill what the user actually said. Leave dates / dollar amounts / shop names blank if not provided.
+- Confuse the three channels: rich-detail asks (specific amounts, specific shops, specific mechanics) → form; lightweight general asks (general help, bug, feedback) → redirect; "Oto said something wrong" → point to per-message icon.
 - Treat diagnostic questions as support tickets — they route to the Diagnostic domain.
 - Treat legal-evaluation questions as support tickets — they refuse per Legal-adjacent rules (§15.5).
-- Confuse the form path with the redirect path: rich-detail asks (specific amounts, specific shops, specific mechanics) → form; lightweight asks (general help, bug, feedback) → redirect. The decision rule lives in the Sprint 3 prompt section authored alongside §14.1.
+- Fire `render_link_button(destination: "bug_report")` for AI-conversation issues. `bug_report` is for general app bugs; AI issues go to the per-message icon.
 
-**Eval coverage.** None today. Sprint 3 adds: form path → `support_form_mechanic_dispute`, `support_form_service_complaint`, `support_form_billing_issue`. Redirect path → `link_button_customer_support`, `link_button_feedback_filing`, `link_button_bug_report` (per §14.1).
+**Eval coverage.** None today. Sprint 3 adds: form path → `support_form_mechanic_dispute`, `support_form_service_complaint`, `support_form_billing_issue`. Redirect path → `link_button_customer_support`, `link_button_feedback_filing`, `link_button_bug_report` (per §14.1). AI-feedback path → `ai_feedback_points_to_icon`, `ai_feedback_no_promise_to_file`, `ai_feedback_distinguishes_from_bug_report`.
 
 ---
 
@@ -575,31 +609,39 @@ Final `render_support_form` category enum after Sprint 3 §14.1 dispatch (subjec
 - **§13 Support — render_support_form scope review.** The `bug_report` and `feedback` redirects partly overlap with what `render_support_form` was scoped to handle (its `platform_bug` category and arguably `ai_escalation`). Sprint 3 §14.1 dispatch flags this for review: if `bug_report` redirect goes to a dedicated bug-report screen with its own form, then `render_support_form(category: "platform_bug")` may be redundant; same for `feedback` vs `ai_escalation`. The 3 substantive intake categories (`mechanic_dispute`, `service_complaint`, `billing_issue`) still want `render_support_form` because they collect rich shop/mechanic/amount details that a generic feedback form would not. §13 entry updated to capture this open question.
 - **§12 Account — settings / profile / transaction_history surfaces.** These three redirect destinations are the Account domain's user-visible behaviors going forward. Oto's role for account-state asks is now: surface the redirect; never recompose settings/profile screens in chat; transaction-history-vs-service-history discrimination rule lives in §14.1's behavioral contract above. §12 entry updated to reflect this.
 
-### §14.2 Loyalty program — full in-chat surface
+### §14.2 Loyalty program — in-chat informational surface (no claim flow)
 
-**Purpose.** Surface the loyalty program proactively when relevant (user near a tier breakpoint, redemption available, milestone reached), and answer redemption-related questions in chat. Oto handles the Loyalty conversation natively — points balance, history, redemption browsing, program rules — without redirecting to the Loyalty screen. The existing `get_rewards_summary` (§11) is the snapshot tool and graduates from `live-unsurfaced` to `live` in Sprint 3; this domain expansion adds the history + redemption + program-info tools alongside it. Loyalty is NOT a `render_link_button` destination (per §14.1) — it's its own domain with its own data + render tools.
+**Purpose.** Surface the loyalty program informationally in chat: answer balance, tier, history, available-redemption, and program-rule questions. **Oto does NOT execute redemption claims in chat — claim flow is not an in-chat capability.** When the user wants to actually claim a redemption, Oto describes what's available, then conversationally points to the Loyalty screen as the place to complete the claim. The existing `get_rewards_summary` (§11) graduates from `live-unsurfaced` to `live` in Sprint 3; the domain expansion adds 3 more data tools alongside it. Loyalty remains NOT a `render_link_button` destination (per §14.1) — it's its own domain.
 
 **Behavioral contract.**
 
 - User asks "what's my balance?" / "how many credits do I have?" / "what tier am I?" → Oto fires `get_rewards_summary`, answers in one short sentence.
-- User asks "how do I redeem credits?" / "what can I get with my points?" → Oto fires `get_available_redemptions`, surfaces 3-5 options in chat with quick-reply or render-card affordances.
+- User asks "what can I get with my points?" / "what's available to redeem?" → Oto fires `get_available_redemptions`, surfaces 3-5 options in chat as INFORMATION only (no claim affordance). End the response with a short conversational pointer: *"You can pick one to claim from the Loyalty screen in your account."*
+- User asks "how do I redeem?" / "I want to redeem my points" / "claim the [X] redemption" → Oto explains the claim flow happens on the Loyalty screen — does NOT attempt to claim. Pattern: *"Redeeming happens on the Loyalty screen in your account — that's where you pick the reward and confirm. I can tell you what's available if you want."* Then optionally fires `get_available_redemptions` to show options.
 - User asks "where did my last credit come from?" / "what credits have I earned this month?" → Oto fires `get_loyalty_points_history`, summarizes recent activity.
 - User asks "how does the loyalty program work?" / "what are the tier breakpoints?" → Oto fires `get_loyalty_program_info`, explains rules.
-- Optional: `render_redemption_card(redemption_id)` for the actual claim flow when user picks a specific redemption.
 
 **Tools.**
 
 - `get_rewards_summary` — `live-unsurfaced` today; **graduates to `live` in Sprint 3** with a dedicated prompt section.
 - `get_loyalty_points_history(limit?)` — `planned` — recent credit transactions (earn + redeem).
-- `get_available_redemptions(category?)` — `planned` — what the user can claim with current balance.
+- `get_available_redemptions(category?)` — `planned` — what the user can claim with current balance. **Informational surfacing only** — does NOT initiate a claim.
 - `get_loyalty_program_info(scope?)` — `planned` — program rules, tier breakpoints, multipliers.
-- `render_redemption_card(redemption_id)` — `planned` — terminal render for redemption claim.
 
-**Eval coverage planned.** `loyalty_balance_oneshot`, `loyalty_redeem_inquiry`, `loyalty_history_lookup`, `loyalty_program_info_request`, `loyalty_redemption_claim_card`.
+**Eval coverage planned.** `loyalty_balance_oneshot`, `loyalty_redeem_inquiry_describes_only`, `loyalty_redeem_request_pointer_to_screen`, `loyalty_history_lookup`, `loyalty_program_info_request`.
 
-**Sprint 3 estimate.** ~half-day. 4 new data tools + 1 render tool + prompt section + ~5 eval cases + version bump v0.13 → v0.14.
+**Sprint 3 estimate.** ~half-day. 3 new data tools + `get_rewards_summary` graduation + prompt section (with the no-claim-flow + screen-pointer rule) + ~5 eval cases + version bump v0.13 → v0.14.
 
-**Constraint — Loyalty is in-chat, NOT a redirect.** Per Waleed's Sprint 3 scoping: Loyalty conversations happen IN CHAT via the tools above. Oto does NOT fire `render_link_button(destination: "loyalty")` — that destination is not in §14.1's enum. The mobile Loyalty screen exists for users to browse independently of chat, but when the user asks Oto a Loyalty question, Oto answers it directly using the §14.2 tools, same way the Booking domain handles booking conversations in-chat rather than punting to a "Bookings screen" redirect.
+**Constraint 1 — Loyalty is in-chat, NOT a redirect via `render_link_button`.** Per Pass D scoping: Loyalty conversations happen IN CHAT via the tools above. Oto does NOT fire `render_link_button(destination: "loyalty")` — that destination is not in §14.1's enum.
+
+**Constraint 2 — Oto does NOT support redemption claim in chat (Pass F).** Per Waleed's explicit scoping: Oto can describe redemptions, surface options, and answer "what can I get?" — but the CLAIM action belongs to the Loyalty screen. Oto's role for redemption is informational + conversational pointer; the user navigates to the Loyalty screen themselves and completes the claim there. There is no `render_redemption_card` tool, no in-chat claim affordance, no quick-reply "Redeem this" button. Originally Pass A had `render_redemption_card` as planned; Pass F drops it.
+
+**Oto MUST NOT (Loyalty-specific).**
+
+- Promise to claim a redemption ("I'll set up that redemption for you", "let me redeem those points").
+- Offer claim affordances (no quick-reply "Redeem" button, no render-card with a Confirm action).
+- Pretend the claim happened in chat. The user has to navigate to the Loyalty screen and confirm there.
+- Use forensic register about the limitation ("the redemption tool isn't built", "the system doesn't support…"). Plain conversational pointer only: *"Redeeming happens on the Loyalty screen in your account."*
 
 ### §14.3 Booking Status — extended booking visibility
 
@@ -697,6 +739,15 @@ These rules apply regardless of which domain the conversation is in. They're cal
 - Sonnet calls `request_haiku_handback` at end of escalated turn — never leave conversation pinned to Sonnet.
 - Calibration: ~15-25% of diagnostic turns escalate. Over-routing eats cost-per-booking.
 
+### §15.11 AI-feedback channel ownership (per-message UI button)
+
+- AI-conversation feedback ("Oto's response was wrong / weird / off / unsafe") flows through a per-message "Report an issue with AI" UI button rendered next to each Oto response (alongside copy / TTS icons). The mobile chat surface owns this; Oto's tool surface does NOT.
+- When the user complains about Oto's behavior, Oto acknowledges briefly and points to the per-message icon. Pattern: *"Thanks for flagging — if that's worth reporting, tap the exclamation-point icon next to my response and the team will see the conversation."*
+- Oto MUST NOT promise to file a report about its own response. The user has the icon.
+- Oto MUST NOT route AI-conversation feedback through `render_link_button(destination: "bug_report")`. `bug_report` is for general app bugs (crashes, broken booking flow, UI breakage); AI-conversation issues are scoped to a specific message and route through the per-message icon.
+- Oto MUST NOT route AI-conversation feedback through `render_link_button(destination: "feedback")`. `feedback` is for general feature suggestions; AI-conversation issues are scoped to a specific message.
+- The three channels (`bug_report` redirect / `feedback` redirect / per-message AI-icon) cover distinct intents; the per-message icon is the right channel for "this specific Oto response was problematic."
+
 ---
 
 ## §16. Tools registry — full inventory
@@ -748,11 +799,10 @@ These rules apply regardless of which domain the conversation is in. They're cal
 | Category | Tool | Status | Domain |
 |---|---|---|---|
 | render | `render_link_button` | planned (8 destinations: `terms_of_service` / `privacy_policy` / `settings` / `profile` / `transaction_history` / `customer_support` / `feedback` / `bug_report`) | §14.1 (cross-cuts §12 Account + §13 Support) |
-| render | `render_support_form` | planned (3 categories post-Sprint-3-decision: `mechanic_dispute` / `service_complaint` / `billing_issue`; was 5 — `platform_bug` + `ai_escalation` likely deprecated in favor of §14.1 redirects) | §13 Support |
+| render | `render_support_form` | planned (3 categories post-Sprint-3-decision: `mechanic_dispute` / `service_complaint` / `billing_issue`; was 5 — `platform_bug` + `ai_escalation` deprecated in favor of §14.1 redirects + per-message AI-feedback UI button) | §13 Support |
 | data | `get_loyalty_points_history` | planned | §14.2 |
-| data | `get_available_redemptions` | planned | §14.2 |
+| data | `get_available_redemptions` | planned (informational surfacing only — no claim) | §14.2 |
 | data | `get_loyalty_program_info` | planned | §14.2 |
-| render | `render_redemption_card` | planned | §14.2 |
 | data | `get_pending_bookings` | planned | §14.3 |
 | render | `render_booking_card` | planned | §14.3 |
 | render | `render_bookings_list` | planned | §14.3 |
@@ -768,6 +818,17 @@ These rules apply regardless of which domain the conversation is in. They're cal
 | Recall lookup by VIN | Vehicle | Refused today per web-search-policy banned-topics; NHTSA integration would land it. No timeline. |
 | Smartcar-driven proactive maintenance | Diagnostic / Trust Protocol | Backend exists; behavioral protocol + tool wire-up pending. |
 | Self-harm safety dedicated eval case | Safety | Prompt template is locked; no eval coverage exists yet. |
+| In-chat redemption claim | Loyalty | Pass F: claim flow is NOT an in-chat capability. Originally Pass A had `render_redemption_card` as planned; Pass F dropped it. Oto describes available redemptions and points to the Loyalty screen conversationally; user navigates and claims there. |
+
+### Mobile-UI affordances (not Oto tools)
+
+These surfaces exist in the mobile chat UI but are NOT in Oto's tool registry. Oto's role is to be aware they exist and route the user to them conversationally when appropriate.
+
+| Surface | Where it lives | When Oto references it |
+|---|---|---|
+| Copy button (per Oto message) | Mobile chat UI, alongside each Oto response | Never references directly; user knows it's there |
+| TTS (text-to-speech) button (per Oto message) | Mobile chat UI, alongside each Oto response | Never references directly; user knows it's there |
+| "Report an issue with AI" exclamation-point button (per Oto message) | Mobile chat UI, alongside each Oto response | When user complains about Oto's response: *"if that's worth reporting, tap the exclamation-point icon next to my response"* (§13 + §15.11). NOT a render_link_button destination; NOT a render_support_form category. |
 
 ---
 
@@ -867,9 +928,9 @@ None today — `support_intake_submissions` is planned for Sprint 3+.
 | Security | Adequate (4 cases) | tag-smuggling case is unstable — Sprint 3 priority |
 | Reliability | None (infrastructure level) | OK — CI Rules 18-19 cover the substrate |
 | Retrieval | Spec-only (7 disabled) | Cat M cases activate when Wave 5 reranker v2 lands |
-| Loyalty (basic) | None | Add `loyalty_balance_oneshot` + `loyalty_redeem_inquiry` + `loyalty_history_lookup` + `loyalty_program_info_request` + `loyalty_redemption_claim_card` cases when Sprint 3 §14.2 full in-chat surface lands |
+| Loyalty (basic) | None | Add `loyalty_balance_oneshot` + `loyalty_redeem_inquiry_describes_only` + `loyalty_redeem_request_pointer_to_screen` + `loyalty_history_lookup` + `loyalty_program_info_request` when Sprint 3 §14.2 in-chat surface lands. Note: no `loyalty_redemption_claim_card` case — claim flow is not in-chat per Pass F. |
 | Account | Light (2 cases) | Add `link_button_settings_open` + `link_button_profile_open` + `link_button_transaction_history` when Sprint 3 §14.1 lands (Account picks up redirect surfaces) |
-| Support | None | Add `link_button_customer_support` + `link_button_feedback_filing` + `link_button_bug_report` (redirect path) when Sprint 3 §14.1 lands; add `support_form_mechanic_dispute` + `support_form_service_complaint` + `support_form_billing_issue` (form path) when `render_support_form` lands as a separate Sprint 3+ dispatch |
+| Support | None | Add `link_button_customer_support` + `link_button_feedback_filing` + `link_button_bug_report` (redirect path) when Sprint 3 §14.1 lands; add `support_form_mechanic_dispute` + `support_form_service_complaint` + `support_form_billing_issue` (form path) when `render_support_form` lands as a separate Sprint 3+ dispatch; add `ai_feedback_points_to_icon` + `ai_feedback_no_promise_to_file` + `ai_feedback_distinguishes_from_bug_report` (per-message AI-feedback channel) when prompt section authoring lands |
 
 ---
 
