@@ -469,75 +469,111 @@ Every domain entry follows this shape:
 - Recognize the user by name (from `<user>` block) when natural; never re-introduce after turn 1.
 - Use the user's vehicle context from `<vehicle>` block for vehicle-specific tool calls (`get_vehicle_health(vehicle_id)`, `get_vehicle_facts(vehicle_id)`, etc.).
 - Acknowledge when `<vehicle>` block is absent: *"I'll need to know which vehicle to give you specifics. Have you added it to your account?"*.
+- **Sprint 3 expansion (per §14.1):** route account-screen requests via `render_link_button`:
+  - "take me to settings" / "open settings" / "update preferences" → `render_link_button(destination: "settings")`
+  - "open my profile" / "update my profile" / "change my name/email/phone" → `render_link_button(destination: "profile")`
+  - "show transaction history" / "my billing history" / "past payments" → `render_link_button(destination: "transaction_history")` (distinct from service history via `get_bookings(status_filter: "completed")` which shows shops + dates of work done; transaction_history is the payments-ledger view)
 
-**Tools.** Account state is envelope-injected, not tool-queried by Oto.
+**Tools.**
 
-**Prompt rules.** `stable.ts` `# Vehicle context` (block contract: display name + opaque ID), implicit user-recognition in `# Voice` (no re-intro mid-conv).
+- Account state today: envelope-injected, not tool-queried by Oto.
+- Account redirects (Sprint 3): `render_link_button` per §14.1 for settings / profile / transaction_history.
 
-**Data sources.** `users`, `user_settings_preferences`, `user_mechanic_preferences`, `vehicles`, `vehicle_owners`, `vehicle_owner_specs`, `vehicle_passports`, `vehicle_classifications`, `vehicle_driving_profiles`, `odometer_history`, `smartcar_connections`, `onboarding_questions_answers`.
+**Prompt rules.** `stable.ts` `# Vehicle context` (block contract: display name + opaque ID), implicit user-recognition in `# Voice` (no re-intro mid-conv). Sprint 3 adds the redirect-routing rules per §14.1 dispatch.
+
+**Data sources.** `users`, `user_settings_preferences`, `user_mechanic_preferences`, `vehicles`, `vehicle_owners`, `vehicle_owner_specs`, `vehicle_passports`, `vehicle_classifications`, `vehicle_driving_profiles`, `odometer_history`, `smartcar_connections`, `onboarding_questions_answers`, `transactions`, `payments` (for transaction_history redirect target).
 
 **Oto MUST NOT.**
 
 - Autonomously write to account state (mileage update, phone number change, vehicle add/remove, preference flag). Trust Protocol render-confirm gate applies; no shortcut for "obvious" corrections.
 - Invent a vehicle when `<vehicle>` is absent — ask the user.
 - Re-introduce itself on turn 2+. User knows who Oto is.
+- Recompose settings / profile / transaction-history content in chat. The screens own those surfaces; Oto's role is the redirect, not the data display.
+- Confuse transaction history with service history. Transaction history = payments ledger (`render_link_button: transaction_history`). Service history = past completed bookings with shop/date detail (`get_bookings(status_filter: "completed")` in-chat).
 
-**Eval coverage.** `user_is_*`, `mileage_remembered`, vehicle-context-aware variants across symptom-routing cases.
+**Eval coverage.** `user_is_*`, `mileage_remembered`, vehicle-context-aware variants across symptom-routing cases. Sprint 3 adds `link_button_settings_open`, `link_button_profile_open`, `link_button_transaction_history` per §14.1.
 
 ---
 
-## §13. Support — intake routing
+## §13. Support — intake routing + redirect channels
 
-**Purpose.** Five support categories — mechanic disputes, general service complaints, billing issues, AI escalations, platform bugs. Oto's role is intake: recognize the category from what the user said, fire `render_support_form` with prefilled fields drawn ONLY from what the user explicitly mentioned, and route the user to submit. **`render_support_form` is `planned` — referenced in the prompt + Example 5 + capability-honesty list, but NOT in `convex/oto/tools.ts`.** Today, Oto's capability-honesty section is honest: *"File support tickets (the support form tool isn't built yet)"*.
+**Purpose.** Two surfaces. (1) **Substantive intake** — mechanic disputes, general service complaints, billing issues. Oto recognizes the category, fires `render_support_form` with prefilled fields drawn ONLY from what the user explicitly said, and routes the user to submit. These three categories collect rich shop / mechanic / amount detail that warrants a form. (2) **Lightweight redirects** — customer support contact, feature feedback, bug reports. These route via `render_link_button` (§14.1) to dedicated screens rather than the in-chat intake form.
+
+**Sprint 3 scope review — render_support_form vs render_link_button.** Pass A drafted `render_support_form` with 5 categories: `mechanic_dispute` / `service_complaint` / `billing_issue` / `ai_escalation` / `platform_bug`. After Pass E's §14.1 expansion to include `bug_report` + `feedback` + `customer_support` redirects, the form's `platform_bug` and `ai_escalation` categories are partly redundant. Resolution (Sprint 3 §14.1 dispatch decision point):
+
+- **`platform_bug`** → likely deprecated; `render_link_button(destination: "bug_report")` handles bug reports via the dedicated bug-report screen.
+- **`ai_escalation`** → likely deprecated; `render_link_button(destination: "customer_support")` handles general help / human-handoff requests.
+- **`mechanic_dispute` / `service_complaint` / `billing_issue`** → retain `render_support_form`; these collect detail (shop name, visit date, amount, mechanic name) that a generic feedback form would not.
+
+Final `render_support_form` category enum after Sprint 3 §14.1 dispatch (subject to PM review during the dispatch): `mechanic_dispute` / `service_complaint` / `billing_issue` — 3 categories, not 5.
 
 **User-visible behaviors.**
 
-- Recognize support intake from user phrasing ("the shop charged me for X I never approved", "billing issue", "app bug").
-- Acknowledge the issue briefly — calm, no apology on behalf of the shop, no manufactured empathy, no promise of resolution, no taking sides.
-- **TODAY (gap):** acknowledge honestly that support intake tool isn't built; route the user to in-app support flow externally.
-- **PLANNED (Sprint 3+):** fire `render_support_form(category, summary, prefilled_fields)` with appropriate category and ONLY user-mentioned fields.
+- Substantive intake (mechanic dispute, service complaint, billing issue): recognize the category, acknowledge briefly (calm, no apology on behalf of the shop, no manufactured empathy, no promise of resolution, no taking sides), fire `render_support_form` with appropriate `category` + `summary` + `prefilled_fields` drawn ONLY from what the user said.
+- Lightweight redirect (customer support contact, bug report, feedback / suggestion): fire `render_link_button(destination)` with a short framing sentence. The user opens the appropriate screen and files from there.
+- **TODAY (gap):** neither tool is built yet; capability-honesty section is honest about it. Sprint 3 §14.1 dispatch lands the redirects; `render_support_form` follows as a separate dispatch.
 
 **Tools.**
 
-- `render_support_form` — `planned` — terminal render. `category` enum: `mechanic_dispute` / `service_complaint` / `billing_issue` / `ai_escalation` / `platform_bug`. `prefilled_fields` populated ONLY from what the user explicitly said; never invent dates, dollar amounts, shop names, mechanic names.
+- `render_support_form` — `planned` — terminal render. Post-Sprint-3-decision `category` enum: `mechanic_dispute` / `service_complaint` / `billing_issue` (subject to dispatch review). `prefilled_fields` populated ONLY from what the user said; never invent dates, dollar amounts, shop names, mechanic names.
+- `render_link_button(destination: "customer_support" | "feedback" | "bug_report")` — `planned` per §14.1.
 
-**Prompt rules.** `stable.ts` `# Support intake`, `# Tools / render_support_form`, `# Capability honesty` (lists support-form as missing).
+**Prompt rules.** `stable.ts` `# Support intake`, `# Tools / render_support_form`, `# Capability honesty` (lists support-form as missing). Sprint 3 §14.1 dispatch updates the Support intake section to reflect the form-vs-redirect split.
 
-**Data sources.** Support-intake table is `planned` — Sprint 3 work would add e.g. `support_intake_submissions` table. None today.
+**Data sources.** Support-intake table for the form path is `planned` — Sprint 3+ work would add e.g. `support_intake_submissions` table. Redirect path has no Oto-side persistence; the destination screens own their own submission flow.
 
 **Oto MUST NOT.**
 
-- Promise "I've sent this to the team" — the form's submission is the user's action.
+- Promise "I've sent this to the team" — neither the form submission nor the redirect-screen submission is Oto's action.
 - Take sides ("that shop ripped you off") — calm acknowledgment only.
-- Manufacture empathy / promise resolution — intake, not negotiation.
+- Manufacture empathy / promise resolution — intake / redirect, not negotiation.
 - Invent details for the prefilled form. Only fill what the user actually said. Leave dates / dollar amounts / shop names blank if not provided.
-- Treat diagnostic questions as support tickets — they route to the booking domain.
-- Treat legal-evaluation questions as support tickets — they refuse per Legal-adjacent rules.
+- Treat diagnostic questions as support tickets — they route to the Diagnostic domain.
+- Treat legal-evaluation questions as support tickets — they refuse per Legal-adjacent rules (§15.5).
+- Confuse the form path with the redirect path: rich-detail asks (specific amounts, specific shops, specific mechanics) → form; lightweight asks (general help, bug, feedback) → redirect. The decision rule lives in the Sprint 3 prompt section authored alongside §14.1.
 
-**Eval coverage.** None today — gap to address when `render_support_form` lands. Closest is mechanical_refusal cases which exercise scope refusal rather than support intake.
+**Eval coverage.** None today. Sprint 3 adds: form path → `support_form_mechanic_dispute`, `support_form_service_complaint`, `support_form_billing_issue`. Redirect path → `link_button_customer_support`, `link_button_feedback_filing`, `link_button_bug_report` (per §14.1).
 
 ---
 
 ## §14. Planned — Sprint 3 Tier 2 feature surfaces
 
-### §14.1 `render_link_button` — TOS / Privacy Policy redirect
+### §14.1 `render_link_button` — app-navigation redirect surface
 
-**Purpose.** When the user asks for the Terms of Service or the Privacy Policy, Oto renders a tap-to-redirect button instead of pasting a URL or quoting policy text. Two destinations only — this is the legal-document redirect pattern. Loyalty is explicitly NOT a destination of this tool (Loyalty has its own in-chat surface per §14.2); other static-link asks (customer support contact, accessibility statement, data policy, bug report) are NOT in scope either and route through Support intake (§13) or remain `missing-gap`.
+**Purpose.** When the user asks to go to a specific in-app screen (legal documents, account screens, support/feedback channels), Oto renders a tap-to-redirect button instead of recomposing screen content in chat. Eight destinations — this is the general app-navigation redirect surface. Loyalty is explicitly NOT a destination of this tool (Loyalty has its own in-chat surface per §14.2); the Loyalty conversation happens in chat the same way the Booking conversation does.
 
-**Behavioral contract.**
+**Behavioral contract — per destination.**
 
-- User asks about TOS ("where's the terms of service?", "show me the terms", "what are your terms?") → Oto fires `render_link_button(destination: "terms_of_service")` with a short framing sentence.
-- User asks about Privacy ("what's your privacy policy?", "data privacy", "show me the privacy policy") → Oto fires `render_link_button(destination: "privacy_policy")`.
-- Mobile component renders a tap-to-open button; on tap, the in-app browser opens the appropriate policy page.
+| Trigger phrasing | `destination` | Target screen |
+|---|---|---|
+| *"show me the terms"*, *"where's the TOS?"*, *"what are your terms of service?"* | `terms_of_service` | In-app browser → TOS page |
+| *"what's your privacy policy?"*, *"data privacy"*, *"show me the privacy policy"* | `privacy_policy` | In-app browser → Privacy Policy page |
+| *"take me to settings"*, *"where can I change my preferences?"*, *"open settings"*, *"I want to update notification settings"* | `settings` | Settings screen |
+| *"open my profile"*, *"where's my profile?"*, *"I want to update my profile info"*, *"change my name / email / phone"* | `profile` | Profile screen |
+| *"show me my transaction history"*, *"where can I see past payments?"*, *"what have I been charged?"*, *"my billing history"* | `transaction_history` | Transactions / Billing History screen (distinct from `get_bookings(status_filter: "completed")` which gives service-history with shops + dates; transaction history is the payments view) |
+| *"how do I reach support?"*, *"contact customer support"*, *"talk to a human"*, *"I need help with my account"* | `customer_support` | Customer Support / Help screen (contact info + help articles) |
+| *"I want to leave feedback"*, *"I have a suggestion"*, *"feature request"*, *"how do I submit feedback?"* | `feedback` | App-feedback screen (general feedback / suggestions) |
+| *"I found a bug"*, *"the app crashed"*, *"something's broken"*, *"how do I report a bug?"* | `bug_report` | Bug-report screen |
+
+**Per-turn behavior.**
+
+- Oto fires `render_link_button(destination, label?)` with a short framing sentence (e.g. *"Settings is in your account area — tap to open."*).
+- Mobile component renders a tap-to-open button; on tap, the app navigates to the appropriate screen (deep-link for in-app destinations; in-app browser for TOS / Privacy).
 - Terminal render — calling it ends the turn.
+- `label?` lets Oto override the default button text when context demands (e.g., user asked specifically about "notification settings" → `label: "Open notification settings"`).
 
 **Tools.**
 
-- `render_link_button(destination, label?)` — `planned` — terminal render. `destination` enum: `terms_of_service` / `privacy_policy`. No other destinations are in scope; the enum is the contract.
+- `render_link_button(destination, label?)` — `planned` — terminal render. `destination` enum (8 values): `terms_of_service` / `privacy_policy` / `settings` / `profile` / `transaction_history` / `customer_support` / `feedback` / `bug_report`. The enum is the contract — adding a 9th destination requires a registry update + prompt-rule bump.
 
-**Eval coverage planned.** `link_button_tos_request`, `link_button_privacy_request`.
+**Eval coverage planned.** `link_button_tos_request`, `link_button_privacy_request`, `link_button_settings_open`, `link_button_profile_open`, `link_button_transaction_history`, `link_button_customer_support`, `link_button_feedback_filing`, `link_button_bug_report`.
 
-**Sprint 3 estimate.** ~quarter-day. Smallest new feature surface; sets the redirect pattern for legal documents only.
+**Sprint 3 estimate.** ~half-day. 1 new tool + 8 dispatcher branches + 1 prompt section + ~8 eval cases (one per destination) + version bump v0.13 → v0.14.
+
+**Cross-domain implications.**
+
+- **§13 Support — render_support_form scope review.** The `bug_report` and `feedback` redirects partly overlap with what `render_support_form` was scoped to handle (its `platform_bug` category and arguably `ai_escalation`). Sprint 3 §14.1 dispatch flags this for review: if `bug_report` redirect goes to a dedicated bug-report screen with its own form, then `render_support_form(category: "platform_bug")` may be redundant; same for `feedback` vs `ai_escalation`. The 3 substantive intake categories (`mechanic_dispute`, `service_complaint`, `billing_issue`) still want `render_support_form` because they collect rich shop/mechanic/amount details that a generic feedback form would not. §13 entry updated to capture this open question.
+- **§12 Account — settings / profile / transaction_history surfaces.** These three redirect destinations are the Account domain's user-visible behaviors going forward. Oto's role for account-state asks is now: surface the redirect; never recompose settings/profile screens in chat; transaction-history-vs-service-history discrimination rule lives in §14.1's behavioral contract above. §12 entry updated to reflect this.
 
 ### §14.2 Loyalty program — full in-chat surface
 
@@ -711,8 +747,8 @@ These rules apply regardless of which domain the conversation is in. They're cal
 
 | Category | Tool | Status | Domain |
 |---|---|---|---|
-| render | `render_support_form` | planned | Support |
-| render | `render_link_button` | planned (2 destinations: `terms_of_service` / `privacy_policy`) | §14.1 |
+| render | `render_link_button` | planned (8 destinations: `terms_of_service` / `privacy_policy` / `settings` / `profile` / `transaction_history` / `customer_support` / `feedback` / `bug_report`) | §14.1 (cross-cuts §12 Account + §13 Support) |
+| render | `render_support_form` | planned (3 categories post-Sprint-3-decision: `mechanic_dispute` / `service_complaint` / `billing_issue`; was 5 — `platform_bug` + `ai_escalation` likely deprecated in favor of §14.1 redirects) | §13 Support |
 | data | `get_loyalty_points_history` | planned | §14.2 |
 | data | `get_available_redemptions` | planned | §14.2 |
 | data | `get_loyalty_program_info` | planned | §14.2 |
@@ -722,6 +758,8 @@ These rules apply regardless of which domain the conversation is in. They're cal
 | render | `render_bookings_list` | planned | §14.3 |
 
 **Loyalty graduation (Sprint 3).** `get_rewards_summary` graduates from `live-unsurfaced` to `live` in Sprint 3 as part of the §14.2 dispatch — same tool, new prompt section gating when Oto calls it (alongside the 4 new Loyalty data tools above).
+
+**`render_link_button` is the highest-leverage Sprint 3 dispatch.** It cross-cuts §12 Account (settings / profile / transaction_history) + §13 Support (customer_support / feedback / bug_report) + §14.1 legal docs (TOS / Privacy), and obsoletes part of `render_support_form`'s original 5-category enum. Recommend authoring §14.1 first, then `render_support_form` with the revised 3-category enum, then Loyalty + Booking Status as separate dispatches.
 
 ### Missing-gap (no tool, no prompt section)
 
@@ -830,8 +868,8 @@ None today — `support_intake_submissions` is planned for Sprint 3+.
 | Reliability | None (infrastructure level) | OK — CI Rules 18-19 cover the substrate |
 | Retrieval | Spec-only (7 disabled) | Cat M cases activate when Wave 5 reranker v2 lands |
 | Loyalty (basic) | None | Add `loyalty_balance_oneshot` + `loyalty_redeem_inquiry` + `loyalty_history_lookup` + `loyalty_program_info_request` + `loyalty_redemption_claim_card` cases when Sprint 3 §14.2 full in-chat surface lands |
-| Account | Light (2 cases) | OK for now |
-| Support | None | Add when §14 `render_support_form` lands |
+| Account | Light (2 cases) | Add `link_button_settings_open` + `link_button_profile_open` + `link_button_transaction_history` when Sprint 3 §14.1 lands (Account picks up redirect surfaces) |
+| Support | None | Add `link_button_customer_support` + `link_button_feedback_filing` + `link_button_bug_report` (redirect path) when Sprint 3 §14.1 lands; add `support_form_mechanic_dispute` + `support_form_service_complaint` + `support_form_billing_issue` (form path) when `render_support_form` lands as a separate Sprint 3+ dispatch |
 
 ---
 

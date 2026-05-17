@@ -22,6 +22,7 @@ Three passes (Pass A authored the registry, Pass B the log, Pass C corrected §1
 | B | Day 1 log | PM | `docs/SPRINT_3_DAY_1_LOG.md` (this file) | PM |
 | C | §14 scope correction post-Waleed review (intermediate state — superseded) | PM (mechanical) | `docs/OTO_CAPABILITY_REGISTRY.md` (§14.1 enum 6→3; Loyalty downgraded to redirect-only) | Correction |
 | D | §14 scope re-correction — Loyalty in-chat, not redirect | PM (mechanical) | `docs/OTO_CAPABILITY_REGISTRY.md` (§14.1 enum 3→2 [TOS+Privacy only]; §14.2 restored to full in-chat surface; §11 + §16 + §18 reverted accordingly) | Correction |
+| E | §14.1 enum expansion — 6 new app-navigation destinations | PM (mechanical) | `docs/OTO_CAPABILITY_REGISTRY.md` (§14.1 enum 2→8: adds settings + profile + transaction_history + customer_support + feedback + bug_report; §12 Account + §13 Support updated with cross-domain implications; `render_support_form` 5→3 categories) | Expansion |
 
 ### 1.1 Why PM-mechanical, not a subagent dispatch
 
@@ -159,6 +160,36 @@ Pass D ships these corrections to bring the registry back to a coherent state:
 
 **Methodology signal.** Pass D demonstrates the value of explicit registry passes: Pass C's misread of stakeholder intent landed in a commit, and Pass D corrected it cleanly without reverting the underlying Pass A registry — the §19 governance pattern (corrections land as new passes) handles ambiguity in stakeholder review without rewriting history. The registry's audit trail is 3 commits per Pass A / C / D + 1 for Pass B (log) = 4 commits, all preserved, with the final-state registry being Pass D's contents. Future stakeholder reviews that change scope can land as Pass E / F / etc.; the doc stays coherent because each pass edits the same domain entries.
 
+### 2.5 Pass E — §14.1 enum expansion to 8 app-navigation destinations
+
+Waleed expanded the `render_link_button` scope from "legal documents only" (TOS + Privacy) to a general app-navigation redirect surface. Six new destinations added: `settings`, `profile`, `transaction_history`, `customer_support`, `feedback`, `bug_report`. Final §14.1 enum: 8 destinations.
+
+Pass E changes:
+
+1. **§14.1 rewritten** with the 8-destination enum + per-destination trigger-phrasing table. New purpose framing: "general app-navigation redirect surface" rather than "legal-document redirect pattern." `label?` parameter retained for context-specific button text overrides (e.g. "Open notification settings" when user specifically asked about notifications).
+
+2. **§12 Account expanded** — `settings` / `profile` / `transaction_history` are now Account-domain redirect surfaces. Account's "Tools" line adds the redirect path. Account "MUST NOT" gains: never recompose settings/profile/transaction-history content in chat; never confuse transaction history (payments ledger via redirect) with service history (completed bookings via `get_bookings(status_filter: "completed")`). §17 Account data sources updated to include `transactions` + `payments` (for transaction_history redirect target).
+
+3. **§13 Support rewritten** with form-vs-redirect split:
+   - **Form path (3 categories after Sprint 3 §14.1 dispatch decision):** `mechanic_dispute` / `service_complaint` / `billing_issue` — these collect rich detail (shop, mechanic, amount) and warrant `render_support_form`.
+   - **Redirect path (3 destinations via §14.1):** `customer_support` / `feedback` / `bug_report` — lightweight redirects to dedicated screens.
+   - **Deprecation flagged:** `render_support_form`'s original 5-category enum had `platform_bug` (redundant with §14.1 `bug_report` redirect) and `ai_escalation` (redundant with §14.1 `customer_support` redirect). Sprint 3 §14.1 dispatch reviews and likely deprecates both — final form enum becomes 3 categories.
+
+4. **§16 Tools registry updated** — `render_link_button` row shows 8-destination enum inline; `render_support_form` row notes 5→3 category reduction post-Sprint-3-decision. Recommendation note added: §14.1 is the highest-leverage Sprint 3 dispatch (cross-cuts §12 + §13 + Legal); author it FIRST, then `render_support_form`, then Loyalty + Booking Status.
+
+5. **§18 eval-coverage scorecard updated** — Account row gains 3 new redirect prefixes (`link_button_settings_open`, `link_button_profile_open`, `link_button_transaction_history`); Support row gains 3 redirect prefixes (`link_button_customer_support`, `link_button_feedback_filing`, `link_button_bug_report`) + 3 form prefixes (`support_form_mechanic_dispute`, `support_form_service_complaint`, `support_form_billing_issue`).
+
+**Sprint 3 Tier 2 budget update.** §14.1 expanded from ~quarter-day (2 destinations) to ~half-day (8 destinations + cross-domain prompt-section updates). Updated Tier 2 net:
+
+- §14.1 render_link_button (8 destinations) + §12 + §13 prompt-section updates  ~half-day
+- §14.2 Loyalty full in-chat surface                                            ~half-day
+- §14.3 Booking Status                                                          ~half-day
+- `render_support_form` 3-category dispatch (separate, Sprint 3+)               ~half-day
+- Net Tier 2 (excluding support_form): ~1.5 days
+- Net Tier 2 (including support_form): ~2 days
+
+**Methodology signal.** Pass E is an EXPANSION pass, not a correction — Waleed didn't reverse Pass D, he added to it. The Pass D version's 2-destination enum was correct as a SUBSET; Pass E grows the surface. Distinguishing expansion from correction matters for the audit trail: corrections (C, D) flag prior passes as superseded; expansions (E) build on prior passes. Future stakeholder iterations that grow scope should land as expansions; iterations that change interpretation land as corrections. Each pass's commit message should make the type explicit.
+
 ---
 
 ## 3. Sprint 3 Day 1 Verification
@@ -224,6 +255,6 @@ Per handoff §6, the Sprint 3 priority queue carries forward. The registry being
 
 ## 6. The Day 1 one-line summary
 
-**Sprint 3 opens with the capability registry across 4 PM-mechanical passes: Pass A (commit `56a59ab`) shipped `docs/OTO_CAPABILITY_REGISTRY.md` (857 lines, 20 sections); Pass B (commit `caac4fe`) shipped the Day 1 log; Pass C (commit `9c417ef`) tightened §14.1 `render_link_button` enum from 6→3 destinations and downgraded §14.2 Loyalty to "redirect-only for Sprint 3" — an intermediate state Pass D superseded after Waleed clarified Loyalty is NOT a `render_link_button` destination; Pass D (this commit) re-narrowed §14.1 enum to 2 destinations (`terms_of_service` + `privacy_policy` only) and restored §14.2 to the original "full in-chat Loyalty surface" Pass A spec (4 new data tools: `get_loyalty_points_history` + `get_available_redemptions` + `get_loyalty_program_info` + `render_redemption_card`, plus `get_rewards_summary` graduation from `live-unsurfaced` to `live`, plus a dedicated prompt section); §11 + §16 + §18 reverted accordingly; 20/20 CI green throughout; schema hash unchanged; no code/schema touch across all four passes; the registry's final-state contract has `render_link_button` as a 2-destination legal-document redirect surface and Loyalty as its own in-chat domain (NOT a redirect target), exactly matching Waleed's clarified Sprint 3 scoping; the §19 governance pattern handled stakeholder-review ambiguity cleanly without rewriting history — Pass C's commit stays in the audit trail, Pass D's commit corrects forward; Sprint 3 Day 2 picks up Tier 2 — `render_link_button` (TOS + Privacy only, ~quarter-day) + Loyalty full in-chat surface (~half-day) + Booking Status (~half-day) = ~1.25 days net Tier 2 dispatch budget.**
+**Sprint 3 opens with the capability registry across 5 PM-mechanical passes: Pass A (commit `56a59ab`) shipped `docs/OTO_CAPABILITY_REGISTRY.md` (857 lines, 20 sections); Pass B (commit `caac4fe`) shipped the Day 1 log; Pass C (commit `9c417ef`) tightened §14.1 `render_link_button` enum from 6→3 destinations and downgraded §14.2 Loyalty — intermediate state superseded by Pass D after Waleed clarified Loyalty is NOT a redirect; Pass D (commit `2313c78`) re-narrowed §14.1 enum to 2 destinations (`terms_of_service` + `privacy_policy`) and restored §14.2 to full in-chat Loyalty surface; Pass E (this commit) EXPANDED §14.1 enum 2→8 destinations after Waleed listed 6 additional app-navigation redirect targets (`settings` + `profile` + `transaction_history` + `customer_support` + `feedback` + `bug_report`), updated §12 Account to pick up settings/profile/transaction_history redirect surfaces with the transaction-history-vs-service-history discrimination rule, rewrote §13 Support with the form-vs-redirect split (form path 3 substantive categories: mechanic_dispute / service_complaint / billing_issue; redirect path 3 destinations: customer_support / feedback / bug_report; `render_support_form` original 5-category enum reduces to 3 because `platform_bug` and `ai_escalation` are obsoleted by §14.1 redirects), updated §16 with 8-destination enum inline and the recommendation that §14.1 is the highest-leverage Sprint 3 dispatch since it cross-cuts §12 + §13 + legal docs, updated §18 scorecard with 6 new redirect eval prefixes + 3 form eval prefixes; 20/20 CI green throughout; schema hash unchanged; no code/schema touch across all five passes; the registry's final-state contract has `render_link_button` as a general 8-destination app-navigation redirect surface (legal docs + account screens + support/feedback channels), `render_support_form` as a 3-category substantive intake form (Sprint 3+ dispatch), and Loyalty as its own in-chat domain via §14.2; Pass C / D / E demonstrate the distinction between correction passes (C, D — flag prior as superseded) and expansion passes (E — build on prior); Sprint 3 Day 2 picks up Tier 2 — `render_link_button` (8 destinations, cross-domain prompt updates) ~half-day → Loyalty full in-chat surface ~half-day → Booking Status ~half-day → `render_support_form` 3-category dispatch ~half-day; net Tier 2 ~2 days.**
 
-— End of Sprint 3 Day 1. The architecture-discipline foundation + two stakeholder-review-correction passes (C superseded by D) are in place; the registry's final-state contract reflects Waleed's Sprint 3 scoping; capability expansion starts Day 2.
+— End of Sprint 3 Day 1. The architecture-discipline foundation + two correction passes (C superseded by D) + one expansion pass (E) are in place; the registry's final-state contract reflects Waleed's fully-iterated Sprint 3 scoping; capability expansion starts Day 2.
