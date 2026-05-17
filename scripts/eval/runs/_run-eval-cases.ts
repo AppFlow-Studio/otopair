@@ -136,6 +136,12 @@ function collectToolNames(iter: IterTrace): string[] {
     ...(iter.terminal_tool_uses ?? []),
   ].map((t) => t.name);
 }
+function collectFiredTools(result: SendResult): string[] {
+  const iters = result.trace?.iterations ?? [];
+  const set = new Set<string>();
+  for (const it of iters) for (const n of collectToolNames(it)) set.add(n);
+  return [...set];
+}
 interface SendResult {
   text: string;
   trace?: {
@@ -276,7 +282,7 @@ async function runCase(c: Case): Promise<{ name: string; pass: boolean; turnResu
     }
   }
 
-  const turnResults: Array<{ idx: number; pass: boolean; reasons: string[] }> = [];
+  const turnResults: Array<{ idx: number; pass: boolean; reasons: string[]; text?: string; toolsFired?: string[] }> = [];
   for (let i = 0; i < c.turns.length; i++) {
     const turn = c.turns[i];
     let result: SendResult;
@@ -298,7 +304,14 @@ async function runCase(c: Case): Promise<{ name: string; pass: boolean; turnResu
       break;
     }
     const { pass, reasons } = assertExpect(turn, i, result);
-    turnResults.push({ idx: i, pass, reasons });
+    // Pass D Tier 3 carryover: persist Haiku's actual text + fired tools
+    // on FAILED turns so post-mortem diagnosis can read what was produced
+    // vs what was asserted. PASS turns omit text to keep the result file
+    // scannable.
+    const failedRecord = !pass
+      ? { text: result.text, toolsFired: collectFiredTools(result) }
+      : {};
+    turnResults.push({ idx: i, pass, reasons, ...failedRecord });
     if (!pass) break; // short-circuit: subsequent turns depend on this one's state
   }
 
