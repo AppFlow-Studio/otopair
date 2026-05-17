@@ -415,6 +415,7 @@ export const ShopCard = memo(function ShopCard({
             <>
               {visibleSlots.map((slot, index) => {
                 const isSelected = isSlotSelected(slot);
+                const [slotTime, slotMeridiem] = slot.time.split(/\s+/);
                 return (
                   <TouchableOpacity
                     key={`${slot.dayOfWeek}-${slot.day}-${slot.time}-${index}`}
@@ -422,15 +423,22 @@ export const ShopCard = memo(function ShopCard({
                     onPress={() => handleSlotPress(slot)}
                     activeOpacity={0.7}
                   >
-                    <Text size="xs" weight="medium" color={isSelected ? BrandColors.primary : "#6B7280"}>
+                    <Text size="xs" weight="medium" color={isSelected ? BrandColors.primary : "#6B7280"} style={styles.slotText}>
                       {slot.dayOfWeek}
                     </Text>
-                    <Text size="lg" weight="bold" color={isSelected ? BrandColors.primary : "#374151"}>
+                    <Text size="lg" weight="bold" color={isSelected ? BrandColors.primary : "#374151"} style={styles.slotText}>
                       {slot.day}
                     </Text>
-                    <Text size="xs" weight="medium" color={isSelected ? BrandColors.primary : "#6B7280"}>
-                      {slot.time}
-                    </Text>
+                    <View style={styles.slotTimeGroup}>
+                      <Text size="xs" weight="medium" color={isSelected ? BrandColors.primary : "#6B7280"} style={styles.slotText}>
+                        {slotTime}
+                      </Text>
+                      {slotMeridiem ? (
+                        <Text size="xs" weight="medium" color={isSelected ? BrandColors.primary : "#6B7280"} style={styles.slotMeridiem}>
+                          {slotMeridiem}
+                        </Text>
+                      ) : null}
+                    </View>
                   </TouchableOpacity>
                 );
               })}
@@ -550,12 +558,29 @@ const styles = StyleSheet.create({
   },
   availabilitySlot: {
     flex: 1,
+    minWidth: 0,
     alignItems: "center",
+    justifyContent: "center",
     paddingVertical: Spacing.md,
+    paddingHorizontal: 2,
     backgroundColor: BrandColors.white,
     borderRadius: BorderRadius.lg,
     borderWidth: 1,
     borderColor: "#E5E7EB",
+  },
+  slotText: {
+    width: "100%",
+    textAlign: "center",
+  },
+  slotTimeGroup: {
+    width: "100%",
+    alignItems: "center",
+    marginTop: 1,
+  },
+  slotMeridiem: {
+    width: "100%",
+    textAlign: "center",
+    marginTop: -2,
   },
   selectedSlot: {
     backgroundColor: "#F0F7FF",

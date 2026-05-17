@@ -140,6 +140,7 @@ const { width: SCREEN_WIDTH } = Dimensions.get("window");
 
 export default function CarsHomeScreen() {
   const insets = useSafeAreaInsets();
+  const aiStepBottomClearance = scale(118) + insets.bottom;
   const isFocused = useIsFocused();
   const router = useRouter();
   const params = useLocalSearchParams<{ openStepper?: string }>();
@@ -200,12 +201,16 @@ export default function CarsHomeScreen() {
   ];
   const [completedSteps, setCompletedSteps] = useState(0);
   const [activeStep, setActiveStep] = useState(0);
+  const [visibleAiStepCount, setVisibleAiStepCount] = useState(0);
   const stepOpacities = useRef(AI_STEPS.map(() => new Animated.Value(0))).current;
   const stepIconScales = useRef(AI_STEPS.map(() => new Animated.Value(0.5))).current;
   const lineHeights = useRef(AI_STEPS.map(() => new Animated.Value(0))).current;
   const aiStepTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const carPulseAnim = useRef(new Animated.Value(1)).current;
   const carPulseLoopRef = useRef<Animated.CompositeAnimation | null>(null);
+  const aiStepsScrollRef = useRef<ScrollView>(null);
+  const aiStepsViewportHeightRef = useRef(0);
+  const aiStepsContentHeightRef = useRef(0);
 
   // Emotional animation refs
   const [displayedScore, setDisplayedScore] = useState(0);
@@ -503,6 +508,24 @@ export default function CarsHomeScreen() {
     });
   }, [pageSlideX, pageFade, gearsOverlayOpacity, gearsBtnOpacity, ringScale, ringGlow, titleFade, subtitleFade, benefitsFade, buttonFade, pulseAnim]);
 
+  const scrollAiStepsToLatest = useCallback((animated = true) => {
+    if (aiStepsViewportHeightRef.current <= 0) {
+      return;
+    }
+
+    const visibleContentHeight = Math.max(0, aiStepsContentHeightRef.current - aiStepBottomClearance);
+    const visibleLimit = Math.max(0, aiStepsViewportHeightRef.current - aiStepBottomClearance);
+
+    if (visibleContentHeight <= visibleLimit + scale(4)) {
+      return;
+    }
+
+    aiStepsScrollRef.current?.scrollTo({
+      y: visibleContentHeight - visibleLimit,
+      animated,
+    });
+  }, [aiStepBottomClearance]);
+
   const closeHealthSheet = useCallback(() => {
     if (scoreCountRef.current) clearInterval(scoreCountRef.current);
 
@@ -539,6 +562,9 @@ export default function CarsHomeScreen() {
         // Reset step state
         setCompletedSteps(0);
         setActiveStep(0);
+        setVisibleAiStepCount(0);
+        aiStepsContentHeightRef.current = 0;
+        aiStepsScrollRef.current?.scrollTo({ y: 0, animated: false });
         stepOpacities.forEach(o => o.setValue(0));
         stepIconScales.forEach(s => s.setValue(0.5));
         lineHeights.forEach(h => h.setValue(0));
@@ -563,6 +589,7 @@ export default function CarsHomeScreen() {
               if (carPulseLoopRef.current) carPulseLoopRef.current.stop();
               carPulseAnim.setValue(1);
               setCompletedSteps(AI_STEPS.length);
+              setVisibleAiStepCount(AI_STEPS.length);
 
               Animated.parallel([
                 Animated.timing(lottieFadeOut, { toValue: 0, duration: 600, easing: Easing.out(Easing.ease), useNativeDriver: true }),
@@ -576,6 +603,7 @@ export default function CarsHomeScreen() {
           }
 
           setActiveStep(idx);
+          setVisibleAiStepCount(idx + 1);
           // Animate step appearing
           Animated.parallel([
             Animated.timing(stepOpacities[idx], { toValue: 1, duration: 400, easing: Easing.out(Easing.ease), useNativeDriver: true }),
@@ -620,6 +648,30 @@ export default function CarsHomeScreen() {
       setShowOptimizeBookingSheet(true);
     });
   }, [gearsOverlayOpacity, mainPageSlideX, mainPageFade]);
+
+  useEffect(() => {
+    if (!gearsOverlayVisible || gearsPhase === 'looping' || visibleAiStepCount === 0) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      scrollAiStepsToLatest(true);
+    }, 120);
+
+    return () => clearTimeout(timer);
+  }, [gearsOverlayVisible, gearsPhase, scrollAiStepsToLatest, visibleAiStepCount]);
+
+  useEffect(() => {
+    if (gearsPhase !== 'ready') {
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      scrollAiStepsToLatest(true);
+    }, 150);
+
+    return () => clearTimeout(timer);
+  }, [gearsPhase, scrollAiStepsToLatest]);
 
   // Convex: user's vehicles
   const { userId } = useUserFromConvex();
@@ -1304,18 +1356,30 @@ export default function CarsHomeScreen() {
                 end={{ x: 1, y: 0 }}
                 style={styles.quickReadCtaGradient}
               >
-                <Text
-                  weight="bold"
-                  size="md"
-                  color="#FFFFFF"
-                  numberOfLines={1}
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.6}
-                  style={{ flexShrink: 1, marginRight: scale(8) }}
-                >
-                  Get a quick read on your {activeVehicle?.make && activeVehicle?.model ? `${activeVehicle.make} ${activeVehicle.model}` : "vehicle"}
-                </Text>
-                <Ionicons name="arrow-forward" size={scale(18)} color="#FFFFFF" />
+                <View style={styles.quickReadCtaTextWrap}>
+                  <Text
+                    weight="semiBold"
+                    size="xs"
+                    color="rgba(255,255,255,0.92)"
+                    style={styles.quickReadCtaEyebrow}
+                  >
+                    Get a quick read on
+                  </Text>
+                  <Text
+                    weight="bold"
+                    size="md"
+                    color="#FFFFFF"
+                    numberOfLines={1}
+                    adjustsFontSizeToFit
+                    minimumFontScale={0.75}
+                    style={styles.quickReadCtaTitle}
+                  >
+                    Your {activeVehicle?.make && activeVehicle?.model ? `${activeVehicle.make} ${activeVehicle.model}` : "Vehicle"}
+                  </Text>
+                </View>
+                <View style={styles.quickReadCtaArrowWrap}>
+                  <Ionicons name="arrow-forward" size={scale(18)} color="#FFFFFF" />
+                </View>
               </LinearGradient>
             </Pressable>
             <Text weight="medium" size="xs" color="#829BAD" style={{ marginTop: scale(10), opacity: 0.7 }}>Takes about 30 seconds</Text>
@@ -1723,7 +1787,7 @@ export default function CarsHomeScreen() {
                       onPress={closeHealthSheet}
                       style={({ pressed }) => [{ marginTop: scale(14), paddingVertical: scale(10), paddingHorizontal: scale(24) }, pressed && { opacity: 0.6 }]}
                     >
-                      <Text weight="semiBold" size="sm" color="#6B7280">I'll finish later</Text>
+                      <Text weight="semiBold" size="sm" color="#6B7280">I&apos;ll finish later</Text>
                     </Pressable>
                   </View>
                 </Animated.View>
@@ -1798,8 +1862,23 @@ export default function CarsHomeScreen() {
                 />
               </Animated.View>
               {/* Sequential step list */}
-              <View style={{ paddingHorizontal: scale(28), marginTop: scale(24) }}>
-                {AI_STEPS.map((step, idx) => {
+              <ScrollView
+                ref={aiStepsScrollRef}
+                style={{ flex: 1, marginTop: scale(24) }}
+                contentContainerStyle={{ paddingHorizontal: scale(28), paddingBottom: aiStepBottomClearance }}
+                showsVerticalScrollIndicator={false}
+                scrollEventThrottle={16}
+                onLayout={(event) => {
+                  aiStepsViewportHeightRef.current = event.nativeEvent.layout.height;
+                }}
+                onContentSizeChange={(_, contentHeight) => {
+                  aiStepsContentHeightRef.current = contentHeight;
+                  if (visibleAiStepCount > 0) {
+                    scrollAiStepsToLatest(true);
+                  }
+                }}
+              >
+                {AI_STEPS.slice(0, visibleAiStepCount).map((step, idx) => {
                   const isCompleted = idx < completedSteps;
                   const isActive = idx === activeStep && idx >= completedSteps;
                   return (
@@ -1841,7 +1920,7 @@ export default function CarsHomeScreen() {
                     </Animated.View>
                   );
                 })}
-              </View>
+              </ScrollView>
             </Animated.View>
           )}
           {/* Ready phase: title + car image + completed steps */}
@@ -1864,7 +1943,20 @@ export default function CarsHomeScreen() {
                 </View>
               </Animated.View>
               {/* Completed steps list */}
-              <View style={{ paddingHorizontal: scale(28), marginTop: scale(20) }}>
+              <ScrollView
+                ref={aiStepsScrollRef}
+                style={{ flex: 1, marginTop: scale(20) }}
+                contentContainerStyle={{ paddingHorizontal: scale(28), paddingBottom: aiStepBottomClearance }}
+                showsVerticalScrollIndicator={false}
+                scrollEventThrottle={16}
+                onLayout={(event) => {
+                  aiStepsViewportHeightRef.current = event.nativeEvent.layout.height;
+                }}
+                onContentSizeChange={(_, contentHeight) => {
+                  aiStepsContentHeightRef.current = contentHeight;
+                  scrollAiStepsToLatest(true);
+                }}
+              >
                 {AI_STEPS.map((step, idx) => (
                   <View key={idx}>
                     {idx > 0 && (
@@ -1887,7 +1979,7 @@ export default function CarsHomeScreen() {
                     </View>
                   </View>
                 ))}
-              </View>
+              </ScrollView>
             </Animated.View>
           )}
           {gearsPhase === 'ready' && (
@@ -2322,10 +2414,34 @@ const styles = StyleSheet.create({
     elevation: 4,
   },
   quickReadCtaGradient: {
-    flexDirection: "row",
+    position: "relative",
+    minHeight: scale(54),
+    paddingLeft: scale(18),
+    paddingRight: scale(52),
+    paddingVertical: scale(10),
     alignItems: "center",
     justifyContent: "center",
-    gap: scale(8),
-    paddingVertical: scale(14),
+  },
+  quickReadCtaTextWrap: {
+    alignItems: "center",
+    justifyContent: "center",
+    flexShrink: 1,
+  },
+  quickReadCtaEyebrow: {
+    lineHeight: moderateScale(14),
+  },
+  quickReadCtaTitle: {
+    textAlign: "center",
+    lineHeight: moderateScale(20),
+    marginTop: scale(1),
+  },
+  quickReadCtaArrowWrap: {
+    position: "absolute",
+    right: scale(18),
+    top: 0,
+    bottom: 0,
+    width: scale(20),
+    alignItems: "center",
+    justifyContent: "center",
   },
 });

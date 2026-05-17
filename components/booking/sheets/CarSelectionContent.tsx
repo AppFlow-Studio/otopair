@@ -13,7 +13,7 @@
 
 // 1. React & React Native
 import React, { useCallback } from "react";
-import { ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
+import { Platform, ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
 import { X } from "lucide-react-native";
@@ -125,14 +125,16 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: BorderRadius.full,
-    backgroundColor: "rgba(255, 255, 255, 0.9)",
+    backgroundColor: "#F8FAFC",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
     alignItems: "center",
     justifyContent: "center",
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.1,
-    shadowRadius: 2,
-    elevation: 2,
+    shadowOpacity: Platform.OS === "ios" ? 0.1 : 0.16,
+    shadowRadius: Platform.OS === "ios" ? 2 : 3,
+    elevation: Platform.OS === "ios" ? 2 : 4,
     zIndex: 10,
   },
   header: {

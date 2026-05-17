@@ -13,7 +13,8 @@
  */
 
 import React, { useEffect, useRef, useState } from "react";
-import { Dimensions, Pressable, StyleSheet, View } from "react-native";
+import { Dimensions, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { LinearGradient } from "expo-linear-gradient";
 
@@ -26,7 +27,7 @@ const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 interface PostOptimizeBookingSheetProps {
   visible: boolean;
   onClose: () => void;
-  maintenanceItems: Array<{ id: string; serviceName: string; status: string }>;
+  maintenanceItems: { id: string; serviceName: string; status: string }[];
   /** e.g. "2024 Volkswagen Tiguan" — appears in the sheet title. */
   vehicleLabel?: string;
 }
@@ -37,6 +38,7 @@ export function PostOptimizeBookingSheet({
   maintenanceItems,
   vehicleLabel,
 }: PostOptimizeBookingSheetProps) {
+  const insets = useSafeAreaInsets();
   const sheetRef = useRef<FloatingSheetRef>(null);
   // Track the title's rendered line count so the sheet snap can grow
   // when a long vehicle label wraps to two lines (otherwise the cards
@@ -51,13 +53,14 @@ export function PostOptimizeBookingSheet({
     }
   }, [visible]);
 
-  // Base snap fits one-line title. Each extra wrapped title line adds
-  // ~28pt (lg/bold line height). Cap at 85% of screen so we never push
-  // off the top edge on small devices.
+  // Base snap fits the compact card carousel and footer. Each wrapped
+  // title line adds space, while the cap keeps the sheet inside the
+  // usable screen height on compact devices.
   const TITLE_LINE_HEIGHT = 28;
+  const maxSheetHeight = SCREEN_HEIGHT - insets.top - Math.max(insets.bottom, 12) - 24;
   const sheetHeight = Math.min(
-    SCREEN_HEIGHT * 0.85,
-    480 + Math.max(0, titleLines - 1) * TITLE_LINE_HEIGHT,
+    maxSheetHeight,
+    520 + Math.max(0, titleLines - 1) * TITLE_LINE_HEIGHT,
   );
 
   return (
@@ -86,14 +89,18 @@ export function PostOptimizeBookingSheet({
           We&apos;ve matched these shops to what your car needs next.
         </Text>
 
-        <View style={styles.cards}>
+        <ScrollView
+          style={styles.cardScroll}
+          contentContainerStyle={styles.cardScrollContent}
+          showsVerticalScrollIndicator={false}
+        >
           <HealthSheetBookingCards
             maintenanceItems={maintenanceItems}
             onClose={onClose}
           />
-        </View>
+        </ScrollView>
 
-        <View style={styles.bookLaterRow}>
+        <View style={[styles.bookLaterRow, { paddingBottom: Math.max(insets.bottom, 8) }]}>
           <Pressable
             onPress={onClose}
             style={({ pressed }) => [styles.bookLaterWrap, pressed && styles.bookLaterPressed]}
@@ -119,7 +126,6 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     paddingHorizontal: 20,
-    paddingBottom: 8,
   },
   title: {
     marginBottom: 6,
@@ -127,16 +133,15 @@ const styles = StyleSheet.create({
   subtitle: {
     marginBottom: 16,
   },
-  cards: {
-    // Let the cards size to their natural transformed height — no
-    // flex:1 + overflow:hidden, which made the bottom clip look like a
-    // section divider above the Not now button.
+  cardScroll: {
+    flex: 1,
+    minHeight: 0,
+  },
+  cardScrollContent: {
+    paddingBottom: 14,
   },
   bookLaterRow: {
-    // The cards' outer wrapper still occupies the un-scaled natural
-    // height (transform doesn't shrink layout) — pull the CTA up so it
-    // sits close to where the visual cards actually end.
-    marginTop: -60,
+    paddingTop: 8,
   },
   bookLaterWrap: {
     borderRadius: 16,
