@@ -112,6 +112,11 @@ const TOOL_NAMES_V1 = [
   "render_quick_replies",
   "render_diagnostic_form",
   "render_record_confirmation",
+  // Support intake — Sprint 3 Day 6 §13 Channel 1 (3-category form path:
+  // mechanic_dispute / service_complaint / billing_issue). Distinct from
+  // §14.1 render_link_button redirects (customer_support / feedback /
+  // bug_report) and from the per-message AI-feedback UI button (§13 Ch 3).
+  "render_support_form",
   "render_service_picker",
   "render_shop_carousel",
   "render_time_selector",

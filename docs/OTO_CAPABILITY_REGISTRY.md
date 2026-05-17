@@ -527,6 +527,8 @@ Every domain entry follows this shape:
 
 ## §13. Support — intake routing + redirect channels + per-message AI feedback
 
+**Status: LIVE as of Sprint 3 Day 6 Pass A.** All three Support channels operational: Channel 1 (`render_support_form` 3-category form path) LIVE; Channel 2 (`render_link_button` redirects for customer_support / feedback / bug_report) LIVE since Day 2; Channel 3 (per-message AI-feedback UI icon) is mobile-team-owned and remains a coordination ticket. 6 Day 6 eval cases verify form-vs-redirect-vs-AI-icon discrimination + form category positives + prefilled-fields rules.
+
 **Purpose.** Three surfaces. (1) **Substantive intake** — mechanic disputes, general service complaints, billing issues. Oto recognizes the category, fires `render_support_form` with prefilled fields drawn ONLY from what the user explicitly said. These three categories collect rich shop / mechanic / amount detail that warrants a form. (2) **Lightweight redirects** — customer support contact, feature feedback, GENERAL app bug reports. These route via `render_link_button` (§14.1) to dedicated screens. (3) **Per-message AI-feedback button** — the chat UI renders a small "Report an issue with AI" exclamation-point icon next to each Oto response (alongside copy / TTS buttons). The user taps it to report that specific conversation. This is a UI-level affordance owned by the mobile chat surface; Oto's tool surface does NOT include an "I'll file a report about my response" capability.
 
 **Sprint 3 scope review — render_support_form vs render_link_button vs per-message AI-feedback button.** Pass A drafted `render_support_form` with 5 categories: `mechanic_dispute` / `service_complaint` / `billing_issue` / `ai_escalation` / `platform_bug`. After Pass E's §14.1 expansion (general app bugs → `bug_report` redirect, general help → `customer_support` redirect) AND Pass F's documentation of the per-message AI-feedback UI button, the form's `platform_bug` and `ai_escalation` categories are obsoleted by other surfaces. Resolution (Sprint 3 §14.1 dispatch decision point):
@@ -858,7 +860,7 @@ These rules apply regardless of which domain the conversation is in. They're cal
 | Category | Tool | Status | Domain |
 |---|---|---|---|
 | render | `render_link_button` | **live** as of Day 2/3 (8 destinations); Day 4 expands to **9 destinations** adding `vehicle_onboarding`. Full enum: `terms_of_service` / `privacy_policy` / `settings` / `profile` / `transaction_history` / `customer_support` / `feedback` / `bug_report` / `vehicle_onboarding` | §14.1 (cross-cuts §2 Vehicle + §12 Account + §13 Support) |
-| render | `render_support_form` | planned (3 categories post-Sprint-3-decision: `mechanic_dispute` / `service_complaint` / `billing_issue`; was 5 — `platform_bug` + `ai_escalation` deprecated in favor of §14.1 redirects + per-message AI-feedback UI button) | §13 Support |
+| render | `render_support_form` | **live** as of Sprint 3 Day 6 Pass A (3 categories: `mechanic_dispute` / `service_complaint` / `billing_issue`; was 5 — `platform_bug` + `ai_escalation` deprecated in favor of §14.1 redirects + per-message AI-feedback UI button) | §13 Support |
 | data | `get_loyalty_points_history` | **live** as of Sprint 3 Day 3 Pass A | §14.2 |
 | data | `get_available_redemptions` | **live** as of Sprint 3 Day 3 Pass A (informational surfacing only — no claim) | §14.2 |
 | data | `get_loyalty_program_info` | **live** as of Sprint 3 Day 3 Pass A | §14.2 |

@@ -654,6 +654,7 @@ const STATE_TOOLS: OtoToolSchema[] = [
 //   render_link_button           → message.linkButton        (Sprint 3 §14.1 — 9-destination app-nav redirect)
 //   render_booking_card          → message.bookingCard       (Sprint 3 §14.3 — single-booking detail card)
 //   render_bookings_list         → message.bookingsList      (Sprint 3 §14.3 — multi-booking list)
+//   render_support_form          → message.supportForm       (Sprint 3 Day 6 §13 — 3-category substantive intake)
 //   render_quick_replies         → message.quickReplies
 //   render_reasoning             → message.reasoning
 //   render_sources               → message.sources
@@ -794,6 +795,62 @@ const RENDER_TOOLS: OtoToolSchema[] = [
         },
       },
       required: ["vehicle_id", "maintenance_type"],
+    },
+  },
+
+  {
+    name: "render_support_form",
+    description:
+      "Renders a pre-filled support-intake form for the user to review, edit, and submit. Use ONLY for the 3 substantive intake categories that warrant rich shop / mechanic / amount detail: " +
+      "(1) `mechanic_dispute` — disputes tied to a specific shop or mechanic (e.g. \"the shop charged me for X I never approved\", \"this booking went wrong\", \"the mechanic damaged my car\"). " +
+      "(2) `service_complaint` — non-billing complaints about service quality (e.g. \"service was bad\", \"the work wasn't done right\", \"they didn't fix the issue I came in for\"). " +
+      "(3) `billing_issue` — specific billing disputes (e.g. \"I was charged twice\", \"the amount on my receipt is wrong\", \"I see a charge I don't recognize\"). " +
+      "DISTINGUISH FROM `render_link_button` (§14.1) — that tool handles LIGHTWEIGHT redirects to dedicated screens: `customer_support` (general help / human-handoff), `feedback` (general feature suggestions), `bug_report` (GENERAL APP bugs like crashes / broken screens / broken booking flow). Those are NOT substantive intake; they route to screens with their own simple forms. `render_support_form` is for the 3 categories above where the user has rich detail (shop name, visit date, dollar amount, mechanic name) that warrants collecting upfront. " +
+      "DISTINGUISH FROM the per-message AI-feedback UI button (§13 Channel 3) — if the user complains about YOUR response (\"Oto, you got that wrong\", \"your answer was weird\", \"that's not right\"), DO NOT fire this tool and DO NOT fire `render_link_button(destination: \"bug_report\")`. AI-conversation feedback is handled by a small \"Report an issue with AI\" exclamation-point icon next to each Oto response (alongside copy / TTS) that the mobile chat UI owns. Point the user to that icon in prose; do not file the report yourself. " +
+      "Populate `prefilled_fields` ONLY from what the user has explicitly said in the conversation — never invent dates, dollar amounts, shop names, or mechanic names. If the user only mentioned the category and a short description, send only `description`; leave the others off. The user reviews, edits, and taps Submit themselves — you never submit on their behalf. Pair with a short, calm framing sentence in your prose (no apology on behalf of the shop, no manufactured empathy, no promise of resolution, no taking sides). TERMINAL render — calling this ENDS YOUR TURN; do not call other tools after it.",
+    input_schema: {
+      type: "object",
+      properties: {
+        category: {
+          type: "string",
+          enum: ["mechanic_dispute", "service_complaint", "billing_issue"],
+          description:
+            "Which substantive-intake category the issue falls into. 3 values only — `platform_bug` and `ai_escalation` were deprecated in favor of §14.1 `render_link_button(destination: \"bug_report\" | \"customer_support\")` redirects and the per-message AI-feedback UI button. If the user's signal doesn't cleanly match one of these 3, do NOT call this tool; either ask a clarifying question or route to the appropriate `render_link_button` destination.",
+        },
+        summary: {
+          type: "string",
+          description:
+            "One-line summary describing the issue, used as the form's header. Service-advisor voice; only what the conversation actually surfaced. Example: \"Disputed charge for brake pad replacement at Westside Auto on 5/12\" or \"Wrong amount billed on last visit\".",
+        },
+        prefilled_fields: {
+          type: "object",
+          description:
+            "Fields drawn ONLY from what the user explicitly said in conversation. Omit any field the user did NOT mention — never invent. All properties optional.",
+          properties: {
+            description: {
+              type: "string",
+              description: "Free-form 2–3 sentence description of the issue in service-advisor voice. Only what the user actually said.",
+            },
+            shop_name: {
+              type: "string",
+              description: "Shop / dealership name ONLY if the user said it. Never infer from booking history without the user mentioning it.",
+            },
+            visit_date: {
+              type: "string",
+              description: "Visit date ONLY if the user said it (ISO 8601 or natural-language as the user stated). Never invent.",
+            },
+            amount: {
+              type: "string",
+              description: "Dollar amount ONLY if the user said it (e.g. \"$240\", \"about $200\"). Never invent.",
+            },
+            mechanic_name: {
+              type: "string",
+              description: "Mechanic name ONLY if the user said it. Never infer from booking history without the user mentioning it.",
+            },
+          },
+        },
+      },
+      required: ["category", "summary"],
     },
   },
 
@@ -1062,6 +1119,8 @@ export const OTO_TOOL_CATEGORY: Record<string, OtoToolCategory> = {
   render_diagnostic_form: "render",
   render_record_confirmation: "render",
   render_link_button: "render",
+  // Support intake — Sprint 3 Day 6 §13 Channel 1 (3-category substantive form)
+  render_support_form: "render",
   // Booking Status — Sprint 3 Day 5 §14.3 (single + list booking surfaces)
   render_booking_card: "render",
   render_bookings_list: "render",
