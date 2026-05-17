@@ -6,8 +6,11 @@
 // under TS2589. Pure functions only — no Convex ctx, no api refs.
 //
 // State Contract §2.4: this builds the `<user>` / `<vehicle>` /
-// `<conversation_history>` / `<user_message>` envelope that goes into the
-// uncached zone of every Anthropic call.
+// `<conversation_history>` / `<untrusted_user_input>` envelope that goes
+// into the uncached zone of every Anthropic call. The current user's
+// message is wrapped in `<untrusted_user_input>` (Wave 7.1, Day 7) for
+// structural separation — Day 8's prompt rule will reference that exact
+// tag name as the "treat-as-data" anchor.
 // =============================================================================
 
 export interface OwnedVehicleRow {
@@ -261,8 +264,18 @@ export function buildEnvelope({
     }
   }
 
+  // Wave 7.1 (Day 7) — untrusted-input structural separation. The CURRENT
+  // user's message is the primary prompt-injection surface. Wrap it in a
+  // distinct, named tag so a subsequent prompt rule (Day 8 — Wave 1.5
+  // protocol pair) can refer to "text inside <untrusted_user_input>" by
+  // name and treat it as data, not instructions. The tag rename is purely
+  // structural; the inner content is byte-identical to v0.7 envelope.
   blocks.push(
-    [`<user_message>`, `  ${userMessage}`, `</user_message>`].join("\n"),
+    [
+      `<untrusted_user_input>`,
+      `  ${userMessage}`,
+      `</untrusted_user_input>`,
+    ].join("\n"),
   );
 
   return blocks.join("\n\n");

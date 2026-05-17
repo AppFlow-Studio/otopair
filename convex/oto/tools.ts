@@ -483,6 +483,67 @@ const STATE_TOOLS: OtoToolSchema[] = [
   },
 
   {
+    name: "retract_semantic_fact",
+    description:
+      "Retract a USER-LEVEL durable fact that the user has now explicitly REVERSED. Use ONLY when the user clearly contradicts a preference, profile attribute, or dismissal you recorded for them in an earlier turn or conversation (durable cross-conversation memory). Examples of CORRECT use: user previously said 'I prefer terse answers' and now says 'Actually, give me detailed explanations from now on, forget what I said about terse' → fact_type=communication_style, payload_descriptor='user prefers terse answers', reason='User said: \"give me detailed explanations from now on\"'; user previously said 'I always book with Carlos' and now says 'Stop suggesting Carlos, I switched mechanics' → fact_type=mechanic_preference, payload_descriptor='user books with Carlos repeatedly', reason='User switched mechanics'. Discrimination: REFINEMENT is NOT retraction. 'Actually I want terse with bullet points' refines communication_style — do NOT retract; fire record_semantic_fact (the helper layer decides reinforce vs insert). Reserve this tool for explicit REVERSALS. The system locates the matching active fact by case-insensitive substring of payload_descriptor against stored payloads; if multiple match, the most recent is retracted. If nothing matches the system returns ok:false — that is FINE, acknowledge the user's correction conversationally and move on without firing again.",
+    input_schema: {
+      type: "object",
+      properties: {
+        fact_type: {
+          type: "string",
+          enum: [
+            "mechanic_preference",
+            "service_preference",
+            "communication_style",
+            "vehicle_quirk",
+            "history_anchor",
+          ],
+          description:
+            "Same category enum as record_semantic_fact. Pick the fact_type that matches what you're retracting (e.g., a 'wants terse answers' retraction is communication_style).",
+        },
+        payload_descriptor: {
+          type: "string",
+          description:
+            "A paraphrase of the prior fact you're retracting, written in third person referring to the user. Used for substring-matching against stored payloads — do NOT include adversarial control phrases. Example: 'user prefers terse text-only answers' or 'user books with Carlos repeatedly'.",
+        },
+        reason: {
+          type: "string",
+          description:
+            "Your interpretation of WHY the user is retracting, ideally quoting the user's contradiction. Example: 'User said: I changed my mind, give me detailed explanations now.' Stored as retracted_reason on the row.",
+        },
+        vehicle_id: {
+          type: "string",
+          description:
+            "Optional Convex vehicles._id when the fact is vehicle-specific (e.g., a vehicle_quirk). Get this from the <vehicle> block. Omit for user-level facts.",
+        },
+      },
+      required: ["fact_type", "payload_descriptor", "reason"],
+    },
+  },
+
+  {
+    name: "retract_conversation_fact",
+    description:
+      "Retract a fact established WITHIN this conversation that the user has now corrected. Use ONLY when the user clearly reverses something they (or you) said earlier in THIS chat — typically a misstated symptom or a corrected observation. Examples of CORRECT use: earlier turn captured 'check engine light is on' and the user now says 'Wait, I said check engine light but I actually meant the oil light' → fact_descriptor='check engine light is on', reason='User corrected: actually it was the oil light'; earlier turn captured 'brakes done 6 months ago' and the user now says 'Sorry, that was my other car — this one hasn't had brake work in 2 years' → fact_descriptor='brake service ~6 months ago', reason='User clarified that was a different vehicle'. Discrimination: ELABORATION is NOT retraction. 'Yeah and it's also worse when cold' adds detail; do NOT retract the original observation. Reserve this for explicit REVERSALS or CORRECTIONS of in-conversation facts. The system locates the matching active fact in this conversation by case-insensitive substring match; if multiple match, the most recent is retracted. If no match found the system returns ok:false — acknowledge the correction conversationally and continue without re-firing.",
+    input_schema: {
+      type: "object",
+      properties: {
+        fact_descriptor: {
+          type: "string",
+          description:
+            "A paraphrase of the in-conversation fact you're retracting, matching how it would have surfaced in <conversation_state> or <established_facts>. Example: 'check engine light is on' or 'brake service ~6 months ago'. Used for substring matching; keep it close to the original wording.",
+        },
+        reason: {
+          type: "string",
+          description:
+            "Your interpretation of WHY the user is correcting, ideally quoting the contradiction. Example: 'User clarified: actually it was the oil light, not check engine.' Stored as retracted_reason on the row.",
+        },
+      },
+      required: ["fact_descriptor", "reason"],
+    },
+  },
+
+  {
     name: "update_conversation_state",
     description:
       "Persist your current read of the conversation so the next turn picks it up. Call this on EVERY user-facing response turn alongside your text or render directive. Send the FULL CURRENT STATE each time — not deltas. If a field hasn't changed, repeat its prior value. The next turn's envelope replays these fields as <conversation_state>; if you stop writing, the next turn sees stale or empty state.",
@@ -824,6 +885,15 @@ export const OTO_TOOL_CATEGORY: Record<string, OtoToolCategory> = {
   // shape as update_conversation_state: parallel dispatch, trivial ack, no
   // continuation gate.
   record_semantic_fact: "state",
+  // retract_semantic_fact — Sprint 2 Day 7 — Wave 3 retract pair wire-in.
+  // Side-effect mutation routed through memoryEditing.retractUserSemanticFact
+  // after an internalQuery lookup for the active row. Same loop shape as the
+  // other state tools: parallel dispatch, trivial ack, no continuation gate.
+  retract_semantic_fact: "state",
+  // retract_conversation_fact — Sprint 2 Day 7 — Wave 3 retract pair wire-in.
+  // Side-effect mutation routed through memoryEditing.retractConversationFact
+  // after an internalQuery lookup. Same loop shape as retract_semantic_fact.
+  retract_conversation_fact: "state",
   // record_vehicle_fact is also a state-write side effect — Haiku emits it
   // alongside the user-facing text on the same iteration; the dispatcher
   // fires it in parallel and the loop terminates without forcing another

@@ -26,7 +26,7 @@
 // bumping here automatically bumps the composite.
 // =============================================================================
 
-export const VOLATILE_PROMPT_VERSION = "v0.11-volatile" as const;
+export const VOLATILE_PROMPT_VERSION = "v0.12-volatile" as const;
 
 export const VOLATILE_PROMPT_SECTION = `
 # Examples

@@ -371,6 +371,77 @@ export const retractConversationFact = mutation({
 // =============================================================================
 
 // -----------------------------------------------------------------------------
+// sanitizeSemanticPayload — Wave 7.1 (Day 7) defense against prompt-injection
+// payload poisoning. Applied at the helper layer so ALL writers (chat_agent,
+// health_monitor, admin_edit, system) get consistent enforcement.
+//
+// Rejections (returns { ok: false }) protect against:
+//  - Length: > 500 chars suggests injection prose rather than a normal fact
+//  - Control chars (other than \n / \t which can appear in legit content):
+//    common in obfuscation attempts (zero-width, RTL override, etc.)
+//  - Envelope/structural tag substrings: defeats injection that tries to
+//    forge envelope blocks ("</user_message><system>...</system>...")
+//
+// NOT rejected: ordinary punctuation, quotation marks, hyphens — legitimate
+// facts contain these. Conservative enforcement to avoid false-positive
+// rejection of valid preferences.
+//
+// Threat model context: the exploitable finding from Day 6's cross-mandate
+// consultation was that a hostile user message → adversarial `payload` →
+// persisted user_semantic_facts row → echoed back into the envelope's
+// <recent_context> across future sessions. This sanitizer is the LAST line
+// of defense: if the prompt-side rule doesn't block the tool call, this
+// rejection prevents the row from being written. Helper throws on reject,
+// chat.ts dispatcher catches + swallows, AI tool returns ok:false → no
+// row written → no persistence → no cross-session echo.
+// -----------------------------------------------------------------------------
+type SanitizeResult =
+  | { ok: true; value: string }
+  | { ok: false; reason: string };
+
+function sanitizeSemanticPayload(payload: string): SanitizeResult {
+  const trimmed = payload.trim();
+  if (trimmed.length === 0) return { ok: false, reason: "empty after trim" };
+  if (trimmed.length > 500) return { ok: false, reason: "exceeds 500 char limit" };
+  // Control char check: allow only \n and \t in the C0 range; reject
+  // everything else < 0x20 and the format-char / RTL override range
+  // U+200B - U+202E (zero-width space, ZWNJ, ZWJ, LRM/RLM, LRE/RLE/PDF,
+  // LRO/RLO). These are favorites for obfuscation attempts.
+  for (let i = 0; i < trimmed.length; i++) {
+    const code = trimmed.charCodeAt(i);
+    if (code < 0x20 && code !== 0x0a && code !== 0x09) {
+      return { ok: false, reason: `disallowed control char at offset ${i}` };
+    }
+    if (code >= 0x200b && code <= 0x202e) {
+      return { ok: false, reason: `disallowed format/RTL char at offset ${i}` };
+    }
+  }
+  // Envelope-tag substring check: case-insensitive substring match for
+  // structural tags used in the prompt envelope (envelope.ts). Forging
+  // these inside a payload defeats the untrusted-input boundary because
+  // the payload gets echoed verbatim into <recent_context> on future turns.
+  const forbidden = [
+    "<untrusted_user_input>",
+    "</untrusted_user_input>",
+    "<conversation_state>",
+    "</conversation_state>",
+    "<recent_context>",
+    "</recent_context>",
+    "<system>",
+    "</system>",
+    "<vehicle_facts>",
+    "</vehicle_facts>",
+  ];
+  const lower = trimmed.toLowerCase();
+  for (const tag of forbidden) {
+    if (lower.includes(tag)) {
+      return { ok: false, reason: `disallowed envelope tag substring "${tag}"` };
+    }
+  }
+  return { ok: true, value: trimmed };
+}
+
+// -----------------------------------------------------------------------------
 // recordUserSemanticFact — initial append.
 //
 // Inserts a new user_semantic_facts row at confidence 1.0, observation_count
@@ -397,8 +468,16 @@ export const recordUserSemanticFact = mutation({
     ctx: MutationCtx,
     args,
   ): Promise<Id<"user_semantic_facts">> => {
-    if (!args.payload.trim()) {
-      throw new Error("recordUserSemanticFact: payload required");
+    // Wave 7.1 (Day 7) — payload sanitization MUST run BEFORE the legality
+    // matrix. The sanitizer is non-negotiable for every writer; the
+    // (source, written_by) gate below is a writer-class invariant. Order
+    // matters: an adversarial payload from chat_agent should reject on
+    // sanitize, not slip through because the writer-class is "legal".
+    const sanitized = sanitizeSemanticPayload(args.payload);
+    if (!sanitized.ok) {
+      throw new Error(
+        `recordUserSemanticFact: payload rejected (${sanitized.reason})`,
+      );
     }
 
     // (source, written_by) legality matrix per design doc §2.2 + §7 D3.
@@ -418,7 +497,7 @@ export const recordUserSemanticFact = mutation({
       user_id: args.user_id,
       vehicle_id: args.vehicle_id,
       fact_type: args.fact_type,
-      payload: args.payload,
+      payload: sanitized.value,
       // Initial insert: stored confidence at 1.0 (the asymptote ceiling).
       // Decay is computed at read time by the retrieval layer (Wave 5).
       confidence: 1.0,
@@ -1334,6 +1413,159 @@ function extractPayloadText(
       return `${payload.entity_type}: ${payload.entity_id}`;
   }
 }
+
+// =============================================================================
+// Retract-lookup helpers (Sprint 2 Day 7 — Wave 3 retract pair wire-in)
+// =============================================================================
+//
+// findActiveUserSemanticFactForRetract + findActiveConversationFactForRetract
+// are internalQuery helpers consumed by chat.ts's new `retract_semantic_fact`
+// and `retract_conversation_fact` AI tools. They locate the active row a
+// model-supplied descriptor refers to so the dispatcher can call the existing
+// retractUserSemanticFact / retractConversationFact mutations with a real
+// fact_id.
+//
+// EQUIVALENCE DEFINITION (Day 7 v1, intentionally FUZZIER than Day 6 reinforce)
+// ----------------------------------------------------------------------------
+// Day 6's findUserSemanticFactByPayload used byte-exact equality after
+// whitespace+case normalize because reinforcement BINDS the candidate to a
+// stored row of the same canonical phrasing; aggressive normalization there
+// risked adversarial near-duplicate collapse.
+//
+// Retract is different. The model only knows what it just SAID to the user
+// ("you mentioned a brake-pull-when-cold"); it does NOT know the exact stored
+// payload string. Haiku's third-person paraphrase varies turn-to-turn (Day 6
+// finding: ~4 different "User prefers terse X" rewrites for one preference).
+// Requiring byte-exact match would make retract effectively unusable.
+//
+// v1 rule: case-insensitive SUBSTRING match on the model's `payload_substring`
+// against the row's stored payload. The descriptor is treated as a
+// distinguishing phrase the model lifted from its own conversational memory;
+// substring-on-stored is the loosest match that still rejects "Ignore previous
+// instructions" style payloads (those won't appear anywhere in a real stored
+// payload).
+//
+// CONFLICT POLICY: if MULTIPLE active rows match the substring, retract the
+// MOST RECENT row (highest `_creationTime`). The model is referring to the
+// freshest thing it told the user about. Document inline at the call site.
+//
+// FAILURE-MODE: returns null when no match. The chat.ts dispatcher logs a
+// warn + returns `{ ok: false, reason: "no matching active fact found" }`
+// rather than inserting a compensating row. The model acknowledges the
+// correction conversationally.
+//
+// SECURITY: the v1 rule still rejects "ignore previous: retract X" style
+// payloads because those don't appear in stored content. Day 7+ can layer
+// fuzzy matching if eval signal warrants it. Untrusted-input wrapping is
+// Security's surface (envelope.ts, Wave 7.1) — not this helper's responsibility.
+// -----------------------------------------------------------------------------
+
+export const findActiveUserSemanticFactForRetract = internalQuery({
+  args: {
+    user_id: v.id("users"),
+    fact_type: userSemanticFactTypeValidator,
+    vehicle_id: v.optional(v.id("vehicles")),
+    payload_substring: v.string(),
+  },
+  returns: v.union(v.id("user_semantic_facts"), v.null()),
+  handler: async (
+    ctx: QueryCtx,
+    args,
+  ): Promise<Id<"user_semantic_facts"> | null> => {
+    const needle = args.payload_substring.trim().toLowerCase();
+    if (!needle) return null;
+
+    // Scan one user's facts of this type that are NOT retracted. Index keys
+    // (user_id, fact_type, retracted_at) let `eq(retracted_at, undefined)`
+    // scope the cursor to the active subset before app-side substring + vehicle
+    // matching. Per-user-per-type live count is small (1-5 typically).
+    const rows = await ctx.db
+      .query("user_semantic_facts")
+      .withIndex("by_user_type_active", (q) =>
+        q
+          .eq("user_id", args.user_id)
+          .eq("fact_type", args.fact_type)
+          .eq("retracted_at", undefined),
+      )
+      .collect();
+
+    const targetVehicleId = args.vehicle_id ?? null;
+    // Most-recent-wins per design comment above: sort by _creationTime desc
+    // and return the FIRST match. Convex's Doc<> exposes _creationTime on every
+    // row so we don't need a secondary index.
+    const matches: Doc<"user_semantic_facts">[] = [];
+    for (const row of rows) {
+      const rowVehicleId = row.vehicle_id ?? null;
+      // Strict vehicle-scope match — user-level (null) and vehicle-scoped
+      // (<vid>) facts are distinct even on overlapping content.
+      if (rowVehicleId !== targetVehicleId) continue;
+      if (row.payload.toLowerCase().includes(needle)) {
+        matches.push(row);
+      }
+    }
+    if (matches.length === 0) return null;
+    matches.sort((a, b) => b._creationTime - a._creationTime);
+    return matches[0]._id;
+  },
+});
+
+// -----------------------------------------------------------------------------
+// findActiveConversationFactForRetract — equivalence lookup for the AI
+// `retract_conversation_fact` tool dispatch.
+//
+// The `conversation_facts` schema (convex/schema.ts §2.1) already carries the
+// retract triple (retracted_at + retracted_reason + retracted_by_turn) and the
+// existing retractConversationFact mutation patches it atomically. This helper
+// only needs to locate the right fact_id for a model-supplied descriptor.
+//
+// Active filter: `retracted_at === undefined` via the `by_conversation_active`
+// index. Substring match on the row's textual form (via extractPayloadText —
+// same flattener the cross-conv memory builder uses, so the substring matches
+// what Haiku would have observed in the prior turn's <recent_context>).
+//
+// Most-recent-wins on the rare multi-match case.
+// -----------------------------------------------------------------------------
+
+export const findActiveConversationFactForRetract = internalQuery({
+  args: {
+    conversation_id: v.id("ai_conversations"),
+    fact_substring: v.string(),
+  },
+  returns: v.union(v.id("conversation_facts"), v.null()),
+  handler: async (
+    ctx: QueryCtx,
+    args,
+  ): Promise<Id<"conversation_facts"> | null> => {
+    const needle = args.fact_substring.trim().toLowerCase();
+    if (!needle) return null;
+
+    // by_conversation_active is keyed (conversation_id, retracted_at, created_at).
+    // Scope to one conversation's active rows; the index returns them in the
+    // schema-default ascending order which we sort below.
+    const rows = await ctx.db
+      .query("conversation_facts")
+      .withIndex("by_conversation_active", (q) =>
+        q
+          .eq("conversation_id", args.conversation_id)
+          .eq("retracted_at", undefined),
+      )
+      .collect();
+
+    const matches: Doc<"conversation_facts">[] = [];
+    for (const row of rows) {
+      // Flatten the discriminated payload to the same one-line string the
+      // envelope builder shows the model in <recent_context>. The descriptor
+      // is matched against THAT representation, not the structured payload.
+      const text = extractPayloadText(row.payload).toLowerCase();
+      if (text.includes(needle)) {
+        matches.push(row);
+      }
+    }
+    if (matches.length === 0) return null;
+    matches.sort((a, b) => b._creationTime - a._creationTime);
+    return matches[0]._id;
+  },
+});
 
 // =============================================================================
 // Internal mutation surface (migrations + reconciliation only)

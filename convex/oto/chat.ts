@@ -97,6 +97,8 @@ const TOOL_NAMES_V1 = [
   // State tools (side-effect; Oto-maintained conversation memory)
   "update_conversation_state",
   "record_semantic_fact",
+  "retract_semantic_fact",
+  "retract_conversation_fact",
   // Render tools — full booking-flow chain. Oto's involvement ENDS at
   // render_booking_confirmation; the mobile component's "Confirm booking"
   // button handles the redirect to payment internally, no Oto turn for that.
@@ -155,6 +157,8 @@ const TOOLS_FOR_HAIKU = OTO_TOOLS.filter((t) =>
     "update_conversation_state",
     "record_vehicle_fact",
     "record_semantic_fact",
+    "retract_semantic_fact",
+    "retract_conversation_fact",
     "request_sonnet_handoff",
     "request_haiku_handback",
   ]);
@@ -2540,6 +2544,186 @@ function buildCallables(
         );
       }
       return { ok: true, model: "haiku", reason };
+    },
+
+    /**
+     * retract_semantic_fact — Sprint 2 Day 7 — Wave 3 retract pair wire-in.
+     *
+     * Locates the user's most-recent active user_semantic_facts row whose
+     * payload matches the model's `payload_descriptor` (case-insensitive
+     * substring; fuzzier than reinforce's byte-exact rule per Day 6 paraphrase-
+     * variance finding) and routes to memoryEditing.retractUserSemanticFact
+     * with retracted_reason = the model's reason string.
+     *
+     * Mirrors the record_semantic_fact failure-isolation pattern: invalid
+     * inputs and no-match conditions return `{ ok: false, reason }` without
+     * throwing; transient Convex hiccups are swallowed via outer try/catch.
+     * A failed retract MUST NEVER break the chat turn — the user's correction
+     * is acknowledged conversationally even when the lookup misses.
+     *
+     * Conflict policy (multi-match): the lookup returns the row with the
+     * highest _creationTime (most recently inserted active row). Documented in
+     * memoryEditing.findActiveUserSemanticFactForRetract.
+     */
+    retract_semantic_fact: async (input) => {
+      const factTypeRaw =
+        typeof input.fact_type === "string" ? input.fact_type : "";
+      const payloadDescriptor =
+        typeof input.payload_descriptor === "string"
+          ? input.payload_descriptor.trim()
+          : "";
+      const reason = typeof input.reason === "string" ? input.reason.trim() : "";
+      const vehicleIdRaw =
+        typeof input.vehicle_id === "string" && input.vehicle_id.trim()
+          ? input.vehicle_id
+          : null;
+
+      const VALID_FACT_TYPES = new Set([
+        "mechanic_preference",
+        "service_preference",
+        "communication_style",
+        "vehicle_quirk",
+        "history_anchor",
+      ]);
+      if (!VALID_FACT_TYPES.has(factTypeRaw)) {
+        console.warn(
+          `[oto/chat] retract_semantic_fact called with invalid fact_type="${factTypeRaw}"; skipping.`,
+        );
+        return { ok: false, reason: "invalid fact_type" };
+      }
+      if (!payloadDescriptor) {
+        console.warn(
+          "[oto/chat] retract_semantic_fact called with empty payload_descriptor; skipping.",
+        );
+        return { ok: false, reason: "missing payload_descriptor" };
+      }
+      if (!reason) {
+        console.warn(
+          "[oto/chat] retract_semantic_fact called with empty reason; skipping.",
+        );
+        return { ok: false, reason: "missing reason" };
+      }
+
+      const factTypeTyped = factTypeRaw as
+        | "mechanic_preference"
+        | "service_preference"
+        | "communication_style"
+        | "vehicle_quirk"
+        | "history_anchor";
+      const vehicleIdTyped: Id<"vehicles"> | undefined =
+        vehicleIdRaw !== null ? (vehicleIdRaw as Id<"vehicles">) : undefined;
+
+      try {
+        const lookupArgs = {
+          user_id: userId,
+          fact_type: factTypeTyped,
+          payload_substring: payloadDescriptor,
+          ...(vehicleIdTyped !== undefined
+            ? { vehicle_id: vehicleIdTyped }
+            : {}),
+        };
+        const matchedId: Id<"user_semantic_facts"> | null = await ctx.runQuery(
+          internal.oto.memoryEditing.findActiveUserSemanticFactForRetract,
+          lookupArgs,
+        );
+        if (matchedId === null) {
+          console.warn(
+            `[oto/chat] retract_semantic_fact: no matching active fact for fact_type="${factTypeTyped}" descriptor="${payloadDescriptor.slice(0, 80)}"`,
+          );
+          return { ok: false, reason: "no matching active fact found" };
+        }
+        await ctx.runMutation(
+          api.oto.memoryEditing.retractUserSemanticFact,
+          { fact_id: matchedId, reason },
+        );
+        console.log(
+          `[oto/chat] retract_semantic_fact retracted ${matchedId} (fact_type=${factTypeTyped})`,
+        );
+        return { ok: true, fact_id: matchedId, retracted: true };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        // Outer envelope catch — the lookup or the retract mutation may throw
+        // on a transient Convex hiccup or on the helper's idempotent guard
+        // (a concurrent retract patched the row between lookup and mutation).
+        // Failure-isolation: swallow per Wave 3 pattern.
+        console.warn(
+          "[oto/chat] retract_semantic_fact swallowed error:",
+          msg,
+        );
+        return { ok: false, reason: "swallowed error" };
+      }
+    },
+
+    /**
+     * retract_conversation_fact — Sprint 2 Day 7 — Wave 3 retract pair wire-in.
+     *
+     * In-conversation counterpart of retract_semantic_fact. Looks up an
+     * active conversation_facts row whose flattened text representation
+     * (extractPayloadText) matches the model's `fact_descriptor` via
+     * case-insensitive substring, then routes to
+     * memoryEditing.retractConversationFact.
+     *
+     * retracted_by_turn is set to factSourceTurn (the same convention the
+     * other wire-ins use — pre-turn sortedMessages.length). The existing
+     * retractConversationFact helper's contract requires it.
+     *
+     * Failure-isolation as above: invalid input + no-match return ok:false;
+     * transient throws are swallowed.
+     */
+    retract_conversation_fact: async (input) => {
+      const factDescriptor =
+        typeof input.fact_descriptor === "string"
+          ? input.fact_descriptor.trim()
+          : "";
+      const reason = typeof input.reason === "string" ? input.reason.trim() : "";
+
+      if (!factDescriptor) {
+        console.warn(
+          "[oto/chat] retract_conversation_fact called with empty fact_descriptor; skipping.",
+        );
+        return { ok: false, reason: "missing fact_descriptor" };
+      }
+      if (!reason) {
+        console.warn(
+          "[oto/chat] retract_conversation_fact called with empty reason; skipping.",
+        );
+        return { ok: false, reason: "missing reason" };
+      }
+
+      try {
+        const matchedId: Id<"conversation_facts"> | null = await ctx.runQuery(
+          internal.oto.memoryEditing.findActiveConversationFactForRetract,
+          {
+            conversation_id: conversationId,
+            fact_substring: factDescriptor,
+          },
+        );
+        if (matchedId === null) {
+          console.warn(
+            `[oto/chat] retract_conversation_fact: no matching active fact for descriptor="${factDescriptor.slice(0, 80)}"`,
+          );
+          return { ok: false, reason: "no matching active fact found" };
+        }
+        await ctx.runMutation(
+          api.oto.memoryEditing.retractConversationFact,
+          {
+            fact_id: matchedId,
+            reason,
+            retracted_by_turn: factSourceTurn,
+          },
+        );
+        console.log(
+          `[oto/chat] retract_conversation_fact retracted ${matchedId} (turn=${factSourceTurn})`,
+        );
+        return { ok: true, fact_id: matchedId, retracted: true };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.warn(
+          "[oto/chat] retract_conversation_fact swallowed error:",
+          msg,
+        );
+        return { ok: false, reason: "swallowed error" };
+      }
     },
 
     // render_quick_replies and render_diagnostic_form have no callables — the
