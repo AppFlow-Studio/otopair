@@ -20,7 +20,7 @@
  */
 
 import React, { useState, useCallback, useEffect } from 'react';
-import { StyleSheet, View, Keyboard } from 'react-native';
+import { BackHandler, StyleSheet, View, Keyboard } from 'react-native';
 import { router } from 'expo-router';
 import Animated, {
     useSharedValue,
@@ -29,6 +29,7 @@ import Animated, {
 } from 'react-native-reanimated';
 import * as SecureStore from 'expo-secure-store';
 import { AnimatedGradientBackground } from '@/components/shared-ui';
+import { BackNavigationProvider } from '@/components/shared-ui/BackNavigationContext';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import { useAuth } from '@clerk/clerk-expo';
 import { usePrefetchOnboardingQuestions } from '@/hooks/usePrefetchOnboardingQuestions';
@@ -97,6 +98,7 @@ interface OnboardingFlowProps {
   initialStep?: OnboardingStep;
   filteredSteps?: OnboardingStep[];
   isResumeMode?: boolean;
+  disableBack?: boolean;
 }
 
 // Steps that show in the progress bar (excludes signup/login screens and complete)
@@ -137,17 +139,33 @@ export function getIncompleteOnboardingSteps(): OnboardingStep[] {
   return stepChecks.filter(({ isComplete }) => !isComplete()).map(({ step }) => step);
 }
 
-export function OnboardingFlow({ initialStep = "signup", filteredSteps, isResumeMode = false }: OnboardingFlowProps) {
+export function OnboardingFlow({
+  initialStep = "signup",
+  filteredSteps,
+  isResumeMode = false,
+  disableBack = false,
+}: OnboardingFlowProps) {
   const { data } = useOnboardingStore();
   const [currentStep, setCurrentStep] = useState<OnboardingStep>(initialStep);
   const [fromStep, setFromStep] = useState<OnboardingStep>(initialStep);
   const [toStep, setToStep] = useState<OnboardingStep>(initialStep);
+  const [backDisabledStep] = useState<OnboardingStep | null>(
+    disableBack ? initialStep : null,
+  );
   const { isSignedIn, userId: clerkUserId } = useAuth();
   const completeOnboarding = useMutation(api.users.completeOnboarding);
   usePrefetchOnboardingQuestions();
 
   // Animation progress (0 = from step, 1 = to step)
   const animationProgress = useSharedValue(1);
+
+  const backDisabledForCurrentStep = currentStep === backDisabledStep;
+
+  useEffect(() => {
+    if (!backDisabledForCurrentStep) return;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => true);
+    return () => subscription.remove();
+  }, [backDisabledForCurrentStep]);
 
   // Persist current step so the app can resume from exactly here if closed mid-flow.
   useEffect(() => {
@@ -219,6 +237,8 @@ export function OnboardingFlow({ initialStep = "signup", filteredSteps, isResume
   };
 
   const goBack = async () => {
+    if (backDisabledForCurrentStep) return;
+
     if (navigationSteps) {
       const currentIndex = navigationSteps.indexOf(currentStep);
       if (currentIndex > 0) {
@@ -284,6 +304,7 @@ export function OnboardingFlow({ initialStep = "signup", filteredSteps, isResume
         break;
     }
   };
+  const effectiveGoBack = backDisabledForCurrentStep ? () => {} : goBack;
 
   // Helper function to normalize push notification status
   const normalizePushStatus = (s: string | null | undefined): "granted" | "provisional" | "denied" | "undetermined" => {
@@ -445,41 +466,41 @@ export function OnboardingFlow({ initialStep = "signup", filteredSteps, isResume
                 return (
                     <SignupStep
                         onNext={goNext}
-                        onBack={goBack}
+                        onBack={effectiveGoBack}
                         onEmailSignup={() => goToStep('emailSignup')}
                         onLogin={() => goToStep('login')}
                     />
                 );
             case 'emailSignup':
-                return <EmailSignupStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+                return <EmailSignupStep onNext={goNext} onBack={effectiveGoBack} progress={progressInfo} />;
             case 'emailVerify':
-                return <EmailVerificationStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+                return <EmailVerificationStep onNext={goNext} onBack={effectiveGoBack} progress={progressInfo} />;
             case 'login':
-                return <LoginStep onNext={goNext} onBack={goBack} />;
+                return <LoginStep onNext={goNext} onBack={effectiveGoBack} />;
             case 'phone':
-                return <PhoneNumberStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+                return <PhoneNumberStep onNext={goNext} onBack={effectiveGoBack} progress={progressInfo} />;
             case 'confirm':
-                return <ConfirmPhoneNumberStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+                return <ConfirmPhoneNumberStep onNext={goNext} onBack={effectiveGoBack} progress={progressInfo} />;
             case 'name':
-                return <NameStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+                return <NameStep onNext={goNext} onBack={effectiveGoBack} progress={progressInfo} />;
             case 'emailConfirm':
-                return <EmailConfirmStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+                return <EmailConfirmStep onNext={goNext} onBack={effectiveGoBack} progress={progressInfo} />;
             case 'profilePhoto':
-                return <ProfilePhotoStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+                return <ProfilePhotoStep onNext={goNext} onBack={effectiveGoBack} progress={progressInfo} />;
             case 'userIntent':
-                return <UserIntentStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+                return <UserIntentStep onNext={goNext} onBack={effectiveGoBack} progress={progressInfo} />;
             case 'heardAbout':
-                return <HeardAboutStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+                return <HeardAboutStep onNext={goNext} onBack={effectiveGoBack} progress={progressInfo} />;
             case 'visitReason':
-                return <VisitReasonStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+                return <VisitReasonStep onNext={goNext} onBack={effectiveGoBack} progress={progressInfo} />;
             case 'zipCode':
-                return <ZipCodeStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+                return <ZipCodeStep onNext={goNext} onBack={effectiveGoBack} progress={progressInfo} />;
             case 'pushNotifications':
-                return <PushNotificationsStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+                return <PushNotificationsStep onNext={goNext} onBack={effectiveGoBack} progress={progressInfo} />;
             case 'locationServices':
-                return <LocationServicesStep onNext={goNext} onBack={goBack} progress={progressInfo} />;
+                return <LocationServicesStep onNext={goNext} onBack={effectiveGoBack} progress={progressInfo} />;
             case 'welcome':
-                return <WelcomeStep onNext={goNext} onBack={goBack} />;
+                return <WelcomeStep onNext={goNext} onBack={effectiveGoBack} />;
             case 'complete':
                 return null;
             default:
@@ -531,6 +552,7 @@ export function OnboardingFlow({ initialStep = "signup", filteredSteps, isResume
   // };
 
   return (
+    <BackNavigationProvider disabled={backDisabledForCurrentStep}>
     <View style={styles.container}>
       {/* Animated gradient background */}
       <View style={styles.gradientContainer} pointerEvents="none">
@@ -544,6 +566,7 @@ export function OnboardingFlow({ initialStep = "signup", filteredSteps, isResume
       {/* Content */}
       <View style={styles.content}>{renderStep()}</View>
     </View>
+    </BackNavigationProvider>
   );
 }
 

@@ -292,6 +292,7 @@ export default function OnboardingScreen() {
             initialStep={resolvedInitialStep}
             filteredSteps={resolvedFilteredSteps}
             isResumeMode={resolvedIsResumeMode}
+            disableBack={isAutoResume}
         />
     );
 }

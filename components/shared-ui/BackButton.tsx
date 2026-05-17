@@ -25,6 +25,7 @@ import { router, usePathname } from 'expo-router';
 import { ArrowLeft } from 'lucide-react-native';
 import { Pressable, StyleSheet } from 'react-native';
 import { FontSize, Spacing, BrandColors } from '@/constants/theme';
+import { useBackNavigationDisabled } from './BackNavigationContext';
 
 interface BackButtonProps {
     noHorizontalPadding?: boolean;
@@ -39,6 +40,7 @@ export function BackButton({
     alwaysShow = false,
 }: BackButtonProps = {}) {
     const pathname = usePathname();
+    const backDisabled = useBackNavigationDisabled();
     
     // Only hide if we're on a "welcome" or "root" flow screen
     const isRootFlowScreen = 
@@ -46,7 +48,7 @@ export function BackButton({
         pathname === '/(onboarding)/' ||
         pathname.endsWith('/(onboarding)');
     
-    if (isRootFlowScreen && !alwaysShow) {
+    if (backDisabled || (isRootFlowScreen && !alwaysShow)) {
         return null;
     }
 

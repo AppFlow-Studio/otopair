@@ -23,6 +23,7 @@
 import { BrandColors, Spacing } from '@/constants/theme';
 import { ReactNode } from 'react';
 import { StyleSheet, View } from 'react-native';
+import { useBackNavigationDisabled } from './BackNavigationContext';
 
 interface ProgressBarProps {
     total: number;
@@ -44,11 +45,13 @@ export function ProgressBar({
     reserveLeftSpace = false,
 }: ProgressBarProps) {
     const segments = Array.from({ length: total });
-    const showLeftSlot = !!leftElement || reserveLeftSpace;
+    const backDisabled = useBackNavigationDisabled();
+    const resolvedLeftElement = backDisabled ? null : leftElement;
+    const showLeftSlot = !!resolvedLeftElement || reserveLeftSpace || backDisabled;
 
     return (
         <View style={styles.container}>
-            {showLeftSlot && <View style={styles.leftElement}>{leftElement}</View>}
+            {showLeftSlot && <View style={styles.leftElement}>{resolvedLeftElement}</View>}
             <View style={styles.progressContainer}>
                 {segments.map((_, idx) => {
                     const isFilled = idx < filled;
