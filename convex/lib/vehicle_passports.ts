@@ -128,6 +128,14 @@ export const postjobPartValidator = v.object({
   brand: v.optional(nullableStringValidator),
   oem_number: v.string(),
   cost: v.float64(),
+  // Whole-unit count of this part used on this job. Defaults to 1.
+  quantity: v.optional(v.float64()),
+  // "shop" (default) or "customer" — customer-supplied parts are logged with
+  // cost=0 and skipped by shop_part_preferences in the snapshot path.
+  supplied_by: v.optional(v.string()),
+  // "oem" | "aftermarket" | "performance" | "economy" | "unknown".
+  // Otopair currently supplies OEM only; defaults to "oem" downstream.
+  part_tier: v.optional(v.string()),
 });
 
 export const postjobPhotoValidator = v.object({
@@ -154,6 +162,44 @@ export const timeVarianceReasonValidator = v.union(
   v.literal("other")
 );
 
+export const recommendationUrgencyValidator = v.union(
+  v.literal("next_visit"),
+  v.literal("within_3_months"),
+  v.literal("soon")
+);
+
+export const jobRecommendationInputValidator = v.object({
+  recommended_service_id: v.optional(v.union(v.id("services"), v.null())),
+  freeform_service_name: v.optional(nullableStringValidator),
+  urgency: recommendationUrgencyValidator,
+  reason: v.optional(nullableStringValidator),
+  visible_to_driver: v.boolean(),
+  target_mileage: v.optional(v.union(v.number(), v.null())),
+  scheduled_at: v.optional(v.union(v.number(), v.null())),
+  scheduled_mechanic_id: v.optional(v.union(v.id("mechanics"), v.null())),
+  selected_service_option: v.optional(
+    v.union(
+      v.object({
+        option_id: v.id("service_options"),
+        option_label: v.string(),
+        option_type: v.optional(v.string()),
+      }),
+      v.null()
+    )
+  ),
+  tire_specs: v.optional(
+    v.union(
+      v.object({
+        size: v.string(),
+        type: v.string(),
+        tier: v.string(),
+        quantity: v.number(),
+      }),
+      v.null()
+    )
+  ),
+});
+
 export const postjobReportValidator = v.object({
   completion_mileage: v.float64(),
   parts_used: v.array(postjobPartValidator),
@@ -172,6 +218,7 @@ export const postjobReportValidator = v.object({
   time_variance: v.optional(v.union(timeVarianceValidator, v.null())),
   time_variance_reason: v.optional(v.union(timeVarianceReasonValidator, v.null())),
   time_variance_note: v.optional(nullableStringValidator),
+  recommendations: v.optional(v.array(jobRecommendationInputValidator)),
 });
 
 export function hasText(value: unknown): value is string {
