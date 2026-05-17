@@ -2404,4 +2404,416 @@ export default defineSchema({
   })
     .index("by_merged_at", ["merged_at"])
     .index("by_version", ["prompt_version"]),
+
+  // =========================================================================
+  // WAVE 3 MEMORY KEYSTONE TABLES (Sprint 2 Day 1).
+  //
+  // Authority: docs/SPRINT_2/WAVE_3_DESIGN.md §2, North Star §3.3/3.4/3.6/3.8/3.9,
+  // PM Ruling v3 §4, Decision Log D-2.1, D-3.2, D-3.4, D-3.5, D-3.6.
+  // Owner: Memory Systems Engineer.
+  //
+  // Five new memory tables that sit ABOVE the v3 KB (vehicle_facts family;
+  // Sprint 1) and BELOW the retrieval rebuild (Wave 5). Closes Doc 1's
+  // "six kinds of state collapsed into three fields" finding (the
+  // ai_conversations.established_facts race in particular) and gives Wave 5
+  // the typed substrate it needs to retrieve against.
+  //
+  // FK ordering (per §3.1):
+  //   kb_topics
+  //   conversation_episodic_control     (FK: ai_conversations)
+  //   conversation_audit                (FK: ai_conversations)
+  //   conversation_facts                (FK: ai_conversations)
+  //   user_semantic_facts               (FK: users + vehicles)
+  //
+  // D-3.2 append-only hill applies to conversation_facts +
+  // user_semantic_facts (lifts on vehicle_facts only; that hill is
+  // preserved structurally by vehicle_facts_audit, Sprint 1).
+  // =========================================================================
+
+  // -------------------------------------------------------------------------
+  // kb_topics — controlled vocabulary FK target. WAVE_3_DESIGN §2.5.
+  //
+  // Controlled vocabulary. Topics are registered explicitly (one-line PR or
+  // admin action); the reasoning loop cannot invent a topic by writing a
+  // free string — it can only reference an existing topic_id. New topics
+  // require a registration event; this prevents KB fragmentation
+  // (Doc 1 §3.4: oil_capacity vs oil_capacity_qts vs oil_cap).
+  //
+  // Wave 3 lands the table. Wave 5+ migrates vehicle_facts.topic to a
+  // vehicle_facts.topic_id FK (two-deploy strangler). Wave 3 does NOT
+  // modify vehicle_facts.
+  //
+  // Mutation surface: convex/oto/memoryEditing.ts (registerKbTopic /
+  // deprecateKbTopic). Admin-only writes (gated to Waleed + Temur).
+  //
+  // Append-only by convention; mutable only for the deprecation pair
+  // (write-once). topic_key / display_name / category / created_by /
+  // created_at are NEVER patched after insert.
+  //
+  // Retention: permanent. Soft-deprecate via deprecated_at; never delete
+  // (FK references would dangle).
+  // -------------------------------------------------------------------------
+  kb_topics: defineTable({
+    topic_key: v.string(),              // "oil_capacity_quarts" — unique (helper-enforced)
+    display_name: v.string(),           // "Oil Capacity (quarts)"
+    category: v.union(
+      v.literal("fluids"),
+      v.literal("brakes"),
+      v.literal("battery"),
+      v.literal("tires"),
+      v.literal("filters"),
+      v.literal("intervals"),
+      v.literal("torque_specs"),
+      v.literal("general"),
+    ),
+    expected_unit: v.optional(v.string()),
+    retrieval_priority: v.number(),     // reranker weight; range agreed with RAG (Wave 5)
+    deprecated_at: v.optional(v.number()),     // soft-deprecate; never delete
+    deprecated_reason: v.optional(v.string()),
+
+    // Admin attribution. Only Waleed + Temur can be created_by; enforced
+    // at the helper layer, not the schema layer.
+    created_by: v.id("users"),
+    created_at: v.number(),
+  })
+    // Unique-by-key constraint enforced at the helper layer (Convex has no
+    // native unique index; helper checks before insert).
+    .index("by_topic_key", ["topic_key"])
+    // Retrieval-time category scan (reranker input).
+    .index("by_category", ["category", "retrieval_priority"])
+    // Active-set scan (non-deprecated topics).
+    .index("by_deprecated", ["deprecated_at", "topic_key"]),
+
+  // -------------------------------------------------------------------------
+  // conversation_episodic_control — merged episodic + control state.
+  // WAVE_3_DESIGN §2.3. D-2.1 LOCKED ruling (Fight 1: five tables, not six).
+  //
+  // One row per ai_conversations row. Same lifetime, same access pattern;
+  // field-level write-authority enforced by separate mutation paths.
+  // Today these fields live as optional columns on ai_conversations
+  // (mood, arc_summary, last_user_intent, diagnostic_turn_count,
+  // current_model); Wave 3 lifts them into their own typed row with
+  // single-writer discipline.
+  //
+  // Field-class boundaries (enforced by memoryEditing.ts helper split):
+  //   Episodic fields (model-influenced) — commitEpisodic() only:
+  //     mood, current_flow, flow_turn_count, arc_summary,
+  //     compressed_history_summary, compressed_through_turn
+  //   Control fields (system-only; model never touches) — commitControl() only:
+  //     current_model, budget_spent_usd, budget_cap_usd, escalation_count,
+  //     escalation_state, sonnet_turns_used, sonnet_turn_budget
+  //
+  // MUTABLE IN PLACE (not append-only). The updated_by_turn field is the
+  // concurrency-detection envelope. Audit trail derivable from
+  // conversation_audit (left-fold over messages 1..N).
+  //
+  // Retention: lifetime of parent ai_conversations row. No decay.
+  // -------------------------------------------------------------------------
+  conversation_episodic_control: defineTable({
+    conversation_id: v.id("ai_conversations"),
+
+    // ----- Episodic fields (model-influenced; commitEpisodic owns writes) ---
+    mood: v.union(
+      v.literal("neutral"),
+      v.literal("curious"),
+      v.literal("concerned"),
+      v.literal("frustrated"),
+      v.literal("satisfied"),
+    ),
+
+    current_flow: v.union(
+      v.literal("diagnostic"),
+      v.literal("booking"),
+      v.literal("maintenance"),
+      v.literal("education"),
+      v.literal("status_check"),
+      v.literal("off_topic"),
+      v.literal("none"),
+    ),
+    flow_turn_count: v.number(),
+
+    // Model-written prose. Allowed to be a string because it IS prose.
+    arc_summary: v.string(),
+
+    // History compression (Wave 3.9 / D-3.4). Compressed turns 1..N into a
+    // single summary; recent turns stay verbatim in conversation_audit.
+    // compressed_through_turn is the high-water mark; undefined = no compression.
+    compressed_history_summary: v.optional(v.string()),
+    compressed_through_turn: v.optional(v.number()),
+
+    // ----- Control fields (system-only; commitControl owns writes) ----------
+    current_model: v.union(
+      v.literal("haiku"),
+      v.literal("sonnet"),
+      v.literal("human_handoff"),
+    ),
+    budget_spent_usd: v.number(),
+    budget_cap_usd: v.number(),
+    escalation_count: v.number(),
+    escalation_state: v.union(
+      v.literal("none"),
+      v.literal("requested"),
+      v.literal("active"),
+      v.literal("human"),
+    ),
+    sonnet_turns_used: v.number(),
+    sonnet_turn_budget: v.number(),
+
+    // ----- Concurrency-detection envelope -----------------------------------
+    updated_at: v.number(),
+    // Which turn last wrote this row. Mutations require expected_turn ==
+    // updated_by_turn; mismatch triggers deterministic reconciliation
+    // (§7 D8: throw in v1; fail-loud).
+    updated_by_turn: v.number(),
+  })
+    // One row per conversation. Single-row reads only.
+    .index("by_conversation", ["conversation_id"]),
+
+  // -------------------------------------------------------------------------
+  // conversation_audit — append-only immutable message log.
+  // WAVE_3_DESIGN §2.4. North Star §3.9 — the forensic spine.
+  //
+  // APPEND-ONLY. IMMUTABLE. NO ctx.db.patch, NO ctx.db.replace, NO
+  // ctx.db.delete — the only legal operation is ctx.db.insert via the
+  // recordTurn() helper. CI Rule 12 (Day 3) enforces this.
+  //
+  // One row per turn (user, assistant, or tool). prompt_version is stamped
+  // on every assistant turn (Doc 1 §3.1 gap closed). tool_calls captures
+  // the full tool-use payload so Wave 5 retrieval debugging has a complete
+  // trace.
+  //
+  // Coexistence with ai_messages: ai_messages remains the chat-render
+  // substrate (mobile reads it for the message list); conversation_audit
+  // is the forensic record. Both written together inside the same Convex
+  // mutation per turn (atomic; Convex serializes). Wave 5 reads
+  // conversation_audit, not ai_messages, for retrieval-context.
+  //
+  // Retention: permanent. Bounded by traffic, not by time. No decay.
+  // No cleanup at Wave 3 scope.
+  // -------------------------------------------------------------------------
+  conversation_audit: defineTable({
+    conversation_id: v.id("ai_conversations"),
+    turn_number: v.number(),
+    role: v.union(
+      v.literal("user"),
+      v.literal("assistant"),
+      v.literal("tool"),
+    ),
+    content: v.string(),
+
+    // Optional structured tool-call envelope (assistant role).
+    // input/output are v.any() because tool payloads vary per tool and
+    // cannot be narrowed at the audit-table layer. PII exposure flagged
+    // for Security Analyst (§7 D5).
+    tool_calls: v.optional(
+      v.array(
+        v.object({
+          name: v.string(),
+          input: v.any(),
+          output: v.optional(v.any()),
+        }),
+      ),
+    ),
+
+    // Stamped on every assistant turn. Doc 1 §3.1 gap closed.
+    model_used: v.optional(
+      v.union(v.literal("haiku"), v.literal("sonnet")),
+    ),
+    prompt_version: v.optional(v.string()),
+
+    timestamp: v.number(),
+  })
+    // Hot read path: ordered turn-by-turn replay for one conversation.
+    .index("by_conversation_turn", ["conversation_id", "turn_number"])
+    // Eval / A/B harness: scan all turns under a specific prompt version.
+    .index("by_prompt_version", ["prompt_version", "timestamp"])
+    // Model-routing telemetry / Wave 1.4 boundary-adherence eval queries.
+    .index("by_model_timestamp", ["model_used", "timestamp"]),
+
+  // -------------------------------------------------------------------------
+  // conversation_facts — typed structured facts per conversation.
+  // WAVE_3_DESIGN §2.1. D-3.2 append-only with soft-retract.
+  //
+  // Replaces ai_conversations.established_facts: v.array(v.string()) — the
+  // worst single schema decision per Doc 1 §3.3. Holds typed structured
+  // facts the model AND the mobile app each append; the working-memory
+  // builder reads back active (non-retracted) facts on the next turn.
+  // Eliminates the Haiku/mobile race condition on a shared array.
+  //
+  // Mutation surface: convex/oto/memoryEditing.ts.
+  //   - appendConversationFact()  — chat-agent path (Haiku reasoning loop)
+  //   - recordSelectionFact()     — mobile-tap path (user selection)
+  //   - retractConversationFact() — soft-retract; sets retract triple atomically
+  //
+  // Append-only EXCEPT for the three retract fields, which are write-once.
+  // A row whose retracted_at is already set cannot be re-retracted. The
+  // row body itself is immutable; retract is a flag, not an edit.
+  //
+  // No audit-log table. The append-only discipline IS the audit log.
+  // CI Rules 12-15 (Day 3) enforce helper-only mutation + no replace/delete.
+  //
+  // Retention: bounded by conversation lifetime. No exponential decay
+  // (different threat model than user_semantic_facts).
+  // -------------------------------------------------------------------------
+  conversation_facts: defineTable({
+    conversation_id: v.id("ai_conversations"),
+
+    fact_type: v.union(
+      v.literal("id_reference"),  // structured: "selected mechanic k57abc"
+      v.literal("preference"),    // "prefers closest over cheapest"
+      v.literal("observation"),   // "brake squeal at low speed only"
+      v.literal("hypothesis"),    // Oto's working theory; NOT user-stated
+      v.literal("user_quote"),    // exact user phrasing, verbatim
+    ),
+
+    // Discriminated payload. The kind tag matches fact_type.
+    payload: v.union(
+      v.object({
+        kind: v.literal("id_reference"),
+        entity_type: v.string(),   // "mechanic" | "shop" | "vehicle" | "service"
+        entity_id: v.string(),     // Convex id as string OR external id
+      }),
+      v.object({
+        kind: v.literal("preference"),
+        dimension: v.string(),     // "distance" | "price" | "rating" | ...
+        value: v.string(),
+      }),
+      v.object({
+        kind: v.literal("observation"),
+        text: v.string(),
+      }),
+      v.object({
+        kind: v.literal("hypothesis"),
+        text: v.string(),
+        confidence: v.number(),
+      }),
+      v.object({
+        kind: v.literal("user_quote"),
+        text: v.string(),
+      }),
+    ),
+
+    source_turn: v.number(),
+    created_at: v.number(),
+
+    // Soft-retract (D-3.2). Set together; never split.
+    retracted_at: v.optional(v.number()),
+    retracted_reason: v.optional(v.string()),
+    retracted_by_turn: v.optional(v.number()),
+
+    // D-3.6 multi-agent writer attribution. Default "chat_agent" for the
+    // current single-agent system; "user_selection" for mobile-tap appends.
+    // "health_monitor" pre-provisioned per D-3.6 (write path doesn't yet
+    // exist; enum entry costs nothing until used — §7 D1).
+    written_by: v.union(
+      v.literal("chat_agent"),
+      v.literal("user_selection"),
+      v.literal("health_monitor"),
+      v.literal("system"),
+    ),
+  })
+    // Hot read path: active facts for one conversation, ordered by creation.
+    // retracted_at in the index lets a single index scan return the exact
+    // non-retracted subset (Doc 1 §3.3 anti-pattern fix).
+    .index("by_conversation_active", ["conversation_id", "retracted_at", "created_at"])
+    // Multi-agent diagnostic: which agent wrote what for one conversation.
+    .index("by_conversation_writer", ["conversation_id", "written_by", "created_at"]),
+
+  // -------------------------------------------------------------------------
+  // user_semantic_facts — cross-conversation personalization, 120-day decay.
+  // WAVE_3_DESIGN §2.2. D-3.2 + D-3.5 + D-3.6.
+  //
+  // Per-user persistent facts (preferences, mechanic anchors, vehicle
+  // quirks) that survive across conversations. Confidence decays
+  // exponentially (D-3.5, 120-day half-life), reinforces asymptotically on
+  // re-observation, floors at 0.1 (never auto-retracts on decay alone).
+  // Replaces Doc 1's "no per-user persistent memory" finding.
+  //
+  // Decay is COMPUTED ON READ, not written. The stored confidence is the
+  // last-reinforced value; the retrieval layer (Wave 5) applies the decay
+  // function against (now - last_reinforced) at query time. This avoids a
+  // write-on-read pattern and makes decay continuous, not discrete.
+  //
+  // Mutation surface: convex/oto/memoryEditing.ts.
+  //   - appendUserSemanticFact()    — initial insert (confidence: 1.0)
+  //   - reinforceUserSemanticFact() — asymptotic bump (1 - (1 - c) * 0.5)
+  //   - retractUserSemanticFact()   — soft-retract; sets retract triple
+  //
+  // Append-only EXCEPT for the reinforcement triple (confidence,
+  // observation_count, last_reinforced) and the retract triple
+  // (retracted_at, retracted_reason, retracted_at_floor_ms). Reinforcement
+  // is monotonic (confidence only increases toward 1.0; observation_count
+  // only increments; last_reinforced only advances), so the safety
+  // property is preserved structurally.
+  //
+  // Retention: 120-day exponential decay computed at read time, floored at
+  // 0.1, never auto-retracts. Retracted rows kept 365 days then hard-
+  // deleted by cleanupUserSemanticFacts cron (Day 5 — phase-2-defensible).
+  // Live rows never deleted.
+  // -------------------------------------------------------------------------
+  user_semantic_facts: defineTable({
+    user_id: v.id("users"),
+    // Optional vehicle scope. undefined = user-level fact; set = vehicle-
+    // specific. A vehicle_quirk fact ("this car pulls left when cold") is
+    // scoped to one vehicle and NEVER propagates to vehicle_facts
+    // (cross-user pollution guard from Doc 1 §3.4).
+    vehicle_id: v.optional(v.id("vehicles")),
+
+    fact_type: v.union(
+      v.literal("mechanic_preference"),   // "books with Carlos repeatedly"
+      v.literal("service_preference"),    // "always declines synthetic blend"
+      v.literal("communication_style"),   // "wants terse answers"
+      v.literal("vehicle_quirk"),         // "pulls left when cold"
+      v.literal("history_anchor"),        // "last brake service 2026-03-14"
+    ),
+
+    // Prose payload — consumed as context, not parsed. Distinct from
+    // conversation_facts.payload which is structured/discriminated.
+    payload: v.string(),
+
+    // Stored confidence is the LAST-REINFORCED value. Retrieval applies
+    // the D-3.5 decay function: effective_confidence = max(0.1, stored *
+    // exp(-ln(2) * (now - last_reinforced) / 120_days_ms)).
+    confidence: v.number(),
+
+    source: v.union(
+      v.literal("user_stated"),         // user said it explicitly
+      v.literal("inferred_behavior"),   // derived from booking/chat patterns
+      v.literal("mechanic_confirmed"),  // came from a verified service record
+    ),
+
+    // D-3.6 multi-agent attribution. Per §7 D3 the (source, written_by)
+    // legality matrix is enforced in the helper, not the schema:
+    //   - health_monitor MUST NOT write source: "mechanic_confirmed"
+    //   - system        MUST NOT write source: "mechanic_confirmed"
+    //   - admin_edit    MAY write any (source, written_by) combination
+    //   - chat_agent    MAY write any source observed in chat
+    written_by: v.union(
+      v.literal("chat_agent"),
+      v.literal("health_monitor"),
+      v.literal("admin_edit"),
+      v.literal("system"),
+    ),
+
+    first_observed: v.number(),
+    last_reinforced: v.number(),
+    observation_count: v.number(),
+
+    // Soft-retract (D-3.2).
+    retracted_at: v.optional(v.number()),
+    retracted_reason: v.optional(v.string()),
+
+    // GC clock for the 365-day cold-cleanup cron (Day 5+). Set on retract;
+    // the cron hard-deletes rows whose value is older than 365 days.
+    // undefined on live rows; only retracted rows have it.
+    retracted_at_floor_ms: v.optional(v.number()),
+  })
+    // Hot read path: active facts for one user, scoped by vehicle if relevant.
+    .index("by_user_active", ["user_id", "retracted_at", "last_reinforced"])
+    // Vehicle-scoped facts for one user.
+    .index("by_user_vehicle", ["user_id", "vehicle_id", "retracted_at"])
+    // Type-driven retrieval ("give me all mechanic_preferences for user X").
+    .index("by_user_type_active", ["user_id", "fact_type", "retracted_at"])
+    // Cold-cleanup cron scan (Day 5+).
+    .index("by_retracted_floor", ["retracted_at_floor_ms"]),
 });
