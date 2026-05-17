@@ -76,6 +76,18 @@ const DATA_TOOLS: OtoToolSchema[] = [
   },
 
   {
+    name: "get_pending_bookings",
+    description:
+      "Get the user's PENDING bookings only — bookings that have been created but NOT yet confirmed by the shop (status === 'pending'). Use when the user asks specifically about pending / unconfirmed bookings: \"what's pending?\", \"do I have any pending bookings?\", \"what bookings haven't been confirmed yet?\", \"anything still waiting?\". This is a STRICT SUBSET of get_bookings(status_filter: 'active') — that broader call includes pending + confirmed + in_progress. If the user wants ALL upcoming/active work (including confirmed appointments), call get_bookings(status_filter: 'active') instead. Returns most recent first; default limit 5; max 20. Same OtoBookingSummary shape as get_bookings.",
+    input_schema: {
+      type: "object",
+      properties: {
+        limit: { type: "integer", minimum: 1, maximum: 20, description: "Default 5." },
+      },
+    },
+  },
+
+  {
     name: "get_due_services",
     description:
       "Get computed maintenance urgency for a vehicle — which services are overdue, due soon, or fine. This is the answer to 'what does my car need?' or 'anything coming up?'. Each row carries `urgency: 'overdue' | 'due_soon' | 'ok'` plus due-mileage and due-date when known, and uses canonical service slugs (snake_case, e.g. 'oil_change') that you can pass back into get_service_details or render_service_picker.",
@@ -640,6 +652,8 @@ const STATE_TOOLS: OtoToolSchema[] = [
 //   render_time_selector         → message.timeSlots         (envelope extension — Gap 6)
 //   render_booking_confirmation  → message.bookingSummary    (envelope extension — Gap 7)
 //   render_link_button           → message.linkButton        (Sprint 3 §14.1 — 9-destination app-nav redirect)
+//   render_booking_card          → message.bookingCard       (Sprint 3 §14.3 — single-booking detail card)
+//   render_bookings_list         → message.bookingsList      (Sprint 3 §14.3 — multi-booking list)
 //   render_quick_replies         → message.quickReplies
 //   render_reasoning             → message.reasoning
 //   render_sources               → message.sources
@@ -828,6 +842,41 @@ const RENDER_TOOLS: OtoToolSchema[] = [
   },
 
   {
+    name: "render_booking_card",
+    description:
+      "Render a single-booking detail card inline in chat for ONE specific booking the user is asking about. Use when the user asks about a particular upcoming or recent appointment — \"what's my next appointment?\", \"when's my booking with Carlos?\", \"show me that booking\". WORKFLOW: first call get_bookings(status_filter: 'active', limit: 1) (or limit: N + pick the relevant id) — THEN call render_booking_card with the booking_id from that result. Trigger-only: you pass ONLY the booking_id; the FRONTEND queries Convex for the shop name, mechanic, scheduled date/time, service names, status, and renders the card itself. You do NOT compose booking details, do NOT pass dates, do NOT pass shop names — the component handles all of that. Pair with a short framing sentence in your prose (e.g. \"Here's your upcoming oil change.\"). TERMINAL render — calling this ENDS YOUR TURN; do not call other render tools after it. For MULTIPLE bookings use render_bookings_list instead.",
+    input_schema: {
+      type: "object",
+      properties: {
+        booking_id: {
+          type: "string",
+          description: "Convex bookings._id from a prior get_bookings or get_pending_bookings call. The mobile component reads this id and queries Convex itself for the renderable booking record.",
+        },
+      },
+      required: ["booking_id"],
+    },
+  },
+
+  {
+    name: "render_bookings_list",
+    description:
+      "Render a list of booking cards inline in chat when the user asks about MULTIPLE bookings. Use when the user asks \"show me all my upcoming bookings\", \"what's coming up?\", \"list my bookings\", \"what do I have scheduled?\" AND multiple active bookings exist. WORKFLOW: first call get_bookings(status_filter: 'active') (or get_pending_bookings for pending-only) to get the ids — THEN call render_bookings_list with the booking_ids array. Trigger-only: you pass ONLY the booking_ids array; the FRONTEND queries Convex for each booking's shop / mechanic / date / services / status and renders the list itself. You do NOT compose booking details. Pair with a short framing sentence in your prose (e.g. \"Here are your three upcoming bookings.\"). TERMINAL render — calling this ENDS YOUR TURN. For ONE booking use render_booking_card instead.",
+    input_schema: {
+      type: "object",
+      properties: {
+        booking_ids: {
+          type: "array",
+          minItems: 1,
+          maxItems: 10,
+          items: { type: "string" },
+          description: "Array of Convex bookings._id values from a prior get_bookings or get_pending_bookings call. The mobile component reads these ids and queries Convex itself for each renderable booking record. Min 1, max 10.",
+        },
+      },
+      required: ["booking_ids"],
+    },
+  },
+
+  {
     name: "render_quick_replies",
     description:
       "Show 2–4 tap-to-send reply buttons under your message. This tool emits quick-reply buttons that ARE your final response to the user — calling this tool ENDS YOUR TURN. Optionally include a brief introductory text message in the same turn; the buttons supplement your text, but calling this tool means you're done responding for this turn. Do NOT call other tools after this one. Use when offering a small set of obvious next options ('Closest', 'Best rated'; 'Yes', 'No'; 'Reschedule', 'Cancel', 'Got it'). Keep replies short (≤ 18 chars). Don't use this for free-form clarifying questions.",
@@ -952,6 +1001,8 @@ export const OTO_TOOL_CATEGORY: Record<string, OtoToolCategory> = {
   // data
   get_my_vehicles: "data",
   get_bookings: "data",
+  // Booking Status — Sprint 3 Day 5 §14.3 (pending-only subset of get_bookings)
+  get_pending_bookings: "data",
   get_due_services: "data",
   list_service_categories: "data",
   list_services_for_vehicle: "data",
@@ -1011,6 +1062,9 @@ export const OTO_TOOL_CATEGORY: Record<string, OtoToolCategory> = {
   render_diagnostic_form: "render",
   render_record_confirmation: "render",
   render_link_button: "render",
+  // Booking Status — Sprint 3 Day 5 §14.3 (single + list booking surfaces)
+  render_booking_card: "render",
+  render_bookings_list: "render",
   render_quick_replies: "render",
   render_reasoning: "render",
   render_sources: "render",

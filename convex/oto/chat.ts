@@ -88,6 +88,8 @@ const TOOL_NAMES_V1 = [
   "get_vehicle_health",
   "get_projected_health_score",
   "get_bookings",
+  // Booking Status — Sprint 3 Day 5 §14.3
+  "get_pending_bookings",
   "get_due_services",
   "get_vehicle_facts",
   // Data tools — knowledge base + lookups for general car questions
@@ -118,6 +120,9 @@ const TOOL_NAMES_V1 = [
   // 8-destination enum; terminal render; dispatcher packages into
   // ChatMessage.linkButton.
   "render_link_button",
+  // Booking Status — Sprint 3 Day 5 §14.3
+  "render_booking_card",
+  "render_bookings_list",
   // Model routing — Phase 2 Sonnet cascade (Locked Principle #2)
   "request_sonnet_handoff",
   "request_haiku_handback",
@@ -157,6 +162,8 @@ const TOOLS_FOR_HAIKU = OTO_TOOLS.filter((t) =>
     "get_vehicle_health",
     "get_projected_health_score",
     "get_bookings",
+    // Booking Status — Sprint 3 Day 5 §14.3
+    "get_pending_bookings",
     "get_due_services",
     "get_vehicle_facts",
     "lookup_vehicle_spec",
@@ -2105,6 +2112,23 @@ function buildCallables(
           : undefined;
       return await ctx.runQuery(api.oto.bookings.getBookings, {
         status_filter: statusFilter,
+        ...(limit !== undefined ? { limit } : {}),
+      });
+    },
+
+    /**
+     * get_pending_bookings — Sprint 3 Day 5 §14.3. Strict subset of
+     * get_bookings: returns ONLY status === "pending" rows (not the broader
+     * "active" set of pending + confirmed + in_progress). Identity pulled
+     * from auth in the query handler; no user_id passes the tool boundary.
+     * Default limit is enforced by the schema validator (5, max 20).
+     */
+    get_pending_bookings: async (input) => {
+      const limit =
+        typeof input.limit === "number" && Number.isFinite(input.limit)
+          ? (input.limit as number)
+          : undefined;
+      return await ctx.runQuery(api.oto.bookings.getPendingBookings, {
         ...(limit !== undefined ? { limit } : {}),
       });
     },

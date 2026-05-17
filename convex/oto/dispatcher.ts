@@ -250,6 +250,30 @@ function packageRenderDirective(toolUse: ToolUseBlock): ToolResultBlock {
         }),
       );
 
+    case "render_booking_card":
+      // Sprint 3 §14.3 — single-booking detail card. Trigger-only: pass
+      // ONLY the booking_id; the mobile component queries Convex for the
+      // shop name, mechanic, scheduled date/time, service names, status,
+      // and renders the card itself. Oto NEVER composes booking details.
+      return ok(
+        toolUse.id,
+        renderD("bookingCard", {
+          booking_id: toolUse.input.booking_id,
+        }),
+      );
+
+    case "render_bookings_list":
+      // Sprint 3 §14.3 — multi-booking list. Trigger-only: pass ONLY the
+      // booking_ids array (min 1, max 10 enforced by the tool schema). The
+      // mobile component queries Convex for each booking's details and
+      // renders the list itself. Oto NEVER composes booking data.
+      return ok(
+        toolUse.id,
+        renderD("bookingsList", {
+          booking_ids: toolUse.input.booking_ids,
+        }),
+      );
+
     case "render_quick_replies":
       return ok(toolUse.id, renderD("quickReplies", toolUse.input.replies));
 
@@ -367,6 +391,11 @@ export interface ChatMessageEnvelope {
   // navigates to the corresponding screen (deep-link for in-app destinations;
   // in-app browser for TOS / Privacy).
   linkButton?: unknown;
+  // Sprint 3 §14.3 — Booking Status surfaces. Trigger payloads: pass only
+  // the booking_id(s); the mobile components query Convex for the
+  // renderable booking record(s) and render the card / list itself.
+  bookingCard?: unknown;
+  bookingsList?: unknown;
   reasoning?: unknown;
   sources?: unknown;
   [k: string]: unknown;

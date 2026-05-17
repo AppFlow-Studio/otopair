@@ -680,6 +680,8 @@ Do NOT:
 
 ### §14.3 Booking Status — extended booking visibility
 
+**Status: LIVE as of Sprint 3 Day 5 Pass A.** 3 new tools live: `get_pending_bookings` (data) + `render_booking_card` (render) + `render_bookings_list` (render). New `getPendingBookings` query in `convex/oto/bookings.ts`. Prompt section in `convex/oto/prompt/stable.ts` (`v0.17-stable`) at lines 787-825. 6 eval cases in `scripts/oto-eval-cases.json` (3 positives + 2 discrimination + 1 mutual-exclusion).
+
 **Purpose.** Today's `get_bookings(status_filter)` returns a list. Sprint 3 expands the booking-status surface so Oto can answer "what's my next appointment?" / "what's pending?" / "is my booking confirmed?" more precisely, and render a focused booking card when one booking is the answer.
 
 **Behavioral contract.**
@@ -860,9 +862,9 @@ These rules apply regardless of which domain the conversation is in. They're cal
 | data | `get_loyalty_points_history` | **live** as of Sprint 3 Day 3 Pass A | §14.2 |
 | data | `get_available_redemptions` | **live** as of Sprint 3 Day 3 Pass A (informational surfacing only — no claim) | §14.2 |
 | data | `get_loyalty_program_info` | **live** as of Sprint 3 Day 3 Pass A | §14.2 |
-| data | `get_pending_bookings` | planned | §14.3 |
-| render | `render_booking_card` | planned | §14.3 |
-| render | `render_bookings_list` | planned | §14.3 |
+| data | `get_pending_bookings` | **live** as of Sprint 3 Day 5 Pass A | §14.3 |
+| render | `render_booking_card` | **live** as of Sprint 3 Day 5 Pass A | §14.3 |
+| render | `render_bookings_list` | **live** as of Sprint 3 Day 5 Pass A | §14.3 |
 
 **Loyalty graduation (Sprint 3).** `get_rewards_summary` graduates from `live-unsurfaced` to `live` in Sprint 3 as part of the §14.2 dispatch — same tool, new prompt section gating when Oto calls it (alongside the 4 new Loyalty data tools above).
 

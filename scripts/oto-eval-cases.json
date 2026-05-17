@@ -2329,6 +2329,152 @@
           }
         }
       ]
+    },
+    {
+      "name": "booking_status_pending",
+      "description": "Sprint 3 Day 5 §14.3 dispatch (Booking Status — viewing existing bookings). §14.3 behavioral contract row 3 — 'what's pending?' MUST route to get_pending_bookings (the new convenience tool, planned status). tools_not_called excludes get_bookings here because pending is the dedicated subset tool — if Haiku falls back to get_bookings(status_filter:'active') and filters in prose, that's drift away from the planned discrimination. NOTE: caveat — runner has no tool-arg primitive, so we can only assert tool-name routing; arg correctness (status_filter values, limit:1) is unverifiable here.",
+      "turns": [
+        {
+          "user": "Any pending bookings I haven't confirmed yet?",
+          "expect": {
+            "tools_called": [
+              "get_pending_bookings",
+              "update_conversation_state"
+            ],
+            "tools_not_called": [
+              "get_bookings",
+              "render_service_picker",
+              "render_shop_carousel"
+            ],
+            "text_not_contains": [
+              "the system",
+              "the dispatcher"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "booking_status_next_appointment",
+      "description": "Sprint 3 Day 5 §14.3 dispatch (Booking Status — viewing existing bookings). §14.3 behavioral contract row 1 — 'what's my next appointment?' MUST emit the 2-step sequence: get_bookings(status_filter:'active', limit:1) followed by render_booking_card(booking_id) — terminal singular-card render. Caveat: tool-arg primitive absent; we assert both tool names appear in the same turn batch (per §15.9 tool batching) but cannot verify limit:1 or that the right booking_id is passed.",
+      "turns": [
+        {
+          "user": "What's my next appointment?",
+          "expect": {
+            "tools_called": [
+              "get_bookings",
+              "render_booking_card",
+              "update_conversation_state"
+            ],
+            "tools_not_called": [
+              "render_bookings_list",
+              "render_service_picker",
+              "render_shop_carousel"
+            ],
+            "text_not_contains": [
+              "the system",
+              "the dispatcher"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "booking_status_list_view",
+      "description": "Sprint 3 Day 5 §14.3 dispatch (Booking Status — viewing existing bookings). §14.3 — multi-booking summary view. 'Show me all my upcoming bookings' is plural-list-shaped, MUST emit get_bookings(status_filter:'active', no limit override) followed by render_bookings_list(booking_ids). Distinct from the singular-card path. tools_not_called guards against rendering BOTH list and card in one turn (mutual-exclusion semantics; the singular card is for one-booking answers, not many).",
+      "turns": [
+        {
+          "user": "Show me all my upcoming bookings.",
+          "expect": {
+            "tools_called": [
+              "get_bookings",
+              "render_bookings_list",
+              "update_conversation_state"
+            ],
+            "tools_not_called": [
+              "render_booking_card",
+              "render_service_picker",
+              "render_shop_carousel"
+            ],
+            "text_not_contains": [
+              "the system",
+              "the dispatcher"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "booking_status_confirmation_check",
+      "description": "Sprint 3 Day 5 §14.3 dispatch (Booking Status — viewing existing bookings). §14.3 behavioral contract row 2 — 'is my booking confirmed?' is a status check on an existing booking. MUST fire get_bookings (active filter) and surface the status keyword in prose ('confirmed' OR 'pending'). render_booking_card MAY also fire (singular focus) but is NOT asserted here (kept soft per dispatch brief — Haiku may answer in prose only when the status itself is the answer). Caveat: text_contains is OR-of-keywords semantically, but runner enforces AND across the array, so we use a single broad-ish anchor 'booking' to avoid forcing one status verbiage over another.",
+      "turns": [
+        {
+          "user": "Is my booking confirmed?",
+          "expect": {
+            "tools_called": [
+              "get_bookings",
+              "update_conversation_state"
+            ],
+            "tools_not_called": [
+              "render_service_picker",
+              "render_shop_carousel",
+              "render_time_selector"
+            ],
+            "text_contains": [
+              "booking"
+            ],
+            "text_not_contains": [
+              "the system",
+              "the dispatcher"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "booking_status_vs_booking_flow_discrimination",
+      "description": "Sprint 3 Day 5 §14.3 dispatch (Booking Status — viewing existing bookings). §14.3 discrimination test — 'I want to book a brake service' is a CREATE-NEW-BOOKING intent (§4 Booking 6-stage flow stage 1), NOT a VIEW-EXISTING-BOOKING intent (§14.3). Oto MUST route to the Booking Flow path (render_service_picker is the stage-1 surface), NOT to the §14.3 viewing tools (get_pending_bookings / render_booking_card / render_bookings_list — all for viewing existing, not creating). This case is testing a ROUTING RULE rather than a single tool's correctness; the load-bearing assertion is the tools_not_called set that excludes ALL THREE §14.3 viewing tools, plus tools_called includes render_service_picker (stage-1 of the create flow). Caveat: Haiku might fire list_service_categories or list_services_for_vehicle instead of jumping straight to render_service_picker — both are valid first-stage moves; keeping render_service_picker in tools_called is the stronger assertion per §4 row 'stage 1 surface'.",
+      "turns": [
+        {
+          "user": "I want to book a brake service.",
+          "expect": {
+            "tools_called": [
+              "render_service_picker",
+              "update_conversation_state"
+            ],
+            "tools_not_called": [
+              "get_pending_bookings",
+              "render_booking_card",
+              "render_bookings_list"
+            ],
+            "text_not_contains": [
+              "the system",
+              "the dispatcher"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "booking_status_card_or_list_not_both",
+      "description": "Sprint 3 Day 5 §14.3 dispatch (Booking Status — viewing existing bookings). §14.3 mutual-exclusion semantics — singular query 'what's my next appointment?' MUST fire render_booking_card AND MUST NOT fire render_bookings_list in the same turn. Catches the failure mode where Haiku emits BOTH terminal render tools in one batch (forbidden — they're mutually exclusive terminal renders for singular vs plural answers). Similar surface to case #2 but the load-bearing assertion is the negative — render_bookings_list MUST NOT appear. Caveat: this duplicates case 2's positive assertion intentionally to give us repeat statistical signal on the singular-card path while isolating the mutual-exclusion guarantee in tools_not_called.",
+      "turns": [
+        {
+          "user": "When's my next service?",
+          "expect": {
+            "tools_called": [
+              "render_booking_card"
+            ],
+            "tools_not_called": [
+              "render_bookings_list"
+            ],
+            "text_not_contains": [
+              "the system",
+              "the dispatcher"
+            ]
+          }
+        }
+      ]
     }
   ]
 }
