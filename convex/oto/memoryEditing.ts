@@ -199,15 +199,6 @@ const kbTopicCategoryValidator = v.union(
   v.literal("general"),
 );
 
-// -----------------------------------------------------------------------------
-// Day 2 sentinel — every stub throws this until the body lands. Avoids the
-// silent-no-op risk a `return undefined` body would carry if a caller mis-
-// imports the stub before Day 2 ships.
-// -----------------------------------------------------------------------------
-
-const NOT_IMPLEMENTED_MSG =
-  "Wave 3 Day 2 — not yet implemented. See docs/SPRINT_2/WAVE_3_DESIGN.md §2.";
-
 // =============================================================================
 // conversation_facts mutations (§2.1)
 // =============================================================================
@@ -236,12 +227,38 @@ export const recordConversationFact = mutation({
     written_by: conversationFactWrittenByValidator,
   },
   handler: async (
-    _ctx: MutationCtx,
-    _args,
+    ctx: MutationCtx,
+    args,
   ): Promise<Id<"conversation_facts">> => {
-    // TODO: Day 2 — validate payload.kind matches fact_type, reject
-    // written_by: "user_selection" (use recordSelectionFact), insert row.
-    throw new Error(NOT_IMPLEMENTED_MSG);
+    // Discriminator integrity — payload.kind MUST equal fact_type.
+    if (args.payload.kind !== args.fact_type) {
+      throw new Error(
+        `recordConversationFact: payload.kind="${args.payload.kind}" must match fact_type="${args.fact_type}"`,
+      );
+    }
+    // user_selection is reserved for recordSelectionFact (mobile-tap).
+    if (args.written_by === "user_selection") {
+      throw new Error(
+        `recordConversationFact: written_by="user_selection" is reserved for recordSelectionFact; use that helper for mobile-tap appends.`,
+      );
+    }
+    if (args.source_turn < 0) {
+      throw new Error(
+        `recordConversationFact: source_turn must be >= 0; got ${args.source_turn}`,
+      );
+    }
+
+    const now = Date.now();
+    const factId = await ctx.db.insert("conversation_facts", {
+      conversation_id: args.conversation_id,
+      fact_type: args.fact_type,
+      payload: args.payload,
+      source_turn: args.source_turn,
+      created_at: now,
+      written_by: args.written_by,
+      // retract triple intentionally unset (undefined) on insert.
+    });
+    return factId;
   },
 });
 
@@ -263,12 +280,35 @@ export const recordSelectionFact = mutation({
     source_turn: v.number(),
   },
   handler: async (
-    _ctx: MutationCtx,
-    _args,
+    ctx: MutationCtx,
+    args,
   ): Promise<Id<"conversation_facts">> => {
-    // TODO: Day 2 — build id_reference payload + insert with
-    // written_by: "user_selection".
-    throw new Error(NOT_IMPLEMENTED_MSG);
+    if (!args.entity_type.trim()) {
+      throw new Error("recordSelectionFact: entity_type required");
+    }
+    if (!args.entity_id.trim()) {
+      throw new Error("recordSelectionFact: entity_id required");
+    }
+    if (args.source_turn < 0) {
+      throw new Error(
+        `recordSelectionFact: source_turn must be >= 0; got ${args.source_turn}`,
+      );
+    }
+
+    const now = Date.now();
+    const factId = await ctx.db.insert("conversation_facts", {
+      conversation_id: args.conversation_id,
+      fact_type: "id_reference",
+      payload: {
+        kind: "id_reference",
+        entity_type: args.entity_type,
+        entity_id: args.entity_id,
+      },
+      source_turn: args.source_turn,
+      created_at: now,
+      written_by: "user_selection",
+    });
+    return factId;
   },
 });
 
@@ -289,9 +329,35 @@ export const retractConversationFact = mutation({
     reason: v.string(),
     retracted_by_turn: v.number(),
   },
-  handler: async (_ctx: MutationCtx, _args): Promise<void> => {
-    // TODO: Day 2 — read, validate not already retracted, patch retract triple.
-    throw new Error(NOT_IMPLEMENTED_MSG);
+  handler: async (ctx: MutationCtx, args): Promise<void> => {
+    if (!args.reason.trim()) {
+      throw new Error("retractConversationFact: reason required");
+    }
+    if (args.retracted_by_turn < 0) {
+      throw new Error(
+        `retractConversationFact: retracted_by_turn must be >= 0; got ${args.retracted_by_turn}`,
+      );
+    }
+
+    const row = await ctx.db.get(args.fact_id);
+    if (!row) {
+      throw new Error(`retractConversationFact: fact ${args.fact_id} not found`);
+    }
+    // Idempotent guard — already retracted rows reject (D-3.2 write-once).
+    if (row.retracted_at !== undefined) {
+      throw new Error(
+        `retractConversationFact: already retracted (idempotent guard); fact ${args.fact_id}`,
+      );
+    }
+
+    const now = Date.now();
+    // Atomic patch of the retract triple. The three fields are set together;
+    // never split. D-3.2 hill enforced.
+    await ctx.db.patch(args.fact_id, {
+      retracted_at: now,
+      retracted_reason: args.reason,
+      retracted_by_turn: args.retracted_by_turn,
+    });
   },
 });
 
@@ -323,12 +389,42 @@ export const recordUserSemanticFact = mutation({
     written_by: userSemanticWrittenByValidator,
   },
   handler: async (
-    _ctx: MutationCtx,
-    _args,
+    ctx: MutationCtx,
+    args,
   ): Promise<Id<"user_semantic_facts">> => {
-    // TODO: Day 2 — enforce (source, written_by) matrix, insert with
-    // confidence: 1.0, observation_count: 1, first_observed/last_reinforced: now.
-    throw new Error(NOT_IMPLEMENTED_MSG);
+    if (!args.payload.trim()) {
+      throw new Error("recordUserSemanticFact: payload required");
+    }
+
+    // (source, written_by) legality matrix per design doc §2.2 + §7 D3.
+    // Non-chat / non-admin agents MUST NOT write source: "mechanic_confirmed"
+    // (deception vector — a background agent forging a verified service
+    // record is the threat we're closing).
+    if (args.source === "mechanic_confirmed") {
+      if (args.written_by === "health_monitor" || args.written_by === "system") {
+        throw new Error(
+          `recordUserSemanticFact: (source="mechanic_confirmed", written_by="${args.written_by}") is illegal; only chat_agent and admin_edit may write mechanic_confirmed facts.`,
+        );
+      }
+    }
+
+    const now = Date.now();
+    const factId = await ctx.db.insert("user_semantic_facts", {
+      user_id: args.user_id,
+      vehicle_id: args.vehicle_id,
+      fact_type: args.fact_type,
+      payload: args.payload,
+      // Initial insert: stored confidence at 1.0 (the asymptote ceiling).
+      // Decay is computed at read time by the retrieval layer (Wave 5).
+      confidence: 1.0,
+      source: args.source,
+      written_by: args.written_by,
+      first_observed: now,
+      last_reinforced: now,
+      observation_count: 1,
+      // retract triple intentionally unset (undefined) on initial insert.
+    });
+    return factId;
   },
 });
 
@@ -352,10 +448,38 @@ export const reinforceUserSemanticFact = mutation({
   args: {
     fact_id: v.id("user_semantic_facts"),
   },
-  handler: async (_ctx: MutationCtx, _args): Promise<void> => {
-    // TODO: Day 2 — read, validate not retracted, compute 1 - (1 - c) * 0.5,
-    // patch (confidence, observation_count, last_reinforced).
-    throw new Error(NOT_IMPLEMENTED_MSG);
+  handler: async (ctx: MutationCtx, args): Promise<void> => {
+    const row = await ctx.db.get(args.fact_id);
+    if (!row) {
+      throw new Error(
+        `reinforceUserSemanticFact: fact ${args.fact_id} not found`,
+      );
+    }
+    if (row.retracted_at !== undefined) {
+      throw new Error(
+        `reinforceUserSemanticFact: cannot reinforce retracted fact ${args.fact_id}`,
+      );
+    }
+
+    // Asymptotic confidence formula per design doc §2.2:
+    //   new_confidence = 1 - (1 - old_confidence) * 0.5
+    // The factor 0.5 halves the remaining gap to 1.0 on each reinforcement.
+    // Asymptotes toward 1.0; never reaches it. Monotonic increase preserves
+    // the D-3.2 safety property structurally.
+    const current = row.confidence;
+    const next = 1 - (1 - current) * 0.5;
+    // Defense in depth: clamp at the [0, 1] interval. The formula never
+    // exceeds 1.0 for any input in [0, 1], but the row's stored value could
+    // in theory have been written outside that range by an earlier bug or
+    // an admin_edit bypass. Clamping is cheap and the invariant is hard.
+    const clamped = Math.max(0, Math.min(1, next));
+
+    const now = Date.now();
+    await ctx.db.patch(args.fact_id, {
+      confidence: clamped,
+      observation_count: row.observation_count + 1,
+      last_reinforced: now,
+    });
   },
 });
 
@@ -377,10 +501,32 @@ export const retractUserSemanticFact = mutation({
     fact_id: v.id("user_semantic_facts"),
     reason: v.string(),
   },
-  handler: async (_ctx: MutationCtx, _args): Promise<void> => {
-    // TODO: Day 2 — read, validate not already retracted, patch
-    // (retracted_at, retracted_reason, retracted_at_floor_ms).
-    throw new Error(NOT_IMPLEMENTED_MSG);
+  handler: async (ctx: MutationCtx, args): Promise<void> => {
+    if (!args.reason.trim()) {
+      throw new Error("retractUserSemanticFact: reason required");
+    }
+    const row = await ctx.db.get(args.fact_id);
+    if (!row) {
+      throw new Error(
+        `retractUserSemanticFact: fact ${args.fact_id} not found`,
+      );
+    }
+    if (row.retracted_at !== undefined) {
+      throw new Error(
+        `retractUserSemanticFact: already retracted (idempotent guard); fact ${args.fact_id}`,
+      );
+    }
+
+    const now = Date.now();
+    // Set the three retract fields atomically. retracted_at_floor_ms is the
+    // GC clock for the 365-day cold-cleanup cron (Day 5+); we initialize it
+    // to the same value as retracted_at so the cron can scan by
+    // by_retracted_floor and hard-delete rows past the floor.
+    await ctx.db.patch(args.fact_id, {
+      retracted_at: now,
+      retracted_reason: args.reason,
+      retracted_at_floor_ms: now,
+    });
   },
 });
 
@@ -417,10 +563,59 @@ export const commitEpisodic = mutation({
     }),
     next_turn: v.number(),
   },
-  handler: async (_ctx: MutationCtx, _args): Promise<void> => {
-    // TODO: Day 2 — find row by conversation_id, validate expected_turn ==
-    // updated_by_turn, patch delta + (updated_at, updated_by_turn).
-    throw new Error(NOT_IMPLEMENTED_MSG);
+  handler: async (ctx: MutationCtx, args): Promise<void> => {
+    const row = await ctx.db
+      .query("conversation_episodic_control")
+      .withIndex("by_conversation", (q) =>
+        q.eq("conversation_id", args.conversation_id),
+      )
+      .first();
+    if (!row) {
+      throw new Error(
+        `commitEpisodic: no conversation_episodic_control row for conversation ${args.conversation_id}`,
+      );
+    }
+    // Concurrency-detection envelope. expected_turn MUST equal the stored
+    // updated_by_turn — a mismatch means a concurrent write happened, which
+    // we treat as a hard error per §7 D8 (fail-loud in v1; soften to
+    // deterministic-merge only if production telemetry shows races are real).
+    if (row.updated_by_turn !== args.expected_turn) {
+      throw new Error(
+        `commitEpisodic: turn mismatch on conversation ${args.conversation_id}; ` +
+          `expected_turn=${args.expected_turn} but stored updated_by_turn=${row.updated_by_turn}`,
+      );
+    }
+    // Monotonic guard on next_turn — turn counters never decrease.
+    if (args.next_turn < row.updated_by_turn) {
+      throw new Error(
+        `commitEpisodic: next_turn (${args.next_turn}) must be >= updated_by_turn (${row.updated_by_turn})`,
+      );
+    }
+
+    // Build the patch payload using conditional spread to avoid setting
+    // optional fields to `undefined` (the Convex strict-mode idiom called
+    // out in the role spec's "Convex idiosyncrasies").
+    const patch: Record<string, unknown> = {
+      updated_at: Date.now(),
+      updated_by_turn: args.next_turn,
+      ...(args.delta.mood !== undefined ? { mood: args.delta.mood } : {}),
+      ...(args.delta.current_flow !== undefined
+        ? { current_flow: args.delta.current_flow }
+        : {}),
+      ...(args.delta.flow_turn_count !== undefined
+        ? { flow_turn_count: args.delta.flow_turn_count }
+        : {}),
+      ...(args.delta.arc_summary !== undefined
+        ? { arc_summary: args.delta.arc_summary }
+        : {}),
+      ...(args.delta.compressed_history_summary !== undefined
+        ? { compressed_history_summary: args.delta.compressed_history_summary }
+        : {}),
+      ...(args.delta.compressed_through_turn !== undefined
+        ? { compressed_through_turn: args.delta.compressed_through_turn }
+        : {}),
+    };
+    await ctx.db.patch(row._id, patch);
   },
 });
 
@@ -450,9 +645,84 @@ export const commitControl = mutation({
     }),
     next_turn: v.number(),
   },
-  handler: async (_ctx: MutationCtx, _args): Promise<void> => {
-    // TODO: Day 2 — find row, validate expected_turn, patch control delta.
-    throw new Error(NOT_IMPLEMENTED_MSG);
+  handler: async (ctx: MutationCtx, args): Promise<void> => {
+    const row = await ctx.db
+      .query("conversation_episodic_control")
+      .withIndex("by_conversation", (q) =>
+        q.eq("conversation_id", args.conversation_id),
+      )
+      .first();
+    if (!row) {
+      throw new Error(
+        `commitControl: no conversation_episodic_control row for conversation ${args.conversation_id}`,
+      );
+    }
+    if (row.updated_by_turn !== args.expected_turn) {
+      throw new Error(
+        `commitControl: turn mismatch on conversation ${args.conversation_id}; ` +
+          `expected_turn=${args.expected_turn} but stored updated_by_turn=${row.updated_by_turn}`,
+      );
+    }
+    if (args.next_turn < row.updated_by_turn) {
+      throw new Error(
+        `commitControl: next_turn (${args.next_turn}) must be >= updated_by_turn (${row.updated_by_turn})`,
+      );
+    }
+    // Monotonic-on-counters discipline (§7 D8). Counters never decrease.
+    if (
+      args.delta.budget_spent_usd !== undefined &&
+      args.delta.budget_spent_usd < row.budget_spent_usd
+    ) {
+      throw new Error(
+        `commitControl: budget_spent_usd monotonic violation; ` +
+          `delta=${args.delta.budget_spent_usd} < stored=${row.budget_spent_usd}`,
+      );
+    }
+    if (
+      args.delta.escalation_count !== undefined &&
+      args.delta.escalation_count < row.escalation_count
+    ) {
+      throw new Error(
+        `commitControl: escalation_count monotonic violation; ` +
+          `delta=${args.delta.escalation_count} < stored=${row.escalation_count}`,
+      );
+    }
+    if (
+      args.delta.sonnet_turns_used !== undefined &&
+      args.delta.sonnet_turns_used < row.sonnet_turns_used
+    ) {
+      throw new Error(
+        `commitControl: sonnet_turns_used monotonic violation; ` +
+          `delta=${args.delta.sonnet_turns_used} < stored=${row.sonnet_turns_used}`,
+      );
+    }
+
+    const patch: Record<string, unknown> = {
+      updated_at: Date.now(),
+      updated_by_turn: args.next_turn,
+      ...(args.delta.current_model !== undefined
+        ? { current_model: args.delta.current_model }
+        : {}),
+      ...(args.delta.budget_spent_usd !== undefined
+        ? { budget_spent_usd: args.delta.budget_spent_usd }
+        : {}),
+      ...(args.delta.budget_cap_usd !== undefined
+        ? { budget_cap_usd: args.delta.budget_cap_usd }
+        : {}),
+      ...(args.delta.escalation_count !== undefined
+        ? { escalation_count: args.delta.escalation_count }
+        : {}),
+      ...(args.delta.escalation_state !== undefined
+        ? { escalation_state: args.delta.escalation_state }
+        : {}),
+      ...(args.delta.sonnet_turns_used !== undefined
+        ? { sonnet_turns_used: args.delta.sonnet_turns_used }
+        : {}),
+      ...(args.delta.sonnet_turn_budget !== undefined
+        ? { sonnet_turn_budget: args.delta.sonnet_turn_budget }
+        : {}),
+    };
+    await ctx.db.patch(row._id, patch);
   },
 });
 
@@ -500,16 +770,82 @@ export const recordTurn = mutation({
     prompt_version: v.optional(v.string()),
   },
   handler: async (
-    _ctx: MutationCtx,
-    _args,
+    ctx: MutationCtx,
+    args,
   ): Promise<Id<"conversation_audit">> => {
-    // TODO: Day 2 — role-conditional invariants:
-    //   role === "assistant" => model_used + prompt_version required
-    //   role === "user"      => model_used + prompt_version + tool_calls must be undefined
-    //   role === "tool"      => content represents tool output; prompt_version optional
-    // Validate (conversation_id, turn_number, role) uniqueness via index scan.
-    // Insert.
-    throw new Error(NOT_IMPLEMENTED_MSG);
+    if (args.turn_number < 0) {
+      throw new Error(
+        `recordTurn: turn_number must be >= 0; got ${args.turn_number}`,
+      );
+    }
+
+    // Role-conditional invariants per the TODO contract.
+    if (args.role === "assistant") {
+      if (args.model_used === undefined) {
+        throw new Error(
+          "recordTurn: role=assistant requires model_used (Doc 1 §3.1 gap closed)",
+        );
+      }
+      if (args.prompt_version === undefined || !args.prompt_version.trim()) {
+        throw new Error(
+          "recordTurn: role=assistant requires prompt_version (Wave 1.5 protocol)",
+        );
+      }
+    } else if (args.role === "user") {
+      // User turns are pure input; model/prompt/tool fields MUST be absent.
+      if (args.model_used !== undefined) {
+        throw new Error(
+          "recordTurn: role=user must not carry model_used",
+        );
+      }
+      if (args.prompt_version !== undefined) {
+        throw new Error(
+          "recordTurn: role=user must not carry prompt_version",
+        );
+      }
+      if (args.tool_calls !== undefined) {
+        throw new Error(
+          "recordTurn: role=user must not carry tool_calls",
+        );
+      }
+    } // role === "tool": prompt_version optional; model_used optional.
+
+    // Uniqueness on (conversation_id, turn_number, role) — strict
+    // append-only and Doc 1 §3.1's "no double-write" invariant. Convex has
+    // no native unique constraint; the helper checks via the
+    // by_conversation_turn index scan.
+    const existingRows = await ctx.db
+      .query("conversation_audit")
+      .withIndex("by_conversation_turn", (q) =>
+        q
+          .eq("conversation_id", args.conversation_id)
+          .eq("turn_number", args.turn_number),
+      )
+      .collect();
+    for (const r of existingRows) {
+      if (r.role === args.role) {
+        throw new Error(
+          `recordTurn: duplicate (conversation_id=${args.conversation_id}, turn_number=${args.turn_number}, role="${args.role}") — append-only invariant violation`,
+        );
+      }
+    }
+
+    const now = Date.now();
+    const auditId = await ctx.db.insert("conversation_audit", {
+      conversation_id: args.conversation_id,
+      turn_number: args.turn_number,
+      role: args.role,
+      content: args.content,
+      // Optional fields routed via conditional spread to avoid Convex's
+      // optional-with-explicit-undefined edge case.
+      ...(args.tool_calls !== undefined ? { tool_calls: args.tool_calls } : {}),
+      ...(args.model_used !== undefined ? { model_used: args.model_used } : {}),
+      ...(args.prompt_version !== undefined
+        ? { prompt_version: args.prompt_version }
+        : {}),
+      timestamp: now,
+    });
+    return auditId;
   },
 });
 
@@ -541,12 +877,46 @@ export const registerKbTopic = mutation({
     created_by: v.id("users"),
   },
   handler: async (
-    _ctx: MutationCtx,
-    _args,
+    ctx: MutationCtx,
+    args,
   ): Promise<Id<"kb_topics">> => {
-    // TODO: Day 2 — admin allowlist gate, duplicate-key check, [0,1] range
-    // check on retrieval_priority, insert.
-    throw new Error(NOT_IMPLEMENTED_MSG);
+    if (!args.topic_key.trim()) {
+      throw new Error("registerKbTopic: topic_key required");
+    }
+    if (!args.display_name.trim()) {
+      throw new Error("registerKbTopic: display_name required");
+    }
+    if (args.retrieval_priority < 0 || args.retrieval_priority > 1) {
+      throw new Error(
+        `registerKbTopic: retrieval_priority must be in [0, 1]; got ${args.retrieval_priority}`,
+      );
+    }
+
+    // Idempotent guard — return existing id if (topic_key) already registered.
+    // Convex has no native unique index; helper enforces by reading
+    // by_topic_key first. Migration backfills depend on this idempotent
+    // shape so re-runs are safe (the migration calls this helper per seed).
+    const existing = await ctx.db
+      .query("kb_topics")
+      .withIndex("by_topic_key", (q) => q.eq("topic_key", args.topic_key))
+      .first();
+    if (existing) {
+      return existing._id;
+    }
+
+    const now = Date.now();
+    const topicId = await ctx.db.insert("kb_topics", {
+      topic_key: args.topic_key,
+      display_name: args.display_name,
+      category: args.category,
+      ...(args.expected_unit !== undefined
+        ? { expected_unit: args.expected_unit }
+        : {}),
+      retrieval_priority: args.retrieval_priority,
+      created_by: args.created_by,
+      created_at: now,
+    });
+    return topicId;
   },
 });
 
@@ -565,10 +935,27 @@ export const deprecateKbTopic = mutation({
     topic_id: v.id("kb_topics"),
     reason: v.string(),
   },
-  handler: async (_ctx: MutationCtx, _args): Promise<void> => {
-    // TODO: Day 2 — read, validate not already deprecated, patch
-    // (deprecated_at, deprecated_reason).
-    throw new Error(NOT_IMPLEMENTED_MSG);
+  handler: async (ctx: MutationCtx, args): Promise<void> => {
+    if (!args.reason.trim()) {
+      throw new Error("deprecateKbTopic: reason required");
+    }
+    const row = await ctx.db.get(args.topic_id);
+    if (!row) {
+      throw new Error(`deprecateKbTopic: topic ${args.topic_id} not found`);
+    }
+    if (row.deprecated_at !== undefined) {
+      throw new Error(
+        `deprecateKbTopic: already deprecated (idempotent guard); topic ${args.topic_id}`,
+      );
+    }
+    // Write-once deprecation pair. topic_key / display_name / category /
+    // created_by / created_at are NEVER patched — only the deprecation pair
+    // is mutable. (CI Rule 17 — Day 3 — will defend statically.)
+    const now = Date.now();
+    await ctx.db.patch(args.topic_id, {
+      deprecated_at: now,
+      deprecated_reason: args.reason,
+    });
   },
 });
 
@@ -576,16 +963,13 @@ export const deprecateKbTopic = mutation({
 // Internal mutation surface (migrations + reconciliation only)
 // =============================================================================
 //
-// Day 2-3 may add `internalMutation` exports for the backfill drivers
-// (e.g., backfillConversationFacts dual-writes through a sanctioned
-// internal entrypoint). Pre-imported here so the migration scaffolding
-// has a stable import target. No internal helpers in the Day 1 skeleton.
+// Migrations (convex/oto/migrations/wave3Backfill.ts) call the public
+// helpers above via ctx.runMutation(api.oto.memoryEditing.*). The
+// `internalMutation` symbol is pre-imported for future internal-only
+// helpers (e.g., reconciliation-driven retractions); Day 2 does not add
+// any. The `Doc` type is referenced inline by helper handlers via
+// ctx.db.get<...> return inference.
 // =============================================================================
 
-// Pre-imported for Day 2-3 use. Silence the unused-import warning until then.
 void internalMutation;
-void NOT_IMPLEMENTED_MSG;
-// Pre-imported types kept available for Day 2 (Doc<...> snapshots for
-// pre-write reads in retract/reinforce paths).
-type _UnusedAtDay1 = Doc<"conversation_facts"> | Doc<"user_semantic_facts">;
-void (undefined as unknown as _UnusedAtDay1);
+void (undefined as unknown as Doc<"conversation_facts">);
