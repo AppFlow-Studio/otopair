@@ -90,7 +90,7 @@ const DATA_TOOLS: OtoToolSchema[] = [
   {
     name: "get_due_services",
     description:
-      "Get computed maintenance urgency for a vehicle — which services are overdue, due soon, or fine. This is the answer to 'what does my car need?' or 'anything coming up?'. Each row carries `urgency: 'overdue' | 'due_soon' | 'ok'` plus due-mileage and due-date when known, and uses canonical service slugs (snake_case, e.g. 'oil_change') that you can pass back into get_service_details or render_service_picker.",
+      "Get computed maintenance urgency for a vehicle — which services are overdue, due soon, or fine. This is the answer to 'what does my car need?' or 'anything coming up?'. Each row carries `urgency: 'overdue' | 'due_soon' | 'ok'` plus due-mileage and due-date when known, and uses canonical service slugs (snake_case, e.g. 'oil_change') that you can pass back into get_service_details or render_book_service.",
     input_schema: {
       type: "object",
       properties: {
@@ -235,7 +235,7 @@ const DATA_TOOLS: OtoToolSchema[] = [
   {
     name: "find_available_slots",
     description:
-      "Find the next bookable appointment slots at a specific shop. Use AFTER the user has indicated booking intent and the shop is known — never for discovery. Pair the result with render_time_selector to show the user. Does NOT book anything.",
+      "Find the next bookable appointment slots at a specific shop. Use AFTER the user has indicated booking intent and the shop is known — never for discovery. Returns raw slot data for Oto's reasoning context; do NOT compose slots back to the user in prose. Time-slot selection happens inside the BookServiceComponent rendered by render_book_service. Does NOT book anything.",
     input_schema: {
       type: "object",
       properties: {
@@ -645,12 +645,8 @@ const STATE_TOOLS: OtoToolSchema[] = [
 // merges them when assembling the assistant message envelope.
 //
 // Field-parity contract:
-//   render_shop_carousel         → message.shops
-//   render_service_picker        → message.showServicePicker (+ optional services)
-//   render_diagnostic_form       → message.showDiagnosticForm { initialSystem, initialNotes }
+//   render_book_service          → message.bookService       (Sprint 4 Day 1 Pass B — single terminal booking render, consolidates the prior 6-stage flow)
 //   render_record_confirmation   → message.showRecordConfirmation { vehicle_id, maintenance_type }
-//   render_time_selector         → message.timeSlots         (envelope extension — Gap 6)
-//   render_booking_confirmation  → message.bookingSummary    (envelope extension — Gap 7)
 //   render_link_button           → message.linkButton        (Sprint 3 §14.1 — 9-destination app-nav redirect)
 //   render_booking_card          → message.bookingCard       (Sprint 3 §14.3 — single-booking detail card)
 //   render_bookings_list         → message.bookingsList      (Sprint 3 §14.3 — multi-booking list)
@@ -662,118 +658,51 @@ const STATE_TOOLS: OtoToolSchema[] = [
 
 const RENDER_TOOLS: OtoToolSchema[] = [
   {
-    name: "render_shop_carousel",
+    name: "render_book_service",
     description:
-      "Trigger the mechanic-selection component to render its carousel. You pass the service the user is booking + their priority preference; the FRONTEND queries Convex and renders the actual mechanic cards with all their pricing, ratings, availability, photos, etc. — you do NOT compose mechanic data, you do NOT pass pricing, you do NOT pick which mechanics show up. The component handles all of that from real data. Your job is just to signal which service is being booked and how the user wants the list sorted.",
+      "Single terminal render that opens the consolidated booking component pre-filled with everything Oto has narrowed down. Fire this ONCE per booking conversation cycle when ANY of these is true: " +
+      "(a) symptom narrowing has converged on a Diagnostic Scan (multi-cause ambiguity, on_time verified records, unknown/needs_attention records, or 6-turn polite exit) — pass `service_slugs: [\"diagnostic_scan\"]` + `diagnostic_system` + `customer_notes`. " +
+      "(b) vehicle-health flags an item due_soon/overdue AND the symptom matches that wear (direct service) — pass `service_slugs: [<direct_service_slug>]` (e.g. `[\"brake_pad_replacement\"]`), omit `diagnostic_system`, optionally include a brief `customer_notes` anchor. " +
+      "(c) user explicitly asks to book a specific service (\"I want an oil change\") — pass `service_slugs: [<requested_service_slug>]`, omit `diagnostic_system` and `customer_notes`. " +
+      "(d) user bundles multiple services (\"oil change AND tire rotation\") — pass `service_slugs: [\"oil_change\", \"tire_rotation\"]`, omit `diagnostic_system`. " +
+      "(e) user confirms (\"yeah\" / \"yes\" / \"go ahead\" / \"sounds good\" / \"let's do it\") AFTER Oto offered to book — fire IMMEDIATELY; DO NOT re-ask, re-explain, or chain another \"Want me to…?\" sentence. " +
+      "Polite-exit pattern (6 unconverged narrowing turns): pass `service_slugs: [\"diagnostic_scan\"]`, `diagnostic_system: \"not_sure\"`, `customer_notes` = summary of everything the user mentioned. " +
+      "TERMINAL render — calling this ENDS YOUR TURN. SINGLE FIRE per booking conversation cycle — do NOT fire it again on subsequent turns; the mobile component handles every sub-stage internally (service options → notes → mechanic selection → time-slot → confirmation → pay-screen redirect) without going back through Oto. " +
+      "Do NOT pass a `price` field on any service. Do NOT invent slugs — must match OTOPAIR_SERVICE_SLUGS exactly. Do NOT fabricate `customer_notes` content; quote only what the user actually said.",
     input_schema: {
       type: "object",
       properties: {
-        service_slug: {
-          type: "string",
-          description: "Canonical snake_case service slug the user is booking (e.g. 'diagnostic_scan'). The component filters mechanics to those who offer this service.",
-        },
-        priority: {
-          type: "string",
-          enum: ["closest", "best_rated", "best_price"],
-          description: "Sort order the user picked in the priority_selection stage. Frontend uses this to rank mechanics.",
-        },
-      },
-      required: ["service_slug", "priority"],
-    },
-  },
-
-  {
-    name: "render_service_picker",
-    description:
-      "Open the inline service picker with category tabs. Use when the user has expressed booking intent. Prefer passing the `services` list filtered via list_services_for_vehicle — the user sees only what's possible for their car. If `services` is omitted the picker shows the default catalog. **Pass `pre_selected_id` to highlight the service Oto is recommending** so the user can tap Confirm without hunting through tabs. **Do NOT pass a price field on any service.** Mechanic labor rates vary by location and are only known after a mechanic is selected — full-service prices surface ONLY in the booking_confirmation card after a mechanic has quoted. The picker shows service names + descriptions + typical duration as a planning aid, never price.",
-    input_schema: {
-      type: "object",
-      properties: {
-        pre_selected_id: {
-          type: "string",
-          description:
-            "Canonical service slug to highlight as the recommended choice. The mobile picker opens with this service already selected — user just taps Confirm to advance, or picks a different one. Example: 'diagnostic_scan'. Match exactly against the slug used in get_service_details.",
-        },
-        services: {
+        service_slugs: {
           type: "array",
-          description: "Optional filtered list. Omit for default-catalog mode.",
-          items: {
-            type: "object",
-            properties: {
-              id: { type: "string", description: "Service slug (kebab-case)." },
-              name: { type: "string" },
-              description: { type: "string" },
-              category: {
-                type: "string",
-                enum: ["maintenance", "tires", "brakes", "diagnostics"],
-                // The client's AIServicePicker only has 4 tabs (see
-                // components/ai-chat/AIServicePicker.tsx:66-71), but production
-                // has 7 service categories. Map at dispatch time:
-                //   Routine Maintenance, Fluids, Battery → "maintenance"
-                //   Tires                                → "tires"
-                //   Brakes                               → "brakes"
-                //   Diagnostics, Compliance              → "diagnostics"
-                description: "Picker's 4-tab key. Map from list_services_for_vehicle's category field per the comment in tools.ts.",
-              },
-              duration: { type: "string", description: "Display string for TYPICAL duration only (e.g. '30-45 min'). NOT a quote." },
-            },
-            required: ["id", "name", "category"],
-          },
+          minItems: 1,
+          items: { type: "string" },
+          description:
+            "Required. At least one canonical snake_case service slug from OTOPAIR_SERVICE_SLUGS. Supports multi-service bundling: e.g. [\"diagnostic_scan\"] OR [\"oil_change\", \"tire_rotation\"]. NEVER invent new slugs; match the production catalog exactly.",
         },
-      },
-    },
-  },
-
-  {
-    name: "render_time_selector",
-    description:
-      "Trigger the time-slot picker component for the selected mechanic. You pass the mechanic_id + service_slug; the FRONTEND queries Convex for available slots and renders the chips itself. You do NOT compose slot data. Use after the user has picked a mechanic in the shop_selection stage.",
-    input_schema: {
-      type: "object",
-      properties: {
-        mechanic_id: { type: "string", description: "Convex mechanic ID the user picked in the prior turn." },
-        service_slug: { type: "string", description: "Canonical service slug being booked." },
-      },
-      required: ["mechanic_id", "service_slug"],
-    },
-  },
-
-  {
-    name: "render_booking_confirmation",
-    description:
-      "Trigger the final booking-summary component. You pass the IDs of what the user has chosen (service slug, mechanic id, slot id); the FRONTEND queries Convex for the actual price, platform fee, total, shop name, mechanic photo, and renders the summary card itself. You do NOT compose pricing. Use exactly once per booking flow, after the user has confirmed shop + time + service. Follow with navigate_to_payment only after the user explicitly accepts.",
-    input_schema: {
-      type: "object",
-      properties: {
-        service_slug: { type: "string", description: "Canonical snake_case service slug." },
-        mechanic_id: { type: "string", description: "Convex mechanic ID the user picked." },
-        slot_id: { type: "string", description: "Slot ID the user picked." },
-        vehicle_id: { type: "string", description: "Convex vehicle ID for the booking." },
-      },
-      required: ["service_slug", "mechanic_id", "slot_id"],
-    },
-  },
-
-  {
-    name: "render_diagnostic_form",
-    description:
-      "Renders a pre-filled diagnostic booking form for the user to review, edit, and confirm. The form has a subsystem selector (5 options) and a free-form customer notes field. Pre-fill both based on the conversation context. The user reviews and confirms — you never execute the booking yourself. Terminal render tool — calling it ends your turn.",
-    input_schema: {
-      type: "object",
-      properties: {
         diagnostic_system: {
           type: "string",
           enum: ["brakes", "tires_wheels", "engine", "battery_electrical", "not_sure"],
           description:
-            "The subsystem to pre-fill. Use the user's words as primary signal. See the prompt's Decision B mapping for guidance.",
+            "Set ONLY when one of service_slugs is `diagnostic_scan`. The subsystem closest to the symptom Oto narrowed. Use `not_sure` for the 6-turn polite-exit pattern.",
         },
         customer_notes: {
           type: "string",
           description:
-            "Free-form 2–3 sentence summary in service-advisor voice describing what the user reported. Only write what the conversation actually surfaced — no invented duration, no inferred conditions.",
+            "2-3 sentence service-advisor summary in calm, factual voice. Set when one of service_slugs is `diagnostic_scan`, OR when narrowing context anchors a direct-service booking (e.g. \"Customer mentioned squeal during stop-and-go\"). Only what the user actually said — no invented duration, mileage, or conditions.",
+        },
+        recommended_priority: {
+          type: "string",
+          enum: ["closest", "best_rated", "best_price"],
+          description:
+            "Optional default mechanic-sort order. Set ONLY if the user stated a clear preference (e.g. \"I want the cheapest\" → `best_price`); otherwise omit and the mobile component defaults to `best_rated`.",
+        },
+        recommended_mechanic_id: {
+          type: "string",
+          description:
+            "Optional pre-selected mechanic ID — typically the user's preferred mechanic from get_my_mechanics when the user said something like \"book me with my usual guy\". Omit if no clear signal.",
         },
       },
-      required: ["diagnostic_system", "customer_notes"],
+      required: ["service_slugs"],
     },
   },
 
@@ -1012,30 +941,15 @@ const RENDER_TOOLS: OtoToolSchema[] = [
 ];
 
 // -----------------------------------------------------------------------------
-// NAVIGATION TOOLS — the only Phase 1 navigation case is payment.
-// Everything else renders inline.
+// NAVIGATION TOOLS — none. Sprint 4 Day 1 Pass B removed the sole entry
+// (`navigate_to_payment`) when the booking flow consolidated into
+// `render_book_service`; the mobile component handles the pay-screen redirect
+// internally on final user confirm. Keeping the empty array preserves the
+// cached-prefix shape and the OTO_TOOL_CATEGORY "navigation" enum value for
+// any future re-introduction without an additional schema bump.
 // -----------------------------------------------------------------------------
 
-const NAVIGATION_TOOLS: OtoToolSchema[] = [
-  {
-    name: "navigate_to_payment",
-    description:
-      "Hand off to the payment screen at /home/mechanic/{mechanic_id}/payment to finalize a booking. Call this ONLY after: (1) the user has selected a mechanic, time slot, and service; (2) render_booking_confirmation has shown the summary; and (3) the user has explicitly confirmed they want to proceed. Never call speculatively. State in your prose that you're handing them to the payment screen.",
-    input_schema: {
-      type: "object",
-      properties: {
-        mechanic_id: { type: "string", description: "Convex mechanic ID — drives the route path." },
-        service_slug: {
-          type: "string",
-          description: "Snake_case service slug. The payment screen reads this from the booking store.",
-        },
-        slot_id: { type: "string", description: "Selected time-slot ID from find_available_slots." },
-        vehicle_id: { type: "string", description: "VIN of the vehicle to service." },
-      },
-      required: ["mechanic_id", "service_slug", "slot_id", "vehicle_id"],
-    },
-  },
-];
+const NAVIGATION_TOOLS: OtoToolSchema[] = [];
 
 // -----------------------------------------------------------------------------
 // Exports — order is part of the cached prefix. Do not reshuffle without
@@ -1112,11 +1026,12 @@ export const OTO_TOOL_CATEGORY: Record<string, OtoToolCategory> = {
   request_sonnet_handoff: "model_routing",
   request_haiku_handback: "model_routing",
   // render
-  render_shop_carousel: "render",
-  render_service_picker: "render",
-  render_time_selector: "render",
-  render_booking_confirmation: "render",
-  render_diagnostic_form: "render",
+  // Booking flow — Sprint 4 Day 1 Pass B consolidation. Single terminal
+  // render replacing the prior 6-stage chain (render_service_picker →
+  // render_diagnostic_form → render_shop_carousel → render_time_selector →
+  // render_booking_confirmation → navigate_to_payment). The mobile component
+  // handles every sub-stage internally including pay-screen redirect.
+  render_book_service: "render",
   render_record_confirmation: "render",
   render_link_button: "render",
   // Support intake — Sprint 3 Day 6 §13 Channel 1 (3-category substantive form)
@@ -1127,8 +1042,7 @@ export const OTO_TOOL_CATEGORY: Record<string, OtoToolCategory> = {
   render_quick_replies: "render",
   render_reasoning: "render",
   render_sources: "render",
-  // navigation
-  navigate_to_payment: "navigation",
+  // navigation — empty as of Sprint 4 Day 1 Pass B; see NAVIGATION_TOOLS note.
 };
 
 // Canonical service slugs — production source of truth is the Convex

@@ -897,7 +897,7 @@ These rules apply regardless of which domain the conversation is in. They're cal
 
 | Category | Tool | Status | Domain |
 |---|---|---|---|
-| render | `render_book_service` | **planned** (Sprint 4 Pass B). Single terminal render replacing the prior 6-stage booking flow. Inputs: `service_slugs: string[]` (required, ≥1; supports multi-service bundling), `diagnostic_system?` enum (5 values: `brakes`/`tires_wheels`/`engine`/`battery_electrical`/`not_sure`), `customer_notes?` string, `recommended_priority?` enum (`closest`/`best_rated`/`best_price`), `recommended_mechanic_id?` string. Mobile component handles every sub-stage internally including pay-screen redirect. | §4 Booking + §3 Diagnostic |
+| render | `render_book_service` | **live** as of Sprint 4 Day 1 Pass B. Single terminal render replacing the prior 6-stage booking flow. Inputs: `service_slugs: string[]` (required, ≥1; supports multi-service bundling), `diagnostic_system?` enum (5 values: `brakes`/`tires_wheels`/`engine`/`battery_electrical`/`not_sure`), `customer_notes?` string, `recommended_priority?` enum (`closest`/`best_rated`/`best_price`), `recommended_mechanic_id?` string. Mobile component handles every sub-stage internally including pay-screen redirect. Mobile-frontend rendering of `ChatMessage.bookService` is a coordinate-with-mobile-team task per `docs/SPRINT_4_FRONTEND_BOOK_SERVICE_TICKET.md`. | §4 Booking + §3 Diagnostic |
 
 Net Sprint 4 tool-surface delta: −6 tools (5 render + 1 navigation deprecated), +1 tool (`render_book_service`). Live tool count: 40 → 35 after Sprint 4 Pass B.
 

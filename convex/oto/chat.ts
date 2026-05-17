@@ -106,21 +106,21 @@ const TOOL_NAMES_V1 = [
   "record_semantic_fact",
   "retract_semantic_fact",
   "retract_conversation_fact",
-  // Render tools — full booking-flow chain. Oto's involvement ENDS at
-  // render_booking_confirmation; the mobile component's "Confirm booking"
-  // button handles the redirect to payment internally, no Oto turn for that.
+  // Render tools — general-purpose chat UI affordances.
   "render_quick_replies",
-  "render_diagnostic_form",
   "render_record_confirmation",
   // Support intake — Sprint 3 Day 6 §13 Channel 1 (3-category form path:
   // mechanic_dispute / service_complaint / billing_issue). Distinct from
   // §14.1 render_link_button redirects (customer_support / feedback /
   // bug_report) and from the per-message AI-feedback UI button (§13 Ch 3).
   "render_support_form",
-  "render_service_picker",
-  "render_shop_carousel",
-  "render_time_selector",
-  "render_booking_confirmation",
+  // Booking flow — Sprint 4 Day 1 Pass B consolidation. Single terminal
+  // render replacing the prior 6-tool chain (render_service_picker /
+  // render_diagnostic_form / render_shop_carousel / render_time_selector /
+  // render_booking_confirmation / navigate_to_payment — all deprecated). The
+  // mobile BookServiceComponent handles every sub-stage internally including
+  // the pay-screen redirect; Oto fires this ONCE per booking cycle.
+  "render_book_service",
   // Render tools — app-navigation redirects (§14.1, Sprint 3 Day 2 Pass A).
   // 8-destination enum; terminal render; dispatcher packages into
   // ChatMessage.linkButton.
@@ -971,30 +971,26 @@ async function sendMessageHandlerCore(
       if (traceIter) traceIter.tool_results = terminalResults;
 
       // ── Wave 3 wire-in step 5 — recordSelectionFact mirror ─────────────
-      // When the AI fires a render tool that asks the user to pick something
-      // (render_service_picker / render_shop_carousel / render_time_selector
-      // / render_booking_confirmation), that's a SELECTION MOMENT. Per
-      // WAVE_3_DESIGN §2.1 the fact captures what the AI OFFERED at this
-      // turn — not the user's eventual choice (the chat path doesn't see
-      // that; selection happens client-side). The taxonomy distinction
-      // between offer and selection is carried by the entity_type suffix
-      // ("_offer") so a later replay can tell "AI proposed X" from
-      // "user selected X". The four render tools map to:
-      //   render_service_picker         → entity_type="service_offer"
-      //   render_shop_carousel          → entity_type="shop_offer"
-      //   render_time_selector          → entity_type="time_slot_offer"
-      //   render_booking_confirmation   → entity_type="booking_offer"
+      // When the AI fires `render_book_service`, that's the SELECTION MOMENT
+      // for the entire booking flow (Sprint 4 Day 1 Pass B consolidation —
+      // replaces the 4-tool prior chain: render_service_picker /
+      // render_shop_carousel / render_time_selector /
+      // render_booking_confirmation, all now deprecated). Per WAVE_3_DESIGN
+      // §2.1 the fact captures what the AI OFFERED at this turn — not the
+      // user's eventual choice (the chat path doesn't see that; the user
+      // picks mechanic + slot inside the mobile BookServiceComponent). The
+      // entity_type suffix ("_offer") preserves the distinction.
       //
-      // Three of the four tools are TRIGGER-ONLY (dispatcher.ts §packageRender
-      // comments): Oto passes a small key (service_slug + priority, or
-      // mechanic_id + service_slug, or the booking-IDs tuple) and the
-      // mobile component queries Convex for the actual list. So one fact
-      // per render fire is the natural shape; the entity_id encodes the
-      // trigger key. render_service_picker is the only tool where Oto can
-      // optionally carry a `services` list — we record the pre_selected_id
-      // when present (the recommended pick the AI is highlighting), and
-      // fall back to a single offer-list fact when only `services` was
-      // passed. Default-catalog mode (neither field set) records nothing.
+      //   render_book_service → entity_type="booking_offer"
+      //
+      // Trigger-only render (dispatcher.ts §packageRender comments): Oto
+      // passes the prefill bundle (service_slugs + optional diagnostic
+      // system + customer notes + recommended priority/mechanic) and the
+      // mobile component drives every sub-stage internally. The entity_id
+      // encodes the prefill — the slug bundle is the primary key (what
+      // services were offered), with optional diagnostic_system /
+      // recommended_priority / recommended_mechanic_id appended when
+      // supplied. Replay can recover what offer the user was looking at.
       //
       // Failure-isolation pattern: outer try/catch + per-fact inner
       // try/catch + console.error + swallow, mirroring the
@@ -1006,110 +1002,50 @@ async function sendMessageHandlerCore(
         for (const tu of terminalToolUses) {
           const input = tu.input as Record<string, unknown>;
           // Compute (entity_type, entity_id) per render tool. Returning
-          // null skips the mirror for that fire (e.g. default-catalog
-          // service_picker, or an unrecognized render tool).
+          // null skips the mirror for that fire (e.g. an unrecognized
+          // render tool, or a render tool that isn't a selection moment).
           let entityType: string | null = null;
           let entityId: string | null = null;
           switch (tu.name) {
-            case "render_service_picker": {
-              entityType = "service_offer";
-              // Preferred carrier: the AI's recommended pick. The
-              // pre_selected_id is the single most-informative offer datum
-              // (the user typically taps Confirm on it). When omitted but
-              // a `services` list is supplied, encode the list of offered
-              // slugs as a JSON-array string so replay can recover them.
-              const preSelected = typeof input.pre_selected_id === "string"
-                ? input.pre_selected_id
-                : null;
-              if (preSelected) {
-                entityId = preSelected;
+            case "render_book_service": {
+              entityType = "booking_offer";
+              const slugs = Array.isArray(input.service_slugs)
+                ? (input.service_slugs as unknown[]).filter(
+                    (s): s is string => typeof s === "string",
+                  )
+                : [];
+              if (slugs.length === 0) {
+                entityType = null;
                 break;
               }
-              const services = Array.isArray(input.services)
-                ? (input.services as Array<Record<string, unknown>>)
-                : null;
-              if (services && services.length > 0) {
-                const ids = services
-                  .map((s) => (typeof s.id === "string" ? s.id : null))
-                  .filter((s): s is string => s !== null);
-                if (ids.length > 0) {
-                  entityId = JSON.stringify(ids);
-                }
+              // Primary key: the bundle of services offered. Append the
+              // optional prefill metadata when present so replay can tell
+              // a diagnostic-scan offer apart from a routine-service offer
+              // and a single from a bundled booking.
+              const parts: string[] = [
+                `service_slugs=${JSON.stringify(slugs)}`,
+              ];
+              if (typeof input.diagnostic_system === "string") {
+                parts.push(`diagnostic_system=${input.diagnostic_system}`);
               }
-              // Default-catalog path (neither pre_selected_id nor services
-              // supplied) records nothing — there's no concrete offer to
-              // capture, the picker shows the global catalog at the
-              // mobile layer.
-              if (entityId === null) {
-                entityType = null;
+              if (typeof input.recommended_priority === "string") {
+                parts.push(`recommended_priority=${input.recommended_priority}`);
               }
-              break;
-            }
-            case "render_shop_carousel": {
-              entityType = "shop_offer";
-              const serviceSlug = typeof input.service_slug === "string"
-                ? input.service_slug
-                : null;
-              const priority = typeof input.priority === "string"
-                ? input.priority
-                : null;
-              if (serviceSlug && priority) {
-                // Trigger-only render: the actual shop list resolves at the
-                // mobile layer. The offer fact captures the TRIGGER KEY —
-                // (service_slug, priority) — so replay knows what kind of
-                // shop list the user was looking at.
-                entityId = `service_slug=${serviceSlug};priority=${priority}`;
-              } else {
-                entityType = null;
+              if (typeof input.recommended_mechanic_id === "string") {
+                parts.push(
+                  `recommended_mechanic_id=${input.recommended_mechanic_id}`,
+                );
               }
-              break;
-            }
-            case "render_time_selector": {
-              entityType = "time_slot_offer";
-              const mechanicId = typeof input.mechanic_id === "string"
-                ? input.mechanic_id
-                : null;
-              const serviceSlug = typeof input.service_slug === "string"
-                ? input.service_slug
-                : null;
-              if (mechanicId && serviceSlug) {
-                // Trigger-only: actual slots resolve client-side. Record
-                // the (mechanic_id, service_slug) trigger key.
-                entityId = `mechanic_id=${mechanicId};service_slug=${serviceSlug}`;
-              } else {
-                entityType = null;
-              }
-              break;
-            }
-            case "render_booking_confirmation": {
-              entityType = "booking_offer";
-              const serviceSlug = typeof input.service_slug === "string"
-                ? input.service_slug
-                : null;
-              const mechanicId = typeof input.mechanic_id === "string"
-                ? input.mechanic_id
-                : null;
-              const slotId = typeof input.slot_id === "string"
-                ? input.slot_id
-                : null;
-              if (serviceSlug && mechanicId && slotId) {
-                // The user's full pre-confirmation selection — what the
-                // booking summary card is about to show. Most-information-
-                // dense of the four; this is the offer the user is one tap
-                // away from accepting.
-                entityId =
-                  `service_slug=${serviceSlug};mechanic_id=${mechanicId};slot_id=${slotId}`;
-              } else {
-                entityType = null;
-              }
+              entityId = parts.join(";");
               break;
             }
             default:
-              // Other render tools (render_diagnostic_form,
-              // render_record_confirmation, render_quick_replies,
-              // render_reasoning, render_sources) are NOT selection
-              // moments — they show forms, ask Yes/No, or decorate prose.
-              // No fact to record.
+              // Other render tools (render_record_confirmation,
+              // render_quick_replies, render_reasoning, render_sources,
+              // render_link_button, render_support_form, render_booking_card,
+              // render_bookings_list) are NOT selection moments — they show
+              // forms, ask Yes/No, decorate prose, redirect to screens, or
+              // surface existing booking details. No offer fact to record.
               break;
           }
           if (entityType !== null && entityId !== null) {
@@ -3538,7 +3474,8 @@ function buildCallables(
       );
     },
 
-    // render_quick_replies and render_diagnostic_form have no callables — the
-    // dispatcher's render packager handles them without touching Convex.
+    // render_quick_replies and render_book_service (Sprint 4 Day 1 Pass B)
+    // have no callables — render tools never do; the dispatcher's render
+    // packager handles them without touching Convex.
   };
 }

@@ -247,7 +247,7 @@ export function buildEnvelope({
       [
         `<polite_exit_required>`,
         `  diagnostic_turn_count: ${diagnosticTurnCount}`,
-        `  rule: This conversation has narrowed for ${diagnosticTurnCount} turns without converging. Stop narrowing now. Call render_diagnostic_form with diagnostic_system="not_sure" and customer_notes summarizing everything the user has mentioned across the conversation. The mechanic can see what you couldn't.`,
+        `  rule: This conversation has narrowed for ${diagnosticTurnCount} turns without converging. Stop narrowing now. Call render_book_service with service_slugs=["diagnostic_scan"], diagnostic_system="not_sure", and customer_notes summarizing everything the user has mentioned across the conversation. The mechanic can see what you couldn't.`,
         `</polite_exit_required>`,
       ].join("\n"),
     );

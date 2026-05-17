@@ -73,7 +73,7 @@
     },
     {
       "name": "brake_record_confirmed_routes_to_diagnostic",
-      "description": "Trust protocol completion path: after the user confirms the self_reported record is correct, Oto's next turn routes to render_diagnostic_form (record was right, symptom is the surprise - let a mechanic look). Turn 3 simulates the mobile component's synthetic follow-up message that fires after the user taps 'Yes, that's right'.",
+      "description": "Trust protocol completion path: after the user confirms the self_reported record is correct, Oto's next turn routes to render_book_service (record was right, symptom is the surprise - let a mechanic look). Turn 3 simulates the mobile component's synthetic follow-up message that fires after the user taps 'Yes, that's right'. Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service).",
       "turns": [
         {
           "user": "My brakes have been squealing for a few weeks",
@@ -115,11 +115,10 @@
           "user": "Confirmed - brakes record is correct as-is.",
           "expect": {
             "tools_called": [
-              "render_diagnostic_form",
+              "render_book_service",
               "update_conversation_state"
             ],
             "branch": "terminal",
-            "form_system": "brakes",
             "text_not_contains": [
               "Brake Pad Replacement",
               "is the right",
@@ -516,7 +515,7 @@
     },
     {
       "name": "polite_exit_after_vague_narrowing",
-      "description": "Symptom routing safety valve: when narrowing fails to converge after several vague exchanges, route to render_diagnostic_form with diagnostic_system='not_sure' (per the polite-exit rule).",
+      "description": "Symptom routing safety valve: when narrowing fails to converge after several vague exchanges, fire render_book_service with diagnostic_scan + diagnostic_system='not_sure' (per the polite-exit rule). Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service).",
       "disabled": true,
       "disabled_reason": "Sprint 2 / Wave 7.x: the polite-exit counter (ai_conversations.diagnostic_turn_count, threshold=6) is incremented in chat.ts inside `if (!skipPersist)`. The harness defaults to debug_skip_persist=true, so the counter never advances and the 6th turn never fires the <polite_exit_required> envelope block. Two unblock paths: (A) decouple the counter from skipPersist (a chat.ts-only change, out of scope for the QA-lead adaptation dispatch), or (B) ship a harness-side seed mutation that sets diagnostic_turn_count=5 before the final turn (also touches convex/). Re-enable once either lands. Intent preserved verbatim — do not delete.",
       "turns": [
@@ -564,18 +563,17 @@
           "user": "I really can't pin it down",
           "expect": {
             "tools_called": [
-              "render_diagnostic_form",
+              "render_book_service",
               "update_conversation_state"
             ],
-            "branch": "terminal",
-            "form_system": "not_sure"
+            "branch": "terminal"
           }
         }
       ]
     },
     {
       "name": "direct_routine_oil_change_request",
-      "description": "Direct booking path: explicit request for routine service skips diagnostic form entirely; should route through service_picker, not render_diagnostic_form.",
+      "description": "Direct booking path: explicit request for routine service skips diagnostic narrowing entirely; should route through render_book_service with service_slugs=['oil_change'] prefill, NOT a diagnostic-scan render. Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service).",
       "turns": [
         {
           "user": "I just want to book an oil change",
@@ -584,7 +582,7 @@
               "update_conversation_state"
             ],
             "text_not_contains": [
-              "render_diagnostic_form",
+              "render_book_service",
               "diagnostic scan first"
             ]
           }
@@ -613,7 +611,7 @@
     },
     {
       "name": "oil_symptom_triggers_record_confirmation",
-      "description": "Trust protocol generalizes beyond brakes — burning-oil smell symptom contradicting self_reported on_time oil status should fire render_record_confirmation. Three turns: initial mention, narrowing detail, then a third sharpening turn that pushes Haiku past narrowing into the gate.",
+      "description": "Trust protocol generalizes beyond brakes — burning-oil smell symptom contradicting self_reported on_time oil status should fire render_record_confirmation. Three turns: initial mention, narrowing detail, then a third sharpening turn that pushes Haiku past narrowing into the gate. Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service).",
       "turns": [
         {
           "user": "My engine smells like burning oil after I drive",
@@ -644,7 +642,7 @@
               "record_provenance",
               "trust gating",
               "render_record_confirmation",
-              "render_diagnostic_form"
+              "render_book_service"
             ]
           }
         }
@@ -2215,15 +2213,14 @@
     },
     {
       "name": "vehicle_sibling_owned_redirects_to_new_chat",
-      "description": "Sprint 3 Day 4 §14.1 + §15.12 + §1 tone dispatch (Pass A2 — vehicle_onboarding redirect, sibling-owned new-chat redirect, tone calibration). §15.12 'one chat, one car' — primary anchor M550i; user asks an INFORMATIONAL question about a sibling-owned X5. Oto MUST NOT engage with the sibling's vehicle data; instead politely redirects to start a new chat from the car picker. Note: runtime fixture for sibling garage entries is not seeded here — the load-bearing assertion is the redirect phrasing (text_contains 'new chat' / 'car picker'), which is the user-visible signal per §15.12 row 2. tools_not_called guards against accidental sibling-data engagement.",
+      "description": "Sprint 3 Day 4 §14.1 + §15.12 + §1 tone dispatch (Pass A2 — vehicle_onboarding redirect, sibling-owned new-chat redirect, tone calibration). §15.12 'one chat, one car' — primary anchor M550i; user asks an INFORMATIONAL question about a sibling-owned X5. Oto MUST NOT engage with the sibling's vehicle data; instead politely redirects to start a new chat from the car picker. Note: runtime fixture for sibling garage entries is not seeded here — the load-bearing assertion is the redirect phrasing (text_contains 'new chat' / 'car picker'), which is the user-visible signal per §15.12 row 2. tools_not_called guards against accidental sibling-data engagement. Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service).",
       "turns": [
         {
           "user": "What about my X5? What oil does it take?",
           "expect": {
             "tools_not_called": [
               "get_vehicle_facts",
-              "render_service_picker",
-              "render_shop_carousel"
+              "render_book_service"
             ],
             "text_contains": [
               "new chat"
@@ -2240,16 +2237,14 @@
     },
     {
       "name": "vehicle_sibling_booking_redirects_to_new_chat",
-      "description": "Sprint 3 Day 4 §14.1 + §15.12 + §1 tone dispatch (Pass A2 — vehicle_onboarding redirect, sibling-owned new-chat redirect, tone calibration). §15.12 — booking action on a sibling-owned vehicle follows the SAME rule as informational sibling asks: new-chat redirect. Primary anchor M550i; user says 'Book brake service for my X5'. Oto MUST NOT initiate booking surfaces for the sibling (no render_service_picker, no render_shop_carousel, no find_available_slots). Response must contain the redirect phrasing (new chat / car picker) per §15.12 row 2.",
+      "description": "Sprint 3 Day 4 §14.1 + §15.12 + §1 tone dispatch (Pass A2 — vehicle_onboarding redirect, sibling-owned new-chat redirect, tone calibration). §15.12 — booking action on a sibling-owned vehicle follows the SAME rule as informational sibling asks: new-chat redirect. Primary anchor M550i; user says 'Book brake service for my X5'. Oto MUST NOT initiate booking surfaces for the sibling (no render_service_picker, no render_shop_carousel, no find_available_slots). Response must contain the redirect phrasing (new chat / car picker) per §15.12 row 2. Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service).",
       "turns": [
         {
           "user": "Book brake service for my X5 this weekend.",
           "expect": {
             "tools_not_called": [
-              "render_service_picker",
-              "render_shop_carousel",
-              "render_time_selector",
-              "find_available_slots"
+              "find_available_slots",
+              "render_book_service"
             ],
             "text_contains": [
               "new chat"
@@ -2332,7 +2327,7 @@
     },
     {
       "name": "booking_status_pending",
-      "description": "Sprint 3 Day 5 §14.3 dispatch (Booking Status — viewing existing bookings). §14.3 behavioral contract row 3 — 'what's pending?' MUST route to get_pending_bookings (the new convenience tool, planned status). tools_not_called excludes get_bookings here because pending is the dedicated subset tool — if Haiku falls back to get_bookings(status_filter:'active') and filters in prose, that's drift away from the planned discrimination. NOTE: caveat — runner has no tool-arg primitive, so we can only assert tool-name routing; arg correctness (status_filter values, limit:1) is unverifiable here.",
+      "description": "Sprint 3 Day 5 §14.3 dispatch (Booking Status — viewing existing bookings). §14.3 behavioral contract row 3 — 'what's pending?' MUST route to get_pending_bookings (the new convenience tool, planned status). tools_not_called excludes get_bookings here because pending is the dedicated subset tool — if Haiku falls back to get_bookings(status_filter:'active') and filters in prose, that's drift away from the planned discrimination. NOTE: caveat — runner has no tool-arg primitive, so we can only assert tool-name routing; arg correctness (status_filter values, limit:1) is unverifiable here. Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service).",
       "turns": [
         {
           "user": "Any pending bookings I haven't confirmed yet?",
@@ -2343,8 +2338,7 @@
             ],
             "tools_not_called": [
               "get_bookings",
-              "render_service_picker",
-              "render_shop_carousel"
+              "render_book_service"
             ],
             "text_not_contains": [
               "the system",
@@ -2356,7 +2350,7 @@
     },
     {
       "name": "booking_status_next_appointment",
-      "description": "Sprint 3 Day 5 §14.3 dispatch (Booking Status — viewing existing bookings). §14.3 behavioral contract row 1 — 'what's my next appointment?' MUST emit the 2-step sequence: get_bookings(status_filter:'active', limit:1) followed by render_booking_card(booking_id) — terminal singular-card render. Caveat: tool-arg primitive absent; we assert both tool names appear in the same turn batch (per §15.9 tool batching) but cannot verify limit:1 or that the right booking_id is passed.",
+      "description": "Sprint 3 Day 5 §14.3 dispatch (Booking Status — viewing existing bookings). §14.3 behavioral contract row 1 — 'what's my next appointment?' MUST emit the 2-step sequence: get_bookings(status_filter:'active', limit:1) followed by render_booking_card(booking_id) — terminal singular-card render. Caveat: tool-arg primitive absent; we assert both tool names appear in the same turn batch (per §15.9 tool batching) but cannot verify limit:1 or that the right booking_id is passed. Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service).",
       "turns": [
         {
           "user": "What's my next appointment?",
@@ -2368,8 +2362,7 @@
             ],
             "tools_not_called": [
               "render_bookings_list",
-              "render_service_picker",
-              "render_shop_carousel"
+              "render_book_service"
             ],
             "text_not_contains": [
               "the system",
@@ -2381,7 +2374,7 @@
     },
     {
       "name": "booking_status_list_view",
-      "description": "Sprint 3 Day 5 §14.3 dispatch (Booking Status — viewing existing bookings). §14.3 — multi-booking summary view. 'Show me all my upcoming bookings' is plural-list-shaped, MUST emit get_bookings(status_filter:'active', no limit override) followed by render_bookings_list(booking_ids). Distinct from the singular-card path. tools_not_called guards against rendering BOTH list and card in one turn (mutual-exclusion semantics; the singular card is for one-booking answers, not many).",
+      "description": "Sprint 3 Day 5 §14.3 dispatch (Booking Status — viewing existing bookings). §14.3 — multi-booking summary view. 'Show me all my upcoming bookings' is plural-list-shaped, MUST emit get_bookings(status_filter:'active', no limit override) followed by render_bookings_list(booking_ids). Distinct from the singular-card path. tools_not_called guards against rendering BOTH list and card in one turn (mutual-exclusion semantics; the singular card is for one-booking answers, not many). Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service).",
       "turns": [
         {
           "user": "Show me all my upcoming bookings.",
@@ -2393,8 +2386,7 @@
             ],
             "tools_not_called": [
               "render_booking_card",
-              "render_service_picker",
-              "render_shop_carousel"
+              "render_book_service"
             ],
             "text_not_contains": [
               "the system",
@@ -2406,7 +2398,7 @@
     },
     {
       "name": "booking_status_confirmation_check",
-      "description": "Sprint 3 Day 5 §14.3 dispatch (Booking Status — viewing existing bookings). §14.3 behavioral contract row 2 — 'is my booking confirmed?' is a status check on an existing booking. MUST fire get_bookings (active filter) and surface the status keyword in prose ('confirmed' OR 'pending'). render_booking_card MAY also fire (singular focus) but is NOT asserted here (kept soft per dispatch brief — Haiku may answer in prose only when the status itself is the answer). Caveat: text_contains is OR-of-keywords semantically, but runner enforces AND across the array, so we use a single broad-ish anchor 'booking' to avoid forcing one status verbiage over another.",
+      "description": "Sprint 3 Day 5 §14.3 dispatch (Booking Status — viewing existing bookings). §14.3 behavioral contract row 2 — 'is my booking confirmed?' is a status check on an existing booking. MUST fire get_bookings (active filter) and surface the status keyword in prose ('confirmed' OR 'pending'). render_booking_card MAY also fire (singular focus) but is NOT asserted here (kept soft per dispatch brief — Haiku may answer in prose only when the status itself is the answer). Caveat: text_contains is OR-of-keywords semantically, but runner enforces AND across the array, so we use a single broad-ish anchor 'booking' to avoid forcing one status verbiage over another. Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service).",
       "turns": [
         {
           "user": "Is my booking confirmed?",
@@ -2416,9 +2408,7 @@
               "update_conversation_state"
             ],
             "tools_not_called": [
-              "render_service_picker",
-              "render_shop_carousel",
-              "render_time_selector"
+              "render_book_service"
             ],
             "text_contains": [
               "booking"
@@ -2433,13 +2423,13 @@
     },
     {
       "name": "booking_status_vs_booking_flow_discrimination",
-      "description": "Sprint 3 Day 5 §14.3 dispatch (Booking Status — viewing existing bookings). §14.3 discrimination test — 'I want to book a brake service' is a CREATE-NEW-BOOKING intent (§4 Booking 6-stage flow stage 1), NOT a VIEW-EXISTING-BOOKING intent (§14.3). Oto MUST route to the Booking Flow path (render_service_picker is the stage-1 surface), NOT to the §14.3 viewing tools (get_pending_bookings / render_booking_card / render_bookings_list — all for viewing existing, not creating). This case is testing a ROUTING RULE rather than a single tool's correctness; the load-bearing assertion is the tools_not_called set that excludes ALL THREE §14.3 viewing tools, plus tools_called includes render_service_picker (stage-1 of the create flow). Caveat: Haiku might fire list_service_categories or list_services_for_vehicle instead of jumping straight to render_service_picker — both are valid first-stage moves; keeping render_service_picker in tools_called is the stronger assertion per §4 row 'stage 1 surface'.",
+      "description": "Sprint 3 Day 5 §14.3 discrimination test (post-Sprint-4-Pass-A migration) — 'I want to book a brake service' is a CREATE-NEW-BOOKING intent (§4 consolidated single-component flow), NOT a VIEW-EXISTING-BOOKING intent (§14.3). Oto MUST route to render_book_service (the single terminal booking surface), NOT to the §14.3 viewing tools (get_pending_bookings / render_booking_card / render_bookings_list — all for viewing existing, not creating). Load-bearing assertion: tools_called includes render_book_service AND tools_not_called excludes the three §14.3 viewing tools. Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service).",
       "turns": [
         {
           "user": "I want to book a brake service.",
           "expect": {
             "tools_called": [
-              "render_service_picker",
+              "render_book_service",
               "update_conversation_state"
             ],
             "tools_not_called": [
@@ -2450,7 +2440,8 @@
             "text_not_contains": [
               "the system",
               "the dispatcher"
-            ]
+            ],
+            "branch": "terminal"
           }
         }
       ]
@@ -2657,6 +2648,257 @@
               "last week",
               "the system",
               "the dispatcher"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "book_service_single_diagnostic",
+      "description": "Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service). Single-service diagnostic-scan booking: user reports a symptom that converges on 'needs eyes-on' (multi-cause ambiguity); after Oto's narrowing turn, user confirms 'yes book a diagnostic'. Expect render_book_service fires as the SINGLE terminal booking surface with diagnostic-scan prefill. Booking-ask phrasing must avoid the BANNED 'pull up details' pattern (§1 Voice update).",
+      "turns": [
+        {
+          "user": "My brakes have been squealing pretty bad when I brake hard on the highway.",
+          "expect": {
+            "tools_called": [
+              "update_conversation_state"
+            ],
+            "text_not_contains": [
+              "pull up details",
+              "pull that up"
+            ]
+          }
+        },
+        {
+          "user": "Yeah let's book a diagnostic, I want a mechanic to look at it.",
+          "expect": {
+            "tools_called": [
+              "render_book_service",
+              "update_conversation_state"
+            ],
+            "tools_not_called": [
+              "render_service_picker",
+              "render_shop_carousel",
+              "render_time_selector",
+              "render_booking_confirmation",
+              "render_diagnostic_form",
+              "navigate_to_payment"
+            ],
+            "branch": "terminal",
+            "text_contains": [
+              "book"
+            ],
+            "text_not_contains": [
+              "pull up details",
+              "pull that up",
+              "the system",
+              "the dispatcher",
+              "render_book_service"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "book_service_single_routine",
+      "description": "Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service). Single-service direct-routine booking: user explicitly asks for an oil change (a canonical service). Oto fires render_book_service with service_slugs=['oil_change'] (text_contains 'oil' proxies the prefill since the runner has no tool-arg primitive). Deprecated 6-stage tools must NOT fire.",
+      "turns": [
+        {
+          "user": "Can you book me an oil change for next week?",
+          "expect": {
+            "tools_called": [
+              "render_book_service",
+              "update_conversation_state"
+            ],
+            "tools_not_called": [
+              "render_service_picker",
+              "render_shop_carousel",
+              "render_time_selector",
+              "render_booking_confirmation",
+              "render_diagnostic_form",
+              "navigate_to_payment"
+            ],
+            "branch": "terminal",
+            "text_contains": [
+              "oil"
+            ],
+            "text_not_contains": [
+              "pull up details",
+              "pull that up",
+              "the system",
+              "the dispatcher",
+              "render_book_service",
+              "diagnostic scan first"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "book_service_multi_bundle",
+      "description": "Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service). Multi-service bundle: user explicitly asks to bundle an oil change and a tire rotation. Oto fires render_book_service ONCE with service_slugs=['oil_change','tire_rotation'] (the bookings.service_ids array already supports multi-service per §4 schema check). Runner-caveat: array-arg values are unobservable; text_contains 'oil' AND 'tire' proxies that both services appear in Oto's framing.",
+      "turns": [
+        {
+          "user": "Can you book me an oil change and a tire rotation together?",
+          "expect": {
+            "tools_called": [
+              "render_book_service",
+              "update_conversation_state"
+            ],
+            "tools_not_called": [
+              "render_service_picker",
+              "render_shop_carousel",
+              "render_time_selector",
+              "render_booking_confirmation",
+              "render_diagnostic_form",
+              "navigate_to_payment"
+            ],
+            "branch": "terminal",
+            "text_contains": [
+              "oil",
+              "tire"
+            ],
+            "text_not_contains": [
+              "pull up details",
+              "pull that up",
+              "the system",
+              "the dispatcher",
+              "render_book_service"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "book_service_diagnostic_phrasing_correct",
+      "description": "Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service). Booking-action phrasing per §1 Voice update + §4 booking-action phrasing rule. User reports a symptom; Oto's narrowing turn (or single-turn recommendation) MUST ask to BOOK directly, not offer to 'pull up details'. BANNED phrasings (text_not_contains): 'pull up details', 'pull that up', 'pull up a diagnostic'. Required: 'book' AND 'diagnostic' must appear in Oto's framing. This case asserts PHRASING, not the render fire — the render only fires on user confirm; depending on Haiku's pacing, render_book_service may or may not fire on this single-user-turn case, so we do NOT assert tools_called against render_book_service here. We assert that the 6 deprecated tools also don't fire (no fallback to legacy flow).",
+      "turns": [
+        {
+          "user": "Lately when I go over a speed bump I hear a clunk from the front. Pretty repeatable.",
+          "expect": {
+            "tools_not_called": [
+              "render_service_picker",
+              "render_shop_carousel",
+              "render_time_selector",
+              "render_booking_confirmation",
+              "render_diagnostic_form",
+              "navigate_to_payment"
+            ],
+            "text_contains": [
+              "book",
+              "diagnostic"
+            ],
+            "text_not_contains": [
+              "pull up details",
+              "pull that up",
+              "pull up a diagnostic",
+              "the system",
+              "the dispatcher",
+              "render_book_service"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "book_service_polite_exit_not_sure",
+      "description": "Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service). Polite-exit safety valve: after 6 unconverged narrowing turns, Oto fires render_book_service with service_slugs=['diagnostic_scan'] + diagnostic_system='not_sure'. Tool-arg assertion proxied via text_contains 'diagnostic' (the runner has no tool-arg primitive). Replaces the prior polite_exit_after_vague_narrowing intent under the consolidated flow. NOTE: this case may inherit the same disabled_reason as polite_exit_after_vague_narrowing (the diagnostic_turn_count counter is gated by skipPersist in chat.ts and the harness defaults skipPersist=true; the 6th-turn polite-exit envelope block never fires under harness conditions). Disabling explicitly with the same reason as the legacy case so the migration is symmetric — re-enable once the counter is decoupled from skipPersist OR a pre_seed_mutations seed advances the counter.",
+      "disabled": true,
+      "disabled_reason": "Sprint 2 / Wave 7.x: the polite-exit counter (ai_conversations.diagnostic_turn_count, threshold=6) is incremented in chat.ts inside `if (!skipPersist)`. The harness defaults to debug_skip_persist=true, so the counter never advances and the 6th turn never fires the <polite_exit_required> envelope block. Same disabled_reason as legacy polite_exit_after_vague_narrowing. Re-enable when counter decouples from skipPersist OR a pre_seed_mutations seed advances the counter.",
+      "turns": [
+        {
+          "user": "Something feels weird with my car",
+          "expect": {
+            "tools_called": [
+              "update_conversation_state"
+            ]
+          }
+        },
+        {
+          "user": "Hard to say, just doesn't feel right",
+          "expect": {
+            "tools_called": [
+              "update_conversation_state"
+            ]
+          }
+        },
+        {
+          "user": "Maybe when driving, sometimes when stopping, I dunno",
+          "expect": {
+            "tools_called": [
+              "update_conversation_state"
+            ]
+          }
+        },
+        {
+          "user": "It's been doing it for a while I guess",
+          "expect": {
+            "tools_called": [
+              "update_conversation_state"
+            ]
+          }
+        },
+        {
+          "user": "Could be anything really, that's why I'm asking",
+          "expect": {
+            "tools_called": [
+              "update_conversation_state"
+            ]
+          }
+        },
+        {
+          "user": "I really can't pin it down",
+          "expect": {
+            "tools_called": [
+              "render_book_service",
+              "update_conversation_state"
+            ],
+            "tools_not_called": [
+              "render_service_picker",
+              "render_shop_carousel",
+              "render_time_selector",
+              "render_booking_confirmation",
+              "render_diagnostic_form",
+              "navigate_to_payment"
+            ],
+            "branch": "terminal",
+            "text_contains": [
+              "diagnostic"
+            ],
+            "text_not_contains": [
+              "pull up details",
+              "pull that up",
+              "render_book_service"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "book_service_deprecated_tools_not_fired",
+      "description": "Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service). Deprecation-enforcement negative case: under any narrowing scenario, Haiku must NEVER fire the 6 deprecated tool names (render_service_picker, render_shop_carousel, render_time_selector, render_booking_confirmation, render_diagnostic_form, navigate_to_payment). This single-turn case feeds a symptom that should produce a narrowing question (not a booking surface) and asserts ONLY the negative — tools_not_called covers all 6 deprecated tools. Note: tools_called assertion is intentionally minimal (only update_conversation_state) because the converge-vs-still-narrowing branch depends on Haiku's pacing; the load-bearing assertion is the 6-tool deprecation guard.",
+      "turns": [
+        {
+          "user": "My tires feel a bit weird going around corners — kind of mushy.",
+          "expect": {
+            "tools_called": [
+              "update_conversation_state"
+            ],
+            "tools_not_called": [
+              "render_service_picker",
+              "render_shop_carousel",
+              "render_time_selector",
+              "render_booking_confirmation",
+              "render_diagnostic_form",
+              "navigate_to_payment"
+            ],
+            "text_not_contains": [
+              "pull up details",
+              "pull that up",
+              "the system",
+              "the dispatcher",
+              "render_book_service",
+              "render_diagnostic_form"
             ]
           }
         }

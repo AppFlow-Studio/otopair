@@ -19,8 +19,10 @@
 //                  wrap result in the ok-envelope shape.
 //   • render     — no DB call; package args into a directive that the chat
 //                  action merges into the assistant ChatMessage envelope.
-//   • navigation — Phase 1 only has navigate_to_payment. Packages a route
-//                  directive the React Native client interprets.
+//   • navigation — empty as of Sprint 4 Day 1 Pass B; the prior sole entry
+//                  (navigate_to_payment) was removed when the booking flow
+//                  consolidated into render_book_service. The category is
+//                  retained for future re-introduction.
 //
 // Companions:
 //   • convex/oto/tools.ts             — schemas + category lookup
@@ -28,7 +30,7 @@
 //   • docs/oto-ai/tool-inventory.md   — what maps to what, gaps, open Qs
 // =============================================================================
 
-import { OTO_TOOL_CATEGORY, OTOPAIR_SERVICE_SLUGS } from "./tools";
+import { OTO_TOOL_CATEGORY } from "./tools";
 
 // -----------------------------------------------------------------------------
 // Anthropic content-block types — kept loose so this file doesn't depend on
@@ -153,63 +155,36 @@ interface RenderDirective<T = unknown> {
 
 function packageRenderDirective(toolUse: ToolUseBlock): ToolResultBlock {
   switch (toolUse.name) {
-    case "render_shop_carousel":
-      // Trigger-only: pass service_slug + priority; the mobile component
-      // queries Convex for the actual mechanics and renders them with real
-      // pricing / availability / ratings. Oto never composes mechanic data.
+    case "render_book_service":
+      // Sprint 4 Day 1 Pass B — single terminal booking render. Trigger-only:
+      // pass `service_slugs` (≥1; supports multi-service bundling) plus
+      // optional prefills (`diagnostic_system`, `customer_notes`,
+      // `recommended_priority`, `recommended_mechanic_id`). The mobile
+      // BookServiceComponent handles every sub-stage internally — service
+      // selection, per-service options, diagnostic notes (when applicable),
+      // mechanic selection, time-slot picker, final review summary, AND the
+      // redirect to the existing pay-screen (`/home/mechanic/{id}/payment`).
+      // Oto's involvement ENDS at this call; there is no follow-up Oto turn
+      // for the booking-flow stages. Replaces the prior 6-stage chain
+      // (render_service_picker → render_diagnostic_form → render_shop_carousel
+      // → render_time_selector → render_booking_confirmation →
+      // navigate_to_payment) — all deprecated as of Sprint 4 Day 1 Pass A.
       return ok(
         toolUse.id,
-        renderD("shopCarousel", {
-          service_slug: toolUse.input.service_slug,
-          priority: toolUse.input.priority,
-        }),
-      );
-
-    case "render_service_picker":
-      return ok(toolUse.id, {
-        type: "render",
-        directives: [
-          { field: "showServicePicker", value: true },
-          ...(toolUse.input.services
-            ? [{ field: "pickerServices", value: toolUse.input.services }]
-            : []),
-          ...(toolUse.input.pre_selected_id
-            ? [{ field: "pickerPreSelectedId", value: toolUse.input.pre_selected_id }]
-            : []),
-        ],
-      });
-
-    case "render_time_selector":
-      // Trigger-only: pass mechanic_id + service_slug; the mobile component
-      // queries Convex for actual slots.
-      return ok(
-        toolUse.id,
-        renderD("timeSelector", {
-          mechanic_id: toolUse.input.mechanic_id,
-          service_slug: toolUse.input.service_slug,
-        }),
-      );
-
-    case "render_booking_confirmation":
-      // Trigger-only: pass IDs; the mobile component queries Convex for the
-      // service name, real prices (mechanic-set labor rate × parts × fee),
-      // platform fee, total, shop info, slot details.
-      return ok(
-        toolUse.id,
-        renderD("bookingConfirmation", {
-          service_slug: toolUse.input.service_slug,
-          mechanic_id: toolUse.input.mechanic_id,
-          slot_id: toolUse.input.slot_id,
-          vehicle_id: toolUse.input.vehicle_id,
-        }),
-      );
-
-    case "render_diagnostic_form":
-      return ok(
-        toolUse.id,
-        renderD("showDiagnosticForm", {
-          initialSystem: toolUse.input.diagnostic_system,
-          initialNotes: toolUse.input.customer_notes,
+        renderD("bookService", {
+          service_slugs: toolUse.input.service_slugs,
+          ...(toolUse.input.diagnostic_system !== undefined
+            ? { diagnostic_system: toolUse.input.diagnostic_system }
+            : {}),
+          ...(toolUse.input.customer_notes !== undefined
+            ? { customer_notes: toolUse.input.customer_notes }
+            : {}),
+          ...(toolUse.input.recommended_priority !== undefined
+            ? { recommended_priority: toolUse.input.recommended_priority }
+            : {}),
+          ...(toolUse.input.recommended_mechanic_id !== undefined
+            ? { recommended_mechanic_id: toolUse.input.recommended_mechanic_id }
+            : {}),
         }),
       );
 
@@ -324,41 +299,20 @@ function renderD<T>(field: string, value: T): RenderDirective<T> {
 // NAVIGATION PACKAGING
 // =============================================================================
 //
-// Phase 1 has exactly ONE navigation case: payment.
-// Route matches `app/(main-tabs)/ai-chat/index.tsx:619`:
-//   router.push(`/home/mechanic/${mechanic.id}/payment`)
-// The chat action returns this intent in its response payload; the React
-// Native client triggers the navigation after rendering the AI's prose.
-
+// Sprint 4 Day 1 Pass B: the sole navigation case (`navigate_to_payment`) was
+// removed when the booking flow consolidated into `render_book_service`; the
+// mobile BookServiceComponent handles the pay-screen redirect internally on
+// final user confirm (same route the deprecated tool used:
+// `/home/mechanic/{mechanic_id}/payment`). The function is retained as a
+// refusal stub so the `category === "navigation"` branch in `executeTool`
+// stays well-typed — if a future tool re-introduces the category, route it
+// here. Today no tool routes here; reaching this function is a config drift.
 function packageNavigationIntent(toolUse: ToolUseBlock): ToolResultBlock {
-  if (toolUse.name !== "navigate_to_payment") {
-    return errorResult(
-      toolUse.id,
-      "unknown_tool",
-      `Navigation tool "${toolUse.name}" is not registered. Phase 1 only supports navigate_to_payment.`,
-    );
-  }
-
-  const slug = toolUse.input.service_slug as string;
-  if (!OTOPAIR_SERVICE_SLUGS.includes(slug as never)) {
-    return errorResult(
-      toolUse.id,
-      "invalid_args",
-      `Unknown service slug "${slug}". Must match the seeded services catalog.`,
-    );
-  }
-
-  return ok(toolUse.id, {
-    type: "navigate",
-    target: "payment",
-    route: `/home/mechanic/${toolUse.input.mechanic_id}/payment`,
-    params: {
-      mechanic_id: toolUse.input.mechanic_id,
-      service_slug: slug,
-      slot_id: toolUse.input.slot_id,
-      vehicle_id: toolUse.input.vehicle_id,
-    },
-  });
+  return errorResult(
+    toolUse.id,
+    "unknown_tool",
+    `Navigation tool "${toolUse.name}" is not registered. Phase 2 has no navigation tools; the booking pay-screen redirect is handled inside the BookServiceComponent (rendered by render_book_service).`,
+  );
 }
 
 // =============================================================================
@@ -400,16 +354,20 @@ function errorResult(
 
 export interface ChatMessageEnvelope {
   quickReplies?: unknown;
-  showServicePicker?: boolean;
-  pickerServices?: unknown;
-  pickerPreSelectedId?: unknown;
-  showDiagnosticForm?: unknown;
-  // Trigger payloads — the frontend renders the actual component using the
-  // IDs/params provided, querying Convex for real data. Oto never composes
-  // mechanic data, pricing, slot data, or shop info.
-  shopCarousel?: unknown;
-  timeSelector?: unknown;
-  bookingConfirmation?: unknown;
+  // Sprint 4 Day 1 Pass B — consolidated booking-flow render. Replaces the
+  // prior 6 envelope fields (showServicePicker, pickerServices,
+  // pickerPreSelectedId, showDiagnosticForm, shopCarousel, timeSelector,
+  // bookingConfirmation). Payload shape:
+  //   { service_slugs: string[], diagnostic_system?: string,
+  //     customer_notes?: string, recommended_priority?: string,
+  //     recommended_mechanic_id?: string }
+  // The mobile BookServiceComponent reads this and drives every sub-stage
+  // internally including the pay-screen redirect — Oto fires it ONCE and
+  // does not participate in subsequent booking-flow turns.
+  bookService?: unknown;
+  // render_record_confirmation (§6 Trust Protocol) — Convex maintenance_record
+  // confirmation surface; NOT part of the Sprint 4 booking consolidation.
+  showRecordConfirmation?: unknown;
   // Sprint 3 §14.1 — app-nav redirect: { destination, label? }. Mobile
   // component reads `destination` and renders a tap-to-open button that
   // navigates to the corresponding screen (deep-link for in-app destinations;
