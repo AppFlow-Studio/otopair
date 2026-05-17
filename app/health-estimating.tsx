@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Dimensions, Image, Pressable, StyleSheet, View } from "react-native";
+import { Dimensions, Image, Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 import Animated, {
   Easing,
   cancelAnimation,
@@ -251,6 +251,7 @@ const chatStyles = StyleSheet.create({
 
 export default function HealthEstimatingScreen() {
   const insets = useSafeAreaInsets();
+  const { height } = useWindowDimensions();
   const router = useRouter();
   const params = useLocalSearchParams<{
     vehicleOwnerId?: string;
@@ -304,14 +305,14 @@ export default function HealthEstimatingScreen() {
   // Distribute bubbles in rows, alternating left/right
   const bubbleSlots = useMemo(() => {
     const shuffled = [...ALL_FACTS].sort(() => Math.random() - 0.5);
-    const count = 6;
+    const count = height < 740 ? 5 : 6;
     return shuffled.slice(0, count).map((fact, i): BubbleSlot => ({
       fact,
       row: i,
       col: i % 2,
       delay: 1200 + i * 2000,
     }));
-  }, []);
+  }, [height]);
 
   // Loading timer
   useEffect(() => {
@@ -518,6 +519,7 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: scale(20),
     paddingTop: scale(24),
+    paddingBottom: scale(12),
     gap: scale(16),
   },
   bubbleRow: {
@@ -532,10 +534,7 @@ const styles = StyleSheet.create({
     marginTop: scale(4),
   },
   ctaWrap: {
-    position: "absolute",
-    bottom: 0,
-    left: scale(24),
-    right: scale(24),
+    paddingHorizontal: scale(24),
     zIndex: 20,
   },
   ctaButton: {

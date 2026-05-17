@@ -25,13 +25,13 @@
 // 1. React & React Native
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  Dimensions,
   type ImageSourcePropType,
   NativeScrollEvent,
   NativeSyntheticEvent,
   ScrollView,
   StyleSheet,
   View,
+  useWindowDimensions,
 } from 'react-native';
 
 // 2. Expo & Third-party
@@ -43,6 +43,7 @@ import {
 // 4. Flow-specific components
 import { FinishAccountSetupCard } from './FinishAccountSetupCard';
 import { FinishCarSetupCard } from './FinishCarSetupCard';
+import { NavigationETABar } from './NavigationETABar';
 import { ResumeBookingCard } from './ResumeBookingCard';
 import { BookingCard, type Booking as BookingCardBooking } from '@/components/bookings/BookingCard';
 
@@ -56,6 +57,10 @@ interface ActionCardsCarouselProps {
   // the same handlers the bookings tab wires (view-details, cancel).
   showAppointment?: boolean;
   appointmentBooking?: BookingCardBooking | null;
+  appointmentEtaMinutes?: number;
+  appointmentDestinationLatitude?: number;
+  appointmentDestinationLongitude?: number;
+  appointmentDestinationName?: string;
   onAppointmentViewDetails?: (bookingId: string) => void;
   onAppointmentCancel?: (bookingId: string) => void;
 
@@ -91,10 +96,6 @@ interface ActionCardsCarouselProps {
   isNewUser?: boolean; // If true, show Finish Setup card first; if false, show Appointment first
 }
 
-const SCREEN_WIDTH = Dimensions.get('window').width;
-const CARD_WIDTH = SCREEN_WIDTH - 32; // Visual card width
-const CARD_GAP = 0; // No gap to prevent peeking
-
 // ============================================================================
 // COMPONENT
 // ============================================================================
@@ -103,6 +104,10 @@ export function ActionCardsCarousel({
   // Upcoming Appointment
   showAppointment = false,
   appointmentBooking,
+  appointmentEtaMinutes = 20,
+  appointmentDestinationLatitude,
+  appointmentDestinationLongitude,
+  appointmentDestinationName,
   onAppointmentViewDetails,
   onAppointmentCancel,
 
@@ -134,8 +139,10 @@ export function ActionCardsCarousel({
   // User status
   isNewUser = false,
 }: ActionCardsCarouselProps) {
+  const { width: screenWidth } = useWindowDimensions();
   const scrollViewRef = useRef<ScrollView>(null);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [cardHeights, setCardHeights] = useState<Record<string, number>>({});
 
   // Build array of visible cards - account setup first when visible, then appointment, resume, car
   const cards = [
@@ -160,9 +167,12 @@ export function ActionCardsCarousel({
 
   if (cards.length === 0) return null;
 
+  const activeCard = cards[activeIndex] ?? cards[0];
+  const containerHeight = activeCard ? cardHeights[activeCard.id] : undefined;
+
   const handleScroll = (event: NativeSyntheticEvent<NativeScrollEvent>) => {
     const contentOffsetX = event.nativeEvent.contentOffset.x;
-    const newIndex = Math.round(contentOffsetX / SCREEN_WIDTH);
+    const newIndex = Math.round(contentOffsetX / screenWidth);
     
     if (newIndex !== activeIndex && newIndex >= 0 && newIndex < cards.length) {
       setActiveIndex(newIndex);
@@ -170,24 +180,54 @@ export function ActionCardsCarousel({
     }
   };
 
+  const handleCardLayout = (cardId: string, height: number) => {
+    setCardHeights((prev) => {
+      if (prev[cardId] === height) return prev;
+      return { ...prev, [cardId]: height };
+    });
+  };
+
+  const getCardContainerStyle = (cardId: string, index: number) => [
+    styles.cardContainer,
+    { width: screenWidth },
+    index === 0 && styles.firstCard,
+    cardId === 'car' && styles.lastCard,
+  ];
+
   const renderCard = (cardId: string, index: number) => {
     switch (cardId) {
       case 'appointment':
         return (
-          <View key={cardId} style={styles.cardContainer}>
+          <View
+            key={cardId}
+            style={getCardContainerStyle(cardId, index)}
+            onLayout={(event) => handleCardLayout(cardId, event.nativeEvent.layout.height)}
+          >
             {appointmentBooking ? (
-              <BookingCard
-                booking={appointmentBooking}
-                variant="upcoming"
-                onViewDetails={onAppointmentViewDetails}
-                onCancelBooking={onAppointmentCancel}
-              />
+              <View style={styles.appointmentStack}>
+                <BookingCard
+                  booking={appointmentBooking}
+                  variant="upcoming"
+                  onViewDetails={onAppointmentViewDetails}
+                  onCancelBooking={onAppointmentCancel}
+                />
+                <NavigationETABar
+                  etaMinutes={appointmentEtaMinutes}
+                  destinationLatitude={appointmentDestinationLatitude}
+                  destinationLongitude={appointmentDestinationLongitude}
+                  destinationName={appointmentDestinationName}
+                />
+              </View>
             ) : null}
           </View>
         );
       case 'resume':
         return (
-          <View key={cardId} style={styles.cardContainer}>
+          <View
+            key={cardId}
+            style={getCardContainerStyle(cardId, index)}
+            onLayout={(event) => handleCardLayout(cardId, event.nativeEvent.layout.height)}
+          >
             <ResumeBookingCard
               mechanicsAvailable={resumeMechanicsAvailable}
               servicesPreview={resumeServicesPreview}
@@ -199,7 +239,11 @@ export function ActionCardsCarousel({
         );
       case 'account':
         return (
-          <View key={cardId} style={[styles.cardContainer, index === 0 && styles.firstCard]}>
+          <View
+            key={cardId}
+            style={getCardContainerStyle(cardId, index)}
+            onLayout={(event) => handleCardLayout(cardId, event.nativeEvent.layout.height)}
+          >
             <FinishAccountSetupCard
               onPress={onAccountSetupPress}
               onDismiss={onAccountSetupDismiss}
@@ -208,7 +252,11 @@ export function ActionCardsCarousel({
         );
       case 'car':
         return (
-          <View key={cardId} style={[styles.cardContainer, styles.lastCard]}>
+          <View
+            key={cardId}
+            style={getCardContainerStyle(cardId, index)}
+            onLayout={(event) => handleCardLayout(cardId, event.nativeEvent.layout.height)}
+          >
             <FinishCarSetupCard
               checklist={carSetupChecklist}
               isComplete={isCarSetupDone}
@@ -225,7 +273,7 @@ export function ActionCardsCarousel({
   };
 
   return (
-    <View style={styles.container}>
+    <View style={[styles.container, containerHeight ? { height: containerHeight } : undefined]}>
       <ScrollView
         ref={scrollViewRef}
         horizontal
@@ -249,20 +297,20 @@ export function ActionCardsCarousel({
 
 const styles = StyleSheet.create({
   container: {
-    // BookingCard (used for the appointment slot) is the tallest card —
-    // keep a uniform height so swiping between cards doesn't shift the
-    // layout below.
-    height: 380,
+    overflow: 'visible',
   },
   scrollView: {
     marginHorizontal: -16, // Extend scroll view to edges
+    overflow: 'visible',
   },
   scrollContent: {
     alignItems: 'flex-start',
   },
   cardContainer: {
-    width: SCREEN_WIDTH,
     paddingHorizontal: 16,
+  },
+  appointmentStack: {
+    gap: 12,
   },
   firstCard: {
     // First card styling if needed

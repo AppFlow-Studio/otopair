@@ -94,7 +94,6 @@ import {
 } from "@/components/home/FinishCarSetupPickerSheet";
 import { LoyaltyCard } from "@/components/home/LoyaltyCard";
 import { MechanicSearchBar } from "@/components/home/MechanicSearchBar";
-import { NavigationETABar } from "@/components/home/NavigationETABar";
 import { ServiceBundlesSection } from "@/components/home/ServiceBundlesSection";
 import { MoreServicesSection } from "@/components/home/MoreServicesSection";
 import { SuggestionsSection } from "@/components/home/SuggestionsSection";
@@ -528,16 +527,16 @@ export default function HomeScreen() {
     const cardType = getCardTypeAtIndex(cardIndex);
 
     switch (cardType) {
-      case "appointment": // Upcoming Appointment — pull Vehicle Maintenance up under the ETA bar
-        return 0;
-      case "resume": // Resume Booking
-        return -100;
-      case "account": // Finish Account Setup
-        return -70;
-      case "car": // Finish Car Setup
-        return -10;
+      case "appointment":
+        return 12;
+      case "resume":
+        return 20;
+      case "account":
+        return 20;
+      case "car":
+        return 20;
       default:
-        return 0;
+        return 20;
     }
   };
 
@@ -687,6 +686,10 @@ export default function HomeScreen() {
                   // row + view-details/cancel handlers below.
                   showAppointment={!!upcomingBooking}
                   appointmentBooking={upcomingBookingCard}
+                  appointmentEtaMinutes={20}
+                  appointmentDestinationLatitude={upcomingBooking?.shopLat ?? 0}
+                  appointmentDestinationLongitude={upcomingBooking?.shopLng ?? 0}
+                  appointmentDestinationName={upcomingBooking?.shopName}
                   onAppointmentViewDetails={handleAppointmentViewDetails}
                   onAppointmentCancel={handleAppointmentCancel}
                   // Resume Booking
@@ -732,18 +735,6 @@ export default function HomeScreen() {
                   isNewUser={isNewUser}
                 />
               </View>}
-
-              {/* Navigation ETA Bar - Only show when on Upcoming Appointment card */}
-              {getCardTypeAtIndex(activeCardIndex) === 'appointment' && upcomingBooking && (
-                <View style={styles.etaBarContainer}>
-                  <NavigationETABar
-                    etaMinutes={20}
-                    destinationLatitude={upcomingBooking.shopLat ?? 0}
-                    destinationLongitude={upcomingBooking.shopLng ?? 0}
-                    destinationName={upcomingBooking.shopName}
-                  />
-                </View>
-              )}
 
               {/* Vehicle Maintenance - with dynamic margin based on active card */}
               <View style={{ marginTop: visibleCardIds.length > 0 ? getCardMargin(activeCardIndex) : 0 }}>
@@ -997,13 +988,6 @@ const styles = StyleSheet.create({
   },
   carouselContainer: {
     marginBottom: 0,
-  },
-  etaBarContainer: {
-    // ActionCardsCarousel is locked at height: 380 so swiping between
-    // cards doesn't shift content. The appointment BookingCard is
-    // shorter than that, leaving an empty stripe — pull the ETA bar
-    // up so the chain reads as one tight stack instead of a gap.
-    marginTop: -52,
   },
   sheetBackground: {
     backgroundColor: "#FFFFFF",

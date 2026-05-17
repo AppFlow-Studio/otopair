@@ -304,6 +304,7 @@ const SEGMENT_WIDTH = scale(56);
 // + add button + health ring on the same row.
 const COMPACT_SEGMENT_WIDTH = scale(46);
 const COMPACT_THUMB_SIZE = scale(32);
+const ANDROID_SELECTOR_THUMB_INSET = scale(4);
 const RADIUS = SCREEN_WIDTH * 0.5;
 
 // Fallback image used only when no dynamic imageSource is available
@@ -2092,41 +2093,77 @@ export function CarCarousel({
             // CarSelectionContent for the rest of the garage.
             <>
               <View style={[styles.thumbnailSelector, { width: COMPACT_SEGMENT_WIDTH * 3 }]}>
-                <SegmentedControl
-                  values={[' ', ' ', ' ']}
-                  selectedIndex={compactRelativeActive >= 0 ? compactRelativeActive : -1}
-                  appearance="light"
-                  tintColor={isDarkBg ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.55)"}
-                  onChange={(e) => {
-                    const relIdx = e.nativeEvent.selectedSegmentIndex;
-                    const absIdx = compactVisibleIndices[relIdx];
-                    if (absIdx !== undefined && absIdx !== activeIndex) {
-                      rotateToIndex(absIdx);
-                    }
-                  }}
-                  style={[styles.segmentedRail, { width: COMPACT_SEGMENT_WIDTH * 3 }]}
-                />
-                {compactVisibleIndices.map((idx, relIdx) => {
-                  const vehicle = sortedVehicles[idx];
-                  const imageSource = vehicle.imageSource || FALLBACK_VEHICLE_IMAGE;
-                  return (
-                    <Image
-                      key={vehicle.id}
-                      source={imageSource}
-                      style={[
-                        styles.thumbnailOverlay,
-                        {
-                          width: COMPACT_THUMB_SIZE,
-                          height: COMPACT_THUMB_SIZE,
-                          top: (scale(48) - COMPACT_THUMB_SIZE) / 2,
-                          left: relIdx * COMPACT_SEGMENT_WIDTH + (COMPACT_SEGMENT_WIDTH - COMPACT_THUMB_SIZE) / 2,
-                        },
-                      ]}
-                      resizeMode="contain"
-                      pointerEvents="none"
+                {Platform.OS === 'ios' ? (
+                  <>
+                    <SegmentedControl
+                      values={[' ', ' ', ' ']}
+                      selectedIndex={compactRelativeActive >= 0 ? compactRelativeActive : -1}
+                      appearance="light"
+                      tintColor={isDarkBg ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.55)"}
+                      onChange={(e) => {
+                        const relIdx = e.nativeEvent.selectedSegmentIndex;
+                        const absIdx = compactVisibleIndices[relIdx];
+                        if (absIdx !== undefined && absIdx !== activeIndex) {
+                          rotateToIndex(absIdx);
+                        }
+                      }}
+                      style={[styles.segmentedRail, { width: COMPACT_SEGMENT_WIDTH * 3 }]}
                     />
-                  );
-                })}
+                    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+                      {compactVisibleIndices.map((idx, relIdx) => {
+                        const vehicle = sortedVehicles[idx];
+                        const imageSource = vehicle.imageSource || FALLBACK_VEHICLE_IMAGE;
+                        return (
+                          <Image
+                            key={vehicle.id}
+                            source={imageSource}
+                            style={[
+                              styles.thumbnailOverlay,
+                              {
+                                width: COMPACT_THUMB_SIZE,
+                                height: COMPACT_THUMB_SIZE,
+                                top: (scale(48) - COMPACT_THUMB_SIZE) / 2,
+                                left: relIdx * COMPACT_SEGMENT_WIDTH + (COMPACT_SEGMENT_WIDTH - COMPACT_THUMB_SIZE) / 2,
+                              },
+                            ]}
+                            resizeMode="contain"
+                          />
+                        );
+                      })}
+                    </View>
+                  </>
+                ) : (
+                  <View style={[styles.androidThumbnailRail, { width: COMPACT_SEGMENT_WIDTH * 3 }]}>
+                    {compactRelativeActive >= 0 && (
+                      <View
+                        style={[
+                          styles.androidThumbnailThumb,
+                          {
+                            width: COMPACT_SEGMENT_WIDTH - (ANDROID_SELECTOR_THUMB_INSET * 2),
+                            left: compactRelativeActive * COMPACT_SEGMENT_WIDTH + ANDROID_SELECTOR_THUMB_INSET,
+                          },
+                        ]}
+                      />
+                    )}
+                    {compactVisibleIndices.map((idx, relIdx) => {
+                      const vehicle = sortedVehicles[idx];
+                      const imageSource = vehicle.imageSource || FALLBACK_VEHICLE_IMAGE;
+                      return (
+                        <Pressable
+                          key={vehicle.id}
+                          onPress={() => idx !== activeIndex && rotateToIndex(idx)}
+                          style={[styles.androidThumbnailSegment, { width: COMPACT_SEGMENT_WIDTH }]}
+                        >
+                          <Image
+                            source={imageSource}
+                            style={{ width: COMPACT_THUMB_SIZE, height: COMPACT_THUMB_SIZE }}
+                            resizeMode="contain"
+                          />
+                        </Pressable>
+                      );
+                    })}
+                  </View>
+                )}
               </View>
               <Pressable
                 style={styles.overflowPill}
@@ -2141,7 +2178,8 @@ export function CarCarousel({
             </>
           ) : (
             <View style={[styles.thumbnailSelector, { width: segmentWidth * sortedVehicles.length }]}>
-              <SegmentedControl
+              {Platform.OS === 'ios' ? (
+                <SegmentedControl
                 values={sortedVehicles.map(() => ' ')}
                 selectedIndex={activeIndex}
                 appearance="light"
@@ -2151,28 +2189,49 @@ export function CarCarousel({
                 // like the green Tiguan.
                 tintColor={isDarkBg ? "rgba(255,255,255,0.22)" : "rgba(255,255,255,0.55)"}
                 onChange={(e) => rotateToIndex(e.nativeEvent.selectedSegmentIndex)}
-                style={[styles.segmentedRail, { width: segmentWidth * sortedVehicles.length }]}
-              />
-              {sortedVehicles.map((vehicle, index) => {
-                const imageSource = vehicle.imageSource || FALLBACK_VEHICLE_IMAGE;
-                return (
-                  <Image
-                    key={vehicle.id}
-                    source={imageSource}
+                  style={[styles.segmentedRail, { width: segmentWidth * sortedVehicles.length }]}
+                />
+              ) : (
+                <View style={[styles.androidThumbnailRail, { width: segmentWidth * sortedVehicles.length }]}>
+                  <View
                     style={[
-                      styles.thumbnailOverlay,
+                      styles.androidThumbnailThumb,
                       {
-                        width: thumbnailSize,
-                        height: thumbnailSize,
-                        top: (scale(48) - thumbnailSize) / 2,
-                        left: index * segmentWidth + (segmentWidth - thumbnailSize) / 2,
+                        width: segmentWidth - (ANDROID_SELECTOR_THUMB_INSET * 2),
+                        left: activeIndex * segmentWidth + ANDROID_SELECTOR_THUMB_INSET,
                       },
                     ]}
-                    resizeMode="contain"
-                    pointerEvents="none"
                   />
-                );
-              })}
+                  {sortedVehicles.map((vehicle, index) => (
+                    <Pressable
+                      key={vehicle.id}
+                      onPress={() => index !== activeIndex && rotateToIndex(index)}
+                      style={[styles.androidThumbnailSegment, { width: segmentWidth }]}
+                    />
+                  ))}
+                </View>
+              )}
+              <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+                {sortedVehicles.map((vehicle, index) => {
+                  const imageSource = vehicle.imageSource || FALLBACK_VEHICLE_IMAGE;
+                  return (
+                    <Image
+                      key={vehicle.id}
+                      source={imageSource}
+                      style={[
+                        styles.thumbnailOverlay,
+                        {
+                          width: thumbnailSize,
+                          height: thumbnailSize,
+                          top: (scale(48) - thumbnailSize) / 2,
+                          left: index * segmentWidth + (segmentWidth - thumbnailSize) / 2,
+                        },
+                      ]}
+                      resizeMode="contain"
+                    />
+                  );
+                })}
+              </View>
             </View>
           )}
 
@@ -2545,6 +2604,40 @@ const styles = StyleSheet.create({
   // tracks the vehicle count.
   segmentedRail: {
     height: scale(48),
+  },
+  androidThumbnailRail: {
+    height: scale(46),
+    borderRadius: scale(23),
+    backgroundColor: 'rgba(255,255,255,0.54)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.66)',
+    overflow: 'hidden',
+    flexDirection: 'row',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 3,
+  },
+  androidThumbnailThumb: {
+    position: 'absolute',
+    top: scale(3),
+    bottom: scale(3),
+    borderRadius: scale(20),
+    backgroundColor: 'rgba(255,255,255,0.72)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.95)',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.12,
+    shadowRadius: 6,
+    elevation: 4,
+  },
+  androidThumbnailSegment: {
+    height: '100%',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   // Absolute-positioned car image on top of each segment. Driven by
   // `left = index * SEGMENT_WIDTH + (SEGMENT_WIDTH - thumb)/2` so it

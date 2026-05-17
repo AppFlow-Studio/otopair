@@ -6,7 +6,7 @@
  * USED IN: components/onboarding/OnboardingFlow.tsx
  */
 
-import { useState, useEffect } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useSignIn, useAuth, useSSO } from "@clerk/clerk-expo";
 import * as WebBrowser from "expo-web-browser";
 import { useConvex, useMutation } from "convex/react";
@@ -38,7 +38,7 @@ interface LoginStepProps {
   onBack: () => void;
 }
 
-export function LoginStep({ onNext, onBack }: LoginStepProps) {
+export function LoginStep({ onBack }: LoginStepProps) {
   const insets = useSafeAreaInsets();
   const { height } = useWindowDimensions();
   const { signIn, setActive: setSignInActive, isLoaded } = useSignIn();
@@ -57,18 +57,6 @@ export function LoginStep({ onNext, onBack }: LoginStepProps) {
   const [showEmailForm, setShowEmailForm] = useState(false);
 
   // Already signed in → go straight to home
-  useEffect(() => {
-    // Don't auto-redirect while an explicit login flow is in progress,
-    // because post-login navigation may need to pass route params.
-    if (loading !== null) return;
-
-    if (isLoaded && isSignedIn) {
-      setIsNewUser(false);
-      setIsAuthenticated(true);
-      router.replace("/(main-tabs)/home");
-    }
-  }, [isLoaded, isSignedIn, loading, setIsAuthenticated, setIsNewUser]);
-
   const dynamicStyles = {
     container: { paddingTop: insets.top + Spacing.lg },
     bottomContainer: { paddingBottom: insets.bottom + Spacing.lg },
@@ -78,22 +66,54 @@ export function LoginStep({ onNext, onBack }: LoginStepProps) {
   const buttonSize: "md" | "lg" = isCompact ? "md" : "lg";
   const buttonPaddingVertical = isCompact ? Spacing.sm : Spacing.lg;
 
-  const navigateAfterLogin = async () => {
+  const navigateAfterLogin = useCallback(async () => {
     let shouldShowReactivationSheet = false;
+    let me: { onboardingCompleted?: boolean; isPendingDeletion?: boolean } | null = null;
 
     try {
-      const me = await convex.query(api.users.getMe, {});
+      me = await convex.query(api.users.getMe, {});
       if (me?.isPendingDeletion) {
         await reactivateAccountMutation({});
         shouldShowReactivationSheet = true;
+        me = await convex.query(api.users.getMe, {});
       }
     } catch (error) {
       console.error("Failed to process account reactivation after login:", error);
     }
 
     setShouldShowReactivationSheet(shouldShowReactivationSheet);
-    router.replace("/(main-tabs)/home");
-  };
+    if (me?.onboardingCompleted === true) {
+      router.replace("/(main-tabs)/home");
+      return;
+    }
+
+    router.replace({
+      pathname: "/(onboarding)",
+      params: { isResumeMode: "true" },
+    });
+  }, [convex, reactivateAccountMutation, setShouldShowReactivationSheet]);
+
+  // Already signed in: route by Convex onboarding state, not directly home.
+  useEffect(() => {
+    // Don't auto-redirect while an explicit login flow is in progress,
+    // because post-login navigation may need to pass route params.
+    if (loading !== null) return;
+
+    if (isLoaded && isSignedIn) {
+      setIsNewUser(false);
+      setIsAuthenticated(true);
+      navigateAfterLogin().catch((error) => {
+        console.error("Failed to navigate existing signed-in user:", error);
+      });
+    }
+  }, [
+    isLoaded,
+    isSignedIn,
+    loading,
+    navigateAfterLogin,
+    setIsAuthenticated,
+    setIsNewUser,
+  ]);
 
   // Retry helper to wait for Clerk JWT to propagate to Convex
   const ensureConvexUserWithRetry = async (retries = 3, delay = 1500) => {
@@ -135,7 +155,6 @@ export function LoginStep({ onNext, onBack }: LoginStepProps) {
         setIsNewUser(false);
         setIsAuthenticated(true);
         await navigateAfterLogin();
-        onNext();
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : "Authentication failed";
@@ -173,7 +192,6 @@ export function LoginStep({ onNext, onBack }: LoginStepProps) {
       setIsNewUser(false);
       setIsAuthenticated(true);
       await navigateAfterLogin();
-      onNext();
     } catch (err: any) {
       const message = err?.errors?.[0]?.longMessage || err?.errors?.[0]?.message || err?.message || "Unable to sign in";
       setError(message);

@@ -3,15 +3,14 @@ import { View, ActivityIndicator, StyleSheet } from 'react-native';
 import { useLocalSearchParams, router } from 'expo-router';
 import { useAuth } from '@clerk/clerk-expo';
 import { useQuery } from 'convex/react';
-import * as SecureStore from 'expo-secure-store';
 import { OnboardingFlow, OnboardingStep } from '@/components/onboarding/OnboardingFlow';
 import { api } from '@/convex/_generated/api';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import {
     buildOnboardingResumeData,
+    getSavedOnboardingCurrentStep,
     getDevicePermissionState,
     getIncompleteOnboardingStepsFromResumeData,
-    getOnboardingCurrentStepKey,
     RESUMABLE_STEPS,
 } from '@/lib/onboarding-resume';
 import { BrandColors } from '@/constants/theme';
@@ -151,12 +150,8 @@ export default function OnboardingScreen() {
                 locationGranted: devicePermissions.locationPermissionStatus === 'granted',
             });
 
-            const [incompleteSteps, savedStepForUser, savedStepLegacy] = await Promise.all([
-                Promise.resolve(getIncompleteOnboardingStepsFromResumeData(resumeData, devicePermissions)),
-                SecureStore.getItemAsync(getOnboardingCurrentStepKey(clerkUserId)),
-                SecureStore.getItemAsync(getOnboardingCurrentStepKey()),
-            ]);
-            const savedStep = savedStepForUser ?? savedStepLegacy;
+            const incompleteSteps = getIncompleteOnboardingStepsFromResumeData(resumeData, devicePermissions);
+            const savedStep = await getSavedOnboardingCurrentStep(clerkUserId, incompleteSteps);
 
             if (cancelled) return;
 

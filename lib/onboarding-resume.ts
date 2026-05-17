@@ -8,6 +8,8 @@ export const ONBOARDING_FINISHED_LATER_KEY = "onboarding_finished_later";
 // Persisted in expo-secure-store. Stores the last active onboarding step so the
 // app can resume from exactly where the user left off, not just infer it from data.
 export const ONBOARDING_CURRENT_STEP_KEY = "onboarding_current_step";
+const ONBOARDING_CURRENT_STEP_SCHEMA_VERSION = 1;
+const ONBOARDING_CURRENT_STEP_MAX_AGE_MS = 1000 * 60 * 60 * 24 * 30;
 
 export function getOnboardingFinishedLaterKey(clerkUserId?: string | null) {
   return clerkUserId
@@ -19,6 +21,85 @@ export function getOnboardingCurrentStepKey(clerkUserId?: string | null) {
   return clerkUserId
     ? `${ONBOARDING_CURRENT_STEP_KEY}.${clerkUserId}`
     : ONBOARDING_CURRENT_STEP_KEY;
+}
+
+type SavedCurrentStepRecord = {
+  schemaVersion: typeof ONBOARDING_CURRENT_STEP_SCHEMA_VERSION;
+  step: OnboardingStep;
+  savedAt: number;
+  clerkUserId?: string | null;
+};
+
+function isResumableStep(value: unknown): value is OnboardingStep {
+  return typeof value === "string" && (RESUMABLE_STEPS as Set<string>).has(value);
+}
+
+function parseCurrentStepRecord(
+  raw: string | null,
+  clerkUserId: string | null | undefined,
+  incompleteSteps: OnboardingStep[],
+): OnboardingStep | null {
+  if (!raw) return null;
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<SavedCurrentStepRecord>;
+    if (
+      parsed.schemaVersion !== ONBOARDING_CURRENT_STEP_SCHEMA_VERSION ||
+      !isResumableStep(parsed.step) ||
+      typeof parsed.savedAt !== "number"
+    ) {
+      return null;
+    }
+
+    if (Date.now() - parsed.savedAt > ONBOARDING_CURRENT_STEP_MAX_AGE_MS) {
+      return null;
+    }
+
+    if (parsed.clerkUserId && clerkUserId && parsed.clerkUserId !== clerkUserId) {
+      return null;
+    }
+
+    return parsed.step;
+  } catch {
+    // Legacy values were stored as a bare step string. They may be stale from a
+    // different onboarding attempt, so only trust them when Convex still says
+    // that exact step is incomplete.
+    return isResumableStep(raw) && incompleteSteps.includes(raw) ? raw : null;
+  }
+}
+
+export async function saveOnboardingCurrentStep(
+  clerkUserId: string | null | undefined,
+  step: OnboardingStep,
+) {
+  if (!isResumableStep(step)) return;
+
+  const record: SavedCurrentStepRecord = {
+    schemaVersion: ONBOARDING_CURRENT_STEP_SCHEMA_VERSION,
+    step,
+    savedAt: Date.now(),
+    clerkUserId,
+  };
+
+  await SecureStore.setItemAsync(
+    getOnboardingCurrentStepKey(clerkUserId),
+    JSON.stringify(record),
+  );
+}
+
+export async function getSavedOnboardingCurrentStep(
+  clerkUserId: string | null | undefined,
+  incompleteSteps: OnboardingStep[],
+) {
+  const [savedStepForUser, savedStepLegacy] = await Promise.all([
+    SecureStore.getItemAsync(getOnboardingCurrentStepKey(clerkUserId)),
+    SecureStore.getItemAsync(getOnboardingCurrentStepKey()),
+  ]);
+
+  return (
+    parseCurrentStepRecord(savedStepForUser, clerkUserId, incompleteSteps) ??
+    parseCurrentStepRecord(savedStepLegacy, clerkUserId, incompleteSteps)
+  );
 }
 
 export async function clearOnboardingResumeState(clerkUserId?: string | null) {
@@ -60,7 +141,7 @@ type PersistedUser = {
 };
 
 type PersistedQa = {
-  questions_and_answers?: Array<{ question?: string; answer?: string }>;
+  questions_and_answers?: { question?: string; answer?: string }[];
   user_intentions?: { intentions?: string[] };
 };
 
@@ -129,7 +210,7 @@ export function getIncompleteOnboardingStepsFromResumeData(
   data: ResumeData,
   permissions: DevicePermissionState,
 ): OnboardingStep[] {
-  const stepChecks: Array<{ step: OnboardingStep; isComplete: boolean }> = [
+  const stepChecks: { step: OnboardingStep; isComplete: boolean }[] = [
     { step: "phone", isComplete: !!data.phoneNumber },
     { step: "confirm", isComplete: data.phoneVerified },
     { step: "name", isComplete: !!(data.firstName && data.lastName) },

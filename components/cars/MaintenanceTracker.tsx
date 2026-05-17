@@ -24,7 +24,7 @@
 
 // 1. React & React Native
 import React, { useEffect, useState } from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, View } from 'react-native';
 
 // 2. Expo & Third-party
 import { BlurView } from 'expo-blur';
@@ -505,16 +505,25 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
             </Pressable>
           ) : (
             <Pressable onPress={onEditPressed} style={({ pressed }) => [styles.editHeaderButton, pressed && { opacity: 0.7 }]}>
-              <BlurView intensity={40} tint="light" style={StyleSheet.absoluteFill} />
-              <LinearGradient
-                colors={['rgba(255,255,255,0.35)', 'rgba(255,255,255,0.25)']}
-                style={StyleSheet.absoluteFill}
-              />
-              <LinearGradient
-                colors={['rgba(255,255,255,0.55)', 'rgba(255,255,255,0.15)', 'rgba(255,255,255,0)']}
-                locations={[0, 0.35, 0.7]}
-                style={styles.editButtonGloss}
-              />
+              {Platform.OS === 'ios' ? (
+                <>
+                  <BlurView intensity={40} tint="light" style={StyleSheet.absoluteFill} />
+                  <LinearGradient
+                    colors={['rgba(255,255,255,0.35)', 'rgba(255,255,255,0.25)']}
+                    style={StyleSheet.absoluteFill}
+                  />
+                  <LinearGradient
+                    colors={['rgba(255,255,255,0.55)', 'rgba(255,255,255,0.15)', 'rgba(255,255,255,0)']}
+                    locations={[0, 0.35, 0.7]}
+                    style={styles.editButtonGloss}
+                  />
+                </>
+              ) : (
+                <LinearGradient
+                  colors={['rgba(255,255,255,0.82)', 'rgba(255,255,255,0.68)']}
+                  style={StyleSheet.absoluteFill}
+                />
+              )}
               <Text weight="bold" style={styles.editHeaderButtonText}>Update Info</Text>
             </Pressable>
           )
@@ -640,17 +649,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: scale(5),
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    borderRadius: moderateScale(15),
-    paddingVertical: scale(7),
-    paddingHorizontal: scale(14),
+    justifyContent: 'center',
+    minHeight: scale(34),
+    backgroundColor: 'rgba(255,255,255,0.68)',
+    borderRadius: 999,
+    paddingVertical: scale(6),
+    paddingHorizontal: scale(13),
     overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.6)',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.74)',
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 10,
     elevation: 2,
   },
   // Liquid-glass variant: no background, no border, no shadow — just
@@ -671,7 +682,8 @@ const styles = StyleSheet.create({
   },
   editHeaderButtonText: {
     color: '#5299FE',
-    fontSize: moderateScale(13),
+    fontSize: moderateScale(12),
+    lineHeight: moderateScale(16),
     zIndex: 1,
   },
 });

@@ -27,7 +27,6 @@ import Animated, {
     withTiming,
     Easing,
 } from 'react-native-reanimated';
-import * as SecureStore from 'expo-secure-store';
 import { AnimatedGradientBackground } from '@/components/shared-ui';
 import { BackNavigationProvider } from '@/components/shared-ui/BackNavigationContext';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
@@ -35,7 +34,12 @@ import { useAuth } from '@clerk/clerk-expo';
 import { usePrefetchOnboardingQuestions } from '@/hooks/usePrefetchOnboardingQuestions';
 import { useMutation } from 'convex/react';
 import { api } from '@/convex/_generated/api';
-import { getOnboardingCurrentStepKey, RESUMABLE_STEPS } from '@/lib/onboarding-resume';
+import {
+  clearOnboardingResumeState,
+  getOnboardingCurrentStepKey,
+  RESUMABLE_STEPS,
+  saveOnboardingCurrentStep,
+} from '@/lib/onboarding-resume';
 import { SignupStep } from './steps/SignupStep';
 import { EmailSignupStep } from './steps/EmailSignupStep';
 import { EmailVerificationStep } from './steps/EmailVerificationStep';
@@ -174,10 +178,7 @@ export function OnboardingFlow({
         currentStep,
         clerkUserId,
       });
-      Promise.all([
-        SecureStore.deleteItemAsync(getOnboardingCurrentStepKey(clerkUserId)),
-        SecureStore.deleteItemAsync(getOnboardingCurrentStepKey()),
-      ]).catch(() => {});
+      clearOnboardingResumeState(clerkUserId).catch(() => {});
       return;
     }
     if ((RESUMABLE_STEPS as Set<string>).has(currentStep)) {
@@ -186,7 +187,7 @@ export function OnboardingFlow({
         currentStepKey: getOnboardingCurrentStepKey(clerkUserId),
         clerkUserId,
       });
-      SecureStore.setItemAsync(getOnboardingCurrentStepKey(clerkUserId), currentStep).catch(() => {});
+      saveOnboardingCurrentStep(clerkUserId, currentStep).catch(() => {});
     }
   }, [clerkUserId, currentStep]);
 
