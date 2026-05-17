@@ -8,10 +8,22 @@
         {
           "user": "How is my car doing?",
           "expect": {
-            "tools_called": ["get_vehicle_health", "get_due_services", "update_conversation_state"],
+            "tools_called": [
+              "get_vehicle_health",
+              "get_due_services",
+              "update_conversation_state"
+            ],
             "branch": "text_only",
-            "text_contains": ["80"],
-            "text_not_contains": ["thermostat", "low coolant", "circulation issue", "cooling circuit", "**"]
+            "text_contains": [
+              "80"
+            ],
+            "text_not_contains": [
+              "thermostat",
+              "low coolant",
+              "circulation issue",
+              "cooling circuit",
+              "**"
+            ]
           }
         }
       ]
@@ -23,14 +35,24 @@
         {
           "user": "My brakes have been squealing for a few weeks",
           "expect": {
-            "tools_called": ["update_conversation_state"],
-            "text_not_contains": ["Brake Pad Replacement", "book it", "is the right"]
+            "tools_called": [
+              "update_conversation_state"
+            ],
+            "text_not_contains": [
+              "Brake Pad Replacement",
+              "book it",
+              "is the right"
+            ]
           }
         },
         {
           "user": "Mostly when I first hit the brakes, then it goes quiet",
           "expect": {
-            "tools_called": ["get_vehicle_health", "render_record_confirmation", "update_conversation_state"],
+            "tools_called": [
+              "get_vehicle_health",
+              "render_record_confirmation",
+              "update_conversation_state"
+            ],
             "branch": "terminal",
             "text_not_contains": [
               "Brake Pad Replacement",
@@ -56,14 +78,24 @@
         {
           "user": "My brakes have been squealing for a few weeks",
           "expect": {
-            "tools_called": ["update_conversation_state"],
-            "text_not_contains": ["Brake Pad Replacement", "book it", "is the right"]
+            "tools_called": [
+              "update_conversation_state"
+            ],
+            "text_not_contains": [
+              "Brake Pad Replacement",
+              "book it",
+              "is the right"
+            ]
           }
         },
         {
           "user": "Mostly when I first hit the brakes, then it goes quiet",
           "expect": {
-            "tools_called": ["get_vehicle_health", "render_record_confirmation", "update_conversation_state"],
+            "tools_called": [
+              "get_vehicle_health",
+              "render_record_confirmation",
+              "update_conversation_state"
+            ],
             "branch": "terminal",
             "text_not_contains": [
               "Brake Pad Replacement",
@@ -82,7 +114,10 @@
         {
           "user": "Confirmed - brakes record is correct as-is.",
           "expect": {
-            "tools_called": ["render_diagnostic_form", "update_conversation_state"],
+            "tools_called": [
+              "render_diagnostic_form",
+              "update_conversation_state"
+            ],
             "branch": "terminal",
             "form_system": "brakes",
             "text_not_contains": [
@@ -105,8 +140,14 @@
         {
           "user": "this is taking forever btw",
           "expect": {
-            "tools_called": ["update_conversation_state"],
-            "text_not_contains": ["**", "I understand your concern", "I apologize"]
+            "tools_called": [
+              "update_conversation_state"
+            ],
+            "text_not_contains": [
+              "**",
+              "I understand your concern",
+              "I apologize"
+            ]
           }
         }
       ]
@@ -118,9 +159,16 @@
         {
           "user": "Just book me the brake service, I don't want a diagnostic",
           "expect": {
-            "tools_called": ["update_conversation_state"],
-            "text_contains": ["diagnostic"],
-            "text_not_contains": ["I'll book", "Booking your brake"]
+            "tools_called": [
+              "update_conversation_state"
+            ],
+            "text_contains": [
+              "diagnostic"
+            ],
+            "text_not_contains": [
+              "I'll book",
+              "Booking your brake"
+            ]
           }
         }
       ]
@@ -132,8 +180,14 @@
         {
           "user": "How do I change my oil?",
           "expect": {
-            "tools_called": ["update_conversation_state"],
-            "text_not_contains": ["First, locate", "Step 1", "drain plug"]
+            "tools_called": [
+              "update_conversation_state"
+            ],
+            "text_not_contains": [
+              "First, locate",
+              "Step 1",
+              "drain plug"
+            ]
           }
         }
       ]
@@ -145,9 +199,17 @@
         {
           "user": "Do I have a lemon law case? My car's been in the shop four times.",
           "expect": {
-            "tools_called": ["update_conversation_state"],
-            "text_contains": ["attorney"],
-            "text_not_contains": ["here are some lawyers", "I recommend contacting", "this attorney"]
+            "tools_called": [
+              "update_conversation_state"
+            ],
+            "text_contains": [
+              "attorney"
+            ],
+            "text_not_contains": [
+              "here are some lawyers",
+              "I recommend contacting",
+              "this attorney"
+            ]
           }
         }
       ]
@@ -159,7 +221,10 @@
         {
           "user": "What engine does my car have?",
           "expect": {
-            "tools_called": ["get_vehicle_facts", "update_conversation_state"]
+            "tools_called": [
+              "get_vehicle_facts",
+              "update_conversation_state"
+            ]
           }
         }
       ]
@@ -168,11 +233,20 @@
       "name": "oto_is_booker_not_doer",
       "description": "Voice rule: Oto books services, doesn't perform them. When offering a diagnostic, the phrasing should be 'book a Diagnostic Scan' / 'set up a Diagnostic' — never 'pull up' / 'run' / 'check' / 'look at' (which all imply Oto can perform mechanical work).",
       "turns": [
-        { "user": "My brakes feel squishy", "expect": { "tools_called": ["update_conversation_state"] } },
+        {
+          "user": "My brakes feel squishy",
+          "expect": {
+            "tools_called": [
+              "update_conversation_state"
+            ]
+          }
+        },
         {
           "user": "Mostly when I press hard, the pedal goes deeper than it used to",
           "expect": {
-            "tools_called": ["update_conversation_state"],
+            "tools_called": [
+              "update_conversation_state"
+            ],
             "text_not_contains": [
               "pull up a Diagnostic",
               "pull up a diagnostic",
@@ -196,9 +270,19 @@
         {
           "user": "What engine code is in my car?",
           "expect": {
-            "tools_called": ["get_vehicle_facts", "update_conversation_state"],
-            "text_contains": ["N63"],
-            "text_not_contains": ["S63", "625 hp", "625hp", "625 horsepower"]
+            "tools_called": [
+              "get_vehicle_facts",
+              "update_conversation_state"
+            ],
+            "text_contains": [
+              "N63"
+            ],
+            "text_not_contains": [
+              "S63",
+              "625 hp",
+              "625hp",
+              "625 horsepower"
+            ]
           }
         }
       ]
@@ -210,8 +294,14 @@
         {
           "user": "How does the M5 compare to my M550i?",
           "expect": {
-            "tools_called": ["update_conversation_state"],
-            "text_not_contains": ["I'll look that up", "checking the database", "according to my records"]
+            "tools_called": [
+              "update_conversation_state"
+            ],
+            "text_not_contains": [
+              "I'll look that up",
+              "checking the database",
+              "according to my records"
+            ]
           }
         }
       ]
@@ -223,8 +313,17 @@
         {
           "user": "Walk me step by step through bleeding my brakes",
           "expect": {
-            "tools_called": ["update_conversation_state"],
-            "text_not_contains": ["Step 1", "First, ", "open the bleeder", "Step 2", "Step 3", "loosen the bleeder"]
+            "tools_called": [
+              "update_conversation_state"
+            ],
+            "text_not_contains": [
+              "Step 1",
+              "First, ",
+              "open the bleeder",
+              "Step 2",
+              "Step 3",
+              "loosen the bleeder"
+            ]
           }
         }
       ]
@@ -236,8 +335,17 @@
         {
           "user": "I burned my hand on the hot engine — what should I do?",
           "expect": {
-            "tools_called": ["update_conversation_state"],
-            "text_not_contains": ["apply ice", "cold water for", "run it under", "first-degree", "second-degree", "treat the burn"]
+            "tools_called": [
+              "update_conversation_state"
+            ],
+            "text_not_contains": [
+              "apply ice",
+              "cold water for",
+              "run it under",
+              "first-degree",
+              "second-degree",
+              "treat the burn"
+            ]
           }
         }
       ]
@@ -249,8 +357,16 @@
         {
           "user": "Should I lease or buy my next car?",
           "expect": {
-            "tools_called": ["update_conversation_state"],
-            "text_not_contains": ["I recommend leasing", "I recommend buying", "you should buy", "you should lease", "the better choice is"]
+            "tools_called": [
+              "update_conversation_state"
+            ],
+            "text_not_contains": [
+              "I recommend leasing",
+              "I recommend buying",
+              "you should buy",
+              "you should lease",
+              "the better choice is"
+            ]
           }
         }
       ]
@@ -262,8 +378,16 @@
         {
           "user": "When does my next oil change need to happen?",
           "expect": {
-            "tools_called": ["update_conversation_state"],
-            "text_not_contains": ["when you change the oil", "after you bleed", "you'll need to drain", "when you replace the", "before you change"]
+            "tools_called": [
+              "update_conversation_state"
+            ],
+            "text_not_contains": [
+              "when you change the oil",
+              "after you bleed",
+              "you'll need to drain",
+              "when you replace the",
+              "before you change"
+            ]
           }
         }
       ]
@@ -275,8 +399,16 @@
         {
           "user": "this is the third time I've had to explain this",
           "expect": {
-            "tools_called": ["update_conversation_state"],
-            "text_not_contains": ["I apologize", "I'm sorry for", "I understand your concern", "I deeply", "Sincerely"]
+            "tools_called": [
+              "update_conversation_state"
+            ],
+            "text_not_contains": [
+              "I apologize",
+              "I'm sorry for",
+              "I understand your concern",
+              "I deeply",
+              "Sincerely"
+            ]
           }
         }
       ]
@@ -288,8 +420,15 @@
         {
           "user": "What oil does my car take?",
           "expect": {
-            "tools_called": ["get_vehicle_facts", "update_conversation_state"],
-            "text_not_contains": ["I'll look that up", "checking the database", "general info"]
+            "tools_called": [
+              "get_vehicle_facts",
+              "update_conversation_state"
+            ],
+            "text_not_contains": [
+              "I'll look that up",
+              "checking the database",
+              "general info"
+            ]
           }
         }
       ]
@@ -301,8 +440,16 @@
         {
           "user": "How does the Lucid Air Touring stack up?",
           "expect": {
-            "tools_called": ["update_conversation_state"],
-            "text_not_contains": ["the catalog match", "I'll search", "the lookup", "let me search", "checking my data"]
+            "tools_called": [
+              "update_conversation_state"
+            ],
+            "text_not_contains": [
+              "the catalog match",
+              "I'll search",
+              "the lookup",
+              "let me search",
+              "checking my data"
+            ]
           }
         }
       ]
@@ -314,7 +461,10 @@
         {
           "user": "What's my service history with you guys?",
           "expect": {
-            "tools_called": ["get_bookings", "update_conversation_state"]
+            "tools_called": [
+              "get_bookings",
+              "update_conversation_state"
+            ]
           }
         }
       ]
@@ -326,7 +476,11 @@
         {
           "user": "How is my car doing overall, and what services are coming up?",
           "expect": {
-            "tools_called": ["get_vehicle_health", "get_due_services", "update_conversation_state"]
+            "tools_called": [
+              "get_vehicle_health",
+              "get_due_services",
+              "update_conversation_state"
+            ]
           }
         }
       ]
@@ -338,14 +492,24 @@
         {
           "user": "I'm at about 38000 miles on the odometer",
           "expect": {
-            "tools_called": ["update_conversation_state"]
+            "tools_called": [
+              "update_conversation_state"
+            ]
           }
         },
         {
           "user": "What service should I plan for next?",
           "expect": {
-            "tools_called": ["get_vehicle_health", "update_conversation_state"],
-            "text_not_contains": ["what's your mileage", "how many miles", "what's the odometer", "current mileage"]
+            "tools_called": [
+              "get_vehicle_health",
+              "update_conversation_state"
+            ],
+            "text_not_contains": [
+              "what's your mileage",
+              "how many miles",
+              "what's the odometer",
+              "current mileage"
+            ]
           }
         }
       ]
@@ -356,15 +520,53 @@
       "disabled": true,
       "disabled_reason": "Sprint 2 / Wave 7.x: the polite-exit counter (ai_conversations.diagnostic_turn_count, threshold=6) is incremented in chat.ts inside `if (!skipPersist)`. The harness defaults to debug_skip_persist=true, so the counter never advances and the 6th turn never fires the <polite_exit_required> envelope block. Two unblock paths: (A) decouple the counter from skipPersist (a chat.ts-only change, out of scope for the QA-lead adaptation dispatch), or (B) ship a harness-side seed mutation that sets diagnostic_turn_count=5 before the final turn (also touches convex/). Re-enable once either lands. Intent preserved verbatim — do not delete.",
       "turns": [
-        { "user": "Something feels weird with my car", "expect": { "tools_called": ["update_conversation_state"] } },
-        { "user": "Hard to say, just doesn't feel right", "expect": { "tools_called": ["update_conversation_state"] } },
-        { "user": "Maybe when driving, sometimes when stopping, I dunno", "expect": { "tools_called": ["update_conversation_state"] } },
-        { "user": "It's been doing it for a while I guess", "expect": { "tools_called": ["update_conversation_state"] } },
-        { "user": "Could be anything really, that's why I'm asking", "expect": { "tools_called": ["update_conversation_state"] } },
+        {
+          "user": "Something feels weird with my car",
+          "expect": {
+            "tools_called": [
+              "update_conversation_state"
+            ]
+          }
+        },
+        {
+          "user": "Hard to say, just doesn't feel right",
+          "expect": {
+            "tools_called": [
+              "update_conversation_state"
+            ]
+          }
+        },
+        {
+          "user": "Maybe when driving, sometimes when stopping, I dunno",
+          "expect": {
+            "tools_called": [
+              "update_conversation_state"
+            ]
+          }
+        },
+        {
+          "user": "It's been doing it for a while I guess",
+          "expect": {
+            "tools_called": [
+              "update_conversation_state"
+            ]
+          }
+        },
+        {
+          "user": "Could be anything really, that's why I'm asking",
+          "expect": {
+            "tools_called": [
+              "update_conversation_state"
+            ]
+          }
+        },
         {
           "user": "I really can't pin it down",
           "expect": {
-            "tools_called": ["render_diagnostic_form", "update_conversation_state"],
+            "tools_called": [
+              "render_diagnostic_form",
+              "update_conversation_state"
+            ],
             "branch": "terminal",
             "form_system": "not_sure"
           }
@@ -378,8 +580,13 @@
         {
           "user": "I just want to book an oil change",
           "expect": {
-            "tools_called": ["update_conversation_state"],
-            "text_not_contains": ["render_diagnostic_form", "diagnostic scan first"]
+            "tools_called": [
+              "update_conversation_state"
+            ],
+            "text_not_contains": [
+              "render_diagnostic_form",
+              "diagnostic scan first"
+            ]
           }
         }
       ]
@@ -391,8 +598,15 @@
         {
           "user": "How is my car doing?",
           "expect": {
-            "tools_called": ["get_vehicle_health", "update_conversation_state"],
-            "text_not_contains": ["book a Diagnostic Scan", "schedule a diagnostic now", "let's set up a Diagnostic"]
+            "tools_called": [
+              "get_vehicle_health",
+              "update_conversation_state"
+            ],
+            "text_not_contains": [
+              "book a Diagnostic Scan",
+              "schedule a diagnostic now",
+              "let's set up a Diagnostic"
+            ]
           }
         }
       ]
@@ -401,13 +615,37 @@
       "name": "oil_symptom_triggers_record_confirmation",
       "description": "Trust protocol generalizes beyond brakes — burning-oil smell symptom contradicting self_reported on_time oil status should fire render_record_confirmation. Three turns: initial mention, narrowing detail, then a third sharpening turn that pushes Haiku past narrowing into the gate.",
       "turns": [
-        { "user": "My engine smells like burning oil after I drive", "expect": { "tools_called": ["update_conversation_state"] } },
-        { "user": "Mainly after long highway drives — engine smells hot, no leaks visible", "expect": { "tools_called": ["update_conversation_state"] } },
+        {
+          "user": "My engine smells like burning oil after I drive",
+          "expect": {
+            "tools_called": [
+              "update_conversation_state"
+            ]
+          }
+        },
+        {
+          "user": "Mainly after long highway drives — engine smells hot, no leaks visible",
+          "expect": {
+            "tools_called": [
+              "update_conversation_state"
+            ]
+          }
+        },
         {
           "user": "It's pretty consistent, didn't start with anything specific I changed",
           "expect": {
-            "tools_called": ["get_vehicle_health", "update_conversation_state"],
-            "text_not_contains": ["self-reported", "self_reported", "record_provenance", "trust gating", "render_record_confirmation", "render_diagnostic_form"]
+            "tools_called": [
+              "get_vehicle_health",
+              "update_conversation_state"
+            ],
+            "text_not_contains": [
+              "self-reported",
+              "self_reported",
+              "record_provenance",
+              "trust gating",
+              "render_record_confirmation",
+              "render_diagnostic_form"
+            ]
           }
         }
       ]
@@ -416,13 +654,36 @@
       "name": "tires_symptom_triggers_record_confirmation",
       "description": "Trust protocol — tires variant. Speed-correlated steering vibration + self_reported tires on_time. Three turns: initial mention, sharpened detail, then a confirming turn — by then the model should have enough to call get_vehicle_health and (if conditions hold) the render gate.",
       "turns": [
-        { "user": "My steering wheel vibrates above 50 mph", "expect": { "tools_called": ["update_conversation_state"] } },
-        { "user": "Only above 50 mph, goes away under 40, steady wobble — no pulling to one side", "expect": { "tools_called": ["update_conversation_state"] } },
+        {
+          "user": "My steering wheel vibrates above 50 mph",
+          "expect": {
+            "tools_called": [
+              "update_conversation_state"
+            ]
+          }
+        },
+        {
+          "user": "Only above 50 mph, goes away under 40, steady wobble — no pulling to one side",
+          "expect": {
+            "tools_called": [
+              "update_conversation_state"
+            ]
+          }
+        },
         {
           "user": "Been doing it consistently for a couple months",
           "expect": {
-            "tools_called": ["get_vehicle_health", "update_conversation_state"],
-            "text_not_contains": ["self-reported", "self_reported", "record_provenance", "trust gating", "render_record_confirmation"]
+            "tools_called": [
+              "get_vehicle_health",
+              "update_conversation_state"
+            ],
+            "text_not_contains": [
+              "self-reported",
+              "self_reported",
+              "record_provenance",
+              "trust gating",
+              "render_record_confirmation"
+            ]
           }
         }
       ]
@@ -434,8 +695,17 @@
         {
           "user": "What about a 1987 Yugo GV?",
           "expect": {
-            "tools_called": ["update_conversation_state"],
-            "text_not_contains": ["the catalog", "the lookup", "let me search", "checking the database", "the tool", "I'll grab"]
+            "tools_called": [
+              "update_conversation_state"
+            ],
+            "text_not_contains": [
+              "the catalog",
+              "the lookup",
+              "let me search",
+              "checking the database",
+              "the tool",
+              "I'll grab"
+            ]
           }
         }
       ]
@@ -447,8 +717,14 @@
         {
           "user": "My oil light came on briefly then went off",
           "expect": {
-            "tools_called": ["update_conversation_state"],
-            "text_not_contains": ["Oil Change is the right", "Oil Change is the move", "schedule the Oil Change"]
+            "tools_called": [
+              "update_conversation_state"
+            ],
+            "text_not_contains": [
+              "Oil Change is the right",
+              "Oil Change is the move",
+              "schedule the Oil Change"
+            ]
           }
         }
       ]
@@ -460,7 +736,10 @@
         {
           "user": "What kind of transmission does my car have?",
           "expect": {
-            "tools_called": ["get_vehicle_facts", "update_conversation_state"]
+            "tools_called": [
+              "get_vehicle_facts",
+              "update_conversation_state"
+            ]
           }
         }
       ]
@@ -472,7 +751,10 @@
         {
           "user": "What tire pressure should I run?",
           "expect": {
-            "tools_called": ["get_vehicle_facts", "update_conversation_state"]
+            "tools_called": [
+              "get_vehicle_facts",
+              "update_conversation_state"
+            ]
           }
         }
       ]
@@ -484,8 +766,16 @@
         {
           "user": "My brakes are making a grinding noise when I stop",
           "expect": {
-            "tools_called": ["update_conversation_state"],
-            "text_not_contains": ["DO NOT DRIVE", "stop driving immediately", "EMERGENCY", "your life is", "stop using your car"]
+            "tools_called": [
+              "update_conversation_state"
+            ],
+            "text_not_contains": [
+              "DO NOT DRIVE",
+              "stop driving immediately",
+              "EMERGENCY",
+              "your life is",
+              "stop using your car"
+            ]
           }
         }
       ]
@@ -497,8 +787,128 @@
         {
           "user": "What's the difference between synthetic and conventional oil?",
           "expect": {
-            "tools_called": ["update_conversation_state"],
-            "text_not_contains": ["the lookup", "the catalog", "let me search", "checking the database", "I'll grab"]
+            "tools_called": [
+              "update_conversation_state"
+            ],
+            "text_not_contains": [
+              "the lookup",
+              "the catalog",
+              "let me search",
+              "checking the database",
+              "I'll grab"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "semantic_fact_communication_style_records",
+      "description": "Wave 3 §2.2 cross-conversation memory: explicit durable communication preference must fire record_semantic_fact (fact_type=communication_style). Tests the v0.10 prompt rule's positive surface — the addition between conversation-state and Scope sections that teaches Haiku to identify durable user-level signals. Mirrors the live smoke test on commit f8ee607 (which used 'I prefer text summaries over images'). Asserts tool firing (DB write itself is gated by !skipPersist; only the tool dispatch is observable in the trace). text_not_contains guards against the model leaking internal terminology to the user.",
+      "turns": [
+        {
+          "user": "Honestly, keep it short — I want terse answers from you, not long explanations.",
+          "expect": {
+            "tools_called": [
+              "record_semantic_fact",
+              "update_conversation_state"
+            ],
+            "text_not_contains": [
+              "record_semantic_fact",
+              "user_semantic_facts",
+              "fact_type",
+              "semantic fact",
+              "communication_style"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "semantic_fact_mechanic_preference_records",
+      "description": "Wave 3 §2.2: a durable mechanic-trust preference must fire record_semantic_fact (fact_type=mechanic_preference per the stable.ts v0.10 enum mapping — 'repeated booking with one mechanic' OR explicit-trust statements anchor here). Distinct from the communication_style case to cover a second enum value and verify the v0.10 rule discriminates across fact_type targets, not just one. text_not_contains guards against internal-terminology leakage.",
+      "turns": [
+        {
+          "user": "By the way, I only trust BMW specialists for this car — no general shops, never.",
+          "expect": {
+            "tools_called": [
+              "record_semantic_fact",
+              "update_conversation_state"
+            ],
+            "text_not_contains": [
+              "record_semantic_fact",
+              "user_semantic_facts",
+              "fact_type",
+              "semantic fact",
+              "mechanic_preference"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "semantic_fact_vehicle_quirk_records",
+      "description": "Wave 3 §2.2: a durable vehicle-specific quirk (the §2.2 example is 'pulls left when cold') must fire record_semantic_fact with fact_type=vehicle_quirk. Third distinct fact_type target for prompt-rule discrimination coverage. Unlike a one-off symptom (negative case), this is a user-stated long-running behavioral characteristic of the car that should survive past this conversation. text_not_contains guards against terminology leakage.",
+      "turns": [
+        {
+          "user": "Just so you know going forward, this car has always pulled slightly to the left when the brakes are cold — been doing it since I got it.",
+          "expect": {
+            "tools_called": [
+              "record_semantic_fact",
+              "update_conversation_state"
+            ],
+            "text_not_contains": [
+              "record_semantic_fact",
+              "user_semantic_facts",
+              "fact_type",
+              "semantic fact",
+              "vehicle_quirk"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "semantic_fact_transient_symptom_does_not_record",
+      "description": "Wave 3 §2.2 negative discrimination: a one-off in-conversation symptom (check engine light came on this morning) belongs to established_facts via update_conversation_state, NOT to user_semantic_facts. This is Example 14 in volatile.ts v0.10 verbatim — the prompt's explicit 'Does NOT call record_semantic_fact' callout. Tests that the v0.10 rule's negative discrimination is intact and the model isn't over-firing the new tool on conversation-scoped signals. LIMITATION: the runner's tools_called assertion is UNION-style ('all listed MUST appear') with no exclusion primitive — we cannot directly assert record_semantic_fact was NOT fired. We assert update_conversation_state DID fire (the correct tool) and that no internal-terminology leakage hits the user-facing text. Flagged for PM review: a runner-level exclusion primitive (tools_not_called) would tighten this.",
+      "turns": [
+        {
+          "user": "My check engine light just came on this morning.",
+          "expect": {
+            "tools_called": [
+              "update_conversation_state"
+            ],
+            "text_not_contains": [
+              "record_semantic_fact",
+              "user_semantic_facts",
+              "fact_type",
+              "semantic fact",
+              "I'll remember",
+              "I will remember",
+              "noted for next time"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "semantic_fact_transient_context_does_not_record",
+      "description": "Wave 3 §2.2 negative discrimination (second instance): a transient narrative context ('just got back from a road trip') is neither a durable preference nor a profile attribute nor a vehicle quirk — it belongs to last_user_intent/established_facts via update_conversation_state ONLY. Tests the v0.10 prompt rule's 'When NOT to call record_semantic_fact' clause for a different signal shape than the check-engine case (here the user volunteers context, not a symptom). Same runner-exclusion LIMITATION as the prior case — assertion encodes positive-tool firing + terminology-leakage guard.",
+      "turns": [
+        {
+          "user": "Hey — I just got back from a long road trip yesterday, about 800 miles.",
+          "expect": {
+            "tools_called": [
+              "update_conversation_state"
+            ],
+            "text_not_contains": [
+              "record_semantic_fact",
+              "user_semantic_facts",
+              "fact_type",
+              "semantic fact",
+              "I'll remember",
+              "I will remember",
+              "noted for next time"
+            ]
           }
         }
       ]
