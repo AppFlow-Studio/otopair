@@ -639,6 +639,188 @@ async function sendMessageHandler(
       );
       accumulatedResults.push(...terminalResults);
       if (traceIter) traceIter.tool_results = terminalResults;
+
+      // ── Wave 3 wire-in step 5 — recordSelectionFact mirror ─────────────
+      // When the AI fires a render tool that asks the user to pick something
+      // (render_service_picker / render_shop_carousel / render_time_selector
+      // / render_booking_confirmation), that's a SELECTION MOMENT. Per
+      // WAVE_3_DESIGN §2.1 the fact captures what the AI OFFERED at this
+      // turn — not the user's eventual choice (the chat path doesn't see
+      // that; selection happens client-side). The taxonomy distinction
+      // between offer and selection is carried by the entity_type suffix
+      // ("_offer") so a later replay can tell "AI proposed X" from
+      // "user selected X". The four render tools map to:
+      //   render_service_picker         → entity_type="service_offer"
+      //   render_shop_carousel          → entity_type="shop_offer"
+      //   render_time_selector          → entity_type="time_slot_offer"
+      //   render_booking_confirmation   → entity_type="booking_offer"
+      //
+      // Three of the four tools are TRIGGER-ONLY (dispatcher.ts §packageRender
+      // comments): Oto passes a small key (service_slug + priority, or
+      // mechanic_id + service_slug, or the booking-IDs tuple) and the
+      // mobile component queries Convex for the actual list. So one fact
+      // per render fire is the natural shape; the entity_id encodes the
+      // trigger key. render_service_picker is the only tool where Oto can
+      // optionally carry a `services` list — we record the pre_selected_id
+      // when present (the recommended pick the AI is highlighting), and
+      // fall back to a single offer-list fact when only `services` was
+      // passed. Default-catalog mode (neither field set) records nothing.
+      //
+      // Failure-isolation pattern: outer try/catch + per-fact inner
+      // try/catch + console.error + swallow, mirroring the
+      // recordConversationFact wire-in below. A broken mirror MUST NEVER
+      // fail the chat turn — the user's render directive has already been
+      // packaged into accumulatedResults and the chat response is
+      // committed; the mirror is a write-side telemetry append.
+      try {
+        for (const tu of terminalToolUses) {
+          const input = tu.input as Record<string, unknown>;
+          // Compute (entity_type, entity_id) per render tool. Returning
+          // null skips the mirror for that fire (e.g. default-catalog
+          // service_picker, or an unrecognized render tool).
+          let entityType: string | null = null;
+          let entityId: string | null = null;
+          switch (tu.name) {
+            case "render_service_picker": {
+              entityType = "service_offer";
+              // Preferred carrier: the AI's recommended pick. The
+              // pre_selected_id is the single most-informative offer datum
+              // (the user typically taps Confirm on it). When omitted but
+              // a `services` list is supplied, encode the list of offered
+              // slugs as a JSON-array string so replay can recover them.
+              const preSelected = typeof input.pre_selected_id === "string"
+                ? input.pre_selected_id
+                : null;
+              if (preSelected) {
+                entityId = preSelected;
+                break;
+              }
+              const services = Array.isArray(input.services)
+                ? (input.services as Array<Record<string, unknown>>)
+                : null;
+              if (services && services.length > 0) {
+                const ids = services
+                  .map((s) => (typeof s.id === "string" ? s.id : null))
+                  .filter((s): s is string => s !== null);
+                if (ids.length > 0) {
+                  entityId = JSON.stringify(ids);
+                }
+              }
+              // Default-catalog path (neither pre_selected_id nor services
+              // supplied) records nothing — there's no concrete offer to
+              // capture, the picker shows the global catalog at the
+              // mobile layer.
+              if (entityId === null) {
+                entityType = null;
+              }
+              break;
+            }
+            case "render_shop_carousel": {
+              entityType = "shop_offer";
+              const serviceSlug = typeof input.service_slug === "string"
+                ? input.service_slug
+                : null;
+              const priority = typeof input.priority === "string"
+                ? input.priority
+                : null;
+              if (serviceSlug && priority) {
+                // Trigger-only render: the actual shop list resolves at the
+                // mobile layer. The offer fact captures the TRIGGER KEY —
+                // (service_slug, priority) — so replay knows what kind of
+                // shop list the user was looking at.
+                entityId = `service_slug=${serviceSlug};priority=${priority}`;
+              } else {
+                entityType = null;
+              }
+              break;
+            }
+            case "render_time_selector": {
+              entityType = "time_slot_offer";
+              const mechanicId = typeof input.mechanic_id === "string"
+                ? input.mechanic_id
+                : null;
+              const serviceSlug = typeof input.service_slug === "string"
+                ? input.service_slug
+                : null;
+              if (mechanicId && serviceSlug) {
+                // Trigger-only: actual slots resolve client-side. Record
+                // the (mechanic_id, service_slug) trigger key.
+                entityId = `mechanic_id=${mechanicId};service_slug=${serviceSlug}`;
+              } else {
+                entityType = null;
+              }
+              break;
+            }
+            case "render_booking_confirmation": {
+              entityType = "booking_offer";
+              const serviceSlug = typeof input.service_slug === "string"
+                ? input.service_slug
+                : null;
+              const mechanicId = typeof input.mechanic_id === "string"
+                ? input.mechanic_id
+                : null;
+              const slotId = typeof input.slot_id === "string"
+                ? input.slot_id
+                : null;
+              if (serviceSlug && mechanicId && slotId) {
+                // The user's full pre-confirmation selection — what the
+                // booking summary card is about to show. Most-information-
+                // dense of the four; this is the offer the user is one tap
+                // away from accepting.
+                entityId =
+                  `service_slug=${serviceSlug};mechanic_id=${mechanicId};slot_id=${slotId}`;
+              } else {
+                entityType = null;
+              }
+              break;
+            }
+            default:
+              // Other render tools (render_diagnostic_form,
+              // render_record_confirmation, render_quick_replies,
+              // render_reasoning, render_sources) are NOT selection
+              // moments — they show forms, ask Yes/No, or decorate prose.
+              // No fact to record.
+              break;
+          }
+          if (entityType !== null && entityId !== null) {
+            try {
+              await ctx.runMutation(
+                api.oto.memoryEditing.recordSelectionFact,
+                {
+                  conversation_id: conversationId,
+                  entity_type: entityType,
+                  entity_id: entityId,
+                  source_turn: conversationFactTurnNumber,
+                },
+              );
+            } catch (innerErr: any) {
+              // Per-render failure — log but keep processing the rest.
+              // Same per-row failure-isolation as recordConversationFact.
+              console.error(
+                "[oto/chat] recordSelectionFact failed for one render " +
+                  "(swallowed):",
+                innerErr?.message,
+                {
+                  tool: tu.name,
+                  entity_type: entityType,
+                  entity_id: entityId,
+                  turn: conversationFactTurnNumber,
+                },
+              );
+            }
+          }
+        }
+      } catch (e: any) {
+        // Outer guard — matches the recordConversationFact wire-in below
+        // and the conversation_audit recordTurn pattern. The mirror is
+        // best-effort: a thrown read of input shape or a Convex transport
+        // hiccup MUST NOT propagate and fail the chat turn.
+        console.error(
+          "[oto/chat] recordSelectionFact mirror failed (swallowed):",
+          e?.message,
+        );
+      }
+
       // Whatever text accompanied the render call is the user-facing prose.
       finalText = textBlock?.text ?? "";
       break;
