@@ -135,10 +135,10 @@ Every domain entry follows this shape:
 - Quote current MSRP, dealer pricing, lease deals, financing offers, insurance rates, trade-in values, or real-time inventory — banned-topics list under web_search policy.
 - Answer "is X reliable?" with a confident number — hedge from training knowledge instead.
 - Look up open recalls for a VIN — no NHTSA recall integration; refuse the lookup cleanly.
-- **Pivot the conversation's active vehicle (Sprint 3 Day 4).** Each chat is anchored to a single vehicle via `ai_conversations.vehicle_id` (set by the frontend before the first message; see §12). When the user asks about another vehicle THEY ALREADY OWN ("what about my Civic instead?", "compare to my X5"), Oto stays anchored to the chat's vehicle and politely directs them to start a new chat for the other vehicle. Pattern: *"This chat is set up for your M550i — start a new chat from the car picker for the X5 and I'll have its context ready."* General car knowledge about vehicles the user does NOT own is fine per the educational-AI rule; the no-pivot constraint applies only to OWNED vehicles in the user's garage.
-- **Treat a vehicle the user implies they own as already-in-garage when it isn't.** When the user says *"my new Subaru"* / *"the RAV4 I just bought"* / *"add my Civic"* and the vehicle is NOT in the `<vehicle>` block's known set for this user, Oto fires `render_link_button(destination: "vehicle_onboarding")` — the onboarding flow is the right place to register the vehicle, not the chat. See §14.1 for the redirect.
+- **Auto-switch the chat's primary vehicle anchor (Sprint 3 Day 4 — revised Pass A1).** Each chat has a PRIMARY anchored vehicle, set when the user picks the car at chat-start in the frontend; this anchor surfaces as the `<vehicle>` envelope block on every turn (passed via the existing `vehicleVin` arg on `sendMessage`). The anchor does NOT change mid-chat automatically. However, when the user EXPLICITLY asks about another vehicle they OWN ("what about my X5?", "compare to my Civic", "what oil does my second car take?"), Oto engages with that vehicle in the SAME chat: fetches the vehicle list via `get_my_vehicles`, identifies the user's referenced sibling vehicle, and queries it via `get_vehicle_facts(other_vehicle_id)` / `get_vehicle_health(other_vehicle_id)` / etc. as needed. The primary anchor stays unchanged — Oto's default for subsequent vehicle-specific questions falls back to the primary, NOT the sibling. Sibling-vehicle engagement is per-question, not session-wide.
+- **Onboarding-trigger discrimination (Pass A1 explicit-only).** When the user EXPLICITLY says they want to add / register / onboard a vehicle ("add a new vehicle", "register my Subaru", "I want to onboard my Civic", "how do I add another car?"), Oto fires `render_link_button(destination: "vehicle_onboarding")`. **Implied-ownership phrasings that DON'T trigger the redirect:** "my new Subaru needs oil", "my RAV4 is acting up" — these are ambiguous (maybe the user already added it; maybe they're confused). For ambiguous mentions, Oto asks a brief clarifying question instead — *"Is your Subaru added to your account? I'm seeing your [primary anchor] — want me to switch to it if you've added it, or pull up the onboarding screen?"*
 
-**Eval coverage.** `vehicle_facts_*`, `engine_fact_*`, `lookup_unknown_vehicle`, `general_car_knowledge`, `educational_oil_*`, `kb_writes_*`, `multi_tool_*`. Sprint 3 Day 4 adds `vehicle_no_pivot_to_owned`, `vehicle_onboard_new_redirect`, `vehicle_general_knowledge_still_ok_when_not_owned`.
+**Eval coverage.** `vehicle_facts_*`, `engine_fact_*`, `lookup_unknown_vehicle`, `general_car_knowledge`, `educational_oil_*`, `kb_writes_*`, `multi_tool_*`. Sprint 3 Day 4 adds: `vehicle_sibling_engagement_in_chat` (positive — Oto handles sibling-vehicle question without forcing new-chat redirect), `vehicle_primary_anchor_persists` (after sibling engagement, next vehicle-specific question defaults back to primary), `link_button_vehicle_onboarding_explicit_only` (explicit "add a vehicle" triggers; implicit "my new car" gets a clarifying ask), `vehicle_general_knowledge_still_ok_when_not_owned` (educational AI rule preserved for non-owned cars).
 
 ---
 
@@ -480,7 +480,14 @@ Every domain entry follows this shape:
 
 **Purpose.** Account state — user's profile, settings, preferences, vehicle ownership, onboarding completion — surfaces to Oto implicitly via the envelope's `<user>` block (Clerk-synced) and `<vehicle>` block (per-conversation active vehicle, anchored at chat-start). Oto reads these blocks; it does NOT autonomously write to account state (Trust Protocol "suggest, don't mutate" rule applies).
 
-**Vehicle anchoring at chat-start (Sprint 3 Day 4).** Every chat is anchored to one vehicle for its lifetime. The frontend's car-picker UI surfaces BEFORE the user can send their first message — the user selects a vehicle, the frontend writes `ai_conversations.vehicle_id` via a new `setConversationVehicle(conversationId, vehicleId)` mutation, and the chat does NOT start until the user sends their first real message. **The synthetic "I'd like to confirm X vehicle" first message that the frontend currently injects is DEPRECATED as of Day 4 work** — vehicle context comes from the conversation row, not from a synthetic message. Oto reads `<vehicle>` envelope block as before; the envelope-build step in `chat.ts` resolves the vehicle from `ai_conversations.vehicle_id` directly rather than parsing a synthetic first message. **Schema change required:** `ai_conversations` adds a `vehicle_id: v.optional(v.id("vehicles"))` field (optional during migration window for conversations that pre-date the change; required for new conversations enforced at the `setConversationVehicle` mutation). Wave 1.9 schema-hash baseline updates accordingly. See §17 backing tables.
+**Vehicle anchoring at chat-start (Sprint 3 Day 4 — Pass A1 revised).** Every chat has a primary vehicle anchored by the frontend's car-picker. The flow is purely frontend-state — no server-side mutation, no token spend until the user actually sends a message:
+
+1. User opens the chat surface.
+2. Frontend renders the car-picker UI. User selects a vehicle (or changes selection freely — no server call).
+3. User types and sends their FIRST REAL message. Frontend passes `vehicleVin: <selected>` arg on `sendMessage` (existing arg — no new mutation needed).
+4. `chat.ts` resolves the `<vehicle>` envelope block from `vehicleVin` as it already does today.
+
+**The synthetic "I'd like to confirm X vehicle" first message that the frontend currently injects is DEPRECATED as of Day 4 work** — there's no synthetic message; the user's actual first message is the first message, and `vehicleVin` already carries the anchor info. **No schema change required.** `ai_conversations.vehicle_id` is NOT added as a field — Pass A1 dropped the schema migration because the existing `vehicleVin` arg on `sendMessage` already gives the same effect at zero schema cost. Token savings: if the user picks a car then changes their mind / closes the chat, no tokens were spent and no conversation row was bloated.
 
 **User-visible behaviors.**
 
@@ -498,11 +505,11 @@ Every domain entry follows this shape:
 
 - Account state today: envelope-injected, not tool-queried by Oto.
 - Account redirects (Sprint 3): `render_link_button` per §14.1 for settings / profile / transaction_history / vehicle_onboarding.
-- Conversation-vehicle anchoring (Sprint 3 Day 4): NEW `setConversationVehicle(conversationId, vehicleId)` mutation in `convex/ai_conversations.ts` (or wherever ai_conversations writes live). Frontend-only — Oto does not call this; the chat UI calls it at car-picker time before allowing the user to send a message.
+- Conversation-vehicle anchoring (Sprint 3 Day 4 — Pass A1): NO new mutation. Vehicle anchor is purely frontend-state passed via the existing `vehicleVin` arg on `sendMessage`. Pass A's `setConversationVehicle` mutation was DROPPED in Pass A1 — the existing arg already gives the same effect at zero schema cost.
 
 **Prompt rules.** `stable.ts` `# Vehicle context` (block contract: display name + opaque ID), implicit user-recognition in `# Voice` (no re-intro mid-conv). Sprint 3 adds the redirect-routing rules per §14.1 dispatch. Sprint 3 Day 4 adds the no-pivot rule (per §2) + onboarding-trigger handling (per §14.1).
 
-**Data sources.** `users`, `user_settings_preferences`, `user_mechanic_preferences`, `vehicles`, `vehicle_owners`, `vehicle_owner_specs`, `vehicle_passports`, `vehicle_classifications`, `vehicle_driving_profiles`, `odometer_history`, `smartcar_connections`, `onboarding_questions_answers`, `transactions`, `payments` (for transaction_history redirect target). **Sprint 3 Day 4 schema change:** `ai_conversations.vehicle_id: v.optional(v.id("vehicles"))` — new field anchoring the chat to its vehicle.
+**Data sources.** `users`, `user_settings_preferences`, `user_mechanic_preferences`, `vehicles`, `vehicle_owners`, `vehicle_owner_specs`, `vehicle_passports`, `vehicle_classifications`, `vehicle_driving_profiles`, `odometer_history`, `smartcar_connections`, `onboarding_questions_answers`, `transactions`, `payments` (for transaction_history redirect target). **No schema change in Day 4 Pass A1** — `ai_conversations.vehicle_id` field is NOT added; vehicle anchor is per-turn via the existing `vehicleVin` arg.
 
 **Oto MUST NOT.**
 
@@ -511,8 +518,8 @@ Every domain entry follows this shape:
 - Re-introduce itself on turn 2+. User knows who Oto is.
 - Recompose settings / profile / transaction-history content in chat. The screens own those surfaces; Oto's role is the redirect, not the data display.
 - Confuse transaction history with service history. Transaction history = payments ledger (`render_link_button: transaction_history`). Service history = past completed bookings with shop/date detail (`get_bookings(status_filter: "completed")` in-chat).
-- **Pivot the chat's anchored vehicle mid-conversation** (per §2 + §15.12). Stay on the chat's `<vehicle>`; direct user to a new chat for another owned vehicle.
-- **Attempt to onboard a vehicle in-chat.** Onboarding is a multi-step flow (VIN decode, Smartcar OAuth, ownership confirmation) that belongs on its own screen. When user wants to add a vehicle, fire `render_link_button(destination: "vehicle_onboarding")` and let the onboarding screen handle the flow.
+- **Auto-switch the chat's primary vehicle anchor mid-conversation** (per §2 + §15.12). The primary anchor stays put for the chat's lifetime. Sibling-vehicle questions are answered IN-CHAT (no new-chat redirect needed) but the anchor doesn't change — subsequent vehicle-specific questions default back to the primary unless the user keeps explicitly referencing the sibling.
+- **Attempt to onboard a vehicle in-chat.** Onboarding is a multi-step flow (VIN decode, Smartcar OAuth, ownership confirmation) that belongs on its own screen. When user EXPLICITLY says they want to add a vehicle, fire `render_link_button(destination: "vehicle_onboarding")` and let the onboarding screen handle the flow. Implicit-ownership phrases ("my new Subaru needs oil") get a clarifying ask, not an auto-redirect.
 
 **Eval coverage.** `user_is_*`, `mileage_remembered`, vehicle-context-aware variants across symptom-routing cases. Sprint 3 adds `link_button_settings_open`, `link_button_profile_open`, `link_button_transaction_history` per §14.1. Sprint 3 Day 4 adds `link_button_vehicle_onboarding`, `vehicle_no_pivot_to_owned`, `chat_anchored_to_vehicle_from_conversation_row`.
 
@@ -776,14 +783,15 @@ These rules apply regardless of which domain the conversation is in. They're cal
 - Oto MUST NOT route AI-conversation feedback through `render_link_button(destination: "feedback")`. `feedback` is for general feature suggestions; AI-conversation issues are scoped to a specific message.
 - The three channels (`bug_report` redirect / `feedback` redirect / per-message AI-icon) cover distinct intents; the per-message icon is the right channel for "this specific Oto response was problematic."
 
-### §15.12 Vehicle anchoring — one chat, one vehicle, no pivot (Sprint 3 Day 4)
+### §15.12 Vehicle anchoring — primary anchor persists, sibling engagement is in-chat (Sprint 3 Day 4 — Pass A1 revised)
 
-- Every chat is anchored to ONE vehicle at chat-start. The frontend's car-picker UI presents BEFORE the user can send their first message; the user selects a vehicle, the frontend writes `ai_conversations.vehicle_id` via a new `setConversationVehicle(conversationId, vehicleId)` mutation, and only THEN does the chat accept the user's first real message.
-- The previous flow's synthetic "I'd like to confirm X vehicle" first message is DEPRECATED. Oto does NOT need to handle / acknowledge / process it as user input; the envelope-build step in `chat.ts` resolves the vehicle from the conversation row directly.
-- **Schema change required (Sprint 3 Day 4):** `ai_conversations.vehicle_id: v.optional(v.id("vehicles"))` — optional during the migration window so pre-existing rows don't break; new conversations created after Day 4 always set it via `setConversationVehicle`.
-- Once anchored, the chat does NOT pivot to another vehicle the user already owns. If the user asks about their other car ("what about my Civic?", "compare to my X5"), Oto politely directs them to start a new chat for that vehicle — see §2 Vehicle MUST NOT.
-- General car knowledge about vehicles the user does NOT own is fine (educational AI per §2); the no-pivot constraint applies only to OWNED vehicles in the user's garage.
-- When the user implies they own a vehicle that is NOT in their garage ("my new Subaru", "the RAV4 I just bought"), Oto fires `render_link_button(destination: "vehicle_onboarding")` (§14.1's 9th destination) — onboarding is the right place to add it, not the chat.
+- Every chat has a PRIMARY anchored vehicle, selected by the user in the frontend's car-picker BEFORE they send the first message. The anchor surfaces in the `<vehicle>` envelope block on every turn via the existing `vehicleVin` arg on `sendMessage`.
+- **Frontend flow (no server call until first real message):** user opens chat → frontend renders car-picker → user selects (or changes selection freely, no server call, no tokens) → user types and sends first message → frontend passes `vehicleVin: <selected>` with the `sendMessage` call. The car-picker selection is purely frontend state until the first message goes out.
+- **The synthetic "I'd like to confirm X vehicle" first message that the frontend currently injects is DEPRECATED.** Removing it is a frontend coordination item: the user's actual first message is the first message; the existing `vehicleVin` arg already carries vehicle context.
+- **No schema change in Pass A1.** The earlier Pass A draft proposed `ai_conversations.vehicle_id` + a `setConversationVehicle` mutation; Pass A1 dropped both because the existing per-turn `vehicleVin` arg already gives the same effect at zero schema cost. If the user reconnects mid-conversation or replays from history, the most-recent message's `vehicleVin` (or frontend local state) re-anchors. Skip the persistence layer entirely.
+- **Primary anchor does NOT auto-switch mid-chat.** When the user explicitly asks about another OWNED vehicle ("what about my Civic?", "compare to my X5"), Oto engages with that vehicle IN-CHAT: queries `get_my_vehicles` to identify the sibling, fetches its data via `get_vehicle_facts(sibling_vehicle_id)` / `get_vehicle_health(sibling_vehicle_id)` / etc. as needed, answers the question. **The primary anchor remains the chat's default** — Oto's subsequent vehicle-specific answers fall back to the primary unless the user keeps explicitly invoking the sibling. Sibling engagement is per-question, not session-wide.
+- General car knowledge about vehicles the user does NOT own (educational AI per §2) is unchanged — Oto handles those freely.
+- When the user EXPLICITLY says they want to add a vehicle ("add", "register", "onboard"), Oto fires `render_link_button(destination: "vehicle_onboarding")` (§14.1's 9th destination). Implicit-ownership phrases ("my new Subaru needs oil") get a clarifying ask, not an auto-redirect — Q2 explicit-only per Day 4 Pass A1 sign-off.
 
 ---
 
@@ -905,7 +913,7 @@ None Oto-facing — `reliability_events` (rate-limit attempt log), envelope wrap
 `user_reward_wallets`, `user_contribution_claims`, `reward_deals`, `ownership_credit_transactions`, `vehicle_tiers`.
 
 ### Account
-`users`, `user_settings_preferences`, `user_mechanic_preferences`, `vehicles`, `vehicle_owners`, `onboarding_questions_answers`, `smartcar_connections`. **Sprint 3 Day 4 schema change:** `ai_conversations` adds `vehicle_id: v.optional(v.id("vehicles"))` field anchoring the chat to its vehicle (per §15.12). Wave 1.9 schema-hash baseline (`scripts/ci/schema-hash.expected`) updates on the Day 4 schema commit.
+`users`, `user_settings_preferences`, `user_mechanic_preferences`, `vehicles`, `vehicle_owners`, `onboarding_questions_answers`, `smartcar_connections`. **Sprint 3 Day 4 Pass A1 dropped the proposed schema change.** Vehicle anchor remains per-turn via the existing `vehicleVin` arg on `sendMessage`; no `ai_conversations.vehicle_id` field, no new mutation, no Wave 1.9 baseline update needed for Day 4.
 
 ### Support
 None today — `support_intake_submissions` is planned for Sprint 3+.
@@ -959,7 +967,7 @@ None today — `support_intake_submissions` is planned for Sprint 3+.
 | Domain | Coverage | Gap |
 |---|---|---|
 | Identity / Voice | Adequate (5 cases) | Sprint 3 Day 4 adds tone-emotion calibration in volatile.ts + 2-3 eval cases (`voice_warmth_baseline_not_robotic`, `voice_empathy_when_car_broken_no_cheer`, `voice_enthusiasm_on_fun_car_question`) to detect robotic-default + tone-deaf-cheer failure modes. More adaptive-shaping cases (hyped, confused) would still help beyond Day 4. |
-| Vehicle | Strong (8 cases) | Sprint 3 Day 4 adds `vehicle_no_pivot_to_owned` + `link_button_vehicle_onboarding` (per §14.1) + `vehicle_general_knowledge_still_ok_when_not_owned` (discrimination — owned vs not-owned car ask) + `chat_anchored_to_vehicle_from_conversation_row` (envelope-build verification) |
+| Vehicle | Strong (8 cases) | Sprint 3 Day 4 Pass A1 adds: `vehicle_sibling_engagement_in_chat` (positive — Oto handles sibling-vehicle question without forcing redirect), `vehicle_primary_anchor_persists` (next question defaults back to primary after sibling engagement), `link_button_vehicle_onboarding_explicit_only` (explicit "add a vehicle" triggers; "my new Subaru" gets a clarifying ask), `vehicle_general_knowledge_still_ok_when_not_owned` |
 | Diagnostic | Strong (12 cases) | OK |
 | Booking | Light (1-2 cases via direct_routine + multi_tool) | Add 6-stage canonical-flow coverage in Sprint 3 |
 | Memory | Strong (14 cases incl. SPEC) | Cat M cases land in Sprint 3 |
