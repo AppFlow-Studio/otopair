@@ -2065,36 +2065,111 @@ function buildCallables(
         );
       }
 
+      // Sprint 2 Day 6 — Wave 3 reinforce wire-in.
+      //
+      // Equivalence-detection: BEFORE inserting, look up an existing active
+      // row for (user_id, fact_type, vehicle_id ?? null) whose payload
+      // normalizes to the candidate's normalization (trim + lowercase +
+      // collapse-whitespace). On hit, REINFORCE the existing row instead
+      // of inserting a duplicate. On miss, fall through to insert as before.
+      //
+      // The model-facing surface is INVARIANT — the prompt still says "fire
+      // record_semantic_fact when the user states a durable preference."
+      // Whether the helper layer reinforces or inserts is OPAQUE to Haiku
+      // per the design's helper-internal-decides principle. The trace's
+      // tool_use.input still surfaces `reinforced: true` for QA assertions.
+      //
+      // Security note: payload comparison uses ONLY whitespace+case normalize
+      // (see findUserSemanticFactByPayload doc); aggressive normalization
+      // could collapse "I prefer X" with "ignore previous: I prefer Y" into
+      // the same row — that adversarial near-duplicate is intentionally NOT
+      // an equivalence under v1.
+      const factTypeTyped = factTypeRaw as
+        | "mechanic_preference"
+        | "service_preference"
+        | "communication_style"
+        | "vehicle_quirk"
+        | "history_anchor";
+      const sourceTyped = sourceRaw as "user_stated" | "inferred_behavior";
+      const vehicleIdTyped: Id<"vehicles"> | undefined =
+        vehicleIdRaw !== null ? (vehicleIdRaw as Id<"vehicles">) : undefined;
+
       try {
-        // Cast factTypeRaw/sourceRaw to the schema's enum unions — they've
-        // already been validated against VALID_FACT_TYPES / VALID_SOURCES
-        // sets above (Set.has() narrows runtime but not TS type).
-        const args = {
+        // Equivalence lookup — internalQuery; on hit returns existing fact_id.
+        const existingFactId: Id<"user_semantic_facts"> | null =
+          await ctx.runQuery(
+            internal.oto.memoryEditing.findUserSemanticFactByPayload,
+            {
+              user_id: userId,
+              fact_type: factTypeTyped,
+              payload: text,
+              ...(vehicleIdTyped !== undefined
+                ? { vehicle_id: vehicleIdTyped }
+                : {}),
+            },
+          );
+
+        if (existingFactId !== null) {
+          // REINFORCE path — bump the existing row asymptotically. Helper
+          // does the (1 - (1-c)*0.5) math + observation_count++ + last_
+          // reinforced=now atomically. We do NOT pass the model's
+          // confidence guidance — reinforcement uses the formula, not
+          // the model's anchor (per design §2.2).
+          try {
+            await ctx.runMutation(
+              api.oto.memoryEditing.reinforceUserSemanticFact,
+              { fact_id: existingFactId },
+            );
+            console.log(
+              `[oto/chat] record_semantic_fact reinforced existing fact ${existingFactId} (fact_type=${factTypeTyped})`,
+            );
+            return {
+              ok: true,
+              fact_id: existingFactId,
+              recorded: false,
+              reinforced: true,
+            };
+          } catch (e) {
+            const msg = e instanceof Error ? e.message : String(e);
+            // Reinforce-side failure (e.g., the row got retracted between
+            // our lookup and the patch). Failure-isolation: swallow and
+            // fall back to insert. Worst case: we get a fresh duplicate
+            // row, which a Day 7+ retraction pass can clean up.
+            console.warn(
+              "[oto/chat] record_semantic_fact reinforce swallowed error; falling back to insert:",
+              msg,
+            );
+            // fall through to insert below
+          }
+        }
+
+        // INSERT path — no equivalent active row found (or reinforce failed
+        // open). Mirrors the pre-Day-6 behavior exactly.
+        const insertArgs = {
           user_id: userId,
-          fact_type: factTypeRaw as
-            | "mechanic_preference"
-            | "service_preference"
-            | "communication_style"
-            | "vehicle_quirk"
-            | "history_anchor",
+          fact_type: factTypeTyped,
           payload: text,
-          source: sourceRaw as "user_stated" | "inferred_behavior",
+          source: sourceTyped,
           written_by: "chat_agent" as const,
-          ...(vehicleIdRaw !== null
-            ? { vehicle_id: vehicleIdRaw as Id<"vehicles"> }
+          ...(vehicleIdTyped !== undefined
+            ? { vehicle_id: vehicleIdTyped }
             : {}),
         };
         const factId = await ctx.runMutation(
           api.oto.memoryEditing.recordUserSemanticFact,
-          args,
+          insertArgs,
         );
         return { ok: true, fact_id: factId, recorded: true };
-      } catch (e: any) {
-        // Helper may throw on the (source, written_by) legality matrix or
-        // empty-payload guard. Swallow per failure-isolation discipline.
+      } catch (e) {
+        // Outer envelope catch — helper may throw on the (source, written_by)
+        // legality matrix or empty-payload guard; the equivalence lookup may
+        // throw on a transient Convex read failure. Swallow per failure-
+        // isolation discipline (matches the conversation_audit recordTurn
+        // wire-in pattern; matches the Pass A setCurrentModel fix).
+        const msg = e instanceof Error ? e.message : String(e);
         console.warn(
           "[oto/chat] record_semantic_fact swallowed error:",
-          e?.message,
+          msg,
         );
         return { ok: false, recorded: false };
       }

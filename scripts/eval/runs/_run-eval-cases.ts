@@ -13,6 +13,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 
 interface ExpectBlock {
   tools_called?: string[];
+  tools_not_called?: string[];
   branch?: string;
   text_contains?: string[];
   text_not_contains?: string[];
@@ -141,6 +142,23 @@ function assertExpect(turn: Turn, idx: number, result: SendResult): { pass: bool
     const missing = e.tools_called.filter((t) => !fired.has(t));
     if (missing.length > 0) {
       reasons.push(`tools_called missing: ${missing.join(", ")} (fired: ${Array.from(fired).join(", ") || "(none)"})`);
+    }
+  }
+
+  // tools_not_called: NONE of the listed may appear in ANY iter (mirror of
+  // tools_called, with the same union across the three trace buckets).
+  // Rigorous negative-case assertion primitive — Day 5's negative semantic-fact
+  // cases lean on text_not_contains for terminology-leakage as a proxy for
+  // "tool didn't fire", which is brittle. This primitive checks the tool
+  // dispatch trace directly. Symmetric counterpart of the tools_called block.
+  if (e.tools_not_called && e.tools_not_called.length > 0) {
+    const fired = new Set<string>();
+    for (const iter of iters) {
+      for (const name of collectToolNames(iter)) fired.add(name);
+    }
+    const violations = e.tools_not_called.filter((t) => fired.has(t));
+    if (violations.length > 0) {
+      reasons.push(`tools_not_called fired (must NOT have): ${violations.join(", ")} (all fired: ${Array.from(fired).join(", ") || "(none)"})`);
     }
   }
 

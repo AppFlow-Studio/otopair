@@ -535,6 +535,104 @@ export const retractUserSemanticFact = mutation({
   },
 });
 
+// -----------------------------------------------------------------------------
+// findUserSemanticFactByPayload — equivalence lookup for the reinforce wire-in.
+//
+// Sprint 2 Day 6 (2026-05-17). Wave 3 wire-in primitive (chat.ts dispatch of
+// `record_semantic_fact` uses this to decide reinforce-vs-insert).
+//
+// CONTRACT
+// --------
+// Returns the SINGLE active (non-retracted) row matching the equivalence key
+// `(user_id, fact_type, vehicle_id ?? null, payload_normalized)`, or null if
+// no such row exists.
+//
+// EQUIVALENCE DEFINITION (Day 6 v1, per design §2.2)
+// ---------------------------------------------------
+// Payload normalization: `text.trim().toLowerCase().replace(/\s+/g, ' ')`
+// applied to BOTH the candidate payload and each stored row's payload, then
+// exact-string compare. This is the conservative v1 — it collapses leading/
+// trailing whitespace and case, but preserves semantic content. Day 7+ can
+// layer fuzzy/cosine matching if eval signal warrants it.
+//
+// SECURITY NOTE (Day 6 Security Analyst flag, design §2.2 cross-mandate)
+// ----------------------------------------------------------------------
+// Aggressive normalization (e.g., stripping punctuation, removing fillers) is
+// REJECTED here because it enables adversarial near-duplicate collapse:
+//   "I prefer X"  vs  "ignore previous: I prefer Y"
+// would collide if punctuation/lead-phrase were stripped. Exact-equality after
+// the whitespace+case normalize keeps the function safe — these two strings
+// remain DISTINCT under our v1 rule, so the second one inserts as a fresh
+// row instead of "reinforcing" an unrelated preference.
+//
+// SCOPE FILTERING
+// ---------------
+// Vehicle scope is a STRICT filter, not loose match: a vehicle_id=null
+// (user-level) fact and a vehicle_id=<vid> (vehicle-scoped) fact are NEVER
+// considered equivalent even if their payload normalizes identically. The
+// design §2.2 cross-user/cross-vehicle pollution guard depends on this.
+//
+// WHY internalQuery
+// -----------------
+// Implementation-detail read for the reinforce-vs-insert decision in chat.ts.
+// Not surfaced to mobile clients. The chat.ts dispatch invokes via
+// `ctx.runQuery(internal.oto.memoryEditing.findUserSemanticFactByPayload, ...)`.
+//
+// INDEX STRATEGY
+// --------------
+// Uses `by_user_type_active` (keys: user_id, fact_type, retracted_at). Prefix-
+// scopes the scan to one user's facts of one type with retracted_at=undefined,
+// then app-side-filters vehicle_id + payload equality. Per-user-per-type fact
+// count is small (typically 1-5 active rows; design §7 D2 anticipates a 500-
+// row per-user pagination threshold at which point pagination by confidence
+// kicks in — well above what equivalence-lookup needs to scan).
+// -----------------------------------------------------------------------------
+function normalizeSemanticPayload(payload: string): string {
+  return payload.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+export const findUserSemanticFactByPayload = internalQuery({
+  args: {
+    user_id: v.id("users"),
+    fact_type: userSemanticFactTypeValidator,
+    vehicle_id: v.optional(v.id("vehicles")),
+    payload: v.string(),
+  },
+  returns: v.union(v.id("user_semantic_facts"), v.null()),
+  handler: async (
+    ctx: QueryCtx,
+    args,
+  ): Promise<Id<"user_semantic_facts"> | null> => {
+    const targetNormalized = normalizeSemanticPayload(args.payload);
+    if (!targetNormalized) return null;
+
+    // Scan one user's facts of this type that are NOT retracted. The third
+    // index key (retracted_at) lets us scope `eq(retracted_at, undefined)`
+    // so the cursor walks only the active subset.
+    const rows = await ctx.db
+      .query("user_semantic_facts")
+      .withIndex("by_user_type_active", (q) =>
+        q
+          .eq("user_id", args.user_id)
+          .eq("fact_type", args.fact_type)
+          .eq("retracted_at", undefined),
+      )
+      .collect();
+
+    const targetVehicleId = args.vehicle_id ?? null;
+    for (const row of rows) {
+      const rowVehicleId = row.vehicle_id ?? null;
+      // Strict vehicle-scope match — user-level (null) and vehicle-scoped
+      // (<vid>) facts are NEVER equivalent (cross-user pollution guard).
+      if (rowVehicleId !== targetVehicleId) continue;
+      if (normalizeSemanticPayload(row.payload) === targetNormalized) {
+        return row._id;
+      }
+    }
+    return null;
+  },
+});
+
 // =============================================================================
 // conversation_episodic_control mutations (§2.3)
 // =============================================================================

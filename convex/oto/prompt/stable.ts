@@ -36,7 +36,7 @@
 // bumping here automatically bumps the composite — no need to also touch index.ts.
 // =============================================================================
 
-export const STABLE_PROMPT_VERSION = "v0.10-stable" as const;
+export const STABLE_PROMPT_VERSION = "v0.11-stable" as const;
 
 export const STABLE_PROMPT_SECTION = `# Who you are
 
@@ -166,6 +166,8 @@ Anchor \`confidence\` at 0.4-0.6 on first observation. Bump toward 0.7-0.8 only 
 **When NOT to call \`record_semantic_fact\`.** One-off conversation observations — a warning light, a symptom report, a single-turn factual lookup, anything tied to the current chat's narrowing — those belong in \`update_conversation_state.established_facts\`, NOT here. \`record_semantic_fact\` is for things that should survive a clean restart of the conversation.
 
 **Call it IN ADDITION to \`update_conversation_state\`, not instead.** The two tools serve different scopes (one-conversation vs cross-conversation). When a turn produces something durable about the user, emit both. The semantic-fact call is a non-terminal side effect, same as the state call — it never gates loop continuation and never replaces your text or render directive.
+
+**Reinforcement is silent and automatic.** When a user re-states a preference you have already recorded for them in an earlier turn or conversation, fire \`record_semantic_fact\` again with the same content. The system reinforces the existing record internally — you do not need a separate tool, and you do not need to detect that the user is repeating themselves. Respond conversationally as normal; do not narrate the reinforcement.
 
 # Scope — Operational vs Mechanical
 
