@@ -16,9 +16,14 @@
 # integrity (Day 2's action-context wire-through pattern) and direct-delete
 # protection on vehicle_facts / vehicle_facts_audit / fact_reports outside
 # the migrations/ teardown path.
+# Sprint 2 Wave 3 Day 3 update (2026-05-16): Rules 12-17 added — Wave 3
+# memory-keystone tables (conversation_audit forensic-spine append-only;
+# conversation_facts + user_semantic_facts helper-only mutation gates;
+# written_by enum integrity on inserts; conversation_episodic_control +
+# kb_topics admin-gated via consolidated memoryEditing.ts per D6 PM-lean).
 # Subagent consensus: Memory Engineer + Security Analyst + RAG Specialist.
 #
-# Eleven rules. Together they pin the v3 invariants at code-review time:
+# Seventeen rules. Together they pin the v3 invariants at code-review time:
 #   1. No direct ctx.db.patch against vehicle_facts outside the helper.
 #      Exception: convex/oto/vehicleFactsEditing.ts.
 #   2. No direct ctx.db.replace against vehicle_facts anywhere.
@@ -449,9 +454,160 @@ else
 fi
 echo ""
 
+# =============================================================================
+# Wave 3 memory-keystone CI rules (Sprint 2 / Wave 3 Day 3).
+# Defend the 5 new memory-layer tables landed in Day 1+2:
+#   conversation_facts, user_semantic_facts, conversation_episodic_control,
+#   conversation_audit, kb_topics.
+# Pattern mirrors Rules 1-3 + 6 + 7: forensic-spine append-only, helper-only
+# mutation paths, written_by enum integrity, single-helper consolidation per
+# D6 PM-lean (memoryEditing.ts is the canonical mutation surface).
+# =============================================================================
+
+WAVE3_HELPER="convex/oto/memoryEditing.ts"
+
+# Rule 12 -- conversation_audit is strictly append-only.
+# No patches, replaces, or deletes anywhere. The forensic spine; same
+# discipline as vehicle_facts_audit (Rules 2 + 3). If mutable, the safety
+# property D-3.2 (relocated here) collapses.
+echo "Rule 12: conversation_audit append-only (no patch/replace/delete anywhere)..."
+RULE_12_HITS=$(
+  rg -n 'ctx\.db\.(patch|replace|delete)\(' convex/ --type ts -B 2 -A 4 \
+  | rg '"conversation_audit"|<"conversation_audit">' \
+  || true
+)
+if [ -n "$RULE_12_HITS" ]; then
+  red "  FAIL -- patch/replace/delete on conversation_audit detected (forensic spine must remain append-only):"
+  echo "$RULE_12_HITS"
+  VIOLATIONS=$((VIOLATIONS + 1))
+else
+  green "  OK"
+fi
+echo ""
+
+# Rule 13 -- conversation_facts mutation gates.
+# Writes (patch/replace/delete) routed through memoryEditing.ts only.
+# migrations/ bypass for backfills.
+echo "Rule 13: conversation_facts mutations only via memoryEditing.ts..."
+RULE_13_HITS=$(
+  rg -n 'ctx\.db\.(patch|replace|delete)\(' convex/ --type ts -B 2 -A 4 \
+  | rg -B 2 -A 4 '"conversation_facts"|<"conversation_facts">' \
+  | rg '^convex/' \
+  | rg -v "^$WAVE3_HELPER" \
+  | rg -v "^convex/oto/migrations/" \
+  || true
+)
+if [ -n "$RULE_13_HITS" ]; then
+  red "  FAIL -- conversation_facts mutation outside $WAVE3_HELPER:"
+  echo "$RULE_13_HITS"
+  VIOLATIONS=$((VIOLATIONS + 1))
+else
+  green "  OK"
+fi
+echo ""
+
+# Rule 14 -- user_semantic_facts mutation gates.
+# Same pattern as Rule 13. memoryEditing.ts (append, reinforce, retract);
+# migrations bypass for backfills.
+echo "Rule 14: user_semantic_facts mutations only via memoryEditing.ts..."
+RULE_14_HITS=$(
+  rg -n 'ctx\.db\.(patch|replace|delete)\(' convex/ --type ts -B 2 -A 4 \
+  | rg -B 2 -A 4 '"user_semantic_facts"|<"user_semantic_facts">' \
+  | rg '^convex/' \
+  | rg -v "^$WAVE3_HELPER" \
+  | rg -v "^convex/oto/migrations/" \
+  || true
+)
+if [ -n "$RULE_14_HITS" ]; then
+  red "  FAIL -- user_semantic_facts mutation outside $WAVE3_HELPER:"
+  echo "$RULE_14_HITS"
+  VIOLATIONS=$((VIOLATIONS + 1))
+else
+  green "  OK"
+fi
+echo ""
+
+# Rule 15 -- written_by enum integrity on inserts.
+# Every ctx.db.insert into conversation_facts or user_semantic_facts must
+# pass a written_by value. Heuristic: scan the insert call + the following
+# 8 lines (covers multi-line object literals) for "written_by:". Per-call
+# EXEMPT: annotation pattern matches Rule 7.
+echo "Rule 15: written_by enum integrity (conversation_facts + user_semantic_facts inserts)..."
+RULE_15_HITS=$(
+  rg -n 'ctx\.db\.insert\("(conversation_facts|user_semantic_facts)"' convex/ --type ts \
+  || true
+)
+RULE_15_VIOLATIONS=""
+if [ -n "$RULE_15_HITS" ]; then
+  while IFS= read -r hit; do
+    [ -z "$hit" ] && continue
+    file="${hit%%:*}"
+    rest="${hit#*:}"
+    lineno="${rest%%:*}"
+    if sed -n "${lineno},$((lineno+8))p" "$file" 2>/dev/null | rg -q 'written_by[[:space:]]*:'; then
+      continue
+    fi
+    start=$(( lineno > 2 ? lineno - 2 : 1 ))
+    if sed -n "${start},${lineno}p" "$file" 2>/dev/null | rg -q 'EXEMPT:'; then
+      continue
+    fi
+    RULE_15_VIOLATIONS="${RULE_15_VIOLATIONS}${hit}
+"
+  done <<< "$RULE_15_HITS"
+fi
+if [ -n "$RULE_15_VIOLATIONS" ]; then
+  red "  FAIL -- insert into conversation_facts/user_semantic_facts without written_by attribution:"
+  printf "%s" "$RULE_15_VIOLATIONS"
+  VIOLATIONS=$((VIOLATIONS + 1))
+else
+  green "  OK"
+fi
+echo ""
+
+# Rule 16 -- conversation_episodic_control mutation gates (D6 PM-lean:
+# memoryEditing.ts is the unified helper; per-table helpers were NOT split).
+# Only patches allowed on this table; only from memoryEditing.ts; migrations
+# bypass for backfills.
+echo "Rule 16: conversation_episodic_control patches only via memoryEditing.ts..."
+RULE_16_HITS=$(
+  rg -n 'ctx\.db\.(patch|replace|delete)\(' convex/ --type ts -B 2 -A 4 \
+  | rg -B 2 -A 4 '"conversation_episodic_control"|<"conversation_episodic_control">' \
+  | rg '^convex/' \
+  | rg -v "^$WAVE3_HELPER" \
+  | rg -v "^convex/oto/migrations/" \
+  || true
+)
+if [ -n "$RULE_16_HITS" ]; then
+  red "  FAIL -- conversation_episodic_control mutation outside $WAVE3_HELPER:"
+  echo "$RULE_16_HITS"
+  VIOLATIONS=$((VIOLATIONS + 1))
+else
+  green "  OK"
+fi
+echo ""
+
+# Rule 17 -- kb_topics inserts admin-gated via memoryEditing.ts.
+# Catches "the reasoning loop tried to register a topic" silently. D6
+# PM-lean: single helper file (vs the design's kbTopicsEditing.ts split).
+echo "Rule 17: kb_topics inserts only via memoryEditing.ts..."
+RULE_17_HITS=$(
+  rg -n 'ctx\.db\.insert\("kb_topics"' convex/ --type ts \
+  | rg -v "^$WAVE3_HELPER" \
+  | rg -v "^convex/oto/migrations/" \
+  || true
+)
+if [ -n "$RULE_17_HITS" ]; then
+  red "  FAIL -- kb_topics insert outside $WAVE3_HELPER (admin-gated path):"
+  echo "$RULE_17_HITS"
+  VIOLATIONS=$((VIOLATIONS + 1))
+else
+  green "  OK"
+fi
+echo ""
+
 # Summary
 if [ $VIOLATIONS -eq 0 ]; then
-  green "All vehicle-facts invariant checks passed (11/11 rules clean)."
+  green "All vehicle-facts invariant checks passed (17/17 rules clean)."
   exit 0
 else
   red "$VIOLATIONS rule violation(s)."
@@ -470,6 +626,17 @@ else
   yellow "For Rule 11: deletes on vehicle_facts / vehicle_facts_audit / fact_reports"
   yellow "  belong in convex/oto/migrations/ teardown helpers (e.g."
   yellow "  cleanupEvalVerifiedFact). For new admin tooling, annotate EXEMPT."
+  yellow "For Rule 12: conversation_audit is the forensic spine. No patches,"
+  yellow "  replaces, or deletes anywhere. If you need to change a row, you"
+  yellow "  need a new schema decision — escalate before bypassing."
+  yellow "For Rules 13/14/16/17: Wave 3 mutations go through memoryEditing.ts."
+  yellow "  Use recordConversationFact, recordSelectionFact, retractConversationFact,"
+  yellow "  recordUserSemanticFact, reinforceUserSemanticFact, retractUserSemanticFact,"
+  yellow "  commitEpisodic, commitControl, recordTurn, registerKbTopic, deprecateKbTopic."
+  yellow "  migrations/ bypass is for FK-ordered backfills only."
+  yellow "For Rule 15: every insert into conversation_facts / user_semantic_facts"
+  yellow "  must pass a written_by value. The schema validator catches missing"
+  yellow "  values at runtime; this rule catches them at code-review time."
   yellow "If you genuinely need a new mutation pattern, update the helper, the schema,"
   yellow "  MEMORY_SCHEMA_V3_CONSOLIDATED, and this script."
   exit 1
