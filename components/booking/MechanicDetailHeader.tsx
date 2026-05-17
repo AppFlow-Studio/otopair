@@ -64,8 +64,9 @@ export function MechanicDetailHeader({ shop, onBack }: MechanicDetailHeaderProps
       longitude: shop.longitude ?? 0,
       latitudeDelta: MAP_DELTA,
       longitudeDelta: MAP_DELTA,
-    };
-  }, [hasValidCoordinates, shop.latitude, shop.longitude]);
+    }),
+    [hasCoords, shop.latitude, shop.longitude],
+  );
 
   return (
     <View style={[styles.container, { height: HEADER_CONTENT_HEIGHT + insets.top }]}>
