@@ -310,14 +310,15 @@ export const sendMessage = action({
     // on which fields are set. All are loose v.any() since their shapes
     // evolve with the render-tool inventory.
     quickReplies: v.optional(v.array(v.any())),
-    showDiagnosticForm: v.optional(v.any()),
     showRecordConfirmation: v.optional(v.any()),
-    showServicePicker: v.optional(v.boolean()),
-    pickerServices: v.optional(v.any()),
-    pickerPreSelectedId: v.optional(v.string()),
-    shopCarousel: v.optional(v.any()),
-    timeSelector: v.optional(v.any()),
-    bookingConfirmation: v.optional(v.any()),
+    // Sprint 4 Day 1 Pass B — single terminal booking render. Replaces the
+    // legacy 7 booking-flow fields (showServicePicker / pickerServices /
+    // pickerPreSelectedId / showDiagnosticForm / shopCarousel / timeSelector /
+    // bookingConfirmation), all removed Sprint 4 Day 1 Pass G. Dispatcher
+    // produces this via renderD("bookService", ...). Mobile BookServiceComponent
+    // drives every sub-stage internally (service select → options → notes →
+    // mechanic → time → review → pay).
+    bookService: v.optional(v.any()),
     reasoning: v.optional(v.any()),
     sources: v.optional(v.any()),
     // Trace blob — only populated when `debug: true`. Loose v.any() since
@@ -341,14 +342,19 @@ export const sendMessage = action({
 type SendMessageResult = {
   text: string;
   quickReplies?: unknown[];
-  showDiagnosticForm?: { initialSystem?: string; initialNotes?: string };
   showRecordConfirmation?: { vehicle_id: string; maintenance_type: string };
-  showServicePicker?: boolean;
-  pickerServices?: unknown;
-  pickerPreSelectedId?: string;
-  shopCarousel?: unknown;
-  timeSelector?: unknown;
-  bookingConfirmation?: unknown;
+  bookService?: {
+    service_slugs: string[];
+    diagnostic_system?:
+      | "brakes"
+      | "tires_wheels"
+      | "engine"
+      | "battery_electrical"
+      | "not_sure";
+    customer_notes?: string;
+    recommended_priority?: "closest" | "best_rated" | "best_price";
+    recommended_mechanic_id?: string;
+  };
   reasoning?: unknown;
   sources?: unknown;
   trace?: unknown;
@@ -1243,14 +1249,6 @@ async function sendMessageHandlerCore(
   const quickReplies = Array.isArray(renderEnvelope.quickReplies)
     ? (renderEnvelope.quickReplies as unknown[])
     : undefined;
-  const showDiagnosticForm =
-    renderEnvelope.showDiagnosticForm &&
-    typeof renderEnvelope.showDiagnosticForm === "object"
-      ? (renderEnvelope.showDiagnosticForm as {
-          initialSystem?: string;
-          initialNotes?: string;
-        })
-      : undefined;
   const showRecordConfirmation =
     renderEnvelope.showRecordConfirmation &&
     typeof renderEnvelope.showRecordConfirmation === "object"
@@ -1261,18 +1259,13 @@ async function sendMessageHandlerCore(
       : undefined;
 
   // Empty text is fine when ANY render directive carries the turn (quick
-  // replies, diagnostic form, record confirmation, service picker, shop
-  // carousel, time selector, booking confirmation, reasoning, sources). Only
+  // replies, record confirmation, book service, reasoning, sources). Only
   // fall back when text AND every render directive are empty — that's a real
   // "nothing to say" failure.
   const hasAnyRender =
     !!quickReplies ||
-    !!showDiagnosticForm ||
     !!showRecordConfirmation ||
-    renderEnvelope.showServicePicker === true ||
-    renderEnvelope.shopCarousel !== undefined ||
-    renderEnvelope.timeSelector !== undefined ||
-    renderEnvelope.bookingConfirmation !== undefined ||
+    renderEnvelope.bookService !== undefined ||
     renderEnvelope.reasoning !== undefined ||
     renderEnvelope.sources !== undefined;
   if (!finalText && !hasAnyRender) {
@@ -1534,7 +1527,7 @@ async function sendMessageHandlerCore(
     trace.iterations_used = iterations;
     trace.final_text = finalText;
     trace.quick_replies = quickReplies ?? null;
-    trace.show_diagnostic_form = showDiagnosticForm ?? null;
+    trace.book_service = renderEnvelope.bookService ?? null;
     trace.persisted = !skipPersist;
     trace.usage_total = {
       input_tokens: aggInputTokens,
@@ -1545,17 +1538,17 @@ async function sendMessageHandlerCore(
   }
 
   // Polite-exit counter (Locked Principle #6) — server-managed.
-  // - Reset to 0 when this turn rendered the diagnostic form (Haiku
-  //   converged or hit the polite-exit threshold last turn).
+  // - Reset to 0 when this turn rendered a booking (any render_book_service
+  //   fire — diagnostic-scan or direct-service — resolves the narrowing).
   // - Increment if Haiku's just-written last_user_intent starts with
   //   "symptom_narrowing" (we're still narrowing this turn).
   // - Leave alone otherwise.
   // Skip on harness debug runs.
   if (!skipPersist) {
     try {
-      const renderedForm = !!showDiagnosticForm;
+      const renderedBooking = renderEnvelope.bookService !== undefined;
       let nextCount: number | null = null;
-      if (renderedForm) {
+      if (renderedBooking) {
         nextCount = 0;
       } else {
         // Re-read the conversation to see what Haiku just wrote via state tool.
@@ -1606,32 +1599,21 @@ async function sendMessageHandlerCore(
   // Pull through every render directive the merger produced. The mobile
   // app and the harness key off whichever fields are non-null to decide
   // which UI element to render.
-  const showServicePicker =
-    typeof renderEnvelope.showServicePicker === "boolean"
-      ? (renderEnvelope.showServicePicker as boolean)
+  // Sprint 4 Day 1 Pass B — the single terminal booking render replaced
+  // the legacy 7-field booking-flow surface (Pass G removed the residual
+  // pull-through). render_book_service is now the only booking-flow render.
+  const bookService =
+    renderEnvelope.bookService !== undefined
+      ? (renderEnvelope.bookService as SendMessageResult["bookService"])
       : undefined;
-  const pickerServices = renderEnvelope.pickerServices;
-  const pickerPreSelectedId =
-    typeof renderEnvelope.pickerPreSelectedId === "string"
-      ? (renderEnvelope.pickerPreSelectedId as string)
-      : undefined;
-  const shopCarousel = renderEnvelope.shopCarousel;
-  const timeSelector = renderEnvelope.timeSelector;
-  const bookingConfirmation = renderEnvelope.bookingConfirmation;
   const reasoning = renderEnvelope.reasoning;
   const sources = renderEnvelope.sources;
 
   return {
     text: finalText,
     ...(quickReplies ? { quickReplies } : {}),
-    ...(showDiagnosticForm ? { showDiagnosticForm } : {}),
     ...(showRecordConfirmation ? { showRecordConfirmation } : {}),
-    ...(showServicePicker !== undefined ? { showServicePicker } : {}),
-    ...(pickerServices !== undefined ? { pickerServices } : {}),
-    ...(pickerPreSelectedId !== undefined ? { pickerPreSelectedId } : {}),
-    ...(shopCarousel !== undefined ? { shopCarousel } : {}),
-    ...(timeSelector !== undefined ? { timeSelector } : {}),
-    ...(bookingConfirmation !== undefined ? { bookingConfirmation } : {}),
+    ...(bookService !== undefined ? { bookService } : {}),
     ...(reasoning !== undefined ? { reasoning } : {}),
     ...(sources !== undefined ? { sources } : {}),
     ...(trace ? { trace } : {}),
