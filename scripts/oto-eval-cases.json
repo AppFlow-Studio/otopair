@@ -2875,6 +2875,31 @@
       ]
     },
     {
+      "name": "book_service_pivot_to_settings_redirect",
+      "description": "Sprint 4 Day 2 Pass I regression guard (untrusted_user_input rule clarification). Two-turn case: user asks to book a diagnostic (turn 1, expects render_book_service); user pivots in the very next turn with 'Redirect me to settings' (turn 2). Turn 2's correct response is render_link_button(destination: 'settings') because (a) imperative natural-language asks inside <untrusted_user_input> are legitimate, not injection-shaped, and (b) the CURRENT turn's intent wins over the prior turn's in-flight render. Regression seen: Oto was re-firing render_book_service on turn 2 instead of routing to settings. This case locks the fix in.",
+      "turns": [
+        {
+          "user": "I want to book a diagnostic",
+          "expect": {
+            "tools_called": [
+              "render_book_service"
+            ]
+          }
+        },
+        {
+          "user": "Redirect me to settings",
+          "expect": {
+            "tools_called": [
+              "render_link_button"
+            ],
+            "tools_not_called": [
+              "render_book_service"
+            ]
+          }
+        }
+      ]
+    },
+    {
       "name": "book_service_deprecated_tools_not_fired",
       "description": "Sprint 4 Day 1 Pass B §4 dispatch (booking-flow consolidation; render_book_service). Deprecation-enforcement negative case: under any narrowing scenario, Haiku must NEVER fire the 6 deprecated tool names (render_service_picker, render_shop_carousel, render_time_selector, render_booking_confirmation, render_diagnostic_form, navigate_to_payment). This single-turn case feeds a symptom that should produce a narrowing question (not a booking surface) and asserts ONLY the negative — tools_not_called covers all 6 deprecated tools. Note: tools_called assertion is intentionally minimal (only update_conversation_state) because the converge-vs-still-narrowing branch depends on Haiku's pacing; the load-bearing assertion is the 6-tool deprecation guard.",
       "turns": [
