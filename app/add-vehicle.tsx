@@ -114,6 +114,14 @@ export default function AddVehicleScreen() {
   };
 
   const keyboardOffsetMultiplier = getKeyboardOffsetMultiplier();
+
+  // Pre-compute scaled values here on the JS thread — scale() is not a worklet
+  // function and cannot be called inside useAnimatedStyle callbacks.
+  const doorTranslateX = scale(15);
+  const windshieldTranslateX = scale(-10);
+  const bottomPadding = scale(20);
+  const bottomPaddingWithInset = insets.bottom + scale(20);
+
   const artworkTranslateY = useDerivedValue(() =>
     interpolate(
       keyboardProgress.value,
@@ -130,7 +138,7 @@ export default function AddVehicleScreen() {
   const doorConnectorStyle = useAnimatedStyle(() => ({
     transform: [
       { rotate: '1deg' },
-      { translateX: scale(15) },
+      { translateX: doorTranslateX },
       { translateY: artworkTranslateY.value },
     ],
   }));
@@ -138,7 +146,7 @@ export default function AddVehicleScreen() {
   const windshieldConnectorStyle = useAnimatedStyle(() => ({
     transform: [
       { rotate: '1deg' },
-      { translateX: scale(-10) },
+      { translateX: windshieldTranslateX },
       { translateY: artworkTranslateY.value },
     ],
   }));
@@ -156,7 +164,7 @@ export default function AddVehicleScreen() {
     paddingBottom: interpolate(
       keyboardProgress.value,
       [0, 1],
-      [insets.bottom + scale(20), scale(20)],
+      [bottomPaddingWithInset, bottomPadding],
       Extrapolation.CLAMP
     ),
   }));

@@ -99,6 +99,8 @@ interface OnboardingFlowProps {
 
 // Steps that show in the progress bar (excludes signup/login screens and complete)
 const PROGRESS_STEPS: OnboardingStep[] = [
+    'emailSignup',
+    'emailVerify',
     'phone',
     'confirm',
     'name',

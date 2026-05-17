@@ -11,31 +11,36 @@
  * TICKET: OTO-XXX
  */
 
+import { useEffect, useRef } from "react";
 import { View, ActivityIndicator, StyleSheet } from "react-native";
-import { Redirect } from "expo-router";
+import { router } from "expo-router";
 import { useAuth } from "@clerk/clerk-expo";
 import { BrandColors } from "@/constants/theme";
 
 export default function Index() {
   const { isSignedIn, isLoaded } = useAuth();
+  // Fire the redirect exactly once per mount. Without this guard, index.tsx remains
+  // in the background stack (due to the (main-tabs) anchor) and would re-fire a
+  // redirect to home every time isSignedIn changes — causing a flash during the
+  // phone-verification step of OAuth onboarding.
+  const hasNavigated = useRef(false);
 
-  // Wait for Clerk to load (includes token-cache hydration)
-  if (!isLoaded) {
-    return (
-      <View style={styles.loading}>
-        <ActivityIndicator size="large" color={BrandColors.white} />
-      </View>
-    );
-  }
+  useEffect(() => {
+    if (!isLoaded || hasNavigated.current) return;
+    hasNavigated.current = true;
 
-  // Not signed in → go to onboarding (starts at signup)
-  if (!isSignedIn) {
-    return <Redirect href="/(onboarding)" />;
-  }
+    if (isSignedIn) {
+      router.replace("/(main-tabs)/home");
+    } else {
+      router.replace("/(onboarding)");
+    }
+  }, [isLoaded, isSignedIn]);
 
-  // Signed in → go straight to home. No Convex wait, no onboarding redirect = no signup flash.
-  // Home/FinishAccountSetupCard handles incomplete onboarding via in-app flow.
-  return <Redirect href="/(main-tabs)/home" />;
+  return (
+    <View style={styles.loading}>
+      <ActivityIndicator size="large" color={BrandColors.white} />
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({

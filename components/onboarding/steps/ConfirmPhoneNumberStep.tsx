@@ -44,8 +44,6 @@ import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import { useUser, useSignUp } from "@clerk/clerk-expo";
 import { useOnboardingPersistence } from "@/hooks/useOnboardingPersistence";
 import { useEnsureConvexUser } from "@/hooks/useEnsureConvexUser";
-import { useAuthStore } from "@/stores/useAuthStore";
-import { router } from "expo-router";
 import { X } from "lucide-react-native";
 
 interface ConfirmPhoneNumberStepProps {
@@ -54,23 +52,10 @@ interface ConfirmPhoneNumberStepProps {
   progress: { total: number; filled: number };
 }
 
-const POST_CONFIRM_ONBOARDING_STEPS = [
-  "name",
-  "emailConfirm",
-  "profilePhoto",
-  "userIntent",
-  "heardAbout",
-  "visitReason",
-  "zipCode",
-  "pushNotifications",
-  "locationServices",
-] as const;
-
 export function ConfirmPhoneNumberStep({ onNext, onBack, progress }: ConfirmPhoneNumberStepProps) {
   const insets = useSafeAreaInsets();
   const { height, width } = useWindowDimensions();
   const { data, updateData } = useOnboardingStore();
-  const isNewUser = useAuthStore((state) => state.isNewUser);
   const { user } = useUser();
   const { signUp, setActive } = useSignUp();
   const { persistProfileField } = useOnboardingPersistence();
@@ -167,16 +152,6 @@ export function ConfirmPhoneNumberStep({ onNext, onBack, progress }: ConfirmPhon
           { phone: phoneToSave || undefined, phoneVerified: true },
           { skipSignedInCheck: true }
         );
-        if (isNewUser) {
-          router.replace({
-            pathname: "/(onboarding)",
-            params: {
-              initialStep: "name",
-              filteredSteps: JSON.stringify(POST_CONFIRM_ONBOARDING_STEPS),
-            },
-          });
-          return;
-        }
         onNext();
       } else if (user) {
         // OAuth flow: verify via user object
@@ -207,16 +182,6 @@ export function ConfirmPhoneNumberStep({ onNext, onBack, progress }: ConfirmPhon
           { phone: phoneToSave || undefined, phoneVerified: true },
           { skipSignedInCheck: true }
         );
-        if (isNewUser) {
-          router.replace({
-            pathname: "/(onboarding)",
-            params: {
-              initialStep: "name",
-              filteredSteps: JSON.stringify(POST_CONFIRM_ONBOARDING_STEPS),
-            },
-          });
-          return;
-        }
         onNext();
       } else {
         setErrorMessage("Verification wasn't started. Go back and confirm your number to receive a code.");
