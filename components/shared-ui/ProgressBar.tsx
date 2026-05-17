@@ -30,22 +30,25 @@ interface ProgressBarProps {
     leftElement?: ReactNode;
     filledColor?: string;
     unfilledColor?: string;
+    reserveLeftSpace?: boolean;
 }
 
 const DEFAULT_UNFILLED_COLOR = '#0F1E3A';
 
-export function ProgressBar({ 
-    total, 
-    filled, 
+export function ProgressBar({
+    total,
+    filled,
     leftElement,
     filledColor = BrandColors.white,
     unfilledColor = DEFAULT_UNFILLED_COLOR,
+    reserveLeftSpace = false,
 }: ProgressBarProps) {
     const segments = Array.from({ length: total });
+    const showLeftSlot = !!leftElement || reserveLeftSpace;
 
     return (
         <View style={styles.container}>
-            {leftElement && <View style={styles.leftElement}>{leftElement}</View>}
+            {showLeftSlot && <View style={styles.leftElement}>{leftElement}</View>}
             <View style={styles.progressContainer}>
                 {segments.map((_, idx) => {
                     const isFilled = idx < filled;
@@ -74,6 +77,9 @@ const styles = StyleSheet.create({
     },
     leftElement: {
         marginRight: Spacing.md,
+        minWidth: 42,
+        height: 38,
+        justifyContent: 'center',
     },
     progressContainer: {
         flexDirection: 'row',

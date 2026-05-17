@@ -30,9 +30,9 @@ import {
 } from "@/components/shared-ui";
 import { ProgressBar } from "@/components/shared-ui/ProgressBar";
 import { FooterButton } from "@/components/shared-ui/FooterButton";
-import { BackButton } from "@/components/shared-ui/BackButton";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
+  BackHandler,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
@@ -59,6 +59,11 @@ export function NameStep({ onNext, onBack, progress }: NameStepProps) {
 
   const [firstName, setFirstName] = useState(data.firstName || "");
   const [lastName, setLastName] = useState(data.lastName || "");
+
+  useEffect(() => {
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => true);
+    return () => sub.remove();
+  }, []);
 
   const dynamicStyles = {
     container: { paddingTop: insets.top + Spacing.lg },
@@ -95,7 +100,7 @@ export function NameStep({ onNext, onBack, progress }: NameStepProps) {
         <ProgressBar
           total={progress.total}
           filled={progress.filled}
-          leftElement={<BackButton onBack={onBack} alwaysShow />}
+          reserveLeftSpace
         />
 
         <ScrollView

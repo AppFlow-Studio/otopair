@@ -26,9 +26,9 @@
 import { BrandColors, FontFamily, FontSize, Spacing, Text } from "@/components/shared-ui";
 import { ProgressBar } from "@/components/shared-ui/ProgressBar";
 import { FooterButton } from "@/components/shared-ui/FooterButton";
-import { BackButton } from "@/components/shared-ui/BackButton";
 import { useState, useEffect, useMemo, useRef } from "react";
 import {
+  BackHandler,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -77,6 +77,12 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
   const slideAnim = useRef(new Animated.Value(height)).current;
   const panY = useRef(new Animated.Value(0)).current;
   const currentSlidePosition = useRef(height);
+
+  // Block Android hardware back — user cannot go back after email verification
+  useEffect(() => {
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => true);
+    return () => sub.remove();
+  }, []);
 
   // Track the actual position of slideAnim
   useEffect(() => {
@@ -401,7 +407,7 @@ export function PhoneNumberStep({ onNext, onBack, progress }: PhoneNumberStepPro
         <ProgressBar
           total={progress.total}
           filled={progress.filled}
-          leftElement={<BackButton onBack={onBack} alwaysShow />}
+          reserveLeftSpace
         />
 
         <ScrollView
