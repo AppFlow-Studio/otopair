@@ -46,6 +46,7 @@ export function ProfileInitialsButton() {
     );
   const open = useSettingsOverlayStore((s) => s.open);
   const isOpen = useSettingsOverlayStore((s) => s.isOpen);
+  const isMounted = useSettingsOverlayStore((s) => s.isMounted);
 
   const initials = useMemo(
     () =>
@@ -109,8 +110,8 @@ export function ProfileInitialsButton() {
     <View
       ref={viewRef}
       collapsable={false}
-      pointerEvents={isOpen ? "none" : "auto"}
-      style={[styles.measureWrap, isOpen && styles.hiddenWrap]}
+      pointerEvents={isMounted ? "none" : "auto"}
+      style={[styles.measureWrap, isMounted && styles.hiddenWrap]}
       onLayout={updateMeasuredRect}
     >
       <Pressable

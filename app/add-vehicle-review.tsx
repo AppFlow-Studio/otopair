@@ -22,7 +22,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 // 2. Expo & Third-party
 import { StatusBar } from 'expo-status-bar';
 import { useLocalSearchParams, useRouter } from 'expo-router';
-import { ArrowLeft, Car, Link2, Plus } from 'lucide-react-native';
+import { ArrowLeft, Bell, Car, History, MapPin, Plus, Wrench } from 'lucide-react-native';
 import { useAction, useQuery } from 'convex/react';
 
 // 3. App imports
@@ -126,11 +126,31 @@ export default function AddVehicleReviewScreen() {
   const displayError = error;
   const isLoading = isConfirming;
 
+  // Soft-tint the vehicle-icon circle to match the picked paint
+  // color so the color picker feels connected to the card. White
+  // (and the no-selection case) falls back to the default light
+  // blue — appending alpha to #FFFFFF would be invisible.
+  const selectedSwatch = CAR_COLORS.find((c) => c.id === selectedColor);
+  const carCircleBg =
+    selectedSwatch && selectedColor !== 'white'
+      ? `${selectedSwatch.hex}33` // ~20% alpha
+      : '#EEF4FF';
+
+  // Feature preview shown below the color picker so the page has
+  // substance instead of empty space after Smartcar's "Connect your
+  // car" section was removed.
+  const FEATURES = [
+    { icon: Wrench, label: 'Track maintenance & service intervals' },
+    { icon: History, label: 'Log every service in one place' },
+    { icon: Bell, label: 'Get reminders before things go wrong' },
+    { icon: MapPin, label: 'Book trusted local mechanics' },
+  ] as const;
+
   return (
     <View style={styles.container}>
       <StatusBar style="dark" translucent />
 
-      {/* Back Button */}
+      {/* Back Button — stays an overlay so the scroll view extends edge to edge */}
       <Pressable
         onPress={handleBack}
         style={({ pressed }) => [
@@ -143,99 +163,121 @@ export default function AddVehicleReviewScreen() {
         <ArrowLeft size={scale(24)} color="#000000" strokeWidth={2} />
       </Pressable>
 
-      {/* Title */}
-      <View style={[styles.titleContainer, { top: insets.top + scale(60) }]}>
-        <Text weight="bold" size="2xl" color="#333333" style={styles.title}>
-          VEHICLE DETECTED
-        </Text>
-        <Text size="sm" color="#666666" style={styles.subtitle}>
-          We found your vehicle from the VIN
-        </Text>
-      </View>
-
-      {/* Vehicle Card */}
-      <View style={styles.vehicleCard}>
-        <View style={styles.vehicleIconContainer}>
-          <Car size={scale(32)} color="#5299FE" strokeWidth={1.5} />
-        </View>
-        <Text weight="bold" size="xl" color="#333333" style={styles.vehicleYear}>
-          {params.year}
-        </Text>
-        <Text weight="semiBold" size="lg" color="#333333" style={styles.vehicleName}>
-          {params.make} {params.model}
-        </Text>
-        <Text size="sm" color="#888888" style={styles.vehicleTrim}>
-          {params.trim || 'Base'} {params.displacement ? `${params.displacement}L` : ''} {params.fuelType}
-        </Text>
-        <View style={styles.vinBadge}>
-          <Text weight="medium" size="xs" color="#FFFFFF" style={styles.vinText}>
-            {params.vin}
+      <ScrollView
+        contentContainerStyle={[
+          styles.scrollContent,
+          { paddingTop: insets.top + scale(36), paddingBottom: insets.bottom + scale(20) },
+        ]}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Title */}
+        <View style={styles.titleContainer}>
+          <Text weight="bold" size="2xl" color="#333333" style={styles.title}>
+            VEHICLE DETECTED
+          </Text>
+          <Text size="sm" color="#666666" style={styles.subtitle}>
+            We found your vehicle from the VIN
           </Text>
         </View>
-      </View>
 
-      {/* Color Picker */}
-      <View style={styles.colorSection}>
-        <Text weight="semiBold" size="sm" color="#333333" style={styles.colorLabel}>
-          What color is your {params.make}?
-        </Text>
-        <ScrollView
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.colorRow}
-        >
-          {CAR_COLORS.map((c) => (
-            <Pressable
-              key={c.id}
-              onPress={() => setSelectedColor(c.id)}
-              style={[
-                styles.colorSwatch,
-                { backgroundColor: c.hex },
-                c.id === 'white' && styles.colorSwatchWhite,
-                selectedColor === c.id && styles.colorSwatchSelected,
-              ]}
-            />
-          ))}
-        </ScrollView>
-        {selectedColor ? (
+        {/* Vehicle Card */}
+        <View style={styles.vehicleCard}>
+          <View style={[styles.vehicleIconContainer, { backgroundColor: carCircleBg }]}>
+            <Car size={scale(32)} color="#5299FE" strokeWidth={1.5} />
+          </View>
+          <Text weight="bold" size="xl" color="#333333" style={styles.vehicleYear}>
+            {params.year}
+          </Text>
+          <Text weight="semiBold" size="lg" color="#333333" style={styles.vehicleName}>
+            {params.make} {params.model}
+          </Text>
+          <Text size="sm" color="#888888" style={styles.vehicleTrim}>
+            {params.trim || 'Base'} {params.displacement ? `${params.displacement}L` : ''} {params.fuelType}
+          </Text>
+          <View style={styles.vinBadge}>
+            <Text weight="medium" size="xs" color="#FFFFFF" style={styles.vinText}>
+              {params.vin}
+            </Text>
+          </View>
+        </View>
+
+        {/* Color Picker */}
+        <View style={styles.colorSection}>
+          <Text weight="semiBold" size="sm" color="#333333" style={styles.colorLabel}>
+            What color is your {params.make}?
+          </Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.colorRow}
+          >
+            {CAR_COLORS.map((c) => (
+              <Pressable
+                key={c.id}
+                onPress={() => setSelectedColor(c.id)}
+                style={[
+                  styles.colorSwatch,
+                  { backgroundColor: c.hex },
+                  c.id === 'white' && styles.colorSwatchWhite,
+                  selectedColor === c.id && styles.colorSwatchSelected,
+                ]}
+              />
+            ))}
+          </ScrollView>
+          {/* Always rendered with a non-breaking-space fallback so the
+              layout below doesn't shift when a color is picked. */}
           <Text size="xs" color="#888888" style={styles.colorName}>
-            {CAR_COLORS.find((c) => c.id === selectedColor)?.label}
-          </Text>
-        ) : null}
-      </View>
-
-      {/* Error */}
-      {displayError ? (
-        <View style={styles.errorContainer}>
-          <Text size="sm" color="#FF4444" style={styles.errorText}>
-            {displayError}
+            {selectedSwatch?.label ?? ' '}
           </Text>
         </View>
-      ) : null}
 
-      {/* Bottom Buttons */}
-      <View style={[styles.bottomContainer, { paddingBottom: insets.bottom + scale(20) }]}>
-        <Pressable
-          onPress={handleAddVehicle}
-          disabled={isLoading}
-          style={({ pressed }) => [
-            styles.addButton,
-            pressed && styles.buttonPressed,
-            isLoading && styles.buttonDisabled,
-          ]}
-        >
-          {isConfirming ? (
-            <ActivityIndicator size="small" color="#5299FE" />
-          ) : (
-            <>
-              <Plus size={scale(20)} color="#5299FE" strokeWidth={2} />
-              <Text weight="bold" size="md" color="#5299FE">
-                Add Vehicle
+        {/* Feature preview */}
+        <View style={styles.featureList}>
+          {FEATURES.map(({ icon: Icon, label }) => (
+            <View key={label} style={styles.featureRow}>
+              <View style={styles.featureIcon}>
+                <Icon size={scale(18)} color="#5299FE" strokeWidth={2} />
+              </View>
+              <Text size="sm" color="#3D4654" style={styles.featureLabel}>
+                {label}
               </Text>
-            </>
-          )}
-        </Pressable>
-      </View>
+            </View>
+          ))}
+        </View>
+
+        {/* Error */}
+        {displayError ? (
+          <View style={styles.errorContainer}>
+            <Text size="sm" color="#FF4444" style={styles.errorText}>
+              {displayError}
+            </Text>
+          </View>
+        ) : null}
+
+        {/* Add Vehicle — flows below feature list, pushed to bottom by flexGrow */}
+        <View style={styles.bottomContainer}>
+          <Pressable
+            onPress={handleAddVehicle}
+            disabled={isLoading}
+            style={({ pressed }) => [
+              styles.addButton,
+              pressed && styles.buttonPressed,
+              isLoading && styles.buttonDisabled,
+            ]}
+          >
+            {isConfirming ? (
+              <ActivityIndicator size="small" color="#5299FE" />
+            ) : (
+              <>
+                <Plus size={scale(20)} color="#5299FE" strokeWidth={2} />
+                <Text weight="bold" size="md" color="#5299FE">
+                  Add Vehicle
+                </Text>
+              </>
+            )}
+          </Pressable>
+        </View>
+      </ScrollView>
     </View>
   );
 }
@@ -248,6 +290,9 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#f8f8f8',
+  },
+  scrollContent: {
+    flexGrow: 1,
   },
   backButton: {
     position: 'absolute',
@@ -262,11 +307,8 @@ const styles = StyleSheet.create({
     opacity: 0.7,
   },
   titleContainer: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
     paddingHorizontal: Spacing.lg,
-    zIndex: 10,
+    marginBottom: scale(20),
   },
   title: {
     textAlign: 'center',
@@ -277,7 +319,6 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   vehicleCard: {
-    marginTop: verticalScale(200),
     marginHorizontal: Spacing.lg,
     backgroundColor: '#FFFFFF',
     borderRadius: moderateScale(20),
@@ -369,11 +410,30 @@ const styles = StyleSheet.create({
   errorText: {
     textAlign: 'center',
   },
+  featureList: {
+    marginTop: scale(24),
+    marginHorizontal: Spacing.lg,
+    gap: scale(14),
+  },
+  featureRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: scale(12),
+  },
+  featureIcon: {
+    width: scale(32),
+    height: scale(32),
+    borderRadius: scale(16),
+    backgroundColor: '#EEF4FF',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  featureLabel: {
+    flex: 1,
+  },
   bottomContainer: {
-    position: 'absolute',
-    bottom: 0,
-    left: 0,
-    right: 0,
+    marginTop: 'auto',
+    paddingTop: scale(24),
     paddingHorizontal: Spacing.lg,
     gap: scale(12),
   },

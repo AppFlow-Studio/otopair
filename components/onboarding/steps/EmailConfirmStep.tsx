@@ -98,7 +98,7 @@ export function EmailConfirmStep({ onNext, onBack, progress }: EmailConfirmStepP
 
                 <View style={styles.content}>
                     <View style={styles.iconContainer}>
-                        <Mail size={64} color={BrandColors.white} strokeWidth={1.5} />
+                        <Mail size={64} color={BrandColors.secondary} strokeWidth={1.5} />
                     </View>
 
                     <View style={styles.headerContent}>
@@ -175,11 +175,11 @@ const styles = StyleSheet.create({
         width: 120,
         height: 120,
         borderRadius: 60,
-        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+        backgroundColor: '#FFFFFF',
         alignItems: 'center',
         justifyContent: 'center',
         borderWidth: 2,
-        borderColor: 'rgba(255, 255, 255, 0.2)',
+        borderColor: '#E2E8F0',
     },
     headerContent: {
         alignItems: 'center',
@@ -188,38 +188,38 @@ const styles = StyleSheet.create({
     title: {
         fontSize: FontSize['4xl'],
         fontFamily: FontFamily.bold,
-        color: BrandColors.white,
+        color: '#0F172A',
         textAlign: 'center',
         lineHeight: Spacing['5xl'],
     },
     emailDisplay: {
-        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+        backgroundColor: '#FFFFFF',
         borderRadius: 12,
         paddingHorizontal: Spacing.xl,
         paddingVertical: Spacing.lg,
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.2)',
+        borderColor: '#E2E8F0',
         width: '100%',
     },
     emailText: {
         fontSize: FontSize.lg,
         fontFamily: FontFamily.medium,
-        color: BrandColors.white,
+        color: '#0F172A',
         textAlign: 'center',
     },
     editContainer: {
         width: '100%',
     },
     input: {
-        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+        backgroundColor: '#FFFFFF',
         borderRadius: 12,
         paddingHorizontal: Spacing.md,
         paddingVertical: Spacing.md,
         fontSize: FontSize.lg,
         fontFamily: FontFamily.regular,
-        color: BrandColors.white,
+        color: '#0F172A',
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.2)',
+        borderColor: '#E2E8F0',
     },
     actionsContainer: {
         width: '100%',

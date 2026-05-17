@@ -595,10 +595,10 @@ export default function HomeScreen() {
                 {/* Gold Tier Badge - Clickable */}
                 <Pressable
                   onPress={() => {
-                    setShowLoyaltyCard(true);
                     if (hasUnseenCredits && userId) {
                       void markCreditsSeen({ userId });
                     }
+                    router.push("/membership");
                   }}
                   style={({ pressed }) => [styles.goldTierBadge, pressed && styles.goldTierBadgePressed]}
                 >
@@ -697,7 +697,7 @@ export default function HomeScreen() {
                   resumeServicesPreview={resumeServicesPreview}
                   resumeVehicleName={resumeVehicleName}
                   resumeVehicleImage={resumeVehicleImage}
-                  onResumePress={() => router.push('/home/map?openServices=true')}
+                  onResumePress={() => router.push('/home/map')}
                   // Account Setup
                   showAccountSetup={showAccountSetup}
                   onAccountSetupDismiss={() => setAccountSetupDismissed(true)}
@@ -737,13 +737,13 @@ export default function HomeScreen() {
               </View>}
 
               {/* Vehicle Maintenance - with dynamic margin based on active card */}
-              <View style={{ marginTop: visibleCardIds.length > 0 ? getCardMargin(activeCardIndex) : 0 }}>
+              <View style={{ marginTop: (visibleCardIds.length > 0 ? getCardMargin(activeCardIndex) : 0) + 24 }}>
                 {hasVehicles ? (
                   <VehicleMaintenanceCard
                     vehicles={mappedVehicles.length > 0 ? mappedVehicles : undefined}
                     onBookNow={(vehicleId, serviceId) => {
                       useVehicleStore.getState().selectVehicle(vehicleId);
-                      router.push('/home/map?openServices=true');
+                      router.push('/home/map');
                     }}
                     onSwipeStart={() => setIsCardSwiping(true)}
                     onSwipeEnd={() => setIsCardSwiping(false)}
@@ -764,8 +764,10 @@ export default function HomeScreen() {
             </View>
           </Animated.ScrollView>
 
-          {/* Loyalty Card Overlay */}
-          {showLoyaltyCard && (
+          {/* Loyalty Card Overlay — commented out; the trophy icon now
+              navigates straight to /membership instead of opening this
+              popover. Restore the block to bring the inline preview back. */}
+          {/* {showLoyaltyCard && (
             <LoyaltyCard
               totalPoints={1240}
               currentTier="Gold Member"
@@ -779,7 +781,7 @@ export default function HomeScreen() {
                 router.push("/membership");
               }}
             />
-          )}
+          )} */}
 
           <BottomSheetModal
             ref={sheetRef}

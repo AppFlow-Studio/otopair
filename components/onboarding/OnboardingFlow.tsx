@@ -77,6 +77,12 @@ export type OnboardingStep =
     | 'locationServices'
     | 'complete';
 
+// Light palette: white at the top, gentle mid-blue, blue-300 at the
+// saturated end. Airy and clearly branded without overwhelming the
+// content. Bottom stop is matched by FadeFooterContainer so the
+// fade above the CTA blends invisibly.
+const LIGHT_PALETTE: [string, string, string] = ['#7BB8FF', '#BFDBFE', '#FFFFFF'];
+
 // Step indices mapping to SHARED_GRADIENT_CONFIGS
 const STEP_INDICES: Record<OnboardingStep, number> = {
     welcome: 0,
@@ -561,6 +567,7 @@ export function OnboardingFlow({
           progress={animationProgress}
           fromIndex={STEP_INDICES[fromStep]}
           toIndex={STEP_INDICES[toStep]}
+          colors={LIGHT_PALETTE}
         />
       </View>
 

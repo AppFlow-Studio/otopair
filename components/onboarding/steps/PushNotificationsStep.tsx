@@ -186,7 +186,7 @@ export function PushNotificationsStep({ onNext, onBack, progress }: PushNotifica
                     {/* Bell Icon */}
                     <View style={styles.iconContainer}>
                         <View style={styles.iconWrapper}>
-                            <Bell size={80} color={BrandColors.white} strokeWidth={1.5} />
+                            <Bell size={80} color={BrandColors.secondary} strokeWidth={1.5} />
                         </View>
                     </View>
 
@@ -252,11 +252,11 @@ const styles = StyleSheet.create({
         width: 120,
         height: 120,
         borderRadius: 60,
-        backgroundColor: 'rgba(255, 255, 255, 0.1)',
+        backgroundColor: '#FFFFFF',
         alignItems: 'center',
         justifyContent: 'center',
         borderWidth: 1,
-        borderColor: 'rgba(255, 255, 255, 0.2)',
+        borderColor: '#E2E8F0',
     },
     headerContent: {
         alignItems: 'center',
@@ -265,7 +265,7 @@ const styles = StyleSheet.create({
     title: {
         fontSize: FontSize['3xl'],
         fontFamily: FontFamily.bold,
-        color: BrandColors.white,
+        color: '#0F172A',
         textAlign: 'center',
         letterSpacing: 1,
         lineHeight: Spacing['3xl'],
@@ -274,7 +274,7 @@ const styles = StyleSheet.create({
     subtitle: {
         fontSize: FontSize.md,
         fontFamily: FontFamily.regular,
-        color: BrandColors.white,
+        color: '#0F172A',
         textAlign: 'center',
         opacity: 0.9,
         lineHeight: Spacing['2xl'],

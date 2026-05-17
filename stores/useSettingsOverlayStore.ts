@@ -25,6 +25,9 @@ export interface SettingsOverlayRect {
 
 interface SettingsOverlayState {
   isOpen: boolean;
+  /** True from open() until the close animation fully unmounts. */
+  isMounted: boolean;
+  /** Kept for the Android/iOS <= 25 host, which owns local mount state. */
   isTransitionVisible: boolean;
   fromRect: SettingsOverlayRect | null;
   open: (rect: SettingsOverlayRect) => void;
@@ -34,9 +37,17 @@ interface SettingsOverlayState {
 
 export const useSettingsOverlayStore = create<SettingsOverlayState>((set) => ({
   isOpen: false,
+  isMounted: false,
   isTransitionVisible: false,
   fromRect: null,
-  open: (rect) => set({ isOpen: true, isTransitionVisible: true, fromRect: rect }),
+  open: (rect) =>
+    set({
+      isOpen: true,
+      isMounted: true,
+      isTransitionVisible: true,
+      fromRect: rect,
+    }),
   close: () => set({ isOpen: false }),
-  finishClose: () => set({ isTransitionVisible: false, fromRect: null }),
+  finishClose: () =>
+    set({ isMounted: false, isTransitionVisible: false, fromRect: null }),
 }));

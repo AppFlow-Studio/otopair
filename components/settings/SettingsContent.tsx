@@ -649,12 +649,17 @@ export function SettingsContent({
             <SettingsRow
               icon={<Code size={18} color="#FFFFFF" />}
               label="[Dev] Run Onboarding Flow"
-              onPress={() => router.push("/(onboarding)" as any)}
+              onPress={() =>
+                router.push({
+                  pathname: "/(onboarding)",
+                  params: { initialStep: "welcome" },
+                } as any)
+              }
             />
             <SettingsRow
               icon={<Code size={18} color="#FFFFFF" />}
               label="[Dev] Run About You Flow"
-              onPress={() => router.push("/(tell-us-about)" as any)}
+              onPress={() => router.push("/(tell-us-about)/flow" as any)}
               isLast
             />
           </SettingsCard>

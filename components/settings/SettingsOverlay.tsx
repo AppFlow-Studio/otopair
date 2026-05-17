@@ -1,20 +1,9 @@
 /**
  * SettingsOverlay
  *
- * PURPOSE: Shared-element open animation that lifts the Settings page
- *          on top of Home. The Home initials button measures itself
- *          and writes its screen rect to `useSettingsOverlayStore`;
- *          this component animates a card from that rect to fullscreen,
- *          fades a blur backdrop in over Home, and slides a floating
- *          avatar from the button position to the natural Settings
- *          avatar slot.
- *
- *          Visually identical to the Settings tab once open — the
- *          settings render tree is reused via <SettingsContent />.
- *
- * USED IN: app/(main-tabs)/home/index.tsx (mounted once)
- *
- * OWNER: Ahmad Hamoudeh
+ * PURPOSE: iOS 26 shared-element open animation that lifts the Settings
+ *          page on top of Home. Android and iOS <= 25 use
+ *          SettingsContainerTransformOverlay instead.
  */
 
 import React, { useEffect, useMemo, useState } from "react";
@@ -22,7 +11,6 @@ import {
   Dimensions,
   Image,
   Modal,
-  Platform,
   Pressable,
   StyleSheet,
   View,
@@ -52,34 +40,24 @@ import {
 import { computeInitials } from "@/utils/userInitials";
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get("window");
-const IS_ANDROID = Platform.OS === "android";
 
-// Settings avatar's natural target size (matches SettingsContent's
-// avatar block: 72×72 circular). The animation interpolates the
-// floating avatar's size FROM the button's size TO this value.
 const AVATAR_TARGET_SIZE = 72;
 
-const SPRING_CONFIG = { damping: 22, stiffness: 145, mass: 1.05 } as const;
-const ANDROID_SPRING_CONFIG = {
-  damping: 27,
-  stiffness: 230,
-  mass: 0.85,
-  overshootClamping: true,
-} as const;
-
-const SETTINGS_GRADIENT_TOP = "#1A2C4E";
-const SETTINGS_GRADIENT_BOTTOM = "#0B1120";
+// Settle ~520ms with no overshoot so the card visibly expands from the button.
+const SPRING_CONFIG = { damping: 26, stiffness: 110, mass: 1.05 } as const;
 
 export function SettingsOverlay() {
   const insets = useSafeAreaInsets();
-  const isOpen = useSettingsOverlayStore((s) => s.isOpen);
-  const isTransitionVisible = useSettingsOverlayStore((s) => s.isTransitionVisible);
-  const fromRect = useSettingsOverlayStore((s) => s.fromRect);
+  const { isOpen, isMounted, fromRect } = useSettingsOverlayStore(
+    useShallow((s) => ({
+      isOpen: s.isOpen,
+      isMounted: s.isMounted,
+      fromRect: s.fromRect,
+    })),
+  );
   const closeStore = useSettingsOverlayStore((s) => s.close);
   const finishClose = useSettingsOverlayStore((s) => s.finishClose);
 
-  // Identity for the floating avatar — sourced exactly like the home
-  // button + Settings avatar so the three never disagree.
   const me = useQuery(api.users.getMe);
   const { firstName, lastName, storedPhoto } = useOnboardingStore(
     useShallow((s) => ({
@@ -88,6 +66,7 @@ export function SettingsOverlay() {
       storedPhoto: s.data.profilePhotoUri,
     })),
   );
+
   const initials = useMemo(
     () =>
       computeInitials({
@@ -96,102 +75,58 @@ export function SettingsOverlay() {
       }),
     [me?.first_name, me?.last_name, firstName, lastName],
   );
-  // Trust `profile_photo_url` only when `profile_photo_storage_id` is
-  // set; otherwise it's Clerk's default OAuth gradient that got synced
-  // at signup. Matches the chain in ProfileInitialsButton +
-  // SettingsContent so all three avatars agree.
+
   const photoUri = useMemo(() => {
-    if (me?.profile_photo_storage_id && me?.profile_photo_url)
+    if (me?.profile_photo_storage_id && me?.profile_photo_url) {
       return me.profile_photo_url;
+    }
     if (storedPhoto) return storedPhoto;
     return null;
   }, [me?.profile_photo_storage_id, me?.profile_photo_url, storedPhoto]);
 
-  // `mounted` keeps the Modal in the tree across the closing spring so
-  // the animation can play out before unmount. We flip it to true on
-  // open and back to false from the close-spring's completion callback.
-  const [mounted, setMounted] = useState(false);
-
-  // `settled` is true only when the open spring has fully landed at
-  // progress=1. While settled, we hand off the avatar from the floating
-  // animated copy (sibling of the ScrollView, can't scroll) to the
-  // natural copy inside SettingsContent (scrolls with content). Reset
-  // to false the moment a close starts so the floating copy can take
-  // over for the close animation.
   const [settled, setSettled] = useState(false);
-
-  // The most recent rect we opened from. Captured into a state value so
-  // the closing animation can keep reading it after the store cleared.
-  const [activeRect, setActiveRect] = useState<SettingsOverlayRect | null>(null);
-
   const progress = useSharedValue(0);
 
-  // Drive the open/close springs in response to store changes.
   useEffect(() => {
     if (isOpen && fromRect) {
-      setActiveRect(fromRect);
-      setMounted(true);
       setSettled(false);
       progress.value = 0;
-      if (IS_ANDROID) {
-        progress.value = withSpring(1, ANDROID_SPRING_CONFIG, (finished) => {
+
+      const frame = requestAnimationFrame(() => {
+        progress.value = withSpring(1, SPRING_CONFIG, (finished) => {
           if (finished) {
             runOnJS(setSettled)(true);
           }
         });
-      } else {
-        // Defer the spring until after the Modal has actually mounted
-        // so the first frame renders at progress=0 (card at button rect).
-        requestAnimationFrame(() => {
-          progress.value = withSpring(1, SPRING_CONFIG, (finished) => {
-            if (finished) {
-              runOnJS(setSettled)(true);
-            }
-          });
-        });
-      }
-    } else if (isTransitionVisible && mounted) {
-      // Re-instate the floating avatar before reversing the spring so
-      // the user sees the avatar shrink back into the home button.
-      setSettled(false);
-      progress.value = withSpring(
-        0,
-        IS_ANDROID ? ANDROID_SPRING_CONFIG : SPRING_CONFIG,
-        (finished) => {
-          if (finished) {
-            runOnJS(setMounted)(false);
-            runOnJS(finishClose)();
-          }
-        },
-      );
+      });
+
+      return () => cancelAnimationFrame(frame);
     }
-    // mounted intentionally not in deps — we only react to store changes.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [finishClose, fromRect, isOpen, isTransitionVisible]);
+
+    if (isMounted) {
+      setSettled(false);
+      progress.value = withSpring(0, SPRING_CONFIG, (finished) => {
+        if (finished) {
+          runOnJS(finishClose)();
+        }
+      });
+    }
+  }, [finishClose, fromRect, isMounted, isOpen, progress]);
 
   const handleClose = () => {
     closeStore();
   };
 
-  const rect = activeRect ?? { x: 0, y: 0, width: 56, height: 56 };
+  const rect: SettingsOverlayRect = fromRect ?? {
+    x: 0,
+    y: 0,
+    width: 40,
+    height: 40,
+  };
 
-  // ── Animated styles ────────────────────────────────────────────────
-
-  // Card grows from the button rect to fullscreen. `overflow: hidden`
-  // clips the SettingsContent inside while it's still small.
   const cardStyle = useAnimatedStyle(() => {
-    const top = interpolate(
-      progress.value,
-      [0, 1],
-      [rect.y, 0],
-      Extrapolation.CLAMP,
-    );
-    const left = interpolate(
-      progress.value,
-      [0, 1],
-      [rect.x, 0],
-      Extrapolation.CLAMP,
-    );
+    const top = interpolate(progress.value, [0, 1], [rect.y, 0], Extrapolation.CLAMP);
+    const left = interpolate(progress.value, [0, 1], [rect.x, 0], Extrapolation.CLAMP);
     const width = interpolate(
       progress.value,
       [0, 1],
@@ -211,23 +146,6 @@ export function SettingsOverlay() {
       Extrapolation.CLAMP,
     );
 
-    if (IS_ANDROID) {
-      return {
-        top: 0,
-        left: 0,
-        width: SCREEN_W,
-        height: SCREEN_H,
-        borderRadius,
-        transformOrigin: "top left",
-        transform: [
-          { translateX: left },
-          { translateY: top },
-          { scaleX: width / SCREEN_W },
-          { scaleY: height / SCREEN_H },
-        ],
-      };
-    }
-
     return {
       top,
       left,
@@ -237,24 +155,10 @@ export function SettingsOverlay() {
     };
   });
 
-  // Backdrop blur fades in as the card grows.
   const backdropStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(
-      progress.value,
-      [0, 0.5],
-      [0, 1],
-      Extrapolation.CLAMP,
-    ),
+    opacity: interpolate(progress.value, [0, 0.5], [0, 1], Extrapolation.CLAMP),
   }));
 
-  // Floating avatar is absolutely positioned inside the card. At
-  // progress=0 it fills the card (so visually replaces the home
-  // button); at progress=1 it lands EXACTLY where the natural avatar
-  // sits inside SettingsContent — `insets.top + 32` (ScrollView
-  // paddingTop) + `8` (identity block marginTop) = `insets.top + 40`.
-  // Matching this lets us hand off cleanly from the floating copy
-  // (sibling of the ScrollView) to the natural copy (inside, scrolls
-  // with content) once the open animation settles.
   const NATURAL_AVATAR_TOP = insets.top + 40;
   const avatarStyle = useAnimatedStyle(() => {
     const cardW = interpolate(
@@ -276,6 +180,7 @@ export function SettingsOverlay() {
       [0, NATURAL_AVATAR_TOP],
       Extrapolation.CLAMP,
     );
+
     return {
       width: size,
       height: size,
@@ -285,18 +190,8 @@ export function SettingsOverlay() {
     };
   });
 
-  // Initials font size scales smoothly from the home button (14px,
-  // matches `size="sm"` in ProfileInitialsButton) to the settled
-  // Settings avatar (24px, matches `size="2xl"` in SettingsContent).
-  // Without this, the text would snap from sm→2xl at the spring's end
-  // and again at close time.
   const initialsTextStyle = useAnimatedStyle(() => ({
-    fontSize: interpolate(
-      progress.value,
-      [0, 1],
-      [14, 24],
-      Extrapolation.CLAMP,
-    ),
+    fontSize: interpolate(progress.value, [0, 1], [14, 24], Extrapolation.CLAMP),
     lineHeight: interpolate(
       progress.value,
       [0, 1],
@@ -305,115 +200,59 @@ export function SettingsOverlay() {
     ),
   }));
 
-  // SettingsContent body fades in once the card has enough room.
-  const bodyStyle = useAnimatedStyle(() => {
-    const inputRange = IS_ANDROID ? [0.12, 0.55] : [0.4, 0.9];
-    return {
-      opacity: interpolate(
-        progress.value,
-        inputRange,
-        [0, 1],
-        Extrapolation.CLAMP,
-      ),
-    };
-  });
-
-  const androidAvatarStyle = useAnimatedStyle(() => {
-    const size = interpolate(
-      progress.value,
-      [0, 1],
-      [rect.width, AVATAR_TARGET_SIZE],
-      Extrapolation.CLAMP,
-    );
-    return {
-      width: size,
-      height: size,
-      borderRadius: size / 2,
-      left: interpolate(
-        progress.value,
-        [0, 1],
-        [rect.x, (SCREEN_W - AVATAR_TARGET_SIZE) / 2],
-        Extrapolation.CLAMP,
-      ),
-      top: interpolate(
-        progress.value,
-        [0, 1],
-        [rect.y, NATURAL_AVATAR_TOP],
-        Extrapolation.CLAMP,
-      ),
-    };
-  });
-
-  // X close button is the last thing to appear.
-  const closeStyle = useAnimatedStyle(() => ({
-    opacity: interpolate(
-      progress.value,
-      [0.7, 1],
-      [0, 1],
-      Extrapolation.CLAMP,
-    ),
+  const bodyStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(progress.value, [0.65, 1], [0, 1], Extrapolation.CLAMP),
   }));
 
-  const overlayContent = (
-    <>
-      {/* Backdrop blur over Home */}
+  const closeStyle = useAnimatedStyle(() => ({
+    opacity: interpolate(progress.value, [0.85, 1], [0, 1], Extrapolation.CLAMP),
+  }));
+
+  if (!isMounted || !fromRect) return null;
+
+  return (
+    <Modal
+      transparent
+      visible={isMounted}
+      animationType="none"
+      presentationStyle="overFullScreen"
+      statusBarTranslucent
+      onRequestClose={handleClose}
+    >
       <Animated.View
         style={[StyleSheet.absoluteFill, backdropStyle]}
         pointerEvents="none"
       >
-        {IS_ANDROID ? (
-          <View style={styles.androidBackdrop} />
-        ) : (
-          <BlurView
-            intensity={40}
-            tint="default"
-            style={StyleSheet.absoluteFill}
-          />
-        )}
+        <BlurView
+          intensity={40}
+          tint="default"
+          style={StyleSheet.absoluteFill}
+        />
       </Animated.View>
 
-      {/* The growing card. overflow:hidden clips Settings content while
-          the card is still smaller than the screen. The card itself is
-          transparent — a BlurView of the home page sits inside, with a
-          subtle navy tint on top so text remains readable. */}
-      <Animated.View style={[styles.card, cardStyle]}>
-        {/* Frosted backdrop — blurs the home page visible through the
-            card's transparent fill. */}
-        {IS_ANDROID ? (
-          <>
-            <LinearGradient
-              colors={[SETTINGS_GRADIENT_TOP, SETTINGS_GRADIENT_BOTTOM]}
-              start={{ x: 0.5, y: 0 }}
-              end={{ x: 0.5, y: 1 }}
-              style={StyleSheet.absoluteFill}
-            />
-            <View style={styles.androidCardTint} />
-          </>
-        ) : (
-          <>
-            <BlurView
-              intensity={60}
-              tint="default"
-              style={StyleSheet.absoluteFill}
-            />
-            {/* Subtle navy tint to keep the white row text legible against
-                the blurred home content. */}
-            <View style={styles.cardTint} />
-          </>
-        )}
+      <Animated.View
+        style={[
+          styles.card,
+          {
+            top: rect.y,
+            left: rect.x,
+            width: rect.width,
+            height: rect.height,
+            borderRadius: rect.width / 2,
+          },
+          cardStyle,
+        ]}
+      >
+        <BlurView
+          intensity={60}
+          tint="default"
+          style={StyleSheet.absoluteFill}
+        />
+        <View style={styles.cardTint} />
 
-        {/* Settings render tree. While the spring is animating we
-            render a blank placeholder in the avatar slot so the
-            floating animated avatar can occupy that screen position
-            without visually doubling. Once `settled` flips true (open
-            spring finished), we drop the override so the natural
-            avatar takes over — and that copy scrolls with the
-            content. The `translucent` flag drops Settings' gradient
-            so the blur above shows through. */}
         <Animated.View style={[StyleSheet.absoluteFill, bodyStyle]}>
           <SettingsContent
-            translucent={!IS_ANDROID}
-            deferBlurHeader={IS_ANDROID && !settled}
+            translucent
             avatarOverride={
               settled ? undefined : (
                 <View
@@ -427,12 +266,7 @@ export function SettingsOverlay() {
           />
         </Animated.View>
 
-        {/* Floating avatar — animates from button rect to Settings slot.
-            Hidden once `settled` because the natural copy inside
-            SettingsContent is now in charge (and scrolls correctly).
-            Mirrors the home button's image-or-initials choice so the
-            shared element is visually identical at progress=0. */}
-        {!IS_ANDROID && !settled ? (
+        {!settled ? (
           <Animated.View
             style={[styles.floatingAvatar, avatarStyle]}
             pointerEvents="none"
@@ -457,7 +291,6 @@ export function SettingsOverlay() {
           </Animated.View>
         ) : null}
 
-        {/* X close — top-left, fades in last */}
         <Animated.View
           style={[
             styles.closeWrap,
@@ -477,53 +310,6 @@ export function SettingsOverlay() {
           </Pressable>
         </Animated.View>
       </Animated.View>
-
-      {IS_ANDROID && !settled ? (
-        <Animated.View
-          style={[styles.floatingAvatar, androidAvatarStyle]}
-          pointerEvents="none"
-        >
-          {photoUri ? (
-            <Image
-              source={{ uri: photoUri }}
-              style={StyleSheet.absoluteFill}
-            />
-          ) : (
-            <LinearGradient
-              colors={["#5299FE", "#C5DAFF"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={[StyleSheet.absoluteFill, styles.floatingAvatarFill]}
-            >
-              <Animated.Text style={[styles.initialsText, initialsTextStyle]}>
-                {initials}
-              </Animated.Text>
-            </LinearGradient>
-          )}
-        </Animated.View>
-      ) : null}
-    </>
-  );
-
-  if (!mounted) return null;
-
-  if (IS_ANDROID) {
-    return (
-      <View style={styles.androidOverlayRoot}>
-        {overlayContent}
-      </View>
-    );
-  }
-
-  return (
-    <Modal
-      transparent
-      visible={mounted}
-      animationType="none"
-      statusBarTranslucent
-      onRequestClose={handleClose}
-    >
-      {overlayContent}
     </Modal>
   );
 }
@@ -537,19 +323,6 @@ const styles = StyleSheet.create({
   cardTint: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: "rgba(11,17,32,0.25)",
-  },
-  androidOverlayRoot: {
-    ...StyleSheet.absoluteFillObject,
-    zIndex: 1000,
-    elevation: 1000,
-  },
-  androidBackdrop: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(3,7,18,0.24)",
-  },
-  androidCardTint: {
-    ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(11,17,32,0.08)",
   },
   floatingAvatar: {
     position: "absolute",

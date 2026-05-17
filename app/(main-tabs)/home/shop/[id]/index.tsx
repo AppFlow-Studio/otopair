@@ -36,10 +36,10 @@ import { ShopReviewsSection } from "@/components/booking/ShopReviewsSection";
 import { AddServicesModal, ShopBookingModal } from "@/components/booking/modals";
 import { ShopDetails } from "@/components/booking/ShopDetails";
 import { ShopPortfolioSection } from "@/components/booking/ShopPortfolioSection";
-import { ShopStaffSection } from "@/components/booking/ShopStaffSection";
+import { ShopMechanicsSection } from "@/components/booking/ShopMechanicsSection";
+import { ShopHeroCard } from "@/components/shop/ShopHeroCard";
 
 // 5. Constants, hooks, types, stores
-import { calculateDistanceMiles } from "@/utils/geo";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useSearchStore } from "@/stores/useSearchStore";
@@ -49,8 +49,9 @@ import { useShopStore } from "@/stores/useShopStore";
 // CONSTANTS
 // ============================================================================
 
-/** Height of the header section (excluding safe area) */
-const HEADER_CONTENT_HEIGHT = 280;
+/** Height of the header section (excluding safe area).
+ *  Matches HEADER_CONTENT_HEIGHT in MechanicDetailHeader. */
+const HEADER_CONTENT_HEIGHT = 240;
 
 // ============================================================================
 // COMPONENT
@@ -70,12 +71,10 @@ export default function ShopDetailScreen() {
 
   // ═══════════════ STORES ═══════════════
   const getShopById = useShopStore((state) => state.getShopById);
-  const getMechanicsByShopId = useMechanicStore((state) => state.getMechanicsByShopId);
   const setBookingTypeAndProceed = useBookingStore((state) => state.setBookingTypeAndProceed);
   const resetBookingFlow = useBookingStore((state) => state.resetBookingFlow);
   const bookingStage = useBookingStore((state) => state.bookingStage);
   const addRecentShop = useSearchStore((state) => state.addRecentShop);
-  const userLocation = useBookingStore((state) => state.userLocation);
 
   // ═══════════════ COMPUTED VALUES ═══════════════
   const shopId = id && typeof id === "string" ? id : null;
@@ -84,14 +83,6 @@ export default function ShopDetailScreen() {
     if (!shopId) return null;
     return getShopById(shopId);
   }, [shopId, getShopById]);
-
-  // Get the first mechanic at this shop for reviews and booking
-  const mechanics = useMemo(() => {
-    if (!shopId) return [];
-    return getMechanicsByShopId(shopId);
-  }, [shopId, getMechanicsByShopId]);
-
-  const primaryMechanic = mechanics[0] ?? null;
 
   // ═══════════════ ANIMATED VALUES ═══════════════
   const scrollRef = useAnimatedRef<Animated.ScrollView>();
@@ -249,12 +240,19 @@ export default function ShopDetailScreen() {
         return <ShopReviewsSection shopId={shop.id} />;
       case "portfolio":
         return <ShopPortfolioSection shopId={shop.id} />;
-      case "staff":
-        return <ShopStaffSection shopId={shop.id} />;
+      case "mechanics":
+        return <ShopMechanicsSection shopId={shop.id} />;
       default:
         return null;
     }
   };
+
+  const handleSchedulePress = useCallback(() => {
+    // Match the existing "schedule" tab behavior: open the booking
+    // modal with "Any" mechanic.
+    setBookingMechanicId(null);
+    setShowBookingModal(true);
+  }, []);
 
   return (
     <FullScreenContainer style={styles.container}>
@@ -297,43 +295,33 @@ export default function ShopDetailScreen() {
         showsVerticalScrollIndicator={false}
         scrollEventThrottle={16}
       >
-        {/* Header with Map - Part of scroll content */}
-        {primaryMechanic ? (
-          <MechanicDetailHeader mechanic={primaryMechanic} shop={shop} onBack={handleBack} />
-        ) : (
-          <MechanicDetailHeader
-            mechanic={{
-              id: "0",
-              shopId: shop.id,
-              name: shop.name,
-              shopName: shop.name,
-              photoUrl: null,
-              rating: shop.rating ?? 0,
-              reviewCount: shop.reviewCount,
-              isVerified: false,
-              distanceMi:
-                userLocation && shop.latitude != null && shop.longitude != null
-                  ? calculateDistanceMiles(userLocation.latitude, userLocation.longitude, shop.latitude, shop.longitude)
-                  : 0,
-              services: [],
-              specialties: [],
-              yearsExperience: 0,
-              isAvailable: shop.availability > 0,
-              responseTime: "Normal",
-              availability: shop.availability,
-              nextAvailability: [],
-            }}
-            shop={shop}
-            onBack={handleBack}
-          />
-        )}
+        {/* Hero map */}
+        <MechanicDetailHeader shop={shop} onBack={handleBack} />
+
+        {/* Floating shop info card — overlaps the map bottom edge */}
+        <ShopHeroCard shop={shop} onSchedulePress={handleSchedulePress} />
 
         {/* Tab Navigation */}
         <MechanicDetailTabs activeTab={activeTab} onTabChange={handleTabChange} />
 
-        {/* Tab Content */}
+        {/* Tab Content — sits on the off-white page surface */}
         <View style={styles.tabContentContainer}>{renderTabContent()}</View>
       </Animated.ScrollView>
+
+      {/* Sticky bottom CTA */}
+      <View style={[styles.stickyCta, { paddingBottom: insets.bottom + Spacing.md }]}>
+        <Pressable
+          onPress={handleSchedulePress}
+          style={({ pressed }) => [
+            styles.ctaButton,
+            pressed && styles.ctaButtonPressed,
+          ]}
+        >
+          <Text size="md" weight="semiBold" color="#FFFFFF">
+            Book a Service
+          </Text>
+        </Pressable>
+      </View>
 
       {/* Modal-based components - work reliably from any component hierarchy */}
       <AddServicesModal visible={showAddServicesModal} onClose={handleCloseAddServicesModal} />
@@ -354,7 +342,7 @@ export default function ShopDetailScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: BrandColors.white,
+    backgroundColor: "#F5F5F7",
   },
   stickyHeader: {
     position: "absolute",
@@ -389,10 +377,32 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingTop: 0,
+    // Leave room for the sticky Book CTA at the bottom.
+    paddingBottom: 96,
   },
   tabContentContainer: {
-    paddingTop: Spacing.lg,
+    paddingTop: Spacing.xs,
+  },
+  stickyCta: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
     paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.md,
+    backgroundColor: "rgba(245, 245, 247, 0.94)",
+  },
+  ctaButton: {
+    height: 54,
+    borderRadius: BorderRadius.full,
+    backgroundColor: BrandColors.secondary,
+    alignItems: "center",
+    justifyContent: "center",
+    ...Shadows.md,
+  },
+  ctaButtonPressed: {
+    opacity: 0.9,
+    transform: [{ scale: 0.99 }],
   },
   errorContainer: {
     flex: 1,

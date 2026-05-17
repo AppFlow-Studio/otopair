@@ -856,6 +856,15 @@ export default defineSchema({
     ownership_plan: v.optional(v.string()),
     lease_ending_soon: v.optional(v.boolean()),
     lease_mileage_pace: v.optional(v.string()),
+    // Legacy Smartcar fields — kept as optional so existing rows that
+    // still carry them pass schema validation. The app no longer reads
+    // or writes any of these. Run
+    //   `npx convex run vehicles:scrubLegacySmartcarFields`
+    // once to clear them from all rows, then we can drop these lines
+    // in a follow-up commit.
+    smartcarVehicleId: v.optional(v.string()),
+    connectionStatus: v.optional(v.string()),
+    connectedAt: v.optional(v.number()),
   })
     .index("by_vin", ["vin"])
     .index("by_user_id", ["user_id"])

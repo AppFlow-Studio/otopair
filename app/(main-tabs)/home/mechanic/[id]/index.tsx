@@ -33,7 +33,7 @@ import { MechanicDetailTabs, type MechanicDetailTab } from "@/components/booking
 import { ShopDetails } from "@/components/booking/ShopDetails";
 import { MechanicReviewsSection } from "@/components/booking/MechanicReviewsSection";
 import { ShopPortfolioSection } from "@/components/booking/ShopPortfolioSection";
-import { ShopStaffSection } from "@/components/booking/ShopStaffSection";
+import { ShopMechanicsSection } from "@/components/booking/ShopMechanicsSection";
 import { AddServicesModal, ShopBookingModal } from "@/components/booking/modals";
 
 // 5. Constants, hooks, types, stores
@@ -221,8 +221,8 @@ export default function MechanicDetailScreen() {
         return <MechanicReviewsSection mechanicId={mechanic.id} />;
       case "portfolio":
         return <ShopPortfolioSection shopId={shop.id} />;
-      case "staff":
-        return <ShopStaffSection shopId={shop.id} />;
+      case "mechanics":
+        return <ShopMechanicsSection shopId={shop.id} />;
       default:
         return null;
     }
@@ -270,7 +270,7 @@ export default function MechanicDetailScreen() {
         scrollEventThrottle={16}
       >
         {/* Header with Map - Part of scroll content */}
-        <MechanicDetailHeader mechanic={mechanic} shop={shop} onBack={handleBack} />
+        <MechanicDetailHeader shop={shop} onBack={handleBack} />
 
         {/* Tab Navigation */}
         <MechanicDetailTabs activeTab={activeTab} onTabChange={handleTabChange} />

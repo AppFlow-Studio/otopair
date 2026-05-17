@@ -88,7 +88,7 @@ export function ZipCodeStep({ onNext, onBack, progress }: ZipCodeStepProps) {
             <TextInput
               style={styles.input}
               placeholder="Zip code"
-              placeholderTextColor="rgba(255, 255, 255, 0.5)"
+              placeholderTextColor="#829BAD"
               value={zipCode}
               onChangeText={setZipCode}
               keyboardType="number-pad"
@@ -126,29 +126,29 @@ const styles = StyleSheet.create({
   title: {
     fontSize: FontSize['4xl'],
     fontFamily: FontFamily.bold,
-    color: BrandColors.white,
+    color: '#0F172A',
     marginBottom: Spacing.md,
     lineHeight: 44,
   },
   subtitle: {
     fontSize: FontSize.lg,
     fontFamily: FontFamily.regular,
-    color: BrandColors.white,
+    color: '#0F172A',
     opacity: 0.9,
     lineHeight: 28,
   },
   inputContainer: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: '#FFFFFF',
     borderRadius: 12,
     paddingHorizontal: Spacing.lg,
     paddingVertical: Platform.OS === 'ios' ? Spacing.lg : Spacing.md,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
+    borderColor: '#E2E8F0',
   },
   input: {
     fontSize: FontSize.lg,
     fontFamily: FontFamily.medium,
-    color: BrandColors.white,
+    color: '#0F172A',
   },
   bottomContainer: {
     paddingHorizontal: Spacing['2xl'],

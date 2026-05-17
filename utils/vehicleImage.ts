@@ -154,7 +154,13 @@ export async function fetchVehicleImageUrl(
       // header names are case-insensitive — keep this capitalized.
       const response = await fetch(url, { headers: { "x-AuthKey": API_KEY } });
       console.log("[vehicleImage] status", response.status, "ok?", response.ok);
-      if (!response.ok) continue;
+      if (!response.ok) {
+        try {
+          const errBody = await response.text();
+          console.log("[vehicleImage] err body:", errBody.slice(0, 500));
+        } catch {}
+        continue;
+      }
 
       const json = await response.json();
       const exterior: string[] = json.data?.images?.exterior ?? [];
@@ -164,6 +170,8 @@ export async function fetchVehicleImageUrl(
         colorImages.slice(0, 5).map((u) => u.split("/").pop()));
       console.log("[vehicleImage] exterior[] filenames:",
         exterior.slice(0, 5).map((u) => u.split("/").pop()));
+      console.log("[vehicleImage] data.images keys:", Object.keys(json.data?.images ?? {}));
+      console.log("[vehicleImage] raw data slice:", JSON.stringify(json.data ?? {}).slice(0, 1500));
       if (json.status !== "success") continue;
 
       // EVOX front 3/4 angle preference for any exterior pick.

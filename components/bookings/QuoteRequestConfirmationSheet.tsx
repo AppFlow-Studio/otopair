@@ -50,7 +50,7 @@ export interface QuoteRequestConfirmationSheetRef {
 }
 
 interface Props {
-  /** Called when the user taps the primary "View booking" CTA. */
+  /** Called when the user taps the primary "Back to booking" CTA. */
   onViewBooking: () => void;
   /** Called after the sheet finishes its close animation (swipe or CTA). */
   onClose?: () => void;
@@ -196,7 +196,7 @@ export const QuoteRequestConfirmationSheet = forwardRef<QuoteRequestConfirmation
             style={({ pressed }) => [styles.cta, pressed && styles.ctaPressed]}
           >
             <Text size="md" weight="semiBold" color="#FFFFFF">
-              View booking
+              Back to booking
             </Text>
           </Pressable>
         </View>

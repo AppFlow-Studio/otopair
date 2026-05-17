@@ -1,128 +1,113 @@
 /**
  * MechanicDetailTabs
  *
- * PURPOSE: Tab navigation component for mechanic detail page with Services,
- *          Reviews, Portfolio, and Staff tabs.
+ * PURPOSE: Tab navigation component for the shop detail page.
+ *          Renders as a horizontal pill segmented control — active
+ *          tab fills with BrandColors.secondary and white text;
+ *          inactive tabs are transparent with muted text.
  *
- * USED IN: app/(main-tabs)/home/mechanic/[id].tsx
+ * USED IN: app/(main-tabs)/home/shop/[id]/index.tsx
  *
  * PROPS:
- *   - activeTab ('services' | 'reviews' | 'portfolio' | 'staff'): Currently active tab
- *   - onTabChange ((tab) => void): Called when a tab is selected
+ *   - activeTab: Currently active tab id
+ *   - onTabChange: Called when a tab is selected
  *
- * EXAMPLE:
- *   <MechanicDetailTabs
- *     activeTab="services"
- *     onTabChange={(tab) => setActiveTab(tab)}
- *   />
- *
- * OWNER: Temurbek Sayfutdinov
+ * OWNER: Temurbek Sayfutdinov (original) → Ahmad (redesign + MECHANICS rename)
  */
 
-// 1. React & React Native
 import React from "react";
-import { ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
+import { ScrollView, Pressable, StyleSheet, View } from "react-native";
 
-// 2. Shared UI (design system)
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
+import { BorderRadius, Shadows } from "@/constants/theme";
 
-// 3. Constants
-import { BorderRadius } from "@/constants/theme";
-
-// ============================================================================
-// TYPES
-// ============================================================================
-
-export type MechanicDetailTab = "services" | "schedule" | "reviews" | "portfolio" | "staff";
+export type MechanicDetailTab =
+  | "services"
+  | "schedule"
+  | "reviews"
+  | "portfolio"
+  | "mechanics";
 
 interface MechanicDetailTabsProps {
-    /** Currently active tab */
-    activeTab: MechanicDetailTab;
-    /** Called when a tab is selected */
-    onTabChange: (tab: MechanicDetailTab) => void;
+  activeTab: MechanicDetailTab;
+  onTabChange: (tab: MechanicDetailTab) => void;
 }
-
-// ============================================================================
-// CONSTANTS
-// ============================================================================
 
 const TABS: { id: MechanicDetailTab; label: string }[] = [
-    { id: "services", label: "SERVICES" },
-    { id: "schedule", label: "SCHEDULE" },
-    { id: "reviews", label: "REVIEWS" },
-    { id: "portfolio", label: "PORTFOLIO" },
-    { id: "staff", label: "STAFF" },
+  { id: "services", label: "Services" },
+  { id: "schedule", label: "Schedule" },
+  { id: "reviews", label: "Reviews" },
+  { id: "mechanics", label: "Mechanics" },
+  { id: "portfolio", label: "Portfolio" },
 ];
 
-// ============================================================================
-// COMPONENT
-// ============================================================================
-
-export function MechanicDetailTabs({ activeTab, onTabChange }: MechanicDetailTabsProps) {
-    return (
-        <View style={styles.container}>
-            <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.scrollContent}
+export function MechanicDetailTabs({
+  activeTab,
+  onTabChange,
+}: MechanicDetailTabsProps) {
+  return (
+    <View style={styles.outer}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.scrollContent}
+      >
+        {TABS.map((tab) => {
+          const isActive = activeTab === tab.id;
+          return (
+            <Pressable
+              key={tab.id}
+              onPress={() => onTabChange(tab.id)}
+              style={({ pressed }) => [
+                styles.pill,
+                isActive && styles.pillActive,
+                pressed && !isActive && styles.pillPressed,
+              ]}
             >
-                {TABS.map((tab) => {
-                    const isActive = activeTab === tab.id;
-                    return (
-                        <TouchableOpacity
-                            key={tab.id}
-                            style={styles.tab}
-                            onPress={() => onTabChange(tab.id)}
-                            activeOpacity={0.7}
-                        >
-                            <Text
-                                size="sm"
-                                weight={isActive ? "bold" : "medium"}
-                                color={isActive ? BrandColors.primary : "#6B7280"}
-                                style={styles.tabLabel}
-                            >
-                                {tab.label}
-                            </Text>
-                            {isActive && <View style={styles.activeIndicator} />}
-                        </TouchableOpacity>
-                    );
-                })}
-            </ScrollView>
-        </View>
-    );
+              <Text
+                size="sm"
+                weight={isActive ? "semiBold" : "medium"}
+                color={isActive ? "#FFFFFF" : "#475569"}
+                style={styles.pillLabel}
+              >
+                {tab.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+    </View>
+  );
 }
 
-// ============================================================================
-// STYLES
-// ============================================================================
-
 const styles = StyleSheet.create({
-    container: {
-        backgroundColor: BrandColors.white,
-        borderBottomWidth: 1,
-        borderBottomColor: "#E5E7EB",
-    },
-    scrollContent: {
-        paddingHorizontal: Spacing.lg,
-        gap: Spacing.xl,
-    },
-    tab: {
-        paddingVertical: Spacing.md,
-        paddingHorizontal: Spacing.xs,
-        position: "relative",
-    },
-    tabLabel: {
-        textTransform: "uppercase",
-        letterSpacing: 0.5,
-    },
-    activeIndicator: {
-        position: "absolute",
-        bottom: 0,
-        left: 0,
-        right: 0,
-        height: 2,
-        backgroundColor: BrandColors.secondary,
-        borderRadius: BorderRadius.full,
-    },
+  outer: {
+    backgroundColor: "transparent",
+    paddingTop: Spacing.sm,
+    paddingBottom: Spacing.sm,
+  },
+  scrollContent: {
+    paddingHorizontal: Spacing.lg,
+    gap: Spacing.sm,
+    alignItems: "center",
+  },
+  pill: {
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.full,
+    backgroundColor: "#FFFFFF",
+    borderWidth: 1,
+    borderColor: "#E5E7EB",
+  },
+  pillActive: {
+    backgroundColor: BrandColors.secondary,
+    borderColor: BrandColors.secondary,
+    ...Shadows.sm,
+  },
+  pillPressed: {
+    opacity: 0.7,
+  },
+  pillLabel: {
+    letterSpacing: 0.2,
+  },
 });
-
