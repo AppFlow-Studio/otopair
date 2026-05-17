@@ -402,6 +402,44 @@ async function sendMessageHandler(
   // envelope emits a polite_exit_required block and the prompt rule forces
   // a not_sure diagnostic form on this turn.
   const diagnosticTurnCount = ((conversation as any).diagnostic_turn_count as number | undefined) ?? 0;
+
+  // Wave 3 integration step 4 — cross-conversation memory READ path.
+  // Fetch top_K most-recent conversation_facts from this user's OTHER
+  // conversations (excluding the current one). Feeds the envelope's new
+  // <recent_context> block so the AI sees what was established earlier
+  // across sessions, not just within the current conversation.
+  //
+  // Failure-isolated try/catch + swallow per the existing Wave 3 wire-in
+  // pattern (recordTurn / commitEpisodic / commitControl). A failed cross-
+  // conversation read MUST NEVER fail the chat turn — degrade gracefully to
+  // empty array and the envelope skips the block entirely.
+  //
+  // top_K=5 is the dispatch default. Tunable; the envelope truncates over-
+  // long payload_text at the query layer to keep the block under ~1KB.
+  let priorConversationFacts: Array<{
+    conversation_id: Id<"ai_conversations">;
+    fact_type: string;
+    payload_text: string;
+    written_by: string;
+    created_at: number;
+  }> = [];
+  try {
+    priorConversationFacts = await ctx.runQuery(
+      internal.oto.memoryEditing.getCrossConversationMemory,
+      {
+        user_id: user._id,
+        current_conversation_id: conversationId,
+        top_K: 5,
+      },
+    );
+  } catch (e: any) {
+    console.error(
+      "[oto/chat] getCrossConversationMemory failed (swallowed):",
+      e?.message,
+    );
+    priorConversationFacts = [];
+  }
+
   const envelope = buildEnvelope({
     userFirstName: user.first_name ?? null,
     vehicle: activeVehicle,
@@ -409,6 +447,7 @@ async function sendMessageHandler(
     userMessage: message,
     conversationState: convoState,
     diagnosticTurnCount,
+    priorConversationFacts,
   });
   console.log("[oto/chat] envelope sent to Haiku:\n" + envelope);
 
@@ -422,6 +461,10 @@ async function sendMessageHandler(
     trace.user_first_name = user.first_name ?? null;
     trace.history_turns_included = history.length;
     trace.model = MODEL;
+    // Wave 3 integration step 4 — expose the prior-conversation facts
+    // pulled into <recent_context> for harness inspection. Production
+    // callers never receive this (trace is debug-only).
+    trace.prior_conversation_facts = priorConversationFacts;
   }
 
   // ── 5. Build the callable map ────────────────────────────────────────

@@ -47,6 +47,22 @@ export interface ConversationStateBlock {
   updated_at: number | null;
 }
 
+// Wave 3 integration step 4 (§3.4) — one fact pulled from a PRIOR
+// conversation of the same user. The flattened payload_text + fact_type +
+// created_at are all the envelope needs to render a one-line bullet under
+// the new <recent_context> block.
+//
+// Sourced by `memoryEditing.getCrossConversationMemory`. The query has already
+// sorted newest-first, capped at top_K, and truncated over-long payload_text;
+// the envelope builder just renders.
+export interface PriorConversationFact {
+  conversation_id: string;
+  fact_type: string;
+  payload_text: string;
+  written_by: string;
+  created_at: number;
+}
+
 interface BuildEnvelopeArgs {
   userFirstName: string | null;
   vehicle: ResolvedVehicle | null;
@@ -54,6 +70,14 @@ interface BuildEnvelopeArgs {
   userMessage: string;
   conversationState?: ConversationStateBlock | null;
   diagnosticTurnCount?: number;
+  // Wave 3 integration step 4 — facts established in this user's OTHER
+  // conversations, top_K most-recent first. Optional; skipped from the
+  // envelope when empty or omitted. See PriorConversationFact above.
+  priorConversationFacts?: PriorConversationFact[];
+  // Reference "now" for relative-time formatting under <recent_context>.
+  // Defaults to Date.now() at call time when omitted (production path);
+  // tests pin it explicitly so format output is deterministic.
+  now?: number;
 }
 
 const POLITE_EXIT_THRESHOLD = 6;
@@ -153,8 +177,11 @@ export function buildEnvelope({
   userMessage,
   conversationState,
   diagnosticTurnCount = 0,
+  priorConversationFacts,
+  now,
 }: BuildEnvelopeArgs): string {
   const blocks: string[] = [];
+  const nowMs = typeof now === "number" ? now : Date.now();
 
   blocks.push(
     [`<user>`, `  name: ${userFirstName ?? "(unknown)"}`, `</user>`].join("\n"),
@@ -189,6 +216,26 @@ export function buildEnvelope({
       }
     }
     lines.push(`</conversation_state>`);
+    blocks.push(lines.join("\n"));
+  }
+
+  // Wave 3 integration step 4 — cross-conversation memory.
+  // Render facts from PRIOR conversations under <recent_context> so the AI
+  // sees what was established earlier with this user, not just within the
+  // current conversation. Skip the block entirely if no prior facts (matches
+  // the <conversation_state> "no useful state → no block" pattern).
+  if (priorConversationFacts && priorConversationFacts.length > 0) {
+    const lines = [
+      `<recent_context>`,
+      `  facts_from_prior_conversations:`,
+    ];
+    for (const fact of priorConversationFacts) {
+      const rel = formatRelativeTime(fact.created_at, nowMs);
+      lines.push(
+        `    - [${fact.fact_type}] ${fact.payload_text}  (${rel})`,
+      );
+    }
+    lines.push(`</recent_context>`);
     blocks.push(lines.join("\n"));
   }
 
@@ -228,4 +275,29 @@ function hasUsefulState(s: ConversationStateBlock): boolean {
       (s.established_facts && s.established_facts.length > 0) ||
       s.last_user_intent,
   );
+}
+
+// -----------------------------------------------------------------------------
+// Human-readable relative time for <recent_context> bullets. Buckets chosen
+// to convey freshness without leaking precise timestamps into the prompt:
+//   < 60s            → "just now"
+//   < 60m            → "N min ago"   (1 min ago / 5 min ago / 59 min ago)
+//   < 24h            → "N hours ago" (1 hour ago / 2 hours ago / ...)
+//   1 day            → "yesterday"
+//   < 30 days        → "N days ago"
+//   >= 30 days       → "N+ days ago" (cap; we don't need month/year resolution
+//                                     for memory-relevance signals)
+// Negative deltas (future timestamp — clock skew) bucket as "just now".
+// -----------------------------------------------------------------------------
+export function formatRelativeTime(timestampMs: number, nowMs: number): string {
+  const deltaMs = nowMs - timestampMs;
+  if (deltaMs < 60_000) return "just now";
+  const minutes = Math.floor(deltaMs / 60_000);
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(deltaMs / 3_600_000);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.floor(deltaMs / 86_400_000);
+  if (days === 1) return "yesterday";
+  if (days < 30) return `${days} days ago`;
+  return `30+ days ago`;
 }

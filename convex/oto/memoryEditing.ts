@@ -61,7 +61,12 @@
 //
 // =============================================================================
 
-import { mutation, internalMutation, query } from "../_generated/server";
+import {
+  mutation,
+  internalMutation,
+  query,
+  internalQuery,
+} from "../_generated/server";
 import { v } from "convex/values";
 import type { MutationCtx, QueryCtx } from "../_generated/server";
 import type { Doc, Id } from "../_generated/dataModel";
@@ -1064,6 +1069,173 @@ export const deprecateKbTopic = mutation({
     });
   },
 });
+
+// =============================================================================
+// Cross-conversation memory read path (Wave 3 integration step 4 — §3.4)
+// =============================================================================
+//
+// getCrossConversationMemory — read top-K most-recent conversation_facts rows
+// from the user's OTHER conversations (excluding the CURRENT conversation).
+//
+// Purpose: cross-conversation memory. The legacy envelope's <conversation_state>
+// block already shows facts from the CURRENT conversation (ai_conversations.
+// established_facts mirror); this query is the SECOND retrieval pipeline beside
+// the cascade, surfacing what was established earlier with this user so the AI
+// sees prior context across sessions. See WAVE_3_REVIEW_RAG §3 for the cascade-
+// boundary synthesis. The block this populates is `<recent_context>` injected
+// by envelope.ts.
+//
+// Index strategy:
+//   1. `ai_conversations.by_user_id` — collect this user's conversation_ids,
+//      filter out the current one. Bounded by per-user conversation count
+//      (small in practice).
+//   2. `conversation_facts.by_conversation_active` — for each prior
+//      conversation, scan the prefix (conversation_id, retracted_at=undefined)
+//      using `.order("desc")` to get newest first, then take(top_K) per
+//      conversation. Cap the total at top_K across all conversations.
+//
+// We do NOT load all conversation_facts and filter in TS — that would be a
+// full-table scan. Per-conversation indexed reads are O(top_K * conversations)
+// at worst; in practice early-termination once we have top_K total facts keeps
+// the scan tight.
+//
+// Return-shape simplification: the discriminated payload is flattened to a
+// single `payload_text` string so the envelope builder can render a one-liner
+// per fact without re-doing the discriminator switch.
+//
+// Why internalQuery: this is an implementation-detail read; not surfaced to
+// mobile clients. chat.ts calls it via internal.oto.memoryEditing.* per the
+// dispatch contract.
+//
+// queryMoat routing: conversation_facts is NOT in MOAT_TABLES (it's per-user
+// state, not the shared vehicle moat). Direct ctx.db reads are correct here.
+// -----------------------------------------------------------------------------
+
+// Truncate fact text at this length to keep the envelope block under ~1KB
+// total when 5 facts are listed. Helps stay inside the cached zone's budget.
+const PRIOR_FACT_TEXT_TRUNCATE = 500;
+
+export const getCrossConversationMemory = internalQuery({
+  args: {
+    user_id: v.id("users"),
+    current_conversation_id: v.id("ai_conversations"),
+    top_K: v.number(),
+  },
+  returns: v.array(
+    v.object({
+      conversation_id: v.id("ai_conversations"),
+      fact_type: v.string(),
+      payload_text: v.string(),
+      written_by: v.string(),
+      created_at: v.number(),
+    }),
+  ),
+  handler: async (
+    ctx: QueryCtx,
+    args,
+  ): Promise<
+    Array<{
+      conversation_id: Id<"ai_conversations">;
+      fact_type: string;
+      payload_text: string;
+      written_by: string;
+      created_at: number;
+    }>
+  > => {
+    if (args.top_K <= 0) return [];
+
+    // Step 1 — enumerate this user's conversations, excluding the current.
+    const userConversations = await ctx.db
+      .query("ai_conversations")
+      .withIndex("by_user_id", (q) => q.eq("user_id", args.user_id))
+      .collect();
+
+    const priorConversationIds: Id<"ai_conversations">[] = [];
+    for (const c of userConversations) {
+      if (c._id !== args.current_conversation_id) {
+        priorConversationIds.push(c._id);
+      }
+    }
+    if (priorConversationIds.length === 0) return [];
+
+    // Step 2 — per-conversation indexed scan, newest-first, of active
+    // (non-retracted) facts. Take up to top_K per conversation; cap overall
+    // at top_K across all conversations after a final sort.
+    //
+    // The `by_conversation_active` index keys are (conversation_id,
+    // retracted_at, created_at). We restrict the prefix to
+    // conversation_id+retracted_at=undefined so the scan only walks the
+    // active subset; .order("desc") returns newest first per the
+    // created_at suffix.
+    type ScannedRow = {
+      conversation_id: Id<"ai_conversations">;
+      fact_type: string;
+      payload_text: string;
+      written_by: string;
+      created_at: number;
+    };
+    const allRows: ScannedRow[] = [];
+    for (const cid of priorConversationIds) {
+      const rows = await ctx.db
+        .query("conversation_facts")
+        .withIndex("by_conversation_active", (q) =>
+          q.eq("conversation_id", cid).eq("retracted_at", undefined),
+        )
+        .order("desc")
+        .take(args.top_K);
+      for (const r of rows) {
+        allRows.push({
+          conversation_id: r.conversation_id,
+          fact_type: r.fact_type,
+          payload_text: extractPayloadText(r.payload),
+          written_by: r.written_by,
+          created_at: r.created_at,
+        });
+      }
+    }
+
+    // Sort across ALL prior conversations newest-first, then cap at top_K.
+    // Cross-conversation interleaving by recency matters: 5 facts from the
+    // user's overall history is what the envelope wants, not 5 from the
+    // most-recently-added conversation only.
+    allRows.sort((a, b) => b.created_at - a.created_at);
+    const capped = allRows.slice(0, args.top_K);
+
+    // Truncate over-long payload_text to keep the envelope block bounded.
+    // Truncation is at the query layer (closer to the source) so the
+    // envelope builder receives ready-to-render strings.
+    for (const r of capped) {
+      if (r.payload_text.length > PRIOR_FACT_TEXT_TRUNCATE) {
+        r.payload_text =
+          r.payload_text.slice(0, PRIOR_FACT_TEXT_TRUNCATE) + "...";
+      }
+    }
+    return capped;
+  },
+});
+
+// -----------------------------------------------------------------------------
+// Discriminated-payload flattener. Each conversation_facts.payload variant
+// has a different natural-language carrier; this picks the one that best
+// serves a one-line envelope render. Centralised here so the envelope builder
+// stays free of payload-shape knowledge.
+// -----------------------------------------------------------------------------
+function extractPayloadText(
+  payload: Doc<"conversation_facts">["payload"],
+): string {
+  switch (payload.kind) {
+    case "observation":
+      return payload.text;
+    case "user_quote":
+      return payload.text;
+    case "hypothesis":
+      return payload.text;
+    case "preference":
+      return `${payload.dimension}: ${payload.value}`;
+    case "id_reference":
+      return `${payload.entity_type}: ${payload.entity_id}`;
+  }
+}
 
 // =============================================================================
 // Internal mutation surface (migrations + reconciliation only)
