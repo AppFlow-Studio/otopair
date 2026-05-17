@@ -6,7 +6,7 @@
  * USED IN: components/onboarding/OnboardingFlow.tsx
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useSignUp } from "@clerk/clerk-expo";
 import {
   BrandColors,
@@ -19,6 +19,7 @@ import { ProgressBar } from "@/components/shared-ui/ProgressBar";
 import { FooterButton } from "@/components/shared-ui/FooterButton";
 import { BackButton } from "@/components/shared-ui/BackButton";
 import {
+  BackHandler,
   KeyboardAvoidingView,
   Platform,
   StyleSheet,
@@ -50,6 +51,11 @@ export function EmailSignupStep({
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => { onBack(); return true; });
+    return () => sub.remove();
+  }, [onBack]);
 
   const dynamicStyles = {
     container: { paddingTop: insets.top + Spacing.lg },

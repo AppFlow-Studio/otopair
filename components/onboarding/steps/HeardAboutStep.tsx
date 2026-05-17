@@ -21,7 +21,7 @@
  * TICKET: OTO-XXX
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   BrandColors,
   FontFamily,
@@ -36,7 +36,7 @@ import {
   FinishLater,
 } from '@/components/shared-ui';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { BackHandler, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import { useOnboardingQuestion } from '@/hooks/useOnboardingQuestion';
 import { useMutation } from 'convex/react';
@@ -76,6 +76,11 @@ export function HeardAboutStep({ onNext, onBack, progress }: HeardAboutStepProps
   const [selected, setSelected] = useState<string | null>(data.heardAboutOtopair ?? null);
   const [referralCode, setReferralCode] = useState<string>('');
   const submitReferralCode = useMutation(api.referrals.submitCode);
+
+  useEffect(() => {
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => { onBack(); return true; });
+    return () => sub.remove();
+  }, [onBack]);
   const { userId } = useUserFromConvex();
 
   const handleContinue = async () => {

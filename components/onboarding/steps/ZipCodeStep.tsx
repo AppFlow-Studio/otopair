@@ -21,7 +21,7 @@
  * TICKET: OTO-XXX
  */
 
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import {
   BrandColors,
   FontFamily,
@@ -34,7 +34,7 @@ import {
   FinishLater,
 } from '@/components/shared-ui';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { BackHandler, KeyboardAvoidingView, Platform, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import { useOnboardingQuestion } from '@/hooks/useOnboardingQuestion';
 
@@ -50,6 +50,11 @@ export function ZipCodeStep({ onNext, onBack, progress }: ZipCodeStepProps) {
   const { saveQuestionAnswer } = useOnboardingQuestion('zipCode');
 
   const [zipCode, setZipCode] = useState(data.zipCode ?? '');
+
+  useEffect(() => {
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => { onBack(); return true; });
+    return () => sub.remove();
+  }, [onBack]);
 
   const sanitizedZip = useMemo(() => zipCode.trim(), [zipCode]);
   const isValidZip = useMemo(() => /^\d{5}(-\d{4})?$/.test(sanitizedZip), [sanitizedZip]);

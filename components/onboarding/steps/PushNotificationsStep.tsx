@@ -35,6 +35,7 @@ import { FooterButton } from '@/components/shared-ui/FooterButton';
 import { BackButton } from '@/components/shared-ui/BackButton';
 import { useState, useRef, useEffect } from 'react';
 import {
+    BackHandler,
     KeyboardAvoidingView,
     Platform,
     StyleSheet,
@@ -61,6 +62,11 @@ export function PushNotificationsStep({ onNext, onBack, progress }: PushNotifica
     const [status, setStatus] = useState<string | null>(null);
     const notificationsModule = useRef<any>(null);
     const [moduleReady, setModuleReady] = useState(false);
+
+    useEffect(() => {
+        const sub = BackHandler.addEventListener("hardwareBackPress", () => { onBack(); return true; });
+        return () => sub.remove();
+    }, [onBack]);
 
     useEffect(() => {
         // Lazy-load expo-notifications to avoid crashing if the module is missing

@@ -28,6 +28,7 @@ import { ProgressBar } from "@/components/shared-ui/ProgressBar";
 import { BackButton } from "@/components/shared-ui/BackButton";
 import { useState, useEffect, useRef } from "react";
 import {
+  BackHandler,
   KeyboardAvoidingView,
   Platform,
   Pressable,
@@ -71,6 +72,11 @@ export function ConfirmPhoneNumberStep({ onNext, onBack, progress }: ConfirmPhon
   const inputRefs = useRef<(TextInput | null)[]>([]);
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const slideAnim = useRef(new Animated.Value(height)).current;
+
+  useEffect(() => {
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => { onBack(); return true; });
+    return () => sub.remove();
+  }, [onBack]);
 
   const isVerificationNotStartedError = (msg: string | null) =>
     msg != null &&

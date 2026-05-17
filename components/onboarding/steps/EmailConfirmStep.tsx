@@ -16,8 +16,9 @@ import {
 import { ProgressBar } from '@/components/shared-ui/ProgressBar';
 import { FooterButton } from '@/components/shared-ui/FooterButton';
 import { BackButton } from '@/components/shared-ui/BackButton';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import {
+    BackHandler,
     KeyboardAvoidingView,
     Platform,
     StyleSheet,
@@ -44,6 +45,11 @@ export function EmailConfirmStep({ onNext, onBack, progress }: EmailConfirmStepP
 
     const [isEditing, setIsEditing] = useState(false);
     const [editEmail, setEditEmail] = useState(data.email || '');
+
+    useEffect(() => {
+        const sub = BackHandler.addEventListener("hardwareBackPress", () => { onBack(); return true; });
+        return () => sub.remove();
+    }, [onBack]);
 
     const dynamicStyles = {
         container: { paddingTop: insets.top + Spacing.lg },

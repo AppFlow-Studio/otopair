@@ -21,7 +21,7 @@
  * TICKET: OTO-XXX
  */
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   BrandColors,
   FontFamily,
@@ -36,7 +36,7 @@ import {
   FinishLater,
 } from '@/components/shared-ui';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { BackHandler, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { useOnboardingStore } from '@/stores/useOnboardingStore';
 import { useOnboardingQuestion } from '@/hooks/useOnboardingQuestion';
 import {
@@ -67,6 +67,11 @@ export function VisitReasonStep({ onNext, onBack, progress }: VisitReasonStepPro
   const { saveQuestionAnswer } = useOnboardingQuestion('visitReason');
 
   const [selected, setSelected] = useState<string | null>(data.visitReason ?? null);
+
+  useEffect(() => {
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => { onBack(); return true; });
+    return () => sub.remove();
+  }, [onBack]);
 
   const handleContinue = async () => {
     if (!selected) return;

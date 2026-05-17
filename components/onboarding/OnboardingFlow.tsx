@@ -234,7 +234,7 @@ export function OnboardingFlow({ initialStep = "signup", filteredSteps, isResume
         goToStep("name");
         break;
       case "profilePhoto":
-        goToStep("name");
+        goToStep("emailConfirm");
         break;
       case 'userIntent':
                 goToStep('profilePhoto');

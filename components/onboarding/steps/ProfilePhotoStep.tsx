@@ -36,8 +36,9 @@ import { FooterButton } from "@/components/shared-ui/FooterButton";
 import { BackButton } from "@/components/shared-ui/BackButton";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import { useOnboardingPersistence } from "@/hooks/useOnboardingPersistence";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
+  BackHandler,
   StyleSheet,
   View,
   useWindowDimensions,
@@ -67,6 +68,11 @@ export function ProfilePhotoStep({ onNext, onBack, progress }: ProfilePhotoStepP
     data.profilePhotoUri ?? null
   );
   const [showPhotoModal, setShowPhotoModal] = useState(false);
+
+  useEffect(() => {
+    const sub = BackHandler.addEventListener("hardwareBackPress", () => { onBack(); return true; });
+    return () => sub.remove();
+  }, [onBack]);
   const [isUploading, setIsUploading] = useState(false);
 
   const dynamicStyles = {

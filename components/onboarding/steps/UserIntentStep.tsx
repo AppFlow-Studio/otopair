@@ -36,6 +36,7 @@ import {
 } from '@/components/shared-ui';
 import { useState, useEffect } from 'react';
 import {
+    BackHandler,
     KeyboardAvoidingView,
     Platform,
     StyleSheet,
@@ -135,6 +136,11 @@ export function UserIntentStep({ onNext, onBack, progress }: UserIntentStepProps
     const [selectedIntents, setSelectedIntents] = useState<string[]>(
         data.userIntentions || []
     );
+
+    useEffect(() => {
+        const sub = BackHandler.addEventListener("hardwareBackPress", () => { onBack(); return true; });
+        return () => sub.remove();
+    }, [onBack]);
 
     const dynamicStyles = {
         container: { paddingTop: insets.top + Spacing.lg },

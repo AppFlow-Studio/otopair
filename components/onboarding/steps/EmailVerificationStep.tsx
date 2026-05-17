@@ -18,6 +18,7 @@ import {
 import { ProgressBar } from '@/components/shared-ui/ProgressBar';
 import { BackButton } from '@/components/shared-ui/BackButton';
 import {
+    BackHandler,
     KeyboardAvoidingView,
     Platform,
     StyleSheet,
@@ -54,6 +55,11 @@ export function EmailVerificationStep({ onNext, onBack, progress }: EmailVerific
     const [verifying, setVerifying] = useState(false);
     const inputRefs = useRef<(TextInput | null)[]>([]);
     const slideAnim = useRef(new Animated.Value(height)).current;
+
+    useEffect(() => {
+        const sub = BackHandler.addEventListener("hardwareBackPress", () => { onBack(); return true; });
+        return () => sub.remove();
+    }, [onBack]);
 
     useEffect(() => {
         if (showErrorModal) {

@@ -33,6 +33,7 @@ import { FooterButton } from '@/components/shared-ui/FooterButton';
 import { BackButton } from '@/components/shared-ui/BackButton';
 import { useState, useRef, useEffect } from 'react';
 import {
+    BackHandler,
     KeyboardAvoidingView,
     Platform,
     StyleSheet,
@@ -59,6 +60,11 @@ export function LocationServicesStep({ onNext, onBack, progress }: LocationServi
     const [status, setStatus] = useState<string | null>(null);
     const locationModule = useRef<any>(null);
     const [moduleReady, setModuleReady] = useState(false);
+
+    useEffect(() => {
+        const sub = BackHandler.addEventListener("hardwareBackPress", () => { onBack(); return true; });
+        return () => sub.remove();
+    }, [onBack]);
 
     useEffect(() => {
         // Lazy-load expo-location to avoid crashing if the module is missing
