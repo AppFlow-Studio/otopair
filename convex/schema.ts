@@ -1024,6 +1024,13 @@ export default defineSchema({
     moat_reads_window: v.optional(v.number()),
     moat_reads_window_start: v.optional(v.number()),
     moat_reads_is_admin_exempt: v.optional(v.boolean()),
+    // Wave 7.3 (Day 9) — per-user PII-read counter (separate from moat).
+    // Tracks CALL count (not row count) of reads into PII-dense tables
+    // (`user_semantic_facts`, `conversation_audit`) within a rolling 10-min
+    // window. Defaults to 0/0 via bumpPIIReadCounter on first call. See
+    // convex/oto/queryMoat.ts PII_TABLES + checkPIIRead.
+    pii_reads_window: v.optional(v.number()),
+    pii_reads_window_start: v.optional(v.number()),
   })
     .index("by_clerkUserId", ["clerkUserId"])
     .index("by_isPendingDeletion", ["isPendingDeletion"])
@@ -2816,4 +2823,76 @@ export default defineSchema({
     .index("by_user_type_active", ["user_id", "fact_type", "retracted_at"])
     // Cold-cleanup cron scan (Day 5+).
     .index("by_retracted_floor", ["retracted_at_floor_ms"]),
+
+  // ===== Sprint 2 Day 9 — Wave 7.2 reliability observability substrate =====
+  //
+  // reliability_events — fire-and-forget observability rows written from the
+  // ~21 swallow sites in convex/oto/chat.ts (and any future swallow site).
+  // Day 8 EOD's ReturnsValidationError demonstrated that every CI-clean,
+  // brace-balanced, TS-strict, deploy-clean change can still ship a silent
+  // bug if the failure mode is "every successful call throws and the throw
+  // is swallowed." This table is the metric/alert substrate that closes
+  // that gap structurally rather than via behavioral observation.
+  //
+  // Surfaces (the canonical list, mirrored in convex/oto/reliability.ts):
+  //   anthropic_call_main             — main loop callAnthropic
+  //   anthropic_call_forced           — forced-terminate callAnthropic
+  //   anthropic_retry_exhausted       — AnthropicTransientError handler
+  //   wave3_record_turn               — recordTurn user-row / assistant-row
+  //   wave3_record_conversation_fact  — conversation_facts mirror
+  //   wave3_commit_episodic           — episodic field-class mirror
+  //   wave3_commit_control_sonnet     — sonnet handoff control mirror
+  //   wave3_commit_control_haiku      — haiku handback control mirror
+  //   wave3_record_selection_fact     — render-tool selection mirror
+  //   wave3_get_cross_conv_memory     — cross-conv envelope read
+  //   wave3_record_semantic_fact      — record_semantic_fact tool
+  //   wave3_record_semantic_fact_reinforce — reinforce-side fallback
+  //   wave3_retract_semantic_fact     — retract_semantic_fact tool
+  //   wave3_retract_conversation_fact — retract_conversation_fact tool
+  //   cascade_strangler_full_cascade  — retrieve_vehicle_facts cascade
+  //   setCurrentModel_sonnet_handoff  — ai_conversations.setCurrentModel sonnet
+  //   setCurrentModel_haiku_handback  — ai_conversations.setCurrentModel haiku
+  //   chat_action_uncaught            — outer sendMessageHandler boundary
+  //   recordReliabilityEvent_itself   — the self-monitor (bottom of stack)
+  //
+  // Kinds:
+  //   success            — successful operation (sparse; mostly we record failures)
+  //   transient_error    — retryable failure (e.g., 5xx/429 from Anthropic)
+  //   validation_error   — schema/validator mismatch (e.g., the Day 8 returns bug)
+  //   auth_error         — 4xx-non-429 auth failures
+  //   rate_limited       — explicit rate-limit signal (Wave 7.3 substrate)
+  //   fallback_fired     — the friendly-fallback returned canned copy
+  //   swallowed          — generic swallow event (catch-block fired)
+  //
+  // String validators (not v.union) are intentional: the surface + kind enums
+  // will grow over the sprint. v.string + canonical-list documentation in
+  // reliability.ts is easier to extend than a schema-level union.
+  //
+  // Write surface: ONLY convex/oto/reliability.ts:recordReliabilityEvent
+  // (an internalMutation). Day 10+ CI rule will defend this. Day 9 ships
+  // unprotected — acceptable for the dispatch round.
+  reliability_events: defineTable({
+    surface: v.string(),
+    kind: v.string(),
+    error_message: v.optional(v.string()),
+    latency_ms: v.optional(v.number()),
+    user_id: v.optional(v.id("users")),
+    conversation_id: v.optional(v.id("ai_conversations")),
+    // Flat record bag for surface-specific extras. JSON-serializable; consumers
+    // parse opportunistically. Kept as v.any() because the shape per surface
+    // is intentionally heterogeneous (attempt counts, status codes, retry
+    // backoff applied, etc.). v.any() is the established pattern for this
+    // class of "structured-but-open" payloads elsewhere in the schema.
+    metadata: v.optional(v.any()),
+  })
+    // Trailing-window scans for the Wave 7.2 ladder state decision: most
+    // queries are "give me all events of surface X with kind Y in the last
+    // 5 minutes." Convex auto-appends _creationTime to every index, so the
+    // explicit field list omits it (an explicit add throws
+    // IndexFieldsContainCreationTime at schema push).
+    .index("by_surface_kind_time", ["surface", "kind"])
+    // Per-user diagnostic scans: "what reliability events fired for user U
+    // recently" — supports Wave 7.3 rate-limit forensics and per-user pain
+    // detection. _creationTime auto-appended as above.
+    .index("by_user_time", ["user_id"]),
 });

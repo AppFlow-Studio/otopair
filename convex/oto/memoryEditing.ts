@@ -74,6 +74,11 @@ import type { Doc, Id } from "../_generated/dataModel";
 // user_semantic_facts. Pure-function module; zero Convex-runtime deps so
 // import is cheap and harness-safe. See memoryDecay.ts header for contract.
 import { decayConfidence } from "./memoryDecay";
+// Sprint 2 Day 9 (Wave 7.3) — PII read-rate-limit primitive. The wrap sites
+// in getCrossConversationMemory + getActiveUserSemanticFactsForUser call
+// checkPIIRead before the existing read logic; hard-block returns the empty
+// array (degraded mode) rather than throwing. See queryMoat.ts PII_TABLES.
+import { checkPIIRead } from "./queryMoat";
 
 // -----------------------------------------------------------------------------
 // Shared validators — mirror the schema unions so a typo here surfaces at
@@ -1357,6 +1362,47 @@ export const getCrossConversationMemory = internalQuery({
       effective_confidence?: number;
     }>
   > => {
+    // Wave 7.3 (Day 9) — PII read-rate-limit per design §2.2 + §2.4.
+    // Defense-in-depth: hard-block returns empty array (degraded mode);
+    // NEVER throws (would break the chat turn). Counter read is best-effort
+    // — any infrastructure fault inside checkPIIRead returns ok=true
+    // (fail-open on infra), fail-closed only on actual abuse.
+    //
+    // Scope decision: the check is applied to `user_semantic_facts` ONLY.
+    // Pool A reads `conversation_facts` (this user's prior conversations,
+    // conversation-scoped — not user-PII-aggregable in the same way; a
+    // single conversation's facts are short-lived and not a privacy
+    // exfiltration target on the same axis). Pool B reads
+    // `user_semantic_facts` (long-lived user PII — preferences, profile
+    // attributes — the privacy target). Hard-block on the user-semantic
+    // surface returns [] from the WHOLE query (both pools), because the
+    // envelope contract treats this query's result as one merged stream;
+    // emitting just Pool A would surface a partial result the caller has
+    // no signal to differentiate from "no facts". Defensible: the rate-
+    // limit fires only at 5x normal pull rate, so degraded-to-empty for
+    // the rest of the 10-min window is the correct conservative posture.
+    try {
+      const piiCheck = await checkPIIRead(ctx, {
+        user_id: args.user_id,
+        table_name: "user_semantic_facts",
+      });
+      if (!piiCheck.ok) {
+        console.warn(
+          `[oto/memoryEditing.getCrossConversationMemory] PII rate-limit ` +
+            `hard-block: reason=${piiCheck.reason} user=${args.user_id} ` +
+            `table=user_semantic_facts remaining_s=${piiCheck.remaining_seconds}`,
+        );
+        return [];
+      }
+    } catch (err) {
+      // Fail-open on the check itself (infra fault). The rate-limit is
+      // defense-in-depth, not a hard gate; never break a chat turn here.
+      console.warn(
+        `[oto/memoryEditing.getCrossConversationMemory] PII check fault ` +
+          `(fail-open): ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+
     if (args.top_K <= 0) return [];
 
     // Two-pool reranker. Each pool produces a sequence of candidate rows
@@ -1774,6 +1820,36 @@ export const getActiveUserSemanticFactsForUser = internalQuery({
       observation_count: number;
     }>
   > => {
+    // Wave 7.3 (Day 9) — PII read-rate-limit per design §2.2 + §2.4.
+    // Defense-in-depth: hard-block returns empty array (degraded mode);
+    // NEVER throws (would break the chat turn). Counter read is best-effort
+    // — any infrastructure fault inside checkPIIRead returns ok=true
+    // (fail-open on infra), fail-closed only on actual abuse.
+    //
+    // This query reads `user_semantic_facts` directly — the canonical PII
+    // surface — so the check applies unambiguously here.
+    try {
+      const piiCheck = await checkPIIRead(ctx, {
+        user_id: args.user_id,
+        table_name: "user_semantic_facts",
+      });
+      if (!piiCheck.ok) {
+        console.warn(
+          `[oto/memoryEditing.getActiveUserSemanticFactsForUser] PII ` +
+            `rate-limit hard-block: reason=${piiCheck.reason} ` +
+            `user=${args.user_id} table=user_semantic_facts ` +
+            `remaining_s=${piiCheck.remaining_seconds}`,
+        );
+        return [];
+      }
+    } catch (err) {
+      // Fail-open on the check itself (infra fault).
+      console.warn(
+        `[oto/memoryEditing.getActiveUserSemanticFactsForUser] PII check ` +
+          `fault (fail-open): ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+
     if (args.top_K <= 0) return [];
 
     const rows = await ctx.db

@@ -353,6 +353,30 @@ async function sendMessageHandler(
       console.warn(
         `[oto/chat] retry-exhaust friendly-fallback fired: kind=${e.kind}, lastStatus=${e.lastStatus ?? "network"}, attempts=${e.attempts}`,
       );
+      // Sprint 2 Day 9 — observability: structured reliability event for the
+      // Wave 7.2 ladder. The boundary warn above is for stdout filters; this
+      // is the metric/alert substrate. anthropic_retry_exhausted is one of
+      // the demotion triggers per docs/SPRINT_2/WAVE_7_2_DEGRADATION_LADDER.md
+      // §2.1. Fire-and-forget — own .catch() so observability cannot fail
+      // the chat turn (this IS the chat-turn-failure path; we're already in
+      // the friendly-fallback).
+      ctx
+        .runMutation(internal.oto.reliability.recordReliabilityEvent, {
+          surface: "anthropic_retry_exhausted",
+          kind: "transient_error",
+          error_message: e.message,
+          metadata: {
+            transient_kind: e.kind,
+            last_status: e.lastStatus ?? null,
+            attempts: e.attempts,
+          },
+        })
+        .catch((reportErr: unknown) => {
+          console.error(
+            "[oto/chat] recordReliabilityEvent itself failed (silent):",
+            (reportErr as { message?: string })?.message,
+          );
+        });
       // User-facing copy: short, non-technical, suggests a retry. The two
       // kinds get slightly different phrasing so users can tell repeated
       // overload waves apart from a one-off blip. Anthropic outages tend to
@@ -368,6 +392,24 @@ async function sendMessageHandler(
     }
     // Anything else (auth failure, 4xx-non-429, programmer error): re-throw
     // so it surfaces as a real Uncaught Error and gets fixed.
+    // Sprint 2 Day 9 — observability: record the uncaught-boundary swallow
+    // BEFORE re-throwing. This catches programmer errors (the Day 8
+    // ReturnsValidationError class of bug) that previously surfaced only
+    // when a user complained — now metric/alert-able from the
+    // chat_action_uncaught surface in reliability_events.
+    const uncaughtMsg = e instanceof Error ? e.message : String(e);
+    ctx
+      .runMutation(internal.oto.reliability.recordReliabilityEvent, {
+        surface: "chat_action_uncaught",
+        kind: "validation_error",
+        error_message: uncaughtMsg,
+      })
+      .catch((reportErr: unknown) => {
+        console.error(
+          "[oto/chat] recordReliabilityEvent itself failed (silent):",
+          (reportErr as { message?: string })?.message,
+        );
+      });
     throw e;
   }
 }
@@ -512,6 +554,25 @@ async function sendMessageHandlerCore(
       "[oto/chat] getCrossConversationMemory failed (swallowed):",
       e?.message,
     );
+    // Sprint 2 Day 9 — observability: fire-and-forget reliability event so
+    // silent degradation surfaces via metric/alert rather than waiting for
+    // behavioral symptoms. The Day 8 EOD ReturnsValidationError on THIS
+    // very call site was empty-envelope-for-12-hrs — exactly the failure
+    // class this surface catches.
+    ctx
+      .runMutation(internal.oto.reliability.recordReliabilityEvent, {
+        surface: "wave3_get_cross_conv_memory",
+        kind: "swallowed",
+        error_message: e?.message,
+        user_id: user._id,
+        conversation_id: conversationId,
+      })
+      .catch((reportErr: unknown) => {
+        console.error(
+          "[oto/chat] recordReliabilityEvent itself failed (silent):",
+          (reportErr as { message?: string })?.message,
+        );
+      });
     priorConversationFacts = [];
   }
 
@@ -898,6 +959,31 @@ async function sendMessageHandlerCore(
                   turn: conversationFactTurnNumber,
                 },
               );
+              // Sprint 2 Day 9 — observability: per-render swallow signal.
+              ctx
+                .runMutation(
+                  internal.oto.reliability.recordReliabilityEvent,
+                  {
+                    surface: "wave3_record_selection_fact",
+                    kind: "swallowed",
+                    error_message: innerErr?.message,
+                    user_id: user._id,
+                    conversation_id: conversationId,
+                    metadata: {
+                      tool: tu.name,
+                      entity_type: entityType,
+                      entity_id: entityId,
+                      turn: conversationFactTurnNumber,
+                      scope: "inner",
+                    },
+                  },
+                )
+                .catch((reportErr: unknown) => {
+                  console.error(
+                    "[oto/chat] recordReliabilityEvent itself failed (silent):",
+                    (reportErr as { message?: string })?.message,
+                  );
+                });
             }
           }
         }
@@ -910,6 +996,22 @@ async function sendMessageHandlerCore(
           "[oto/chat] recordSelectionFact mirror failed (swallowed):",
           e?.message,
         );
+        // Sprint 2 Day 9 — observability: outer-mirror swallow signal.
+        ctx
+          .runMutation(internal.oto.reliability.recordReliabilityEvent, {
+            surface: "wave3_record_selection_fact",
+            kind: "swallowed",
+            error_message: e?.message,
+            user_id: user._id,
+            conversation_id: conversationId,
+            metadata: { scope: "outer_mirror" },
+          })
+          .catch((reportErr: unknown) => {
+            console.error(
+              "[oto/chat] recordReliabilityEvent itself failed (silent):",
+              (reportErr as { message?: string })?.message,
+            );
+          });
       }
 
       // Whatever text accompanied the render call is the user-facing prose.
@@ -1159,6 +1261,22 @@ async function sendMessageHandlerCore(
         "[oto/chat] conversation_audit user-row insert failed (swallowed):",
         e?.message,
       );
+      // Sprint 2 Day 9 — observability: recordTurn swallow signal.
+      ctx
+        .runMutation(internal.oto.reliability.recordReliabilityEvent, {
+          surface: "wave3_record_turn",
+          kind: "swallowed",
+          error_message: e?.message,
+          user_id: user._id,
+          conversation_id: conversationId,
+          metadata: { role: "user", turn_number: turnNumber },
+        })
+        .catch((reportErr: unknown) => {
+          console.error(
+            "[oto/chat] recordReliabilityEvent itself failed (silent):",
+            (reportErr as { message?: string })?.message,
+          );
+        });
     }
 
     try {
@@ -1180,6 +1298,26 @@ async function sendMessageHandlerCore(
         "[oto/chat] conversation_audit assistant-row insert failed (swallowed):",
         e?.message,
       );
+      // Sprint 2 Day 9 — observability: recordTurn (assistant) swallow signal.
+      ctx
+        .runMutation(internal.oto.reliability.recordReliabilityEvent, {
+          surface: "wave3_record_turn",
+          kind: "swallowed",
+          error_message: e?.message,
+          user_id: user._id,
+          conversation_id: conversationId,
+          metadata: {
+            role: "assistant",
+            turn_number: turnNumber,
+            model_used: modelShortLiteral,
+          },
+        })
+        .catch((reportErr: unknown) => {
+          console.error(
+            "[oto/chat] recordReliabilityEvent itself failed (silent):",
+            (reportErr as { message?: string })?.message,
+          );
+        });
     }
 
     // Wave 3 wire-in step 3 (commitControl — sonnet_turns_used counter).
@@ -1219,6 +1357,22 @@ async function sendMessageHandlerCore(
           "[oto/chat] commitControl (sonnet_turns_used) mirror failed (swallowed):",
           e?.message,
         );
+        // Sprint 2 Day 9 — observability: control-class mirror swallow.
+        ctx
+          .runMutation(internal.oto.reliability.recordReliabilityEvent, {
+            surface: "wave3_commit_control_sonnet",
+            kind: "swallowed",
+            error_message: e?.message,
+            user_id: user._id,
+            conversation_id: conversationId,
+            metadata: { trigger: "sonnet_turns_used_counter" },
+          })
+          .catch((reportErr: unknown) => {
+            console.error(
+              "[oto/chat] recordReliabilityEvent itself failed (silent):",
+              (reportErr as { message?: string })?.message,
+            );
+          });
       }
     }
   }
@@ -1938,6 +2092,24 @@ function buildCallables(
           "[oto/chat] retrieve_vehicle_facts runFullCascade swallowed error:",
           msg,
         );
+        // Sprint 2 Day 9 — observability: cascade-strangler swallow signal.
+        // This surface feeds the FULL→DEGRADED ladder transition per
+        // docs/SPRINT_2/WAVE_7_2_DEGRADATION_LADDER.md §2.1 (the web_search-
+        // tagged failure pattern shows up here).
+        ctx
+          .runMutation(internal.oto.reliability.recordReliabilityEvent, {
+            surface: "cascade_strangler_full_cascade",
+            kind: "swallowed",
+            error_message: msg,
+            user_id: userId,
+            conversation_id: conversationId,
+          })
+          .catch((reportErr: unknown) => {
+            console.error(
+              "[oto/chat] recordReliabilityEvent itself failed (silent):",
+              (reportErr as { message?: string })?.message,
+            );
+          });
         // Graceful empty-facts fallback — see comment above.
         result = { tier: null, facts: [] };
       }
@@ -2221,6 +2393,22 @@ function buildCallables(
               "[oto/chat] record_semantic_fact reinforce swallowed error; falling back to insert:",
               msg,
             );
+            // Sprint 2 Day 9 — observability: reinforce-fallback signal.
+            ctx
+              .runMutation(internal.oto.reliability.recordReliabilityEvent, {
+                surface: "wave3_record_semantic_fact_reinforce",
+                kind: "swallowed",
+                error_message: msg,
+                user_id: userId,
+                conversation_id: conversationId,
+                metadata: { existing_fact_id: existingFactId },
+              })
+              .catch((reportErr: unknown) => {
+                console.error(
+                  "[oto/chat] recordReliabilityEvent itself failed (silent):",
+                  (reportErr as { message?: string })?.message,
+                );
+              });
             // fall through to insert below
           }
         }
@@ -2253,6 +2441,22 @@ function buildCallables(
           "[oto/chat] record_semantic_fact swallowed error:",
           msg,
         );
+        // Sprint 2 Day 9 — observability: outer semantic-fact swallow signal.
+        ctx
+          .runMutation(internal.oto.reliability.recordReliabilityEvent, {
+            surface: "wave3_record_semantic_fact",
+            kind: "swallowed",
+            error_message: msg,
+            user_id: userId,
+            conversation_id: conversationId,
+            metadata: { fact_type: factTypeTyped, source: sourceTyped },
+          })
+          .catch((reportErr: unknown) => {
+            console.error(
+              "[oto/chat] recordReliabilityEvent itself failed (silent):",
+              (reportErr as { message?: string })?.message,
+            );
+          });
         return { ok: false, recorded: false };
       }
     },
@@ -2363,6 +2567,25 @@ function buildCallables(
                 innerErr?.message,
                 { fact: factText, turn: factSourceTurn },
               );
+              // Sprint 2 Day 9 — observability: per-row conversation_fact swallow.
+              ctx
+                .runMutation(
+                  internal.oto.reliability.recordReliabilityEvent,
+                  {
+                    surface: "wave3_record_conversation_fact",
+                    kind: "swallowed",
+                    error_message: innerErr?.message,
+                    user_id: userId,
+                    conversation_id: conversationId,
+                    metadata: { turn: factSourceTurn, scope: "inner" },
+                  },
+                )
+                .catch((reportErr: unknown) => {
+                  console.error(
+                    "[oto/chat] recordReliabilityEvent itself failed (silent):",
+                    (reportErr as { message?: string })?.message,
+                  );
+                });
             }
           }
         } catch (e: any) {
@@ -2375,6 +2598,22 @@ function buildCallables(
             "[oto/chat] conversation_facts mirror failed (swallowed):",
             e?.message,
           );
+          // Sprint 2 Day 9 — observability: outer mirror swallow signal.
+          ctx
+            .runMutation(internal.oto.reliability.recordReliabilityEvent, {
+              surface: "wave3_record_conversation_fact",
+              kind: "swallowed",
+              error_message: e?.message,
+              user_id: userId,
+              conversation_id: conversationId,
+              metadata: { scope: "outer_mirror" },
+            })
+            .catch((reportErr: unknown) => {
+              console.error(
+                "[oto/chat] recordReliabilityEvent itself failed (silent):",
+                (reportErr as { message?: string })?.message,
+              );
+            });
         }
       }
 
@@ -2485,6 +2724,22 @@ function buildCallables(
             "[oto/chat] commitEpisodic mirror failed (swallowed):",
             e?.message,
           );
+          // Sprint 2 Day 9 — observability: episodic mirror swallow signal.
+          ctx
+            .runMutation(internal.oto.reliability.recordReliabilityEvent, {
+              surface: "wave3_commit_episodic",
+              kind: "swallowed",
+              error_message: e?.message,
+              user_id: userId,
+              conversation_id: conversationId,
+              metadata: { mood_changed: moodChanged, arc_changed: arcChanged },
+            })
+            .catch((reportErr: unknown) => {
+              console.error(
+                "[oto/chat] recordReliabilityEvent itself failed (silent):",
+                (reportErr as { message?: string })?.message,
+              );
+            });
         }
       }
 
@@ -2527,6 +2782,22 @@ function buildCallables(
           "[oto/chat] setCurrentModel (sonnet handoff) failed (swallowed):",
           e?.message,
         );
+        // Sprint 2 Day 9 — observability: sonnet handoff failure signal.
+        ctx
+          .runMutation(internal.oto.reliability.recordReliabilityEvent, {
+            surface: "setCurrentModel_sonnet_handoff",
+            kind: "swallowed",
+            error_message: e?.message,
+            user_id: userId,
+            conversation_id: conversationId,
+            metadata: { reason },
+          })
+          .catch((reportErr: unknown) => {
+            console.error(
+              "[oto/chat] recordReliabilityEvent itself failed (silent):",
+              (reportErr as { message?: string })?.message,
+            );
+          });
         return { ok: false, model: "haiku" as const, reason };
       }
       console.log(`[oto/chat] sonnet handoff requested (reason: ${reason})`);
@@ -2558,6 +2829,22 @@ function buildCallables(
           "[oto/chat] commitControl (sonnet handoff) mirror failed (swallowed):",
           e?.message,
         );
+        // Sprint 2 Day 9 — observability: sonnet-handoff control-mirror swallow.
+        ctx
+          .runMutation(internal.oto.reliability.recordReliabilityEvent, {
+            surface: "wave3_commit_control_sonnet",
+            kind: "swallowed",
+            error_message: e?.message,
+            user_id: userId,
+            conversation_id: conversationId,
+            metadata: { trigger: "sonnet_handoff_mirror", reason },
+          })
+          .catch((reportErr: unknown) => {
+            console.error(
+              "[oto/chat] recordReliabilityEvent itself failed (silent):",
+              (reportErr as { message?: string })?.message,
+            );
+          });
       }
       return { ok: true, model: "sonnet", reason };
     },
@@ -2590,6 +2877,22 @@ function buildCallables(
           "[oto/chat] setCurrentModel (haiku handback) failed (swallowed):",
           e?.message,
         );
+        // Sprint 2 Day 9 — observability: haiku handback failure signal.
+        ctx
+          .runMutation(internal.oto.reliability.recordReliabilityEvent, {
+            surface: "setCurrentModel_haiku_handback",
+            kind: "swallowed",
+            error_message: e?.message,
+            user_id: userId,
+            conversation_id: conversationId,
+            metadata: { reason },
+          })
+          .catch((reportErr: unknown) => {
+            console.error(
+              "[oto/chat] recordReliabilityEvent itself failed (silent):",
+              (reportErr as { message?: string })?.message,
+            );
+          });
         return { ok: false, model: "sonnet" as const, reason };
       }
       console.log(`[oto/chat] haiku handback (reason: ${reason})`);
@@ -2620,6 +2923,22 @@ function buildCallables(
           "[oto/chat] commitControl (haiku handback) mirror failed (swallowed):",
           e?.message,
         );
+        // Sprint 2 Day 9 — observability: haiku-handback control-mirror swallow.
+        ctx
+          .runMutation(internal.oto.reliability.recordReliabilityEvent, {
+            surface: "wave3_commit_control_haiku",
+            kind: "swallowed",
+            error_message: e?.message,
+            user_id: userId,
+            conversation_id: conversationId,
+            metadata: { trigger: "haiku_handback_mirror", reason },
+          })
+          .catch((reportErr: unknown) => {
+            console.error(
+              "[oto/chat] recordReliabilityEvent itself failed (silent):",
+              (reportErr as { message?: string })?.message,
+            );
+          });
       }
       return { ok: true, model: "haiku", reason };
     },
@@ -2728,6 +3047,22 @@ function buildCallables(
           "[oto/chat] retract_semantic_fact swallowed error:",
           msg,
         );
+        // Sprint 2 Day 9 — observability: retract semantic-fact swallow signal.
+        ctx
+          .runMutation(internal.oto.reliability.recordReliabilityEvent, {
+            surface: "wave3_retract_semantic_fact",
+            kind: "swallowed",
+            error_message: msg,
+            user_id: userId,
+            conversation_id: conversationId,
+            metadata: { fact_type: factTypeTyped },
+          })
+          .catch((reportErr: unknown) => {
+            console.error(
+              "[oto/chat] recordReliabilityEvent itself failed (silent):",
+              (reportErr as { message?: string })?.message,
+            );
+          });
         return { ok: false, reason: "swallowed error" };
       }
     },
@@ -2800,6 +3135,21 @@ function buildCallables(
           "[oto/chat] retract_conversation_fact swallowed error:",
           msg,
         );
+        // Sprint 2 Day 9 — observability: retract conversation-fact swallow.
+        ctx
+          .runMutation(internal.oto.reliability.recordReliabilityEvent, {
+            surface: "wave3_retract_conversation_fact",
+            kind: "swallowed",
+            error_message: msg,
+            user_id: userId,
+            conversation_id: conversationId,
+          })
+          .catch((reportErr: unknown) => {
+            console.error(
+              "[oto/chat] recordReliabilityEvent itself failed (silent):",
+              (reportErr as { message?: string })?.message,
+            );
+          });
         return { ok: false, reason: "swallowed error" };
       }
     },

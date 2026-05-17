@@ -127,6 +127,57 @@ export const MOAT_TABLES = [
 export type MoatTable = (typeof MOAT_TABLES)[number];
 
 // -----------------------------------------------------------------------------
+// Wave 7.3 (Day 9) — PII read-rate-limit surfaces.
+//
+// These tables store per-user personal data (semantic preferences, full chat
+// history). A compromised auth session could exfiltrate a user's entire
+// memory + history via repeated reads at full Convex query speed. The limit
+// caps per-user PII-read CALL counts in a rolling window; on hard-block the
+// wrap site returns the empty array (degraded mode) rather than throwing,
+// so a chat turn never breaks on rate-limit alone.
+//
+// Distinct from the moat-tables list above (chat-tool moat reads with
+// EvalTest filter + row-delta counting against a 24h window) — different
+// threat model, different threshold, different units (PII = call count;
+// moat = row count).
+//
+// `conversation_audit` is append-only forensic spine with no current read
+// surface in the chat path; it is included here so a future read site can
+// be wrapped with the same primitive without a list edit.
+// -----------------------------------------------------------------------------
+
+export const PII_TABLES = [
+  "user_semantic_facts",
+  "conversation_audit",
+] as const;
+
+export type PIITable = (typeof PII_TABLES)[number];
+
+/**
+ * Per-user PII-read threshold: 50 calls / 600s rolling window (10 min).
+ *
+ * Calibrated for typical chat usage: a normal user generates ~5-10 PII
+ * reads per active conversation (one per turn into the cross-conversation
+ * memory envelope plus diagnostic queries). 50 in 10 min is ~5x normal,
+ * surfaces abuse without false-positive on heavy-use sessions. Tunable
+ * via env `OTO_PII_READ_LIMIT` for runtime override without a deploy.
+ */
+function getPIIReadLimit(): number {
+  const raw =
+    typeof process !== "undefined" &&
+    process.env &&
+    typeof process.env.OTO_PII_READ_LIMIT === "string"
+      ? process.env.OTO_PII_READ_LIMIT
+      : null;
+  if (raw === null) return 50;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return 50;
+  return parsed;
+}
+
+const PII_READ_WINDOW_MS = 600_000;
+
+// -----------------------------------------------------------------------------
 // Calibration constants — both are placeholders for Sprint 2 calibration.
 // -----------------------------------------------------------------------------
 
@@ -421,6 +472,229 @@ export const bumpUserCounter = internalMutation({
       args.rowsDelta,
       threshold,
     );
+    return { decision };
+  },
+});
+
+// =============================================================================
+// Wave 7.3 (Day 9) — PII read-rate-limit primitives.
+// =============================================================================
+//
+// THREAT MODEL
+// ------------
+// A compromised auth token grants user-scoped access to PII-dense tables
+// (`user_semantic_facts`, `conversation_audit`). The rate-limit caps the
+// EXFILTRATION SPEED — the attacker cannot pull a user's entire memory
+// store at full Convex query speed. Full token revocation is Clerk's
+// domain and out of scope here.
+//
+// The check is keyed on the auth-derived `user_id`, NOT request IP — a
+// hostile actor on the same session would still bump the same counter
+// regardless of where they call from.
+//
+// DESIGN POSTURE
+// --------------
+// * `checkPIIRead` is a READ-ONLY helper callable from a QueryCtx. It
+//   inspects the user row's `pii_reads_window` + `pii_reads_window_start`
+//   and returns the enforcement decision. It does NOT mutate (Convex
+//   queries cannot patch — the platform invariant).
+//
+// * `bumpPIIReadCounter` is the corresponding internalMutation that
+//   PERSISTS the increment. It is callable from action context only:
+//   the chat.ts action that initiated the query is responsible for
+//   firing `ctx.runMutation(internal.oto.queryMoat.bumpPIIReadCounter,
+//   ...)` after each PII-table runQuery, in the same fire-and-forget
+//   pattern as `bumpUserCounter`.
+//
+// * Until that action-side wire-up lands (Day 10 follow-up dispatch
+//   coupling — kept out of this round per the partition contract), the
+//   counter remains at 0/0 for users who only ever read via the query
+//   path. `checkPIIRead` will always return `{ ok: true }` in that
+//   regime — the check is in place and observable; persistence wiring
+//   is the next step. Documented here so the rate-limit's posture is
+//   not surprising on inspection.
+//
+// FAIL-OPEN POSTURE
+// -----------------
+// If reading the user row fails for any infrastructure reason (row
+// missing, ctx.db transient error, malformed counter fields), the
+// helper returns `{ ok: true }` — the underlying read proceeds. The
+// rate-limit is a defense-in-depth layer; an infrastructure fault
+// must NOT break a chat turn. This is fail-open on infra fault,
+// fail-closed on actual abuse (counter-exceeds-threshold).
+//
+// DISTINCT FROM bumpUserCounter
+// -----------------------------
+// We add a parallel `bumpPIIReadCounter` rather than generalizing the
+// existing `bumpUserCounter` because the two counters differ in three
+// axes that cannot be unified cleanly:
+//   1. UNITS — moat is row-count delta; PII is call count (delta=1).
+//   2. WINDOW — moat is 24h; PII is 10 min.
+//   3. THRESHOLD — moat is N×p95 (~10,000); PII is 50.
+// Reusing the same fields would conflate the two windows and force
+// every moat read to reset the PII window (or vice versa).
+// =============================================================================
+
+/**
+ * Read-only PII-read rate-limit check. Inspects the user row's PII counter
+ * state and returns the enforcement decision. Safe to call from a QueryCtx
+ * (read-only). Persistence is the action-side caller's job via
+ * `bumpPIIReadCounter` after each PII-table read.
+ *
+ * Fail-open: any infrastructure error returns `{ ok: true }` so the
+ * underlying read proceeds. The wrap site should defensively also
+ * try/catch its call to this helper.
+ *
+ * @param ctx        Convex QueryCtx | MutationCtx (anything with `db`).
+ * @param args.user_id    The auth-derived user id (caller's already-resolved id).
+ * @param args.table_name The PII table being read (informational; for the
+ *                        log line at the wrap site; the counter is single
+ *                        per-user, not per-table).
+ */
+export async function checkPIIRead(
+  ctx: { db: { get: (id: Id<"users">) => Promise<Doc<"users"> | null> } },
+  args: { user_id: Id<"users">; table_name: PIITable },
+): Promise<
+  | { ok: true }
+  | {
+      ok: false;
+      reason: "pii_read_rate_limited";
+      remaining_seconds: number;
+      table_name: PIITable;
+    }
+> {
+  let user: Doc<"users"> | null;
+  try {
+    user = await ctx.db.get(args.user_id);
+  } catch {
+    // Infra fault — fail open.
+    return { ok: true };
+  }
+  if (!user) {
+    // User row vanished mid-call. Treat as fail-open (the read will likely
+    // produce nothing useful anyway). NEVER hard-block a missing user.
+    return { ok: true };
+  }
+  if (user.moat_reads_is_admin_exempt === true) {
+    // Admin exemption (Waleed/Temur) — shared with the moat counter's
+    // admin flag because the exemption semantic is "this user bypasses
+    // ALL per-user rate-limits", not just one surface.
+    return { ok: true };
+  }
+
+  const now = Date.now();
+  const windowStart = user.pii_reads_window_start;
+  const currentCount = user.pii_reads_window ?? 0;
+
+  // If no prior window or this is a fresh window, the next call would
+  // start at 1 — well under the threshold. Always ok.
+  if (windowStart === undefined || now - windowStart > PII_READ_WINDOW_MS) {
+    return { ok: true };
+  }
+
+  const limit = getPIIReadLimit();
+  if (currentCount < limit) {
+    // Under threshold — read may proceed; the action-side caller will
+    // bump the counter via bumpPIIReadCounter after the read.
+    return { ok: true };
+  }
+
+  // At or above threshold — hard-block within current window.
+  // remaining_seconds tells the caller how long until the window resets.
+  const remainingMs = PII_READ_WINDOW_MS - (now - windowStart);
+  return {
+    ok: false,
+    reason: "pii_read_rate_limited",
+    remaining_seconds: Math.ceil(remainingMs / 1000),
+    table_name: args.table_name,
+  };
+}
+
+/**
+ * Apply a per-user PII-read counter bump. Window-aware: opens a fresh
+ * window if the prior one has expired (>10 min since last bump),
+ * otherwise increments the current window's count.
+ *
+ * Fail-open: counter write failures are caught at the call site (the
+ * bump runs fire-and-forget after the read has already produced data).
+ *
+ * Parallel to `applyBumpAndDecide` but for the PII counter fields and
+ * with call-count units (delta is always 1 per bump call).
+ */
+async function applyPIIBump(
+  ctx: CtxWithDb,
+  userId: Id<"users">,
+): Promise<BumpDecision> {
+  const user: Doc<"users"> | null = await ctx.db.get(userId);
+  if (!user) {
+    // User row vanished mid-call. Treat as system call.
+    return "ok";
+  }
+  if (user.moat_reads_is_admin_exempt === true) {
+    return "ok";
+  }
+
+  const now = Date.now();
+  const windowStart = user.pii_reads_window_start;
+  const currentCount = user.pii_reads_window ?? 0;
+
+  let newCount: number;
+  let newWindowStart: number;
+  if (windowStart === undefined || now - windowStart > PII_READ_WINDOW_MS) {
+    // Fresh window opens with this bump.
+    newCount = 1;
+    newWindowStart = now;
+  } else {
+    newCount = currentCount + 1;
+    newWindowStart = windowStart;
+  }
+
+  await ctx.db.patch(userId, {
+    pii_reads_window: newCount,
+    pii_reads_window_start: newWindowStart,
+  });
+
+  const limit = getPIIReadLimit();
+  // PII counter has no soft-block tier — the wrap site already returns
+  // empty array (degraded mode) on hard-block, which is the equivalent
+  // SLA degradation. Reporting `hard_block` exclusively keeps the trace
+  // signal unambiguous.
+  if (newCount > limit) {
+    return "hard_block";
+  }
+  return "ok";
+}
+
+/**
+ * Action-context PII-read counter bump. Mirror of `bumpUserCounter` for
+ * the PII counter. Wired from chat.ts (or any action) AFTER a PII-table
+ * `ctx.runQuery(...)` lands. The wrap site inside the query already
+ * read-checked the counter via `checkPIIRead`; this is the persistence
+ * companion.
+ *
+ * Returns the enforcement decision; chat.ts treats it identically to
+ * the moat counter: log on hard-block, but the read already returned.
+ * The decision is an alarm signal, not a circuit breaker at this
+ * surface (the in-query `checkPIIRead` is the actual gate).
+ */
+// @ts-expect-error TS2589 -- same generic resolution depth as
+// bumpUserCounter above (Convex internalMutation through api.d.ts).
+export const bumpPIIReadCounter = internalMutation({
+  args: {
+    userId: v.id("users"),
+  },
+  // @ts-expect-error TS2589 -- returns validator depth, matches the
+  // suppression pattern on bumpUserCounter's returns.
+  returns: v.object({
+    decision: v.union(
+      v.literal("ok"),
+      v.literal("soft_block"),
+      v.literal("hard_block"),
+    ),
+  }),
+  // @ts-expect-error TS2589 -- handler-arg inference depth, same root.
+  handler: async (ctx, args): Promise<{ decision: BumpDecision }> => {
+    const decision = await applyPIIBump(ctx, args.userId);
     return { decision };
   },
 });
