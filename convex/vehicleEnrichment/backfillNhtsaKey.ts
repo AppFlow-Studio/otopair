@@ -54,6 +54,11 @@ export const _listConfigsMissingNhtsaKey = internalQuery({
   handler: async (ctx, args) => {
     const rows = await ctx.db
       .query("vehicle_configs")
+      // Convex's index `q.eq` is typed against the field's stored type
+      // (here `string`), so passing `undefined` to find unset rows is a
+      // type-system false negative. The runtime supports it for optional
+      // indexed fields — see schema `nhtsa_vin_key: v.optional(v.string())`.
+      // @ts-expect-error TS2769 — see comment above.
       .withIndex("by_nhtsa_vin_key", (q) => q.eq("nhtsa_vin_key", undefined))
       .take(args.limit);
     return rows.map((r) => ({ _id: r._id, config_key: r.config_key }));
@@ -97,6 +102,15 @@ export const _setNhtsaVinKey = internalMutation({
 
 // ─── Public action ───────────────────────────────────────────────
 
+// `@ts-expect-error TS2589` silences a known Convex+TypeScript quirk:
+// once this file is registered in api.d.ts, the `action({...})` generic
+// resolves through an `internal` type tree that contains its own output
+// type and the deep chain of runQuery/runMutation calls in this body
+// pushes TS past its instantiation depth limit. The `nhtsa_vin_key`
+// TS2339 cascades from the same root — once TS bails, doc types
+// collapse to the union of all tables. Runtime is unaffected — Convex
+// validates via `convex dev`. Same remedy as `convex/oto/chat.ts:115`.
+// @ts-expect-error TS2589 — see comment block above.
 export const backfillNhtsaVinKeys = action({
   args: {
     limit: v.optional(v.number()),

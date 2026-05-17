@@ -23,6 +23,16 @@ import { v } from "convex/values";
 import { action } from "../_generated/server";
 import { internal, api } from "../_generated/api";
 
+// `@ts-expect-error TS2589` silences a known Convex+TypeScript quirk:
+// once this file is registered in api.d.ts as `internal.vehicleEnrichment.runHeadless.go`,
+// the `action({...})` generic resolves through an `api`/`internal` type
+// tree that contains its own output type, and TS hits its depth limit
+// ("Type instantiation is excessively deep"). The runtime is unaffected
+// — Convex doesn't go through tsc. Using `expect-error` (vs `ts-ignore`)
+// makes tsc complain if Convex ever ships a fix that eliminates the
+// false positive, so we know to drop the suppression. Same root cause
+// + remedy as `convex/oto/chat.ts:115`.
+// @ts-expect-error TS2589 — see comment block above.
 export const go = action({
   args: { vin: v.string() },
   handler: async (ctx, args) => {

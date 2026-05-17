@@ -34,7 +34,7 @@
 import { query, mutation, internalMutation } from "./_generated/server";
 import { v } from "convex/values";
 import type { Id } from "./_generated/dataModel";
-import { internal } from "./_generated/api";
+import { internal, api } from "./_generated/api";
 import { isTerminal, validateTransition } from "./booking_status_history";
 import { BOOKING_STATUS_VISUALS, type BookingStatus } from "../lib/booking-status";
 import {
@@ -81,6 +81,12 @@ import {
   vehiclePassportUpdateValidator,
 } from "./lib/vehicle_passports";
 import { getBookingServiceFlags } from "../lib/vehicle-service-relevance";
+import { insertSnapshotImpl } from "./part_snapshots";
+import {
+  closeRecForCompletedBooking,
+  closeMatchingRecsForCompletedBooking,
+  submitRecommendationsForBooking,
+} from "./jobRecommendations";
 import {
   templateForSystem,
   type DiagnosticSystem,
@@ -505,6 +511,13 @@ export const cancelBooking = mutation({
       existing.user_id,
       args.reason ?? "user_cancelled",
     );
+    await syncBookingAssignments(ctx, [
+      {
+        shopId: existing.shop_id,
+        mechanicId: existing.mechanic_id ?? undefined,
+        date: existing.scheduled_date,
+      },
+    ]);
   },
 });
 
@@ -708,6 +721,7 @@ export const create = mutation({
     total_cost: v.float64(),
     session_id: v.optional(v.string()),
     funnel_id: v.optional(v.id("conversion_funnels")),
+    source_recommendation_id: v.optional(v.id("job_recommendations")),
   },
   handler: async (ctx, args) => {
     const normalizedVin = toCanonicalVin(args.vin);
@@ -766,6 +780,7 @@ export const create = mutation({
       assignment_preference: "any",
       created_at: now,
       updated_at: now,
+      source_recommendation_id: args.source_recommendation_id,
     });
 
     await logBookingStatusChange(
@@ -842,6 +857,18 @@ export const createBatch = mutation({
     platform_fee: v.optional(v.float64()),
     session_id: v.optional(v.string()),
     funnel_id: v.optional(v.id("conversion_funnels")),
+    source_recommendation_id: v.optional(v.id("job_recommendations")),
+    customer_notes: v.optional(v.string()),
+    selected_service_options: v.optional(
+      v.array(
+        v.object({
+          service_id: v.id("services"),
+          option_id: v.id("service_options"),
+          option_label: v.string(),
+          option_type: v.optional(v.string()),
+        })
+      )
+    ),
   },
   handler: async (ctx, args) => {
     if (args.services.length === 0) {
@@ -915,6 +942,12 @@ export const createBatch = mutation({
       assignment_preference: "any",
       created_at: now,
       updated_at: now,
+      source_recommendation_id: args.source_recommendation_id,
+      customer_notes: args.customer_notes?.trim() ? args.customer_notes.trim() : undefined,
+      selected_service_options:
+        args.selected_service_options && args.selected_service_options.length > 0
+          ? args.selected_service_options
+          : undefined,
     });
 
     await logBookingStatusChange(
@@ -1019,7 +1052,15 @@ export const markVehicleAtShop = mutation({
     if (!booking) throw new Error("We couldn't find that booking. It may have been cancelled or removed.");
 
     await requireShopStaff(ctx, user._id, booking.shop_id);
-    if (booking.status === "vehicle_at_shop") {
+    // Idempotent: if the booking is already at-shop, in-progress, or completed,
+    // the vehicle has by definition arrived — treat as a no-op so flows that
+    // skip vehicle_at_shop (e.g. straight confirmed -> in_progress when no
+    // parts are needed) don't crash on a stale "mark arrived" call.
+    if (
+      booking.status === "vehicle_at_shop" ||
+      booking.status === "in_progress" ||
+      booking.status === "completed"
+    ) {
       return { success: true, oldStatus: booking.status, newStatus: booking.status };
     }
     if (booking.status !== "confirmed") {
@@ -1704,25 +1745,55 @@ async function getPrimaryAuthorizedShop(ctx: any, userId: any) {
 async function resolveVehicleLabel(
   ctx: any,
   vin: string
-): Promise<{ full: string; short: string }> {
+): Promise<{
+  full: string;
+  short: string;
+  spec_label: string | null;
+  chassis_label: string | null;
+}> {
   const vehicle = await ctx.db
     .query("vehicles")
     .withIndex("by_vin", (q: any) => q.eq("vin", vin))
     .first();
 
-  if (!vehicle) return { full: vin, short: vin };
+  if (!vehicle)
+    return { full: vin, short: vin, spec_label: null, chassis_label: null };
 
   let makeName = "";
   let modelName = "";
+  let trimName = "";
+  let yearValue: number | undefined =
+    typeof vehicle.year === "number" ? vehicle.year : undefined;
+  let chassisCode = "";
+  let engineIdForLookup: any = vehicle.engine_id ?? null;
 
-  if (vehicle.trim_id) {
+  const config = vehicle.vehicle_config_id
+    ? await ctx.db.get(vehicle.vehicle_config_id)
+    : null;
+
+  if (config) {
+    if (typeof config.year === "number") yearValue = config.year;
+    if (typeof config.trim_name === "string") trimName = config.trim_name;
+    if (typeof config.chassis_code === "string")
+      chassisCode = config.chassis_code.trim();
+    if (!engineIdForLookup && config.engine_id) engineIdForLookup = config.engine_id;
+    const [make, model] = await Promise.all([
+      config.make_id ? ctx.db.get(config.make_id) : null,
+      config.model_id ? ctx.db.get(config.model_id) : null,
+    ]);
+    if (make && typeof (make as any).name === "string") makeName = (make as any).name;
+    if (model && typeof (model as any).name === "string") modelName = (model as any).name;
+  }
+
+  if ((!makeName || !modelName || !trimName) && vehicle.trim_id) {
     const trim = await ctx.db.get(vehicle.trim_id);
     if (trim) {
+      if (!trimName) trimName = trim.name ?? "";
       const model = await ctx.db.get(trim.model_id);
       if (model) {
-        modelName = model.name;
+        if (!modelName) modelName = model.name;
         const make = await ctx.db.get(model.make_id);
-        if (make) makeName = make.name;
+        if (make && !makeName) makeName = make.name;
       }
     }
   }
@@ -1730,10 +1801,39 @@ async function resolveVehicleLabel(
   if (!makeName && vehicle.metadata?.make) makeName = String(vehicle.metadata.make);
   if (!modelName && vehicle.metadata?.model) modelName = String(vehicle.metadata.model);
 
-  const full = [vehicle.year, makeName, modelName].filter(Boolean).join(" ") || vin;
+  let engineLabel = "";
+  if (engineIdForLookup) {
+    const engine = await ctx.db.get(engineIdForLookup);
+    if (engine) {
+      const displacement =
+        typeof engine.displacement_l === "number"
+          ? `${engine.displacement_l}L`
+          : typeof engine.displacement_liters === "number"
+            ? `${engine.displacement_liters}L`
+            : typeof engine.displacement_liters === "string" &&
+                engine.displacement_liters.trim() !== ""
+              ? `${engine.displacement_liters}L`
+              : "";
+      const code =
+        typeof engine.engine_code === "string" && engine.engine_code.trim() !== ""
+          ? engine.engine_code.trim()
+          : "";
+      engineLabel = [displacement, code].filter(Boolean).join(" ");
+    }
+  }
+
+  const full = [yearValue, makeName, modelName].filter(Boolean).join(" ") || vin;
   const makeAbbr = makeName ? `${makeName[0]}.` : "";
-  const short = [vehicle.year, makeAbbr, modelName].filter(Boolean).join(" ") || vin;
-  return { full, short };
+  const short = [yearValue, makeAbbr, modelName].filter(Boolean).join(" ") || vin;
+
+  const specSegments: string[] = [];
+  if (engineLabel) specSegments.push(engineLabel);
+  if (trimName) specSegments.push(`${trimName} trim`);
+  if (chassisCode) specSegments.push(`${chassisCode} chassis`);
+  const spec_label = specSegments.length > 0 ? specSegments.join(" · ") : null;
+  const chassis_label = chassisCode ? `${chassisCode} chassis` : null;
+
+  return { full, short, spec_label, chassis_label };
 }
 
 async function resolveServiceNames(ctx: any, serviceIds?: Array<any>) {
@@ -1745,6 +1845,30 @@ async function resolveServiceNames(ctx: any, serviceIds?: Array<any>) {
     })
   );
   return names;
+}
+
+/** Appends the selected option_label (e.g. "Front and rear", "AGM") onto
+ *  each service name so mechanic-facing views show the picked variant. */
+async function resolveServiceLabels(
+  ctx: any,
+  serviceIds: Array<any> | undefined,
+  selectedOptions:
+    | Array<{ service_id: any; option_label?: string }>
+    | undefined,
+): Promise<string[]> {
+  if (!serviceIds || serviceIds.length === 0) return [];
+  const byServiceId = new Map<string, string>();
+  for (const opt of selectedOptions ?? []) {
+    if (opt.option_label) byServiceId.set(String(opt.service_id), opt.option_label);
+  }
+  return await Promise.all(
+    serviceIds.map(async (serviceId: any) => {
+      const service = await ctx.db.get(serviceId);
+      const name = service?.name ?? "Unknown Service";
+      const label = byServiceId.get(String(serviceId));
+      return label ? `${name} — ${label}` : name;
+    }),
+  );
 }
 
 function firstDefinedNumber(...values: unknown[]) {
@@ -1802,25 +1926,125 @@ function normalizePartsUsed(parts: Array<{
   brand?: string | null;
   oem_number: string;
   cost: number;
+  quantity?: number | null;
+  supplied_by?: string | null;
+  part_tier?: string | null;
 }>) {
   return parts
-    .map((part) => ({
-      part_name: part.part_name.trim(),
-      brand: hasText(part.brand) ? part.brand.trim() : null,
-      oem_number: part.oem_number.trim(),
-      cost: Number.isFinite(part.cost) ? Number(part.cost) : 0,
-    }))
+    .map((part) => {
+      const suppliedBy = part.supplied_by === "customer" ? "customer" : "shop";
+      const rawCost = Number.isFinite(part.cost) ? Number(part.cost) : 0;
+      // Customer-supplied parts always log $0 — the customer brought it; the
+      // shop didn't charge for the part.
+      const cost = suppliedBy === "customer" ? 0 : rawCost;
+      const quantity =
+        typeof part.quantity === "number" && Number.isFinite(part.quantity)
+          ? Math.max(1, Math.round(part.quantity))
+          : 1;
+      return {
+        part_name: part.part_name.trim(),
+        brand: hasText(part.brand) ? (part.brand as string).trim() : null,
+        oem_number: part.oem_number.trim(),
+        cost,
+        quantity,
+        supplied_by: suppliedBy,
+        part_tier: hasText(part.part_tier) ? (part.part_tier as string).trim() : "oem",
+      };
+    })
     .filter(
       (part) =>
         hasText(part.part_name) ||
         hasText(part.oem_number) ||
         hasText(part.brand) ||
-        part.cost > 0
+        part.cost > 0 ||
+        part.supplied_by === "customer"
     );
 }
 
 function sumPartsCost(parts: Array<{ cost: number }>) {
   return parts.reduce((sum, part) => sum + (Number.isFinite(part.cost) ? part.cost : 0), 0);
+}
+
+/**
+ * Writes one part_snapshots row per normalized parts_used entry. Runs after
+ * job_actuals is persisted so we can link snapshots back to the job_actual.
+ * Resolves the vehicle FK chain (vehicle, vehicle_config, engine, chassis,
+ * trim) once and reuses it for every part on this job.
+ *
+ * Phase 1: dual-write. The embedded job_actuals.parts_used array stays as
+ * the source of truth for booking-detail reads; snapshots are the source of
+ * truth for aggregation queries.
+ *
+ * Current UI surfaces all parts as supplied_by="shop" part_tier="oem" —
+ * Otopair currently supplies OEM parts only. A future UI revision will let
+ * the mechanic flag customer-supplied parts per-row.
+ */
+async function recordPartSnapshotsForBooking(
+  ctx: any,
+  {
+    booking,
+    jobActualId,
+    mechanicId,
+    parts,
+    now,
+  }: {
+    booking: any;
+    jobActualId: Id<"job_actuals">;
+    mechanicId: Id<"users">;
+    parts: Array<{
+      part_name: string;
+      brand: string | null;
+      oem_number: string;
+      cost: number;
+      quantity?: number;
+      supplied_by?: string;
+      part_tier?: string;
+    }>;
+    now: number;
+  },
+) {
+  if (parts.length === 0) return;
+
+  const canonicalVin = toCanonicalVin(booking.vin);
+  const vehicle = await ctx.db
+    .query("vehicles")
+    .withIndex("by_vin", (q: any) => q.eq("vin", canonicalVin))
+    .unique();
+  if (!vehicle) return;
+
+  const serviceId = booking.service_ids?.[0] as Id<"services"> | undefined;
+  if (!serviceId) return;
+
+  for (const part of parts) {
+    if (!hasText(part.part_name) && !hasText(part.oem_number)) continue;
+
+    await insertSnapshotImpl(ctx, {
+      booking_id: booking._id,
+      job_actual_id: jobActualId,
+      shop_id: booking.shop_id,
+      mechanic_id: mechanicId,
+
+      vehicle_id: vehicle._id,
+      vehicle_config_id: vehicle.vehicle_config_id ?? undefined,
+      engine_id: vehicle.engine_id ?? undefined,
+      chassis_id: vehicle.chassis_id ?? undefined,
+      trim_id: vehicle.trim_id ?? undefined,
+
+      service_id: serviceId,
+
+      part_name: part.part_name || part.oem_number,
+      oem_part_number: hasText(part.oem_number) ? part.oem_number : undefined,
+      brand: hasText(part.brand) ? (part.brand as string) : undefined,
+      part_tier: part.part_tier ?? "oem",
+
+      supplied_by: part.supplied_by === "customer" ? "customer" : "shop",
+      quantity: part.quantity ?? 1,
+      unit_cost: part.cost,
+      currency: "USD",
+
+      recorded_at: now,
+    });
+  }
 }
 
 function pickPreferredOwner(owners: any[]) {
@@ -2075,7 +2299,23 @@ async function buildVehiclePassportForBooking(ctx: any, booking: any) {
       ? ctx.db
           .query("trim_specs")
           .withIndex("by_trim", (q: any) => q.eq("trim_id", vehicle.trim_id))
-          .unique()
+          // Multiple trim_specs rows can exist for the same trim (enrichment
+          // sometimes writes duplicates). Pick the highest-confidence row,
+          // breaking ties by recency, instead of crashing on `.unique()` or
+          // arbitrarily picking with `.first()`. This is the canonical
+          // version from Temur's web work — supersedes the mobile `.first()`
+          // workaround.
+          .collect()
+          .then((rows: any[]) =>
+            rows.length === 0
+              ? null
+              : rows.reduce((best, row) => {
+                  const bc = best.confidence_score ?? 0;
+                  const rc = row.confidence_score ?? 0;
+                  if (rc !== bc) return rc > bc ? row : best;
+                  return (row.created_at ?? 0) > (best.created_at ?? 0) ? row : best;
+                })
+          )
       : null,
     vehicle?.engine_id ? ctx.db.get(vehicle.engine_id) : null,
     vehicle?.transmission_id ? ctx.db.get(vehicle.transmission_id) : null,
@@ -2295,6 +2535,8 @@ async function buildVehiclePassportForBooking(ctx: any, booking: any) {
     vin: canonicalVin,
     vehicle_label: vehicleLabels.full,
     vehicle_short_label: vehicleLabels.short,
+    vehicle_spec_label: vehicleLabels.spec_label,
+    chassis_label: vehicleLabels.chassis_label,
     service_name: service?.name ?? (await resolveServiceNames(ctx, booking.service_ids)).join(", "),
     service_slug: service?.slug ?? null,
     requires_parts: serviceRequiresParts(service),
@@ -2548,6 +2790,11 @@ async function getManualBlockedSlotsForShop(ctx: any, shopId: any, date?: string
     (slot: any) =>
       !slot.is_available &&
       !bookingSlotIds.has(String(slot._id)) &&
+      // Only count slots that were explicitly marked as a block. Orphaned
+      // slots (from a deleted booking, or any pre-block_kind row that was
+      // never tied to a booking) have no block_kind and are ignored —
+      // they used to cause false-positive "time is blocked" rejections.
+      slot.block_kind !== undefined &&
       (date ? slot.date === date : true)
   );
 }
@@ -2606,11 +2853,17 @@ async function getOrCreateSlot(
   );
 
   if (existing) {
-    if (existing.is_available || existing.title !== undefined || existing.note !== undefined) {
+    if (
+      existing.is_available ||
+      existing.title !== undefined ||
+      existing.note !== undefined ||
+      existing.block_kind !== undefined
+    ) {
       await ctx.db.patch(existing._id, {
         is_available: false,
         note: undefined,
         title: undefined,
+        block_kind: undefined,
       });
     }
     return existing._id;
@@ -2645,6 +2898,7 @@ async function reservePendingCustomerSlot(
       is_available: false,
       note: undefined,
       title: RESERVED_PENDING_CUSTOMER_TITLE,
+      block_kind: "reserved_pending",
     });
     return slot._id;
   }
@@ -2658,6 +2912,7 @@ async function reservePendingCustomerSlot(
     shop_id: shopId,
     start_time: startTime,
     title: RESERVED_PENDING_CUSTOMER_TITLE,
+    block_kind: "reserved_pending",
   });
 }
 
@@ -4217,6 +4472,23 @@ async function runCompletionSideEffects(ctx: any, booking: any) {
     }
   }
 
+  // If the driver booked this directly from a mechanic rec card, close the
+  // loop now: mark the rec completed, cancel its follow-up, refresh the
+  // vehicle's score penalty. Inline (not scheduled) so it stays in the
+  // same transaction.
+  if (booking.source_recommendation_id) {
+    await closeRecForCompletedBooking(ctx, {
+      recommendationId: booking.source_recommendation_id,
+      bookingId: booking._id,
+    });
+  }
+
+  // Cross-shop closure: any open / acknowledged / driver-hidden rec for this
+  // VIN whose service matches one delivered by this booking gets marked
+  // resolved here so the VHS penalty clears even when the driver booked at
+  // a different shop than the one that filed the rec.
+  await closeMatchingRecsForCompletedBooking(ctx, { bookingId: booking._id });
+
   await ctx.scheduler.runAfter(0, internal.rewards.addCreditForCompletedBooking, {
     bookingId: booking._id,
   });
@@ -4319,7 +4591,11 @@ export async function applyBookingStatusTransition(
 async function mapBookingListItem(ctx: any, booking: any) {
   const customer = await ctx.db.get(booking.user_id);
   const vehicleLabels = await resolveVehicleLabel(ctx, booking.vin);
-  const serviceNames = await resolveServiceNames(ctx, booking.service_ids);
+  const serviceNames = await resolveServiceLabels(
+    ctx,
+    booking.service_ids,
+    booking.selected_service_options,
+  );
   const mechanic = booking.mechanic_id
     ? await ctx.db.get(booking.mechanic_id)
     : null;
@@ -4353,7 +4629,11 @@ async function mapBookingListItem(ctx: any, booking: any) {
 async function mapMechanicDashboardJob(ctx: any, booking: any) {
   const customer = await ctx.db.get(booking.user_id);
   const vehicleLabels = await resolveVehicleLabel(ctx, booking.vin);
-  const serviceNames = await resolveServiceNames(ctx, booking.service_ids);
+  const serviceNames = await resolveServiceLabels(
+    ctx,
+    booking.service_ids,
+    booking.selected_service_options,
+  );
   const vehiclePassportComplete = await hasCompleteVehiclePassportForBooking(
     ctx,
     booking
@@ -5464,12 +5744,34 @@ export const completeWithPostjob = mutation({
       logged_at_ms: now,
     });
 
+    await recordPartSnapshotsForBooking(ctx, {
+      booking,
+      jobActualId: jobActual._id,
+      mechanicId: user._id,
+      parts: normalizedParts,
+      now,
+    });
+
     await upsertVehiclePassportRecord(ctx, {
       vin: booking.vin,
       patch: buildPassportPatchFromPostjob(args.postjob),
       now,
       markConfirmed: true,
     });
+
+    if (
+      booking.mechanic_id &&
+      args.postjob.recommendations &&
+      args.postjob.recommendations.length > 0
+    ) {
+      await submitRecommendationsForBooking(ctx, {
+        booking,
+        jobActualId: jobActual._id,
+        mechanicId: booking.mechanic_id,
+        recommendations: args.postjob.recommendations,
+        now,
+      });
+    }
 
     if (booking.status !== "completed") {
       await applyBookingStatusTransition(ctx, {
@@ -5773,6 +6075,42 @@ export const attachRecommendedService = mutation({
     if (!note) throw new Error("Add a short note explaining the finding.");
     assertFlaggedItemsHaveNotes(booking);
 
+    // Validate proposed slot against blocked time on the mechanic's lane.
+    if (
+      args.scheduledDate &&
+      args.scheduledTime &&
+      booking.mechanic_id
+    ) {
+      const durationMin = Math.round(
+        ((service as any).default_labor_hours ?? 1) * 60,
+      );
+      const blocks = (
+        await getManualBlockedSlotsForShop(
+          ctx,
+          booking.shop_id,
+          args.scheduledDate,
+        )
+      ).filter(
+        (s: any) => String(s.mechanic_id) === String(booking.mechanic_id),
+      );
+      const toMin = (hhmm: string) => {
+        const [h, m] = hhmm.split(":").map(Number);
+        return h * 60 + m;
+      };
+      const ps = toMin(args.scheduledTime);
+      const pe = ps + durationMin;
+      const blocked = (blocks as any[]).some((blk) => {
+        const bs = toMin(blk.start_time);
+        const be = toMin(blk.end_time);
+        return bs < pe && be > ps;
+      });
+      if (blocked) {
+        throw new Error(
+          "Proposed slot overlaps blocked time on the mechanic's lane. Pick a different slot.",
+        );
+      }
+    }
+
     const now = Date.now();
     await ctx.db.patch(booking._id, {
       recommended_service_id: args.serviceId,
@@ -5835,12 +6173,73 @@ export const customerDecideRecommendation = mutation({
     const followUpDate = scheduledForLater
       ? booking.recommended_scheduled_date!
       : booking.scheduled_date;
-    const followUpStart = scheduledForLater
+
+    const toMinutes = (hhmm: string) => {
+      const [h, m] = hhmm.split(":").map(Number);
+      return h * 60 + m;
+    };
+
+    // Fetch blocks for the follow-up's date on this mechanic's lane (skip if no
+    // mechanic assigned — manual blocks always have a mechanic_id).
+    const blocksForDay = booking.mechanic_id
+      ? (
+          await getManualBlockedSlotsForShop(
+            ctx,
+            booking.shop_id,
+            followUpDate,
+          )
+        ).filter(
+          (s: any) =>
+            String(s.mechanic_id) === String(booking.mechanic_id),
+        )
+      : [];
+
+    // Advance a candidate start past any blocked windows it would overlap.
+    const advancePastBlocks = (startHHMM: string, durationMin: number) => {
+      let cursor = toMinutes(startHHMM);
+      let advanced = true;
+      while (advanced) {
+        advanced = false;
+        for (const blk of blocksForDay as any[]) {
+          const bs = toMinutes(blk.start_time);
+          const be = toMinutes(blk.end_time);
+          if (bs < cursor + durationMin && be > cursor) {
+            cursor = be;
+            advanced = true;
+          }
+        }
+      }
+      return addMinutesToHHMM("00:00", cursor);
+    };
+
+    const rawFollowUpStart = scheduledForLater
       ? booking.recommended_scheduled_time!
       : getBookingEndTime(
           booking.scheduled_time,
           booking.estimated_labor_minutes,
         );
+
+    // For schedule-for-later, hard-reject if the proposed slot overlaps a
+    // mechanic break / blocked window. For right-after, silently advance past
+    // any blocks so the follow-up lands on the first clear gap.
+    if (scheduledForLater) {
+      const proposalStart = toMinutes(rawFollowUpStart);
+      const proposalEnd = proposalStart + followUpMinutes;
+      const blocked = (blocksForDay as any[]).some((blk) => {
+        const bs = toMinutes(blk.start_time);
+        const be = toMinutes(blk.end_time);
+        return bs < proposalEnd && be > proposalStart;
+      });
+      if (blocked) {
+        throw new Error(
+          "Proposed slot overlaps blocked time on the mechanic's lane. Pick a different slot.",
+        );
+      }
+    }
+
+    const followUpStart = scheduledForLater
+      ? rawFollowUpStart
+      : advancePastBlocks(rawFollowUpStart, followUpMinutes);
 
     const followUpId = await ctx.db.insert("bookings", {
       user_id: booking.user_id,
@@ -5864,12 +6263,9 @@ export const customerDecideRecommendation = mutation({
       updated_at: now,
     });
 
-    // Right-after path: cascade-push later bookings on the same mechanic's lane
+    // Right-after path: cascade-push later bookings on the same mechanic's lane,
+    // hopping over any blocked windows / breaks.
     if (!scheduledForLater && booking.mechanic_id) {
-      const toMinutes = (hhmm: string) => {
-        const [h, m] = hhmm.split(":").map(Number);
-        return h * 60 + m;
-      };
       const shopBookings = await ctx.db
         .query("bookings")
         .withIndex("by_shop_id", (q: any) =>
@@ -5895,12 +6291,14 @@ export const customerDecideRecommendation = mutation({
 
       let cursor = addMinutesToHHMM(followUpStart, followUpMinutes);
       for (const b of laneBookings) {
-        if (toMinutes(b.scheduled_time) >= toMinutes(cursor)) break;
+        const duration = b.estimated_labor_minutes ?? 60;
+        const safeCursor = advancePastBlocks(cursor, duration);
+        if (toMinutes(b.scheduled_time) >= toMinutes(safeCursor)) break;
         await ctx.db.patch(b._id, {
-          scheduled_time: cursor,
+          scheduled_time: safeCursor,
           updated_at: now,
         });
-        cursor = addMinutesToHHMM(cursor, b.estimated_labor_minutes ?? 60);
+        cursor = addMinutesToHHMM(safeCursor, duration);
       }
     }
 
@@ -5908,7 +6306,6 @@ export const customerDecideRecommendation = mutation({
       recommendation_state: "confirmed",
       recommendation_decided_at_ms: now,
       status: "completed",
-      completed_at_ms: now,
       updated_at: now,
     });
 
@@ -5991,6 +6388,37 @@ export const createByShop = mutation({
         v.literal("not_sure"),
       ),
     ),
+    selectedServiceOptions: v.optional(
+      v.array(
+        v.object({
+          service_id: v.id("services"),
+          option_id: v.id("service_options"),
+          option_label: v.string(),
+          option_type: v.optional(v.string()),
+        })
+      )
+    ),
+    tireSpecs: v.optional(
+      v.object({
+        size: v.string(),
+        type: v.string(),
+        tier: v.string(),
+        quantity: v.number(),
+      })
+    ),
+    // Walk-in / external customer data capture. Defaults to "mechanic_walk_in"
+    // when called from the schedule create-booking drawer.
+    source: v.optional(
+      v.union(
+        v.literal("mechanic_walk_in"),
+        v.literal("customer_self"),
+        v.literal("shop_admin"),
+      ),
+    ),
+    mechanicEstimatedMinutes: v.optional(v.float64()),
+    catalogEstimatedMinutes: v.optional(v.float64()),
+    mechanicQuotedPrice: v.optional(v.float64()),
+    catalogQuotedPrice: v.optional(v.float64()),
   },
   handler: async (ctx, args) => {
     const user = await getCurrentUser(ctx);
@@ -6001,6 +6429,36 @@ export const createByShop = mutation({
 
     if (!args.customerEmail && !args.customerPhone) {
       throw new Error("Provide a customer email or phone number.");
+    }
+
+    // Guardrail: any selected service with has_options must arrive with
+    // a pick, and a tire-replacement booking must arrive with tire_specs.
+    // Web UI enforces this too, but server validation keeps integrity if
+    // a caller bypasses the drawer.
+    const servicesForOptionCheck = await Promise.all(
+      args.serviceIds.map((id: any) => ctx.db.get(id))
+    );
+    const optionMap = new Map(
+      (args.selectedServiceOptions ?? []).map((row: any) => [
+        String(row.service_id),
+        row,
+      ])
+    );
+    for (const svc of servicesForOptionCheck) {
+      if (!svc) continue;
+      if (svc.slug === "tire-replacement") {
+        if (!args.tireSpecs) {
+          throw new Error(
+            "Tire replacement requires tire_specs (size, type, tier, quantity).",
+          );
+        }
+        continue;
+      }
+      if (svc.has_options && !optionMap.has(String(svc._id))) {
+        throw new Error(
+          `Service "${svc.name}" requires an option selection.`,
+        );
+      }
     }
 
     let normalizedPhone: string | undefined;
@@ -6040,13 +6498,13 @@ export const createByShop = mutation({
 
     if (!customer) throw new Error("Could not create customer");
 
-    const existingVehicle = await ctx.db
+    let existingVehicle = await ctx.db
       .query("vehicles")
       .withIndex("by_vin", (q: any) => q.eq("vin", canonicalVin))
       .first();
 
     if (!existingVehicle) {
-      await ctx.db.insert("vehicles", {
+      const newVehicleId = await ctx.db.insert("vehicles", {
         vin: canonicalVin,
         year: args.vehicleYear,
         metadata: {
@@ -6057,6 +6515,18 @@ export const createByShop = mutation({
         created_at: now,
         updated_at: now,
       });
+      existingVehicle = await ctx.db.get(newVehicleId);
+    }
+
+    // Fire-and-forget enrichment for any VIN whose vehicles row doesn't yet
+    // have a resolved vehicle_config_id. Walk-in events are the freshest VIN
+    // signal we get, so we always want full passport data ready by next visit.
+    if (existingVehicle && !existingVehicle.vehicle_config_id) {
+      await ctx.scheduler.runAfter(
+        0,
+        api.vehicleEnrichment.runPublic.go,
+        { vin: canonicalVin },
+      );
     }
 
     const ownerLink = await ctx.db
@@ -6105,6 +6575,7 @@ export const createByShop = mutation({
         duration_minutes: c.durationMinutes,
       }))
       .filter((c: any) => c.name.length > 0);
+    const bookingSource = args.source ?? "mechanic_walk_in";
     const bookingId = await ctx.db.insert("bookings", {
       labor_cost: args.laborCost,
       parts_cost: args.partsCost,
@@ -6120,6 +6591,11 @@ export const createByShop = mutation({
         customServicesNormalized && customServicesNormalized.length > 0
           ? customServicesNormalized
           : undefined,
+      tire_specs: args.tireSpecs,
+      selected_service_options:
+        args.selectedServiceOptions && args.selectedServiceOptions.length > 0
+          ? args.selectedServiceOptions
+          : undefined,
       shop_id: args.shopId,
       status,
       assignment_preference: assignmentPreference,
@@ -6128,7 +6604,90 @@ export const createByShop = mutation({
       vin: canonicalVin,
       created_at: now,
       updated_at: now,
+      source: bookingSource,
+      mechanic_estimated_minutes: args.mechanicEstimatedMinutes,
+      catalog_estimated_minutes: args.catalogEstimatedMinutes,
+      mechanic_quoted_price: args.mechanicQuotedPrice,
+      catalog_quoted_price: args.catalogQuotedPrice,
     });
+
+    // ── Per-service labor_quote_snapshots — denormalized aggregation rows
+    //    so analytics can ask "for service X at shop Y on engine Z, what's
+    //    the price/time distribution?" without joining through bookings →
+    //    vehicles → vehicle_configs every query. Mirrors part_snapshots.
+    //    Mechanic + catalog totals are split per service proportionally to
+    //    each service's catalog weight (defaultLaborHours / labor catalog).
+    if (existingVehicle) {
+      const catalogServiceMinutes = servicesForOptionCheck.map((svc: any) =>
+        svc && svc.default_labor_hours
+          ? svc.default_labor_hours * 60
+          : 0,
+      );
+      const customMinutesList = (customServicesNormalized ?? []).map(
+        (c: any) => c.duration_minutes ?? 0,
+      );
+      const totalCatalogMinutes =
+        catalogServiceMinutes.reduce((s: number, n: number) => s + n, 0) +
+        customMinutesList.reduce((s: number, n: number) => s + n, 0);
+
+      const allocate = (
+        total: number | undefined,
+        share: number,
+      ): number | undefined => {
+        if (total === undefined || total === null) return undefined;
+        if (totalCatalogMinutes <= 0) {
+          const denom =
+            servicesForOptionCheck.length + customMinutesList.length;
+          return denom > 0 ? total / denom : total;
+        }
+        return total * (share / totalCatalogMinutes);
+      };
+
+      const snapshotBase = {
+        booking_id: bookingId,
+        shop_id: args.shopId,
+        mechanic_id: resolvedMechanicId ?? undefined,
+        vehicle_id: existingVehicle._id,
+        vehicle_config_id: existingVehicle.vehicle_config_id ?? undefined,
+        engine_id: existingVehicle.engine_id ?? undefined,
+        chassis_id: existingVehicle.chassis_id ?? undefined,
+        trim_id: existingVehicle.trim_id ?? undefined,
+        source: bookingSource,
+        recorded_at: now,
+      };
+
+      for (let i = 0; i < args.serviceIds.length; i++) {
+        const catMins = catalogServiceMinutes[i] ?? 0;
+        await ctx.db.insert("labor_quote_snapshots", {
+          ...snapshotBase,
+          service_id: args.serviceIds[i],
+          mechanic_estimated_minutes: allocate(
+            args.mechanicEstimatedMinutes,
+            catMins,
+          ),
+          catalog_estimated_minutes: catMins > 0 ? catMins : undefined,
+          mechanic_quoted_price: allocate(args.mechanicQuotedPrice, catMins),
+          catalog_quoted_price: allocate(args.catalogQuotedPrice, catMins),
+        });
+      }
+      if (customServicesNormalized) {
+        for (let i = 0; i < customServicesNormalized.length; i++) {
+          const c = customServicesNormalized[i];
+          const catMins = c.duration_minutes ?? 0;
+          await ctx.db.insert("labor_quote_snapshots", {
+            ...snapshotBase,
+            custom_service_name: c.name,
+            mechanic_estimated_minutes: allocate(
+              args.mechanicEstimatedMinutes,
+              catMins,
+            ),
+            catalog_estimated_minutes: catMins > 0 ? catMins : undefined,
+            mechanic_quoted_price: allocate(args.mechanicQuotedPrice, catMins),
+            catalog_quoted_price: allocate(args.catalogQuotedPrice, catMins),
+          });
+        }
+      }
+    }
 
     await logBookingStatusChange(
       ctx,
@@ -6523,7 +7082,7 @@ async function proposeRescheduleImpl(
       await releaseBookingSlot(ctx, booking.time_slot_id);
     }
 
-    if (customerCanRestoreOriginal) {
+    if (customerCanRestoreOriginal && originalMechanicId) {
       await reservePendingCustomerSlot(
         ctx,
         booking.shop_id,
@@ -6532,7 +7091,7 @@ async function proposeRescheduleImpl(
         originalTime,
         durationMinutes
       );
-    } else {
+    } else if (originalMechanicId) {
       const originalSlot = await findExactSlot(
         ctx,
         booking.shop_id,
@@ -6545,7 +7104,7 @@ async function proposeRescheduleImpl(
         await releaseBookingSlot(ctx, originalSlot._id);
       }
     }
-  } else if (customerCanRestoreOriginal) {
+  } else if (customerCanRestoreOriginal && currentMechanicId) {
     await reservePendingCustomerSlot(
       ctx,
       booking.shop_id,
@@ -8015,11 +8574,20 @@ export const acceptTireQuote = mutation({
     // web side; service_ids drives the rest of the service-aware UI.
     await ctx.db.patch(args.booking_id, {
       shop_id: response.shop_id,
+      // Propagate the mechanic the shop picked at quote time so the
+      // booking lands in the right column on the web schedule and the
+      // "Open vehicle check" action can resolve a mechanic. Only set
+      // when the quote actually carried one — older quotes without
+      // mechanic_id stay "Any mechanic" until a manual reassign.
+      ...(response.mechanic_id ? { mechanic_id: response.mechanic_id } : {}),
       labor_cost: response.labor_cost,
       parts_cost: response.per_tire_price * response.quantity,
       total_cost: response.total,
       scheduled_date: response.availability.date,
       scheduled_time: response.availability.time,
+      ...(response.estimated_duration_minutes
+        ? { estimated_labor_minutes: response.estimated_duration_minutes }
+        : {}),
       status: "confirmed",
       updated_at: now,
       ...(attachServiceId ? { service_ids: [attachServiceId] } : {}),
@@ -8118,5 +8686,71 @@ export const listOpenTireQuoteRequestsForShop = query({
         };
       }),
     );
+  },
+});
+
+/**
+ * Customer-side fetch for the mobile Pending Customer Acceptance overlay.
+ *
+ * Returns the raw `previous_*` and `schedule_change_*` fields the
+ * decision UI needs to render the before/after comparison. Auth-gated
+ * to the booking's owner. Joins shop name, current + previous mechanic
+ * names, and service names.
+ */
+export const getBookingByIdForCustomer = query({
+  args: { bookingId: v.id("bookings") },
+  handler: async (ctx, args) => {
+    const user = await getCurrentUser(ctx);
+    const booking = await ctx.db.get(args.bookingId);
+    if (!booking) return null;
+    if (booking.user_id !== user._id) return null;
+
+    const shop = booking.shop_id ? await ctx.db.get(booking.shop_id) : null;
+    const currentMechanic = booking.mechanic_id
+      ? await ctx.db.get(booking.mechanic_id)
+      : null;
+    const previousMechanic = booking.previous_mechanic_id
+      ? await ctx.db.get(booking.previous_mechanic_id)
+      : null;
+
+    const serviceNames = await resolveServiceNames(ctx, booking.service_ids);
+
+    const vehicle = booking.vin
+      ? await ctx.db
+          .query("vehicles")
+          .withIndex("by_vin", (q: any) => q.eq("vin", booking.vin))
+          .first()
+      : null;
+    const meta = (vehicle?.metadata as
+      | { make?: string; model?: string; trim?: string }
+      | undefined) ?? undefined;
+    const vehicleDisplay = vehicle
+      ? [vehicle.year, meta?.make, meta?.model].filter(Boolean).join(" ") || null
+      : null;
+
+    const formatMechanic = (m: any) =>
+      m ? `${m.first_name ?? ""} ${m.last_name ?? ""}`.trim() : null;
+
+    return {
+      id: booking._id,
+      status: booking.status,
+      scheduledDate: booking.scheduled_date,
+      scheduledTime: booking.scheduled_time,
+      previousScheduledDate: booking.previous_scheduled_date ?? null,
+      previousScheduledTime: booking.previous_scheduled_time ?? null,
+      previousStatus: booking.previous_status ?? null,
+      rescheduleProposedAt: booking.reschedule_proposed_at ?? null,
+      scheduleChangeMode: booking.schedule_change_mode ?? null,
+      customerCanRestoreOriginal: booking.customer_can_restore_original ?? null,
+      shopId: booking.shop_id ?? null,
+      shopName: (shop as any)?.name ?? null,
+      mechanicId: booking.mechanic_id ?? null,
+      mechanicName: formatMechanic(currentMechanic),
+      previousMechanicId: booking.previous_mechanic_id ?? null,
+      previousMechanicName: formatMechanic(previousMechanic),
+      serviceNames,
+      vehicleDisplay,
+      totalCost: booking.total_cost,
+    };
   },
 });

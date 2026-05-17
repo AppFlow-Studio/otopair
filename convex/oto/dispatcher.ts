@@ -154,16 +154,7 @@ interface RenderDirective<T = unknown> {
 function packageRenderDirective(toolUse: ToolUseBlock): ToolResultBlock {
   switch (toolUse.name) {
     case "render_shop_carousel":
-      // Trigger-only: pass service_slug + priority; the mobile component
-      // queries Convex for the actual mechanics and renders them with real
-      // pricing / availability / ratings. Oto never composes mechanic data.
-      return ok(
-        toolUse.id,
-        renderD("shopCarousel", {
-          service_slug: toolUse.input.service_slug,
-          priority: toolUse.input.priority,
-        }),
-      );
+      return ok(toolUse.id, renderD("shops", toolUse.input.shops));
 
     case "render_service_picker":
       return ok(toolUse.id, {
@@ -173,130 +164,20 @@ function packageRenderDirective(toolUse: ToolUseBlock): ToolResultBlock {
           ...(toolUse.input.services
             ? [{ field: "pickerServices", value: toolUse.input.services }]
             : []),
-          ...(toolUse.input.pre_selected_id
-            ? [{ field: "pickerPreSelectedId", value: toolUse.input.pre_selected_id }]
-            : []),
         ],
       });
 
     case "render_time_selector":
-      // Trigger-only: pass mechanic_id + service_slug; the mobile component
-      // queries Convex for actual slots.
-      return ok(
-        toolUse.id,
-        renderD("timeSelector", {
-          mechanic_id: toolUse.input.mechanic_id,
-          service_slug: toolUse.input.service_slug,
-        }),
-      );
+      return ok(toolUse.id, {
+        type: "render",
+        directives: [
+          { field: "timeSlots", value: toolUse.input.slots },
+          { field: "timeSlotsShopId", value: toolUse.input.shop_id },
+        ],
+      });
 
     case "render_booking_confirmation":
-      // Trigger-only: pass IDs; the mobile component queries Convex for the
-      // service name, real prices (mechanic-set labor rate × parts × fee),
-      // platform fee, total, shop info, slot details.
-      return ok(
-        toolUse.id,
-        renderD("bookingConfirmation", {
-          service_slug: toolUse.input.service_slug,
-          mechanic_id: toolUse.input.mechanic_id,
-          slot_id: toolUse.input.slot_id,
-          vehicle_id: toolUse.input.vehicle_id,
-        }),
-      );
-
-    case "render_diagnostic_form":
-      return ok(
-        toolUse.id,
-        renderD("showDiagnosticForm", {
-          initialSystem: toolUse.input.diagnostic_system,
-          initialNotes: toolUse.input.customer_notes,
-        }),
-      );
-
-    case "render_record_confirmation":
-      // Trigger-only: pass vehicle_id + maintenance_type. The mobile component
-      // queries Convex for the actual maintenance_record row and renders its
-      // current state with Confirm / Update buttons. Confirm path writes
-      // confirmedHealthyAt: Date.now() via upsertRecord (locks status to
-      // on_time for 90 days per CONFIRMED_HEALTHY_TTL_MS). Update path
-      // collects new date+mileage in an inline form, then writes via
-      // upsertRecord with serviceSource: "ai_chat_correction" and
-      // confidence: "self_reported". Either way, the user's decision is
-      // pushed back into conversation_state via appendEstablishedFact so
-      // Oto sees it on the next turn.
-      return ok(
-        toolUse.id,
-        renderD("showRecordConfirmation", {
-          vehicle_id: toolUse.input.vehicle_id,
-          maintenance_type: toolUse.input.maintenance_type,
-        }),
-      );
-
-    case "render_support_form":
-      // Sprint 3 Day 6 §13 Channel 1 — terminal substantive-intake form for
-      // the 3 categories that warrant rich shop / mechanic / amount detail:
-      // mechanic_dispute / service_complaint / billing_issue. Trigger-only:
-      // pass `category` + `summary` + optional `prefilled_fields` drawn ONLY
-      // from what the user explicitly said. The mobile component renders the
-      // form pre-filled with these values; the user reviews, edits, and taps
-      // Submit themselves. Oto never submits on the user's behalf. The
-      // backing table `support_intake_submissions` is planned (registry §13);
-      // the mobile team owns the submission flow + persistence schema.
-      // NOT for general app bugs (use render_link_button(bug_report)), NOT
-      // for general feedback (use render_link_button(feedback)), NOT for
-      // AI-conversation complaints (per-message UI icon; no Oto tool).
-      return ok(
-        toolUse.id,
-        renderD("supportForm", {
-          category: toolUse.input.category,
-          summary: toolUse.input.summary,
-          ...(toolUse.input.prefilled_fields
-            ? { prefilled_fields: toolUse.input.prefilled_fields }
-            : {}),
-        }),
-      );
-
-    case "render_link_button":
-      // Sprint 3 §14.1 — terminal app-nav redirect surface. Trigger-only: pass
-      // `destination` (one of 8 enum values: terms_of_service / privacy_policy
-      // / settings / profile / transaction_history / customer_support /
-      // feedback / bug_report) and optional `label` text override. The mobile
-      // component renders a tap-to-open button; on tap, the app navigates to
-      // the appropriate screen (deep-link for in-app destinations; in-app
-      // browser for TOS / Privacy). Oto NEVER recomposes screen content here.
-      // bug_report is for GENERAL APP bugs only; AI-conversation feedback is
-      // handled by the per-message UI button (UI-only, no Oto tool surface).
-      return ok(
-        toolUse.id,
-        renderD("linkButton", {
-          destination: toolUse.input.destination,
-          ...(toolUse.input.label ? { label: toolUse.input.label } : {}),
-        }),
-      );
-
-    case "render_booking_card":
-      // Sprint 3 §14.3 — single-booking detail card. Trigger-only: pass
-      // ONLY the booking_id; the mobile component queries Convex for the
-      // shop name, mechanic, scheduled date/time, service names, status,
-      // and renders the card itself. Oto NEVER composes booking details.
-      return ok(
-        toolUse.id,
-        renderD("bookingCard", {
-          booking_id: toolUse.input.booking_id,
-        }),
-      );
-
-    case "render_bookings_list":
-      // Sprint 3 §14.3 — multi-booking list. Trigger-only: pass ONLY the
-      // booking_ids array (min 1, max 10 enforced by the tool schema). The
-      // mobile component queries Convex for each booking's details and
-      // renders the list itself. Oto NEVER composes booking data.
-      return ok(
-        toolUse.id,
-        renderD("bookingsList", {
-          booking_ids: toolUse.input.booking_ids,
-        }),
-      );
+      return ok(toolUse.id, renderD("bookingSummary", toolUse.input.summary));
 
     case "render_quick_replies":
       return ok(toolUse.id, renderD("quickReplies", toolUse.input.replies));
@@ -400,31 +281,12 @@ function errorResult(
 
 export interface ChatMessageEnvelope {
   quickReplies?: unknown;
+  shops?: unknown;
   showServicePicker?: boolean;
   pickerServices?: unknown;
-  pickerPreSelectedId?: unknown;
-  showDiagnosticForm?: unknown;
-  // Trigger payloads — the frontend renders the actual component using the
-  // IDs/params provided, querying Convex for real data. Oto never composes
-  // mechanic data, pricing, slot data, or shop info.
-  shopCarousel?: unknown;
-  timeSelector?: unknown;
-  bookingConfirmation?: unknown;
-  // Sprint 3 §14.1 — app-nav redirect: { destination, label? }. Mobile
-  // component reads `destination` and renders a tap-to-open button that
-  // navigates to the corresponding screen (deep-link for in-app destinations;
-  // in-app browser for TOS / Privacy).
-  linkButton?: unknown;
-  // Sprint 3 §14.3 — Booking Status surfaces. Trigger payloads: pass only
-  // the booking_id(s); the mobile components query Convex for the
-  // renderable booking record(s) and render the card / list itself.
-  bookingCard?: unknown;
-  bookingsList?: unknown;
-  // Sprint 3 Day 6 §13 Channel 1 — substantive support intake form payload:
-  // { category, summary, prefilled_fields? }. Mobile component renders the
-  // pre-filled form; user reviews, edits, and submits. Backing table
-  // (support_intake_submissions) + submission flow are mobile-team scope.
-  supportForm?: unknown;
+  timeSlots?: unknown;
+  timeSlotsShopId?: unknown;
+  bookingSummary?: unknown;
   reasoning?: unknown;
   sources?: unknown;
   [k: string]: unknown;

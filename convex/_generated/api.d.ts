@@ -8,6 +8,7 @@
  * @module
  */
 
+import type * as adminCleanupMechanics from "../adminCleanupMechanics.js";
 import type * as ai_conversations from "../ai_conversations.js";
 import type * as ai_enrichment_logs from "../ai_enrichment_logs.js";
 import type * as ai_messages from "../ai_messages.js";
@@ -31,9 +32,12 @@ import type * as director_notes from "../director_notes.js";
 import type * as engines from "../engines.js";
 import type * as fitments from "../fitments.js";
 import type * as follow_ups from "../follow_ups.js";
+import type * as healthPoints from "../healthPoints.js";
 import type * as http from "../http.js";
 import type * as invitations from "../invitations.js";
+import type * as jobRecommendations from "../jobRecommendations.js";
 import type * as job_actuals from "../job_actuals.js";
+import type * as labor_quote_snapshots from "../labor_quote_snapshots.js";
 import type * as lib_checkin_questions from "../lib/checkin_questions.js";
 import type * as lib_classifier from "../lib/classifier.js";
 import type * as lib_intervals from "../lib/intervals.js";
@@ -42,6 +46,7 @@ import type * as lib_late_start from "../lib/late_start.js";
 import type * as lib_modifiers from "../lib/modifiers.js";
 import type * as lib_packageRules from "../lib/packageRules.js";
 import type * as lib_schedule_overlap from "../lib/schedule_overlap.js";
+import type * as lib_serviceWindow from "../lib/serviceWindow.js";
 import type * as lib_simpleTireScraper from "../lib/simpleTireScraper.js";
 import type * as lib_timeSlotAvailability from "../lib/timeSlotAvailability.js";
 import type * as lib_tireBrands from "../lib/tireBrands.js";
@@ -58,6 +63,7 @@ import type * as mcp_api from "../mcp_api.js";
 import type * as mechanics from "../mechanics.js";
 import type * as migrations from "../migrations.js";
 import type * as models from "../models.js";
+import type * as notifications from "../notifications.js";
 import type * as oemParts from "../oemParts.js";
 import type * as onboarding_questions_answers from "../onboarding_questions_answers.js";
 import type * as oto_bookings from "../oto/bookings.js";
@@ -93,9 +99,12 @@ import type * as oto_vehicleFacts from "../oto/vehicleFacts.js";
 import type * as oto_vehicleFactsEditing from "../oto/vehicleFactsEditing.js";
 import type * as oto_vehicleFactsKB from "../oto/vehicleFactsKB.js";
 import type * as oto_vehicleHealth from "../oto/vehicleHealth.js";
+import type * as part_prices from "../part_prices.js";
+import type * as part_snapshots from "../part_snapshots.js";
 import type * as payment_status_history from "../payment_status_history.js";
 import type * as payments from "../payments.js";
 import type * as preferences from "../preferences.js";
+import type * as referrals from "../referrals.js";
 import type * as retrigger_enrichment from "../retrigger_enrichment.js";
 import type * as reviews from "../reviews.js";
 import type * as rewards from "../rewards.js";
@@ -127,6 +136,7 @@ import type * as services_constants from "../services/constants.js";
 import type * as services_normalization from "../services/normalization.js";
 import type * as services_sourceScoring from "../services/sourceScoring.js";
 import type * as services_verification from "../services/verification.js";
+import type * as shop_part_preferences from "../shop_part_preferences.js";
 import type * as shop_portfolio from "../shop_portfolio.js";
 import type * as shop_services from "../shop_services.js";
 import type * as shops from "../shops.js";
@@ -144,6 +154,7 @@ import type * as tires_catalog from "../tires_catalog.js";
 import type * as transactions from "../transactions.js";
 import type * as transmissions from "../transmissions.js";
 import type * as trims from "../trims.js";
+import type * as userAddresses from "../userAddresses.js";
 import type * as users from "../users.js";
 import type * as vehicleEnrichment_adversarialVerification from "../vehicleEnrichment/adversarialVerification.js";
 import type * as vehicleEnrichment_anomalyDetection from "../vehicleEnrichment/anomalyDetection.js";
@@ -207,6 +218,7 @@ import type {
 } from "convex/server";
 
 declare const fullApi: ApiFromModules<{
+  adminCleanupMechanics: typeof adminCleanupMechanics;
   ai_conversations: typeof ai_conversations;
   ai_enrichment_logs: typeof ai_enrichment_logs;
   ai_messages: typeof ai_messages;
@@ -230,9 +242,12 @@ declare const fullApi: ApiFromModules<{
   engines: typeof engines;
   fitments: typeof fitments;
   follow_ups: typeof follow_ups;
+  healthPoints: typeof healthPoints;
   http: typeof http;
   invitations: typeof invitations;
+  jobRecommendations: typeof jobRecommendations;
   job_actuals: typeof job_actuals;
+  labor_quote_snapshots: typeof labor_quote_snapshots;
   "lib/checkin_questions": typeof lib_checkin_questions;
   "lib/classifier": typeof lib_classifier;
   "lib/intervals": typeof lib_intervals;
@@ -241,6 +256,7 @@ declare const fullApi: ApiFromModules<{
   "lib/modifiers": typeof lib_modifiers;
   "lib/packageRules": typeof lib_packageRules;
   "lib/schedule_overlap": typeof lib_schedule_overlap;
+  "lib/serviceWindow": typeof lib_serviceWindow;
   "lib/simpleTireScraper": typeof lib_simpleTireScraper;
   "lib/timeSlotAvailability": typeof lib_timeSlotAvailability;
   "lib/tireBrands": typeof lib_tireBrands;
@@ -257,6 +273,7 @@ declare const fullApi: ApiFromModules<{
   mechanics: typeof mechanics;
   migrations: typeof migrations;
   models: typeof models;
+  notifications: typeof notifications;
   oemParts: typeof oemParts;
   onboarding_questions_answers: typeof onboarding_questions_answers;
   "oto/bookings": typeof oto_bookings;
@@ -292,9 +309,12 @@ declare const fullApi: ApiFromModules<{
   "oto/vehicleFactsEditing": typeof oto_vehicleFactsEditing;
   "oto/vehicleFactsKB": typeof oto_vehicleFactsKB;
   "oto/vehicleHealth": typeof oto_vehicleHealth;
+  part_prices: typeof part_prices;
+  part_snapshots: typeof part_snapshots;
   payment_status_history: typeof payment_status_history;
   payments: typeof payments;
   preferences: typeof preferences;
+  referrals: typeof referrals;
   retrigger_enrichment: typeof retrigger_enrichment;
   reviews: typeof reviews;
   rewards: typeof rewards;
@@ -326,6 +346,7 @@ declare const fullApi: ApiFromModules<{
   "services/normalization": typeof services_normalization;
   "services/sourceScoring": typeof services_sourceScoring;
   "services/verification": typeof services_verification;
+  shop_part_preferences: typeof shop_part_preferences;
   shop_portfolio: typeof shop_portfolio;
   shop_services: typeof shop_services;
   shops: typeof shops;
@@ -343,6 +364,7 @@ declare const fullApi: ApiFromModules<{
   transactions: typeof transactions;
   transmissions: typeof transmissions;
   trims: typeof trims;
+  userAddresses: typeof userAddresses;
   users: typeof users;
   "vehicleEnrichment/adversarialVerification": typeof vehicleEnrichment_adversarialVerification;
   "vehicleEnrichment/anomalyDetection": typeof vehicleEnrichment_anomalyDetection;

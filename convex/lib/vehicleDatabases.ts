@@ -732,11 +732,9 @@ export function extractVDBFields(data: any) {
   const engineDescription =
     data.standard_options?.find((o: any) => o.name === "Engine")?.description || null;
 
-  // Cylinders: do NOT source from VDB. The VDB `engine_size` field is the
-  // engine displacement in liters (e.g. 1.5 for an L15BE), not the cylinder
-  // count. Reading it produced rows like `cylinders: 1.5` for 4-cylinder
-  // engines. NHTSA's `EngineCylinders` is reliable for this field and fills
-  // via the merge fallback in vehicle_pipeline.ts.
+  // Cylinders from dimensions
+  const engineDims = dims.find((d: any) => d.engine)?.engine || [];
+  const cylindersRaw = engineDims.find((e: any) => e.engine_size)?.engine_size?.[0]?.value;
 
   return {
     // Identity
@@ -750,7 +748,7 @@ export function extractVDBFields(data: any) {
     // Engine
     engineCode: engineSpec.code || null,
     engineDescription,
-    cylinders: null,
+    cylinders: cylindersRaw ? parseFloat(cylindersRaw) : null,
     displacement: engineSpec.displacement ? engineSpec.displacement / 1000 : null,
     camType: engineSpec.cam_type || null,
     blockType: engineSpec.block_type || null,
