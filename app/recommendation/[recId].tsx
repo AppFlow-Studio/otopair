@@ -10,7 +10,7 @@
  *   - timeframe only    → Book This Service
  */
 
-import React, { useLayoutEffect, useMemo, useState } from "react";
+import React, { useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Pressable,
@@ -19,14 +19,16 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useLocalSearchParams, router, useNavigation } from "expo-router";
+import { useLocalSearchParams, router } from "expo-router";
 import { ChevronLeft } from "lucide-react-native";
 import { useMutation } from "convex/react";
 
 import { Text } from "@/components/shared-ui";
 import { api } from "@/convex/_generated/api";
-import { useDriverRecommendationsFromConvex } from "@/hooks/useDriverRecommendationsFromConvex";
-import type { DriverRecommendation } from "@/hooks/useMaintenanceData";
+import {
+  useRecHistoryFromConvex,
+  type RecHistoryItem,
+} from "@/hooks/useRecHistoryFromConvex";
 import { useVehicleStore } from "@/stores/useVehicleStore";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { scale, moderateScale } from "@/utils/responsive";
@@ -67,26 +69,23 @@ function formatScheduledAt(ms: number) {
 export default function RecommendationDetailScreen() {
   const { recId } = useLocalSearchParams<{ recId: string }>();
   const insets = useSafeAreaInsets();
-  const navigation = useNavigation();
 
-  // Hide the bottom tab bar so the sticky action footer doesn't compete
-  // with it. Restored on unmount.
-  useLayoutEffect(() => {
-    const parent = navigation.getParent();
-    if (parent) {
-      parent.setOptions({ tabBarStyle: { display: "none" } });
-    }
-    return () => {
-      if (parent) parent.setOptions({ tabBarStyle: undefined });
-    };
-  }, [navigation]);
+  // Screen lives at the root (sibling of the tab group) so the tab bar
+  // doesn't render under it, and `router.back()` works from any caller.
+  const goBack = () => {
+    if (router.canGoBack()) router.back();
+    else router.replace("/(main-tabs)/cars");
+  };
 
   const activeVin = useVehicleStore((s) => s.getSelectedVehicle()?.vin);
-  const { recommendations, isLoading } = useDriverRecommendationsFromConvex(activeVin);
+  // History query covers every lifecycle state (open, hidden, completed,
+  // expired) so the screen can be reached from both the tracker (open recs)
+  // and the Bookings → Recommended history (hidden / resolved).
+  const { history, isLoading } = useRecHistoryFromConvex(activeVin);
 
   const rec = useMemo(
-    () => recommendations.find((r: DriverRecommendation) => r._id === recId),
-    [recommendations, recId],
+    () => history.find((r: RecHistoryItem) => r._id === recId),
+    [history, recId],
   );
 
   // Backend mutations live in otopair-web/convex/jobRecommendations.ts:
@@ -102,11 +101,12 @@ export default function RecommendationDetailScreen() {
   );
 
   const [submitting, setSubmitting] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   if (isLoading || !rec) {
     return (
       <View style={[styles.screen, styles.centerScreen, { paddingTop: insets.top }]}>
-        <Pressable onPress={() => router.back()} style={styles.backChip} hitSlop={12}>
+        <Pressable onPress={goBack} style={styles.backChip} hitSlop={12}>
           <ChevronLeft size={moderateScale(22)} color="#141C24" />
         </Pressable>
         {isLoading ? (
@@ -121,10 +121,26 @@ export default function RecommendationDetailScreen() {
   const hasScheduled = typeof rec.scheduled_at === "number";
   const mechanic = rec.mechanic_name ?? "your mechanic";
   const shop = rec.shop_name ?? null;
+  const isHidden =
+    rec.status === "dismissed" && rec.dismissed_reason === "hidden_by_driver";
+  const isClosed =
+    rec.status === "completed" ||
+    rec.status === "expired" ||
+    (rec.status === "dismissed" && !isHidden);
 
   const handleBookThis = () => {
-    useBookingStore.getState().setSourceRecommendationId(rec._id);
-    useBookingStore.getState().setPrefilledScheduledAt(null);
+    const store = useBookingStore.getState();
+    store.setSourceRecommendationId(rec._id);
+    store.setPrefilledScheduledAt(null);
+    // Pre-select the recommended service + seed the category signal so
+    // the Select Services sheet opens on the right tab — mirrors the
+    // MoreServicesSection entry point exactly.
+    store.clearSelectedServices();
+    if (rec.service_id) {
+      store.toggleServiceSelection(String(rec.service_id));
+      const svc = store.availableServices.find((s) => s.id === String(rec.service_id));
+      if (svc?.category) store.setInitialServiceCategory(svc.category);
+    }
     router.push("/home/map");
   };
 
@@ -133,9 +149,16 @@ export default function RecommendationDetailScreen() {
     setSubmitting(true);
     try {
       await confirmScheduled({ recommendationId: rec._id });
-      useBookingStore.getState().setSourceRecommendationId(rec._id);
+      const store = useBookingStore.getState();
+      store.setSourceRecommendationId(rec._id);
       if (typeof rec.scheduled_at === "number") {
-        useBookingStore.getState().setPrefilledScheduledAt(rec.scheduled_at);
+        store.setPrefilledScheduledAt(rec.scheduled_at);
+      }
+      store.clearSelectedServices();
+      if (rec.service_id) {
+        store.toggleServiceSelection(String(rec.service_id));
+        const svc = store.availableServices.find((s) => s.id === String(rec.service_id));
+        if (svc?.category) store.setInitialServiceCategory(svc.category);
       }
       router.replace("/home/map");
     } finally {
@@ -143,12 +166,17 @@ export default function RecommendationDetailScreen() {
     }
   };
 
-  const handleDismiss = async () => {
+  const openDismissSheet = () => setConfirmOpen(true);
+
+  const handleDismissConfirmed = async () => {
     if (submitting) return;
     setSubmitting(true);
     try {
-      await dismissRec({ recommendationId: rec._id, reason: "not_needed" });
-      router.back();
+      // No `reason` arg → backend defaults to `hidden_by_driver`, which keeps
+      // the VHS penalty in place until the work is actually done.
+      await dismissRec({ recommendationId: rec._id });
+      setConfirmOpen(false);
+      goBack();
     } finally {
       setSubmitting(false);
     }
@@ -158,7 +186,7 @@ export default function RecommendationDetailScreen() {
     <View style={[styles.screen, { paddingTop: insets.top }]}>
       {/* Header */}
       <View style={styles.headerRow}>
-        <Pressable onPress={() => router.back()} style={styles.backChip} hitSlop={12}>
+        <Pressable onPress={goBack} style={styles.backChip} hitSlop={12}>
           <ChevronLeft size={moderateScale(22)} color="#141C24" />
         </Pressable>
       </View>
@@ -170,6 +198,17 @@ export default function RecommendationDetailScreen() {
         ]}
         showsVerticalScrollIndicator={false}
       >
+        {isHidden ? (
+          <View style={styles.hiddenBanner}>
+            <Text weight="semiBold" style={styles.hiddenBannerTitle}>
+              Hidden from your tracker
+            </Text>
+            <Text style={styles.hiddenBannerBody}>
+              Your health score still reflects this until the service is done.
+            </Text>
+          </View>
+        ) : null}
+
         {/* Title block */}
         <Text weight="bold" style={styles.title}>
           {rec.service_name}
@@ -250,8 +289,22 @@ export default function RecommendationDetailScreen() {
       </ScrollView>
 
       {/* Footer */}
+      {isClosed ? null : (
       <View style={[styles.footer, { paddingBottom: insets.bottom + scale(12) }]}>
-        {hasScheduled ? (
+        {isHidden ? (
+          <Pressable
+            disabled={submitting}
+            onPress={handleBookThis}
+            style={({ pressed }) => [
+              styles.primaryBtn,
+              pressed && { opacity: 0.85 },
+            ]}
+          >
+            <Text weight="semiBold" style={styles.primaryText}>
+              Book This Service
+            </Text>
+          </Pressable>
+        ) : hasScheduled ? (
           <>
             <Pressable
               disabled={submitting}
@@ -271,7 +324,7 @@ export default function RecommendationDetailScreen() {
             </Pressable>
             <Pressable
               disabled={submitting}
-              onPress={handleDismiss}
+              onPress={openDismissSheet}
               style={({ pressed }) => [
                 styles.ghostBtn,
                 pressed && { opacity: 0.6 },
@@ -298,7 +351,7 @@ export default function RecommendationDetailScreen() {
             </Pressable>
             <Pressable
               disabled={submitting}
-              onPress={handleDismiss}
+              onPress={openDismissSheet}
               style={({ pressed }) => [
                 styles.ghostBtn,
                 pressed && { opacity: 0.6 },
@@ -311,6 +364,55 @@ export default function RecommendationDetailScreen() {
           </>
         )}
       </View>
+      )}
+
+      {confirmOpen ? (
+        <View style={StyleSheet.absoluteFillObject} pointerEvents="box-none">
+          <Pressable
+            style={styles.confirmBackdrop}
+            onPress={() => (submitting ? null : setConfirmOpen(false))}
+          />
+          <View
+            style={[
+              styles.confirmCard,
+              { paddingBottom: insets.bottom + scale(20) },
+            ]}
+          >
+            <Text weight="bold" style={styles.confirmTitle}>
+              Hide from your tracker?
+            </Text>
+            <Text style={styles.sheetBody}>
+              Your health score will still reflect this until the service is
+              done. You&apos;ll find it under Bookings → Recommended.
+            </Text>
+            <Pressable
+              disabled={submitting}
+              onPress={handleDismissConfirmed}
+              style={({ pressed }) => [
+                styles.primaryBtn,
+                (pressed || submitting) && { opacity: 0.85 },
+              ]}
+            >
+              {submitting ? (
+                <ActivityIndicator color="#FFFFFF" />
+              ) : (
+                <Text weight="semiBold" style={styles.primaryText}>
+                  Hide
+                </Text>
+              )}
+            </Pressable>
+            <Pressable
+              disabled={submitting}
+              onPress={() => setConfirmOpen(false)}
+              style={({ pressed }) => [styles.ghostBtn, pressed && { opacity: 0.6 }]}
+            >
+              <Text weight="semiBold" style={styles.ghostText}>
+                Cancel
+              </Text>
+            </Pressable>
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -464,5 +566,52 @@ const styles = StyleSheet.create({
   ghostText: {
     color: "#757c7d",
     fontSize: moderateScale(14),
+  },
+  hiddenBanner: {
+    backgroundColor: "#FFF8E1",
+    borderRadius: moderateScale(12),
+    paddingVertical: scale(12),
+    paddingHorizontal: scale(14),
+    marginBottom: scale(16),
+    borderWidth: 0.5,
+    borderColor: "#F1D58E",
+  },
+  hiddenBannerTitle: {
+    fontSize: moderateScale(13),
+    color: "#7A5A00",
+  },
+  hiddenBannerBody: {
+    fontSize: moderateScale(12),
+    color: "#7A5A00",
+    marginTop: 2,
+    lineHeight: moderateScale(16),
+  },
+  sheetBody: {
+    fontSize: moderateScale(14),
+    color: "#3F4A52",
+    lineHeight: moderateScale(20),
+    marginTop: scale(4),
+    marginBottom: scale(16),
+  },
+  confirmBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.45)",
+  },
+  confirmCard: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: "#FFFFFF",
+    borderTopLeftRadius: moderateScale(24),
+    borderTopRightRadius: moderateScale(24),
+    paddingHorizontal: scale(20),
+    paddingTop: scale(20),
+    gap: scale(8),
+  },
+  confirmTitle: {
+    fontSize: moderateScale(18),
+    color: "#141C24",
+    marginBottom: scale(4),
   },
 });

@@ -255,6 +255,7 @@ export default function RootLayout() {
                       }}
                     />
                     <Stack.Screen name="add-vehicle" options={{ headerShown: false }} />
+                    <Stack.Screen name="recommendation/[recId]" options={{ headerShown: false, animation: "slide_from_right" }} />
                     <Stack.Screen name="add-car-info" options={{ headerShown: false }} />
                     <Stack.Screen
                       name="vehicle-added"

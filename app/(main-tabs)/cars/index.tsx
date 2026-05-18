@@ -1422,7 +1422,7 @@ export default function CarsHomeScreen() {
                 const vin = activeVehicle?.vin;
                 if (vin) useVehicleStore.getState().selectVehicle(vin.toUpperCase().trim());
                 if (!item.sourceRecommendationId) return;
-                router.push(`/cars/recommendation/${item.sourceRecommendationId}`);
+                router.push(`/recommendation/${item.sourceRecommendationId}`);
               }}
               onAddInfo={(id) => {
                 const type = id.replace(/^(unknown-|user-)/, "") as MaintenanceType;

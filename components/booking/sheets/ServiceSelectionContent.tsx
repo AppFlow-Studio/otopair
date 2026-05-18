@@ -13,7 +13,7 @@
  */
 
 // 1. React & React Native
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
@@ -80,8 +80,18 @@ export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested
   // value as "sticky last intent"; senders (e.g. MoreServicesSection,
   // MechanicSearchBar) always set it before navigating, so the next
   // entry always has fresh intent.
+  // If the flow was opened with services already pre-selected (e.g.
+  // from a recommendation's "Book This Service" CTA), default the
+  // active category to that service's category so the user lands on
+  // the right tab instead of the generic basic_maintenance default.
+  const preSelectedCategory = useMemo<ServiceCategory | null>(() => {
+    if (selectedServiceIds.length === 0) return null;
+    const svc = availableServices.find((s) => s.id === selectedServiceIds[0]);
+    return (svc?.category as ServiceCategory | undefined) ?? null;
+  }, [selectedServiceIds, availableServices]);
+
   const [selectedCategory, setSelectedCategory] = useState<ServiceCategory>(
-    initialServiceCategory ?? "basic_maintenance",
+    initialServiceCategory ?? preSelectedCategory ?? "basic_maintenance",
   );
 
   // Sync follow-up store updates while the sheet is mounted (e.g. the
@@ -91,6 +101,19 @@ export function ServiceSelectionContent({ onCategorySelect, onShopTiresRequested
       setSelectedCategory(initialServiceCategory);
     }
   }, [initialServiceCategory]);
+
+  // availableServices may hydrate after first mount (Convex query). If
+  // we mounted with a pre-selection but couldn't resolve its category
+  // yet, switch once the catalog arrives.
+  const initialCategoryAppliedRef = useRef(false);
+  useEffect(() => {
+    if (initialServiceCategory) return;
+    if (initialCategoryAppliedRef.current) return;
+    if (preSelectedCategory) {
+      setSelectedCategory(preSelectedCategory);
+      initialCategoryAppliedRef.current = true;
+    }
+  }, [preSelectedCategory, initialServiceCategory]);
 
   // ═══════════════ STATE-EFFECT: Memoized Values ═══════════════
   const filteredServices = useMemo(() => {

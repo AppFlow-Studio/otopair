@@ -16,7 +16,8 @@ import { BackHandler, InteractionManager, Platform, StyleSheet, TouchableOpacity
 
 // 2. Third-party libraries
 import { BlurView } from "expo-blur";
-import { useFocusEffect, useNavigation, useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
+import { useTabBarVisibilityStore } from "@/stores/useTabBarVisibilityStore";
 import { ChevronLeft } from "lucide-react-native";
 import MapView from "react-native-maps";
 import Animated, { Extrapolation, interpolate, SharedValue, useAnimatedStyle } from "react-native-reanimated";
@@ -69,25 +70,18 @@ const VERTICAL_OFFSET = 55;
 export default function BookingsScreen() {
   // ═══════════════ HOOKS ═══════════════
   const router = useRouter();
-  const navigation = useNavigation();
   const insets = useSafeAreaInsets();
 
-  // Hide tab bar when map is open so bottom sheet can cover it
+  // Hide the custom TabBar while the map (booking flow entry) is open
+  // so the service bottom sheet can cover the screen edge-to-edge.
+  // Uses a Zustand flag because the TabBar lives at the Tabs root and
+  // can't see nested stack-screen options.
   useLayoutEffect(() => {
-    const parent = navigation.getParent();
-    if (parent) {
-      parent.setOptions({
-        tabBarStyle: { display: "none" },
-      });
-    }
+    useTabBarVisibilityStore.getState().setHidden(true);
     return () => {
-      if (parent) {
-        parent.setOptions({
-          tabBarStyle: undefined,
-        });
-      }
+      useTabBarVisibilityStore.getState().setHidden(false);
     };
-  }, [navigation]);
+  }, []);
 
   // ═══════════════ REFS ═══════════════
   const mapRef = useRef<MapView>(null);

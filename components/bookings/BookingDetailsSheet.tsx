@@ -38,7 +38,7 @@ import Animated, {
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
 
-import { Car, MessageCircle, Navigation, Phone, User, Wrench, X } from "lucide-react-native";
+import { Bell, Car, MessageCircle, Navigation, Phone, User, Wrench, X } from "lucide-react-native";
 
 import { openMapsForAddress, openPhone } from "@/utils/linking";
 import { useQuery } from "convex/react";
@@ -188,6 +188,21 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
         ? { id: booking.shopId as Id<"shops"> }
         : "skip",
     );
+
+    const bookingDetail = useQuery(
+      api.bookings.getBookingByIdForCustomer,
+      booking?.id ? { bookingId: booking.id as Id<"bookings"> } : "skip",
+    );
+
+    const liveStatusHistory = useMemo(() => {
+      if (!bookingDetail?.statusHistory) return undefined;
+      return bookingDetail.statusHistory.map((h) => ({
+        stage: h.status as BookingStatus,
+        timestamp: h.changedAt,
+      }));
+    }, [bookingDetail?.statusHistory]);
+
+    const liveMonitor = bookingDetail?.lateMonitor ?? null;
     const resolvedShopAddress = useMemo(() => {
       if (shopAddress) return shopAddress;
       if (!shopDoc) return undefined;
@@ -768,8 +783,21 @@ function FullContent({
         {/* STATUS TIMELINE */}
         <View style={styles.section}>
           <SectionHeader label="Status" />
-          <StatusTimeline currentStatus={booking.status} history={statusHistory} />
+          <StatusTimeline currentStatus={booking.status} history={liveStatusHistory ?? statusHistory} />
         </View>
+
+        {/* ARRIVAL TRACKING */}
+        {liveMonitor && (
+          liveMonitor.pushEnqueuedAtMs ||
+          liveMonitor.smsEnqueuedAtMs ||
+          liveMonitor.frontdeskEnqueuedAtMs ||
+          liveMonitor.customerAcknowledgedAtMs
+        ) ? (
+          <View style={styles.section}>
+            <SectionHeader label="Arrival Tracking" />
+            <ArrivalTrackingTimeline monitor={liveMonitor} />
+          </View>
+        ) : null}
 
         {/* SERVICE */}
         <View style={styles.section}>
@@ -908,6 +936,63 @@ function SectionHeader({ label }: { label: string }) {
     <Text size="xs" weight="bold" color="#8E8E93" style={styles.sectionHeaderText}>
       {label.toUpperCase()}
     </Text>
+  );
+}
+
+function formatShortTime(ms: number): string {
+  return new Date(ms).toLocaleString("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+interface LateMonitor {
+  pushEnqueuedAtMs: number | null;
+  smsEnqueuedAtMs: number | null;
+  frontdeskEnqueuedAtMs: number | null;
+  customerAcknowledgedAtMs: number | null;
+}
+
+function ArrivalTrackingTimeline({ monitor }: { monitor: LateMonitor }) {
+  const events: Array<{ ts: number; label: string; icon: "bell" | "car" }> = [];
+
+  const notifTs =
+    monitor.pushEnqueuedAtMs ?? monitor.smsEnqueuedAtMs ?? monitor.frontdeskEnqueuedAtMs;
+  if (notifTs) events.push({ ts: notifTs, label: "Late notification sent", icon: "bell" });
+  if (monitor.customerAcknowledgedAtMs)
+    events.push({ ts: monitor.customerAcknowledgedAtMs, label: "On my way", icon: "car" });
+  events.sort((a, b) => a.ts - b.ts);
+
+  return (
+    <View style={styles.timeline}>
+      {events.map((event, idx) => {
+        const isLast = idx === events.length - 1;
+        const IconComponent = event.icon === "bell" ? Bell : Car;
+        const iconColor = event.icon === "bell" ? "#D97706" : "#059669";
+        const bgColor = event.icon === "bell" ? "#FEF3C7" : "#D1FAE5";
+
+        return (
+          <View key={idx} style={styles.timelineRow}>
+            <View style={styles.timelineDotColumn}>
+              <View style={[styles.arrivalDot, { backgroundColor: bgColor }]}>
+                <IconComponent size={12} color={iconColor} />
+              </View>
+              {!isLast ? <View style={styles.timelineLine} /> : null}
+            </View>
+            <View style={styles.timelineBody}>
+              <Text size="sm" weight="semiBold" color="#1A1A1A">
+                {event.label}
+              </Text>
+              <Text size="xs" weight="regular" color="#8E8E93">
+                {formatShortTime(event.ts)}
+              </Text>
+            </View>
+          </View>
+        );
+      })}
+    </View>
   );
 }
 
@@ -1240,6 +1325,13 @@ const styles = StyleSheet.create({
     width: 20,
     alignItems: "center",
     paddingTop: 4,
+  },
+  arrivalDot: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
   },
   timelineDot: {
     width: 12,

@@ -1,6 +1,6 @@
 // 1. React & React Native
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Image, Pressable, StyleSheet, View, useWindowDimensions, ActivityIndicator } from 'react-native';
+import { Alert, Image, Pressable, StyleSheet, View, useWindowDimensions, ActivityIndicator } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Animated from 'react-native-reanimated';
 
@@ -33,6 +33,7 @@ import { useVehicleOwnershipFromConvex } from '@/hooks/useVehicleOwnershipFromCo
 import { fetchVehicleImageUrl } from '@/utils/vehicleImage';
 import { adaptConvexBookingWithDetailsToCard } from '@/utils/bookingAdapter';
 import { BookingDetailsSheet, type BookingDetailsSheetRef } from '@/components/bookings/BookingDetailsSheet';
+import { CustomerLateBanner } from '@/components/bookings/CustomerLateBanner';
 import { LeaveReviewSheet, type LeaveReviewSheetRef } from '@/components/bookings/LeaveReviewSheet';
 import { useMyBookingsWithDetails } from '@/hooks/useMyBookingsWithDetails';
 import { useUserFromConvex } from '@/hooks/useUserFromConvex';
@@ -459,6 +460,29 @@ export default function HomeScreen() {
     [cancelConvexBooking],
   );
 
+  // Reschedule from the late banner = confirm-then-cancel. We don't have
+  // in-place reschedule yet; the spec is to drop the slot so the driver
+  // can book fresh.
+  const handleRescheduleConfirm = useCallback(
+    (bookingId: string) => {
+      Alert.alert(
+        "Reschedule appointment?",
+        "This will cancel your current booking. You'll need to book a new time slot.",
+        [
+          { text: "Keep booking", style: "cancel" },
+          {
+            text: "Cancel & reschedule",
+            style: "destructive",
+            onPress: () => {
+              void cancelConvexBooking({ bookingId: bookingId as Id<"bookings"> });
+            },
+          },
+        ],
+      );
+    },
+    [cancelConvexBooking],
+  );
+
   // View Details — open the same BookingDetailsSheet the bookings tab uses.
   const detailsSheetRef = useRef<BookingDetailsSheetRef>(null);
   const handleAppointmentViewDetails = useCallback(
@@ -669,6 +693,13 @@ export default function HomeScreen() {
 
             {/* Content Area */}
             <View style={styles.content}>
+              {/* Running-late / overrun banner — self-renders when the
+                  shop has fired a customer_late_push_reminder or
+                  overrun_customer_resolution notification. Reschedule
+                  triggers a confirm-then-cancel flow. */}
+              <CustomerLateBanner
+                onReschedule={(bookingId) => handleRescheduleConfirm(String(bookingId))}
+              />
               {/* Action Cards Carousel */}
               {visibleCardIds.length > 0 && <View style={styles.carouselContainer}>
                 <ActionCardsCarousel
