@@ -183,7 +183,7 @@ export default function AddVehicleScreen() {
       
       {/* Full Screen Car Image */}
       <Animated.Image
-        source={require('@/assets/images/addYourVehiclev2.png')}
+        source={require('@/assets/images/addyourvehiclev2.png')}
         style={[styles.fullScreenImage, { top: imageTop }, movingArtworkStyle]}
         resizeMode="cover"
       />
