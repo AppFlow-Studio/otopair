@@ -25,8 +25,8 @@
  */
 
 // 1. React & React Native
-import React, { useRef, useState } from 'react';
-import { Alert, Image, Pressable, StyleSheet, View } from 'react-native';
+import React, { useMemo, useRef, useState } from 'react';
+import { Alert, Image, PixelRatio, Pressable, StyleSheet, View } from 'react-native';
 import type { View as RNView } from 'react-native';
 
 // 2. Expo & Third-party
@@ -103,6 +103,35 @@ function titleCase(str: string): string {
   return str.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 }
 
+const ACTION_BUTTON_GAP = 10;
+const ACTION_BUTTON_HORIZONTAL_PADDING = 32;
+const ACTION_BUTTON_LABEL_MAX_SIZE = 14;
+const ACTION_BUTTON_LABEL_MIN_SIZE = 12;
+const ACTION_BUTTON_LONGEST_LABEL = 'Cancel Booking';
+const ACTION_BUTTON_LABEL_WIDTH_RATIO = 0.66;
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+function getActionButtonLabelSize(rowWidth: number, fontScale: number): number {
+  if (rowWidth <= 0) {
+    return ACTION_BUTTON_LABEL_MAX_SIZE;
+  }
+
+  const buttonWidth = (rowWidth - ACTION_BUTTON_GAP) / 2;
+  const availableLabelWidth = buttonWidth - ACTION_BUTTON_HORIZONTAL_PADDING;
+  const fittedSize =
+    availableLabelWidth /
+    (ACTION_BUTTON_LONGEST_LABEL.length * ACTION_BUTTON_LABEL_WIDTH_RATIO * fontScale);
+
+  return clamp(
+    fittedSize,
+    ACTION_BUTTON_LABEL_MIN_SIZE,
+    ACTION_BUTTON_LABEL_MAX_SIZE,
+  );
+}
+
 // ============================================================================
 // STATUS CONFIG
 // ============================================================================
@@ -171,6 +200,7 @@ export function BookingCard({
   const router = useRouter();
   const openRescheduleDecision = useRescheduleDecisionOverlayStore((s) => s.open);
   const primaryBtnRef = useRef<RNView | null>(null);
+  const [actionsRowWidth, setActionsRowWidth] = useState(0);
   // Fall back to a neutral pill when the backend returns a status we
   // don't have a config for, so an unknown value doesn't crash the card.
   const statusConfig = STATUS_CONFIG[booking.status] ?? {
@@ -180,6 +210,11 @@ export function BookingCard({
   };
   const [carImageError, setCarImageError] = useState(false);
   const showCarPlaceholder = !booking.makeLogoUrl?.trim() || carImageError;
+  const fontScale = PixelRatio.getFontScale();
+  const actionButtonLabelSize = useMemo(
+    () => getActionButtonLabelSize(actionsRowWidth, fontScale),
+    [actionsRowWidth, fontScale],
+  );
   
   // Format services display
   const mainService = booking.services[0] || 'Service';
@@ -378,7 +413,10 @@ export function BookingCard({
           longer cancel — service is in flight at the shop. Reschedule is
           parked for now (handler kept) until the reschedule sheet ships. */}
       {variant === 'upcoming' ? (
-        <View style={styles.actionsRow}>
+        <View
+          style={styles.actionsRow}
+          onLayout={(event) => setActionsRowWidth(event.nativeEvent.layout.width)}
+        >
           <Pressable
             ref={primaryBtnRef}
             onPress={handleViewDetails}
@@ -387,7 +425,14 @@ export function BookingCard({
               pressed && styles.buttonPressed,
             ]}
           >
-            <Text weight="semiBold" size="sm" color="#FFFFFF" numberOfLines={1}>
+            <Text
+              weight="semiBold"
+              size={actionButtonLabelSize}
+              color="#FFFFFF"
+              numberOfLines={1}
+              lineHeight={1.2}
+              style={styles.actionButtonLabel}
+            >
               {booking.status === 'pending_customer_acceptance'
                 ? 'Review change'
                 : 'View Details'}
@@ -402,7 +447,14 @@ export function BookingCard({
                 pressed && styles.buttonPressed,
               ]}
             >
-              <Text weight="semiBold" size="sm" color="#DC2626" numberOfLines={1}>
+              <Text
+                weight="semiBold"
+                size={actionButtonLabelSize}
+                color="#DC2626"
+                numberOfLines={1}
+                lineHeight={1.2}
+                style={styles.actionButtonLabel}
+              >
                 Cancel Booking
               </Text>
             </Pressable>
@@ -567,7 +619,10 @@ const styles = StyleSheet.create({
   actionsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: ACTION_BUTTON_GAP,
+  },
+  actionButtonLabel: {
+    textAlign: 'center',
   },
   // Upcoming-variant action buttons. flexBasis: 0 + flexGrow: 1 + minWidth: 0
   // forces equal widths regardless of label length — `flex: 1` alone can let
