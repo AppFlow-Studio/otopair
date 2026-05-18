@@ -1,16 +1,16 @@
 /**
  * BookingConfirmStatus
  *
- * Sheet body shown on the `/home/mechanic/[id]/confirming` route. Mirrors
+ * Sheet body shown on the `/booking/mechanic/[id]/confirming` route. Mirrors
  * the tire-quote `QuoteRequestStatus` pattern: a summary block (appointment,
  * vehicle, mechanic) above an Uber-Eats-style Confirm-with-countdown
  * primary CTA + a Go back secondary. Reads directly from the booking,
  * mechanic, shop, and vehicle stores so the parent route stays thin.
  *
- * USED IN: app/(main-tabs)/home/mechanic/[id]/confirming.tsx
+ * USED IN: app/(booking)/mechanic/[id]/confirming.tsx
  */
 import React from "react";
-import { Pressable, StyleSheet, View } from "react-native";
+import { Pressable, StyleSheet, View, useWindowDimensions } from "react-native";
 
 import { Calendar, Car, User } from "lucide-react-native";
 
@@ -33,6 +33,7 @@ interface Props {
 }
 
 export function BookingConfirmStatus({ onConfirm, onGoBack, mechanicId }: Props) {
+  const { height: windowHeight } = useWindowDimensions();
   const scheduledAppointment = useBookingStore((s) => s.scheduledAppointment);
   const selectedMechanicId = useBookingStore((s) => s.selectedMechanicId);
   const getMechanicById = useMechanicStore((s) => s.getMechanicById);
@@ -55,43 +56,57 @@ export function BookingConfirmStatus({ onConfirm, onGoBack, mechanicId }: Props)
   const mechanicLabel = mechanic
     ? `${mechanic.name}${shop?.name ? ` · ${shop.name}` : ""}`
     : "Selected mechanic";
+  const isCompactLayout = windowHeight < 860;
+  const isVeryCompactLayout = windowHeight < 760;
 
   return (
-    <View style={styles.container}>
-      <Text size="xl" weight="bold" color="#1A1A1A" style={styles.title}>
+    <View style={[styles.container, isCompactLayout && styles.containerCompact]}>
+      <Text
+        size={isVeryCompactLayout ? "lg" : "xl"}
+        weight="bold"
+        color="#1A1A1A"
+        style={[styles.title, isCompactLayout && styles.titleCompact]}
+      >
         Confirming your appointment…
       </Text>
 
-      <View style={styles.rows}>
+      <View style={[styles.rows, isCompactLayout && styles.rowsCompact]}>
         <InfoRow
           icon={<Calendar size={20} color="#4B5563" strokeWidth={2} />}
           primary="Appointment"
           secondary={appointmentLabel}
+          compact={isCompactLayout}
+          veryCompact={isVeryCompactLayout}
         />
         <Divider />
         <InfoRow
           icon={<Car size={20} color="#4B5563" strokeWidth={2} />}
           primary={vehicleLabel}
           secondary={selectedVehicle?.vin ? `VIN · ${selectedVehicle.vin}` : undefined}
+          compact={isCompactLayout}
+          veryCompact={isVeryCompactLayout}
         />
         <Divider />
         <InfoRow
           icon={<User size={20} color="#4B5563" strokeWidth={2} />}
           primary={mechanicLabel}
+          compact={isCompactLayout}
+          veryCompact={isVeryCompactLayout}
         />
       </View>
 
-      <View style={styles.actionColumn}>
+      <View style={[styles.actionColumn, isCompactLayout && styles.actionColumnCompact, isVeryCompactLayout && styles.actionColumnVeryCompact]}>
         <ConfirmCountdownButton onConfirm={onConfirm} />
         <Pressable
           onPress={onGoBack}
           style={({ pressed }) => [
             styles.actionButton,
+            isCompactLayout && styles.actionButtonCompact,
             styles.secondaryButton,
             pressed && styles.buttonPressed,
           ]}
         >
-          <Text size="md" weight="semiBold" color="#1A1A1A">
+          <Text size={isVeryCompactLayout ? "sm" : "md"} weight="semiBold" color="#1A1A1A">
             Go back
           </Text>
         </Pressable>
@@ -104,20 +119,24 @@ function InfoRow({
   icon,
   primary,
   secondary,
+  compact = false,
+  veryCompact = false,
 }: {
   icon: React.ReactNode;
   primary: string;
   secondary?: string;
+  compact?: boolean;
+  veryCompact?: boolean;
 }) {
   return (
-    <View style={styles.row}>
-      <View style={styles.iconSlot}>{icon}</View>
+    <View style={[styles.row, compact && styles.rowCompact]}>
+      <View style={[styles.iconSlot, compact && styles.iconSlotCompact]}>{icon}</View>
       <View style={styles.rowText}>
-        <Text size="md" weight="semiBold" color="#1A1A1A" numberOfLines={1}>
+        <Text size={veryCompact ? "sm" : "md"} weight="semiBold" color="#1A1A1A" numberOfLines={1}>
           {primary}
         </Text>
         {secondary ? (
-          <Text size="sm" weight="regular" color="#6B7280" numberOfLines={1}>
+          <Text size={veryCompact ? "xs" : "sm"} weight="regular" color="#6B7280" numberOfLines={1}>
             {secondary}
           </Text>
         ) : null}
@@ -136,12 +155,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingBottom: 16,
   },
+  containerCompact: {
+    paddingHorizontal: 16,
+    paddingBottom: 10,
+  },
   title: {
     marginTop: 2,
     marginBottom: 18,
   },
+  titleCompact: {
+    marginBottom: 12,
+  },
   rows: {
     marginBottom: 20,
+  },
+  rowsCompact: {
+    marginBottom: 12,
   },
   row: {
     flexDirection: "row",
@@ -149,10 +178,17 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     gap: 14,
   },
+  rowCompact: {
+    paddingVertical: 9,
+    gap: 10,
+  },
   iconSlot: {
     width: 28,
     alignItems: "center",
     justifyContent: "center",
+  },
+  iconSlotCompact: {
+    width: 24,
   },
   rowText: {
     flex: 1,
@@ -167,12 +203,24 @@ const styles = StyleSheet.create({
     marginTop: "auto",
     gap: 10,
   },
+  actionColumnCompact: {
+    marginTop: 6,
+    gap: 8,
+  },
+  actionColumnVeryCompact: {
+    marginTop: 4,
+    gap: 6,
+  },
   actionButton: {
     height: 52,
     borderRadius: 14,
     alignItems: "center",
     justifyContent: "center",
     overflow: "hidden",
+  },
+  actionButtonCompact: {
+    height: 46,
+    borderRadius: 12,
   },
   secondaryButton: {
     backgroundColor: "#F2F2F7",

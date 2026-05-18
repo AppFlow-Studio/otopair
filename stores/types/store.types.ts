@@ -43,6 +43,12 @@ export interface ServiceOptionSelection {
   labor_hours: number;
   parts_cost_avg: number;
   state_fee?: number;
+  /** Snapshot of the human-readable option label (e.g. "Front and rear",
+   *  "All 4 tires + balance") so the booking record carries it forward to
+   *  the mechanic's schedule card without an extra lookup. */
+  option_label?: string;
+  /** Snapshot of the option_type (e.g. "position", "tire_set"). */
+  option_type?: string;
 }
 
 /** User's current location for map and shop discovery */
@@ -100,6 +106,10 @@ export interface Mechanic {
   rating: number;
   /** Number of reviews (from Convex) for display */
   reviewCount?: number;
+  /** Parent shop's aggregate rating — used by the booking sheet's per-shop grouping */
+  shopRating?: number;
+  /** Parent shop's aggregate review count */
+  shopReviewCount?: number;
   /** Whether the mechanic is verified */
   isVerified: boolean;
   /** Distance in miles from user */

@@ -3,9 +3,11 @@ import { ClerkProvider, useAuth } from "@clerk/clerk-expo";
 import { tokenCache } from "@clerk/clerk-expo/token-cache";
 import { BottomSheetModalProvider } from "@gorhom/bottom-sheet";
 import { DarkTheme, DefaultTheme, ThemeProvider } from "@react-navigation/native";
-import { Stack, type ErrorBoundaryProps } from "expo-router";
+import { Stack, router, useSegments, type ErrorBoundaryProps } from "expo-router";
 import * as SplashScreen from "expo-splash-screen";
 import { StatusBar } from "expo-status-bar";
+import { ConvexReactClient, useAction, useQuery } from "convex/react";
+import { ConvexProviderWithClerk } from "convex/react-clerk";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
 import "react-native-reanimated";
@@ -16,17 +18,7 @@ import { LogBox } from "react-native";
 // errors. We always catch these in app code and surface them via the
 // existing error modal — the LogBox dump is just dev-time noise on top.
 // Errors still log to Metro for debugging; this only hides the overlay.
-LogBox.ignoreLogs([
-  /\[CONVEX M\([^\)]+\)\]/,
-  /\[CONVEX Q\([^\)]+\)\]/,
-  /\[CONVEX A\([^\)]+\)\]/,
-]);
-
-import { ConvexReactClient } from "convex/react";
-import { ConvexProviderWithClerk } from "convex/react-clerk";
-
 import { ErrorBoundary as AppErrorBoundary, ErrorModalHost, errorBus } from "@/lib/error-ui";
-import { useAction } from "convex/react";
 import { api } from "@/convex/_generated/api";
 
 import { useColorScheme } from "@/hooks/use-color-scheme";
@@ -35,6 +27,12 @@ import { useConsoleToConvex } from "@/hooks/useConsoleToConvex";
 import { useEnsureConvexUser } from "@/hooks/useEnsureConvexUser";
 import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromConvex";
 import { useAuthStore } from "@/stores/useAuthStore";
+
+LogBox.ignoreLogs([
+  /\[CONVEX M\([^\)]+\)\]/,
+  /\[CONVEX Q\([^\)]+\)\]/,
+  /\[CONVEX A\([^\)]+\)\]/,
+]);
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
 
@@ -172,6 +170,38 @@ function SyncAuthStoreWithClerk() {
   return null;
 }
 
+function PendingDeletionSessionGuard() {
+  const { isLoaded, isSignedIn, signOut } = useAuth();
+  const me = useQuery(api.users.getMe);
+  const segments = useSegments();
+  const isSigningOutRef = useRef(false);
+
+  useEffect(() => {
+    if (!isLoaded || !isSignedIn || !me?.isPendingDeletion || isSigningOutRef.current) {
+      return;
+    }
+
+    // Preserve the login/reactivation path: LoginStep intentionally
+    // reactivates pending-deletion accounts during onboarding.
+    if (segments[0] === "(onboarding)") {
+      return;
+    }
+
+    isSigningOutRef.current = true;
+
+    void signOut()
+      .catch((error) => {
+        console.error("Failed to sign out pending-deletion session", error);
+      })
+      .finally(() => {
+        router.replace("/(onboarding)");
+        isSigningOutRef.current = false;
+      });
+  }, [isLoaded, isSignedIn, me?.isPendingDeletion, segments, signOut]);
+
+  return null;
+}
+
 function RootErrorBoundary({ error }: ErrorBoundaryProps) {
   useEffect(() => {
     errorBus.set({ visible: true, error });
@@ -180,43 +210,6 @@ function RootErrorBoundary({ error }: ErrorBoundaryProps) {
 }
 
 export { RootErrorBoundary as ErrorBoundary };
-
-/**
- * Refresh Smartcar data once on cold start for all connected vehicles.
- * Runs silently in the background — no loading UI.
- */
-function SmartcarColdStartRefresh() {
-  const { vehicles } = useVehicleOwnershipFromConvex();
-  const fetchVehicleData = useAction(api.smartcar.fetchVehicleData);
-  const hasRefreshedRef = useRef(false);
-
-  useEffect(() => {
-    if (hasRefreshedRef.current) return;
-    if (!vehicles || vehicles.length === 0) return;
-
-    // Find connected vehicles
-    const connected = vehicles.filter((v: any) => v.connectionStatus === "connected" && v.ownership?._id);
-
-    console.log(
-      `[ColdStart] vehicles=${vehicles.length}, connected=${connected.length}, statuses=${vehicles.map((v: any) => v.connectionStatus).join(",")}`
-    );
-
-    if (connected.length === 0) return;
-
-    hasRefreshedRef.current = true;
-
-    // Refresh each connected vehicle (fire-and-forget)
-    for (const v of connected) {
-      const ownerId = (v as any).ownership._id;
-      console.log(`[ColdStart] Refreshing vehicle owner=${ownerId}`);
-      fetchVehicleData({ vehicleOwnerId: ownerId }).catch((err: any) =>
-        console.warn("[ColdStart] Smartcar refresh failed:", err)
-      );
-    }
-  }, [vehicles, fetchVehicleData]);
-
-  return null;
-}
 
 export default function RootLayout() {
   const colorScheme = useColorScheme();
@@ -234,6 +227,7 @@ export default function RootLayout() {
           <AppErrorBoundary>
             <EnsureConvexUserRecord />
             <SyncAuthStoreWithClerk />
+            <PendingDeletionSessionGuard />
             <ErrorModalHost />
             <KeyboardProvider>
             <GestureHandlerRootView style={{ flex: 1 }}>
@@ -252,6 +246,15 @@ export default function RootLayout() {
                     <Stack.Screen name="(onboarding)" options={{ headerShown: false }} />
                     <Stack.Screen name="(main-tabs)" options={{ headerShown: false }} />
                     <Stack.Screen name="(tell-us-about)" options={{ headerShown: false }} />
+                    <Stack.Screen name="(tire-booking)" options={{ headerShown: false }} />
+                    <Stack.Screen
+                      name="booking"
+                      options={{
+                        headerShown: false,
+                        presentation: "fullScreenModal",
+                        animation: "slide_from_bottom",
+                      }}
+                    />
                     <Stack.Screen
                       name="coming-soon"
                       options={{
@@ -260,6 +263,7 @@ export default function RootLayout() {
                       }}
                     />
                     <Stack.Screen name="add-vehicle" options={{ headerShown: false }} />
+                    <Stack.Screen name="recommendation/[recId]" options={{ headerShown: false, animation: "slide_from_right" }} />
                     <Stack.Screen name="add-car-info" options={{ headerShown: false }} />
                     <Stack.Screen
                       name="vehicle-added"
@@ -282,8 +286,7 @@ export default function RootLayout() {
                     />
                     <Stack.Screen name="membership" options={{ headerShown: false }} />
                     <Stack.Screen name="suggested-deals" options={{ headerShown: false }} />
-                    <Stack.Screen name="transactions" options={{ headerShown: false }} />
-                    <Stack.Screen name="refer-a-friend" options={{ headerShown: false }} />
+                    <Stack.Screen name="settings" options={{ headerShown: false }} />
                   </Stack>
                   <StatusBar style="auto" />
                 </ThemeProvider>
@@ -293,7 +296,6 @@ export default function RootLayout() {
           </AppErrorBoundary>
           {/* <EnsureConvexUserRecord />
         <SyncAuthStoreWithClerk />
-        <SmartcarColdStartRefresh />
         <GestureHandlerRootView style={{ flex: 1 }}>
           <BottomSheetModalProvider>
             <ThemeProvider value={colorScheme === "dark" ? DarkTheme : DefaultTheme}>

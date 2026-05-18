@@ -3,7 +3,7 @@
  *
  * PURPOSE: Displays reviews and rating summary for a mechanic from Convex (api.reviews.getByMechanicId).
  *
- * USED IN: app/(main-tabs)/home/mechanic/[id].tsx (Reviews tab)
+ * USED IN: app/(booking)/mechanic/[id].tsx (Reviews tab)
  *
  * OWNER: Temurbek Sayfutdinov
  */

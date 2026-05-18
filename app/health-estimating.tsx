@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Dimensions, Pressable, StyleSheet, View } from "react-native";
+import { Dimensions, Image, Pressable, StyleSheet, View } from "react-native";
 import Animated, {
   Easing,
   cancelAnimation,
@@ -16,9 +16,13 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import * as Haptics from "expo-haptics";
+import { useMutation } from "convex/react";
 
 import { Text } from "@/components/shared-ui";
 import { scale, verticalScale, moderateScale } from "@/utils/responsive";
+import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromConvex";
+import { fetchVehicleImageUrl } from "@/utils/vehicleImage";
+import { api } from "@/convex/_generated/api";
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get("window");
 
@@ -258,6 +262,45 @@ export default function HealthEstimatingScreen() {
   const [loadingDone, setLoadingDone] = useState(false);
   const navigatedRef = useRef(false);
 
+  // Resolve the actual vehicle image so this screen shows the car the
+  // user just added instead of the covered-car placeholder. Mirrors the
+  // cache-first / fetch-fallback pattern used on the cars tab.
+  const { vehicles: ownedVehicles } = useVehicleOwnershipFromConvex();
+  const saveVehicleImageUrl = useMutation(api.vehicles.saveVehicleImageUrl);
+  const [resolvedImageUrl, setResolvedImageUrl] = useState<string | null>(null);
+
+  const activeRow = useMemo(() => {
+    if (!params.vehicleOwnerId) return null;
+    return (ownedVehicles as any[]).find(
+      (r) => r?.ownership?._id === params.vehicleOwnerId,
+    ) ?? null;
+  }, [ownedVehicles, params.vehicleOwnerId]);
+
+  useEffect(() => {
+    if (!activeRow) return;
+    const cachedUrl = activeRow.vehicle?.image_url as string | undefined;
+    if (cachedUrl) {
+      setResolvedImageUrl(cachedUrl);
+      return;
+    }
+    const vin = activeRow.vin as string | undefined;
+    const meta = activeRow.vehicle?.metadata as
+      | { make?: string; model?: string; color?: string }
+      | undefined;
+    const make = meta?.make ?? "";
+    const model = meta?.model ?? "";
+    const color = meta?.color ?? activeRow.ownership?.color ?? "";
+    const year = activeRow.vehicle?.year as number | undefined;
+    if (!make || !model) return;
+    let cancelled = false;
+    fetchVehicleImageUrl(make, model, year, vin, color).then((url) => {
+      if (cancelled || !url) return;
+      setResolvedImageUrl(url);
+      if (vin) saveVehicleImageUrl({ vin, image_url: url });
+    });
+    return () => { cancelled = true; };
+  }, [activeRow, saveVehicleImageUrl]);
+
   // Distribute bubbles in rows, alternating left/right
   const bubbleSlots = useMemo(() => {
     const shuffled = [...ALL_FACTS].sort(() => Math.random() - 0.5);
@@ -382,6 +425,19 @@ export default function HealthEstimatingScreen() {
         )}
       </View>
 
+      {/* Vehicle hero — uses the resolved VDB render of the user's
+          actual car when available, with the covered-car placeholder
+          as a fallback while the image is still being fetched. */}
+      <Image
+        source={
+          resolvedImageUrl
+            ? { uri: resolvedImageUrl }
+            : require("@/assets/images/covered-car.png")
+        }
+        style={styles.coveredCar}
+        resizeMode="contain"
+      />
+
       {/* Chat bubbles — laid out in a vertical list with alternating alignment */}
       <View style={styles.bubblesArea} pointerEvents="box-none">
         {bubbleSlots.map((slot, idx) =>
@@ -469,6 +525,11 @@ const styles = StyleSheet.create({
   },
   bubbleSpacer: {
     height: scale(50),
+  },
+  coveredCar: {
+    width: "100%",
+    height: scale(110),
+    marginTop: scale(4),
   },
   ctaWrap: {
     position: "absolute",

@@ -13,9 +13,9 @@ import * as Haptics from "expo-haptics";
 import {
   Car,
   Check,
-  ChevronDown,
   ChevronLeft,
   Info,
+  ListFilter,
 } from "lucide-react-native";
 import React, { useCallback, useMemo, useRef, useState } from "react";
 import {
@@ -40,6 +40,7 @@ import { Chip, Text } from "@/components/shared-ui";
 import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/FloatingSheet";
 import { TierInfoSheet, type TierInfoSheetRef } from "@/components/tire-booking/TierInfoSheet";
 import { VehicleTireSelector3D } from "@/components/tire-booking/VehicleTireSelector3D";
+import TireRequestingScreen from "@/app/(tire-booking)/requesting";
 import {
   DEFAULT_OEM_SIZES,
   MOCK_OEM_SIZES_BY_MAKE,
@@ -58,7 +59,19 @@ const { height: SCREEN_HEIGHT } = Dimensions.get("window");
 // SCREEN
 // ============================================================================
 
-export default function TireBookingScreen() {
+interface TireBookingScreenProps {
+  /** When provided, the back chevron calls this instead of router.back().
+   *  Used when this screen is embedded as a Modal from
+   *  ServiceBottomSheet (router.push to (tire-booking) wasn't
+   *  navigating reliably from inside the sheet, so we embed instead). */
+  onClose?: () => void;
+  /** Bubbled up to TireRequestingScreen so the parent (which lives in
+   *  the real screen tree, not inside the Modal) handles the booking
+   *  confirmation + navigation. */
+  onConfirmed?: () => void;
+}
+
+export default function TireBookingScreen({ onClose, onConfirmed }: TireBookingScreenProps = {}) {
   const router = useRouter();
   const insets = useSafeAreaInsets();
 
@@ -131,9 +144,13 @@ export default function TireBookingScreen() {
   // ── Handlers ───────────────────────────────────────────────────────────────
   const handleBack = useCallback(() => {
     resetTireStore();
+    if (onClose) {
+      onClose();
+      return;
+    }
     if (router.canGoBack()) router.back();
     else router.replace("/(main-tabs)/home");
-  }, [router, resetTireStore]);
+  }, [router, resetTireStore, onClose]);
 
   const handlePickVehicle = useCallback(
     (id: string) => {
@@ -152,23 +169,26 @@ export default function TireBookingScreen() {
     [toggleTirePosition],
   );
 
+  // Modal mode: swap to the requesting view inline instead of pushing a
+  // new route (router.push from inside the parent Modal doesn't navigate
+  // reliably). Route mode keeps the original push-based flow.
+  const [showRequestingInline, setShowRequestingInline] = useState(false);
+
   const handleGetQuotes = useCallback(() => {
-    // Spinner ON first — immediate tactile feedback for the user.
     setIsSubmitting(true);
     Haptics.selectionAsync();
-
-    // Defer the heavy work by one animation frame so React renders the
-    // spinner before the screen transition begins. Otherwise setState gets
-    // batched with the sync router.push and the spinner never paints.
     requestAnimationFrame(() => {
-      // Stream mock shop responses into the tire store for the background
-      // ticking animation (kept while real responses ramp up via the website).
-      // The booking record itself is NOT created here — that happens when
-      // the user taps Confirm on the requesting sheet.
       void fireRequest();
-      router.push("/(tire-booking)/requesting");
+      if (onClose) {
+        // Modal mode — render requesting inline. Reset spinner so it
+        // doesn't visually hang on the now-hidden config screen.
+        setIsSubmitting(false);
+        setShowRequestingInline(true);
+      } else {
+        router.push("/(tire-booking)/requesting");
+      }
     });
-  }, [fireRequest, router]);
+  }, [fireRequest, router, onClose]);
 
   // ── Derived ────────────────────────────────────────────────────────────────
   const selectedCount = selectedTirePositions.length;
@@ -190,6 +210,11 @@ export default function TireBookingScreen() {
     // enabled CTA is a plain action label rather than a price-range preview.
     return "Get Quotes";
   })();
+
+  // Modal mode after Get Quotes: render the requesting screen inline.
+  if (showRequestingInline && onClose) {
+    return <TireRequestingScreen onClose={onClose} onConfirmed={onConfirmed} />;
+  }
 
   return (
     <View style={styles.screen}>
@@ -214,24 +239,31 @@ export default function TireBookingScreen() {
           onPress={() => canSwitch && vehiclePickerRef.current?.open()}
           activeOpacity={canSwitch ? 0.85 : 1}
         >
-          <View style={styles.vehicleThumb}>
+          <View style={styles.vehicleSide}>
             {selectedVehicle?.imageSource ? (
-              <Image source={selectedVehicle.imageSource} style={styles.vehicleThumbImage} resizeMode="contain" />
+              <Image
+                source={selectedVehicle.imageSource}
+                style={styles.vehicleThumbImage}
+                resizeMode="contain"
+              />
             ) : (
-              <Car size={20} color="#9CA3AF" />
+              <Car size={28} color="#9CA3AF" />
             )}
           </View>
-          <View style={styles.vehicleText}>
-            <Text size="xs" weight="semiBold" color="#8E8E93">
-              TIRES FOR
-            </Text>
-            <Text size="md" weight="bold" color="#1A1A1A" numberOfLines={1}>
-              {selectedVehicle
-                ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}`
-                : "Select vehicle"}
-            </Text>
+          <Text
+            size="md"
+            weight="bold"
+            color="#1A1A1A"
+            numberOfLines={1}
+            style={styles.vehicleLabel}
+          >
+            {selectedVehicle
+              ? `${selectedVehicle.year} ${selectedVehicle.make} ${selectedVehicle.model}`
+              : "Select vehicle"}
+          </Text>
+          <View style={styles.vehicleSide}>
+            {canSwitch ? <ListFilter size={16} color="#8E8E93" /> : null}
           </View>
-          {canSwitch ? <ChevronDown size={18} color="#8E8E93" /> : null}
         </TouchableOpacity>
 
         {/* 3D hero */}
@@ -327,6 +359,7 @@ export default function TireBookingScreen() {
       <FloatingSheet
         ref={vehiclePickerRef}
         snapHeights={[Math.min(SCREEN_HEIGHT * 0.45, 120 + vehicles.length * 78)]}
+        showBackdrop
       >
         <View style={styles.sheetContent}>
           <Text size="lg" weight="bold" color="#1A1A1A" style={styles.sheetTitle}>
@@ -342,11 +375,11 @@ export default function TireBookingScreen() {
                   onPress={() => handlePickVehicle(v.id)}
                   activeOpacity={0.85}
                 >
-                  <View style={styles.vehicleRowThumb}>
+                  <View style={styles.vehicleRowSide}>
                     {v.imageSource ? (
                       <Image source={v.imageSource} style={styles.vehicleRowImage} resizeMode="contain" />
                     ) : (
-                      <Car size={20} color="#9CA3AF" />
+                      <Car size={28} color="#9CA3AF" />
                     )}
                   </View>
                   <View style={styles.vehicleRowText}>
@@ -469,33 +502,30 @@ const styles = StyleSheet.create({
   vehicleChip: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
     backgroundColor: "#FFFFFF",
     borderRadius: 14,
     borderWidth: 1,
     borderColor: "#E8E8E8",
-    padding: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
     marginBottom: 16,
   },
   vehicleChipStatic: {
     opacity: 0.95,
   },
-  vehicleThumb: {
-    width: 40,
+  vehicleSide: {
+    width: 56,
     height: 40,
-    borderRadius: 20,
-    backgroundColor: "#F2F2F7",
     alignItems: "center",
     justifyContent: "center",
-    overflow: "hidden",
   },
   vehicleThumbImage: {
-    width: 40,
+    width: 56,
     height: 40,
   },
-  vehicleText: {
+  vehicleLabel: {
     flex: 1,
-    gap: 2,
+    textAlign: "center",
   },
 
   hero: {
@@ -630,17 +660,14 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     backgroundColor: "#F5F9FF",
   },
-  vehicleRowThumb: {
-    width: 40,
+  vehicleRowSide: {
+    width: 56,
     height: 40,
-    borderRadius: 20,
-    backgroundColor: "#F2F2F7",
     alignItems: "center",
     justifyContent: "center",
-    overflow: "hidden",
   },
   vehicleRowImage: {
-    width: 40,
+    width: 56,
     height: 40,
   },
   vehicleRowText: {

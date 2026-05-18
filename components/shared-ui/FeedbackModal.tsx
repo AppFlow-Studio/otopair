@@ -19,6 +19,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { BlurView } from "expo-blur";
 import { X } from "lucide-react-native";
 
 import { BrandColors } from "@/constants/theme";
@@ -138,7 +139,9 @@ export function FeedbackModal({
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={styles.keyboardView}
       >
-        {/* Backdrop touch target - tap to close */}
+        {/* Backdrop touch target - tap to close, with blur for parity
+            with the rest of the app's sheets. */}
+        <BlurView intensity={28} tint="dark" style={StyleSheet.absoluteFill} pointerEvents="none" />
         <TouchableWithoutFeedback onPress={onClose}>
           <View style={styles.backdrop} />
         </TouchableWithoutFeedback>
@@ -244,7 +247,7 @@ const styles = StyleSheet.create({
   },
   fullScreenBackdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: "rgba(0, 0, 0, 0.4)",
+    backgroundColor: "rgba(0, 0, 0, 0.18)",
   },
   backdrop: {
     ...StyleSheet.absoluteFillObject,

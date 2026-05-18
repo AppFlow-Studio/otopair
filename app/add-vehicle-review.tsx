@@ -1,7 +1,7 @@
 /**
  * AddVehicleReviewScreen
  *
- * PURPOSE: Shows decoded vehicle info and offers Smartcar connect or direct add.
+ * PURPOSE: Shows decoded vehicle info and lets the user confirm + add the vehicle.
  *
  * USED IN: Navigated from add-vehicle.tsx or vin-scanner.tsx after VIN decode.
  */
@@ -30,7 +30,6 @@ import { Text } from '@/components/shared-ui';
 import { Spacing } from '@/constants/theme';
 import { api } from '@/convex/_generated/api';
 import { Id } from '@/convex/_generated/dataModel';
-import { useSmartcar } from '@/hooks/useSmartCar';
 import { scale, verticalScale, moderateScale } from '@/utils/responsive';
 
 // ============================================================================
@@ -61,7 +60,6 @@ export default function AddVehicleReviewScreen() {
   const [selectedColor, setSelectedColor] = useState('');
 
   const confirmVehicle = useAction(api.vehicle_pipeline.confirmVehicleForUser);
-  const { connect, isConnecting, error: smartcarError } = useSmartcar();
 
   const CAR_COLORS = [
     { id: 'black', label: 'Black', hex: '#1a1a1a' },
@@ -80,33 +78,6 @@ export default function AddVehicleReviewScreen() {
 
   const handleBack = () => {
     router.back();
-  };
-
-  const handleConnectCar = async () => {
-    if (!me?._id) {
-      setError('Please sign in to continue');
-      return;
-    }
-    if (!params.vin) {
-      setError('Missing VIN data');
-      return;
-    }
-
-    setError(null);
-
-    try {
-      // Pass VIN for deterministic matching — backend will only link
-      // the Smartcar vehicle whose VIN matches this one.
-      const result = await connect(me._id, params.vin);
-
-      if (result?.success) {
-        router.replace('/vehicle-added');
-      } else if (result?.error && result.error !== 'Cancelled') {
-        setError(result.error || 'Connection failed. Please try again.');
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Connection failed. Please try again.');
-    }
   };
 
   const handleAddVehicle = async () => {
@@ -152,8 +123,8 @@ export default function AddVehicleReviewScreen() {
     }
   };
 
-  const displayError = error || smartcarError;
-  const isLoading = isConfirming || isConnecting;
+  const displayError = error;
+  const isLoading = isConfirming;
 
   return (
     <View style={styles.container}>
@@ -233,16 +204,6 @@ export default function AddVehicleReviewScreen() {
         ) : null}
       </View>
 
-      {/* Smartcar Section */}
-      <View style={styles.connectSection}>
-        <Text weight="semiBold" size="md" color="#333333" style={styles.connectTitle}>
-          Connect your {params.make} app?
-        </Text>
-        <Text size="sm" color="#888888" style={styles.connectDescription}>
-          Get real-time mileage, tire pressure, oil life, and more directly from your car.
-        </Text>
-      </View>
-
       {/* Error */}
       {displayError ? (
         <View style={styles.errorContainer}>
@@ -254,36 +215,6 @@ export default function AddVehicleReviewScreen() {
 
       {/* Bottom Buttons */}
       <View style={[styles.bottomContainer, { paddingBottom: insets.bottom + scale(20) }]}>
-        {/* Connect My Car */}
-        <Pressable
-          onPress={handleConnectCar}
-          disabled={isLoading}
-          style={({ pressed }) => [
-            styles.connectButton,
-            pressed && styles.buttonPressed,
-            isLoading && styles.buttonDisabled,
-          ]}
-        >
-          <LinearGradient
-            colors={['#7BB8FF', '#5299FE', '#3B7FEB']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={styles.connectButtonGradient}
-          >
-            {isConnecting ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
-            ) : (
-              <>
-                <Link2 size={scale(20)} color="#FFFFFF" strokeWidth={2} />
-                <Text weight="bold" size="md" color="#FFFFFF">
-                  Connect My Car
-                </Text>
-              </>
-            )}
-          </LinearGradient>
-        </Pressable>
-
-        {/* Add Vehicle (skip Smartcar) */}
         <Pressable
           onPress={handleAddVehicle}
           disabled={isLoading}

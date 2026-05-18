@@ -41,14 +41,26 @@ import { BlurView } from "expo-blur";
 import MaskedView from "@react-native-masked-view/masked-view";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
+
+// Native iOS 26 liquid glass (optional). Mirrors the home/ai-chat pattern —
+// falls back to the existing gradient pill when the lib is unavailable.
+let LiquidGlassView: React.ComponentType<any> | null = null;
+let isLiquidGlassEnabled = false;
+try {
+  const lg = require("@callstack/liquid-glass");
+  LiquidGlassView = lg.LiquidGlassView;
+  isLiquidGlassEnabled = !!lg.isLiquidGlassSupported;
+} catch {
+  // Not available — fall back to gradient pill
+}
 import { useFocusEffect } from "@react-navigation/native";
 import {
   Award,
-  BadgeCheck,
   Bell,
   Car,
   CircleDollarSign,
   Clock,
+  Code,
   CreditCard,
   FileText,
   Fingerprint,
@@ -86,6 +98,7 @@ import { useAuth, useUser } from "@clerk/clerk-expo";
 import { useQuery } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import { useAuthStore } from "@/stores/useAuthStore";
+import { useSettingsOverlayStore } from "@/stores/useSettingsOverlayStore";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useOnboardingStore } from "@/stores/useOnboardingStore";
 import { usePaymentStore } from "@/stores/usePaymentStore";
@@ -129,7 +142,27 @@ interface SettingsContentProps {
 
 export function SettingsContent({ avatarOverride, translucent }: SettingsContentProps) {
   const insets = useSafeAreaInsets();
-  const router = useRouter();
+  const baseRouter = useRouter();
+  const closeSettingsOverlay = useSettingsOverlayStore((s) => s.close);
+
+  // Settings rows render inside the SettingsOverlay, a React Native
+  // <Modal> drawn above the Expo Router stack. Push synchronously so
+  // the navigation registers under the user's tap, then dismiss the
+  // overlay on the next frame so the destination is visible.
+  const router = useMemo(
+    () => ({
+      push: (path: Parameters<typeof baseRouter.push>[0]) => {
+        baseRouter.push(path);
+        requestAnimationFrame(() => closeSettingsOverlay());
+      },
+      replace: (path: Parameters<typeof baseRouter.replace>[0]) => {
+        baseRouter.replace(path);
+        requestAnimationFrame(() => closeSettingsOverlay());
+      },
+    }),
+    [baseRouter, closeSettingsOverlay],
+  );
+
   const { signOut } = useAuth();
   const { user: clerkUser } = useUser();
 
@@ -142,6 +175,7 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
 
   // Local stores (fallbacks + counts shown in row values).
   const bookingIds = useBookingStore((s) => s.bookingIds);
+  const bookings = useBookingStore((s) => s.bookings);
   const vehicleIds = useVehicleStore((s) => s.vehicleIds);
   const paymentMethods = usePaymentStore((s) => s.paymentMethods);
   const { transactions: convexTransactions } = useTransactionsFromConvex(
@@ -149,6 +183,19 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
   );
 
   const resetAuth = useAuthStore((s) => s.reset);
+
+  // When rendered inside the Home → Settings overlay, navigating to a
+  // sub-page should dismiss the overlay first so the destination isn't
+  // hidden behind the lifted Settings card.
+  const navigate = useCallback(
+    (href: Parameters<typeof router.push>[0]) => {
+      if (useSettingsOverlayStore.getState().isOpen) {
+        useSettingsOverlayStore.getState().closeInstant();
+      }
+      router.push(href);
+    },
+    [router],
+  );
 
   const [biometricLabel, setBiometricLabel] = useState("Biometric Login");
 
@@ -245,16 +292,13 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
   const vehicleCount = vehicleIds?.length ?? 0;
   const paymentMethodCount = paymentMethods?.length ?? 0;
   const transactionCount = convexTransactions.length;
-  const totalBookingsCount = useMemo(() => {
-    if (Array.isArray(convexBookings)) return convexBookings.length;
-    return Array.isArray(bookingIds) ? bookingIds.length : 0;
-  }, [convexBookings, bookingIds]);
-
-  const planTitle = useMemo(() => {
-    if (isCreateAccountComplete) return "Gold";
-    const tier = data.membershipTier ?? "Standard";
-    return tier === "No" ? "Standard" : tier;
-  }, [data.membershipTier, isCreateAccountComplete]);
+  const completedBookingsCount = useMemo(() => {
+    if (Array.isArray(convexBookings)) {
+      return convexBookings.filter((booking) => booking.status === "completed").length;
+    }
+    if (!Array.isArray(bookingIds)) return 0;
+    return bookingIds.filter((id) => bookings[id]?.status === "completed").length;
+  }, [convexBookings, bookingIds, bookings]);
 
   // Handlers
   const [isLogoutVisible, setIsLogoutVisible] = useState(false);
@@ -285,7 +329,7 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
 
   const openEditProfile = useCallback(() => {
     router.push({
-      pathname: "/(main-tabs)/settings/edit-profile" as any,
+      pathname: "/settings/edit-profile" as any,
       params: { showPhotos: "0" },
     });
   }, [router]);
@@ -352,10 +396,11 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
           <AvatarSlider
             size={72}
             panels={[
-              <Text weight="semiBold" size="2xl" color="#FFFFFF">
+              <Text key="initials" weight="semiBold" size="2xl" color="#FFFFFF">
                 {initials}
               </Text>,
               <Image
+                key="logo"
                 source={OTO_LOGO_3D}
                 style={{ width: 68, height: 68 }}
                 resizeMode="contain"
@@ -417,52 +462,52 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
           </View>
         </View>
 
-        {/* Two header cards */}
+        {/* Two header cards — primary entries into the user's garage */}
         <View style={styles.headerCardsRow}>
           <SettingsHeaderCard
             variant="plan"
-            title={planTitle}
-            subtitle="Your plan"
-            icon={<BadgeCheck size={22} color="#FFFFFF" />}
-            onPress={() => router.push("/membership")}
+            title="My Vehicles"
+            subtitle={
+              vehicleCount > 0
+                ? `${vehicleCount} ${vehicleCount === 1 ? "vehicle" : "vehicles"}`
+                : "View & manage"
+            }
+            icon={<Car size={22} color="#FFFFFF" />}
+            onPress={() => router.push("/cars")}
           />
           <SettingsHeaderCard
             variant="action"
-            title="Invite friends"
-            subtitle="Earn $60 or more"
-            icon={<UserPlus size={22} color="#FFFFFF" />}
-            onPress={() => router.push("/settings/refer-a-friend")}
+            title="My Mechanics"
+            subtitle="Saved & recent"
+            icon={<Users size={22} color="#FFFFFF" />}
+            onPress={() => router.push("/settings/my-mechanics")}
           />
         </View>
 
-        {/* MY GARAGE */}
+        {/* MY GARAGE — addresses, history, and preferences */}
         <SettingsCard style={styles.cardSpacing}>
           <SettingsRow
-            icon={<Car size={18} color="#1F2937" />}
-            label="My Vehicles"
-            value={vehicleCount > 0 ? vehicleCount : undefined}
-            onPress={() => router.push("/cars")}
-          />
-          <SettingsRow
-            icon={<Users size={18} color="#1F2937" />}
-            label="My Mechanics"
-            onPress={() => router.push("/settings/my-mechanics")}
-          />
-          <SettingsRow
-            icon={<MapPin size={18} color="#1F2937" />}
+            icon={<MapPin size={18} color="#FFFFFF" />}
             label="Saved Addresses"
+            onPress={() => router.push("/settings/saved-addresses")}
+          />
+          <SettingsRow
+            icon={<Clock size={18} color="#FFFFFF" />}
+            label="Booking History"
+            value={completedBookingsCount > 0 ? completedBookingsCount : undefined}
+            onPress={() => router.push("/settings/booking-history")}
+          />
+          <SettingsRow
+            icon={<Bell size={18} color="#FFFFFF" />}
+            label="Notification Preferences"
             onPress={() =>
-              router.push({
-                pathname: "/coming-soon",
-                params: { serviceName: "Saved Addresses" },
-              } as any)
+              router.push("/settings/notification-preferences")
             }
           />
           <SettingsRow
-            icon={<Clock size={18} color="#1F2937" />}
-            label="Booking History"
-            value={totalBookingsCount > 0 ? totalBookingsCount : undefined}
-            onPress={() => router.push("/settings/booking-history")}
+            icon={<Sliders size={18} color="#FFFFFF" />}
+            label="App Preferences"
+            onPress={() => router.push("/settings/preferences")}
             isLast
           />
         </SettingsCard>
@@ -470,43 +515,26 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
         {/* PAYMENTS & REWARDS */}
         <SettingsCard style={styles.cardSpacing}>
           <SettingsRow
-            icon={<CreditCard size={18} color="#1F2937" />}
+            icon={<CreditCard size={18} color="#FFFFFF" />}
             label="Payment Methods"
             value={paymentMethodCount > 0 ? paymentMethodCount : undefined}
-            onPress={() => router.push("/payments")}
+            onPress={() => navigate("/payments")}
           />
           <SettingsRow
-            icon={<Receipt size={18} color="#1F2937" />}
+            icon={<Receipt size={18} color="#FFFFFF" />}
             label="Transactions & Receipts"
             value={transactionCount > 0 ? transactionCount : undefined}
-            onPress={() => router.push("/settings/transactions")}
+            onPress={() => navigate("/settings/transactions")}
           />
           <SettingsRow
-            icon={<Award size={18} color="#1F2937" />}
+            icon={<Award size={18} color="#FFFFFF" />}
             label="Loyalty & Rewards"
-            onPress={() => router.push("/membership")}
+            onPress={() => navigate("/membership")}
           />
           <SettingsRow
-            icon={<UserPlus size={18} color="#1F2937" />}
+            icon={<UserPlus size={18} color="#FFFFFF" />}
             label="Refer a Friend"
-            onPress={() => router.push("/settings/refer-a-friend")}
-            isLast
-          />
-        </SettingsCard>
-
-        {/* PREFERENCES */}
-        <SettingsCard style={styles.cardSpacing}>
-          <SettingsRow
-            icon={<Bell size={18} color="#1F2937" />}
-            label="Notification Preferences"
-            onPress={() =>
-              router.push("/settings/notification-preferences")
-            }
-          />
-          <SettingsRow
-            icon={<Sliders size={18} color="#1F2937" />}
-            label="App Preferences"
-            onPress={() => router.push("/settings/preferences" as any)}
+            onPress={() => navigate("/settings/refer-a-friend")}
             isLast
           />
         </SettingsCard>
@@ -514,22 +542,22 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
         {/* SUPPORT */}
         <SettingsCard style={styles.cardSpacing}>
           <SettingsRow
-            icon={<Headset size={18} color="#1F2937" />}
+            icon={<Headset size={18} color="#FFFFFF" />}
             label="Contact Us"
-            onPress={() => router.push("/settings/contact-us")}
+            onPress={() => navigate("/settings/contact-us")}
           />
           <SettingsRow
-            icon={<HelpCircle size={18} color="#1F2937" />}
+            icon={<HelpCircle size={18} color="#FFFFFF" />}
             label="FAQ"
-            onPress={() => router.push("/settings/faq")}
+            onPress={() => navigate("/settings/faq")}
           />
           <SettingsRow
-            icon={<MessageSquare size={18} color="#1F2937" />}
+            icon={<MessageSquare size={18} color="#FFFFFF" />}
             label="Feedback"
             onPress={() => setIsFeedbackVisible(true)}
           />
           <SettingsRow
-            icon={<Star size={18} color="#1F2937" />}
+            icon={<Star size={18} color="#FFFFFF" />}
             label="Rate Us"
             onPress={handleRateUs}
             isLast
@@ -540,31 +568,31 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
         <SettingsCard style={styles.cardSpacing}>
           {clerkUser?.passwordEnabled ? (
             <SettingsRow
-              icon={<Lock size={18} color="#1F2937" />}
+              icon={<Lock size={18} color="#FFFFFF" />}
               label="Change Password"
-              onPress={() => router.push("/settings/change-password")}
+              onPress={() => navigate("/settings/change-password")}
             />
           ) : null}
           <SettingsRow
-            icon={<ShieldCheck size={18} color="#1F2937" />}
+            icon={<ShieldCheck size={18} color="#FFFFFF" />}
             label="Two-Factor Authentication"
-            onPress={() => router.push("/settings/two-factor-method")}
+            onPress={() => navigate("/settings/two-factor-method")}
           />
           <SettingsRow
             icon={
               biometricLabel === "Face ID" ? (
-                <ScanFace size={18} color="#1F2937" />
+                <ScanFace size={18} color="#FFFFFF" />
               ) : (
-                <Fingerprint size={18} color="#1F2937" />
+                <Fingerprint size={18} color="#FFFFFF" />
               )
             }
             label={biometricLabel}
-            onPress={() => router.push("/settings/biometric-setup")}
+            onPress={() => navigate("/settings/biometric-setup")}
           />
           <SettingsRow
-            icon={<Shield size={18} color="#1F2937" />}
+            icon={<Shield size={18} color="#FFFFFF" />}
             label="Permissions"
-            onPress={() => router.push("/settings/permissions")}
+            onPress={() => navigate("/settings/permissions")}
             isLast
           />
         </SettingsCard>
@@ -572,61 +600,78 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
         {/* LEGAL & PRICING */}
         <SettingsCard style={styles.cardSpacing}>
           <SettingsRow
-            icon={<CircleDollarSign size={18} color="#1F2937" />}
+            icon={<CircleDollarSign size={18} color="#FFFFFF" />}
             label="Pricing Transparency"
-            onPress={() => router.push("/settings/pricing-transparency")}
+            onPress={() => navigate("/settings/pricing-transparency")}
           />
           <SettingsRow
-            icon={<RotateCcw size={18} color="#1F2937" />}
+            icon={<RotateCcw size={18} color="#FFFFFF" />}
             label="How Your Data Is Used"
             onPress={() =>
-              router.push({
+              navigate({
                 pathname: "/coming-soon",
                 params: { serviceName: "How Your Data Is Used" },
               } as any)
             }
           />
           <SettingsRow
-            icon={<Shield size={18} color="#1F2937" />}
+            icon={<Shield size={18} color="#FFFFFF" />}
             label="Privacy Policy"
-            onPress={() => router.push("/settings/privacy-policy")}
+            onPress={() => navigate("/settings/privacy-policy")}
           />
           <SettingsRow
-            icon={<FileText size={18} color="#1F2937" />}
+            icon={<FileText size={18} color="#FFFFFF" />}
             label="Terms and Conditions"
-            onPress={() => router.push("/settings/terms-and-conditions")}
+            onPress={() => navigate("/settings/terms-and-conditions")}
             isLast
           />
         </SettingsCard>
 
         {/* DELETE ACCOUNT */}
-        <SettingsCard style={styles.cardSpacing}>
+        <SettingsCard style={styles.dangerCard}>
           <SettingsRow
-            icon={<Trash2 size={18} color="#F87171" />}
+            icon={<Trash2 size={20} color="#FF5C5C" />}
             label="Delete Account"
-            labelColor="#F87171"
-            iconBg="rgba(248,113,113,0.15)"
-            onPress={() => router.push("/settings/delete-account" as any)}
+            labelColor="#FF5C5C"
+            labelWeight="bold"
+            onPress={() => router.push("/settings/delete-account")}
             isLast
           />
         </SettingsCard>
 
+        {__DEV__ ? (
+          <SettingsCard style={styles.cardSpacing}>
+            <SettingsRow
+              icon={<Code size={18} color="#FFFFFF" />}
+              label="[Dev] Run Onboarding Flow"
+              onPress={() => router.push("/(onboarding)" as any)}
+            />
+            <SettingsRow
+              icon={<Code size={18} color="#FFFFFF" />}
+              label="[Dev] Run About You Flow"
+              onPress={() => router.push("/(tell-us-about)" as any)}
+              isLast
+            />
+          </SettingsCard>
+        ) : null}
+
         {/* Footer */}
-        <View style={styles.footerRow}>
-          <Pressable onPress={() => router.push("/settings/about")}>
-            <Text weight="medium" size="sm" color="rgba(255,255,255,0.55)">
-              About OtoPair v1.0.0
-            </Text>
-          </Pressable>
-          <Text size="sm" color="rgba(255,255,255,0.35)" style={styles.footerDot}>
-            •
+        <Pressable
+          onPress={() => setIsLogoutVisible(true)}
+          style={({ pressed }) => [
+            styles.logoutButton,
+            pressed && styles.logoutButtonPressed,
+          ]}
+        >
+          <Text weight="bold" size="md" color="#FFFFFF">
+            Log out
           </Text>
-          <Pressable onPress={() => setIsLogoutVisible(true)}>
-            <Text weight="medium" size="sm" color="#F87171">
-              Log out
-            </Text>
-          </Pressable>
-        </View>
+        </Pressable>
+        <Pressable onPress={() => router.push("/settings/about")} style={styles.footerRow}>
+          <Text weight="medium" size="sm" color="rgba(255,255,255,0.55)">
+            About OtoPair v1.0.0
+          </Text>
+        </Pressable>
       </Animated.ScrollView>
 
       {/* Frosted top header */}
@@ -682,22 +727,37 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
         </View>
         <View style={styles.stickySide}>
           <Pressable
-            onPress={() => router.push("/membership")}
+            onPress={() => navigate("/membership")}
             style={({ pressed }) => [
-              styles.upgradePill,
+              styles.upgradePillWrapper,
               pressed && { opacity: 0.85 },
             ]}
           >
-            <LinearGradient
-              colors={["#5299FE", "#3A78D6"]}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={StyleSheet.absoluteFill}
-            />
-            <Gem size={14} color="#FFFFFF" />
-            <Text weight="semiBold" size="sm" color="#FFFFFF">
-              Upgrade
-            </Text>
+            {isLiquidGlassEnabled && LiquidGlassView ? (
+              <LiquidGlassView
+                interactive
+                effect="regular"
+                style={styles.upgradePillGlass}
+              >
+                <Gem size={14} color="#5299FE" />
+                <Text weight="bold" size="sm" color="#5299FE">
+                  Upgrade
+                </Text>
+              </LiquidGlassView>
+            ) : (
+              <View style={styles.upgradePill}>
+                <LinearGradient
+                  colors={["#5299FE", "#3A78D6"]}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={StyleSheet.absoluteFill}
+                />
+                <Gem size={14} color="#FFFFFF" />
+                <Text weight="semiBold" size="sm" color="#FFFFFF">
+                  Upgrade
+                </Text>
+              </View>
+            )}
           </Pressable>
         </View>
       </View>
@@ -718,7 +778,7 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
                   Logout?
                 </Text>
                 <Text size="sm" color="#6B7280" style={styles.confirmText}>
-                  You'll need to sign in again to access your account.
+                  You&apos;ll need to sign in again to access your account.
                 </Text>
                 <View style={styles.confirmActionsRow}>
                   <Button
@@ -814,6 +874,10 @@ const styles = StyleSheet.create({
   stickyName: {
     textAlign: "center",
   },
+  upgradePillWrapper: {
+    borderRadius: 999,
+    overflow: "hidden",
+  },
   upgradePill: {
     flexDirection: "row",
     alignItems: "center",
@@ -822,6 +886,14 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 999,
     overflow: "hidden",
+  },
+  upgradePillGlass: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 999,
   },
   identity: {
     alignItems: "center",
@@ -860,11 +932,34 @@ const styles = StyleSheet.create({
   cardSpacing: {
     marginTop: 12,
   },
-  footerRow: {
-    flexDirection: "row",
+  dangerCard: {
+    marginTop: 12,
+    backgroundColor: "rgba(255,92,92,0.16)",
+    borderColor: "rgba(255,92,92,0.55)",
+    borderWidth: 1,
+  },
+  logoutButton: {
+    marginTop: 24,
+    marginHorizontal: 4,
+    paddingVertical: 16,
     alignItems: "center",
     justifyContent: "center",
-    marginTop: 28,
+    borderRadius: 14,
+    backgroundColor: "#FF5C5C",
+    shadowColor: "#FF5C5C",
+    shadowOpacity: 0.35,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 6 },
+    elevation: 4,
+  },
+  logoutButtonPressed: {
+    opacity: 0.85,
+    transform: [{ scale: 0.99 }],
+  },
+  footerRow: {
+    alignItems: "center",
+    justifyContent: "center",
+    marginTop: 14,
     marginBottom: 12,
   },
   footerDot: {

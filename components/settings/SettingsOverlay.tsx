@@ -22,6 +22,7 @@ import {
   Dimensions,
   Image,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   View,
@@ -62,8 +63,11 @@ const SPRING_CONFIG = { damping: 22, stiffness: 145, mass: 1.05 } as const;
 export function SettingsOverlay() {
   const insets = useSafeAreaInsets();
   const isOpen = useSettingsOverlayStore((s) => s.isOpen);
+  const isTransitionVisible = useSettingsOverlayStore((s) => s.isTransitionVisible);
   const fromRect = useSettingsOverlayStore((s) => s.fromRect);
+  const instantCloseToken = useSettingsOverlayStore((s) => s.instantCloseToken);
   const closeStore = useSettingsOverlayStore((s) => s.close);
+  const finishClose = useSettingsOverlayStore((s) => s.finishClose);
 
   // Identity for the floating avatar — sourced exactly like the home
   // button + Settings avatar so the three never disagree.
@@ -129,7 +133,7 @@ export function SettingsOverlay() {
           }
         });
       });
-    } else if (mounted) {
+    } else if (isTransitionVisible && mounted) {
       // Re-instate the floating avatar before reversing the spring so
       // the user sees the avatar shrink back into the home button.
       setSettled(false);
@@ -139,13 +143,25 @@ export function SettingsOverlay() {
         (finished) => {
           if (finished) {
             runOnJS(setMounted)(false);
+            runOnJS(finishClose)();
           }
         },
       );
     }
     // mounted intentionally not in deps — we only react to store changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, fromRect]);
+  }, [finishClose, fromRect, isOpen, isTransitionVisible]);
+
+  // Instant dismiss — skip the reverse spring entirely (used when a
+  // settings row navigates to a sub-page so the destination isn't
+  // hidden behind the lifted card).
+  useEffect(() => {
+    if (instantCloseToken === 0) return;
+    progress.value = 0;
+    setSettled(false);
+    setMounted(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [instantCloseToken]);
 
   const handleClose = () => {
     closeStore();
@@ -293,7 +309,12 @@ export function SettingsOverlay() {
         style={[StyleSheet.absoluteFill, backdropStyle]}
         pointerEvents="none"
       >
-        <BlurView intensity={40} tint="default" style={StyleSheet.absoluteFill} />
+        <BlurView
+          intensity={40}
+          experimentalBlurMethod={Platform.OS === "android" ? "dimezisBlurView" : undefined}
+          tint="default"
+          style={StyleSheet.absoluteFill}
+        />
       </Animated.View>
 
       {/* The growing card. overflow:hidden clips Settings content while
@@ -305,6 +326,7 @@ export function SettingsOverlay() {
             card's transparent fill. */}
         <BlurView
           intensity={60}
+          experimentalBlurMethod={Platform.OS === "android" ? "dimezisBlurView" : undefined}
           tint="default"
           style={StyleSheet.absoluteFill}
         />

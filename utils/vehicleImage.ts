@@ -22,10 +22,87 @@
  * matches their car; otherwise we fall back to `exterior[]`.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const BASE_URL = "https://api.vehicledatabases.com/vehicle-images";
+const TRIM_OPTIONS_URL = "https://api.vehicledatabases.com/ymm-specs/options/v3/trim";
 const API_KEY = process.env.EXPO_PUBLIC_VEHICLE_DB_API_KEY ?? "";
+
+/**
+ * Fetch VDB's canonical trim strings for a year/make/model.
+ *
+ * Returns strings like "xDrive iPerformance 4dr All-Wheel Drive Sedan
+ * Automatic" — these are the exact strings VDB's vehicle-images YMMT
+ * endpoint expects in the URL path. NHTSA's trim catalog gives us
+ * marketing names (e.g. "xDrive40i") which VDB rejects with 400. Use
+ * this for the trim picker so the user is always picking a string
+ * VDB recognizes.
+ *
+ * Empty array means VDB has no record for that YMM combination.
+ */
+export async function fetchVdbTrimsForYmm(
+  year: number,
+  make: string,
+  model: string,
+): Promise<string[]> {
+  try {
+    const makes = normalizeMakes(make);
+    for (const m of makes) {
+      const url = `${TRIM_OPTIONS_URL}/${year}/${encodeURIComponent(m)}/${encodeURIComponent(model)}`;
+      console.log("[vdbTrims] GET", url);
+      const response = await fetch(url, { headers: { "x-AuthKey": API_KEY } });
+      console.log("[vdbTrims] status", response.status);
+      if (!response.ok) {
+        try {
+          const errBody = await response.text();
+          console.log("[vdbTrims] err body:", errBody.slice(0, 500));
+        } catch {}
+        continue;
+      }
+      const json = await response.json();
+      console.log("[vdbTrims] raw:", JSON.stringify(json).slice(0, 500));
+      if (json.status !== "success" || !Array.isArray(json.data)) continue;
+      const trims = json.data.filter((t: unknown): t is string => typeof t === "string");
+      if (trims.length > 0) return trims;
+    }
+    return [];
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * React hook variant of `fetchVdbTrimsForYmm`. Returns the trim list
+ * and a loading flag. Re-fetches when year/make/model change.
+ */
+export function useVdbTrims(
+  year: number | undefined,
+  make: string,
+  model: string,
+): { trims: string[]; isLoading: boolean } {
+  const [trims, setTrims] = useState<string[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    if (!year || !make || !model) {
+      setTrims([]);
+      setIsLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setIsLoading(true);
+    fetchVdbTrimsForYmm(year, make, model).then((result) => {
+      if (cancelled) return;
+      setTrims(result);
+      setIsLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [year, make, model]);
+
+  return { trims, isLoading };
+}
 
 /**
  * Fetch a vehicle image URL, optionally matching the user's selected color.
@@ -47,11 +124,16 @@ export async function fetchVehicleImageUrl(
   trim?: string,
 ): Promise<string | null> {
   try {
+    console.log("[vehicleImage] inputs:", { make, model, year, vin, color, trim });
     const normalizedVin = (vin ?? "").toUpperCase().trim();
     const makes = normalizeMakes(make);
 
-    // Try VIN first, then each make variant with full YMMT (only if trim
-    // is available — the API requires it for the YMMT path).
+    // VDB only supports VIN and YMMT lookups, and YMMT requires the
+    // verbose internal trim string (e.g. "Base 4dr Sedan Automatic")
+    // which NHTSA doesn't expose — meaning manual-entry users have no
+    // way to hit YMMT. We try YMMT anyway when the caller passes a
+    // trim, since some flows (VIN-decoded vehicles) do have a usable
+    // trim string.
     const ymmtUrls =
       trim && year
         ? makes.map(
@@ -78,23 +160,51 @@ export async function fetchVehicleImageUrl(
       const exterior: string[] = json.data?.images?.exterior ?? [];
       const colorImages: string[] = json.data?.images?.colors ?? [];
       console.log("[vehicleImage] api status:", json.status, "exterior:", exterior.length, "colors:", colorImages.length);
+      console.log("[vehicleImage] colors[] filenames:",
+        colorImages.slice(0, 5).map((u) => u.split("/").pop()));
+      console.log("[vehicleImage] exterior[] filenames:",
+        exterior.slice(0, 5).map((u) => u.split("/").pop()));
       if (json.status !== "success") continue;
+
+      // Validate the API returned the correct vehicle — VehicleDatabases
+      // occasionally maps a VIN to the wrong make/model. If the response
+      // make doesn't match what we expect, skip this result.
+      const returnedMake = (json.data?.make ?? "").toLowerCase();
+      const expectedMake = make.toLowerCase();
+      if (returnedMake && expectedMake && !returnedMake.includes(expectedMake) && !expectedMake.includes(returnedMake)) {
+        console.warn("[vehicleImage] make mismatch — expected:", expectedMake, "got:", returnedMake, "skipping");
+        continue;
+      }
+
+      // EVOX front 3/4 angle preference for any exterior pick.
+      const pickEvoxFront = () => {
+        const evoxFront = exterior.find(
+          (u) => u.includes("3231303031") || u.includes("6130313031"),
+        );
+        return evoxFront ?? exterior[0] ?? null;
+      };
 
       // 1. Color-specific match if user picked a paint color
       if (color) {
         const colorMatch = findColorImage(colorImages, color);
+        console.log("[vehicleImage] color match for", color, "→", colorMatch ?? "(none)");
         if (colorMatch) return colorMatch;
+        // No color-matched image found. Prefer a neutral exterior render
+        // over a wrong-colored one — landing on the cars page showing a
+        // red car when the user picked blue is worse than showing a
+        // generic transparent render where the background gradient
+        // carries the color choice. Falls through to colorImages[0]
+        // only if no exterior is available.
+        const neutral = pickEvoxFront();
+        if (neutral) return neutral;
       }
 
-      // 2. Any color render (transparent bg)
+      // 2. Any color render (transparent bg) — only when user did NOT
+      // pick a color, so any paint is fine.
       if (colorImages.length > 0) return colorImages[0];
 
       // 3. Fall back to exterior gallery (also transparent bg on this endpoint).
-      // Pick the front 3/4 angle when we can recognize EVOX naming, else first.
-      const evoxFront = exterior.find(
-        (u) => u.includes("3231303031") || u.includes("6130313031"),
-      );
-      const picked = evoxFront ?? exterior[0] ?? null;
+      const picked = pickEvoxFront();
       if (picked) return picked;
     }
 
@@ -105,26 +215,51 @@ export async function fetchVehicleImageUrl(
 }
 
 /**
+ * Marketing-name synonyms for each user-pickable color id. The
+ * VehicleDatabases color URLs are named after manufacturer marketing
+ * paint names (e.g. "Storm Sea Blue", "Quartz White", "Phantom Black
+ * Pearl"), not generic color words, so we need a list of strings that
+ * commonly appear in those names. Keys are color ids from the
+ * add-vehicle picker; values are lowercase substrings to search the
+ * URL's last path segment for.
+ */
+const COLOR_SYNONYMS: Record<string, string[]> = {
+  black:             ["black", "phantom", "obsidian", "shadow", "onyx", "ebony", "raven"],
+  "midnight-silver": ["midnight", "silver", "graphite", "platinum"],
+  silver:            ["silver", "platinum", "graphite", "titanium", "mineral"],
+  white:             ["white", "ivory", "pearl", "quartz", "atlas", "alpine", "snow", "cream"],
+  gray:              ["gray", "grey", "graphite", "titanium", "mineral", "ash", "smoke", "cement"],
+  red:               ["red", "crimson", "ruby", "scarlet", "garnet", "rosso", "carmine", "cherry"],
+  blue:              ["blue", "navy", "ocean", "azure", "sapphire", "indigo", "marine", "atlas", "storm", "sea", "abyss", "denim", "cobalt"],
+  green:             ["green", "emerald", "jade", "forest", "moss", "olive", "lime", "british"],
+  beige:             ["beige", "sand", "tan", "khaki", "champagne", "wheat", "almond"],
+  brown:             ["brown", "espresso", "cocoa", "mahogany", "walnut", "bronze", "copper", "russet"],
+};
+
+/**
  * Match a user-selected color id (e.g. "black") to an API color image URL
- * (e.g. ".../deep-black-pearl.jpg") using keyword matching.
+ * (e.g. ".../deep-black-pearl.jpg") using keyword + synonym matching.
  */
 function findColorImage(colorUrls: string[], userColor: string): string | null {
   if (!userColor || !colorUrls.length) return null;
 
   const keywords = userColor.toLowerCase().split(/[-_\s]+/);
+  const synonyms = COLOR_SYNONYMS[userColor.toLowerCase()] ?? keywords;
 
-  // Try matching ALL keywords first (most specific, e.g. "midnight-silver" → both must match)
+  // Try matching ALL keywords first (most specific, e.g. "midnight-silver"
+  // → both literal words must appear in the filename).
   const allMatch = colorUrls.find((url) => {
     const filename = url.split("/").pop()?.toLowerCase() ?? "";
     return keywords.every((kw) => filename.includes(kw));
   });
   if (allMatch) return allMatch;
 
-  // Fall back to matching the primary keyword (e.g. "black" in "deep-black-pearl")
-  const primary = keywords[0];
+  // Fall back to ANY synonym — covers marketing-name paint colors like
+  // Hyundai's "Storm Sea Blue" (matches "storm" or "sea") or Honda's
+  // "Phantom Black Pearl" (matches "phantom").
   return colorUrls.find((url) => {
     const filename = url.split("/").pop()?.toLowerCase() ?? "";
-    return filename.includes(primary);
+    return synonyms.some((kw) => filename.includes(kw));
   }) ?? null;
 }
 
@@ -138,8 +273,17 @@ function normalizeMakes(make: string): string[] {
 }
 
 /**
- * React hook that fetches and returns a vehicle image URL.
- * Returns null while loading or if no image is found.
+ * React hook that fetches a vehicle image URL with input debouncing.
+ *
+ * Returns `{ url, isLoading }` so callers can crossfade between a
+ * placeholder and the resolved image instead of just flipping on URL
+ * presence. Debounce defaults to 400ms — short enough to feel real-time
+ * as the user picks year/make/model/color, long enough to swallow
+ * intermediate values when they change a selection twice in a row.
+ *
+ * Fires only when make + model + year are all present. The VDB API
+ * returns generic/stale renders for partial inputs, so we'd rather
+ * keep showing the placeholder until we have enough to look up.
  */
 export function useVehicleImage(
   make: string,
@@ -148,14 +292,51 @@ export function useVehicleImage(
   vin?: string,
   color?: string,
   trim?: string,
-): string | null {
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  debounceMs: number = 400,
+): { url: string | null; isLoading: boolean } {
+  const [url, setUrl] = useState<string | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    if (!make || !model) return;
-    setImageUrl(null);
-    fetchVehicleImageUrl(make, model, year, vin, color, trim).then(setImageUrl);
-  }, [make, model, year, vin, color, trim]);
+    if (timerRef.current) {
+      clearTimeout(timerRef.current);
+      timerRef.current = null;
+    }
 
-  return imageUrl;
+    const hasVin = !!vin && vin.length === 17;
+    const hasYmm = !!make && !!model && !!year;
+    if (!hasVin && !hasYmm) {
+      setUrl(null);
+      setIsLoading(false);
+      return;
+    }
+
+    setIsLoading(true);
+
+    let cancelled = false;
+    timerRef.current = setTimeout(() => {
+      fetchVehicleImageUrl(make, model, year, vin, color, trim)
+        .then((result) => {
+          if (cancelled) return;
+          setUrl(result);
+          setIsLoading(false);
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setUrl(null);
+          setIsLoading(false);
+        });
+    }, debounceMs);
+
+    return () => {
+      cancelled = true;
+      if (timerRef.current) {
+        clearTimeout(timerRef.current);
+        timerRef.current = null;
+      }
+    };
+  }, [make, model, year, vin, color, trim, debounceMs]);
+
+  return { url, isLoading };
 }

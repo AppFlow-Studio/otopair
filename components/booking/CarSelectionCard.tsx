@@ -91,13 +91,6 @@ function CarSelectionCardComponent({
               <Text weight="bold" size="md" color={BrandColors.primary} numberOfLines={1} style={styles.rowTitle}>
                 {vehicle.make} {vehicle.model}
               </Text>
-              {vehicle.isDefault && (
-                <View style={styles.defaultBadge}>
-                  <Text size="xs" color="#22C55E" weight="bold">
-                    Default
-                  </Text>
-                </View>
-              )}
             </View>
             <View style={styles.subtitleRow}>
               <Text size="sm" color="#6B7280">
@@ -120,7 +113,11 @@ function CarSelectionCardComponent({
             {vehicle.imageSource ? (
               <Image source={vehicle.imageSource} style={styles.rowImage} resizeMode="contain" />
             ) : (
-              <Car size={28} color="#9CA3AF" />
+              <Image
+                source={require("@/assets/images/covered-car.png")}
+                style={styles.rowCoveredCar}
+                resizeMode="contain"
+              />
             )}
           </View>
         </View>
@@ -138,25 +135,22 @@ function CarSelectionCardComponent({
             <Image source={vehicle.imageSource} style={styles.image} resizeMode="contain" />
           ) : (
             <View style={styles.imagePlaceholder}>
-              <Car size={32} color="#9CA3AF" />
+              <Image
+                source={require("@/assets/images/covered-car.png")}
+                style={{ width: 56, height: 36 }}
+                resizeMode="contain"
+              />
             </View>
           )}
         </View>
 
         {/* Details */}
         <View style={styles.detailsContainer}>
-          {/* Title row: Make Model + Default badge */}
+          {/* Title row: Make Model */}
           <View style={styles.titleRow}>
             <Text weight="bold" size="lg" color={BrandColors.primary} numberOfLines={1} style={styles.title}>
               {vehicle.make} {vehicle.model}
             </Text>
-            {vehicle.isDefault && (
-              <View style={styles.defaultBadge}>
-                <Text size="xs" color="#22C55E" weight="bold">
-                  DEFAULT
-                </Text>
-              </View>
-            )}
           </View>
 
           {/* Subtitle: Year • Mileage */}
@@ -252,18 +246,19 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   rowIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: BorderRadius.md,
-    backgroundColor: "#F3F4F6",
+    width: 72,
+    height: 52,
     alignItems: "center",
     justifyContent: "center",
-    overflow: "hidden",
     marginLeft: Spacing.md,
   },
   rowImage: {
     width: "100%",
     height: "100%",
+  },
+  rowCoveredCar: {
+    width: 56,
+    height: 40,
   },
   // Card variant (carousel)
   card: {
@@ -311,14 +306,6 @@ const styles = StyleSheet.create({
   },
   title: {
     flexShrink: 1,
-  },
-  defaultBadge: {
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 2,
-    borderRadius: BorderRadius.md,
-    backgroundColor: "rgba(34, 197, 94, 0.1)",
-    borderWidth: 1,
-    borderColor: "rgba(34, 197, 94, 0.3)",
   },
   subtitleRow: {
     flexDirection: "row",

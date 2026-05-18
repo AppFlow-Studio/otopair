@@ -80,15 +80,12 @@ function groupMechanicsByShop(mechanics: Mechanic[], shopIdToLaborRate?: Map<str
     const existing = shopMap.get(mechanic.shopId);
     if (existing) {
       existing.mechanics.push(mechanic);
-      // Update rating to highest
-      if (mechanic.rating > existing.rating) {
-        existing.rating = mechanic.rating;
-      }
-      // Update verified if any mechanic is verified
+      // Shop rating is a single value per shop (aggregated from
+      // `reviews` by `convex/reviews.ts:submit`) — don't recompute
+      // from the max mechanic rating in the group.
       if (mechanic.isVerified) {
         existing.isVerified = true;
       }
-      // Update distance to closest
       if (mechanic.distanceMi < existing.distanceMi) {
         existing.distanceMi = mechanic.distanceMi;
       }
@@ -96,7 +93,7 @@ function groupMechanicsByShop(mechanics: Mechanic[], shopIdToLaborRate?: Map<str
       shopMap.set(mechanic.shopId, {
         shopId: mechanic.shopId,
         shopName: mechanic.shopName,
-        rating: mechanic.rating,
+        rating: mechanic.shopRating ?? 0,
         isVerified: mechanic.isVerified,
         distanceMi: mechanic.distanceMi,
         mechanics: [mechanic],
@@ -323,7 +320,7 @@ export function MechanicSelectionContent({
   // Handle shop details button
   const handleShopDetails = useCallback(
     (shopId: string) => {
-      router.push(`/home/shop/${shopId}`);
+      router.push(`/booking/shop/${shopId}`);
     },
     [router],
   );
@@ -369,8 +366,12 @@ export function MechanicSelectionContent({
       const currentMonth = now.getMonth();
       const currentYear = now.getFullYear();
       const dayNum = parseInt(slot.day, 10);
+      // Compare against today *at midnight*, not `now`, so a same-day slot
+      // doesn't get bumped to next month (local-midnight < now is always
+      // true later in the day).
+      const todayMidnight = new Date(currentYear, currentMonth, now.getDate());
       let targetDate = new Date(currentYear, currentMonth, dayNum);
-      if (targetDate < now) {
+      if (targetDate < todayMidnight) {
         targetDate = new Date(currentYear, currentMonth + 1, dayNum);
       }
       const months = ["Jan.", "Feb.", "Mar.", "Apr.", "May", "Jun.", "Jul.", "Aug.", "Sep.", "Oct.", "Nov.", "Dec."];
@@ -400,7 +401,7 @@ export function MechanicSelectionContent({
     onSelectMechanic?.();
 
     // Navigate to payment page
-    router.push(`/home/mechanic/${effectiveMechanicId}/payment`);
+    router.push(`/booking/mechanic/${effectiveMechanicId}/payment`);
   }, [
     selectedMechanicSlot,
     shopList,
@@ -452,7 +453,7 @@ export function MechanicSelectionContent({
           {selectedVehicle?.imageSource ? (
             <Image source={selectedVehicle.imageSource} style={styles.carButtonImage} resizeMode="contain" />
           ) : (
-            <Car size={20} color={BrandColors.primary} />
+            <Car size={28} color={BrandColors.primary} />
           )}
         </Pressable>
       </View>
@@ -558,17 +559,14 @@ const styles = StyleSheet.create({
     width: 32,
   },
   carButton: {
-    width: 36,
-    height: 36,
-    borderRadius: BorderRadius.lg,
-    backgroundColor: "#F3F4F6",
+    width: 56,
+    height: 40,
     alignItems: "center",
     justifyContent: "center",
-    overflow: "hidden",
   },
   carButtonImage: {
-    width: 32,
-    height: 32,
+    width: 56,
+    height: 40,
   },
   searchContainer: {
     flexDirection: "row",

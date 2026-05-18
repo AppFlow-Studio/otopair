@@ -1,5 +1,5 @@
 import { useCallback } from 'react';
-import { useMutation, useQuery } from 'convex/react';
+import { useAction, useMutation, useQuery } from 'convex/react';
 import { api } from '@/convex/_generated/api';
 import { useSession, useAuth } from '@clerk/clerk-expo';
 import { Alert } from 'react-native';
@@ -24,6 +24,7 @@ export function useAccountDeletion() {
   const me = useQuery(api.users.getMe);
   
   const requestDeletionMutation = useMutation(api.users.requestAccountDeletion);
+  const revokeClerkSessionsAction = useAction(api.users.revokeMyActiveClerkSessions);
   const reactivateMutation = useMutation(api.users.reactivateAccount);
 
   /**
@@ -91,8 +92,27 @@ export function useAccountDeletion() {
       }
     }
 
+    for (let attempt = 0; attempt <= 3; attempt++) {
+      try {
+        await revokeClerkSessionsAction({
+          excludeSessionId: session?.id,
+        });
+        break;
+      } catch (error: any) {
+        const isRetryable =
+          error?.message?.includes("Failed to list Clerk sessions") ||
+          error?.message?.includes("Failed to revoke") ||
+          error?.message?.includes("Failed to fetch");
+
+        if (attempt === 3 || !isRetryable) throw error;
+
+        console.log(`Clerk session revocation retry ${attempt + 1}/3`);
+        await new Promise(r => setTimeout(r, 1000 * Math.pow(2, attempt)));
+      }
+    }
+
     await signOut();
-  }, [requestDeletionMutation, signOut]);
+  }, [requestDeletionMutation, revokeClerkSessionsAction, session?.id, signOut]);
 
   /**
    * Cancels the pending deletion and restores the account.

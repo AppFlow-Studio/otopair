@@ -1,10 +1,13 @@
-import { Icon, Label, NativeTabs } from "expo-router/unstable-native-tabs";
+import { Badge, Icon, Label, NativeTabs } from "expo-router/unstable-native-tabs";
 import { Tabs } from "expo-router";
 import React from "react";
 import { Platform } from "react-native";
 import { TabBar } from "@/components/navigation/TabBar";
 import { useBookingsFromConvex } from "@/hooks/useBookingsFromConvex";
+import { useUnseenBookingsCount } from "@/hooks/useUnseenBookingsCount";
 import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromConvex";
+import { NotificationsSheet } from "@/components/notifications/NotificationsSheet";
+import { RescheduleDecisionOverlay } from "@/components/notifications/RescheduleDecisionOverlay";
 
 /** Hydrates vehicle and booking stores with Convex data when main tabs are active. */
 function HydrateBookingData() {
@@ -16,6 +19,12 @@ function HydrateBookingData() {
 export default function TabLayout() {
   const isIOS26OrNewer =
     Platform.OS === "ios" && parseInt(String(Platform.Version), 10) >= 26;
+
+  // Plain red-dot indicator on the Bookings tab — matches the trophy
+  // and bell dots so the visual language stays consistent. Native iOS
+  // renders a dot when `<Badge>` is given empty children.
+  const unseenBookingsCount = useUnseenBookingsCount();
+  const showBookingsBadge = unseenBookingsCount > 0;
 
   // Use custom tab bar for Android and iOS <= 25.
   if (!isIOS26OrNewer) {
@@ -46,22 +55,12 @@ export default function TabLayout() {
               title: 'My Cars',
             }}
           />
-          {/* Settings is no longer a bottom-bar tab — users enter
-              Settings via the profile button on the home header
-              (SettingsOverlay). The route is kept reachable for
-              deep links (membership, refer-a-friend, etc.) via
-              `href: null`. */}
-          <Tabs.Screen
-            name="settings"
-            options={{
-              href: null,
-            }}
-          />
           <Tabs.Screen
             name="ai-chat"
             options={{
               title: 'Oto',
             }}
+            
           />
           <Tabs.Screen
             name="index"
@@ -70,6 +69,8 @@ export default function TabLayout() {
             }}
           />
         </Tabs>
+        <NotificationsSheet />
+        <RescheduleDecisionOverlay />
       </>
     );
   }
@@ -86,19 +87,19 @@ export default function TabLayout() {
         <NativeTabs.Trigger name="bookings">
           <Icon sf="calendar" drawable="custom_settings_drawable" />
           <Label>{"Bookings"}</Label>
+          {showBookingsBadge ? <Badge>{" "}</Badge> : null}
         </NativeTabs.Trigger>
         <NativeTabs.Trigger name="cars">
           <Icon sf="car" drawable="custom_settings_drawable" />
           <Label>{"Cars"}</Label>
         </NativeTabs.Trigger>
-        {/* Settings tab removed — users enter Settings via the
-            profile button on the home header (SettingsOverlay). */}
-
         <NativeTabs.Trigger name="ai-chat">
           <Icon sf="bubble.left.and.bubble.right.fill" drawable="custom_ai_drawable" />
           <Label>{"Oto"}</Label>
         </NativeTabs.Trigger>
       </NativeTabs>
+      <NotificationsSheet />
+      <RescheduleDecisionOverlay />
     </>
   );
 }

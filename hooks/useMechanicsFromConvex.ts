@@ -14,7 +14,13 @@ import type { Doc, Id } from "@/convex/_generated/dataModel";
 import type { Mechanic } from "@/stores/types/store.types";
 import { useMechanicStore } from "@/stores/useMechanicStore";
 
-function mapConvexMechanicToStore(mechanic: Doc<"mechanics"> & { shop?: { name: string } | null }): Mechanic {
+type ConvexMechanicListRow = Doc<"mechanics"> & {
+  shop?: { name: string } | null;
+  shopRating?: number;
+  shopReviewCount?: number;
+};
+
+function mapConvexMechanicToStore(mechanic: ConvexMechanicListRow): Mechanic {
   const name = `${mechanic.first_name} ${mechanic.last_name}`.trim();
   const shopName = mechanic.shop?.name ?? "Shop";
   return {
@@ -26,6 +32,8 @@ function mapConvexMechanicToStore(mechanic: Doc<"mechanics"> & { shop?: { name: 
     photoUrl: null,
     rating: mechanic.rating ?? 0,
     reviewCount: mechanic.review_count != null ? Math.round(Number(mechanic.review_count)) : undefined,
+    shopRating: mechanic.shopRating ?? 0,
+    shopReviewCount: mechanic.shopReviewCount ?? 0,
     isVerified: false,
     distanceMi: 0,
     services: [],
@@ -44,9 +52,19 @@ export function useMechanicsFromConvex() {
 
   const mechanics: Mechanic[] = useMemo(() => {
     if (!convexMechanics) return [];
-    return convexMechanics.map((m) =>
-      mapConvexMechanicToStore(m as Doc<"mechanics"> & { shop?: { name: string } | null }),
-    );
+    // Dedupe by (shop, full-name) — the `mechanics` table has duplicate
+    // rows for some mechanics (likely a seed re-run), so without this the
+    // picker shows "Luke / Luke / James / James". Keep the first row for
+    // each name within a shop.
+    type ConvexMechanic = Doc<"mechanics"> & { shop?: { name: string } | null };
+    const seen = new Set<string>();
+    const deduped = (convexMechanics as ConvexMechanic[]).filter((m) => {
+      const key = `${String(m.shop_id)}::${(m.first_name ?? "").trim().toLowerCase()}::${(m.last_name ?? "").trim().toLowerCase()}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+    return deduped.map((m) => mapConvexMechanicToStore(m as ConvexMechanicListRow));
   }, [convexMechanics]);
 
   useEffect(() => {

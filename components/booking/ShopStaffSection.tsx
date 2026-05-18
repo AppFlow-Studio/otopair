@@ -4,7 +4,7 @@
  * PURPOSE: Displays all mechanics/staff members at a shop in a beautifully
  *          styled grid/list layout
  *
- * USED IN: app/(main-tabs)/home/mechanic/[id].tsx (Staff tab)
+ * USED IN: app/(booking)/mechanic/[id].tsx (Staff tab)
  *
  * PROPS:
  *   - shopId (number): The shop ID to get staff for

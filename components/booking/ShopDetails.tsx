@@ -5,7 +5,7 @@
  *          slots, allowing users to see available bays/mechanics and time slots
  *          Also shows selected services with ability to add more
  *
- * USED IN: app/(main-tabs)/home/mechanic/[id].tsx (Services tab)
+ * USED IN: app/(booking)/mechanic/[id].tsx (Services tab)
  *
  * PROPS:
  *   - shopId (number): The shop ID to get mechanics for
@@ -168,10 +168,15 @@ export function ShopDetails({ shopId, onBookNow, onAddMoreServices, onViewAllAva
       const currentYear = now.getFullYear();
       const dayNum = parseInt(slot.day, 10);
 
-      // Construct date from slot day (assuming current month/year, adjust if in past)
+      // Construct date from slot day (assuming current month/year, adjust if in past).
+      // Compare against today *at midnight*, not `now` — otherwise a slot for
+      // today at 5 PM gets bumped to next month any time the user opens this
+      // screen after midnight, because `new Date(y,m,d)` is local-midnight
+      // which is always < `now` later in the day.
+      const todayMidnight = new Date(currentYear, currentMonth, now.getDate());
       let targetDate = new Date(currentYear, currentMonth, dayNum);
-      if (targetDate < now) {
-        // If the date is in the past, use next month
+      if (targetDate < todayMidnight) {
+        // Slot day is earlier in the month than today — must be next month.
         targetDate = new Date(currentYear, currentMonth + 1, dayNum);
       }
 

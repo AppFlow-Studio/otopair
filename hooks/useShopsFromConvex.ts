@@ -10,7 +10,7 @@
 import { useQuery } from "convex/react";
 import { useEffect, useMemo } from "react";
 import { api } from "@/convex/_generated/api";
-import type { Doc, Id } from "@/convex/_generated/dataModel";
+import type { Doc } from "@/convex/_generated/dataModel";
 import type { Shop } from "@/stores/types/store.types";
 import { useShopStore } from "@/stores/useShopStore";
 
@@ -21,14 +21,14 @@ function mapConvexShopToStore(shop: Doc<"shops">, serviceIds: string[]): Shop {
     name: shop.name,
     address: address || "Address not available",
     phone: shop.phone,
-    latitude: shop.lat,
-    longitude: shop.lng,
+    latitude: shop.lat ?? 0,
+    longitude: shop.lng ?? 0,
     distanceKm: null,
     rating: shop.rating ?? null,
     reviewCount: shop.review_count != null ? Math.round(Number(shop.review_count)) : undefined,
     imageUrl: null,
     availability: shop.is_active ? 7 : 0,
-    hasAvailableSlots: shop.is_active,
+    hasAvailableSlots: shop.is_active ?? false,
     nextAvailableSlot: shop.is_active ? null : null,
     serviceIds,
     labor_rate: shop.labor_rate,
@@ -51,7 +51,7 @@ export function useShopsFromConvex() {
       serviceIdsByShop[shopKey].push(ss.service_id as string);
     }
 
-    return convexShops.map((shop) => mapConvexShopToStore(shop, serviceIdsByShop[shop._id as string] ?? []));
+    return (convexShops as Doc<"shops">[]).map((shop) => mapConvexShopToStore(shop, serviceIdsByShop[shop._id as string] ?? []));
   }, [convexShops, shopServicesList]);
 
   useEffect(() => {

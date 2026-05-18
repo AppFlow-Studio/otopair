@@ -23,7 +23,7 @@ import { ChevronRight } from "lucide-react-native";
 import { BrandColors, Text } from "@/components/shared-ui";
 import { BorderRadius, Spacing } from "@/constants/theme";
 
-const FALLBACK_VEHICLE_IMAGE = require("@/assets/images/lexus.png");
+const FALLBACK_VEHICLE_IMAGE = require("@/assets/images/covered-car.png");
 
 export type VehicleTier = "driver" | "preferred" | "elite";
 
@@ -37,7 +37,6 @@ export interface GarageCarouselCardVehicle {
   mileage?: number;
   imageSource?: ImageSourcePropType;
   isDefault: boolean;
-  connectionStatus?: string;
   fuelPercent?: number | null;
 }
 

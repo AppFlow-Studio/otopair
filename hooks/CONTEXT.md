@@ -17,7 +17,6 @@ Custom React hooks. 37+ hooks for data fetching, local persistence, utilities, a
 | useCreateBookingConvex | Create booking (orchestrates stores + Convex mutation) |
 | useFilteredShops | Apply distance/price/rating filters to shops |
 | useMaintenanceData | Calculate vehicle maintenance status |
-| useSmartCar | Smartcar OAuth + vehicle data |
 | useVoiceRecording | Audio recording for AI chat voice input |
 
 ## Conventions

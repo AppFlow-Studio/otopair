@@ -4,7 +4,7 @@
  * PURPOSE: Floating glass-styled buttons for map controls (filter and recenter).
  *          Positioned at top-right of the map screen, like Flighty app.
  *
- * USED IN: app/(main-tabs)/home/map.tsx
+ * USED IN: app/(booking)/map.tsx
  *
  * PROPS:
  *   - onFilterPress (() => void): Called when filter button is pressed
@@ -41,6 +41,18 @@ import { BrandColors } from "@/components/shared-ui";
 
 // 4. Constants
 import { BorderRadius, Spacing } from "@/constants/theme";
+
+// Native iOS 26 liquid glass (optional). Mirrors the home/ai-chat pattern —
+// falls back to BlurView when the lib is unavailable.
+let LiquidGlassView: React.ComponentType<any> | null = null;
+let isLiquidGlassEnabled = false;
+try {
+  const lg = require("@callstack/liquid-glass");
+  LiquidGlassView = lg.LiquidGlassView;
+  isLiquidGlassEnabled = !!lg.isLiquidGlassSupported;
+} catch {
+  // Not available — fall back to BlurView style
+}
 
 // ============================================================================
 // TYPES
@@ -96,42 +108,53 @@ export function FloatingMapControls({
     };
   });
 
+  const filterButton = (
+    <TouchableOpacity
+      onPress={onFilterPress}
+      style={styles.button}
+      activeOpacity={0.7}
+      hitSlop={{ top: 8, bottom: 4, left: 8, right: 8 }}
+    >
+      <Settings2
+        size={22}
+        color={isFilterActive ? BrandColors.secondary : BrandColors.primary}
+        strokeWidth={2}
+      />
+      {isFilterActive && <View style={styles.activeDot} />}
+    </TouchableOpacity>
+  );
+
+  const recenterButton = (
+    <TouchableOpacity
+      onPress={onRecenterPress}
+      style={styles.button}
+      activeOpacity={0.7}
+      hitSlop={{ top: 4, bottom: 8, left: 8, right: 8 }}
+    >
+      <Navigation2
+        size={22}
+        color={BrandColors.secondary}
+        fill={BrandColors.secondary}
+      />
+    </TouchableOpacity>
+  );
+
   return (
     <Animated.View style={[styles.container, { top: insets.top + Spacing.md }, animatedStyle]}>
-      <BlurView intensity={80} tint="light" style={styles.blurContainer}>
-        <View style={styles.frostedOverlay} />
-        
-        {/* Filter Button */}
-        <TouchableOpacity
-          onPress={onFilterPress}
-          style={styles.button}
-          activeOpacity={0.7}
-          hitSlop={{ top: 8, bottom: 4, left: 8, right: 8 }}
-        >
-          <Settings2
-            size={22}
-            color={isFilterActive ? BrandColors.secondary : BrandColors.primary}
-            strokeWidth={2}
-          />
-          {isFilterActive && <View style={styles.activeDot} />}
-        </TouchableOpacity>
-
-        <View style={styles.divider} />
-
-        {/* Recenter Button */}
-        <TouchableOpacity
-          onPress={onRecenterPress}
-          style={styles.button}
-          activeOpacity={0.7}
-          hitSlop={{ top: 4, bottom: 8, left: 8, right: 8 }}
-        >
-          <Navigation2
-            size={22}
-            color={BrandColors.secondary}
-            fill={BrandColors.secondary}
-          />
-        </TouchableOpacity>
-      </BlurView>
+      {isLiquidGlassEnabled && LiquidGlassView ? (
+        <LiquidGlassView interactive effect="clear" style={styles.glassContainer}>
+          {filterButton}
+          <View style={styles.divider} />
+          {recenterButton}
+        </LiquidGlassView>
+      ) : (
+        <BlurView intensity={80} tint="light" style={styles.blurContainer}>
+          <View style={styles.frostedOverlay} />
+          {filterButton}
+          <View style={styles.divider} />
+          {recenterButton}
+        </BlurView>
+      )}
     </Animated.View>
   );
 }
@@ -147,6 +170,10 @@ const styles = StyleSheet.create({
     zIndex: 10,
   },
   blurContainer: {
+    borderRadius: BorderRadius.xl,
+    overflow: "hidden",
+  },
+  glassContainer: {
     borderRadius: BorderRadius.xl,
     overflow: "hidden",
   },

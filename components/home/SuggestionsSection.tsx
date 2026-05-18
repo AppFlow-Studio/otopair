@@ -153,7 +153,7 @@ export function SuggestionsSection({ onCardPress }: SuggestionsSectionProps) {
       });
     } else {
       // Navigate to map with services sheet open
-      router.push('/home/map?openServices=true');
+      router.push('/booking/map?openServices=true');
     }
   };
 

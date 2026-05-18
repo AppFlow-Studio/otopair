@@ -1,7 +1,7 @@
 /**
  * AISources
  *
- * PURPOSE: Displays source citation pills (Smartcar API, Error Codes, etc.) with tooltip modals
+ * PURPOSE: Displays source citation pills (Error Codes, Service History, etc.) with tooltip modals
  *
  * USED IN: components/ai-chat/AIMessageBubble.tsx (renders inside AI messages with sources)
  *
@@ -11,7 +11,7 @@
  * EXAMPLE:
  *   <AISources
  *     sources={[
- *       { type: 'smartcar_api', label: 'Smartcar API', icon: '🚗', description: '...' }
+ *       { type: 'error_codes', label: 'Error Codes', icon: '📖', description: '...' }
  *     ]}
  *   />
  *
@@ -41,8 +41,7 @@ import { BrandColors, BorderRadius, Spacing, FontFamily, Shadows } from '@/const
 // TYPES
 // ============================================================================
 
-export type SourceType = 
-  | 'smartcar_api'
+export type SourceType =
   | 'error_codes'
   | 'service_history'
   | 'common_scenarios'
@@ -65,12 +64,6 @@ interface AISourcesProps {
 // ============================================================================
 
 export const SOURCE_DEFINITIONS: Record<SourceType, Omit<Source, 'details'>> = {
-  smartcar_api: {
-    type: 'smartcar_api',
-    label: 'Smartcar API',
-    icon: '🚗',
-    description: 'Real-time vehicle data and sensor readings',
-  },
   error_codes: {
     type: 'error_codes',
     label: 'Error Codes',
@@ -105,35 +98,29 @@ export function getSourcesForScenario(scenario: string): Source[] {
   switch (scenario) {
     case 'brake_noise':
       return [
-        { ...SOURCE_DEFINITIONS.smartcar_api, details: 'Checking for brake system warnings' },
         { ...SOURCE_DEFINITIONS.service_history, details: 'Last brake service date' },
         { ...SOURCE_DEFINITIONS.common_scenarios, details: 'Squeal pattern matching' },
       ];
     case 'check_engine':
       return [
-        { ...SOURCE_DEFINITIONS.smartcar_api, details: 'Reading error codes from vehicle' },
         { ...SOURCE_DEFINITIONS.error_codes, details: 'Code definition lookup' },
         { ...SOURCE_DEFINITIONS.common_scenarios, details: 'Known causes for this code' },
       ];
     case 'oil_change':
       return [
-        { ...SOURCE_DEFINITIONS.smartcar_api, details: 'Current oil life percentage' },
         { ...SOURCE_DEFINITIONS.service_history, details: 'Preferred shops from past visits' },
       ];
     case 'tire_pressure':
       return [
-        { ...SOURCE_DEFINITIONS.smartcar_api, details: 'Tire pressure sensor readings' },
         { ...SOURCE_DEFINITIONS.service_history, details: 'Recent tire service records' },
       ];
     case 'vague_issue':
       return [
-        { ...SOURCE_DEFINITIONS.smartcar_api, details: 'Full vehicle diagnostic scan' },
         { ...SOURCE_DEFINITIONS.service_history, details: 'Recent maintenance history' },
         { ...SOURCE_DEFINITIONS.common_scenarios, details: 'Symptom pattern analysis' },
       ];
     default:
       return [
-        { ...SOURCE_DEFINITIONS.smartcar_api },
         { ...SOURCE_DEFINITIONS.service_history },
       ];
   }

@@ -4,7 +4,7 @@
  * PURPOSE: Tab navigation component for mechanic detail page with Services,
  *          Reviews, Portfolio, and Staff tabs.
  *
- * USED IN: app/(main-tabs)/home/mechanic/[id].tsx
+ * USED IN: app/(booking)/mechanic/[id].tsx
  *
  * PROPS:
  *   - activeTab ('services' | 'reviews' | 'portfolio' | 'staff'): Currently active tab

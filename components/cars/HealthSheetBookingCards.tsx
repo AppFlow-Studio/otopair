@@ -113,7 +113,7 @@ export function HealthSheetBookingCards({ maintenanceItems, onClose }: HealthShe
       clearSelectedServices();
       serviceIds.forEach((sid) => toggleServiceSelection(sid));
       onClose();
-      router.push('/home/map?openServices=true');
+      router.push('/booking/map?openServices=true');
     },
     [serviceIds, clearSelectedServices, toggleServiceSelection, onClose, router],
   );
@@ -121,7 +121,7 @@ export function HealthSheetBookingCards({ maintenanceItems, onClose }: HealthShe
   const handleShopDetails = useCallback(
     (shopId: string) => {
       onClose();
-      router.push(`/home/shop/${shopId}`);
+      router.push(`/booking/shop/${shopId}`);
     },
     [onClose, router],
   );
@@ -129,7 +129,7 @@ export function HealthSheetBookingCards({ maintenanceItems, onClose }: HealthShe
   const handleMoreAvailability = useCallback(
     (shopId: string, _mechanicId: string | null) => {
       onClose();
-      router.push('/home/map?openServices=true');
+      router.push('/booking/map?openServices=true');
     },
     [onClose, router],
   );

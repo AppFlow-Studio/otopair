@@ -23,6 +23,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import * as DocumentPicker from "expo-document-picker";
 import ReAnimated from "react-native-reanimated";
 
 // 2. Expo & Third-party
@@ -82,7 +83,7 @@ const EARN_REWARDS = [
   {
     id: "1",
     title: "Leave a Verified Review",
-    subtitle: "+$3 Credit",
+    subtitle: "+$5 Credit",
     iconBg: "#F3F4F6",
     iconColor: "#1F2937",
     icon: "review" as const,
@@ -91,7 +92,7 @@ const EARN_REWARDS = [
   {
     id: "2",
     title: "Upload Service Records",
-    subtitle: "+$5 Credit",
+    subtitle: "+$10 Credit",
     iconBg: "#F3F4F6",
     iconColor: "#1F2937",
     icon: "upload" as const,
@@ -138,10 +139,17 @@ export default function MembershipPage() {
   const ensureWallet = useMutation(api.rewards.ensureWallet);
   const updateRedemptionPreference = useMutation(api.rewards.updateRedemptionPreference);
   const redeemSelected = useMutation(api.rewards.redeemSelected);
+  const markCreditsSeen = useMutation(api.rewards.markCreditsSeen);
 
   useEffect(() => {
     if (userId && wallet === null) ensureWallet({ userId }).catch(() => {});
   }, [userId, wallet, ensureWallet]);
+
+  // Clear the trophy-icon red dot whenever this page is opened. Fire
+  // once on mount per session — the user has now seen their credits.
+  useEffect(() => {
+    if (userId) void markCreditsSeen({ userId });
+  }, [userId, markCreditsSeen]);
 
   const isIndividual = viewMode === "individual" && selectedVehicleVinForIndividual != null;
   const walletBalance = wallet?.balance ?? 0;
@@ -213,6 +221,38 @@ export default function MembershipPage() {
       });
     } catch (error) {
       console.log("Error sharing:", error);
+    }
+  };
+
+  // Mirrors the "Add Service History" handler on the Cars page —
+  // opens the OS document picker for PDFs/images/docs. The actual
+  // $10 contribution credit fires from `maintenance.upsertRecord`
+  // when the user files a record on the Cars page; this CTA exists
+  // so the membership screen can shortcut into the same picker.
+  const handleUploadRecords = async () => {
+    try {
+      const result = await DocumentPicker.getDocumentAsync({
+        type: [
+          "application/pdf",
+          "image/*",
+          "application/msword",
+          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        ],
+        multiple: true,
+        copyToCacheDirectory: true,
+      });
+      if (!result.canceled && result.assets.length > 0) {
+        Alert.alert(
+          "Got it",
+          `${result.assets.length} document${result.assets.length === 1 ? "" : "s"} ready. Open the Cars page and tap Add Service History to attach them to a vehicle and earn your $10 credit.`,
+          [
+            { text: "Later", style: "cancel" },
+            { text: "Go to Cars", onPress: () => router.push("/(main-tabs)/cars") },
+          ],
+        );
+      }
+    } catch (err) {
+      console.error("Document picker error:", err);
     }
   };
 
@@ -659,11 +699,7 @@ export default function MembershipPage() {
                         onPress={() => {
                           if (reward.icon === "review") router.push("/(main-tabs)/bookings");
                           else if (reward.icon === "refer") router.push("/refer-a-friend");
-                          else if (reward.icon === "upload")
-                            router.push({
-                              pathname: "/coming-soon",
-                              params: { serviceType: "upload", serviceName: "Upload Service Records" },
-                            });
+                          else if (reward.icon === "upload") handleUploadRecords();
                         }}
                         style={({ pressed }) => [
                           styles.rewardRow,
@@ -692,12 +728,7 @@ export default function MembershipPage() {
                         {/* Right Side: Button or Chevron */}
                         {reward.hasButton ? (
                           <Pressable
-                            onPress={() =>
-                              router.push({
-                                pathname: "/coming-soon",
-                                params: { serviceType: "upload", serviceName: "Upload Service Records" },
-                              })
-                            }
+                            onPress={handleUploadRecords}
                             style={({ pressed }) => [styles.uploadButton, pressed && styles.uploadButtonPressed]}
                           >
                             <Text weight="semiBold" size="sm" color="#FFFFFF">

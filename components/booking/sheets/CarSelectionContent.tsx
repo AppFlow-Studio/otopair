@@ -16,7 +16,7 @@ import React, { useCallback } from "react";
 import { ScrollView, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
-import { Plus, X } from "lucide-react-native";
+import { X } from "lucide-react-native";
 
 // 3. Shared UI (design system)
 import { BrandColors, Text } from "@/components/shared-ui";
@@ -103,19 +103,6 @@ export function CarSelectionContent({ onClose, onAddVehicle }: CarSelectionConte
             onSelect={() => handleSelect(vehicle)}
           />
         ))}
-
-        {/* Add a vehicle */}
-        <TouchableOpacity
-          style={styles.addVehicleRow}
-          onPress={onAddVehicle}
-          activeOpacity={0.7}
-          hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-        >
-          <Plus size={20} color="#9CA3AF" />
-          <Text size="md" weight="medium" color="#9CA3AF">
-            Add a vehicle
-          </Text>
-        </TouchableOpacity>
       </ScrollView>
     </View>
   );
@@ -162,17 +149,5 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     paddingBottom: Spacing.lg,
-  },
-  addVehicleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: Spacing.sm,
-    paddingVertical: Spacing.md,
-    marginTop: Spacing.sm,
-    borderRadius: BorderRadius.lg,
-    borderWidth: 1.5,
-    borderStyle: "dashed",
-    borderColor: "#D1D5DB",
   },
 });

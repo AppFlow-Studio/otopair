@@ -38,11 +38,34 @@ const WARNING_LIGHT_TYPE_OPTIONS = [
 
 type Answers = Record<string, string | string[]>;
 
-export default function QuarterlyCheckinScreen() {
+/** Props for embedding the check-in inline (e.g. inside a Modal over
+ *  the booking sheet, where router.push doesn't navigate reliably).
+ *  When omitted, the screen falls back to its route params. */
+interface QuarterlyCheckinProps {
+  vehicleOwnerId?: Id<"vehicle_owners">;
+  vehicleName?: string;
+  /** Called instead of `router.back()` — lets the embedder dismiss its
+   *  containing Modal. Also fired after a successful submit when
+   *  `returnTo === "booking"` so the booking sheet auto-resumes. */
+  onClose?: () => void;
+}
+
+export default function QuarterlyCheckinScreen(props: QuarterlyCheckinProps = {}) {
   const insets = useSafeAreaInsets();
   const router = useRouter();
-  const params = useLocalSearchParams<{ vehicleOwnerId: string; vehicleName?: string }>();
-  const vehicleOwnerId = params.vehicleOwnerId as Id<"vehicle_owners">;
+  const params = useLocalSearchParams<{
+    vehicleOwnerId: string;
+    vehicleName?: string;
+    returnTo?: string;
+  }>();
+  const vehicleOwnerId =
+    props.vehicleOwnerId ?? (params.vehicleOwnerId as Id<"vehicle_owners">);
+  const vehicleNameFromProps = props.vehicleName ?? params.vehicleName;
+  const returnToBooking = params.returnTo === "booking" || props.onClose != null;
+  const dismiss = useCallback(() => {
+    if (props.onClose) props.onClose();
+    else router.back();
+  }, [props, router]);
 
   const questionSet = useQuery(api.checkin.getCheckinQuestionSet, { vehicleOwnerId });
 
@@ -176,9 +199,9 @@ export default function QuarterlyCheckinScreen() {
     if (currentIndex > 0) {
       setCurrentIndex((i) => i - 1);
     } else {
-      router.back();
+      dismiss();
     }
-  }, [currentIndex, router]);
+  }, [currentIndex, dismiss]);
 
   const handleSubmit = useCallback(async () => {
     if (!checkinId || submitting) return;
@@ -199,12 +222,19 @@ export default function QuarterlyCheckinScreen() {
       setModeTransitioned(didTransition);
       setCompleted(true);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      // When the user was forced here by the booking gate, skip the
+      // celebration screen and pop straight back so the ServiceBottomSheet
+      // can auto-advance to the next stage as soon as Convex reactivity
+      // reports the check-in is on file.
+      if (returnToBooking) {
+        dismiss();
+      }
     } catch (e) {
       console.error("Failed to complete check-in:", e);
     } finally {
       setSubmitting(false);
     }
-  }, [checkinId, answers, mileageInput, symptomsText, completeCheckin, vehicleOwnerId, submitting]);
+  }, [checkinId, answers, mileageInput, symptomsText, completeCheckin, vehicleOwnerId, submitting, returnToBooking, dismiss]);
 
   // ── Loading state ──
   if (!questionSet) {
@@ -217,7 +247,7 @@ export default function QuarterlyCheckinScreen() {
 
   // ── Completion state ──
   if (completed) {
-    const vehicleName = params.vehicleName ?? "vehicle";
+    const vehicleName = vehicleNameFromProps ?? "vehicle";
     return (
       <View style={[styles.container, { paddingTop: insets.top }]}>
         <Animated.View entering={FadeIn.duration(400)} style={styles.completionContainer}>
@@ -242,7 +272,7 @@ export default function QuarterlyCheckinScreen() {
             </Animated.View>
           )}
           <Pressable
-            onPress={() => router.back()}
+            onPress={dismiss}
             style={({ pressed }) => [
               styles.doneButton,
               pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] },
@@ -275,7 +305,7 @@ export default function QuarterlyCheckinScreen() {
             </Text>
             <Text variant="body" style={styles.introSubtitle}>
               A few questions to keep your{" "}
-              {params.vehicleName ?? "vehicle"}'s recommendations accurate.
+              {vehicleNameFromProps ?? "vehicle"}'s recommendations accurate.
               Takes about a minute.
             </Text>
             <Text variant="caption" style={styles.questionCount}>
@@ -289,7 +319,7 @@ export default function QuarterlyCheckinScreen() {
               variant="secondary"
               style={styles.startButton}
             />
-            <Pressable onPress={() => router.back()} style={styles.skipLink}>
+            <Pressable onPress={dismiss} style={styles.skipLink}>
               <Text variant="caption" style={styles.skipText}>
                 Not now
               </Text>

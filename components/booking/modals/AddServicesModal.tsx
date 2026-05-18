@@ -6,7 +6,7 @@
  *
  * FLOW: Booking
  *
- * USED IN: app/(main-tabs)/home/mechanic/[id]/index.tsx
+ * USED IN: app/(booking)/mechanic/[id]/index.tsx
  *
  * OWNER: Waleed Mansour
  */

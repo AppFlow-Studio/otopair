@@ -4,7 +4,7 @@
  * PURPOSE: Header component for mechanic detail page with map background,
  *          shop location pin, shop name, and specialties display.
  *
- * USED IN: app/(main-tabs)/home/mechanic/[id].tsx
+ * USED IN: app/(booking)/mechanic/[id].tsx
  *
  * PROPS:
  *   - mechanic (Mechanic): The mechanic data to display
@@ -73,17 +73,22 @@ export function MechanicDetailHeader({ mechanic, shop, onBack }: MechanicDetailH
   // ═══════════════ STORES ═══════════════
   const availableServices = useBookingStore((state) => state.availableServices);
 
+  const hasValidCoordinates = Number.isFinite(shop.latitude) && Number.isFinite(shop.longitude);
+
   // ═══════════════ COMPUTED VALUES ═══════════════
   // Map region centered on shop location
-  const mapRegion: Region = useMemo(
-    () => ({
+  const mapRegion: Region | null = useMemo(() => {
+    if (!hasValidCoordinates) {
+      return null;
+    }
+
+    return {
       latitude: shop.latitude,
       longitude: shop.longitude,
       latitudeDelta: MAP_DELTA,
       longitudeDelta: MAP_DELTA,
-    }),
-    [shop.latitude, shop.longitude],
-  );
+    };
+  }, [hasValidCoordinates, shop.latitude, shop.longitude]);
 
   // Map specialty IDs to service names
   const specialtyNames = useMemo(() => {
@@ -111,27 +116,31 @@ export function MechanicDetailHeader({ mechanic, shop, onBack }: MechanicDetailH
     <View style={[styles.container, { height: totalHeaderHeight + insets.top }]}>
       {/* Map Background - Non-interactive */}
       <View style={styles.mapContainer}>
-        <MapView
-          style={styles.map}
-          provider={PROVIDER_DEFAULT}
-          region={mapRegion}
-          scrollEnabled={false}
-          zoomEnabled={false}
-          pitchEnabled={false}
-          rotateEnabled={false}
-          zoomTapEnabled={false}
-          showsUserLocation={false}
-          showsMyLocationButton={false}
-          toolbarEnabled={false}
-        >
-          <Marker coordinate={{ latitude: shop.latitude, longitude: shop.longitude }} anchor={{ x: 0.5, y: 0.5 }}>
-            <Image
-              source={require("@/assets/images/otopair-ai-logo.png")}
-              style={styles.markerImage}
-              resizeMode="contain"
-            />
-          </Marker>
-        </MapView>
+        {mapRegion ? (
+          <MapView
+            style={styles.map}
+            provider={PROVIDER_DEFAULT}
+            region={mapRegion}
+            scrollEnabled={false}
+            zoomEnabled={false}
+            pitchEnabled={false}
+            rotateEnabled={false}
+            zoomTapEnabled={false}
+            showsUserLocation={false}
+            showsMyLocationButton={false}
+            toolbarEnabled={false}
+          >
+            <Marker coordinate={{ latitude: shop.latitude, longitude: shop.longitude }} anchor={{ x: 0.5, y: 0.5 }}>
+              <Image
+                source={require("@/assets/images/otopair-ai-logo.png")}
+                style={styles.markerImage}
+                resizeMode="contain"
+              />
+            </Marker>
+          </MapView>
+        ) : (
+          <View style={styles.mapFallback} />
+        )}
 
         {/* White Overlay */}
         <View style={styles.whiteOverlay} />
@@ -185,6 +194,10 @@ const styles = StyleSheet.create({
   },
   map: {
     flex: 1,
+  },
+  mapFallback: {
+    flex: 1,
+    backgroundColor: "#E5EEF7",
   },
   whiteOverlay: {
     ...StyleSheet.absoluteFillObject,

@@ -29,16 +29,19 @@ import { FloatingSheet, type FloatingSheetRef } from "@/components/shared-ui/Flo
 import { useMyBookingsWithDetails } from "@/hooks/useMyBookingsWithDetails";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 import { CompletedBookingReviewCard } from "@/components/bookings/CompletedBookingReviewCard";
+import { CustomerLateBanner } from "@/components/bookings/CustomerLateBanner";
 import { LeaveReviewSheet, type LeaveReviewSheetRef } from "@/components/bookings/LeaveReviewSheet";
 import { useBookingStore } from "@/stores/useBookingStore";
+import { useBookingsBadgeStore } from "@/stores/useBookingsBadgeStore";
 import { useVehicleStore } from "@/stores/useVehicleStore";
+import { useRecHistoryFromConvex } from "@/hooks/useRecHistoryFromConvex";
 import { useMutation } from "convex/react";
 import { api } from "@/convex/_generated/api";
 import type { Id } from "@/convex/_generated/dataModel";
-import { useLocalSearchParams, useRouter } from "expo-router";
-import { Calendar, Car, Check, ChevronDown } from "lucide-react-native";
+import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { Calendar, Car, Check, ChevronRight, ListFilter } from "lucide-react-native";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
+import { Alert, Image, Pressable, RefreshControl, ScrollView, StyleSheet, View } from "react-native";
 import Animated from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import SegmentedControl from "@react-native-segmented-control/segmented-control";
@@ -86,6 +89,17 @@ export default function BookingsScreen() {
       setActiveTab(tabParam as TabType);
     }
   }, [tabParam]);
+
+  // Mark the Bookings tab as seen whenever it gains focus — clears the
+  // red badge on the bottom-nav Bookings icon. (Tied to focus instead of
+  // mount so the badge resets even when the screen is already mounted
+  // and the user just taps the tab.)
+  const markBookingsSeen = useBookingsBadgeStore((s) => s.markSeen);
+  useFocusEffect(
+    useCallback(() => {
+      markBookingsSeen();
+    }, [markBookingsSeen]),
+  );
   const [refreshing, setRefreshing] = useState(false);
   const detailsSheetRef = useRef<BookingDetailsSheetRef>(null);
   const confirmSheetRef = useRef<QuoteRequestConfirmationSheetRef>(null);
@@ -101,11 +115,23 @@ export default function BookingsScreen() {
     () => vehicleIds.map((id) => vehiclesRecord[id]).filter(Boolean),
     [vehicleIds, vehiclesRecord],
   );
-  const [filterVehicleId, setFilterVehicleId] = useState<string | null>(null);
+  const [filterVehicleId, setListFilterVehicleId] = useState<string | null>(null);
   const filterVehicle = filterVehicleId
     ? allVehicles.find((v) => v.id === filterVehicleId)
     : null;
-  const matchesFilter = useCallback(
+
+  // Active-rec count for the entry-point card. Scoped to the currently
+  // filtered vehicle when one is selected, else the primary garaged car.
+  const activeVin =
+    filterVehicle?.vin ?? useVehicleStore.getState().getSelectedVehicle()?.vin;
+  const { history: recHistory } = useRecHistoryFromConvex(activeVin);
+  const activeRecCount = recHistory.filter(
+    (r) =>
+      r.status === "open" ||
+      r.status === "acknowledged" ||
+      (r.status === "dismissed" && r.dismissed_reason === "hidden_by_driver"),
+  ).length;
+  const matchesListFilter = useCallback(
     (b: Booking) => {
       if (!filterVehicle) return true;
       // Prefer VIN match — unambiguous, no name parsing. Both Convex and
@@ -164,8 +190,8 @@ export default function BookingsScreen() {
   const cancelConvexBooking = useMutation(api.bookings.cancelBooking);
   const handleCancelBooking = useCallback(
     (bookingId: string) => {
-      const isSynthesized = bookingId.startsWith("tire_quote_");
-      if (isSynthesized) {
+      const isLocalId = bookingId.startsWith("tire_quote_") || bookingId.startsWith("booking_");
+      if (isLocalId) {
         cancelLocalBooking(bookingId);
       } else {
         void cancelConvexBooking({ bookingId: bookingId as Id<"bookings"> });
@@ -176,7 +202,7 @@ export default function BookingsScreen() {
 
   const bookings = (
     activeTab === "bookings" ? upcomingBookings : quoteBookings
-  ).filter(matchesFilter);
+  ).filter(matchesListFilter);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
@@ -215,8 +241,8 @@ export default function BookingsScreen() {
     () =>
       pendingReviewBookings
         .filter((b) => !dismissedReviewIds.has(b.id))
-        .filter(matchesFilter),
-    [pendingReviewBookings, dismissedReviewIds, matchesFilter],
+        .filter(matchesListFilter),
+    [pendingReviewBookings, dismissedReviewIds, matchesListFilter],
   );
   const handleLeaveReview = useCallback((bookingId: string) => {
     const target = pendingReviewBookings.find((b) => b.id === bookingId);
@@ -231,9 +257,35 @@ export default function BookingsScreen() {
     });
   }, []);
 
-  const handleReschedule = (bookingId?: string) => {
-    console.log("Reschedule booking:", bookingId || "live");
-  };
+  // Reschedule = cancel the current booking after confirmation, so the
+  // driver can book a new slot fresh. We don't have in-place reschedule
+  // yet, and surfacing "cancel" via the late-banner CTA matches the
+  // current product spec.
+  const handleReschedule = useCallback(
+    (bookingId?: string) => {
+      if (!bookingId) return;
+      Alert.alert(
+        "Reschedule appointment?",
+        "This will cancel your current booking. You'll need to book a new time slot.",
+        [
+          { text: "Keep booking", style: "cancel" },
+          {
+            text: "Cancel & reschedule",
+            style: "destructive",
+            onPress: () => {
+              const isLocalId = bookingId.startsWith("tire_quote_") || bookingId.startsWith("booking_");
+              if (!isLocalId) {
+                void cancelConvexBooking({ bookingId: bookingId as Id<"bookings"> });
+              } else {
+                cancelLocalBooking(bookingId);
+              }
+            },
+          },
+        ],
+      );
+    },
+    [cancelConvexBooking],
+  );
 
   const handleDownloadPdf = (bookingId: string) => {
     console.log("Download PDF for booking:", bookingId);
@@ -289,30 +341,61 @@ export default function BookingsScreen() {
                     pressed && styles.pickerButtonPressed,
                   ]}
                 >
-                  {filterVehicle?.imageSource ? (
-                    <Image
-                      source={filterVehicle.imageSource}
-                      style={styles.pickerThumb}
-                      resizeMode="contain"
-                    />
-                  ) : (
-                    <View style={styles.pickerIconBubble}>
-                      <Car size={16} color="#5299FE" strokeWidth={2} />
-                    </View>
-                  )}
-                  <View style={styles.pickerLabelWrap}>
-                    <Text size="xs" weight="semiBold" color="#8E8E93">
-                      VEHICLE
-                    </Text>
-                    <Text size="md" weight="semiBold" color="#1F2937">
-                      {filterVehicle
-                        ? `${filterVehicle.year} ${filterVehicle.model}`
-                        : "All Vehicles"}
-                    </Text>
+                  <View style={styles.pickerSide}>
+                    {filterVehicle?.imageSource ? (
+                      <Image
+                        source={filterVehicle.imageSource}
+                        style={styles.pickerThumb}
+                        resizeMode="contain"
+                      />
+                    ) : (
+                      <Image
+                        source={require("@/assets/images/covered-car.png")}
+                        style={styles.pickerCoveredCar}
+                        resizeMode="contain"
+                      />
+                    )}
                   </View>
-                  <ChevronDown size={18} color="#8E8E93" />
+                  <Text
+                    size="md"
+                    weight="semiBold"
+                    color="#1F2937"
+                    style={styles.pickerLabel}
+                    numberOfLines={1}
+                  >
+                    {filterVehicle
+                      ? `${filterVehicle.year} ${filterVehicle.model}`
+                      : "All Vehicles"}
+                  </Text>
+                  <View style={styles.pickerSide}>
+                    <ListFilter size={16} color="#8E8E93" />
+                  </View>
                 </Pressable>
               </View>
+            ) : null}
+
+            {/* Mechanic-rec history entry point. Surfaces hidden + resolved
+                recs so drivers can address what's still dragging their VHS. */}
+            {activeTab === "bookings" ? (
+              <Pressable
+                onPress={() => router.push("/bookings/recommended")}
+                style={({ pressed }) => [
+                  styles.recHistoryCard,
+                  pressed && { opacity: 0.85 },
+                ]}
+              >
+                <Text weight="semiBold" style={styles.recHistoryTitle}>
+                  Recommended services
+                </Text>
+                {activeRecCount > 0 ? (
+                  <View style={styles.recHistoryBadge}>
+                    <Text weight="semiBold" style={styles.recHistoryBadgeText}>
+                      {activeRecCount}
+                    </Text>
+                  </View>
+                ) : null}
+                <ChevronRight size={18} color="#C7C7CC" />
+              </Pressable>
             ) : null}
 
             {/* Booking Content. The Bookings tab includes in-progress
@@ -321,6 +404,7 @@ export default function BookingsScreen() {
                 Completed-but-unreviewed bookings get a "Leave a review"
                 card pinned at the very top until the user reviews. */}
             <View style={styles.content}>
+              <CustomerLateBanner onReschedule={(bookingId) => handleReschedule(String(bookingId))} />
               {activeTab === "bookings" && visibleReviewBookings.length > 0
                 ? visibleReviewBookings.map((booking) => (
                     <CompletedBookingReviewCard
@@ -404,12 +488,16 @@ export default function BookingsScreen() {
           <Pressable
             style={[styles.vehicleRow, filterVehicleId === null && styles.vehicleRowActive]}
             onPress={() => {
-              setFilterVehicleId(null);
+              setListFilterVehicleId(null);
               vehiclePickerRef.current?.close();
             }}
           >
-            <View style={styles.vehicleRowIconBubble}>
-              <Car size={18} color="#5299FE" strokeWidth={2} />
+            <View style={styles.vehicleRowSide}>
+              <Image
+                source={require("@/assets/images/covered-car.png")}
+                style={styles.vehicleRowCoveredCar}
+                resizeMode="contain"
+              />
             </View>
             <View style={styles.vehicleRowText}>
               <Text size="md" weight="semiBold" color="#1F2937">
@@ -430,11 +518,11 @@ export default function BookingsScreen() {
                 key={v.id}
                 style={[styles.vehicleRow, active && styles.vehicleRowActive]}
                 onPress={() => {
-                  setFilterVehicleId(v.id);
+                  setListFilterVehicleId(v.id);
                   vehiclePickerRef.current?.close();
                 }}
               >
-                <View style={styles.vehicleRowThumb}>
+                <View style={styles.vehicleRowSide}>
                   {v.imageSource ? (
                     <Image
                       source={v.imageSource}
@@ -442,7 +530,11 @@ export default function BookingsScreen() {
                       resizeMode="contain"
                     />
                   ) : (
-                    <Car size={20} color="#9CA3AF" />
+                    <Image
+                      source={require("@/assets/images/covered-car.png")}
+                      style={styles.vehicleRowCoveredCar}
+                      resizeMode="contain"
+                    />
                   )}
                 </View>
                 <View style={styles.vehicleRowText}>
@@ -499,32 +591,35 @@ const styles = StyleSheet.create({
   pickerButton: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 12,
     backgroundColor: "#FFFFFF",
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: "#E5E7EB",
+    borderRadius: 12,
     paddingVertical: 10,
-    paddingHorizontal: 14,
+    paddingHorizontal: 12,
+    shadowColor: "#0F172A",
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 2 },
+    elevation: 1,
   },
   pickerButtonPressed: {
     opacity: 0.92,
   },
-  pickerThumb: {
-    width: 36,
-    height: 28,
-  },
-  pickerIconBubble: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: "#EAF2FF",
+  pickerSide: {
+    width: 44,
     alignItems: "center",
     justifyContent: "center",
   },
-  pickerLabelWrap: {
+  pickerThumb: {
+    width: 38,
+    height: 28,
+  },
+  pickerCoveredCar: {
+    width: 40,
+    height: 28,
+  },
+  pickerLabel: {
     flex: 1,
-    gap: 1,
+    textAlign: "center",
   },
   sheetContent: {
     flex: 1,
@@ -533,6 +628,7 @@ const styles = StyleSheet.create({
   },
   sheetTitle: {
     marginBottom: 14,
+    textAlign: "center",
   },
   vehicleRow: {
     flexDirection: "row",
@@ -549,25 +645,18 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     backgroundColor: "#F5F9FF",
   },
-  vehicleRowIconBubble: {
-    width: 40,
+  vehicleRowSide: {
+    width: 56,
     height: 40,
-    borderRadius: 20,
-    backgroundColor: "#EAF2FF",
     alignItems: "center",
     justifyContent: "center",
-  },
-  vehicleRowThumb: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "#F2F2F7",
-    alignItems: "center",
-    justifyContent: "center",
-    overflow: "hidden",
   },
   vehicleRowImage: {
-    width: 40,
+    width: 52,
+    height: 40,
+  },
+  vehicleRowCoveredCar: {
+    width: 56,
     height: 40,
   },
   vehicleRowText: {
@@ -591,6 +680,37 @@ const styles = StyleSheet.create({
   content: {
     paddingHorizontal: 20,
     paddingTop: 16,
+  },
+  recHistoryCard: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginHorizontal: 20,
+    marginTop: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    backgroundColor: "#FFFFFF",
+    borderRadius: 12,
+    borderWidth: 0.5,
+    borderColor: "rgba(0,0,0,0.06)",
+  },
+  recHistoryTitle: {
+    flex: 1,
+    fontSize: 14,
+    color: "#141C24",
+  },
+  recHistoryBadge: {
+    minWidth: 22,
+    height: 22,
+    paddingHorizontal: 7,
+    borderRadius: 11,
+    backgroundColor: "#5299FE",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  recHistoryBadgeText: {
+    fontSize: 12,
+    color: "#FFFFFF",
   },
   emptyState: {
     alignItems: "center",

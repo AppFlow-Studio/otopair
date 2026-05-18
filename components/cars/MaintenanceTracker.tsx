@@ -31,6 +31,19 @@ import { BlurView } from 'expo-blur';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import Svg, { Circle } from 'react-native-svg';
+
+// Native iOS 26 liquid-glass for the "Update Info" button. Falls back
+// gracefully on iOS < 26 / Android / Expo Go to the BlurView + gradient
+// chrome below.
+let LiquidGlassView: React.ComponentType<any> | null = null;
+let isLiquidGlassEnabled = false;
+try {
+  const lg = require('@callstack/liquid-glass');
+  LiquidGlassView = lg.LiquidGlassView;
+  isLiquidGlassEnabled = !!lg.isLiquidGlassSupported;
+} catch {
+  // Native module unavailable — fallback chrome will render.
+}
 import Animated, {
   Easing as REasing,
   useAnimatedStyle,
@@ -70,6 +83,25 @@ export interface MaintenanceItem {
   urgency?: string;
   impacts?: Array<{ label: string; severity: 'high' | 'medium' | 'low' }>;
   recommendation?: string;
+  /** Set when this item comes from a mechanic-submitted job recommendation.
+   *  Threaded through the booking flow as bookings.source_recommendation_id
+   *  so the rec auto-closes when the booking completes. */
+  sourceRecommendationId?: string;
+  /** Mechanic + shop provenance for recs — drives the "Suggested by …" subtitle. */
+  mechanicProvenance?: {
+    shopName?: string | null;
+    mechanicName?: string | null;
+  };
+  /** Raw urgency literal from the mechanic rec — drives the timing-vs-date
+   *  branch in the Take Action detail screen. */
+  recUrgency?: "next_visit" | "within_3_months" | "soon";
+  /** ms-epoch slot the shop pre-picked; when set the detail screen offers
+   *  Confirm Date / Dismiss instead of Book This Service. */
+  scheduledAt?: number | null;
+  scheduledMechanicName?: string | null;
+  /** Canonical service id behind the rec — surfaced for the booking flow
+   *  pre-fill from the detail screen. */
+  serviceId?: string | null;
 }
 
 interface MaintenanceTrackerProps {
@@ -77,6 +109,10 @@ interface MaintenanceTrackerProps {
   vehicleCondition?: number;
   healthScoreInput?: HealthScoreInput;
   onBookNow?: (id: string) => void;
+  /** Fired when the driver taps "Take Action" on a mechanic-recommended urgent
+   *  card. Routes to the recommendation detail screen. When omitted, the card
+   *  falls back to the legacy onBookNow behavior. */
+  onTakeAction?: (item: MaintenanceItem) => void;
   onAddInfo?: (id: string) => void;
   onEditPressed?: () => void;
   /** Parent has determined the page bg is dark enough that the
@@ -117,7 +153,7 @@ const CARD_COLORS: Partial<Record<MaintenanceStatus, { statusColor: string; icon
 };
 
 function getServiceIcon(itemId: string, size: number, color: string) {
-  const type = itemId.replace(/^(unknown-|user-|smartcar-)/, '');
+  const type = itemId.replace(/^(unknown-|user-)/, '');
   switch (type) {
     case 'oil': return <OilIcon size={size} color={color} />;
     case 'brakes': return <BrakesIcon size={size} color={color} />;
@@ -304,11 +340,21 @@ interface UrgentCardProps {
   vehicleCondition: number;
   healthScoreInput?: HealthScoreInput;
   onBookNow?: (id: string) => void;
+  onTakeAction?: (item: MaintenanceItem) => void;
   onAddInfo?: (id: string) => void;
   onCardPress?: (item: MaintenanceItem) => void;
 }
 
-function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBookNow, onCardPress }: UrgentCardProps) {
+function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBookNow, onTakeAction, onCardPress }: UrgentCardProps) {
+  // Mechanic-recommended items get the new single "Take Action" CTA that
+  // routes to the detail screen. Algorithmic items keep the legacy two-button
+  // layout (Book Service + View Details).
+  const isMechanicRec = !!item.sourceRecommendationId;
+  const primaryLabel = isMechanicRec ? 'Take Action' : 'Book Service';
+  const handlePrimary = () => {
+    if (isMechanicRec && onTakeAction) onTakeAction(item);
+    else onBookNow?.(item.id);
+  };
   const colors = CARD_COLORS[item.status] ?? { statusColor: '#5299FE', iconBg: 'rgba(82,153,254,0.07)' };
 
   const delta = healthScoreInput
@@ -338,7 +384,11 @@ function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBo
     <Pressable
       onPressIn={() => { cardScale.value = withSpring(0.98, { damping: 20, stiffness: 300 }); }}
       onPressOut={() => { cardScale.value = withSpring(1, { damping: 20, stiffness: 300 }); }}
-      onPress={() => onCardPress ? onCardPress(item) : onBookNow?.(item.id)}
+      onPress={() => {
+        if (isMechanicRec && onTakeAction) onTakeAction(item);
+        else if (onCardPress) onCardPress(item);
+        else onBookNow?.(item.id);
+      }}
     >
       <Animated.View style={[cardStyles.container, entryStyle]}>
         <View style={cardStyles.topRow}>
@@ -348,6 +398,12 @@ function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBo
           <View style={cardStyles.textColumn}>
             <Text weight="bold" style={cardStyles.title}>{item.serviceName}</Text>
             <Text style={cardStyles.subtitle}>{item.description}</Text>
+            {item.mechanicProvenance && (item.mechanicProvenance.mechanicName || item.mechanicProvenance.shopName) && (
+              <Text style={cardStyles.provenance}>
+                Suggested by {item.mechanicProvenance.mechanicName ?? 'your mechanic'}
+                {item.mechanicProvenance.shopName ? ` at ${item.mechanicProvenance.shopName}` : ''}
+              </Text>
+            )}
           </View>
           {delta > 0 && (
             <View style={cardStyles.scoreColumn}>
@@ -361,16 +417,18 @@ function UrgentCard({ item, entryDelay, vehicleCondition, healthScoreInput, onBo
         <View style={cardStyles.buttonRow}>
           <Pressable
             style={({ pressed }) => [cardStyles.bookServiceBtn, pressed && { opacity: 0.85 }]}
-            onPress={() => onBookNow?.(item.id)}
+            onPress={handlePrimary}
           >
-            <Text weight="semiBold" style={cardStyles.bookServiceText}>Book Service</Text>
+            <Text weight="semiBold" style={cardStyles.bookServiceText}>{primaryLabel}</Text>
           </Pressable>
-          <Pressable
-            style={({ pressed }) => [cardStyles.viewDetailsBtn, pressed && { opacity: 0.85 }]}
-            onPress={() => onCardPress?.(item)}
-          >
-            <Text weight="semiBold" style={cardStyles.viewDetailsText}>View Details</Text>
-          </Pressable>
+          {!isMechanicRec && (
+            <Pressable
+              style={({ pressed }) => [cardStyles.viewDetailsBtn, pressed && { opacity: 0.85 }]}
+              onPress={() => onCardPress?.(item)}
+            >
+              <Text weight="semiBold" style={cardStyles.viewDetailsText}>View Details</Text>
+            </Pressable>
+          )}
         </View>
       </Animated.View>
     </Pressable>
@@ -443,7 +501,7 @@ function HealthySection({ items, isDarkBg = false }: { items: MaintenanceItem[];
 // COMPONENT
 // ============================================================================
 
-export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, onBookNow, onAddInfo, onEditPressed, isDarkBg = false }: MaintenanceTrackerProps) {
+export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, onBookNow, onTakeAction, onAddInfo, onEditPressed, isDarkBg = false }: MaintenanceTrackerProps) {
   const [selectedItem, setSelectedItem] = useState<MaintenanceItem | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
 
@@ -481,19 +539,30 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
           Maintenance Tracker
         </Text>
         {onEditPressed && (
-          <Pressable onPress={onEditPressed} style={({ pressed }) => [styles.editHeaderButton, pressed && { opacity: 0.7 }]}>
-            <BlurView intensity={40} tint="light" style={StyleSheet.absoluteFill} />
-            <LinearGradient
-              colors={['rgba(255,255,255,0.35)', 'rgba(255,255,255,0.25)']}
-              style={StyleSheet.absoluteFill}
-            />
-            <LinearGradient
-              colors={['rgba(255,255,255,0.55)', 'rgba(255,255,255,0.15)', 'rgba(255,255,255,0)']}
-              locations={[0, 0.35, 0.7]}
-              style={styles.editButtonGloss}
-            />
-            <Text weight="bold" style={styles.editHeaderButtonText}>Update Info</Text>
-          </Pressable>
+          isLiquidGlassEnabled && LiquidGlassView ? (
+            // Native iOS 26 liquid glass — Pressable carries no chrome
+            // so the glass effect renders pure. Matches the Oto pill on
+            // the AI chat header.
+            <Pressable onPress={onEditPressed} style={({ pressed }) => pressed && { opacity: 0.7 }}>
+              <LiquidGlassView interactive effect="regular" style={styles.editHeaderButtonGlass}>
+                <Text weight="bold" style={styles.editHeaderButtonText}>Update Info</Text>
+              </LiquidGlassView>
+            </Pressable>
+          ) : (
+            <Pressable onPress={onEditPressed} style={({ pressed }) => [styles.editHeaderButton, pressed && { opacity: 0.7 }]}>
+              <BlurView intensity={40} tint="light" style={StyleSheet.absoluteFill} />
+              <LinearGradient
+                colors={['rgba(255,255,255,0.35)', 'rgba(255,255,255,0.25)']}
+                style={StyleSheet.absoluteFill}
+              />
+              <LinearGradient
+                colors={['rgba(255,255,255,0.55)', 'rgba(255,255,255,0.15)', 'rgba(255,255,255,0)']}
+                locations={[0, 0.35, 0.7]}
+                style={styles.editButtonGloss}
+              />
+              <Text weight="bold" style={styles.editHeaderButtonText}>Update Info</Text>
+            </Pressable>
+          )
         )}
       </View>
 
@@ -522,6 +591,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
                     vehicleCondition={vehicleCondition ?? 0}
                     healthScoreInput={healthScoreInput}
                     onBookNow={onBookNow}
+                    onTakeAction={onTakeAction}
                     onAddInfo={onAddInfo}
                     onCardPress={handleCardPress}
                   />
@@ -543,6 +613,7 @@ export function MaintenanceTracker({ items, vehicleCondition, healthScoreInput, 
                     vehicleCondition={vehicleCondition ?? 0}
                     healthScoreInput={healthScoreInput}
                     onBookNow={onBookNow}
+                    onTakeAction={onTakeAction}
                     onAddInfo={onAddInfo}
                     onCardPress={handleCardPress}
                   />
@@ -629,6 +700,14 @@ const styles = StyleSheet.create({
     shadowRadius: 6,
     elevation: 2,
   },
+  // Liquid-glass variant: no background, no border, no shadow — just
+  // the radius + padding for the LiquidGlassView to wrap around. iOS 26
+  // does the entire chrome natively.
+  editHeaderButtonGlass: {
+    borderRadius: moderateScale(15),
+    paddingVertical: scale(7),
+    paddingHorizontal: scale(14),
+  },
   editButtonGloss: {
     position: 'absolute',
     top: 0,
@@ -684,6 +763,11 @@ const cardStyles = StyleSheet.create({
     fontSize: moderateScale(12),
     color: '#757c7d',
     marginTop: 1,
+  },
+  provenance: {
+    fontSize: moderateScale(11),
+    color: '#5299FE',
+    marginTop: 2,
   },
   scoreColumn: {
     alignItems: 'flex-end',
