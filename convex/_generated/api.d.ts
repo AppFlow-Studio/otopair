@@ -11,6 +11,7 @@
 import type * as adminCleanupMechanics from "../adminCleanupMechanics.js";
 import type * as ai_conversations from "../ai_conversations.js";
 import type * as ai_enrichment_logs from "../ai_enrichment_logs.js";
+import type * as ai_feedback from "../ai_feedback.js";
 import type * as ai_messages from "../ai_messages.js";
 import type * as analytics_events from "../analytics_events.js";
 import type * as app_feedback from "../app_feedback.js";
@@ -221,6 +222,7 @@ declare const fullApi: ApiFromModules<{
   adminCleanupMechanics: typeof adminCleanupMechanics;
   ai_conversations: typeof ai_conversations;
   ai_enrichment_logs: typeof ai_enrichment_logs;
+  ai_feedback: typeof ai_feedback;
   ai_messages: typeof ai_messages;
   analytics_events: typeof analytics_events;
   app_feedback: typeof app_feedback;

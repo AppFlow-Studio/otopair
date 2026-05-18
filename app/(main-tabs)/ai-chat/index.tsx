@@ -9,8 +9,9 @@
  *   - Welcome screen on first visit (AIWelcomeScreen)
  *   - Greeting with suggestions when no messages (AIGreeting)
  *   - Message bubbles with reasoning, sources, quick replies (AIMessageBubble)
- *   - Service picker for scheduling (AIServicePicker)
- *   - Mechanic carousel for booking (AIBookingCarousel)
+ *   - Consolidated booking flow rendered when Oto fires render_book_service
+ *     (BookServiceComponent — Sprint 4 Day 1 Pass B)
+ *   - Maintenance-record trust protocol (AIRecordConfirmation)
  *   - Chat history sidebar (AIChatHistory)
  *   - Scenario-based conversation engine (scenarioEngine)
  *
@@ -58,35 +59,33 @@ import {
   AITypingIndicator,
   AIChatHistory,
   PromptSuggestions,
-  AIBookingCarousel,
   AIWelcomeScreen,
-  AIServicePicker,
-  AIDiagnosticForm,
-  DIAGNOSTIC_SYSTEMS,
   AIRecordConfirmation,
   type RecordConfirmationDecision,
+  BookServiceComponent,
+  LinkButton,
+  BookingCard,
+  BookingsList,
+  AIFeedbackModal,
+  type FeedbackRating,
   AIToast,
   AIAttachmentPanel,
   AISelectedImages,
   type AIMessage,
   type Suggestion,
   type QuickReply,
-  type ServiceOption,
-  type SelectedTimeSlot,
   type VehicleCard,
 } from "@/components/ai-chat";
-import type { DiagnosticSystem } from "@/lib/diagnostic-checklist-templates";
 
 // 5. Constants, hooks, types, stores
 import { BrandColors, Spacing, FontFamily } from "@/constants/theme";
 import { useAIChatStore } from "@/stores/useAIChatStore";
-import { useBookingStore } from "@/stores/useBookingStore";
 import { useVoiceRecording } from "@/hooks/useVoiceRecording";
 import { useVehicleOwnershipFromConvex } from "@/hooks/useVehicleOwnershipFromConvex";
 import { useUserFromConvex } from "@/hooks/useUserFromConvex";
 import { formatMake } from "@/utils/formatMake";
 import { createInitialState, processUserMessage, WELCOME_SUGGESTIONS } from "@/services/ai/scenarioEngine";
-import type { ConversationState, ChatMessage, AIMechanic, SelectedService } from "@/services/ai/types";
+import type { ConversationState, ChatMessage } from "@/services/ai/types";
 
 // Oto AI minimal end-to-end loop (Phase 1 spike) — feature-flagged so we can
 // flip back to the rule engine instantly.
@@ -153,13 +152,6 @@ export default function AIChatScreen() {
           : `Conversation ${new Date(row.started_at).toLocaleDateString()}`,
     }));
   }, [convexConversationsRaw]);
-
-  // Booking store for navigation to payment
-  const selectMechanic = useBookingStore((state) => state.selectMechanic);
-  const setScheduledAppointment = useBookingStore((state) => state.setScheduledAppointment);
-  const toggleServiceSelection = useBookingStore((state) => state.toggleServiceSelection);
-  const clearSelectedServices = useBookingStore((state) => state.clearSelectedServices);
-  const setBookingStage = useBookingStore((state) => state.setBookingStage);
 
   // Conversation state (using scenario engine)
   const [state, setState] = useState<ConversationState>(createInitialState);
@@ -423,21 +415,11 @@ export default function AIChatScreen() {
         const {
           text,
           quickReplies,
-          showDiagnosticForm,
           showRecordConfirmation,
-          // v0.9 trigger-only render schemas — these fire from the action
-          // and MUST be passed onto the message envelope so the render
-          // blocks downstream can find them. Previously these were silently
-          // dropped (server returned them, mobile destructure didn't pull
-          // them), causing render_service_picker / render_shop_carousel /
-          // render_time_selector / render_booking_confirmation to "fire"
-          // server-side but never display.
-          showServicePicker,
-          pickerServices,
-          pickerPreSelectedId,
-          shopCarousel,
-          timeSelector,
-          bookingConfirmation,
+          bookService,
+          linkButton,
+          bookingCard,
+          bookingsList,
         } = await sendMessageAction({
           conversationId,
           message: messageText,
@@ -447,10 +429,6 @@ export default function AIChatScreen() {
           vehicleVin: selectedVehicleVin ?? undefined,
         });
 
-        const diagnosticFormEnvelope = showDiagnosticForm as
-          | { initialSystem?: DiagnosticSystem; initialNotes?: string }
-          | undefined;
-
         // Record-confirmation envelope — fired when Oto detects a symptom
         // contradicts a self_reported maintenance record and wants the user
         // to verify (or correct) the record before reasoning further.
@@ -458,19 +436,25 @@ export default function AIChatScreen() {
           | { vehicle_id: string; maintenance_type: import("@/utils/maintenanceStatus").MaintenanceType }
           | undefined;
 
-        // Stage derivation — pick the most-specific render that fired.
-        // Order matters: terminal renders win over service_selection.
-        const nextStage: ChatMessage["stage"] = diagnosticFormEnvelope
-          ? "diagnostic_form"
-          : showServicePicker
-            ? "service_selection"
-            : shopCarousel
-              ? "shop_selection"
-              : timeSelector
-                ? "time_selection"
-                : bookingConfirmation
-                  ? "confirmation"
-                  : undefined;
+        // Sprint 4 Day 1 Pass B — typed view of the bookService envelope.
+        // This is now the only terminal-stage render in the booking flow.
+        const bookServiceEnvelope = bookService as
+          | import("@/services/ai/types").BookServicePayload
+          | undefined;
+        // Sprint 3 Day 2/5/6 — other live render envelopes.
+        const linkButtonEnvelope = linkButton as
+          | import("@/services/ai/types").LinkButtonPayload
+          | undefined;
+        const bookingCardEnvelope = bookingCard as
+          | { booking_id: string }
+          | undefined;
+        const bookingsListEnvelope = bookingsList as
+          | { booking_ids: string[] }
+          | undefined;
+
+        const nextStage: ChatMessage["stage"] = bookServiceEnvelope
+          ? "confirmation"
+          : undefined;
 
         const aiMessage: ChatMessage = {
           id: `ai_${Date.now()}`,
@@ -478,17 +462,12 @@ export default function AIChatScreen() {
           content: text,
           timestamp: new Date().toISOString(),
           isStreaming: true,
-          // Render directives emitted by the AI's tool calls. All v0.9
-          // render envelope fields are now passed through.
           quickReplies: quickReplies as QuickReply[] | undefined,
-          showDiagnosticForm: diagnosticFormEnvelope,
           showRecordConfirmation: recordConfirmEnvelope,
-          showServicePicker: showServicePicker as boolean | undefined,
-          pickerServices: pickerServices as unknown,
-          pickerPreSelectedId: pickerPreSelectedId as string | undefined,
-          shopCarousel: shopCarousel as unknown,
-          timeSelector: timeSelector as unknown,
-          bookingConfirmation: bookingConfirmation as unknown,
+          bookService: bookServiceEnvelope,
+          linkButton: linkButtonEnvelope,
+          bookingCard: bookingCardEnvelope,
+          bookingsList: bookingsListEnvelope,
           stage: nextStage,
         };
         setState((prev) => ({
@@ -598,6 +577,10 @@ export default function AIChatScreen() {
     // Simulate AI "thinking" delay
     setTimeout(() => {
       // Create AI response message
+      // Rule-engine fallback path (USE_OTO_AI_ACTION=false). Booking-related
+      // fields (shops / showServicePicker / showDiagnosticForm) were dropped
+      // in Sprint 4 Day 1 Pass B — the rule engine no longer drives booking
+      // UI; Oto's render_book_service is the only path to BookServiceComponent.
       const aiMessage: ChatMessage = {
         id: `ai_${Date.now()}`,
         role: "assistant",
@@ -607,9 +590,6 @@ export default function AIChatScreen() {
         sources: response.sources,
         quickReplies: response.quickReplies,
         sections: response.sections,
-        shops: response.shops,
-        showServicePicker: response.showServicePicker,
-        showDiagnosticForm: response.showDiagnosticForm,
         stage: response.nextStage,
         isStreaming: true,
       };
@@ -671,130 +651,6 @@ export default function AIChatScreen() {
     [sendToOtoAI]
   );
 
-  // Handle Book Now from mechanic carousel - navigates to payment screen
-  const handleBookNow = useCallback(
-    (mechanic: AIMechanic, timeSlot: SelectedTimeSlot) => {
-      // Map AI service selection to booking store service IDs
-      const serviceIdMapping: Record<string, string> = {
-        svc_oil_change: "svc_oil_change",
-        svc_air_filter: "svc_filter_change",
-        svc_fluid_check: "svc_fluid_change",
-        svc_tire_rotation: "svc_tire_rotation",
-        svc_tire_balance: "svc_tire_balance",
-        svc_tire_pressure: "svc_tire_rotation",
-        svc_brake_inspection: "svc_brake_pads",
-        svc_brake_pads: "svc_brake_pads",
-        svc_brake_fluid: "svc_brake_fluid",
-        svc_diagnostic_scan: "svc_engine_diagnostic",
-        svc_check_engine: "svc_engine_diagnostic",
-        svc_battery_test: "svc_electrical_check",
-      };
-
-      // Clear existing services and add selected ones from AI chat
-      clearSelectedServices();
-
-      // Add services from AI state
-      state.selectedServices.forEach((service) => {
-        const mappedId = serviceIdMapping[service.id] || service.id;
-        toggleServiceSelection(mappedId);
-      });
-
-      // If no services selected, add a default service based on scenario type
-      if (state.selectedServices.length === 0) {
-        const scenario = state.currentScenario as string;
-        switch (scenario) {
-          case "brake_noise":
-            toggleServiceSelection("svc_brake_pads");
-            break;
-          case "check_engine":
-            toggleServiceSelection("svc_engine_diagnostic");
-            break;
-          case "tire_pressure":
-            toggleServiceSelection("svc_tire_rotation");
-            break;
-          case "vague_issue":
-            toggleServiceSelection("svc_electrical_check");
-            break;
-          case "oil_change":
-          default:
-            toggleServiceSelection("svc_oil_change");
-            break;
-        }
-      }
-
-      // Select the mechanic (use the mechanic's actual ID from mock data)
-      selectMechanic(mechanic.id.toString());
-
-      // Push selections into established_facts so the next Oto turn (if the
-      // user comes back to chat) sees them in <conversation_state>. The book
-      // flow ends in a navigation to /payment, so these facts mostly serve
-      // as conversation memory for any later returning-user turn. Decision D
-      // is the rationale — no relying on natural-language echo.
-      pushFact(`selected mechanic_id: ${mechanic.id}`);
-      pushFact(`selected booking_time: ${timeSlot.dayOfWeek} ${timeSlot.day} at ${timeSlot.time}`);
-
-      // Set the scheduled appointment from the time slot
-      const currentYear = new Date().getFullYear();
-      const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-      const currentMonth = new Date().getMonth();
-      const dayNum = parseInt(timeSlot.day);
-
-      // Create ISO date string
-      const appointmentDate = new Date(currentYear, currentMonth, dayNum);
-      const isoDate = appointmentDate.toISOString().split("T")[0];
-      const displayDate = `${dayNum} ${months[currentMonth]} ${currentYear}`;
-
-      setScheduledAppointment({
-        date: isoDate,
-        time: timeSlot.time,
-        displayDate,
-      });
-
-      // Set booking stage to payment
-      setBookingStage("payment", "forward");
-
-      // Navigate to payment screen
-      router.push(`/home/mechanic/${mechanic.id}/payment`);
-    },
-    [
-      state.selectedServices,
-      state.currentScenario,
-      clearSelectedServices,
-      toggleServiceSelection,
-      selectMechanic,
-      setScheduledAppointment,
-      setBookingStage,
-      router,
-      pushFact,
-    ]
-  );
-
-  // Handle service selection from service picker. The user echo goes
-  // through sendToOtoAI so Haiku reasons about the actual selection
-  // against the user's vehicle context — replaces the previous canned
-  // "Great choices!" template that fired regardless of what was picked.
-  const handleServiceSelect = useCallback(
-    (services: ServiceOption[]) => {
-      if (services.length === 0 || isProcessing) return;
-
-      // Keep the SelectedService array on state — the booking flow
-      // downstream (handleBookNow) still reads from state.selectedServices.
-      const selectedServices: SelectedService[] = services.map((s) => ({
-        id: s.id,
-        name: s.name,
-        estimatedPrice: s.price,
-      }));
-      setState((prev) => ({ ...prev, selectedServices }));
-
-      const serviceNames = services.map((s) => s.name).join(", ");
-      // Push the chosen service slugs as one fact so the next turn's
-      // <conversation_state> reflects what was picked — Decision D.
-      pushFact(`selected service_slugs: ${services.map((s) => s.id).join(", ")}`);
-      sendToOtoAI(`I'd like to schedule: ${serviceNames}`);
-    },
-    [isProcessing, pushFact, sendToOtoAI]
-  );
-
   // Handle the user's decision from AIRecordConfirmation. The component has
   // already written to maintenance_records (confirm path stamps
   // confirmedHealthyAt; update path rewrites lastServiceDate + lastServiceMileage
@@ -831,93 +687,6 @@ export default function AIChatScreen() {
     [isProcessing, pushFact, sendToOtoAI],
   );
 
-  // Handle diagnostic-form confirmation from AIDiagnosticForm
-  const handleDiagnosticFormConfirm = useCallback(
-    (system: DiagnosticSystem, notes: string) => {
-      if (isProcessing) return;
-      setIsProcessing(true);
-
-      const label = DIAGNOSTIC_SYSTEMS.find((s) => s.value === system)?.label ?? system;
-      const userEcho = notes ? `${label}\n\n${notes}` : label;
-
-      // 1. Push synthetic user message + merge diagnostic state
-      const userMessage: ChatMessage = {
-        id: `user_${Date.now()}`,
-        role: "user",
-        content: userEcho,
-        timestamp: new Date().toISOString(),
-        stage: "diagnostic_form",
-      };
-
-      setState((prev) => ({
-        ...prev,
-        messages: [...prev.messages, userMessage],
-        selectedDiagnosticSystem: system,
-        diagnosticNotes: notes,
-      }));
-
-      // Decision D: push the diagnostic_system selection (and a brief note hint)
-      // into established_facts so the next turn's <conversation_state> carries
-      // the canonical diagnostic decision rather than relying on Haiku to
-      // re-parse from the synthetic user echo.
-      pushFact(`diagnostic_system selected: ${system}`);
-      if (notes && notes.trim().length > 0) {
-        // Keep the fact short — cap at 80 chars to stay within the 10-entry budget.
-        const trimmed = notes.trim().replace(/\s+/g, " ").slice(0, 80);
-        pushFact(`diagnostic_notes: ${trimmed}`);
-      }
-
-      // 2. AI follow-up after the same thinking delay used by handleServiceSelect.
-      setTimeout(() => {
-        const aiMessage: ChatMessage = {
-          id: `ai_${Date.now()}`,
-          role: "assistant",
-          content: `Got it — locking this in for **${label}**${
-            notes ? " with your note attached" : ""
-          }.\n\nHow would you like me to find mechanics?`,
-          timestamp: new Date().toISOString(),
-          quickReplies: [
-            { id: "closest", text: "Closest", value: "closest", variant: "default" },
-            { id: "best_rated", text: "Best rated", value: "best_rated", variant: "default" },
-            { id: "best_price", text: "Best price", value: "best_price", variant: "default" },
-          ],
-          stage: "priority_selection",
-          isStreaming: true,
-        };
-
-        setState((prevState) => {
-          const newStateWithMessage = {
-            ...prevState,
-            messages: [...prevState.messages, aiMessage],
-            currentStage: "priority_selection" as const,
-            suggestions: [
-              { id: "closest", text: "Closest", value: "closest" },
-              { id: "best_rated", text: "Best rated", value: "best_rated" },
-              { id: "best_price", text: "Best price", value: "best_price" },
-            ],
-          };
-          queueMicrotask(() => saveCurrentConversation(newStateWithMessage));
-          return newStateWithMessage;
-        });
-
-        setTimeout(() => {
-          setState((prev) => {
-            const finalState = {
-              ...prev,
-              messages: prev.messages.map((m) =>
-                m.id === aiMessage.id ? { ...m, isStreaming: false } : m
-              ),
-            };
-            setTimeout(() => saveCurrentConversation(finalState), 0);
-            return finalState;
-          });
-          setIsProcessing(false);
-        }, aiMessage.content.length * 30);
-      }, 1000);
-    },
-    [isProcessing, pushFact, saveCurrentConversation]
-  );
-
   // Handle copy message
   const handleCopy = useCallback(async (content: string) => {
     try {
@@ -937,14 +706,32 @@ export default function AIChatScreen() {
     showToast("Playing audio...");
   }, [showToast]);
 
-  // Handle feedback
-  const handleLike = useCallback(() => {
-    showToast("Thank you for your feedback!");
-  }, [showToast]);
+  // Sprint 4 — thumbs up / down open the feedback modal so the user can add
+  // a comment + tags. The modal submits to api.ai_feedback.submit; the row
+  // links back to the conversation for owner-side review.
+  const [feedbackModalState, setFeedbackModalState] = useState<{
+    rating: FeedbackRating;
+    messageContent: string;
+    messageId?: Id<"ai_messages">;
+  } | null>(null);
 
-  const handleDislike = useCallback(() => {
-    showToast("Thank you for your feedback!");
-  }, [showToast]);
+  const openFeedbackModal = useCallback(
+    (rating: FeedbackRating, message: ChatMessage) => {
+      // We don't yet persist a stable ai_messages id alongside the in-memory
+      // ChatMessage (the persistence is fire-and-forget inside chat.ts). Pass
+      // the content snapshot as the durable reference; message_id stays
+      // undefined for now.
+      setFeedbackModalState({
+        rating,
+        messageContent: message.content,
+      });
+    },
+    [],
+  );
+
+  const closeFeedbackModal = useCallback(() => {
+    setFeedbackModalState(null);
+  }, []);
 
   // Start new chat. Guarded while a response is in flight — clearing
   // convexConversationId mid-send would orphan the captured ID in the
@@ -1136,8 +923,11 @@ export default function AIChatScreen() {
     opacity: interpolate(drawerProgress.value, [0, 1], [1, 0.35]),
   }));
 
-  // Determine if we should show chat greeting (no messages yet)
-  const showChatGreeting = state.messages.length === 0;
+  // Determine if we should show chat greeting. Hide as soon as the user has
+  // either picked a car (Sprint 4 — no synthetic first message; the picker
+  // sets context and the user types their real first message into the input)
+  // or sent at least one message.
+  const showChatGreeting = state.messages.length === 0 && !isCarConfirmed;
 
   // Show welcome screen if not seen
   if (!hasSeenWelcome) {
@@ -1414,13 +1204,13 @@ export default function AIChatScreen() {
               onVehicleSelect={setSelectedVehicleVin}
               keyboardVisible={isKeyboardVisible && isCarConfirmed}
               onVehicleConfirm={(vin, vehicle) => {
+                // Sprint 3 Day 4 §15.12 / Sprint 4 ticket §9 — confirming a
+                // car selects vehicle context only. The user types their real
+                // first message; the vehicleVin arg on sendMessage carries
+                // the context to Oto without a synthetic injection.
                 setSelectedVehicleVin(vin);
                 setIsCarConfirmed(true);
                 if (vehicle) setSelectedVehicle(vehicle);
-                if (vehicle) {
-                  const vehicleLabel = `${vehicle.year} ${vehicle.make} ${vehicle.model}`;
-                  sendToOtoAI(`I'd like to confirm my ${vehicleLabel}`);
-                }
               }}
             />
           ) : (
@@ -1431,32 +1221,34 @@ export default function AIChatScreen() {
                     message={message as AIMessage}
                     onCopy={() => handleCopy(message.content)}
                     onSpeak={() => handleSpeak(message.content)}
-                    onLike={handleLike}
-                    onDislike={handleDislike}
+                    onLike={() => openFeedbackModal("thumbs_up", message)}
+                    onDislike={() => openFeedbackModal("thumbs_down", message)}
                     onQuickReplySelect={handleQuickReplySelect}
                   />
-                  {/* Service Picker (for service selection) */}
-                  {message.role === "assistant" &&
-                    message.showServicePicker &&
-                    state.currentStage === "service_selection" && (
-                      <View style={styles.servicePickerContainer}>
-                        <AIServicePicker onConfirm={handleServiceSelect} disabled={isProcessing} />
-                      </View>
-                    )}
-                  {/* Diagnostic Form (pre-filled subsystem + notes) */}
-                  {message.role === "assistant" &&
-                    message.showDiagnosticForm &&
-                    state.currentStage === "diagnostic_form" && (
-                      <View style={styles.servicePickerContainer}>
-                        <AIDiagnosticForm
-                          initialSystem={message.showDiagnosticForm.initialSystem}
-                          initialNotes={message.showDiagnosticForm.initialNotes}
-                          vehicleId={selectedVehicleVin ?? ""}
-                          onConfirm={handleDiagnosticFormConfirm}
-                          disabled={isProcessing}
-                        />
-                      </View>
-                    )}
+                  {/* Sprint 4 Day 1 Pass B — single consolidated booking
+                      surface. When bookService is set, this owns the full
+                      flow (service select → options → notes → mechanic →
+                      time → review → pay) and the legacy render branches
+                      below are skipped. */}
+                  {message.role === "assistant" && message.bookService && (
+                    <View style={styles.servicePickerContainer}>
+                      <BookServiceComponent
+                        payload={message.bookService}
+                        disabled={isProcessing}
+                        onBookAndPay={(mechanicId) => {
+                          // Record fact for next Oto turn — mirrors the
+                          // existing handleBookNow telemetry pattern.
+                          pushFact(`selected mechanic_id: ${mechanicId}`);
+                        }}
+                        onDismiss={() => {
+                          // The chat conversation resumes; Oto's next turn
+                          // will see <conversation_state> reflect the
+                          // abandoned booking via established_facts.
+                          pushFact("booking_flow_dismissed");
+                        }}
+                      />
+                    </View>
+                  )}
                   {/* Record Confirmation — symptom-vs-record trust protocol */}
                   {message.role === "assistant" &&
                     message.showRecordConfirmation && (
@@ -1469,11 +1261,17 @@ export default function AIChatScreen() {
                         />
                       </View>
                     )}
-                  {/* Mechanic Carousel (for mechanic selection messages) */}
-                  {message.role === "assistant" && message.shops && message.shops.length > 0 && (
-                    <View style={styles.carouselContainer}>
-                      <AIBookingCarousel shops={message.shops} onBookNow={handleBookNow} />
-                    </View>
+                  {/* Link Button — render_link_button (9 destinations) */}
+                  {message.role === "assistant" && message.linkButton && (
+                    <LinkButton payload={message.linkButton} />
+                  )}
+                  {/* Booking Card — render_booking_card (single booking) */}
+                  {message.role === "assistant" && message.bookingCard && (
+                    <BookingCard bookingId={message.bookingCard.booking_id} />
+                  )}
+                  {/* Bookings List — render_bookings_list (multi) */}
+                  {message.role === "assistant" && message.bookingsList && (
+                    <BookingsList bookingIds={message.bookingsList.booking_ids} />
                   )}
                 </View>
               ))}
@@ -1543,6 +1341,19 @@ export default function AIChatScreen() {
         visible={toastVisible}
         onDismiss={() => setToastVisible(false)}
       />
+
+      {/* Sprint 4 — per-message feedback modal. Thumbs-up / thumbs-down on
+          the message bubble opens this; submit writes to api.ai_feedback. */}
+      {feedbackModalState && convexConversationId && (
+        <AIFeedbackModal
+          visible={true}
+          rating={feedbackModalState.rating}
+          conversationId={convexConversationId}
+          messageId={feedbackModalState.messageId}
+          messageContent={feedbackModalState.messageContent}
+          onClose={closeFeedbackModal}
+        />
+      )}
 
       </Animated.View>
         </Animated.View>
@@ -1713,9 +1524,6 @@ const styles = StyleSheet.create({
   },
   chatContentGreeting: {
     flexGrow: 0,
-  },
-  carouselContainer: {
-    marginBottom: Spacing.md,
   },
   typingIndicatorWrapper: {
     paddingHorizontal: Spacing.lg,

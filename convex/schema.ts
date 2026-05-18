@@ -1877,6 +1877,36 @@ export default defineSchema({
     .index("by_role", ["role"])
     .index("by_timestamp", ["timestamp"]),
 
+  // [I] Sprint 4 — per-message AI feedback. Captured via the thumbs-up /
+  // thumbs-down buttons on each AI bubble (those buttons open the feedback
+  // modal — they no longer toggle silently). The owner reviews entries to
+  // troubleshoot Oto's behavior; each row links to the conversation so the
+  // full thread is reviewable alongside the rating + comment.
+  ai_feedback: defineTable({
+    user_id: v.id("users"),
+    conversation_id: v.id("ai_conversations"),
+    // Optional because the message may not be persisted yet (the chat surface
+    // shows in-flight messages before the ai_messages insert lands). The
+    // snapshot below is the durable reference.
+    message_id: v.optional(v.id("ai_messages")),
+    rating: v.union(v.literal("thumbs_up"), v.literal("thumbs_down")),
+    // Optional free-text comment from the modal.
+    comment: v.optional(v.string()),
+    // Optional category tags the user picks in the modal (e.g.
+    // "wrong_info", "confusing", "off_tone"). Loose v.string() so the
+    // mobile-side tag vocabulary can evolve without a schema migration.
+    tags: v.optional(v.array(v.string())),
+    // Frozen copy of the AI message content at submit time. Lets the owner
+    // review what was said even if message history is later compacted /
+    // truncated / re-generated.
+    message_content_snapshot: v.string(),
+    submitted_at: v.number(),
+  })
+    .index("by_conversation_id", ["conversation_id"])
+    .index("by_user_id", ["user_id"])
+    .index("by_rating", ["rating"])
+    .index("by_submitted_at", ["submitted_at"]),
+
   // [I]
   analytics_events: defineTable({
     user_id: v.optional(v.id("users")),

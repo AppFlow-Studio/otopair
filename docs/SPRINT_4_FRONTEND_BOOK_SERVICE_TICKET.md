@@ -165,4 +165,8 @@ Sprint 4 Pass B will SUPPRESS the 6 deprecated render tools from `chat.ts:TOOL_N
 
 Separately and independently: per Sprint 3 Day 4 §15.12, the synthetic "I'd like to confirm my X car" first message injection should be removed from the chat-open flow. Backend is ready; this is mobile-team work only. The car-picker UI selects a vehicle (purely frontend state), then the user types and sends their first REAL message. The existing `vehicleVin` arg on `sendMessage` already carries the vehicle context.
 
-— End of ticket. Backend Pass B dispatch is the prerequisite; expected commit hash + day-log will be referenced here when it lands.
+— End of ticket.
+
+**Backend Pass B status (updated 2026-05-17):** LANDED at commit `709a445` ("Sprint 4 Day 1 Pass B: booking-flow consolidation (render_book_service)"). Composite prompt advanced to v0.19-stable+v0.15-volatile. Eval case count 97 → 103. `ChatMessage.bookService` envelope field live; 6 deprecated render envelope fields removed. Mobile team is unblocked.
+
+**Pass C (verification) pending:** convex codegen + smoke eval with fresh JWT (Claude Code, separate dispatch). Does not block mobile-team work on this ticket.
