@@ -507,6 +507,40 @@ export const recordUserSemanticFact = mutation({
       }
     }
 
+    // Cross-vehicle bleed guard (2026-05-18) -- prevents the F1-class write
+    // bug where chat_agent writes "User only trusts BMW specialists" as a
+    // user-level mechanic_preference (no vehicle_id), then the BMW-specific
+    // preference leaks into the AMG GT conversation via getCrossConversationMemory.
+    // Confirmed offender row: kn7p20yjktezf5xt9c4hd12gad86xx37, retracted
+    // 2026-05-18T19:00 with reason "unscoped_brand_specific_pollution".
+    //
+    // Rule: if fact_type is mechanic_preference or service_preference AND the
+    // payload contains a recognized car brand AND vehicle_id is missing, reject.
+    // Haiku then has two correct paths to retry:
+    //   (a) pass vehicle_id to scope this to the specific vehicle (fact only
+    //       applies when that car is active), OR
+    //   (b) generalize the payload to be brand-agnostic ("User prefers brand-
+    //       specialist mechanics") and retry.
+    // The error message includes both paths so Haiku self-corrects without
+    // additional prompt overhead.
+    //
+    // The brand list is hardcoded and intentionally covers common North-American
+    // market makes. New makes added to the catalog do not require updating this
+    // list -- the worst case of a missed brand is the OLD behavior (unscoped
+    // write goes through), which is no regression. Add brands here as they
+    // become offenders in production.
+    if (
+      (args.fact_type === "mechanic_preference" || args.fact_type === "service_preference") &&
+      !args.vehicle_id
+    ) {
+      const BRAND_TOKENS_RE = /\b(BMW|Mercedes(?:[- ]Benz)?|Audi|Volkswagen|VW|Porsche|Volvo|Mini|Land[- ]Rover|Jaguar|Bentley|Rolls[- ]Royce|Aston[- ]Martin|Maserati|Ferrari|Lamborghini|McLaren|Toyota|Honda|Acura|Nissan|Infiniti|Lexus|Subaru|Mazda|Mitsubishi|Hyundai|Kia|Genesis|Ford|Lincoln|Chevrolet|Chevy|GMC|Cadillac|Buick|Jeep|Ram|Dodge|Chrysler|Tesla|Rivian|Lucid|Polestar)\b/i;
+      if (BRAND_TOKENS_RE.test(args.payload)) {
+        throw new Error(
+          `recordUserSemanticFact: payload references a brand token but vehicle_id is missing. fact_type="${args.fact_type}", payload="${args.payload}". This would record a brand-specific preference as user-level, causing it to leak into conversations about other vehicles the user owns. Retry with EITHER (a) vehicle_id set (to scope this preference to the specific vehicle), OR (b) generalized payload that drops the brand name (e.g., "User prefers brand-specialist mechanics" instead of "User prefers BMW specialists").`,
+        );
+      }
+    }
+
     const now = Date.now();
     const factId = await ctx.db.insert("user_semantic_facts", {
       user_id: args.user_id,
