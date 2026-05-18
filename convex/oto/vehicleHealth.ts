@@ -323,13 +323,19 @@ async function loadVehicleContext(
       }
     }
 
+    // F1 fix (2026-05-18): when no record exists, default to "unknown" for
+    // ALL types. The previous defaults lied in two directions — oil claimed
+    // "due_soon" (fabricated urgency), and brakes/tires/battery claimed "on
+    // time" (fabricated confirmation). Both were absence-of-input being
+    // re-interpreted as evidence. The new contract: absence → "unknown" →
+    // prompt rule pushes the user to add the record via render_record_confirmation.
     const fallback: Record<string, { status: MaintenanceStatus; description: string; detail: string }> = {
-      oil:    { status: "due_soon", description: "No oil change data — service recommended", detail: "Check soon" },
-      brakes: { status: "on_time",  description: "No brake concerns reported",              detail: "On time" },
-      tires:  { status: "on_time",  description: "No tire concerns reported",               detail: "On time" },
-      battery:{ status: "on_time",  description: "No battery concerns reported",            detail: "On time" },
+      oil:    { status: "unknown", description: "No oil change history on file",      detail: "Not on file" },
+      brakes: { status: "unknown", description: "No brake service history on file",   detail: "Not on file" },
+      tires:  { status: "unknown", description: "No tire service history on file",    detail: "Not on file" },
+      battery:{ status: "unknown", description: "No battery service history on file", detail: "Not on file" },
     };
-    const fb = fallback[type] ?? { status: "on_time" as MaintenanceStatus, description: "No concerns reported", detail: "On time" };
+    const fb = fallback[type] ?? { status: "unknown" as MaintenanceStatus, description: "No service history on file", detail: "Not on file" };
     merged.push({
       id: `unknown-${type}`,
       serviceName: MAINTENANCE_LABELS[type] || type,
@@ -371,6 +377,14 @@ function toAiShape(
     ? (provenanceByType.get(rawType) ?? "self_reported")
     : "inferred";
 
+  // F1 fix (2026-05-18) — defense-in-depth against fabrication.
+  // When an item has no real anchor (status === "unknown" OR provenance ===
+  // "inferred"), strip the fields that the URGENT_DETAILS enrichment fills
+  // with canned strings ("~5 months ago", "Service within 2 weeks", canned
+  // recommendation). Even if an upstream path slipped fabricated copy
+  // through, Haiku can't misread fields that aren't there.
+  const isUnsourced = record_provenance === "inferred" || item.status === "unknown";
+
   return {
     id: item.id,
     type: rawType,
@@ -378,9 +392,9 @@ function toAiShape(
     status: item.status,
     description: item.description,
     detail: item.detail,
-    last_service: item.lastService,
-    urgency_label: item.urgency,
-    recommendation: item.recommendation,
+    last_service: isUnsourced ? undefined : item.lastService,
+    urgency_label: isUnsourced ? undefined : item.urgency,
+    recommendation: isUnsourced ? undefined : item.recommendation,
     record_provenance,
   };
 }

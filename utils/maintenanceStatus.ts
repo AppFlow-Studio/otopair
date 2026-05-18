@@ -355,12 +355,17 @@ function computeOilStatus(
     return escalateForWarningLight(result, "Oil pressure warning light active — service urgently needed");
   }
 
+  // F1 fix (2026-05-18): never downgrade "unknown" to "due_soon" — that's
+  // fabricating a service-due claim with no anchor. When oil has no recorded
+  // service data, surface that honestly. Oto's prompt rule reads `status:
+  // "unknown"` and prompts the user to add the record (see prompt/stable.ts
+  // "Service History" section).
   if (result.status === "unknown") {
     const recency = record.customInputs?.recency as string | undefined;
     if (recency === "not_sure") {
-      return { status: "due_soon", percentUsed: 50, description: "Oil change history uncertain — service recommended", detail: "Check soon" };
+      return { status: "unknown", percentUsed: 0, description: "Oil change history not on file", detail: "Not on file" };
     }
-    return { status: "due_soon", percentUsed: 50, description: "No oil change data — service recommended", detail: "Check soon" };
+    return { status: "unknown", percentUsed: 0, description: "No oil change history on file", detail: "Not on file" };
   }
 
   return result;
@@ -591,7 +596,9 @@ function computeTireStatusCore(
     if (tireReplaced === "replaced") {
       return { status: "on_time", percentUsed: 10, description: "Tires replaced — no service date on file", detail: "On time" };
     }
-    return { status: "on_time", percentUsed: 0, description: "No tire concerns reported", detail: "On time" };
+    // F1 fix (2026-05-18): no data + no symptoms + no confirmation ≠ "on time".
+    // Surface honestly as "unknown" so Oto can prompt the user to add a record.
+    return { status: "unknown", percentUsed: 0, description: "No tire service history on file", detail: "Not on file" };
   }
 
   // Tire age: flag at 4 years (48 months) for inspection, overdue at 6 years (72 months)
@@ -739,9 +746,12 @@ function computeBrakeStatusCore(
     return { status: "on_time", percentUsed: 0, description: "Confirmed in good shape", detail: "On time" };
   }
 
-  // No symptoms, no interval data — user reported brakes are fine
+  // F1 fix (2026-05-18): "no symptoms + no interval data" used to claim
+  // "Brakes feel fine — no concerns reported" — that's a fabricated
+  // confirmation. Absence of input isn't evidence of health. Surface as
+  // "unknown" so Oto prompts the user to add a record.
   if (!hasIntervalData) {
-    return { status: "on_time", percentUsed: 0, description: "Brakes feel fine — no concerns reported", detail: "On time" };
+    return { status: "unknown", percentUsed: 0, description: "No brake service history on file", detail: "Not on file" };
   }
 
   // Return the hybrid result
@@ -774,10 +784,14 @@ function computeBatteryStatus(
     if (batteryReplaced === "yes") {
       return { status: "on_time", percentUsed: 10, description: "Battery replaced — no date on file", detail: "On time" };
     }
+    // F1 fix (2026-05-18): "not_sure" used to fabricate a `due_soon` urgency
+    // with no anchor — and the empty-record default claimed "no concerns"
+    // when really we have no data. Both become "unknown" so Oto prompts the
+    // user to confirm rather than asserting either way.
     if (batteryReplaced === "not_sure") {
-      return { status: "due_soon", percentUsed: 50, description: "Battery status uncertain — consider having it tested", detail: "Check soon" };
+      return { status: "unknown", percentUsed: 0, description: "Battery service history not on file", detail: "Not on file" };
     }
-    return { status: "on_time", percentUsed: 0, description: "No battery concerns reported", detail: "On time" };
+    return { status: "unknown", percentUsed: 0, description: "No battery service history on file", detail: "Not on file" };
   }
 
   const msSince = now - record.lastServiceDate;
