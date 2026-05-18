@@ -1858,6 +1858,18 @@ export default defineSchema({
     // request_haiku_handback resets to default.
     // -----------------------------------------------------------------------
     current_model: v.optional(v.string()),
+    // -----------------------------------------------------------------------
+    // [Ahmad QA #2 — 2026-05-18] Persisted vehicle anchor for the conversation.
+    // Written on first send by chat.ts via ai_conversations.setVehicleId
+    // (the resolved active vehicle's _id). envelope.ts pickActiveVehicleRow
+    // precedence: this column WINS over preferredVin (the frontend's
+    // selectedVehicleVin) once set — so resuming the conversation later (when
+    // the global vehicle picker may have drifted to a different car) still
+    // rebinds the anchor to whatever the chat was created for. Optional
+    // because pre-existing conversations created before this column existed
+    // won't have it; envelope falls through to preferredVin in that case.
+    // -----------------------------------------------------------------------
+    vehicle_id: v.optional(v.id("vehicles")),
   })
     .index("by_user_id", ["user_id"])
     .index("by_session_id", ["session_id"])

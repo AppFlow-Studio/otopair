@@ -305,6 +305,138 @@ export const getById = query({
 });
 
 /**
+ * QUERY: getByIdWithDetails (Ahmad QA #3 fix, 2026-05-18)
+ *
+ * Hydrated single-booking query. Backs api.bookings.getByIdWithDetails(id)
+ * called by the AI-chat BookingCard / BookingsList render-tools so the card
+ * headline shows the shop name + mechanic + date + services (instead of
+ * "Pending 2026-05-18 · 12:00").
+ *
+ * Shape mirrors ONE element of getByUserIdWithDetails — same display fields
+ * (shopName, shopPhone, mechanicName, mechanicImageUrl, vehicleDisplay,
+ * licensePlate, makeLogoUrl, vehicleImageUrl, serviceNames, progressPercent,
+ * currentStage, delayMinutes, liveStage, shopRating, shopIsVerified, shopLat,
+ * shopLng, tire_specs) — so mobile can swap callers from getById to
+ * getByIdWithDetails without re-typing the consuming component.
+ *
+ * Returns null when the booking isn't found, matching getById's contract.
+ *
+ * Auth: open query (no Clerk gate). The booking row id is opaque and the
+ * mobile component already gates on user-owned conversations upstream; if
+ * a stricter gate is wanted later, mirror the by_user_id index check from
+ * getByUserIdWithDetails.
+ */
+export const getByIdWithDetails = query({
+  args: { id: v.id("bookings") },
+  handler: async (ctx, args) => {
+    const booking = await ctx.db.get(args.id);
+    if (!booking) return null;
+
+    const shop = booking.shop_id ? await ctx.db.get(booking.shop_id) : null;
+    const mechanic = booking.mechanic_id ? await ctx.db.get(booking.mechanic_id) : null;
+    const shopName = shop?.name ?? "Awaiting shop quotes";
+    const shopPhone = shop?.phone ?? "";
+    const mechanicName = mechanic ? `${mechanic.first_name} ${mechanic.last_name}` : shopName;
+    const mechanicImageUrl = (await resolveMechanicPhotoUrl(ctx, mechanic)) ?? undefined;
+
+    const serviceIds = booking.service_ids ?? [];
+    const serviceNames = await Promise.all(
+      serviceIds.map(async (id) => {
+        const svc = await ctx.db.get(id);
+        return svc?.name ?? "";
+      })
+    ).then((a) => a.filter(Boolean));
+
+    const vehicle = await ctx.db
+      .query("vehicles")
+      .withIndex("by_vin", (q) => q.eq("vin", booking.vin))
+      .unique();
+    let vehicleDisplay = "Unknown Vehicle";
+    let licensePlate = booking.vin.slice(-4);
+    let makeLogoUrl: string | undefined;
+    if (vehicle) {
+      const parts: string[] = [];
+      if (vehicle.trim_id) {
+        const trim = await ctx.db.get(vehicle.trim_id);
+        if (trim) {
+          const model = await ctx.db.get(trim.model_id);
+          if (model) {
+            const make = await ctx.db.get(model.make_id);
+            if (make) {
+              parts.push(make.name);
+              if (make.logo) {
+                const logoAsset = await ctx.db.get(make.logo);
+                makeLogoUrl = logoAsset?.url;
+              }
+            }
+            parts.push(model.name);
+          }
+          parts.push(trim.name);
+        }
+      }
+      if (vehicle.year != null) parts.push(String(vehicle.year));
+      if (parts.length > 0) vehicleDisplay = parts.join(" ");
+    }
+
+    let progressPercent: number | undefined;
+    let currentStage: string | undefined;
+    let delayMinutes: number | undefined;
+    const liveStage = booking.live_stage;
+    if (booking.status === "in_progress") {
+      const jobActual = await getLatestJobActualForBooking(ctx, booking._id);
+      const estimatedMinutes = booking.estimated_labor_minutes ?? 60;
+      if (liveStage && LIVE_STAGE_TITLES[liveStage]) {
+        currentStage = LIVE_STAGE_TITLES[liveStage];
+      } else if (jobActual) {
+        currentStage = "Service in Progress";
+      } else {
+        currentStage = "Car checked in";
+      }
+      if (jobActual?.started_at != null) {
+        const elapsedMs = Date.now() - jobActual.started_at;
+        const totalMs = estimatedMinutes * 60 * 1000;
+        progressPercent = Math.min(100, Math.round((elapsedMs / totalMs) * 100));
+        const scheduledStartMs = new Date(`${booking.scheduled_date}T${booking.scheduled_time}`).getTime();
+        const lateMs = Date.now() - scheduledStartMs;
+        if (lateMs > 0) delayMinutes = Math.round(lateMs / 60000);
+      } else {
+        progressPercent = liveStage ? (LIVE_STAGE_PROGRESS[liveStage] ?? 25) : 25;
+      }
+    }
+
+    return {
+      _id: booking._id,
+      _creationTime: booking._creationTime,
+      status: booking.status,
+      scheduled_date: booking.scheduled_date,
+      scheduled_time: booking.scheduled_time,
+      total_cost: booking.total_cost,
+      shop_id: booking.shop_id,
+      mechanic_id: booking.mechanic_id,
+      vin: booking.vin,
+      shopName,
+      shopPhone,
+      mechanicName,
+      mechanicImageUrl,
+      vehicleDisplay,
+      licensePlate,
+      makeLogoUrl,
+      vehicleImageUrl: vehicle?.image_url,
+      serviceNames,
+      progressPercent,
+      currentStage,
+      delayMinutes,
+      liveStage: liveStage ?? undefined,
+      shopRating: shop?.rating ?? 0,
+      shopIsVerified: shop?.is_verified ?? false,
+      shopLat: shop?.lat,
+      shopLng: shop?.lng,
+      tire_specs: booking.tire_specs,
+    };
+  },
+});
+
+/**
  * QUERY: getByUserId
  * Get all bookings for a specific user.
  * Used to show user's booking history.

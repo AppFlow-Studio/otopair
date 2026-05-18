@@ -87,12 +87,16 @@ const POLITE_EXIT_THRESHOLD = 6;
 
 // -----------------------------------------------------------------------------
 // Pick the active vehicle for this conversation. Precedence:
-//   1. Explicit `preferredVin` from the client (frontend vehicle picker — wins
-//      whenever the user has manually selected one). Only honored if the user
-//      actually owns it; otherwise falls through to the next rule.
-//   2. `conversation.vehicle_id` if the column is present and the user owns it.
-//      (Forward-compat: the column doesn't exist on ai_conversations yet, so
-//      this rule is a no-op today.)
+//   1. `conversation.vehicle_id` (Ahmad QA #2 fix, 2026-05-18): the persisted
+//      anchor wins once set. chat.ts writes this on first send via
+//      ai_conversations.setVehicleId, locking the chat to the vehicle it was
+//      created for. Resuming the conversation later (after the global vehicle
+//      picker drifted) still rebinds the anchor — the user gets the right car
+//      every time. Only honored if the user still owns it.
+//   2. Explicit `preferredVin` from the client (frontend vehicle picker).
+//      Used on the very first turn (before vehicle_id is set) and as fallback
+//      for pre-Sprint-2 conversations created before this column existed.
+//      Only honored if the user actually owns it.
 //   3. Most-recently-added vehicle on the user's account.
 //   4. Null (no <vehicle> block in the envelope).
 //
@@ -110,11 +114,16 @@ export function pickActiveVehicleRow(
   if (owned.length === 0) return null;
 
   let chosen: OwnedVehicleRow | undefined;
-  if (preferredVin) {
-    chosen = owned.find((row) => row.vin === preferredVin);
-  }
-  if (!chosen && conversationVehicleId) {
+  // Ahmad QA #2 fix (2026-05-18): conversation.vehicle_id now wins over
+  // preferredVin once set. Anchors the chat to the vehicle it was created
+  // for, even if the user's global vehicle picker drifts to a different car
+  // between sessions. Pre-Sprint-2 conversations without a vehicle_id fall
+  // through to preferredVin (the frontend's selectedVehicleVin) as before.
+  if (conversationVehicleId) {
     chosen = owned.find((row) => row.vehicle?._id === conversationVehicleId);
+  }
+  if (!chosen && preferredVin) {
+    chosen = owned.find((row) => row.vin === preferredVin);
   }
   if (!chosen) {
     chosen = [...owned].sort((a, b) => {

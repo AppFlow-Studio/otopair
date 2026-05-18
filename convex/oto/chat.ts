@@ -679,6 +679,28 @@ async function sendMessageHandlerCore(
     }
   }
 
+  // Ahmad QA #2 fix (2026-05-18) — persist the conversation's vehicle anchor
+  // on first send. Once set, envelope.ts pickActiveVehicleRow prefers this
+  // over the frontend's selectedVehicleVin, so resuming the conversation
+  // later still rebinds to the right car even when the global picker drifts.
+  // Idempotent: setVehicleId returns alreadySet=true on second+ calls and
+  // never re-patches (the anchor locks at first write per the one-chat-one-
+  // car prompt rule). Failure is swallowed — anchor persistence is observable
+  // but not load-bearing this turn.
+  if (!conversationVehicleId && activeVehicle?.id) {
+    try {
+      await ctx.runMutation(api.ai_conversations.setVehicleId, {
+        conversationId,
+        vehicleId: activeVehicle.id as Id<"vehicles">,
+      });
+    } catch (err) {
+      console.warn(
+        "[oto/chat] setVehicleId swallow",
+        { conversationId, vehicleId: activeVehicle.id, error: String(err) },
+      );
+    }
+  }
+
   // ── 4. Build the uncached-zone envelope ──────────────────────────────
   // conversation state (mood, arc, established facts, intent) — read back so
   // Haiku has cross-turn memory without re-deriving from raw history.
