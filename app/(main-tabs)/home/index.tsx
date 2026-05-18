@@ -405,7 +405,7 @@ export default function HomeScreen() {
   };
 
   const handleMapPress = () => {
-    router.push("/home/map");
+    router.push("/booking/map");
   };
 
   // Notifications bell — opens the global NotificationsSheet and
@@ -455,7 +455,10 @@ export default function HomeScreen() {
   const cancelConvexBooking = useMutation(api.bookings.cancelBooking);
   const handleAppointmentCancel = useCallback(
     (bookingId: string) => {
-      void cancelConvexBooking({ bookingId: bookingId as Id<"bookings"> });
+      const isLocalId = bookingId.startsWith("tire_quote_") || bookingId.startsWith("booking_");
+      if (!isLocalId) {
+        void cancelConvexBooking({ bookingId: bookingId as Id<"bookings"> });
+      }
     },
     [cancelConvexBooking],
   );
@@ -474,7 +477,10 @@ export default function HomeScreen() {
             text: "Cancel & reschedule",
             style: "destructive",
             onPress: () => {
-              void cancelConvexBooking({ bookingId: bookingId as Id<"bookings"> });
+              const isLocalId = bookingId.startsWith("tire_quote_") || bookingId.startsWith("booking_");
+              if (!isLocalId) {
+                void cancelConvexBooking({ bookingId: bookingId as Id<"bookings"> });
+              }
             },
           },
         ],
@@ -715,7 +721,7 @@ export default function HomeScreen() {
                   resumeServicesPreview={resumeServicesPreview}
                   resumeVehicleName={resumeVehicleName}
                   resumeVehicleImage={resumeVehicleImage}
-                  onResumePress={() => router.push('/home/map?openServices=true')}
+                  onResumePress={() => router.push('/booking/map?openServices=true')}
                   // Account Setup
                   showAccountSetup={showAccountSetup}
                   onAccountSetupDismiss={() => setAccountSetupDismissed(true)}
@@ -773,7 +779,7 @@ export default function HomeScreen() {
                     vehicles={mappedVehicles.length > 0 ? mappedVehicles : undefined}
                     onBookNow={(vehicleId, serviceId) => {
                       useVehicleStore.getState().selectVehicle(vehicleId);
-                      router.push('/home/map?openServices=true');
+                      router.push('/booking/map?openServices=true');
                     }}
                     onSwipeStart={() => setIsCardSwiping(true)}
                     onSwipeEnd={() => setIsCardSwiping(false)}

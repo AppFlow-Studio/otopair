@@ -1,13 +1,13 @@
 /**
  * BookingConfirmStatus
  *
- * Sheet body shown on the `/home/mechanic/[id]/confirming` route. Mirrors
+ * Sheet body shown on the `/booking/mechanic/[id]/confirming` route. Mirrors
  * the tire-quote `QuoteRequestStatus` pattern: a summary block (appointment,
  * vehicle, mechanic) above an Uber-Eats-style Confirm-with-countdown
  * primary CTA + a Go back secondary. Reads directly from the booking,
  * mechanic, shop, and vehicle stores so the parent route stays thin.
  *
- * USED IN: app/(main-tabs)/home/mechanic/[id]/confirming.tsx
+ * USED IN: app/(booking)/mechanic/[id]/confirming.tsx
  */
 import React from "react";
 import { Pressable, StyleSheet, View, useWindowDimensions } from "react-native";

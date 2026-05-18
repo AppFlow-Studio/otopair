@@ -7,7 +7,7 @@
  *
  * FLOW: mechanic detail → booking-details → payment → confirmation
  *
- * ROUTE: /home/mechanic/[id]/payment
+ * ROUTE: /booking/mechanic/[id]/payment
  *
  * OWNER: Waleed Mansour
  */
@@ -184,7 +184,7 @@ export default function PaymentScreen() {
     // Hand off to the confirming screen — it runs the mutation alongside
     // a minimum-display timer for the Lottie loading animation, then
     // routes forward to /confirmation (or back here with an error param).
-    router.push(`/home/mechanic/${id}/confirming`);
+    router.push(`/booking/mechanic/${id}/confirming`);
   }, [router, id, selectedMechanicId]);
 
   const handleApplePay = useCallback(() => {

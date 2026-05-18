@@ -1,17 +1,17 @@
 /**
- * Shop Detail Screen
+ * Mechanic Detail Screen
  *
- * PURPOSE: Full-screen detail page for a selected shop showing location,
- *          services, reviews, portfolio, and staff. Displays a blurred map header
- *          with shop location pin and shop information.
+ * PURPOSE: Full-screen detail page for a selected mechanic showing shop location,
+ *          specialties, and booking options. Displays a blurred map header with
+ *          shop location pin and shop information.
  *
- * FLOW: search/carousel → shop detail → booking-details → payment → confirmation
+ * FLOW: mechanic_selection (ServiceBottomSheet) → mechanic detail → booking-details → payment → confirmation
  *
- * USED IN: Navigation from HomeSearchOverlay or MechanicCarouselSheet
+ * USED IN: Navigation from components/booking/sheets/MechanicSelectionContent.tsx
  *
- * ROUTE: /home/shop/[id]
+ * ROUTE: /booking/mechanic/[id]
  *
- * OWNER: Waleed Mansour
+ * OWNER: Temurbek Sayfutdinov
  */
 
 // 1. React & React Native
@@ -21,29 +21,27 @@ import { BackHandler, Platform, Pressable, StyleSheet, View } from "react-native
 // 2. Expo & Third-party
 import { BlurView } from "expo-blur";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
-import { ArrowLeft, Store } from "lucide-react-native";
 import Animated, { interpolate, useAnimatedRef, useAnimatedStyle, useScrollOffset } from "react-native-reanimated";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 3. Shared UI (design system)
-import { BorderRadius, BrandColors, Button, ScreenContainer, Shadows, Spacing, Text } from "@/components/shared-ui";
-import { FullScreenContainer } from "@/components/shared-ui/Container";
+import { BorderRadius, BrandColors, ScreenContainer, Shadows, Spacing, Text } from "@/components/shared-ui";
 
 // 4. Flow-specific components
 import { MechanicDetailHeader } from "@/components/booking/MechanicDetailHeader";
 import { MechanicDetailTabs, type MechanicDetailTab } from "@/components/booking/MechanicDetailTabs";
-import { ShopReviewsSection } from "@/components/booking/ShopReviewsSection";
-import { AddServicesModal, ShopBookingModal } from "@/components/booking/modals";
 import { ShopDetails } from "@/components/booking/ShopDetails";
+import { MechanicReviewsSection } from "@/components/booking/MechanicReviewsSection";
 import { ShopPortfolioSection } from "@/components/booking/ShopPortfolioSection";
 import { ShopStaffSection } from "@/components/booking/ShopStaffSection";
+import { AddServicesModal, ShopBookingModal } from "@/components/booking/modals";
 
 // 5. Constants, hooks, types, stores
-import { calculateDistanceMiles } from "@/utils/geo";
 import { useBookingStore } from "@/stores/useBookingStore";
 import { useMechanicStore } from "@/stores/useMechanicStore";
-import { useSearchStore } from "@/stores/useSearchStore";
 import { useShopStore } from "@/stores/useShopStore";
+import { FullScreenContainer } from "@/components/shared-ui/Container";
+import { ArrowLeft } from "lucide-react-native";
 
 // ============================================================================
 // CONSTANTS
@@ -56,7 +54,7 @@ const HEADER_CONTENT_HEIGHT = 280;
 // COMPONENT
 // ============================================================================
 
-export default function ShopDetailScreen() {
+export default function MechanicDetailScreen() {
   // ═══════════════ HOOKS ═══════════════
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -69,29 +67,24 @@ export default function ShopDetailScreen() {
   const [bookingMechanicId, setBookingMechanicId] = useState<string | null>(null);
 
   // ═══════════════ STORES ═══════════════
+  const getMechanicById = useMechanicStore((state) => state.getMechanicById);
   const getShopById = useShopStore((state) => state.getShopById);
-  const getMechanicsByShopId = useMechanicStore((state) => state.getMechanicsByShopId);
   const setBookingTypeAndProceed = useBookingStore((state) => state.setBookingTypeAndProceed);
   const resetBookingFlow = useBookingStore((state) => state.resetBookingFlow);
   const bookingStage = useBookingStore((state) => state.bookingStage);
-  const addRecentShop = useSearchStore((state) => state.addRecentShop);
-  const userLocation = useBookingStore((state) => state.userLocation);
 
   // ═══════════════ COMPUTED VALUES ═══════════════
-  const shopId = id && typeof id === "string" ? id : null;
+  const mechanicId = id && typeof id === "string" ? id : null;
+
+  const mechanic = useMemo(() => {
+    if (!mechanicId) return null;
+    return getMechanicById(mechanicId);
+  }, [mechanicId, getMechanicById]);
 
   const shop = useMemo(() => {
-    if (!shopId) return null;
-    return getShopById(shopId);
-  }, [shopId, getShopById]);
-
-  // Get the first mechanic at this shop for reviews and booking
-  const mechanics = useMemo(() => {
-    if (!shopId) return [];
-    return getMechanicsByShopId(shopId);
-  }, [shopId, getMechanicsByShopId]);
-
-  const primaryMechanic = mechanics[0] ?? null;
+    if (!mechanic?.shopId) return null;
+    return getShopById(mechanic.shopId);
+  }, [mechanic?.shopId, getShopById]);
 
   // ═══════════════ ANIMATED VALUES ═══════════════
   const scrollRef = useAnimatedRef<Animated.ScrollView>();
@@ -130,25 +123,19 @@ export default function ShopDetailScreen() {
     // If we're in mechanic_selection, we came from "Choose Mechanic" screen
     // and should preserve the booking state when going back
     if (bookingStage !== "mechanic_selection") {
-      // We came from map carousel or other source, reset the booking flow
+      // We came from elsewhere, reset the booking flow
       resetBookingFlow();
     }
-    // Navigate back to previous screen (respects navigation history)
     router.back();
   }, [bookingStage, resetBookingFlow, router]);
 
   const handleBookNow = useCallback(
     (mechanicId: string) => {
-      // Add shop to recent history
-      if (shopId) {
-        addRecentShop(shopId);
-      }
-
       // Since user selected a specific time slot, this is a scheduled booking
       setBookingTypeAndProceed("schedule_later", mechanicId);
-      router.push(`/home/mechanic/${mechanicId}/booking-details`);
+      router.push(`/booking/mechanic/${id}/booking-details`);
     },
-    [shopId, addRecentShop, setBookingTypeAndProceed, router],
+    [setBookingTypeAndProceed, router, id],
   );
 
   const handleAddMoreServices = useCallback(() => {
@@ -206,28 +193,13 @@ export default function ShopDetailScreen() {
   );
 
   // ═══════════════ RENDER ═══════════════
-  if (!shop) {
+  if (!mechanic || !shop) {
     return (
       <ScreenContainer style={styles.container}>
         <View style={styles.errorContainer}>
-          <View style={styles.errorIconCircle}>
-            <Store size={36} color={BrandColors.primary} strokeWidth={1.75} />
-          </View>
-          <Text size="xl" weight="semiBold" color={BrandColors.primary} style={styles.errorTitle}>
-            Shop not found
+          <Text size="lg" weight="medium" color={BrandColors.primary}>
+            Mechanic not found
           </Text>
-          <Text size="md" color={BrandColors.primary} style={styles.errorMessage}>
-            This shop is no longer available or the link is invalid.
-          </Text>
-          <Button
-            onPress={handleBack}
-            variant="primary"
-            size="lg"
-            leftIcon={<ArrowLeft size={18} color={BrandColors.white} />}
-            style={styles.errorButton}
-          >
-            Go back
-          </Button>
         </View>
       </ScreenContainer>
     );
@@ -246,7 +218,7 @@ export default function ShopDetailScreen() {
           />
         );
       case "reviews":
-        return <ShopReviewsSection shopId={shop.id} />;
+        return <MechanicReviewsSection mechanicId={mechanic.id} />;
       case "portfolio":
         return <ShopPortfolioSection shopId={shop.id} />;
       case "staff":
@@ -280,7 +252,7 @@ export default function ShopDetailScreen() {
 
           <View style={styles.titleContainer}>
             <Text size="lg" weight="bold" color={BrandColors.primary} numberOfLines={1}>
-              {shop.name}
+              {mechanic.title ?? mechanic.shopName}
             </Text>
           </View>
 
@@ -298,35 +270,7 @@ export default function ShopDetailScreen() {
         scrollEventThrottle={16}
       >
         {/* Header with Map - Part of scroll content */}
-        {primaryMechanic ? (
-          <MechanicDetailHeader mechanic={primaryMechanic} shop={shop} onBack={handleBack} />
-        ) : (
-          <MechanicDetailHeader
-            mechanic={{
-              id: "0",
-              shopId: shop.id,
-              name: shop.name,
-              shopName: shop.name,
-              photoUrl: null,
-              rating: shop.rating ?? 0,
-              reviewCount: shop.reviewCount,
-              isVerified: false,
-              distanceMi:
-                userLocation && shop.latitude != null && shop.longitude != null
-                  ? calculateDistanceMiles(userLocation.latitude, userLocation.longitude, shop.latitude, shop.longitude)
-                  : 0,
-              services: [],
-              specialties: [],
-              yearsExperience: 0,
-              isAvailable: shop.availability > 0,
-              responseTime: "Normal",
-              availability: shop.availability,
-              nextAvailability: [],
-            }}
-            shop={shop}
-            onBack={handleBack}
-          />
-        )}
+        <MechanicDetailHeader mechanic={mechanic} shop={shop} onBack={handleBack} />
 
         {/* Tab Navigation */}
         <MechanicDetailTabs activeTab={activeTab} onTabChange={handleTabChange} />
@@ -398,27 +342,6 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
-    paddingHorizontal: Spacing.xl,
-    gap: Spacing.md,
-  },
-  errorIconCircle: {
-    width: 72,
-    height: 72,
-    borderRadius: BorderRadius.full,
-    backgroundColor: BrandColors.background,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: Spacing.sm,
-  },
-  errorTitle: {
-    textAlign: "center",
-  },
-  errorMessage: {
-    textAlign: "center",
-    marginBottom: Spacing.lg,
-  },
-  errorButton: {
-    minWidth: 180,
   },
   spacer: {
     width: 40,
@@ -432,9 +355,5 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     ...Shadows.md,
-  },
-  emptyTabContent: {
-    paddingVertical: Spacing.xl,
-    alignItems: "center",
   },
 });

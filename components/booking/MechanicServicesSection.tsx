@@ -3,7 +3,7 @@
  *
  * PURPOSE: Displays selected services for booking in the mechanic detail page
  *
- * USED IN: app/(main-tabs)/home/mechanic/[id].tsx (Services tab)
+ * USED IN: app/(booking)/mechanic/[id].tsx (Services tab)
  *
  * OWNER: Temurbek Sayfutdinov
  */

@@ -155,20 +155,20 @@ export function useMyBookingsWithDetails() {
       )
       .map(adaptConvexBookingWithDetailsToCard);
 
-    // Pull completed-but-unreviewed rows out of history — they need a
-    // dedicated "Leave a review" card at the top of the Bookings tab.
-    // Cancelled bookings stay in history regardless.
+    // Surface completed-but-unreviewed rows as a "Leave a review" card at
+    // the top of the Bookings tab, but ALSO keep them in Booking History
+    // so users can still find their paid service on the history list
+    // before they get around to reviewing.
     const reviewedSet = new Set(reviewedBookingIds ?? []);
     const isPendingReview = (r: ConvexBookingWithDetails) =>
       r.status === "completed" && !reviewedSet.has(String(r._id));
     const pendingReviewRows = historyRows.filter(isPendingReview);
-    const trueHistoryRows = historyRows.filter((r) => !isPendingReview(r));
 
     const pendingReviewBookings: BookingCardBooking[] = pendingReviewRows
       .sort((a, b) => (b._creationTime ?? 0) - (a._creationTime ?? 0))
       .map(adaptConvexBookingWithDetailsToCard);
 
-    const historyBookings: BookingCardBooking[] = trueHistoryRows
+    const historyBookings: BookingCardBooking[] = historyRows
       .sort((a: ConvexBookingWithDetails, b: ConvexBookingWithDetails) =>
         new Date(b.scheduled_date).getTime() - new Date(a.scheduled_date).getTime(),
       )

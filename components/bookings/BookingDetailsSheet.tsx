@@ -449,7 +449,8 @@ export const BookingDetailsSheet = forwardRef<BookingDetailsSheetRef, BookingDet
                   shopAddress={shopAddress}
                   shopHoursLabel={shopHoursLabel}
                   shopRating={shopRating}
-                  statusHistory={statusHistory}
+                  statusHistory={liveStatusHistory ?? statusHistory}
+                  liveMonitor={liveMonitor}
                   onClose={close}
                   onRequestReschedule={handleRequestReschedule}
                   bottomPadding={insets.bottom + 60}
@@ -722,6 +723,7 @@ interface FullContentProps {
   shopHoursLabel?: string;
   shopRating?: { score: number; count: number };
   statusHistory?: Array<{ stage: BookingStatus; timestamp: number }>;
+  liveMonitor?: LateMonitor | null;
   onClose: () => void;
   onRequestReschedule: (bookingId: string, date: string, time: string) => void;
   bottomPadding: number;
@@ -736,6 +738,7 @@ function FullContent({
   shopHoursLabel,
   shopRating,
   statusHistory,
+  liveMonitor,
   onClose,
   onRequestReschedule,
   bottomPadding,
@@ -783,7 +786,7 @@ function FullContent({
         {/* STATUS TIMELINE */}
         <View style={styles.section}>
           <SectionHeader label="Status" />
-          <StatusTimeline currentStatus={booking.status} history={liveStatusHistory ?? statusHistory} />
+          <StatusTimeline currentStatus={booking.status} history={statusHistory} />
         </View>
 
         {/* ARRIVAL TRACKING */}

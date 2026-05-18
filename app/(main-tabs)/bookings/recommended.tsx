@@ -206,7 +206,19 @@ export default function RecommendedHistoryScreen() {
           </Section>
           <Section title="Resolved" count={groups.resolved.length}>
             {groups.resolved.map((item) => (
-              <Row key={item._id} item={item} />
+              <Row
+                key={item._id}
+                item={item}
+                onPress={
+                  item.completed_via_booking_id
+                    ? () =>
+                        router.push({
+                          pathname: "/settings/booking-history",
+                          params: { openBookingId: item.completed_via_booking_id as string },
+                        })
+                    : undefined
+                }
+              />
             ))}
           </Section>
           <Section

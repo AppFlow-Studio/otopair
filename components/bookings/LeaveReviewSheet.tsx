@@ -168,8 +168,8 @@ export const LeaveReviewSheet = forwardRef<LeaveReviewSheetRef, Props>(
           mechanic_id: booking.mechanicId
             ? (booking.mechanicId as Id<"mechanics">)
             : undefined,
-          rating,
-          comment: finalComment,
+          shop_rating: rating,
+          shop_comment: finalComment,
         });
         onSubmitted?.(booking.id);
         sheetRef.current?.close();

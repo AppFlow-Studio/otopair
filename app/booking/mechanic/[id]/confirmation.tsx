@@ -7,7 +7,7 @@
  *
  * FLOW: mechanic detail → booking-details → payment → confirmation
  *
- * ROUTE: /home/mechanic/[id]/confirmation
+ * ROUTE: /booking/mechanic/[id]/confirmation
  *
  * OWNER: Waleed Mansour
  */
@@ -199,7 +199,7 @@ export default function ConfirmationScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
-  const { id: bookingId } = useLocalSearchParams<{ id: string }>();
+  const { id: bookingId, bookingDbId } = useLocalSearchParams<{ id: string; bookingDbId?: string }>();
   const isCompactLayout = windowHeight < 860;
   const isVeryCompactLayout = windowHeight < 760;
 
@@ -220,6 +220,15 @@ export default function ConfirmationScreen() {
     if (!bookingId) return null;
     return getBookingById(bookingId);
   }, [bookingId, getBookingById]);
+
+  // Display the last 6 chars of the booking ID (matches the website).
+  // Prefer the real Convex booking ID handed off by /confirming;
+  // fall back to the local-store id when viewing a past booking.
+  const bookingIdDisplay = useMemo(() => {
+    const src = bookingDbId ?? localBooking?.id;
+    if (!src) return null;
+    return src.slice(-6).toUpperCase();
+  }, [bookingDbId, localBooking?.id]);
 
   // ═══════════════ COMPUTED ═══════════════
   const mechanic = useMemo(() => {
@@ -301,7 +310,10 @@ export default function ConfirmationScreen() {
     if (isViewingPastBooking) {
       router.back();
     } else {
-      router.dismissTo("/home");
+      // Pop the booking fullScreenModal off the root stack so the map
+      // doesn't leak through behind the home tab.
+      router.dismissAll();
+      router.replace("/home");
       resetBookingFlow();
     }
   }, [isViewingPastBooking, resetBookingFlow, router]);
@@ -465,6 +477,18 @@ export default function ConfirmationScreen() {
                   </Text>
                 </View>
               </View>
+
+              {/* Booking ID — last 6 chars, like on the website */}
+              {bookingIdDisplay && (
+                <View style={styles.bookingIdRow}>
+                  <Text size="xs" weight="bold" color={BrandColors.secondary} style={styles.detailLabel}>
+                    BOOKING ID
+                  </Text>
+                  <Text size="xs" weight="semiBold" color={BrandColors.primary}>
+                    #{bookingIdDisplay}
+                  </Text>
+                </View>
+              )}
 
               {/* Divider */}
               <View style={[styles.cardDivider, isCompactLayout && styles.cardDividerCompact]} />
@@ -758,6 +782,12 @@ const styles = StyleSheet.create({
   mechanicInfo: {
     flex: 1,
     gap: 2,
+  },
+  bookingIdRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginTop: Spacing.md,
   },
   cardDivider: {
     height: 1,

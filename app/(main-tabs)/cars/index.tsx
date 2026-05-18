@@ -1416,7 +1416,7 @@ export default function CarsHomeScreen() {
                 useBookingStore.getState().setSourceRecommendationId(
                   tapped?.sourceRecommendationId ?? null,
                 );
-                router.push('/home/map');
+                router.push('/booking/map');
               }}
               onTakeAction={(item) => {
                 const vin = activeVehicle?.vin;
@@ -1454,7 +1454,7 @@ export default function CarsHomeScreen() {
                   tireStore.setType(tireSpecs.type as any);
                   tireStore.setTier(tireSpecs.tier as any);
                 }
-                router.push('/home/map');
+                router.push('/booking/map');
               }}
             />
           ) : null}

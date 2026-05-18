@@ -4,7 +4,7 @@
  * PURPOSE: Floating glass-styled buttons for map controls (filter and recenter).
  *          Positioned at top-right of the map screen, like Flighty app.
  *
- * USED IN: app/(main-tabs)/home/map.tsx
+ * USED IN: app/(booking)/map.tsx
  *
  * PROPS:
  *   - onFilterPress (() => void): Called when filter button is pressed

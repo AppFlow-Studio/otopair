@@ -184,7 +184,7 @@ export function ServiceBundlesSection({
       onBookNow(bundleId);
     } else {
       // Default: navigate to map with services sheet open
-      router.push('/home/map?openServices=true');
+      router.push('/booking/map?openServices=true');
     }
   };
 

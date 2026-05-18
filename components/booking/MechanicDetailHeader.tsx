@@ -4,7 +4,7 @@
  * PURPOSE: Header component for mechanic detail page with map background,
  *          shop location pin, shop name, and specialties display.
  *
- * USED IN: app/(main-tabs)/home/mechanic/[id].tsx
+ * USED IN: app/(booking)/mechanic/[id].tsx
  *
  * PROPS:
  *   - mechanic (Mechanic): The mechanic data to display

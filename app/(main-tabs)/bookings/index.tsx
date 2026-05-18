@@ -190,8 +190,8 @@ export default function BookingsScreen() {
   const cancelConvexBooking = useMutation(api.bookings.cancelBooking);
   const handleCancelBooking = useCallback(
     (bookingId: string) => {
-      const isSynthesized = bookingId.startsWith("tire_quote_");
-      if (isSynthesized) {
+      const isLocalId = bookingId.startsWith("tire_quote_") || bookingId.startsWith("booking_");
+      if (isLocalId) {
         cancelLocalBooking(bookingId);
       } else {
         void cancelConvexBooking({ bookingId: bookingId as Id<"bookings"> });
@@ -273,7 +273,12 @@ export default function BookingsScreen() {
             text: "Cancel & reschedule",
             style: "destructive",
             onPress: () => {
-              void cancelConvexBooking({ bookingId: bookingId as Id<"bookings"> });
+              const isLocalId = bookingId.startsWith("tire_quote_") || bookingId.startsWith("booking_");
+              if (!isLocalId) {
+                void cancelConvexBooking({ bookingId: bookingId as Id<"bookings"> });
+              } else {
+                cancelLocalBooking(bookingId);
+              }
             },
           },
         ],

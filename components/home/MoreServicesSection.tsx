@@ -129,7 +129,7 @@ export function MoreServicesSection() {
     // selector mounts on the right tab. Cards not in the map default
     // to `basic_maintenance` (Maintenance tab).
     setInitialServiceCategory(CARD_TO_CATEGORY[serviceId] ?? 'basic_maintenance');
-    router.push('/home/map?openServices=true');
+    router.push('/booking/map?openServices=true');
   };
 
   return (

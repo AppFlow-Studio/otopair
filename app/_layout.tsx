@@ -248,6 +248,14 @@ export default function RootLayout() {
                     <Stack.Screen name="(tell-us-about)" options={{ headerShown: false }} />
                     <Stack.Screen name="(tire-booking)" options={{ headerShown: false }} />
                     <Stack.Screen
+                      name="booking"
+                      options={{
+                        headerShown: false,
+                        presentation: "fullScreenModal",
+                        animation: "slide_from_bottom",
+                      }}
+                    />
+                    <Stack.Screen
                       name="coming-soon"
                       options={{
                         animation: "fade_from_bottom",

@@ -752,7 +752,7 @@ export default function AIChatScreen() {
       setBookingStage("payment", "forward");
 
       // Navigate to payment screen
-      router.push(`/home/mechanic/${mechanic.id}/payment`);
+      router.push(`/booking/mechanic/${mechanic.id}/payment`);
     },
     [
       state.selectedServices,

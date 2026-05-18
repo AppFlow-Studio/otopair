@@ -3,7 +3,7 @@
  *
  * PURPOSE: Stack navigator layout for the shop detail screens
  *
- * USED IN: app/(main-tabs)/home/shop/[id]
+ * USED IN: app/(booking)/shop/[id]
  *
  * OWNER: Waleed Mansour
  */

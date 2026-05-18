@@ -11,13 +11,12 @@
  */
 
 // 1. React & React Native
-import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { BackHandler, InteractionManager, Platform, StyleSheet, TouchableOpacity, View } from "react-native";
 
 // 2. Third-party libraries
 import { BlurView } from "expo-blur";
 import { useFocusEffect, useRouter } from "expo-router";
-import { useTabBarVisibilityStore } from "@/stores/useTabBarVisibilityStore";
 import { ChevronLeft } from "lucide-react-native";
 import MapView from "react-native-maps";
 import Animated, { Extrapolation, interpolate, SharedValue, useAnimatedStyle } from "react-native-reanimated";
@@ -71,17 +70,6 @@ export default function BookingsScreen() {
   // ═══════════════ HOOKS ═══════════════
   const router = useRouter();
   const insets = useSafeAreaInsets();
-
-  // Hide the custom TabBar while the map (booking flow entry) is open
-  // so the service bottom sheet can cover the screen edge-to-edge.
-  // Uses a Zustand flag because the TabBar lives at the Tabs root and
-  // can't see nested stack-screen options.
-  useLayoutEffect(() => {
-    useTabBarVisibilityStore.getState().setHidden(true);
-    return () => {
-      useTabBarVisibilityStore.getState().setHidden(false);
-    };
-  }, []);
 
   // ═══════════════ REFS ═══════════════
   const mapRef = useRef<MapView>(null);
@@ -190,14 +178,14 @@ export default function BookingsScreen() {
   // Search result handlers
   const handleSearchSelectShop = useCallback(
     (shopId: number) => {
-      router.push(`/home/shop/${shopId}`);
+      router.push(`/booking/shop/${shopId}`);
     },
     [router]
   );
 
   const handleSearchSelectMechanic = useCallback(
     (mechanicId: number) => {
-      router.push(`/home/mechanic/${mechanicId}`);
+      router.push(`/booking/mechanic/${mechanicId}`);
     },
     [router]
   );

@@ -28,7 +28,10 @@
       "Bash(git rm *)",
       "Bash(git add *)",
       "Bash(sed -n '70,73p' /Users/temurbeksayfutdinov/Documents/AppFlowStudios/otopair/hooks/useCreateBookingConvex.ts)",
-      "Bash(sed -n '748,752p' /Users/temurbeksayfutdinov/Documents/AppFlowStudios/otopair/stores/useBookingStore.ts)"
+      "Bash(sed -n '748,752p' /Users/temurbeksayfutdinov/Documents/AppFlowStudios/otopair/stores/useBookingStore.ts)",
+      "mcp__claude_ai_Otopair_Convex_MCP__list_tables",
+      "Read(//Users/temurbeksayfutdinov/Documents/AppFlowStudios/otopair-web/convex/**)",
+      "mcp__claude_ai_Otopair_Convex_MCP__get_doc"
     ]
   }
 }
