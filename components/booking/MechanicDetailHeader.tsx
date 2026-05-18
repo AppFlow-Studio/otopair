@@ -85,6 +85,7 @@ export function MechanicDetailHeader({ shop, onBack }: MechanicDetailHeaderProps
           toolbarEnabled={false}
           showsCompass={false}
           showsPointsOfInterest
+          legalLabelInsets={{ top: -1000, left: -1000, right: -1000, bottom: -1000 }}
         >
           <Marker
             coordinate={{
@@ -95,7 +96,7 @@ export function MechanicDetailHeader({ shop, onBack }: MechanicDetailHeaderProps
           >
             <View style={styles.markerWrap}>
               <Image
-                source={require("@/assets/images/otopair-ai-logo.png")}
+                source={require("@/assets/images/pin-logo-3d.png")}
                 style={styles.markerImage}
                 resizeMode="contain"
               />

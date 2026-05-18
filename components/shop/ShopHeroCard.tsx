@@ -12,7 +12,7 @@
 import React from "react";
 import { Linking, Pressable, StyleSheet, View } from "react-native";
 
-import { Bookmark, Calendar, Navigation, Phone, Star } from "lucide-react-native";
+import { Bookmark, Navigation, Phone, Star } from "lucide-react-native";
 
 import { BrandColors, Spacing, Text } from "@/components/shared-ui";
 import { BorderRadius, Shadows } from "@/constants/theme";
@@ -20,14 +20,12 @@ import type { Shop } from "@/stores/types/store.types";
 
 interface ShopHeroCardProps {
   shop: Shop;
-  onSchedulePress?: () => void;
   onSavePress?: () => void;
   isSaved?: boolean;
 }
 
 export function ShopHeroCard({
   shop,
-  onSchedulePress,
   onSavePress,
   isSaved = false,
 }: ShopHeroCardProps) {
@@ -116,12 +114,6 @@ export function ShopHeroCard({
           }
           label={isSaved ? "Saved" : "Save"}
           onPress={onSavePress}
-        />
-        <ActionChip
-          icon={<Calendar size={18} color="#FFFFFF" />}
-          label="Book"
-          onPress={onSchedulePress}
-          primary
         />
       </View>
     </View>

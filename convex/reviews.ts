@@ -1,4 +1,4 @@
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
 import { claimContributionRewardImpl } from "./rewards";
 import { awardPointsImpl } from "./healthPoints";
@@ -39,11 +39,15 @@ export const getByShopId = query({
       .query("reviews")
       .withIndex("by_shop_id", (q) => q.eq("shop_id", args.shopId))
       .collect();
+    // Pure-shop reviews only — mechanic-tagged rows (mechanic_id
+    // defined) belong to the mechanic's surface, not the shop's
+    // customer-reviews list. See plan: per-mechanic comment
+    // shouldn't leak into the shop's review feed.
+    const pureShopReviews = reviews.filter((r) => r.mechanic_id === undefined);
     return await Promise.all(
-      reviews.map(async (review) => {
-        const mechanic = review.mechanic_id ? await ctx.db.get(review.mechanic_id) : null;
+      pureShopReviews.map(async (review) => {
         const user = await ctx.db.get(review.user_id);
-        return { ...review, mechanic, user };
+        return { ...review, mechanic: null, user };
       }),
     );
   },
@@ -144,17 +148,20 @@ export const submit = mutation({
       });
     }
 
-    // Recompute aggregate over the shop's full review set (both pure
-    // shop reviews + mechanic-tagged reviews count toward shop mean).
-    // Re-scan instead of incremental because the cached aggregate
-    // isn't always present (legacy data) and the scan is cheap given
-    // realistic review counts per shop.
-    const shopReviews = await ctx.db
+    // Recompute aggregate over the shop's PURE shop reviews only —
+    // mechanic-tagged rows belong to the mechanic's headline, not the
+    // shop's. This keeps the shop's rating + count consistent with what
+    // getByShopId returns to the UI. Re-scan instead of incremental
+    // because the cached aggregate isn't always present (legacy data)
+    // and the scan is cheap given realistic review counts per shop.
+    const allShopRows = await ctx.db
       .query("reviews")
       .withIndex("by_shop_id", (q) => q.eq("shop_id", args.shop_id))
       .collect();
-    const shopMean =
-      shopReviews.reduce((sum, r) => sum + r.rating, 0) / shopReviews.length;
+    const shopReviews = allShopRows.filter((r) => r.mechanic_id === undefined);
+    const shopMean = shopReviews.length
+      ? shopReviews.reduce((sum, r) => sum + r.rating, 0) / shopReviews.length
+      : 0;
     await ctx.db.patch(args.shop_id, {
       rating: shopMean,
       review_count: shopReviews.length,
@@ -191,5 +198,39 @@ export const submit = mutation({
     });
 
     return await ctx.db.get(shopReviewId);
+  },
+});
+
+/**
+ * One-time sweep: recomputes `shops.rating` + `shops.review_count`
+ * across every shop, counting only PURE shop reviews
+ * (`mechanic_id === undefined`). Useful right after the shop-list
+ * filter lands so existing aggregates that were inflated by
+ * mechanic-tagged rows snap back to truth without waiting for the
+ * next real review submission.
+ *
+ *   npx convex run reviews:recomputeShopAggregates
+ */
+export const recomputeShopAggregates = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const shops = await ctx.db.query("shops").collect();
+    let shopsUpdated = 0;
+    for (const shop of shops) {
+      const rows = await ctx.db
+        .query("reviews")
+        .withIndex("by_shop_id", (q) => q.eq("shop_id", shop._id))
+        .collect();
+      const pure = rows.filter((r) => r.mechanic_id === undefined);
+      const mean = pure.length
+        ? pure.reduce((s, r) => s + r.rating, 0) / pure.length
+        : 0;
+      await ctx.db.patch(shop._id, {
+        rating: mean,
+        review_count: pure.length,
+      });
+      shopsUpdated += 1;
+    }
+    return { shopsUpdated };
   },
 });

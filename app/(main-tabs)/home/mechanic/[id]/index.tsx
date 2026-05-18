@@ -61,7 +61,7 @@ export default function MechanicDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
 
   // ═══════════════ STATE ═══════════════
-  const [activeTab, setActiveTab] = useState<MechanicDetailTab>("services");
+  const [activeTab, setActiveTab] = useState<MechanicDetailTab>("reviews");
   const [showAddServicesModal, setShowAddServicesModal] = useState(false);
   const [showBookingModal, setShowBookingModal] = useState(false);
   const [bookingMechanicId, setBookingMechanicId] = useState<string | null>(null);
@@ -156,15 +156,8 @@ export default function MechanicDetailScreen() {
     setBookingMechanicId(null);
   }, []);
 
-  // Handle tab change - open booking modal for "schedule" tab
   const handleTabChange = useCallback((tab: MechanicDetailTab) => {
-    if (tab === "schedule") {
-      // Open the booking modal instead of switching tabs
-      setBookingMechanicId(null); // null = "Any" mechanic
-      setShowBookingModal(true);
-    } else {
-      setActiveTab(tab);
-    }
+    setActiveTab(tab);
   }, []);
 
   useFocusEffect(
@@ -208,21 +201,12 @@ export default function MechanicDetailScreen() {
   // ═══════════════ RENDER TAB CONTENT ═══════════════
   const renderTabContent = () => {
     switch (activeTab) {
-      case "services":
-        return (
-          <ShopDetails
-            shopId={shop.id}
-            onBookNow={handleBookNow}
-            onAddMoreServices={handleAddMoreServices}
-            onViewAllAvailability={handleViewAllAvailability}
-          />
-        );
       case "reviews":
         return <MechanicReviewsSection mechanicId={mechanic.id} />;
-      case "portfolio":
-        return <ShopPortfolioSection shopId={shop.id} />;
       case "mechanics":
         return <ShopMechanicsSection shopId={shop.id} />;
+      case "portfolio":
+        return <ShopPortfolioSection shopId={shop.id} />;
       default:
         return null;
     }

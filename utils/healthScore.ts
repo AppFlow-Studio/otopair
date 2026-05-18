@@ -185,6 +185,8 @@ export interface HealthFactor {
   label: string;
   /** Optional supporting line, e.g. mileage figure or item description. */
   detail?: string;
+  /** Optional third line, used by booking entries for the completion date. */
+  subDetail?: string;
   /** Absolute pts contribution — always positive; the bucket implies sign. */
   pts: number;
 }
@@ -311,4 +313,104 @@ export function computeHealthScoreFactors(input: HealthScoreInput): {
   negatives.sort((a, b) => b.pts - a.pts);
 
   return { positives, negatives };
+}
+
+// ============================================================================
+// PER-BOOKING HELPING FACTORS
+// ============================================================================
+
+export interface CompletedBooking {
+  /** Convex bookings _id as string. */
+  id: string;
+  /** Display names of services covered by the booking, e.g. ["Oil Change", "Tire Rotation"]. */
+  services: string[];
+  /** Unix ms; null if the booking row has no completion timestamp. */
+  completedAt: number | null;
+  /** Resolved shop display name. Empty string falls back to "Service center" at render time. */
+  shopName: string;
+}
+
+/**
+ * Attributes each currently-on-time maintenance item's score
+ * contribution to the most-recent completed booking that touched
+ * it. Returns one HealthFactor per booking that holds at least one
+ * maintenance type on_time. Older bookings for the same type are
+ * folded into the most-recent one (no double counting).
+ *
+ * The per-booking pts sum equals the per-item on_time pts that
+ * `computeHealthScoreFactors` would have generated — so the
+ * headline score is unchanged; we're just regrouping the credit
+ * from "per maintenance item" to "per booking the user completed."
+ *
+ * Bookings that touched only untracked services (body work,
+ * diagnostics, etc.) don't appear here — they have no maintenance
+ * coverage signal.
+ */
+export function computeBookingHelpingFactors(
+  input: HealthScoreInput,
+  completedBookings: CompletedBooking[],
+): HealthFactor[] {
+  const { maintenanceItems } = input;
+  if (!completedBookings || completedBookings.length === 0) return [];
+
+  const totalForWeighting = Math.max(maintenanceItems.length, 1);
+  const perItemWeight = 60 / totalForWeighting;
+
+  // Sort bookings newest → oldest so "find" returns the most recent.
+  const sorted = [...completedBookings].sort(
+    (a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0),
+  );
+
+  // Accumulator: bookingId → { booking, names, totalPts }
+  const acc = new Map<
+    string,
+    { booking: CompletedBooking; types: string[]; pts: number }
+  >();
+
+  for (const item of maintenanceItems) {
+    if (item.status !== "on_time") continue;
+    const score = STATUS_SCORE[item.status];
+    const pts = Math.round((score - 0.5) * perItemWeight);
+    if (pts <= 0) continue;
+
+    const itemKey = item.serviceName.trim().toLowerCase();
+    const match = sorted.find((b) =>
+      b.services.some((s) => s.trim().toLowerCase() === itemKey),
+    );
+    if (!match) continue; // credit came from a user-entered record, not a booking
+
+    const existing = acc.get(match.id);
+    if (existing) {
+      existing.types.push(item.serviceName);
+      existing.pts += pts;
+    } else {
+      acc.set(match.id, {
+        booking: match,
+        types: [item.serviceName],
+        pts,
+      });
+    }
+  }
+
+  const result: HealthFactor[] = [];
+  for (const { booking, types, pts } of acc.values()) {
+    const label = booking.shopName.trim() || "Service center";
+    const detail = types.length === 1 ? types[0] : types.join(" · ");
+    const subDetail = formatBookingCompletionDate(booking.completedAt);
+    result.push({ label, detail, subDetail, pts });
+  }
+  result.sort((a, b) => b.pts - a.pts);
+  return result;
+}
+
+function formatBookingCompletionDate(
+  completedAt: number | null,
+): string | undefined {
+  if (!completedAt) return undefined;
+  const formatted = new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date(completedAt));
+  return `Completed ${formatted}`;
 }

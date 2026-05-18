@@ -28,8 +28,9 @@
  * OWNER: Shop Management Team
  */
 
-import { mutation, query } from "./_generated/server";
+import { internalMutation, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import type { Id } from "./_generated/dataModel";
 import { syncMechanicAvailabilityWindow } from "./lib/timeSlotAvailability";
 
 const OWNER_ROLES = new Set(["owner", "shop_owner", "admin"]);
@@ -678,5 +679,126 @@ export const getByShop = query({
       .query("mechanics")
       .withIndex("by_shop_id", (q) => q.eq("shop_id", args.shopId))
       .collect();
+  },
+});
+
+/**
+ * One-time data migration: dedupes the `mechanics` table where seed
+ * re-runs left two+ rows per real person (same shop_id + name).
+ *
+ * Repoints `reviews.mechanic_id` and `bookings.mechanic_id` from each
+ * duplicate _id to the oldest-by-_creationTime canonical row, then
+ * deletes the duplicates, then recomputes the canonical's
+ * rating + review_count.
+ *
+ * Run dry first:
+ *   npx convex run mechanics:dedupeMechanics '{"dryRun": true}'
+ * Then commit:
+ *   npx convex run mechanics:dedupeMechanics
+ *
+ * After this completes, the client-side dedupe block in
+ * hooks/useMechanicsFromConvex.ts (around lines 67-73) becomes
+ * redundant and should be removed.
+ */
+export const dedupeMechanics = internalMutation({
+  args: { dryRun: v.optional(v.boolean()) },
+  handler: async (ctx, args) => {
+    const all = await ctx.db.query("mechanics").collect();
+
+    // Group by (shop_id + normalized name). Normalize so trailing
+    // whitespace / case quirks don't split a real duplicate group.
+    const groups = new Map<string, typeof all>();
+    for (const m of all) {
+      const key = `${String(m.shop_id)}::${(m.first_name ?? "").trim().toLowerCase()}::${(m.last_name ?? "").trim().toLowerCase()}`;
+      const list = groups.get(key) ?? [];
+      list.push(m);
+      groups.set(key, list);
+    }
+
+    const remaps: { from: Id<"mechanics">; to: Id<"mechanics"> }[] = [];
+    const toDelete: Id<"mechanics">[] = [];
+
+    for (const list of groups.values()) {
+      if (list.length <= 1) continue;
+      // Canonical = oldest _creationTime; stable tiebreak by string _id.
+      list.sort(
+        (a, b) =>
+          a._creationTime - b._creationTime ||
+          String(a._id).localeCompare(String(b._id)),
+      );
+      const canonical = list[0]._id;
+      for (let i = 1; i < list.length; i++) {
+        remaps.push({ from: list[i]._id, to: canonical });
+        toDelete.push(list[i]._id);
+      }
+    }
+
+    if (args.dryRun) {
+      return {
+        groups: groups.size,
+        dupGroups: remaps.length,
+        toDelete: toDelete.length,
+        remaps,
+      };
+    }
+
+    // Repoint reviews.mechanic_id
+    let reviewsRepointed = 0;
+    for (const { from, to } of remaps) {
+      const rows = await ctx.db
+        .query("reviews")
+        .withIndex("by_mechanic_id", (q) => q.eq("mechanic_id", from))
+        .collect();
+      for (const r of rows) {
+        await ctx.db.patch(r._id, { mechanic_id: to });
+        reviewsRepointed += 1;
+      }
+    }
+
+    // Repoint bookings.mechanic_id — `bookings` doesn't have an
+    // index on mechanic_id, so do a single table scan + remap map
+    // instead of N filter calls.
+    let bookingsRepointed = 0;
+    const remapsByFromId = new Map<string, Id<"mechanics">>(
+      remaps.map(({ from, to }) => [String(from), to]),
+    );
+    const allBookings = await ctx.db.query("bookings").collect();
+    for (const b of allBookings) {
+      if (!b.mechanic_id) continue;
+      const target = remapsByFromId.get(String(b.mechanic_id));
+      if (!target) continue;
+      await ctx.db.patch(b._id, { mechanic_id: target });
+      bookingsRepointed += 1;
+    }
+
+    // Delete duplicate mechanic rows
+    for (const id of toDelete) {
+      await ctx.db.delete(id);
+    }
+
+    // Recompute canonical rating + review_count from the merged review set.
+    const canonicalIds = new Set(remaps.map((r) => String(r.to)));
+    let aggregatesRecomputed = 0;
+    for (const cIdStr of canonicalIds) {
+      const cId = cIdStr as unknown as Id<"mechanics">;
+      const rows = await ctx.db
+        .query("reviews")
+        .withIndex("by_mechanic_id", (q) => q.eq("mechanic_id", cId))
+        .collect();
+      if (rows.length === 0) continue;
+      const mean =
+        rows.reduce((s, r) => s + r.rating, 0) / rows.length;
+      await ctx.db.patch(cId, { rating: mean, review_count: rows.length });
+      aggregatesRecomputed += 1;
+    }
+
+    return {
+      groups: groups.size,
+      dupGroups: remaps.length,
+      mechanicsDeleted: toDelete.length,
+      reviewsRepointed,
+      bookingsRepointed,
+      aggregatesRecomputed,
+    };
   },
 });

@@ -302,7 +302,6 @@ export function SettingsOverlay() {
       visible={isMounted}
       animationType="none"
       presentationStyle="overFullScreen"
-      statusBarTranslucent
       onRequestClose={handleClose}
     >
       {/* Backdrop blur over Home */}
@@ -334,6 +333,14 @@ export function SettingsOverlay() {
             borderRadius: rect.width / 2,
           },
           cardStyle,
+          // Once the open spring lands, drop `overflow: hidden` so
+          // descendant LiquidGlassView surfaces (e.g. the Upgrade pill)
+          // can composite their native UIVisualEffectView correctly —
+          // iOS won't render the glass through a parent that's
+          // clipping its bounds. During open/close we still need the
+          // clip so the fullscreen SettingsContent doesn't spill while
+          // the card grows from a small rect.
+          settled && { overflow: "visible" as const },
         ]}
       >
         {/* Frosted backdrop — blurs the home page visible through the

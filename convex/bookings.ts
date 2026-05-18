@@ -420,6 +420,7 @@ export const getByUserIdWithDetails = query({
           status: booking.status,
           scheduled_date: booking.scheduled_date,
           scheduled_time: booking.scheduled_time,
+          completed_at_ms: booking.completed_at_ms,
           total_cost: booking.total_cost,
           shop_id: booking.shop_id,
           mechanic_id: booking.mechanic_id,

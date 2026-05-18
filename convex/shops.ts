@@ -1,5 +1,7 @@
-import { internalMutation, internalQuery, mutation, query } from "./_generated/server";
+import { internalAction, internalMutation, internalQuery, mutation, query } from "./_generated/server";
 import { v } from "convex/values";
+import { internal } from "./_generated/api";
+import { geocodeAddress } from "./lib/appleMapsGeocode";
 import {
   syncMechanicAvailabilityWindow,
   syncShopAvailabilityWindow,
@@ -300,6 +302,12 @@ export const create = mutation({
       created_at: now,
       updated_at: now,
     });
+
+    // Fire-and-forget geocode so the shop's lat/lng auto-populate
+    // from its address. Failure here doesn't block shop creation —
+    // the row just stays missing coords until the next backfill or
+    // manual setShopCoords run.
+    await ctx.scheduler.runAfter(0, internal.shops.geocodeShop, { shopId });
 
     return shopId;
   },
@@ -1190,4 +1198,111 @@ export const updateShopOfferedServices = mutation({
 
     return primary.shop._id;
   },
-});;
+});
+
+/**
+ * One-off helper to set lat/lng on a shop by case-insensitive name
+ * substring match. Useful for backfilling coordinates on dev shops
+ * that were seeded without them (Chelala had no lat/lng, which is
+ * why the shop-detail map fell back to a flat pale-blue placeholder).
+ *
+ *   npx convex run shops:setShopCoords '{"shopName":"Chelala","lat":40.6080,"lng":-74.1466}'
+ */
+export const setShopCoords = internalMutation({
+  args: {
+    shopName: v.string(),
+    lat: v.number(),
+    lng: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const shops = await ctx.db.query("shops").collect();
+    const target = shops.find((s) =>
+      s.name.toLowerCase().includes(args.shopName.toLowerCase()),
+    );
+    if (!target) return { ok: false, reason: "shop not found" };
+    await ctx.db.patch(target._id, { lat: args.lat, lng: args.lng });
+    return { ok: true, patched: String(target._id), name: target.name };
+  },
+});
+
+// ─────────────────────────────────────────────────────────────────
+// AUTO-GEOCODE via Apple MapKit
+// ─────────────────────────────────────────────────────────────────
+
+/** By-id coordinate setter. The geocode action calls this once it
+ *  has a resolved lat/lng for the address. */
+export const setShopCoordsById = internalMutation({
+  args: { shopId: v.id("shops"), lat: v.number(), lng: v.number() },
+  handler: async (ctx, args) => {
+    await ctx.db.patch(args.shopId, { lat: args.lat, lng: args.lng });
+    return { ok: true };
+  },
+});
+
+/** Internal query for the geocode action so it can read shop fields
+ *  without `ctx.db` (actions can't touch the db directly). */
+export const getRawShopForGeocode = internalQuery({
+  args: { shopId: v.id("shops") },
+  handler: async (ctx, args) => ctx.db.get(args.shopId),
+});
+
+/** Returns the ids of every shop missing lat or lng. */
+export const listShopsMissingCoords = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("shops").collect();
+    return rows
+      .filter((s) => s.lat == null || s.lng == null)
+      .map((s) => s._id);
+  },
+});
+
+/**
+ * Geocode a single shop's address via Apple MapKit and patch the
+ * resulting lat/lng onto the row. Fire-and-forget from create
+ * (or run directly to re-geocode after an address change).
+ *
+ *   npx convex run shops:geocodeShop '{"shopId":"<id>"}'
+ */
+export const geocodeShop = internalAction({
+  args: { shopId: v.id("shops") },
+  handler: async (ctx, args) => {
+    const shop = await ctx.runQuery(internal.shops.getRawShopForGeocode, {
+      shopId: args.shopId,
+    });
+    if (!shop) return { ok: false, reason: "shop not found" };
+    if (!shop.address) return { ok: false, reason: "no address" };
+    const result = await geocodeAddress(shop.address);
+    if (!result) return { ok: false, reason: "no geocode hit" };
+    await ctx.runMutation(internal.shops.setShopCoordsById, {
+      shopId: args.shopId,
+      lat: result.lat,
+      lng: result.lng,
+    });
+    return { ok: true, lat: result.lat, lng: result.lng };
+  },
+});
+
+/**
+ * Backfill: iterates every shop missing lat/lng and schedules a
+ * geocodeShop action for each, spaced 300ms apart to stay polite
+ * under Apple's QPS limits.
+ *
+ *   npx convex run shops:geocodeAllMissingShops
+ */
+export const geocodeAllMissingShops = internalAction({
+  args: {},
+  handler: async (ctx) => {
+    const ids = await ctx.runQuery(internal.shops.listShopsMissingCoords, {});
+    let scheduled = 0;
+    for (const id of ids) {
+      await ctx.scheduler.runAfter(
+        scheduled * 300,
+        internal.shops.geocodeShop,
+        { shopId: id },
+      );
+      scheduled += 1;
+    }
+    return { scheduled };
+  },
+});

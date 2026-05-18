@@ -110,6 +110,19 @@ function formatBookingTime(timeStr: string): string {
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
+  // Lock `insets.top` to its first-render value for the lifetime of the
+  // screen. The app is portrait-only (app.json), so legitimate top-inset
+  // changes don't happen — but transparent Modal mounts (the settings
+  // overlay, etc.) DO cause iOS to re-emit a transient `insets.top` to
+  // safe-area-context subscribers. Without this lock,
+  // `paddingTop: insets.top + 12` on the ScrollView jiggles for a frame
+  // when the overlay's <Modal> mounts, shifting the home content (and
+  // the profile button) up and then back down on every press.
+  const initialInsetTopRef = useRef<number | null>(null);
+  if (initialInsetTopRef.current === null) {
+    initialInsetTopRef.current = insets.top;
+  }
+  const stableInsetTop = initialInsetTopRef.current;
   const router = useRouter();
   const { isNewUser, shouldShowReactivationSheet, setShouldShowReactivationSheet } = useAuthStore();
   const { vehicles: listVehicles, hasVehicles, isLoading: vehiclesLoading } = useVehicleOwnershipFromConvex();
@@ -546,9 +559,15 @@ export default function HomeScreen() {
           {/* Full Page Scroll */}
           <Animated.ScrollView
             style={styles.scrollView}
-            contentContainerStyle={[styles.scrollContent, { paddingTop: insets.top + 12 }]}
+            contentContainerStyle={[styles.scrollContent, { paddingTop: stableInsetTop + 12 }]}
             showsVerticalScrollIndicator={false}
             scrollEnabled={!isCardSwiping}
+            // Prevent iOS from re-adjusting the scroll content when a
+            // transparent Modal (e.g. the settings overlay) mounts and
+            // triggers a transient safe-area renegotiation — without
+            // this, the home content shifts up then back down on press.
+            contentInsetAdjustmentBehavior="never"
+            automaticallyAdjustContentInsets={false}
             onScroll={scrollHandler}
             scrollEventThrottle={16}
           >

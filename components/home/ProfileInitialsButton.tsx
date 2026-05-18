@@ -13,7 +13,9 @@
  */
 
 import React, { useMemo, useRef } from "react";
-import { Image, Pressable, StyleSheet, View } from "react-native";
+import { Image, StyleSheet, View } from "react-native";
+import { Gesture, GestureDetector } from "react-native-gesture-handler";
+import { runOnJS } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
 import { useQuery } from "convex/react";
 import { useShallow } from "zustand/react/shallow";
@@ -74,19 +76,29 @@ export function ProfileInitialsButton() {
     });
   };
 
+  // Use react-native-gesture-handler's Tap gesture instead of Pressable.
+  // On iOS 26, Pressable triggers a native press feedback that visually
+  // shifts the view up briefly on touch-down — even with a static style
+  // and no opacity feedback. Gesture.Tap uses UIGestureRecognizer
+  // primitives with no built-in visual cue.
+  const tap = Gesture.Tap().onEnd(() => {
+    runOnJS(handlePress)();
+  });
+
+  // While the SettingsOverlay is mounted (open or animating closed), the
+  // floating avatar inside the overlay sits at the same on-screen
+  // position as this home button (and then slides to its settled
+  // top-center position during the open animation). Rendering both at
+  // once made the user see a "second AH" floating away — which they
+  // described as "the button moves up then back down". Hide the
+  // contents (not the wrapper, so layout + measureInWindow stay stable)
+  // for the entire open + close lifecycle.
+  const showContents = !isMounted;
+
   return (
-    <Pressable
-      ref={viewRef}
-      onPress={handlePress}
-      style={({ pressed }) => [
-        styles.button,
-        pressed && styles.buttonPressed,
-        isMounted && styles.buttonHidden,
-      ]}
-      pointerEvents={isMounted ? "none" : "auto"}
-      hitSlop={6}
-    >
-      {photoUri ? (
+    <GestureDetector gesture={tap}>
+    <View ref={viewRef} style={styles.button}>
+      {showContents && (photoUri ? (
         <Image source={{ uri: photoUri }} style={styles.image} />
       ) : (
         <LinearGradient
@@ -114,8 +126,9 @@ export function ProfileInitialsButton() {
             ]}
           />
         </LinearGradient>
-      )}
-    </Pressable>
+      ))}
+    </View>
+    </GestureDetector>
   );
 }
 

@@ -60,18 +60,7 @@ export function useMechanicsFromConvex() {
     const chelalaOnly = convexMechanics.filter((m) =>
       (m.shop?.name ?? "").toLowerCase().includes("chelala"),
     );
-    // Dedupe by (shop, full-name) — the `mechanics` table has duplicate
-    // rows for some mechanics (likely a seed re-run), so without this the
-    // picker shows "Luke / Luke / James / James". Keep the first row for
-    // each name within a shop.
-    const seen = new Set<string>();
-    const deduped = chelalaOnly.filter((m) => {
-      const key = `${String(m.shop_id)}::${(m.first_name ?? "").trim().toLowerCase()}::${(m.last_name ?? "").trim().toLowerCase()}`;
-      if (seen.has(key)) return false;
-      seen.add(key);
-      return true;
-    });
-    return deduped.map((m) => mapConvexMechanicToStore(m as ConvexMechanicListRow));
+    return chelalaOnly.map((m) => mapConvexMechanicToStore(m as ConvexMechanicListRow));
   }, [convexMechanics]);
 
   useEffect(() => {

@@ -721,10 +721,7 @@ export function SettingsContent({ avatarOverride, translucent }: SettingsContent
         <View style={styles.stickySide}>
           <Pressable
             onPress={() => router.push("/membership")}
-            style={({ pressed }) => [
-              styles.upgradePillWrapper,
-              pressed && { opacity: 0.85 },
-            ]}
+            style={({ pressed }) => pressed && { opacity: 0.85 }}
           >
             {isLiquidGlassEnabled && LiquidGlassView ? (
               <LiquidGlassView
@@ -866,10 +863,6 @@ const styles = StyleSheet.create({
   },
   stickyName: {
     textAlign: "center",
-  },
-  upgradePillWrapper: {
-    borderRadius: 999,
-    overflow: "hidden",
   },
   upgradePill: {
     flexDirection: "row",

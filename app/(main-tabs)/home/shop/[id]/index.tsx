@@ -33,15 +33,13 @@ import { FullScreenContainer } from "@/components/shared-ui/Container";
 import { MechanicDetailHeader } from "@/components/booking/MechanicDetailHeader";
 import { MechanicDetailTabs, type MechanicDetailTab } from "@/components/booking/MechanicDetailTabs";
 import { ShopReviewsSection } from "@/components/booking/ShopReviewsSection";
-import { AddServicesModal, ShopBookingModal } from "@/components/booking/modals";
-import { ShopDetails } from "@/components/booking/ShopDetails";
+import { ShopBookingModal } from "@/components/booking/modals";
 import { ShopPortfolioSection } from "@/components/booking/ShopPortfolioSection";
 import { ShopMechanicsSection } from "@/components/booking/ShopMechanicsSection";
 import { ShopHeroCard } from "@/components/shop/ShopHeroCard";
 
 // 5. Constants, hooks, types, stores
 import { useBookingStore } from "@/stores/useBookingStore";
-import { useMechanicStore } from "@/stores/useMechanicStore";
 import { useSearchStore } from "@/stores/useSearchStore";
 import { useShopStore } from "@/stores/useShopStore";
 
@@ -64,14 +62,12 @@ export default function ShopDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
 
   // ═══════════════ STATE ═══════════════
-  const [activeTab, setActiveTab] = useState<MechanicDetailTab>("services");
-  const [showAddServicesModal, setShowAddServicesModal] = useState(false);
+  const [activeTab, setActiveTab] = useState<MechanicDetailTab>("reviews");
   const [showBookingModal, setShowBookingModal] = useState(false);
   const [bookingMechanicId, setBookingMechanicId] = useState<string | null>(null);
 
   // ═══════════════ STORES ═══════════════
   const getShopById = useShopStore((state) => state.getShopById);
-  const setBookingTypeAndProceed = useBookingStore((state) => state.setBookingTypeAndProceed);
   const resetBookingFlow = useBookingStore((state) => state.resetBookingFlow);
   const bookingStage = useBookingStore((state) => state.bookingStage);
   const addRecentShop = useSearchStore((state) => state.addRecentShop);
@@ -128,47 +124,13 @@ export default function ShopDetailScreen() {
     router.back();
   }, [bookingStage, resetBookingFlow, router]);
 
-  const handleBookNow = useCallback(
-    (mechanicId: string) => {
-      // Add shop to recent history
-      if (shopId) {
-        addRecentShop(shopId);
-      }
-
-      // Since user selected a specific time slot, this is a scheduled booking
-      setBookingTypeAndProceed("schedule_later", mechanicId);
-      router.push(`/home/mechanic/${mechanicId}/booking-details`);
-    },
-    [shopId, addRecentShop, setBookingTypeAndProceed, router],
-  );
-
-  const handleAddMoreServices = useCallback(() => {
-    setShowAddServicesModal(true);
-  }, []);
-
-  const handleViewAllAvailability = useCallback((mechanicId: string) => {
-    setBookingMechanicId(mechanicId);
-    setShowBookingModal(true);
-  }, []);
-
-  const handleCloseAddServicesModal = useCallback(() => {
-    setShowAddServicesModal(false);
-  }, []);
-
   const handleCloseBookingModal = useCallback(() => {
     setShowBookingModal(false);
     setBookingMechanicId(null);
   }, []);
 
-  // Handle tab change - open booking modal for "schedule" tab
   const handleTabChange = useCallback((tab: MechanicDetailTab) => {
-    if (tab === "schedule") {
-      // Open the booking modal instead of switching tabs
-      setBookingMechanicId(null); // null = "Any" mechanic
-      setShowBookingModal(true);
-    } else {
-      setActiveTab(tab);
-    }
+    setActiveTab(tab);
   }, []);
 
   useFocusEffect(
@@ -178,11 +140,6 @@ export default function ShopDetailScreen() {
       }
 
       const subscription = BackHandler.addEventListener("hardwareBackPress", () => {
-        if (showAddServicesModal) {
-          setShowAddServicesModal(false);
-          return true;
-        }
-
         if (showBookingModal) {
           handleCloseBookingModal();
           return true;
@@ -193,7 +150,7 @@ export default function ShopDetailScreen() {
       });
 
       return () => subscription.remove();
-    }, [handleBack, handleCloseBookingModal, showAddServicesModal, showBookingModal])
+    }, [handleBack, handleCloseBookingModal, showBookingModal])
   );
 
   // ═══════════════ RENDER ═══════════════
@@ -227,21 +184,12 @@ export default function ShopDetailScreen() {
   // ═══════════════ RENDER TAB CONTENT ═══════════════
   const renderTabContent = () => {
     switch (activeTab) {
-      case "services":
-        return (
-          <ShopDetails
-            shopId={shop.id}
-            onBookNow={handleBookNow}
-            onAddMoreServices={handleAddMoreServices}
-            onViewAllAvailability={handleViewAllAvailability}
-          />
-        );
       case "reviews":
         return <ShopReviewsSection shopId={shop.id} />;
-      case "portfolio":
-        return <ShopPortfolioSection shopId={shop.id} />;
       case "mechanics":
         return <ShopMechanicsSection shopId={shop.id} />;
+      case "portfolio":
+        return <ShopPortfolioSection shopId={shop.id} />;
       default:
         return null;
     }
@@ -299,7 +247,7 @@ export default function ShopDetailScreen() {
         <MechanicDetailHeader shop={shop} onBack={handleBack} />
 
         {/* Floating shop info card — overlaps the map bottom edge */}
-        <ShopHeroCard shop={shop} onSchedulePress={handleSchedulePress} />
+        <ShopHeroCard shop={shop} />
 
         {/* Tab Navigation */}
         <MechanicDetailTabs activeTab={activeTab} onTabChange={handleTabChange} />
@@ -323,8 +271,8 @@ export default function ShopDetailScreen() {
         </Pressable>
       </View>
 
-      {/* Modal-based components - work reliably from any component hierarchy */}
-      <AddServicesModal visible={showAddServicesModal} onClose={handleCloseAddServicesModal} />
+      {/* Booking flow modal — services → mechanic → time slot. Mounted
+          once; opens from the sticky Book a Service CTA. */}
       <ShopBookingModal
         visible={showBookingModal}
         shopId={shop.id}

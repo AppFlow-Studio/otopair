@@ -832,6 +832,34 @@ export default function CarsHomeScreen() {
     return match?.buffer ?? 0;
   }, [hpForUser, activeVehicle?.vin]);
 
+  // Completed bookings for the active vehicle — feeds the Vehicle
+  // Health sheet's "What's helping" list so the per-booking entries
+  // replace the abstract per-item "On-time: X" entries.
+  const allUserBookings = useQuery(
+    api.bookings.getByUserIdWithDetails,
+    userId ? { userId } : "skip",
+  );
+  const completedBookingsForVehicle = useMemo(() => {
+    if (!allUserBookings || !activeVehicle?.vin) return [];
+    const activeVin = activeVehicle.vin.toUpperCase().trim();
+    return (allUserBookings as any[])
+      .filter(
+        (r) =>
+          r.status === "completed" &&
+          String(r.vin ?? "").toUpperCase().trim() === activeVin,
+      )
+      .map((r) => ({
+        id: String(r._id),
+        services: (r.serviceNames as string[] | undefined) ?? [],
+        completedAt:
+          (r.completed_at_ms as number | undefined) ??
+          (r.completed_at as number | undefined) ??
+          (r._creationTime as number | undefined) ??
+          null,
+        shopName: (r.shopName as string | undefined) ?? "",
+      }));
+  }, [allUserBookings, activeVehicle?.vin]);
+
   // Unified vehicle health score — graduated maintenance statuses
   // and warning-light penalty.
   const healthScoreInput: HealthScoreInput = useMemo(() => ({
@@ -1243,6 +1271,7 @@ export default function CarsHomeScreen() {
             onResumeCheckin={openEstimatedHealthSheet}
             knownIssues={activeOwnershipKnownIssues}
             hpBuffer={activeVehicleHpBuffer}
+            completedBookings={completedBookingsForVehicle}
           />
         </View>
 
